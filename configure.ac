@@ -138,6 +138,9 @@ else
     AC_MSG_ERROR([Could not find usable ROSS installation, try --with-ross=DIR])
 fi
 
+# put include files in a codes/ subdir 
+includedir="${includedir}/codes"
+
 #
 # To reactivate rewriting of the codesparser.y file,
 # uncomment next line.

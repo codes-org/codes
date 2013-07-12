@@ -36,6 +36,18 @@ src/iokernellang/codesparser.c src/iokernellang/codesparser.h: src/iokernellang/
 
 EXTRA_DIST += src/iokernellang/codesparser.y
 
+include_HEADERS = \
+    src/iokernellang/CodesKernelHelpers.h \
+    src/iokernellang/CodesIOKernelContext.h \
+    src/iokernellang/CodesIOKernelParser.h \
+    src/iokernellang/CodesIOKernelTypes.h \
+    src/iokernellang/codeslexer.h \
+    src/modelconfig/txt_configfile.h \
+    src/util/tools.h \
+    src/logging/codeslogging.h \
+    src/logging/timeline.h \
+    src/iokernellang/codesparser.h 
+
 src_libcodes_base_a_SOURCES =  \
     src/iokernellang/codesparser.h \
     src/iokernellang/codesparser.c \
