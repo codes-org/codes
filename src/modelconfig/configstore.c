@@ -1,9 +1,14 @@
 #include <string.h>
 #include <assert.h>
+
+#include "codes_base_config.h"
+#include "configstore.h"
 #ifdef HAVE_MALLOC_H
 #include <malloc.h>
 #endif
-#include "configstore.h"
+#ifdef HAVE_STDLIB_H
+#include <stdlib.h>
+#endif
 
 
 struct  mcs_entry

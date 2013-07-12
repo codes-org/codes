@@ -1,6 +1,8 @@
 #ifndef SRC_COMMON_MODELCONFIG_CONFIGFILE_H
 #define SRC_COMMON_MODELCONFIG_CONFIGFILE_H
 
+#include "codes_base_config.h"
+
 #ifdef HAVE_MALLOC_H
 #include <malloc.h>
 #endif
