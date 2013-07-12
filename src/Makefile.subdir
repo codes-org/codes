@@ -1,6 +1,5 @@
-lib_LIBRARIES += src/libcodesmodelconfig.a \
-                 src/libcodesutil.a \
-                 src/libcodeslogging.a
+lib_LIBRARIES += src/libcodes-base.a 
+
 BUILT_SOURCES += src/modelconfig/configparser.h \
                  src/modelconfig/configlex.h
 
@@ -27,8 +26,6 @@ maintainer-clean-local::
 src/modelconfig/configparser.h: src/modelconfig/configparser.y
 src/modelconfig/configlex.h: src/modelconfig/configlex.l
 
-lib_LIBRARIES += src/libcodeskernellang.a
-
 BUILT_SOURCES += src/iokernellang/codesparser.h \
 		 src/iokernellang/codesparser.c \
                  src/iokernellang/codeslexer.h
@@ -39,44 +36,41 @@ src/iokernellang/codesparser.c src/iokernellang/codesparser.h: src/iokernellang/
 
 EXTRA_DIST += src/iokernellang/codesparser.y
 
-src_libcodeskernellang_a_SOURCES = src/iokernellang/codesparser.h \
-                                          src/iokernellang/codesparser.c \
-                                          src/iokernellang/codeslexer.h \
-                                          src/iokernellang/codeslexer.c \
-                                          src/iokernellang/codesImpl.c \
-                                          src/iokernellang/CodesIOKernelContext.h \
-                                          src/iokernellang/CodesIOKernelParser.h \
-                                          src/iokernellang/CodesIOKernelTypes.h \
-                                          src/iokernellang/CodesKernelHelpers.h \
-                                          src/iokernellang/CodesKernelHelpers.c
-
-src_libcodesmodelconfig_a_SOURCES = \
-                                           src/modelconfig/configlex.c \
-                                           src/modelconfig/configlex.h \
-                                           src/modelconfig/configparser.c \
-                                           src/modelconfig/configparser.h \
-                                           src/modelconfig/configfile.c \
-                                           src/modelconfig/configfile.h \
-                                           src/modelconfig/configglue.h \
-                                           src/modelconfig/configglue.c \
-                                           src/modelconfig/configfile.h \
-                                           src/modelconfig/configstore.h \
-                                           src/modelconfig/configstore.c \
-                                           src/modelconfig/configstoreadapter.h \
-                                           src/modelconfig/configstoreadapter.c \
-                                           src/modelconfig/txt_configfile.c \
-                                           src/modelconfig/txt_configfile.h
-
-src_libcodesutil_a_SOURCES = src/util/tools.h \
-                                    src/util/tools.c \
-                                    src/util/interval-merge-tree.h \
-                                    src/util/interval-merge-tree.c \
-                                    src/util/red-black-tree.h \
-                                    src/util/red-black-tree.c \
-                                    src/util/codes-callbacks.h \
-                                    src/util/codes-callbacks.c
-
-src_libcodeslogging_a_SOURCES = src/logging/codeslogging.h \
-                                       src/logging/codeslogging.c \
-                                       src/logging/timeline.h \
-                                       src/logging/timeline.c
+src_libcodes_base_a_SOURCES =  \
+    src/iokernellang/codesparser.h \
+    src/iokernellang/codesparser.c \
+    src/iokernellang/codeslexer.h \
+    src/iokernellang/codeslexer.c \
+    src/iokernellang/codesImpl.c \
+    src/iokernellang/CodesIOKernelContext.h \
+    src/iokernellang/CodesIOKernelParser.h \
+    src/iokernellang/CodesIOKernelTypes.h \
+    src/iokernellang/CodesKernelHelpers.h \
+    src/iokernellang/CodesKernelHelpers.c \
+    src/modelconfig/configlex.c \
+    src/modelconfig/configlex.h \
+    src/modelconfig/configparser.c \
+    src/modelconfig/configparser.h \
+    src/modelconfig/configfile.c \
+    src/modelconfig/configfile.h \
+    src/modelconfig/configglue.h \
+    src/modelconfig/configglue.c \
+    src/modelconfig/configfile.h \
+    src/modelconfig/configstore.h \
+    src/modelconfig/configstore.c \
+    src/modelconfig/configstoreadapter.h \
+    src/modelconfig/configstoreadapter.c \
+    src/modelconfig/txt_configfile.c \
+    src/modelconfig/txt_configfile.h \
+    src/util/tools.h \
+    src/util/tools.c \
+    src/util/interval-merge-tree.h \
+    src/util/interval-merge-tree.c \
+    src/util/red-black-tree.h \
+    src/util/red-black-tree.c \
+    src/util/codes-callbacks.h \
+    src/util/codes-callbacks.c \
+    src/logging/codeslogging.h \
+    src/logging/codeslogging.c \
+    src/logging/timeline.h \
+    src/logging/timeline.c
