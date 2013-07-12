@@ -15,6 +15,10 @@ EXTRA_DIST =
 BUILT_SOURCES =
 src_models_CESOURCES =
 
+# pkgconfig files
+pkgconfigdir = $(libdir)/pkgconfig
+pkgconfig_DATA = maint/codes-base.pc
+$(pkgconfig_DATA): config.status
 
 EXTRA_DIST += prepare.sh
 
@@ -29,3 +33,4 @@ AM_CXXFLAGS = $(AM_CFLAGS)
 include Make.rules
 
 include $(top_srcdir)/src/Makefile.subdir
+
