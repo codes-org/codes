@@ -104,5 +104,5 @@ dnl AC_CONFIG_FILES([src/iokernellang/codesparser.y])
 
 AC_CONFIG_FILES([Makefile])
 
-AC_OUTPUT
+AC_OUTPUT([maint/codes-base.pc])
 

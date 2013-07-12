@@ -1,0 +1,15 @@
+prefix = @prefix@
+exec_prefix = @exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+ross_cflags=@ROSS_CFLAGS@
+ross_ldflags=@ROSS_LDFLAGS@
+ross_libs=@ROSS_LIBS@
+
+Name: codes-base
+Description: Base functionality for CODES storage simulation
+Version: @CODES_BASE_VERSION@
+URL: http://trac.mcs.anl.gov/projects/CODES
+Requires:
+Libs: -L${libdir} ${ross_ldflags} ${ross_libs} -lcodes-base 
+Cflags: -I${includedir} ${ross_cflags}
