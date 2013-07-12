@@ -65,24 +65,10 @@ AC_TRY_COMPILE([#include <mpi.h>], [int ret = MPI_Init(0, (void*)0)],
     AC_MSG_ERROR(CC doesn't appear to be a valid MPI compiler.  See INSTALL document or try adding CC=mpicc to your configure command line.)
 )
 
-#
-# clear ROSS options
-#
-ROSS_CFLAGS=""
-ROSS_CPPFLAGS=""
-ROSS_LDFLAGS=""
-ROSS_LIBS=""
-ENABLE_ROSS=0
+# get ROSS flags
 AC_ARG_WITH([ross],[AS_HELP_STRING([--with-ross@<:@=DIR@:>@],
                         [location of ROSS installation])])
-#
-# if we have ROSS, add ROSS flags
-#
 if test "x${with_ross}" != "x" ; then
-    ORIG_LDFLAGS="${LDFLAGS}"
-    ORIG_CPPFLAGS="${CPPFLAGS}"
-    ORIG_LIBS="${LIBS}"
-    ORIG_CFLAGS="${CFLAGS}"
 
     checkpath="${with_ross}/bin"
     ROSS_CONFIG=""
@@ -90,51 +76,16 @@ if test "x${with_ross}" != "x" ; then
     if test "${ROSS_CONFIG}" = "NOT_FOUND" ; then 
         AC_MSG_ERROR(ROSS not found at: $with_ross)
     fi
-
-    if test "${ROSS_CONFIG}x" != "x" ; then
     
-        LDFLAGS=`${with_ross}/bin/ross-config --ldflags`
-        CFLAGS=`${with_ross}/bin/ross-config --cflags`
-        CPPFLAGS=`${with_ross}/bin/ross-config --cflags`
-        LIBS=`${with_ross}/bin/ross-config --libs`
-
-        ENABLE_ROSS=1
-        AC_CHECK_LIB([ROSS],[tw_init],,[ENABLE_ROSS=;])
-        if test -z "$ENABLE_ROSS" ; then
-            ENABLE_ROSS=0
-            AC_MSG_ERROR([Could not find usable ROSS library])
-        fi
-
-        ENABLE_ROSS=1
-
-        #
-        # TODO this is weird... need to add -c back to CPPFLAGS or CHECK_HEADERS
-        # tries to compile an exe using a c file that includes ross.h and no
-        # main()
-        #
-        CPPFLAGS_2="${CPPFLAGS}"
-        CPPFLAGS="-c ${CPPFLAGS}"
-        AC_CHECK_HEADERS([ross.h], [], [ENABLE_ROSS=;])
-        if test -z "$ENABLE_ROSS" ; then
-            ENABLE_ROSS=0
-            AC_MSG_ERROR([Could not find usable ross.h])
-        else
-            CPPFLAGS="${CPPFLAGS_2}"
-            checkpath="$PATH"
-            AC_SUBST([ROSS_LDFLAGS],["${LDFLAGS}"])
-            AC_SUBST([ROSS_CFLAGS],["${CFLAGS}"])
-            AC_SUBST([ROSS_CPPFLAGS],["${CPPFLAGS}"])
-            AC_SUBST([ROSS_LIBS],["${LIBS}"])
-        fi
-        CFLAGS="${ORIG_CFLAGS}"
-        CPPFLAGS="${ORIG_CPPFLAGS}"
-        LDFLAGS="${ORIG_LDFLAGS}"
-        LIBS="${ORIG_LIBS}"
-
-        AC_DEFINE([HAVE_ROSS],[1],[If ROSS is supported on target build platform])
-    fi
+    ROSS_LDFLAGS=`${with_ross}/bin/ross-config --ldflags`
+    ROSS_CFLAGS=`${with_ross}/bin/ross-config --cflags`
+    ROSS_CPPFLAGS=`${with_ross}/bin/ross-config --cflags`
+    ROSS_LIBS=`${with_ross}/bin/ross-config --libs`
+    AC_SUBST(ROSS_LDFLAGS)
+    AC_SUBST(ROSS_CFLAGS)
+    AC_SUBST(ROSS_CPPFLAGS)
+    AC_SUBST(ROSS_LIBS)
 else
-    ENABLE_ROSS=0
     AC_MSG_ERROR([Could not find usable ROSS installation, try --with-ross=DIR])
 fi
 
