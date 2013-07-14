@@ -81,6 +81,7 @@ src_libcodes_base_a_SOURCES =  \
     src/modelconfig/configstoreadapter.h \
     src/modelconfig/configstoreadapter.c \
     codes/txt_configfile.h \
+    src/modelconfig/txt_configfile.c \
     codes/tools.h \
     src/util/tools.c \
     src/util/interval-merge-tree.h \
