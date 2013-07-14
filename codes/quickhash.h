@@ -10,7 +10,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
-#include "src/util/quicklist.h"
+#include "codes/quicklist.h"
 
 #define qhash_malloc(x)            malloc(x)
 #define qhash_free(x)              free(x)
