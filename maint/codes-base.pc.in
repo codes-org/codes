@@ -1,7 +1,7 @@
 prefix = @prefix@
 exec_prefix = @exec_prefix@
 libdir=@libdir@
-includedir=@includedir@/../
+includedir=@includedir@
 ross_cflags=@ROSS_CFLAGS@
 ross_ldflags=@ROSS_LDFLAGS@
 ross_libs=@ROSS_LIBS@
