@@ -17,6 +17,7 @@ maintainer-clean-local::
 	-rm -f src/iokernellang/codesparser.y
 	-rm -f src/iokernellang/codeslexer.c
 	-rm -f src/iokernellang/codeslexer.h
+	-rm -f codes/codeslexer.h
 	-rm -f src/modelconfig/configlex.h
 	-rm -f src/modelconfig/configlex.c
 	-rm -f src/modelconfig/configparser.h
@@ -28,11 +29,16 @@ src/modelconfig/configlex.h: src/modelconfig/configlex.l
 
 BUILT_SOURCES += src/iokernellang/codesparser.h \
 		 src/iokernellang/codesparser.c \
-                 src/iokernellang/codeslexer.h
+                 src/iokernellang/codeslexer.h \
+                 codes/codeslexer.h
 
 
 #src/iokernellang/codesparser.y: src/iokernellang/codesparser.y.in Makefile
 src/iokernellang/codesparser.c src/iokernellang/codesparser.h: src/iokernellang/codesparser.y
+
+codes/codeslexer.h: src/iokernellang/codeslexer.h
+	mkdir -p codes
+	cp src/iokernellang/codeslexer.h codes/codeslexer.h
 
 EXTRA_DIST += src/iokernellang/codesparser.y
 
