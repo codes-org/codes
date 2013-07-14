@@ -1,15 +1,9 @@
 #ifndef SRC_COMMON_MODELCONFIG_CONFIGFILE_H
 #define SRC_COMMON_MODELCONFIG_CONFIGFILE_H
 
-#include "codes_base_config.h"
-
-#ifdef HAVE_MALLOC_H
 #include <malloc.h>
-#endif
 #include <stddef.h>  /* size_t */
-#ifdef HAVE_STDLIB_H
 #include <stdlib.h>
-#endif
 
 #ifdef __cplusplus
 extern "C" {
