@@ -1,7 +1,7 @@
 #ifndef SRC_COMMON_MODELCONFIG_CONFIGSTOREADAPTER_H
 #define SRC_COMMON_MODELCONFIG_CONFIGSTOREADAPTER_H
 
-#include "configfile.h"
+#include "codes/configfile.h"
 #include "configstore.h"
 
 #ifdef __cplusplus

@@ -8,8 +8,8 @@
 #include <stdlib.h>
 #endif
 
-#include "configfile.h"
-#include "txt_configfile.h"
+#include "codes/configfile.h"
+#include "codes/txt_configfile.h"
 
 static int cf_equal_helper (ConfigHandle h1, SectionHandle s1, ConfigHandle h2, 
       SectionHandle s2)

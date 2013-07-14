@@ -17,7 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "timeline.h"
+#include "codes/timeline.h"
 
 // If timeline is not enabled, all functions are defined to noops
 #if TIMELINE_ENABLED == 1

@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "configglue.h"
-#include "util/tools.h"
+#include "codes/tools.h"
 
 int cfgp_lex_error (ParserParams * p, int lineno, int colno, const char * msg)
 {

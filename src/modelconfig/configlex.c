@@ -481,7 +481,7 @@ static yyconst flex_int16_t yy_chk[111] =
 #include <string.h>
 #include "configglue.h"
 #include "configparser.h"
-#include "util/tools.h"
+#include "codes/tools.h"
 
 #define YY_EXTRA_TYPE ParserParams * 
 

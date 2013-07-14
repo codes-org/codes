@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
-#include "txt_configfile.h"
-#include "util/tools.h"
+#include "codes/txt_configfile.h"
+#include "codes/tools.h"
 #include "configglue.h"
 #include "configparser.h"
 #include "configlex.h"

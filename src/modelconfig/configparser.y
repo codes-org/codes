@@ -46,9 +46,9 @@
 
 #include <assert.h>
 
-#include "configlex.h"
-#include "configglue.h"
-#include "util/tools.h"
+#include "src/modelconfig/configlex.h"
+#include "src/modelconfig/configglue.h"
+#include "codes/tools.h"
 
 #if defined __GNUC__
 #pragma GCC diagnostic ignored "-Wunused-parameter"

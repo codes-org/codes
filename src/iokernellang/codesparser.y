@@ -4,8 +4,8 @@
 #include <stdarg.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include "CodesIOKernelTypes.h"
-#include "CodesIOKernelContext.h"
+#include "codes/CodesIOKernelTypes.h"
+#include "codes/CodesIOKernelContext.h"
 
 /* prototypes */
 nodeType *opr(int64_t oper, int64_t nops, ...);
@@ -56,7 +56,7 @@ int * group_size = NULL;
 %type <nPtr> stmt expr stmt_list
 
 %{
-	#include "CodesIOKernelContext.h"
+	#include "codes/CodesIOKernelContext.h"
 
 	int CodesIOKernel_lex(YYSTYPE * lvalp, YYLTYPE * llocp, void * scanner);
 

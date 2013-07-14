@@ -1,8 +1,8 @@
 #ifndef CODESIOKERNELPARSER_H
 #define CODESIOKERNELPARSER_H
 
-#include "codesparser.h"
-#include "CodesIOKernelContext.h"
+#include "codes/codesparser.h"
+#include "codes/CodesIOKernelContext.h"
 
 YYLTYPE *CodesIOKernel_get_lloc  (yyscan_t yyscanner);
 int CodesIOKernel_lex_init (yyscan_t* scanner);

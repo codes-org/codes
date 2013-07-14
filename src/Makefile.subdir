@@ -7,8 +7,8 @@ EXTRA_DIST += src/iokernellang/codesparser.y.in \
               src/iokernellang/codeslexer.l \
               src/modelconfig/configparser.y \
               src/modelconfig/configlex.l \
-              src/util/quicklist.h \
-              src/util/quickhash.h
+              codes/quicklist.h \
+              codes/quickhash.h
 
 PHONY: maintainer-clean-local
 maintainer-clean-local::
@@ -36,45 +36,46 @@ src/iokernellang/codesparser.c src/iokernellang/codesparser.h: src/iokernellang/
 
 EXTRA_DIST += src/iokernellang/codesparser.y
 
-include_HEADERS = \
-    src/iokernellang/CodesKernelHelpers.h \
-    src/iokernellang/CodesIOKernelContext.h \
-    src/iokernellang/CodesIOKernelParser.h \
-    src/iokernellang/CodesIOKernelTypes.h \
-    src/iokernellang/codeslexer.h \
-    src/modelconfig/txt_configfile.h \
-    src/util/tools.h \
-    src/logging/codeslogging.h \
-    src/logging/timeline.h \
-    src/iokernellang/codesparser.h 
+nobase_include_HEADERS = \
+    codes/CodesKernelHelpers.h \
+    codes/CodesIOKernelContext.h \
+    codes/CodesIOKernelParser.h \
+    codes/CodesIOKernelTypes.h \
+    codes/codeslexer.h \
+    codes/txt_configfile.h \
+    codes/tools.h \
+    codes/codeslogging.h \
+    codes/timeline.h \
+    codes/codesparser.h \
+    codes/quickhash.h \
+    codes/configfile.h \
+    codes/quicklist.h
 
 src_libcodes_base_a_SOURCES =  \
-    src/iokernellang/codesparser.h \
+    codes/codesparser.h \
     src/iokernellang/codesparser.c \
-    src/iokernellang/codeslexer.h \
+    codes/codeslexer.h \
     src/iokernellang/codeslexer.c \
     src/iokernellang/codesImpl.c \
-    src/iokernellang/CodesIOKernelContext.h \
-    src/iokernellang/CodesIOKernelParser.h \
-    src/iokernellang/CodesIOKernelTypes.h \
-    src/iokernellang/CodesKernelHelpers.h \
+    codes/CodesIOKernelContext.h \
+    codes/CodesIOKernelParser.h \
+    codes/CodesIOKernelTypes.h \
+    codes/CodesKernelHelpers.h \
     src/iokernellang/CodesKernelHelpers.c \
     src/modelconfig/configlex.c \
     src/modelconfig/configlex.h \
     src/modelconfig/configparser.c \
     src/modelconfig/configparser.h \
     src/modelconfig/configfile.c \
-    src/modelconfig/configfile.h \
     src/modelconfig/configglue.h \
     src/modelconfig/configglue.c \
-    src/modelconfig/configfile.h \
+    codes/configfile.h \
     src/modelconfig/configstore.h \
     src/modelconfig/configstore.c \
     src/modelconfig/configstoreadapter.h \
     src/modelconfig/configstoreadapter.c \
-    src/modelconfig/txt_configfile.c \
-    src/modelconfig/txt_configfile.h \
-    src/util/tools.h \
+    codes/txt_configfile.h \
+    codes/tools.h \
     src/util/tools.c \
     src/util/interval-merge-tree.h \
     src/util/interval-merge-tree.c \
@@ -82,7 +83,7 @@ src_libcodes_base_a_SOURCES =  \
     src/util/red-black-tree.c \
     src/util/codes-callbacks.h \
     src/util/codes-callbacks.c \
-    src/logging/codeslogging.h \
+    codes/codeslogging.h \
     src/logging/codeslogging.c \
-    src/logging/timeline.h \
+    codes/timeline.h \
     src/logging/timeline.c

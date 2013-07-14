@@ -1,7 +1,7 @@
 %{
 #include <stdlib.h>
-#include "CodesIOKernelTypes.h"
-#include "CodesIOKernelParser.h"
+#include "codes/CodesIOKernelTypes.h"
+#include "codes/CodesIOKernelParser.h"
 
 #define YY_NO_INPUT
 

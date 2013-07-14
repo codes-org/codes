@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "tools.h"
+#include "codes/tools.h"
 
 char * safe_strncpy(char * buf, const char * source, unsigned int size)
 {

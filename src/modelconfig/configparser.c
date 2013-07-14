@@ -176,7 +176,7 @@ typedef struct YYLTYPE
 
 #include "configlex.h"
 #include "configglue.h"
-#include "util/tools.h"
+#include "codes/tools.h"
 
 #if defined __GNUC__
 #pragma GCC diagnostic ignored "-Wunused-parameter"
