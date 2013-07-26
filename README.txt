@@ -8,6 +8,8 @@ machines.
     svn co https://subversion.cs.rpi.edu/svn/rossnet/trunk
     mkdir build
     cd build
+	 # note: other options for ARCH include i386 (for 32 bit machines),
+	 # bgp, and bgq (for Blue Gene systems)
     ARCH=x86_64 CC=mpicc CXX=mpicxx cmake -DCMAKE_INSTALL_PREFIX=../install ../trunk
     make -j 3
     make install
