@@ -48,3 +48,4 @@ Machine-specific configurations:
   +autoconf-2.68
   +git
   +cmake
+
