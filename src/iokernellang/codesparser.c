@@ -266,7 +266,7 @@ void yypstate_delete ();
 /* Line 343 of yacc.c  */
 #line 58 "src/iokernellang/codesparser.y"
 
-	#include "CodesIOKernelContext.h"
+	#include "codes/CodesIOKernelContext.h"
 
 	int CodesIOKernel_lex(YYSTYPE * lvalp, YYLTYPE * llocp, void * scanner);
 

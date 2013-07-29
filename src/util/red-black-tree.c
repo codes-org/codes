@@ -979,7 +979,7 @@ int red_black_tree_print(red_black_tree_node_t * node, int level, char dir)
     }
 
     /* print the node value */
-    fprintf(stderr, "level=%i, node=internal, color=%c, dir=%c, key=%lu, size=%i, max=%i, start=%lu, end=%lu\n",
+    fprintf(stderr, "level=%i, node=internal, color=%c, dir=%c, key=%zu, size=%i, max=%i, start=%zu, end=%zu\n",
         level, node->color, dir, *(size_t *)node->key.key, node->size, node->max, node->interval.start, node->interval.end);
 
     /* descend the right nodes */

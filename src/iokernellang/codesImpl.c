@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "codes/CodesIOKernelTypes.h"
@@ -49,7 +50,7 @@ int64_t ex(
                 }
                 case PRINT:
                 {
-                    printf("%ld\n", ex(p->opr.op[0]));
+                    printf("%"PRId64"\n", ex(p->opr.op[0]));
                     fflush(stdout);
                     return 0;
                 }

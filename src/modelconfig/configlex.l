@@ -190,7 +190,7 @@ BACKSLASH     "\\"
                 {
                      char buf[512];
                      snprintf (buf, sizeof(buf), "ID too long: Maximum ID"
-                        " length is %lu bytes!", sizeof(yylval->string_buf));
+                        " length is %zu bytes!", sizeof(yylval->string_buf));
                      return cfgp_lex_error (yyextra, 
                        yylloc->last_line, yylloc->last_column, buf);
                 }
