@@ -8,12 +8,12 @@
 #include <assert.h>
 #include <ross.h>
 
-#include "lp-io.h"
-#include "jenkins-hash.h"
+#include "codes/lp-io.h"
+#include "codes/jenkins-hash.h"
 #include "model-net-method.h"
-#include "model-net.h"
-#include "codes_mapping.h"
-#include "codes.h"
+#include "codes/model-net.h"
+#include "codes/codes_mapping.h"
+#include "codes/codes.h"
 
 #define CATEGORY_NAME_MAX 16
 #define CATEGORY_MAX 12

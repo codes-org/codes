@@ -8,7 +8,7 @@
 #define MODELNET_H
 
 #include "ross.h"
-#include "lp-type-lookup.h"
+#include "codes/lp-type-lookup.h"
 
 typedef struct simplenet_param simplenet_param;
 typedef struct dragonfly_param dragonfly_param;

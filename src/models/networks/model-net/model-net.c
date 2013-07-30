@@ -6,7 +6,7 @@
 #include <string.h>
 #include <assert.h>
 
-#include "model-net.h"
+#include "codes/model-net.h"
 #include "model-net-method.h"
 
 #define STR_SIZE 16
