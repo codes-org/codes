@@ -1,0 +1,11 @@
+
+check_PROGRAMS += tests/lp-io-test
+
+TESTS += tests/lp-io-test.sh
+EXTRA_DIST += tests/lp-io-test.sh
+
+testlib = src/libcodes-base.a
+
+tests_lp_io_test_LDADD = $(testlib) ${ROSS_LIBS}
+tests_lp_io_test_LDFLAGS = ${ROSS_LDFLAGS}
+tests_lp_io_test_SOURCES = tests/lp-io-test.c
