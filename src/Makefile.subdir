@@ -6,9 +6,7 @@ BUILT_SOURCES += src/modelconfig/configparser.h \
 EXTRA_DIST += src/iokernellang/codesparser.y.in \
               src/iokernellang/codeslexer.l \
               src/modelconfig/configparser.y \
-              src/modelconfig/configlex.l \
-              codes/quicklist.h \
-              codes/quickhash.h
+              src/modelconfig/configlex.l 
 
 PHONY: maintainer-clean-local
 maintainer-clean-local::
