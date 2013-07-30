@@ -1,0 +1,39 @@
+Design notes for model_net network abstraction.
+
+Overview:
+
+model_net is an abstraction layer that will allow models to send messages
+across components using different network transports.  This is a
+consistent API that can send messages across either torus, dragonfly, or
+simplenet network models without changing the higher level model code.
+
+model_net assumes that the caller already knows what LP it wants to
+deliver the message to and how large the simulated message is.
+
+Implementation note:
+
+The network abstraction works at the ROSS event level by managing three
+event structures internally:
+a) the internal event used by the network method for routing etc.
+b) the remote event to be delivered to a higher level model LP
+c) the local event to be delivered the caller once a message has been
+   transmitted from the node
+The model_net caller gets to specify b) and c).  a) is defined by the
+underlying network method being used to transmit the message.
+
+
+Components:
+
+model-net.h: API that higher level models (such as an MPI application
+model, a triton storage model, or a BG/P storage model) will use to send
+*messages* over the network to other model entities
+
+model-net.c: implements the model-net.h API.  It also packetizes messages
+for underlying network methods that operate in terms of packets.  This code
+is responsible for calling the correct underlying network model depending
+on configuration values.
+
+model-net-method.h: this is the API that underlying network methods will
+implement in order to interface with the model-net framework.
+
+

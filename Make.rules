@@ -1,0 +1,12 @@
+#
+# Output dist version
+#
+.phony: distversion
+distversion:
+	@echo $(VERSION)
+
+#
+# Easy way to build unit tests without running them
+# 
+.phony: tests
+tests: $(check_PROGRAMS)
