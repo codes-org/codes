@@ -55,7 +55,13 @@ nobase_include_HEADERS = \
     codes/codesparser.h \
     codes/quickhash.h \
     codes/configfile.h \
-    codes/quicklist.h
+    codes/quicklist.h \
+    codes/codes_mapping.h \
+    codes/lp-type-lookup.h \
+    codes/codes.h \
+    codes/configuration.h \
+    codes/dotconf.h \
+    codes/lp-io.h
 
 src_libcodes_base_a_SOURCES =  \
     codes/codesparser.h \
@@ -90,6 +96,11 @@ src_libcodes_base_a_SOURCES =  \
     src/util/red-black-tree.c \
     src/util/codes-callbacks.h \
     src/util/codes-callbacks.c \
+    src/util/codes_mapping.c \
+    src/util/lp-type-lookup.c \
+    src/util/configuration.c \
+    src/util/dotconf.c \
+    src/util/lp-io.c \
     codes/codeslogging.h \
     src/logging/codeslogging.c \
     codes/timeline.h \
