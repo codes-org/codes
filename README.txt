@@ -16,4 +16,9 @@
 3 - Build codes-net
 
     make clean && make
+    make install
+    make tests
 
+4 - (optional) run test programs
+
+    make check
