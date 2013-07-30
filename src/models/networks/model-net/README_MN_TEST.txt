@@ -1,4 +1,10 @@
-- The test.conf file has the mapping of model-net and server LPs (currently 16 server LPs and 16 modelnet LPs)
-- To run the program :
-    ./modelnettest --sync=1 test.conf
-    mpirun -np 4 ./modelnettest --sync=2 test.conf (The synchronization protocol is specified before the file name)
+Test programs can be run with the "make check" make target.  All programs
+will be executed in sequential mode.
+
+You can also run the test program manually in parallel (conservative or
+optimistic) mode as follows:
+
+mpiexec -n 4 tests/modelnet-test --sync=2 tests/modelnet-test.conf
+    <or>
+mpiexec -n 4 tests/modelnet-test --sync=3 tests/modelnet-test.conf
+
