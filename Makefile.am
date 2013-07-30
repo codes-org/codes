@@ -26,3 +26,4 @@ AM_CXXFLAGS = $(AM_CFLAGS)
 include Make.rules
 
 include $(top_srcdir)/src/models/Makefile.subdir
+include $(top_srcdir)/tests/Makefile.subdir

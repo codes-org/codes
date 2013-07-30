@@ -1,0 +1,11 @@
+
+check_PROGRAMS += tests/modelnet-test
+
+TESTS += tests/modelnet-test.sh
+EXTRA_DIST += tests/modelnet-test.sh
+
+testlib = src/libcodes-net.a
+
+tests_modelnet_test_LDADD = $(testlib) ${CODES_BASE_LIBS}
+tests_modelnet_test_CFLAGS = ${CODES_BASE_CFLAGS}
+tests_modelnet_test_SOURCES = tests/modelnet-test.c
