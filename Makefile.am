@@ -13,6 +13,11 @@ CLEANFILES = $(bin_SCRIPTS)
 EXTRA_DIST =
 BUILT_SOURCES =
 
+# pkgconfig files
+pkgconfigdir = $(libdir)/pkgconfig
+pkgconfig_DATA = maint/codes-net.pc
+$(pkgconfig_DATA): config.status
+
 EXTRA_DIST += prepare.sh
 
 AM_CPPFLAGS = -I$(top_srcdir)/src ${CODES_BASE_CFLAGS}

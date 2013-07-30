@@ -67,6 +67,4 @@ includedir="${includedir}/codes"
 
 AC_CONFIG_FILES([Makefile])
 AC_CONFIG_FILES([tests/modelnet-test.sh],[chmod +x tests/modelnet-test.sh])
-
-AC_OUTPUT
-
+AC_OUTPUT([maint/codes-net.pc])

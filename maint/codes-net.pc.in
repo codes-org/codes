@@ -1,0 +1,12 @@
+prefix = @prefix@
+exec_prefix = @exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+
+Name: codes-net
+Description: Network functionality for CODES storage simulation
+Version: @CODES_NET_VERSION@
+URL: http://trac.mcs.anl.gov/projects/CODES
+Requires:
+Libs: -L${libdir} -lcodes-net 
+Cflags: -I${includedir}
