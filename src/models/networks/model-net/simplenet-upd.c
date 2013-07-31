@@ -228,7 +228,7 @@ static void sn_event(
     sn_message * m,
     tw_lp * lp)
 {
-    //assert(m->magic == sn_magic);
+    assert(m->magic == sn_magic);
 
     switch (m->event_type)
     {
@@ -250,7 +250,7 @@ static void sn_rev_event(
     sn_message * m,
     tw_lp * lp)
 {
-    //assert(m->magic == sn_magic);
+    assert(m->magic == sn_magic);
 
     switch (m->event_type)
     {
