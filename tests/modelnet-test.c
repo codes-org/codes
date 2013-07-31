@@ -156,7 +156,7 @@ int main(
     {
 	    printf("\n Usage: mpirun <args> --sync=2/3 mapping_file_name.conf");
 	    MPI_Finalize();
-	    return;
+	    return 0;
     }
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
@@ -170,7 +170,9 @@ int main(
     model_net_add_lp_type(net_id);
     svr_add_lp_type();
 
-     codes_mapping_setup(argv[2]);
+     configuration_load(argv[2], MPI_COMM_WORLD, &config);
+
+     codes_mapping_setup();
      g_tw_mapping=CUSTOM;
      g_tw_custom_initial_mapping=&codes_mapping_init;
      g_tw_custom_lp_global_to_local_map=&codes_mapping_to_lp;

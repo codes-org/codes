@@ -165,7 +165,7 @@ void model_net_add_lp_type(int net_id)
        lp_type_register("modelnet_simplenet", model_net_get_lp_type(net_id));
    break;
 
-   DEFAULT:
+   default:
     {
         printf("\n Invalid net_id specified ");
 	exit(-1);
