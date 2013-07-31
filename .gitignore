@@ -1,0 +1,34 @@
+# automake artifacts
+/Makefile.in
+/aclocal.m4
+/autom4te.cache/
+/codes_net_config.h.in
+/compile
+/config.guess
+/config.sub
+/configure
+/depcomp
+/install-sh
+/missing
+
+# configure artifacts
+/config.log
+/config.status
+/Makefile
+/stamp-h1
+/codes_net_config.h
+/maint/codes-net.pc
+.deps
+
+# make generated artifacts
+.dirstamp
+*.o
+*.a
+/tests/modelnet-test
+/tests/modelnet-test.sh
+
+# hide backups
+*~
+
+# generated files from test runs
+ross.csv
