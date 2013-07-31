@@ -34,5 +34,8 @@
 /codes/codeslexer.h
 /tests/lp-io-test
 
+# hide backups
+*~
+
 # generated files from test runs
 ross.csv
