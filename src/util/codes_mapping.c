@@ -9,6 +9,14 @@
  */
 #include "codes/codes_mapping.h"
 
+/* number of LPs assigned to the current PE (abstraction of MPI rank) */
+static int lps_for_this_pe = 0;
+
+/* char arrays for holding lp type name and group name*/
+char local_grp_name[MAX_NAME_LENGTH], local_lp_name[MAX_NAME_LENGTH];
+
+config_lpgroups_t lpconf;
+
 int codes_mapping_get_lps_for_pe()
 {
   return lps_for_this_pe;
@@ -21,21 +29,20 @@ tw_peid codes_mapping( tw_lpid gid)
 }
 
 /* This function loads the configuration file and sets up the number of LPs on each PE */
-void codes_mapping_setup(char* filepath)
+void codes_mapping_setup()
 {
-  /* TODO: Add full file path? This one only runs from current directory */
-  configuration_load(filepath, &config);
-  configuration_dump(&config);
   int grp, lpt;
   int pes = tw_nnodes();
 
-  for (grp = 0; grp < config.lpgroups_count; grp++)
+  configuration_get_lpgroups(&config, "LPGROUPS", &lpconf);
+
+  for (grp = 0; grp < lpconf.lpgroups_count; grp++)
    {
-    for (lpt = 0; lpt < config.lpgroups[grp].lptypes_count; lpt++)
-	lps_for_this_pe += (config.lpgroups[grp].lptypes[lpt].count * config.lpgroups[grp].repetitions);
+    for (lpt = 0; lpt < lpconf.lpgroups[grp].lptypes_count; lpt++)
+	lps_for_this_pe += (lpconf.lpgroups[grp].lptypes[lpt].count * lpconf.lpgroups[grp].repetitions);
    }
   lps_for_this_pe /= pes;
- //printf("\n LPs for this PE are %d reps %d ", lps_for_this_pe,  config.lpgroups[grp].repetitions);
+ //printf("\n LPs for this PE are %d reps %d ", lps_for_this_pe,  lpconf.lpgroups[grp].repetitions);
 }
 
 /* This function takes the group ID , type ID and rep ID then returns the global LP ID */
@@ -46,32 +53,32 @@ void codes_mapping_get_lp_id(char* grp_name, char* lp_type_name, int rep_id, int
  short found = 0;
 
  // Account for all lps in the previous groups 
- for(grp = 0; grp < config.lpgroups_count; grp++)
+ for(grp = 0; grp < lpconf.lpgroups_count; grp++)
   {
-    lp_types_count = config.lpgroups[grp].lptypes_count;
-    rep = config.lpgroups[grp].repetitions;
+    lp_types_count = lpconf.lpgroups[grp].lptypes_count;
+    rep = lpconf.lpgroups[grp].repetitions;
 
-    if(strcmp(config.lpgroups[grp].name, grp_name) == 0)
+    if(strcmp(lpconf.lpgroups[grp].name, grp_name) == 0)
     {
 	    found = 1;
 	    break;
     }
     
     for(lpt = 0; lpt < lp_types_count; lpt++)
-      lpcount += (rep * config.lpgroups[grp].lptypes[lpt].count);
+      lpcount += (rep * lpconf.lpgroups[grp].lptypes[lpt].count);
   }
 
  assert(found);
  found = 0;
 
- lp_types_count = config.lpgroups[grp].lptypes_count;
+ lp_types_count = lpconf.lpgroups[grp].lptypes_count;
  
  // Account for the previous lp types in the current repetition
  for(lpt = 0; lpt < lp_types_count; lpt++)
  {
-   count_for_this_lpt = config.lpgroups[grp].lptypes[lpt].count;
+   count_for_this_lpt = lpconf.lpgroups[grp].lptypes[lpt].count;
 
-   if(strcmp(config.lpgroups[grp].lptypes[lpt].name, lp_type_name) == 0)
+   if(strcmp(lpconf.lpgroups[grp].lptypes[lpt].name, lp_type_name) == 0)
    {
      found = 1;
      break;
@@ -85,7 +92,7 @@ void codes_mapping_get_lp_id(char* grp_name, char* lp_type_name, int rep_id, int
  for(rep = 0; rep < rep_id; rep++)
  {
     for(lpt = 0; lpt < lp_types_count; lpt++)
-      lpcount += config.lpgroups[grp].lptypes[lpt].count;
+      lpcount += lpconf.lpgroups[grp].lptypes[lpt].count;
  }
    *gid = lpcount + offset;
 }
@@ -99,16 +106,16 @@ void codes_mapping_get_lp_info(tw_lpid gid, char* grp_name, int* grp_id, int* lp
   short found = 0;
  
   /* Find the group id first */ 
-  for(grp = 0; grp < config.lpgroups_count; grp++)
+  for(grp = 0; grp < lpconf.lpgroups_count; grp++)
   {
     grp_offset = 0;
     rep_offset = 0;
-    rep = config.lpgroups[grp].repetitions;
-    lp_types_count = config.lpgroups[grp].lptypes_count;
+    rep = lpconf.lpgroups[grp].repetitions;
+    lp_types_count = lpconf.lpgroups[grp].lptypes_count;
 
     for(lpt = 0; lpt < lp_types_count; lpt++)
     {
-	lp_count = config.lpgroups[grp].lptypes[lpt].count;
+	lp_count = lpconf.lpgroups[grp].lptypes[lpt].count;
 	grp_offset += (rep * lp_count);
 	rep_offset += lp_count;
     }
@@ -117,7 +124,7 @@ void codes_mapping_get_lp_info(tw_lpid gid, char* grp_name, int* grp_id, int* lp
     if(gid >= grp_lp_count && gid < grp_lp_count + grp_offset)
     {
 	*grp_id = grp;
-	 strcpy(local_grp_name, config.lpgroups[grp].name);
+	 strcpy(local_grp_name, lpconf.lpgroups[grp].name);
 	 lp_offset = gid - grp_lp_count; /* gets the lp offset starting from the point where the group begins */
          *grp_rep_id = lp_offset / rep_offset;
           lp_tmp_id = lp_offset - (*grp_rep_id * rep_offset);
@@ -133,11 +140,11 @@ void codes_mapping_get_lp_info(tw_lpid gid, char* grp_name, int* grp_id, int* lp
  /* Now we compute the LP type ID here based on the lp offset that we just got */ 
   for(lpt = 0; lpt < lp_types_count; lpt++)
   {
-     lp_count = config.lpgroups[grp].lptypes[lpt].count;
+     lp_count = lpconf.lpgroups[grp].lptypes[lpt].count;
      if(lp_tmp_id >= lp_offset && lp_tmp_id < lp_offset + lp_count)
      {
 	     *lp_type_id = lpt;
-	      strcpy(local_lp_name, config.lpgroups[grp].lptypes[lpt].name);
+	      strcpy(local_lp_name, lpconf.lpgroups[grp].lptypes[lpt].name);
 	      *offset = lp_tmp_id - lp_offset;
 	      found = 1;
      	      break;

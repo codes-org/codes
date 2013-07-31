@@ -12,15 +12,6 @@
 #include "lp-type-lookup.h"
 #define MAX_NAME_LENGTH 256
 
-/* number of LPs assigned to the current PE (abstraction of MPI rank) */
-static int lps_for_this_pe = 0;
-
-/* data structure to hold configuration */
-configuration_t config;
-
-/* char arrays for holding lp type name and group name*/
-char local_grp_name[MAX_NAME_LENGTH], local_lp_name[MAX_NAME_LENGTH];
-
 /* Returns number of LPs on the current PE */
 int codes_mapping_get_lps_for_pe(void);
 
@@ -28,7 +19,7 @@ int codes_mapping_get_lps_for_pe(void);
 tw_peid codes_mapping( tw_lpid gid);
 
 /* loads the configuration file and sets up the number of LPs on each PE. */
-void codes_mapping_setup(char* filepath);
+void codes_mapping_setup(void);
 
 /* Takes the group name , type name, rep ID and offset (for that lp type + repetition) and then returns the global LP ID. */
 void codes_mapping_get_lp_id(char* grp_name, char* lp_type_name, int rep_id, int offset, tw_lpid* gid);
