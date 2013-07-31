@@ -146,6 +146,7 @@ int main(
     int rank;
     int ret;
     lp_io_handle handle;
+    int message_size=0;
     //printf("\n Config count %d ",(int) config.lpgroups_count);
     g_tw_ts_end = s_to_ns(60*60*24*365); /* one year, in nsecs */
 
@@ -161,24 +162,26 @@ int main(
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
   
-    simplenet_param net_params;
-    net_params.net_startup_ns = 1.5;
-    net_params.net_bw_mbps = 20000;
-    net_params.num_nics = NUM_SERVERS;
-
-    net_id = model_net_setup("simplenet", 512, (const void*)&net_params); /* Sets the network as simplenet and packet size 512 */
+    configuration_load(argv[2], MPI_COMM_WORLD, &config);
+    net_id=model_net_set_params();
+    configuration_get_value_int(&config, "PARAMS", "message_size", &message_size);
+    
     model_net_add_lp_type(net_id);
     svr_add_lp_type();
+    
+    codes_mapping_setup();
+    
+    g_tw_mapping=CUSTOM;
+    g_tw_custom_initial_mapping=&codes_mapping_init;
+    g_tw_custom_lp_global_to_local_map=&codes_mapping_to_lp;
 
-     configuration_load(argv[2], MPI_COMM_WORLD, &config);
-
-     codes_mapping_setup();
-     g_tw_mapping=CUSTOM;
-     g_tw_custom_initial_mapping=&codes_mapping_init;
-     g_tw_custom_lp_global_to_local_map=&codes_mapping_to_lp;
-
+    if(!message_size)
+    {
+	    message_size = 256;
+	    printf("\n Warning: ross message size not defined, resetting it to %d", message_size);
+    }
      //printf("\n Initializing %d lps on %d ", get_lps_for_pe(), g_tw_mynode);
-     tw_define_lps(codes_mapping_get_lps_for_pe(), 2* sizeof(struct svr_msg) +model_net_get_msg_sz(0) , 0 );
+    tw_define_lps(codes_mapping_get_lps_for_pe(), message_size, 0 );
     /* NOTE: the message size defined here has to be able to handle two
      * svr_msg structs and a simplenet message joined together.  This allows
      * the model to send a single simplenet even that will handle a)

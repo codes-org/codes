@@ -9,6 +9,9 @@
 
 #include "ross.h"
 #include "codes/lp-type-lookup.h"
+#include "codes/configuration.h"
+
+#define MAX_NAME_LENGTH 256
 
 typedef struct simplenet_param simplenet_param;
 typedef struct dragonfly_param dragonfly_param;
@@ -49,34 +52,16 @@ struct torus_param
  * In general we need to figure out how to pass configuration information to
  * the methods and we need to be able to calculate ross event message size.
  */
-
-#if 0
-/* returns a pointer to the lptype struct to use for simplenet LPs */
-const tw_lptype* sn_get_lp_type(void);
-
-/* set model parameters:
- *
- * - net_startup_ns: network startup cost in ns.
- * - net_bs_mbs: network bandwidth in MiB/s (megabytes per second).
- */
-void sn_set_params(double net_startup_ns, double net_bw_mbs);
-
-/* retrieve the size of the portion of the event struct that is consumed by
- * the simplenet module.  The caller should add this value to the size of
- * its own event structure to get the maximum total size of a message.
- */
-int sn_get_msg_sz(void);
-
-/* retrieve the minimum timestamp offset that simplenet will use */
-tw_stime sn_get_min_ts(void);
-
-#endif
 /*Initialize the network by specifying the network parameters. The 
  * underlying model-net.c function call will set the network parameters 
  * according to the network name specified*/
 // return an integer being the identifier for the type of network
 // call modelnet setup 1 time for a torus and retur value is 0 for e.g.
-// call modelnet setup second time for a simplenet
+
+/* call set params for configuring the network parameters from the config file*/
+int model_net_set_params();
+
+// setup the modelnet parameters
 int model_net_setup(char* net_name, int packet_size, const void* net_params);
 /* allocate and transmit a new event that will pass through model_net to 
  * arrive at its destination:

@@ -91,7 +91,45 @@ void model_net_event(
     return;
 }
 
+int model_net_set_params()
+{
+  char mn_name[MAX_NAME_LENGTH];
+  int packet_size = 0;
+  int net_id;
 
+  config_lpgroups_t paramconf;
+  configuration_get_lpgroups(&config, "PARAMS", &paramconf);
+  configuration_get_value(&config, "PARAMS", "modelnet", mn_name, MAX_NAME_LENGTH);
+  configuration_get_value_int(&config, "PARAMS", "packet_size", &packet_size);
+
+  if(!packet_size)
+  {
+	packet_size = 512;
+	printf("\n Warning, no packet size specified, setting packet size to %d ", packet_size);
+  }
+  if(strcmp("simplenet",mn_name)==0)
+   {
+     double net_startup_ns, net_bw_mbps;
+     simplenet_param net_params;
+     
+     configuration_get_value_double(&config, "PARAMS", "net_startup_ns", &net_startup_ns);
+     configuration_get_value_double(&config, "PARAMS", "net_bw_mbps", &net_bw_mbps);
+     net_params.net_startup_ns = 1.5;
+     net_params.net_bw_mbps = 20000;
+     net_id = model_net_setup("simplenet", packet_size, (const void*)&net_params); /* Sets the network as simplenet and packet size 512 */
+   }
+  else if(strcmp("dragonfly", mn_name)==0)	  
+    {
+       printf("\n dragonfly not supported yet ");
+    }
+   else if(strcmp("torus", mn_name)==0)
+     {
+	printf("\n not supported yet ");
+     }
+  else
+       printf("\n Invalid network argument %s ", mn_name);
+  return net_id;
+}
 void model_net_event_rc(
     int net_id,
     tw_lp *sender,
