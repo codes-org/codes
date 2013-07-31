@@ -58,7 +58,6 @@ nobase_include_HEADERS = \
     codes/lp-type-lookup.h \
     codes/codes.h \
     codes/configuration.h \
-    codes/dotconf.h \
     codes/lp-io.h \
     codes/jenkins-hash.h
 
@@ -98,7 +97,6 @@ src_libcodes_base_a_SOURCES =  \
     src/util/codes_mapping.c \
     src/util/lp-type-lookup.c \
     src/util/configuration.c \
-    src/util/dotconf.c \
     src/util/lp-io.c \
     src/util/lookup3.c \
     codes/codeslogging.h \
