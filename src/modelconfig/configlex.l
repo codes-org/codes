@@ -82,6 +82,7 @@ BACKSLASH     "\\"
                   }
 
 "//"                 { LOC_COL_ADV(1); yy_push_state(COMMENT, yyscanner); }
+"#"                  { LOC_COL_ADV(1); yy_push_state(COMMENT, yyscanner); }
 
 <COMMENT>\n          { LOC_LINE_ADV(1); yy_pop_state( yyscanner ); }
 <COMMENT>[^\n]+      { LOC_COL_DEF_ADV; }
@@ -190,7 +191,7 @@ BACKSLASH     "\\"
                 {
                      char buf[512];
                      snprintf (buf, sizeof(buf), "ID too long: Maximum ID"
-                        " length is %zu bytes!", sizeof(yylval->string_buf));
+                        " length is %lu bytes!", sizeof(yylval->string_buf));
                      return cfgp_lex_error (yyextra, 
                        yylloc->last_line, yylloc->last_column, buf);
                 }
