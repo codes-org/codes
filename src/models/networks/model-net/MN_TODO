@@ -1,0 +1,5 @@
+1- Torus model integration, possible additions:
+- Allow some compute nodes to be idle (not mapped to a server) i.e. we can specify any number of server and torus nodes that we want in the config file. 
+The torus configuration parameters should set an upper bound on the number of servers/compute nodes.
+- Change the buffer overflow message? May be allow a slowed down packet injection rate if the buffer overflows and report the average injection rate at the
+end of the simulation.
