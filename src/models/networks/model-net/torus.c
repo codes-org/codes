@@ -1,6 +1,6 @@
 #include "codes/torus.h"
 
-/* setup the torus model */
+/* setup the torus model, initialize global parameters */
 static void torus_setup(const void* net_params)
 {
     int i;
@@ -25,7 +25,7 @@ static void torus_packet_event_rc(tw_lp *sender)
   return;
 }
 
-/* torus mode packet event */
+/* torus packet event , generates a torus packet on the compute node */
 static void torus_packet_event(char* category, tw_lpid final_dest_lp, int packet_size, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lp *sender, int is_last_pckt)
 {
     tw_event * e_new;
@@ -170,6 +170,7 @@ static void torus_init( nodes_state * s,
     s->packet_counter = 0;
 }
 
+/* returns the torus message size */
 static int torus_get_msg_sz(void)
 {
    return sizeof(nodes_message);
@@ -229,8 +230,12 @@ static void dimension_order_routing( nodes_state * s,
     }
   codes_mapping_get_lp_id("MODELNET_GRP", "modelnet_torus", dest_id, 0, dst_lp);
 }
-/*Generates a packet. If there are two buffer slots available, then the packet is 
-injected in the network. Else, the packet is placed in the injection queue */
+
+/*Generates a packet. If there is a buffer slot available, then the packet is 
+injected in the network. Else, a buffer overflow exception is thrown.
+TODO: We might want to modify this so that if the buffer is full, the packet
+injection is delayed in turn slowing down the injection rate. The average achieved
+injection rate can be reported at the end of the simulation. */
 static void packet_generate( nodes_state * s, 
 		tw_bf * bf, 
 		nodes_message * msg, 
@@ -287,6 +292,8 @@ static void packet_generate( nodes_state * s,
       else 
        {
    printf("\n %d Packet queued in line increase buffer space, dir %d dim %d buffer space %d dest LP %d ", (int)lp->gid, tmp_dir, tmp_dim, s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ], (int)msg->dest_lp);
+       MPI_Finalize();
+       exit(-1); 
        }
    }
 }
@@ -387,10 +394,16 @@ static void packet_send( nodes_state * s,
      }
   } // end if
     else
+    {
 	    printf("\n buffer overflown ");
+	    MPI_Finalize();
+	    exit(-1);
+    }
 }
 
-/*Processes the packet after it arrives from the neighboring torus node */
+/*Processes the packet after it arrives from the neighboring torus node 
+ * routes it to the next compute node if this is not the destination
+ * OR if this is the destination then a remote event at the server is issued. */
 static void packet_arrive( nodes_state * s, 
 		    tw_bf * bf, 
 		    nodes_message * msg, 
@@ -456,10 +469,13 @@ final( nodes_state * s, tw_lp * lp )
   free(s->buffer); 
 }
 
+/* increments the buffer count after a credit arrives from the remote compute node */
 static void packet_buffer_process( nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp )
 {
    s->buffer[ msg->source_direction + ( msg->source_dim * 2 ) ][  0 ]--;
 }
+
+/* reverse handler */
 static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 {
   switch(msg->type)
@@ -516,6 +532,7 @@ static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw
      }
 }
 
+/* forward event handler */
 static void event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 {
  *(int *) bf = (int) 0;
@@ -549,6 +566,7 @@ tw_lptype torus_lp =
   sizeof(nodes_state),
 };
 
+/* returns the torus lp type for lp registration */
 static const tw_lptype* torus_get_lp_type(void)
 {
    return(&torus_lp); 
