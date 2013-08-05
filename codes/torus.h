@@ -49,6 +49,7 @@ static void torus_packet_event_rc(tw_lp *sender);
 static void torus_setup(const void* net_params);
 static int torus_get_msg_sz(void);
 static const tw_lptype* torus_get_lp_type(void);
+static void torus_report_stats(void);
 
 /* data structure for torus statistics */
 struct model_net_method torus_method =
@@ -59,6 +60,7 @@ struct model_net_method torus_method =
    .model_net_method_packet_event_rc = torus_packet_event_rc,
    .mn_get_lp_type = torus_get_lp_type,
    .mn_get_msg_sz = torus_get_msg_sz,
+   .mn_report_stats = torus_report_stats,
 };
 
 enum nodes_event_t

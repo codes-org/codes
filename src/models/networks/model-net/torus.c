@@ -460,6 +460,21 @@ static void packet_arrive( nodes_state * s,
    }
 }
 
+static void torus_report_stats()
+{
+    unsigned long long avg_hops, total_finished_packets;
+    tw_stime avg_time, max_time;
+
+    MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce( &total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce( &max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+
+    if(!g_tw_mynode)
+     {
+       printf(" Average number of hops traversed %f average message latency %lf us maximum message latency %lf us \n", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets*1000), max_time/1000);
+     }
+}
 void
 final( nodes_state * s, tw_lp * lp )
 {

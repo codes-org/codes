@@ -27,6 +27,7 @@ struct model_net_method
     void (*model_net_method_packet_event_rc)(tw_lp *sender);
     const tw_lptype* (*mn_get_lp_type)();
     int (*mn_get_msg_sz)();
+    void (*mn_report_stats)();
 };
 
 #endif /* MODELNET_METHOD_H */

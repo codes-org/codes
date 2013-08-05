@@ -195,7 +195,8 @@ int main(
     }
 
     tw_run();
-    
+    model_net_report_stats(net_id);
+
     ret = lp_io_flush(handle, MPI_COMM_WORLD);
     assert(ret == 0);
 

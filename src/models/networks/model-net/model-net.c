@@ -96,7 +96,7 @@ int model_net_set_params()
 {
   char mn_name[MAX_NAME_LENGTH];
   int packet_size = 0;
-  int net_id;
+  int net_id=-1;
 
   config_lpgroups_t paramconf;
   configuration_get_lpgroups(&config, "PARAMS", &paramconf);
@@ -176,7 +176,6 @@ int model_net_set_params()
 	      exit(-1);
 	   }
 	   i++;
-
 	   token = strtok(NULL,",");
 	}
 	net_id = model_net_setup("torus", packet_size, (const void*)&net_params);
@@ -249,6 +248,18 @@ const tw_lptype* model_net_get_lp_type(int net_id)
    return method_array[net_id]->mn_get_lp_type();
 }
 
+void model_net_report_stats(int net_id)
+{
+  if(net_id < 0 || net_id > NUM_NETS)
+  {
+    fprintf(stderr, "%s Error: Uninitializied modelnet network, call modelnet_init first\n", __FUNCTION__);
+    exit(-1);
+   }
+
+     // TODO: ADd checks by network names
+     //    // Add dragonfly and torus network models
+   return method_array[net_id]->mn_report_stats();
+}
 /* registers the lp type */
 void model_net_add_lp_type(int net_id)
 {

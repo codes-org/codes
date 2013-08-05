@@ -121,6 +121,9 @@ static void simplenet_packet_event(
 static void simplenet_packet_event_rc(tw_lp *sender);
 
 static void simplenet_packet_event_rc(tw_lp *sender);
+
+static void sn_report_stats();
+
 /* data structure for model-net statistics */
 struct model_net_method simplenet_method =
 {
@@ -130,6 +133,7 @@ struct model_net_method simplenet_method =
     .model_net_method_packet_event_rc = simplenet_packet_event_rc,
     .mn_get_lp_type = sn_get_lp_type,
     .mn_get_msg_sz = sn_get_msg_sz,
+    .mn_report_stats = sn_report_stats,
 };
 
 static void sn_init(
@@ -204,6 +208,12 @@ static void sn_set_params(double net_startup_ns, double net_bw_mbs)
     return;
 }
 
+/* report network statistics */
+static void sn_report_stats()
+{
+   /* TODO: Do we have some simplenet statistics to report like we have for torus and dragonfly? */
+   return;
+}
 static void sn_init(
     sn_state * ns,
     tw_lp * lp)
