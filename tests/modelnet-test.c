@@ -299,7 +299,7 @@ static void svr_finalize(
     svr_state * ns,
     tw_lp * lp)
 {
-    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid/2, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s((tw_now(lp)-ns->start_ts)), 
+    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s((tw_now(lp)-ns->start_ts)), 
         ((double)(PAYLOAD_SZ*NUM_REQS)/(double)(1024*1024)/ns_to_s(tw_now(lp)-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
     return;
 }
@@ -463,8 +463,8 @@ static void handle_req_event(
     //printf("handle_req_event(), lp %llu src %llu .\n", (unsigned long long)lp->gid, (unsigned long long) m->src);
 
     /* safety check that this request got to the right server */
+//    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
     assert(lp->gid == (m->src + 2)%(NUM_SERVERS*2));
-
     ns->msg_recvd_count++;
 
     /* send ack back */

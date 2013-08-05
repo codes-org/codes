@@ -7,19 +7,20 @@
 #include <assert.h>
 
 #include "codes/model-net.h"
-#include "model-net-method.h"
+#include "codes/model-net-method.h"
 
 #define STR_SIZE 16
 #define PROC_TIME 10.0
 #define NUM_NETS 1
 
 extern struct model_net_method simplenet_method;
+extern struct model_net_method torus_method;
 //extern struct dragonfly_method dragonfly_method;
 //extern struct torus_method torus_method;
 
 /* Global array initialization, terminated with a NULL entry */
 static struct model_net_method* method_array[] =
-    {&simplenet_method, NULL};
+    {&simplenet_method, &torus_method, NULL};
 
 int model_net_setup(char* name,
 		    int packet_size,
@@ -63,7 +64,7 @@ void model_net_event(
      /*Determine the network name*/
      if(net_id < 0 || net_id > NUM_NETS)
      {
-        fprintf(stderr, "Error: undefined network ID %d (Available options 0 (simplenet), 1 (dragonfly) 2 (torus) ) \n", net_id);
+        fprintf(stderr, "Error: undefined network ID %d (Available options 0 (simplenet), 1 (torus) 2 (dragonfly) ) \n", net_id);
 	exit(-1);
      }
 
@@ -114,8 +115,8 @@ int model_net_set_params()
      
      configuration_get_value_double(&config, "PARAMS", "net_startup_ns", &net_startup_ns);
      configuration_get_value_double(&config, "PARAMS", "net_bw_mbps", &net_bw_mbps);
-     net_params.net_startup_ns = 1.5;
-     net_params.net_bw_mbps = 20000;
+     net_params.net_startup_ns = net_startup_ns;
+     net_params.net_bw_mbps =  net_bw_mbps;
      net_id = model_net_setup("simplenet", packet_size, (const void*)&net_params); /* Sets the network as simplenet and packet size 512 */
    }
   else if(strcmp("dragonfly", mn_name)==0)	  
@@ -124,7 +125,61 @@ int model_net_set_params()
     }
    else if(strcmp("torus", mn_name)==0)
      {
-	printf("\n not supported yet ");
+	torus_param net_params;
+	char dim_length[MAX_NAME_LENGTH];
+	int n_dims=0, buffer_size=0, num_vc=0, i=0;
+	double link_bandwidth=0;
+
+	configuration_get_value_int(&config, "PARAMS", "n_dims", &n_dims);
+	if(!n_dims)
+	{
+	   n_dims = 4; /* a 4-D torus */
+	   printf("\n Number of dimensions not specified, setting to %d ", n_dims);
+	}
+	
+	configuration_get_value_double(&config, "PARAMS", "link_bandwidth", &link_bandwidth);	
+	if(!link_bandwidth)
+	{
+		link_bandwidth = 2.0; /*default bg/q configuration */
+		printf("\n Link bandwidth not specified, setting to %lf ", link_bandwidth);
+	}
+
+	configuration_get_value_int(&config, "PARAMS", "buffer_size", &buffer_size);
+	if(!buffer_size)
+	{
+		buffer_size = 2048;
+		printf("\n Buffer size not specified, setting to %d ",buffer_size);
+	}
+
+	configuration_get_value_int(&config, "PARAMS", "num_vc", &num_vc);
+	if(!num_vc)
+	{
+		num_vc = 1; /*by default, we have one for taking packets, another for taking credit*/
+		printf("\n num_vc not specified, setting to %d ", num_vc);
+	}
+
+        configuration_get_value(&config, "PARAMS", "dim_length", dim_length, MAX_NAME_LENGTH);
+        char* token;
+	net_params.n_dims=n_dims;
+	net_params.num_vc=num_vc;
+	net_params.buffer_size=buffer_size;
+	net_params.link_bandwidth=link_bandwidth;
+	net_params.dim_length=malloc(n_dims*sizeof(int));
+        token = strtok(dim_length, ",");	
+	while(token != NULL)
+	{
+	   sscanf(token, "%d", &net_params.dim_length[i]);
+	   if(!net_params.dim_length[i])
+	   {
+	      printf("\n Invalid torus dimension specified %d, exitting... ", net_params.dim_length[i]);
+	      MPI_Finalize();
+	      exit(-1);
+	   }
+	   i++;
+
+	   token = strtok(NULL,",");
+	}
+	net_id = model_net_setup("torus", packet_size, (const void*)&net_params);
      }
   else
        printf("\n Invalid network argument %s ", mn_name);
@@ -203,6 +258,9 @@ void model_net_add_lp_type(int net_id)
        lp_type_register("modelnet_simplenet", model_net_get_lp_type(net_id));
    break;
 
+   case TORUS:
+       lp_type_register("modelnet_torus", model_net_get_lp_type(net_id));
+       break;
    default:
     {
         printf("\n Invalid net_id specified ");

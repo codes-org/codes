@@ -20,8 +20,8 @@ typedef struct torus_param torus_param;
 enum NETWORKS
 {
   SIMPLENET,
-  DRAGONFLY,
-  TORUS
+  TORUS,
+  DRAGONFLY
 };
 
 /* structs for initializing a network/ specifying network parameters */
@@ -42,9 +42,12 @@ struct dragonfly_param
 
 struct torus_param
 {
-  char* name;
-  int n_dim; /*Dimension of the torus network, 5-D, 7-D or any other*/
+  int n_dims; /*Dimension of the torus network, 5-D, 7-D or any other*/
   int* dim_length; /*Length of each torus dimension*/
+  double link_bandwidth;/* bandwidth for each torus link */
+  int buffer_size; /* number of buffer slots for each vc in flits*/
+  int num_vc; /* number of virtual channels for each torus link */
+  float mean_process;/* mean process time for each flit  */
 };
 /* NOTE: the following auxilliary functions are probably wrong; just leaving
  * these examples from simplenet for reference purposes.

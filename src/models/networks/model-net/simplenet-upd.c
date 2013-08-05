@@ -10,7 +10,7 @@
 
 #include "codes/lp-io.h"
 #include "codes/jenkins-hash.h"
-#include "model-net-method.h"
+#include "codes/model-net-method.h"
 #include "codes/model-net.h"
 #include "codes/codes_mapping.h"
 #include "codes/codes.h"

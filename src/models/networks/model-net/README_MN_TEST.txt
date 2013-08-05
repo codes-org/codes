@@ -8,3 +8,5 @@ mpiexec -n 4 tests/modelnet-test --sync=2 tests/modelnet-test.conf
     <or>
 mpiexec -n 4 tests/modelnet-test --sync=3 tests/modelnet-test.conf
 
+(1)- To run the modelnet test with the simplenet network plugin, use tests/modelnet-test.conf (default setting).
+(2)- To run the modelnet test with the torus network plugin, use tests/modelnet-test-torus.conf file.

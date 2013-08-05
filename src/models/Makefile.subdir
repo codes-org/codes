@@ -1,10 +1,13 @@
 lib_LIBRARIES += src/libcodes-net.a
 
 nobase_include_HEADERS = \
- codes/model-net.h
+ codes/model-net.h	\
+ codes/torus.h		\
+ codes/model-net-method.h
 
 src_libcodes_net_a_SOURCES = \
  src/models/networks/model-net/model-net-method.h \
  src/models/networks/model-net/model-net.c \
- src/models/networks/model-net/simplenet-upd.c
+ src/models/networks/model-net/simplenet-upd.c \
+ src/models/networks/model-net/torus.c
 
