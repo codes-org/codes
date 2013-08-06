@@ -1,4 +1,4 @@
-
+#include "codes_base_config.h"
 #include "codes/jenkins-hash.h"
 
 /*

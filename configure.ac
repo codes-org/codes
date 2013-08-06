@@ -89,6 +89,19 @@ else
     AC_MSG_ERROR([Could not find usable ROSS installation, try --with-ross=DIR])
 fi
 
+dnl ======================================================================
+dnl  Try harder to be valgrind safe
+dnl ======================================================================
+AC_ARG_ENABLE(valgrind-clean,
+        [AS_HELP_STRING(
+                [--enable-valgrind-clean],
+                [Try harder to avoid valgrind warnings])
+        ])
+
+AS_IF([test "x$enable_valgrind_clean" = "xyes"], [
+      AC_DEFINE([VALGRIND], [1], [If enabling valgrind-clean build])
+])
+
 #
 # To reactivate rewriting of the codesparser.y file,
 # uncomment next line.
