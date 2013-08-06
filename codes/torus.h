@@ -122,8 +122,8 @@ tw_stime         max_latency = 0;
 float head_delay=0.0;
 float credit_delay = 0.0;
 
-static unsigned long long       N_finished_packets = 0;
-static unsigned long long       total_hops = 0;
+static long long       N_finished_packets = 0;
+static long long       total_hops = 0;
 // run time arguments
 int num_packets;
 int num_chunks;
