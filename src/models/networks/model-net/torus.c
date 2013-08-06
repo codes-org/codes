@@ -462,7 +462,7 @@ static void packet_arrive( nodes_state * s,
 
 static void torus_report_stats()
 {
-    unsigned long long avg_hops, total_finished_packets;
+    long long avg_hops, total_finished_packets;
     tw_stime avg_time, max_time;
 
     MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -565,7 +565,7 @@ static void event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_l
   case CREDIT:
     packet_buffer_process(s,bf,msg,lp);
    break;
-  DEFAULT:
+  default:
 	printf("\n Being sent to wrong LP");
   break;
  }
