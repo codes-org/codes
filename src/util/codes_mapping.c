@@ -165,7 +165,7 @@ void codes_mapping_init(void)
      tw_pe * pe;
      char lp_type_name[MAX_NAME_LENGTH];
      char grp_name[MAX_NAME_LENGTH];
-     int nkp_per_pe = 16;
+     int nkp_per_pe = g_tw_nkp;
      tw_lpid         lpid, kpid;
 
      /* have 16 kps per pe, this is the optimized configuration for ROSS custom mapping */
