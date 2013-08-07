@@ -180,8 +180,10 @@ int main(
 	    message_size = 256;
 	    printf("\n Warning: ross message size not defined, resetting it to %d", message_size);
     }
-     //printf("\n Initializing %d lps on %d ", get_lps_for_pe(), g_tw_mynode);
+    printf("\n Initializing %d lps on %d ", codes_mapping_get_lps_for_pe(), g_tw_mynode);
     tw_define_lps(codes_mapping_get_lps_for_pe(), message_size, 0 );
+    //g_tw_events_per_pe = 2 * NUM_REQS * (codes_mapping_get_lps_for_pe());
+
     /* NOTE: the message size defined here has to be able to handle two
      * svr_msg structs and a simplenet message joined together.  This allows
      * the model to send a single simplenet even that will handle a)
