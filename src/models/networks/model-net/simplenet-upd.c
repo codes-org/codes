@@ -218,7 +218,7 @@ static void sn_init(
     sn_state * ns,
     tw_lp * lp)
 {
-    uint32_t h1, h2;
+    uint32_t h1 = 0, h2 = 0;
     memset(ns, 0, sizeof(*ns));
 
     /* all devices are idle to begin with */
