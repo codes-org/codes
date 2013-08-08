@@ -262,7 +262,6 @@ static int write_id(char* directory, char* identifier, MPI_Comm comm)
     char err_string[MPI_MAX_ERROR_STRING];
     int err_len;
     MPI_Datatype mtype;
-    void **pointers;
     int *lengths;
     MPI_Aint *displacements;
     MPI_Aint base;
@@ -292,8 +291,6 @@ static int write_id(char* directory, char* identifier, MPI_Comm comm)
     /* build datatype for our buffers */
     if(id)
     {
-        pointers = malloc(id->buffers_count*sizeof(void*));
-        assert(pointers);
         lengths = malloc(id->buffers_count*sizeof(int));
         assert(lengths);
         displacements = malloc(id->buffers_count*sizeof(MPI_Aint));
@@ -319,6 +316,8 @@ static int write_id(char* directory, char* identifier, MPI_Comm comm)
         MPI_Type_hindexed(id->buffers_count, lengths, displacements,
             MPI_BYTE, &mtype);
         MPI_Type_commit(&mtype);
+        free(lengths);
+        free(displacements);
 
         ret = MPI_File_write_at_all(fh, my_offset, id->buffers->buffer, 1, mtype, &status);
 
