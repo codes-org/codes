@@ -6,7 +6,7 @@
 
 /* SUMMARY:
  *
- * This is a test harness for the simplenet module.  It sets up a number of
+ * This is a test harness for the modelnet module.  It sets up a number of
  * servers, each of which is paired up with a simplenet LP to serve as the
  * NIC.  Each server exchanges a sequence of requests and acks with one peer
  * and measures the throughput in terms of payload bytes (ack size) moved
@@ -24,11 +24,11 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 
-#define NUM_SERVERS 16  /* number of servers */
 #define NUM_REQS 1000  /* number of requests sent by each server */
 #define PAYLOAD_SZ 2048 /* size of simulated data payload, bytes  */
 
 static int net_id = 0;
+static int num_servers = 16;
 
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
@@ -58,12 +58,6 @@ struct svr_msg
 
     int incremented_flag; /* helper for reverse computation */
 };
-
-const tw_optdef app_opt[] = {
-    TWOPT_GROUP("Simple Network Test Model"),
-    TWOPT_END()
-};
-
 
 static void svr_init(
     svr_state * ns,
@@ -138,6 +132,14 @@ static void handle_req_rev_event(
     tw_bf * b,
     svr_msg * m,
     tw_lp * lp);
+
+const tw_optdef app_opt [] =
+{
+	TWOPT_GROUP("Model net test case" ),
+	TWOPT_UINT("num_servers", num_servers, "num_servers"),
+	TWOPT_END()
+};
+
 int main(
     int argc,
     char **argv)
@@ -153,9 +155,9 @@ int main(
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
 
-    if(argc != 2)
+    if(argc < 2)
     {
-	    printf("\n Usage: mpirun <args> --sync=2/3 mapping_file_name.conf");
+	    printf("\n Usage: mpirun <args> --sync=2/3 mapping_file_name.conf (optional --nkp) num_servers");
 	    MPI_Finalize();
 	    return 0;
     }
@@ -174,13 +176,13 @@ int main(
     g_tw_mapping=CUSTOM;
     g_tw_custom_initial_mapping=&codes_mapping_init;
     g_tw_custom_lp_global_to_local_map=&codes_mapping_to_lp;
+    g_tw_events_per_pe = 2048 * codes_mapping_get_lps_for_pe();
 
     if(!message_size)
     {
 	    message_size = 256;
 	    printf("\n Warning: ross message size not defined, resetting it to %d", message_size);
     }
-    printf("\n Initializing %d lps on %d ", codes_mapping_get_lps_for_pe(), g_tw_mynode);
     tw_define_lps(codes_mapping_get_lps_for_pe(), message_size, 0 );
     //g_tw_events_per_pe = 2 * NUM_REQS * (codes_mapping_get_lps_for_pe());
 
@@ -231,7 +233,7 @@ static void svr_init(
      * simulation
      */
 
-    printf("\n Initializing servers %d ", (int)lp->gid);
+//    printf("\n Initializing servers %d ", (int)lp->gid);
     /* skew each kickoff event slightly to help avoid event ties later on */
     kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng); 
 
@@ -347,7 +349,7 @@ static void handle_kickoff_event(
     ns->start_ts = tw_now(lp);
 
     /* each server sends a request to the next highest server */
-    model_net_event(net_id, "test", (lp->gid + 2)%(NUM_SERVERS*2), PAYLOAD_SZ, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+    model_net_event(net_id, "test", (lp->gid + 2)%(num_servers*2), PAYLOAD_SZ, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
     ns->msg_sent_count++;
 }
 
@@ -431,7 +433,7 @@ static void handle_ack_event(
 
     /* safety check that this request got to the right server */
 //    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
-    assert(m->src == (lp->gid + 2)%(NUM_SERVERS*2));
+    assert(m->src == (lp->gid + 2)%(num_servers*2));
 
     if(ns->msg_sent_count < NUM_REQS)
     {
@@ -467,7 +469,7 @@ static void handle_req_event(
 
     /* safety check that this request got to the right server */
 //    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
-    assert(lp->gid == (m->src + 2)%(NUM_SERVERS*2));
+    assert(lp->gid == (m->src + 2)%(num_servers*2));
     ns->msg_recvd_count++;
 
     /* send ack back */

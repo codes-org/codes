@@ -19,6 +19,7 @@ static void torus_setup(const void* net_params)
        dim_length[i] = t_param->dim_length[i]; /* TODO, read comma separated values from files */
 }
 
+/* torus packet reverse event */
 static void torus_packet_event_rc(tw_lp *sender)
 {
   codes_local_latency_reverse(sender);
@@ -75,6 +76,7 @@ static void torus_packet_event(char* category, tw_lpid final_dest_lp, int packet
    //printf("\n torus remote event %d local event %d last packet %d %lf ", msg->remote_event_size_bytes, msg->local_event_size_bytes, is_last_pckt, xfer_to_nic_time);
     tw_event_send(e_new);
 }
+
 /*Initialize the torus model, this initialization part is borrowed from Ning's torus model */
 static void torus_init( nodes_state * s, 
 	   tw_lp * lp )
@@ -328,8 +330,8 @@ static void credit_send( nodes_state * s,
     tw_event_send( buf_e );
 
 }
-// send a packet from one torus node to another torus node
-// A packet can be up to 256 bytes on BG/L and BG/P and up to 512 bytes on BG/Q
+/* send a packet from one torus node to another torus node
+ A packet can be up to 256 bytes on BG/L and BG/P and up to 512 bytes on BG/Q */
 static void packet_send( nodes_state * s, 
 	         tw_bf * bf, 
 		 nodes_message * msg, 
@@ -460,6 +462,8 @@ static void packet_arrive( nodes_state * s,
    }
 }
 
+/* reports torus statistics like average packet latency, maximum packet latency and average
+ * number of torus hops traversed by the packet */
 static void torus_report_stats()
 {
     long long avg_hops, total_finished_packets;
@@ -475,6 +479,7 @@ static void torus_report_stats()
        printf(" Average number of hops traversed %f average message latency %lf us maximum message latency %lf us \n", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets*1000), max_time/1000);
      }
 }
+/* finalize the torus node and free all event buffers available */
 void
 final( nodes_state * s, tw_lp * lp )
 {
@@ -490,7 +495,7 @@ static void packet_buffer_process( nodes_state * s, tw_bf * bf, nodes_message * 
    s->buffer[ msg->source_direction + ( msg->source_dim * 2 ) ][  0 ]--;
 }
 
-/* reverse handler */
+/* reverse handler for torus node */
 static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 {
   switch(msg->type)
@@ -547,7 +552,7 @@ static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw
      }
 }
 
-/* forward event handler */
+/* forward event handler for torus node event */
 static void event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp)
 {
  *(int *) bf = (int) 0;
@@ -570,7 +575,7 @@ static void event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_l
   break;
  }
 }
-
+/* event types */
 tw_lptype torus_lp =
 {
   (init_f) torus_init,

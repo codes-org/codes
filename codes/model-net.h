@@ -34,10 +34,15 @@ struct simplenet_param
 
 struct dragonfly_param
 {
-  char* name;
   int num_routers; /*Number of routers in a group*/
-  int num_nodes; /*Number of compute nodes connected to a router*/
-  int num_chans; /*Number of global channels connected to each router*/
+  double local_bandwidth;/* bandwidth of the router-router channels within a group */
+  double global_bandwidth;/* bandwidth of the inter-group router connections */
+  double cn_bandwidth;/* bandwidth of the compute node channels connected to routers */
+  int num_vcs; /* number of virtual channels */
+  int local_vc_size; /* buffer size of the router-router channels */
+  int global_vc_size; /* buffer size of the global channels */
+  int cn_vc_size; /* buffer size of the compute node channels */
+  short routing; /* minimal or non-minimal routing */
 };
 
 struct torus_param
@@ -49,10 +54,7 @@ struct torus_param
   int num_vc; /* number of virtual channels for each torus link */
   float mean_process;/* mean process time for each flit  */
 };
-/* NOTE: the following auxilliary functions are probably wrong; just leaving
- * these examples from simplenet for reference purposes.
- *
- * In general we need to figure out how to pass configuration information to
+ /* In general we need to figure out how to pass configuration information to
  * the methods and we need to be able to calculate ross event message size.
  */
 /*Initialize the network by specifying the network parameters. The 
