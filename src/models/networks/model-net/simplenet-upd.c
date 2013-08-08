@@ -401,7 +401,7 @@ static void handle_msg_ready_event(
         recv_queue_time += ns->net_recv_next_idle - tw_now(lp);
 
     /* calculate transfer time based on msg size and bandwidth */
-    recv_queue_time = rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
+    recv_queue_time += rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
 
     /* bump up input queue idle time accordingly */
     m->net_recv_next_idle_saved = ns->net_recv_next_idle;
