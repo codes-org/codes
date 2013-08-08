@@ -22,6 +22,8 @@ extern struct model_net_method torus_method;
 static struct model_net_method* method_array[] =
     {&simplenet_method, &torus_method, NULL};
 
+static const int model_net_get_msg_sz(int net_id);
+
 int model_net_setup(char* name,
 		    int packet_size,
 		    const void* net_params)
@@ -210,7 +212,7 @@ void model_net_event_rc(
 } 
 
 /* returns the message size, can be either simplenet, dragonfly or torus message size*/
-const int model_net_get_msg_sz(int net_id)
+static const int model_net_get_msg_sz(int net_id)
 {
    // TODO: Add checks on network name
    // TODO: Add dragonfly and torus network models

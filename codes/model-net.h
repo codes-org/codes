@@ -120,8 +120,6 @@ void model_net_event_rc(
     tw_lp *sender,
     int message_size);
 
-const int model_net_get_msg_sz(int net_id);
-
 /* returns pointer to LP information for simplenet module */
 const tw_lptype* model_net_get_lp_type(int net_id);
 
