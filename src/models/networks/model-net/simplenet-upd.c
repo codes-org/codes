@@ -40,6 +40,7 @@ struct sn_stats
     long recv_count;
     long recv_bytes;
     tw_stime recv_time;
+    long max_event_size;
 };
 
 struct sn_state
@@ -286,14 +287,15 @@ static void write_stats(tw_lp* lp, struct sn_stats* stat)
 
     sprintf(id, "sn-category-%s", stat->category);
     sprintf(data, "lp:%ld\tsend_count:%ld\tsend_bytes:%ld\tsend_time:%f\t" 
-        "recv_count:%ld\trecv_bytes:%ld\trecv_time:%f\n",
+        "recv_count:%ld\trecv_bytes:%ld\trecv_time:%f\tmax_event_size:%ld\n",
         (long)lp->gid,
         stat->send_count,
         stat->send_bytes,
         stat->send_time,
         stat->recv_count,
         stat->recv_bytes,
-        stat->recv_time);
+        stat->recv_time,
+        stat->max_event_size);
 
     ret = lp_io_write(lp->gid, id, strlen(data), data);
     assert(ret == 0);
@@ -321,6 +323,8 @@ static void sn_finalize(
             all.recv_count += ns->sn_stats_array[i].recv_count;
             all.recv_bytes += ns->sn_stats_array[i].recv_bytes;
             all.recv_time += ns->sn_stats_array[i].recv_time;
+            if(ns->sn_stats_array[i].max_event_size > all.max_event_size)
+                all.max_event_size = ns->sn_stats_array[i].max_event_size;
 
             write_stats(lp, &ns->sn_stats_array[i]);
         }
@@ -460,6 +464,9 @@ static void handle_msg_start_event(
     int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
     tw_lpid dest_id;
     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
+    int total_event_size;
+
+    total_event_size = sn_get_msg_sz() + m->event_size_bytes + m->local_event_size_bytes;
 
     //printf("handle_msg_start_event(), lp %llu.\n", (unsigned long long)lp->gid);
     /* add statistics */
@@ -467,6 +474,8 @@ static void handle_msg_start_event(
     stat->send_count++;
     stat->send_bytes += m->net_msg_size_bytes;
     stat->send_time += global_net_startup_ns + rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
+    if(stat->max_event_size < total_event_size)
+        stat->max_event_size = total_event_size;
 
     /* calculate send time stamp */
     send_queue_time = global_net_startup_ns; /* net msg startup cost */
