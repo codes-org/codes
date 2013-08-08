@@ -54,7 +54,9 @@ Machine-specific configurations:
 
 Notes on using the clang static analyzer
 -----------------
-- follow steps 0-2 as shown above
+- follow steps 0-2 as shown above, with one exception:
+  - add the following argument to configure:
+    CFLAGS=-I<path_to_your_mpi_include_directory>
 - edit Makefile, and delete the "CC = mpicc" (or similar) line
 - run "scan-build --use-cc=mpicc make"
 
