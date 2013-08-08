@@ -44,7 +44,6 @@ files for these parsers, execute
 
 Machine-specific configurations:
 ----------------
-
 - Fusion (ANL): add the following keys to your ~/.soft file and run "resoft"
   prior to following the steps described in this file:
 
@@ -52,4 +51,10 @@ Machine-specific configurations:
   +autoconf-2.68
   +git
   +cmake
+
+Notes on using the clang static analyzer
+-----------------
+- follow steps 0-2 as shown above
+- edit Makefile, and delete the "CC = mpicc" (or similar) line
+- run "scan-build --use-cc=mpicc make"
 
