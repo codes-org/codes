@@ -11,16 +11,15 @@
 
 #define STR_SIZE 16
 #define PROC_TIME 10.0
-#define NUM_NETS 1
+#define NUM_NETS 2
 
 extern struct model_net_method simplenet_method;
 extern struct model_net_method torus_method;
-//extern struct dragonfly_method dragonfly_method;
-//extern struct torus_method torus_method;
+extern struct model_net_method dragonfly_method;
 
 /* Global array initialization, terminated with a NULL entry */
 static struct model_net_method* method_array[] =
-    {&simplenet_method, &torus_method, NULL};
+    {&simplenet_method, &torus_method, &dragonfly_method, NULL};
 
 static const int model_net_get_msg_sz(int net_id);
 
@@ -39,7 +38,7 @@ int model_net_setup(char* name,
 	   return(i);
 	}
      }
-     fprintf(stderr, "Error: undefined network name %s (Available options dragonfly, torus, simplenet) \n", name);
+     fprintf(stderr, "Error: undefined network name %s (Available options simplenet, torus, dragonfly) \n", name);
      return -1; // indicating error
 }
 
@@ -132,7 +131,86 @@ int model_net_set_params()
    }
   else if(strcmp("dragonfly", mn_name)==0)	  
     {
-       printf("\n dragonfly not supported yet ");
+       dragonfly_param net_params;
+       int num_routers=0, num_vcs=0, local_vc_size=0, global_vc_size=0, cn_vc_size=0;
+       double local_bandwidth=0.0, cn_bandwidth=0.0, global_bandwidth=0.0;
+       
+       configuration_get_value_int(&config, "PARAMS", "num_routers", &num_routers);
+       if(!num_routers)
+	{
+	   num_routers = 4; 
+	   printf("\n Number of dimensions not specified, setting to %d ", num_routers);
+        } 
+       net_params.num_routers = num_routers; 
+
+       configuration_get_value_int(&config, "PARAMS", "num_vcs", &num_vcs);
+       if(!num_vcs)
+       {
+          num_vcs = 1;
+	  printf("\n Number of virtual channels not specified, setting to %d ", num_vcs);
+       }
+       net_params.num_vcs = num_vcs;
+
+       configuration_get_value_int(&config, "PARAMS", "local_vc_size", &local_vc_size);
+       if(!local_vc_size)
+	{
+	   local_vc_size = 1024;
+	   printf("\n Buffer size of local channels not specified, setting to %d ", local_vc_size);
+	}
+       net_params.local_vc_size = local_vc_size;
+
+       configuration_get_value_int(&config, "PARAMS", "global_vc_size", &global_vc_size);
+       if(!global_vc_size)
+	{
+	  global_vc_size = 2048;
+	  printf("\n Buffer size of global channels not specified, setting to %d ", global_vc_size);
+	}
+       net_params.global_vc_size = global_vc_size;
+
+       configuration_get_value_int(&config, "PARAMS", "cn_vc_size", &cn_vc_size);
+       if(!cn_vc_size)
+	 {
+	    cn_vc_size = 1024;
+	    printf("\n Buffer size of compute node channels not specified, setting to %d ", cn_vc_size);
+	 }
+       net_params.cn_vc_size = cn_vc_size;
+
+	configuration_get_value_double(&config, "PARAMS", "local_bandwidth", &local_bandwidth);
+        if(!local_bandwidth)
+	  {
+	    local_bandwidth = 5.25;
+	    printf("\n Bandwidth of local channels not specified, setting to %lf ", local_bandwidth);
+	 }
+       net_params.local_bandwidth = local_bandwidth;
+
+       configuration_get_value_double(&config, "PARAMS", "global_bandwidth", &global_bandwidth);
+        if(!global_bandwidth)
+	{
+	     global_bandwidth = 4.7;
+	     printf("\n Bandwidth of global channels not specified, setting to %lf ", global_bandwidth);
+	}
+	net_params.global_bandwidth = global_bandwidth;
+
+	configuration_get_value_double(&config, "PARAMS", "cn_bandwidth", &cn_bandwidth);
+	if(!cn_bandwidth)
+	 {
+	     cn_bandwidth = 5.25;
+	     printf("\n Bandwidth of compute node channels not specified, setting to %lf ", cn_bandwidth);
+	}
+	net_params.cn_bandwidth = cn_bandwidth;
+
+       char routing[MAX_NAME_LENGTH];
+       configuration_get_value(&config, "PARAMS", "routing", routing, MAX_NAME_LENGTH);
+       if(strcmp(routing, "minimal") == 0)
+	   net_params.routing = 0;
+       else if(strcmp(routing, "nonminimal")==0 || strcmp(routing,"non-minimal")==0)
+	       net_params.routing = 1;
+       else
+       {
+       	   printf("\n No routing protocol specified, setting to minimal routing");
+   	   net_params.routing = 0;	   
+       }
+    net_id = model_net_setup("dragonfly", packet_size, (const void*)&net_params);   
     }
    else if(strcmp("torus", mn_name)==0)
      {
@@ -282,6 +360,9 @@ void model_net_add_lp_type(int net_id)
 
    case TORUS:
        lp_type_register("modelnet_torus", model_net_get_lp_type(net_id));
+       break;
+   case DRAGONFLY:
+       lp_type_register("modelnet_dragonfly", model_net_get_lp_type(net_id));
        break;
    default:
     {
