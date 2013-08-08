@@ -60,6 +60,15 @@ void model_net_event(
      int i;
      int last = 0;
 
+     if((remote_event_size + self_event_size + model_net_get_msg_sz(net_id))
+        > g_tw_msg_sz)
+     {
+        fprintf(stderr, "Error: model_net trying to transmit an event of size %d but ROSS is configured for events of size %zd\n",
+            (remote_event_size + self_event_size + model_net_get_msg_sz(net_id)),
+            g_tw_msg_sz);
+        abort();
+     }
+
      if(message_size % packet_size)
 	num_packets++; /* Handle the left out data if message size is not exactly divisible by packet size */
 
