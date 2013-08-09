@@ -1,5 +1,5 @@
 #!/bin/bash
 
-srcdir = @srcdir@ 
+abs_srcdir=@abs_srcdir@ 
 
-tests/modelnet-test --sync=1 $srcdir/tests/modelnet-test-torus.conf
+tests/modelnet-test --sync=1 -- $abs_srcdir/modelnet-test-torus.conf
