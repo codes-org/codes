@@ -40,13 +40,12 @@ int codes_mapping_get_group_reps(char* grp_name)
 }
 int codes_mapping_get_lp_count(char* grp_name, char* lp_type_name)
 {
-   int grp, lpt, lp_types_count, rep;
+   int grp, lpt, lp_types_count;
 
 // Account for all lps in the previous groups 
   for(grp = 0; grp < lpconf.lpgroups_count; grp++)
    {
        lp_types_count = lpconf.lpgroups[grp].lptypes_count;
-       rep = lpconf.lpgroups[grp].repetitions;
         
        if(strcmp(lpconf.lpgroups[grp].name, grp_name) == 0)
 	{
