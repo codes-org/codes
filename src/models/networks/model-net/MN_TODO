@@ -6,8 +6,9 @@ end of the simulation.
 
 2- Mapping:
 - Update the mapping code to handle remainder (where number of ROSS LPs are not evenly divisible by the number of PEs).
-- Modify the get_lp_info function to return the LP count of the given LP? Can help with local lp count calculation.
+- Make the mem_factor argument configurable in the codes mapping file (used for g_tw_events_per_pe). 
 - Remove the group id and type id arguments from get_lp_info function.
+
 
 Make the model-net test case running for two different types of networks?
 - Use the I/O activity trace logs from BG/Q and BG/P for I/O modelling.

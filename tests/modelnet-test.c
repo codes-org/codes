@@ -24,11 +24,13 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 
-#define NUM_REQS 1000  /* number of requests sent by each server */
+#define NUM_REQS 500  /* number of requests sent by each server */
 #define PAYLOAD_SZ 2048 /* size of simulated data payload, bytes  */
 
 static int net_id = 0;
-static int num_servers = 16;
+static int num_routers = 0;
+static int num_servers = 0;
+static int offset = 2;
 
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
@@ -75,9 +77,6 @@ static void svr_rev_event(
 static void svr_finalize(
     svr_state * ns,
     tw_lp * lp);
-/*static tw_peid svr_node_mapping(
-    tw_lpid gid);
-*/
 
 tw_lptype svr_lp = {
      (init_f) svr_init,
@@ -136,7 +135,6 @@ static void handle_req_rev_event(
 const tw_optdef app_opt [] =
 {
 	TWOPT_GROUP("Model net test case" ),
-	TWOPT_UINT("num_servers", num_servers, "num_servers"),
 	TWOPT_END()
 };
 
@@ -148,7 +146,6 @@ int main(
     int rank;
     int ret;
     lp_io_handle handle;
-    int message_size=0;
     //printf("\n Config count %d ",(int) config.lpgroups_count);
     g_tw_ts_end = s_to_ns(60*60*24*365); /* one year, in nsecs */
 
@@ -157,7 +154,7 @@ int main(
 
     if(argc < 2)
     {
-	    printf("\n Usage: mpirun <args> --sync=2/3 mapping_file_name.conf (optional --nkp) num_servers");
+	    printf("\n Usage: mpirun <args> --sync=2/3 mapping_file_name.conf (optional --nkp) ");
 	    MPI_Finalize();
 	    return 0;
     }
@@ -166,32 +163,17 @@ int main(
   
     configuration_load(argv[2], MPI_COMM_WORLD, &config);
     net_id=model_net_set_params();
-    configuration_get_value_int(&config, "PARAMS", "message_size", &message_size);
-    
-    model_net_add_lp_type(net_id);
     svr_add_lp_type();
     
     codes_mapping_setup();
     
-    g_tw_mapping=CUSTOM;
-    g_tw_custom_initial_mapping=&codes_mapping_init;
-    g_tw_custom_lp_global_to_local_map=&codes_mapping_to_lp;
-    g_tw_events_per_pe = 2048 * codes_mapping_get_lps_for_pe();
-
-    if(!message_size)
+    num_servers = codes_mapping_get_group_reps("MODELNET_GRP") * codes_mapping_get_lp_count("MODELNET_GRP", "server");
+    if(net_id == DRAGONFLY)
     {
-	    message_size = 256;
-	    printf("\n Warning: ross message size not defined, resetting it to %d", message_size);
+	  num_routers = codes_mapping_get_group_reps("MODELNET_GRP") * codes_mapping_get_lp_count("MODELNET_GRP", "dragonfly_router"); 
+	  offset = 1;
     }
-    tw_define_lps(codes_mapping_get_lps_for_pe(), message_size, 0 );
-    //g_tw_events_per_pe = 2 * NUM_REQS * (codes_mapping_get_lps_for_pe());
 
-    /* NOTE: the message size defined here has to be able to handle two
-     * svr_msg structs and a simplenet message joined together.  This allows
-     * the model to send a single simplenet even that will handle a)
-     * simplenet routing b) remote event delivery and c) local send
-     * completion event.
-     */
     ret = lp_io_prepare("simplenet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD);
     if(ret < 0)
     {
@@ -205,7 +187,6 @@ int main(
     assert(ret == 0);
 
     tw_end();
-
     return 0;
 }
 
@@ -233,7 +214,7 @@ static void svr_init(
      * simulation
      */
 
-//    printf("\n Initializing servers %d ", (int)lp->gid);
+    //printf("\n Initializing servers %d ", (int)lp->gid);
     /* skew each kickoff event slightly to help avoid event ties later on */
     kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng); 
 
@@ -309,12 +290,6 @@ static void svr_finalize(
     return;
 }
 
-/*static tw_peid svr_node_mapping(
-    tw_lpid gid)
-{
-    return (tw_peid) gid / g_tw_nlp;
-}*/
-
 /* convert ns to seconds */
 static tw_stime ns_to_s(tw_stime ns)
 {
@@ -348,8 +323,13 @@ static void handle_kickoff_event(
     /* record when transfers started on this server */
     ns->start_ts = tw_now(lp);
 
+    int opt_offset = 0;
+    if(net_id == DRAGONFLY && lp->gid % 5)
+	  opt_offset = 3; /* optional offset due to dragonfly mapping */
+    
     /* each server sends a request to the next highest server */
-    model_net_event(net_id, "test", (lp->gid + 2)%(num_servers*2), PAYLOAD_SZ, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+    int dest_id = (lp->gid + offset + opt_offset)%(num_servers*2 + num_routers);
+    model_net_event(net_id, "test", dest_id, PAYLOAD_SZ, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
     ns->msg_sent_count++;
 }
 
@@ -433,7 +413,11 @@ static void handle_ack_event(
 
     /* safety check that this request got to the right server */
 //    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
-    assert(m->src == (lp->gid + 2)%(num_servers*2));
+    int opt_offset = 0;
+    if(net_id == DRAGONFLY && lp->gid % 5)
+	 opt_offset = 3;
+
+    assert(m->src == (lp->gid + offset + opt_offset)%(num_servers*2 + num_routers));
 
     if(ns->msg_sent_count < NUM_REQS)
     {
@@ -469,7 +453,11 @@ static void handle_req_event(
 
     /* safety check that this request got to the right server */
 //    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
-    assert(lp->gid == (m->src + 2)%(num_servers*2));
+    int opt_offset = 0;
+    if(net_id == DRAGONFLY && (m->src % 5))
+	  opt_offset = 3; /* optional offset due to dragonfly mapping */
+    
+    assert(lp->gid == (m->src + offset + opt_offset)%(num_servers*2 + num_routers));
     ns->msg_recvd_count++;
 
     /* send ack back */

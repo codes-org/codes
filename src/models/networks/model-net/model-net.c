@@ -35,6 +35,7 @@ int model_net_setup(char* name,
 	{
 	   method_array[i]->mn_setup(net_params);
 	   method_array[i]->packet_size = packet_size;
+	   model_net_add_lp_type(i);
 	   return(i);
 	}
      }

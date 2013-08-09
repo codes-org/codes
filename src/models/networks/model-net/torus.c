@@ -260,6 +260,7 @@ static void packet_generate( nodes_state * s,
     //msg->saved_available_time = s->next_flit_generate_time[(2*tmp_dim) + tmp_dir][0];
     msg->travel_start_time = tw_now(lp);
     msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
+    msg->my_N_hop = 0;
 
     num_chunks = msg->packet_size/CHUNK_SIZE;
     s->packet_counter++;
@@ -284,8 +285,6 @@ static void packet_generate( nodes_state * s,
        m->chunk_id = j;
 
       // find destination dimensions using destination LP ID 
-       m->my_N_hop = 0;
-        // Send the packet out
        m->type = SEND;
        m->source_direction = tmp_dir;
        m->source_dim = tmp_dim;
@@ -515,7 +514,6 @@ static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw
 	
 	case ARRIVAL:
 		   {
- 		    msg->my_N_hop--;
   		    tw_rand_reverse_unif(lp->rng);
 		    tw_rand_reverse_unif(lp->rng);
 		    int next_dim = msg->source_dim;
@@ -528,6 +526,7 @@ static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw
 		       total_time -= tw_now( lp ) - msg->travel_start_time;
 		       total_hops -= msg->my_N_hop;
 		    }
+ 		    msg->my_N_hop--;
 		   }
 	break;	
 

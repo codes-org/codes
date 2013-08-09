@@ -67,4 +67,6 @@ includedir="${includedir}/codes"
 
 AC_CONFIG_FILES([Makefile])
 AC_CONFIG_FILES([tests/modelnet-test.sh],[chmod +x tests/modelnet-test.sh])
+AC_CONFIG_FILES([tests/modelnet-test-dragonfly.sh],[chmod +x tests/modelnet-test-dragonfly.sh])
+AC_CONFIG_FILES([tests/modelnet-test-torus.sh],[chmod +x tests/modelnet-test-torus.sh])
 AC_OUTPUT([maint/codes-net.pc])
