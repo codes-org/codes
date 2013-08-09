@@ -172,7 +172,7 @@ void codes_mapping_get_lp_info(tw_lpid gid, char* grp_name, int* grp_id, int* lp
 }
 
 /* This function assigns local and global LP Ids to LPs */
-void codes_mapping_init(void)
+static void codes_mapping_init(void)
 {
      int grp_id, lpt_id, rep_id, offset;
      tw_lpid ross_gid, ross_lid; /* ross global and local IDs */
@@ -206,7 +206,7 @@ void codes_mapping_init(void)
 /* This function takes the global LP ID, maps it to the local LP ID and returns the LP 
  * lps have global and local LP IDs
  * global LP IDs are unique across all PEs, local LP IDs are unique within a PE */
-tw_lp * codes_mapping_to_lp( tw_lpid lpid)
+static tw_lp * codes_mapping_to_lp( tw_lpid lpid)
 {
    int index = lpid - (g_tw_mynode * lps_for_this_pe);
 //   printf("\n global id %d index %d lps_before %d lps_offset %d local index %d ", lpid, index, lps_before, g_tw_mynode, local_index);

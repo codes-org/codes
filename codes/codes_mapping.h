@@ -34,11 +34,3 @@ void codes_mapping_get_lp_id(char* grp_name, char* lp_type_name, int rep_id, int
  * (for multiple LPs in a repetition). */
 void codes_mapping_get_lp_info(tw_lpid gid, char* grp_name, int* grp_id, int* lp_type_id, char* lp_type_name, int* grp_rep_id, int* offset);
 
-/* assigns local and global lp ids for ROSS. */
-void codes_mapping_init(void);
-
-/* Takes the global LP ID, maps it to the local LP ID and returns the LP.
- * lps have global and local LP IDs. 
- * global LP IDs are unique across all PEs, local LP IDs are unique within a PE. */
-tw_lp * codes_mapping_to_lp( tw_lpid lpid);
-
