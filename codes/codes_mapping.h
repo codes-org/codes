@@ -21,6 +21,12 @@ tw_peid codes_mapping( tw_lpid gid);
 /* loads the configuration file and sets up the number of LPs on each PE. */
 void codes_mapping_setup(void);
 
+/*Takes the group name and returns the number of repetitions in the group */
+int codes_mapping_get_group_reps(char* grp_name);
+
+/* Takes the group name and lp type name, returns the count for that lp type */
+int codes_mapping_get_lp_count(char* grp_name, char* lp_type_name);
+
 /* Takes the group name , type name, rep ID and offset (for that lp type + repetition) and then returns the global LP ID. */
 void codes_mapping_get_lp_id(char* grp_name, char* lp_type_name, int rep_id, int offset, tw_lpid* gid);
 

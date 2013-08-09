@@ -11,7 +11,7 @@
 
 /* number of LPs assigned to the current PE (abstraction of MPI rank) */
 static int lps_for_this_pe = 0;
-
+static int mem_factor = 1024;
 /* char arrays for holding lp type name and group name*/
 char local_grp_name[MAX_NAME_LENGTH], local_lp_name[MAX_NAME_LENGTH];
 
@@ -28,23 +28,37 @@ tw_peid codes_mapping( tw_lpid gid)
   return gid / lps_for_this_pe;
 }
 
-/* This function loads the configuration file and sets up the number of LPs on each PE */
-void codes_mapping_setup()
+int codes_mapping_get_group_reps(char* grp_name)
 {
-  int grp, lpt;
-  int pes = tw_nnodes();
-
-  configuration_get_lpgroups(&config, "LPGROUPS", &lpconf);
-
-  for (grp = 0; grp < lpconf.lpgroups_count; grp++)
-   {
-    for (lpt = 0; lpt < lpconf.lpgroups[grp].lptypes_count; lpt++)
-	lps_for_this_pe += (lpconf.lpgroups[grp].lptypes[lpt].count * lpconf.lpgroups[grp].repetitions);
-   }
-  lps_for_this_pe /= pes;
- //printf("\n LPs for this PE are %d reps %d ", lps_for_this_pe,  lpconf.lpgroups[grp].repetitions);
+  int grp;
+  for(grp = 0; grp < lpconf.lpgroups_count; grp++)
+  {
+     if(strcmp(lpconf.lpgroups[grp].name, grp_name) == 0)
+	     return lpconf.lpgroups[grp].repetitions;
+  }
+  return -1;
 }
+int codes_mapping_get_lp_count(char* grp_name, char* lp_type_name)
+{
+   int grp, lpt, lp_types_count, rep;
 
+// Account for all lps in the previous groups 
+  for(grp = 0; grp < lpconf.lpgroups_count; grp++)
+   {
+       lp_types_count = lpconf.lpgroups[grp].lptypes_count;
+       rep = lpconf.lpgroups[grp].repetitions;
+        
+       if(strcmp(lpconf.lpgroups[grp].name, grp_name) == 0)
+	{
+	 for(lpt = 0; lpt < lp_types_count; lpt++)
+ 	 {
+	    if(strcmp(lpconf.lpgroups[grp].lptypes[lpt].name, lp_type_name) == 0)
+		return lpconf.lpgroups[grp].lptypes[lpt].count;
+	 }		 
+	}
+   }
+  return -1;
+}
 /* This function takes the group ID , type ID and rep ID then returns the global LP ID */
 /* TODO: Add string based search for LP group and type names */
 void codes_mapping_get_lp_id(char* grp_name, char* lp_type_name, int rep_id, int offset, tw_lpid* gid)
@@ -197,5 +211,33 @@ tw_lp * codes_mapping_to_lp( tw_lpid lpid)
    int index = lpid - (g_tw_mynode * lps_for_this_pe);
 //   printf("\n global id %d index %d lps_before %d lps_offset %d local index %d ", lpid, index, lps_before, g_tw_mynode, local_index);
    return g_tw_lp[index];
+}
+
+/* This function loads the configuration file and sets up the number of LPs on each PE */
+void codes_mapping_setup()
+{
+  int grp, lpt, message_size;
+  int pes = tw_nnodes();
+
+  configuration_get_lpgroups(&config, "LPGROUPS", &lpconf);
+
+  for (grp = 0; grp < lpconf.lpgroups_count; grp++)
+   {
+    for (lpt = 0; lpt < lpconf.lpgroups[grp].lptypes_count; lpt++)
+	lps_for_this_pe += (lpconf.lpgroups[grp].lptypes[lpt].count * lpconf.lpgroups[grp].repetitions);
+   }
+  lps_for_this_pe /= pes;
+ //printf("\n LPs for this PE are %d reps %d ", lps_for_this_pe,  lpconf.lpgroups[grp].repetitions);
+  g_tw_mapping=CUSTOM;
+  g_tw_custom_initial_mapping=&codes_mapping_init;
+  g_tw_custom_lp_global_to_local_map=&codes_mapping_to_lp;
+  g_tw_events_per_pe = mem_factor * codes_mapping_get_lps_for_pe();
+  configuration_get_value_int(&config, "PARAMS", "message_size", &message_size);
+  if(!message_size)
+  {
+      message_size = 256;
+      printf("\n Warning: ross message size not defined, resetting it to %d", message_size);
+  }
+  tw_define_lps(codes_mapping_get_lps_for_pe(), message_size, 0);
 }
 
