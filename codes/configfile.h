@@ -1,7 +1,6 @@
 #ifndef SRC_COMMON_MODELCONFIG_CONFIGFILE_H
 #define SRC_COMMON_MODELCONFIG_CONFIGFILE_H
 
-#include <malloc.h>
 #include <stddef.h>  /* size_t */
 #include <stdlib.h>
 
