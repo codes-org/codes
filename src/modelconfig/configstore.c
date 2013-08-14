@@ -4,6 +4,9 @@
 #ifdef HAVE_MALLOC_H
 #include <malloc.h>
 #endif
+#ifdef HAVE_STDLIB_H
+#include <stdlib.h>
+#endif
 #include "configstore.h"
 
 
