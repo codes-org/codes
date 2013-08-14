@@ -125,7 +125,7 @@ void model_net_event_rc(
 /* returns pointer to LP information for simplenet module */
 const tw_lptype* model_net_get_lp_type(int net_id);
 
-const int model_net_get_packet_size(int net_id);
+int model_net_get_packet_size(int net_id);
 
 void model_net_add_lp_type(int net_id);
 

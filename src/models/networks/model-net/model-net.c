@@ -21,7 +21,7 @@ extern struct model_net_method dragonfly_method;
 static struct model_net_method* method_array[] =
     {&simplenet_method, &torus_method, &dragonfly_method, NULL};
 
-static const int model_net_get_msg_sz(int net_id);
+static int model_net_get_msg_sz(int net_id);
 
 int model_net_setup(char* name,
 		    int packet_size,
@@ -99,7 +99,6 @@ void model_net_event(
 	  /* Number of packets and packet ID is passed to the underlying network to mark the final packet for local event completion*/
 	  method_array[net_id]->model_net_method_packet_event(category, final_dest_lp, packet_size, remote_event_size, remote_event, self_event_size, self_event, sender, last);	  
        }
-
     return;
 }
 
@@ -300,7 +299,7 @@ void model_net_event_rc(
 } 
 
 /* returns the message size, can be either simplenet, dragonfly or torus message size*/
-static const int model_net_get_msg_sz(int net_id)
+static int model_net_get_msg_sz(int net_id)
 {
    // TODO: Add checks on network name
    // TODO: Add dragonfly and torus network models
@@ -314,7 +313,7 @@ static const int model_net_get_msg_sz(int net_id)
 }
 
 /* returns the packet size in the modelnet struct */
-const int model_net_get_packet_size(int net_id)
+int model_net_get_packet_size(int net_id)
 {
   if(net_id < 0 || net_id > NUM_NETS)
      {
