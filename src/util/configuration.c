@@ -37,7 +37,11 @@ int configuration_load (const char *filepath,
     rc = MPI_File_close(&fh);
     assert(rc == MPI_SUCCESS);
 
+#ifdef __APPLE__
+    f = fopen(filepath, "r");
+#else
     f = fmemopen(txtdata, txtsize, "rb");
+#endif
     assert(f);
 
     *handle = txtfile_openStream(f, &error);
