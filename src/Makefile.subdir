@@ -88,10 +88,6 @@ src_libcodes_base_a_SOURCES =  \
     src/modelconfig/txt_configfile.c \
     codes/tools.h \
     src/util/tools.c \
-    src/util/interval-merge-tree.h \
-    src/util/interval-merge-tree.c \
-    src/util/red-black-tree.h \
-    src/util/red-black-tree.c \
     src/util/codes-callbacks.h \
     src/util/codes-callbacks.c \
     src/util/codes_mapping.c \
