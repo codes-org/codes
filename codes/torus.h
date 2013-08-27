@@ -1,8 +1,8 @@
 /*
- * * Copyright (C) 2011, University of Chicago
- * *
- * * See COPYRIGHT notice in top-level directory.
- * */
+ * Copyright (C) 2013 University of Chicago.
+ * See COPYRIGHT notice in top-level directory.
+ *
+ */
 
 #ifndef INC_torus_h
 #define INC_torus_h
@@ -181,3 +181,12 @@ static long long       total_hops = 0;
 int num_chunks;
 
 #endif
+
+/*
+ * Local variables:
+ *  c-indent-level: 4
+ *  c-basic-offset: 4
+ * End:
+ *
+ * vim: ts=8 sts=4 sw=4 expandtab
+ */
