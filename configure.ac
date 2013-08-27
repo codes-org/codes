@@ -102,15 +102,8 @@ AS_IF([test "x$enable_valgrind_clean" = "xyes"], [
       AC_DEFINE([VALGRIND], [1], [If enabling valgrind-clean build])
 ])
 
-#
-# To reactivate rewriting of the codesparser.y file,
-# uncomment next line.
-#
-# NOTE: this will force the latest bison for building,
-# even when building from a dist.
-#
-#
-dnl AC_CONFIG_FILES([src/iokernellang/codesparser.y])
+
+AC_CONFIG_FILES([src/iokernellang/codesparser.y])
 
 AC_CONFIG_FILES([Makefile])
 
