@@ -1,7 +1,7 @@
 /*
- * Copyright (C) 2012, University of Chicago
- *
+ * Copyright (C) 2013 University of Chicago.
  * See COPYRIGHT notice in top-level directory.
+ *
  */
 
 /*
@@ -65,3 +65,12 @@ void timeline_finalize(void);
 #endif
 
 #endif
+
+/*
+ * Local variables:
+ *  c-indent-level: 4
+ *  c-basic-offset: 4
+ * End:
+ *
+ * vim: ts=8 sts=4 sw=4 expandtab
+ */

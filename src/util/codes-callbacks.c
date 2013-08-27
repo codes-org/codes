@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2013 University of Chicago.
+ * See COPYRIGHT notice in top-level directory.
+ *
+ */
+
 #include "util/codes-callbacks.h"
 
 int codes_callback_create(uint64_t srclp, uint64_t event, uint64_t reqid, 
@@ -58,3 +64,12 @@ int codes_callback_copy(codes_callback_t * dest, codes_callback_t * src)
 
     return 0;
 }
+
+/*
+ * Local variables:
+ *  c-indent-level: 4
+ *  c-basic-offset: 4
+ * End:
+ *
+ * vim: ts=8 sts=4 sw=4 expandtab
+ */

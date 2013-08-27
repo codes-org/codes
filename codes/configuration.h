@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2013 University of Chicago.
+ * See COPYRIGHT notice in top-level directory.
+ *
+ */
+
 #ifndef __CONFIGURATION_H__
 #define __CONFIGURATION_H__
 
@@ -141,3 +147,12 @@ int configuration_get_lpgroups (ConfigHandle *handle,
 extern ConfigHandle config;
 
 #endif
+
+/*
+ * Local variables:
+ *  c-indent-level: 4
+ *  c-basic-offset: 4
+ * End:
+ *
+ * vim: ts=8 sts=4 sw=4 expandtab
+ */

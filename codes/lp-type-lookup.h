@@ -1,8 +1,9 @@
 /*
- * Copyright (C) 2013, University of Chicago
- *
+ * Copyright (C) 2013 University of Chicago.
  * See COPYRIGHT notice in top-level directory.
+ *
  */
+
 
 #ifndef LP_TYPE_LOOKUP_H
 #define LP_TYPE_LOOKUP_H

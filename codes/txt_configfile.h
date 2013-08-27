@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2013 University of Chicago.
+ * See COPYRIGHT notice in top-level directory.
+ *
+ */
+
 #ifndef SRC_COMMON_MODELCONFIG_TXTFILE_CONFIGFILE_H
 #define SRC_COMMON_MODELCONFIG_TXTFILE_CONFIGFILE_H
 
@@ -46,3 +52,12 @@ int txtfile_writeConfig (ConfigHandle h, SectionHandle h2, FILE * out, char ** e
 #endif
 
 #endif
+
+/*
+ * Local variables:
+ *  c-indent-level: 4
+ *  c-basic-offset: 4
+ * End:
+ *
+ * vim: ts=8 sts=4 sw=4 expandtab
+ */

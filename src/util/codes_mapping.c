@@ -1,7 +1,7 @@
 /*
- * Copyright (C) 2011, University of Chicago
- *
+ * Copyright (C) 2013 University of Chicago.
  * See COPYRIGHT notice in top-level directory.
+ *
  */
 
 /* SUMMARY:
@@ -240,3 +240,12 @@ void codes_mapping_setup()
   tw_define_lps(codes_mapping_get_lps_for_pe(), message_size, 0);
 }
 
+
+/*
+ * Local variables:
+ *  c-indent-level: 4
+ *  c-basic-offset: 4
+ * End:
+ *
+ * vim: ts=8 sts=4 sw=4 expandtab
+ */

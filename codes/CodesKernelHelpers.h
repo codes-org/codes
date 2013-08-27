@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2013 University of Chicago.
+ * See COPYRIGHT notice in top-level directory.
+ *
+ */
+
 #ifndef CODE_KERNEL_HELPERS_H
 #define CODE_KERNEL_HELPERS_H
 
@@ -61,3 +67,12 @@ int codes_kernel_helper_bootstrap(char * io_kernel_path, char * def_io_kernel_pa
 char * code_kernel_helpers_cleventToStr(int inst);
 char * code_kernel_helpers_kinstToStr(int inst);
 #endif
+
+/*
+ * Local variables:
+ *  c-indent-level: 4
+ *  c-basic-offset: 4
+ * End:
+ *
+ * vim: ts=8 sts=4 sw=4 expandtab
+ */

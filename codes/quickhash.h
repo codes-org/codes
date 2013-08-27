@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2013 University of Chicago.
+ * See COPYRIGHT notice in top-level directory.
+ *
+ */
+
 /* 2001 Clemson University and The University of Chicago
  *
  * See COPYING in top-level directory.
@@ -327,3 +333,12 @@ static inline int quickhash_null32_hash(void *k, int table_size)
 }
 
 #endif /* SRC_COMMON_UTIL_QUICKHASH_H */
+
+/*
+ * Local variables:
+ *  c-indent-level: 4
+ *  c-basic-offset: 4
+ * End:
+ *
+ * vim: ts=8 sts=4 sw=4 expandtab
+ */

@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2013 University of Chicago.
+ * See COPYRIGHT notice in top-level directory.
+ *
+ */
+
 #ifndef __JENKINS_HASH__
 #define __JENKINS_HASH__
 
@@ -34,3 +40,12 @@ void bj_hashlittle2(
 #define bj_hashmask(n) (bj_hashsize(n)-1)
 
 #endif
+
+/*
+ * Local variables:
+ *  c-indent-level: 4
+ *  c-basic-offset: 4
+ * End:
+ *
+ * vim: ts=8 sts=4 sw=4 expandtab
+ */

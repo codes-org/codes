@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2013 University of Chicago.
+ * See COPYRIGHT notice in top-level directory.
+ *
+ */
+
 #include "codes/CodesKernelHelpers.h"
 
 #include <stdlib.h>
@@ -337,3 +343,12 @@ int codes_kernel_helper_bootstrap(char * io_kernel_path, char *
 
     return t;
 }
+
+/*
+ * Local variables:
+ *  c-indent-level: 4
+ *  c-basic-offset: 4
+ * End:
+ *
+ * vim: ts=8 sts=4 sw=4 expandtab
+ */
