@@ -19,6 +19,10 @@
 #define MEAN_PROCESS 1.0
 #define MAX_NAME_LENGTH 256
 
+#define CATEGORY_NAME_MAX 16
+#define CATEGORY_MAX 12
+
+
 // debugging parameters
 #define TRACK 235221
 #define PRINT_ROUTER_TABLE 1
@@ -109,6 +113,7 @@ struct terminal_state
 // Terminal generate, sends and arrival T_SEND, T_ARRIVAL, T_GENERATE
 // Router-Router Intra-group sends and receives RR_LSEND, RR_LARRIVE
 // Router-Router Inter-group sends and receives RR_GSEND, RR_GARRIVE
+   struct mn_stats dragonfly_stats_array[CATEGORY_MAX];
 };
 /* terminal event type (1-4) */
 enum event_t

@@ -10,18 +10,35 @@
 #include "ross.h"
 #include "codes/lp-type-lookup.h"
 #include "codes/configuration.h"
+#include "codes/lp-io.h"
 
 #define MAX_NAME_LENGTH 256
+#define CATEGORY_NAME_MAX 16
+#define CATEGORY_MAX 12
 
 typedef struct simplenet_param simplenet_param;
 typedef struct dragonfly_param dragonfly_param;
 typedef struct torus_param torus_param;
+typedef struct mn_stats mn_stats;
 
 enum NETWORKS
 {
   SIMPLENET,
   TORUS,
   DRAGONFLY
+};
+
+/* data structure for tracking network statistics */
+struct mn_stats
+{
+    char category[CATEGORY_NAME_MAX];
+    long send_count;
+    long send_bytes;
+    tw_stime send_time;
+    long recv_count;
+    long recv_bytes;
+    tw_stime recv_time;
+    long max_event_size;
 };
 
 /* structs for initializing a network/ specifying network parameters */
@@ -130,6 +147,15 @@ int model_net_get_packet_size(int net_id);
 void model_net_add_lp_type(int net_id);
 
 void model_net_report_stats(int net_id);
+
+/* writing model-net statistics */
+void model_net_write_stats(tw_lpid lpid, mn_stats* stat);
+
+/* printing model-net statistics */
+void model_net_print_stats(tw_lpid lpid, mn_stats mn_stats_array[]);
+
+/* find model-net statistics */
+mn_stats* model_net_find_stats(const char* category, mn_stats mn_stats_array[]);
 #endif /* MODELNET_H */
 
 /*

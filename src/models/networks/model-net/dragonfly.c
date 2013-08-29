@@ -202,7 +202,7 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_
   tw_stime ts;
   tw_event *e;
   terminal_message *m;
-  int i;
+  int i, total_event_size;
   num_chunks = msg->packet_size / CHUNK_SIZE;
   msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter + tw_rand_integer(lp->rng, 0, lp->gid + g_tw_nlp * s->packet_counter);
   msg->travel_start_time = tw_now(lp);
@@ -246,6 +246,14 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_
 	  exit(-1);
         } //else
   } // for
+  total_event_size = dragonfly_get_msg_sz() + msg->remote_event_size_bytes + msg->local_event_size_bytes;
+  mn_stats* stat;
+  stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+  stat->send_count++;
+  stat->send_bytes += msg->packet_size;
+  stat->send_time += (1/cn_bandwidth) * msg->packet_size;
+  if(stat->max_event_size < total_event_size)
+	  stat->max_event_size = total_event_size;
   return;
 }
 
@@ -336,6 +344,11 @@ if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
   if(msg->chunk_id == num_chunks-1)
   {
 	 bf->c2 = 1;
+	 mn_stats* stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+	 stat->recv_count++;
+	 stat->recv_bytes += msg->packet_size;
+	 stat->recv_time += tw_now(lp) - msg->travel_start_time;
+
 	 N_finished_packets++;
 	 dragonfly_total_time += tw_now( lp ) - msg->travel_start_time;
 	 total_hops += msg->my_N_hop;
@@ -455,6 +468,7 @@ void
 dragonfly_terminal_final( terminal_state * s, 
       tw_lp * lp )
 {
+	model_net_print_stats(lp->gid, s->dragonfly_stats_array);
 }
 
 void dragonfly_router_final(router_state * s,
@@ -796,6 +810,11 @@ void terminal_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_message 
 
 		 for(i = 0; i < num_chunks; i++)
                   tw_rand_reverse_unif(lp->rng);
+		 mn_stats* stat;
+		 stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+		 stat->send_count--;
+		 stat->send_bytes -= msg->packet_size;
+		 stat->send_time -= (1/cn_bandwidth) * msg->packet_size;
 		 }
 	   break;
 	   
@@ -816,6 +835,11 @@ void terminal_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_message 
 		   s->next_credit_available_time = msg->saved_credit_time;
 		   if(bf->c2)
 		   {
+		    mn_stats* stat;
+		    stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+		    stat->recv_count--;
+		    stat->recv_bytes -= msg->packet_size;
+		    stat->recv_time -= tw_now(lp) - msg->travel_start_time;
 		    N_finished_packets--;
 		    dragonfly_total_time -= (tw_now(lp) - msg->travel_start_time);
 		    total_hops -= msg->my_N_hop;

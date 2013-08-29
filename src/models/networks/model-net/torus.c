@@ -250,7 +250,7 @@ static void packet_generate( nodes_state * s,
 		tw_lp * lp )
 {
 //    printf("\n msg local event size %d remote event size %d ", msg->local_event_size_bytes, msg->remote_event_size_bytes);
-    int j, tmp_dir=-1, tmp_dim=-1;
+    int j, tmp_dir=-1, tmp_dim=-1, total_event_size;
     tw_stime ts;
 
 //    event triggered when packet head is sent
@@ -303,6 +303,17 @@ static void packet_generate( nodes_state * s,
        exit(-1); 
        }
    }
+
+   total_event_size = torus_get_msg_sz() + msg->remote_event_size_bytes + msg->local_event_size_bytes;   
+   /* record the statistics of the generated packets */
+   mn_stats* stat;
+   stat = model_net_find_stats(msg->category, s->torus_stats_array);
+   stat->send_count++;  
+   stat->send_bytes += msg->packet_size;
+   stat->send_time += (1/link_bandwidth) * msg->packet_size;
+   /* record the maximum ROSS event size */
+   if(stat->max_event_size < total_event_size)
+	   stat->max_event_size = total_event_size;
 }
 /*Sends a 8-byte credit back to the torus node LP that sent the message */
 static void credit_send( nodes_state * s, 
@@ -333,7 +344,6 @@ static void credit_send( nodes_state * s,
 
     m->type = CREDIT;
     tw_event_send( buf_e );
-
 }
 /* send a packet from one torus node to another torus node
  A packet can be up to 256 bytes on BG/L and BG/P and up to 512 bytes on BG/Q */
@@ -420,8 +430,9 @@ static void packet_arrive( nodes_state * s,
   tw_event *e;
   tw_stime ts;
   nodes_message *m;
+  mn_stats* stat;
 
-  credit_send( s, bf, lp, msg); // Commented on May 22nd to check if the credit needs to be sent from the final destination or not
+  credit_send( s, bf, lp, msg); 
   
   msg->my_N_hop++;
   ts = 0.1 + tw_rand_exponential(lp->rng, MEAN_INTERVAL/200);
@@ -432,6 +443,12 @@ static void packet_arrive( nodes_state * s,
         if( msg->chunk_id == num_chunks - 1 )    
         {
 	    bf->c2 = 1;
+	    stat = model_net_find_stats(msg->category, s->torus_stats_array);
+	    stat->recv_count++;
+	    stat->recv_bytes += msg->packet_size;
+	    stat->recv_time += tw_now( lp ) - msg->travel_start_time;
+
+	    /*count the number of packets completed overall*/
 	    N_finished_packets++;
 	    total_time += tw_now( lp ) - msg->travel_start_time;
 	    total_hops += msg->my_N_hop;
@@ -488,6 +505,7 @@ static void torus_report_stats()
 void
 final( nodes_state * s, tw_lp * lp )
 {
+  model_net_print_stats(lp->gid, &s->torus_stats_array[0]); 
   free(s->next_link_available_time);
   free(s->next_credit_available_time);
   free(s->next_flit_generate_time);
@@ -514,7 +532,12 @@ static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw
 
 		     //s->next_flit_generate_time[(saved_dim * 2) + saved_dir][0] = msg->saved_available_time;
 		     for(i=0; i < num_chunks; i++)
-  		        tw_rand_reverse_unif(lp->rng);	
+  		        tw_rand_reverse_unif(lp->rng);
+	     	     mn_stats* stat;
+		     stat = model_net_find_stats(msg->category, s->torus_stats_array);
+		     stat->send_count--; 
+		     stat->send_bytes -= msg->packet_size;
+		     stat->send_time -= (1/link_bandwidth) * msg->packet_size;
 		   }
 	break;
 	
@@ -528,6 +551,11 @@ static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw
 		    s->next_credit_available_time[next_dir + ( next_dim * 2 )][0] = msg->saved_available_time;
 		    if(bf->c2)
 		    {
+		       struct mn_stats* stat;
+		       stat = model_net_find_stats(msg->category, s->torus_stats_array);
+		       stat->recv_count--;
+		       stat->recv_bytes -= msg->packet_size;
+		        stat->recv_time -= tw_now(lp) - msg->travel_start_time;	    
 		       N_finished_packets--;
 		       total_time -= tw_now( lp ) - msg->travel_start_time;
 		       total_hops -= msg->my_N_hop;

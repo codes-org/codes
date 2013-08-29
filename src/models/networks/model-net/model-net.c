@@ -24,11 +24,13 @@ static struct model_net_method* method_array[] =
 
 static int model_net_get_msg_sz(int net_id);
 
+static lp_io_handle handle;
+
 int model_net_setup(char* name,
 		    int packet_size,
 		    const void* net_params)
 {
-     int i;
+     int i, ret;
     /* find struct for underlying method (according to configuration file) */
      for(i=0; method_array[i] != NULL; i++)
      {
@@ -37,11 +39,98 @@ int model_net_setup(char* name,
 	   method_array[i]->mn_setup(net_params);
 	   method_array[i]->packet_size = packet_size;
 	   model_net_add_lp_type(i);
+	   ret = lp_io_prepare(name, LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD);
+	   if(ret < 0)
+	   {
+		   return -1;
+	   }
 	   return(i);
 	}
      }
      fprintf(stderr, "Error: undefined network name %s (Available options simplenet, torus, dragonfly) \n", name);
      return -1; // indicating error
+}
+
+void model_net_write_stats(tw_lpid lpid, struct mn_stats* stat)
+{
+    int ret;
+    char id[32];
+    char data[1024];
+
+    sprintf(id, "model-net-category-%s", stat->category);
+    sprintf(data, "lp:%ld\tsend_count:%ld\tsend_bytes:%ld\tsend_time:%f\t" 
+        "recv_count:%ld\trecv_bytes:%ld\trecv_time:%f\tmax_event_size:%ld\n",
+        (long)lpid,
+        stat->send_count,
+        stat->send_bytes,
+        stat->send_time,
+        stat->recv_count,
+        stat->recv_bytes,
+        stat->recv_time,
+        stat->max_event_size);
+
+    ret = lp_io_write(lpid, id, strlen(data), data);
+    assert(ret == 0);
+
+    return;
+}
+
+void model_net_print_stats(tw_lpid lpid, mn_stats mn_stats_array[])
+{
+
+    int i;
+    struct mn_stats all;
+
+    memset(&all, 0, sizeof(all));
+    sprintf(all.category, "all");
+
+    for(i=0; i<CATEGORY_MAX; i++)
+    {
+        if(strlen(mn_stats_array[i].category) > 0)
+        {
+            all.send_count += mn_stats_array[i].send_count;
+            all.send_bytes += mn_stats_array[i].send_bytes;
+            all.send_time += mn_stats_array[i].send_time;
+            all.recv_count += mn_stats_array[i].recv_count;
+            all.recv_bytes += mn_stats_array[i].recv_bytes;
+            all.recv_time += mn_stats_array[i].recv_time;
+            if(mn_stats_array[i].max_event_size > all.max_event_size)
+                all.max_event_size = mn_stats_array[i].max_event_size;
+
+            model_net_write_stats(lpid, &mn_stats_array[i]);
+        }
+    }
+    model_net_write_stats(lpid, &all);
+}
+
+struct mn_stats* model_net_find_stats(const char* category, mn_stats mn_stats_array[])
+{
+    int i;
+    int new_flag = 0;
+    int found_flag = 0;
+
+    for(i=0; i<CATEGORY_MAX; i++)
+    {
+        if(strlen(mn_stats_array[i].category) == 0)
+        {
+            found_flag = 1;
+            new_flag = 1;
+            break;
+        }
+        if(strcmp(category, mn_stats_array[i].category) == 0)
+        {
+            found_flag = 1;
+            new_flag = 0;
+            break;
+        }
+    }
+    assert(found_flag);
+
+    if(new_flag)
+    {
+        strcpy(mn_stats_array[i].category, category);
+    }
+    return(&mn_stats_array[i]);
 }
 
 void model_net_event(
@@ -348,7 +437,11 @@ void model_net_report_stats(int net_id)
 
      // TODO: ADd checks by network names
      //    // Add dragonfly and torus network models
-   return method_array[net_id]->mn_report_stats();
+   method_array[net_id]->mn_report_stats();
+
+   int ret = lp_io_flush(handle, MPI_COMM_WORLD);
+   assert(ret == 0);
+   return;
 }
 /* registers the lp type */
 void model_net_add_lp_type(int net_id)

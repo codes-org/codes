@@ -1,8 +1,8 @@
 /*
- * Copyright (C) 2013 University of Chicago.
- * See COPYRIGHT notice in top-level directory.
- *
- */
+ * * Copyright (C) 2013, University of Chicago
+ * *
+ * * See COPYRIGHT notice in top-level directory.
+ * */
 
 #ifndef INC_torus_h
 #define INC_torus_h
@@ -10,6 +10,7 @@
 #include <ross.h>
 #include <assert.h>
 
+#include "codes/lp-io.h"
 #include "codes/codes_mapping.h"
 #include "codes/codes.h"
 #include "codes/model-net.h"
@@ -18,9 +19,11 @@
 #define CHUNK_SIZE 32
 #define DEBUG 1
 #define MEAN_INTERVAL 100
-#define CATEGORY_NAME_MAX 16
 #define MAX_NAME_LENGTH 256
 #define TRACE -1 
+
+#define CATEGORY_NAME_MAX 16
+#define CATEGORY_MAX 12
 
 /* Torus network model implementation of codes, implements the modelnet API */
 
@@ -115,6 +118,9 @@ struct nodes_state
   /* neighbor LP ids for this torus node */
   int* neighbour_minus_lpID;
   int* neighbour_plus_lpID;
+
+  /* records torus statistics for this LP having different communication categories */
+  struct mn_stats torus_stats_array[CATEGORY_MAX];
 };
 
 struct nodes_message

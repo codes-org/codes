@@ -30,25 +30,12 @@ enum sn_event_type
 };
 
 
-/* data structure for tracking network statistics */
-struct sn_stats
-{
-    char category[CATEGORY_NAME_MAX];
-    long send_count;
-    long send_bytes;
-    tw_stime send_time;
-    long recv_count;
-    long recv_bytes;
-    tw_stime recv_time;
-    long max_event_size;
-};
-
 struct sn_state
 {
     /* next idle times for network card, both inbound and outbound */
     tw_stime net_send_next_idle;
     tw_stime net_recv_next_idle;
-    struct sn_stats sn_stats_array[CATEGORY_MAX];
+    struct mn_stats sn_stats_array[CATEGORY_MAX];
 };
 
 struct sn_message
@@ -184,7 +171,6 @@ static void handle_msg_start_event(
     tw_bf * b,
     sn_message * m,
     tw_lp * lp);
-static struct sn_stats* find_stats(const char* category, sn_state *ns);
 
 /* returns pointer to LP information for simplenet module */
 static const tw_lptype* sn_get_lp_type()
@@ -279,59 +265,11 @@ static void sn_rev_event(
     return;
 }
 
-static void write_stats(tw_lp* lp, struct sn_stats* stat)
-{
-    int ret;
-    char id[32];
-    char data[1024];
-
-    sprintf(id, "sn-category-%s", stat->category);
-    sprintf(data, "lp:%ld\tsend_count:%ld\tsend_bytes:%ld\tsend_time:%f\t" 
-        "recv_count:%ld\trecv_bytes:%ld\trecv_time:%f\tmax_event_size:%ld\n",
-        (long)lp->gid,
-        stat->send_count,
-        stat->send_bytes,
-        stat->send_time,
-        stat->recv_count,
-        stat->recv_bytes,
-        stat->recv_time,
-        stat->max_event_size);
-
-    ret = lp_io_write(lp->gid, id, strlen(data), data);
-    assert(ret == 0);
-
-    return;
-}
-
 static void sn_finalize(
     sn_state * ns,
     tw_lp * lp)
 {
-    int i;
-    struct sn_stats all;
-
-    memset(&all, 0, sizeof(all));
-    sprintf(all.category, "all");
-
-    for(i=0; i<CATEGORY_MAX; i++)
-    {
-        if(strlen(ns->sn_stats_array[i].category) > 0)
-        {
-            all.send_count += ns->sn_stats_array[i].send_count;
-            all.send_bytes += ns->sn_stats_array[i].send_bytes;
-            all.send_time += ns->sn_stats_array[i].send_time;
-            all.recv_count += ns->sn_stats_array[i].recv_count;
-            all.recv_bytes += ns->sn_stats_array[i].recv_bytes;
-            all.recv_time += ns->sn_stats_array[i].recv_time;
-            if(ns->sn_stats_array[i].max_event_size > all.max_event_size)
-                all.max_event_size = ns->sn_stats_array[i].max_event_size;
-
-            write_stats(lp, &ns->sn_stats_array[i]);
-        }
-    }
-
-    write_stats(lp, &all);
-
+    model_net_print_stats(lp->gid, &ns->sn_stats_array[0]);
     return;
 }
 
@@ -362,11 +300,11 @@ static void handle_msg_ready_rev_event(
     sn_message * m,
     tw_lp * lp)
 {
-    struct sn_stats* stat;
+    struct mn_stats* stat;
 
     ns->net_recv_next_idle = m->net_recv_next_idle_saved;
     
-    stat = find_stats(m->category, ns);
+    stat = model_net_find_stats(m->category, ns->sn_stats_array);
     stat->recv_count--;
     stat->recv_bytes -= m->net_msg_size_bytes;
     stat->recv_time -= rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
@@ -386,11 +324,11 @@ static void handle_msg_ready_event(
     tw_stime recv_queue_time = 0;
     tw_event *e_new;
     sn_message *m_new;
-    struct sn_stats* stat;
+    struct mn_stats* stat;
 
     //printf("handle_msg_ready_event(), lp %llu.\n", (unsigned long long)lp->gid);
     /* add statistics */
-    stat = find_stats(m->category, ns);
+    stat = model_net_find_stats(m->category, ns->sn_stats_array);
     stat->recv_count++;
     stat->recv_bytes += m->net_msg_size_bytes;
     stat->recv_time += rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
@@ -431,8 +369,6 @@ static void handle_msg_start_rev_event(
     sn_message * m,
     tw_lp * lp)
 {
-    struct sn_stats* stat;
-
     ns->net_send_next_idle = m->net_send_next_idle_saved;
 
     if(m->local_event_size_bytes > 0)
@@ -440,7 +376,8 @@ static void handle_msg_start_rev_event(
         codes_local_latency_reverse(lp);
     }
 
-    stat = find_stats(m->category, ns);
+    mn_stats* stat;
+    stat = model_net_find_stats(m->category, ns->sn_stats_array);
     stat->send_count--;
     stat->send_bytes -= m->net_msg_size_bytes;
     stat->send_time -= global_net_startup_ns + rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
@@ -460,7 +397,7 @@ static void handle_msg_start_event(
     tw_event *e_new;
     sn_message *m_new;
     tw_stime send_queue_time = 0;
-    struct sn_stats* stat;
+    mn_stats* stat;
     int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
     tw_lpid dest_id;
     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
@@ -470,7 +407,7 @@ static void handle_msg_start_event(
 
     //printf("handle_msg_start_event(), lp %llu.\n", (unsigned long long)lp->gid);
     /* add statistics */
-    stat = find_stats(m->category, ns);
+    stat = model_net_find_stats(m->category, ns->sn_stats_array);
     stat->send_count++;
     stat->send_bytes += m->net_msg_size_bytes;
     stat->send_time += global_net_startup_ns + rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
@@ -524,36 +461,6 @@ static void handle_msg_start_event(
         tw_event_send(e_new);
     }
     return;
-}
-
-static struct sn_stats* find_stats(const char* category, sn_state *ns)
-{
-    int i;
-    int new_flag = 0;
-    int found_flag = 0;
-
-    for(i=0; i<CATEGORY_MAX; i++)
-    {
-        if(strlen(ns->sn_stats_array[i].category) == 0)
-        {
-            found_flag = 1;
-            new_flag = 1;
-            break;
-        }
-        if(strcmp(category, ns->sn_stats_array[i].category) == 0)
-        {
-            found_flag = 1;
-            new_flag = 0;
-            break;
-        }
-    }
-    assert(found_flag);
-
-    if(new_flag)
-    {
-        strcpy(ns->sn_stats_array[i].category, category);
-    }
-    return(&ns->sn_stats_array[i]);
 }
 
 /* Model-net function calls */

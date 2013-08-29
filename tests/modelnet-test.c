@@ -144,8 +144,6 @@ int main(
 {
     int nprocs;
     int rank;
-    int ret;
-    lp_io_handle handle;
     //printf("\n Config count %d ",(int) config.lpgroups_count);
     g_tw_ts_end = s_to_ns(60*60*24*365); /* one year, in nsecs */
 
@@ -174,17 +172,8 @@ int main(
 	  offset = 1;
     }
 
-    ret = lp_io_prepare("simplenet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD);
-    if(ret < 0)
-    {
-       return(-1); 
-    }
-
     tw_run();
     model_net_report_stats(net_id);
-
-    ret = lp_io_flush(handle, MPI_COMM_WORLD);
-    assert(ret == 0);
 
     tw_end();
     return 0;
