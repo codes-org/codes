@@ -146,12 +146,15 @@ int model_net_get_packet_size(int net_id);
 
 void model_net_add_lp_type(int net_id);
 
+/* used for reporting overall network statistics for e.g. average latency ,
+ * maximum latency, total number of packets finished during the entire
+ * simulation etc. */
 void model_net_report_stats(int net_id);
 
-/* writing model-net statistics */
+/* writing model-net statistics on a per LP basis */
 void model_net_write_stats(tw_lpid lpid, mn_stats* stat);
 
-/* printing model-net statistics */
+/* printing model-net statistics on a per LP basis */
 void model_net_print_stats(tw_lpid lpid, mn_stats mn_stats_array[]);
 
 /* find model-net statistics */
