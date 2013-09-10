@@ -3,19 +3,18 @@ machines.
 
 0 - Checkout, build, and install the trunk version of ROSS
 
-    mkdir ross
-    cd ross
-    svn co https://subversion.cs.rpi.edu/svn/rossnet/trunk
+    git clone http://github.com/carothersc/ROSS.git
+    cd ROSS
     mkdir build
     cd build
 	 # note: other options for ARCH include i386 (for 32 bit machines),
 	 # bgp, and bgq (for Blue Gene systems)
-    ARCH=x86_64 CC=mpicc CXX=mpicxx cmake -DCMAKE_INSTALL_PREFIX=../install ../trunk
+    ARCH=x86_64 CC=mpicc CXX=mpicxx cmake -DCMAKE_INSTALL_PREFIX=../install ../
     make -j 3
     make install
 
-    <the result should be that the trunk version of ROSS is installed in the 
-    ross/install/ directory>
+    <the result should be that the latest version of ROSS is installed in the 
+    ROSS/install/ directory>
 
 1 - If this is the first time you are building codes-base, run
 
