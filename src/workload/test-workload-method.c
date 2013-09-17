@@ -14,7 +14,7 @@
 #include "codes-workload-method.h"
 
 int test_workload_load(const char* params, int rank);
-void test_workload_get_next(int wkld_id, struct codes_workload_op *op);
+void test_workload_get_next(int rank, struct codes_workload_op *op);
 
 struct codes_workload_method test_workload_method = 
 {
@@ -25,14 +25,13 @@ struct codes_workload_method test_workload_method =
 
 int test_workload_load(const char* params, int rank)
 {
-    /* just use the rank of the caller as the identifier */
     /* no params in this case; this example will work with any number of
      * ranks
      */
-    return rank;
+    return(0);
 }
 
-void test_workload_get_next(int wkld_id, struct codes_workload_op *op)
+void test_workload_get_next(int rank, struct codes_workload_op *op)
 {
     /* TODO: fill in a more complex example... */
 

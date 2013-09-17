@@ -85,10 +85,10 @@ int codes_workload_load(const char* type, const char* params, int rank);
  * identifier returned by the init() function.  The op argument is a pointer
  * to a structure to be filled in with I/O operation information.
  */
-void codes_workload_get_next(int wkld_id, struct codes_workload_op *op);
+void codes_workload_get_next(int wkld_id, int rank, struct codes_workload_op *op);
 
 /* Reverse of the above function. */
-void codes_workload_get_next_rc(int wkld_id, const struct codes_workload_op *op);
+void codes_workload_get_next_rc(int wkld_id, int rank, const struct codes_workload_op *op);
 
 /* NOTE: there is deliberately no finalize function; we don't have any
  * reliable way to tell when a workload is truly done and will not
