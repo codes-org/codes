@@ -18,6 +18,7 @@
 
 #include "codes/lp-io.h"
 #include "codes/codes.h"
+#include "codes/codes-workload.h"
 
 #define NUM_SERVERS 16  /* number of servers */
 #define NUM_CLIENTS 48  /* number of clients */
@@ -39,6 +40,8 @@ enum svr_event_type
 
 struct client_state
 {
+    int my_rank;
+    int wkld_id;
 };
 
 struct svr_state
@@ -89,12 +92,12 @@ tw_lptype svr_lp = {
      sizeof(svr_state),
 };
 
-static void handle_client_kickoff_rev_event(
+static void handle_client_op_loop_rev_event(
     client_state * ns,
     tw_bf * b,
     client_msg * m,
     tw_lp * lp);
-static void handle_client_kickoff_event(
+static void handle_client_op_loop_event(
     client_state * ns,
     tw_bf * b,
     client_msg * m,
@@ -192,6 +195,7 @@ static void client_init(
     tw_stime kickoff_time;
     
     memset(ns, 0, sizeof(*ns));
+    ns->my_rank = lp->gid;
 
     /* each client sends a dummy event to itself */
 
@@ -225,7 +229,7 @@ static void client_event(
     switch (m->event_type)
     {
         case CLIENT_KICKOFF:
-            handle_client_kickoff_event(ns, b, m, lp);
+            handle_client_op_loop_event(ns, b, m, lp);
             break;
         default:
             assert(0);
@@ -257,7 +261,7 @@ static void client_rev_event(
     switch (m->event_type)
     {
         case CLIENT_KICKOFF:
-            handle_client_kickoff_rev_event(ns, b, m, lp);
+            handle_client_op_loop_rev_event(ns, b, m, lp);
             break;
         default:
             assert(0);
@@ -329,27 +333,49 @@ static tw_peid node_mapping(
     return (tw_peid) gid / g_tw_nlp;
 }
 
-static void handle_client_kickoff_rev_event(
+static void handle_client_op_loop_rev_event(
     client_state * ns,
     tw_bf * b,
     client_msg * m,
     tw_lp * lp)
 {
+    /* TODO: fill this in */
     assert(0);
 
     return;
 }
 
 /* handle initial event */
-static void handle_client_kickoff_event(
+static void handle_client_op_loop_event(
     client_state * ns,
     tw_bf * b,
     client_msg * m,
     tw_lp * lp)
 {
-    printf("handle_client_kickoff_event(), lp %llu.\n", (unsigned long long)lp->gid);
+    struct codes_workload_op op;
 
-    /* do nothing */
+    printf("handle_client_op_loop_event(), lp %llu.\n", (unsigned long long)lp->gid);
+
+    if(m->event_type == CLIENT_KICKOFF)
+    {
+        /* first operation; initialize the desired workload generator */
+        ns->wkld_id = codes_workload_load("test", NULL, ns->my_rank);
+        assert(ns->wkld_id > -1);
+    }
+
+    codes_workload_get_next(ns->wkld_id, ns->my_rank, &op);
+
+    if(op.op_type == CODES_WK_END)
+    {
+        printf("Client rank %d completed workload.\n", ns->my_rank);
+        /* done */
+    }
+    else
+    {
+        /* TODO: continue here */
+    }
+
+    return;
 }
 
 /*
