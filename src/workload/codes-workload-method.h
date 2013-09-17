@@ -15,9 +15,12 @@
 #include "ross.h"
 #include "codes/codes-workload.h"
 
-int codes_workload_load(const char* type, const char* params, int rank);
-
-void codes_workload_get_next(int wkld_id, struct codes_workload_op *op);
+struct codes_workload_method
+{
+    char *method_name; /* name of the generator */
+    int (*codes_workload_load)(const char* params, int rank);
+    void (*codes_workload_get_next)(int wkld_id, struct codes_workload_op *op);
+};
 
 #endif /* CODES_WORKLOAD_METHOD_H */
 

@@ -101,4 +101,5 @@ src_libcodes_base_a_SOURCES =  \
     codes/timeline.h \
     src/logging/timeline.c \
     src/workload/codes-workload.c \
-    src/workload/codes-workload-method.h
+    src/workload/codes-workload-method.h \
+    src/workload/test-workload-method.c
