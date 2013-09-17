@@ -59,7 +59,8 @@ nobase_include_HEADERS = \
     codes/codes.h \
     codes/configuration.h \
     codes/lp-io.h \
-    codes/jenkins-hash.h
+    codes/jenkins-hash.h \
+    codes/codes-workload.h
 
 src_libcodes_base_a_SOURCES =  \
     codes/codesparser.h \
@@ -98,4 +99,6 @@ src_libcodes_base_a_SOURCES =  \
     codes/codeslogging.h \
     src/logging/codeslogging.c \
     codes/timeline.h \
-    src/logging/timeline.c
+    src/logging/timeline.c \
+    src/workload/codes-workload.c \
+    src/workload/codes-workload-method.h
