@@ -65,7 +65,7 @@ struct codes_workload_op
         struct {
             int file_id;  /* file to operate on */
         } close;
-    };
+    }u;
 };
 
 /* load and initialize workload of of type "type" with parameters specified by
