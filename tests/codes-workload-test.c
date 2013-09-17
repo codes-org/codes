@@ -56,6 +56,7 @@ struct client_msg
 struct svr_msg
 {
     enum svr_event_type event_type;
+    struct codes_workload_op op;
     tw_lpid src;          /* source of this request or ack */
 };
 
@@ -353,6 +354,9 @@ static void handle_client_op_loop_event(
     tw_lp * lp)
 {
     struct codes_workload_op op;
+    tw_event *e;
+    svr_msg *m_out;
+    tw_lpid dest_svr_id;
 
     printf("handle_client_op_loop_event(), lp %llu.\n", (unsigned long long)lp->gid);
 
@@ -365,15 +369,25 @@ static void handle_client_op_loop_event(
 
     codes_workload_get_next(ns->wkld_id, ns->my_rank, &op);
 
-    if(op.op_type == CODES_WK_END)
+    switch(op.op_type)
     {
-        printf("Client rank %d completed workload.\n", ns->my_rank);
-        /* done */
+        case CODES_WK_END:
+            printf("Client rank %d completed workload.\n", ns->my_rank);
+            return;
+            break;
+        case CODES_WK_OPEN:
+            dest_svr_id = NUM_CLIENTS + op.u.open.file_id % NUM_SERVERS;
+            break;
+        default:
+            assert(0);
+            break;
     }
-    else
-    {
-        /* TODO: continue here */
-    }
+
+    e = codes_event_new(dest_svr_id, 1, lp);
+    m_out = tw_event_data(e);
+    m_out->event_type = SVR_OP;
+    m_out->op = op;
+    tw_event_send(e);
 
     return;
 }
