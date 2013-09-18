@@ -114,6 +114,7 @@ static void client_event(
     switch (m->event_type)
     {
         case CLIENT_KICKOFF:
+        case CLIENT_OP_COMPLETE:
             handle_client_op_loop_event(ns, b, m, lp);
             break;
         default:
@@ -199,6 +200,7 @@ static void handle_client_op_loop_event(
             return;
             break;
         case CODES_WK_OPEN:
+            printf("Client rank %d will issue an open request.\n", ns->my_rank);
             dest_svr_id = g_num_clients + op.u.open.file_id % g_num_servers;
             break;
         default:
