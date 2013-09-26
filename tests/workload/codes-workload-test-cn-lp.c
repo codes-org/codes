@@ -41,6 +41,8 @@ struct client_msg
     enum client_event_type event_type;
     int barrier_count;
     struct codes_workload_op op_rc;
+    int target_barrier_count_rc;
+    int current_barrier_count_rc;
 };
 
 static void handle_client_op_loop_rev_event(
@@ -196,9 +198,8 @@ static void handle_client_op_barrier_rev_event(
     client_msg * m,
     tw_lp * lp)
 {
-    /* TODO: fill this in */
-    assert(0);
-
+    ns->current_barrier_count = m->current_barrier_count_rc;
+    ns->target_barrier_count = m->target_barrier_count_rc;
     return;
 }
 
@@ -238,6 +239,10 @@ static void handle_client_op_barrier_event(
     tw_event *e;
     client_msg *m_out;
     int i;
+
+    /* save barrier counters for reverse computation */
+    m->current_barrier_count_rc = ns->current_barrier_count;
+    m->target_barrier_count_rc = ns->target_barrier_count;
 
     assert(ns->target_barrier_count == 0 || ns->target_barrier_count == m->barrier_count);
     if(ns->target_barrier_count == 0)
