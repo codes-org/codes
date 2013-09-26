@@ -44,6 +44,7 @@ struct client_msg
     struct codes_workload_op op_rc;
     int target_barrier_count_rc;
     int current_barrier_count_rc;
+    int released_barrier_count_rc;
 };
 
 static void handle_client_op_loop_rev_event(
@@ -200,8 +201,15 @@ static void handle_client_op_barrier_rev_event(
     client_msg * m,
     tw_lp * lp)
 {
+    int i;
+
     ns->current_barrier_count = m->current_barrier_count_rc;
     ns->target_barrier_count = m->target_barrier_count_rc;
+
+    for(i=0; i<m->released_barrier_count_rc;  i++)
+    {
+        codes_local_latency_reverse(lp);
+    }
     return;
 }
 
@@ -247,6 +255,7 @@ static void handle_client_op_barrier_event(
     /* save barrier counters for reverse computation */
     m->current_barrier_count_rc = ns->current_barrier_count;
     m->target_barrier_count_rc = ns->target_barrier_count;
+    m->released_barrier_count_rc = 0;
 
     assert(ns->target_barrier_count == 0 || ns->target_barrier_count == m->barrier_count);
     if(ns->target_barrier_count == 0)
@@ -259,6 +268,7 @@ static void handle_client_op_barrier_event(
 
     if(ns->current_barrier_count == ns->target_barrier_count)
     {
+        m->released_barrier_count_rc = ns->current_barrier_count;
         /* release all clients, including self */
         for(i=0; i<ns->current_barrier_count; i++)
         {
