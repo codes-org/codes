@@ -4,3 +4,6 @@
 - Implement some "real" workload generator method examples.
 
 - Plug workload API into storage simulations.
+
+- Implement a trace replay tool as an MPI program that uses the same API so
+  that we can replay workloads on real systems in addition to simulation.
