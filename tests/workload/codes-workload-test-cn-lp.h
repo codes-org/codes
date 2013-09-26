@@ -12,7 +12,7 @@
 
 extern tw_lptype client_lp;
 
-void cn_op_complete(tw_lp *lp, tw_lpid gid);
+void cn_op_complete(tw_lp *lp, tw_stime svc_time, tw_lpid gid);
 void cn_op_complete_rc(tw_lp *lp);
 void cn_set_params(int num_clients, int num_servers);
 

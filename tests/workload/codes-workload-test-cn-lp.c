@@ -168,6 +168,17 @@ static void client_finalize(
     client_state * ns,
     tw_lp * lp)
 {
+    char buffer[256];
+    int ret;
+
+    /* write out some statistics (the current time of each cn as it
+     * shuts down)
+     */
+    sprintf(buffer, "cn_lp:%ld\tfinalize_time:%f\n", (long)lp->gid, tw_now(lp));
+
+    ret = lp_io_write(lp->gid, "compute_nodes", strlen(buffer)+1, buffer);
+    assert(ret == 0);
+
     return;
 }
 
@@ -312,12 +323,12 @@ static void cn_enter_barrier(tw_lp *lp, tw_lpid gid, int count)
 }
 
 
-void cn_op_complete(tw_lp *lp, tw_lpid gid)
+void cn_op_complete(tw_lp *lp, tw_stime svc_time, tw_lpid gid)
 {
     tw_event *e;
     client_msg *m;
 
-    e = codes_event_new(gid, codes_local_latency(lp), lp);
+    e = codes_event_new(gid, codes_local_latency(lp) + svc_time, lp);
     m = tw_event_data(e);
     m->event_type = CLIENT_OP_COMPLETE;
     tw_event_send(e);

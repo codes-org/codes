@@ -125,31 +125,16 @@ static void svr_finalize(
     svr_state * ns,
     tw_lp * lp)
 {
-#if 0
     char buffer[256];
     int ret;
 
-    sprintf(buffer, "LP %ld finalize data\n", (long)lp->gid);
+    /* write out some statistics (the current time of each server as it
+     * shuts down)
+     */
+    sprintf(buffer, "svr_lp:%ld\tfinalize_time:%f\n", (long)lp->gid, tw_now(lp));
 
-    /* test having everyone write to same identifier */
-    ret = lp_io_write(lp->gid, "node_state_pointers", strlen(buffer)+1, buffer);
+    ret = lp_io_write(lp->gid, "servers", strlen(buffer)+1, buffer);
     assert(ret == 0);
-
-    /* test having only one lp write to a particular identifier */
-    if(lp->gid == 3)
-    {
-        ret = lp_io_write(lp->gid, "subset_example", strlen(buffer)+1, buffer);
-        assert(ret == 0);
-    }
-
-    /* test having one lp write two buffers to the same id */
-    if(lp->gid == 5)
-    {
-        sprintf(buffer, "LP %ld finalize data (intentional duplicate)\n", (long)lp->gid);
-        ret = lp_io_write(lp->gid, "node_state_pointers", strlen(buffer)+1, buffer);
-        assert(ret == 0);
-    }
-#endif
 
     return;
 }
@@ -184,10 +169,13 @@ static void handle_svr_op_event(
     svr_msg * m,
     tw_lp * lp)
 {
-    /* TODO: fill in some stub service time */
+    /* NOTE: this isn't a real server simulator, but we do want time to
+     * elapse so that we can do correctness/regression testing.  We pick the
+     * service time by using the op type as the elapsed time.
+     */
 
     /* send event back to cn to let it know the operation is done */
-    cn_op_complete(lp, m->src);
+    cn_op_complete(lp, m->op.op_type, m->src);
 
     return;
 }
