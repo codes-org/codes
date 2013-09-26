@@ -21,7 +21,7 @@ typedef struct svr_state svr_state;
 
 enum svr_event_type
 {
-    SVR_OP,
+    SVR_OP = 128,
 };
 
 struct svr_state

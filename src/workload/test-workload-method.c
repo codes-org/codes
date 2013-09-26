@@ -50,12 +50,15 @@ int test_workload_load(const char* params, int rank)
 
     new->rank = rank;
 
-    /* synthetic workload, just open file for now */
-    new->op_array_len = 1;
+    /* synthetic workload for testing */
+    new->op_array_len = 2;
     new->op_array_index = 0;
     new->op_array[0].op_type = CODES_WK_OPEN;
     new->op_array[0].u.open.file_id = 3;
     new->op_array[0].u.open.create_flag = 1;
+    new->op_array[1].op_type = CODES_WK_BARRIER;
+    new->op_array[1].u.barrier.root = 0;
+    new->op_array[1].u.barrier.count = -1; /* all ranks */
 
     /* add to front of list of streams that we are tracking */
     new->next = wkload_streams;

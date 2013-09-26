@@ -45,7 +45,7 @@ struct codes_workload_op
             double seconds;
         } delay;
         struct {
-            int count;  /* num ranks in barrier */
+            int count;  /* num ranks in barrier, -1 means "all" */
             int root;   /* root rank */
         } barrier;
         struct {
