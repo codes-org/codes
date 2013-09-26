@@ -2,8 +2,11 @@
 check_PROGRAMS += tests/lp-io-test \
  tests/workload/codes-workload-test
 
-TESTS += tests/lp-io-test.sh
-EXTRA_DIST += tests/lp-io-test.sh
+TESTS += tests/lp-io-test.sh \
+ tests/workload/codes-workload-test.sh
+
+EXTRA_DIST += tests/lp-io-test.sh \
+ tests/workload/codes-workload-test.sh
 
 testlib = src/libcodes-base.a
 
