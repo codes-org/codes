@@ -4,7 +4,10 @@
  *
  */
 
-/* I/O workload generator API to be used by storage simulations */
+/* I/O workload generator API to be used for reading I/O operations into 
+ * storage system simulations.  This API just describes the operations to be
+ * executed; it does not service the operations.
+ */
 
 #ifndef CODES_WORKLOAD_H
 #define CODES_WORKLOAD_H
@@ -37,8 +40,10 @@ struct codes_workload_op
      * between different APIs?
      */
 
+    /* what type of operation this is */
     enum codes_workload_op_type op_type;
 
+    /* parameters for each operation type */
     union
     {
         struct {

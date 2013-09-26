@@ -30,9 +30,9 @@ enum client_event_type
 
 struct client_state
 {
-    int my_rank;
-    int wkld_id;
-    int target_barrier_count;
+    int my_rank; /* rank of this compute node */
+    int wkld_id; /* identifier returned by workload load fn */
+    int target_barrier_count;  /* state information for handling barriers */
     int current_barrier_count;
 };
 

@@ -17,7 +17,11 @@ extern struct codes_workload_method test_workload_method;
 static struct codes_workload_method *method_array[] = 
     {&test_workload_method, NULL};
 
-/* NOTE: we could make this faster with a smarter data structure.  For now
+/* This shim layer is responsible for queueing up reversed operations and
+ * re-issuing them so that the underlying workload generator method doesn't
+ * have to worry about reverse events.
+ *
+ * NOTE: we could make this faster with a smarter data structure.  For now
  * we just have a linked list of rank_queue structs, one per rank that has
  * opened the workload.  We then have a linked list off of each of those
  * to hold a lifo queue of operations that have been reversed for that rank.

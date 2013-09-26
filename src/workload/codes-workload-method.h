@@ -4,9 +4,9 @@
  *
  */
 
-/* I/O workload generator API to be used by workload generators.  It mimics
- * the top level codes-workload.h API, except that there is no reverse
- * handler.
+/* I/O workload generator API to be used by workload generator methods.  
+ * It mimics the top level codes-workload.h API, except that there is no 
+ * reverse handler.
  */
 
 #ifndef CODES_WORKLOAD_METHOD_H
