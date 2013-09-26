@@ -34,6 +34,7 @@ struct client_state
     int wkld_id; /* identifier returned by workload load fn */
     int target_barrier_count;  /* state information for handling barriers */
     int current_barrier_count;
+    tw_stime completion_time;
 };
 
 struct client_msg
@@ -178,7 +179,7 @@ static void client_finalize(
     /* write out some statistics (the current time of each cn as it
      * shuts down)
      */
-    sprintf(buffer, "cn_lp:%ld\tfinalize_time:%f\n", (long)lp->gid, tw_now(lp));
+    sprintf(buffer, "cn_lp:%ld\tcompletion_time:%f\n", (long)lp->gid, ns->completion_time);
 
     ret = lp_io_write(lp->gid, "compute_nodes", strlen(buffer)+1, buffer);
     assert(ret == 0);
@@ -302,6 +303,7 @@ static void handle_client_op_loop_event(
     switch(m->op_rc.op_type)
     {
         case CODES_WK_END:
+            ns->completion_time = tw_now(lp);
             printf("Client rank %d completed workload.\n", ns->my_rank);
             /* stop issuing events; we are done */
             return;

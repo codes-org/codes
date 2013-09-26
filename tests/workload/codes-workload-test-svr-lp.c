@@ -26,6 +26,7 @@ enum svr_event_type
 
 struct svr_state
 {
+    tw_stime next_idle;
 };
 
 struct svr_msg
@@ -33,6 +34,7 @@ struct svr_msg
     enum svr_event_type event_type;
     struct codes_workload_op op;
     tw_lpid src;          /* source of this request or ack */
+    tw_stime next_idle_rc;
 };
 
 static void svr_init(
@@ -80,6 +82,8 @@ static void svr_init(
     tw_lp * lp)
 {
     memset(ns, 0, sizeof(*ns));
+
+    ns->next_idle = tw_now(lp);
 
     return;
 }
@@ -131,7 +135,7 @@ static void svr_finalize(
     /* write out some statistics (the current time of each server as it
      * shuts down)
      */
-    sprintf(buffer, "svr_lp:%ld\tfinalize_time:%f\n", (long)lp->gid, tw_now(lp));
+    sprintf(buffer, "svr_lp:%ld\tcompletion_time:%f\n", (long)lp->gid, ns->next_idle);
 
     ret = lp_io_write(lp->gid, "servers", strlen(buffer)+1, buffer);
     assert(ret == 0);
@@ -169,13 +173,22 @@ static void handle_svr_op_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    printf("handle_svr_op_event at lp %ld, type %d\n", lp->gid, m->op.op_type);
+
+    m->next_idle_rc = ns->next_idle;
+
     /* NOTE: this isn't a real server simulator, but we do want time to
-     * elapse so that we can do correctness/regression testing.  We pick the
-     * service time by using the op type as the elapsed time.
+     * elapse so that we can do correctness/regression testing.  For testing
+     * purposes we use the value of the op_type field as the amount of
+     * elapsed time for the operation to consume.
      */
+    if(ns->next_idle > tw_now(lp))
+        ns->next_idle += m->op.op_type;
+    else
+        ns->next_idle = tw_now(lp) + m->op.op_type;
 
     /* send event back to cn to let it know the operation is done */
-    cn_op_complete(lp, m->op.op_type, m->src);
+    cn_op_complete(lp, ns->next_idle-tw_now(lp), m->src);
 
     return;
 }
@@ -186,6 +199,7 @@ static void handle_svr_op_event_rc(
     svr_msg * m,
     tw_lp * lp)
 {
+    ns->next_idle = m->next_idle_rc;
     cn_op_complete_rc(lp);
     return;
 }
