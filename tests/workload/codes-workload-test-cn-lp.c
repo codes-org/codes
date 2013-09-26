@@ -68,6 +68,7 @@ static void handle_client_op_barrier_event(
     tw_lp * lp);
 static void cn_enter_barrier(tw_lp *lp, tw_lpid gid, int count);
 static void cn_enter_barrier_rc(tw_lp *lp);
+static void cn_delay(tw_lp *lp, double seconds);
 
 static void client_init(
     client_state * ns,
@@ -285,6 +286,7 @@ static void handle_client_op_loop_event(
     if(m->event_type == CLIENT_KICKOFF)
     {
         /* first operation; initialize the desired workload generator */
+        printf("codes_workload_load on gid: %ld\n", lp->gid);
         ns->wkld_id = codes_workload_load("test", NULL, ns->my_rank);
         assert(ns->wkld_id > -1);
     }
@@ -302,6 +304,9 @@ static void handle_client_op_loop_event(
 
     switch(m->op_rc.op_type)
     {
+        /* this first set of operation types are handled exclusively by the
+         * client 
+         */ 
         case CODES_WK_END:
             ns->completion_time = tw_now(lp);
             printf("Client rank %d completed workload.\n", ns->my_rank);
@@ -313,6 +318,13 @@ static void handle_client_op_loop_event(
             cn_enter_barrier(lp, m->op_rc.u.barrier.root, m->op_rc.u.barrier.count);
             return; 
             break;
+        case CODES_WK_DELAY:
+            printf("Client rank %d will delay for %f seconds.\n", ns->my_rank, 
+                m->op_rc.u.delay.seconds);
+            cn_delay(lp, m->op_rc.u.delay.seconds);
+            return;
+            break;
+
         /* "normal" io operations: we just calculate the destination and
          * then continue after the switch block to send the specified
          * operation to a server.
@@ -334,6 +346,20 @@ static void handle_client_op_loop_event(
 static void cn_enter_barrier_rc(tw_lp *lp)
 {
     codes_local_latency_reverse(lp);
+    return;
+}
+
+static void cn_delay(tw_lp *lp, double seconds)
+{
+    tw_event *e;
+    client_msg *m_out;
+
+    /* message to self */
+    e = codes_event_new(lp->gid, seconds, lp);
+    m_out = tw_event_data(e);
+    m_out->event_type = CLIENT_OP_COMPLETE;
+    tw_event_send(e);
+
     return;
 }
 

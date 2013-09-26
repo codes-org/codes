@@ -52,14 +52,33 @@ static int test_workload_load(const char* params, int rank)
     new->rank = rank;
 
     /* arbitrary synthetic workload for testing purposes */
-    new->op_array_len = 2;
-    new->op_array_index = 0;
-    new->op_array[0].op_type = CODES_WK_OPEN;
-    new->op_array[0].u.open.file_id = 3;
-    new->op_array[0].u.open.create_flag = 1;
-    new->op_array[1].op_type = CODES_WK_BARRIER;
-    new->op_array[1].u.barrier.root = 0;
-    new->op_array[1].u.barrier.count = -1; /* all ranks */
+    /* rank 0 sleeps 43 seconds, then does open and barrier, while all other
+     * ranks immediately do open and barrier
+     */
+    if(rank == 0)
+    {
+        new->op_array_len = 3;
+        new->op_array_index = 0;
+        new->op_array[0].op_type = CODES_WK_DELAY;
+        new->op_array[0].u.delay.seconds = 43;
+        new->op_array[1].op_type = CODES_WK_OPEN;
+        new->op_array[1].u.open.file_id = 3;
+        new->op_array[1].u.open.create_flag = 1;
+        new->op_array[2].op_type = CODES_WK_BARRIER;
+        new->op_array[2].u.barrier.root = 0;
+        new->op_array[2].u.barrier.count = -1; /* all ranks */
+    }
+    else
+    {
+        new->op_array_len = 2;
+        new->op_array_index = 0;
+        new->op_array[0].op_type = CODES_WK_OPEN;
+        new->op_array[0].u.open.file_id = 3;
+        new->op_array[0].u.open.create_flag = 1;
+        new->op_array[1].op_type = CODES_WK_BARRIER;
+        new->op_array[1].u.barrier.root = 0;
+        new->op_array[1].u.barrier.count = -1; /* all ranks */
+    }
 
     /* add to front of list of streams that we are tracking */
     new->next = wkload_streams;
@@ -82,7 +101,12 @@ static void test_workload_get_next(int rank, struct codes_workload_op *op)
         tmp = tmp->next;
     }
 
-    assert(tmp);
+    if(!tmp)
+    {
+        op->op_type = CODES_WK_END;
+        return;
+    }
+
     assert(tmp->rank == rank);
 
     if(tmp->op_array_index < tmp->op_array_len)
