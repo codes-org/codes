@@ -40,6 +40,7 @@ struct client_msg
 {
     enum client_event_type event_type;
     int barrier_count;
+    struct codes_workload_op op_rc;
 };
 
 static void handle_client_op_loop_rev_event(
@@ -63,6 +64,7 @@ static void handle_client_op_barrier_event(
     client_msg * m,
     tw_lp * lp);
 static void cn_enter_barrier(tw_lp *lp, tw_lpid gid, int count);
+static void cn_enter_barrier_rc(tw_lp *lp);
 
 static void client_init(
     client_state * ns,
@@ -206,8 +208,22 @@ static void handle_client_op_loop_rev_event(
     client_msg * m,
     tw_lp * lp)
 {
-    /* TODO: fill this in */
-    assert(0);
+
+    codes_workload_get_next_rc(ns->wkld_id, ns->my_rank, &m->op_rc);
+
+    switch(m->op_rc.op_type)
+    {
+        case CODES_WK_END:
+            break;
+        case CODES_WK_BARRIER:
+            cn_enter_barrier_rc(lp);
+            break;
+        case CODES_WK_OPEN:
+            svr_op_start_rc(lp);
+            break;
+        default:
+            assert(0);
+    }
 
     return;
 }
@@ -256,7 +272,6 @@ static void handle_client_op_loop_event(
     client_msg * m,
     tw_lp * lp)
 {
-    struct codes_workload_op op;
     tw_lpid dest_svr_id;
 
     printf("handle_client_op_loop_event(), lp %llu.\n", (unsigned long long)lp->gid);
@@ -268,14 +283,18 @@ static void handle_client_op_loop_event(
         assert(ns->wkld_id > -1);
     }
 
-    codes_workload_get_next(ns->wkld_id, ns->my_rank, &op);
+    /* NOTE: we store the op retrieved from the workload generator in the
+     * inbound message for this function, so that we have it saved for
+     * reverse computation if needed.
+     */
+    codes_workload_get_next(ns->wkld_id, ns->my_rank, &m->op_rc);
 
     /* NOTE: in this test model the LP is doing its own math to find the LP
      * ID of servers just to do something simple.  It knows that compute
      * nodes are the first N LPs and servers are the next M LPs.
      */
 
-    switch(op.op_type)
+    switch(m->op_rc.op_type)
     {
         case CODES_WK_END:
             printf("Client rank %d completed workload.\n", ns->my_rank);
@@ -284,7 +303,7 @@ static void handle_client_op_loop_event(
             break;
         case CODES_WK_BARRIER:
             printf("Client rank %d hit barrier.\n", ns->my_rank);
-            cn_enter_barrier(lp, op.u.barrier.root, op.u.barrier.count);
+            cn_enter_barrier(lp, m->op_rc.u.barrier.root, m->op_rc.u.barrier.count);
             return; 
             break;
         /* "normal" io operations: we just calculate the destination and
@@ -293,15 +312,21 @@ static void handle_client_op_loop_event(
          */
         case CODES_WK_OPEN:
             printf("Client rank %d will issue an open request.\n", ns->my_rank);
-            dest_svr_id = g_num_clients + op.u.open.file_id % g_num_servers;
+            dest_svr_id = g_num_clients + m->op_rc.u.open.file_id % g_num_servers;
             break;
         default:
             assert(0);
             break;
     }
 
-    svr_op_start(lp, dest_svr_id, &op);
+    svr_op_start(lp, dest_svr_id, &m->op_rc);
 
+    return;
+}
+
+static void cn_enter_barrier_rc(tw_lp *lp)
+{
+    codes_local_latency_reverse(lp);
     return;
 }
 

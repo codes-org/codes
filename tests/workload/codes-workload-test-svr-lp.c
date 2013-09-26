@@ -186,7 +186,7 @@ static void handle_svr_op_event_rc(
     svr_msg * m,
     tw_lp * lp)
 {
-    assert(0);
+    cn_op_complete_rc(lp);
     return;
 }
 
