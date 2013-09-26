@@ -224,6 +224,8 @@ static void handle_client_op_loop_rev_event(
         case CODES_WK_OPEN:
             svr_op_start_rc(lp);
             break;
+        case CODES_WK_DELAY:
+            break;
         default:
             assert(0);
     }
