@@ -55,7 +55,14 @@ simulator but just a test harness.
 The compute node LP implements its own barrier and delay operations.  Other
 operations are sent to the server LPs for execution.
 
+The test programs produce output (the simulated completion time of each
+client and server) in a subdirectory called
+codes-workload-test-results-<BIGNUMBERS>/.  This output should be precisely
+consistent regardless of the number of processes used in the simulation and
+whether the simulation is executed in conservative or optimistic mode.
 
+Running "make check" in the build directory will execute a single process
+conservative version of the codes-workload-test simulation.
 
 
 
