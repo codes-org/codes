@@ -17,10 +17,11 @@
 extern struct model_net_method simplenet_method;
 extern struct model_net_method torus_method;
 extern struct model_net_method dragonfly_method;
+extern struct model_net_method loggp_method;
 
 /* Global array initialization, terminated with a NULL entry */
 static struct model_net_method* method_array[] =
-    {&simplenet_method, &torus_method, &dragonfly_method, NULL};
+    {&simplenet_method, &torus_method, &dragonfly_method, &loggp_method, NULL};
 
 static int model_net_get_msg_sz(int net_id);
 
@@ -219,6 +220,16 @@ int model_net_set_params()
      net_params.net_bw_mbps =  net_bw_mbps;
      net_id = model_net_setup("simplenet", packet_size, (const void*)&net_params); /* Sets the network as simplenet and packet size 512 */
    }
+   else if(strcmp("loggp",mn_name)==0)
+   {
+     char net_config_file[256];
+     loggp_param net_params;
+     
+     configuration_get_value(&config, "PARAMS", "net_config_file", net_config_file, 256);
+     net_params.net_config_file = net_config_file;
+     net_id = model_net_setup("loggp", packet_size, (const void*)&net_params); /* Sets the network as loggp and packet size 512 */
+   }
+
   else if(strcmp("dragonfly", mn_name)==0)	  
     {
        dragonfly_param net_params;

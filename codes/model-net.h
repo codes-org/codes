@@ -19,6 +19,7 @@
 typedef struct simplenet_param simplenet_param;
 typedef struct dragonfly_param dragonfly_param;
 typedef struct torus_param torus_param;
+typedef struct loggp_param loggp_param;
 typedef struct mn_stats mn_stats;
 
 enum NETWORKS
@@ -39,6 +40,12 @@ struct mn_stats
     long recv_bytes;
     tw_stime recv_time;
     long max_event_size;
+};
+
+/* structs for initializing a network/ specifying network parameters */
+struct loggp_param
+{
+  char* net_config_file; /* file with loggp parameter table */
 };
 
 /* structs for initializing a network/ specifying network parameters */
