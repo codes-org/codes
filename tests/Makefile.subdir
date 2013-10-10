@@ -1,5 +1,5 @@
 
-check_PROGRAMS += tests/modelnet-test
+check_PROGRAMS += tests/modelnet-test tests/modelnet-p2p-bw
 
 TESTS += tests/modelnet-test.sh \
 	 tests/modelnet-test-torus.sh \
@@ -15,3 +15,7 @@ testlib = src/libcodes-net.a
 tests_modelnet_test_LDADD = $(testlib) ${CODES_BASE_LIBS}
 tests_modelnet_test_CFLAGS = ${CODES_BASE_CFLAGS}
 tests_modelnet_test_SOURCES = tests/modelnet-test.c
+
+tests_modelnet_p2p_bw_LDADD = $(testlib) ${CODES_BASE_LIBS}
+tests_modelnet_p2p_bw_CFLAGS = ${CODES_BASE_CFLAGS}
+tests_modelnet_p2p_bw_SOURCES = tests/modelnet-p2p-bw.c
