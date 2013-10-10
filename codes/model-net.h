@@ -26,7 +26,9 @@ enum NETWORKS
 {
   SIMPLENET,
   TORUS,
-  DRAGONFLY
+  DRAGONFLY,
+  LOGGP,
+  MAX_NETS, /* sentinal value, this must be last in the enumeration */
 };
 
 /* data structure for tracking network statistics */

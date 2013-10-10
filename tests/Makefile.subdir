@@ -3,9 +3,11 @@ check_PROGRAMS += tests/modelnet-test
 
 TESTS += tests/modelnet-test.sh \
 	 tests/modelnet-test-torus.sh \
+	 tests/modelnet-test-loggp.sh \
 	 tests/modelnet-test-dragonfly.sh 
 EXTRA_DIST += tests/modelnet-test.sh \
 	      tests/modelnet-test-torus.sh \
+	      tests/modelnet-test-loggp.sh \
 	      tests/modelnet-test-dragonfly.sh
 
 testlib = src/libcodes-net.a

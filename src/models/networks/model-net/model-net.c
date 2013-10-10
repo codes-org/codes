@@ -12,7 +12,6 @@
 
 #define STR_SIZE 16
 #define PROC_TIME 10.0
-#define NUM_NETS 2
 
 extern struct model_net_method simplenet_method;
 extern struct model_net_method torus_method;
@@ -164,7 +163,7 @@ void model_net_event(
 	num_packets++; /* Handle the left out data if message size is not exactly divisible by packet size */
 
      /*Determine the network name*/
-     if(net_id < 0 || net_id > NUM_NETS)
+     if(net_id < 0 || net_id >= MAX_NETS)
      {
         fprintf(stderr, "Error: undefined network ID %d (Available options 0 (simplenet), 1 (torus) 2 (dragonfly) ) \n", net_id);
 	exit(-1);
@@ -404,7 +403,7 @@ static int model_net_get_msg_sz(int net_id)
 {
    // TODO: Add checks on network name
    // TODO: Add dragonfly and torus network models
-   if(net_id < 0 || net_id > NUM_NETS)
+   if(net_id < 0 || net_id >= MAX_NETS)
      {
       printf("%s Error: Uninitializied modelnet network, call modelnet_init first\n", __FUNCTION__);
       exit(-1);
@@ -416,7 +415,7 @@ static int model_net_get_msg_sz(int net_id)
 /* returns the packet size in the modelnet struct */
 int model_net_get_packet_size(int net_id)
 {
-  if(net_id < 0 || net_id > NUM_NETS)
+  if(net_id < 0 || net_id >= MAX_NETS)
      {
        fprintf(stderr, "%s Error: Uninitializied modelnet network, call modelnet_init first\n", __FUNCTION__);
        exit(-1);
@@ -427,7 +426,7 @@ int model_net_get_packet_size(int net_id)
 /* returns lp type for modelnet */
 const tw_lptype* model_net_get_lp_type(int net_id)
 {
-    if(net_id < 0 || net_id > NUM_NETS)
+    if(net_id < 0 || net_id >= MAX_NETS)
      {
        fprintf(stderr, "%s Error: Uninitializied modelnet network, call modelnet_init first\n", __FUNCTION__);
        exit(-1);
@@ -440,7 +439,7 @@ const tw_lptype* model_net_get_lp_type(int net_id)
 
 void model_net_report_stats(int net_id)
 {
-  if(net_id < 0 || net_id > NUM_NETS)
+  if(net_id < 0 || net_id >= MAX_NETS)
   {
     fprintf(stderr, "%s Error: Uninitializied modelnet network, call modelnet_init first\n", __FUNCTION__);
     exit(-1);
@@ -468,6 +467,9 @@ void model_net_add_lp_type(int net_id)
        break;
    case DRAGONFLY:
        lp_type_register("modelnet_dragonfly", model_net_get_lp_type(net_id));
+       break;
+   case LOGGP:
+       lp_type_register("modelnet_loggp", model_net_get_lp_type(net_id));
        break;
    default:
     {
