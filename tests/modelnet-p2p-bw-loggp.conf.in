@@ -12,5 +12,5 @@ PARAMS
    packet_size="2147483648";
    message_size="128";
    modelnet="loggp";
-   net_config_file="logp-param-table.conf";
+   net_config_file="@abs_srcdir@/ng-mpi-tukey.dat";
 }

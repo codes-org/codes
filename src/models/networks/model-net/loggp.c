@@ -54,6 +54,24 @@ struct loggp_message
     tw_stime net_recv_next_idle_saved;
 };
 
+/* loggp parameters for a given msg size, as reported by netgauge */
+struct param_table_entry
+{
+    int size;
+    int n;
+    double PRTT_10s;
+    double PRTT_n0s;
+    double PRTT_nPRTT_10ss;
+    double L;
+    double o_s;
+    double o_r;
+    double g;
+    double G;
+    double lsqu_gG;
+};
+struct param_table_entry param_table[100];
+static int param_table_size = 0;
+
 /* TODO: temporarily hard coding these to just get this stub building;
  * replace with real loggp parameters.
  */
@@ -515,8 +533,52 @@ static void loggp_packet_event(
 
 static void loggp_setup(const void* net_params)
 {
-  /* loggp_param* loggp_params = (loggp_param*)net_params; */
+    loggp_param* loggp_params = (loggp_param*)net_params;
+    FILE *conf;
+    int ret;
+    char buffer[512];
+    int line_nr = 0;
 
+    /* TODO: update this to read on one proc and then broadcast */
+
+    printf("Loggp configured to use parameters from file %s\n", loggp_params->net_config_file);
+
+    conf = fopen(loggp_params->net_config_file, "r");
+    if(!conf)
+    {
+        perror("fopen");
+        assert(0);
+    }
+
+    while(fgets(buffer, 512, conf))
+    {
+        line_nr++;
+        if(buffer[0] == '#')
+            continue;
+        ret = sscanf(buffer, "%d %d %lf %lf %lf %lf %lf %lf %lf %lf %lf", 
+            &param_table[param_table_size].size,
+            &param_table[param_table_size].n,
+            &param_table[param_table_size].PRTT_10s,
+            &param_table[param_table_size].PRTT_n0s,
+            &param_table[param_table_size].PRTT_nPRTT_10ss,
+            &param_table[param_table_size].L,
+            &param_table[param_table_size].o_s,
+            &param_table[param_table_size].o_r,
+            &param_table[param_table_size].g,
+            &param_table[param_table_size].G,
+            &param_table[param_table_size].lsqu_gG);
+        if(ret != 11)
+        {
+            fprintf(stderr, "Error: malformed line %d in %s\n", line_nr, 
+                loggp_params->net_config_file);
+            assert(0);
+        }
+        param_table_size++;
+    }
+
+    printf("Parsed %d loggp table entries.\n", param_table_size);
+
+    fclose(conf);
   /* TODO: implement logic here to read in parameter table */
  
     return;

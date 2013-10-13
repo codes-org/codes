@@ -2,4 +2,4 @@
 
 abs_srcdir=@abs_srcdir@ 
 
-tests/modelnet-test --sync=1 -- $abs_srcdir/modelnet-test-loggp.conf
+tests/modelnet-test --sync=1 -- tests/modelnet-test-loggp.conf

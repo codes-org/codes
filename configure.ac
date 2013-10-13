@@ -71,4 +71,4 @@ AC_CONFIG_FILES([tests/modelnet-test-dragonfly.sh],[chmod +x tests/modelnet-test
 AC_CONFIG_FILES([tests/modelnet-test-torus.sh],[chmod +x tests/modelnet-test-torus.sh])
 AC_CONFIG_FILES([tests/modelnet-test-loggp.sh],[chmod +x tests/modelnet-test-loggp.sh])
 AC_CONFIG_FILES([tests/modelnet-p2p-bw-loggp.sh],[chmod +x tests/modelnet-p2p-bw-loggp.sh])
-AC_OUTPUT([maint/codes-net.pc])
+AC_OUTPUT(maint/codes-net.pc tests/modelnet-p2p-bw-loggp.conf tests/modelnet-test-loggp.conf)
