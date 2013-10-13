@@ -26,7 +26,6 @@
 /* TODO: these things should probably be configurable */
 #define NUM_PINGPONGS 1000 /* number of pingpong exchanges per msg size */
 #define MIN_SZ 4
-#define MAX_SZ 67108864
 #define NUM_SZS 25
 
 static int net_id = 0;
@@ -63,6 +62,7 @@ struct svr_msg
     enum svr_event svr_event_type;
     tw_lpid src;          /* source of this request or ack */
     int size;
+    int sent_size;        /* for rc */
 };
 
 static void svr_init(
@@ -289,6 +289,7 @@ static void handle_ping_rev_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    model_net_event_rc(net_id, lp, m->sent_size);
     return;
 }
 
@@ -300,6 +301,7 @@ static void handle_pong_rev_event(
     tw_lp * lp)
 {
     ns->pingpongs_completed--;
+    model_net_event_rc(net_id, lp, m->sent_size);
 
     /* NOTE: we do not attempt to reverse timing information stored in
      * stat_array[].  This is will get rewritten with the correct value when
@@ -353,6 +355,7 @@ static void handle_pong_event(
     m_remote.size = stat_array[msg_sz_idx].msg_sz;
 
     /* send next ping */
+    m->sent_size = m_remote.size;
     model_net_event(net_id, "ping", peer_gid, stat_array[msg_sz_idx].msg_sz, sizeof(m_remote), &m_remote, 0, NULL, lp);
 
     return;
@@ -374,6 +377,7 @@ static void handle_ping_event(
     m_remote.size = m->size;
 
     /* send pong msg back to sender */
+    m->sent_size = m_remote.size;
     model_net_event(net_id, "pong", m->src, m->size, sizeof(m_remote), &m_remote, 0, NULL, lp);
     return;
 }
