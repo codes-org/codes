@@ -58,9 +58,9 @@ struct loggp_message
  * replace with real loggp parameters.
  */
 /* net startup cost, ns */
-static double global_net_startup_ns = 5;
+static double global_net_startup_ns = 2000;
 /* net bw, MB/s */
-static double global_net_bw_mbs = 100;
+static double global_net_bw_mbs = 2000;
 
 static int loggp_magic = 0;
 

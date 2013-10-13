@@ -9,7 +9,9 @@
  * This test program will execute a one way, point to point bandwidth test
  * between two hosts using the specified modelnet method.  The intention is
  * to roughly mimic the behavior of a standard bandwidth test such as
- * mpptest.
+ * mpptest.  Output is presented in the same format as the default mpptest
+ * parameters with two nodes, testing a range of sizes from 4 bytes to 64
+ * MiB.
  */
 
 #include <string.h>
@@ -93,9 +95,7 @@ tw_lptype svr_lp = {
 
 extern const tw_lptype* svr_get_lp_type();
 static void svr_add_lp_type();
-#if 0
 static tw_stime ns_to_s(tw_stime ns);
-#endif
 static tw_stime s_to_ns(tw_stime ns);
 static void handle_pong_event(
     svr_state * ns,
@@ -264,17 +264,37 @@ static void svr_finalize(
     svr_state * ns,
     tw_lp * lp)
 {
-    /* TODO: print results on server 0 */
+    int i;
+    double avg_time_us;
+    double rate_b_s;
+    double elapsed_s;
+
+    if(ns->svr_idx != 0)
+        return;
+
+    printf("#p0\tp1\tdist\tlen\tave time (us)\trate\n");
+    for(i=0; i<NUM_SZS; i++)
+    {
+        avg_time_us = stat_array[i].end_time - stat_array[i].start_time;
+        avg_time_us /= 1000.0; /* ns to us */
+        avg_time_us /= (double)NUM_PINGPONGS; /* avg */
+        avg_time_us /= 2.0; /* divide by 2, to replicate scaling factor as in mpptest */
+
+        /* rate is reported in bytes/s */
+        elapsed_s = ns_to_s(stat_array[i].end_time - stat_array[i].start_time);
+        rate_b_s = (double)stat_array[i].msg_sz * (double)NUM_PINGPONGS * 2.0;
+        rate_b_s /= elapsed_s;
+        printf("0\t1\t1\t%d\t%f\t%e\n", stat_array[i].msg_sz, avg_time_us, rate_b_s);
+    }
+
     return;
 }
 
-#if 0
 /* convert ns to seconds */
 static tw_stime ns_to_s(tw_stime ns)
 {
     return(ns / (1000.0 * 1000.0 * 1000.0));
 }
-#endif
 
 /* convert seconds to ns */
 static tw_stime s_to_ns(tw_stime ns)
@@ -338,7 +358,7 @@ static void handle_pong_event(
         if(msg_sz_idx < NUM_SZS)
             stat_array[msg_sz_idx].start_time = tw_now(lp);
         if(msg_sz_idx > 0)
-            stat_array[msg_sz_idx].end_time = tw_now(lp);
+            stat_array[msg_sz_idx-1].end_time = tw_now(lp);
     }
 
     if(msg_sz_idx >= NUM_SZS)
