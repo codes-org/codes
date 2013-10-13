@@ -352,8 +352,6 @@ static void handle_pong_event(
 
     if(ns->pingpongs_completed % NUM_PINGPONGS == 0)
     {
-        printf("FOO: hit msg_sz_idx %d\n", msg_sz_idx);
-        printf("FOO: completed %d\n", ns->pingpongs_completed);
         /* finished one msg size range; record time */
         if(msg_sz_idx < NUM_SZS)
             stat_array[msg_sz_idx].start_time = tw_now(lp);
