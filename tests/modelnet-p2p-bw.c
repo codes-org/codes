@@ -12,10 +12,6 @@
  * mpptest.
  */
 
-/* TODO: this is just a copy of the basic modelnet-test program for now;
- * need to modify it to sweep through a range of message sizes and calculate
- * bandwidth.
- */
 #include <string.h>
 #include <assert.h>
 #include <ross.h>
@@ -27,8 +23,11 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 
-#define NUM_REQS 500  /* number of requests sent by each server */
-#define PAYLOAD_SZ 2048 /* size of simulated data payload, bytes  */
+/* TODO: these things should probably be configurable */
+#define NUM_PINGPONGS 1000 /* number of pingpong exchanges per msg size */
+#define MIN_SZ 4
+#define MAX_SZ 67108864
+#define NUM_SZS 25
 
 static int net_id = 0;
 static int num_routers = 0;
@@ -38,30 +37,32 @@ static int offset = 2;
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
 
+struct pingpong_stat
+{
+    int msg_sz;
+    tw_stime start_time;
+    tw_stime end_time;
+};
+struct pingpong_stat stat_array[25];
+
 /* types of events that will constitute triton requests */
 enum svr_event
 {
-    KICKOFF,    /* initial event */
-    REQ,        /* request event */
-    ACK,        /* ack event */
-    LOCAL      /* local event */
+    PING = 1,        /* request event */
+    PONG,        /* ack event */
 };
 
 struct svr_state
 {
-    int msg_sent_count;   /* requests sent */
-    int msg_recvd_count;  /* requests recvd */
-    int local_recvd_count; /* number of local messages received */
-    tw_stime start_ts;    /* time that we started sending requests */
+    int pingpongs_completed; 
+    int svr_idx;
 };
 
 struct svr_msg
 {
     enum svr_event svr_event_type;
-//    enum net_event net_event_type; 
     tw_lpid src;          /* source of this request or ack */
-
-    int incremented_flag; /* helper for reverse computation */
+    int size;
 };
 
 static void svr_init(
@@ -92,44 +93,26 @@ tw_lptype svr_lp = {
 
 extern const tw_lptype* svr_get_lp_type();
 static void svr_add_lp_type();
+#if 0
 static tw_stime ns_to_s(tw_stime ns);
+#endif
 static tw_stime s_to_ns(tw_stime ns);
-static void handle_kickoff_event(
+static void handle_pong_event(
     svr_state * ns,
     tw_bf * b,
     svr_msg * m,
     tw_lp * lp);
-static void handle_ack_event(
+static void handle_ping_event(
     svr_state * ns,
     tw_bf * b,
     svr_msg * m,
     tw_lp * lp);
-static void handle_req_event(
+static void handle_pong_rev_event(
     svr_state * ns,
     tw_bf * b,
     svr_msg * m,
     tw_lp * lp);
-static void handle_local_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-   tw_lp * lp);
-static void handle_local_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-   tw_lp * lp);
-static void handle_kickoff_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void handle_ack_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void handle_req_rev_event(
+static void handle_ping_rev_event(
     svr_state * ns,
     tw_bf * b,
     svr_msg * m,
@@ -137,7 +120,7 @@ static void handle_req_rev_event(
 
 const tw_optdef app_opt [] =
 {
-	TWOPT_GROUP("Model net test case" ),
+	TWOPT_GROUP("Model net point to point ping pong benchmark" ),
 	TWOPT_END()
 };
 
@@ -147,7 +130,6 @@ int main(
 {
     int nprocs;
     int rank;
-    //printf("\n Config count %d ",(int) config.lpgroups_count);
     g_tw_ts_end = s_to_ns(60*60*24*365); /* one year, in nsecs */
 
     tw_opt_add(app_opt);
@@ -200,21 +182,37 @@ static void svr_init(
     tw_event *e;
     svr_msg *m;
     tw_stime kickoff_time;
+    char grp_name[MAX_NAME_LENGTH];
+    char lp_type_name[MAX_NAME_LENGTH];
+    int grp_id, lp_type_id, grp_rep_id, offset;
+    int i;
     
     memset(ns, 0, sizeof(*ns));
 
-    /* each server sends a dummy event to itself that will kick off the real
+    /* find my own server index */
+    codes_mapping_get_lp_info(lp->gid, grp_name, &grp_id,
+            &lp_type_id, lp_type_name, &grp_rep_id, &offset);
+    ns->svr_idx = grp_rep_id;
+
+    /* first server sends a dummy event to itself that will kick off the real
      * simulation
      */
+    if(ns->svr_idx == 0)
+    {
+        /* initialize statistics; measured only at first server */
+        ns->pingpongs_completed = -1;
+        stat_array[0].msg_sz = MIN_SZ;
+        for(i=1; i<NUM_SZS; i++)
+            stat_array[i].msg_sz = stat_array[i-1].msg_sz * 2;
 
-    //printf("\n Initializing servers %d ", (int)lp->gid);
-    /* skew each kickoff event slightly to help avoid event ties later on */
-    kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng); 
+        /* skew each kickoff event slightly to help avoid event ties later on */
+        kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng); 
 
-    e = codes_event_new(lp->gid, kickoff_time, lp);
-    m = tw_event_data(e);
-    m->svr_event_type = KICKOFF;
-    tw_event_send(e);
+        e = codes_event_new(lp->gid, kickoff_time, lp);
+        m = tw_event_data(e);
+        m->svr_event_type = PONG;
+        tw_event_send(e);
+    }
 
     return;
 }
@@ -227,18 +225,12 @@ static void svr_event(
 {
    switch (m->svr_event_type)
     {
-        case REQ:
-            handle_req_event(ns, b, m, lp);
+        case PING:
+            handle_ping_event(ns, b, m, lp);
             break;
-        case ACK:
-            handle_ack_event(ns, b, m, lp);
+        case PONG:
+            handle_pong_event(ns, b, m, lp);
             break;
-        case KICKOFF:
-            handle_kickoff_event(ns, b, m, lp);
-            break;
-	case LOCAL:
-	   handle_local_event(ns, b, m, lp); 
-	 break;
         default:
 	    printf("\n Invalid message type %d ", m->svr_event_type);
             assert(0);
@@ -254,18 +246,12 @@ static void svr_rev_event(
 {
     switch (m->svr_event_type)
     {
-        case REQ:
-            handle_req_rev_event(ns, b, m, lp);
+        case PING:
+            handle_ping_rev_event(ns, b, m, lp);
             break;
-        case ACK:
-            handle_ack_rev_event(ns, b, m, lp);
+        case PONG:
+            handle_pong_rev_event(ns, b, m, lp);
             break;
-        case KICKOFF:
-            handle_kickoff_rev_event(ns, b, m, lp);
-            break;
-	case LOCAL:
-	    handle_local_rev_event(ns, b, m, lp);    
-	    break;
         default:
             assert(0);
             break;
@@ -278,16 +264,17 @@ static void svr_finalize(
     svr_state * ns,
     tw_lp * lp)
 {
-    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s((tw_now(lp)-ns->start_ts)), 
-        ((double)(PAYLOAD_SZ*NUM_REQS)/(double)(1024*1024)/ns_to_s(tw_now(lp)-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
+    /* TODO: print results on server 0 */
     return;
 }
 
+#if 0
 /* convert ns to seconds */
 static tw_stime ns_to_s(tw_stime ns)
 {
     return(ns / (1000.0 * 1000.0 * 1000.0));
 }
+#endif
 
 /* convert seconds to ns */
 static tw_stime s_to_ns(tw_stime ns)
@@ -295,172 +282,99 @@ static tw_stime s_to_ns(tw_stime ns)
     return(ns * (1000.0 * 1000.0 * 1000.0));
 }
 
-/* handle initial event */
-static void handle_kickoff_event(
+/* reverse handler for ping event */
+static void handle_ping_rev_event(
     svr_state * ns,
     tw_bf * b,
     svr_msg * m,
     tw_lp * lp)
 {
-    svr_msg * m_local = malloc(sizeof(svr_msg));
-    svr_msg * m_remote = malloc(sizeof(svr_msg));
-
-//    m_local->svr_event_type = REQ;
-    m_local->svr_event_type = LOCAL;
-    m_local->src = lp->gid;
-
-    memcpy(m_remote, m_local, sizeof(svr_msg));
-    m_remote->svr_event_type = REQ;
-    //printf("handle_kickoff_event(), lp %llu.\n", (unsigned long long)lp->gid);
-
-    /* record when transfers started on this server */
-    ns->start_ts = tw_now(lp);
-
-    int opt_offset = 0;
-    if(net_id == DRAGONFLY && lp->gid % 5)
-	  opt_offset = 3; /* optional offset due to dragonfly mapping */
-    
-    /* each server sends a request to the next highest server */
-    int dest_id = (lp->gid + offset + opt_offset)%(num_servers*2 + num_routers);
-    model_net_event(net_id, "test", dest_id, PAYLOAD_SZ, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
-    ns->msg_sent_count++;
-}
-
-static void handle_local_event(
-		svr_state * ns,
-		tw_bf * b,
-		svr_msg * m,
-		tw_lp * lp)
-{
-    ns->local_recvd_count++;
-}
-
-static void handle_local_rev_event(
-	       svr_state * ns,
-	       tw_bf * b,
-	       svr_msg * m,
-	       tw_lp * lp)
-{
-   ns->local_recvd_count--;
-}
-/* reverse handler for req event */
-static void handle_req_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
-    ns->msg_recvd_count--;
-    model_net_event_rc(net_id, lp, PAYLOAD_SZ);
-
     return;
 }
 
-
-/* reverse handler for kickoff */
-static void handle_kickoff_rev_event(
+/* reverse handler for pong */
+static void handle_pong_rev_event(
     svr_state * ns,
     tw_bf * b,
     svr_msg * m,
     tw_lp * lp)
 {
-    ns->msg_sent_count--;
-    model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+    ns->pingpongs_completed--;
 
+    /* NOTE: we do not attempt to reverse timing information stored in
+     * stat_array[].  This is will get rewritten with the correct value when
+     * right forward event is processed, and we don't count on this value
+     * being accurate until the simulation is complete.
+     */
     return;
 }
 
-/* reverse handler for ack*/
-static void handle_ack_rev_event(
+/* handle recving pong */
+static void handle_pong_event(
     svr_state * ns,
     tw_bf * b,
     svr_msg * m,
     tw_lp * lp)
 {
-    if(m->incremented_flag)
+    svr_msg m_remote;
+    int msg_sz_idx;
+    tw_lpid peer_gid;
+
+    /* printf("handle_pong_event(), lp %llu.\n", (unsigned long long)lp->gid); */
+
+    assert(ns->svr_idx == 0);
+    ns->pingpongs_completed++;
+
+    /* which message size are we on now? */
+    msg_sz_idx = ns->pingpongs_completed / NUM_PINGPONGS;
+
+    if(ns->pingpongs_completed % NUM_PINGPONGS == 0)
     {
-        model_net_event_rc(net_id, lp, PAYLOAD_SZ);
-        ns->msg_sent_count--;
-    }
-    return;
-}
-
-/* handle recving ack */
-static void handle_ack_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
-    svr_msg * m_local = malloc(sizeof(svr_msg));
-    svr_msg * m_remote = malloc(sizeof(svr_msg));
-
-//    m_local->svr_event_type = REQ;
-    m_local->svr_event_type = LOCAL;
-    m_local->src = lp->gid;
-
-    memcpy(m_remote, m_local, sizeof(svr_msg));
-    m_remote->svr_event_type = REQ;
-
-//    printf("handle_ack_event(), lp %llu.\n", (unsigned long long)lp->gid);
-
-    /* safety check that this request got to the right server */
-//    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
-    int opt_offset = 0;
-    if(net_id == DRAGONFLY && lp->gid % 5)
-	 opt_offset = 3;
-
-    assert(m->src == (lp->gid + offset + opt_offset)%(num_servers*2 + num_routers));
-
-    if(ns->msg_sent_count < NUM_REQS)
-    {
-        /* send another request */
-	model_net_event(net_id, "test", m->src, PAYLOAD_SZ, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
-        ns->msg_sent_count++;
-        m->incremented_flag = 1;
-    }
-    else
-    {
-        m->incremented_flag = 0;
+        printf("FOO: hit msg_sz_idx %d\n", msg_sz_idx);
+        printf("FOO: completed %d\n", ns->pingpongs_completed);
+        /* finished one msg size range; record time */
+        if(msg_sz_idx < NUM_SZS)
+            stat_array[msg_sz_idx].start_time = tw_now(lp);
+        if(msg_sz_idx > 0)
+            stat_array[msg_sz_idx].end_time = tw_now(lp);
     }
 
+    if(msg_sz_idx >= NUM_SZS)
+    {
+        /* done */
+        return;
+    }
+
+    codes_mapping_get_lp_id("MODELNET_GRP", "server", 1,
+        0, &peer_gid);
+
+    m_remote.svr_event_type = PING;
+    m_remote.src = lp->gid;
+    m_remote.size = stat_array[msg_sz_idx].msg_sz;
+
+    /* send next ping */
+    model_net_event(net_id, "ping", peer_gid, stat_array[msg_sz_idx].msg_sz, sizeof(m_remote), &m_remote, 0, NULL, lp);
+
     return;
 }
 
-/* handle receiving request */
-static void handle_req_event(
+/* handle receiving ping */
+static void handle_ping_event(
     svr_state * ns,
     tw_bf * b,
     svr_msg * m,
     tw_lp * lp)
 {
-    svr_msg * m_local = malloc(sizeof(svr_msg));
-    svr_msg * m_remote = malloc(sizeof(svr_msg));
+    svr_msg m_remote;
 
-    m_local->svr_event_type = LOCAL;
-    m_local->src = lp->gid;
+    assert(ns->svr_idx == 1);
 
-    memcpy(m_remote, m_local, sizeof(svr_msg));
-    m_remote->svr_event_type = ACK;
-    //printf("handle_req_event(), lp %llu src %llu .\n", (unsigned long long)lp->gid, (unsigned long long) m->src);
+    m_remote.svr_event_type = PONG;
+    m_remote.src = lp->gid;
+    m_remote.size = m->size;
 
-    /* safety check that this request got to the right server */
-//    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
-    int opt_offset = 0;
-    if(net_id == DRAGONFLY && (m->src % 5))
-	  opt_offset = 3; /* optional offset due to dragonfly mapping */
-    
-    assert(lp->gid == (m->src + offset + opt_offset)%(num_servers*2 + num_routers));
-    ns->msg_recvd_count++;
-
-    /* send ack back */
-    /* simulated payload of 1 MiB */
-    /* also trigger a local event for completion of payload msg */
-    /* remote host will get an ack event */
-   
-   // mm Q: What should be the size of an ack message? may be a few bytes? or larger..? 
-    model_net_event(net_id, "test", m->src, PAYLOAD_SZ, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
-//    printf("\n Sending ack to LP %d %d ", m->src, m_remote->src);
+    /* send pong msg back to sender */
+    model_net_event(net_id, "pong", m->src, m->size, sizeof(m_remote), &m_remote, 0, NULL, lp);
     return;
 }
 
@@ -470,6 +384,5 @@ static void handle_req_event(
  *  c-basic-offset: 4
  * End:
  
- m_remote->src = lp->gid;*
  * vim: ft=c ts=8 sts=4 sw=4 expandtab
  */
