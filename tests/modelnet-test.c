@@ -465,7 +465,6 @@ static void handle_req_event(
  *  c-indent-level: 4
  *  c-basic-offset: 4
  * End:
- 
- m_remote->src = lp->gid;*
+ *
  * vim: ft=c ts=8 sts=4 sw=4 expandtab
  */
