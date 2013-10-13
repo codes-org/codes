@@ -137,7 +137,7 @@ int main(
 
     if(argc < 2)
     {
-	    printf("\n Usage: mpirun <args> --sync=2/3 mapping_file_name.conf (optional --nkp) ");
+	    printf("\n Usage: mpirun <args> --sync=2/3 -- mapping_file_name.conf\n");
 	    MPI_Finalize();
 	    return 0;
     }
@@ -147,7 +147,7 @@ int main(
     configuration_load(argv[2], MPI_COMM_WORLD, &config);
     net_id=model_net_set_params();
     svr_add_lp_type();
-    
+   
     codes_mapping_setup();
     
     num_servers = codes_mapping_get_group_reps("MODELNET_GRP") * codes_mapping_get_lp_count("MODELNET_GRP", "server");
