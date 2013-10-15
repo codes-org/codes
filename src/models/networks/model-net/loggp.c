@@ -18,6 +18,18 @@
 #define CATEGORY_NAME_MAX 16
 #define CATEGORY_MAX 12
 
+
+/* This method is not intended to 
+ * utilize the modelnet packetization; we are using loggp calculations to
+ * account for the packet size instead.
+ */
+/* TODO: make these values configurable. */
+#define PACKET_SIZE 2048
+/* cutoff point for small vs. large messages */
+/* TODO: make these values configurable. */
+#define SMALL_MSG_LIMIT (16*1024)
+
+
 /*Define loggp data types and structs*/
 typedef struct loggp_message loggp_message;
 typedef struct loggp_state loggp_state;
@@ -52,6 +64,8 @@ struct loggp_message
     /* for reverse computation */
     tw_stime net_send_next_idle_saved;
     tw_stime net_recv_next_idle_saved;
+    tw_stime xmit_time_saved;
+    tw_stime recv_time_saved;
 };
 
 /* loggp parameters for a given msg size, as reported by netgauge */
@@ -71,14 +85,6 @@ struct param_table_entry
 };
 struct param_table_entry param_table[100];
 static int param_table_size = 0;
-
-/* TODO: temporarily hard coding these to just get this stub building;
- * replace with real loggp parameters.
- */
-/* net startup cost, ns */
-static double global_net_startup_ns = 2000;
-/* net bw, MB/s */
-static double global_net_bw_mbs = 2000;
 
 static int loggp_magic = 0;
 
@@ -127,6 +133,8 @@ static void loggp_packet_event_rc(tw_lp *sender);
 
 static void loggp_report_stats();
 
+static struct param_table_entry* find_params(int msg_size);
+
 /* data structure for model-net statistics */
 struct model_net_method loggp_method =
 {
@@ -165,7 +173,6 @@ tw_lptype loggp_lp = {
      sizeof(loggp_state),
 };
 
-static tw_stime rate_to_ns(unsigned int bytes, double MB_p_s);
 static void handle_msg_ready_rev_event(
     loggp_state * ns,
     tw_bf * b,
@@ -284,21 +291,6 @@ int loggp_get_magic()
   return loggp_magic;
 }
 
-/* convert MiB/s and bytes to ns */
-static tw_stime rate_to_ns(unsigned int bytes, double MB_p_s)
-{
-    tw_stime time;
-
-    /* bytes to MB */
-    time = ((double)bytes)/(1024.0*1024.0);
-    /* MB to s */
-    time = time / MB_p_s;
-    /* s to ns */
-    time = time * 1000.0 * 1000.0 * 1000.0;
-
-    return(time);
-}
-
 /* reverse computation for msg ready event */
 static void handle_msg_ready_rev_event(
     loggp_state * ns,
@@ -313,7 +305,7 @@ static void handle_msg_ready_rev_event(
     stat = model_net_find_stats(m->category, ns->loggp_stats_array);
     stat->recv_count--;
     stat->recv_bytes -= m->net_msg_size_bytes;
-    stat->recv_time -= rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
+    stat->recv_time -= m->recv_time_saved;
 
     return;
 }
@@ -331,13 +323,36 @@ static void handle_msg_ready_event(
     tw_event *e_new;
     loggp_message *m_new;
     struct mn_stats* stat;
+    double recv_time;
+    struct param_table_entry *param;
+    double max;
+
+    param = find_params(m->net_msg_size_bytes);
+
+    if(m->net_msg_size_bytes > SMALL_MSG_LIMIT)
+    {
+        max = param->g;
+        if(max < param->o_r)
+            max = param->o_r;
+        recv_time = ceil((double)m->net_msg_size_bytes/(double)PACKET_SIZE) * max;
+        /* scale to nanoseconds */
+        recv_time /= 1000;
+    }
+    else
+    {
+        recv_time = ((double)(m->net_msg_size_bytes-1)*param->G);
+        /* scale to nanoseconds */
+        recv_time /= 1000;
+    }
+    m->recv_time_saved = recv_time;
+
 
     //printf("handle_msg_ready_event(), lp %llu.\n", (unsigned long long)lp->gid);
     /* add statistics */
     stat = model_net_find_stats(m->category, ns->loggp_stats_array);
     stat->recv_count++;
     stat->recv_bytes += m->net_msg_size_bytes;
-    stat->recv_time += rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
+    stat->recv_time += recv_time;
 
     /* are we available to recv the msg? */
     /* were we available when the transmission was started? */
@@ -345,11 +360,11 @@ static void handle_msg_ready_event(
         recv_queue_time += ns->net_recv_next_idle - tw_now(lp);
 
     /* calculate transfer time based on msg size and bandwidth */
-    recv_queue_time += rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
+    recv_queue_time += recv_time;
 
-    /* bump up input queue idle time accordingly */
+    /* bump up input queue idle time accordingly, include gap (g) parameter */
     m->net_recv_next_idle_saved = ns->net_recv_next_idle;
-    ns->net_recv_next_idle = recv_queue_time + tw_now(lp);
+    ns->net_recv_next_idle = recv_queue_time + tw_now(lp) + param->g;
 
     /* copy only the part of the message used by higher level */
     if(m->event_size_bytes)
@@ -386,7 +401,7 @@ static void handle_msg_start_rev_event(
     stat = model_net_find_stats(m->category, ns->loggp_stats_array);
     stat->send_count--;
     stat->send_bytes -= m->net_msg_size_bytes;
-    stat->send_time -= global_net_startup_ns + rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
+    stat->send_time -= m->xmit_time_saved;
 
     return;
 }
@@ -408,31 +423,54 @@ static void handle_msg_start_event(
     tw_lpid dest_id;
     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
     int total_event_size;
+    double xmit_time;
+    struct param_table_entry *param;
+    double max;
+
+    param = find_params(m->net_msg_size_bytes);
 
     total_event_size = loggp_get_msg_sz() + m->event_size_bytes + m->local_event_size_bytes;
+
+    if(m->net_msg_size_bytes > SMALL_MSG_LIMIT)
+    {
+        max = param->g;
+        if(max < param->o_s)
+            max = param->o_s;
+        xmit_time = param->L + param->o_s + ceil((double)m->net_msg_size_bytes/(double)PACKET_SIZE) * max;
+        /* scale to nanoseconds */
+        xmit_time /= 1000;
+    }
+    else
+    {
+        xmit_time = param->L + param->o_s + ((double)(m->net_msg_size_bytes-1)*param->G);
+        /* scale to nanoseconds */
+        xmit_time /= 1000;
+    }
+    m->xmit_time_saved = xmit_time;
 
     //printf("handle_msg_start_event(), lp %llu.\n", (unsigned long long)lp->gid);
     /* add statistics */
     stat = model_net_find_stats(m->category, ns->loggp_stats_array);
     stat->send_count++;
     stat->send_bytes += m->net_msg_size_bytes;
-    stat->send_time += global_net_startup_ns + rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
+    stat->send_time += xmit_time;
     if(stat->max_event_size < total_event_size)
         stat->max_event_size = total_event_size;
 
     /* calculate send time stamp */
-    send_queue_time = global_net_startup_ns; /* net msg startup cost */
+    send_queue_time = (param->L + param->o_s)/1000.0; 
     /* bump up time if the NIC send queue isn't idle right now */
     if(ns->net_send_next_idle > tw_now(lp))
         send_queue_time += ns->net_send_next_idle - tw_now(lp);
 
     /* move the next idle time ahead to after this transmission is
-     * _complete_ from the sender's perspective 
+     * _complete_ from the sender's perspective, include gap paramater (g)
+     * at this point. 
      */ 
     m->net_send_next_idle_saved = ns->net_send_next_idle;
-    ns->net_send_next_idle = send_queue_time + tw_now(lp) +
-        rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
-
+    if(ns->net_send_next_idle < tw_now(lp))
+        ns->net_send_next_idle = tw_now(lp);
+    ns->net_send_next_idle += xmit_time + param->g;
 
     /* create new event to send msg to receiving NIC */
     codes_mapping_get_lp_info(m->final_dest_gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
