@@ -329,7 +329,7 @@ static void handle_msg_ready_event(
 
     param = find_params(m->net_msg_size_bytes);
 
-    if(m->net_msg_size_bytes <= SMALL_MSG_LIMIT)
+    if(m->net_msg_size_bytes < SMALL_MSG_LIMIT)
     {
         max = param->g;
         if(max < param->o_r)
@@ -431,7 +431,7 @@ static void handle_msg_start_event(
 
     total_event_size = loggp_get_msg_sz() + m->event_size_bytes + m->local_event_size_bytes;
 
-    if(m->net_msg_size_bytes <= SMALL_MSG_LIMIT)
+    if(m->net_msg_size_bytes < SMALL_MSG_LIMIT)
     {
         max = param->g;
         if(max < param->o_s)
@@ -640,14 +640,18 @@ static struct param_table_entry* find_params(int msg_size)
 
     for(i=0; i<param_table_size; i++)
     {
-        if(param_table[i].size > msg_size)
+        if(param_table[i].size >= msg_size)
         {
-            if(i > 0)
-                i--;
             break;
         }
     }
 
+    /* TODO: THIS IS A HACK */
+    /* need to understand why the o_s and o_r values don't work as
+     * expected...
+     */
+    param_table[i].o_s = 0;
+    param_table[i].o_r = 0;
     return(&param_table[i]);
 }
 
