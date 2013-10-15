@@ -590,6 +590,29 @@ static void loggp_packet_event_rc(tw_lp *sender)
     return;
 }
 
+/* find the parameters corresponding to the message size we are transmitting
+ */
+static struct param_table_entry* find_params(int msg_size)
+{
+    int i;
+
+    /* pick parameters based on the next smallest size in the table, but
+     * default to beginning or end of table if we are out of range
+     */
+
+    for(i=0; i<param_table_size; i++)
+    {
+        if(param_table[i].size > msg_size)
+        {
+            if(i > 0)
+                i--;
+            break;
+        }
+    }
+
+    return(&param_table[i]);
+}
+
 /*
  * Local variables:
  *  c-indent-level: 4
