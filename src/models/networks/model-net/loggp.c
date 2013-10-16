@@ -23,11 +23,13 @@
  * utilize the modelnet packetization; we are using loggp calculations to
  * account for the packet size instead.
  */
-/* TODO: make these values configurable. */
-#define PACKET_SIZE 2048
 /* cutoff point for small vs. large messages */
-/* TODO: make these values configurable. */
-#define SMALL_MSG_LIMIT (16*1024)
+/* NOTE: we set this to 1 because the netgauge parameters are already
+ * compensating for small message parameters, so we use the same formula for
+ * all message sizes.
+ */
+#define SMALL_MSG_LIMIT (1)
+#define PACKET_SIZE 2048
 
 
 /*Define loggp data types and structs*/
@@ -332,8 +334,6 @@ static void handle_msg_ready_event(
     if(m->net_msg_size_bytes < SMALL_MSG_LIMIT)
     {
         max = param->g;
-        if(max < param->o_r)
-            max = param->o_r;
         recv_time = ceil((double)m->net_msg_size_bytes/(double)PACKET_SIZE) * max;
         /* scale to nanoseconds */
         recv_time *= 1000.0;
@@ -431,20 +431,31 @@ static void handle_msg_start_event(
 
     total_event_size = loggp_get_msg_sz() + m->event_size_bytes + m->local_event_size_bytes;
 
+    /* NOTE: we do not use the o_s or o_r parameters here; as indicated in
+     * the netgauge paper those are typically overlapping with L (and the
+     * msg xfer as well) and therefore are more important for overlapping
+     * computation rather than simulating communication time.
+     */
     if(m->net_msg_size_bytes < SMALL_MSG_LIMIT)
     {
         max = param->g;
-        if(max < param->o_s)
-            max = param->o_s;
-        xmit_time = param->L + param->o_s + ceil((double)m->net_msg_size_bytes/(double)PACKET_SIZE) * max;
+        xmit_time = param->L + ceil((double)m->net_msg_size_bytes/(double)PACKET_SIZE) * max;
         /* scale to nanoseconds */
         xmit_time *= 1000.0;
+#if 0
+        printf("FOO: xmit time small msg %d: %f\n", m->net_msg_size_bytes,
+            xmit_time);
+#endif
     }
     else
     {
-        xmit_time = param->L + param->o_s + ((double)(m->net_msg_size_bytes-1)*param->G);
+        xmit_time = param->L + ((double)(m->net_msg_size_bytes-1)*param->G);
         /* scale to nanoseconds */
         xmit_time *= 1000.0;
+#if 0
+        printf("FOO: xmit time large msg %d: %f\n", m->net_msg_size_bytes,
+            xmit_time);
+#endif
     }
     m->xmit_time_saved = xmit_time;
 
@@ -458,7 +469,7 @@ static void handle_msg_start_event(
         stat->max_event_size = total_event_size;
 
     /* calculate send time stamp */
-    send_queue_time = (param->L + param->o_s)*1000.0; 
+    send_queue_time = (param->L)*1000.0; 
     /* bump up time if the NIC send queue isn't idle right now */
     if(ns->net_send_next_idle > tw_now(lp))
         send_queue_time += ns->net_send_next_idle - tw_now(lp);
@@ -617,7 +628,6 @@ static void loggp_setup(const void* net_params)
     printf("Parsed %d loggp table entries.\n", param_table_size);
 
     fclose(conf);
-  /* TODO: implement logic here to read in parameter table */
  
     return;
 }
@@ -640,18 +650,14 @@ static struct param_table_entry* find_params(int msg_size)
 
     for(i=0; i<param_table_size; i++)
     {
-        if(param_table[i].size >= msg_size)
+        if(param_table[i].size > msg_size)
         {
             break;
         }
     }
+    if(i>=param_table_size)
+        i = param_table_size-1;
 
-    /* TODO: THIS IS A HACK */
-    /* need to understand why the o_s and o_r values don't work as
-     * expected...
-     */
-    param_table[i].o_s = 0;
-    param_table[i].o_r = 0;
     return(&param_table[i]);
 }
 
