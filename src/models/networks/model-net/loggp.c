@@ -18,20 +18,6 @@
 #define CATEGORY_NAME_MAX 16
 #define CATEGORY_MAX 12
 
-
-/* This method is not intended to 
- * utilize the modelnet packetization; we are using loggp calculations to
- * account for the packet size instead.
- */
-/* cutoff point for small vs. large messages */
-/* NOTE: we set this to 1 because the netgauge parameters are already
- * compensating for small message parameters, so we use the same formula for
- * all message sizes.
- */
-#define SMALL_MSG_LIMIT (1)
-#define PACKET_SIZE 2048
-
-
 /*Define loggp data types and structs*/
 typedef struct loggp_message loggp_message;
 typedef struct loggp_state loggp_state;
@@ -327,25 +313,12 @@ static void handle_msg_ready_event(
     struct mn_stats* stat;
     double recv_time;
     struct param_table_entry *param;
-    double max;
 
     param = find_params(m->net_msg_size_bytes);
 
-    if(m->net_msg_size_bytes < SMALL_MSG_LIMIT)
-    {
-        max = param->g;
-        recv_time = ceil((double)m->net_msg_size_bytes/(double)PACKET_SIZE) * max;
-        /* scale to nanoseconds */
-        recv_time *= 1000.0;
-    }
-    else
-    {
-        recv_time = ((double)(m->net_msg_size_bytes-1)*param->G);
-        /* scale to nanoseconds */
-        recv_time *= 1000.0;
-    }
-    m->recv_time_saved = recv_time;
-
+    recv_time = ((double)(m->net_msg_size_bytes-1)*param->G);
+    /* scale to nanoseconds */
+    recv_time *= 1000.0;
 
     //printf("handle_msg_ready_event(), lp %llu.\n", (unsigned long long)lp->gid);
     /* add statistics */
@@ -425,7 +398,6 @@ static void handle_msg_start_event(
     int total_event_size;
     double xmit_time;
     struct param_table_entry *param;
-    double max;
 
     param = find_params(m->net_msg_size_bytes);
 
@@ -436,27 +408,9 @@ static void handle_msg_start_event(
      * msg xfer as well) and therefore are more important for overlapping
      * computation rather than simulating communication time.
      */
-    if(m->net_msg_size_bytes < SMALL_MSG_LIMIT)
-    {
-        max = param->g;
-        xmit_time = param->L + ceil((double)m->net_msg_size_bytes/(double)PACKET_SIZE) * max;
-        /* scale to nanoseconds */
-        xmit_time *= 1000.0;
-#if 0
-        printf("FOO: xmit time small msg %d: %f\n", m->net_msg_size_bytes,
-            xmit_time);
-#endif
-    }
-    else
-    {
-        xmit_time = param->L + ((double)(m->net_msg_size_bytes-1)*param->G);
-        /* scale to nanoseconds */
-        xmit_time *= 1000.0;
-#if 0
-        printf("FOO: xmit time large msg %d: %f\n", m->net_msg_size_bytes,
-            xmit_time);
-#endif
-    }
+    xmit_time = param->L + ((double)(m->net_msg_size_bytes-1)*param->G);
+    /* scale to nanoseconds */
+    xmit_time *= 1000.0;
     m->xmit_time_saved = xmit_time;
 
     //printf("handle_msg_start_event(), lp %llu.\n", (unsigned long long)lp->gid);
