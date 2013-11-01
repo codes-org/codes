@@ -20,6 +20,7 @@ struct codes_workload_method
     char *method_name; /* name of the generator */
     int (*codes_workload_load)(const char* params, int rank);
     void (*codes_workload_get_next)(int rank, struct codes_workload_op *op);
+    void* (*codes_workload_get_info)(int rank);
 };
 
 #endif /* CODES_WORKLOAD_METHOD_H */

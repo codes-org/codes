@@ -14,8 +14,10 @@
  * could make generators optional via autoconf tests etc. if needed 
  */ 
 extern struct codes_workload_method test_workload_method;
+extern struct codes_workload_method bgp_io_workload_method;
+
 static struct codes_workload_method *method_array[] = 
-    {&test_workload_method, NULL};
+    {&test_workload_method, &bgp_io_workload_method, NULL};
 
 /* This shim layer is responsible for queueing up reversed operations and
  * re-issuing them so that the underlying workload generator method doesn't
@@ -110,12 +112,12 @@ void codes_workload_get_next(int wkld_id, int rank, struct codes_workload_op *op
 
         *op = tmp_op->op;
         free(tmp_op);
-        printf("codes_workload_get_next re-issuing reversed operation.\n");
+        //printf("codes_workload_get_next re-issuing reversed operation.\n");
         return;
     }
 
     /* ask generator for the next operation */
-    printf("codes_workload_get_next issuing new operation.\n");
+    //printf("codes_workload_get_next issuing new operation.\n");
     method_array[wkld_id]->codes_workload_get_next(rank, op);
 
     return;
@@ -142,6 +144,11 @@ void codes_workload_get_next_rc(int wkld_id, int rank, const struct codes_worklo
     tmp->lifo = tmp_op;
 
     return;
+}
+
+void* codes_workload_get_info(int wkld_id, int rank)
+{
+    return method_array[wkld_id]->codes_workload_get_info(rank);
 }
 
 /*

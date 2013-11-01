@@ -14,6 +14,17 @@
 
 #include "ross.h"
 
+typedef struct bgp_params bgp_params;
+
+struct bgp_params
+{
+    int num_cns_per_lp;
+    char* io_kernel_meta_path;
+    char* bgp_config_file;
+    char* io_kernel_path;
+    char* io_kernel_def_path;
+};
+
 /* supported I/O operations */
 enum codes_workload_op_type
 {

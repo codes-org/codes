@@ -34,6 +34,11 @@ This is an example workload generator that implements the
 codes-workload-method.h interface.  It produces a static workload for
 testing purposes.
 
+src/workload/codes-bgp-io-wrkld.c:
+---------------------
+This is the implementation of the codes-workload.h API for the I/O kernel
+language generator. 
+
 test program (tests/workload/*):
 ---------------------
 codes-workload-test.c: main routine for a simulator that provides an example
