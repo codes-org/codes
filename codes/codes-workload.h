@@ -106,6 +106,9 @@ void codes_workload_get_next(int wkld_id, int rank, struct codes_workload_op *op
 /* Reverse of the above function. */
 void codes_workload_get_next_rc(int wkld_id, int rank, const struct codes_workload_op *op);
 
+/* get related information for the codes workload (specifically for the BG/P model) */
+void* codes_workload_get_info(int wkld_id, int rank);
+
 /* NOTE: there is deliberately no finalize function; we don't have any
  * reliable way to tell when a workload is truly done and will not
  * participate in further reverse computation.   The underlying generators
