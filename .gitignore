@@ -28,10 +28,6 @@
 /src/modelconfig/configparser.c
 /src/modelconfig/configlex.h
 /src/modelconfig/configlex.c
-/src/iokernellang/codeslexer.h
-/src/iokernellang/codeslexer.c
-/src/iokernellang/codesparser.h
-/codes/codeslexer.h
 /tests/lp-io-test
 
 # hide backups

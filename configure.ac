@@ -103,7 +103,7 @@ AS_IF([test "x$enable_valgrind_clean" = "xyes"], [
 ])
 
 
-AC_CONFIG_FILES([src/iokernellang/codesparser.y])
+dnl AC_CONFIG_FILES([src/iokernellang/codesparser.y])
 
 AC_CONFIG_FILES([Makefile])
 

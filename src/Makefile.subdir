@@ -10,29 +10,23 @@ EXTRA_DIST += src/iokernellang/codesparser.y.in \
 
 PHONY: maintainer-clean-local
 maintainer-clean-local::
-	-rm -f src/iokernellang/codesparser.c
-	-rm -f src/iokernellang/codesparser.h
-	-rm -f src/iokernellang/codesparser.y
-	-rm -f src/iokernellang/codeslexer.c
-	-rm -f src/iokernellang/codeslexer.h
-	-rm -f codes/codeslexer.h
 	-rm -f src/modelconfig/configlex.h
 	-rm -f src/modelconfig/configlex.c
 	-rm -f src/modelconfig/configparser.h
 	-rm -f src/modelconfig/configparser.c
 
-
 src/modelconfig/configparser.h: src/modelconfig/configparser.y
 src/modelconfig/configlex.h: src/modelconfig/configlex.l
 
-BUILT_SOURCES += codes/codesparser.h \
-		 src/iokernellang/codesparser.c \
-                 src/iokernellang/codeslexer.h \
-                 codes/codeslexer.h
+#BUILT_SOURCES += codes/codesparser.h \
+#		 src/iokernellang/codesparser.c \
+#                 src/iokernellang/codeslexer.h \
+#                 codes/codeslexer.h
 
 
 #src/iokernellang/codesparser.y: src/iokernellang/codesparser.y.in Makefile
-src/iokernellang/codesparser.c codes/codesparser.h: src/iokernellang/codesparser.y
+
+#src/iokernellang/codesparser.c codes/codesparser.h: src/iokernellang/codesparser.y
 
 codes/codeslexer.h: src/iokernellang/codeslexer.h
 	mkdir -p codes
