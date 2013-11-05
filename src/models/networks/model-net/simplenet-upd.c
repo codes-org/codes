@@ -189,6 +189,8 @@ static int sn_get_msg_sz(void)
 /* lets caller specify model parameters to use */
 static void sn_set_params(double net_startup_ns, double net_bw_mbs)
 {
+    assert(net_startup_ns > 0);
+    assert(net_bw_mbs > 0);
     global_net_startup_ns = net_startup_ns;
     global_net_bw_mbs = net_bw_mbs;
     
