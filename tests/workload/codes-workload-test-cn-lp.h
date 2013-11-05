@@ -6,11 +6,14 @@
 
 #ifndef CODES_WORKLOAD_TEST_CN_LP_H
 #define CODES_WORKLOAD_TEST_CN_LP_H
+#define MAX_NAME_LENGTH 512
 
 #include <ross.h>
 #include "codes/codes-workload.h"
 
 extern tw_lptype client_lp;
+char workload_type[MAX_NAME_LENGTH];
+struct bgp_params bgparams;
 
 void cn_op_complete(tw_lp *lp, tw_stime svc_time, tw_lpid gid);
 void cn_op_complete_rc(tw_lp *lp);

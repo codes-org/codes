@@ -299,7 +299,15 @@ static void handle_client_op_loop_event(
     {
         /* first operation; initialize the desired workload generator */
         printf("codes_workload_load on gid: %ld\n", lp->gid);
-        ns->wkld_id = codes_workload_load("test", NULL, ns->my_rank);
+	
+	if(strcmp(workload_type, "test") == 0)
+           ns->wkld_id = codes_workload_load("test", NULL, ns->my_rank);
+	else 
+	    if(strcmp(workload_type, "bgp_io_workload") == 0)
+	    {
+	        ns->wkld_id = codes_workload_load("bgp_io_workload", (char*)&bgparams, ns->my_rank);
+	    }
+
         assert(ns->wkld_id > -1);
     }
 
@@ -307,7 +315,7 @@ static void handle_client_op_loop_event(
      * inbound message for this function, so that we have it saved for
      * reverse computation if needed.
      */
-    codes_workload_get_next(ns->wkld_id, ns->my_rank, &m->op_rc);
+   codes_workload_get_next(ns->wkld_id, ns->my_rank, &m->op_rc);
 
     /* NOTE: in this test model the LP is doing its own math to find the LP
      * ID of servers just to do something simple.  It knows that compute
@@ -316,42 +324,46 @@ static void handle_client_op_loop_event(
 
     switch(m->op_rc.op_type)
     {
-        /* this first set of operation types are handled exclusively by the
-         * client 
-         */ 
-        case CODES_WK_END:
-            ns->completion_time = tw_now(lp);
-            printf("Client rank %d completed workload.\n", ns->my_rank);
-            /* stop issuing events; we are done */
-            return;
-            break;
+      /* this first set of operation types are handled exclusively by the
+       * client 
+       */ 
+       case CODES_WK_END:
+           ns->completion_time = tw_now(lp);
+           printf("Client rank %d completed workload.\n", ns->my_rank);
+	   /* stop issuing events; we are done */
+	   return;
+           break;
         case CODES_WK_BARRIER:
             printf("Client rank %d hit barrier.\n", ns->my_rank);
             cn_enter_barrier(lp, m->op_rc.u.barrier.root, m->op_rc.u.barrier.count);
-            return; 
-            break;
+            return;
+	    break;
+	/*case CODES_WK_WRITE:
+	    printf("Client rank %d initiate write operation size %d offset %d .\n", ns->my_rank, (int)m->op_rc.u.write.size, (int)m->op_rc.u.write.offset);
+	    break;*/
         case CODES_WK_DELAY:
             printf("Client rank %d will delay for %f seconds.\n", ns->my_rank, 
-                m->op_rc.u.delay.seconds);
+            m->op_rc.u.delay.seconds);
             cn_delay(lp, m->op_rc.u.delay.seconds);
-            return;
+	    return;
             break;
 
         /* "normal" io operations: we just calculate the destination and
          * then continue after the switch block to send the specified
          * operation to a server.
          */
-        case CODES_WK_OPEN:
+         case CODES_WK_OPEN:
             printf("Client rank %d will issue an open request.\n", ns->my_rank);
             dest_svr_id = g_num_clients + m->op_rc.u.open.file_id % g_num_servers;
             break;
-        default:
-            assert(0);
-            break;
-    }
-
+         default:
+	    //printf(" \n Operation not supported anymore (I/O language specific operations) ");
+            //assert(0);
+	 return;
+         break;
+	}
+       
     svr_op_start(lp, dest_svr_id, &m->op_rc);
-
     return;
 }
 

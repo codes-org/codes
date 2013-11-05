@@ -13,16 +13,17 @@
 #define CODES_WORKLOAD_H
 
 #include "ross.h"
+#define MAX_NAME_LENGTH 512
 
 typedef struct bgp_params bgp_params;
 
 struct bgp_params
 {
     int num_cns_per_lp;
-    char* io_kernel_meta_path;
-    char* bgp_config_file;
-    char* io_kernel_path;
-    char* io_kernel_def_path;
+    char io_kernel_meta_path[MAX_NAME_LENGTH];
+    char bgp_config_file[MAX_NAME_LENGTH];
+    char io_kernel_path[MAX_NAME_LENGTH];
+    char io_kernel_def_path[MAX_NAME_LENGTH];
 };
 
 /* supported I/O operations */
