@@ -538,15 +538,15 @@ static yyconst flex_int32_t yy_rule_can_match_eol[37] =
 #define yymore() yymore_used_but_not_detected
 #define YY_MORE_ADJ 0
 #define YY_RESTORE_YY_MORE_OFFSET
-#line 1 "../src/iokernellang/codeslexer.l"
-#line 2 "../src/iokernellang/codeslexer.l"
+#line 1 "src/iokernellang/codeslexer.l"
+#line 2 "src/iokernellang/codeslexer.l"
 #include <stdlib.h>
 #include "codes/CodesIOKernelTypes.h"
 #include "codes/CodesIOKernelParser.h"
 
 #define YY_NO_INPUT
 
-#line 19 "../src/iokernellang/codeslexer.l"
+#line 19 "src/iokernellang/codeslexer.l"
 	YYLTYPE *CodesIOKernel_get_lloc  (yyscan_t yyscanner);
 	int CodesIOKernel_lex_init (yyscan_t* scanner);
 	int CodesIOKernel_lex(YYSTYPE * lvalp, YYLTYPE * llocp, void * scanner);
@@ -807,7 +807,7 @@ YY_DECL
 	register int yy_act;
     struct yyguts_t * yyg = (struct yyguts_t*)yyscanner;
 
-#line 37 "../src/iokernellang/codeslexer.l"
+#line 37 "src/iokernellang/codeslexer.l"
 
 
 #line 814 "src/iokernellang/codeslexer.c"
@@ -911,7 +911,7 @@ do_action:	/* This label is used only to access EOF actions. */
 
 case 1:
 YY_RULE_SETUP
-#line 39 "../src/iokernellang/codeslexer.l"
+#line 39 "src/iokernellang/codeslexer.l"
 {
 		if(yyextra->text != NULL)
                 {
@@ -924,7 +924,7 @@ YY_RULE_SETUP
 	YY_BREAK
 case 2:
 YY_RULE_SETUP
-#line 49 "../src/iokernellang/codeslexer.l"
+#line 49 "src/iokernellang/codeslexer.l"
 {
 		if(yyextra->text != NULL)
                 {
@@ -937,7 +937,7 @@ YY_RULE_SETUP
 	YY_BREAK
 case 3:
 YY_RULE_SETUP
-#line 59 "../src/iokernellang/codeslexer.l"
+#line 59 "src/iokernellang/codeslexer.l"
 {
 		if(yyextra->text != NULL)
                 {
@@ -950,7 +950,7 @@ YY_RULE_SETUP
 	YY_BREAK
 case 4:
 YY_RULE_SETUP
-#line 69 "../src/iokernellang/codeslexer.l"
+#line 69 "src/iokernellang/codeslexer.l"
 {
 		if(yyextra->text != NULL)
                 {
@@ -962,163 +962,163 @@ YY_RULE_SETUP
 	YY_BREAK
 case 5:
 YY_RULE_SETUP
-#line 78 "../src/iokernellang/codeslexer.l"
+#line 78 "src/iokernellang/codeslexer.l"
 return GE;
 	YY_BREAK
 case 6:
 YY_RULE_SETUP
-#line 79 "../src/iokernellang/codeslexer.l"
+#line 79 "src/iokernellang/codeslexer.l"
 return LE;
 	YY_BREAK
 case 7:
 YY_RULE_SETUP
-#line 80 "../src/iokernellang/codeslexer.l"
+#line 80 "src/iokernellang/codeslexer.l"
 return EQ;
 	YY_BREAK
 case 8:
 YY_RULE_SETUP
-#line 81 "../src/iokernellang/codeslexer.l"
+#line 81 "src/iokernellang/codeslexer.l"
 return NE;
 	YY_BREAK
 case 9:
 YY_RULE_SETUP
-#line 82 "../src/iokernellang/codeslexer.l"
+#line 82 "src/iokernellang/codeslexer.l"
 return WHILE;
 	YY_BREAK
 case 10:
 YY_RULE_SETUP
-#line 83 "../src/iokernellang/codeslexer.l"
+#line 83 "src/iokernellang/codeslexer.l"
 return IF;
 	YY_BREAK
 case 11:
 YY_RULE_SETUP
-#line 84 "../src/iokernellang/codeslexer.l"
+#line 84 "src/iokernellang/codeslexer.l"
 return ELSE;
 	YY_BREAK
 case 12:
 YY_RULE_SETUP
-#line 85 "../src/iokernellang/codeslexer.l"
+#line 85 "src/iokernellang/codeslexer.l"
 return PRINT;
 	YY_BREAK
 case 13:
 YY_RULE_SETUP
-#line 86 "../src/iokernellang/codeslexer.l"
+#line 86 "src/iokernellang/codeslexer.l"
 return WRITE;
 	YY_BREAK
 case 14:
 YY_RULE_SETUP
-#line 87 "../src/iokernellang/codeslexer.l"
+#line 87 "src/iokernellang/codeslexer.l"
 return WRITEAT;
 	YY_BREAK
 case 15:
 YY_RULE_SETUP
-#line 88 "../src/iokernellang/codeslexer.l"
+#line 88 "src/iokernellang/codeslexer.l"
 return WRITE_ALL;
 	YY_BREAK
 case 16:
 YY_RULE_SETUP
-#line 89 "../src/iokernellang/codeslexer.l"
+#line 89 "src/iokernellang/codeslexer.l"
 return WRITEAT_ALL;
 	YY_BREAK
 case 17:
 YY_RULE_SETUP
-#line 90 "../src/iokernellang/codeslexer.l"
+#line 90 "src/iokernellang/codeslexer.l"
 return READ;
 	YY_BREAK
 case 18:
 YY_RULE_SETUP
-#line 91 "../src/iokernellang/codeslexer.l"
+#line 91 "src/iokernellang/codeslexer.l"
 return READAT;
 	YY_BREAK
 case 19:
 YY_RULE_SETUP
-#line 92 "../src/iokernellang/codeslexer.l"
+#line 92 "src/iokernellang/codeslexer.l"
 return READ_ALL;
 	YY_BREAK
 case 20:
 YY_RULE_SETUP
-#line 93 "../src/iokernellang/codeslexer.l"
+#line 93 "src/iokernellang/codeslexer.l"
 return READAT_ALL;
 	YY_BREAK
 case 21:
 YY_RULE_SETUP
-#line 94 "../src/iokernellang/codeslexer.l"
+#line 94 "src/iokernellang/codeslexer.l"
 return SYNC;
 	YY_BREAK
 case 22:
 YY_RULE_SETUP
-#line 95 "../src/iokernellang/codeslexer.l"
+#line 95 "src/iokernellang/codeslexer.l"
 return DELETE;
 	YY_BREAK
 case 23:
 YY_RULE_SETUP
-#line 96 "../src/iokernellang/codeslexer.l"
+#line 96 "src/iokernellang/codeslexer.l"
 return SLEEP;
 	YY_BREAK
 case 24:
 YY_RULE_SETUP
-#line 97 "../src/iokernellang/codeslexer.l"
+#line 97 "src/iokernellang/codeslexer.l"
 return OPEN;
 	YY_BREAK
 case 25:
 YY_RULE_SETUP
-#line 98 "../src/iokernellang/codeslexer.l"
+#line 98 "src/iokernellang/codeslexer.l"
 return CLOSE;
 	YY_BREAK
 case 26:
 YY_RULE_SETUP
-#line 99 "../src/iokernellang/codeslexer.l"
+#line 99 "src/iokernellang/codeslexer.l"
 return FLUSH;
 	YY_BREAK
 case 27:
 YY_RULE_SETUP
-#line 100 "../src/iokernellang/codeslexer.l"
+#line 100 "src/iokernellang/codeslexer.l"
 return SEEK;
 	YY_BREAK
 case 28:
 YY_RULE_SETUP
-#line 101 "../src/iokernellang/codeslexer.l"
+#line 101 "src/iokernellang/codeslexer.l"
 return GETGROUPID;
 	YY_BREAK
 case 29:
 YY_RULE_SETUP
-#line 102 "../src/iokernellang/codeslexer.l"
+#line 102 "src/iokernellang/codeslexer.l"
 return GETNUMGROUPS;
 	YY_BREAK
 case 30:
 YY_RULE_SETUP
-#line 103 "../src/iokernellang/codeslexer.l"
+#line 103 "src/iokernellang/codeslexer.l"
 return GETGROUPRANK;
 	YY_BREAK
 case 31:
 YY_RULE_SETUP
-#line 104 "../src/iokernellang/codeslexer.l"
+#line 104 "src/iokernellang/codeslexer.l"
 return GETGROUPSIZE;
 	YY_BREAK
 case 32:
 YY_RULE_SETUP
-#line 105 "../src/iokernellang/codeslexer.l"
+#line 105 "src/iokernellang/codeslexer.l"
 return GETCURTIME;
 	YY_BREAK
 case 33:
 YY_RULE_SETUP
-#line 106 "../src/iokernellang/codeslexer.l"
+#line 106 "src/iokernellang/codeslexer.l"
 return EXIT;
 	YY_BREAK
 case 34:
 /* rule 34 can match eol */
 YY_RULE_SETUP
-#line 108 "../src/iokernellang/codeslexer.l"
+#line 108 "src/iokernellang/codeslexer.l"
 ;       /* ignore whitespace */
 	YY_BREAK
 case 35:
 YY_RULE_SETUP
-#line 110 "../src/iokernellang/codeslexer.l"
+#line 110 "src/iokernellang/codeslexer.l"
 fprintf(stderr, "Unknown character\n");
 	YY_BREAK
 case 36:
 YY_RULE_SETUP
-#line 111 "../src/iokernellang/codeslexer.l"
+#line 111 "src/iokernellang/codeslexer.l"
 ECHO;
 	YY_BREAK
 #line 1125 "src/iokernellang/codeslexer.c"
@@ -2269,7 +2269,7 @@ void CodesIOKernel_free (void * ptr , yyscan_t yyscanner)
 
 #define YYTABLES_NAME "yytables"
 
-#line 111 "../src/iokernellang/codeslexer.l"
+#line 111 "src/iokernellang/codeslexer.l"
 
 
 

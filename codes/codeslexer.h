@@ -351,7 +351,7 @@ extern int CodesIOKernel_lex \
 #undef YY_DECL
 #endif
 
-#line 111 "../src/iokernellang/codeslexer.l"
+#line 111 "src/iokernellang/codeslexer.l"
 
 
 #line 358 "src/iokernellang/codeslexer.h"
