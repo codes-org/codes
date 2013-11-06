@@ -32,8 +32,6 @@ codes/codeslexer.h: src/iokernellang/codeslexer.h
 	mkdir -p codes
 	cp src/iokernellang/codeslexer.h codes/codeslexer.h
 
-EXTRA_DIST += src/iokernellang/codesparser.y
-
 nobase_include_HEADERS = \
     codes/CodesKernelHelpers.h \
     codes/CodesIOKernelContext.h \
