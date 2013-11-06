@@ -16,6 +16,7 @@
 #define MAX_NAME_LENGTH 512
 
 typedef struct bgp_params bgp_params;
+typedef struct codes_workload_info codes_workload_info;
 
 struct bgp_params
 {
@@ -24,6 +25,15 @@ struct bgp_params
     char bgp_config_file[MAX_NAME_LENGTH];
     char io_kernel_path[MAX_NAME_LENGTH];
     char io_kernel_def_path[MAX_NAME_LENGTH];
+};
+
+struct codes_workload_info
+{
+    int group_id; /* group id */
+    int min_rank; /* minimum rank in the collective operation */
+    int max_rank; /* maximum rank in the collective operation */
+    int local_rank; /* local rank? never being used in the bg/p model */ 
+    int num_lrank; /* number of ranks participating in the collective operation*/
 };
 
 /* supported I/O operations */

@@ -20,6 +20,7 @@
 #include "codes/CodesIOKernelTypes.h"
 #include "codes/CodesIOKernelParser.h"
 #include "codes/codeslexer.h"
+#include "codes/codes-workload.h"
 
 #define CL_INST_MAX_ARGS 10
 
@@ -61,7 +62,7 @@ int codes_kernel_helper_parse_input(CodesIOKernel_pstate * ps,
 
 int codes_kernel_helper_bootstrap(char * io_kernel_path, char * def_io_kernel_path,
         char * io_kernel_meta_path, int rank, CodesIOKernelContext * c,
-        CodesIOKernel_pstate ** ps, app_cf_info_t * task_info,
+        CodesIOKernel_pstate ** ps, codes_workload_info * task_info,
         codeslang_inst * next_event);
 
 char * code_kernel_helpers_cleventToStr(int inst);

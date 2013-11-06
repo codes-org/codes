@@ -104,7 +104,7 @@ static int convertKLInstToEvent(int inst)
 }
 
 static void codes_kernel_helper_parse_cf(char * io_kernel_path, char *
-        io_kernel_def_path, char * io_kernel_meta_path, int task_rank, app_cf_info_t * task_info)
+        io_kernel_def_path, char * io_kernel_meta_path, int task_rank, codes_workload_info * task_info)
 {
        int foundit = 0;
        char line[CK_LINE_LIMIT];
@@ -160,10 +160,10 @@ static void codes_kernel_helper_parse_cf(char * io_kernel_path, char *
                 * file */
                if(task_rank >= min && task_rank <= max)
                {
-                       task_info->gid = gid;
-                       task_info->min = min;
-                       task_info->max = max;
-                       task_info->lrank = task_rank - min;
+                       task_info->group_id = gid;
+                       task_info->min_rank = min;
+                       task_info->max_rank = max;
+                       task_info->local_rank = task_rank - min;
                        task_info->num_lrank = max - min + 1;
 
                        foundit = 1;
@@ -183,10 +183,10 @@ static void codes_kernel_helper_parse_cf(char * io_kernel_path, char *
 
                /* default gid and task attrs */
                /* TODO can we detect the gaps instead of -1 */
-               task_info->gid = CL_DEFAULT_GID;
-               task_info->min = -1;
-               task_info->max = -1;
-               task_info->lrank = -1;
+               task_info->group_id = CL_DEFAULT_GID;
+               task_info->min_rank = -1;
+               task_info->max_rank = -1;
+               task_info->local_rank = -1;
                task_info->num_lrank = -1;
        }
 
@@ -285,7 +285,7 @@ int codes_kernel_helper_parse_input(CodesIOKernel_pstate * ps, CodesIOKernelCont
 int codes_kernel_helper_bootstrap(char * io_kernel_path, char *
         io_kernel_def_path, char * io_kernel_meta_path,
         int rank, CodesIOKernelContext * c,
-        CodesIOKernel_pstate ** ps, app_cf_info_t * task_info,
+        CodesIOKernel_pstate ** ps, codes_workload_info * task_info,
         codeslang_inst * next_event)
 {
     int t = CL_NOOP;
