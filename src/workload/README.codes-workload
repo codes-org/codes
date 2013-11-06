@@ -39,6 +39,12 @@ src/workload/codes-bgp-io-wrkld.c:
 This is the implementation of the codes-workload.h API for the I/O kernel
 language generator. 
 
+src/workload/codes-darshan-io-wrkld.c:
+---------------------
+This is the implementation of the workload generator API for Darshan workloads.
+Darshan trace events are stored in a file which needs to be passed to the 
+_workload_load function in the params arguments.
+
 test program (tests/workload/*):
 ---------------------
 codes-workload-test.c: main routine for a simulator that provides an example
