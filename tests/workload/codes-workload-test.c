@@ -19,6 +19,7 @@
 #include "codes/lp-io.h"
 #include "codes/codes.h"
 #include "codes/codes-workload.h"
+#include "codes/configuration.h"
 #include "codes-workload-test-svr-lp.h"
 #include "codes-workload-test-cn-lp.h"
 
@@ -29,6 +30,31 @@ const tw_optdef app_opt[] = {
     TWOPT_GROUP("CODES Workload Test Model"),
     TWOPT_END()
 };
+
+static int num_clients_per_lp = -1;
+
+void workload_set_params()
+{
+    config_lpgroups_t paramconf;
+    char io_kernel_meta_path[MAX_NAME_LENGTH];
+    char bgp_config_file[MAX_NAME_LENGTH];
+    
+    configuration_get_lpgroups(&config, "PARAMS", &paramconf);
+
+    configuration_get_value(&config, "PARAMS", "workload_type", workload_type, MAX_NAME_LENGTH);
+    if(strcmp(workload_type,"bgp_io_workload") == 0)
+    {
+        strcpy(bgparams.io_kernel_path,"");
+        strcpy(bgparams.io_kernel_def_path, "");
+        
+	configuration_get_value(&config, "PARAMS", "io_kernel_meta_path", io_kernel_meta_path, MAX_NAME_LENGTH);
+	strcpy(bgparams.io_kernel_meta_path, io_kernel_meta_path);
+        
+	configuration_get_value(&config, "PARAMS", "bgp_config_file", bgp_config_file, MAX_NAME_LENGTH);
+	strcpy(bgparams.bgp_config_file, bgp_config_file);
+	bgparams.num_cns_per_lp = num_clients_per_lp;
+    }
+}
 
 int main(
     int argc,
@@ -55,7 +81,18 @@ int main(
         exit(-1);
     }
 
+    if(argc < 2)
+    {
+        printf("\n Usage: mpirun <args> --sync=2/3 mapping_file_name.conf (optional --nkp) ");
+        exit(-1);
+    }
+
     lps_per_proc = (NUM_SERVERS+NUM_CLIENTS) / nprocs;
+
+    num_clients_per_lp = NUM_CLIENTS / nprocs;
+
+    configuration_load(argv[2], MPI_COMM_WORLD, &config);
+
 
     tw_define_lps(lps_per_proc, 512, 0);
 
@@ -77,6 +114,7 @@ int main(
        return(-1); 
     }
 
+    workload_set_params();
     tw_run();
 
     ret = lp_io_flush(handle, MPI_COMM_WORLD);

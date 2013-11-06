@@ -13,6 +13,35 @@
 %name-prefix="cfgp_"
 %defines
 
+%{
+
+
+#include <assert.h>
+#include "src/modelconfig/configglue.h"
+#include "codes/tools.h"
+
+#if defined __GNUC__
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#pragma GCC diagnostic ignored "-Wunused-function"
+#elif defined __SUNPRO_CC
+#pragma disable_warn
+#elif defined _MSC_VER
+#pragma warning(push, 1)
+#endif
+
+
+%}
+
+%code requires {
+  
+  #ifndef YY_TYPEDEF_YY_SCANNER_T
+  #define YY_TYPEDEF_YY_SCANNER_T
+  typedef void* yyscan_t;
+  #endif
+   
+}
+    
+
 %union {
         struct
         {
@@ -21,6 +50,25 @@
         };
 
 }
+
+%{
+#include "src/modelconfig/configlex.h"
+
+int cfgp_error (YYLTYPE * loc, yyscan_t * scanner, ParserParams * p, 
+                        const char * msg)
+{
+   if (loc)
+   {
+     return cfgp_parser_error (p, msg, loc->first_line, 
+     loc->first_column, loc->last_line, loc->last_column);
+   }
+   else
+   {
+     return cfgp_parser_error (p, msg, 0,0,0,0);
+   }
+}
+
+%}
 
 %start configfile
 %token <string_buf> LITERAL_STRING
@@ -40,41 +88,6 @@
    param->parser_error_code = 0;
    param->parser_error_string = 0;
 }
-
-%{
-
-
-#include <assert.h>
-
-#include "src/modelconfig/configlex.h"
-#include "src/modelconfig/configglue.h"
-#include "codes/tools.h"
-
-#if defined __GNUC__
-#pragma GCC diagnostic ignored "-Wunused-parameter"
-#pragma GCC diagnostic ignored "-Wunused-function"
-#elif defined __SUNPRO_CC
-#pragma disable_warn
-#elif defined _MSC_VER
-#pragma warning(push, 1)
-#endif
-
-int cfgp_error (YYLTYPE * loc, yyscan_t * scanner, ParserParams * p, 
-                        const char * msg)
-{
-   if (loc)
-   {
-     return cfgp_parser_error (p, msg, loc->first_line, 
-     loc->first_column, loc->last_line, loc->last_column);
-   }
-   else
-   {
-     return cfgp_parser_error (p, msg, 0,0,0,0);
-   }
-}
-
-
-%}
 
 
 

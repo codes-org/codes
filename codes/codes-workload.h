@@ -13,16 +13,27 @@
 #define CODES_WORKLOAD_H
 
 #include "ross.h"
+#define MAX_NAME_LENGTH 512
 
 typedef struct bgp_params bgp_params;
+typedef struct codes_workload_info codes_workload_info;
 
 struct bgp_params
 {
     int num_cns_per_lp;
-    char* io_kernel_meta_path;
-    char* bgp_config_file;
-    char* io_kernel_path;
-    char* io_kernel_def_path;
+    char io_kernel_meta_path[MAX_NAME_LENGTH];
+    char bgp_config_file[MAX_NAME_LENGTH];
+    char io_kernel_path[MAX_NAME_LENGTH];
+    char io_kernel_def_path[MAX_NAME_LENGTH];
+};
+
+struct codes_workload_info
+{
+    int group_id; /* group id */
+    int min_rank; /* minimum rank in the collective operation */
+    int max_rank; /* maximum rank in the collective operation */
+    int local_rank; /* local rank? never being used in the bg/p model */ 
+    int num_lrank; /* number of ranks participating in the collective operation*/
 };
 
 /* supported I/O operations */
@@ -105,6 +116,9 @@ void codes_workload_get_next(int wkld_id, int rank, struct codes_workload_op *op
 
 /* Reverse of the above function. */
 void codes_workload_get_next_rc(int wkld_id, int rank, const struct codes_workload_op *op);
+
+/* get related information for the codes workload (specifically for the BG/P model) */
+void* codes_workload_get_info(int wkld_id, int rank);
 
 /* NOTE: there is deliberately no finalize function; we don't have any
  * reliable way to tell when a workload is truly done and will not

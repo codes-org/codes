@@ -53,7 +53,7 @@ struct codes_bgp_wrkld_state_per_cn
     CodesIOKernelContext codes_context;
     CodesIOKernel_pstate * codes_pstate;
     codeslang_inst next_event;
-    app_cf_info_t task_info;
+    codes_workload_info task_info;
 };
 
 /* returns information that is used further by the BG/P model for running multiple jobs */
