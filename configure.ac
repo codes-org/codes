@@ -89,6 +89,20 @@ else
     AC_MSG_ERROR([Could not find usable ROSS installation, try --with-ross=DIR])
 fi
 
+# check for Darshan
+AC_ARG_WITH([darshan],[AS_HELP_STRING([--with-darshan@<:@=DIR@:>@],
+                        [location of Darshan installation])])
+if test "x${with_darshan}" != "x" ; then
+    darshan_headers="${with_darshan}/include"
+    AC_CHECK_FILE([$darshan_headers/darshan-io-events.h],
+                  AM_CONDITIONAL(USE_DARSHAN, true),
+                  AC_MSG_ERROR(Could not find darshan-io-events.h at: $darshan_headers))
+    DARSHAN_CPPFLAGS="-I${with_darshan}/include"
+    AC_SUBST(DARSHAN_CPPFLAGS)
+else
+    AM_CONDITIONAL(USE_DARSHAN, false)
+fi
+
 dnl ======================================================================
 dnl  Try harder to be valgrind safe
 dnl ======================================================================
