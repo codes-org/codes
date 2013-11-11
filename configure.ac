@@ -66,9 +66,4 @@ AC_SUBST(CODES_BASE_CFLAGS)
 includedir="${includedir}/codes"
 
 AC_CONFIG_FILES([Makefile])
-AC_CONFIG_FILES([tests/modelnet-test.sh],[chmod +x tests/modelnet-test.sh])
-AC_CONFIG_FILES([tests/modelnet-test-dragonfly.sh],[chmod +x tests/modelnet-test-dragonfly.sh])
-AC_CONFIG_FILES([tests/modelnet-test-torus.sh],[chmod +x tests/modelnet-test-torus.sh])
-AC_CONFIG_FILES([tests/modelnet-test-loggp.sh],[chmod +x tests/modelnet-test-loggp.sh])
-AC_CONFIG_FILES([tests/modelnet-p2p-bw-loggp.sh],[chmod +x tests/modelnet-p2p-bw-loggp.sh])
 AC_OUTPUT(maint/codes-net.pc tests/modelnet-p2p-bw-loggp.conf tests/modelnet-test-loggp.conf)

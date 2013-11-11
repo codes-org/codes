@@ -24,8 +24,6 @@
 .dirstamp
 *.o
 *.a
-/tests/modelnet-test
-/tests/modelnet-test.sh
 
 # hide backups
 *~
