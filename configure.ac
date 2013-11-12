@@ -65,5 +65,8 @@ AC_SUBST(CODES_BASE_CFLAGS)
 # put include files in a codes/ subdir 
 includedir="${includedir}/codes"
 
+if test "x$srcdir" != "x."; then
+    AC_CONFIG_LINKS([tests/conf:$srcdir/tests/conf])
+fi
 AC_CONFIG_FILES([Makefile])
-AC_OUTPUT(maint/codes-net.pc tests/modelnet-p2p-bw-loggp.conf tests/modelnet-test-loggp.conf)
+AC_OUTPUT(maint/codes-net.pc)
