@@ -29,6 +29,7 @@ enum cl_event_t
     CL_GETSIZE=1,
     CL_GETRANK,
     CL_WRITEAT,
+    CL_READAT,
     CL_OPEN,
     CL_CLOSE,
     CL_SYNC,

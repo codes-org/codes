@@ -22,6 +22,8 @@ char * code_kernel_helpers_kinstToStr(int inst)
     {
         case WRITEAT:
             return "WRITEAT";
+	case READAT:
+	    return "READAT";
         case GETGROUPRANK:
             return "GETGROUPRANK";
         case GETGROUPSIZE:
@@ -51,6 +53,8 @@ char * code_kernel_helpers_cleventToStr(int inst)
     {
         case CL_WRITEAT:
             return "CL_WRITEAT";
+	case CL_READAT:
+	    return "CL_READAT";
         case CL_GETRANK:
             return "CL_GETRANK";
         case CL_GETSIZE:
@@ -80,6 +84,8 @@ static int convertKLInstToEvent(int inst)
     {
         case WRITEAT:
             return CL_WRITEAT;
+	case READAT:
+	    return CL_READAT;
         case GETGROUPRANK:
             return CL_GETRANK;
         case GETGROUPSIZE:
@@ -214,6 +220,7 @@ int codes_kernel_helper_parse_input(CodesIOKernel_pstate * ps, CodesIOKernelCont
         {
             /* for each instrunction that triggers a simulator event */
             case WRITEAT:
+            case READAT:
             case GETGROUPRANK:
             case GETGROUPSIZE:
             case CLOSE:
@@ -247,6 +254,7 @@ int codes_kernel_helper_parse_input(CodesIOKernel_pstate * ps, CodesIOKernelCont
                 case CL_GETRANK:
                 case CL_GETSIZE:
                 case CL_WRITEAT:
+	        case CL_READAT:
                 case CL_OPEN:
                 case CL_CLOSE:
                 case CL_SYNC:
