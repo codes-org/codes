@@ -90,61 +90,31 @@ int bgp_io_workload_load(const char* params, int rank)
 /* Maps the enum types from I/O language to the CODES workload API */
 static int convertTypes(int inst)
 {
-    int op_type = -1;
     switch(inst)
     {
         case CL_WRITEAT: /* write to file */
-        {
-	    op_type = CODES_WK_WRITE;
-        }
-	break;
+	    return CODES_WK_WRITE;
+	case CL_READAT:
+	    return CODES_WK_READ;
 	case CL_CLOSE:
-	{
-	    op_type = CODES_WK_CLOSE; /* close the file */
-	}
-	break;
+	    return CODES_WK_CLOSE; /* close the file */
 	case CL_OPEN:
-	{
-	    op_type = CODES_WK_OPEN; /* open file */
-	}
-	break;
+	    return CODES_WK_OPEN; /* open file */
 	case CL_SYNC:
-	{
-	    op_type = CODES_WK_BARRIER; /* barrier in CODES workload is similar to sync in I/O lang? */
-	}
-	break;
+	    return CODES_WK_BARRIER; /* barrier in CODES workload is similar to sync in I/O lang? */
 	case CL_SLEEP:
-	{
-	    op_type = CODES_WK_DELAY; /* sleep or delay */
-	}
-	break;
+	    return CODES_WK_DELAY; /* sleep or delay */
 	case CL_EXIT:
-	{
-	    op_type = CODES_WK_END; /* end of the operations/ no more operations in file */
-	}
-	break;
+	    return CODES_WK_END; /* end of the operations/ no more operations in file */
 	case CL_DELETE:
-	{
-	    op_type = -2;
-	}
-	break;
+	    return -2;
 	case CL_GETRANK: 
-	{
-	    op_type = -3; /* defined in I/O lang but not in workloads API*/
-	}
-	break;
+	    return -3; /* defined in I/O lang but not in workloads API*/
 	case CL_GETSIZE: 
-	{
-	    op_type = -4; /* defined in I/O lang but not in workload API */
-	}
-	break;
+	    return -4; /* defined in I/O lang but not in workload API */
 	default:
-	{
-	   //printf("\n convert type undefined %d ", inst);
-	   op_type = -1; 
-	}
-    }
-    return op_type;
+	   return -1;
+    } 
 }
 
 /* Gets the next operation specified in the workload file for the simulated MPI rank
@@ -196,7 +166,9 @@ void bgp_io_workload_get_next(int rank, struct codes_workload_op *op)
 	    break;
 	    case CODES_WK_READ:
 	    {
-		/* to be added (the BG/P model does not supports read operations right now) */
+                op->u.read.file_id = (wrkld_arr[local_rank].next_event).var[0];
+		op->u.read.offset = (wrkld_arr[local_rank].next_event).var[2];
+		op->u.read.size = (wrkld_arr[local_rank].next_event).var[1];
 	    }
 	    break;
 	    default:
