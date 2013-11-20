@@ -73,6 +73,9 @@ static int darshan_io_workload_load(const char *params, int rank)
     int ret;
     struct rank_events_context *new = NULL;
 
+    if (!event_file)
+        return -1;
+
     /*  allocate a new event context for this rank */
     new = malloc(sizeof(*new));
     if (!new)
@@ -362,7 +365,7 @@ static struct codes_workload_op darshan_event_to_codes_workload_op(struct darsha
 {
     struct codes_workload_op codes_op;
 
-    switch(event.type)
+    switch (event.type)
     {
         case POSIX_OPEN:
             codes_op.op_type = CODES_WK_OPEN;

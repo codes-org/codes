@@ -76,21 +76,21 @@ struct codes_workload_op
             int root;   /* root rank */
         } barrier;
         struct {
-            int file_id;      /* integer identifier for the file */
+            uint64_t file_id;      /* integer identifier for the file */
             int create_flag;  /* file must be created, not just opened */
         } open;
         struct {
-            int file_id;  /* file to operate on */
+            uint64_t file_id;  /* file to operate on */
             off_t offset; /* offset and size */
             size_t size;
         } write;
         struct {
-            int file_id;  /* file to operate on */
+            uint64_t file_id;  /* file to operate on */
             off_t offset; /* offset and size */
             size_t size;
         } read;
         struct {
-            int file_id;  /* file to operate on */
+            uint64_t file_id;  /* file to operate on */
         } close;
     }u;
 };

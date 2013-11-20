@@ -15,9 +15,10 @@
  */ 
 extern struct codes_workload_method test_workload_method;
 extern struct codes_workload_method bgp_io_workload_method;
+extern struct codes_workload_method darshan_io_workload_method;
 
 static struct codes_workload_method *method_array[] = 
-    {&test_workload_method, &bgp_io_workload_method, NULL};
+    {&test_workload_method, &bgp_io_workload_method, &darshan_io_workload_method, NULL};
 
 /* This shim layer is responsible for queueing up reversed operations and
  * re-issuing them so that the underlying workload generator method doesn't
