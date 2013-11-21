@@ -97,7 +97,7 @@ if test "x${with_darshan}" != "x" ; then
     AC_CHECK_FILE([$darshan_headers/darshan-io-events.h],
                   AM_CONDITIONAL(USE_DARSHAN, true),
                   AC_MSG_ERROR(Could not find darshan-io-events.h at: $darshan_headers))
-    DARSHAN_CPPFLAGS="-I${with_darshan}/include"
+    DARSHAN_CPPFLAGS="-DUSE_DARSHAN=1 -I${with_darshan}/include"
     AC_SUBST(DARSHAN_CPPFLAGS)
 else
     AM_CONDITIONAL(USE_DARSHAN, false)
