@@ -47,8 +47,6 @@ static void *darshan_io_workload_get_info(int rank);
 static void darshan_read_events(struct rank_events_context *rank_context, int ind_flag);
 static struct codes_workload_op darshan_event_to_codes_workload_op(struct darshan_event event);
 
-struct rank_events_context *rank_events = NULL;
-
 /* workload method name and function pointers for the CODES workload API */
 struct codes_workload_method darshan_io_workload_method =
 {
@@ -57,6 +55,12 @@ struct codes_workload_method darshan_io_workload_method =
     .codes_workload_get_next = darshan_io_workload_get_next,
     .codes_workload_get_info= darshan_io_workload_get_info,
 };
+
+/* linked list of context structs for each rank participating in the workload */
+static struct rank_events_context *rank_events = NULL;
+
+/* info about this darshan workload group needed by bgp model */
+static struct codes_workload_info darshan_workload_info = {-1, -1, -1, -1, -1};
 
 /* load the workload generator for this rank, given input params */
 static int darshan_io_workload_load(const char *params, int rank)
@@ -182,6 +186,15 @@ static int darshan_io_workload_load(const char *params, int rank)
     new->next = rank_events;
     rank_events = new;
 
+    /* fill out the info required for this workload group */
+    if (darshan_workload_info.group_id == -1)
+    {
+        darshan_workload_info.group_id = 1;
+        darshan_workload_info.min_rank = 0;
+        darshan_workload_info.max_rank = nprocs - 1;
+        darshan_workload_info.num_lrank = nprocs;
+    }
+
     free(rank_offsets);
 
     return 0;
@@ -303,7 +316,7 @@ static void darshan_io_workload_get_next(int rank, struct codes_workload_op *op)
 /* for now, no info needed by the simulator regarding darshan workloads */
 static void *darshan_io_workload_get_info(int rank)
 {
-    return NULL;
+    return &(darshan_workload_info);
 }
 
 /* read events from the event file -- ind_flag is set if reading independent events */

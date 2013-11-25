@@ -18,6 +18,7 @@ extern struct codes_workload_method bgp_io_workload_method;
 #ifdef USE_DARSHAN
 extern struct codes_workload_method darshan_io_workload_method;
 #endif
+
 static struct codes_workload_method *method_array[] = 
 {
     &test_workload_method,
