@@ -1,0 +1,196 @@
+
+\documentclass[conference,10pt,compsocconf,onecolumn]{IEEEtran}
+%\documentclass{acm_proc_article-sp}
+%\documentclass{sig-alternate}
+% Add the compsoc option for Computer Society conferences.
+%
+% If IEEEtran.cls has not been installed into the LaTeX system files,
+% manually specify the path to it like:
+% \documentclass[conference]{../sty/IEEEtran}
+
+% *** CITATION PACKAGES ***
+%
+\usepackage{cite}
+% cite.sty was written by Donald Arseneau
+% V1.6 and later of IEEEtran pre-defines the format of the cite.sty package
+% \cite{} output to follow that of IEEE. Loading the cite package will
+% result in citation numbers being automatically sorted and properly
+% "compressed/ranged". e.g., [1], [9], [2], [7], [5], [6] without using
+% cite.sty will become [1], [2], [5]--[7], [9] using cite.sty. cite.sty's
+% \cite will automatically add leading space, if needed. Use cite.sty's
+% noadjust option (cite.sty V3.8 and later) if you want to turn this off.
+% cite.sty is already installed on most LaTeX systems. Be sure and use
+% version 4.0 (2003-05-27) and later if using hyperref.sty. cite.sty does
+% not currently provide for hyperlinked citations.
+% The latest version can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/cite/
+% The documentation is contained in the cite.sty file itself.
+%
+\usepackage{setspace}
+\usepackage{wrapfig}
+\usepackage{color}
+
+\usepackage[pdftex]{graphicx}
+%\usepackage{graphicx}
+% declare the path(s) where your graphic files are
+\graphicspath{{./}{data/beagle/}}
+% and their extensions so you won't have to specify these with
+% every instance of \includegraphics
+\DeclareGraphicsExtensions{.pdf,.jpeg,.png}
+
+% *** GRAPHICS RELATED PACKAGES ***
+%
+\ifCLASSINFOpdf
+ % \usepackage[pdftex]{graphicx}
+ % declare the path(s) where your graphic files are
+ % \graphicspath{{../pdf/}{../jpeg/}}
+ % and their extensions so you won't have to specify these with
+ % every instance of \includegraphics
+ % \DeclareGraphicsExtensions{.pdf,.jpeg,.png}
+\else
+ % or other class option (dvipsone, dvipdf, if not using dvips). graphicx
+ % will default to the driver specified in the system graphics.cfg if no
+ % driver is specified.
+ % \usepackage[dvips]{graphicx}
+ % declare the path(s) where your graphic files are
+ % \graphicspath{{../eps/}}
+ % and their extensions so you won't have to specify these with
+ % every instance of \includegraphics
+ % \DeclareGraphicsExtensions{.eps}
+\fi
+
+% *** ALIGNMENT PACKAGES ***
+%
+%\usepackage{array}
+% Frank Mittelbach's and David Carlisle's array.sty patches and improves
+% the standard LaTeX2e array and tabular environments to provide better
+% appearance and additional user controls. As the default LaTeX2e table
+% generation code is lacking to the point of almost being broken with
+% respect to the quality of the end results, all users are strongly
+% advised to use an enhanced (at the very least that provided by array.sty)
+% set of table tools. array.sty is already installed on most systems. The
+% latest version and documentation can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/required/tools/
+
+%\usepackage{eqparbox}
+% Also of notable interest is Scott Pakin's eqparbox package for creating
+% (automatically sized) equal width boxes - aka "natural width parboxes".
+% Available at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/eqparbox/
+
+\usepackage{algorithm}
+\usepackage[noend]{algorithmic}
+
+% *** SUBFIGURE PACKAGES ***
+\usepackage[tight,footnotesize]{subfigure}
+% \usepackage{subfigure}
+% subfigure.sty was written by Steven Douglas Cochran. This package makes it
+% easy to put subfigures in your figures. e.g., "Figure 1a and 1b". For IEEE
+% work, it is a good idea to load it with the tight package option to reduce
+% the amount of white space around the subfigures. subfigure.sty is already
+% installed on most LaTeX systems. The latest version and documentation can
+% be obtained at:
+% http://www.ctan.org/tex-archive/obsolete/macros/latex/contrib/subfigure/
+% subfigure.sty has been superceeded by subfig.sty.
+
+%\usepackage[caption=false]{caption}
+%\usepackage[font=footnotesize]{subfig}
+% subfig.sty, also written by Steven Douglas Cochran, is the modern
+% replacement for subfigure.sty. However, subfig.sty requires and
+% automatically loads Axel Sommerfeldt's caption.sty which will override
+% IEEEtran.cls handling of captions and this will result in nonIEEE style
+% figure/table captions. To prevent this problem, be sure and preload
+% caption.sty with its "caption=false" package option. This is will preserve
+% IEEEtran.cls handing of captions. Version 1.3 (2005/06/28) and later 
+% (recommended due to many improvements over 1.2) of subfig.sty supports
+% the caption=false option directly:
+%\usepackage[caption=false,font=footnotesize]{subfig}
+%
+% The latest version and documentation can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/subfig/
+% The latest version and documentation of caption.sty can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/caption/
+
+% *** PDF, URL AND HYPERLINK PACKAGES ***
+%
+\usepackage{url}
+% url.sty was written by Donald Arseneau. It provides better support for
+% handling and breaking URLs. url.sty is already installed on most LaTeX
+% systems. The latest version can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/misc/
+% Read the url.sty source comments for usage information. Basically,
+% \url{my_url_here}.
+
+% *** Do not adjust lengths that control margins, column widths, etc. ***
+% *** Do not use packages that alter fonts (such as pslatex).         ***
+% There should be no need to do such things with IEEEtran.cls V1.6 and later.
+% (Unless specifically asked to do so by the journal or conference you plan
+% to submit to, of course. )
+
+% correct bad hyphenation here
+\hyphenation{op-tical net-works semi-conduc-tor}
+
+\begin{document}
+\title{CODES Best Practices}
+
+%\author{\IEEEauthorblockN{Someone\IEEEauthorrefmark{1}} \\
+%\IEEEauthorblockA{\IEEEauthorrefmark{1}Somewhere}
+%}
+
+%\numberofauthors{6} %  in this sample file, there are a *total*
+
+
+% use for special paper notices
+%\IEEEspecialpapernotice{(Invited Paper)}
+
+% use arabic rather than roman numerals for table references
+\renewcommand{\thetable}{\arabic{table}}
+
+% make the title area
+\maketitle
+
+\begin{abstract}
+TODO: describe purpose of document.  Help new users ramp up more quickly,
+encourage development of models in relatively consistent style to encourage
+re-use of components, etc.
+\end{abstract}
+
+\section{TODO}
+
+General things to do for this document:
+\begin{itemize}
+\item reference to ROSS user's guide, airport model, etc.
+\item figure out consistent way to format code snippets in document (just
+reuse whatever we did in the Aesop paper)
+\item pull in Misbah's codes-mapping documentation
+\item put a pdf or latex2html version of this document on the codes web page
+when ready
+\end{itemize}
+
+Topics to cover.  These are listed in no particular order, but they need to
+be organized into themes/sections to walk through in some logical order:
+
+\begin{itemize}
+\item use nanoseconds as units for time
+\item split up distinct functionality (components of model) into different
+LP types, give examples
+\item don't expose event message or state structs across LP types.  Both
+should be private types within the .c file that implements an LP.
+\item indicate completion across LP types by either delivering an opaque message
+back to the calling LP, or by providing an API function for 2nd LP type to
+use to call back (show examples of both)
+\item use codes\_mapping to organize and find components
+\item use modelnet for communication
+\item put magic numbers at the top of each event msg
+\item use codes\_local\_latency for timing of local event transitions
+\item use lp\_io for reporting modest-sized statistics a the end of the
+simulation
+\item using unions to clarify what fields in the event struct are used by each
+event type in an LP
+\item how to validate correctness/determinism (running in different modes)
+\item best practices for reverse computation (keeping functions small, building
+internal APIs with reverse functions, take advantage of ordering enforced by
+ROSS, how to handle queues, etc.)
+\end{itemize}
+
+\end{document}
