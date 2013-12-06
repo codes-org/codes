@@ -150,47 +150,83 @@
 \maketitle
 
 \begin{abstract}
-TODO: describe purpose of document.  Help new users ramp up more quickly,
-encourage development of models in relatively consistent style to encourage
-re-use of components, etc.
+This document outlines best practices for developing models in the
+CODES/ROSS framework.  The reader should already be familiar with ROSS
+and discrete event simulation; those topics are covered in the primary
+ROSS documentation.
+%
+The main purpose of this document is to help the reader produce
+CODES models in a consistent, modular style so that componets can be more
+easily shared and reused.  It also includes a few tips to help avoid common
+simulation bugs.
 \end{abstract}
+
+\section{CODES: modularizing models}
+
+\subsection{Units of time}
+
+use nanoseconds as units for time
+
+\subsection{Organizing models by LP types}
+
+split up distinct functionality (components of model) into different
+LP types, give examples
+
+\subsection{Protecting data structures}
+
+don't expose event message or state structs across LP types.  Both
+should be private types within the .c file that implements an LP.
+
+\subsection{Techniques for notifying completion across LP types}
+
+indicate completion across LP types by either delivering an opaque message
+back to the calling LP, or by providing an API function for 2nd LP type to
+use to call back (show examples of both)
+
+\section{CODES: common utilities}
+
+\subsection{codes\_mapping}
+
+pull in Misbah's codes-mapping documentation
+
+\subsection{modelnet}
+
+\subsection{lp-io}
+
+\section{CODES: reproducability and model safety}
+
+\subsection{Event magic numbers}
+
+\subsection{Small timestamps for LP transitions}
+
+use codes\_local\_latency for timing of local event transitions
+
+\section{ROSS: general tips}
+
+\subsection{Organizing event structures}
+
+using unions to clarify what fields in the event struct are used by each
+event type in an LP
+
+\subsection{Validating across simulation modes}
+
+Check serial, conservative, and optimistic modes (all should work and give
+consistent results)
+
+\subsection{Reverse computation}
+
+When to add it, some tips like keeping functions small, building
+internal APIs with reverse functions, take advantage of ordering enforced by
+ROSS, how to handle queues, etc.)
 
 \section{TODO}
 
-General things to do for this document:
 \begin{itemize}
 \item reference to ROSS user's guide, airport model, etc.
 \item figure out consistent way to format code snippets in document (just
 reuse whatever we did in the Aesop paper)
-\item pull in Misbah's codes-mapping documentation
 \item put a pdf or latex2html version of this document on the codes web page
 when ready
-\end{itemize}
-
-Topics to cover.  These are listed in no particular order, but they need to
-be organized into themes/sections to walk through in some logical order:
-
-\begin{itemize}
-\item use nanoseconds as units for time
-\item split up distinct functionality (components of model) into different
-LP types, give examples
-\item don't expose event message or state structs across LP types.  Both
-should be private types within the .c file that implements an LP.
-\item indicate completion across LP types by either delivering an opaque message
-back to the calling LP, or by providing an API function for 2nd LP type to
-use to call back (show examples of both)
-\item use codes\_mapping to organize and find components
-\item use modelnet for communication
-\item put magic numbers at the top of each event msg
-\item use codes\_local\_latency for timing of local event transitions
-\item use lp\_io for reporting modest-sized statistics a the end of the
-simulation
-\item using unions to clarify what fields in the event struct are used by each
-event type in an LP
-\item how to validate correctness/determinism (running in different modes)
-\item best practices for reverse computation (keeping functions small, building
-internal APIs with reverse functions, take advantage of ordering enforced by
-ROSS, how to handle queues, etc.)
 \end{itemize}
 
 \end{document}
