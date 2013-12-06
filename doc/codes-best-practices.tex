@@ -29,6 +29,25 @@
 \usepackage{setspace}
 \usepackage{wrapfig}
 \usepackage{color}
+\usepackage{listing}
+\usepackage{listings}
+
+\lstset{ %
+frame=single,
+language=C,
+captionpos=b,
+columns=fullflexible,
+morekeywords={aesop,pwait,pbranch,pbreak},
+numbers=left,
+basicstyle=\scriptsize\ttfamily,
+breaklines=true,
+framexleftmargin=0em,
+boxpos=c,
+resetmargins=true,
+xleftmargin=6ex
+%basicstyle=\footnotesize
+}
+
 
 \usepackage[pdftex]{graphicx}
 %\usepackage{graphicx}
@@ -163,70 +182,210 @@ simulation bugs.
 
 \section{CODES: modularizing models}
 
+This section covers some of the basic principles of how to organize model
+components to be more modular and easier to reuse across CODES models.
+
 \subsection{Units of time}
 
-use nanoseconds as units for time
+ROSS does not dictate the units to be used in simulation timestamps.
+The \texttt{tw\_stime} type is a double precision
+floating point number that could represent any time unit
+(e.g. days, hours, seconds, nanoseconds, etc.).  When building CODES
+models you should \emph{always treat timestamps as nanoseconds}, however.
+All components within a model must agree on the time units in order to
+advance simulation time consistently.  Several common utilities in the
+CODES project expect to operate in terms of nanoseconds.
 
 \subsection{Organizing models by LP types}
 
-split up distinct functionality (components of model) into different
-LP types, give examples
+ROSS allows you to use as many different LP types as you would like to
+construct your models.  Try to take advantage of this as much as possible by
+organizing your simulation so that each component of the system that you are
+modeling is implemented within its own LP type.  For example, a storage
+system model might use different LPs for hard disks, clients, network
+adapters, and servers.  There are multiple reasons for dividing up models
+like this:
+
+\begin{itemize}
+\item General modularity: makes it easier to pull out particular components
+(for example, a disk model) for use in other models.
+\item Simplicitity: if each LP type is only handling a limited set of
+events, then the event structure, state structure, and event handler
+functions will all be much smaller and easier to understand.
+\item Reverse computation: it makes it easier to implement reverse
+computation, not only because the code is simpler, but also because you can
+implement and test reverse computation per component rather than having to
+apply it to an entire model all at once before testing.
+\end{itemize}
+
+It is also important to note that you can divide up models not just by
+hardware components, but also by functionality, just as
+you would modularize the implementation of a distributed file system.  For
+example, a storage daemon might include separate LPs for replication, failure
+detection, and reconstruction.  Each of those LPs can share the same network
+card and disk resources for accurate modeling of resource usage.  They key
+reason for splitting them up is to simplify the model and to encourage
+reuse.
+
+TODO: reference example, for now see how the LPs are organized in Triton
+model.
 
 \subsection{Protecting data structures}
 
-don't expose event message or state structs across LP types.  Both
-should be private types within the .c file that implements an LP.
+Once you have organized a model into separate LP types, it is tempting to
+transfer information between them by directly sending events to an LP or by
+modifying the state of an LP from a different LP type.  This approach entangles the LP types,
+however, so that each LP type is dependent upon how the other is
+implemented.  If you change one LP then you have to take care that you don't
+break assumptions in other LPs that use their event or state structures.  This causes
+problems for reuse.  It also means (even if you don't plan to reuse an
+LP) that incompatibilities will be difficult to detect at compile time; the
+compiler has no way to know which fields in a struct must be set before
+sending an event.
 
-\subsection{Techniques for notifying completion across LP types}
+For these reasons we encourage that all event struct and state struct
+definitions be defined only within the .c file that implements the LP that
+must use those structs.  They should not be exposed in external
+headers.  If the definitions are placed in a header then it makes it
+possible for those event and state structs to be used as an ad-hoc interface
+between LPs.
 
-indicate completion across LP types by either delivering an opaque message
-back to the calling LP, or by providing an API function for 2nd LP type to
-use to call back (show examples of both)
+Section~\ref{sec:completion} will describe alternatives for communicating
+information between LP types.
+
+TODO: reference example, for now see how structs are defined in Triton
+model.
+
+\subsection{Techniques for exchanging information and completion events
+across LP types}
+\label{sec:completion}
+
+TODO: fill this in.
+
+Send events into an LP using a C function API that calls event\_new under
+the covers.
+
+Indicate completion back to the calling LP by either delivering an opaque 
+message back to the calling LP (that was passed in by the caller in a void*
+argument), or by providing an API function for 2nd LP type to
+use to call back (show examples of both).
 
 \section{CODES: common utilities}
 
 \subsection{codes\_mapping}
+\label{sec:mapping}
 
-pull in Misbah's codes-mapping documentation
+TODO: pull in Misbah's codes-mapping documentation.
 
 \subsection{modelnet}
 
+TODO: fill this in.  Modelnet is a network abstraction layer for use in
+CODES models.  It provides a consistent API that can be used to send
+messages between nodes using a variety of different network transport
+models.
+
 \subsection{lp-io}
+
+TODO: fill this in.  lp-io is a simple API for storing modest-sized
+simulation results (not continous traces).  It handles reverse computation
+and avoids doing any disk I/O until the simulation is complete.  All data is
+written with collective I/O into a unified output directory.
+
+\subsection{codes\_event\_new}
+
+TODO: fill this in.  codes\_event\_new is a small wrapper to tw\_event\_new
+that checks the incoming timestamp and makes sure that you don't exceed the
+global end timestamp for ROSS.  The assumption is that CODES models will
+normally run to a completion condition rather than until simulation time
+runs out, see later section for more information on this approach.
 
 \section{CODES: reproducability and model safety}
 
+TODO: fill this in.  These are things that aren't required for modularity,
+but just help you create models that produce consistent results and avoid
+some common bugs.
+
 \subsection{Event magic numbers}
+
+TODO: fill this in.  Put magic numbers at the top of each event struct and
+check them in event handler.  This makes sure that you don't accidentally
+send the wrong event type to an LP.
 
 \subsection{Small timestamps for LP transitions}
 
-use codes\_local\_latency for timing of local event transitions
+TODO: fill this in.  Sometimes you need to exchange events between LPs
+without really consuming significant time (for example, to transfer
+information from a server to its locally attached network card).  It is
+tempting to use a timestamp of 0, but this causes timestamp ties in ROSS
+which might have a variety of unintended consequences.  Use
+codes\_local\_latency for timing of local event transitions to add some
+random noise, can be thought of as bus overhead or context switch overhead.
 
 \section{ROSS: general tips}
 
 \subsection{Organizing event structures}
 
-using unions to clarify what fields in the event struct are used by each
-event type in an LP
+TODO: fill this in.  The main idea is to use unions to organize fields
+within event structures.  Keeps the size down and makes it a little clearer
+what variables are used by which event types.
+
+\subsection{Avoiding event timestamp ties}
+
+TODO: fill this in.   Why ties are bad (hurts reproducability, if not
+accuracy, which in turn makes correctness testing more difficult).  Things
+you can do to avoid ties, like skewing initial events by a random number
+generator.
 
 \subsection{Validating across simulation modes}
 
-Check serial, conservative, and optimistic modes (all should work and give
-consistent results)
+TODO: fill this in.  The general idea is that during development you should
+do test runs with serial, parallel conservative, and parallel optimistic
+runs to make sure that you get consistent results.  These modes stress
+different aspects of the model.
 
 \subsection{Reverse computation}
 
-When to add it, some tips like keeping functions small, building
-internal APIs with reverse functions, take advantage of ordering enforced by
-ROSS, how to handle queues, etc.)
+TODO: fill this in.  General philosophy of when the best time to add reverse
+computation is (probably not in your initial rough draft prototype, but it
+is best to go ahead and add it before the model is fully complete or else it
+becomes too daunting/invasive).
+
+Things you can do to make it easier: rely on ordering enforced by ROSS (each
+reverse handler only needs to reverse as single event, in order), keeping functions small, building
+internal APIs for managing functions with reverse functions, how to handle
+queues, etc.).  Might need some more subsubsections to break this up.
+
+\subsection{How to complete a simulation}
+
+TODO: fill this in.  Most core ROSS examples are design to intentionally hit
+the end timestamp for the simulation (i.e. they are modeling a continuous,
+steady state system).  This isn't necessarily true when modeling a
+distributed storage system.  You might instead want the simulation to end
+when you have completed a particular application workload (or collection of
+application workloads), when a fault has been repaired, etc.  Talk about how
+to handle this cleanly.
 
 \section{TODO}
 
 \begin{itemize}
+\item Build a single example model that demonstrates the concepts in this
+document, refer to it throughout.
 \item reference to ROSS user's guide, airport model, etc.
-\item figure out consistent way to format code snippets in document (just
-reuse whatever we did in the Aesop paper)
 \item put a pdf or latex2html version of this document on the codes web page
 when ready
 \end{itemize}
+
+\begin{figure}
+\begin{lstlisting}[caption=Example code snippet., label=snippet-example]
+for (i=0; i<n; i++) {
+    for (j=0; j<i; j++) {
+        /* do something */
+    }
+}
+\end{lstlisting}
+\end{figure}
+
+Figure ~\ref{fig:snippet-example} shows an example of how to show a code
+snippet in latex.  We can use this format as needed throughout the document.
 
 \end{document}
