@@ -171,7 +171,7 @@ xleftmargin=6ex
 \begin{abstract}
 This document outlines best practices for developing models in the
 CODES/ROSS framework.  The reader should already be familiar with ROSS
-and discrete event simulation; those topics are covered in the primary
+and discrete event simulation in general; those topics are covered in the primary
 ROSS documentation.
 %
 The main purpose of this document is to help the reader produce
@@ -227,6 +227,18 @@ card and disk resources for accurate modeling of resource usage.  They key
 reason for splitting them up is to simplify the model and to encourage
 reuse.
 
+One hypothetical downside to splitting up models into multiple LP types is that it likely
+means that your model will generate more events than a monolithic model
+would have.  Remember that \emph{ROSS is really efficient at generating and
+processing events}, though!  It is usually a premature optimization to try to optimize a model by
+replacing events with function calls in cases where you know the necessary
+data is available on the local MPI process.  Also recall that any information
+exchanged via event automatically benefits by shifting burden for
+tracking/retaining event data and event ordering into ROSS rather than your
+model.  This can help simplify reverse computation by breaking complex
+operations into smaller, easier to understand (and reverse) event units with
+deterministic ordering.
+
 TODO: reference example, for now see how the LPs are organized in Triton
 model.
 
@@ -234,17 +246,19 @@ model.
 
 Once you have organized a model into separate LP types, it is tempting to
 transfer information between them by directly sending events to an LP or by
-modifying the state of an LP from a different LP type.  This approach entangles the LP types,
-however, so that each LP type is dependent upon how the other is
-implemented.  If you change one LP then you have to take care that you don't
+modifying the state of an LP from a different LP type.  This approach
+entangles the components,
+however, such that one LP is dependent upon the internal architecture of
+another LP.  If you change one LP then you have to take care that you don't
 break assumptions in other LPs that use their event or state structures.  This causes
 problems for reuse.  It also means (even if you don't plan to reuse an
 LP) that incompatibilities will be difficult to detect at compile time; the
 compiler has no way to know which fields in a struct must be set before
-sending an event.
+sending an event.  Event structures are not a good public API for exchanging
+information between different LP types.
 
-For these reasons we encourage that all event struct and state struct
-definitions be defined only within the .c file that implements the LP that
+For these reasons we encourage that all event structs and state structs
+be defined (and accessible) only within source file for the LP that
 must use those structs.  They should not be exposed in external
 headers.  If the definitions are placed in a header then it makes it
 possible for those event and state structs to be used as an ad-hoc interface
@@ -282,7 +296,8 @@ TODO: pull in Misbah's codes-mapping documentation.
 TODO: fill this in.  Modelnet is a network abstraction layer for use in
 CODES models.  It provides a consistent API that can be used to send
 messages between nodes using a variety of different network transport
-models.
+models.  Note that modelnet requires the use of the codes-mapping API,
+described in previous section.
 
 \subsection{lp-io}
 
