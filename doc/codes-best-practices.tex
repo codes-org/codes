@@ -188,10 +188,10 @@ components to be more modular and easier to reuse across CODES models.
 \subsection{Units of time}
 
 ROSS does not dictate the units to be used in simulation timestamps.
-The \texttt{tw\_stime} type is a double precision
-floating point number that could represent any time unit
+The \texttt{tw\_stime} type could represent any time unit
 (e.g. days, hours, seconds, nanoseconds, etc.).  When building CODES
-models you should \emph{always treat timestamps as nanoseconds}, however.
+models you should \emph{always treat timestamps as double precision floating
+point numbers representing nanoseconds}, however.
 All components within a model must agree on the time units in order to
 advance simulation time consistently.  Several common utilities in the
 CODES project expect to operate in terms of nanoseconds.
@@ -244,28 +244,31 @@ model.
 
 \subsection{Protecting data structures}
 
-Once you have organized a model into separate LP types, it is tempting to
-transfer information between them by directly sending events to an LP or by
-modifying the state of an LP from a different LP type.  This approach
-entangles the components,
-however, such that one LP is dependent upon the internal architecture of
-another LP.  If you change one LP then you have to take care that you don't
-break assumptions in other LPs that use their event or state structures.  This causes
-problems for reuse.  It also means (even if you don't plan to reuse an
-LP) that incompatibilities will be difficult to detect at compile time; the
-compiler has no way to know which fields in a struct must be set before
-sending an event.  Event structures are not a good public API for exchanging
-information between different LP types.
+ROSS operates by exchanging events between LPs.  If an LP is sending
+an event to another LP of the same type, then in general it can do so
+by allocating an event structure (e.g. \texttt{tw\_event\_new()}),
+populating the event structure, and transmitting it
+(e.g. \texttt{tw\_event\_send()}).  If an LP is sending an event to
+another LP of a \emph{different} type, however, then it should use an
+explicit API to do so without exposing the other LP's event structure
+definition.  Event structures are not a robust API for exchanging data
+across different LP types.  If one LP type accesses the event (or state)
+structure of another LP type, then it entangles the two components such
+that one LP is dependent upon the internal architecture of another LP.
+This not only makes it difficult to reuse components, but also makes it
+difficult to check for incompatibilities at compile time.  The compiler
+has no way to know which fields in a struct must be set before sending
+an event.
 
-For these reasons we encourage that all event structs and state structs
-be defined (and accessible) only within source file for the LP that
-must use those structs.  They should not be exposed in external
+For these reasons we encourage that a) each LP be implemented in a separate
+source file and b) all event structs and state structs
+be defined only within those source files.  They should not be exposed in external
 headers.  If the definitions are placed in a header then it makes it
 possible for those event and state structs to be used as an ad-hoc interface
-between LPs.
+between LPs of different types.
 
-Section~\ref{sec:completion} will describe alternatives for communicating
-information between LP types.
+Section~\ref{sec:completion} will describe alternative mechanisms for
+exchanging information between different LP types.
 
 TODO: reference example, for now see how structs are defined in Triton
 model.
@@ -286,6 +289,8 @@ use to call back (show examples of both).
 
 \section{CODES: common utilities}
 
+TODO: point out what repo each of these utilities can be found in.
+
 \subsection{codes\_mapping}
 \label{sec:mapping}
 
@@ -304,7 +309,13 @@ described in previous section.
 TODO: fill this in.  lp-io is a simple API for storing modest-sized
 simulation results (not continous traces).  It handles reverse computation
 and avoids doing any disk I/O until the simulation is complete.  All data is
-written with collective I/O into a unified output directory.
+written with collective I/O into a unified output directory.  lp-io is
+mostly useful for cases in which you would like each LP instance to report
+statistics, but for scalability and data management reasons those results
+should be aggregated into a single file rather than producing a separate
+file per LP.
+
+TODO: look at ross/IO code and determine how it relates to this.
 
 \subsection{codes\_event\_new}
 
@@ -313,6 +324,12 @@ that checks the incoming timestamp and makes sure that you don't exceed the
 global end timestamp for ROSS.  The assumption is that CODES models will
 normally run to a completion condition rather than until simulation time
 runs out, see later section for more information on this approach.
+
+\subsection{ross/IO}
+
+TODO: fill this in.  This is the I/O library included with ROSS, based on
+phasta I/O library.  What are the use cases and how do you use it. Does it
+deprecate the lp-io tool?
 
 \section{CODES: reproducability and model safety}
 
@@ -365,10 +382,16 @@ computation is (probably not in your initial rough draft prototype, but it
 is best to go ahead and add it before the model is fully complete or else it
 becomes too daunting/invasive).
 
-Things you can do to make it easier: rely on ordering enforced by ROSS (each
-reverse handler only needs to reverse as single event, in order), keeping functions small, building
-internal APIs for managing functions with reverse functions, how to handle
-queues, etc.).  Might need some more subsubsections to break this up.
+Other things to talk about (maybe these are different subsections):
+\begin{itemize}
+\item propagate and maintain as much state as possible in event structures
+rather than state structures
+\item rely on ordering enforced by ROSS (each
+reverse handler only needs to reverse as single event, in order)
+\item keeping functions small 
+\item building internal APIs for managing functions with reverse functions
+\item how to handle queues
+\end{itemize}
 
 \subsection{How to complete a simulation}
 
