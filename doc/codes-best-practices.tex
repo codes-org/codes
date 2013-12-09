@@ -419,6 +419,53 @@ TOOD: fill this in.  Each LP needs to send an event to itself at the
 beginning of the simulation (explain why).  We usually skew these with
 random numbers to help break ties right off the bat (explain why).
 
+\section{Best practices quick reference}
+
+NOTE: these may be integrated with the remaining notes or used as a summary of
+section(s).
+
+\subsection{ROSS simulation development}
+
+\begin{enumerate}
+
+    \item prefer fine-grained, simple LPs to coarse-grained, complex LPs
+    \begin{enumerate}
+        \item can simplify both LP state and reverse computation implementation
+        \item ROSS is very good at event processing, likely small difference in
+            performance
+    \end{enumerate}
+
+    \item consider separating single-source generation of concurrent events with
+        "feedback" events or "continue" events to self
+    \begin{enumerate}
+        \item generating multiple concurrent events makes rollback more difficult
+    \end{enumerate}
+
+    \item use dummy events to work around "event-less" advancement of simulation time 
+
+    \item add a small amount of time "noise" to events to prevent ties
+
+    \item prefer more and smaller events to fewer and larger events
+    \begin{enumerate}
+        \item simplifies individual event processing
+        \item ROSS uses bounded event structure size in communication, so
+            smaller bound $\rightarrow$  less communication overhead
+    \end{enumerate}
+
+    \item prefer placing state in event structure to LP state structure
+    \begin{enumerate}
+        \item simplifies reverse computation -- less persistent state
+        \item NOTE: tradeoff with previous point - consider efficiency vs.
+            complexity
+    \end{enumerate}
+
+    \item try to implement event processing with only LP-local information
+    \begin{enumerate}
+        \item reverse computation with collective knowledge is difficult
+    \end{enumerate}
+
+\end{enumerate}
+
 \section{TODO}
 
 \begin{itemize}
