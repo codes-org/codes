@@ -67,10 +67,10 @@ static void dragonfly_packet_event(char* category, tw_lpid final_dest_lp, int pa
 
     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id("MODELNET_GRP", "modelnet_dragonfly", mapping_rep_id, mapping_offset, &local_nic_id);
+    codes_mapping_get_lp_id(lp_group_name, "modelnet_dragonfly", mapping_rep_id, mapping_offset, &local_nic_id);
 
     codes_mapping_get_lp_info(final_dest_lp, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id("MODELNET_GRP", "modelnet_dragonfly", mapping_rep_id, mapping_offset, &dest_nic_id);
+    codes_mapping_get_lp_id(lp_group_name, "modelnet_dragonfly", mapping_rep_id, mapping_offset, &dest_nic_id);
   
     xfer_to_nic_time = 0.01 + codes_local_latency(sender); /* Throws an error of found last KP time > current event time otherwise when LPs of one type are placed together*/
     e_new = codes_event_new(local_nic_id, xfer_to_nic_time, sender);
@@ -274,7 +274,8 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp *
    s->terminal_available_time = max(s->terminal_available_time, tw_now(lp));
    s->terminal_available_time += ts;
 
-   codes_mapping_get_lp_id("MODELNET_GRP", "dragonfly_router", s->router_id, 0, &router_id);
+   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
+   codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", s->router_id, 0, &router_id);
    e = tw_event_new(router_id, s->terminal_available_time - tw_now(lp), lp);
 
    if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
@@ -380,7 +381,8 @@ if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
   s->next_credit_available_time += ts;
 
   tw_lpid router_dest_id;
-  codes_mapping_get_lp_id("MODELNET_GRP", "dragonfly_router", s->router_id, 0, &router_dest_id);
+  codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
+  codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", s->router_id, 0, &router_dest_id);
   buf_e = tw_event_new(router_dest_id, s->next_credit_available_time - tw_now(lp), lp);
   buf_msg = tw_event_data(buf_e);
   buf_msg->vc_index = msg->saved_vc;
@@ -400,7 +402,7 @@ terminal_init( terminal_state * s,
     int i;
     // Assign the global router ID
    codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-   int num_lps = codes_mapping_get_lp_count("MODELNET_GRP", "modelnet_dragonfly");
+   int num_lps = codes_mapping_get_lp_count(lp_group_name, "modelnet_dragonfly");
 
    s->terminal_id = (mapping_rep_id * num_lps) + mapping_offset;  
    s->router_id=(int)s->terminal_id / num_routers;
@@ -492,7 +494,7 @@ get_next_stop(router_state * s,
    int dest_group_id;
 
    codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset); 
-   int num_lps = codes_mapping_get_lp_count("MODELNET_GRP", "modelnet_dragonfly");
+   int num_lps = codes_mapping_get_lp_count(lp_group_name, "modelnet_dragonfly");
    int dest_router_id = (mapping_offset + (mapping_rep_id * num_lps)) / num_routers;
    
    codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
@@ -546,7 +548,7 @@ get_next_stop(router_state * s,
           }
       }
    }
-  codes_mapping_get_lp_id("MODELNET_GRP", "dragonfly_router", dest_lp, 0, &router_dest_id);
+  codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", dest_lp, 0, &router_dest_id);
   return router_dest_id;
 }
 
@@ -560,7 +562,7 @@ get_output_port( router_state * s,
 {
   int output_port = -1, i, terminal_id;
   codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-  int num_lps = codes_mapping_get_lp_count("MODELNET_GRP","modelnet_dragonfly");
+  int num_lps = codes_mapping_get_lp_count(lp_group_name,"modelnet_dragonfly");
   terminal_id = (mapping_rep_id * num_lps) + mapping_offset;
 
   if(next_stop == msg->dest_terminal_id)

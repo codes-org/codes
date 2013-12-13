@@ -44,10 +44,10 @@ static void torus_packet_event(char* category, tw_lpid final_dest_lp, int packet
    
     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id("MODELNET_GRP", "modelnet_torus", mapping_rep_id, mapping_offset, &local_nic_id);
+    codes_mapping_get_lp_id(lp_group_name, "modelnet_torus", mapping_rep_id, mapping_offset, &local_nic_id);
 
     codes_mapping_get_lp_info(final_dest_lp, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id("MODELNET_GRP", "modelnet_torus", mapping_rep_id, mapping_offset, &dest_nic_id);
+    codes_mapping_get_lp_id(lp_group_name, "modelnet_torus", mapping_rep_id, mapping_offset, &dest_nic_id);
 
     /* TODO: Should send the packets in correct sequence. Currently the last packet is being sent first due to codes_local_latency offset. */
     xfer_to_nic_time = 0.01 + codes_local_latency(sender); /* Throws an error of found last KP time > current event time otherwise */
@@ -143,7 +143,7 @@ static void torus_init( nodes_state * s,
       for ( i = 0; i < n_dims; i++ )
         s->neighbour_minus_lpID[ j ] += factor[ i ] * temp_dim_pos[ i ];
       
-      codes_mapping_get_lp_id("MODELNET_GRP", "modelnet_torus", s->neighbour_minus_lpID[ j ], 0, &neighbor_id);
+      codes_mapping_get_lp_id(grp_name, "modelnet_torus", s->neighbour_minus_lpID[ j ], 0, &neighbor_id);
       //printf("\n neighbor %d lp id %d ", (int)s->neighbour_minus_lpID[ j ], (int)neighbor_id);
       
       temp_dim_pos[ j ] = s->dim_position[ j ];
@@ -158,7 +158,7 @@ static void torus_init( nodes_state * s,
       for ( i = 0; i < n_dims; i++ )
         s->neighbour_plus_lpID[ j ] += factor[ i ] * temp_dim_pos[ i ];
 
-      codes_mapping_get_lp_id("MODELNET_GRP", "modelnet_torus", s->neighbour_plus_lpID[ j ], 0, &neighbor_id);
+      codes_mapping_get_lp_id(grp_name, "modelnet_torus", s->neighbour_plus_lpID[ j ], 0, &neighbor_id);
       //printf("\n neighbor %d lp id %d ", (int)s->neighbour_plus_lpID[ j ], (int)neighbor_id);
       
       temp_dim_pos[ j ] = s->dim_position[ j ];
@@ -236,7 +236,7 @@ static void dimension_order_routing( nodes_state * s,
 	  break;
 	}
     }
-  codes_mapping_get_lp_id("MODELNET_GRP", "modelnet_torus", dest_id, 0, dst_lp);
+  codes_mapping_get_lp_id(grp_name, "modelnet_torus", dest_id, 0, dst_lp);
 }
 
 /*Generates a packet. If there is a buffer slot available, then the packet is 
