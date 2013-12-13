@@ -16,15 +16,5 @@ LDLIBS = $(shell $(ROSS)/bin/ross-config --libs) -lcodes-net -lcodes-base
 
 example: example.c
 
-#$(CC) $(ROSS_CPPFLAGS) $(CPPFLAGS) $(CFLAGS) $(ROSS_LDFLAGS) $^ -o $@ -L$(ROSS)/lib -lROSS -lm -L$(CODESBASE)/lib -lcodes-base -L$(CODESNET)/lib -lcodes-net
-
-check-env:
-ifndef CODESBASE 
-	$(error CODESBASE is undefined, see README.txt)
-endif
-ifndef CODESNET 
-	$(error CODESNET is undefined, see README.txt)
-endif
-ifndef ROSS
-	$(error ROSS is undefined, see README.txt)
-endif
+clean:   
+	rm -f example
