@@ -24,8 +24,8 @@
 #include "codes/model-net.h"
 #include "codes/lp-type-lookup.h"
 
-#define NUM_REQS 500    /* number of requests sent by each server */
-#define PAYLOAD_SZ 2048 /* size of simulated data payload, bytes  */
+static int num_reqs = 0;/* number of requests sent by each server (read from config) */
+static int payload_sz = 0; /* size of simulated data payload, bytes (read from config) */
 
 /* model-net ID, can be either simple-net, dragonfly or torus (more may be
  * added) */
@@ -33,8 +33,12 @@ static int net_id = 0;
 static int num_servers = 0;
 static int offset = 2;
 
-/* expected group name in configure files for this program */
+/* expected LP group name in configure files for this program */
 static char *group_name = "SERVERS";
+/* expected parameter group name for rounds of communication */
+static char *param_group_nm = "server_pings";
+static char *num_reqs_key = "num_reqs";
+static char *payload_sz_key = "payload_sz";
 
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
@@ -230,6 +234,12 @@ int main(
     /* calculate the number of servers in this simulation */
     num_servers = codes_mapping_get_group_reps(group_name) * codes_mapping_get_lp_count(group_name, "server");
 
+    /* for this example, we read from a separate configuration group for
+     * server message parameters. Since they are constant for all LPs,
+     * go ahead and read them prior to running */
+    configuration_get_value_int(&config, param_group_nm, num_reqs_key, &num_reqs);
+    configuration_get_value_int(&config, param_group_nm, payload_sz_key, &payload_sz);
+
     /* begin simulation */ 
     tw_run();
 
@@ -345,8 +355,8 @@ static void svr_finalize(
     svr_state * ns,
     tw_lp * lp)
 {
-    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)(lp->gid/2), PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s((tw_now(lp)-ns->start_ts)), 
-        ((double)(PAYLOAD_SZ*NUM_REQS)/(double)(1024*1024)/ns_to_s(tw_now(lp)-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
+    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)(lp->gid/2), payload_sz*ns->msg_recvd_count, ns_to_s((tw_now(lp)-ns->start_ts)), 
+        ((double)(payload_sz*num_reqs)/(double)(1024*1024)/ns_to_s(tw_now(lp)-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
     return;
 }
 
@@ -424,7 +434,7 @@ static void handle_kickoff_event(
 
     /* model-net needs to know about (1) higher-level destination LP which is a neighboring server in this case
      * (2) struct and size of remote message and (3) struct and size of local message (a local message can be null) */
-    model_net_event(net_id, "test", dest_id, PAYLOAD_SZ, sizeof(svr_msg), 
+    model_net_event(net_id, "test", dest_id, payload_sz, sizeof(svr_msg), 
             (const void*)&m_remote, sizeof(svr_msg), (const void*)&m_local, lp);
     ns->msg_sent_count++;
 }
@@ -441,8 +451,8 @@ static void handle_local_event(
 }
 
 /* handle recving ack
- * for this simulation, we repeatedly ping the destination server until NUM_REQS
- * of size PAYLOAD_SZ have been satisfied - we begin the next req when we
+ * for this simulation, we repeatedly ping the destination server until num_reqs
+ * of size payload_sz have been satisfied - we begin the next req when we
  * receive an ACK from the destination server */
 static void handle_ack_event(
     svr_state * ns,
@@ -460,7 +470,7 @@ static void handle_ack_event(
     assert(m->src == (lp->gid + offset)%(num_servers*2) &&
            m->src == get_next_server(lp->gid));
 
-    if(ns->msg_sent_count < NUM_REQS)
+    if(ns->msg_sent_count < num_reqs)
     {
         /* again, allocate our own msgs so model-net can transmit on our behalf */
         svr_msg m_local;
@@ -472,7 +482,7 @@ static void handle_ack_event(
         m_remote.src = lp->gid;
 
         /* send another request */
-	model_net_event(net_id, "test", m->src, PAYLOAD_SZ, sizeof(svr_msg), 
+	model_net_event(net_id, "test", m->src, payload_sz, sizeof(svr_msg), 
                 (const void*)&m_remote, sizeof(svr_msg), (const void*)&m_local, lp);
         ns->msg_sent_count++;
         m->incremented_flag = 1;
@@ -512,7 +522,7 @@ static void handle_req_event(
     /* also trigger a local event for completion of payload msg */
     /* remote host will get an ack event */
    
-    model_net_event(net_id, "test", m->src, PAYLOAD_SZ, sizeof(svr_msg), 
+    model_net_event(net_id, "test", m->src, payload_sz, sizeof(svr_msg), 
             (const void*)&m_remote, sizeof(svr_msg), (const void*)&m_local, lp);
     return;
 }
@@ -539,7 +549,7 @@ static void handle_req_rev_event(
 {
     ns->msg_recvd_count--;
     /* model-net has its own reverse computation support */ 
-    model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+    model_net_event_rc(net_id, lp, payload_sz);
 
     return;
 }
@@ -553,7 +563,7 @@ static void handle_kickoff_rev_event(
     tw_lp * lp)
 {
     ns->msg_sent_count--;
-    model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+    model_net_event_rc(net_id, lp, payload_sz);
 
     return;
 }
@@ -567,7 +577,7 @@ static void handle_ack_rev_event(
 {
     if(m->incremented_flag)
     {
-        model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+        model_net_event_rc(net_id, lp, payload_sz);
         ns->msg_sent_count--;
     }
     return;
