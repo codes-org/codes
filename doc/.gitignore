@@ -1,0 +1,7 @@
+# latex files
+*.aux
+*.bbl
+*.blg
+*.log
+# we don't want the output to be part of the repository
+/codes-best-practices.pdf
