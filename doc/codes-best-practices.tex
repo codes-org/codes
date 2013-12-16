@@ -149,6 +149,11 @@ xleftmargin=6ex
 % correct bad hyphenation here
 \hyphenation{op-tical net-works semi-conduc-tor}
 
+\newcommand{\codesmapping}[1]{\texttt{codes\_mapping}}
+\newcommand{\codesconfig}[1]{\texttt{codes\_config}}
+\newcommand{\codesmodelnet}[1]{\texttt{model\_net}}
+
+
 \begin{document}
 \title{CODES Best Practices}
 
@@ -527,21 +532,21 @@ struct svr_msg
 In this program, CODES is used in the following four ways: to provide
 configuration utilities for the program, to logically separate and provide
 lookup functionality for multiple LP types, to automate LP placement on KPs/PEs,
-and to simplify/modularize the underlying network structure. The CODES
-Configurator is used for the first use-case, the CODES Mapping API is used for
-the second and third use-cases, and the CODES Model-Net API is used for the
+and to simplify/modularize the underlying network structure. The \codesconfig{}
+API is used for the first use-case, the \codesmapping{} API is used for
+the second and third use-cases, and the \codesmodelnet{} API is used for the
 fourth use-case. The following sections discuss these while covering necessary
 ROSS-specific information.
 
-\subsection{CODES Configurator}
+\subsection{\codesconfig{}}
 
 Listing~\ref{snippet2} shows a stripped version of example.conf (see the file
 for comments). The configuration format allows categories, and optionally
 subgroups within the category, of key-value pairs for configuration. The LPGROUPS
 listing defines the LP configuration and (described in
 Section~\ref{subsec:codes_mapping}). The PARAMS category is used by both
-CODES Mapping and Model-Net for configuration, providing both ROSS-specific and
-network specific parameters. For instance, the message\_size field defines the
+\codesmapping{} and \codesmodelnet{} for configuration, providing both ROSS-specific and
+network specific parameters. For instance, the \texttt{message\_size} field defines the
 maximum event size used in ROSS for memory management. Of course, user-defined
 categories can be used as well, which are used in this case to define the rounds
 of communication and the size of each message.
@@ -574,34 +579,35 @@ server_pings
 \end{figure} 
 
 
-\subsection{CODES Mapping}
+\subsection{\codesmapping{}}
 \label{subsec:codes_mapping}
 
-The CODES mapping API transparently maps LP types to MPI ranks (Aka ROSS PE's).
-The LP type and count can be specified through the CODES Configurator. In this
-section, we focus on the CODES Mapping API as well as configuration. Refer again
+The \codesmapping{} API transparently maps LP types to MPI ranks (Aka ROSS PE's).
+The LP type and count can be specified through \codesconfig{}. In this
+section, we focus on the \codesmapping{} API as well as configuration. Refer again
 to Listing~\ref{snippet2}. Multiple LP types are specified in a single LP group
 (there can also be multiple LP groups in a config file).
 
-In Listing~\ref{snippet2}, there is 1 server LP and 1 modelnet\_simplenet LP
-type in a group and this combination is repeated 16 time (repetitions="16").
-ROSS will assign the LPs to the PEs (PEs is an abstraction for MPI rank in ROSS)
-by placing 1 server LP then 1 modelnet\_simplenet LP a total of 16 times. This
-configuration is useful if there is heavy communication involved between the
-server and modelnet\_simplenet LP types, in which case ROSS will place them on
-the same PE so that the communication between server and modelnet\_simplenet LPs
-will not involve remote messages. 
+In Listing~\ref{snippet2}, there is 1 server LP and 1
+\texttt{modelnet\_simplenet} LP type in a group and this combination is repeated
+16 time (repetitions="16").  ROSS will assign the LPs to the PEs (PEs is an
+abstraction for MPI rank in ROSS) by placing 1 server LP then 1
+\texttt{modelnet\_simplenet} LP a total of 16 times. This configuration is
+useful if there is heavy communication involved between the server and
+\texttt{modelnet\_simplenet} LP types, in which case ROSS will place them on the
+same PE so that the communication between server and
+\texttt{modelnet\_simplenet} LPs will not involve remote messages. 
 
 An important consideration when defining the configuration file is the way
-Model-Net maps the network-layer LPs (the NICs in this example) and the upper
+\codesmodelnet{} maps the network-layer LPs (the NICs in this example) and the upper
 level LPs (e.g., the servers). Specifically, each NIC is mapped in a one-to-one
 manner with the calling LP through the calling LP's group name, repetition
 number, and number within the repetition.
 
-After the initialization function calls of ROSS (tw\_init), the configuration
+After the initialization function calls of ROSS (\texttt{tw\_init}), the configuration
 file can be loaded in the example program using the calls in Figure
-\ref{snippet3}. Each LP type must register itself using \'lp\_type\_register\'
-before setting up the codes-mapping. Figure \ref{snippet4} shows an example of how
+\ref{snippet3}. Each LP type must register itself using \texttt{lp\_type\_register}
+before setting up the mapping. Figure \ref{snippet4} shows an example of how
 the server LP registers itself. 
 
 \begin{figure}
@@ -641,11 +647,11 @@ static void svr_add_lp_type()
 \end{lstlisting}
 \end{figure}
 
-The CODES Mapping API provides ways to query information like number of LPs of
+The \codesmapping{} API provides ways to query information like number of LPs of
 a particular LP types, group to which a LP type belongs, repetitions in the
 group (For details see codes-base/codes/codes-mapping.h file).  Figure
-\ref{snippet3} shows how to setup CODES mapping API with our CODES example and
-computes basic information by querying the number of servers in a particular
+\ref{snippet3} shows how to setup the \codesmapping{} API with our CODES example
+and computes basic information by querying the number of servers in a particular
 group. 
 
 \subsection{Event Handlers}
@@ -688,26 +694,26 @@ static void svr_event(svr_state * ns, tw_bf * b, svr_msg * m, tw_lp * lp)
 \end{lstlisting}
 \end{figure}
 
-\subsection{Model-Net API}
-Model-Net is an abstraction layer that allow models to send messages
+\subsection{\codesmodelnet{}}
+\codesmodelnet{} is an abstraction layer that allow models to send messages
 across components using different network transports. This is a
 consistent API that can send messages across either torus, dragonfly, or
 simplenet network models without changing the higher level model code.
 
-In the CODES example, we use simple-net as the underlying plug-in for
-Model-Net. The simple-net parameters are specified by the user in the config
-file (See Figure \ref{snippet2}). A call to `model\_net\_set\_params' sets up
+In the CODES example, we use \emph{simple-net} as the underlying plug-in for
+\codesmodelnet{}. The simple-net parameters are specified by the user in the config
+file (See Figure \ref{snippet2}). A call to \texttt{model\_net\_set\_params} sets up
 the model\-net parameters as given in the config file.
 
-Model-Net assumes that the caller already knows what LP it wants to deliver the
-message to and how large the simulated message is. It carries two types of
-events (1) a remote event to be delivered to a higher level model LP (In the
-example, the Model-Net LPs carry the remote event to the server LPs) and (2) a
-local event to be delivered to the caller once the message has been transmitted
-from the node (In the example, a local completion message is delivered to the
-server LP once the Model-Net LP sends the message). Figure \ref{snippet6} shows
-how the server LP sends messages to the neighboring server using the model\-net
-LP. 
+\codesmodelnet{} assumes that the caller already knows what LP it wants to
+deliver the message to and how large the simulated message is. It carries two
+types of events (1) a remote event to be delivered to a higher level model LP
+(In the example, the \codesmodelnet{} LPs carry the remote event to the server LPs) and
+(2) a local event to be delivered to the caller once the message has been
+transmitted from the node (In the example, a local completion message is
+delivered to the server LP once the Model-Net LP sends the message). Figure
+\ref{snippet6} shows how the server LP sends messages to the neighboring server
+using the model\-net LP. 
 
 \begin{figure}
 \begin{lstlisting}[caption=Example code snippet showing data transfer through model-net API, label=snippet6]
@@ -749,30 +755,30 @@ simulation is not computationally intense.
 
 For our example program, recall the ``forward'' event handlers. They perform the
 following: 
-\begin{description}
-    \item [Kickoff] send a message to the peer server, and increment sender LP's
+\begin{enumerate}
+    \item Kickoff: send a message to the peer server, and increment sender LP's
         count of sent messages.
-    \item [Request (received from peer server)] increment receiver count of
+    \item Request (received from peer server): increment receiver count of
         received messages, and send an acknowledgement to the sender.
-    \item [Acknowledgement (received from message receiver)] send the next
+    \item Acknowledgement (received from message receiver): send the next
         message to the receiver and increment messages sent count. Set a flag
         indicating whether a message has been sent.  
-    \item [Local model-net callback] increment the local model-net
+    \item Local \codesmodelnet{} callback: increment the local model-net
         received messages count.
-\end{description}
+\end{enumerate}
 
 In terms of LP state, the four operations are simply modifying counts. Hence,
 the ``reverse'' event handlers need to merely roll back those changes: 
-\begin{description}
-    \item [Kickoff] decrement sender LP's count of sent messages.
-    \item [Request (received from peer server)] decrement receiver count of
+\begin{enumerate}
+    \item  Kickoff: decrement sender LP's count of sent messages.
+    \item Request (received from peer server): decrement receiver count of
         received messages.
-    \item [Acknowledgement (received from message receiver)] decrement messages
+    \item Acknowledgement (received from message receiver): decrement messages
         sent count if flag indicating a message has been sent has not been
         set.
-    \item [Local model-net callback] decrement the local model-net
+    \item Local \codesmodelnet{} callback: decrement the local model-net
         received messages count.
-\end{description}
+\end{enumerate}
 
 For more complex LP states (such as maintaining queues), reverse event
 processing becomes similarly more complex. Other sections of this document
