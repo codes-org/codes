@@ -112,6 +112,8 @@ static void simplenet_packet_event_rc(tw_lp *sender);
 
 static void sn_report_stats();
 
+static tw_lpid sn_find_local_device(tw_lp *sender);
+
 /* data structure for model-net statistics */
 struct model_net_method simplenet_method =
 {
@@ -122,6 +124,7 @@ struct model_net_method simplenet_method =
     .mn_get_lp_type = sn_get_lp_type,
     .mn_get_msg_sz = sn_get_msg_sz,
     .mn_report_stats = sn_report_stats,
+    .model_net_method_find_local_device = sn_find_local_device,
 };
 
 static void sn_init(
@@ -539,6 +542,19 @@ static void simplenet_packet_event_rc(tw_lp *sender)
     codes_local_latency_reverse(sender);
     return;
 }
+
+static tw_lpid sn_find_local_device(tw_lp *sender)
+{
+     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
+     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
+     tw_lpid dest_id;
+
+     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
+     codes_mapping_get_lp_id(lp_group_name, "modelnet_simplenet", mapping_rep_id, mapping_offset, &dest_id);
+
+    return(dest_id);
+}
+
 
 /*
  * Local variables:

@@ -133,6 +133,12 @@ void model_net_event(
     const void* self_event,
     tw_lp *sender);
 
+/* model_net_find_local_device()
+ *
+ * returns the LP id of the network card attached to the calling LP
+ */
+tw_lpid model_net_find_local_device(int net_id, tw_lp *sender);
+
 /* model_net_event_rc()
  *
  * This function does reverse computation for the model_net_event_new()

@@ -954,6 +954,17 @@ static const tw_lptype* dragonfly_get_router_lp_type(void)
 	           return(&dragonfly_lps[1]);
 }          
 
+static tw_lpid dragonfly_find_local_device(tw_lp *sender)
+{
+     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
+     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
+     tw_lpid dest_id;
+
+     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
+     codes_mapping_get_lp_id(lp_group_name, "modelnet_dragonfly", mapping_rep_id, mapping_offset, &dest_id);
+
+    return(dest_id);
+}
 
 
 /*

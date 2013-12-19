@@ -79,6 +79,8 @@ static const tw_lptype* torus_get_lp_type(void);
 /* reports torus statistics */
 static void torus_report_stats(void);
 
+static tw_lpid torus_find_local_device(tw_lp *sender);
+
 /* data structure for torus statistics */
 struct model_net_method torus_method =
 {
@@ -89,6 +91,7 @@ struct model_net_method torus_method =
    .mn_get_lp_type = torus_get_lp_type,
    .mn_get_msg_sz = torus_get_msg_sz,
    .mn_report_stats = torus_report_stats,
+   .model_net_method_find_local_device = torus_find_local_device,
 };
 
 /* event type of each torus message, can be packet generate, flit arrival, flit send or credit */

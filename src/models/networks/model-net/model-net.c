@@ -478,6 +478,12 @@ void model_net_add_lp_type(int net_id)
     }
  }
 }
+
+tw_lpid model_net_find_local_device(int net_id, tw_lp *sender)
+{
+    return(method_array[net_id]->model_net_method_find_local_device(sender));
+}
+
 /*
  * Local variables:
  *  c-indent-level: 4

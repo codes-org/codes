@@ -121,6 +121,8 @@ static void loggp_packet_event_rc(tw_lp *sender);
 
 static void loggp_report_stats();
 
+static tw_lpid loggp_find_local_device(tw_lp *sender);
+
 static struct param_table_entry* find_params(int msg_size);
 
 /* data structure for model-net statistics */
@@ -133,6 +135,7 @@ struct model_net_method loggp_method =
     .mn_get_lp_type = loggp_get_lp_type,
     .mn_get_msg_sz = loggp_get_msg_sz,
     .mn_report_stats = loggp_report_stats,
+    .model_net_method_find_local_device = loggp_find_local_device,
 };
 
 static void loggp_init(
@@ -614,6 +617,19 @@ static struct param_table_entry* find_params(int msg_size)
 
     return(&param_table[i]);
 }
+
+static tw_lpid loggp_find_local_device(tw_lp *sender)
+{
+     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
+     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
+     tw_lpid dest_id;
+
+     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
+     codes_mapping_get_lp_id(lp_group_name, "modelnet_loggp", mapping_rep_id, mapping_offset, &dest_id);
+
+    return(dest_id);
+}
+
 
 /*
  * Local variables:

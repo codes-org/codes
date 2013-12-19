@@ -28,6 +28,7 @@ struct model_net_method
     const tw_lptype* (*mn_get_lp_type)();
     int (*mn_get_msg_sz)();
     void (*mn_report_stats)();
+    tw_lpid (*model_net_method_find_local_device)(tw_lp *sender);
 };
 
 #endif /* MODELNET_METHOD_H */

@@ -60,6 +60,8 @@ static void dragonfly_setup(const void* net_params);
  * traversed and maximum packet latency */
 static void dragonfly_report_stats();
 
+static tw_lpid dragonfly_find_local_device(tw_lp *sender);
+
 /* dragonfly packet event method called by modelnet, this method triggers the packet
  * generate event of dragonfly and attached remote and local events to the last packet
  * of the message */
@@ -87,6 +89,7 @@ struct model_net_method dragonfly_method =
     .mn_get_lp_type = dragonfly_get_cn_lp_type,
     .mn_get_msg_sz = dragonfly_get_msg_sz,
     .mn_report_stats = dragonfly_report_stats,
+    .model_net_method_find_local_device = dragonfly_find_local_device,
 };
 
 /* handles terminal and router events like packet generate/send/receive/buffer */

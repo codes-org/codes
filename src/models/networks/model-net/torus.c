@@ -625,6 +625,18 @@ static const tw_lptype* torus_get_lp_type(void)
    return(&torus_lp); 
 }
 
+static tw_lpid torus_find_local_device(tw_lp *sender)
+{
+     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
+     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
+     tw_lpid dest_id;
+
+     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
+     codes_mapping_get_lp_id(lp_group_name, "modelnet_torus", mapping_rep_id, mapping_offset, &dest_id);
+
+    return(dest_id);
+}
+
 
 /*
  * Local variables:
