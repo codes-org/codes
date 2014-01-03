@@ -11,5 +11,5 @@ Description: Base functionality for CODES storage simulation
 Version: @CODES_BASE_VERSION@
 URL: http://trac.mcs.anl.gov/projects/CODES
 Requires:
-Libs: -L${libdir} ${ross_ldflags} ${ross_libs} -lcodes-base 
+Libs: -L${libdir} -lcodes-base ${ross_ldflags} ${ross_libs}  
 Cflags: -I${includedir} ${ross_cflags}
