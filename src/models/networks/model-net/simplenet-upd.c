@@ -385,7 +385,7 @@ static void handle_msg_start_rev_event(
     stat = model_net_find_stats(m->category, ns->sn_stats_array);
     stat->send_count--;
     stat->send_bytes -= m->net_msg_size_bytes;
-    stat->send_time -= global_net_startup_ns + rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
+    stat->send_time -= (global_net_startup_ns + rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs));
 
     return;
 }
@@ -415,7 +415,7 @@ static void handle_msg_start_event(
     stat = model_net_find_stats(m->category, ns->sn_stats_array);
     stat->send_count++;
     stat->send_bytes += m->net_msg_size_bytes;
-    stat->send_time += global_net_startup_ns + rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
+    stat->send_time += (global_net_startup_ns + rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs));
     if(stat->max_event_size < total_event_size)
         stat->max_event_size = total_event_size;
 
