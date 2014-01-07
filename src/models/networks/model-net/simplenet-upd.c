@@ -52,6 +52,8 @@ struct sn_message
     /* for reverse computation */
     tw_stime net_send_next_idle_saved;
     tw_stime net_recv_next_idle_saved;
+    tw_stime send_time_saved;
+    tw_stime recv_time_saved;
 };
 /* net startup cost, ns */
 static double global_net_startup_ns = 0;
@@ -312,7 +314,7 @@ static void handle_msg_ready_rev_event(
     stat = model_net_find_stats(m->category, ns->sn_stats_array);
     stat->recv_count--;
     stat->recv_bytes -= m->net_msg_size_bytes;
-    stat->recv_time -= rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
+    stat->recv_time = m->recv_time_saved;
 
     return;
 }
@@ -336,6 +338,7 @@ static void handle_msg_ready_event(
     stat = model_net_find_stats(m->category, ns->sn_stats_array);
     stat->recv_count++;
     stat->recv_bytes += m->net_msg_size_bytes;
+    m->recv_time_saved = stat->recv_time;
     stat->recv_time += rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
 
     /* are we available to recv the msg? */
@@ -385,7 +388,7 @@ static void handle_msg_start_rev_event(
     stat = model_net_find_stats(m->category, ns->sn_stats_array);
     stat->send_count--;
     stat->send_bytes -= m->net_msg_size_bytes;
-    stat->send_time -= (global_net_startup_ns + rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs));
+    stat->send_time = m->send_time_saved;
 
     return;
 }
@@ -415,6 +418,7 @@ static void handle_msg_start_event(
     stat = model_net_find_stats(m->category, ns->sn_stats_array);
     stat->send_count++;
     stat->send_bytes += m->net_msg_size_bytes;
+    m->send_time_saved = stat->send_time;
     stat->send_time += (global_net_startup_ns + rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs));
     if(stat->max_event_size < total_event_size)
         stat->max_event_size = total_event_size;
