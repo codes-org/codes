@@ -180,7 +180,7 @@ and discrete event simulation in general; those topics are covered in the primar
 ROSS documentation.
 %
 The main purpose of this document is to help the reader produce
-CODES models in a consistent, modular style so that componets can be more
+CODES models in a consistent, modular style so that components can be more
 easily shared and reused.  It also includes a few tips to help avoid common
 simulation bugs.
 \end{abstract}
@@ -214,7 +214,7 @@ like this:
 \begin{itemize}
 \item General modularity: makes it easier to pull out particular components
 (for example, a disk model) for use in other models.
-\item Simplicitity: if each LP type is only handling a limited set of
+\item Simplicity: if each LP type is only handling a limited set of
 events, then the event structure, state structure, and event handler
 functions will all be much smaller and easier to understand.
 \item Reverse computation: it makes it easier to implement reverse
@@ -323,7 +323,7 @@ described in previous section.
 \subsection{lp-io}
 
 TODO: fill this in.  lp-io is a simple API for storing modest-sized
-simulation results (not continous traces).  It handles reverse computation
+simulation results (not continuous traces).  It handles reverse computation
 and avoids doing any disk I/O until the simulation is complete.  All data is
 written with collective I/O into a unified output directory.  lp-io is
 mostly useful for cases in which you would like each LP instance to report
@@ -436,6 +436,35 @@ TOOD: fill this in.  Each LP needs to send an event to itself at the
 beginning of the simulation (explain why).  We usually skew these with
 random numbers to help break ties right off the bat (explain why).
 
+\subsection{Handling non-trivial event dependencies}
+
+In storage system simulations, it will often be the case that clients, servers,
+or both issue multiple asynchronous (parallel) operations, performing some
+action upon the completion of them. More generally, the problem is: an event
+issuance (an ack to the client) is based on the completion of more than one
+asynchronous/parallel events (local write on primary server, forwarding write to
+replica server). Further complicating the matter for storage simulations, there
+can be any number of outstanding requests, each waiting on multiple events. 
+
+In ROSS's sequential and conservative parallel modes, the necessary state can
+easily be stored in the LP as a queue of statuses for each set of events,
+enqueuing upon asynchronous event issuances and updating/dequeuing upon each
+completion. Each LP can assign unique IDs to each queue item and propagate the
+IDs through the asynchronous events for lookup purposes. However, in optimistic
+mode we may remove an item from the queue and then be forced to re-insert it
+during reverse computation.
+
+Naively, one could simply never remove queue items, but of course memory will
+quickly be consumed.
+
+An elegant solution to this is to \emph{cache the status state in the event
+structure that causes the dequeue}. ROSS's reverse computation semantics ensures
+that this event will be reversed before the completion events of any of the
+other asynchronous events, allowing us to easily recover the state. Furthermore,
+events are garbage-collected as the GVT, reducing memory management complexity.
+However, this strategy has the disadvantage of increasing event size
+accordingly.
+
 \section{Best practices quick reference}
 
 NOTE: these may be integrated with the remaining notes or used as a summary of
@@ -480,6 +509,10 @@ section(s).
     \begin{enumerate}
         \item reverse computation with collective knowledge is difficult
     \end{enumerate}
+
+    \item for optimistic-mode-capable tracking of multiple asynchronous event
+        dependencies, cache status in the event state signifying the last
+        satisfied dependency to ease reverse computation
 
 \end{enumerate}
 
