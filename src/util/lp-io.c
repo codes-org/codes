@@ -100,6 +100,52 @@ int lp_io_write(tw_lpid gid, char* identifier, int size, void* buffer)
     return(0);
 }
 
+int lp_io_write_rev(tw_lpid gid, char* identifier){
+    struct identifier* id;
+    struct io_buffer *buf, *buf_prev;
+
+    /* find given identifier */
+    if(strlen(identifier) >= 32)
+    {
+        fprintf(stderr, "Error: identifier %s too big.\n", identifier);
+        return(-1);
+    }
+    id = identifiers;
+    while (id && (strcmp(identifier, id->identifier) != 0)){
+        id = id->next;
+    }
+    if (!id){
+        fprintf(stderr, "Error: identifier %s not found on reverse.\n", identifier);
+        return(-1);
+    }
+
+    /* attempt to find previous LP's write. This is made easier by the fact 
+     * that the list is stored newest-to-oldest */
+    buf = id->buffers; 
+    buf_prev = NULL;
+    while (buf){
+        if (buf->gid == gid){ break; }
+        buf_prev = buf;
+        buf = buf->next;
+    }
+    if (!buf){
+        fprintf(stderr, "Error: no lp-io write buffer found for LP %lu (reverse write)\n", gid);
+        return(-1);
+    }
+
+    id->buffers_count--;
+    /* remove the buffer from the list 
+     * (NULLs for end-of-list are preserved) */
+    if (buf == id->buffers) { /* buf is head of list */
+        id->buffers = buf->next;
+    }
+    else { /* buf is in list, has a previous element */
+        buf_prev->next = buf->next; 
+    }
+    free(buf->buffer);
+    free(buf);
+    return(0);
+}
 
 int lp_io_prepare(char *directory, int flags, lp_io_handle* handle, MPI_Comm comm)
 {
