@@ -101,7 +101,6 @@ src_libcodes_base_a_SOURCES =  \
 # a program - Make error signifies test failure)
 check_PROGRAMS += src/util/templates/lp_template_dummy_main
 testlib_template = src/libcodes-base.a
-src_util_templates_lp_template_dummy_main_CFLAGS = -Wno-unused-function
 src_util_templates_lp_template_dummy_main_LDADD = $(testlib_template) ${ROSS_LIBS}
 src_util_templates_lp_template_dummy_main_LDFLAGS = ${ROSS_LDFLAGS}
 src_util_templates_lp_template_dummy_main_SOURCES = \

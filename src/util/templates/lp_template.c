@@ -77,7 +77,7 @@ static void handle_template_b_rev(
 
 /* ROSS function pointer table for this LP */
 tw_lptype template_lp = {
-     (init_f) template_init,
+     (init_f) template_lp_init,
      (event_f) template_event_handler,
      (revent_f) template_rev_handler,
      (final_f)  template_finalize, 
