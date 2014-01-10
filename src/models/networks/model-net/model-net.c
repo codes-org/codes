@@ -24,13 +24,11 @@ static struct model_net_method* method_array[] =
 
 static int model_net_get_msg_sz(int net_id);
 
-static lp_io_handle handle;
-
 int model_net_setup(char* name,
 		    int packet_size,
 		    const void* net_params)
 {
-     int i, ret;
+     int i;
     /* find struct for underlying method (according to configuration file) */
      for(i=0; method_array[i] != NULL; i++)
      {
@@ -39,11 +37,6 @@ int model_net_setup(char* name,
 	   method_array[i]->mn_setup(net_params);
 	   method_array[i]->packet_size = packet_size;
 	   model_net_add_lp_type(i);
-	   ret = lp_io_prepare(name, LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD);
-	   if(ret < 0)
-	   {
-		   return -1;
-	   }
 	   return(i);
 	}
      }
@@ -448,9 +441,6 @@ void model_net_report_stats(int net_id)
      // TODO: ADd checks by network names
      //    // Add dragonfly and torus network models
    method_array[net_id]->mn_report_stats();
-
-   int ret = lp_io_flush(handle, MPI_COMM_WORLD);
-   assert(ret == 0);
    return;
 }
 /* registers the lp type */

@@ -146,6 +146,7 @@ int main(
     int rank;
     //printf("\n Config count %d ",(int) config.lpgroups_count);
     g_tw_ts_end = s_to_ns(60*60*24*365); /* one year, in nsecs */
+    lp_io_handle handle;
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
@@ -172,8 +173,18 @@ int main(
 	  offset = 1;
     }
 
+    if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
+    {
+        return(-1);
+    }
+
     tw_run();
     model_net_report_stats(net_id);
+
+    if(lp_io_flush(handle, MPI_COMM_WORLD) < 0)
+    {
+        return(-1);
+    }
 
     tw_end();
     return 0;
