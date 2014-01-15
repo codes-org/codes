@@ -374,7 +374,10 @@ void handle_testsvr_kickoff_rev(
     testsvr_state * ns,
     testsvr_msg * m,
     tw_lp * lp){
-    /* nothing */
+    int req;
+    for (req = 0; req < NUM_REQS; req++){
+        model_net_event_rc(net_id, lp, 1);
+    }
 }
 
 void handle_testsvr_req_rev(
@@ -407,6 +410,8 @@ void handle_testsvr_local_rev(
 
     ns->req_stat[m->req_num]--;
     assert(ns->req_stat[m->req_num] >= 0);
+
+    model_net_event_rc(net_id, lp, 1);
 }
 
 /* for debugging: print messages */
