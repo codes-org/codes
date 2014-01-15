@@ -1,5 +1,6 @@
 
-check_PROGRAMS += tests/modelnet-test tests/modelnet-p2p-bw
+check_PROGRAMS += tests/modelnet-test tests/modelnet-p2p-bw \
+				  tests/concurrent-msg-recv
 
 TESTS += tests/modelnet-test.sh \
 	 tests/modelnet-test-torus.sh \
@@ -21,3 +22,8 @@ tests_modelnet_test_SOURCES = tests/modelnet-test.c
 tests_modelnet_p2p_bw_LDADD = $(testlib) ${CODES_BASE_LIBS}
 tests_modelnet_p2p_bw_CFLAGS = ${CODES_BASE_CFLAGS}
 tests_modelnet_p2p_bw_SOURCES = tests/modelnet-p2p-bw.c
+
+tests_concurrent_msg_recv_LDFLAGS = ${CODES_BASE_LDFLAGS}
+tests_concurrent_msg_recv_LDADD = $(testlib) ${CODES_BASE_LIBS} 
+tests_concurrent_msg_recv_CFLAGS = ${CODES_BASE_CFLAGS} 
+tests_concurrent_msg_recv_SOURCES = tests/concurrent-msg-recv.c
