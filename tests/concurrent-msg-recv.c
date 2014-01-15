@@ -18,7 +18,7 @@
 
 /**** BEGIN SIMULATION DATA STRUCTURES ****/
 
-#define NUM_REQS 2
+#define NUM_REQS 1
 
 #define TEST_DEBUG 1
 
@@ -420,7 +420,7 @@ void dump_state(tw_lp *lp, testsvr_state *ns, FILE *f){
     int written = sprintf(buf, "idx:%d LP:%lu, event_cnt:%d, [%d", 
             ns->idx, lp->gid, ns->event_ctr, ns->req_stat[0]);
     int req;
-    for (req = 0; req < NUM_REQS; req++){
+    for (req = 1; req < NUM_REQS; req++){
         written += sprintf(buf+written, ",%d",ns->req_stat[req]);
     }
     sprintf(buf+written, "]\n");
