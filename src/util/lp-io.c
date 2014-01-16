@@ -134,6 +134,7 @@ int lp_io_write_rev(tw_lpid gid, char* identifier){
     }
 
     id->buffers_count--;
+    id->buffers_total_size -= buf->size;
     /* remove the buffer from the list 
      * (NULLs for end-of-list are preserved) */
     if (buf == id->buffers) { /* buf is head of list */
