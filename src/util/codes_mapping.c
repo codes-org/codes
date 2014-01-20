@@ -9,6 +9,8 @@
  */
 #include "codes/codes_mapping.h"
 
+#define CODES_MAPPING_DEBUG 0
+
 /* number of LPs assigned to the current PE (abstraction of MPI rank) */
 static int lps_for_this_pe = 0;
 static int mem_factor = 1024;
@@ -195,6 +197,9 @@ static void codes_mapping_init(void)
 	 kpid = ross_lid % g_tw_nkp;
 	 pe = tw_getpe(kpid % g_tw_npe);
 	 codes_mapping_get_lp_info(ross_gid, grp_name, &grp_id, &lpt_id, lp_type_name, &rep_id, &offset);
+#if CODES_MAPPING_DEBUG
+         printf("lp:%lu --> kp:%lu, pe:%llu\n", ross_gid, kpid, pe->id);
+#endif
 	 tw_lp_onpe(ross_lid , pe, ross_gid);
 	 tw_lp_onkp(g_tw_lp[ross_lid], g_tw_kp[kpid]);
 	 tw_lp_settype(ross_lid, lp_type_lookup(lp_type_name));
