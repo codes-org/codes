@@ -129,7 +129,7 @@ tw_lptype testsvr_lp = {
 };
 
 /* for debugging: print messages */
-static void dump_msg(testsvr_msg *m, FILE *f);
+static void dump_msg(testsvr_msg *m, tw_lp *lp, FILE *f);
 static void dump_state(tw_lp *lp, testsvr_state *ns, FILE *f);
 
 /**** END LP, EVENT PROCESSING FUNCTION DECLS ****/
@@ -183,13 +183,15 @@ void testsvr_lp_init(
     do{ \
         fprintf(ns->fdebug, type); \
         dump_state(lp,ns,ns->fdebug); \
-        dump_msg(m,ns->fdebug); \
+        dump_msg(m,lp,ns->fdebug); \
+        fflush(ns->fdebug);\
     }while(0)
 
 #define DUMP_POST(lp, ns, type) \
     do{ \
         fprintf(ns->fdebug, type); \
         dump_state(lp,ns,ns->fdebug); \
+        fflush(ns->fdebug);\
     }while(0)
 
 #else
@@ -415,9 +417,9 @@ void handle_testsvr_local_rev(
 }
 
 /* for debugging: print messages */
-void dump_msg(testsvr_msg *m, FILE *f){
-    fprintf(f,"event: magic:%10d, src:%1d (LP:%lu), req:%1d, src_event_cnt:%2d\n",
-            m->magic, m->idx_src, m->lp_src, m->req_num, m->src_event_ctr);
+void dump_msg(testsvr_msg *m, tw_lp *lp, FILE *f){
+    fprintf(f,"event: magic:%10d, src:%1d (LP:%lu), req:%1d, src_event_cnt:%2d, ts:%.5le\n",
+            m->magic, m->idx_src, m->lp_src, m->req_num, m->src_event_ctr, tw_now(lp));
 }
 
 void dump_state(tw_lp *lp, testsvr_state *ns, FILE *f){
