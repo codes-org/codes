@@ -36,21 +36,21 @@ static int num_clients_per_lp = -1;
 void workload_set_params()
 {
     config_lpgroups_t paramconf;
-    char io_kernel_meta_path[MAX_NAME_LENGTH];
-    char bgp_config_file[MAX_NAME_LENGTH];
+    char io_kernel_meta_path[MAX_NAME_LENGTH_WKLD];
+    char bgp_config_file[MAX_NAME_LENGTH_WKLD];
     
     configuration_get_lpgroups(&config, "PARAMS", &paramconf);
 
-    configuration_get_value(&config, "PARAMS", "workload_type", workload_type, MAX_NAME_LENGTH);
+    configuration_get_value(&config, "PARAMS", "workload_type", workload_type, MAX_NAME_LENGTH_WKLD);
     if(strcmp(workload_type,"bgp_io_workload") == 0)
     {
         strcpy(bgparams.io_kernel_path,"");
         strcpy(bgparams.io_kernel_def_path, "");
         
-	configuration_get_value(&config, "PARAMS", "io_kernel_meta_path", io_kernel_meta_path, MAX_NAME_LENGTH);
+	configuration_get_value(&config, "PARAMS", "io_kernel_meta_path", io_kernel_meta_path, MAX_NAME_LENGTH_WKLD);
 	strcpy(bgparams.io_kernel_meta_path, io_kernel_meta_path);
         
-	configuration_get_value(&config, "PARAMS", "bgp_config_file", bgp_config_file, MAX_NAME_LENGTH);
+	configuration_get_value(&config, "PARAMS", "bgp_config_file", bgp_config_file, MAX_NAME_LENGTH_WKLD);
 	strcpy(bgparams.bgp_config_file, bgp_config_file);
 	bgparams.num_cns_per_lp = num_clients_per_lp;
     }

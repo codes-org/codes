@@ -13,7 +13,7 @@
 #define CODES_WORKLOAD_H
 
 #include "ross.h"
-#define MAX_NAME_LENGTH 512
+#define MAX_NAME_LENGTH_WKLD 512
 
 typedef struct bgp_params bgp_params;
 typedef struct codes_workload_info codes_workload_info;
@@ -21,10 +21,10 @@ typedef struct codes_workload_info codes_workload_info;
 struct bgp_params
 {
     int num_cns_per_lp;
-    char io_kernel_meta_path[MAX_NAME_LENGTH];
-    char bgp_config_file[MAX_NAME_LENGTH];
-    char io_kernel_path[MAX_NAME_LENGTH];
-    char io_kernel_def_path[MAX_NAME_LENGTH];
+    char io_kernel_meta_path[MAX_NAME_LENGTH_WKLD];
+    char bgp_config_file[MAX_NAME_LENGTH_WKLD];
+    char io_kernel_path[MAX_NAME_LENGTH_WKLD];
+    char io_kernel_def_path[MAX_NAME_LENGTH_WKLD];
 };
 
 struct codes_workload_info
