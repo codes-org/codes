@@ -1,6 +1,7 @@
 
 check_PROGRAMS += tests/lp-io-test \
- tests/workload/codes-workload-test
+ tests/workload/codes-workload-test \
+ tests/workload/codes-workload-mpi-replay
 
 TESTS += tests/lp-io-test.sh \
  tests/workload/codes-workload-test.sh
@@ -22,3 +23,7 @@ tests_workload_codes_workload_test_SOURCES = \
  tests/workload/codes-workload-test-svr-lp.h \
  tests/workload/codes-workload-test-cn-lp.c \
  tests/workload/codes-workload-test-cn-lp.h 
+
+tests_workload_codes_workload_mpi_replay_LDADD = $(testlib) ${ROSS_LIBS}
+tests_workload_codes_workload_mpi_replay_LDFLAGS = ${ROSS_LDFLAGS}
+tests_workload_codes_workload_mpi_replay_SOURCES = tests/workload/codes-workload-mpi-replay.c
