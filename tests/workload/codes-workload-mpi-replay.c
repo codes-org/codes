@@ -113,8 +113,6 @@ int main(int argc, char *argv[])
 {
     char *workload_type;
     char *workload_params;
-    char *test_dir_prefix;
-    char *test_dir = "codes-mpi-replay-dir";
     char *replay_test_path;
     int nprocs;
     int myrank;
@@ -124,22 +122,12 @@ int main(int argc, char *argv[])
     int ret = 0;
 
     /* parse command line args */
-    parse_args(argc, argv, &workload_type, &workload_params, &test_dir_prefix);
+    parse_args(argc, argv, &workload_type, &workload_params, &replay_test_path);
 
     /* initialize MPI */
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
     MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
-
-    replay_test_path = malloc(strlen(test_dir_prefix) + strlen(test_dir) + 1);
-    if (!replay_test_path)
-    {
-        fprintf(stderr, "Memory error\n");
-        exit(1);
-    }
-
-    strcpy(replay_test_path, test_dir_prefix);
-    strcat(replay_test_path, test_dir);
 
     /* initialize given workload generator */
     workload_id = codes_workload_load(workload_type, workload_params, myrank);
@@ -193,7 +181,6 @@ int main(int argc, char *argv[])
 
 error_exit:
 
-    free(replay_test_path);
     MPI_Finalize();
     return ret;
 }
