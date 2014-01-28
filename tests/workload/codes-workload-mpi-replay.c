@@ -43,10 +43,10 @@ void usage(char *exename)
 {
     fprintf(stderr, "Usage: %s [OPTIONS] --wkld-type <workload_type>\n       "
             "[--wkld-params <workload_params>] --test-dir <workload_test_dir>\n\n", exename);
-    fprintf(stderr, "\t<workload_type> is a valid codes workload generator name\n");
-    fprintf(stderr, "\t<workload_params> is parameters for the workload generator (possibly none)\n");
-    fprintf(stderr, "\t<workload_test_dir> is the directory to replay the workload I/O in\n");
-    fprintf(stderr, "\tOPTIONS includes:\n");
+    fprintf(stderr, "\t<workload_type> : a valid codes workload generator name\n");
+    fprintf(stderr, "\t<workload_params> : parameters for the workload generator (possibly none)\n");
+    fprintf(stderr, "\t<workload_test_dir> : the directory to replay the workload I/O in\n");
+    fprintf(stderr, "\n\t[OPTIONS] includes:\n");
     fprintf(stderr, "\t\t--noop : do not perform i/o\n");
     fprintf(stderr, "\t\t    -v : verbose (output i/o details)\n");   
 
@@ -61,7 +61,7 @@ void parse_args(int argc, char **argv, char **workload_type, char **workload_par
         {"wkld-type", 1, NULL, 't'},
         {"wkld-params", 1, NULL, 'p'},
         {"test-dir", 1, NULL, 'd'},
-        {"noop", 1, NULL, 'n'},
+        {"noop", 0, NULL, 'n'},
         {"help", 0, NULL, 0},
         {0, 0, 0, 0}
     };
