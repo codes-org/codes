@@ -72,6 +72,24 @@ int configuration_get_value(ConfigHandle *handle,
                             char *value,
                             size_t length);
 
+
+/*
+ * Get's the values for a give section/key pair which has multiple values.
+ * Caller's responsible for transforming it to a useable type.
+ * Assumes the key name is a MULTIKEY configuration type.
+ * 
+ * handle - configuration handle
+ * section_name - name of the section the key is in
+ * key_name - name of the key
+ * values - array of points to values (must be freed by caller)
+ * length - number of value items
+ */
+int configuration_get_multivalue(ConfigHandle *handle,
+                                 const char * section_name,
+                                 const char * key_name,
+                                 char ***values,
+                                 size_t *length);
+
 /*
  * Get's the value for a give section/key pair and converts it to an int.
  * Assumes the key name is a KEY configuration type.

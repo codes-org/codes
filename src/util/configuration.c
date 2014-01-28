@@ -87,6 +87,26 @@ int configuration_get_value(ConfigHandle *handle,
     return rc;
 }
 
+int configuration_get_multivalue(ConfigHandle *handle,
+                                 const char *section_name,
+                                 const char *key_name,
+                                 char ***values,
+                                 size_t *len)
+{
+    SectionHandle section_handle;
+    int           rc;
+
+    rc = cf_openSection(*handle, ROOT_SECTION, section_name, &section_handle);
+    assert(rc == 1);
+
+    rc = cf_getMultiKey(*handle, section_handle, key_name, values, len);
+    assert(rc);
+
+    (void) cf_closeSection(*handle, section_handle);
+
+    return rc;
+}
+
 int configuration_get_value_int (ConfigHandle *handle,
                                  const char *section_name,
                                  const char *key_name,
