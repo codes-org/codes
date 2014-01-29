@@ -11,9 +11,16 @@
 
 #define CODES_MAPPING_DEBUG 0
 
-/* number of LPs assigned to the current PE (abstraction of MPI rank) */
-static int lps_for_this_pe = 0;
+/* number of LPs assigned to the current PE (abstraction of MPI rank).
+ * for lp counts which are not divisible by the number of ranks, keep 
+ * modulus around */
+static int lps_per_pe_floor = 0;
+static int lps_leftover = 0;
+
 static int mem_factor = 1024;
+
+static inline int mini(int a, int b){ return a < b ? a : b; }
+
 /* char arrays for holding lp type name and group name*/
 char local_grp_name[MAX_NAME_LENGTH], local_lp_name[MAX_NAME_LENGTH];
 
@@ -21,13 +28,25 @@ config_lpgroups_t lpconf;
 
 int codes_mapping_get_lps_for_pe()
 {
-  return lps_for_this_pe;
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+#if CODES_MAPPING_DEBUG
+    printf("%d lps for rank %d\n", lps_per_pe_floor+(g_tw_mynode < lps_leftover), rank);
+#endif
+  return lps_per_pe_floor + (g_tw_mynode < lps_leftover);
 }
 
 /* Takes the global LP ID and returns the rank (PE id) on which the LP is mapped */
 tw_peid codes_mapping( tw_lpid gid)
 {
-  return gid / lps_for_this_pe;
+    int lps_on_pes_with_leftover = lps_leftover * (lps_per_pe_floor+1);
+    if (gid < lps_on_pes_with_leftover){
+        return gid / (lps_per_pe_floor+1);
+    }
+    else{
+        return (gid-lps_on_pes_with_leftover)/lps_per_pe_floor + lps_leftover;
+    }
+  /*return gid / lps_per_pe_floor;*/
 }
 
 int codes_mapping_get_group_reps(char* grp_name)
@@ -187,20 +206,23 @@ static void codes_mapping_init(void)
      for(kpid = 0; kpid < nkp_per_pe; kpid++)
 	tw_kp_onpe(kpid, g_tw_pe[0]);
 
-     int lp_init_range = g_tw_mynode * lps_for_this_pe;
-     codes_mapping_get_lp_info(lp_init_range, grp_name, &grp_id, &lpt_id, lp_type_name, &rep_id, &offset);
+     int lp_start =
+         g_tw_mynode * lps_per_pe_floor + mini(g_tw_mynode,lps_leftover);
+     int lp_end =
+         (g_tw_mynode+1) * lps_per_pe_floor + mini(g_tw_mynode+1,lps_leftover);
+     codes_mapping_get_lp_info(lp_start, grp_name, &grp_id, &lpt_id, lp_type_name, &rep_id, &offset);
 
-     for (lpid = lp_init_range; lpid < lp_init_range + lps_for_this_pe; lpid++)
+     for (lpid = lp_start; lpid < lp_end; lpid++)
       {
 	 ross_gid = lpid;
-	 ross_lid = lpid - lp_init_range;
+	 ross_lid = lpid - lp_start;
 	 kpid = ross_lid % g_tw_nkp;
 	 pe = tw_getpe(kpid % g_tw_npe);
 	 codes_mapping_get_lp_info(ross_gid, grp_name, &grp_id, &lpt_id, lp_type_name, &rep_id, &offset);
 #if CODES_MAPPING_DEBUG
          printf("lp:%lu --> kp:%lu, pe:%llu\n", ross_gid, kpid, pe->id);
 #endif
-	 tw_lp_onpe(ross_lid , pe, ross_gid);
+	 tw_lp_onpe(ross_lid, pe, ross_gid);
 	 tw_lp_onkp(g_tw_lp[ross_lid], g_tw_kp[kpid]);
 	 tw_lp_settype(ross_lid, lp_type_lookup(lp_type_name));
      }
@@ -212,7 +234,8 @@ static void codes_mapping_init(void)
  * global LP IDs are unique across all PEs, local LP IDs are unique within a PE */
 static tw_lp * codes_mapping_to_lp( tw_lpid lpid)
 {
-   int index = lpid - (g_tw_mynode * lps_for_this_pe);
+   int index = lpid - (g_tw_mynode * lps_per_pe_floor) -
+       mini(g_tw_mynode, lps_leftover);
 //   printf("\n global id %d index %d lps_before %d lps_offset %d local index %d ", lpid, index, lps_before, g_tw_mynode, local_index);
    return g_tw_lp[index];
 }
@@ -228,10 +251,11 @@ void codes_mapping_setup()
   for (grp = 0; grp < lpconf.lpgroups_count; grp++)
    {
     for (lpt = 0; lpt < lpconf.lpgroups[grp].lptypes_count; lpt++)
-	lps_for_this_pe += (lpconf.lpgroups[grp].lptypes[lpt].count * lpconf.lpgroups[grp].repetitions);
+	lps_per_pe_floor += (lpconf.lpgroups[grp].lptypes[lpt].count * lpconf.lpgroups[grp].repetitions);
    }
-  lps_for_this_pe /= pes;
- //printf("\n LPs for this PE are %d reps %d ", lps_for_this_pe,  lpconf.lpgroups[grp].repetitions);
+  lps_leftover = lps_per_pe_floor % pes;
+  lps_per_pe_floor /= pes;
+ //printf("\n LPs for this PE are %d reps %d ", lps_per_pe_floor,  lpconf.lpgroups[grp].repetitions);
   g_tw_mapping=CUSTOM;
   g_tw_custom_initial_mapping=&codes_mapping_init;
   g_tw_custom_lp_global_to_local_map=&codes_mapping_to_lp;
