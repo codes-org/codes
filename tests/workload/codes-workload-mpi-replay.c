@@ -22,7 +22,7 @@
 #include "codes/codes-workload.h"
 #include "codes/quickhash.h"
 
-struct file_info_list
+struct file_info
 {
     struct qlist_head hash_link;
     uint64_t file_hash;
@@ -177,7 +177,7 @@ int main(int argc, char *argv[])
     }
 
     /* destroy and finalize the file descriptor hash table */
-    qhash_destroy_and_finalize(fd_table, struct file_info_list, hash_link, free);
+    qhash_destroy_and_finalize(fd_table, struct file_info, hash_link, free);
 
 error_exit:
 
@@ -192,7 +192,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
     int open_flags = O_RDWR;
     char file_name[50];
     int fildes;
-    struct file_info_list *tmp_list = NULL;
+    struct file_info *tmp_list = NULL;
     struct qlist_head *hash_link = NULL;
     char *buf = NULL;
     int ret;
@@ -270,7 +270,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                 }
 
                 /* save the file descriptor for this file in a hash table to be retrieved later */
-                tmp_list = malloc(sizeof(struct file_info_list));
+                tmp_list = malloc(sizeof(struct file_info));
                 if (!tmp_list)
                 {
                     fprintf(stderr, "No memory available for file hash entry\n");
@@ -292,7 +292,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                 /* search for the corresponding file descriptor in the hash table */
                 hash_link = qhash_search_and_remove(fd_table, &(replay_op.u.close.file_id));
                 assert(hash_link);
-                tmp_list = qhash_entry(hash_link, struct file_info_list, hash_link);
+                tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
                 fildes = tmp_list->file_descriptor;
                 free(tmp_list);
      
@@ -318,7 +318,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                 /* search for the corresponding file descriptor in the hash table */
                 hash_link = qhash_search(fd_table, &(replay_op.u.write.file_id));
                 assert(hash_link);
-                tmp_list = qhash_entry(hash_link, struct file_info_list, hash_link);
+                tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
                 fildes = tmp_list->file_descriptor;
 
                 /* perform the write operation */
@@ -349,7 +349,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                 /* search for the corresponding file descriptor in the hash table */
                 hash_link = qhash_search(fd_table, &(replay_op.u.read.file_id));
                 assert(hash_link);
-                tmp_list = qhash_entry(hash_link, struct file_info_list, hash_link);
+                tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
                 fildes = tmp_list->file_descriptor;
 
                 /* perform the write operation */
@@ -379,9 +379,9 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
 int hash_file_compare(void *key, struct qlist_head *link)
 {
     uint64_t *in_file_hash = (uint64_t *)key;
-    struct file_info_list *tmp_file;
+    struct file_info *tmp_file;
 
-    tmp_file = qlist_entry(link, struct file_info_list, hash_link);
+    tmp_file = qlist_entry(link, struct file_info, hash_link);
     if (tmp_file->file_hash == *in_file_hash)
         return 1;
 
