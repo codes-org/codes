@@ -21,7 +21,6 @@ LPs to the PEs (PEs is an abstraction for MPI rank in ROSS) by placing 1 server 
 LP a total of 16 times. This configuration is useful if there is some form of communication involved
 between the server and example_net LP types, in which case ROSS will place them on the same PE and 
 communication between server and example_net LPs will not involve remote messages. 
-
 The number of server and example_net LPs can be more than 1. Lets assume if we have two example_net
 LPs for each server then the config file will have the following format:
 
@@ -76,3 +75,13 @@ For example, to query the number of repetitions in example-test2.conf file, call
 num_repetitions = codes_mapping_get_group_reps("MODELNET_GRP");
 
 will return 16.
+
+=== LP to PE mapping for parallel simulations ===
+
+In the case of parallel simulations using MPI, the LP mapping explained in Step
+1 still holds. However, these LPs must also be mapped to PEs, which can be an
+arbitrary mapping in ROSS. We simply assign the first N LPs to the first PE, the
+second N to the second PE, and so forth, where N is the floor of the LP count
+and the PE count. If the number of LPs is not divisible by the number of PEs,
+then the first N+1 LPs are mapped to the first PE and so on, until the remainder
+has been taken care of.
