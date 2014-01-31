@@ -22,7 +22,7 @@ $(pkgconfig_DATA): config.status
 
 EXTRA_DIST += prepare.sh
 
-AM_CPPFLAGS = -I$(top_srcdir)/src ${ROSS_CPPFLAGS} ${DARSHAN_CPPFLAGS}
+AM_CPPFLAGS = -I$(top_srcdir)/src ${ROSS_CPPFLAGS}
 
 AM_CFLAGS = ${ROSS_CFLAGS}
 
@@ -37,4 +37,7 @@ include $(top_srcdir)/tests/Makefile.subdir
 
 if USE_DARSHAN
 src_libcodes_base_a_SOURCES += src/workload/codes-darshan-io-wrkld.c
+AM_CPPFLAGS += ${DARSHAN_CPPFLAGS}
+AM_LDFLAGS = ${DARSHAN_LDFLAGS}
+AM_LIBS += ${DARSHAN_LIBS}
 endif

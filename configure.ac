@@ -94,11 +94,15 @@ AC_ARG_WITH([darshan],[AS_HELP_STRING([--with-darshan@<:@=DIR@:>@],
                         [location of Darshan installation])])
 if test "x${with_darshan}" != "x" ; then
     darshan_headers="${with_darshan}/include"
-    AC_CHECK_FILE([$darshan_headers/darshan-io-events.h],
+    AC_CHECK_FILE([$darshan_headers/darshan-logutils.h],
                   AM_CONDITIONAL(USE_DARSHAN, true),
-                  AC_MSG_ERROR(Could not find darshan-io-events.h at: $darshan_headers))
-    DARSHAN_CPPFLAGS="-DUSE_DARSHAN=1 -I${with_darshan}/include"
+                  AC_MSG_ERROR(Could not find darshan-logutils.h at: $darshan_headers))
+    DARSHAN_CPPFLAGS="-DUSE_DARSHAN=1 -DDARSHAN_CONFIG_H=\\\"${with_darshan}/include/darshan-util-config.h\\\" -I${with_darshan}/include"
+    DARSHAN_LDFLAGS="-L${with_darshan}/lib"
+    DARSHAN_LIBS="darshan-util"
     AC_SUBST(DARSHAN_CPPFLAGS)
+    AC_SUBST(DARSHAN_LDFLAGS)
+    AC_SUBST(DARSHAN_LIBS)
 else
     AM_CONDITIONAL(USE_DARSHAN, false)
 fi

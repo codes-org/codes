@@ -16,6 +16,7 @@
 #define MAX_NAME_LENGTH_WKLD 512
 
 typedef struct bgp_params bgp_params;
+typedef struct darshan_params darshan_params;
 typedef struct codes_workload_info codes_workload_info;
 
 struct bgp_params
@@ -28,6 +29,11 @@ struct bgp_params
     char bgp_config_file[MAX_NAME_LENGTH_WKLD];
     char io_kernel_path[MAX_NAME_LENGTH_WKLD];
     char io_kernel_def_path[MAX_NAME_LENGTH_WKLD];
+};
+
+struct darshan_params
+{
+    char log_file_path[MAX_NAME_LENGTH_WKLD];
 };
 
 struct codes_workload_info
