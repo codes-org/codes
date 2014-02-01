@@ -99,7 +99,7 @@ if test "x${with_darshan}" != "x" ; then
                   AC_MSG_ERROR(Could not find darshan-logutils.h at: $darshan_headers))
     DARSHAN_CPPFLAGS="-DUSE_DARSHAN=1 -DDARSHAN_CONFIG_H=\\\"${with_darshan}/include/darshan-util-config.h\\\" -I${with_darshan}/include"
     DARSHAN_LDFLAGS="-L${with_darshan}/lib"
-    DARSHAN_LIBS="darshan-util"
+    DARSHAN_LIBS="-ldarshan-util -lz"
     AC_SUBST(DARSHAN_CPPFLAGS)
     AC_SUBST(DARSHAN_LDFLAGS)
     AC_SUBST(DARSHAN_LIBS)
