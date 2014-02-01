@@ -3,6 +3,7 @@
  * See COPYRIGHT notice in top-level directory.
  *
  */
+#include <assert.h>
 
 #include "codes/codes-workload.h"
 #include "codes/quickhash.h"
@@ -75,6 +76,23 @@ static double generate_psx_coll_io_events(struct darshan_file *file, int64_t ind
                                           int64_t aggregator_cnt, int64_t open_ndx,
                                           double inter_io_delay, double meta_op_time, double cur_time,
                                           struct rank_io_context *io_context);
+static void determine_io_params(struct darshan_file *file, int write_flag, int coll_flag,
+                                int64_t io_cycles, size_t *io_sz, off_t *io_off);
+static void calc_io_delays(struct darshan_file *file, int64_t num_opens, int64_t num_io_ops,
+                           double delay_per_cycle, double *first_io_delay, double *close_delay,
+                           double *inter_open_delay, double *inter_io_delay);
+static void file_sanity_check(struct darshan_file *file, struct darshan_job *job);
+
+/* helper functions for implementing the darshan workload generator */
+static void generate_psx_ind_file_events(struct darshan_file *file);
+static double generate_psx_open_event(struct darshan_file *file, int create_flag,
+                                      double meta_op_time, double cur_time);
+static double generate_psx_close_event(struct darshan_file *file, double meta_op_time,
+                                       double cur_time);
+static double generate_barrier_event(struct darshan_file *file, int64_t root, double cur_time);
+static double generate_psx_ind_io_events(struct darshan_file *file, int64_t io_ops_this_cycle,
+                                         int64_t open_ndx, double inter_io_delay, 
+                                         double meta_op_time, double cur_time);
 static void determine_io_params(struct darshan_file *file, int write_flag, int coll_flag,
                                 int64_t io_cycles, size_t *io_sz, off_t *io_off);
 static void calc_io_delays(struct darshan_file *file, int64_t num_opens, int64_t num_io_ops,
@@ -159,6 +177,7 @@ static int darshan_io_workload_load(const char *params, int rank)
             generate_psx_coll_file_events(&next_file, my_ctx, job.nprocs, d_params->aggregator_cnt);
         }
     }
+
     if (ret < 0)
         return -1;
 
