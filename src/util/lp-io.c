@@ -135,6 +135,13 @@ int lp_io_write_rev(tw_lpid gid, char* identifier){
 
     id->buffers_count--;
     id->buffers_total_size -= buf->size;
+    if (id->buffers_count == 0){
+        /* seg faults caused with empty identifiers for some reason - remove
+         * this ID */
+        identifiers = id->next;
+        free(id);
+        identifiers_count--;
+    }
     /* remove the buffer from the list 
      * (NULLs for end-of-list are preserved) */
     if (buf == id->buffers) { /* buf is head of list */
