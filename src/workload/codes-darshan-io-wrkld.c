@@ -4,6 +4,7 @@
  *
  */
 #include <assert.h>
+#include <math.h>
 
 #include "codes/codes-workload.h"
 #include "codes/quickhash.h"
@@ -43,7 +44,6 @@ struct rank_io_context
 /* Darshan workload generator's implementation of the CODES workload API */
 static int darshan_io_workload_load(const char *params, int rank);
 static void darshan_io_workload_get_next(int rank, struct codes_workload_op *op);
-static void *darshan_io_workload_get_info(int rank);
 static int darshan_rank_hash_compare(void *key, struct qhash_head *link);
 
 /* Darshan I/O op data structure access (insert, remove) abstraction */
@@ -83,23 +83,6 @@ static void calc_io_delays(struct darshan_file *file, int64_t num_opens, int64_t
                            double *inter_open_delay, double *inter_io_delay);
 static void file_sanity_check(struct darshan_file *file, struct darshan_job *job);
 
-/* helper functions for implementing the darshan workload generator */
-static void generate_psx_ind_file_events(struct darshan_file *file);
-static double generate_psx_open_event(struct darshan_file *file, int create_flag,
-                                      double meta_op_time, double cur_time);
-static double generate_psx_close_event(struct darshan_file *file, double meta_op_time,
-                                       double cur_time);
-static double generate_barrier_event(struct darshan_file *file, int64_t root, double cur_time);
-static double generate_psx_ind_io_events(struct darshan_file *file, int64_t io_ops_this_cycle,
-                                         int64_t open_ndx, double inter_io_delay, 
-                                         double meta_op_time, double cur_time);
-static void determine_io_params(struct darshan_file *file, int write_flag, int coll_flag,
-                                int64_t io_cycles, size_t *io_sz, off_t *io_off);
-static void calc_io_delays(struct darshan_file *file, int64_t num_opens, int64_t num_io_ops,
-                           double delay_per_cycle, double *first_io_delay, double *close_delay,
-                           double *inter_open_delay, double *inter_io_delay);
-static void file_sanity_check(struct darshan_file *file, struct darshan_job *job);
-
 /* workload method name and function pointers for the CODES workload API */
 struct codes_workload_method darshan_io_workload_method =
 {
@@ -107,10 +90,6 @@ struct codes_workload_method darshan_io_workload_method =
     .codes_workload_load = darshan_io_workload_load,
     .codes_workload_get_next = darshan_io_workload_get_next,
 };
-
-/* info about this darshan workload group needed by bgp model */
-/* TODO: is this needed for darshan workloads? */
-/* TODO: does this need to be stored in the rank context to support multiple workloads? */
 
 /* hash table to store per-rank workload contexts */
 static struct qhash_table *rank_tbl = NULL;
@@ -177,7 +156,6 @@ static int darshan_io_workload_load(const char *params, int rank)
             generate_psx_coll_file_events(&next_file, my_ctx, job.nprocs, d_params->aggregator_cnt);
         }
     }
-
     if (ret < 0)
         return -1;
 
@@ -250,13 +228,6 @@ static void darshan_io_workload_get_next(int rank, struct codes_workload_op *op)
     *op = next_io_op.codes_op;
 
     return;
-}
-
-/* return the workload info needed by the bgp model */
-/* TODO: do we really need this? */
-static void *darshan_io_workload_get_info(int rank)
-{
-    return &(darshan_workload_info);
 }
 
 /* comparison function for comparing two hash keys (used for storing multiple io contexts) */
