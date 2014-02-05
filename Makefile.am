@@ -37,8 +37,6 @@ include $(top_srcdir)/tests/Makefile.subdir
 
 if USE_DARSHAN
 AM_CPPFLAGS += ${DARSHAN_CPPFLAGS}
-AM_LDFLAGS = ${DARSHAN_LDFLAGS}
-AM_LIBS += ${DARSHAN_LIBS}
 src_libcodes_base_a_SOURCES += src/workload/codes-darshan-io-wrkld.c
 tests_workload_codes_workload_test_LDADD += ${DARSHAN_LIBS}
 tests_workload_codes_workload_test_LDFLAGS += ${DARSHAN_LDFLAGS}
