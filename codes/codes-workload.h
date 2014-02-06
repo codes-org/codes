@@ -20,7 +20,10 @@ typedef struct codes_workload_info codes_workload_info;
 
 struct bgp_params
 {
-    int num_cns_per_lp;
+    /* We have the number of ranks passed in from the bg/p model because 
+     * the I/O lang workloads have no information about the number of ranks.
+     * Only the bg/p config file knows the number of ranks. */
+    int num_cns;
     char io_kernel_meta_path[MAX_NAME_LENGTH_WKLD];
     char bgp_config_file[MAX_NAME_LENGTH_WKLD];
     char io_kernel_path[MAX_NAME_LENGTH_WKLD];
@@ -116,9 +119,6 @@ void codes_workload_get_next(int wkld_id, int rank, struct codes_workload_op *op
 
 /* Reverse of the above function. */
 void codes_workload_get_next_rc(int wkld_id, int rank, const struct codes_workload_op *op);
-
-/* get related information for the codes workload (specifically for the BG/P model) */
-void* codes_workload_get_info(int wkld_id, int rank);
 
 /* for debugging/logging: print an individual operation to the specified file */
 void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank);

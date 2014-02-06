@@ -49,7 +49,6 @@ struct rank_events_context
 /* CODES workload API functions for workloads generated from darshan logs*/
 static int darshan_io_workload_load(const char *params, int rank);
 static void darshan_io_workload_get_next(int rank, struct codes_workload_op *op);
-static void *darshan_io_workload_get_info(int rank);
 
 /* helper functions for darshan workload CODES API */
 static void darshan_read_events(struct rank_events_context *rank_context, int ind_flag);
@@ -62,7 +61,6 @@ struct codes_workload_method darshan_io_workload_method =
     .method_name = "darshan_io_workload",
     .codes_workload_load = darshan_io_workload_load,
     .codes_workload_get_next = darshan_io_workload_get_next,
-    .codes_workload_get_info= darshan_io_workload_get_info,
 };
 
 static struct qhash_table *rank_tbl = NULL;
@@ -71,7 +69,6 @@ static int rank_tbl_pop = 0;
 /* info about this darshan workload group needed by bgp model */
 /* TODO: is this needed for darshan workloads? */
 /* TODO: does this need to be stored in the rank context to support multiple workloads? */
-static struct codes_workload_info darshan_workload_info = {-1, -1, -1, -1, -1};
 
 /* load the workload generator for this rank, given input params */
 static int darshan_io_workload_load(const char *params, int rank)
@@ -245,15 +242,6 @@ static int darshan_io_workload_load(const char *params, int rank)
     qhash_add(rank_tbl, &(new->rank), &(new->hash_link));
     rank_tbl_pop++;
 
-    /* fill out the info required for this workload group */
-    if (darshan_workload_info.group_id == -1)
-    {
-        darshan_workload_info.group_id = 1;
-        darshan_workload_info.min_rank = 0;
-        darshan_workload_info.max_rank = nprocs - 1;
-        darshan_workload_info.num_lrank = nprocs;
-    }
-
     free(rank_offsets);
     return 0;
 }
@@ -371,13 +359,6 @@ static void darshan_io_workload_get_next(int rank, struct codes_workload_op *op)
     }
 
     return;
-}
-
-/* return the workload info needed by the bgp model */
-/* TODO: do we really need this? */
-static void *darshan_io_workload_get_info(int rank)
-{
-    return &(darshan_workload_info);
 }
 
 /* read events from the event file -- ind_flag is set if reading independent events */

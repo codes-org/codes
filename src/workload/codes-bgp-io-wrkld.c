@@ -14,6 +14,9 @@
 
 #include "codes/codes-workload.h"
 #include "codes-workload-method.h"
+#include "codes/quickhash.h"
+
+#define RANK_HASH_TABLE_SIZE 400 
 
 /* This file implements the CODES workload API for the I/O kernel language of
 the BG/P storage model */
@@ -26,17 +29,12 @@ void bgp_io_workload_get_next(int rank, struct codes_workload_op *op);
 
 /* mapping from bg/p operation enums to CODES workload operations enum */
 static int convertTypes(int inst);
+static int hash_rank_compare(void *key, struct qhash_head *link);
 
-/* get additional workload information if any*/
-void* bgp_io_workload_get_info(int rank);
-
-typedef struct codes_bgp_wrkld_state_per_cn codes_bgp_wrkld_state_per_cn;
-
-/* I/O language state data structure for each simulated compute node / MPI rank */
-static codes_bgp_wrkld_state_per_cn* wrkld_arr = NULL;
-
-/* number of compute nodes/ simulated MPI ranks per LP */
-static int num_cns_per_lp = -1;
+typedef struct codes_bgp_wrkld_state_per_rank codes_bgp_wrkld_state_per_rank;
+static struct qhash_table *rank_tbl = NULL;
+static int rank_tbl_pop = 0;
+int num_ranks = -1;
 
 /* implements the codes workload method */
 struct codes_workload_method bgp_io_workload_method =
@@ -44,46 +42,56 @@ struct codes_workload_method bgp_io_workload_method =
     .method_name = "bgp_io_workload",
     .codes_workload_load = bgp_io_workload_load,
     .codes_workload_get_next = bgp_io_workload_get_next,
-    .codes_workload_get_info = bgp_io_workload_get_info,
 };
 
 /* state of the I/O workload that each simulated compute node/MPI rank will have */
-struct codes_bgp_wrkld_state_per_cn
+struct codes_bgp_wrkld_state_per_rank
 {
+    int rank;
     CodesIOKernelContext codes_context;
     CodesIOKernel_pstate * codes_pstate;
     codeslang_inst next_event;
+    struct qhash_head hash_link;
     codes_workload_info task_info;
 };
-
-/* returns information that is used further by the BG/P model for running multiple jobs */
-void* bgp_io_workload_get_info(int rank)
-{
-    int local_rank = (rank - g_tw_mynode) / tw_nnodes();
-    return &(wrkld_arr[local_rank].task_info);
-}
 
 /* loads the workload file for each simulated MPI rank/ compute node LP */
 int bgp_io_workload_load(const char* params, int rank)
 {
     int t = -1;
     bgp_params* b_param = (bgp_params*)params;
- 
-    if(!wrkld_arr)
+
+    /* we have to get the number of compute nodes/ranks from the bg/p model parameters
+     * because the number of ranks are specified in the bgp config file not the
+     * workload files */
+    if(num_ranks == -1)
+        num_ranks = b_param->num_cns;
+
+    codes_bgp_wrkld_state_per_rank* wrkld_per_rank = NULL;
+    if(!rank_tbl)
     {
-	num_cns_per_lp = b_param->num_cns_per_lp;
-       	wrkld_arr = malloc(num_cns_per_lp * sizeof(codes_bgp_wrkld_state_per_cn));    
+	  rank_tbl = qhash_init(hash_rank_compare, quickhash_32bit_hash, RANK_HASH_TABLE_SIZE);
+	  if(!rank_tbl)
+	  {
+		  return -1;
+	  }
     }
-    int local_rank = (rank - g_tw_mynode)/tw_nnodes(); 
-    wrkld_arr[local_rank].codes_pstate = CodesIOKernel_pstate_new();
+    wrkld_per_rank = malloc(sizeof(*wrkld_per_rank));
+    if(!wrkld_per_rank)
+	    return -1;
+
+    wrkld_per_rank->codes_pstate = CodesIOKernel_pstate_new();
+    wrkld_per_rank->rank = rank;
     t = codes_kernel_helper_bootstrap(b_param->io_kernel_path, 
 				      b_param->io_kernel_def_path, 
 				      b_param->io_kernel_meta_path,
         			      rank, 
-				      &(wrkld_arr[local_rank].codes_context), 
-				      &(wrkld_arr[local_rank].codes_pstate), 
-				      &(wrkld_arr[local_rank].task_info), 
-				      &(wrkld_arr[local_rank].next_event));
+				      &(wrkld_per_rank->codes_context), 
+				      &(wrkld_per_rank->codes_pstate), 
+				      &(wrkld_per_rank->task_info), 
+				      &(wrkld_per_rank->next_event));
+    qhash_add(rank_tbl, &(wrkld_per_rank->rank), &(wrkld_per_rank->hash_link));
+    rank_tbl_pop++;
     return t;
 }
 
@@ -117,58 +125,70 @@ static int convertTypes(int inst)
     } 
 }
 
-/* Gets the next operation specified in the workload file for the simulated MPI rank
-TODO: some of the workloads are yet to be added like the READ operation */
+/* Gets the next operation specified in the workload file for the simulated MPI rank */
 void bgp_io_workload_get_next(int rank, struct codes_workload_op *op)
 {
     /* If the number of simulated compute nodes per LP is initialized only then we get the next operation
 	else we return an error code may be?  */
-    if(num_cns_per_lp > -1)
-    {
-        int local_rank = (rank - g_tw_mynode) / tw_nnodes();
-        int type = codes_kernel_helper_parse_input(wrkld_arr[local_rank].codes_pstate, &(wrkld_arr[local_rank].codes_context),&(wrkld_arr[local_rank].next_event));
+        codes_bgp_wrkld_state_per_rank* next_wrkld;
+	struct qhash_head *hash_link = NULL; 
+	hash_link = qhash_search(rank_tbl, &rank);
+	if(!hash_link)
+	{
+		op->op_type = CODES_WK_END;
+		return;
+	}
+	next_wrkld = qhash_entry(hash_link, struct codes_bgp_wrkld_state_per_rank, hash_link);
+
+	int type = codes_kernel_helper_parse_input(next_wrkld->codes_pstate, &(next_wrkld->codes_context),&(next_wrkld->next_event));
         op->op_type = convertTypes(type);
 	switch(op->op_type)
 	{
 	    case CODES_WK_WRITE:
 	    {
-                op->u.write.file_id = (wrkld_arr[local_rank].next_event).var[0];
-		op->u.write.offset = (wrkld_arr[local_rank].next_event).var[2];
-		op->u.write.size = (wrkld_arr[local_rank].next_event).var[1];
+                op->u.write.file_id = (next_wrkld->next_event).var[0];
+		op->u.write.offset = (next_wrkld->next_event).var[2];
+		op->u.write.size = (next_wrkld->next_event).var[1];
 		//printf("\n Write size %d offset %d file id %d ", op->write.size, op->write.offset, op->write.file_id);	
 	    }
 	    break;
 	    case CODES_WK_DELAY:
 	    {
-		op->u.delay.seconds = (wrkld_arr[local_rank].next_event).var[0];
+		op->u.delay.seconds = (next_wrkld->next_event).var[0];
 	    }
 	    break;
 	    case CODES_WK_END:
 	    {
-		/* do nothing */
+		/* delete the hash entry*/
+		  qhash_del(hash_link); 
+		  rank_tbl_pop--;
+
+		  /* if no more entries are there, delete the hash table */
+		  if(!rank_tbl_pop)
+			qhash_finalize(rank_tbl);
 	    }
 	    break;
 	    case CODES_WK_CLOSE:
 	    {
-	        op->u.close.file_id = (wrkld_arr[local_rank].next_event).var[0];
+	        op->u.close.file_id = (next_wrkld->next_event).var[0];
 	    }
 	    break;
 	    case CODES_WK_BARRIER:
 	    {
-	       op->u.barrier.count = wrkld_arr[local_rank].task_info.num_lrank;
+	       op->u.barrier.count = num_ranks;
 	       op->u.barrier.root = 0;
 	    }
 	    break;
 	    case CODES_WK_OPEN:
 	    {
-	        op->u.open.file_id =  (wrkld_arr[local_rank].next_event).var[0];
+	        op->u.open.file_id =  (next_wrkld->next_event).var[0];
 	    }
 	    break;
 	    case CODES_WK_READ:
 	    {
-                op->u.read.file_id = (wrkld_arr[local_rank].next_event).var[0];
-		op->u.read.offset = (wrkld_arr[local_rank].next_event).var[2];
-		op->u.read.size = (wrkld_arr[local_rank].next_event).var[1];
+                op->u.read.file_id = (next_wrkld->next_event).var[0];
+		op->u.read.offset = (next_wrkld->next_event).var[2];
+		op->u.read.size = (next_wrkld->next_event).var[1];
 	    }
 	    break;
 	    default:
@@ -177,6 +197,18 @@ void bgp_io_workload_get_next(int rank, struct codes_workload_op *op)
 		//printf("\n Invalid operation specified %d ", op->op_type);
 	     }
 	}
-    }
     return;
 }
+
+static int hash_rank_compare(void *key, struct qhash_head *link)
+{
+    int *in_rank = (int *)key;
+    codes_bgp_wrkld_state_per_rank *tmp;
+
+    tmp = qhash_entry(link, codes_bgp_wrkld_state_per_rank, hash_link);
+    if (tmp->rank == *in_rank)
+	return 1;
+
+    return 0;
+}
+
