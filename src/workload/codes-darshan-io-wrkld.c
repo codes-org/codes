@@ -3,8 +3,6 @@
  * See COPYRIGHT notice in top-level directory.
  *
  */
-#include <assert.h>
-#include <math.h>
 
 #include "codes/codes-workload.h"
 #include "codes/quickhash.h"
