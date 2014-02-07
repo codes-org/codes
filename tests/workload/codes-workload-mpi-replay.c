@@ -17,11 +17,14 @@
 #include <math.h>
 #include <getopt.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <mpi.h>
 
 #include "codes/codes-workload.h"
 #include "codes/quickhash.h"
+#include "codes/configuration.h"
 
+/* hash table entry for looking up file descriptor of a workload file id */
 struct file_info
 {
     struct qlist_head hash_link;
@@ -39,12 +42,14 @@ static int opt_noop = 0;
 /* hash table for storing file descriptors of opened files */
 static struct qhash_table *fd_table = NULL;
 
+/* file stream to log rank events to, if verbose turned on */
+static FILE *log_stream = NULL;
+
 void usage(char *exename)
 {
-    fprintf(stderr, "Usage: %s [OPTIONS] --wkld-type <workload_type>\n       "
-            "[--wkld-params <workload_params>] --test-dir <workload_test_dir>\n\n", exename);
-    fprintf(stderr, "\t<workload_type> : a valid codes workload generator name\n");
-    fprintf(stderr, "\t<workload_params> : parameters for the workload generator (possibly none)\n");
+    fprintf(stderr, "Usage: %s [OPTIONS] --conf <conf_file_path>\n       "
+            "--test-dir <workload_test_dir>\n\n", exename);
+    fprintf(stderr, "\t<conf_file_path> : path to a valid workload configuration file\n");
     fprintf(stderr, "\t<workload_test_dir> : the directory to replay the workload I/O in\n");
     fprintf(stderr, "\n\t[OPTIONS] includes:\n");
     fprintf(stderr, "\t\t--noop : do not perform i/o\n");
@@ -53,21 +58,19 @@ void usage(char *exename)
     exit(1);
 }
 
-void parse_args(int argc, char **argv, char **workload_type, char **workload_params, char **test_dir)
+void parse_args(int argc, char **argv, char **conf_path, char **test_dir)
 {
     int index;
     static struct option long_opts[] =
     {
-        {"wkld-type", 1, NULL, 't'},
-        {"wkld-params", 1, NULL, 'p'},
+        {"conf", 1, NULL, 'c'},
         {"test-dir", 1, NULL, 'd'},
         {"noop", 0, NULL, 'n'},
         {"help", 0, NULL, 0},
         {0, 0, 0, 0}
     };
 
-    *workload_type = NULL;
-    *workload_params = NULL;
+    *conf_path = NULL;
     *test_dir = NULL;
     while (1)
     {
@@ -84,11 +87,8 @@ void parse_args(int argc, char **argv, char **workload_type, char **workload_par
             case 'n':
                 opt_noop = 1;
                 break;
-            case 't':
-                *workload_type = optarg;
-                break;
-            case 'p':
-                *workload_params = optarg;
+            case 'c':
+                *conf_path = optarg;
                 break;
             case 'd':
                 *test_dir = optarg;
@@ -101,7 +101,7 @@ void parse_args(int argc, char **argv, char **workload_type, char **workload_par
         }
     }
 
-    if (optind < argc || !(*workload_type) || !(*test_dir))
+    if (optind < argc || !(*conf_path) || !(*test_dir))
     {
         usage(argv[0]);
     }
@@ -109,11 +109,65 @@ void parse_args(int argc, char **argv, char **workload_type, char **workload_par
     return;
 }
 
+int load_workload(char *conf_path, int rank)
+{
+    config_lpgroups_t paramconf;
+    char workload_type[MAX_NAME_LENGTH_WKLD];
+
+    /* load the config file across all ranks */
+    configuration_load(conf_path, MPI_COMM_WORLD, &config);
+
+    /* get the PARAMS group out of the config file */
+    configuration_get_lpgroups(&config, "PARAMS", &paramconf);
+
+    /* get the workload type out of PARAMS */
+    configuration_get_value(&config, "PARAMS", "workload_type",
+                            workload_type, MAX_NAME_LENGTH_WKLD);
+
+    /* set up the workload parameters and load into the workload API */
+    if (strcmp(workload_type, "darshan_io_workload") == 0)
+    {
+        struct darshan_params d_params;
+        char aggregator_count[10];
+
+        /* get the darshan params from the config file */
+        configuration_get_value(&config, "PARAMS", "log_file_path",
+                                d_params.log_file_path, MAX_NAME_LENGTH_WKLD);
+        configuration_get_value(&config, "PARAMS", "aggregator_count", aggregator_count, 10);
+        d_params.aggregator_cnt = atoi(aggregator_count);
+
+        return codes_workload_load(workload_type, (char *)&d_params, rank);
+    }
+    else if (strcmp(workload_type, "bgp_io_workload") == 0)
+    {
+        struct bgp_params b_params;
+        char rank_count[10];
+
+        /* get the bgp i/o params from the config file */
+        configuration_get_value(&config, "PARAMS", "io_kernel_meta_path",
+                                b_params.io_kernel_meta_path, MAX_NAME_LENGTH_WKLD);
+        configuration_get_value(&config, "PARAMS", "bgp_config_file", 
+                                b_params.bgp_config_file, MAX_NAME_LENGTH_WKLD);
+        configuration_get_value(&config, "PARAMS", "rank_count", rank_count, 10);
+        strcpy(b_params.io_kernel_path, "");
+        strcpy(b_params.io_kernel_def_path, "");
+        b_params.num_cns = atoi(rank_count);
+
+        return codes_workload_load(workload_type, (char *)&b_params, rank);
+    }
+    else
+    {
+        fprintf(stderr, "Error: Invalid workload type specified (%s)\n", workload_type);
+        return -1;
+    }
+}
+
 int main(int argc, char *argv[])
 {
-    char *workload_type;
-    char *workload_params;
+    char *conf_path;
     char *replay_test_path;
+    char *log_dir = "log";
+    char my_log_path[MAX_NAME_LENGTH_WKLD];
     int nprocs;
     int myrank;
     int workload_id;
@@ -122,19 +176,17 @@ int main(int argc, char *argv[])
     int ret = 0;
 
     /* parse command line args */
-    parse_args(argc, argv, &workload_type, &workload_params, &replay_test_path);
+    parse_args(argc, argv, &conf_path, &replay_test_path);
 
     /* initialize MPI */
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
     MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
 
-    /* initialize given workload generator */
-    workload_id = codes_workload_load(workload_type, workload_params, myrank);
+    /* initialize workload generator from config file */
+    workload_id = load_workload(conf_path, myrank);
     if (workload_id < 0)
     {
-        fprintf(stderr, "Unable to initialize workload %s (params = %s)\n",
-                workload_type, workload_params);
         goto error_exit;
     }
 
@@ -144,6 +196,19 @@ int main(int argc, char *argv[])
     {
         fprintf(stderr, "Unable to change to testing directory (%s)\n", strerror(errno));
         goto error_exit;
+    }
+
+    /* set the path for logging this rank's events, if verbose is turned on */
+    if (opt_verbose)
+    {
+        mkdir(log_dir, 0755);
+        snprintf(my_log_path, MAX_NAME_LENGTH_WKLD, "%s/rank-%d.log", log_dir, myrank);
+        log_stream = fopen(my_log_path, "w");
+        if (log_stream == NULL)
+        {
+            fprintf(stderr, "Unable to open log file %s\n", my_log_path);
+            goto error_exit;
+        }
     }
 
     /* initialize hash table for storing file descriptors */
@@ -176,12 +241,15 @@ int main(int argc, char *argv[])
         }
     }
 
+    if (opt_verbose)
+        fclose(log_stream);
+
     /* destroy and finalize the file descriptor hash table */
     qhash_destroy_and_finalize(fd_table, struct file_info, hash_link, free);
 
 error_exit:
-
     MPI_Finalize();
+
     return ret;
 }
 
@@ -201,7 +269,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
     {
         case CODES_WK_DELAY:
             if (opt_verbose)
-                printf("[Rank %d] Operation %lld : DELAY %lf seconds\n",
+                fprintf(log_stream, "[Rank %d] Operation %lld : DELAY %lf seconds\n",
                        rank, op_number, replay_op.u.delay.seconds);
 
             if (!opt_noop)
@@ -230,7 +298,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             return 0;
         case CODES_WK_BARRIER:
             if (opt_verbose)
-                printf("[Rank %d] Operation %lld : BARRIER\n", rank, op_number);
+                fprintf(log_stream, "[Rank %d] Operation %lld : BARRIER\n", rank, op_number);
 
             if (!opt_noop)
             {
@@ -247,7 +315,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             return 0;
         case CODES_WK_OPEN:
             if (opt_verbose)
-                printf("[Rank %d] Operation %lld: %s file %"PRIu64"\n", rank, op_number,
+                fprintf(log_stream, "[Rank %d] Operation %lld: %s file %"PRIu64"\n", rank, op_number,
                        (replay_op.u.open.create_flag) ? "CREATE" : "OPEN", replay_op.u.open.file_id);
 
             if (!opt_noop)
@@ -284,8 +352,8 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             return 0;
         case CODES_WK_CLOSE:
             if (opt_verbose)
-                printf("[Rank %d] Operation %lld : CLOSE file %"PRIu64"\n", rank, op_number,
-                       replay_op.u.close.file_id);
+                fprintf(log_stream, "[Rank %d] Operation %lld : CLOSE file %"PRIu64"\n",
+                        rank, op_number, replay_op.u.close.file_id);
 
             if (!opt_noop)
             {
@@ -308,7 +376,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             return 0;
         case CODES_WK_WRITE:
             if (opt_verbose)
-                printf("[Rank %d] Operation %lld : WRITE file %"PRIu64" (sz = %"PRId64
+                fprintf(log_stream, "[Rank %d] Operation %lld : WRITE file %"PRIu64" (sz = %"PRId64
                        ", off = %"PRId64")\n",
                        rank, op_number, replay_op.u.write.file_id, replay_op.u.write.size,    
                        replay_op.u.write.offset);
@@ -340,8 +408,8 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             return 0;
         case CODES_WK_READ:
             if (opt_verbose)
-                printf("[Rank %d] Operation %lld : READ file %"PRIu64" (sz = %"PRId64", off = %"
-                       PRId64")\n", rank, op_number, replay_op.u.read.file_id,
+                fprintf(log_stream, "[Rank %d] Operation %lld : READ file %"PRIu64" (sz = %"PRId64
+                        ", off = %"PRId64")\n", rank, op_number, replay_op.u.read.file_id,
                        replay_op.u.read.size, replay_op.u.read.offset);
 
             if (!opt_noop)
