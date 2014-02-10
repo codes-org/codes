@@ -439,7 +439,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             return 0;
         default:
             fprintf(stderr, "** Rank %d: INVALID OPERATION (op count = %lld) **\n", rank, op_number);
-            return -1;
+            return 0;
     }
 
 }
