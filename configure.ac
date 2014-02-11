@@ -73,10 +73,10 @@ if test "x${with_ross}" != "x" ; then
     checkpath="${with_ross}/bin"
     ROSS_CONFIG=""
     AC_CHECK_PROGS(ROSS_CONFIG, [ross-config], [NOT_FOUND], [$checkpath])
-    if test "${ROSS_CONFIG}" = "NOT_FOUND" ; then 
+    if test "${ROSS_CONFIG}" = "NOT_FOUND" ; then
         AC_MSG_ERROR(ROSS not found at: $with_ross)
     fi
-    
+
     ROSS_LDFLAGS=`${with_ross}/bin/ross-config --ldflags`
     ROSS_CFLAGS=`${with_ross}/bin/ross-config --cflags`
     ROSS_CPPFLAGS=`${with_ross}/bin/ross-config --cflags`
@@ -106,6 +106,11 @@ if test "x${with_darshan}" != "x" ; then
 else
     AM_CONDITIONAL(USE_DARSHAN, false)
 fi
+
+# check for Recorder
+AM_CONDITIONAL(USE_RECORDER, true)
+RECORDER_CPPFLAGS="-DUSE_RECORDER=1"
+AC_SUBST(RECORDER_CPPFLAGS)
 
 dnl ======================================================================
 dnl  Try harder to be valgrind safe

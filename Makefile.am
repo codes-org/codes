@@ -43,3 +43,8 @@ tests_workload_codes_workload_test_LDFLAGS += ${DARSHAN_LDFLAGS}
 tests_workload_codes_workload_mpi_replay_LDADD += ${DARSHAN_LIBS}
 tests_workload_codes_workload_mpi_replay_LDFLAGS += ${DARSHAN_LDFLAGS}
 endif
+
+if USE_RECORDER
+AM_CPPFLAGS += ${RECORDER_CPPFLAGS}
+src_libcodes_base_a_SOURCES += src/workload/codes-recorder-io-wrkld.c
+endif

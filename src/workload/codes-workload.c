@@ -11,20 +11,26 @@
 #include "codes-workload-method.h"
 
 /* list of available methods.  These are statically compiled for now, but we
- * could make generators optional via autoconf tests etc. if needed 
- */ 
+ * could make generators optional via autoconf tests etc. if needed
+ */
 extern struct codes_workload_method test_workload_method;
 extern struct codes_workload_method bgp_io_workload_method;
 #ifdef USE_DARSHAN
 extern struct codes_workload_method darshan_io_workload_method;
 #endif
+#ifdef USE_RECORDER
+extern struct codes_workload_method recorder_io_workload_method;
+#endif
 
-static struct codes_workload_method *method_array[] = 
+static struct codes_workload_method *method_array[] =
 {
     &test_workload_method,
     &bgp_io_workload_method,
 #ifdef USE_DARSHAN
     &darshan_io_workload_method,
+#endif
+#ifdef USE_RECORDER
+    &recorder_io_workload_method,
 #endif
     NULL};
 
@@ -117,7 +123,7 @@ void codes_workload_get_next(int wkld_id, int rank, struct codes_workload_op *op
     if(tmp->lifo)
     {
         tmp_op = tmp->lifo;
-        tmp->lifo = tmp_op->next; 
+        tmp->lifo = tmp_op->next;
 
         *op = tmp_op->op;
         free(tmp_op);
@@ -166,11 +172,11 @@ void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank){
             fprintf(f, "op: rank:%d, type:end\n", rank);
             break;
         case CODES_WK_DELAY:
-            fprintf(f, "op: rank:%d, type:delay, seconds:%lf\n", 
+            fprintf(f, "op: rank:%d, type:delay, seconds:%lf\n",
                     rank, op->u.delay.seconds);
             break;
         case CODES_WK_BARRIER:
-            fprintf(f, "op: rank:%d, type:barrier, count:%d, root:%d\n", 
+            fprintf(f, "op: rank:%d, type:barrier, count:%d, root:%d\n",
                     rank, op->u.barrier.count, op->u.barrier.root);
             break;
         case CODES_WK_OPEN:
@@ -184,13 +190,13 @@ void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank){
         case CODES_WK_WRITE:
             fprintf(f, "op: rank:%d, type:write, "
                        "file_id:%lu, off:%lu, size:%lu\n",
-                    rank, op->u.write.file_id, op->u.write.offset, 
+                    rank, op->u.write.file_id, op->u.write.offset,
                     op->u.write.size);
             break;
         case CODES_WK_READ:
             fprintf(f, "op: rank:%d, type:read, "
                        "file_id:%lu, off:%lu, size:%lu\n",
-                    rank, op->u.read.file_id, op->u.read.offset, 
+                    rank, op->u.read.file_id, op->u.read.offset,
                     op->u.read.size);
             break;
     }
