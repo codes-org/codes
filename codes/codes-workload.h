@@ -33,6 +33,7 @@ struct bgp_params
 
 struct darshan_params
 {
+    FILE* stream;
     char log_file_path[MAX_NAME_LENGTH_WKLD];
     int64_t aggregator_cnt;
 };

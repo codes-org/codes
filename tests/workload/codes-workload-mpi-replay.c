@@ -136,6 +136,7 @@ int load_workload(char *conf_path, int rank)
         configuration_get_value(&config, "PARAMS", "aggregator_count", aggregator_count, 10);
         d_params.aggregator_cnt = atoi(aggregator_count);
 
+        d_params.stream = log_stream;
         return codes_workload_load(workload_type, (char *)&d_params, rank);
     }
     else if (strcmp(workload_type, "bgp_io_workload") == 0)
@@ -183,6 +184,27 @@ int main(int argc, char *argv[])
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
     MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
 
+    /* change the working directory to be the test directory */
+    ret = chdir(replay_test_path);
+    if (ret < 0)
+    {
+        fprintf(stderr, "Unable to change to testing directory (%s)\n", strerror(errno));
+        goto error_exit;
+    }
+
+    /* set the path for logging this rank's events, if verbose is turned on */
+    if (opt_verbose)
+    {
+        mkdir(log_dir, 0755);
+        snprintf(my_log_path, MAX_NAME_LENGTH_WKLD, "%s/rank-%d.log", log_dir, myrank);
+        log_stream = fopen(my_log_path, "w");
+        if (log_stream == NULL)
+        {
+            fprintf(stderr, "Unable to open log file %s\n", my_log_path);
+            goto error_exit;
+        }
+    }
+
     /* initialize workload generator from config file */
     workload_id = load_workload(conf_path, myrank);
     if (workload_id < 0)
@@ -190,6 +212,8 @@ int main(int argc, char *argv[])
         goto error_exit;
     }
 
+
+#if 0
     /* change the working directory to be the test directory */
     ret = chdir(replay_test_path);
     if (ret < 0)
@@ -247,6 +271,7 @@ int main(int argc, char *argv[])
     /* destroy and finalize the file descriptor hash table */
     qhash_destroy_and_finalize(fd_table, struct file_info, hash_link, free);
 
+#endif
 error_exit:
     MPI_Finalize();
 
