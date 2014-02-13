@@ -61,6 +61,7 @@ struct svr_state
     int msg_recvd_count;  /* requests recvd */
     int local_recvd_count; /* number of local messages received */
     tw_stime start_ts;    /* time that we started sending requests */
+    tw_stime end_ts;      /* time that last request finished */
 };
 
 /* this struct serves as the ***temporary*** event data, which can be thought
@@ -355,8 +356,14 @@ static void svr_finalize(
     svr_state * ns,
     tw_lp * lp)
 {
-    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)(lp->gid/2), payload_sz*ns->msg_recvd_count, ns_to_s((tw_now(lp)-ns->start_ts)), 
-        ((double)(payload_sz*num_reqs)/(double)(1024*1024)/ns_to_s(tw_now(lp)-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
+    printf("server %llu recvd %d bytes in %lf seconds, %lf MiB/s sent_count %d recvd_count %d local_count %d \n", 
+            (unsigned long long)(lp->gid/2),
+            payload_sz*ns->msg_recvd_count,
+            ns_to_s(ns->end_ts-ns->start_ts),
+            ((double)(payload_sz*num_reqs)/(double)(1024*1024)/ns_to_s(ns->end_ts-ns->start_ts)),
+            ns->msg_sent_count,
+            ns->msg_recvd_count,
+            ns->local_recvd_count);
     return;
 }
 
@@ -492,6 +499,7 @@ static void handle_ack_event(
     {
 	/* threshold count reached, stop sending messages */
         m->incremented_flag = 0;
+        ns->end_ts = tw_now(lp);
     }
     return;
 }
