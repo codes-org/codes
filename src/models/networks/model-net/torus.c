@@ -15,14 +15,19 @@ static void torus_setup(const void* net_params)
     link_bandwidth = t_param->link_bandwidth;
     buffer_size = t_param->buffer_size;
     num_vc = t_param->num_vc;
-    
-    head_delay = (1 / link_bandwidth) * CHUNK_SIZE;
+    chunk_size = t_param->chunk_size;
+    head_delay = (1 / link_bandwidth) * chunk_size;
     credit_delay = (1 / link_bandwidth) * 8;
     dim_length = malloc(n_dims * sizeof(int));
     factor = malloc(n_dims * sizeof(int));
     half_length = malloc(n_dims * sizeof(int));
+   
     for(i = 0; i < n_dims; i++)
-       dim_length[i] = t_param->dim_length[i]; /* TODO, read comma separated values from files */
+    {
+       dim_length[i] = t_param->dim_length[i]; 
+       if(!dim_length[i])
+	       dim_length[i] = 8;
+    }
 }
 
 /* torus packet reverse event */
@@ -61,6 +66,13 @@ static void torus_packet_event(char* category, tw_lpid final_dest_lp, int packet
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
     msg->type = GENERATE;
+    
+    num_chunks = msg->packet_size/chunk_size;
+
+    if(msg->packet_size % chunk_size)
+    {
+	    num_chunks++;
+    }
 
     if(is_last_pckt) /* Its the last packet so pass in remote event information*/
      {
@@ -78,8 +90,8 @@ static void torus_packet_event(char* category, tw_lpid final_dest_lp, int packet
 	   memcpy(tmp_ptr, self_event, self_event_size);
 	   tmp_ptr += self_event_size;
 	}
+      // printf("\n torus remote event %d local event %d last packet %d %lf ", msg->remote_event_size_bytes, msg->local_event_size_bytes, is_last_pckt, xfer_to_nic_time);
      }
-   //printf("\n torus remote event %d local event %d last packet %d %lf ", msg->remote_event_size_bytes, msg->local_event_size_bytes, is_last_pckt, xfer_to_nic_time);
     tw_event_send(e_new);
 }
 
@@ -268,7 +280,7 @@ static void packet_generate( nodes_state * s,
     msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
     msg->my_N_hop = 0;
 
-    num_chunks = msg->packet_size/CHUNK_SIZE;
+
     s->packet_counter++;
 
     if(msg->packet_ID == TRACE)
@@ -462,8 +474,6 @@ static void packet_arrive( nodes_state * s,
 	    if(msg->remote_event_size_bytes)
 	    {
 	       ts = (1/link_bandwidth) * msg->remote_event_size_bytes;
-	       if(msg->packet_ID == TRACE)
-		     printf("\n lp %d Sending final message after %lf ",(int)lp->gid, ts);
 	       e = codes_event_new(msg->final_dest_gid, ts, lp);
 	       m = tw_event_data(e);
 	       char* tmp_ptr = (char*)msg;

@@ -79,6 +79,7 @@ struct torus_param
   int buffer_size; /* number of buffer slots for each vc in flits*/
   int num_vc; /* number of virtual channels for each torus link */
   float mean_process;/* mean process time for each flit  */
+  int chunk_size; /* chunk is the smallest unit--default set to 32 */
 };
  /* In general we need to figure out how to pass configuration information to
  * the methods and we need to be able to calculate ross event message size.

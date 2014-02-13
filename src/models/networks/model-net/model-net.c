@@ -143,6 +143,7 @@ void model_net_event(
      int i;
      int last = 0;
 
+     //printf("\n number of packets %d message size %d ", num_packets, message_size);
      if((remote_event_size + self_event_size + model_net_get_msg_sz(net_id))
         > g_tw_msg_sz)
      {
@@ -154,6 +155,9 @@ void model_net_event(
 
      if(message_size % packet_size)
 	num_packets++; /* Handle the left out data if message size is not exactly divisible by packet size */
+
+     if(message_size < packet_size)
+         num_packets = 1;
 
      /*Determine the network name*/
      if(net_id < 0 || net_id >= MAX_NETS)
@@ -309,7 +313,7 @@ int model_net_set_params()
      {
 	torus_param net_params;
 	char dim_length[MAX_NAME_LENGTH];
-	int n_dims=0, buffer_size=0, num_vc=0, i=0;
+	int n_dims=0, buffer_size=0, num_vc=0, i=0, chunk_size = 0;
 	double link_bandwidth=0;
 
 	configuration_get_value_int(&config, "PARAMS", "n_dims", &n_dims);
@@ -333,6 +337,12 @@ int model_net_set_params()
 		printf("\n Buffer size not specified, setting to %d ",buffer_size);
 	}
 
+	configuration_get_value_int(&config, "PARAMS", "chunk_size", &chunk_size);
+	if(!chunk_size)
+	{
+	       chunk_size = 32;
+	       printf("\n Chunk size not specified, setting to %d ", chunk_size);
+	}
 	configuration_get_value_int(&config, "PARAMS", "num_vc", &num_vc);
 	if(!num_vc)
 	{
@@ -345,6 +355,7 @@ int model_net_set_params()
 	net_params.n_dims=n_dims;
 	net_params.num_vc=num_vc;
 	net_params.buffer_size=buffer_size;
+	net_params.chunk_size = chunk_size;
 	net_params.link_bandwidth=link_bandwidth;
 	net_params.dim_length=malloc(n_dims*sizeof(int));
         token = strtok(dim_length, ",");	

@@ -43,6 +43,8 @@ int * dim_length;
 int * factor;
 /* half length of each dimension, used in torus coordinates calculation */
 int * half_length;
+/* size of each torus chunk, by default it is set to 32 */
+int chunk_size;
 
 /* codes mapping group name, lp type name */
 char grp_name[MAX_NAME_LENGTH], type_name[MAX_NAME_LENGTH];
