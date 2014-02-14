@@ -505,13 +505,6 @@ void generate_psx_coll_file_events(
      */
     assert(file->counters[CP_POSIX_OPENS] >= nprocs);
 
-    total_delay = (file->fcounters[CP_F_CLOSE_TIMESTAMP] -
-                   file->fcounters[CP_F_OPEN_TIMESTAMP] -
-                   (file->fcounters[CP_F_POSIX_READ_TIME] / nprocs) -
-                   (file->fcounters[CP_F_POSIX_WRITE_TIME] / nprocs) -
-                   (file->fcounters[CP_F_POSIX_META_TIME] / nprocs));
-
-
     if (file->counters[CP_COLL_OPENS] || file->counters[CP_INDEP_OPENS])
     {
         extra_opens = file->counters[CP_POSIX_OPENS] - file->counters[CP_COLL_OPENS] -
@@ -523,16 +516,31 @@ void generate_psx_coll_file_events(
         total_ind_io_ops = file->counters[CP_INDEP_READS] + file->counters[CP_INDEP_WRITES];
         total_coll_io_ops = (file->counters[CP_COLL_READS] + file->counters[CP_COLL_WRITES]) / nprocs;
 
-        if (total_coll_opens && total_ind_opens)
-            open_cycles = total_coll_opens / nprocs;
-        else if (total_coll_opens)
-            open_cycles = total_coll_opens / nprocs;
-        else
-            open_cycles = ceil((double)total_ind_opens / nprocs);
+        if (file->counters[CP_COLL_OPENS])
+        {
+            total_delay = (file->fcounters[CP_F_CLOSE_TIMESTAMP] -
+                           file->fcounters[CP_F_OPEN_TIMESTAMP] -
+                           (file->fcounters[CP_F_POSIX_READ_TIME] / in_agg_cnt) -
+                           (file->fcounters[CP_F_POSIX_WRITE_TIME] / in_agg_cnt) -
+                           (file->fcounters[CP_F_POSIX_META_TIME] / in_agg_cnt));
 
-        calc_io_delays(file, ceil(((double)(total_coll_opens + total_ind_opens)) / nprocs),
-                       total_coll_io_ops + ceil((double)total_ind_io_ops / nprocs), total_delay,
-                       &first_io_delay, &close_delay, &inter_cycle_delay, &inter_io_delay);
+            open_cycles = total_coll_opens / nprocs;
+            calc_io_delays(file, ceil(((double)(total_coll_opens + total_ind_opens)) / nprocs),
+                           total_coll_io_ops + ceil((double)total_ind_io_ops / nprocs), total_delay,
+                           &first_io_delay, &close_delay, &inter_cycle_delay, &inter_io_delay);
+        }
+        else
+        {
+            total_delay = (file->fcounters[CP_F_CLOSE_TIMESTAMP] -
+                           file->fcounters[CP_F_OPEN_TIMESTAMP] -
+                           (file->fcounters[CP_F_POSIX_READ_TIME] / nprocs) -
+                           (file->fcounters[CP_F_POSIX_WRITE_TIME] / nprocs) -
+                           (file->fcounters[CP_F_POSIX_META_TIME] / nprocs));
+
+            open_cycles = ceil((double)total_ind_opens / nprocs);
+            calc_io_delays(file, open_cycles, ceil((double)total_ind_io_ops / nprocs), total_delay,
+                           &first_io_delay, &close_delay, &inter_cycle_delay, &inter_io_delay);
+        }
     }
     else
     {
@@ -556,6 +564,12 @@ void generate_psx_coll_file_events(
 
         total_ind_io_ops = total_io_ops - extra_io_ops;
         total_coll_io_ops = 0;
+
+        total_delay = (file->fcounters[CP_F_CLOSE_TIMESTAMP] -
+                       file->fcounters[CP_F_OPEN_TIMESTAMP] -
+                       (file->fcounters[CP_F_POSIX_READ_TIME] / nprocs) -
+                       (file->fcounters[CP_F_POSIX_WRITE_TIME] / nprocs) -
+                       (file->fcounters[CP_F_POSIX_META_TIME] / nprocs));
 
         open_cycles = ceil((double)total_ind_opens / nprocs);
         calc_io_delays(file, open_cycles, ceil((double)total_ind_io_ops / nprocs), total_delay,
