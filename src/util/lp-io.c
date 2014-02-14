@@ -144,7 +144,7 @@ int lp_io_write_rev(tw_lpid gid, char* identifier){
     }
     /* remove the buffer from the list 
      * (NULLs for end-of-list are preserved) */
-    if (buf == id->buffers) { /* buf is head of list */
+    else if (buf == id->buffers) { /* buf is head of list */
         id->buffers = buf->next;
     }
     else { /* buf is in list, has a previous element */
