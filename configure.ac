@@ -100,16 +100,6 @@ if test "x${with_darshan}" != "x" ; then
     DARSHAN_CFLAGS=`PKG_CONFIG_PATH=${with_darshan}/lib/pkgconfig pkg-config darshan-util --cflags`
     AC_SUBST(DARSHAN_LIBS)
     AC_SUBST(DARSHAN_CFLAGS) 
-#    darshan_headers="${with_darshan}/include"
-#    AC_CHECK_FILE([$darshan_headers/darshan-logutils.h],
-#                  AM_CONDITIONAL(USE_DARSHAN, true),
-#                  AC_MSG_ERROR(Could not find darshan-logutils.h at: $darshan_headers))
-#    DARSHAN_CPPFLAGS="-DUSE_DARSHAN=1 -DDARSHAN_CONFIG_H=\\\"${with_darshan}/include/darshan-util-config.h\\\" -I${with_darshan}/include"
-#    DARSHAN_LDFLAGS="-L${with_darshan}/lib"
-#    DARSHAN_LIBS="-ldarshan-util -lz"
-#    AC_SUBST(DARSHAN_CPPFLAGS)
-#    AC_SUBST(DARSHAN_LDFLAGS)
-#    AC_SUBST(DARSHAN_LIBS)
 else
     AM_CONDITIONAL(USE_DARSHAN, false)
 fi
