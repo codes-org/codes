@@ -41,14 +41,6 @@ struct rank_io_context
     struct qhash_head hash_link;
 };
 
-    struct darshan_io_dat_array
-    {
-        struct darshan_io_op *op_array;
-        int64_t op_arr_ndx;
-        int64_t op_arr_cnt;
-    };
-
-
 /* Darshan workload generator's implementation of the CODES workload API */
 static int darshan_io_workload_load(const char *params, int rank);
 static void darshan_io_workload_get_next(int rank, struct codes_workload_op *op);
@@ -60,6 +52,7 @@ static void darshan_insert_next_io_op(void *io_op_dat, struct darshan_io_op *io_
 static void darshan_remove_next_io_op(void *io_op_dat, struct darshan_io_op *io_op,
                                       double last_op_time);
 static void darshan_finalize_io_op_dat(void *io_op_dat);
+static void darshan_print_io_ops(void *io_op_dat, int rank, FILE *log_stream);
 static int darshan_io_op_compare(const void *p1, const void *p2);
 
 /* Helper functions for implementing the (complex, nonfactored) Darshan workload generator */
@@ -90,12 +83,6 @@ static void calc_io_delays(struct darshan_file *file, int64_t num_opens, int64_t
                            double total_delay, double *first_io_delay, double *close_delay,
                            double *inter_open_delay, double *inter_io_delay);
 static void file_sanity_check(struct darshan_file *file, struct darshan_job *job);
-
-void print_events(struct darshan_io_op *event_list,
-                  int64_t event_list_cnt,
-                  int rank,
-                  FILE *log_stream);
-
 
 /* workload method name and function pointers for the CODES workload API */
 struct codes_workload_method darshan_io_workload_method =
@@ -194,8 +181,11 @@ static int darshan_io_workload_load(const char *params, int rank)
     qhash_add(rank_tbl, &(my_ctx->my_rank), &(my_ctx->hash_link));
     rank_tbl_pop++;
 
-    struct darshan_io_dat_array *arr = (struct darshan_io_dat_array *)my_ctx->io_op_dat;
-    print_events(arr->op_array, arr->op_arr_cnt, rank, d_params->stream);
+    /* TODO: do we want this long-term */
+    if (d_params->stream)
+    {
+        darshan_print_io_ops(my_ctx->io_op_dat, rank, d_params->stream);
+    }
 
     return 0;
 }
@@ -269,7 +259,6 @@ static int darshan_rank_hash_compare(
 
 #define DARSHAN_IO_OP_INC_CNT 100000
 
-#if 0
 /* dynamically allocated array data structure for storing darshan i/o events */
 struct darshan_io_dat_array
 {
@@ -277,7 +266,6 @@ struct darshan_io_dat_array
     int64_t op_arr_ndx;
     int64_t op_arr_cnt;
 };
-#endif
 
 /* initialize the dynamic array data structure */
 static void *darshan_init_io_op_dat()
@@ -367,6 +355,75 @@ static void darshan_finalize_io_op_dat(
     qsort(array->op_array, array->op_arr_ndx, sizeof(struct darshan_io_op), darshan_io_op_compare);
     array->op_arr_cnt = array->op_arr_ndx;
     array->op_arr_ndx = 0;
+
+    return;
+}
+
+/* print the events for this rank in order */
+void darshan_print_io_ops(void *io_op_dat, int rank, FILE *log_stream)
+{
+    struct darshan_io_dat_array *io_array = (struct darshan_io_dat_array *)io_op_dat;
+    struct darshan_io_op *event_list = io_array->op_array;
+    int64_t event_list_cnt = io_array->op_arr_cnt;
+    int64_t i;
+
+    if (!event_list_cnt)
+        return;
+
+    for (i = 0; i < event_list_cnt; i++)
+    {
+        if (event_list[i].codes_op.op_type == CODES_WK_OPEN)
+        {
+            if (event_list[i].codes_op.u.open.create_flag == 0)
+            {
+                fprintf(log_stream, "Rank %d OPEN %"PRIu64" (%lf - %lf)\n",
+                        rank,
+                        event_list[i].codes_op.u.open.file_id,
+                        event_list[i].start_time,
+                        event_list[i].end_time);
+            }
+            else
+            {
+                fprintf(log_stream, "Rank %d CREATE %"PRIu64" (%lf - %lf)\n",
+                        rank,
+                        event_list[i].codes_op.u.open.file_id,
+                        event_list[i].start_time,
+                        event_list[i].end_time);
+            }
+        }
+        else if (event_list[i].codes_op.op_type == CODES_WK_CLOSE)
+        {
+            fprintf(log_stream, "Rank %d CLOSE %"PRIu64" (%lf - %lf)\n",
+                    rank,
+                    event_list[i].codes_op.u.close.file_id,
+                    event_list[i].start_time,
+                    event_list[i].end_time);
+        }
+        else if (event_list[i].codes_op.op_type == CODES_WK_READ)
+        {
+            fprintf(log_stream, "Rank %d READ %"PRIu64" [sz = %"PRId64", off = %"PRId64"] (%lf - %lf)\n",
+                    rank,
+                    event_list[i].codes_op.u.read.file_id,
+                    (int64_t)event_list[i].codes_op.u.read.size,
+                    (int64_t)event_list[i].codes_op.u.read.offset,
+                    event_list[i].start_time,
+                    event_list[i].end_time);
+        }
+        else if (event_list[i].codes_op.op_type == CODES_WK_WRITE)
+        {
+            fprintf(log_stream, "Rank %d WRITE %"PRIu64" [sz = %"PRId64", off = %"PRId64"] (%lf - %lf)\n",
+                    rank,
+                    event_list[i].codes_op.u.write.file_id,
+                    (int64_t)event_list[i].codes_op.u.write.size,
+                    (int64_t)event_list[i].codes_op.u.write.offset,
+                    event_list[i].start_time,
+                    event_list[i].end_time);
+        }
+        else if (event_list[i].codes_op.op_type == CODES_WK_BARRIER)
+        {
+            fprintf(log_stream, "****");
+        }
+    }
 
     return;
 }
@@ -1497,74 +1554,6 @@ static void file_sanity_check(
     file->counters[CP_POSIX_OPENS] += file->counters[CP_POSIX_FOPENS];
     file->counters[CP_POSIX_READS] += file->counters[CP_POSIX_FREADS];
     file->counters[CP_POSIX_WRITES] += file->counters[CP_POSIX_FWRITES];
-
-    return;
-}
-
-void print_events(struct darshan_io_op *event_list,
-                  int64_t event_list_cnt,
-                  int rank,
-                  FILE *log_stream)
-{
-    int64_t i;
-
-    if (!event_list_cnt)
-        return;
-
-    for (i = 0; i < event_list_cnt; i++)
-    {
-        if (event_list[i].codes_op.op_type == CODES_WK_OPEN)
-        {
-            if (event_list[i].codes_op.u.open.create_flag == 0)
-            {
-                fprintf(log_stream, "Rank %d OPEN %"PRIu64" (%lf - %lf)\n",
-                        rank,
-                        event_list[i].codes_op.u.open.file_id,
-                        event_list[i].start_time,
-                        event_list[i].end_time);
-            }
-            else
-            {
-                fprintf(log_stream, "Rank %d CREATE %"PRIu64" (%lf - %lf)\n",
-                        rank,
-                        event_list[i].codes_op.u.open.file_id,
-                        event_list[i].start_time,
-                        event_list[i].end_time);
-            }
-        }
-        else if (event_list[i].codes_op.op_type == CODES_WK_CLOSE)
-        {
-            fprintf(log_stream, "Rank %d CLOSE %"PRIu64" (%lf - %lf)\n",
-                    rank,
-                    event_list[i].codes_op.u.close.file_id,
-                    event_list[i].start_time,
-                    event_list[i].end_time);
-        }
-        else if (event_list[i].codes_op.op_type == CODES_WK_READ)
-        {
-            fprintf(log_stream, "Rank %d READ %"PRIu64" [sz = %"PRId64", off = %"PRId64"] (%lf - %lf)\n",
-                    rank,
-                    event_list[i].codes_op.u.read.file_id,
-                    (int64_t)event_list[i].codes_op.u.read.size,
-                    (int64_t)event_list[i].codes_op.u.read.offset,
-                    event_list[i].start_time,
-                    event_list[i].end_time);
-        }
-        else if (event_list[i].codes_op.op_type == CODES_WK_WRITE)
-        {
-            fprintf(log_stream, "Rank %d WRITE %"PRIu64" [sz = %"PRId64", off = %"PRId64"] (%lf - %lf)\n",
-                    rank,
-                    event_list[i].codes_op.u.write.file_id,
-                    (int64_t)event_list[i].codes_op.u.write.size,
-                    (int64_t)event_list[i].codes_op.u.write.offset,
-                    event_list[i].start_time,
-                    event_list[i].end_time);
-        }
-        else if (event_list[i].codes_op.op_type == CODES_WK_BARRIER)
-        {
-            fprintf(log_stream, "****");
-        }
-    }
 
     return;
 }
