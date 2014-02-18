@@ -101,7 +101,7 @@ int lp_io_write(tw_lpid gid, char* identifier, int size, void* buffer)
 }
 
 int lp_io_write_rev(tw_lpid gid, char* identifier){
-    struct identifier* id;
+    struct identifier* id, *id_prev;
     struct io_buffer *buf, *buf_prev;
 
     /* find given identifier */
@@ -112,10 +112,12 @@ int lp_io_write_rev(tw_lpid gid, char* identifier){
     }
     id = identifiers;
     while (id && (strcmp(identifier, id->identifier) != 0)){
+        id_prev = id;
         id = id->next;
     }
     if (!id){
-        fprintf(stderr, "Error: identifier %s not found on reverse.\n", identifier);
+        fprintf(stderr, "Error: identifier %s not found on reverse for LP %lu.",
+                identifier,gid);
         return(-1);
     }
 
@@ -138,7 +140,12 @@ int lp_io_write_rev(tw_lpid gid, char* identifier){
     if (id->buffers_count == 0){
         /* seg faults caused with empty identifiers for some reason - remove
          * this ID */
-        identifiers = id->next;
+        if (id == identifiers){
+            identifiers = id->next;
+        }
+        else{
+            id_prev->next = id->next;
+        }
         free(id);
         identifiers_count--;
     }
