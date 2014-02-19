@@ -96,7 +96,7 @@ if test "x${with_darshan}" != "x" ; then
     AC_CHECK_FILE([${with_darshan}/lib/pkgconfig/darshan-util.pc],
                   AM_CONDITIONAL(USE_DARSHAN, true),
                   AC_MSG_ERROR(Could not find darshan-util.pc))
-    DARSHAN_LIBS=`PKG_CONFIG_PATH=${with_darshan}/lib/pkgconfig pkg-config darshan-util --libs`
+    DARSHAN_LIBS=`PKG_CONFIG_PATH=${with_darshan}/lib/pkgconfig pkg-config darshan-util --static --libs`
     DARSHAN_CFLAGS=`PKG_CONFIG_PATH=${with_darshan}/lib/pkgconfig pkg-config darshan-util --cflags`
     AC_SUBST(DARSHAN_LIBS)
     AC_SUBST(DARSHAN_CFLAGS) 
