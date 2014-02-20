@@ -169,33 +169,33 @@ void* codes_workload_get_info(int wkld_id, int rank)
 void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank){
     switch(op->op_type){
         case CODES_WK_END:
-            fprintf(f, "op: rank:%d, type:end\n", rank);
+            fprintf(f, "op: rank:%d type:end\n", rank);
             break;
         case CODES_WK_DELAY:
-            fprintf(f, "op: rank:%d, type:delay, seconds:%lf\n",
+            fprintf(f, "op: rank:%d type:delay seconds:%lf\n",
                     rank, op->u.delay.seconds);
             break;
         case CODES_WK_BARRIER:
-            fprintf(f, "op: rank:%d, type:barrier, count:%d, root:%d\n",
+            fprintf(f, "op: rank:%d type:barrier count:%d root:%d\n",
                     rank, op->u.barrier.count, op->u.barrier.root);
             break;
         case CODES_WK_OPEN:
-            fprintf(f, "op: rank:%d, type:open, file_id:%lu, flag:%d\n",
+            fprintf(f, "op: rank:%d type:open file_id:%lu flag:%d\n",
                     rank, op->u.open.file_id, op->u.open.create_flag);
             break;
         case CODES_WK_CLOSE:
-            fprintf(f, "op: rank:%d, type:close, file_id:%lu\n",
+            fprintf(f, "op: rank:%d type:close file_id:%lu\n",
                     rank, op->u.close.file_id);
             break;
         case CODES_WK_WRITE:
-            fprintf(f, "op: rank:%d, type:write, "
-                       "file_id:%lu, off:%lu, size:%lu\n",
+            fprintf(f, "op: rank:%d type:write "
+                       "file_id:%lu off:%lu size:%lu\n",
                     rank, op->u.write.file_id, op->u.write.offset,
                     op->u.write.size);
             break;
         case CODES_WK_READ:
-            fprintf(f, "op: rank:%d, type:read, "
-                       "file_id:%lu, off:%lu, size:%lu\n",
+            fprintf(f, "op: rank:%d type:read "
+                       "file_id:%lu off:%lu size:%lu\n",
                     rank, op->u.read.file_id, op->u.read.offset,
                     op->u.read.size);
             break;
