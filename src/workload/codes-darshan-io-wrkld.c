@@ -222,8 +222,10 @@ static void darshan_io_workload_get_next(int rank, struct codes_workload_op *op)
         free(tmp);
  
         rank_tbl_pop--;
-        if (!rank_tbl_pop)
+        if (!rank_tbl_pop){
             qhash_finalize(rank_tbl);
+            rank_tbl = NULL;
+        }
     }
     else
     {
