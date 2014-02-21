@@ -17,16 +17,25 @@ static struct option long_opts[] =
 {
     {"type", required_argument, NULL, 't'},
     {"num-ranks", required_argument, NULL, 'n'},
-    {"d-log", optional_argument, NULL, 'l'},
-    {"d-aggregator-cnt", optional_argument, NULL, 'a'},
+    {"d-log", required_argument, NULL, 'l'},
+    {"d-aggregator-cnt", required_argument, NULL, 'a'},
     {NULL, 0, NULL, 0}
 };
 
+void usage(){
+    fprintf(stderr,
+            "Usage: codes-workload-dump --type TYPE --num-ranks N "
+            "[--d-log LOG --d-aggregator-cnt CNT]\n"
+            "--type: type of workload (currently only \"darshan_io_workload\")\n"
+            "--num-ranks: number of ranks to process\n"
+            "--d-log: darshan log file\n"
+            "--d-aggregator-cnt: number of aggregators for collective I/O in darshan\n");
+}
 
 int main(int argc, char *argv[])
 {
     char ch;
-    while ((ch = getopt_long(argc, argv, "t:l:a:", long_opts, NULL)) != -1){
+    while ((ch = getopt_long(argc, argv, "t:n:l:a:", long_opts, NULL)) != -1){
         switch (ch){
             case 't':
                 strcpy(type, optarg);
@@ -44,13 +53,38 @@ int main(int argc, char *argv[])
         }
     }
 
+    if (type[0] == '\0'){
+        fprintf(stderr, "Expected \"--type\" argument\n");
+        usage();
+        return 1;
+    }
+    if (n == -1){
+        fprintf(stderr, "Expected \"--num-ranks\" argument\n");
+        usage();
+        return 1;
+    }
+
     int i;
     char *wparams;
     if (strcmp(type, "darshan_io_workload") == 0){
-        wparams = (char*)&d_params;
+        if (d_params.log_file_path[0] == '\0'){
+            fprintf(stderr, "Expected \"--d-log\" argument for darshan workload\n");
+            usage();
+            return 1;
+        }
+        else if (d_params.aggregator_cnt == 0){
+            fprintf(stderr, "Expected \"--d-aggregator-cnt\" argument for darshan workload\n");
+            usage();
+            return 1;
+        }
+        else{
+            wparams = (char*)&d_params;
+        }
     }
     else {
-        wparams = NULL;
+        fprintf(stderr, "Invalid type argument\n");
+        usage();
+        return 1;
     }
     for (i = 0 ; i < n; i++){
         struct codes_workload_op op;
