@@ -275,7 +275,9 @@ int64_t ex(
                     var[1] = t1;
                     *inst_ready = 1;
 
-                    return 1;
+		    *group_rank = temp_group_rank;
+		     //printf("\n group rank %d ", *group_rank);
+                    return *group_rank;
                 }
                 case GETGROUPSIZE:
                 {
@@ -283,7 +285,9 @@ int64_t ex(
                     var[0] = 1;
                     var[1] = t1;
                     *inst_ready = 1;
+		    *group_size = t1;
 
+		    //printf("\n group size %d ", *group_size);
                     return *group_size;
                 }
                 case GETCURTIME:

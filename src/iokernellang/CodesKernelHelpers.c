@@ -303,6 +303,7 @@ int codes_kernel_helper_bootstrap(char * io_kernel_path, char *
     off_t ksize = 0;
     struct stat info;
 
+    temp_group_rank = rank;
     /* get the kernel from the file */
     codes_kernel_helper_parse_cf(io_kernel_path, io_kernel_def_path,
             io_kernel_meta_path, rank, task_info);
