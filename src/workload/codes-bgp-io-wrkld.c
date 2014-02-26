@@ -147,9 +147,8 @@ void bgp_io_workload_get_next(int rank, struct codes_workload_op *op)
 	    case CODES_WK_WRITE:
 	    {
                 op->u.write.file_id = (next_wrkld->next_event).var[0];
-		op->u.write.offset = (next_wrkld->next_event).var[2];
+		op->u.write.offset = rank * (next_wrkld->next_event).var[2];
 		op->u.write.size = (next_wrkld->next_event).var[1];
-		//printf("\n Write size %d offset %d file id %d ", op->write.size, op->write.offset, op->write.file_id);	
 	    }
 	    break;
 	    case CODES_WK_DELAY:
@@ -187,7 +186,7 @@ void bgp_io_workload_get_next(int rank, struct codes_workload_op *op)
 	    case CODES_WK_READ:
 	    {
                 op->u.read.file_id = (next_wrkld->next_event).var[0];
-		op->u.read.offset = (next_wrkld->next_event).var[2];
+		op->u.read.offset = rank * (next_wrkld->next_event).var[2];
 		op->u.read.size = (next_wrkld->next_event).var[1];
 	    }
 	    break;
