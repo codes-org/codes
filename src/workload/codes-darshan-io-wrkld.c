@@ -19,12 +19,9 @@
 
 #define RANK_HASH_TABLE_SIZE 397
 
-#define IO_IS_IN_SIZE_BIN_RANGE(size, bin_ndx, bin_min_sizes)                       \
-        ((bin_ndx == 9) ?                                                           \
-        (size >= bin_min_sizes[bin_ndx]) :                                          \
-        ((size >= bin_min_sizes[bin_ndx]) && (size <= bin_min_sizes[bin_ndx + 1])))
-
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
+
+#define ALIGN_BY_8(x) ((x) + ((x) % 8))
 
 /* structure for storing a darshan workload operation (a codes op with 2 timestamps) */
 struct darshan_io_op
@@ -1189,6 +1186,7 @@ static double generate_psx_coll_io_events(
     return cur_time;
 }
 
+/* WARNING: BRUTE FORCE */
 static void determine_io_params(
     struct darshan_file *file, int write_flag, int64_t io_this_op, int64_t proc_count,
     size_t *io_sz, off_t *io_off)
@@ -1201,18 +1199,19 @@ static void determine_io_params(
     static int64_t wr_common_counts[4];
     int64_t *rd_size_bins = &(file->counters[CP_SIZE_READ_0_100]);
     int64_t *wr_size_bins = &(file->counters[CP_SIZE_WRITE_0_100]);
-    int64_t *size_bins;
+    int64_t *size_bins = NULL;
     int64_t *common_accesses = &(file->counters[CP_ACCESS1_ACCESS]); /* 4 common accesses */
     int64_t *common_access_counts = &(file->counters[CP_ACCESS1_COUNT]); /* common access counts */
-    int64_t *total_io_size;
+    int64_t *total_io_size = NULL;
     int64_t last_io_byte;
     int look_for_small_bin = 0;
     int i, j = 0;
-    int64_t bin_min_size[10] = { 0, 100, 1024, 10 * 1024, 100 * 1024, 1024 * 1024, 4 * 1024 * 1024,
-                                 10 * 1024 * 1024, 100 * 1024 * 1024, 1024 * 1024 * 1024 };
-    int64_t bin_def_size[10] = { 40, 512, 4 * 1024, 60 * 1024, 512 * 1024, 2 * 1024 * 1024,
-                                 6 * 1024 * 1024, 40 * 1024 * 1024, 400 * 1024 * 1024,
-                                 1 * 1024 * 1024 * 1024 };
+    const int64_t size_bin_min_vals[10] = { 0, 100, 1024, 10 * 1024, 100 * 1024, 1024 * 1024,
+                                            4 * 1024 * 1024, 10 * 1024 * 1024, 100 * 1024 * 1024,
+                                            1024 * 1024 * 1024 };
+    const int64_t size_bin_max_vals[10] = { 100, 1024, 10 * 1024, 100 * 1024, 1024 * 1024,
+                                            4 * 1024 * 1024, 10 * 1024 * 1024, 100 * 1024 * 1024,
+                                            1024 * 1024 * 1024, INT64_MAX };
 
     assert(io_this_op);
 
@@ -1222,7 +1221,8 @@ static void determine_io_params(
         {
             for (j = 0; j < 10; j++)
             {
-                if (IO_IS_IN_SIZE_BIN_RANGE(common_accesses[i], j, bin_min_size))
+                if ((common_accesses[i] >= size_bin_min_vals[j]) &&
+                    (common_accesses[i] <= size_bin_max_vals[j]))
                 {
                     if (rd_size_bins[j] && wr_size_bins[j])
                     {
@@ -1327,7 +1327,7 @@ static void determine_io_params(
         if ((write_flag && (file->counters[CP_POSIX_WRITES] == 1)) ||
             (!write_flag && (file->counters[CP_POSIX_READS] == 1)))
         {
-            *io_sz = *total_io_size;
+            *io_sz = ALIGN_BY_8(*total_io_size);
         }
         else
         {
@@ -1335,7 +1335,8 @@ static void determine_io_params(
             for (j = 0; j < 4; j++)
             {
                 if (common_access_counts[j] &&
-                    IO_IS_IN_SIZE_BIN_RANGE(common_accesses[j], size_bin_ndx, bin_min_size))
+                    (common_accesses[j] >= size_bin_min_vals[size_bin_ndx]) &&
+                    (common_accesses[j] <= size_bin_max_vals[size_bin_ndx]))
                 {
                     if (look_for_small_bin)
                     {
@@ -1363,7 +1364,11 @@ static void determine_io_params(
 
             /* if no common accesses left, then assign default size for this bin */
             if (*io_sz == 0)
-                *io_sz = bin_def_size[size_bin_ndx];
+            {
+                size_t gen_size;
+                gen_size = (size_bin_max_vals[size_bin_ndx] - size_bin_min_vals[size_bin_ndx]) / 2;
+                *io_sz = ALIGN_BY_8(gen_size);
+            }
         }
         assert(*io_sz);
     }
