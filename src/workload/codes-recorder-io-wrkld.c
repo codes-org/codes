@@ -115,12 +115,12 @@ static int rank_tbl_pop = 0;
 /* load the workload generator for this rank, given input params */
 static int recorder_io_workload_load(const char *params, int rank)
 {
-    const char *trace_dir = params; /* for now, params is just the directory name of the trace files */
-
+    recorder_params *r_params = (recorder_params *) params;
 
     int64_t nprocs = 0;
     struct rank_traces_context *new = NULL;
 
+    char *trace_dir = r_params->trace_dir_path;
     if(!trace_dir)
         return -1;
 
@@ -154,7 +154,7 @@ static int recorder_io_workload_load(const char *params, int rank)
     char *function_name = (char*) malloc(sizeof(char) * 128);
 
     /* Read the first chunk of data (of size RECORDER_MAX_TRACE_READ_COUNT) */
-    char *line;
+    char *line = NULL;
     size_t len;
     ssize_t ret_value;
     int i;

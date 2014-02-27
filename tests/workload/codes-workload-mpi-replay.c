@@ -6,7 +6,7 @@
 
 /* SUMMARY:
  *
- *  MPI replay tool for replaying workloads from the codes workload API. 
+ *  MPI replay tool for replaying workloads from the codes workload API.
  *
  */
 
@@ -55,7 +55,7 @@ void usage(char *exename)
     fprintf(stderr, "\t<workload_test_dir> : the directory to replay the workload I/O in\n");
     fprintf(stderr, "\n\t[OPTIONS] includes:\n");
     fprintf(stderr, "\t\t--noop : do not perform i/o\n");
-    fprintf(stderr, "\t\t    -v : verbose (output i/o details)\n");   
+    fprintf(stderr, "\t\t    -v : verbose (output i/o details)\n");
 
     exit(1);
 }
@@ -155,7 +155,7 @@ int load_workload(char *conf_path, int rank)
         /* get the bgp i/o params from the config file */
         configuration_get_value(&config, "PARAMS", "io_kernel_meta_path",
                                 b_params.io_kernel_meta_path, MAX_NAME_LENGTH_WKLD);
-        configuration_get_value(&config, "PARAMS", "bgp_config_file", 
+        configuration_get_value(&config, "PARAMS", "bgp_config_file",
                                 b_params.bgp_config_file, MAX_NAME_LENGTH_WKLD);
         configuration_get_value(&config, "PARAMS", "rank_count", rank_count, 10);
         strcpy(b_params.io_kernel_path, "");
@@ -164,6 +164,17 @@ int load_workload(char *conf_path, int rank)
 
         return codes_workload_load(workload_type, (char *)&b_params, rank);
     }
+    else if (strcmp(workload_type, "recorder_io_workload") == 0) {
+        struct recorder_params r_params;
+
+        /* get the darshan params from the config file */
+        configuration_get_value(&config, "PARAMS", "trace_dir_path",
+                                r_params.trace_dir_path, MAX_NAME_LENGTH_WKLD);
+        r_params.stream = NULL;
+
+        return codes_workload_load(workload_type, (char *)&r_params, rank);
+
+	}
     else
     {
         fprintf(stderr, "Error: Invalid workload type specified (%s)\n", workload_type);
@@ -380,7 +391,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                 tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
                 fildes = tmp_list->file_descriptor;
                 free(tmp_list);
-     
+
                 /* perform the close operation */
                 ret = close(fildes);
                 if (ret < 0)
@@ -396,7 +407,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             if (opt_verbose)
                 fprintf(log_stream, "[Rank %d] Operation %lld : WRITE file %"PRIu64" (sz = %"PRId64
                        ", off = %"PRId64")\n",
-                       rank, op_number, replay_op.u.write.file_id, replay_op.u.write.size,    
+                       rank, op_number, replay_op.u.write.file_id, replay_op.u.write.size,
                        replay_op.u.write.offset);
 #endif
 

@@ -4,7 +4,7 @@
  *
  */
 
-/* I/O workload generator API to be used for reading I/O operations into 
+/* I/O workload generator API to be used for reading I/O operations into
  * storage system simulations.  This API just describes the operations to be
  * executed; it does not service the operations.
  */
@@ -17,11 +17,12 @@
 
 typedef struct bgp_params bgp_params;
 typedef struct darshan_params darshan_params;
+typedef struct recorder_params recorder_params;
 typedef struct codes_workload_info codes_workload_info;
 
 struct bgp_params
 {
-    /* We have the number of ranks passed in from the bg/p model because 
+    /* We have the number of ranks passed in from the bg/p model because
      * the I/O lang workloads have no information about the number of ranks.
      * Only the bg/p config file knows the number of ranks. */
     int num_cns;
@@ -38,12 +39,19 @@ struct darshan_params
     int64_t aggregator_cnt;
 };
 
+struct recorder_params
+{
+    FILE* stream;
+    char trace_dir_path[MAX_NAME_LENGTH_WKLD];
+};
+
+
 struct codes_workload_info
 {
     int group_id; /* group id */
     int min_rank; /* minimum rank in the collective operation */
     int max_rank; /* maximum rank in the collective operation */
-    int local_rank; /* local rank? never being used in the bg/p model */ 
+    int local_rank; /* local rank? never being used in the bg/p model */
     int num_lrank; /* number of ranks participating in the collective operation*/
 };
 
@@ -51,14 +59,14 @@ struct codes_workload_info
 enum codes_workload_op_type
 {
     /* terminator; there are no more operations for this rank */
-    CODES_WK_END = 1, 
+    CODES_WK_END = 1,
     /* sleep/delay to simulate computation or other activity */
     CODES_WK_DELAY,
     /* block until specified ranks have reached the same point */
     CODES_WK_BARRIER,
     /* open */
     CODES_WK_OPEN,
-    /* close */ 
+    /* close */
     CODES_WK_CLOSE,
     /* write */
     CODES_WK_WRITE,
@@ -108,12 +116,12 @@ struct codes_workload_op
 
 /* load and initialize workload of of type "type" with parameters specified by
  * "params".  The rank is the caller's relative rank within the collection
- * of processes that will participate in this workload.   
+ * of processes that will participate in this workload.
  *
  * This function is intended to be called by a compute node LP in a model
  * and may be called multiple times over the course of a
  * simulation in order to execute different application workloads.
- * 
+ *
  * Returns and identifier that can be used to retrieve operations later.
  * Returns -1 on failure.
  */
