@@ -322,6 +322,7 @@ static void handle_msg_ready_event(
     recv_time = ((double)(m->net_msg_size_bytes-1)*param->G);
     /* scale to nanoseconds */
     recv_time *= 1000.0;
+    m->recv_time_saved = recv_time;
 
     //printf("handle_msg_ready_event(), lp %llu.\n", (unsigned long long)lp->gid);
     /* add statistics */
