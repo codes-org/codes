@@ -54,7 +54,7 @@ static void darshan_finalize_io_op_dat(void *io_op_dat);
 static void darshan_print_io_ops(void *io_op_dat, int rank, FILE *log_stream);
 static int darshan_io_op_compare(const void *p1, const void *p2);
 
-/* Helper functions for implementing the (complex, nonfactored) Darshan workload generator */
+/* Helper functions for implementing the Darshan workload generator */
 static void generate_psx_ind_file_events(struct darshan_file *file,
                                          struct rank_io_context *io_context);
 static void generate_psx_coll_file_events(struct darshan_file *file,

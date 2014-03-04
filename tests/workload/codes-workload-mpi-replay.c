@@ -24,7 +24,7 @@
 #include "codes/quickhash.h"
 #include "codes/configuration.h"
 
-#define WORKLOAD_PRINT 0
+#define WORKLOAD_PRINT 1
 
 /* hash table entry for looking up file descriptor of a workload file id */
 struct file_info
