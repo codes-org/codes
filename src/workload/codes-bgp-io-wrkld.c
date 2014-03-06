@@ -164,7 +164,10 @@ void bgp_io_workload_get_next(int rank, struct codes_workload_op *op)
 
 		  /* if no more entries are there, delete the hash table */
 		  if(!rank_tbl_pop)
-			qhash_finalize(rank_tbl);
+          {
+            qhash_finalize(rank_tbl);
+            rank_tbl = NULL;
+          }
 	    }
 	    break;
 	    case CODES_WK_CLOSE:
@@ -181,6 +184,7 @@ void bgp_io_workload_get_next(int rank, struct codes_workload_op *op)
 	    case CODES_WK_OPEN:
 	    {
 	        op->u.open.file_id =  (next_wrkld->next_event).var[0];
+            op->u.open.create_flag = 1;
 	    }
 	    break;
 	    case CODES_WK_READ:
