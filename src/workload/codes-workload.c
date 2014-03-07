@@ -161,9 +161,23 @@ void codes_workload_get_next_rc(int wkld_id, int rank, const struct codes_worklo
     return;
 }
 
-void* codes_workload_get_info(int wkld_id, int rank)
+int codes_workload_get_rank_cnt(const char* type, const char* params)
 {
-    return method_array[wkld_id]->codes_workload_get_info(rank);
+    int i;
+    int rank_cnt;
+
+    for(i=0; method_array[i] != NULL; i++)
+    {
+        if(strcmp(method_array[i]->method_name, type) == 0)
+        {
+            rank_cnt = method_array[i]->codes_workload_get_rank_cnt(params);
+            assert(rank_cnt > 0);
+            return(rank_cnt);
+        }
+    }
+
+    fprintf(stderr, "Error: failed to find workload generator %s\n", type);
+    return(-1);
 }
 
 void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank){

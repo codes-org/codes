@@ -43,6 +43,7 @@ struct rank_io_context
 /* Darshan workload generator's implementation of the CODES workload API */
 static int darshan_io_workload_load(const char *params, int rank);
 static void darshan_io_workload_get_next(int rank, struct codes_workload_op *op);
+static int darshan_io_workload_get_rank_cnt(const char *params);
 static int darshan_rank_hash_compare(void *key, struct qhash_head *link);
 
 /* Darshan I/O op data structure access (insert, remove) abstraction */
@@ -89,7 +90,10 @@ struct codes_workload_method darshan_io_workload_method =
     .method_name = "darshan_io_workload",
     .codes_workload_load = darshan_io_workload_load,
     .codes_workload_get_next = darshan_io_workload_get_next,
+    .codes_workload_get_rank_cnt = darshan_io_workload_get_rank_cnt,
 };
+
+static int total_rank_cnt = 0;
 
 /* hash table to store per-rank workload contexts */
 static struct qhash_table *rank_tbl = NULL;
@@ -120,6 +124,11 @@ static int darshan_io_workload_load(const char *params, int rank)
         darshan_log_close(logfile_fd);
         return -1;
     }
+    if (!total_rank_cnt)
+    {
+        total_rank_cnt = job.nprocs;
+    }
+    assert(rank < total_rank_cnt);
 
     /* allocate the i/o context needed by this rank */
     my_ctx = malloc(sizeof(struct rank_io_context));
@@ -197,6 +206,8 @@ static void darshan_io_workload_get_next(int rank, struct codes_workload_op *op)
     struct rank_io_context *tmp = NULL;
     struct darshan_io_op next_io_op;
 
+    assert(rank < total_rank_cnt);
+
     /* find i/o context for this rank in the rank hash table */
     hash_link = qhash_search(rank_tbl, &my_rank);
 
@@ -236,6 +247,34 @@ static void darshan_io_workload_get_next(int rank, struct codes_workload_op *op)
     *op = next_io_op.codes_op;
 
     return;
+}
+
+static int darshan_io_workload_get_rank_cnt(const char *params)
+{
+    darshan_params *d_params = (darshan_params *)params;
+    darshan_fd logfile_fd;
+    struct darshan_job job;
+    int ret;
+
+    if (!d_params)
+        return -1;
+
+    /* open the darshan log to begin reading in file i/o info */
+    logfile_fd = darshan_log_open(d_params->log_file_path, "r");
+    if (logfile_fd < 0)
+        return -1;
+
+    /* get the per-job stats from the log */
+    ret = darshan_log_getjob(logfile_fd, &job);
+    if (ret < 0)
+    {
+        darshan_log_close(logfile_fd);
+        return -1;
+    }
+
+    darshan_log_close(logfile_fd);
+
+    return job.nprocs;
 }
 
 /* comparison function for comparing two hash keys (used for storing multiple io contexts) */

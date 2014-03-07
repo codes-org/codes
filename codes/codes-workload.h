@@ -136,6 +136,9 @@ void codes_workload_get_next(int wkld_id, int rank, struct codes_workload_op *op
 /* Reverse of the above function. */
 void codes_workload_get_next_rc(int wkld_id, int rank, const struct codes_workload_op *op);
 
+/* Retrieve the number of ranks contained in a workload */
+int codes_workload_get_rank_cnt(const char* type, const char* params);
+
 /* for debugging/logging: print an individual operation to the specified file */
 void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank);
 

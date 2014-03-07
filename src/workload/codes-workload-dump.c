@@ -32,7 +32,7 @@ void usage(){
             "Usage: codes-workload-dump --type TYPE --num-ranks N "
             "[--d-log LOG --d-aggregator-cnt CNT]\n"
             "--type: type of workload (\"darshan_io_workload\" or \"bgp_io_workload\")\n"
-            "--num-ranks: number of ranks to process\n"
+            "--num-ranks: number of ranks to process (if not set, it is set by the workload)\n"
             "--d-log: darshan log file\n"
             "--d-aggregator-cnt: number of aggregators for collective I/O in darshan\n"
             "--i-meta: i/o language kernel meta file path\n"
@@ -88,11 +88,6 @@ int main(int argc, char *argv[])
         usage();
         return 1;
     }
-    if (n == -1){
-        fprintf(stderr, "Expected \"--num-ranks\" argument\n");
-        usage();
-        return 1;
-    }
 
     int i;
     char *wparams;
@@ -136,6 +131,12 @@ int main(int argc, char *argv[])
         usage();
         return 1;
     }
+
+    /* if num_ranks not set, pull it from the workload */
+    if (n == -1){
+        n = codes_workload_get_rank_cnt(type, wparams);
+    }
+
     for (i = 0 ; i < n; i++){
         struct codes_workload_op op;
         printf("loading %s, %d\n", type, i);
