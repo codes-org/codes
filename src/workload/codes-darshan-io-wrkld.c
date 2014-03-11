@@ -1544,6 +1544,14 @@ static void calc_io_delays(
 static void file_sanity_check(
     struct darshan_file *file, struct darshan_job *job)
 {
+    /* make sure we have log version 2.03 or greater */
+    if (strcmp(job->version_string, "2.03") < 0)
+    {
+        fprintf(stderr, "Error: Darshan log version must be >= 2.03 (using %s)\n",
+                job->version_string);
+        exit(EXIT_FAILURE);
+    }
+
     assert(file->counters[CP_POSIX_OPENS] != -1);
     assert(file->fcounters[CP_F_OPEN_TIMESTAMP] != -1);
     assert(file->counters[CP_COLL_OPENS] != -1);
@@ -1560,34 +1568,6 @@ static void file_sanity_check(
     assert(file->counters[CP_BYTES_READ] != -1);
     assert(file->counters[CP_BYTES_WRITTEN] != -1);
     assert(file->counters[CP_RW_SWITCHES] != -1);
-
-    /* adjust timestamps if they are given in absolute unix time */
-    if (file->fcounters[CP_F_OPEN_TIMESTAMP] > job->start_time)
-    {
-        file->fcounters[CP_F_OPEN_TIMESTAMP] -= job->start_time;
-        if (file->fcounters[CP_F_OPEN_TIMESTAMP] < 0.0)
-            file->fcounters[CP_F_OPEN_TIMESTAMP] = 0.0;
-
-        file->fcounters[CP_F_READ_START_TIMESTAMP] -= job->start_time;
-        if (file->fcounters[CP_F_READ_START_TIMESTAMP] < 0.0)
-            file->fcounters[CP_F_READ_START_TIMESTAMP] = 0.0;
-
-        file->fcounters[CP_F_WRITE_START_TIMESTAMP] -= job->start_time;
-        if (file->fcounters[CP_F_WRITE_START_TIMESTAMP] < 0.0)
-            file->fcounters[CP_F_WRITE_START_TIMESTAMP] = 0.0;
-
-        file->fcounters[CP_F_CLOSE_TIMESTAMP] -= job->start_time;
-        if (file->fcounters[CP_F_CLOSE_TIMESTAMP] < 0.0)
-            file->fcounters[CP_F_CLOSE_TIMESTAMP] = 0.0;
-
-        file->fcounters[CP_F_READ_END_TIMESTAMP] -= job->start_time;
-        if (file->fcounters[CP_F_READ_END_TIMESTAMP] < 0.0)
-            file->fcounters[CP_F_READ_END_TIMESTAMP] = 0.0;
-
-        file->fcounters[CP_F_WRITE_END_TIMESTAMP] -= job->start_time;
-        if (file->fcounters[CP_F_WRITE_END_TIMESTAMP] < 0.0)
-            file->fcounters[CP_F_WRITE_END_TIMESTAMP] = 0.0;
-    }
 
     /* set file close time to the end of execution if it is not given */
     if (file->fcounters[CP_F_CLOSE_TIMESTAMP] == 0.0)
