@@ -1544,6 +1544,9 @@ static void calc_io_delays(
 static void file_sanity_check(
     struct darshan_file *file, struct darshan_job *job)
 {
+    int64_t ops_not_implemented;
+    int64_t ops_total;
+
     /* make sure we have log version 2.03 or greater */
     if (strcmp(job->version_string, "2.03") < 0)
     {
@@ -1577,6 +1580,14 @@ static void file_sanity_check(
     file->counters[CP_POSIX_OPENS] += file->counters[CP_POSIX_FOPENS];
     file->counters[CP_POSIX_READS] += file->counters[CP_POSIX_FREADS];
     file->counters[CP_POSIX_WRITES] += file->counters[CP_POSIX_FWRITES];
+    file->counters[CP_POSIX_SEEKS] += file->counters[CP_POSIX_FSEEKS];
+
+    /* reduce total meta time by percentage of ops not currently implemented */
+    ops_not_implemented = file->counters[CP_POSIX_SEEKS] + file->counters[CP_POSIX_STATS] +
+                          file->counters[CP_POSIX_FSYNCS];
+    ops_total = ops_not_implemented + (2 * file->counters[CP_POSIX_OPENS]) + 
+                file->counters[CP_POSIX_READS] + file->counters[CP_POSIX_WRITES];
+    file->fcounters[CP_F_POSIX_META_TIME] *= (1 - ((double)ops_not_implemented / ops_total));
 
     return;
 }
