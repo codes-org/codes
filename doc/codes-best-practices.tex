@@ -419,6 +419,14 @@ reverse handler only needs to reverse as single event, in order)
 \item how to handle queues
 \end{itemize}
 
+\subsection{Working with floating-point data}
+
+Floating point variables are particularly tricky to use in optimistic
+simulations, as rounding errors prevent rolling back to a consistent state by
+merely performing the inverse operations (e.g., $a+b-b \neq a$). Hence, it is
+instead preferable to simply store the local floating-point state in the event
+structure and perform assignment on rollback.
+
 \subsection{How to complete a simulation}
 
 TODO: fill this in.  Most core ROSS examples are design to intentionally hit
