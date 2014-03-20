@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <assert.h>
+#include <libgen.h>
 
 #define CK_LINE_LIMIT 8192
 #define CL_DEFAULT_GID 0
@@ -110,7 +111,7 @@ static int convertKLInstToEvent(int inst)
 }
 
 static void codes_kernel_helper_parse_cf(char * io_kernel_path, char *
-        io_kernel_def_path, char * io_kernel_meta_path, int task_rank, codes_workload_info * task_info)
+        io_kernel_def_path, char * io_kernel_meta_path, int task_rank, codes_workload_info * task_info, int use_relpath)
 {
        int foundit = 0;
        char line[CK_LINE_LIMIT];
@@ -159,8 +160,14 @@ static void codes_kernel_helper_parse_cf(char * io_kernel_path, char *
 
                /* parse the last element... kernel path */
                token = strtok_r(NULL, " \n", &ctx);
-               if(token)
-                       strcpy(io_kernel_path, token);
+               if(token) {
+                       if (use_relpath){
+                           sprintf(io_kernel_path, "%s/%s", dirname(io_kernel_meta_path), token);
+                       }
+                       else{
+                           strcpy(io_kernel_path, token);
+                       }
+               }
 
                /* if our rank is on this range... end processing of the config
                 * file */
@@ -292,7 +299,7 @@ int codes_kernel_helper_parse_input(CodesIOKernel_pstate * ps, CodesIOKernelCont
 
 int codes_kernel_helper_bootstrap(char * io_kernel_path, char *
         io_kernel_def_path, char * io_kernel_meta_path,
-        int rank, CodesIOKernelContext * c,
+        int rank, int use_relpath, CodesIOKernelContext * c,
         CodesIOKernel_pstate ** ps, codes_workload_info * task_info,
         codeslang_inst * next_event)
 {
@@ -306,7 +313,7 @@ int codes_kernel_helper_bootstrap(char * io_kernel_path, char *
     temp_group_rank = rank;
     /* get the kernel from the file */
     codes_kernel_helper_parse_cf(io_kernel_path, io_kernel_def_path,
-            io_kernel_meta_path, rank, task_info);
+            io_kernel_meta_path, rank, task_info, use_relpath);
 
     /* stat the kernel file */
     ret = stat(io_kernel_path, &info);

@@ -12,7 +12,7 @@
 
 static char type[128] = {'\0'};
 static darshan_params d_params = {NULL, "", 0}; 
-static bgp_params b_params = {0, "", "", "", ""};
+static bgp_params b_params = {0, 0, "", "", "", ""};
 static int n = -1;
 
 static struct option long_opts[] = 
@@ -24,6 +24,7 @@ static struct option long_opts[] =
     {"i-meta", required_argument, NULL, 'm'},
     {"i-bgp-config", required_argument, NULL, 'b'},
     {"i-rank-cnt", required_argument, NULL, 'r'},
+    {"i-use-relpath", no_argument, NULL, 'p'},
     {NULL, 0, NULL, 0}
 };
 
@@ -38,6 +39,7 @@ void usage(){
             "--i-meta: i/o language kernel meta file path\n"
             "--i-bgp-config: i/o language bgp config file\n"
             "--i-rank-cnt: i/o language rank count\n"
+            "--i-use-relpath: use i/o kernel path relative meta file path\n"
             "-s: print final workload stats\n");
 }
 
@@ -53,7 +55,7 @@ int main(int argc, char *argv[])
     int64_t write_size = 0;
 
     char ch;
-    while ((ch = getopt_long(argc, argv, "t:n:l:a:m:b:r:s", long_opts, NULL)) != -1){
+    while ((ch = getopt_long(argc, argv, "t:n:l:a:m:b:r:sp", long_opts, NULL)) != -1){
         switch (ch){
             case 't':
                 strcpy(type, optarg);
@@ -79,6 +81,9 @@ int main(int argc, char *argv[])
                 break;
             case 's':
                 print_stats = 1;
+                break;
+            case 'p':
+                b_params.use_relpath = 1;
                 break;
         }
     }

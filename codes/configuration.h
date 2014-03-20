@@ -72,6 +72,24 @@ int configuration_get_value(ConfigHandle *handle,
                             char *value,
                             size_t length);
 
+/*
+ * Gets the value for a given section/key pair, and interprets it as a path
+ * relative to the location of the configuration file.
+ * Assumes the key name is a KEY configuration type.
+ * Assumes unix path conventions.
+ *
+ * handle - configuration handle
+ * section_name - name of the section the key is in
+ * key_name - name of the key
+ * value - pointer to string
+ * length - maximum length of string */
+int configuration_get_value_relpath(
+        ConfigHandle *handle,
+        const char * section_name,
+        const char * key_name,
+        char *value,
+        size_t length);
+
 
 /*
  * Get's the values for a give section/key pair which has multiple values.

@@ -41,6 +41,10 @@ typedef struct
 
 typedef struct
 {
+   /* File path of the configuration file. Used in computing the relative path
+    * of file fields */
+    char * config_dir;
+
    /* Returns number of characters in key or < 0 if an error occured 
     * (such as key is missing) 
     *

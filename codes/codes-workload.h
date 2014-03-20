@@ -26,6 +26,8 @@ struct bgp_params
      * the I/O lang workloads have no information about the number of ranks.
      * Only the bg/p config file knows the number of ranks. */
     int num_cns;
+    /* flag - use path to find kernel files relative to the metafile */
+    int use_relpath;
     char io_kernel_meta_path[MAX_NAME_LENGTH_WKLD];
     char bgp_config_file[MAX_NAME_LENGTH_WKLD];
     char io_kernel_path[MAX_NAME_LENGTH_WKLD];

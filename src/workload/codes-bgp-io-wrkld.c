@@ -86,6 +86,7 @@ int bgp_io_workload_load(const char* params, int rank)
 				      b_param->io_kernel_def_path, 
 				      b_param->io_kernel_meta_path,
         			      rank, 
+                      b_param->use_relpath,
 				      &(wrkld_per_rank->codes_context), 
 				      &(wrkld_per_rank->codes_pstate), 
 				      &(wrkld_per_rank->task_info), 

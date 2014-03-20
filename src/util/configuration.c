@@ -9,6 +9,7 @@
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
+#include <libgen.h>
 #include "codes/configuration.h"
 
 /*
@@ -64,6 +65,8 @@ int configuration_load (const char *filepath,
 
     fclose(f);
 
+    (*handle)->config_dir = strdup(dirname(filepath));
+
     return rc;
 }
 
@@ -85,6 +88,23 @@ int configuration_get_value(ConfigHandle *handle,
     (void) cf_closeSection(*handle, section_handle);
 
     return rc;
+}
+
+int configuration_get_value_relpath(
+        ConfigHandle *handle,
+        const char * section_name,
+        const char * key_name,
+        char *value,
+        size_t length){
+    char *tmp = malloc(length);
+
+    configuration_get_value(handle, section_name, key_name, tmp, length);
+
+    /* concat the configuration value with the directory */
+    int w = snprintf(value, length, "%s/%s", (*handle)->config_dir, tmp);
+
+    free(tmp);
+    return w;
 }
 
 int configuration_get_multivalue(ConfigHandle *handle,
