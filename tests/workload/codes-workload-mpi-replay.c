@@ -26,6 +26,8 @@
 
 #define WORKLOAD_PRINT 1
 
+#define WORKLOAD_DELAY_PCT 0.95
+
 /* hash table entry for looking up file descriptor of a workload file id */
 struct file_info
 {
@@ -193,6 +195,8 @@ int main(int argc, char *argv[])
     int workload_id;
     struct codes_workload_op next_op;
     long long int replay_op_number = 1;
+    double load_start, load_end;
+    int first_op = 1;
     int ret = 0;
 
     /* parse command line args */
@@ -202,6 +206,9 @@ int main(int argc, char *argv[])
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
     MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+
+    /* start workload load timer */
+    load_start = MPI_Wtime();
 
     /* change the working directory to be the test directory */
     ret = chdir(replay_test_path);
@@ -239,14 +246,32 @@ int main(int argc, char *argv[])
         goto error_exit;
     }
 
+    /* loading is finished */
+    load_end = MPI_Wtime();
+
     /* replay loop */
     while (1)
     {
         /* get the next replay operation from the workload generator */
         codes_workload_get_next(workload_id, myrank, &next_op);
 
+        /* subtract the load time from any initial delay to be fair */
+        if (first_op && (next_op.op_type == CODES_WK_DELAY))
+        {
+            if (next_op.u.delay.seconds > (load_end - load_start))
+                next_op.u.delay.seconds -= (load_end - load_start);
+            else
+                continue;
+
+            first_op = 0;
+        }
+
         if (next_op.op_type != CODES_WK_END)
         {
+
+            if (next_op.op_type == CODES_WK_DELAY)
+                next_op.u.delay.seconds *= WORKLOAD_DELAY_PCT;
+
             /* replay the next workload operation */
             ret = replay_workload_op(next_op, myrank, replay_op_number++);
             if (ret < 0)
@@ -486,3 +511,13 @@ int hash_file_compare(void *key, struct qlist_head *link)
 
     return 0;
 }
+
+/*
+ * Local variables:
+ *  c-indent-level: 4
+ *  c-basic-offset: 4
+ * End:
+ *
+ * vim: ft=c ts=8 sts=4 sw=4 expandtab
+ */
+
