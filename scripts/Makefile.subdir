@@ -1,1 +1,1 @@
-bin_SCRIPTS += scripts/codes_configurator.py
+#bin_SCRIPTS += scripts/codes_configurator.py
