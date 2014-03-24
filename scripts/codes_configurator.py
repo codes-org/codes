@@ -31,7 +31,6 @@ def main():
     # use two dicts to maintain type information when printing (don't want
     #  quotes to appear in log file)
     replace_map =     { k[0] : None for k in mod.cfields }
-    replace_map_log = dict(replace_map)
 
     # print the header to the log
     if args.log != None:
@@ -46,13 +45,11 @@ def main():
     # generate initial configuration 
     for i,k in enumerate(labels):
         v = iterables[i].next()
-        replace_map_log[k] = v
-        replace_map[k] = re.escape(str(v))
+        replace_map[k] = v
 
     # main loop 
-    done = False
     ct = 0
-    while not done:
+    while True:
         # generate new configuration
         new_config = replace_many(tstr, replace_map)
         fname = template+"."+str(ct) if args.output_prefix==None else \
@@ -63,28 +60,29 @@ def main():
         # print the configuration to the log
         flog.write(str(ct))
         for i,k in enumerate(labels):
-            if isinstance(replace_map_log[k], str):
-                flog.write(' "' + replace_map_log[k] + '"')
+            if isinstance(replace_map[k], str):
+                flog.write(' "' + replace_map[k] + '"')
             else:
-                flog.write(" " + str(replace_map_log[k]))
+                flog.write(" " + str(replace_map[k]))
         else:
             flog.write('\n')
 
         # generate the next config
         for i,k in enumerate(labels):
             try:
+                # update current iterable and finish
                 v = iterables[i].next()
-                replace_map[k] = re.escape(str(v))
-                replace_map_log[k] = v
+                replace_map[k] = v
                 ct += 1
                 break
             except StopIteration:
+                # reset the current iterable and set to first element
                 iterables[i] = mod.cfields[i][1].__iter__()
                 v = iterables[i].next()
-                replace_map[k] = re.escape(str(v))
-                replace_map_log[k] = v
+                replace_map[k] = v
         else:
-            done = True
+            # last iterable has finished, have generated full set
+            break
 
 # import a python file (assumes there is a .py suffix!!!)
 def import_from(filename):
@@ -99,24 +97,25 @@ def import_from(filename):
 # st is the string to perform substitution on
 # kv_pairs is a dict or a sequence of sequences.
 # kv_pairs examples:
-# { 1:2, 2:3 }
-# [[1,2],[2,3]]
-# [(1,2),(2,3)]
-# ((1,2),(2,3))
+# { a:b, c:d }
+# [[a,b],[c,d]]
+# [(a,b),(c,d)]
+# ((a,b),(c,d))
 def replace_many(st, kv_pairs):
-    re.DEBUG = True
-    rep_dict = dict(kv_pairs)
-    repl = lambda match: rep_dict[match.group(0)]
-    
+    rep_dict = {}
+    # dict-ify and string-ify the input
     if isinstance(kv_pairs, dict):
-        match_list = [re.escape(k) for k in kv_pairs]
+        for k in kv_pairs:
+            rep_dict[k] = str(kv_pairs[k])
     elif isinstance(kv_pairs, Sequence) and isinstance(kv_pairs[0], Sequence):
-        match_list = [re.escape(k[0]) for k in kv_pairs]
+        for k in kv_pairs:
+            rep_dict[k[0]] = str(kv_pairs[k[1]])
     else:
         raise TypeError("Expected dict or sequence of sequences types")
-    # get the list of keys 
-    pat = re.compile("|".join(match_list))
-    return pat.sub(repl, st)
+
+    pat = re.compile("|".join([re.escape(k) for k in rep_dict]))
+
+    return pat.sub(lambda match: rep_dict[match.group(0)], st)
 
 def parse_args():
     parser = argparse.ArgumentParser()
