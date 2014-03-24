@@ -11,8 +11,9 @@
 #include <inttypes.h>
 
 static char type[128] = {'\0'};
-static darshan_params d_params = {NULL, "", 0}; 
+static darshan_params d_params = {"", 0}; 
 static bgp_params b_params = {0, 0, "", "", "", ""};
+static recorder_params r_params = {""};
 static int n = -1;
 
 static struct option long_opts[] = 
@@ -25,6 +26,7 @@ static struct option long_opts[] =
     {"i-bgp-config", required_argument, NULL, 'b'},
     {"i-rank-cnt", required_argument, NULL, 'r'},
     {"i-use-relpath", no_argument, NULL, 'p'},
+    {"r-trace-dir", required_argument, NULL, 'd'},
     {NULL, 0, NULL, 0}
 };
 
@@ -32,7 +34,7 @@ void usage(){
     fprintf(stderr,
             "Usage: codes-workload-dump --type TYPE --num-ranks N "
             "[--d-log LOG --d-aggregator-cnt CNT]\n"
-            "--type: type of workload (\"darshan_io_workload\" or \"bgp_io_workload\")\n"
+            "--type: type of workload (\"darshan_io_workload\", \"bgp_io_workload\", etc.)\n"
             "--num-ranks: number of ranks to process (if not set, it is set by the workload)\n"
             "--d-log: darshan log file\n"
             "--d-aggregator-cnt: number of aggregators for collective I/O in darshan\n"
@@ -40,6 +42,7 @@ void usage(){
             "--i-bgp-config: i/o language bgp config file\n"
             "--i-rank-cnt: i/o language rank count\n"
             "--i-use-relpath: use i/o kernel path relative meta file path\n"
+            "--r-trace-dir: directory containing recorder trace files\n"
             "-s: print final workload stats\n");
 }
 
@@ -79,11 +82,14 @@ int main(int argc, char *argv[])
             case 'r':
                 b_params.num_cns = atoi(optarg);
                 break;
-            case 's':
-                print_stats = 1;
-                break;
             case 'p':
                 b_params.use_relpath = 1;
+                break;
+            case 'd':
+                strcpy(r_params.trace_dir_path, optarg);
+                break;
+            case 's':
+                print_stats = 1;
                 break;
         }
     }
@@ -129,6 +135,16 @@ int main(int argc, char *argv[])
         }
         else{
             wparams = (char *)&b_params;
+        }
+    }
+    else if (strcmp(type, "recorder_io_workload") == 0){
+        if (r_params.trace_dir_path[0] == '\0'){
+            fprintf(stderr, "Expected \"--r-trace-dir\" argument for recorder workload\n");
+            usage();
+            return 1;
+        }
+        else{
+            wparams = (char *)&r_params;
         }
     }
     else {
