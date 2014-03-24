@@ -24,8 +24,6 @@
 #include "codes/quickhash.h"
 #include "codes/configuration.h"
 
-#define WORKLOAD_PRINT 1
-
 #define WORKLOAD_DELAY_PCT 0.95
 
 /* hash table entry for looking up file descriptor of a workload file id */
@@ -140,13 +138,6 @@ int load_workload(char *conf_path, int rank)
         configuration_get_value(&config, "PARAMS", "aggregator_count", aggregator_count, 10);
         d_params.aggregator_cnt = atoi(aggregator_count);
 
-#if WORKLOAD_PRINT
-        d_params.stream = NULL;
-#else
-        d_params.stream = log_stream;
-        opt_verbose = 0;
-#endif
-
         return codes_workload_load(workload_type, (char *)&d_params, rank);
     }
     else if (strcmp(workload_type, "bgp_io_workload") == 0)
@@ -172,7 +163,6 @@ int load_workload(char *conf_path, int rank)
         /* get the darshan params from the config file */
         configuration_get_value(&config, "PARAMS", "trace_dir_path",
                                 r_params.trace_dir_path, MAX_NAME_LENGTH_WKLD);
-        r_params.stream = NULL;
 
         return codes_workload_load(workload_type, (char *)&r_params, rank);
 
@@ -313,11 +303,9 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
     switch (replay_op.op_type)
     {
         case CODES_WK_DELAY:
-#if WORKLOAD_PRINT
             if (opt_verbose)
                 fprintf(log_stream, "[Rank %d] Operation %lld : DELAY %lf seconds\n",
                        rank, op_number, replay_op.u.delay.seconds);
-#endif
 
             if (!opt_noop)
             {
@@ -344,10 +332,8 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             }
             return 0;
         case CODES_WK_BARRIER:
-#if WORKLOAD_PRINT
             if (opt_verbose)
                 fprintf(log_stream, "[Rank %d] Operation %lld : BARRIER\n", rank, op_number);
-#endif
 
             if (!opt_noop)
             {
@@ -363,11 +349,9 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             }
             return 0;
         case CODES_WK_OPEN:
-#if WORKLOAD_PRINT
             if (opt_verbose)
                 fprintf(log_stream, "[Rank %d] Operation %lld: %s file %"PRIu64"\n", rank, op_number,
                        (replay_op.u.open.create_flag) ? "CREATE" : "OPEN", replay_op.u.open.file_id);
-#endif
 
             if (!opt_noop)
             {
@@ -402,11 +386,9 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             }
             return 0;
         case CODES_WK_CLOSE:
-#if WORKLOAD_PRINT
             if (opt_verbose)
                 fprintf(log_stream, "[Rank %d] Operation %lld : CLOSE file %"PRIu64"\n",
                         rank, op_number, replay_op.u.close.file_id);
-#endif
 
             if (!opt_noop)
             {
@@ -428,13 +410,11 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             }
             return 0;
         case CODES_WK_WRITE:
-#if WORKLOAD_PRINT
             if (opt_verbose)
                 fprintf(log_stream, "[Rank %d] Operation %lld : WRITE file %"PRIu64" (sz = %"PRId64
                        ", off = %"PRId64")\n",
                        rank, op_number, replay_op.u.write.file_id, replay_op.u.write.size,
                        replay_op.u.write.offset);
-#endif
 
             if (!opt_noop)
             {
@@ -462,12 +442,11 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             }
             return 0;
         case CODES_WK_READ:
-#if WORKLOAD_PRINT
             if (opt_verbose)
                 fprintf(log_stream, "[Rank %d] Operation %lld : READ file %"PRIu64" (sz = %"PRId64
                         ", off = %"PRId64")\n", rank, op_number, replay_op.u.read.file_id,
                        replay_op.u.read.size, replay_op.u.read.offset);
-#endif
+
             if (!opt_noop)
             {
                 /* search for the corresponding file descriptor in the hash table */
