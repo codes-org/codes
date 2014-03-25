@@ -162,7 +162,11 @@ static void codes_kernel_helper_parse_cf(char * io_kernel_path, char *
                token = strtok_r(NULL, " \n", &ctx);
                if(token) {
                        if (use_relpath){
-                           sprintf(io_kernel_path, "%s/%s", dirname(io_kernel_meta_path), token);
+                           /* posix dirname overwrites argument :(, need to
+                            * prevent that */
+                           char *tmp_path = strdup(io_kernel_meta_path);
+                           sprintf(io_kernel_path, "%s/%s", dirname(tmp_path), token);
+                           free(tmp_path);
                        }
                        else{
                            strcpy(io_kernel_path, token);

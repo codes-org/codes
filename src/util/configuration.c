@@ -28,6 +28,7 @@ int configuration_load (const char *filepath,
     char      *txtdata;
     char      *error;
     int        rc;
+    char      *tmp_path;
 
     rc = MPI_File_open(comm, (char*)filepath, MPI_MODE_RDONLY, MPI_INFO_NULL, &fh);
     assert(rc == MPI_SUCCESS);
@@ -65,7 +66,10 @@ int configuration_load (const char *filepath,
 
     fclose(f);
 
-    (*handle)->config_dir = strdup(dirname(filepath));
+    /* NOTE: posix version overwrites argument :(. */
+    tmp_path = strdup(filepath);
+    (*handle)->config_dir = strdup(dirname(tmp_path));
+    free(tmp_path);
 
     return rc;
 }
