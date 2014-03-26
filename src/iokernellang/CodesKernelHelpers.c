@@ -111,7 +111,7 @@ static int convertKLInstToEvent(int inst)
 }
 
 static void codes_kernel_helper_parse_cf(char * io_kernel_path, char *
-        io_kernel_def_path, char * io_kernel_meta_path, int task_rank, codes_workload_info * task_info, int use_relpath)
+        io_kernel_def_path, char * io_kernel_meta_path, int task_rank, int max_ranks_default, codes_workload_info * task_info, int use_relpath)
 {
        int foundit = 0;
        char line[CK_LINE_LIMIT];
@@ -175,11 +175,11 @@ static void codes_kernel_helper_parse_cf(char * io_kernel_path, char *
 
                /* if our rank is on this range... end processing of the config
                 * file */
-               if(task_rank >= min && task_rank <= max)
+               if(task_rank >= min && (max == -1 || task_rank <= max))
                {
                        task_info->group_id = gid;
                        task_info->min_rank = min;
-                       task_info->max_rank = max;
+                       task_info->max_rank = (max == -1) ? max_ranks_default : max;
                        task_info->local_rank = task_rank - min;
                        task_info->num_lrank = max - min + 1;
 
@@ -303,7 +303,7 @@ int codes_kernel_helper_parse_input(CodesIOKernel_pstate * ps, CodesIOKernelCont
 
 int codes_kernel_helper_bootstrap(char * io_kernel_path, char *
         io_kernel_def_path, char * io_kernel_meta_path,
-        int rank, int use_relpath, CodesIOKernelContext * c,
+        int rank, int num_ranks, int use_relpath, CodesIOKernelContext * c,
         CodesIOKernel_pstate ** ps, codes_workload_info * task_info,
         codeslang_inst * next_event)
 {
@@ -317,7 +317,7 @@ int codes_kernel_helper_bootstrap(char * io_kernel_path, char *
     temp_group_rank = rank;
     /* get the kernel from the file */
     codes_kernel_helper_parse_cf(io_kernel_path, io_kernel_def_path,
-            io_kernel_meta_path, rank, task_info, use_relpath);
+            io_kernel_meta_path, rank, num_ranks, task_info, use_relpath);
 
     /* stat the kernel file */
     ret = stat(io_kernel_path, &info);
