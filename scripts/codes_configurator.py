@@ -78,10 +78,7 @@ def main():
         # print the configuration to the log
         flog.write(str(ct))
         for l in labels:
-            if isinstance(replace_map[l], str):
-                flog.write(' "' + replace_map[l] + '"')
-            else:
-                flog.write(" " + str(replace_map[l]))
+            flog.write(' ' + str(replace_map[l]))
         else:
             flog.write('\n')
 
