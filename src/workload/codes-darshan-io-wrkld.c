@@ -1091,6 +1091,7 @@ static double generate_psx_coll_io_events(
             {
                 tmp_rank = 0;
                 cur_time = max_cur_time;
+                cur_time = generate_barrier_event(file, 0, cur_time, io_context);
             }
         }
         io_ops_this_rw--;
