@@ -233,7 +233,8 @@ static void darshan_io_workload_get_next(int rank, struct codes_workload_op *op)
         free(tmp);
  
         rank_tbl_pop--;
-        if (!rank_tbl_pop){
+        if (!rank_tbl_pop)
+        {
             qhash_finalize(rank_tbl);
             rank_tbl = NULL;
         }
@@ -1091,7 +1092,8 @@ static double generate_psx_coll_io_events(
             {
                 tmp_rank = 0;
                 cur_time = max_cur_time;
-                cur_time = generate_barrier_event(file, 0, cur_time, io_context);
+                if (j != io_cnt -1)
+                    cur_time = generate_barrier_event(file, 0, cur_time, io_context);
             }
         }
         io_ops_this_rw--;
