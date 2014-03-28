@@ -119,23 +119,29 @@ int main(int argc, char *argv[])
     }
     else if (strcmp(type, "bgp_io_workload") == 0){
         if (b_params.num_cns == 0){
-            fprintf(stderr, "Expected \"--i-rank-cnt\" argument for bgp io workload\n");
-            usage();
-            return 1;
+            if (n == -1){
+                fprintf(stderr, "Expected \"--i-rank-cnt\" or \"--num-ranks\" argument for bgp io workload\n");
+                usage();
+                return 1;
+            }
+            else{
+                b_params.num_cns = n;
+            }
         }
         else if (b_params.io_kernel_meta_path[0] == '\0'){
             fprintf(stderr, "Expected \"--i-meta\" argument for bgp io workload\n");
             usage();
             return 1;
         }
+        /* TODO: unused in codes-base, codes-triton, but don't remove entirely for now 
         else if (b_params.bgp_config_file[0] == '\0'){
             fprintf(stderr, "Expected \"--i-bgp-conf\" argument for bgp io workload\n");
             usage();
             return 1;
         }
-        else{
-            wparams = (char *)&b_params;
-        }
+        */
+
+        wparams = (char *)&b_params;
     }
     else if (strcmp(type, "recorder_io_workload") == 0){
         if (r_params.trace_dir_path[0] == '\0'){
