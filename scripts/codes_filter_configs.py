@@ -33,6 +33,11 @@ def main():
         if k not in cfg.replace_map:
             raise ValueError("key " + k + " not in original config")
 
+    # hack - if we are using an output prefix, append the "dot" here
+    if args.output_prefix == None:
+        args.output_prefix = ""
+    else:
+        args.output_prefix = args.output_prefix + '.'
     # filter out the files
     # (cfg iterator returns nothing, eval'd for side effects)
     for i,_ in enumerate(cfg):
@@ -40,13 +45,14 @@ def main():
             if tdict[k] != cfg.replace_map[k]:
                 break
         else:
-            stdout.write(args.output_prefix + "." + str(i) + "\n")
+            stdout.write(args.output_prefix + str(i) + "\n")
 
 def parse_args():
     parser = argparse.ArgumentParser(\
             description="emit configuration files to stdout matching given "
             "token values")
-    parser.add_argument("output_prefix", help="prefix of output config files")
+    parser.add_argument("-o", "--output_prefix", help="prefix of output config "
+            "files (Default: print only the filtered indices)", type=str)
     parser.add_argument("substitute_py", 
             help="input python file given to codes_configurator.py - see "
             "codes_configurator.py for details")
