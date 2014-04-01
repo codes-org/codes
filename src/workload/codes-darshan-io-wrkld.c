@@ -1489,22 +1489,24 @@ static void file_sanity_check(
         exit(EXIT_FAILURE);
     }
 
-    assert(file->counters[CP_POSIX_OPENS] != -1);
-    assert(file->fcounters[CP_F_OPEN_TIMESTAMP] != -1);
-    assert(file->counters[CP_COLL_OPENS] != -1);
-    assert(file->fcounters[CP_F_CLOSE_TIMESTAMP] != -1);
-    assert(file->counters[CP_POSIX_READS] != -1);
-    assert(file->counters[CP_POSIX_WRITES] != -1);
-    assert(file->fcounters[CP_F_POSIX_READ_TIME] != -1);
-    assert(file->fcounters[CP_F_POSIX_WRITE_TIME] != -1);
-    assert(file->fcounters[CP_F_POSIX_META_TIME] != -1);
-    assert(file->fcounters[CP_F_READ_START_TIMESTAMP] != -1);
-    assert(file->fcounters[CP_F_WRITE_START_TIMESTAMP] != -1);
-    assert(file->fcounters[CP_F_READ_END_TIMESTAMP] != -1);
-    assert(file->fcounters[CP_F_WRITE_END_TIMESTAMP] != -1);
-    assert(file->counters[CP_BYTES_READ] != -1);
-    assert(file->counters[CP_BYTES_WRITTEN] != -1);
-    assert(file->counters[CP_RW_SWITCHES] != -1);
+    /* these counters should not be negative */
+    assert(file->counters[CP_POSIX_OPENS] >= 0);
+    assert(file->counters[CP_COLL_OPENS] >= 0);
+    assert(file->counters[CP_POSIX_READS] >= 0);
+    assert(file->counters[CP_POSIX_WRITES] >= 0);
+    assert(file->counters[CP_BYTES_READ] >= 0);
+    assert(file->counters[CP_BYTES_WRITTEN] >= 0);
+    assert(file->counters[CP_RW_SWITCHES] >= 0);
+
+    /* set any timestamps that happen to be negative to 0 */
+    if (file->fcounters[CP_F_READ_START_TIMESTAMP] < 0.0)
+        file->fcounters[CP_F_READ_START_TIMESTAMP] = 0.0;
+    if (file->fcounters[CP_F_WRITE_START_TIMESTAMP] < 0.0)
+        file->fcounters[CP_F_WRITE_START_TIMESTAMP] = 0.0;
+    if (file->fcounters[CP_F_READ_END_TIMESTAMP] < 0.0)
+        file->fcounters[CP_F_READ_END_TIMESTAMP] = 0.0;
+    if (file->fcounters[CP_F_WRITE_END_TIMESTAMP] < 0.0)
+        file->fcounters[CP_F_WRITE_END_TIMESTAMP] = 0.0;
 
     /* set file close time to the end of execution if it is not given */
     if (file->fcounters[CP_F_CLOSE_TIMESTAMP] == 0.0)
