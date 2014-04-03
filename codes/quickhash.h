@@ -46,6 +46,10 @@ struct qhash_table
  * hash function and compare function must be provided.
  * table_size should be a good prime number.
  *
+ * the compare function tests equality between the input key
+ * and the given qhash entry, returning 1 on equal and 0 on
+ * non-equal
+ *
  * returns pointer to table on success, NULL on failure
  */
 static inline struct qhash_table *qhash_init(
