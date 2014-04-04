@@ -285,7 +285,13 @@ int64_t ex(
                     var[0] = 1;
                     var[1] = t1;
                     *inst_ready = 1;
-		    *group_size = t1;
+                    /* JOHN - logic here is broken, using the same trick 
+                     * used to get the rank 
+                     * - should dynamically look up the group and rank, but
+                     *   sets it upon setting up the parser */ 
+		    /* *group_size = t1; */
+                    *group_size = temp_group_size;
+
 
 		    //printf("\n group size %d ", *group_size);
                     return *group_size;

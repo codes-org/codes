@@ -181,7 +181,7 @@ static void codes_kernel_helper_parse_cf(char * io_kernel_path, char *
                        task_info->min_rank = min;
                        task_info->max_rank = (max == -1) ? max_ranks_default : max;
                        task_info->local_rank = task_rank - min;
-                       task_info->num_lrank = max - min + 1;
+                       task_info->num_lrank = task_info->max_rank - min;
 
                        foundit = 1;
 
@@ -318,7 +318,7 @@ int codes_kernel_helper_bootstrap(char * io_kernel_path, char *
     /* get the kernel from the file */
     codes_kernel_helper_parse_cf(io_kernel_path, io_kernel_def_path,
             io_kernel_meta_path, rank, num_ranks, task_info, use_relpath);
-
+    temp_group_size = task_info->num_lrank;
     /* stat the kernel file */
     ret = stat(io_kernel_path, &info);
     if(ret != 0)
