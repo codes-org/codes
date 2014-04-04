@@ -140,6 +140,7 @@ static int recorder_io_workload_load(const char *params, int rank)
         if(entry->d_type == DT_REG)
             nprocs++;
     }
+    closedir(dirp);
 
     char *trace_file_name = (char*) malloc(sizeof(char) * 1024);
     sprintf(trace_file_name, "%s/log.%d", trace_dir, rank);
@@ -171,7 +172,7 @@ static int recorder_io_workload_load(const char *params, int rank)
             token = strtok(NULL, ", ");
             strcpy(function_name, token);
 
-            // printf("function_name=%s:\n", function_name);
+            //printf("function_name=%s:\n", function_name);
 
             struct recorder_trace rt;
 
@@ -245,15 +246,23 @@ static int recorder_io_workload_load(const char *params, int rank)
                 rt.trace_params.write.size = size;
 
             }
+            else if(!strcmp(function_name, "MPI_Barrier")) {
+                rt.rank = rank;
+                rt.type = BARRIER;
+                rt.start_time = start_time;
+            }
+            else{
+                continue;
+            }
 
             new->traces[i] = rt;
         }
 
-        new->last_trace_in_memory_index = i;
-        new->last_line_read = ftell(trace_file);
-        new->trace_list_ndx = 0;
-
     }
+    new->last_trace_in_memory_index = i;
+    new->last_line_read = ftell(trace_file);
+    new->trace_list_ndx = 0;
+
 
     /* initialize the hash table of rank contexts, if it has not been initialized */
     if (!rank_tbl) {
@@ -269,6 +278,7 @@ static int recorder_io_workload_load(const char *params, int rank)
     /* add this rank context to the hash table */
     qhash_add(rank_tbl, &(new->rank), &(new->hash_link));
     rank_tbl_pop++;
+    fclose(trace_file);
 
     return 0;
 }
@@ -283,8 +293,10 @@ static void recorder_io_workload_get_next(int rank, struct codes_workload_op *op
     /* Find event context for this rank in the rank hash table */
     hash_link = qhash_search(rank_tbl, &rank);
 
+
     /* terminate the workload if there is no valid rank context */
     if(!hash_link) {
+
         op->op_type = CODES_WK_END;
         return;
     }
@@ -304,14 +316,17 @@ static void recorder_io_workload_get_next(int rank, struct codes_workload_op *op
         free(tmp);
         rank_tbl_pop--;
         if(!rank_tbl_pop)
+        {
             qhash_finalize(rank_tbl);
+            rank_tbl = NULL;
+        }
     }
     else {
         /* return the next event */
         /* TODO: Do I need to check for the delay like in Darshan? */
-
         next_trace = tmp->traces[tmp->trace_list_ndx];
         *op = recorder_trace_to_codes_workload_op(next_trace);
+
         // tmp->last_event_time = next_event.end_time
         tmp->trace_list_ndx++;
     }
@@ -325,6 +340,7 @@ static struct codes_workload_op recorder_trace_to_codes_workload_op(struct recor
     struct codes_workload_op codes_op;
 
     switch (trace.type)
+
     {
         case POSIX_OPEN:
             codes_op.op_type = CODES_WK_OPEN;
