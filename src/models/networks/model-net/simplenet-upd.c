@@ -359,7 +359,7 @@ static void handle_msg_ready_event(
       /* schedule event to final destination for when the recv is complete */
 //      printf("\n Remote message to LP %d ", m->final_dest_gid); 
 
-      e_new = codes_event_new(m->final_dest_gid, recv_queue_time, lp);
+      e_new = tw_event_new(m->final_dest_gid, recv_queue_time, lp);
       m_new = tw_event_data(e_new);
       char* tmp_ptr = (char*)m;
       tmp_ptr += sn_get_msg_sz();
@@ -442,7 +442,7 @@ static void handle_msg_start_event(
     codes_mapping_get_lp_id(lp_group_name, "modelnet_simplenet", mapping_rep_id , mapping_offset, &dest_id); 
 
 //    printf("\n msg start sending to %d ", dest_id);
-    e_new = codes_event_new(dest_id, send_queue_time, lp);
+    e_new = tw_event_new(dest_id, send_queue_time, lp);
     m_new = tw_event_data(e_new);
 
     /* copy entire previous message over, including payload from user of
@@ -460,7 +460,7 @@ static void handle_msg_start_event(
     {
         char* local_event;
 
-        e_new = codes_event_new(m->src_gid, send_queue_time+codes_local_latency(lp), lp);
+        e_new = tw_event_new(m->src_gid, send_queue_time+codes_local_latency(lp), lp);
         m_new = tw_event_data(e_new);
 
          local_event = (char*)m;
@@ -499,7 +499,7 @@ static void simplenet_packet_event(
      codes_mapping_get_lp_id(lp_group_name, "modelnet_simplenet", mapping_rep_id, mapping_offset, &dest_id);
 
      xfer_to_nic_time = codes_local_latency(sender);
-     e_new = codes_event_new(dest_id, xfer_to_nic_time, sender);
+     e_new = tw_event_new(dest_id, xfer_to_nic_time, sender);
      msg = tw_event_data(e_new);
      strcpy(msg->category, category);
      msg->final_dest_gid = final_dest_lp;

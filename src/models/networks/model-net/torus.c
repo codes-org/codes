@@ -56,7 +56,7 @@ static void torus_packet_event(char* category, tw_lpid final_dest_lp, int packet
 
     /* TODO: Should send the packets in correct sequence. Currently the last packet is being sent first due to codes_local_latency offset. */
     xfer_to_nic_time = 0.01 + codes_local_latency(sender); /* Throws an error of found last KP time > current event time otherwise */
-    e_new = codes_event_new(local_nic_id, xfer_to_nic_time, sender);
+    e_new = tw_event_new(local_nic_id, xfer_to_nic_time, sender);
     msg = tw_event_data(e_new);
     strcpy(msg->category, category);
     msg->final_dest_gid = final_dest_lp;
@@ -413,7 +413,7 @@ static void packet_send( nodes_state * s,
 	  nodes_message* m_new;
 	  char* local_event;
 	  ts = (1/link_bandwidth) * msg->local_event_size_bytes;
-	  e_new = codes_event_new(msg->sender_lp, ts, lp);
+	  e_new = tw_event_new(msg->sender_lp, ts, lp);
 	  m_new = tw_event_data(e_new);
 	  local_event = (char*)msg;
 	  local_event += torus_get_msg_sz() + msg->remote_event_size_bytes;
@@ -474,7 +474,7 @@ static void packet_arrive( nodes_state * s,
 	    if(msg->remote_event_size_bytes)
 	    {
 	       ts = (1/link_bandwidth) * msg->remote_event_size_bytes;
-	       e = codes_event_new(msg->final_dest_gid, ts, lp);
+	       e = tw_event_new(msg->final_dest_gid, ts, lp);
 	       m = tw_event_data(e);
 	       char* tmp_ptr = (char*)msg;
 	       tmp_ptr += torus_get_msg_sz();

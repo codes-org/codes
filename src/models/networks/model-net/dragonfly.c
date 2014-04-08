@@ -73,7 +73,7 @@ static void dragonfly_packet_event(char* category, tw_lpid final_dest_lp, int pa
     codes_mapping_get_lp_id(lp_group_name, "modelnet_dragonfly", mapping_rep_id, mapping_offset, &dest_nic_id);
   
     xfer_to_nic_time = 0.01 + codes_local_latency(sender); /* Throws an error of found last KP time > current event time otherwise when LPs of one type are placed together*/
-    e_new = codes_event_new(local_nic_id, xfer_to_nic_time, sender);
+    e_new = tw_event_new(local_nic_id, xfer_to_nic_time, sender);
     msg = tw_event_data(e_new);
     strcpy(msg->category, category);
     msg->final_dest_gid = final_dest_lp;
@@ -300,7 +300,7 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp *
 	   terminal_message* m_new;
 	   char* local_event;
 	   ts = (1/cn_bandwidth) * msg->local_event_size_bytes;
-	   e_new = codes_event_new(msg->sender_lp, ts, lp);
+	   e_new = tw_event_new(msg->sender_lp, ts, lp);
 	   m_new = tw_event_data(e_new);
 	   local_event = (char*)msg;
 	   local_event += dragonfly_get_msg_sz() + msg->remote_event_size_bytes;
@@ -364,7 +364,7 @@ if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
 	if(msg->remote_event_size_bytes)
 	{
 		ts = (1/cn_bandwidth) * msg->remote_event_size_bytes;
-		e = codes_event_new(msg->final_dest_gid, ts, lp);
+		e = tw_event_new(msg->final_dest_gid, ts, lp);
 		m = tw_event_data(e);
 		char* tmp_ptr = (char*)msg;
 		tmp_ptr += dragonfly_get_msg_sz();                                                                                                            
