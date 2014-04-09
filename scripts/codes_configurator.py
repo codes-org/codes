@@ -53,7 +53,11 @@ def parse_args():
     parser.add_argument("substitute_py",
             help='python file defining "cfields" variable consisting of '
                  'elements of the form '
-                 '( replacement_token, [replacements...])')
+                 '( replacement_token, [replacements...]). An optional '
+                 'variable "exceptions" may also be provided, of the form '
+                 '( {replace_token : replacement, ...}, ...). This will '
+                 'exclude any configuration that exhibits the key/value '
+                 'pairs in any of the input dictionaries')
     parser.add_argument("token_pairs", nargs='*',
             help="a list of whitespace-separated token, replace pairs for "
                  "command-line-driven replacement (useful in shell scripts "

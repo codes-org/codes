@@ -15,6 +15,7 @@ class configurator:
         self.replace_map = { k[0] : None for k in self.mod.cfields }
         self.start_iter = False
         self.in_iter    = False
+        self.has_except = "excepts" in self.mod.__dict__
 
         for i in range(0, len(replace_pairs), 2):
             k,vstr = replace_pairs[i], replace_pairs[i+1]
@@ -44,6 +45,10 @@ class configurator:
                 v = self.iterables[i].next()
                 self.replace_map[self.labels[i]] = v
             self.start_iter = False
+            # check if this is a valid config, if not, then recurse
+            if self.has_except and is_replace_except(self.mod.excepts,
+                    self.replace_map):
+                return self.next()
         else:
             # > first iteration, perform the updates
             # generate the next config
@@ -61,7 +66,11 @@ class configurator:
             else:
                 # last iterable has finished, have generated full set
                 raise StopIteration 
-        return None
+        if self.has_except and is_replace_except(self.mod.excepts,
+                self.replace_map):
+            return self.next()
+        else:
+            return None
 
     def write_header(self, fout):
         fout.write("# format:\n# <config index>")
@@ -77,6 +86,15 @@ class configurator:
         else:
             fout.write('\n')
 
+def is_replace_except(except_map, replace_map):
+    for d in except_map:
+        for k in d:
+            if d[k] != replace_map[k]:
+                break
+        else:
+            return True
+    return False
+
 # checks - make sure cfields is set and is the correct type 
 def check_cfields(module):
     if "cfields" not in module.__dict__:
@@ -86,6 +104,12 @@ def check_cfields(module):
             isinstance(module.cfields[0][0], str) and \
             isinstance(module.cfields[0][1], Sequence)):
         raise TypeError("cfields in incorrect format, see usage")
+
+    if "excepts" in module.__dict__ and not \
+            (isinstance(module.excepts, Sequence) and\
+            isinstance(module.excepts[0], dict)) :
+        raise TypeError("excepts not in correct format, see usage")
+
 
 # import a python file (assumes there is a .py suffix!!!)
 def import_from(filename):
