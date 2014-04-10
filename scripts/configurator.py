@@ -9,6 +9,12 @@ class configurator:
     # note: object assumes input has been validated by caller, though it will
     #       still throw if it finds duplicate keys in the dict
     def __init__(self, module, replace_pairs):
+        # checks - check cfields and friends
+        check_cfields(module)
+        # check that pairs are actually pairs
+        if len(replace_pairs) % 2 != 0:
+            raise ValueError("token pairs must come in twos")
+
         self.mod = module
         self.num_fields = len(self.mod.cfields)
         self.labels = [k[0] for k in self.mod.cfields] + replace_pairs[0::2]
@@ -16,6 +22,8 @@ class configurator:
         self.start_iter = False
         self.in_iter    = False
         self.has_except = "excepts" in self.mod.__dict__
+        self.has_derived = "cfields_derived_labels" in self.mod.__dict__ and \
+                           "cfields_derived" in self.mod.__dict__
 
         for i in range(0, len(replace_pairs), 2):
             k,vstr = replace_pairs[i], replace_pairs[i+1]
@@ -28,9 +36,13 @@ class configurator:
             if v == None:
                 v = vstr
             self.replace_map[k] = v
+            
+        # initialize derived labels if necessary
+        if self.has_derived:
+            self.labels += [l for l in self.mod.cfields_derived_labels]
+
 
     def __iter__(self):
-        # pre-generate an initial config and return self
         self.start_iter = True 
         self.in_iter = True
         return self
@@ -40,15 +52,11 @@ class configurator:
             raise StopIteration 
         elif self.start_iter:
             # first iteration - initialize the iterators
-            self.iterables   = [k[1].__iter__() for k in self.mod.cfields]
+            self.iterables = [k[1].__iter__() for k in self.mod.cfields]
             for i in range(0, self.num_fields):
                 v = self.iterables[i].next()
                 self.replace_map[self.labels[i]] = v
             self.start_iter = False
-            # check if this is a valid config, if not, then recurse
-            if self.has_except and is_replace_except(self.mod.excepts,
-                    self.replace_map):
-                return self.next()
         else:
             # > first iteration, perform the updates
             # generate the next config
@@ -66,6 +74,10 @@ class configurator:
             else:
                 # last iterable has finished, have generated full set
                 raise StopIteration 
+        # add derived fields before exceptions 
+        if self.has_derived:
+            self.mod.cfields_derived(self.replace_map)
+        # check if this is a valid config, if not, then recurse
         if self.has_except and is_replace_except(self.mod.excepts,
                 self.replace_map):
             return self.next()
@@ -109,6 +121,21 @@ def check_cfields(module):
             (isinstance(module.excepts, Sequence) and\
             isinstance(module.excepts[0], dict)) :
         raise TypeError("excepts not in correct format, see usage")
+
+    dl = "cfields_derived_labels" in module.__dict__
+    d  = "cfields_derived" in module.__dict__
+    if (dl and not d) or (not dl and d):
+        raise TypeError("both cfields_derived_labels and cfields_derived must "
+                "be set")
+    elif dl and d and not \
+            (isinstance(module.cfields_derived_labels, Sequence) and \
+            isinstance(module.cfields_derived_labels[0], str) and \
+            hasattr(module.cfields_derived, "__call__")):
+        raise TypeError("cfields_derived_labels must be a sequence of "
+                "strings, cfields_derived must be callable (accepting a "
+                "dict of replace_token, replacement pairs and adding pairs "
+                "for each label in cfields_derived_labels")
+        
 
 
 # import a python file (assumes there is a .py suffix!!!)

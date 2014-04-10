@@ -29,7 +29,7 @@ PARAMS
    # - individual packet sizes for network operations
    #   (each "packet" is represented by an event)
    # - independent of underlying network being used
-   packet_size="512";
+   packet_size="C_PACKET_SZ";
    # - type of model to use (must match with corresponding LPGROUPS entry)
    modelnet="simplenet";
    # - model-specific parameters
