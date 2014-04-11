@@ -1,0 +1,9 @@
+1- The scala-trace-data file has the MPI event data from the phold file for 16 MPI ranks.
+2- The offsets file has the offset from which each LP should start reading from the scala-trace-data file.
+
+3- To run the program with 16 MPI ranks do:
+
+mpirun -np 8 ./codes-nw-test --sync=3 --total_nw_lps=16 --offset_file="offsets" --workload_file="scala-trace-data"
+
+The total_nw_lps is equal to the number of MPI ranks on which the data was recorded for scala-trace. In this case,
+total_nw_lps = 16 as the scala-trace data was recorded on 16 MPI ranks.

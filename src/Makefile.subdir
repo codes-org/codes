@@ -47,6 +47,7 @@ nobase_include_HEADERS = \
     codes/configfile.h \
     codes/quicklist.h \
     codes/codes_mapping.h \
+    codes/codes-nw-workload.h \
     codes/lp-type-lookup.h \
     codes/codes.h \
     codes/configuration.h \
@@ -95,7 +96,11 @@ src_libcodes_base_a_SOURCES =  \
     src/workload/codes-workload.c \
     src/workload/codes-workload-method.h \
     src/workload/codes-bgp-io-wrkld.c \
-    src/workload/test-workload-method.c
+    src/workload/test-workload-method.c \
+    codes/codes-nw-workload.h \
+    src/network-workload/codes-nw-workload.c \
+    src/network-workload/codes-nw-workload-method.h \
+    src/network-workload/codes-scala-trace-nw-wrkld.c
 
 # stealth testing of the template code (actual test is not run, just compiled as
 # a program - Make error signifies test failure)
@@ -115,3 +120,11 @@ src_workload_codes_workload_dump_SOURCES = \
  src/workload/codes-workload-dump.c
 src_workload_codes_workload_dump_LDADD = $(testlib) ${DARSHAN_LIBS} ${ROSS_LIBS}
 src_workload_codes_workload_dump_LDFLAGS =  ${DARSHAN_LDFLAGS} ${ROSS_LDFLAGS}
+
+bin_PROGRAMS += src/network-workload/codes-nw-test
+
+src_network_workload_codes_nw_test_SOURCES = \
+ src/network-workload/codes-nw-test.c
+src_network_workload_codes_nw_test_LDADD = $(testlib) ${ROSS_LIBS}
+src_network_workload_codes_nw_test_LDFLAGS =  ${ROSS_LDFLAGS}
+
