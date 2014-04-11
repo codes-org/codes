@@ -77,7 +77,7 @@ int scala_trace_nw_workload_load(const char* params, int rank)
 
     event_array = (struct st_write_data*) malloc(sizeof(struct st_write_data) * mpi_info.events_per_rank);
 
-    printf("\n rank %d allocated array of size %d ", rank, mpi_info.events_per_rank);
+    //printf("\n rank %d allocated array of size %d ", rank, mpi_info.events_per_rank);
     MPI_File_open(MPI_COMM_WORLD, wrkld_file, MPI_MODE_RDONLY, MPI_INFO_NULL, &fh);
     MPI_File_set_view(fh, mpi_info.offset * sizeof(struct st_write_data), MPI_WRITE_INFO, MPI_WRITE_INFO, "derived", MPI_INFO_NULL);
     MPI_File_read(fh, event_array, mpi_info.events_per_rank, MPI_WRITE_INFO, MPI_STATUS_IGNORE);
