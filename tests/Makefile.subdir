@@ -1,19 +1,26 @@
 
 check_PROGRAMS += tests/lp-io-test \
  tests/workload/codes-workload-test \
- tests/workload/codes-workload-mpi-replay
+ tests/workload/codes-workload-mpi-replay \
+ tests/mapping_test
 
 TESTS += tests/lp-io-test.sh \
- tests/workload/codes-workload-test.sh
+ tests/workload/codes-workload-test.sh \
+ tests/mapping_test.sh
 
 EXTRA_DIST += tests/lp-io-test.sh \
- tests/workload/codes-workload-test.sh
+ tests/workload/codes-workload-test.sh \
+ tests/mapping_test.sh
 
 testlib = src/libcodes-base.a
 
 tests_lp_io_test_LDADD = $(testlib) ${ROSS_LIBS}
 tests_lp_io_test_LDFLAGS = ${ROSS_LDFLAGS}
 tests_lp_io_test_SOURCES = tests/lp-io-test.c
+
+tests_mapping_test_LDADD = $(testlib) ${ROSS_LIBS}
+tests_mapping_test_LDFLAGS = ${ROSS_LDFLAGS}
+tests_mapping_test_SOURCES = tests/mapping_test.c
 
 tests_workload_codes_workload_test_LDADD = $(testlib) ${ROSS_LIBS}
 tests_workload_codes_workload_test_LDFLAGS = ${ROSS_LDFLAGS}

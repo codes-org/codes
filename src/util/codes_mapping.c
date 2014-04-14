@@ -79,6 +79,24 @@ int codes_mapping_get_lp_count(char* grp_name, char* lp_type_name)
    }
   return -1;
 }
+
+int codes_mapping_get_global_lp_count(char* lp_type_name){
+    int total_ct = 0;
+    int grp;
+    for (grp = 0; grp < lpconf.lpgroups_count; grp++){
+        int lpt;
+        int lp_types_count = lpconf.lpgroups[grp].lptypes_count;
+        int reps = lpconf.lpgroups[grp].repetitions;
+        config_lptype_t *c = lpconf.lpgroups[grp].lptypes;
+        for (lpt = 0; lpt < lp_types_count; lpt++){
+            if(strcmp(c[lpt].name, lp_type_name) == 0){
+                total_ct += c[lpt].count * reps;
+            }
+        }
+    }
+    return total_ct;
+}
+
 /* This function takes the group ID , type ID and rep ID then returns the global LP ID */
 /* TODO: Add string based search for LP group and type names */
 void codes_mapping_get_lp_id(char* grp_name, char* lp_type_name, int rep_id, int offset, tw_lpid* gid)
@@ -130,6 +148,36 @@ void codes_mapping_get_lp_id(char* grp_name, char* lp_type_name, int rep_id, int
  }
    *gid = lpcount + offset;
 }
+
+int codes_mapping_get_lp_global_rel_id(tw_lpid gid){
+    /* use mapping function to get our starting point */
+    char grp_name[MAX_NAME_LENGTH];
+    char lp_type_name[MAX_NAME_LENGTH];
+    int grp_id, lp_type_id, grp_rep_id, offset;
+    codes_mapping_get_lp_info(gid, grp_name, &grp_id, &lp_type_id, lp_type_name,
+            &grp_rep_id, &offset);
+
+    /* now, go through the groups that occurred before and count up the lps of
+     * the same name */
+    int grp;
+    int total_lp_count = 0;
+    for (grp = 0; grp < grp_id; grp++){
+        int rep = lpconf.lpgroups[grp].repetitions;
+        int l;
+        /* get the total number of LPs in this group */
+        for (l = 0; l < lpconf.lpgroups[grp].lptypes_count; l++){
+            if (strcmp(lp_type_name, lpconf.lpgroups[grp].lptypes[l].name) == 0){
+                total_lp_count += rep * lpconf.lpgroups[grp].lptypes[l].count;
+            }
+        }
+    }
+
+    /* the global relative lp id is my relative position within the group +
+     * the number of lps that came before */
+    int nlp_per_rep = lpconf.lpgroups[grp_id].lptypes[lp_type_id].count;
+    return total_lp_count + (grp_rep_id * nlp_per_rep) + offset;
+}
+
 
 /* This function takes the LP ID and returns its grp index, lp type ID and repetition ID */
 void codes_mapping_get_lp_info(tw_lpid gid, char* grp_name, int* grp_id, int* lp_type_id, char* lp_type_name, int* grp_rep_id, int* offset)
