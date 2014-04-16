@@ -18,6 +18,8 @@
 #define CATEGORY_NAME_MAX 16
 #define CATEGORY_MAX 12
 
+#define SIMPLEWAN_DEBUG 0
+
 /*Define simplewan data types and structs*/
 typedef struct sw_message sw_message;
 typedef struct sw_state sw_state;
@@ -533,12 +535,15 @@ static void handle_msg_ready_event(
     m->recv_next_idle_all_saved = idles->recv_next_idle_all;
     m->recv_prev_idle_all_saved = idles->recv_prev_idle_all;
 
+#if SIMPLEWAN_DEBUG
     printf("%d: from_id:%d now: %8.3lf next_idle_recv: %8.3lf\n",
             ns->id, m->src_mn_rel_id,
             tw_now(lp), ns->recv_next_idle[m->src_mn_rel_id]);
     printf("%d: BEFORE all_idles_recv %8.3lf %8.3lf\n",
             ns->id,
             idles->recv_prev_idle_all, idles->recv_next_idle_all);
+#endif
+    
 
     /* update global idles, recv time */
     if (tw_now(lp) > idles->recv_next_idle_all){
@@ -552,6 +557,7 @@ static void handle_msg_ready_event(
         idles->recv_next_idle_all = ns->recv_next_idle[m->src_mn_rel_id];
     }
 
+#if SIMPLEWAN_DEBUG
     printf("%d: AFTER  all_idles_recv %8.3lf %8.3lf",
             ns->id, idles->recv_prev_idle_all, idles->recv_next_idle_all);
     if (m->event_size_bytes>0){
@@ -560,6 +566,7 @@ static void handle_msg_ready_event(
     else{
         printf(" - without event\n");
     }
+#endif
 
     /* copy only the part of the message used by higher level */
     if(m->event_size_bytes)
@@ -665,11 +672,13 @@ static void handle_msg_start_event(
     if(stat->max_event_size < total_event_size)
         stat->max_event_size = total_event_size;
 
+#if SIMPLEWAN_DEBUG
     printf("%d: to_id:%d now: %8.3lf next_idle_send: %8.3lf\n",
             ns->id, dest_rel_id,
             tw_now(lp), ns->send_next_idle[dest_rel_id]);
     printf("%d: BEFORE all_idles_send %8.3lf %8.3lf\n",
             ns->id, idles->send_prev_idle_all, idles->send_next_idle_all);
+#endif
 
     /* update global idles, send time */
     if (tw_now(lp) > idles->send_next_idle_all){
@@ -682,6 +691,7 @@ static void handle_msg_start_event(
         idles->send_next_idle_all = ns->send_next_idle[dest_rel_id];
     }
 
+#if SIMPLEWAN_DEBUG
     printf("%d: AFTER  all_idles_send %8.3lf %8.3lf",
             ns->id, idles->send_prev_idle_all, idles->send_next_idle_all);
     if (m->local_event_size_bytes>0){
@@ -690,6 +700,7 @@ static void handle_msg_start_event(
     else{
         printf(" - without local event\n");
     }
+#endif
 
     /* create new event to send msg to receiving NIC */
 //    printf("\n msg start sending to %d ", dest_id);
@@ -753,10 +764,12 @@ static tw_stime simplewan_packet_event(
 
      xfer_to_nic_time = codes_local_latency(sender);
 
+#if SIMPLEWAN_DEBUG
     printf("%lu: final %lu packet sz %d remote sz %d self sz %d is_last_pckt %d latency %lf\n",
             (dest_id - 1) / 2, final_dest_lp, packet_size, 
             remote_event_size, self_event_size, is_last_pckt,
             xfer_to_nic_time+offset);
+#endif
 
      e_new = tw_event_new(dest_id, xfer_to_nic_time+offset, sender);
      msg = tw_event_data(e_new);

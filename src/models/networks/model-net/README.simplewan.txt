@@ -34,3 +34,18 @@ ignored, but linebreaks are not, and delimit rows of the matrix. The relative
 simplewan identifiers 1..N are assigned to simplewan LPs in the order of
 their appearance in the codes-configuration file. In the future, a full NxN
 matrix may be used to facilitate asymmetric link capacities if the need arises.
+
+Caveats:
+--------
+
+The model-net statistics are slightly more complex than in other model-net
+implementations because there are in essence multiple queues per simplewan
+instance. In particular, the "send time" and "recv time" stats are computed as
+ranges of time in which the simplewan LP is actively sending/receiving data
+from *any* link. Hence, simple bandwidth calculations (send bytes / send time)
+may not be accurate due to skew in message issuance.
+
+Having more than one category in simplewan will cause the times in the
+derived "all" category to be off. "all" is currently implemented as the sum of
+the various categories, which doesn't work when times in certain categories may
+overlap.
