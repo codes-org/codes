@@ -12,5 +12,5 @@ src_libcodes_net_a_SOURCES = \
  src/models/networks/model-net/simplenet-upd.c \
  src/models/networks/model-net/torus.c \
  src/models/networks/model-net/dragonfly.c \
- src/models/networks/model-net/loggp.c
-
+ src/models/networks/model-net/loggp.c \
+ src/models/networks/model-net/simplewan.c

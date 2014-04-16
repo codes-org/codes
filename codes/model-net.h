@@ -17,6 +17,7 @@
 #define CATEGORY_MAX 12
 
 typedef struct simplenet_param simplenet_param;
+typedef struct simplewan_param simplewan_param;
 typedef struct dragonfly_param dragonfly_param;
 typedef struct torus_param torus_param;
 typedef struct loggp_param loggp_param;
@@ -25,6 +26,7 @@ typedef struct mn_stats mn_stats;
 enum NETWORKS
 {
   SIMPLENET,
+  SIMPLEWAN,
   TORUS,
   DRAGONFLY,
   LOGGP,
@@ -56,6 +58,12 @@ struct simplenet_param
   double net_startup_ns; /*simplenet startup cost*/
   double net_bw_mbps; /*Link bandwidth per byte*/
   int num_nics;
+};
+
+struct simplewan_param
+{
+    char bw_filename[MAX_NAME_LENGTH];
+    char startup_filename[MAX_NAME_LENGTH];
 };
 
 struct dragonfly_param
