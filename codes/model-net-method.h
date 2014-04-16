@@ -14,10 +14,11 @@ struct model_net_method
     char* method_name;  /* example: "dragonfly" */
     int packet_size; /* packet size */
     void (*mn_setup)(const void* net_params); /* For initializing the network */
-    void (*model_net_method_packet_event)(
+    tw_stime (*model_net_method_packet_event)(
         char* category, 
         tw_lpid final_dest_lp, 
         int packet_size, 
+        tw_stime offset,
         int remote_event_size,  /* 0 means don't deliver remote event */
         const void* remote_event,
         int self_event_size,    /* 0 means don't deliver self event */

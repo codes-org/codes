@@ -59,10 +59,11 @@ typedef struct nodes_state nodes_state;
 typedef struct nodes_message nodes_message;
 
 /* Issues a torus packet event call */
-static void torus_packet_event(
+static tw_stime torus_packet_event(
 		       char* category,
 		       tw_lpid final_dest_lp,
 		       int packet_size,
+                       tw_stime offset,
 		       int remote_event_size,
 		       const void* remote_event,
 		       int self_event_size,

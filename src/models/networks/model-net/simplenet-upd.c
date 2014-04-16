@@ -98,10 +98,11 @@ static int sn_get_magic();
 static void sn_setup(const void* net_params);
 
 /* Issues a simplenet packet event call */
-static void simplenet_packet_event(
+static tw_stime simplenet_packet_event(
      char* category, 
      tw_lpid final_dest_lp, 
      int packet_size, 
+     tw_stime offset,
      int remote_event_size, 
      const void* remote_event, 
      int self_event_size,
@@ -476,10 +477,11 @@ static void handle_msg_start_event(
 
 /*This method will serve as an intermediate layer between simplenet and modelnet. 
  * It takes the packets from modelnet layer and calls underlying simplenet methods*/
-static void simplenet_packet_event(
+static tw_stime simplenet_packet_event(
 		char* category,
 		tw_lpid final_dest_lp,
 		int packet_size,
+                tw_stime offset,
 		int remote_event_size,
 		const void* remote_event,
 		int self_event_size,
@@ -499,7 +501,7 @@ static void simplenet_packet_event(
      codes_mapping_get_lp_id(lp_group_name, "modelnet_simplenet", mapping_rep_id, mapping_offset, &dest_id);
 
      xfer_to_nic_time = codes_local_latency(sender);
-     e_new = tw_event_new(dest_id, xfer_to_nic_time, sender);
+     e_new = tw_event_new(dest_id, xfer_to_nic_time+offset, sender);
      msg = tw_event_data(e_new);
      strcpy(msg->category, category);
      msg->final_dest_gid = final_dest_lp;
@@ -532,6 +534,7 @@ static void simplenet_packet_event(
       // printf("\n Last packet size: %d ", sn_get_msg_sz() + remote_event_size + self_event_size);
       }
      tw_event_send(e_new);
+     return xfer_to_nic_time;
 }
 
 static void sn_setup(const void* net_params)

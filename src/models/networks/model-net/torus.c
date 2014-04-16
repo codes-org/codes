@@ -38,7 +38,7 @@ static void torus_packet_event_rc(tw_lp *sender)
 }
 
 /* torus packet event , generates a torus packet on the compute node */
-static void torus_packet_event(char* category, tw_lpid final_dest_lp, int packet_size, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lp *sender, int is_last_pckt)
+static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, int packet_size, tw_stime offset, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lp *sender, int is_last_pckt)
 {
     tw_event * e_new;
     tw_stime xfer_to_nic_time;
@@ -56,7 +56,7 @@ static void torus_packet_event(char* category, tw_lpid final_dest_lp, int packet
 
     /* TODO: Should send the packets in correct sequence. Currently the last packet is being sent first due to codes_local_latency offset. */
     xfer_to_nic_time = 0.01 + codes_local_latency(sender); /* Throws an error of found last KP time > current event time otherwise */
-    e_new = tw_event_new(local_nic_id, xfer_to_nic_time, sender);
+    e_new = tw_event_new(local_nic_id, xfer_to_nic_time+offset, sender);
     msg = tw_event_data(e_new);
     strcpy(msg->category, category);
     msg->final_dest_gid = final_dest_lp;
@@ -93,6 +93,7 @@ static void torus_packet_event(char* category, tw_lpid final_dest_lp, int packet
       // printf("\n torus remote event %d local event %d last packet %d %lf ", msg->remote_event_size_bytes, msg->local_event_size_bytes, is_last_pckt, xfer_to_nic_time);
      }
     tw_event_send(e_new);
+    return xfer_to_nic_time;
 }
 
 /*Initialize the torus model, this initialization part is borrowed from Ning's torus model */

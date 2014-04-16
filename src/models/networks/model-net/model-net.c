@@ -14,13 +14,14 @@
 #define PROC_TIME 10.0
 
 extern struct model_net_method simplenet_method;
+extern struct model_net_method simplewan_method;
 extern struct model_net_method torus_method;
 extern struct model_net_method dragonfly_method;
 extern struct model_net_method loggp_method;
 
 /* Global array initialization, terminated with a NULL entry */
 static struct model_net_method* method_array[] =
-    {&simplenet_method, &torus_method, &dragonfly_method, &loggp_method, NULL};
+    {&simplenet_method, &simplewan_method, &torus_method, &dragonfly_method, &loggp_method, NULL};
 
 static int model_net_get_msg_sz(int net_id);
 
@@ -174,6 +175,7 @@ void model_net_event(
      * passed along through network hops and delivered to final_dest_lp
      */
 
+     tw_stime offset = 0.0;
      for( i = 0; i < num_packets; i++ )
        {
 	  /*Mark the last packet to the net method API*/
@@ -184,7 +186,9 @@ void model_net_event(
               packet_size = message_size - ((num_packets-1)*packet_size);
             }
 	  /* Number of packets and packet ID is passed to the underlying network to mark the final packet for local event completion*/
-	  method_array[net_id]->model_net_method_packet_event(category, final_dest_lp, packet_size, remote_event_size, remote_event, self_event_size, self_event, sender, last);	  
+	  offset += method_array[net_id]->model_net_method_packet_event(category,
+                  final_dest_lp, packet_size, offset, remote_event_size, remote_event,
+                  self_event_size, self_event, sender, last);
        }
     return;
 }
@@ -216,6 +220,12 @@ int model_net_set_params()
      net_params.net_bw_mbps =  net_bw_mbps;
      net_id = model_net_setup("simplenet", packet_size, (const void*)&net_params); /* Sets the network as simplenet and packet size 512 */
    }
+  else if (strcmp("simplewan",mn_name)==0){
+    simplewan_param net_params;
+    configuration_get_value_relpath(&config, "PARAMS", "net_startup_ns_file", net_params.startup_filename, MAX_NAME_LENGTH);
+    configuration_get_value_relpath(&config, "PARAMS", "net_bw_mbps_file", net_params.bw_filename, MAX_NAME_LENGTH);
+    net_id = model_net_setup("simplewan", packet_size, (const void*)&net_params);
+  }
    else if(strcmp("loggp",mn_name)==0)
    {
      char net_config_file[256];
@@ -462,7 +472,9 @@ void model_net_add_lp_type(int net_id)
    case SIMPLENET:
        lp_type_register("modelnet_simplenet", model_net_get_lp_type(net_id));
    break;
-
+   case SIMPLEWAN:
+        lp_type_register("modelnet_simplewan", model_net_get_lp_type(net_id));
+        break;
    case TORUS:
        lp_type_register("modelnet_torus", model_net_get_lp_type(net_id));
        break;

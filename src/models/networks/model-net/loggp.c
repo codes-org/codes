@@ -105,10 +105,11 @@ static int loggp_get_magic();
 static void loggp_setup(const void* net_params);
 
 /* Issues a loggp packet event call */
-static void loggp_packet_event(
+static tw_stime loggp_packet_event(
      char* category, 
      tw_lpid final_dest_lp, 
      int packet_size, 
+     tw_stime offset,
      int remote_event_size, 
      const void* remote_event, 
      int self_event_size,
@@ -480,10 +481,11 @@ static void handle_msg_start_event(
 
 /*This method will serve as an intermediate layer between loggp and modelnet. 
  * It takes the packets from modelnet layer and calls underlying loggp methods*/
-static void loggp_packet_event(
+static tw_stime loggp_packet_event(
 		char* category,
 		tw_lpid final_dest_lp,
 		int packet_size,
+                tw_stime offset,
 		int remote_event_size,
 		const void* remote_event,
 		int self_event_size,
@@ -503,7 +505,7 @@ static void loggp_packet_event(
      codes_mapping_get_lp_id(lp_group_name, "modelnet_loggp", mapping_rep_id, mapping_offset, &dest_id);
 
      xfer_to_nic_time = codes_local_latency(sender);
-     e_new = tw_event_new(dest_id, xfer_to_nic_time, sender);
+     e_new = tw_event_new(dest_id, xfer_to_nic_time+offset, sender);
      msg = tw_event_data(e_new);
      strcpy(msg->category, category);
      msg->final_dest_gid = final_dest_lp;
@@ -536,6 +538,7 @@ static void loggp_packet_event(
       // printf("\n Last packet size: %d ", loggp_get_msg_sz() + remote_event_size + self_event_size);
       }
      tw_event_send(e_new);
+     return xfer_to_nic_time;
 }
 
 static void loggp_setup(const void* net_params)
