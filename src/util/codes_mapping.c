@@ -146,7 +146,7 @@ void codes_mapping_get_lp_id(char* grp_name, char* lp_type_name, int rep_id, int
     for(lpt = 0; lpt < lp_types_count; lpt++)
       lpcount += lpconf.lpgroups[grp].lptypes[lpt].count;
  }
-   *gid = lpcount + offset;
+   *gid = lpcount + offset % count_for_this_lpt;
 }
 
 int codes_mapping_get_lp_global_rel_id(tw_lpid gid){
