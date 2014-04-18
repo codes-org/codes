@@ -40,6 +40,7 @@ int hash_file_compare(void *key, struct qlist_head *link);
 /* command line options */
 static int opt_verbose = 0;
 static int opt_noop = 0;
+static int opt_lockless = 0;
 
 /* hash table for storing file descriptors of opened files */
 static struct qhash_table *fd_table = NULL;
@@ -55,6 +56,7 @@ void usage(char *exename)
     fprintf(stderr, "\t<workload_test_dir> : the directory to replay the workload I/O in\n");
     fprintf(stderr, "\n\t[OPTIONS] includes:\n");
     fprintf(stderr, "\t\t--noop : do not perform i/o\n");
+    fprintf(stderr, "\t\t--lockless : use bgq lockless file i/o optimization\n");
     fprintf(stderr, "\t\t    -v : verbose (output i/o details)\n");
 
     exit(1);
@@ -68,6 +70,7 @@ void parse_args(int argc, char **argv, char **conf_path, char **test_dir)
         {"conf", 1, NULL, 'c'},
         {"test-dir", 1, NULL, 'd'},
         {"noop", 0, NULL, 'n'},
+        {"lockless", 0, NULL, 'l'},
         {"help", 0, NULL, 0},
         {0, 0, 0, 0}
     };
@@ -88,6 +91,9 @@ void parse_args(int argc, char **argv, char **conf_path, char **test_dir)
                 break;
             case 'n':
                 opt_noop = 1;
+                break;
+            case 'l':
+                opt_lockless = 1;
                 break;
             case 'c':
                 *conf_path = optarg;
@@ -293,7 +299,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
     unsigned int secs;
     unsigned int usecs;
     int open_flags = O_RDWR;
-    char file_name[50];
+    char file_name[250];
     int fildes;
     struct file_info *tmp_list = NULL;
     struct qlist_head *hash_link = NULL;
@@ -360,7 +366,11 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                     open_flags |= O_CREAT;
 
                 /* write the file hash to string to be used as the actual file name */
-                snprintf(file_name, sizeof(file_name), "%"PRIu64, replay_op.u.open.file_id);
+                if (!opt_lockless)
+                    snprintf(file_name, sizeof(file_name), "%"PRIu64, replay_op.u.open.file_id);
+                else
+                    snprintf(file_name, sizeof(file_name), "bglockless:%"PRIu64,
+                             replay_op.u.open.file_id);
 
                 /* perform the open operation */
                 fildes = open(file_name, open_flags, 0666);
