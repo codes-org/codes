@@ -16,6 +16,23 @@
 #define CATEGORY_NAME_MAX 16
 #define CATEGORY_MAX 12
 
+/* HACK: there is currently no scheduling fidelity across multiple
+ * model_net_event calls. Hence, problems arise when some LP sends multiple
+ * messages as part of an event and expects FCFS ordering. A proper fix which
+ * involves model-net LP-level scheduling of requests is ideal, but not 
+ * feasible for now (would basically have to redesign model-net), so expose
+ * explicit start-sequence and stop-sequence markers as a workaround */
+extern int in_sequence;
+extern tw_stime mn_msg_offset;
+#define MN_START_SEQ() do {\
+    in_sequence = 1; \
+    mn_msg_offset = 0.0; \
+} while (0)
+#define MN_END_SEQ() do {\
+    in_sequence = 0;\
+} while (0)
+
+
 typedef struct simplenet_param simplenet_param;
 typedef struct simplewan_param simplewan_param;
 typedef struct dragonfly_param dragonfly_param;

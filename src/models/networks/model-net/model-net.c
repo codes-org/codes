@@ -23,6 +23,9 @@ extern struct model_net_method loggp_method;
 static struct model_net_method* method_array[] =
     {&simplenet_method, &simplewan_method, &torus_method, &dragonfly_method, &loggp_method, NULL};
 
+int in_sequence = 0;
+tw_stime mn_msg_offset = 0.0;
+
 static int model_net_get_msg_sz(int net_id);
 
 int model_net_setup(char* name,
@@ -175,7 +178,7 @@ void model_net_event(
      * passed along through network hops and delivered to final_dest_lp
      */
 
-     tw_stime offset = 0.0;
+     tw_stime offset = (in_sequence) ? mn_msg_offset : 0.0;
      for( i = 0; i < num_packets; i++ )
        {
 	  /*Mark the last packet to the net method API*/
@@ -190,6 +193,7 @@ void model_net_event(
                   final_dest_lp, packet_size, offset, remote_event_size, remote_event,
                   self_event_size, self_event, sender, last);
        }
+    if (in_sequence) mn_msg_offset = offset;
     return;
 }
 
