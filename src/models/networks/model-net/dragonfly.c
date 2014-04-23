@@ -56,7 +56,7 @@ static void dragonfly_report_stats()
    return;
 }
 /* dragonfly packet event , generates a dragonfly packet on the compute node */
-static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, int packet_size, tw_stime offset, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lp *sender, int is_last_pckt)
+static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, tw_stime offset, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lp *sender, int is_last_pckt)
 {
     tw_event * e_new;
     tw_stime xfer_to_nic_time;

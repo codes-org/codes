@@ -38,7 +38,7 @@ static void torus_packet_event_rc(tw_lp *sender)
 }
 
 /* torus packet event , generates a torus packet on the compute node */
-static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, int packet_size, tw_stime offset, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lp *sender, int is_last_pckt)
+static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, tw_stime offset, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lp *sender, int is_last_pckt)
 {
     tw_event * e_new;
     tw_stime xfer_to_nic_time;

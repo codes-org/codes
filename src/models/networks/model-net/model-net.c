@@ -29,7 +29,7 @@ tw_stime mn_msg_offset = 0.0;
 static int model_net_get_msg_sz(int net_id);
 
 int model_net_setup(char* name,
-		    int packet_size,
+		    uint64_t packet_size,
 		    const void* net_params)
 {
      int i;
@@ -134,7 +134,7 @@ void model_net_event(
     int net_id,
     char* category, 
     tw_lpid final_dest_lp, 
-    int message_size, 
+    uint64_t message_size, 
     int remote_event_size,
     const void* remote_event,
     int self_event_size,
@@ -142,9 +142,9 @@ void model_net_event(
     tw_lp *sender)
 {
     /* determine packet size for underlying method */
-     int packet_size = model_net_get_packet_size(net_id);
-     int num_packets = message_size/packet_size; /* Number of packets to be issued by the API */
-     int i;
+     uint64_t packet_size = model_net_get_packet_size(net_id);
+     uint64_t num_packets = message_size/packet_size; /* Number of packets to be issued by the API */
+     uint64_t i;
      int last = 0;
 
      //printf("\n number of packets %d message size %d ", num_packets, message_size);
@@ -200,18 +200,20 @@ void model_net_event(
 int model_net_set_params()
 {
   char mn_name[MAX_NAME_LENGTH];
-  int packet_size = 0;
+  long int packet_size_l = 0;
+  uint64_t packet_size;
   int net_id=-1;
 
   config_lpgroups_t paramconf;
   configuration_get_lpgroups(&config, "PARAMS", &paramconf);
   configuration_get_value(&config, "PARAMS", "modelnet", mn_name, MAX_NAME_LENGTH);
-  configuration_get_value_int(&config, "PARAMS", "packet_size", &packet_size);
+  configuration_get_value_longint(&config, "PARAMS", "packet_size", &packet_size_l);
+  packet_size = packet_size_l;
 
   if(!packet_size)
   {
 	packet_size = 512;
-	printf("\n Warning, no packet size specified, setting packet size to %d ", packet_size);
+	printf("\n Warning, no packet size specified, setting packet size to %llu ", packet_size);
   }
   if(strcmp("simplenet",mn_name)==0)
    {
@@ -394,14 +396,14 @@ int model_net_set_params()
 void model_net_event_rc(
     int net_id,
     tw_lp *sender,
-    int message_size)
+    uint64_t message_size)
 {
     /* this will be used for reverse computation of anything calculated
      * within th model_net_event() function call itself (not reverse
      * handling for the underlying methods, which will have their own events
      * and reverse handlers
      */
-    int packet_size = model_net_get_packet_size(net_id);
+    uint64_t packet_size = model_net_get_packet_size(net_id);
     int num_packets = message_size/packet_size; /* For rolling back */
     int i;
 
@@ -431,7 +433,7 @@ static int model_net_get_msg_sz(int net_id)
 }
 
 /* returns the packet size in the modelnet struct */
-int model_net_get_packet_size(int net_id)
+uint64_t model_net_get_packet_size(int net_id)
 {
   if(net_id < 0 || net_id >= MAX_NETS)
      {

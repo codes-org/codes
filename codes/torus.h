@@ -62,7 +62,7 @@ typedef struct nodes_message nodes_message;
 static tw_stime torus_packet_event(
 		       char* category,
 		       tw_lpid final_dest_lp,
-		       int packet_size,
+		       uint64_t packet_size,
                        tw_stime offset,
 		       int remote_event_size,
 		       const void* remote_event,
@@ -166,7 +166,7 @@ struct nodes_message
   /* next torus hop that the packet will traverse */
   int next_stop;
   /* size of the torus packet */
-  int packet_size;
+  uint64_t packet_size;
   /* chunk id of the flit (distinguishes flits) */
   short chunk_id;
 
@@ -190,7 +190,7 @@ static long long       N_finished_packets = 0;
 static long long       total_hops = 0;
 
 /* number of chunks/flits in each torus packet, calculated through the size of each flit (32 bytes by default) */
-int num_chunks;
+uint64_t num_chunks;
 
 #endif
 

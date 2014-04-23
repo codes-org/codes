@@ -44,7 +44,7 @@ struct sn_message
     enum sn_event_type event_type;
     tw_lpid src_gid; /* who transmitted this msg? */
     tw_lpid final_dest_gid; /* who is eventually targetted with this msg? */
-    int net_msg_size_bytes;     /* size of modeled network message */
+    uint64_t net_msg_size_bytes;     /* size of modeled network message */
     int event_size_bytes;     /* size of simulator event message that will be tunnelled to destination */
     int local_event_size_bytes;     /* size of simulator event message that delivered locally upon local completion */
     char category[CATEGORY_NAME_MAX]; /* category for communication */
@@ -101,7 +101,7 @@ static void sn_setup(const void* net_params);
 static tw_stime simplenet_packet_event(
      char* category, 
      tw_lpid final_dest_lp, 
-     int packet_size, 
+     uint64_t packet_size, 
      tw_stime offset,
      int remote_event_size, 
      const void* remote_event, 
@@ -156,7 +156,7 @@ tw_lptype sn_lp = {
      sizeof(sn_state),
 };
 
-static tw_stime rate_to_ns(unsigned int bytes, double MB_p_s);
+static tw_stime rate_to_ns(uint64_t bytes, double MB_p_s);
 static void handle_msg_ready_rev_event(
     sn_state * ns,
     tw_bf * b,
@@ -287,7 +287,7 @@ int sn_get_magic()
 }
 
 /* convert MiB/s and bytes to ns */
-static tw_stime rate_to_ns(unsigned int bytes, double MB_p_s)
+static tw_stime rate_to_ns(uint64_t bytes, double MB_p_s)
 {
     tw_stime time;
 
@@ -480,7 +480,7 @@ static void handle_msg_start_event(
 static tw_stime simplenet_packet_event(
 		char* category,
 		tw_lpid final_dest_lp,
-		int packet_size,
+		uint64_t packet_size,
                 tw_stime offset,
 		int remote_event_size,
 		const void* remote_event,

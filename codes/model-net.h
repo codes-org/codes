@@ -11,6 +11,7 @@
 #include "codes/lp-type-lookup.h"
 #include "codes/configuration.h"
 #include "codes/lp-io.h"
+#include <stdint.h>
 
 #define MAX_NAME_LENGTH 256
 #define CATEGORY_NAME_MAX 16
@@ -119,7 +120,7 @@ struct torus_param
 int model_net_set_params();
 
 // setup the modelnet parameters
-int model_net_setup(char* net_name, int packet_size, const void* net_params);
+int model_net_setup(char* net_name, uint64_t packet_size, const void* net_params);
 /* allocate and transmit a new event that will pass through model_net to 
  * arrive at its destination:
  *
@@ -152,7 +153,7 @@ void model_net_event(
     int net_id,
     char* category, 
     tw_lpid final_dest_lp, 
-    int message_size, 
+    uint64_t message_size, 
     int remote_event_size,
     const void* remote_event,
     int self_event_size,
@@ -178,12 +179,12 @@ tw_lpid model_net_find_local_device(int net_id, tw_lp *sender);
 void model_net_event_rc(
     int net_id,
     tw_lp *sender,
-    int message_size);
+    uint64_t message_size);
 
 /* returns pointer to LP information for simplenet module */
 const tw_lptype* model_net_get_lp_type(int net_id);
 
-int model_net_get_packet_size(int net_id);
+uint64_t model_net_get_packet_size(int net_id);
 
 void model_net_add_lp_type(int net_id);
 

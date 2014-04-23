@@ -44,7 +44,7 @@ struct loggp_message
     enum loggp_event_type event_type;
     tw_lpid src_gid; /* who transmitted this msg? */
     tw_lpid final_dest_gid; /* who is eventually targetted with this msg? */
-    int net_msg_size_bytes;     /* size of modeled network message */
+    uint64_t net_msg_size_bytes;     /* size of modeled network message */
     int event_size_bytes;     /* size of simulator event message that will be tunnelled to destination */
     int local_event_size_bytes;     /* size of simulator event message that delivered locally upon local completion */
     char category[CATEGORY_NAME_MAX]; /* category for communication */
@@ -59,7 +59,7 @@ struct loggp_message
 /* loggp parameters for a given msg size, as reported by netgauge */
 struct param_table_entry
 {
-    int size;
+    uint64_t size;
     int n;
     double PRTT_10s;
     double PRTT_n0s;
@@ -108,7 +108,7 @@ static void loggp_setup(const void* net_params);
 static tw_stime loggp_packet_event(
      char* category, 
      tw_lpid final_dest_lp, 
-     int packet_size, 
+     uint64_t packet_size, 
      tw_stime offset,
      int remote_event_size, 
      const void* remote_event, 
@@ -124,7 +124,7 @@ static void loggp_report_stats();
 
 static tw_lpid loggp_find_local_device(tw_lp *sender);
 
-static struct param_table_entry* find_params(int msg_size);
+static struct param_table_entry* find_params(uint64_t msg_size);
 
 /* data structure for model-net statistics */
 struct model_net_method loggp_method =
@@ -484,7 +484,7 @@ static void handle_msg_start_event(
 static tw_stime loggp_packet_event(
 		char* category,
 		tw_lpid final_dest_lp,
-		int packet_size,
+		uint64_t packet_size,
                 tw_stime offset,
 		int remote_event_size,
 		const void* remote_event,
@@ -565,7 +565,7 @@ static void loggp_setup(const void* net_params)
         line_nr++;
         if(buffer[0] == '#')
             continue;
-        ret = sscanf(buffer, "%d %d %lf %lf %lf %lf %lf %lf %lf %lf %lf", 
+        ret = sscanf(buffer, "%llu %d %lf %lf %lf %lf %lf %lf %lf %lf %lf", 
             &param_table[param_table_size].size,
             &param_table[param_table_size].n,
             &param_table[param_table_size].PRTT_10s,
@@ -601,7 +601,7 @@ static void loggp_packet_event_rc(tw_lp *sender)
 
 /* find the parameters corresponding to the message size we are transmitting
  */
-static struct param_table_entry* find_params(int msg_size)
+static struct param_table_entry* find_params(uint64_t msg_size)
 {
     int i;
 
