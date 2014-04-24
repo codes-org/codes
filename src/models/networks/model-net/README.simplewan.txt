@@ -22,18 +22,30 @@ relative to the configuration file) to configurations for the startup and
 bandwidth costs, respectively.
 
 Each of the latency/bandwidth configuration files have the same format, based
-on a triangular matrix. Given N modelnet LPs, it has the format:
+on a square matrix of directed point to point capacities. Given N modelnet LPs,
+it has the format:
+
+1:1 1:2 ... 1:N
+2:1 2:2 ... 2:N
+      ...
+N:1 N:2 ... N:N
+
+where x:y is the latency or bandwidth between components x and y. Whitespace is
+ignored, but linebreaks are not, and delimit rows of the matrix. The relative
+simplewan identifiers 1..N are assigned to simplewan LPs in the order of
+their appearance in the codes-configuration file. It is expected that all i:i
+entries are 0 - modelnet currently doesn't handle self messages.
+
+Support in the code is also available for triangular matrices of the format:
 
 1:2 1:3   ...   1:N
     2:3 2:4 ... 2:N
         ...
                 N-1:N
 
-where x:y is the latency or bandwidth between components x and y. Whitespace is
-ignored, but linebreaks are not, and delimit rows of the matrix. The relative
-simplewan identifiers 1..N are assigned to simplewan LPs in the order of
-their appearance in the codes-configuration file. In the future, a full NxN
-matrix may be used to facilitate asymmetric link capacities if the need arises.
+However, this option is currently disabled (the configuration code path has not
+been expanded to allow specifying the option). The option will be enabled
+into the configuration routines if deemed necessary.
 
 Caveats:
 --------

@@ -88,6 +88,7 @@ struct sw_message
 static double *global_net_startup_ns = NULL;
 /* net bw, MB/s */
 static double *global_net_bw_mbs = NULL;
+static int mat_len = -1;
 /* number of simplewan lps, used for addressing the network parameters
  * set by the first LP to init per process */
 static int num_lps = -1;
@@ -233,7 +234,7 @@ static int sw_get_msg_sz(void)
     return(sizeof(sw_message));
 }
 
-static double * parse_tri_mat(char * buf, int *nvals_first, int *nvals_total){
+static double * parse_mat(char * buf, int *nvals_first, int *nvals_total, int is_tri_mat){
     int bufn = 128;
     double *vals = malloc(bufn*sizeof(double));
 
@@ -261,8 +262,12 @@ static double * parse_tri_mat(char * buf, int *nvals_first, int *nvals_total){
         if (*nvals_first == 0) {
             *nvals_first = line_ct;
         }
-        else if (line_ct != line_ct_prev-1){
+        else if (is_tri_mat && line_ct != line_ct_prev-1){
             fprintf(stderr, "ERROR: tokens in line don't match triangular matrix format\n");
+            exit(1);
+        }
+        else if (!is_tri_mat && line_ct != line_ct_prev){
+            fprintf(stderr, "ERROR: tokens in line don't match square matrix format\n");
             exit(1);
         }
         *nvals_total += line_ct;
@@ -293,6 +298,8 @@ static void fill_tri_mat(int N, double *mat, double *tri){
 /* lets caller specify model parameters to use */
 static void sw_set_params(char * startup_fname, char * bw_fname){
     long int fsize_s, fsize_b;
+    /* TODO: make this a run-time option */
+    int is_tri_mat = 0;
 
     /* slurp the files */
     FILE *sf = fopen(startup_fname, "r");
@@ -314,20 +321,25 @@ static void sw_set_params(char * startup_fname, char * bw_fname){
 
     int nvals_first_s, nvals_first_b, nvals_total_s, nvals_total_b;
 
-    double *startup_tmp = parse_tri_mat(sbuf, &nvals_first_s, 
-            &nvals_total_s);
-    double *bw_tmp = parse_tri_mat(bbuf, &nvals_first_b, &nvals_total_b);
+    double *startup_tmp = parse_mat(sbuf, &nvals_first_s, 
+            &nvals_total_s, is_tri_mat);
+    double *bw_tmp = parse_mat(bbuf, &nvals_first_b, &nvals_total_b, is_tri_mat);
 
     /* convert tri mat into a regular mat */
     assert(nvals_first_s == nvals_first_b);
-    int N = nvals_first_s + 1;
-    global_net_startup_ns = malloc(N*N*sizeof(double));
-    global_net_bw_mbs = malloc(N*N*sizeof(double));
-    /* first fill in mat, then fill opposites */
-    fill_tri_mat(N, global_net_startup_ns, startup_tmp);
-    fill_tri_mat(N, global_net_bw_mbs, bw_tmp);
-    free(startup_tmp);
-    free(bw_tmp);
+    mat_len = nvals_first_s + ((is_tri_mat) ? 1 : 0);
+    if (is_tri_mat){
+        global_net_startup_ns = malloc(mat_len*mat_len*sizeof(double));
+        global_net_bw_mbs = malloc(mat_len*mat_len*sizeof(double));
+        fill_tri_mat(mat_len, global_net_startup_ns, startup_tmp);
+        fill_tri_mat(mat_len, global_net_bw_mbs, bw_tmp);
+        free(startup_tmp);
+        free(bw_tmp);
+    }
+    else{
+        global_net_startup_ns = startup_tmp;
+        global_net_bw_mbs = bw_tmp;
+    }
 
     /* done */
 }
@@ -356,6 +368,14 @@ static void sw_init(
     if (num_lps == -1){
         num_lps = codes_mapping_get_global_lp_count("modelnet_simplewan");
         assert(num_lps > 0);
+        if (mat_len == -1){
+            tw_error(TW_LOC, "Simplewan config matrix not initialized "
+                             "at lp init time\n");
+        }
+        else if (mat_len != num_lps){
+            tw_error(TW_LOC, "Simplewan config matrix doesn't match the "
+                             "number of simplewan LPs\n");
+        }
     }
 
     /* all devices are idle to begin with */
