@@ -15,7 +15,7 @@
 #define DEF_INTER_IO_DELAY_PCT 0.4
 #define DEF_INTER_CYC_DELAY_PCT 0.2
 
-#define DARSHAN_NEGLIGIBLE_DELAY 0.001
+#define DARSHAN_NEGLIGIBLE_DELAY 0.00001
 
 #define RANK_HASH_TABLE_SIZE 397
 
@@ -78,7 +78,8 @@ static double generate_psx_ind_io_events(struct darshan_file *file, int64_t io_o
 static double generate_psx_coll_io_events(struct darshan_file *file, int64_t ind_io_ops_this_cycle,
                                           int64_t coll_io_ops_this_cycle, int64_t nprocs,
                                           int64_t aggregator_cnt, double inter_io_delay,
-                                          double cur_time, struct rank_io_context *io_context);
+                                          double meta_op_time, double cur_time,
+                                          struct rank_io_context *io_context);
 static void determine_io_params(struct darshan_file *file, int write_flag, int64_t io_this_op,
                                 int64_t proc_count, size_t *io_sz, off_t *io_off);
 static void determine_coll_io_params(struct darshan_file *file, int write_flag, int64_t coll_op_cnt,
@@ -112,7 +113,6 @@ static int darshan_io_workload_load(const char *params, int rank)
     struct darshan_job job;
     struct darshan_file next_file;
     struct rank_io_context *my_ctx;
-    struct darshan_io_op end_op;
     int ret;
 
     if (!d_params)
@@ -183,12 +183,6 @@ static int darshan_io_workload_load(const char *params, int rank)
         return -1;
 
     darshan_log_close(logfile_fd);
-
-    /* tack a workload end file on the end of the events list */
-    /* NOTE: this helps us generate a delay from the last close to program termination */
-    end_op.codes_op.op_type = CODES_WK_END;
-    end_op.start_time = end_op.end_time = job.end_time - job.start_time + 1;
-    darshan_insert_next_io_op(my_ctx->io_op_dat, &end_op);
 
     /* finalize the rank's i/o context so i/o ops may be retrieved later (in order) */
     darshan_finalize_io_op_dat(my_ctx->io_op_dat);
@@ -548,8 +542,20 @@ void generate_psx_coll_file_events(
      */
     assert(file->counters[CP_POSIX_OPENS] >= nprocs);
 
+    total_delay = file->fcounters[CP_F_CLOSE_TIMESTAMP] -
+                  file->fcounters[CP_F_OPEN_TIMESTAMP] -
+                  file->fcounters[CP_F_SLOWEST_RANK_TIME];
+
     if (file->counters[CP_COLL_OPENS] || file->counters[CP_INDEP_OPENS])
     {
+        /* Subtract a portion of MPI r/w overhead from the total delay.
+         * This accounts for time spent synchronizing, since we generate barrier events.
+         * Note: 60% of mpi read/write time seems to be an appropriate approx of sync duration.
+         */
+        total_delay -= ((((file->fcounters[CP_F_MPI_READ_TIME] +
+                       file->fcounters[CP_F_MPI_WRITE_TIME]) / nprocs) -
+                       file->fcounters[CP_F_SLOWEST_RANK_TIME]) * .6);
+
         extra_opens = file->counters[CP_POSIX_OPENS] - file->counters[CP_COLL_OPENS] -
                       file->counters[CP_INDEP_OPENS];
 
@@ -561,12 +567,6 @@ void generate_psx_coll_file_events(
 
         if (file->counters[CP_COLL_OPENS])
         {
-            total_delay = (file->fcounters[CP_F_CLOSE_TIMESTAMP] -
-                           file->fcounters[CP_F_OPEN_TIMESTAMP] -
-                           (file->fcounters[CP_F_POSIX_READ_TIME] / in_agg_cnt) -
-                           (file->fcounters[CP_F_POSIX_WRITE_TIME] / in_agg_cnt) -
-                           (file->fcounters[CP_F_POSIX_META_TIME] / in_agg_cnt));
-
             open_cycles = total_coll_opens / nprocs;
             calc_io_delays(file, ceil(((double)(total_coll_opens + total_ind_opens)) / nprocs),
                            total_coll_io_ops + ceil((double)total_ind_io_ops / nprocs), total_delay,
@@ -574,12 +574,6 @@ void generate_psx_coll_file_events(
         }
         else
         {
-            total_delay = (file->fcounters[CP_F_CLOSE_TIMESTAMP] -
-                           file->fcounters[CP_F_OPEN_TIMESTAMP] -
-                           (file->fcounters[CP_F_POSIX_READ_TIME] / nprocs) -
-                           (file->fcounters[CP_F_POSIX_WRITE_TIME] / nprocs) -
-                           (file->fcounters[CP_F_POSIX_META_TIME] / nprocs));
-
             open_cycles = ceil((double)total_ind_opens / nprocs);
             calc_io_delays(file, open_cycles, ceil((double)total_ind_io_ops / nprocs), total_delay,
                            &first_io_delay, &close_delay, &inter_cycle_delay, &inter_io_delay);
@@ -608,12 +602,6 @@ void generate_psx_coll_file_events(
         total_ind_io_ops = total_io_ops - extra_io_ops;
         total_coll_io_ops = 0;
 
-        total_delay = (file->fcounters[CP_F_CLOSE_TIMESTAMP] -
-                       file->fcounters[CP_F_OPEN_TIMESTAMP] -
-                       (file->fcounters[CP_F_POSIX_READ_TIME] / nprocs) -
-                       (file->fcounters[CP_F_POSIX_WRITE_TIME] / nprocs) -
-                       (file->fcounters[CP_F_POSIX_META_TIME] / nprocs));
-
         open_cycles = ceil((double)total_ind_opens / nprocs);
         calc_io_delays(file, open_cycles, ceil((double)total_ind_io_ops / nprocs), total_delay,
                        &first_io_delay, &close_delay, &inter_cycle_delay, &inter_io_delay);
@@ -621,7 +609,8 @@ void generate_psx_coll_file_events(
     assert(extra_opens <= open_cycles);
 
     /* calculate average meta op time (for i/o and opens/closes) */
-    meta_op_time = file->fcounters[CP_F_POSIX_META_TIME] / (2 * file->counters[CP_POSIX_OPENS]);
+    meta_op_time = file->fcounters[CP_F_POSIX_META_TIME] / ((2 * file->counters[CP_POSIX_OPENS]) +
+                   file->counters[CP_POSIX_READS] + file->counters[CP_POSIX_WRITES]);
 
     /* it is rare to overwrite existing files, so set the create flag */
     if (file->counters[CP_BYTES_WRITTEN])
@@ -648,7 +637,7 @@ void generate_psx_coll_file_events(
             {
                 /* TODO: we probably want to use ind_io here */
                 cur_time = generate_psx_coll_io_events(file, 1, 0, nprocs, nprocs, 0.0,
-                                                       cur_time, io_context);
+                                                       meta_op_time, cur_time, io_context);
                 extra_io_ops--;
             }
 
@@ -673,7 +662,8 @@ void generate_psx_coll_file_events(
 
             ind_io_ops_this_cycle = ceil(((double)total_ind_io_ops / total_ind_opens) * rank_cnt);
             cur_time = generate_psx_coll_io_events(file, ind_io_ops_this_cycle, 0, nprocs,
-                                                   nprocs, inter_io_delay, cur_time, io_context);
+                                                   nprocs, inter_io_delay, meta_op_time,
+                                                   cur_time, io_context);
             total_ind_io_ops -= ind_io_ops_this_cycle;
 
             cur_time += close_delay;
@@ -710,7 +700,8 @@ void generate_psx_coll_file_events(
                                           (file->counters[CP_COLL_OPENS] / nprocs));
             cur_time = generate_psx_coll_io_events(file, ind_io_ops_this_cycle,
                                                    coll_io_ops_this_cycle, nprocs, in_agg_cnt,
-                                                   inter_io_delay, cur_time, io_context);
+                                                   inter_io_delay, meta_op_time, cur_time,
+                                                   io_context);
             total_ind_io_ops -= ind_io_ops_this_cycle;
             total_coll_io_ops -= coll_io_ops_this_cycle;
 
@@ -933,8 +924,8 @@ static double generate_psx_ind_io_events(
 
 static double generate_psx_coll_io_events(
     struct darshan_file *file, int64_t ind_io_ops_this_cycle, int64_t coll_io_ops_this_cycle,
-    int64_t nprocs, int64_t aggregator_cnt, double inter_io_delay, double cur_time,
-    struct rank_io_context *io_context)
+    int64_t nprocs, int64_t aggregator_cnt, double inter_io_delay, double meta_op_time,
+    double cur_time, struct rank_io_context *io_context)
 {
     static int rw = -1; /* rw = 1 for write, 0 for read, -1 for uninitialized */
     static int64_t io_ops_this_rw;
@@ -1070,7 +1061,7 @@ static double generate_psx_coll_io_events(
                         else
                             io_op_time = (io_sz / rd_bw);
                         
-                        next_io_op.end_time = cur_time + io_op_time;
+                        next_io_op.end_time = cur_time + io_op_time + meta_op_time;
                         file->counters[CP_POSIX_READS] -= tmp_coll_cnt;
                     }
                     else
@@ -1088,7 +1079,7 @@ static double generate_psx_coll_io_events(
                         else
                             io_op_time = (io_sz / wr_bw);
 
-                        next_io_op.end_time = cur_time + io_op_time;
+                        next_io_op.end_time = cur_time + io_op_time + meta_op_time;
                         file->counters[CP_POSIX_WRITES] -= tmp_coll_cnt;
                     }
 
@@ -1813,9 +1804,10 @@ static void file_sanity_check(
     file->counters[CP_POSIX_SEEKS] += file->counters[CP_POSIX_FSEEKS];
 
     /* reduce total meta time by percentage of ops not currently implemented */
-    ops_not_implemented = file->counters[CP_POSIX_SEEKS] + file->counters[CP_POSIX_STATS] +
-                          file->counters[CP_POSIX_FSYNCS];
-    ops_total = ops_not_implemented + (2 * file->counters[CP_POSIX_OPENS]);
+    /* NOTE: we lump fseeks and r/w operations together when setting op durations ... */
+    ops_not_implemented = file->counters[CP_POSIX_STATS] + file->counters[CP_POSIX_FSYNCS];
+    ops_total = ops_not_implemented + (2 * file->counters[CP_POSIX_OPENS]) +
+                file->counters[CP_POSIX_SEEKS];
     file->fcounters[CP_F_POSIX_META_TIME] *= (1 - ((double)ops_not_implemented / ops_total));
 
     return;
