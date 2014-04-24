@@ -24,7 +24,9 @@
 #include "codes/quickhash.h"
 #include "codes/configuration.h"
 
-#define WORKLOAD_DELAY_PCT 0.95
+#define DEBUG_PROFILING 1
+
+#define WORKLOAD_DELAY_PCT 1
 
 /* hash table entry for looking up file descriptor of a workload file id */
 struct file_info
@@ -47,6 +49,14 @@ static struct qhash_table *fd_table = NULL;
 
 /* file stream to log rank events to, if verbose turned on */
 static FILE *log_stream = NULL;
+
+/* global variables for profiling different portions of the replay, if enabled */
+static double total_open_time = 0.0;
+static double total_close_time = 0.0;
+static double total_read_time = 0.0;
+static double total_write_time = 0.0;
+static double total_delay_time = 0.0;
+static double total_barrier_time = 0.0;
 
 void usage(char *exename)
 {
@@ -166,7 +176,7 @@ int load_workload(char *conf_path, int rank)
     else if (strcmp(workload_type, "recorder_io_workload") == 0) {
         struct recorder_params r_params;
 
-        /* get the darshan params from the config file */
+        /* get the recorder params from the config file */
         configuration_get_value(&config, "PARAMS", "trace_dir_path",
                                 r_params.trace_dir_path, MAX_NAME_LENGTH_WKLD);
 
@@ -254,12 +264,17 @@ int main(int argc, char *argv[])
         /* subtract the load time from any initial delay to be fair */
         if (first_op && (next_op.op_type == CODES_WK_DELAY))
         {
-            if (next_op.u.delay.seconds > (load_end - load_start))
-                next_op.u.delay.seconds -= (load_end - load_start);
-            else
-                continue;
-
             first_op = 0;
+            if (next_op.u.delay.seconds > (load_end - load_start))
+            {
+                next_op.u.delay.seconds -= (load_end - load_start);
+            }
+            else
+            {
+                printf("Replay workload is %.4lf seconds behind original workload\n",
+                       (double)(load_end - load_start));
+                continue;
+            }
         }
 
         if (next_op.op_type != CODES_WK_END)
@@ -288,6 +303,12 @@ int main(int argc, char *argv[])
     /* destroy and finalize the file descriptor hash table */
     qhash_destroy_and_finalize(fd_table, struct file_info, hash_link, free);
 
+#if DEBUG_PROFILING
+    printf("Rank %d:\td=%.4lf, b=%.4lf, o=%.4lf, c=%.4lf, r=%.4lf, w=%.4lf\n",
+           myrank, total_delay_time, total_barrier_time, total_open_time,
+           total_close_time, total_read_time, total_write_time);
+#endif
+
 error_exit:
     MPI_Finalize();
 
@@ -305,6 +326,11 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
     struct qlist_head *hash_link = NULL;
     char *buf = NULL;
     int ret;
+    double start, end;
+
+#if DEBUG_PROFILING
+    start = MPI_Wtime();
+#endif
 
     switch (replay_op.op_type)
     {
@@ -316,8 +342,8 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             if (!opt_noop)
             {
                 /* satisfy delay using second delay then microsecond delay */
-                secs = floor(replay_op.u.delay.seconds);
-                usecs = round((replay_op.u.delay.seconds - secs) * 1000 * 1000);
+                secs = (unsigned int)replay_op.u.delay.seconds;
+                usecs = (unsigned int)((replay_op.u.delay.seconds - secs) * 1000 * 1000);
                 ret = sleep(secs);
                 if (ret)
                 {
@@ -335,6 +361,10 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                             rank, op_number, strerror(errno));
                     return -1;
                 }
+#if DEBUG_PROFILING
+                end = MPI_Wtime();
+                total_delay_time += (end - start);
+#endif
             }
             return 0;
         case CODES_WK_BARRIER:
@@ -352,6 +382,11 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                             rank, op_number, "Invalid communicator");
                     return -1;
                 }
+
+#if DEBUG_PROFILING
+                end = MPI_Wtime();
+                total_barrier_time += (end - start);
+#endif
             }
             return 0;
         case CODES_WK_OPEN:
@@ -393,6 +428,11 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                 tmp_list->file_hash = replay_op.u.open.file_id;
                 tmp_list->file_descriptor = fildes;
                 qhash_add(fd_table, &(replay_op.u.open.file_id), &(tmp_list->hash_link));
+
+#if DEBUG_PROFILING
+                end = MPI_Wtime();
+                total_open_time += (end - start);
+#endif
             }
             return 0;
         case CODES_WK_CLOSE:
@@ -417,6 +457,11 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                             rank, op_number, strerror(errno));
                     return -1;
                 }
+
+#if DEBUG_PROFILING
+                end = MPI_Wtime();
+                total_close_time += (end - start);
+#endif
             }
             return 0;
         case CODES_WK_WRITE:
@@ -449,6 +494,11 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                             rank, op_number, strerror(errno));
                     return -1;
                 }
+
+#if DEBUG_PROFILING
+                end = MPI_Wtime();
+                total_write_time += (end - start);
+#endif
             }
             return 0;
         case CODES_WK_READ:
@@ -480,6 +530,11 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                             rank, op_number, strerror(errno));
                     return -1;
                 }
+
+#if DEBUG_PROFILING
+                end = MPI_Wtime();
+                total_read_time += (end - start);
+#endif
             }
             return 0;
         default:
