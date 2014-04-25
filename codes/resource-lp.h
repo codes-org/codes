@@ -1,0 +1,84 @@
+/*
+ * Copyright (C) 2014 University of Chicago.
+ * See COPYRIGHT notice in top-level directory.
+ *
+*/
+
+/* this header defines the user-facing functionality needed to interact with a
+ * resource LP. All of the LP-specific implementation details are in the
+ * corresponding C file */
+
+#ifndef RESOURCE_LP_H
+#define RESOURCE_LP_H
+
+#include "ross.h"
+#include "codes/lp-msg.h"
+#include "codes/resource.h"
+#include <stdint.h>
+
+
+typedef struct {
+    int ret;
+    /* in the case of a reserve, need to return the token */
+    resource_token_t tok;
+} resource_callback;
+
+void resource_lp_init();
+
+/* Wrappers for the underlying resource structure.
+ * Implicitly maps the given LPID to it's group and repetition, then messages
+ * the resource LP with the request.
+ * Msg_size is where to 
+ * The "set" function is the initializer, to be called by exactly one LP in the
+ * group that contains the resource to initialize */
+void resource_lp_set(tw_lpid src, uint64_t avail);
+/* The following functions expect the sending LP to put its gid in the
+ * header->src field, along with its magic and callback event type */
+void resource_lp_get(
+        msg_header *header,
+        uint64_t req, 
+        int msg_size, 
+        int msg_header_offset,
+        int msg_callback_offset,
+        tw_lp *sender);
+/* no callback for frees thus far */
+void resource_lp_free(msg_header *header, uint64_t req, tw_lp *sender);
+void resource_lp_reserve(
+        msg_header *header, 
+        uint64_t req,
+        int msg_size,
+        int msg_header_offset,
+        int msg_callback_offset,
+        tw_lp *sender);
+void resource_lp_get_reserved(
+        msg_header *header,
+        uint64_t req,
+        resource_token_t tok,
+        int msg_size, 
+        int msg_header_offset,
+        int msg_callback_offset,
+        tw_lp *sender);
+void resource_lp_free_reserved(
+        msg_header *header, 
+        uint64_t req,
+        resource_token_t tok,
+        tw_lp *sender);
+
+/* rc functions - thankfully, they only use codes-local-latency, so no need 
+ * to pass in any arguments */
+void resource_lp_get_rc(tw_lp *sender);
+void resource_lp_free_rc(tw_lp *sender);
+void resource_lp_reserve_rc(tw_lp *sender);
+void resource_lp_get_reserved_rc(tw_lp *sender);
+void resource_lp_free_reserved_rc(tw_lp *sender);
+
+#endif /* end of include guard: RESOURCE_LP_H */
+
+/*
+ * Local variables:
+ *  c-indent-level: 4
+ *  c-basic-offset: 4
+ * End:
+ *
+ * vim: ts=8 sts=4 sw=4 expandtab
+ */
