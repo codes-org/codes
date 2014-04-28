@@ -24,16 +24,14 @@ typedef struct {
 } resource_callback;
 
 void resource_lp_init();
+void resource_lp_configure();
 
 /* Wrappers for the underlying resource structure.
  * Implicitly maps the given LPID to it's group and repetition, then messages
  * the resource LP with the request.
- * Msg_size is where to 
- * The "set" function is the initializer, to be called by exactly one LP in the
- * group that contains the resource to initialize */
-void resource_lp_set(tw_lpid src, uint64_t avail);
-/* The following functions expect the sending LP to put its gid in the
- * header->src field, along with its magic and callback event type */
+ * The following functions expect the sending LP to put its magic and callback
+ * event type into the header parameter (lpid not necessary, it's grabbed from
+ * sender) */
 void resource_lp_get(
         msg_header *header,
         uint64_t req, 
@@ -42,7 +40,7 @@ void resource_lp_get(
         int msg_callback_offset,
         tw_lp *sender);
 /* no callback for frees thus far */
-void resource_lp_free(msg_header *header, uint64_t req, tw_lp *sender);
+void resource_lp_free(uint64_t req, tw_lp *sender);
 void resource_lp_reserve(
         msg_header *header, 
         uint64_t req,
@@ -59,7 +57,6 @@ void resource_lp_get_reserved(
         int msg_callback_offset,
         tw_lp *sender);
 void resource_lp_free_reserved(
-        msg_header *header, 
         uint64_t req,
         resource_token_t tok,
         tw_lp *sender);

@@ -160,8 +160,8 @@ void resource_event_handler(
         c.tok = tok;
 
         /* before we send the message, sanity check the sizes */
-        if (m->msg_size <= m->msg_header_offset+sizeof(h) &&
-                m->msg_size <= m->msg_callback_offset+sizeof(c)){
+        if (m->msg_size >= m->msg_header_offset+sizeof(h) &&
+                m->msg_size >= m->msg_callback_offset+sizeof(c)){
             tw_event *e = codes_event_new(m->h_callback.src, 
                     codes_local_latency(lp), lp);
             void *msg = tw_event_data(e);
@@ -278,12 +278,14 @@ static void resource_lp_issue_event(
 
     /* set message info */
     resource_msg *m = tw_event_data(e);
-    msg_set_header(header->src, resource_magic, type, &m->h);
+    msg_set_header(resource_magic, type, sender->gid, &m->h);
     m->req = req;
     m->tok = tok;
 
     /* set callback info */
-    m->h_callback = *header;
+    if (header != NULL){
+        m->h_callback = *header;
+    }
     m->msg_size = msg_size;
     m->msg_header_offset = msg_header_offset;
     m->msg_callback_offset = msg_callback_offset;
@@ -303,8 +305,8 @@ void resource_lp_get(
 }
 
 /* no callback for frees thus far */
-void resource_lp_free(msg_header *header, uint64_t req, tw_lp *sender){
-    resource_lp_issue_event(header, req, TOKEN_DUMMY, -1,-1,-1,
+void resource_lp_free(uint64_t req, tw_lp *sender){
+    resource_lp_issue_event(NULL, req, TOKEN_DUMMY, -1,-1,-1,
             RESOURCE_FREE, sender);
 }
 void resource_lp_reserve(
@@ -330,11 +332,10 @@ void resource_lp_get_reserved(
             sender);
 }
 void resource_lp_free_reserved(
-        msg_header *header, 
         uint64_t req, 
         resource_token_t tok,
         tw_lp *sender){
-    resource_lp_issue_event(header, req, tok, -1,-1,-1, RESOURCE_FREE_RESERVED,
+    resource_lp_issue_event(NULL, req, tok, -1,-1,-1, RESOURCE_FREE_RESERVED,
             sender);
 }
 

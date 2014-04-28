@@ -46,7 +46,7 @@ int resource_reserve(uint64_t req, resource_token_t *tok, resource *r){
     }
 }
 
-/* Acquire req units of the resource from a reserved pool */ 
+/* Acquire req units of the resource from a reserved pool */
 int reserved_get(uint64_t req, resource_token_t tok, resource *r){
     assert(tok < r->num_tokens);
     if (req > r->reserved_avail[tok]){
