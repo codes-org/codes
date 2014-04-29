@@ -143,6 +143,23 @@ static __inline__ struct qlist_head* qlist_pop(struct qlist_head *head)
 }
 
 /**
+ * qlist_pop_back - pop the last item off the list and return it
+ * @head: qlist to modify
+ */
+static __inline__ struct qlist_head* qlist_pop_back(struct qlist_head *head)
+{
+    struct qlist_head *item = NULL;
+
+    if (!qlist_empty(head))
+    {
+        item = head->prev;
+        qlist_del(item);
+    }
+
+    return item;
+}
+
+/**
  * qlist_splice - join two qlists
  * @qlist: the new qlist to add.
  * @head: the place to add it in the first qlist.
