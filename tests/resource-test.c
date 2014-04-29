@@ -51,7 +51,7 @@ static void s_event(s_state *ns, tw_bf *bf, s_msg *m, tw_lp *lp){
         case S_KICKOFF: ;
             msg_header h;
             msg_set_header(s_magic, S_ALLOC_ACK, lp->gid, &h);
-            resource_lp_get(&h, bsize, sizeof(s_msg), 
+            resource_lp_get(&h, bsize, 0, sizeof(s_msg), 
                     offsetof(s_msg, h), offsetof(s_msg, c), lp);
             break;
         case S_ALLOC_ACK:
@@ -61,7 +61,7 @@ static void s_event(s_state *ns, tw_bf *bf, s_msg *m, tw_lp *lp){
                 ns->mem_max = max(ns->mem, ns->mem_max);
                 msg_header h;
                 msg_set_header(s_magic, S_ALLOC_ACK, lp->gid, &h);
-                resource_lp_get(&h, bsize, sizeof(s_msg), 
+                resource_lp_get(&h, bsize, 0, sizeof(s_msg), 
                         offsetof(s_msg, h), offsetof(s_msg, c), lp);
                 break;
             }

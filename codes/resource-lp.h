@@ -35,6 +35,7 @@ void resource_lp_configure();
 void resource_lp_get(
         msg_header *header,
         uint64_t req, 
+        int block_on_unavail,
         int msg_size, 
         int msg_header_offset,
         int msg_callback_offset,
@@ -44,6 +45,7 @@ void resource_lp_free(uint64_t req, tw_lp *sender);
 void resource_lp_reserve(
         msg_header *header, 
         uint64_t req,
+        int block_on_unavail,
         int msg_size,
         int msg_header_offset,
         int msg_callback_offset,
@@ -52,6 +54,7 @@ void resource_lp_get_reserved(
         msg_header *header,
         uint64_t req,
         resource_token_t tok,
+        int block_on_unavail,
         int msg_size, 
         int msg_header_offset,
         int msg_callback_offset,

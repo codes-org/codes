@@ -16,18 +16,21 @@
 
 #include <stdint.h>
 
+
 typedef struct resource_s resource;
 typedef unsigned int resource_token_t;
 
 /* initialize with avail capacity, all unreserved */
 void resource_init(uint64_t avail, resource *r);
 
-/* Acquire req units of the resource from the general pool. 
- * Returns 0 on success, 1 on failure (not enough available). */
-int resource_get(uint64_t req, resource *r);
+/* Acquire req units of the resource. 
+ * Returns 0 on success, 1 on failure (not enough available), 2 on invalid
+ * token. */
+int resource_get(uint64_t req, resource_token_t tok, resource *r);
 
-/* Release req units of the resource from the general pool. */
-void resource_free(uint64_t req, resource *r);
+/* Release req units of the resource.
+ * Returns 0 on success, 2 on invalid token */
+int resource_free(uint64_t req, resource_token_t tok, resource *r);
 
 /* Reservation functions, same return value as get. 
  * These functions expect exactly one caller per LP group as 
@@ -35,16 +38,10 @@ void resource_free(uint64_t req, resource *r);
  * TODO: "un-reserving" not yet supported */
 int resource_reserve(uint64_t req, resource_token_t *tok, resource *r);
 
-/* Acquire req units of the resource from a reserved pool */ 
-int reserved_get(uint64_t req, resource_token_t tok, resource *r);
-
-/* Release req units of the resource from the general pool. */
-void reserved_free(uint64_t req, resource_token_t tok, resource *r);
-
 #define MAX_RESERVE 8
 struct resource_s {
-    uint64_t avail;
-    uint64_t reserved_avail[MAX_RESERVE];
+    /* index 0 is the general pool, 1... are the reserved pools */
+    uint64_t avail[MAX_RESERVE+1];
     unsigned int num_tokens;
 };
 

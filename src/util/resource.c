@@ -9,25 +9,36 @@
 
 /* initialize with avail capacity, all unreserved */
 void resource_init(uint64_t avail, resource *r){
-    r->avail = avail;
+    r->avail[0] = avail;
     r->num_tokens = 0;
 }
 
-/* Acquire req units of the resource from the general pool. 
- * Returns 0 on success, 1 on failure (not enough available). */
-int resource_get(uint64_t req, resource *r){
-    if (req > r->avail){
+/* Acquire req units of the resource. 
+ * Returns 0 on success, 1 on failure (not enough available), 2 on invalid
+ * token. */
+int resource_get(uint64_t req, resource_token_t tok, resource *r){
+    if (tok > r->num_tokens){ 
+        return 2;
+    }
+    else if (req > r->avail[tok]){
         return 1;
     }
     else{
-        r->avail -= req;
+        r->avail[tok] -= req;
         return 0;
     }
 }
 
-/* Release req units of the resource from the general pool. */
-void resource_free(uint64_t req, resource *r){
-    r->avail += req;
+/* Release req units of the resource.
+ * Returns 0 on success, 2 on invalid token */
+int resource_free(uint64_t req, resource_token_t tok, resource *r){
+    if (tok > r->num_tokens){ 
+        return 2;
+    }
+    else{
+        r->avail[tok] += req;
+        return 0;
+    }
 }
 
 /* Reservation functions, same return value as get. 
@@ -35,33 +46,15 @@ void resource_free(uint64_t req, resource *r){
  * defined by the codes configuration 
  * TODO: "un-reserving" not yet supported */
 int resource_reserve(uint64_t req, resource_token_t *tok, resource *r){
-    if (req > r->avail){
+    if (req > r->avail[0]){
         return 1;
     }
     else{
-        *tok = r->num_tokens++;
-        r->reserved_avail[*tok] = req;
-        r->avail -= req;
+        /* reserved tokens start from 1 */ 
+        *tok = ++(r->num_tokens);
+        r->avail[*tok] = req;
         return 0;
     }
-}
-
-/* Acquire req units of the resource from a reserved pool */
-int reserved_get(uint64_t req, resource_token_t tok, resource *r){
-    assert(tok < r->num_tokens);
-    if (req > r->reserved_avail[tok]){
-        return 1;
-    }
-    else{
-        r->reserved_avail[tok] -= req;
-        return 0;
-    }
-}
-
-/* Release req units of the resource from the general pool. */
-void reserved_free(uint64_t req, resource_token_t tok, resource *r){
-    assert(tok < r->num_tokens);
-    r->reserved_avail[tok] += req;
 }
 
 /*
