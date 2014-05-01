@@ -52,7 +52,8 @@ static void s_event(s_state *ns, tw_bf *bf, s_msg *m, tw_lp *lp){
             msg_header h;
             msg_set_header(s_magic, S_ALLOC_ACK, lp->gid, &h);
             resource_lp_get(&h, bsize, 0, sizeof(s_msg), 
-                    offsetof(s_msg, h), offsetof(s_msg, c), lp);
+                    offsetof(s_msg, h), offsetof(s_msg, c), 
+                    0, 0, NULL, lp);
             break;
         case S_ALLOC_ACK:
             if (m->c.ret == 0){
@@ -62,7 +63,8 @@ static void s_event(s_state *ns, tw_bf *bf, s_msg *m, tw_lp *lp){
                 msg_header h;
                 msg_set_header(s_magic, S_ALLOC_ACK, lp->gid, &h);
                 resource_lp_get(&h, bsize, 0, sizeof(s_msg), 
-                        offsetof(s_msg, h), offsetof(s_msg, c), lp);
+                        offsetof(s_msg, h), offsetof(s_msg, c), 
+                        0, 0, NULL, lp);
                 break;
             }
             /* else fall into the free stmt */ 

@@ -12,6 +12,7 @@
 #include "ross.h"
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
 
 /**** BEGIN SIMULATION DATA STRUCTURES ****/
@@ -64,6 +65,10 @@ struct resource_msg_internal{
     int msg_size;
     int msg_header_offset;
     int msg_callback_offset;
+    /* user-provided data */
+    int msg_callback_misc_size;
+    int msg_callback_misc_offset;
+    char msg_callback_misc[RESOURCE_MAX_CALLBACK_PAYLOAD];
 }; 
 
 struct resource_msg {
@@ -138,17 +143,22 @@ static void resource_response(
 
     /* before we send the message, sanity check the sizes */
     if (m->i.msg_size >= m->i.msg_header_offset+sizeof(h) &&
-            m->i.msg_size >= m->i.msg_callback_offset+sizeof(c)){
+            m->i.msg_size >= m->i.msg_callback_offset+sizeof(c) &&
+            m->i.msg_size >= m->i.msg_callback_offset+m->i.msg_callback_misc_size){
         tw_event *e = codes_event_new(m->i.h_callback.src, 
                 codes_local_latency(lp), lp);
         void *msg = tw_event_data(e);
         memcpy(((char*)msg)+m->i.msg_header_offset, &h, sizeof(h));
         memcpy(((char*)msg)+m->i.msg_callback_offset, &c, sizeof(c));
+        if (m->i.msg_callback_misc_size > 0){
+            memcpy(((char*)msg)+m->i.msg_callback_offset, 
+                        m->i.msg_callback_misc, m->i.msg_callback_misc_size);
+        }
         tw_event_send(e);
     }
     else{
         tw_error(TW_LOC, 
-                "message size not large enough to hold header/callback "
+                "message size not large enough to hold header/callback/misc"
                 "structures");
     }
 }
@@ -399,6 +409,9 @@ static void resource_lp_issue_event(
         int msg_size,
         int msg_header_offset,
         int msg_callback_offset,
+        int msg_callback_misc_size,
+        int msg_callback_misc_offset,
+        void *msg_callback_misc_data,
         enum resource_event type,
         tw_lp *sender){
 
@@ -431,6 +444,18 @@ static void resource_lp_issue_event(
     m->i.msg_header_offset = msg_header_offset;
     m->i.msg_callback_offset = msg_callback_offset;
 
+    if (msg_callback_misc_size > 0){
+        assert(msg_callback_misc_size <= RESOURCE_MAX_CALLBACK_PAYLOAD);
+        m->i.msg_callback_misc_size = msg_callback_misc_size;
+        m->i.msg_callback_misc_offset = msg_callback_misc_offset;
+        memcpy(m->i.msg_callback_misc, msg_callback_misc_data,
+                msg_callback_misc_size);
+    }
+    else{
+        m->i.msg_callback_misc_size = 0;
+        m->i.msg_callback_misc_offset = 0;
+    }
+
     tw_event_send(e);
 }
 
@@ -441,15 +466,19 @@ void resource_lp_get(
         int msg_size, 
         int msg_header_offset,
         int msg_callback_offset,
+        int msg_callback_misc_size,
+        int msg_callback_misc_offset,
+        void *msg_callback_misc_data,
         tw_lp *sender){
     resource_lp_issue_event(header, req, 0, block_on_unavail,
-            msg_size, msg_header_offset, msg_callback_offset, RESOURCE_GET,
-            sender);
+            msg_size, msg_header_offset, msg_callback_offset,
+            msg_callback_misc_size, msg_callback_misc_offset,
+            msg_callback_misc_data, RESOURCE_GET, sender);
 }
 
 /* no callback for frees thus far */
 void resource_lp_free(uint64_t req, tw_lp *sender){
-    resource_lp_issue_event(NULL, req, 0, -1, -1,-1,-1,
+    resource_lp_issue_event(NULL, req, 0, -1, -1,-1,-1, 0, 0, NULL,
             RESOURCE_FREE, sender);
 }
 void resource_lp_reserve(
@@ -459,10 +488,14 @@ void resource_lp_reserve(
         int msg_size,
         int msg_header_offset,
         int msg_callback_offset,
+        int msg_callback_misc_size,
+        int msg_callback_misc_offset,
+        void *msg_callback_misc_data,
         tw_lp *sender){
-    resource_lp_issue_event(header, req, 0, msg_size,
-            block_on_unavail, msg_header_offset, msg_callback_offset,
-            RESOURCE_RESERVE, sender);
+    resource_lp_issue_event(header, req, 0, block_on_unavail, msg_size,
+            msg_header_offset, msg_callback_offset, msg_callback_misc_size,
+            msg_callback_misc_offset, msg_callback_misc_data, RESOURCE_RESERVE,
+            sender);
 }
 void resource_lp_get_reserved(
         msg_header *header,
@@ -472,17 +505,21 @@ void resource_lp_get_reserved(
         int msg_size, 
         int msg_header_offset,
         int msg_callback_offset,
+        int msg_callback_misc_size,
+        int msg_callback_misc_offset,
+        void *msg_callback_misc_data,
         tw_lp *sender){
-    resource_lp_issue_event(header, req, tok, msg_size, block_on_unavail,
-            msg_header_offset, msg_callback_offset, RESOURCE_GET,
+    resource_lp_issue_event(header, req, tok, block_on_unavail, msg_size,
+            msg_header_offset, msg_callback_offset, msg_callback_misc_size,
+            msg_callback_misc_offset, msg_callback_misc_data, RESOURCE_GET,
             sender);
 }
 void resource_lp_free_reserved(
         uint64_t req, 
         resource_token_t tok,
         tw_lp *sender){
-    resource_lp_issue_event(NULL, req, tok, -1,-1,-1,-1, RESOURCE_FREE,
-            sender);
+    resource_lp_issue_event(NULL, req, tok, -1,-1,-1,-1, 0,0,NULL,
+            RESOURCE_FREE, sender);
 }
 
 /* rc functions - thankfully, they only use codes-local-latency, so no need 

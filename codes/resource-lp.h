@@ -16,6 +16,7 @@
 #include "codes/resource.h"
 #include <stdint.h>
 
+#define RESOURCE_MAX_CALLBACK_PAYLOAD 64
 
 typedef struct {
     int ret;
@@ -39,6 +40,9 @@ void resource_lp_get(
         int msg_size, 
         int msg_header_offset,
         int msg_callback_offset,
+        int msg_callback_misc_size,
+        int msg_callback_misc_offset,
+        void *msg_callback_misc_data,
         tw_lp *sender);
 /* no callback for frees thus far */
 void resource_lp_free(uint64_t req, tw_lp *sender);
@@ -49,6 +53,9 @@ void resource_lp_reserve(
         int msg_size,
         int msg_header_offset,
         int msg_callback_offset,
+        int msg_callback_misc_size,
+        int msg_callback_misc_offset,
+        void *msg_callback_misc_data,
         tw_lp *sender);
 void resource_lp_get_reserved(
         msg_header *header,
@@ -58,6 +65,9 @@ void resource_lp_get_reserved(
         int msg_size, 
         int msg_header_offset,
         int msg_callback_offset,
+        int msg_callback_misc_size,
+        int msg_callback_misc_offset,
+        void *msg_callback_misc_data,
         tw_lp *sender);
 void resource_lp_free_reserved(
         uint64_t req,
