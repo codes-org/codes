@@ -298,7 +298,7 @@ void handle_testsvr_kickoff(
         m_net.src_event_ctr = ns->event_ctr++;
 #endif
         m_net.req_num = req;
-        model_net_event(net_id, "req", dest_lp, 1, sizeof(m_net), &m_net, 0, NULL, lp);
+        model_net_event(net_id, "req", dest_lp, 1, 0.0, sizeof(m_net), &m_net, 0, NULL, lp);
     }
 #if TEST_DEBUG
     ns->event_ctr++;
@@ -362,7 +362,7 @@ void handle_testsvr_local(
     m_net.src_event_ctr = ns->event_ctr;
 #endif
     model_net_event(net_id, "ack", dest_lp,
-            1, sizeof(m_net), &m_net, 0, NULL, lp);
+            1, 0.0, sizeof(m_net), &m_net, 0, NULL, lp);
     ns->req_stat[m->req_num]++;
     /* we are handling exactly two reqs per slot */
     assert(ns->req_stat[m->req_num] <= 2);

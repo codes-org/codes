@@ -56,7 +56,7 @@ static void dragonfly_report_stats()
    return;
 }
 /* dragonfly packet event , generates a dragonfly packet on the compute node */
-static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, tw_stime offset, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lp *sender, int is_last_pckt)
+static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, int is_pull, uint64_t pull_size, tw_stime offset, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lp *sender, int is_last_pckt)
 {
     tw_event * e_new;
     tw_stime xfer_to_nic_time;
@@ -83,6 +83,8 @@ static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, ui
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
     msg->type = T_GENERATE;
+    msg->is_pull = is_pull;
+    msg->pull_size = pull_size;
 
     if(is_last_pckt) /* Its the last packet so pass in remote and local event information*/
       {
@@ -363,13 +365,21 @@ if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
 	// Trigger an event on receiving server
 	if(msg->remote_event_size_bytes)
 	{
-		ts = (1/cn_bandwidth) * msg->remote_event_size_bytes;
-		e = tw_event_new(msg->final_dest_gid, ts, lp);
-		m = tw_event_data(e);
-		char* tmp_ptr = (char*)msg;
-		tmp_ptr += dragonfly_get_msg_sz();                                                                                                            
-		memcpy(m, tmp_ptr, msg->remote_event_size_bytes);
-		tw_event_send(e); 
+            char* tmp_ptr = (char*)msg;
+            tmp_ptr += dragonfly_get_msg_sz();
+            ts = (1/cn_bandwidth) * msg->remote_event_size_bytes;
+            if (msg->is_pull){
+                int net_id = model_net_get_id("dragonfly");
+                model_net_event(net_id, msg->category, msg->sender_lp,
+                        msg->pull_size, ts, msg->remote_event_size_bytes,
+                        tmp_ptr, 0, NULL, lp);
+            }
+            else{
+                e = tw_event_new(msg->final_dest_gid, ts, lp);
+                m = tw_event_data(e);
+                memcpy(m, tmp_ptr, msg->remote_event_size_bytes);
+                tw_event_send(e); 
+            }
 	}
   }
 
@@ -896,6 +906,12 @@ void router_rc_event_handler(router_state * s, tw_bf * bf, terminal_message * ms
 			tw_rand_reverse_unif(lp->rng);
 			int output_port = msg->saved_vc/num_vcs;
 			s->next_credit_available_time[output_port] = msg->saved_available_time;
+                        if (msg->chunk_id == num_chunks-1 && 
+                                msg->remote_event_size_bytes && 
+                                msg->is_pull){
+                            int net_id = model_net_get_id("dragonfly");
+                            model_net_event_rc(net_id, lp, msg->pull_size);
+                        }
 		    }
 	    break;
 

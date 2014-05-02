@@ -48,6 +48,8 @@ struct loggp_message
     int event_size_bytes;     /* size of simulator event message that will be tunnelled to destination */
     int local_event_size_bytes;     /* size of simulator event message that delivered locally upon local completion */
     char category[CATEGORY_NAME_MAX]; /* category for communication */
+    int is_pull;
+    uint64_t pull_size;
 
     /* for reverse computation */
     tw_stime net_send_next_idle_saved;
@@ -109,6 +111,8 @@ static tw_stime loggp_packet_event(
      char* category, 
      tw_lpid final_dest_lp, 
      uint64_t packet_size, 
+     int is_pull,
+     uint64_t pull_size, /* only used when is_pull==1 */
      tw_stime offset,
      int remote_event_size, 
      const void* remote_event, 
@@ -299,6 +303,11 @@ static void handle_msg_ready_rev_event(
     stat->recv_bytes -= m->net_msg_size_bytes;
     stat->recv_time -= m->recv_time_saved;
 
+    if (m->event_size_bytes && m->is_pull){
+        int net_id = model_net_get_id("loggp");
+        model_net_event_rc(net_id, lp, m->pull_size);
+    }
+
     return;
 }
 
@@ -350,12 +359,21 @@ static void handle_msg_ready_event(
       /* schedule event to final destination for when the recv is complete */
 //      printf("\n Remote message to LP %d ", m->final_dest_gid); 
 
-      e_new = tw_event_new(m->final_dest_gid, recv_queue_time, lp);
-      m_new = tw_event_data(e_new);
-      char* tmp_ptr = (char*)m;
-      tmp_ptr += loggp_get_msg_sz();
-      memcpy(m_new, tmp_ptr, m->event_size_bytes);
-      tw_event_send(e_new);
+        char* tmp_ptr = (char*)m;
+        tmp_ptr += loggp_get_msg_sz();
+        if (m->is_pull){
+            /* call the model-net event */
+            int net_id = model_net_get_id("loggp");
+            model_net_event(net_id, m->category, m->src_gid, m->pull_size,
+                    recv_queue_time, m->event_size_bytes, tmp_ptr, 0, NULL,
+                    lp);
+        }
+        else{
+            e_new = tw_event_new(m->final_dest_gid, recv_queue_time, lp);
+            m_new = tw_event_data(e_new);
+            memcpy(m_new, tmp_ptr, m->event_size_bytes);
+            tw_event_send(e_new);
+        }
     }
 
     return;
@@ -485,6 +503,8 @@ static tw_stime loggp_packet_event(
 		char* category,
 		tw_lpid final_dest_lp,
 		uint64_t packet_size,
+                int is_pull,
+                uint64_t pull_size, /* only used when is_pull==1 */
                 tw_stime offset,
 		int remote_event_size,
 		const void* remote_event,
@@ -515,6 +535,8 @@ static tw_stime loggp_packet_event(
      msg->event_size_bytes = 0;
      msg->local_event_size_bytes = 0;
      msg->event_type = MSG_START;
+     msg->is_pull = is_pull;
+     msg->pull_size = pull_size;
 
      tmp_ptr = (char*)msg;
      tmp_ptr += loggp_get_msg_sz();

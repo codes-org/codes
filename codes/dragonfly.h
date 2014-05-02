@@ -65,7 +65,7 @@ static tw_lpid dragonfly_find_local_device(tw_lp *sender);
 /* dragonfly packet event method called by modelnet, this method triggers the packet
  * generate event of dragonfly and attached remote and local events to the last packet
  * of the message */
-static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, tw_stime offset, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lp *sender, int is_last_pckt);
+static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, int is_pull, uint64_t pull_size, tw_stime offset, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lp *sender, int is_last_pckt);
 
 /* returns dragonfly message size */
 static int dragonfly_get_msg_sz(void);
@@ -187,6 +187,8 @@ struct terminal_message
    short vc_index;
    int input_chan;
    int output_chan;
+    int is_pull;
+    uint64_t pull_size;
    
    tw_stime saved_available_time;
    tw_stime saved_credit_time;

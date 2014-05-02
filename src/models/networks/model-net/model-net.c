@@ -10,6 +10,8 @@
 #include "codes/model-net.h"
 #include "codes/model-net-method.h"
 
+#define PULL_MSG_SIZE 128
+
 #define STR_SIZE 16
 #define PROC_TIME 10.0
 
@@ -46,6 +48,16 @@ int model_net_setup(char* name,
      }
      fprintf(stderr, "Error: undefined network name %s (Available options simplenet, torus, dragonfly) \n", name);
      return -1; // indicating error
+}
+
+int model_net_get_id(char *name){
+    int i;
+    for(i=0; method_array[i] != NULL; i++) {
+        if(strcmp(method_array[i]->method_name, name) == 0) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 void model_net_write_stats(tw_lpid lpid, struct mn_stats* stat)
@@ -130,17 +142,19 @@ struct mn_stats* model_net_find_stats(const char* category, mn_stats mn_stats_ar
     return(&mn_stats_array[i]);
 }
 
-void model_net_event(
-    int net_id,
-    char* category, 
-    tw_lpid final_dest_lp, 
-    uint64_t message_size, 
-    int remote_event_size,
-    const void* remote_event,
-    int self_event_size,
-    const void* self_event,
-    tw_lp *sender)
-{
+static void model_net_event_impl(
+        int net_id,
+        char* category, 
+        tw_lpid final_dest_lp, 
+        uint64_t message_size, 
+        int is_pull,
+        uint64_t pull_msg_size,
+        tw_stime offset,
+        int remote_event_size,
+        const void* remote_event,
+        int self_event_size,
+        const void* self_event,
+        tw_lp *sender) {
     /* determine packet size for underlying method */
      uint64_t packet_size = model_net_get_packet_size(net_id);
      uint64_t num_packets = message_size/packet_size; /* Number of packets to be issued by the API */
@@ -178,7 +192,7 @@ void model_net_event(
      * passed along through network hops and delivered to final_dest_lp
      */
 
-     tw_stime offset = (in_sequence) ? mn_msg_offset : 0.0;
+     tw_stime poffset = (in_sequence) ? mn_msg_offset : 0.0;
      for( i = 0; i < num_packets; i++ )
        {
 	  /*Mark the last packet to the net method API*/
@@ -189,13 +203,48 @@ void model_net_event(
               packet_size = message_size - ((num_packets-1)*packet_size);
             }
 	  /* Number of packets and packet ID is passed to the underlying network to mark the final packet for local event completion*/
-	  offset += method_array[net_id]->model_net_method_packet_event(category,
-                  final_dest_lp, packet_size, offset, remote_event_size, remote_event,
-                  self_event_size, self_event, sender, last);
+	  poffset += method_array[net_id]->model_net_method_packet_event(category,
+                  final_dest_lp, packet_size, is_pull, pull_msg_size, poffset+offset,
+                  remote_event_size, remote_event, self_event_size, self_event, sender, last);
        }
-    if (in_sequence) mn_msg_offset = offset;
+    if (in_sequence) mn_msg_offset = poffset;
     return;
 }
+
+
+void model_net_event(
+    int net_id,
+    char* category, 
+    tw_lpid final_dest_lp, 
+    uint64_t message_size, 
+    tw_stime offset,
+    int remote_event_size,
+    const void* remote_event,
+    int self_event_size,
+    const void* self_event,
+    tw_lp *sender)
+{
+    model_net_event_impl(net_id, category, final_dest_lp, message_size, 0, 0,
+            offset, remote_event_size, remote_event, self_event_size,
+            self_event, sender); 
+}
+
+void model_net_pull_event(
+        int net_id,
+        char *category,
+        tw_lpid final_dest_lp,
+        uint64_t message_size,
+        tw_stime offset,
+        int self_event_size,
+        const void *self_event,
+        tw_lp *sender){
+    /* NOTE: for a pull, we are filling the *remote* event - it will be remote
+     * from the destination's POV */
+    model_net_event_impl(net_id, category, final_dest_lp, PULL_MSG_SIZE, 1,
+            message_size, offset, self_event_size, self_event, 0, NULL,
+            sender); 
+}
+
 
 int model_net_set_params()
 {
@@ -393,7 +442,7 @@ int model_net_set_params()
        printf("\n Invalid network argument %s ", mn_name);
   return net_id;
 }
-void model_net_event_rc(
+static void model_net_event_impl_rc(
     int net_id,
     tw_lp *sender,
     uint64_t message_size)
@@ -417,6 +466,19 @@ void model_net_event_rc(
        }
     return;
 } 
+
+void model_net_event_rc(
+        int net_id,
+        tw_lp *sender,
+        uint64_t message_size){
+    model_net_event_impl_rc(net_id,sender,message_size);
+}
+
+void model_net_pull_event_rc(
+        int net_id,
+        tw_lp *sender) {
+    model_net_event_impl_rc(net_id, sender, PULL_MSG_SIZE);
+}
 
 /* returns the message size, can be either simplenet, dragonfly or torus message size*/
 static int model_net_get_msg_sz(int net_id)

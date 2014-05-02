@@ -121,6 +121,9 @@ int model_net_set_params();
 
 // setup the modelnet parameters
 int model_net_setup(char* net_name, uint64_t packet_size, const void* net_params);
+
+/* utility function to get the modelnet ID post-setup */
+int model_net_get_id(char *net_name);
 /* allocate and transmit a new event that will pass through model_net to 
  * arrive at its destination:
  *
@@ -154,6 +157,7 @@ void model_net_event(
     char* category, 
     tw_lpid final_dest_lp, 
     uint64_t message_size, 
+    tw_stime offset,
     int remote_event_size,
     const void* remote_event,
     int self_event_size,
@@ -180,6 +184,32 @@ void model_net_event_rc(
     int net_id,
     tw_lp *sender,
     uint64_t message_size);
+
+
+/* Issue a 'pull' from the memory of the destination LP, without
+ * requiring the destination LP to do event processing. This is meant as a
+ * simulation-based abstraction of RDMA. A control packet will be sent to the
+ * destination LP, the payload will be sent back to the requesting LP, and the
+ * requesting LP will be issued it's given completion event.
+ *
+ * Parameters are largely the same as model_net_event, with the following
+ * exceptions:
+ * - final_dest_lp is the lp to pull data from
+ * - self_event_size, self_event are applied at the requester upon receipt of 
+ *   the payload from the dest
+ */
+void model_net_pull_event(
+        int net_id,
+        char *category,
+        tw_lpid final_dest_lp,
+        uint64_t message_size,
+        tw_stime offset,
+        int self_event_size,
+        const void *self_event,
+        tw_lp *sender);
+void model_net_pull_event_rc(
+        int net_id,
+        tw_lp *sender);
 
 /* returns pointer to LP information for simplenet module */
 const tw_lptype* model_net_get_lp_type(int net_id);

@@ -324,7 +324,7 @@ static void handle_kickoff_event(
         case 1: dest_id = 4; break;
         case 2: return; /* LP 4 doesn't send messages */ 
     }
-    model_net_event(net_id, "test", dest_id, PAYLOAD_SZ, sizeof(svr_msg), &m_remote, sizeof(svr_msg), &m_local, lp);
+    model_net_event(net_id, "test", dest_id, PAYLOAD_SZ, 0.0, sizeof(svr_msg), &m_remote, sizeof(svr_msg), &m_local, lp);
     ns->msg_sent_count++;
 }
 
@@ -405,7 +405,7 @@ static void handle_ack_event(
 
     if(ns->msg_sent_count < NUM_REQS)
     {
-	model_net_event(net_id, "test", m->src, PAYLOAD_SZ, sizeof(svr_msg), &m_remote, sizeof(svr_msg), &m_local, lp);
+	model_net_event(net_id, "test", m->src, PAYLOAD_SZ, 0.0, sizeof(svr_msg), &m_remote, sizeof(svr_msg), &m_local, lp);
         ns->msg_sent_count++;
         m->incremented_flag = 1;
     }
@@ -436,7 +436,7 @@ static void handle_req_event(
     ns->msg_recvd_count++;
 
    // mm Q: What should be the size of an ack message? may be a few bytes? or larger..? 
-    model_net_event(net_id, "test", m->src, PAYLOAD_SZ, sizeof(svr_msg), &m_remote, sizeof(svr_msg), &m_local, lp);
+    model_net_event(net_id, "test", m->src, PAYLOAD_SZ, 0.0, sizeof(svr_msg), &m_remote, sizeof(svr_msg), &m_local, lp);
 }
 
 /*

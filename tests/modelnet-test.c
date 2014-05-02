@@ -24,7 +24,7 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 
-#define NUM_REQS 500  /* number of requests sent by each server */
+#define NUM_REQS 1  /* number of requests sent by each server */
 #define PAYLOAD_SZ 2048 /* size of simulated data payload, bytes  */
 
 static int net_id = 0;
@@ -329,7 +329,7 @@ static void handle_kickoff_event(
     
     /* each server sends a request to the next highest server */
     int dest_id = (lp->gid + offset + opt_offset)%(num_servers*2 + num_routers);
-    model_net_event(net_id, "test", dest_id, PAYLOAD_SZ, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+    model_net_event(net_id, "test", dest_id, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
     ns->msg_sent_count++;
 }
 
@@ -422,7 +422,7 @@ static void handle_ack_event(
     if(ns->msg_sent_count < NUM_REQS)
     {
         /* send another request */
-	model_net_event(net_id, "test", m->src, PAYLOAD_SZ, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+	model_net_event(net_id, "test", m->src, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
         ns->msg_sent_count++;
         m->incremented_flag = 1;
     }
@@ -466,7 +466,7 @@ static void handle_req_event(
     /* remote host will get an ack event */
    
    // mm Q: What should be the size of an ack message? may be a few bytes? or larger..? 
-    model_net_event(net_id, "test", m->src, PAYLOAD_SZ, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+    model_net_event(net_id, "test", m->src, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
 //    printf("\n Sending ack to LP %d %d ", m->src, m_remote->src);
     return;
 }

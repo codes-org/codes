@@ -18,6 +18,8 @@ struct model_net_method
         char* category, 
         tw_lpid final_dest_lp, 
         uint64_t packet_size, 
+        int is_pull,
+        uint64_t pull_size, /* only used when is_pull==1 */
         tw_stime offset,
         int remote_event_size,  /* 0 means don't deliver remote event */
         const void* remote_event,

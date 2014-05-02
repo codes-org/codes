@@ -74,6 +74,9 @@ struct sw_message
     int local_event_size_bytes;     /* size of simulator event message that delivered locally upon local completion */
     char category[CATEGORY_NAME_MAX]; /* category for communication */
     
+    int is_pull;
+    uint64_t pull_size; 
+
     /* for reverse computation */
     tw_stime send_next_idle_saved;
     tw_stime recv_next_idle_saved;
@@ -141,16 +144,18 @@ static void sw_setup(const void* net_params);
 
 /* Issues a simplewan packet event call */
 static tw_stime simplewan_packet_event(
-     char* category, 
-     tw_lpid final_dest_lp, 
-     uint64_t packet_size, 
-     tw_stime offset,
-     int remote_event_size, 
-     const void* remote_event, 
-     int self_event_size,
-     const void* self_event,
-     tw_lp *sender,
-     int is_last_pckt);
+        char* category,
+        tw_lpid final_dest_lp,
+        uint64_t packet_size,
+        int is_pull,
+        uint64_t pull_size, /* only used when is_pull == 1 */
+        tw_stime offset,
+        int remote_event_size,
+        const void* remote_event,
+        int self_event_size,
+        const void* self_event,
+        tw_lp *sender,
+        int is_last_pckt);
 static void simplewan_packet_event_rc(tw_lp *sender);
 
 static void simplewan_packet_event_rc(tw_lp *sender);
@@ -505,6 +510,11 @@ static void handle_msg_ready_rev_event(
     idles->recv_next_idle_all = m->recv_next_idle_all_saved;
     idles->recv_prev_idle_all = m->recv_prev_idle_all_saved;
 
+    if (m->event_size_bytes && m->is_pull){
+        int net_id = model_net_get_id("simplewan");
+        model_net_event_rc(net_id, lp, m->pull_size);
+    }
+
     return;
 }
 
@@ -591,13 +601,20 @@ static void handle_msg_ready_event(
     /* copy only the part of the message used by higher level */
     if(m->event_size_bytes)
     {
-      /* schedule event to final destination for when the recv is complete */
-      e_new = tw_event_new(m->final_dest_gid, recv_queue_time, lp);
-      m_new = tw_event_data(e_new);
-      char* tmp_ptr = (char*)m;
-      tmp_ptr += sw_get_msg_sz();
-      memcpy(m_new, tmp_ptr, m->event_size_bytes);
-      tw_event_send(e_new);
+        char* tmp_ptr = (char*)m;
+        tmp_ptr += sw_get_msg_sz();
+        if (m->is_pull){
+            int net_id = model_net_get_id("simplewan");
+            model_net_event(net_id, m->category, m->src_gid, m->pull_size,
+                    recv_queue_time, m->event_size_bytes, tmp_ptr, 0, NULL, lp);
+        }
+        else{
+            /* schedule event to final destination for when the recv is complete */
+            e_new = tw_event_new(m->final_dest_gid, recv_queue_time, lp);
+            m_new = tw_event_data(e_new);
+            memcpy(m_new, tmp_ptr, m->event_size_bytes);
+            tw_event_send(e_new);
+        }
     }
 
     return;
@@ -760,16 +777,18 @@ static void handle_msg_start_event(
 /*This method will serve as an intermediate layer between simplewan and modelnet. 
  * It takes the packets from modelnet layer and calls underlying simplewan methods*/
 static tw_stime simplewan_packet_event(
-		char* category,
-		tw_lpid final_dest_lp,
-		uint64_t packet_size,
-                tw_stime offset,
-		int remote_event_size,
-		const void* remote_event,
-		int self_event_size,
-		const void* self_event,
-		tw_lp *sender,
-		int is_last_pckt)
+        char* category,
+        tw_lpid final_dest_lp,
+        uint64_t packet_size,
+        int is_pull,
+        uint64_t pull_size, /* only used when is_pull == 1 */
+        tw_stime offset,
+        int remote_event_size,
+        const void* remote_event,
+        int self_event_size,
+        const void* self_event,
+        tw_lp *sender,
+        int is_last_pckt)
 {
      tw_event * e_new;
      tw_stime xfer_to_nic_time;
@@ -801,6 +820,8 @@ static tw_stime simplewan_packet_event(
      msg->event_size_bytes = 0;
      msg->local_event_size_bytes = 0;
      msg->event_type = MSG_START;
+     msg->is_pull = is_pull;
+     msg->pull_size = pull_size;
 
      tmp_ptr = (char*)msg;
      tmp_ptr += sw_get_msg_sz();

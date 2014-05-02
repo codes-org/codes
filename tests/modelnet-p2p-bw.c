@@ -385,7 +385,7 @@ static void handle_pong_event(
 
     /* send next ping */
     m->sent_size = m_remote.size;
-    model_net_event(net_id, "ping", peer_gid, stat_array[msg_sz_idx].msg_sz, sizeof(m_remote), &m_remote, 0, NULL, lp);
+    model_net_event(net_id, "ping", peer_gid, stat_array[msg_sz_idx].msg_sz, 0.0, sizeof(m_remote), &m_remote, 0, NULL, lp);
 
     return;
 }
@@ -407,7 +407,7 @@ static void handle_ping_event(
 
     /* send pong msg back to sender */
     m->sent_size = m_remote.size;
-    model_net_event(net_id, "pong", m->src, m->size, sizeof(m_remote), &m_remote, 0, NULL, lp);
+    model_net_event(net_id, "pong", m->src, m->size, 0.0, sizeof(m_remote), &m_remote, 0, NULL, lp);
     return;
 }
 

@@ -63,6 +63,8 @@ static tw_stime torus_packet_event(
 		       char* category,
 		       tw_lpid final_dest_lp,
 		       uint64_t packet_size,
+                       int is_pull,
+                       uint64_t pull_size,
                        tw_stime offset,
 		       int remote_event_size,
 		       const void* remote_event,
@@ -169,6 +171,9 @@ struct nodes_message
   uint64_t packet_size;
   /* chunk id of the flit (distinguishes flits) */
   short chunk_id;
+
+  int is_pull;
+  uint64_t pull_size;
 
   /* for codes local and remote events, only carried by the last packet of the message */
   int local_event_size_bytes;

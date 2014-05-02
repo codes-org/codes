@@ -38,7 +38,7 @@ static void torus_packet_event_rc(tw_lp *sender)
 }
 
 /* torus packet event , generates a torus packet on the compute node */
-static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, tw_stime offset, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lp *sender, int is_last_pckt)
+static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, int is_pull, uint64_t pull_size, tw_stime offset, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lp *sender, int is_last_pckt)
 {
     tw_event * e_new;
     tw_stime xfer_to_nic_time;
@@ -66,6 +66,8 @@ static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, uint64
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
     msg->type = GENERATE;
+    msg->is_pull = is_pull;
+    msg->pull_size = pull_size;
     
     num_chunks = msg->packet_size/chunk_size;
 
@@ -475,12 +477,20 @@ static void packet_arrive( nodes_state * s,
 	    if(msg->remote_event_size_bytes)
 	    {
 	       ts = (1/link_bandwidth) * msg->remote_event_size_bytes;
-	       e = tw_event_new(msg->final_dest_gid, ts, lp);
-	       m = tw_event_data(e);
 	       char* tmp_ptr = (char*)msg;
 	       tmp_ptr += torus_get_msg_sz();
-	       memcpy(m, tmp_ptr, msg->remote_event_size_bytes);
-	       tw_event_send(e);
+               if (msg->is_pull){
+                   int net_id = model_net_get_id("torus");
+                   model_net_event(net_id, msg->category, msg->sender_lp,
+                           msg->pull_size, ts, msg->remote_event_size_bytes,
+                           tmp_ptr, 0, NULL, lp);
+               }
+               else{
+                   e = tw_event_new(msg->final_dest_gid, ts, lp);
+                   m = tw_event_data(e);
+                   memcpy(m, tmp_ptr, msg->remote_event_size_bytes);
+                   tw_event_send(e);
+               }
 	    }
        }
     }
@@ -572,6 +582,12 @@ static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw
 		       total_hops -= msg->my_N_hop;
 		    }
  		    msg->my_N_hop--;
+                    if (lp->gid == msg->dest_lp && 
+                            msg->chunk_id == num_chunks-1 &&
+                            msg->remote_event_size_bytes && msg->is_pull){
+                        int net_id = model_net_get_id("torus");
+                        model_net_event_rc(net_id, lp, msg->pull_size);
+                    }
 		   }
 	break;	
 
