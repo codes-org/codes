@@ -441,7 +441,7 @@ static void handle_kickoff_event(
 
     /* model-net needs to know about (1) higher-level destination LP which is a neighboring server in this case
      * (2) struct and size of remote message and (3) struct and size of local message (a local message can be null) */
-    model_net_event(net_id, "test", dest_id, payload_sz, sizeof(svr_msg), 
+    model_net_event(net_id, "test", dest_id, payload_sz, 0.0, sizeof(svr_msg), 
             (const void*)&m_remote, sizeof(svr_msg), (const void*)&m_local, lp);
     ns->msg_sent_count++;
 }
@@ -489,7 +489,7 @@ static void handle_ack_event(
         m_remote.src = lp->gid;
 
         /* send another request */
-	model_net_event(net_id, "test", m->src, payload_sz, sizeof(svr_msg), 
+	model_net_event(net_id, "test", m->src, payload_sz, 0.0, sizeof(svr_msg), 
                 (const void*)&m_remote, sizeof(svr_msg), (const void*)&m_local, lp);
         ns->msg_sent_count++;
         m->incremented_flag = 1;
@@ -530,7 +530,7 @@ static void handle_req_event(
     /* also trigger a local event for completion of payload msg */
     /* remote host will get an ack event */
    
-    model_net_event(net_id, "test", m->src, payload_sz, sizeof(svr_msg), 
+    model_net_event(net_id, "test", m->src, payload_sz, 0.0, sizeof(svr_msg), 
             (const void*)&m_remote, sizeof(svr_msg), (const void*)&m_local, lp);
     return;
 }
