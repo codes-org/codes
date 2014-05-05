@@ -32,6 +32,9 @@ static int num_routers = 0;
 static int num_servers = 0;
 static int offset = 2;
 
+/* whether to pull instead of push */ 
+static int do_pull = 0; 
+
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
 
@@ -317,7 +320,7 @@ static void handle_kickoff_event(
     m_local->src = lp->gid;
 
     memcpy(m_remote, m_local, sizeof(svr_msg));
-    m_remote->svr_event_type = REQ;
+    m_remote->svr_event_type = (do_pull) ? ACK : REQ;
     //printf("handle_kickoff_event(), lp %llu.\n", (unsigned long long)lp->gid);
 
     /* record when transfers started on this server */
@@ -329,7 +332,13 @@ static void handle_kickoff_event(
     
     /* each server sends a request to the next highest server */
     int dest_id = (lp->gid + offset + opt_offset)%(num_servers*2 + num_routers);
-    model_net_event(net_id, "test", dest_id, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+    if (do_pull){
+        model_net_pull_event(net_id, "test", dest_id, PAYLOAD_SZ, 0.0,
+                sizeof(svr_msg), (const void*)m_remote, lp);
+    }
+    else{
+        model_net_event(net_id, "test", dest_id, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+    }
     ns->msg_sent_count++;
 }
 
@@ -358,7 +367,12 @@ static void handle_req_rev_event(
     tw_lp * lp)
 {
     ns->msg_recvd_count--;
-    model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+    if (do_pull){
+        model_net_pull_event_rc(net_id, lp);
+    }
+    else{
+        model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+    }
 
     return;
 }
@@ -372,7 +386,12 @@ static void handle_kickoff_rev_event(
     tw_lp * lp)
 {
     ns->msg_sent_count--;
-    model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+    if (do_pull){
+        model_net_pull_event_rc(net_id, lp);
+    }
+    else{
+        model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+    }
 
     return;
 }
@@ -407,7 +426,7 @@ static void handle_ack_event(
     m_local->src = lp->gid;
 
     memcpy(m_remote, m_local, sizeof(svr_msg));
-    m_remote->svr_event_type = REQ;
+    m_remote->svr_event_type = (do_pull) ? ACK : REQ;
 
 //    printf("handle_ack_event(), lp %llu.\n", (unsigned long long)lp->gid);
 
@@ -417,12 +436,26 @@ static void handle_ack_event(
     if(net_id == DRAGONFLY && lp->gid % 5)
 	 opt_offset = 3;
 
-    assert(m->src == (lp->gid + offset + opt_offset)%(num_servers*2 + num_routers));
+    tw_lpid dest_id = (lp->gid + offset + opt_offset)%(num_servers*2 + num_routers);
+
+    /* in the "pull" case, src should actually be self */
+    if (do_pull){
+        assert(m->src == lp->gid);
+    }
+    else{
+        assert(m->src == dest_id);
+    }
 
     if(ns->msg_sent_count < NUM_REQS)
     {
         /* send another request */
-	model_net_event(net_id, "test", m->src, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+        if (do_pull){
+            model_net_pull_event(net_id, "test", dest_id, PAYLOAD_SZ, 0.0,
+                    sizeof(svr_msg), (const void*)m_remote, lp);
+        }
+        else{
+            model_net_event(net_id, "test", dest_id, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+        }
         ns->msg_sent_count++;
         m->incremented_flag = 1;
     }
@@ -434,13 +467,16 @@ static void handle_ack_event(
     return;
 }
 
-/* handle receiving request */
+/* handle receiving request 
+ * (note: this should never be called when doing the "pulling" version of
+ * the program) */
 static void handle_req_event(
     svr_state * ns,
     tw_bf * b,
     svr_msg * m,
     tw_lp * lp)
 {
+    assert(!do_pull);
     svr_msg * m_local = malloc(sizeof(svr_msg));
     svr_msg * m_remote = malloc(sizeof(svr_msg));
 
