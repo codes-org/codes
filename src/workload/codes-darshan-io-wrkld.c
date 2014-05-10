@@ -12,8 +12,8 @@
 
 #include "darshan-logutils.h"
 
-#define DEF_INTER_IO_DELAY_PCT 0.4
-#define DEF_INTER_CYC_DELAY_PCT 0.2
+#define DEF_INTER_IO_DELAY_PCT 0.2
+#define DEF_INTER_CYC_DELAY_PCT 0.4
 
 #define DARSHAN_NEGLIGIBLE_DELAY 0.00001
 
@@ -552,9 +552,9 @@ void generate_psx_coll_file_events(
          * This accounts for time spent synchronizing, since we generate barrier events.
          * Note: 60% of mpi read/write time seems to be an appropriate approx of sync duration.
          */
-        total_delay -= ((((file->fcounters[CP_F_MPI_READ_TIME] +
-                       file->fcounters[CP_F_MPI_WRITE_TIME]) / nprocs) -
-                       file->fcounters[CP_F_SLOWEST_RANK_TIME]) * .6);
+//        total_delay -= ((((file->fcounters[CP_F_MPI_READ_TIME] +
+//                       file->fcounters[CP_F_MPI_WRITE_TIME]) / nprocs) -
+//                       file->fcounters[CP_F_SLOWEST_RANK_TIME]) * .4);
 
         extra_opens = file->counters[CP_POSIX_OPENS] - file->counters[CP_COLL_OPENS] -
                       file->counters[CP_INDEP_OPENS];

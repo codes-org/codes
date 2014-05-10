@@ -26,8 +26,6 @@
 
 #define DEBUG_PROFILING 1
 
-#define WORKLOAD_DELAY_PCT 1
-
 /* hash table entry for looking up file descriptor of a workload file id */
 struct file_info
 {
@@ -43,6 +41,7 @@ int hash_file_compare(void *key, struct qlist_head *link);
 static int opt_verbose = 0;
 static int opt_noop = 0;
 static int opt_lockless = 0;
+static double opt_delay_pct = 1.0;
 
 /* hash table for storing file descriptors of opened files */
 static struct qhash_table *fd_table = NULL;
@@ -51,12 +50,14 @@ static struct qhash_table *fd_table = NULL;
 static FILE *log_stream = NULL;
 
 /* global variables for profiling different portions of the replay, if enabled */
+#if DEBUG_PROFILING
 static double total_open_time = 0.0;
 static double total_close_time = 0.0;
 static double total_read_time = 0.0;
 static double total_write_time = 0.0;
 static double total_delay_time = 0.0;
 static double total_barrier_time = 0.0;
+#endif
 
 void usage(char *exename)
 {
@@ -81,6 +82,7 @@ void parse_args(int argc, char **argv, char **conf_path, char **test_dir)
         {"test-dir", 1, NULL, 'd'},
         {"noop", 0, NULL, 'n'},
         {"lockless", 0, NULL, 'l'},
+        {"delay", 1, NULL, 'p'},
         {"help", 0, NULL, 0},
         {0, 0, 0, 0}
     };
@@ -110,6 +112,9 @@ void parse_args(int argc, char **argv, char **conf_path, char **test_dir)
                 break;
             case 'd':
                 *test_dir = optarg;
+                break;
+            case 'p':
+                opt_delay_pct = atof(optarg);
                 break;
             case 0:
             case '?':
@@ -252,6 +257,9 @@ int main(int argc, char *argv[])
         goto error_exit;
     }
 
+    /* synchronize before replay */
+    MPI_Barrier(MPI_COMM_WORLD);
+
     /* loading is finished */
     load_end = MPI_Wtime();
 
@@ -271,8 +279,6 @@ int main(int argc, char *argv[])
             }
             else
             {
-                printf("Replay workload is %.4lf seconds behind original workload\n",
-                       (double)(load_end - load_start));
                 continue;
             }
         }
@@ -281,7 +287,7 @@ int main(int argc, char *argv[])
         {
 
             if (next_op.op_type == CODES_WK_DELAY)
-                next_op.u.delay.seconds *= WORKLOAD_DELAY_PCT;
+                next_op.u.delay.seconds *= opt_delay_pct;
 
             /* replay the next workload operation */
             ret = replay_workload_op(next_op, myrank, replay_op_number++);
@@ -326,9 +332,9 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
     struct qlist_head *hash_link = NULL;
     char *buf = NULL;
     int ret;
-    double start, end;
 
 #if DEBUG_PROFILING
+    double start, end;
     start = MPI_Wtime();
 #endif
 
