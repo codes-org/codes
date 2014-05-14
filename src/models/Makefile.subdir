@@ -3,7 +3,6 @@ lib_LIBRARIES += src/libcodes-net.a
 nobase_include_HEADERS = \
  codes/model-net.h	\
  codes/torus.h		\
- codes/dragonfly.h	\
  codes/model-net-method.h
 
 src_libcodes_net_a_SOURCES = \
