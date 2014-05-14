@@ -4,7 +4,145 @@
  *
  */
 
-#include "codes/torus.h"
+#include <ross.h>
+#include <assert.h>
+
+#include "codes/lp-io.h"
+#include "codes/codes_mapping.h"
+#include "codes/codes.h"
+#include "codes/model-net.h"
+#include "codes/model-net-method.h"
+
+#define CHUNK_SIZE 32
+#define DEBUG 1
+#define MEAN_INTERVAL 100
+#define TRACE -1 
+
+/* Torus network model implementation of codes, implements the modelnet API */
+
+/* Link bandwidth for each torus link, configurable from the config file */
+static double link_bandwidth;
+/* buffer size of each torus link, configurable */
+static int buffer_size;
+/* number of virtual channels for each torus link, configurable */
+static int num_vc;
+/* number of torus dimensions, configurable */
+static int n_dims;
+/* length of each torus dimension, configurable */
+static int * dim_length;
+/* factor, used in torus coordinate calculation */
+static int * factor;
+/* half length of each dimension, used in torus coordinates calculation */
+static int * half_length;
+/* size of each torus chunk, by default it is set to 32 */
+static int chunk_size;
+
+/* codes mapping group name, lp type name */
+static char grp_name[MAX_NAME_LENGTH], type_name[MAX_NAME_LENGTH];
+/* codes mapping group id, lp type id, repetition id and offset */
+static int grp_id, lp_type_id, rep_id, offset;
+
+/* for calculating torus model statistics, average and maximum travel time of a packet */
+static tw_stime         total_time = 0;
+static tw_stime         max_latency = 0;
+
+/* indicates delays calculated through the bandwidth calculation of the torus link */
+static float head_delay=0.0;
+static float credit_delay = 0.0;
+
+/* number of finished packets on each PE */
+static long long       N_finished_packets = 0;
+/* total number of hops traversed by a message on each PE */
+static long long       total_hops = 0;
+
+/* number of chunks/flits in each torus packet, calculated through the size of each flit (32 bytes by default) */
+static uint64_t num_chunks;
+
+typedef enum nodes_event_t nodes_event_t;
+typedef struct nodes_state nodes_state;
+typedef struct nodes_message nodes_message;
+
+
+/* event type of each torus message, can be packet generate, flit arrival, flit send or credit */
+enum nodes_event_t
+{
+  GENERATE = 1,
+  ARRIVAL, 
+  SEND,
+  CREDIT,
+};
+
+/* state of a torus node */
+struct nodes_state
+{
+  /* counts the number of packets sent from this compute node */
+  unsigned long long packet_counter;            
+  /* availability time of each torus link */
+  tw_stime** next_link_available_time; 
+  /* availability of each torus credit link */
+  tw_stime** next_credit_available_time;
+  /* next flit generate time */
+  tw_stime** next_flit_generate_time;
+  /* buffer size for each torus virtual channel */
+  int** buffer;
+  /* coordinates of the current torus node */
+  int* dim_position;
+  /* neighbor LP ids for this torus node */
+  int* neighbour_minus_lpID;
+  int* neighbour_plus_lpID;
+
+  /* records torus statistics for this LP having different communication categories */
+  struct mn_stats torus_stats_array[CATEGORY_MAX];
+};
+
+struct nodes_message
+{
+  /* category: comes from codes message */
+  char category[CATEGORY_NAME_MAX];
+  /* time the packet was generated */
+  tw_stime travel_start_time;
+  /* for reverse event computation*/
+  tw_stime saved_available_time;
+
+  /* packet ID */
+  unsigned long long packet_ID;
+  /* event type of the message */
+  nodes_event_t	 type;
+
+  /* for reverse computation */
+  int saved_src_dim;
+  int saved_src_dir;
+
+  /* coordinates of the destination torus nodes */
+  int* dest;
+
+  /* final destination LP ID, comes from codes, can be a server or any other I/O LP type */
+  tw_lpid final_dest_gid;
+  /* destination torus node of the message */
+  tw_lpid dest_lp;
+  /* LP ID of the sender, comes from codes, can be a server or any other I/O LP type */
+  tw_lpid sender_lp;
+
+  /* number of hops traversed by the packet */
+  int my_N_hop;
+  /* source dimension of the message */
+  int source_dim;
+  /* source direction of the message */
+  int source_direction;
+  /* next torus hop that the packet will traverse */
+  int next_stop;
+  /* size of the torus packet */
+  uint64_t packet_size;
+  /* chunk id of the flit (distinguishes flits) */
+  short chunk_id;
+
+  int is_pull;
+  uint64_t pull_size;
+
+  /* for codes local and remote events, only carried by the last packet of the message */
+  int local_event_size_bytes;
+  int remote_event_size_bytes;
+};
 
 /* setup the torus model, initialize global parameters */
 static void torus_setup(const void* net_params)
@@ -35,6 +173,12 @@ static void torus_packet_event_rc(tw_lp *sender)
 {
   codes_local_latency_reverse(sender);
   return;
+}
+
+/* returns the torus message size */
+static int torus_get_msg_sz(void)
+{
+   return sizeof(nodes_message);
 }
 
 /* torus packet event , generates a torus packet on the compute node */
@@ -191,12 +335,6 @@ static void torus_init( nodes_state * s,
    }
   // record LP time
     s->packet_counter = 0;
-}
-
-/* returns the torus message size */
-static int torus_get_msg_sz(void)
-{
-   return sizeof(nodes_message);
 }
 
 /*Returns the next neighbor to which the packet should be routed by using DOR (Taken from Ning's code of the torus model)*/
@@ -664,6 +802,18 @@ static tw_lpid torus_find_local_device(tw_lp *sender)
     return(dest_id);
 }
 
+/* data structure for torus statistics */
+struct model_net_method torus_method =
+{
+   .method_name = "torus",
+   .mn_setup = torus_setup,
+   .model_net_method_packet_event = torus_packet_event,
+   .model_net_method_packet_event_rc = torus_packet_event_rc,
+   .mn_get_lp_type = torus_get_lp_type,
+   .mn_get_msg_sz = torus_get_msg_sz,
+   .mn_report_stats = torus_report_stats,
+   .model_net_method_find_local_device = torus_find_local_device,
+};
 
 /*
  * Local variables:
