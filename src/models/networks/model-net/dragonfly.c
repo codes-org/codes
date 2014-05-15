@@ -14,6 +14,8 @@
 #include "codes/codes.h"
 #include "codes/model-net.h"
 #include "codes/model-net-method.h"
+#include "codes/model-net-lp.h"
+#include "codes/net/dragonfly.h"
 
 
 #define CHUNK_SIZE 32.0
@@ -24,6 +26,9 @@
 #define TRACK 235221
 #define PRINT_ROUTER_TABLE 1
 #define DEBUG 1
+
+#define LP_CONFIG_NM (model_net_lp_config_names[DRAGONFLY])
+#define LP_METHOD_NM (model_net_method_names[DRAGONFLY])
 
 // arrival rate
 static double MEAN_INTERVAL=200.0;
@@ -55,7 +60,6 @@ static int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
 typedef enum event_t event_t;
 
 typedef struct terminal_state terminal_state;
-typedef struct terminal_message terminal_message;
 typedef struct router_state router_state;
 
 /* dragonfly compute node data structure */
@@ -113,50 +117,6 @@ enum ROUTING_ALGO
    MINIMAL,
    NON_MINIMAL,
    ADAPTIVE
-};
-
-/* this message is used for both dragonfly compute nodes and routers */
-struct terminal_message
-{
-  /* flit travel start time*/
-  tw_stime travel_start_time;
- /* packet ID of the flit  */
-  unsigned long long packet_ID;
-  /* event type of the flit */
-  short  type;
-  /* category: comes from codes */
-  char category[MAX_NAME_LENGTH];
-  /* final destination LP ID, this comes from codes can be a server or any other LP type*/
-  tw_lpid final_dest_gid;
-  /*sending LP ID from CODES, can be a server or any other LP type */
-  tw_lpid sender_lp;
- /* destination terminal ID of the dragonfly */
-  unsigned int dest_terminal_id;
-  /* source terminal ID of the dragonfly */
-  unsigned int src_terminal_id;
-  /* number of hops traversed by the packet */
-  short my_N_hop;
-  /* Intermediate LP ID from which this message is coming */
-  unsigned int intm_lp_id;
-  short old_vc;
-  short saved_vc;
-  /* last hop of the message, can be a terminal, local router or global router */
-  short last_hop;
-  // For buffer message
-   short vc_index;
-   int input_chan;
-   int output_chan;
-    int is_pull;
-    uint64_t pull_size;
-   
-   tw_stime saved_available_time;
-   tw_stime saved_credit_time;
-
-   int intm_group_id;
-   short chunk_id;
-   uint64_t packet_size;
-   int remote_event_size_bytes;
-   int local_event_size_bytes;
 };
 
 struct router_state
@@ -240,29 +200,33 @@ static void dragonfly_report_stats()
 }
 
 /* dragonfly packet event , generates a dragonfly packet on the compute node */
-static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, int is_pull, uint64_t pull_size, tw_stime offset, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lp *sender, int is_last_pckt)
+static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, int is_pull, uint64_t pull_size, tw_stime offset, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lpid src_lp, tw_lp *sender, int is_last_pckt)
 {
     tw_event * e_new;
     tw_stime xfer_to_nic_time;
     terminal_message * msg;
-    tw_lpid local_nic_id, dest_nic_id;
+    tw_lpid dest_nic_id;
     char* tmp_ptr;
+#if 0
     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
 
     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, "modelnet_dragonfly", mapping_rep_id, mapping_offset, &local_nic_id);
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &local_nic_id);
+#endif
 
     codes_mapping_get_lp_info(final_dest_lp, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, "modelnet_dragonfly", mapping_rep_id, mapping_offset, &dest_nic_id);
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_nic_id);
   
     xfer_to_nic_time = 0.01 + codes_local_latency(sender); /* Throws an error of found last KP time > current event time otherwise when LPs of one type are placed together*/
-    e_new = tw_event_new(local_nic_id, xfer_to_nic_time+offset, sender);
-    msg = tw_event_data(e_new);
+    //e_new = tw_event_new(local_nic_id, xfer_to_nic_time+offset, sender);
+    //msg = tw_event_data(e_new);
+    e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
+            sender, DRAGONFLY, (void**)&msg, (void**)&tmp_ptr);
     strcpy(msg->category, category);
     msg->final_dest_gid = final_dest_lp;
     msg->dest_terminal_id = dest_nic_id;
-    msg->sender_lp=sender->gid;
+    msg->sender_lp=src_lp;
     msg->packet_size = packet_size;
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
@@ -272,8 +236,6 @@ static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, ui
 
     if(is_last_pckt) /* Its the last packet so pass in remote and local event information*/
       {
-	tmp_ptr = (char*)msg;
-	tmp_ptr += dragonfly_get_msg_sz();
 	if(remote_event_size > 0)
 	 {
 		msg->remote_event_size_bytes = remote_event_size;
@@ -335,6 +297,7 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
   terminal_message * buf_msg;
 
   int dest=0, credit_delay=0, type = R_BUFFER;
+  int is_terminal = 0;
 
  // Notify sender terminal about available buffer space
   if(msg->last_hop == TERMINAL)
@@ -343,6 +306,7 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
    //determine the time in ns to transfer the credit
    credit_delay = (1 / cn_bandwidth) * CREDIT_SIZE;
    type = T_BUFFER;
+   is_terminal = 1;
   }
    else if(msg->last_hop == GLOBAL)
    {
@@ -364,8 +328,15 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
     ts = credit_delay + tw_rand_exponential(lp->rng, (double)credit_delay/1000);
 	
     s->next_credit_available_time[output_port]+=ts;
-    buf_e = tw_event_new(dest, s->next_credit_available_time[output_port] - tw_now(lp) , lp);
-    buf_msg = tw_event_data(buf_e);
+    if (is_terminal){
+        buf_e = model_net_method_event_new(dest, 
+                s->next_credit_available_time[output_port] - tw_now(lp), lp,
+                DRAGONFLY, (void**)&buf_msg, NULL);
+    }
+    else{
+        buf_e = tw_event_new(dest, s->next_credit_available_time[output_port] - tw_now(lp) , lp);
+        buf_msg = tw_event_data(buf_e);
+    }
     buf_msg->vc_index = msg->saved_vc;
     buf_msg->type=type;
     buf_msg->last_hop = msg->last_hop;
@@ -402,9 +373,23 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_
 	      }
          }
 
-       e = tw_event_new(lp->gid, i + ts, lp);
-       m = tw_event_data(e);
-       memcpy(m, msg, dragonfly_get_msg_sz() + msg->remote_event_size_bytes + msg->local_event_size_bytes);
+        // this is a terminal event, so use the method-event version
+       //e = tw_event_new(lp->gid, i + ts, lp);
+       //m = tw_event_data(e);
+       //memcpy(m, msg, sizeof(terminal_message) + msg->remote_event_size_bytes + msg->local_event_size_bytes);
+       void * m_data;
+       e = model_net_method_event_new(lp->gid, i+ts, lp, DRAGONFLY,
+               (void**)&m, &m_data);
+       memcpy(m, msg, sizeof(terminal_message));
+       void * m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
+       if (msg->remote_event_size_bytes){
+            memcpy(m_data, m_data_src, msg->remote_event_size_bytes);
+       }
+       if (msg->local_event_size_bytes){ 
+            memcpy((char*)m_data + msg->remote_event_size_bytes,
+                    (char*)m_data_src + msg->remote_event_size_bytes,
+                    msg->local_event_size_bytes);
+       }
        m->intm_group_id = -1;
        m->saved_vc=0;
        m->chunk_id = i;
@@ -426,7 +411,8 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_
 	  exit(-1);
         } //else
   } // for
-  total_event_size = dragonfly_get_msg_sz() + msg->remote_event_size_bytes + msg->local_event_size_bytes;
+  total_event_size = model_net_get_msg_sz(DRAGONFLY) + 
+      msg->remote_event_size_bytes + msg->local_event_size_bytes;
   mn_stats* stat;
   stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
   stat->send_count++;
@@ -456,12 +442,17 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp *
 
    codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
    codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", s->router_id, 0, &router_id);
+   // we are sending an event to the router, so no method_event here
    e = tw_event_new(router_id, s->terminal_available_time - tw_now(lp), lp);
 
    if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
      printf("\n terminal %d packet %lld chunk %d being sent to router %d router id %d ", (int)lp->gid, (long long)msg->packet_ID, msg->chunk_id, (int)router_id, s->router_id);
    m = tw_event_data(e);
-   memcpy(m, msg, dragonfly_get_msg_sz() + msg->remote_event_size_bytes);
+   memcpy(m, msg, sizeof(terminal_message));
+   if (msg->remote_event_size_bytes){
+        memcpy(m+1, model_net_method_get_edata(DRAGONFLY, msg),
+                msg->remote_event_size_bytes);
+   }
    m->type = R_ARRIVE;
    m->src_terminal_id = lp->gid;
    m->saved_vc = vc;
@@ -478,12 +469,12 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp *
 	 {
            tw_event* e_new;
 	   terminal_message* m_new;
-	   char* local_event;
+	   void* local_event = 
+               (char*)model_net_method_get_edata(DRAGONFLY, msg) + 
+               msg->remote_event_size_bytes;
 	   ts = (1/cn_bandwidth) * msg->local_event_size_bytes;
 	   e_new = tw_event_new(msg->sender_lp, ts, lp);
 	   m_new = tw_event_data(e_new);
-	   local_event = (char*)msg;
-	   local_event += dragonfly_get_msg_sz() + msg->remote_event_size_bytes;
 	   memcpy(m_new, local_event, msg->local_event_size_bytes);
 	   tw_event_send(e_new);
 	}
@@ -543,11 +534,10 @@ if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
 	// Trigger an event on receiving server
 	if(msg->remote_event_size_bytes)
 	{
-            char* tmp_ptr = (char*)msg;
-            tmp_ptr += dragonfly_get_msg_sz();
+            void * tmp_ptr = model_net_method_get_edata(DRAGONFLY, msg);
             ts = (1/cn_bandwidth) * msg->remote_event_size_bytes;
             if (msg->is_pull){
-                int net_id = model_net_get_id("dragonfly");
+                int net_id = model_net_get_id(LP_METHOD_NM);
                 model_net_event(net_id, msg->category, msg->sender_lp,
                         msg->pull_size, ts, msg->remote_event_size_bytes,
                         tmp_ptr, 0, NULL, lp);
@@ -571,6 +561,7 @@ if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
   tw_lpid router_dest_id;
   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
   codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", s->router_id, 0, &router_dest_id);
+  // no method_event here - message going to router
   buf_e = tw_event_new(router_dest_id, s->next_credit_available_time - tw_now(lp), lp);
   buf_msg = tw_event_data(buf_e);
   buf_msg->vc_index = msg->saved_vc;
@@ -590,7 +581,7 @@ terminal_init( terminal_state * s,
     int i;
     // Assign the global router ID
    codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-   int num_lps = codes_mapping_get_lp_count(lp_group_name, "modelnet_dragonfly");
+   int num_lps = codes_mapping_get_lp_count(lp_group_name, LP_CONFIG_NM);
 
    s->terminal_id = (mapping_rep_id * num_lps) + mapping_offset;  
    s->router_id=(int)s->terminal_id / num_routers;
@@ -682,7 +673,7 @@ get_next_stop(router_state * s,
    int dest_group_id;
 
    codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset); 
-   int num_lps = codes_mapping_get_lp_count(lp_group_name, "modelnet_dragonfly");
+   int num_lps = codes_mapping_get_lp_count(lp_group_name, LP_CONFIG_NM);
    int dest_router_id = (mapping_offset + (mapping_rep_id * num_lps)) / num_routers;
    
    codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
@@ -750,7 +741,7 @@ get_output_port( router_state * s,
 {
   int output_port = -1, i, terminal_id;
   codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-  int num_lps = codes_mapping_get_lp_count(lp_group_name,"modelnet_dragonfly");
+  int num_lps = codes_mapping_get_lp_count(lp_group_name,LP_CONFIG_NM);
   terminal_id = (mapping_rep_id * num_lps) + mapping_offset;
 
   if(next_stop == msg->dest_terminal_id)
@@ -843,10 +834,22 @@ if( msg->packet_ID == TRACK && next_stop != msg->dest_terminal_id && msg->chunk_
 
   s->next_output_available_time[output_port] = max(s->next_output_available_time[output_port], tw_now(lp));
   s->next_output_available_time[output_port] += ts;
-  e = tw_event_new(next_stop, s->next_output_available_time[output_port] - tw_now(lp), lp);
-
-  m = tw_event_data(e);
-  memcpy(m, msg, dragonfly_get_msg_sz() + msg->remote_event_size_bytes);
+  // dest can be a router or a terminal, so we must check
+  void * m_data;
+  if (next_stop == msg->dest_terminal_id){
+      e = model_net_method_event_new(next_stop, 
+              s->next_output_available_time[output_port] - tw_now(lp), lp,
+              DRAGONFLY, (void**)&m, &m_data);
+  }
+  else{
+      e = tw_event_new(next_stop, s->next_output_available_time[output_port] - tw_now(lp), lp);
+      m = tw_event_data(e);
+      m_data = m+1;
+  }
+  memcpy(m, msg, sizeof(terminal_message));
+  if (msg->remote_event_size_bytes){
+      memcpy(m_data, msg+1, msg->remote_event_size_bytes);
+  }
 
   if(global)
     m->last_hop=GLOBAL;
@@ -902,9 +905,10 @@ router_packet_receive( router_state * s,
     if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
        printf("\n packet %lld chunk %d received at router %d ", msg->packet_ID, msg->chunk_id, (int)lp->gid);
    
+    // router self message - no need for method_event
     e = tw_event_new(lp->gid, ts, lp);
     m = tw_event_data(e);
-    memcpy(m, msg, dragonfly_get_msg_sz() + msg->remote_event_size_bytes);
+    memcpy(m, msg, sizeof(terminal_message) + msg->remote_event_size_bytes);
     m->type = R_SEND;
     router_credit_send(s, bf, msg, lp);
     tw_event_send(e);  
@@ -1087,7 +1091,7 @@ void router_rc_event_handler(router_state * s, tw_bf * bf, terminal_message * ms
                         if (msg->chunk_id == num_chunks-1 && 
                                 msg->remote_event_size_bytes && 
                                 msg->is_pull){
-                            int net_id = model_net_get_id("dragonfly");
+                            int net_id = model_net_get_id(LP_METHOD_NM);
                             model_net_event_rc(net_id, lp, msg->pull_size);
                         }
 		    }
@@ -1153,7 +1157,7 @@ static tw_lpid dragonfly_find_local_device(tw_lp *sender)
      tw_lpid dest_id;
 
      codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(lp_group_name, "modelnet_dragonfly", mapping_rep_id, mapping_offset, &dest_id);
+     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_id);
 
     return(dest_id);
 }
@@ -1161,7 +1165,6 @@ static tw_lpid dragonfly_find_local_device(tw_lp *sender)
 /* data structure for dragonfly statistics */
 struct model_net_method dragonfly_method =
 {
-    .method_name = "dragonfly",
     .mn_setup = dragonfly_setup,
     .model_net_method_packet_event = dragonfly_packet_event,
     .model_net_method_packet_event_rc = dragonfly_packet_event_rc,

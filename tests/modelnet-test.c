@@ -53,6 +53,7 @@ struct svr_state
     int msg_recvd_count;  /* requests recvd */
     int local_recvd_count; /* number of local messages received */
     tw_stime start_ts;    /* time that we started sending requests */
+    tw_stime end_ts;      /* time that we ended sending requests */
 };
 
 struct svr_msg
@@ -288,8 +289,8 @@ static void svr_finalize(
     svr_state * ns,
     tw_lp * lp)
 {
-    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s((tw_now(lp)-ns->start_ts)), 
-        ((double)(PAYLOAD_SZ*NUM_REQS)/(double)(1024*1024)/ns_to_s(tw_now(lp)-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
+    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s(ns->end_ts-ns->start_ts), 
+        ((double)(PAYLOAD_SZ*NUM_REQS)/(double)(1024*1024)/ns_to_s(ns->end_ts-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
     return;
 }
 
@@ -408,6 +409,8 @@ static void handle_ack_rev_event(
         model_net_event_rc(net_id, lp, PAYLOAD_SZ);
         ns->msg_sent_count--;
     }
+    // don't worry about resetting end_ts - just let the ack 
+    // event bulldoze it
     return;
 }
 
@@ -461,6 +464,7 @@ static void handle_ack_event(
     }
     else
     {
+        ns->end_ts = tw_now(lp);
         m->incremented_flag = 0;
     }
 

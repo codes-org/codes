@@ -13,6 +13,8 @@
 #include "codes/lp-io.h"
 #include <stdint.h>
 
+#define PULL_MSG_SIZE 128
+
 #define MAX_NAME_LENGTH 256
 #define CATEGORY_NAME_MAX 16
 #define CATEGORY_MAX 12
@@ -41,15 +43,28 @@ typedef struct torus_param torus_param;
 typedef struct loggp_param loggp_param;
 typedef struct mn_stats mn_stats;
 
+// use the X-macro to get types and names rolled up into one structure
+// format: { enum vals, config name, internal lp name, lp method struct}
+// last value is sentinel
+#define NETWORK_DEF \
+    X(SIMPLENET, "modelnet_simplenet", "simplenet", &simplenet_method)\
+    X(SIMPLEWAN, "modelnet_simplewan", "simplewan", &simplewan_method)\
+    X(TORUS,     "modelnet_torus",     "torus",     &torus_method)\
+    X(DRAGONFLY, "modelnet_dragonfly", "dragonfly", &dragonfly_method)\
+    X(LOGGP,     "modelnet_loggp",     "loggp",     &loggp_method)\
+    X(MAX_NETS,  NULL,                 NULL,        NULL)
+
+#define X(a,b,c,d) a,
 enum NETWORKS
 {
-  SIMPLENET,
-  SIMPLEWAN,
-  TORUS,
-  DRAGONFLY,
-  LOGGP,
-  MAX_NETS, /* sentinal value, this must be last in the enumeration */
+    NETWORK_DEF
 };
+#undef X
+
+// network identifiers (both the config lp names and the model-net internal
+// names)
+extern char * model_net_lp_config_names[];
+extern char * model_net_method_names[];
 
 /* data structure for tracking network statistics */
 struct mn_stats
@@ -170,6 +185,8 @@ void model_net_event(
  */
 tw_lpid model_net_find_local_device(int net_id, tw_lp *sender);
 
+int model_net_get_msg_sz(int net_id);
+
 /* model_net_event_rc()
  *
  * This function does reverse computation for the model_net_event_new()
@@ -215,8 +232,6 @@ void model_net_pull_event_rc(
 const tw_lptype* model_net_get_lp_type(int net_id);
 
 uint64_t model_net_get_packet_size(int net_id);
-
-void model_net_add_lp_type(int net_id);
 
 /* used for reporting overall network statistics for e.g. average latency ,
  * maximum latency, total number of packets finished during the entire

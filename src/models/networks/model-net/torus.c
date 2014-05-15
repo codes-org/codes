@@ -12,11 +12,16 @@
 #include "codes/codes.h"
 #include "codes/model-net.h"
 #include "codes/model-net-method.h"
+#include "codes/model-net-lp.h"
+#include "codes/net/torus.h"
 
 #define CHUNK_SIZE 32
 #define DEBUG 1
 #define MEAN_INTERVAL 100
 #define TRACE -1 
+
+#define LP_CONFIG_NM (model_net_lp_config_names[TORUS])
+#define LP_METHOD_NM (model_net_method_names[TORUS])
 
 /* Torus network model implementation of codes, implements the modelnet API */
 
@@ -58,19 +63,7 @@ static long long       total_hops = 0;
 /* number of chunks/flits in each torus packet, calculated through the size of each flit (32 bytes by default) */
 static uint64_t num_chunks;
 
-typedef enum nodes_event_t nodes_event_t;
 typedef struct nodes_state nodes_state;
-typedef struct nodes_message nodes_message;
-
-
-/* event type of each torus message, can be packet generate, flit arrival, flit send or credit */
-enum nodes_event_t
-{
-  GENERATE = 1,
-  ARRIVAL, 
-  SEND,
-  CREDIT,
-};
 
 /* state of a torus node */
 struct nodes_state
@@ -93,55 +86,6 @@ struct nodes_state
 
   /* records torus statistics for this LP having different communication categories */
   struct mn_stats torus_stats_array[CATEGORY_MAX];
-};
-
-struct nodes_message
-{
-  /* category: comes from codes message */
-  char category[CATEGORY_NAME_MAX];
-  /* time the packet was generated */
-  tw_stime travel_start_time;
-  /* for reverse event computation*/
-  tw_stime saved_available_time;
-
-  /* packet ID */
-  unsigned long long packet_ID;
-  /* event type of the message */
-  nodes_event_t	 type;
-
-  /* for reverse computation */
-  int saved_src_dim;
-  int saved_src_dir;
-
-  /* coordinates of the destination torus nodes */
-  int* dest;
-
-  /* final destination LP ID, comes from codes, can be a server or any other I/O LP type */
-  tw_lpid final_dest_gid;
-  /* destination torus node of the message */
-  tw_lpid dest_lp;
-  /* LP ID of the sender, comes from codes, can be a server or any other I/O LP type */
-  tw_lpid sender_lp;
-
-  /* number of hops traversed by the packet */
-  int my_N_hop;
-  /* source dimension of the message */
-  int source_dim;
-  /* source direction of the message */
-  int source_direction;
-  /* next torus hop that the packet will traverse */
-  int next_stop;
-  /* size of the torus packet */
-  uint64_t packet_size;
-  /* chunk id of the flit (distinguishes flits) */
-  short chunk_id;
-
-  int is_pull;
-  uint64_t pull_size;
-
-  /* for codes local and remote events, only carried by the last packet of the message */
-  int local_event_size_bytes;
-  int remote_event_size_bytes;
 };
 
 /* setup the torus model, initialize global parameters */
@@ -182,30 +126,33 @@ static int torus_get_msg_sz(void)
 }
 
 /* torus packet event , generates a torus packet on the compute node */
-static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, int is_pull, uint64_t pull_size, tw_stime offset, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lp *sender, int is_last_pckt)
+static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, int is_pull, uint64_t pull_size, tw_stime offset, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lpid src_lp, tw_lp *sender, int is_last_pckt)
 {
     tw_event * e_new;
     tw_stime xfer_to_nic_time;
     nodes_message * msg;
-    tw_lpid local_nic_id, dest_nic_id;
+    tw_lpid dest_nic_id;
     char* tmp_ptr;
     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
    
     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
+#if 0
     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, "modelnet_torus", mapping_rep_id, mapping_offset, &local_nic_id);
-
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &local_nic_id);
+#endif
     codes_mapping_get_lp_info(final_dest_lp, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, "modelnet_torus", mapping_rep_id, mapping_offset, &dest_nic_id);
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_nic_id);
 
     /* TODO: Should send the packets in correct sequence. Currently the last packet is being sent first due to codes_local_latency offset. */
     xfer_to_nic_time = 0.01 + codes_local_latency(sender); /* Throws an error of found last KP time > current event time otherwise */
-    e_new = tw_event_new(local_nic_id, xfer_to_nic_time+offset, sender);
-    msg = tw_event_data(e_new);
+    //e_new = tw_event_new(local_nic_id, xfer_to_nic_time+offset, sender);
+    //msg = tw_event_data(e_new);
+    e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
+            sender, TORUS, (void**)&msg, (void**)&tmp_ptr);
     strcpy(msg->category, category);
     msg->final_dest_gid = final_dest_lp;
     msg->dest_lp = dest_nic_id;
-    msg->sender_lp=sender->gid;
+    msg->sender_lp= src_lp;
     msg->packet_size = packet_size;
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
@@ -222,8 +169,6 @@ static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, uint64
 
     if(is_last_pckt) /* Its the last packet so pass in remote event information*/
      {
-        tmp_ptr = (char*)msg;
-        tmp_ptr += torus_get_msg_sz();
 	if(remote_event_size > 0)
 	 {
 	    msg->remote_event_size_bytes = remote_event_size;
@@ -302,7 +247,7 @@ static void torus_init( nodes_state * s,
       for ( i = 0; i < n_dims; i++ )
         s->neighbour_minus_lpID[ j ] += factor[ i ] * temp_dim_pos[ i ];
       
-      codes_mapping_get_lp_id(grp_name, "modelnet_torus", s->neighbour_minus_lpID[ j ], 0, &neighbor_id);
+      codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->neighbour_minus_lpID[ j ], 0, &neighbor_id);
       //printf("\n neighbor %d lp id %d ", (int)s->neighbour_minus_lpID[ j ], (int)neighbor_id);
       
       temp_dim_pos[ j ] = s->dim_position[ j ];
@@ -317,7 +262,7 @@ static void torus_init( nodes_state * s,
       for ( i = 0; i < n_dims; i++ )
         s->neighbour_plus_lpID[ j ] += factor[ i ] * temp_dim_pos[ i ];
 
-      codes_mapping_get_lp_id(grp_name, "modelnet_torus", s->neighbour_plus_lpID[ j ], 0, &neighbor_id);
+      codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->neighbour_plus_lpID[ j ], 0, &neighbor_id);
       //printf("\n neighbor %d lp id %d ", (int)s->neighbour_plus_lpID[ j ], (int)neighbor_id);
       
       temp_dim_pos[ j ] = s->dim_position[ j ];
@@ -389,7 +334,7 @@ static void dimension_order_routing( nodes_state * s,
 	  break;
 	}
     }
-  codes_mapping_get_lp_id(grp_name, "modelnet_torus", dest_id, 0, dst_lp);
+  codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, dest_id, 0, dst_lp);
 }
 
 /*Generates a packet. If there is a buffer slot available, then the packet is 
@@ -434,12 +379,27 @@ static void packet_generate( nodes_state * s,
        //s->next_flit_generate_time[(2*tmp_dim) + tmp_dir][0] = max(s->next_flit_generate_time[(2*tmp_dim) + tmp_dir][0], tw_now(lp));
        //s->next_flit_generate_time[(2*tmp_dim) + tmp_dir][0] += ts;
        //e_h = tw_event_new( lp->gid, s->next_flit_generate_time[(2*tmp_dim) + tmp_dir][0] - tw_now(lp), lp);
-       e_h = tw_event_new(lp->gid, ts, lp);
+       //e_h = tw_event_new(lp->gid, ts, lp);
        msg->source_direction = tmp_dir;
        msg->source_dim = tmp_dim;
 
-       m = tw_event_data( e_h );
-       memcpy(m, msg, torus_get_msg_sz() + msg->local_event_size_bytes + msg->remote_event_size_bytes);
+       void *m_data;
+       e_h = model_net_method_event_new(lp->gid, ts, lp, TORUS, (void**)&m,
+               (void**)&m_data);
+
+       //m = tw_event_data( e_h );
+       //memcpy(m, msg, torus_get_msg_sz() + msg->local_event_size_bytes + msg->remote_event_size_bytes);
+       void *m_data_src = model_net_method_get_edata(TORUS, msg);
+       memcpy(m, msg, sizeof(nodes_message));
+       if (msg->remote_event_size_bytes){
+           memcpy(m_data, m_data_src,
+                   msg->remote_event_size_bytes);
+           m_data = (char*)m_data + msg->remote_event_size_bytes;
+           m_data_src = (char*)m_data_src + msg->remote_event_size_bytes;
+       }
+       if (msg->local_event_size_bytes){
+           memcpy(m_data, m_data_src, msg->local_event_size_bytes);
+       }
        m->next_stop = dst_lp;
        m->chunk_id = j;
 
@@ -457,7 +417,7 @@ static void packet_generate( nodes_state * s,
        }
    }
 
-   total_event_size = torus_get_msg_sz() + msg->remote_event_size_bytes + msg->local_event_size_bytes;   
+   total_event_size = model_net_get_msg_sz(TORUS) + msg->remote_event_size_bytes + msg->local_event_size_bytes;   
    /* record the statistics of the generated packets */
    mn_stats* stat;
    stat = model_net_find_stats(msg->category, s->torus_stats_array);
@@ -490,8 +450,11 @@ static void credit_send( nodes_state * s,
     ts =  credit_delay + tw_rand_exponential(lp->rng, credit_delay/1000);
     s->next_credit_available_time[(2 * src_dim) + src_dir][0] += ts;
 
-    buf_e = tw_event_new( msg->sender_lp, s->next_credit_available_time[(2 * src_dim) + src_dir][0] - tw_now(lp), lp);
-    m = tw_event_data(buf_e);
+    //buf_e = tw_event_new( msg->sender_lp, s->next_credit_available_time[(2 * src_dim) + src_dir][0] - tw_now(lp), lp);
+    //m = tw_event_data(buf_e);
+    buf_e = model_net_method_event_new(msg->sender_lp,
+            s->next_credit_available_time[(2*src_dim) + src_dir][0] - tw_now(lp),
+            lp, TORUS, (void**)&m, NULL);
     m->source_direction = msg->source_direction;
     m->source_dim = msg->source_dim;
 
@@ -527,9 +490,18 @@ static void packet_send( nodes_state * s,
       s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] = max( s->next_link_available_time[ tmp_dir + ( tmp_dim * 2 )][0], tw_now(lp) );
       s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] += ts;
     
-      e = tw_event_new( dst_lp, s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] - tw_now(lp), lp );
-      m = tw_event_data( e );
-      memcpy(m, msg, torus_get_msg_sz() + msg->remote_event_size_bytes);
+      //e = tw_event_new( dst_lp, s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] - tw_now(lp), lp );
+      //m = tw_event_data( e );
+      //memcpy(m, msg, torus_get_msg_sz() + msg->remote_event_size_bytes);
+      void * m_data;
+      e = model_net_method_event_new(dst_lp, 
+              s->next_link_available_time[tmp_dir+(tmp_dim*2)][0] - tw_now(lp),
+              lp, TORUS, (void**)&m, &m_data);
+      memcpy(m, msg, sizeof(nodes_message));
+      if (msg->remote_event_size_bytes){
+        memcpy(m_data, model_net_method_get_edata(TORUS, msg),
+                msg->remote_event_size_bytes);
+      }
       m->type = ARRIVAL;
 
       if(msg->packet_ID == TRACE)
@@ -552,12 +524,14 @@ static void packet_send( nodes_state * s,
 	{
           tw_event* e_new;
 	  nodes_message* m_new;
-	  char* local_event;
+	  void* local_event;
 	  ts = (1/link_bandwidth) * msg->local_event_size_bytes;
 	  e_new = tw_event_new(msg->sender_lp, ts, lp);
 	  m_new = tw_event_data(e_new);
-	  local_event = (char*)msg;
-	  local_event += torus_get_msg_sz() + msg->remote_event_size_bytes;
+	  //local_event = (char*)msg;
+	  //local_event += torus_get_msg_sz() + msg->remote_event_size_bytes;
+          local_event = (char*)model_net_method_get_edata(TORUS, msg) +
+              msg->remote_event_size_bytes;
 	  memcpy(m_new, local_event, msg->local_event_size_bytes);
 	  tw_event_send(e_new);
 	}
@@ -615,10 +589,9 @@ static void packet_arrive( nodes_state * s,
 	    if(msg->remote_event_size_bytes)
 	    {
 	       ts = (1/link_bandwidth) * msg->remote_event_size_bytes;
-	       char* tmp_ptr = (char*)msg;
-	       tmp_ptr += torus_get_msg_sz();
+               void *tmp_ptr = model_net_method_get_edata(TORUS, msg);
                if (msg->is_pull){
-                   int net_id = model_net_get_id("torus");
+                   int net_id = model_net_get_id(LP_METHOD_NM);
                    model_net_event(net_id, msg->category, msg->sender_lp,
                            msg->pull_size, ts, msg->remote_event_size_bytes,
                            tmp_ptr, 0, NULL, lp);
@@ -634,9 +607,17 @@ static void packet_arrive( nodes_state * s,
     }
   else
     {
-      e = tw_event_new(lp->gid, ts , lp);
-      m = tw_event_data( e );
-      memcpy(m, msg, torus_get_msg_sz() + msg->remote_event_size_bytes);
+      //e = tw_event_new(lp->gid, ts , lp);
+      //m = tw_event_data( e );
+      //memcpy(m, msg, torus_get_msg_sz() + msg->remote_event_size_bytes);
+      void *m_data;
+      e = model_net_method_event_new(lp->gid, ts, lp, TORUS, (void**)&m,
+              &m_data);
+      memcpy(m, msg, sizeof(nodes_message));
+      if (msg->remote_event_size_bytes){
+        memcpy(m_data, model_net_method_get_edata(TORUS, msg),
+                msg->remote_event_size_bytes);
+      }
       m->type = SEND;
       m->next_stop = -1;
       tw_event_send(e);
@@ -723,7 +704,7 @@ static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw
                     if (lp->gid == msg->dest_lp && 
                             msg->chunk_id == num_chunks-1 &&
                             msg->remote_event_size_bytes && msg->is_pull){
-                        int net_id = model_net_get_id("torus");
+                        int net_id = model_net_get_id(LP_METHOD_NM);
                         model_net_event_rc(net_id, lp, msg->pull_size);
                     }
 		   }
@@ -797,7 +778,7 @@ static tw_lpid torus_find_local_device(tw_lp *sender)
      tw_lpid dest_id;
 
      codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(lp_group_name, "modelnet_torus", mapping_rep_id, mapping_offset, &dest_id);
+     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_id);
 
     return(dest_id);
 }
@@ -805,7 +786,6 @@ static tw_lpid torus_find_local_device(tw_lp *sender)
 /* data structure for torus statistics */
 struct model_net_method torus_method =
 {
-   .method_name = "torus",
    .mn_setup = torus_setup,
    .model_net_method_packet_event = torus_packet_event,
    .model_net_method_packet_event_rc = torus_packet_event_rc,

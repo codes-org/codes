@@ -9,8 +9,8 @@
 
 #include "codes/model-net.h"
 #include "codes/model-net-method.h"
-
-#define PULL_MSG_SIZE 128
+#include "codes/model-net-lp.h"
+#include "codes/codes.h"
 
 #define STR_SIZE 16
 #define PROC_TIME 10.0
@@ -21,14 +21,27 @@ extern struct model_net_method torus_method;
 extern struct model_net_method dragonfly_method;
 extern struct model_net_method loggp_method;
 
+#define X(a,b,c,d) b,
+char * model_net_lp_config_names[] = {
+    NETWORK_DEF
+};
+#undef X
+
+#define X(a,b,c,d) c,
+char * model_net_method_names[] = {
+    NETWORK_DEF
+};
+#undef X
+
 /* Global array initialization, terminated with a NULL entry */
-static struct model_net_method* method_array[] =
-    {&simplenet_method, &simplewan_method, &torus_method, &dragonfly_method, &loggp_method, NULL};
+#define X(a,b,c,d) d,
+struct model_net_method* method_array[] = { 
+    NETWORK_DEF
+};
+#undef X
 
 int in_sequence = 0;
 tw_stime mn_msg_offset = 0.0;
-
-static int model_net_get_msg_sz(int net_id);
 
 int model_net_setup(char* name,
 		    uint64_t packet_size,
@@ -38,11 +51,10 @@ int model_net_setup(char* name,
     /* find struct for underlying method (according to configuration file) */
      for(i=0; method_array[i] != NULL; i++)
      {
-     	if(strcmp(method_array[i]->method_name, name) == 0)
+     	if(strcmp(model_net_method_names[i], name) == 0)
 	{
 	   method_array[i]->mn_setup(net_params);
 	   method_array[i]->packet_size = packet_size;
-	   model_net_add_lp_type(i);
 	   return(i);
 	}
      }
@@ -53,7 +65,7 @@ int model_net_setup(char* name,
 int model_net_get_id(char *name){
     int i;
     for(i=0; method_array[i] != NULL; i++) {
-        if(strcmp(method_array[i]->method_name, name) == 0) {
+        if(strcmp(model_net_method_names[i], name) == 0) {
             return i;
         }
     }
@@ -142,75 +154,68 @@ struct mn_stats* model_net_find_stats(const char* category, mn_stats mn_stats_ar
     return(&mn_stats_array[i]);
 }
 
-static void model_net_event_impl(
+static void model_net_event_impl_base(
         int net_id,
         char* category, 
         tw_lpid final_dest_lp, 
         uint64_t message_size, 
         int is_pull,
-        uint64_t pull_msg_size,
         tw_stime offset,
         int remote_event_size,
         const void* remote_event,
         int self_event_size,
         const void* self_event,
         tw_lp *sender) {
-    /* determine packet size for underlying method */
-     uint64_t packet_size = model_net_get_packet_size(net_id);
-     uint64_t num_packets = message_size/packet_size; /* Number of packets to be issued by the API */
-     uint64_t i;
-     int last = 0;
 
-     //printf("\n number of packets %d message size %d ", num_packets, message_size);
-     if((remote_event_size + self_event_size + model_net_get_msg_sz(net_id))
-        > g_tw_msg_sz)
-     {
-        fprintf(stderr, "Error: model_net trying to transmit an event of size %d but ROSS is configured for events of size %zd\n",
-            (remote_event_size + self_event_size + model_net_get_msg_sz(net_id)),
-            g_tw_msg_sz);
-        abort();
-     }
+    if (remote_event_size + self_event_size + sizeof(model_net_wrap_msg) 
+            > g_tw_msg_sz){
+        tw_error(TW_LOC, "Error: model_net trying to transmit an event of size "
+                         "%d but ROSS is configured for events of size %zd\n",
+                         remote_event_size+self_event_size+sizeof(model_net_wrap_msg),
+                         g_tw_msg_sz);
+        return;
+    }
 
-     if(message_size % packet_size)
-	num_packets++; /* Handle the left out data if message size is not exactly divisible by packet size */
+    tw_lpid mn_lp = model_net_find_local_device(net_id, sender);
+    tw_stime poffset = codes_local_latency(sender);
+    if (in_sequence){
+        tw_stime tmp = mn_msg_offset;
+        mn_msg_offset += poffset;
+        poffset += tmp;
+    }
+    tw_event *e = codes_event_new(mn_lp, poffset+offset, sender);
 
-     if(message_size < packet_size)
-         num_packets = 1;
+    model_net_wrap_msg *m = tw_event_data(e);
+    m->event_type = MN_BASE_NEW_MSG;
+    m->magic = model_net_base_magic;
 
-     /*Determine the network name*/
-     if(net_id < 0 || net_id >= MAX_NETS)
-     {
-        fprintf(stderr, "Error: undefined network ID %d (Available options 0 (simplenet), 1 (torus) 2 (dragonfly) ) \n", net_id);
-	exit(-1);
-     }
+    m->msg.m_base.src = sender->gid;
+    
+    // set the request struct 
+    model_net_request *r = &m->msg.m_base.u.req;
+    r->net_id = net_id;
+    r->final_dest_lp = final_dest_lp;
+    r->msg_size = message_size;
+    r->remote_event_size = remote_event_size;
+    r->self_event_size = self_event_size;
+    strncpy(r->category, category, CATEGORY_NAME_MAX-1);
+    r->category[CATEGORY_NAME_MAX-1]='\0';
+    
+    void *e_msg = (m+1);
+    if (remote_event_size > 0){
+        memcpy(e_msg, remote_event, remote_event_size);
+        e_msg = (char*)e_msg + remote_event_size; 
+    }
+    if (self_event_size > 0){
+        memcpy(e_msg, self_event, self_event_size);
+    }
 
-    /* issue N packets using method API */
-    /* somehow mark the final packet as the one responsible for delivering
-     * the self event and remote event 
-     *
-     * local event is delivered to caller of this function, remote event is
-     * passed along through network hops and delivered to final_dest_lp
-     */
-
-     tw_stime poffset = (in_sequence) ? mn_msg_offset : 0.0;
-     for( i = 0; i < num_packets; i++ )
-       {
-	  /*Mark the last packet to the net method API*/
-	   if(i == num_packets - 1)
-           {
-	      last = 1;
-              /* also calculate the last packet's size */
-              packet_size = message_size - ((num_packets-1)*packet_size);
-            }
-	  /* Number of packets and packet ID is passed to the underlying network to mark the final packet for local event completion*/
-	  poffset += method_array[net_id]->model_net_method_packet_event(category,
-                  final_dest_lp, packet_size, is_pull, pull_msg_size, poffset+offset,
-                  remote_event_size, remote_event, self_event_size, self_event, sender, last);
-       }
-    if (in_sequence) mn_msg_offset = poffset;
-    return;
+    //print_base(m);
+    tw_event_send(e);
 }
-
+static void model_net_event_impl_base_rc(tw_lp *sender){
+    codes_local_latency_reverse(sender);
+}
 
 void model_net_event(
     int net_id,
@@ -224,9 +229,9 @@ void model_net_event(
     const void* self_event,
     tw_lp *sender)
 {
-    model_net_event_impl(net_id, category, final_dest_lp, message_size, 0, 0,
-            offset, remote_event_size, remote_event, self_event_size,
-            self_event, sender); 
+    model_net_event_impl_base(net_id, category, final_dest_lp, message_size,
+            0, offset, remote_event_size, remote_event, self_event_size,
+            self_event, sender);
 }
 
 void model_net_pull_event(
@@ -240,9 +245,8 @@ void model_net_pull_event(
         tw_lp *sender){
     /* NOTE: for a pull, we are filling the *remote* event - it will be remote
      * from the destination's POV */
-    model_net_event_impl(net_id, category, final_dest_lp, PULL_MSG_SIZE, 1,
-            message_size, offset, self_event_size, self_event, 0, NULL,
-            sender); 
+    model_net_event_impl_base(net_id, category, final_dest_lp, message_size,
+            1, offset, self_event_size, self_event, 0, NULL, sender);
 }
 
 
@@ -264,7 +268,7 @@ int model_net_set_params()
 	packet_size = 512;
 	printf("\n Warning, no packet size specified, setting packet size to %llu ", packet_size);
   }
-  if(strcmp("simplenet",mn_name)==0)
+  if(strcmp(model_net_method_names[SIMPLENET],mn_name)==0)
    {
      double net_startup_ns, net_bw_mbps;
      simplenet_param net_params;
@@ -273,25 +277,25 @@ int model_net_set_params()
      configuration_get_value_double(&config, "PARAMS", "net_bw_mbps", &net_bw_mbps);
      net_params.net_startup_ns = net_startup_ns;
      net_params.net_bw_mbps =  net_bw_mbps;
-     net_id = model_net_setup("simplenet", packet_size, (const void*)&net_params); /* Sets the network as simplenet and packet size 512 */
+     net_id = model_net_setup(model_net_method_names[SIMPLENET], packet_size, (const void*)&net_params); /* Sets the network as simplenet and packet size 512 */
    }
-  else if (strcmp("simplewan",mn_name)==0){
+  else if (strcmp(model_net_method_names[SIMPLEWAN],mn_name)==0){
     simplewan_param net_params;
     configuration_get_value_relpath(&config, "PARAMS", "net_startup_ns_file", net_params.startup_filename, MAX_NAME_LENGTH);
     configuration_get_value_relpath(&config, "PARAMS", "net_bw_mbps_file", net_params.bw_filename, MAX_NAME_LENGTH);
-    net_id = model_net_setup("simplewan", packet_size, (const void*)&net_params);
+    net_id = model_net_setup(model_net_method_names[SIMPLEWAN], packet_size, (const void*)&net_params);
   }
-   else if(strcmp("loggp",mn_name)==0)
+   else if(strcmp(model_net_method_names[LOGGP],mn_name)==0)
    {
      char net_config_file[256];
      loggp_param net_params;
      
      configuration_get_value_relpath(&config, "PARAMS", "net_config_file", net_config_file, 256);
      net_params.net_config_file = net_config_file;
-     net_id = model_net_setup("loggp", packet_size, (const void*)&net_params); /* Sets the network as loggp and packet size 512 */
+     net_id = model_net_setup(model_net_method_names[LOGGP], packet_size, (const void*)&net_params); /* Sets the network as loggp and packet size 512 */
    }
 
-  else if(strcmp("dragonfly", mn_name)==0)	  
+  else if(strcmp(model_net_method_names[DRAGONFLY], mn_name)==0)	  
     {
        dragonfly_param net_params;
        int num_routers=0, num_vcs=0, local_vc_size=0, global_vc_size=0, cn_vc_size=0;
@@ -372,9 +376,9 @@ int model_net_set_params()
        	   printf("\n No routing protocol specified, setting to minimal routing");
    	   net_params.routing = 0;	   
        }
-    net_id = model_net_setup("dragonfly", packet_size, (const void*)&net_params);   
+    net_id = model_net_setup(model_net_method_names[DRAGONFLY], packet_size, (const void*)&net_params);   
     }
-   else if(strcmp("torus", mn_name)==0)
+   else if(strcmp(model_net_method_names[TORUS], mn_name)==0)
      {
 	torus_param net_params;
 	char dim_length[MAX_NAME_LENGTH];
@@ -436,55 +440,34 @@ int model_net_set_params()
 	   i++;
 	   token = strtok(NULL,",");
 	}
-	net_id = model_net_setup("torus", packet_size, (const void*)&net_params);
+	net_id = model_net_setup(model_net_method_names[TORUS], packet_size, (const void*)&net_params);
      }
   else
        printf("\n Invalid network argument %s ", mn_name);
+  model_net_base_init();
   return net_id;
 }
-static void model_net_event_impl_rc(
-    int net_id,
-    tw_lp *sender,
-    uint64_t message_size)
-{
-    /* this will be used for reverse computation of anything calculated
-     * within th model_net_event() function call itself (not reverse
-     * handling for the underlying methods, which will have their own events
-     * and reverse handlers
-     */
-    uint64_t packet_size = model_net_get_packet_size(net_id);
-    int num_packets = message_size/packet_size; /* For rolling back */
-    int i;
-
-    if(message_size % packet_size)
-      num_packets++;
-
-     for( i = 0; i < num_packets; i++ )
-       {
-	  /* Number of packets and packet ID is passed to the underlying network to mark the final packet for local event completion*/
-	  method_array[net_id]->model_net_method_packet_event_rc(sender);	  
-       }
-    return;
-} 
 
 void model_net_event_rc(
         int net_id,
         tw_lp *sender,
         uint64_t message_size){
-    model_net_event_impl_rc(net_id,sender,message_size);
+    model_net_event_impl_base_rc(sender);
 }
 
 void model_net_pull_event_rc(
         int net_id,
         tw_lp *sender) {
-    model_net_event_impl_rc(net_id, sender, PULL_MSG_SIZE);
+    model_net_event_impl_base_rc(sender);
 }
 
 /* returns the message size, can be either simplenet, dragonfly or torus message size*/
-static int model_net_get_msg_sz(int net_id)
+int model_net_get_msg_sz(int net_id)
 {
    // TODO: Add checks on network name
    // TODO: Add dragonfly and torus network models
+   return sizeof(model_net_wrap_msg);
+#if 0
    if(net_id < 0 || net_id >= MAX_NETS)
      {
       printf("%s Error: Uninitializied modelnet network, call modelnet_init first\n", __FUNCTION__);
@@ -492,6 +475,7 @@ static int model_net_get_msg_sz(int net_id)
      }
 
        return method_array[net_id]->mn_get_msg_sz();
+#endif
 }
 
 /* returns the packet size in the modelnet struct */
@@ -531,33 +515,6 @@ void model_net_report_stats(int net_id)
      //    // Add dragonfly and torus network models
    method_array[net_id]->mn_report_stats();
    return;
-}
-/* registers the lp type */
-void model_net_add_lp_type(int net_id)
-{
- switch(net_id)
- {
-   case SIMPLENET:
-       lp_type_register("modelnet_simplenet", model_net_get_lp_type(net_id));
-   break;
-   case SIMPLEWAN:
-        lp_type_register("modelnet_simplewan", model_net_get_lp_type(net_id));
-        break;
-   case TORUS:
-       lp_type_register("modelnet_torus", model_net_get_lp_type(net_id));
-       break;
-   case DRAGONFLY:
-       lp_type_register("modelnet_dragonfly", model_net_get_lp_type(net_id));
-       break;
-   case LOGGP:
-       lp_type_register("modelnet_loggp", model_net_get_lp_type(net_id));
-       break;
-   default:
-    {
-        printf("\n Invalid net_id specified ");
-	exit(-1);
-    }
- }
 }
 
 tw_lpid model_net_find_local_device(int net_id, tw_lp *sender)

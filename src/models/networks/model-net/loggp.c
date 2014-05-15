@@ -12,22 +12,19 @@
 #include "codes/jenkins-hash.h"
 #include "codes/model-net-method.h"
 #include "codes/model-net.h"
+#include "codes/model-net-lp.h"
 #include "codes/codes_mapping.h"
 #include "codes/codes.h"
+#include "codes/net/loggp.h"
 
 #define CATEGORY_NAME_MAX 16
 #define CATEGORY_MAX 12
 
-/*Define loggp data types and structs*/
-typedef struct loggp_message loggp_message;
-typedef struct loggp_state loggp_state;
+#define LP_CONFIG_NM (model_net_lp_config_names[LOGGP])
+#define LP_METHOD_NM (model_net_method_names[LOGGP])
 
-/* types of events that will constitute triton requests */
-enum loggp_event_type 
-{
-    MSG_READY = 1,  /* sender has transmitted msg to receiver */
-    MSG_START,      /* initiate a transmission */
-};
+/*Define loggp data types and structs*/
+typedef struct loggp_state loggp_state;
 
 
 struct loggp_state
@@ -36,26 +33,6 @@ struct loggp_state
     tw_stime net_send_next_idle;
     tw_stime net_recv_next_idle;
     struct mn_stats loggp_stats_array[CATEGORY_MAX];
-};
-
-struct loggp_message
-{
-    int magic; /* magic number */
-    enum loggp_event_type event_type;
-    tw_lpid src_gid; /* who transmitted this msg? */
-    tw_lpid final_dest_gid; /* who is eventually targetted with this msg? */
-    uint64_t net_msg_size_bytes;     /* size of modeled network message */
-    int event_size_bytes;     /* size of simulator event message that will be tunnelled to destination */
-    int local_event_size_bytes;     /* size of simulator event message that delivered locally upon local completion */
-    char category[CATEGORY_NAME_MAX]; /* category for communication */
-    int is_pull;
-    uint64_t pull_size;
-
-    /* for reverse computation */
-    tw_stime net_send_next_idle_saved;
-    tw_stime net_recv_next_idle_saved;
-    tw_stime xmit_time_saved;
-    tw_stime recv_time_saved;
 };
 
 /* loggp parameters for a given msg size, as reported by netgauge */
@@ -118,6 +95,7 @@ static tw_stime loggp_packet_event(
      const void* remote_event, 
      int self_event_size,
      const void* self_event,
+     tw_lpid src_lp,
      tw_lp *sender,
      int is_last_pckt);
 static void loggp_packet_event_rc(tw_lp *sender);
@@ -133,7 +111,6 @@ static struct param_table_entry* find_params(uint64_t msg_size);
 /* data structure for model-net statistics */
 struct model_net_method loggp_method =
 {
-    .method_name = "loggp",
     .mn_setup = loggp_setup,
     .model_net_method_packet_event = loggp_packet_event,
     .model_net_method_packet_event_rc = loggp_packet_event_rc,
@@ -221,7 +198,7 @@ static void loggp_init(
     ns->net_send_next_idle = tw_now(lp);
     ns->net_recv_next_idle = tw_now(lp);
 
-    bj_hashlittle2("loggp", strlen("loggp"), &h1, &h2);
+    bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
     loggp_magic = h1+h2;
     /* printf("\n loggp_magic %d ", loggp_magic); */
 
@@ -238,10 +215,10 @@ static void loggp_event(
 
     switch (m->event_type)
     {
-        case MSG_START:
+        case LG_MSG_START:
             handle_msg_start_event(ns, b, m, lp);
             break;
-        case MSG_READY:
+        case LG_MSG_READY:
             handle_msg_ready_event(ns, b, m, lp);
             break;
         default:
@@ -260,10 +237,10 @@ static void loggp_rev_event(
 
     switch (m->event_type)
     {
-        case MSG_START:
+        case LG_MSG_START:
             handle_msg_start_rev_event(ns, b, m, lp);
             break;
-        case MSG_READY:
+        case LG_MSG_READY:
             handle_msg_ready_rev_event(ns, b, m, lp);
             break;
         default:
@@ -304,7 +281,7 @@ static void handle_msg_ready_rev_event(
     stat->recv_time -= m->recv_time_saved;
 
     if (m->event_size_bytes && m->is_pull){
-        int net_id = model_net_get_id("loggp");
+        int net_id = model_net_get_id(LP_METHOD_NM);
         model_net_event_rc(net_id, lp, m->pull_size);
     }
 
@@ -359,11 +336,12 @@ static void handle_msg_ready_event(
       /* schedule event to final destination for when the recv is complete */
 //      printf("\n Remote message to LP %d ", m->final_dest_gid); 
 
-        char* tmp_ptr = (char*)m;
-        tmp_ptr += loggp_get_msg_sz();
+        void *tmp_ptr = model_net_method_get_edata(SIMPLENET, m);
+        //char* tmp_ptr = (char*)m;
+        //tmp_ptr += loggp_get_msg_sz();
         if (m->is_pull){
             /* call the model-net event */
-            int net_id = model_net_get_id("loggp");
+            int net_id = model_net_get_id(LP_METHOD_NM);
             model_net_event(net_id, m->category, m->src_gid, m->pull_size,
                     recv_queue_time, m->event_size_bytes, tmp_ptr, 0, NULL,
                     lp);
@@ -424,7 +402,8 @@ static void handle_msg_start_event(
 
     param = find_params(m->net_msg_size_bytes);
 
-    total_event_size = loggp_get_msg_sz() + m->event_size_bytes + m->local_event_size_bytes;
+    total_event_size = model_net_get_msg_sz(LOGGP) + m->event_size_bytes +
+        m->local_event_size_bytes;
 
     /* NOTE: we do not use the o_s or o_r parameters here; as indicated in
      * the netgauge paper those are typically overlapping with L (and the
@@ -462,17 +441,25 @@ static void handle_msg_start_event(
 
     /* create new event to send msg to receiving NIC */
     codes_mapping_get_lp_info(m->final_dest_gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, "modelnet_loggp", mapping_rep_id , mapping_offset, &dest_id); 
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id , mapping_offset, &dest_id); 
 
+    void *m_data;
 //    printf("\n msg start sending to %d ", dest_id);
-    e_new = tw_event_new(dest_id, send_queue_time, lp);
-    m_new = tw_event_data(e_new);
+    //e_new = tw_event_new(dest_id, send_queue_time, lp);
+    //m_new = tw_event_data(e_new);
+    e_new = model_net_method_event_new(dest_id, send_queue_time, lp, LOGGP,
+            (void**)&m_new, &m_data);
 
     /* copy entire previous message over, including payload from user of
      * this module
      */
-    memcpy(m_new, m, m->event_size_bytes + loggp_get_msg_sz());
-    m_new->event_type = MSG_READY;
+    memcpy(m_new, m, sizeof(loggp_message));
+    if (m->event_size_bytes){
+        memcpy(m_data, model_net_method_get_edata(LOGGP, m),
+                m->event_size_bytes);
+    }
+
+    m_new->event_type = LG_MSG_READY;
     
     tw_event_send(e_new);
 
@@ -481,15 +468,17 @@ static void handle_msg_start_event(
      */
     if(m->local_event_size_bytes > 0)
     {
-        char* local_event;
+        //char* local_event;
 
         e_new = tw_event_new(m->src_gid, send_queue_time+codes_local_latency(lp), lp);
         m_new = tw_event_data(e_new);
 
-         local_event = (char*)m;
-         local_event += loggp_get_msg_sz() + m->event_size_bytes;         	 
+        void * m_loc = (char*) model_net_method_get_edata(SIMPLENET, m) +
+            m->event_size_bytes;
+         //local_event = (char*)m;
+         //local_event += loggp_get_msg_sz() + m->event_size_bytes;         	 
         /* copy just the local event data over */
-        memcpy(m_new, local_event, m->local_event_size_bytes);
+        memcpy(m_new, m_loc, m->local_event_size_bytes);
         tw_event_send(e_new);
     }
     return;
@@ -510,36 +499,40 @@ static tw_stime loggp_packet_event(
 		const void* remote_event,
 		int self_event_size,
 		const void* self_event,
+                tw_lpid src_lp,
 		tw_lp *sender,
 		int is_last_pckt)
 {
      tw_event * e_new;
      tw_stime xfer_to_nic_time;
      loggp_message * msg;
-     tw_lpid dest_id;
      char* tmp_ptr;
+#if 0
      char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
 
      int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
      codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(lp_group_name, "modelnet_loggp", mapping_rep_id, mapping_offset, &dest_id);
+     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_id);
+#endif
 
      xfer_to_nic_time = codes_local_latency(sender);
-     e_new = tw_event_new(dest_id, xfer_to_nic_time+offset, sender);
-     msg = tw_event_data(e_new);
+     e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
+             sender, LOGGP, (void**)&msg, (void**)&tmp_ptr);
+     //e_new = tw_event_new(dest_id, xfer_to_nic_time+offset, sender);
+     //msg = tw_event_data(e_new);
      strcpy(msg->category, category);
      msg->final_dest_gid = final_dest_lp;
-     msg->src_gid = sender->gid;
+     msg->src_gid = src_lp;
      msg->magic = loggp_get_magic();
      msg->net_msg_size_bytes = packet_size;
      msg->event_size_bytes = 0;
      msg->local_event_size_bytes = 0;
-     msg->event_type = MSG_START;
+     msg->event_type = LG_MSG_START;
      msg->is_pull = is_pull;
      msg->pull_size = pull_size;
 
-     tmp_ptr = (char*)msg;
-     tmp_ptr += loggp_get_msg_sz();
+     //tmp_ptr = (char*)msg;
+     //tmp_ptr += loggp_get_msg_sz();
       
     //printf("\n Sending to LP %d msg magic %d ", (int)dest_id, loggp_get_magic()); 
      /*Fill in loggp information*/     
@@ -651,7 +644,7 @@ static tw_lpid loggp_find_local_device(tw_lp *sender)
      tw_lpid dest_id;
 
      codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(lp_group_name, "modelnet_loggp", mapping_rep_id, mapping_offset, &dest_id);
+     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_id);
 
     return(dest_id);
 }

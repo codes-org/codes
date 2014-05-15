@@ -11,7 +11,6 @@
 
 struct model_net_method
 {
-    char* method_name;  /* example: "dragonfly" */
     uint64_t packet_size; /* packet size */
     void (*mn_setup)(const void* net_params); /* For initializing the network */
     tw_stime (*model_net_method_packet_event)(
@@ -25,7 +24,8 @@ struct model_net_method
         const void* remote_event,
         int self_event_size,    /* 0 means don't deliver self event */
         const void* self_event,
-        tw_lp *sender,
+        tw_lpid src_lp, // original caller of model_net_(pull_)event
+        tw_lp *sender, // lp message is being called from (base LP)
 	int is_last_pckt);
     void (*model_net_method_packet_event_rc)(tw_lp *sender);
     const tw_lptype* (*mn_get_lp_type)();
@@ -33,6 +33,8 @@ struct model_net_method
     void (*mn_report_stats)();
     tw_lpid (*model_net_method_find_local_device)(tw_lp *sender);
 };
+
+extern struct model_net_method * method_array[];
 
 #endif /* MODELNET_METHOD_H */
 
