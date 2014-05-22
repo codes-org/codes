@@ -66,6 +66,20 @@ enum NETWORKS
 extern char * model_net_lp_config_names[];
 extern char * model_net_method_names[];
 
+// request structure that gets passed around (by the model-net implementation,
+// not the user)
+typedef struct model_net_request {
+    tw_lpid  final_dest_lp;
+    tw_lpid  src_lp;
+    uint64_t msg_size;
+    uint64_t packet_size;
+    int      net_id;
+    int      is_pull;
+    int      remote_event_size;
+    int      self_event_size;
+    char     category[CATEGORY_NAME_MAX];
+} model_net_request;
+
 /* data structure for tracking network statistics */
 struct mn_stats
 {

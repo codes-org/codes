@@ -189,12 +189,12 @@ static void model_net_event_impl_base(
     m->event_type = MN_BASE_NEW_MSG;
     m->magic = model_net_base_magic;
 
-    m->msg.m_base.src = sender->gid;
-    
     // set the request struct 
     model_net_request *r = &m->msg.m_base.u.req;
     r->net_id = net_id;
+    r->packet_size = model_net_get_packet_size(net_id);
     r->final_dest_lp = final_dest_lp;
+    r->src_lp = sender->gid;
     r->msg_size = message_size;
     r->remote_event_size = remote_event_size;
     r->self_event_size = self_event_size;

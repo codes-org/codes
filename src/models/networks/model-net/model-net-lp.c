@@ -9,6 +9,7 @@
 #include "codes/model-net.h"
 #include "codes/model-net-method.h"
 #include "codes/model-net-lp.h"
+#include "codes/model-net-sched.h"
 #include "codes/codes_mapping.h"
 #include "codes/jenkins-hash.h"
 
@@ -24,6 +25,10 @@ static int msg_offsets[MAX_NETS];
 
 typedef struct model_net_base_state {
     int net_id;
+    // whether scheduler loop is running
+    int in_sched_loop;
+    // model-net scheduler
+    model_net_sched *sched;
     // lp type and state of underlying model net method - cache here so we
     // don't have to constantly look up
     const tw_lptype *sub_type;
@@ -126,6 +131,10 @@ void model_net_base_lp_init(
         }
     }
 
+    // TODO: parameterize scheduler type
+    ns->sched = malloc(sizeof(model_net_sched));
+    model_net_sched_init(MN_SCHED_FCFS, method_array[ns->net_id], ns->sched);
+
     ns->sub_type = model_net_get_lp_type(ns->net_id);
     // NOTE: some models actually expect LP state to be 0 initialized...
     // *cough anything that uses mn_stats_array cough*
@@ -147,8 +156,6 @@ void model_net_base_event(
             handle_new_msg(ns, b, m, lp);
             break;
         case MN_BASE_SCHED_NEXT:
-            // TODO: write the scheduler
-            assert(0);
             handle_sched_next(ns, b, m, lp);
             break;
         case MN_BASE_PASS: ;
@@ -194,91 +201,91 @@ void model_net_base_finalize(
     free(ns->sub_state);
 }
 
-/* event type handlers */
+/// bitfields used:
+/// c0 - we initiated a sched_next event
 void handle_new_msg(
         model_net_base_state * ns,
         tw_bf *b,
         model_net_wrap_msg * m,
         tw_lp * lp){
-    // TODO: write the scheduler, this currently issues all packets at once
-    // (i.e. the orig modelnet implementation)
+    // simply pass down to the scheduler
     model_net_request *r = &m->msg.m_base.u.req;
-
-    uint64_t packet_size = model_net_get_packet_size(r->net_id);
-    uint64_t send_msg_size = r->is_pull ? PULL_MSG_SIZE : r->msg_size;
-    uint64_t num_packets = send_msg_size/packet_size; /* Number of packets to be issued by the API */
-    uint64_t i;
-    int last = 0;
-
-    if(send_msg_size % packet_size)
-        num_packets++; /* Handle the left out data if message size is not exactly divisible by packet size */
-
-    /* compute the (possible) remote/self event locations */
-    void * e_msg = (m+1);
-    void *remote_event = NULL, *self_event = NULL;
+    void * m_data = m+1;
+    void *remote = NULL, *local = NULL;
     if (r->remote_event_size > 0){
-        remote_event = e_msg;
-        e_msg = (char*)e_msg + r->remote_event_size;
+        remote = m_data;
+        m_data = (char*)m_data + r->remote_event_size;
     }
     if (r->self_event_size > 0){
-        self_event = e_msg;
+        local = m_data;
     }
-
-    /* issue N packets using method API */
-    /* somehow mark the final packet as the one responsible for delivering
-     * the self event and remote event 
-     *
-     * local event is delivered to caller of this function, remote event is
-     * passed along through network hops and delivered to final_dest_lp
-     */
-
-    tw_stime poffset = 0.0;
-    for( i = 0; i < num_packets; i++ )
-    {
-        /*Mark the last packet to the net method API*/
-        if(i == num_packets - 1)
-        {
-            last = 1;
-            /* also calculate the last packet's size */
-            packet_size = send_msg_size - ((num_packets-1)*packet_size);
-        }
-        /* Number of packets and packet ID is passed to the underlying network to mark the final packet for local event completion*/
-        poffset += method_array[r->net_id]->model_net_method_packet_event(r->category,
-                r->final_dest_lp, packet_size, r->is_pull, r->msg_size, poffset,
-                r->remote_event_size, remote_event, r->self_event_size, self_event, m->msg.m_base.src, lp, last);
+    
+    model_net_sched_add(r, r->remote_event_size, remote, r->self_event_size,
+            local, ns->sched, &m->msg.m_base.rc, lp);
+    
+    if (ns->in_sched_loop == 0){
+        b->c0 = 1;
+        tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
+        model_net_wrap_msg *m = tw_event_data(e);
+        m->event_type = MN_BASE_SCHED_NEXT;
+        m->magic = model_net_base_magic;
+        // m_base not used in sched event
+        tw_event_send(e);
+        ns->in_sched_loop = 1;
     }
-    return;
 }
+
+void handle_new_msg_rc(
+        model_net_base_state *ns,
+        tw_bf *b,
+        model_net_wrap_msg *m,
+        tw_lp *lp){
+    model_net_sched_add_rc(ns->sched, &m->msg.m_base.rc, lp);
+    if (b->c0){
+        codes_local_latency_reverse(lp);
+        ns->in_sched_loop = 0;
+    }
+}
+
+/// bitfields used
+/// c0 - scheduler loop is finished
 void handle_sched_next(
         model_net_base_state * ns,
         tw_bf *b,
         model_net_wrap_msg * m,
         tw_lp * lp){
-    // currently unused
-}
-void handle_new_msg_rc(
-        model_net_base_state * ns,
-        tw_bf *b,
-        model_net_wrap_msg * m,
-        tw_lp * lp){
-    model_net_request *r = &m->msg.m_base.u.req;
-
-    uint64_t packet_size = model_net_get_packet_size(r->net_id);
-    uint64_t send_msg_size = r->is_pull ? PULL_MSG_SIZE : r->msg_size;
-    uint64_t num_packets = send_msg_size/packet_size; /* Number of packets to be issued by the API */
-
-    if(send_msg_size % packet_size)
-        num_packets++; /* Handle the left out data if message size is not exactly divisible by packet size */
-
-    for (uint64_t i = 0; i < num_packets; i++) {
-        method_array[r->net_id]->model_net_method_packet_event_rc(lp);
+    tw_stime poffset;
+    int ret = model_net_sched_next(&poffset, ns->sched, &m->msg.m_base.rc, lp);
+    // we only need to know whether scheduling is finished or not - if not,
+    // go to the 'next iteration' of the loop
+    if (ret == -1){
+        b->c0 = 1;
+        ns->in_sched_loop = 0;
+    }
+    else {
+        tw_event *e = codes_event_new(lp->gid, 
+                poffset+codes_local_latency(lp), lp);
+        model_net_wrap_msg *m = tw_event_data(e);
+        m->event_type = MN_BASE_SCHED_NEXT;
+        m->magic = model_net_base_magic;
+        // no need to set m_base here
+        tw_event_send(e);
     }
 }
+
 void handle_sched_next_rc(
         model_net_base_state * ns,
         tw_bf *b,
         model_net_wrap_msg * m,
         tw_lp * lp){
+    model_net_sched_next_rc(ns->sched, &m->msg.m_base.rc, lp);
+
+    if (b->c0){
+        ns->in_sched_loop = 1;
+    }
+    else{
+        codes_local_latency_reverse(lp);
+    }
 }
 
 /**** END IMPLEMENTATIONS ****/

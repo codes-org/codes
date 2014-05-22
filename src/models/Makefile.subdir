@@ -4,6 +4,7 @@ nobase_include_HEADERS = \
  codes/model-net.h	\
  codes/model-net-method.h \
  codes/model-net-lp.h \
+ codes/model-net-sched.h \
  codes/net/dragonfly.h \
  codes/net/loggp.h \
  codes/net/simplenet-upd.h \
@@ -18,4 +19,5 @@ src_libcodes_net_a_SOURCES = \
  src/models/networks/model-net/dragonfly.c \
  src/models/networks/model-net/loggp.c \
  src/models/networks/model-net/simplewan.c \
- src/models/networks/model-net/model-net-lp.c
+ src/models/networks/model-net/model-net-lp.c \
+ src/models/networks/model-net/model-net-sched.c

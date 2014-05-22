@@ -14,6 +14,8 @@
 #define MODEL_NET_LP_H
 
 #include <ross.h>
+#include "model-net.h"
+#include "model-net-sched.h"
 #include "net/dragonfly.h"
 #include "net/loggp.h"
 #include "net/simplenet-upd.h"
@@ -57,23 +59,13 @@ enum model_net_base_event_type {
     MN_BASE_PASS
 };
 
-typedef struct model_net_request {
-    tw_lpid  final_dest_lp;
-    uint64_t msg_size;
-    int      net_id;
-    int      is_pull;
-    int      remote_event_size;
-    int      self_event_size;
-    char     category[CATEGORY_NAME_MAX];
-} model_net_request;
-
 typedef struct model_net_base_msg {
     // no need for event type - in wrap message
-    tw_lpid src;
     union {
         model_net_request req;
         struct {} sched; // needs nothing at the moment
     } u;
+    model_net_sched_rc rc; // rc for scheduling events
 } model_net_base_msg;
 
 typedef struct model_net_wrap_msg {
