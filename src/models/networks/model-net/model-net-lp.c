@@ -244,7 +244,7 @@ void handle_new_msg(
         }
         /* Number of packets and packet ID is passed to the underlying network to mark the final packet for local event completion*/
         poffset += method_array[r->net_id]->model_net_method_packet_event(r->category,
-                r->final_dest_lp, send_msg_size, r->is_pull, r->msg_size, poffset,
+                r->final_dest_lp, packet_size, r->is_pull, r->msg_size, poffset,
                 r->remote_event_size, remote_event, r->self_event_size, self_event, m->msg.m_base.src, lp, last);
     }
     return;
