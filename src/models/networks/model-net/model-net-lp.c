@@ -133,7 +133,7 @@ void model_net_base_lp_init(
 
     // TODO: parameterize scheduler type
     ns->sched = malloc(sizeof(model_net_sched));
-    model_net_sched_init(MN_SCHED_FCFS, method_array[ns->net_id], ns->sched);
+    model_net_sched_init(mn_sched_type, method_array[ns->net_id], ns->sched);
 
     ns->sub_type = model_net_get_lp_type(ns->net_id);
     // NOTE: some models actually expect LP state to be 0 initialized...

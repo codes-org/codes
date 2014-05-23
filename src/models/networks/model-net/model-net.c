@@ -10,6 +10,7 @@
 #include "codes/model-net.h"
 #include "codes/model-net-method.h"
 #include "codes/model-net-lp.h"
+#include "codes/model-net-sched.h"
 #include "codes/codes.h"
 
 #define STR_SIZE 16
@@ -253,14 +254,18 @@ void model_net_pull_event(
 int model_net_set_params()
 {
   char mn_name[MAX_NAME_LENGTH];
+  char sched[MAX_NAME_LENGTH];
   long int packet_size_l = 0;
   uint64_t packet_size;
   int net_id=-1;
+  int ret;
 
   config_lpgroups_t paramconf;
   configuration_get_lpgroups(&config, "PARAMS", &paramconf);
   configuration_get_value(&config, "PARAMS", "modelnet", mn_name, MAX_NAME_LENGTH);
   configuration_get_value_longint(&config, "PARAMS", "packet_size", &packet_size_l);
+  ret = configuration_get_value(&config, "PARAMS", "modelnet_scheduler", sched,
+          MAX_NAME_LENGTH);
   packet_size = packet_size_l;
 
   if(!packet_size)
@@ -268,6 +273,24 @@ int model_net_set_params()
 	packet_size = 512;
 	printf("\n Warning, no packet size specified, setting packet size to %llu ", packet_size);
   }
+    if (ret > 0){
+        if (strcmp("round-robin", sched) == 0){
+            mn_sched_type = MN_SCHED_RR; 
+        }
+        else if (strcmp("fcfs", sched) == 0){
+            mn_sched_type = MN_SCHED_FCFS;
+        }
+        else{
+            fprintf(stderr, "Unknown value for PARAMS:modelnet-scheduler : %s\n",
+                    sched);
+            abort();
+        }
+    }
+    else{
+        // default: FCFS
+        mn_sched_type = MN_SCHED_FCFS;
+    }
+
   if(strcmp(model_net_method_names[SIMPLENET],mn_name)==0)
    {
      double net_startup_ns, net_bw_mbps;

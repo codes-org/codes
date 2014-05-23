@@ -13,6 +13,8 @@
 #include "codes/model-net-lp.h"
 #include "codes/quicklist.h"
 
+enum sched_type mn_sched_type = -1;
+
 /// scheduler-specific data structures (TODO: split specific schedulers into
 /// their own files if we move beyond just these two)
 /// NOTE: for now, scheduler data structures are the same - this may change in

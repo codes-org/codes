@@ -46,6 +46,10 @@ enum sched_type {
     MN_SCHED_RR    // round-robin packet scheduling
 }; 
 
+/// global for scheduler
+/// TODO: move away from using the global for when we have multiple networks
+extern enum sched_type mn_sched_type;
+
 /// overall scheduler struct - type puns the actual data structure
 
 struct model_net_sched_s {
