@@ -199,6 +199,7 @@ static void model_net_event_impl_base(
     r->msg_size = message_size;
     r->remote_event_size = remote_event_size;
     r->self_event_size = self_event_size;
+    r->is_pull = is_pull;
     strncpy(r->category, category, CATEGORY_NAME_MAX-1);
     r->category[CATEGORY_NAME_MAX-1]='\0';
     
