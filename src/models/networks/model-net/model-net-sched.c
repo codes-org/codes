@@ -163,6 +163,8 @@ void fcfs_add (
         model_net_sched_rc *rc, 
         tw_lp *lp){
     mn_sched_qitem *q = malloc(sizeof(mn_sched_qitem));
+    assert(q);
+    memset(q, 0, sizeof(*q));
     q->req = *req;
     q->rem = req->is_pull ? PULL_MSG_SIZE : req->msg_size;
     if (remote_event_size > 0){
