@@ -27,6 +27,9 @@ AC_PROG_CXX
 AC_PROG_CXXCPP
 AC_PROG_RANLIB
 
+# Check for C99
+AC_PROG_CC_C99
+
 AC_REQUIRE_CPP
 
 # Checks for header files.
