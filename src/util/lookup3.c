@@ -7,6 +7,15 @@
 #include "codes_base_config.h"
 #include "codes/jenkins-hash.h"
 
+/* used to prevent address sanitizer from complaining about jenkins hash
+ * algorithm
+ */
+#if defined(__clang__) || defined (__GNUC__)
+# define ATTRIBUTE_NO_SANITIZE_ADDRESS __attribute__((no_sanitize_address))
+#else
+# define ATTRIBUTE_NO_SANITIZE_ADDRESS
+#endif
+
 /*
 -------------------------------------------------------------------------------
 lookup3.c, by Bob Jenkins, May 2006, Public Domain.
@@ -176,6 +185,7 @@ and these came close:
  * the key.  *pc is better mixed than *pb, so use *pc first.  If you want
  * a 64-bit value do something like "*pc + (((uint64_t)*pb)<<32)".
  */
+ATTRIBUTE_NO_SANITIZE_ADDRESS
 void bj_hashlittle2( 
   const void *key,       /* the key to hash */
   size_t      length,    /* length of the key */
