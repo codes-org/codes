@@ -333,7 +333,8 @@ int codes_kernel_helper_bootstrap(char * io_kernel_path, char *
     ksize = info.st_size;
 
     /* allocate a buffer for the kernel */
-    kbuffer = (char *)malloc(sizeof(char) * ksize);
+    kbuffer = (char *)malloc(sizeof(char) * (ksize+1));
+    kbuffer[ksize] = '\0';
 
     /* get data from the kernel file */
     fd = open(io_kernel_path, O_RDONLY);
