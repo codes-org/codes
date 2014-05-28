@@ -162,6 +162,10 @@ void fcfs_add (
         void *sched, 
         model_net_sched_rc *rc, 
         tw_lp *lp){
+    // NOTE: in optimistic mode, we currently do not have a good way to
+    // reliably free and re-initialize the q item and the local/remote events
+    // when processing next/next_rc events. Hence, the memory leaks. Later on
+    // we'll figure out a better way to handle this.
     mn_sched_qitem *q = malloc(sizeof(mn_sched_qitem));
     assert(q);
     memset(q, 0, sizeof(*q));
@@ -271,6 +275,10 @@ void rr_add (
         void *sched,
         model_net_sched_rc *rc,
         tw_lp *lp){
+    // NOTE: in optimistic mode, we currently do not have a good way to
+    // reliably free and re-initialize the q item and the local/remote events
+    // when processing next/next_rc events. Hence, the memory leaks. Later on
+    // we'll figure out a better way to handle this.
     mn_sched_qitem *q = malloc(sizeof(mn_sched_qitem));
     q->req = *req;
     q->rem = req->is_pull ? PULL_MSG_SIZE : req->msg_size;
