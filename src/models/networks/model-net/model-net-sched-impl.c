@@ -262,10 +262,12 @@ void rr_add (
         q->remote_event = malloc(remote_event_size);
         memcpy(q->remote_event, remote_event, remote_event_size);
     }
+    else { q->remote_event = NULL; }
     if (local_event_size > 0){
         q->local_event = malloc(local_event_size);
         memcpy(q->local_event, local_event, local_event_size);
     }
+    else{ q->local_event = NULL; }
     mn_sched *s = sched;
     qlist_add_tail(&q->ql, &s->reqs);
 }
