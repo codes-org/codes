@@ -20,10 +20,6 @@ typedef struct mn_sched {
     // method containing packet event to call
     struct model_net_method *method;
     struct qlist_head reqs; // of type mn_sched_qitem
-    // this is an unfortunate result - we have to basically not free anything
-    // in order to keep around the remote and local events
-    // we desperately need GVT hooks to run our own garbage collection
-    struct qlist_head free_reqs;
 } mn_sched;
 
 typedef struct mn_sched_qitem {
@@ -53,8 +49,10 @@ static void fcfs_add (
         model_net_sched_rc *rc, 
         tw_lp *lp);
 static void fcfs_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp);
-static int  fcfs_next(tw_stime *poffset, void *sched, model_net_sched_rc *rc, tw_lp *lp);
-static void fcfs_next_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp);
+static int  fcfs_next(tw_stime *poffset, void *sched, void *rc_event_save, 
+        model_net_sched_rc *rc, tw_lp *lp);
+static void fcfs_next_rc(void *sched, void *rc_event_save,
+        model_net_sched_rc *rc, tw_lp *lp);
 
 static void rr_init (struct model_net_method *method, void ** sched);
 static void rr_destroy (void *sched);
@@ -68,8 +66,10 @@ static void rr_add (
         model_net_sched_rc *rc,
         tw_lp *lp);
 static void rr_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp);
-static int  rr_next(tw_stime *poffset, void *sched, model_net_sched_rc *rc, tw_lp *lp);
-static void rr_next_rc (void *sched, model_net_sched_rc *rc, tw_lp *lp);
+static int  rr_next(tw_stime *poffset, void *sched, void *rc_event_save,
+        model_net_sched_rc *rc, tw_lp *lp);
+static void rr_next_rc (void *sched, void *rc_event_save,
+        model_net_sched_rc *rc, tw_lp *lp);
 
 /// function tables (names defined by X macro in model-net-sched.h)
 static model_net_sched_interface fcfs_tab = 
@@ -90,7 +90,6 @@ void fcfs_init(struct model_net_method *method, void ** sched){
     mn_sched *ss = *sched;
     ss->method = method;
     INIT_QLIST_HEAD(&ss->reqs);
-    INIT_QLIST_HEAD(&ss->free_reqs);
 }
 
 void fcfs_destroy(void *sched){
@@ -112,17 +111,18 @@ void fcfs_add (
     // we'll figure out a better way to handle this.
     mn_sched_qitem *q = malloc(sizeof(mn_sched_qitem));
     assert(q);
-    memset(q, 0, sizeof(*q));
     q->req = *req;
     q->rem = req->is_pull ? PULL_MSG_SIZE : req->msg_size;
     if (remote_event_size > 0){
         q->remote_event = malloc(remote_event_size);
         memcpy(q->remote_event, remote_event, remote_event_size);
     }
+    else { q->remote_event = NULL; }
     if (local_event_size > 0){
         q->local_event = malloc(local_event_size);
         memcpy(q->local_event, local_event, local_event_size);
     }
+    else { q->local_event = NULL; }
     mn_sched *s = sched;
     qlist_add_tail(&q->ql, &s->reqs);
 }
@@ -132,12 +132,14 @@ void fcfs_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp){
     struct qlist_head *ent = qlist_pop_back(&s->reqs);
     assert(ent != NULL);
     mn_sched_qitem *q = qlist_entry(ent, mn_sched_qitem, ql);
-    if (q->remote_event) free(q->remote_event);
-    if (q->local_event)  free(q->local_event);
+    // free'ing NULLs is a no-op 
+    free(q->remote_event);
+    free(q->local_event);
     free(q);
 }
 
-int fcfs_next(tw_stime *poffset, void *sched, model_net_sched_rc *rc, tw_lp *lp){
+int fcfs_next(tw_stime *poffset, void *sched, void *rc_event_save,
+        model_net_sched_rc *rc, tw_lp *lp){
     mn_sched *s = sched;
     struct qlist_head *ent = s->reqs.next;
     if (ent == &s->reqs){
@@ -163,10 +165,21 @@ int fcfs_next(tw_stime *poffset, void *sched, model_net_sched_rc *rc, tw_lp *lp)
             q->req.remote_event_size, q->remote_event, q->req.self_event_size,
             q->local_event, q->req.src_lp, lp, is_last_packet);
 
-    // if last packet - remove from list, put into free list
+    // if last packet - remove from list, free, save for rc
     if (is_last_packet){
         qlist_pop(&s->reqs);
-        qlist_add_tail(&q->ql, &s->free_reqs);
+        rc->req = q->req;
+        void *e_dat = rc_event_save;
+        if (q->req.remote_event_size > 0){
+            memcpy(e_dat, q->remote_event, q->req.remote_event_size);
+            e_dat = (char*) e_dat + q->req.remote_event_size;
+            free(q->remote_event);
+        }
+        if (q->req.self_event_size > 0){
+            memcpy(e_dat, q->local_event, q->req.self_event_size);
+            free(q->local_event);
+        }
+        free(q);
         rc->rtn = 1;
     }
     else{
@@ -176,7 +189,8 @@ int fcfs_next(tw_stime *poffset, void *sched, model_net_sched_rc *rc, tw_lp *lp)
     return rc->rtn;
 }
 
-void fcfs_next_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp){
+void fcfs_next_rc(void *sched, void *rc_event_save, model_net_sched_rc *rc,
+        tw_lp *lp){
     mn_sched *s = sched;
     if (rc->rtn == -1){
         // no op
@@ -190,7 +204,26 @@ void fcfs_next_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp){
             q->rem += q->req.packet_size;
         }
         else if (rc->rtn == 1){
-            qlist_add(qlist_pop_back(&s->free_reqs), &s->reqs);
+            // re-create the q item
+            mn_sched_qitem *q = malloc(sizeof(mn_sched_qitem));
+            assert(q);
+            q->req = rc->req;
+            q->rem = q->req.msg_size % q->req.packet_size;
+            if (q->rem == 0){ // processed exactly a packet's worth of data
+                q->rem = q->req.packet_size;
+            }
+            void * e_dat = rc_event_save;
+            if (q->req.remote_event_size > 0){
+                q->remote_event = malloc(q->req.remote_event_size);
+                memcpy(q->remote_event, e_dat, q->req.remote_event_size);
+                e_dat = (char*) e_dat + q->req.remote_event_size;
+            }
+            if (q->req.self_event_size > 0) {
+                q->local_event = malloc(q->req.self_event_size);
+                memcpy(q->local_event, e_dat, q->req.self_event_size);
+            }
+            // add back to front of list
+            qlist_add(&q->ql, &s->reqs);
         }
         else {
             assert(0);
@@ -203,7 +236,6 @@ void rr_init (struct model_net_method *method, void ** sched){
     mn_sched *ss = *sched;
     ss->method = method;
     INIT_QLIST_HEAD(&ss->reqs);
-    INIT_QLIST_HEAD(&ss->free_reqs);
 }
 
 void rr_destroy (void *sched){
@@ -247,7 +279,8 @@ void rr_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp){
     free(q);
 }
 
-int rr_next(tw_stime *poffset, void *sched, model_net_sched_rc *rc, tw_lp *lp){
+int rr_next(tw_stime *poffset, void *sched, void *rc_event_save,
+        model_net_sched_rc *rc, tw_lp *lp){
     mn_sched *s = sched;
     struct qlist_head *ent = qlist_pop(&s->reqs);
     if (ent == NULL){
@@ -273,9 +306,20 @@ int rr_next(tw_stime *poffset, void *sched, model_net_sched_rc *rc, tw_lp *lp){
             q->req.remote_event_size, q->remote_event, q->req.self_event_size,
             q->local_event, q->req.src_lp, lp, is_last_packet);
 
-    // if last packet - remove from list, put into free list
+    // if last packet - remove from list, free, save for rc
     if (is_last_packet){
-        qlist_add_tail(&q->ql, &s->free_reqs);
+        rc->req = q->req;
+        void *e_dat = rc_event_save;
+        if (q->req.remote_event_size > 0){
+            memcpy(e_dat, q->remote_event, q->req.remote_event_size);
+            e_dat = (char*) e_dat + q->req.remote_event_size;
+            free(q->remote_event);
+        }
+        if (q->req.self_event_size > 0){
+            memcpy(e_dat, q->local_event, q->req.self_event_size);
+            free(q->local_event);
+        }
+        free(q);
         rc->rtn = 1;
     }
     else{
@@ -286,7 +330,7 @@ int rr_next(tw_stime *poffset, void *sched, model_net_sched_rc *rc, tw_lp *lp){
     return rc->rtn;
 }
 
-void rr_next_rc (void *sched, model_net_sched_rc *rc, tw_lp *lp){
+void rr_next_rc (void *sched, void *rc_event_save, model_net_sched_rc *rc, tw_lp *lp){
     mn_sched *s = sched;
     if (rc->rtn == -1){
         // no op
@@ -301,9 +345,26 @@ void rr_next_rc (void *sched, model_net_sched_rc *rc, tw_lp *lp){
             q->rem += q->req.packet_size;
         }
         else if (rc->rtn == 1){
-            // put back to *front* of list. We know it's the front because it was
-            // in the front when it was deleted
-            qlist_add(qlist_pop_back(&s->free_reqs), &s->reqs);
+            // re-create the q item
+            mn_sched_qitem *q = malloc(sizeof(mn_sched_qitem));
+            assert(q);
+            q->req = rc->req;
+            q->rem = q->req.msg_size % q->req.packet_size;
+            if (q->rem == 0){ // processed exactly a packet's worth of data
+                q->rem = q->req.packet_size;
+            }
+            void * e_dat = rc_event_save;
+            if (q->req.remote_event_size > 0){
+                q->remote_event = malloc(q->req.remote_event_size);
+                memcpy(q->remote_event, e_dat, q->req.remote_event_size);
+                e_dat = (char*) e_dat + q->req.remote_event_size;
+            }
+            if (q->req.self_event_size > 0) {
+                q->local_event = malloc(q->req.self_event_size);
+                memcpy(q->local_event, e_dat, q->req.self_event_size);
+            }
+            // add back to front of list
+            qlist_add(&q->ql, &s->reqs);
         }
         else {
             assert(0);

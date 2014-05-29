@@ -255,7 +255,8 @@ void handle_sched_next(
         model_net_wrap_msg * m,
         tw_lp * lp){
     tw_stime poffset;
-    int ret = model_net_sched_next(&poffset, ns->sched, &m->msg.m_base.rc, lp);
+    int ret = model_net_sched_next(&poffset, ns->sched, m+1, 
+            &m->msg.m_base.rc, lp);
     // we only need to know whether scheduling is finished or not - if not,
     // go to the 'next iteration' of the loop
     if (ret == -1){
@@ -278,7 +279,7 @@ void handle_sched_next_rc(
         tw_bf *b,
         model_net_wrap_msg * m,
         tw_lp * lp){
-    model_net_sched_next_rc(ns->sched, &m->msg.m_base.rc, lp);
+    model_net_sched_next_rc(ns->sched, m+1, &m->msg.m_base.rc, lp);
 
     if (b->c0){
         ns->in_sched_loop = 1;

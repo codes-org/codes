@@ -45,21 +45,24 @@ typedef struct model_net_sched_interface {
     void (*init)(struct model_net_method *method, void ** sched);
     void (*destroy)(void * sched);
     void (*add)(
-            model_net_request *req, 
+            model_net_request *req,
             int remote_event_size,
             void * remote_event,
             int local_event_size,
             void * local_event,
-            void *sched, 
-            model_net_sched_rc *rc, 
+            void *sched,
+            model_net_sched_rc *rc,
             tw_lp *lp);
     void (*add_rc)(void *sched, model_net_sched_rc *rc, tw_lp *lp);
     int  (*next)(
             tw_stime *poffset,
-            void *sched, 
-            model_net_sched_rc *rc, 
+            void *sched,
+            // NOTE: copy here when deleting remote/local events for rc
+            void *rc_event_save,
+            model_net_sched_rc *rc,
             tw_lp *lp);
-    void (*next_rc)(void * sched, model_net_sched_rc *rc, tw_lp *lp);
+    void (*next_rc)(void * sched, void *rc_event_save, 
+            model_net_sched_rc *rc, tw_lp *lp);
 } model_net_sched_interface;
 
 /// overall scheduler struct - type puns the actual data structure
@@ -77,6 +80,7 @@ struct model_net_sched_s {
 struct model_net_sched_rc_s {
     // NOTE: sched implementations may need different types, but for now they
     // are equivalent 
+    model_net_request req; // request gets deleted...
     int rtn; // return code from a sched_next 
 };
 
@@ -96,11 +100,13 @@ void model_net_sched_init(
 int model_net_sched_next(
         tw_stime *poffset,
         model_net_sched *sched,
+        void *rc_event_save,
         model_net_sched_rc *sched_rc,
         tw_lp *lp);
 
 void model_net_sched_next_rc(
         model_net_sched *sched,
+        void *rc_event_save,
         model_net_sched_rc *sched_rc,
         tw_lp *lp);
 

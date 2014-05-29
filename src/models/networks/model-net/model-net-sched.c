@@ -42,16 +42,18 @@ void model_net_sched_init(
 int model_net_sched_next(
         tw_stime *poffset,
         model_net_sched *sched,
+        void *rc_event_save,
         model_net_sched_rc *sched_rc,
         tw_lp *lp){
-    return sched->impl->next(poffset, sched->dat, sched_rc, lp);
+    return sched->impl->next(poffset, sched->dat, rc_event_save, sched_rc, lp);
 }
 
 void model_net_sched_next_rc(
         model_net_sched *sched,
+        void *rc_event_save,
         model_net_sched_rc *sched_rc,
         tw_lp *lp) {
-    sched->impl->next_rc(sched->dat, sched_rc, lp);
+    sched->impl->next_rc(sched->dat, rc_event_save, sched_rc, lp);
 }
 
 void model_net_sched_add(
