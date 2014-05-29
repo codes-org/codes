@@ -18,6 +18,7 @@
 /stamp-h1
 /codes_net_config.h
 /maint/codes-net.pc
+/test-driver
 .deps
 
 # make generated artifacts
