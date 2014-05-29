@@ -13,6 +13,27 @@
 #include "model-net.h"
 #include "model-net-method.h"
 
+/// types of schedulers
+/// format: enum type, config string, function pointer names
+/// fcfs-full eschews packetization
+#define SCHEDULER_TYPES \
+    X(MN_SCHED_FCFS,      "fcfs",        &fcfs_tab) \
+    X(MN_SCHED_FCFS_FULL, "fcfs-full",   &fcfs_tab) \
+    X(MN_SCHED_RR,        "round-robin", &rr_tab) \
+    X(MAX_SCHEDS,         NULL,          NULL)
+
+#define X(a,b,c) a,
+enum sched_type {
+    SCHEDULER_TYPES
+};
+#undef X
+
+extern char * sched_names[];
+
+/// global for scheduler
+/// TODO: move away from using the global for when we have multiple networks
+extern enum sched_type mn_sched_type;
+
 /// scheduler decls
 
 typedef struct model_net_sched_s model_net_sched;
@@ -40,15 +61,6 @@ typedef struct model_net_sched_interface {
             tw_lp *lp);
     void (*next_rc)(void * sched, model_net_sched_rc *rc, tw_lp *lp);
 } model_net_sched_interface;
-
-enum sched_type {
-    MN_SCHED_FCFS, // issue all packets at once (orig. model-net behavior)
-    MN_SCHED_RR    // round-robin packet scheduling
-}; 
-
-/// global for scheduler
-/// TODO: move away from using the global for when we have multiple networks
-extern enum sched_type mn_sched_type;
 
 /// overall scheduler struct - type puns the actual data structure
 

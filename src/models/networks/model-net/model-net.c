@@ -264,25 +264,23 @@ int model_net_set_params()
   config_lpgroups_t paramconf;
   configuration_get_lpgroups(&config, "PARAMS", &paramconf);
   configuration_get_value(&config, "PARAMS", "modelnet", mn_name, MAX_NAME_LENGTH);
-  configuration_get_value_longint(&config, "PARAMS", "packet_size", &packet_size_l);
   ret = configuration_get_value(&config, "PARAMS", "modelnet_scheduler", sched,
           MAX_NAME_LENGTH);
+
+  configuration_get_value_longint(&config, "PARAMS", "packet_size", &packet_size_l);
   packet_size = packet_size_l;
 
-  if(!packet_size)
-  {
-	packet_size = 512;
-	printf("\n Warning, no packet size specified, setting packet size to %llu ", packet_size);
-  }
     if (ret > 0){
-        if (strcmp("round-robin", sched) == 0){
-            mn_sched_type = MN_SCHED_RR; 
+        int i;
+        for (i = 0; i < MAX_SCHEDS; i++){
+            if (strcmp(sched_names[i], sched) == 0){
+                mn_sched_type = i;
+                break;
+            }
         }
-        else if (strcmp("fcfs", sched) == 0){
-            mn_sched_type = MN_SCHED_FCFS;
-        }
-        else{
-            fprintf(stderr, "Unknown value for PARAMS:modelnet-scheduler : %s\n",
+        if (i == MAX_SCHEDS){
+            fprintf(stderr, 
+                    "Unknown value for PARAMS:modelnet-scheduler : %s\n", 
                     sched);
             abort();
         }
@@ -290,6 +288,17 @@ int model_net_set_params()
     else{
         // default: FCFS
         mn_sched_type = MN_SCHED_FCFS;
+    }
+
+    if (mn_sched_type == MN_SCHED_FCFS_FULL){
+        // override packet size to something huge (leave a bit in the unlikely
+        // case that an op using packet size causes overflow)
+        packet_size = 1ull << 62;
+    }
+    else if (!packet_size && mn_sched_type != MN_SCHED_FCFS_FULL)
+    {
+        packet_size = 512;
+        fprintf(stderr, "\n Warning, no packet size specified, setting packet size to %llu ", packet_size);
     }
 
   if(strcmp(model_net_method_names[SIMPLENET],mn_name)==0)

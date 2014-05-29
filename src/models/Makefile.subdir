@@ -20,4 +20,6 @@ src_libcodes_net_a_SOURCES = \
  src/models/networks/model-net/loggp.c \
  src/models/networks/model-net/simplewan.c \
  src/models/networks/model-net/model-net-lp.c \
- src/models/networks/model-net/model-net-sched.c
+ src/models/networks/model-net/model-net-sched.c \
+ src/models/networks/model-net/model-net-sched-impl.h \
+ src/models/networks/model-net/model-net-sched-impl.c
