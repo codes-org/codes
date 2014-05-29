@@ -218,10 +218,12 @@ void fcfs_next_rc(void *sched, void *rc_event_save, model_net_sched_rc *rc,
                 memcpy(q->remote_event, e_dat, q->req.remote_event_size);
                 e_dat = (char*) e_dat + q->req.remote_event_size;
             }
+            else { q->remote_event = NULL; }
             if (q->req.self_event_size > 0) {
                 q->local_event = malloc(q->req.self_event_size);
                 memcpy(q->local_event, e_dat, q->req.self_event_size);
             }
+            else { q->local_event = NULL; }
             // add back to front of list
             qlist_add(&q->ql, &s->reqs);
         }
@@ -361,10 +363,12 @@ void rr_next_rc (void *sched, void *rc_event_save, model_net_sched_rc *rc, tw_lp
                 memcpy(q->remote_event, e_dat, q->req.remote_event_size);
                 e_dat = (char*) e_dat + q->req.remote_event_size;
             }
+            else { q->remote_event = NULL; }
             if (q->req.self_event_size > 0) {
                 q->local_event = malloc(q->req.self_event_size);
                 memcpy(q->local_event, e_dat, q->req.self_event_size);
             }
+            else { q->local_event = NULL; }
             // add back to front of list
             qlist_add(&q->ql, &s->reqs);
         }
