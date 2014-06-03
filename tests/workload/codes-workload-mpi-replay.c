@@ -24,7 +24,7 @@
 #include "codes/quickhash.h"
 #include "codes/configuration.h"
 
-#define DEBUG_PROFILING 1
+#define DEBUG_PROFILING 0
 
 /* hash table entry for looking up file descriptor of a workload file id */
 struct file_info
@@ -195,6 +195,8 @@ int load_workload(char *conf_path, int rank)
     }
 }
 
+char* buf = NULL;
+
 int main(int argc, char *argv[])
 {
     char *conf_path;
@@ -209,6 +211,7 @@ int main(int argc, char *argv[])
     double load_start, load_end;
     int first_op = 1;
     int ret = 0;
+    int i;
 
     /* parse command line args */
     parse_args(argc, argv, &conf_path, &replay_test_path);
@@ -255,6 +258,13 @@ int main(int argc, char *argv[])
     {
         fprintf(stderr, "File descriptor hash table memory error\n");
         goto error_exit;
+    }
+
+    buf = malloc(16*1024*1024);
+    assert(buf);
+    for(i=0; i<16*1024*1024; i++)
+    {
+        buf[i] = '1';
     }
 
     /* synchronize before replay */
@@ -330,7 +340,6 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
     int fildes;
     struct file_info *tmp_list = NULL;
     struct qlist_head *hash_link = NULL;
-    char *buf = NULL;
     int ret;
 
 #if DEBUG_PROFILING
@@ -485,6 +494,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                 tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
                 fildes = tmp_list->file_descriptor;
 
+#if 0
                 /* perform the write operation */
                 buf = malloc(replay_op.u.write.size);
                 if (!buf)
@@ -492,8 +502,11 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                     fprintf(stderr, "No memory available for write buffer\n");
                     return -1;
                 }
+#endif
                 ret = pwrite(fildes, buf, replay_op.u.write.size, replay_op.u.write.offset);
+#if 0
                 free(buf);
+#endif
                 if (ret < 0)
                 {
                     fprintf(stderr, "Rank %d failure on operation %lld [WRITE: %s]\n",
@@ -521,6 +534,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                 tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
                 fildes = tmp_list->file_descriptor;
 
+#if 0
                 /* perform the write operation */
                 buf = malloc(replay_op.u.read.size);
                 if (!buf)
@@ -528,8 +542,11 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                     fprintf(stderr, "No memory available for write buffer\n");
                     return -1;
                 }
+#endif
                 ret = pread(fildes, buf, replay_op.u.read.size, replay_op.u.read.offset);
+#if 0
                 free(buf);
+#endif
                 if (ret < 0)
                 {
                     fprintf(stderr, "Rank %d failure on operation %lld [READ: %s]\n",
