@@ -76,7 +76,7 @@ int model_net_get_id(char *name){
 void model_net_write_stats(tw_lpid lpid, struct mn_stats* stat)
 {
     int ret;
-    char id[32];
+    char id[19+CATEGORY_NAME_MAX+1];
     char data[1024];
 
     sprintf(id, "model-net-category-%s", stat->category);
