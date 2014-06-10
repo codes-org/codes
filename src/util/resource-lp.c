@@ -159,7 +159,13 @@ static void resource_response(
     else{
         tw_error(TW_LOC, 
                 "message size not large enough to hold header/callback/misc"
-                "structures");
+                " structures\n"
+                "msg size: %3d, header   off/size:  %d, %d\n"
+                "               callback off/size:  %d, %d\n"
+                "               callback misc size: %d",
+                m->i.msg_size, m->i.msg_header_offset, (int)sizeof(h),
+                m->i.msg_callback_offset, (int)sizeof(c),
+                m->i.msg_callback_misc_size);
     }
 }
 static void resource_response_rc(tw_lp *lp){
