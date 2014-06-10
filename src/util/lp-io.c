@@ -20,7 +20,7 @@ struct io_buffer
 
 struct identifier
 {
-    char identifier[32];
+    char identifier[64];
     struct io_buffer *buffers;
     int buffers_count;
     int buffers_total_size;
@@ -42,7 +42,7 @@ int lp_io_write(tw_lpid gid, char* identifier, int size, void* buffer)
     struct identifier* id;
     struct io_buffer *buf;
 
-    if(strlen(identifier) >= 32)
+    if(strlen(identifier) >= 64)
     {
         fprintf(stderr, "Error: identifier %s too big.\n", identifier);
         return(-1);
