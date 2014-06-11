@@ -35,6 +35,10 @@ static int offset = 2;
 /* whether to pull instead of push */ 
 static int do_pull = 0; 
 
+static int num_routers_per_rep = 0;
+static int num_servers_per_rep = 0;
+static int lps_per_rep = 0;
+
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
 
@@ -327,12 +331,19 @@ static void handle_kickoff_event(
     /* record when transfers started on this server */
     ns->start_ts = tw_now(lp);
 
+    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", "server");
+    num_routers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", "dragonfly_router");
+
+    lps_per_rep = num_servers_per_rep * 2 + num_routers_per_rep;
+
     int opt_offset = 0;
-    if(net_id == DRAGONFLY && lp->gid % 5)
-	  opt_offset = 3; /* optional offset due to dragonfly mapping */
+    int total_lps = num_servers * 2 + num_routers;
+
+    if(net_id == DRAGONFLY && (lp->gid % lps_per_rep == num_servers_per_rep - 1))
+          opt_offset = num_servers_per_rep + num_routers_per_rep; /* optional offset due to dragonfly mapping */
     
     /* each server sends a request to the next highest server */
-    int dest_id = (lp->gid + offset + opt_offset)%(num_servers*2 + num_routers);
+    int dest_id = (lp->gid + offset + opt_offset)%total_lps;
     if (do_pull){
         model_net_pull_event(net_id, "test", dest_id, PAYLOAD_SZ, 0.0,
                 sizeof(svr_msg), (const void*)m_remote, lp);
@@ -436,8 +447,9 @@ static void handle_ack_event(
     /* safety check that this request got to the right server */
 //    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
     int opt_offset = 0;
-    if(net_id == DRAGONFLY && lp->gid % 5)
-	 opt_offset = 3;
+    
+   if(net_id == DRAGONFLY && (lp->gid % lps_per_rep == num_servers_per_rep - 1))
+      opt_offset = num_servers_per_rep + num_routers_per_rep; /* optional offset due to dragonfly mapping */    	
 
     tw_lpid dest_id = (lp->gid + offset + opt_offset)%(num_servers*2 + num_routers);
 
@@ -494,9 +506,9 @@ static void handle_req_event(
     /* safety check that this request got to the right server */
 //    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
     int opt_offset = 0;
-    if(net_id == DRAGONFLY && (m->src % 5))
-	  opt_offset = 3; /* optional offset due to dragonfly mapping */
-    
+    if(net_id == DRAGONFLY && (m->src % lps_per_rep == num_servers_per_rep - 1))
+          opt_offset = num_servers_per_rep + num_routers_per_rep; /* optional offset due to dragonfly mapping */       
+ 
     assert(lp->gid == (m->src + offset + opt_offset)%(num_servers*2 + num_routers));
     ns->msg_recvd_count++;
 

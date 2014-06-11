@@ -768,8 +768,7 @@ get_output_port( router_state * s,
        {
         output_port = local_router_id % num_routers;
        }
-      if(output_port == 6)
-	      printf("\n output port not found %d next stop %d local router id %d group id %d intm grp id %d %d", output_port, next_stop, local_router_id, s->group_id, intm_grp_id, local_router_id%num_routers);
+//	      printf("\n output port not found %d next stop %d local router id %d group id %d intm grp id %d %d", output_port, next_stop, local_router_id, s->group_id, intm_grp_id, local_router_id%num_routers);
     }
     return output_port;
 }
