@@ -522,6 +522,28 @@ uint64_t model_net_get_packet_size(int net_id)
   return method_array[net_id]->packet_size; // TODO: where to set the packet size?
 }
 
+/* This event does a collective operation call for model-net */
+void model_net_event_collective(int net_id, char* category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender)
+{
+  if(net_id < 0 || net_id > MAX_NETS)
+     {
+       fprintf(stderr, "%s Error: Uninitializied modelnet network, call modelnet_init first\n", __FUNCTION__);
+       exit(-1);
+     }
+  return method_array[net_id]->mn_collective_call(category, message_size, remote_event_size, remote_event, sender);
+}
+
+/* reverse event of the collective operation call */
+void model_net_event_collective_rc(int net_id, int message_size, tw_lp* sender)
+{
+  if(net_id < 0 || net_id > MAX_NETS)
+     {
+       fprintf(stderr, "%s Error: Uninitializied modelnet network, call modelnet_init first\n", __FUNCTION__);
+       exit(-1);
+     }
+  return method_array[net_id]->mn_collective_call_rc(message_size, sender);
+}
+
 /* returns lp type for modelnet */
 const tw_lptype* model_net_get_lp_type(int net_id)
 {

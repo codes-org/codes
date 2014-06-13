@@ -96,6 +96,12 @@ static double sw_get_startup(int from_id, int to_id);
 static category_idles* sw_get_category_idles(
         char * category, category_idles *idles);
 
+/* collective network calls */
+static void simple_wan_collective();
+
+/* collective network calls-- rc */
+static void simple_wan_collective_rc();
+
 /* allocate a new event that will pass through simplewan to arriave at its
  * destination:
  *
@@ -144,7 +150,9 @@ struct model_net_method simplewan_method =
     .mn_get_lp_type = sw_get_lp_type,
     .mn_get_msg_sz = sw_get_msg_sz,
     .mn_report_stats = sw_report_stats,
-    .model_net_method_find_local_device = sw_find_local_device,
+      .model_net_method_find_local_device = sw_find_local_device,
+    .mn_collective_call = simple_wan_collective,
+    .mn_collective_call_rc = simple_wan_collective_rc  
 };
 
 static void sw_init(
@@ -194,6 +202,19 @@ static void handle_msg_start_event(
     tw_bf * b,
     sw_message * m,
     tw_lp * lp);
+
+/* collective network calls */
+static void simple_wan_collective()
+{
+/* collectives not supported */
+    return;
+}
+
+static void simple_wan_collective_rc()
+{
+/* collectives not supported */
+   return;
+}
 
 /* returns pointer to LP information for simplewan module */
 static const tw_lptype* sw_get_lp_type()

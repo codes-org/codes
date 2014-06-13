@@ -44,15 +44,24 @@ struct terminal_message
    int output_chan;
     int is_pull;
     uint64_t pull_size;
-   
+
+   /* for reverse computation */   
    tw_stime saved_available_time;
    tw_stime saved_credit_time;
+   tw_stime saved_collective_init_time;  
 
    int intm_group_id;
    short chunk_id;
    uint64_t packet_size;
    int remote_event_size_bytes;
    int local_event_size_bytes;
+
+   /* for reverse computation of a node's fan in*/
+   int saved_fan_nodes;
+   tw_lpid sender_svr;
+
+  /* LP ID of the sending node, has to be a network node in the dragonfly */
+   tw_lpid sender_node;
 };
 
 #endif /* end of include guard: DRAGONFLY_H */

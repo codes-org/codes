@@ -153,6 +153,22 @@ int model_net_setup(char* net_name, uint64_t packet_size, const void* net_params
 
 /* utility function to get the modelnet ID post-setup */
 int model_net_get_id(char *net_name);
+
+/* This event does a collective operation call for model-net */
+void model_net_event_collective(
+    int net_id,
+    char* category,
+    int message_size,
+    int remote_event_size,
+    const void* remote_event,
+    tw_lp *sender);
+
+/* reverse event of the collective operation call */
+void model_net_event_collective_rc(
+        int net_id,
+        int message_size,
+        tw_lp *sender);
+
 /* allocate and transmit a new event that will pass through model_net to 
  * arrive at its destination:
  *

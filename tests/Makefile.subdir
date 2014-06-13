@@ -1,6 +1,7 @@
 
 check_PROGRAMS += tests/modelnet-test tests/modelnet-p2p-bw \
-				  tests/concurrent-msg-recv tests/modelnet-simplewan-test
+				  tests/concurrent-msg-recv tests/modelnet-simplewan-test \		
+				  tests/modelnet-test-collective
 
 TESTS += tests/modelnet-test.sh \
 	 tests/modelnet-test-torus.sh \
@@ -31,3 +32,8 @@ tests_concurrent_msg_recv_LDFLAGS = ${CODES_BASE_LDFLAGS}
 tests_concurrent_msg_recv_LDADD = $(testlib) ${CODES_BASE_LIBS} 
 tests_concurrent_msg_recv_CFLAGS = ${CODES_BASE_CFLAGS} 
 tests_concurrent_msg_recv_SOURCES = tests/concurrent-msg-recv.c
+
+tests_modelnet_test_collective_LDADD = $(testlib) ${CODES_BASE_LIBS}
+tests_modelnet_test_collective_CFLAGS = ${CODES_BASE_CFLAGS}
+tests_modelnet_test_collective_SOURCES = tests/modelnet-test-collective.c
+

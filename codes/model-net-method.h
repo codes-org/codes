@@ -32,6 +32,8 @@ struct model_net_method
     int (*mn_get_msg_sz)();
     void (*mn_report_stats)();
     tw_lpid (*model_net_method_find_local_device)(tw_lp *sender);
+    void (*mn_collective_call)(char* category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender);
+    void (*mn_collective_call_rc)(int message_size, tw_lp* sender);    
 };
 
 extern struct model_net_method * method_array[];

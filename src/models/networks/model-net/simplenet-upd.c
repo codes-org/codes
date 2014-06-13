@@ -62,6 +62,12 @@ static int sn_get_magic();
 
 static void print_msg(sn_message *m);
 
+/* collective network calls */
+static void simple_net_collective();
+
+/* collective network calls-- rc */
+static void simple_net_collective_rc();
+
 /* allocate a new event that will pass through simplenet to arriave at its
  * destination:
  *
@@ -111,6 +117,8 @@ struct model_net_method simplenet_method =
     .mn_get_msg_sz = sn_get_msg_sz,
     .mn_report_stats = sn_report_stats,
     .model_net_method_find_local_device = sn_find_local_device,
+    .mn_collective_call = simple_net_collective,	
+    .mn_collective_call_rc = simple_net_collective_rc
 };
 
 static void sn_init(
@@ -173,6 +181,19 @@ static const tw_lptype* sn_get_lp_type()
 static int sn_get_msg_sz(void)
 {
     return(sizeof(sn_message));
+}
+/* collective network calls */
+static void simple_net_collective()
+{
+/* collectives not supported */
+    return;
+}
+
+/* collective network call -- rc*/
+static void simple_net_collective_rc()
+{
+/* collectives not supported */
+   return;
 }
 
 /* lets caller specify model parameters to use */

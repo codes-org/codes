@@ -17,6 +17,9 @@ enum nodes_event_t
   ARRIVAL, 
   SEND,
   CREDIT,
+  T_COLLECTIVE_INIT,
+  T_COLLECTIVE_FAN_IN,
+  T_COLLECTIVE_FAN_OUT  
 };
 
 struct nodes_message
@@ -28,6 +31,9 @@ struct nodes_message
   /* for reverse event computation*/
   tw_stime saved_available_time;
 
+  /* message saved collective time */
+  tw_stime saved_collective_init_time;
+  
   /* packet ID */
   unsigned long long packet_ID;
   /* event type of the message */
@@ -44,8 +50,12 @@ struct nodes_message
   tw_lpid final_dest_gid;
   /* destination torus node of the message */
   tw_lpid dest_lp;
-  /* LP ID of the sender, comes from codes, can be a server or any other I/O LP type */
-  tw_lpid sender_lp;
+  /* LP ID of the sender, comes from codes, can be a server or any other I/O LP type. Should not change
+     during network operations. */
+  tw_lpid sender_svr;
+
+  /* LP ID of the sending node, has to be a network node in the torus */
+  tw_lpid sender_node;
 
   /* number of hops traversed by the packet */
   int my_N_hop;
@@ -57,6 +67,10 @@ struct nodes_message
   int next_stop;
   /* size of the torus packet */
   uint64_t packet_size;
+
+ /* for reverse computation of a node's fan in*/
+  int saved_fan_nodes;
+
   /* chunk id of the flit (distinguishes flits) */
   short chunk_id;
 

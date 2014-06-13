@@ -20,6 +20,14 @@
 #define MEAN_INTERVAL 100
 #define TRACE -1 
 
+/* collective specific parameters */
+#define TREE_DEGREE 4
+#define LEVEL_DELAY 1000
+#define TORUS_COLLECTIVE_DEBUG 1
+#define NUM_COLLECTIVES  1
+#define COLLECTIVE_COMPUTATION_DELAY 5700
+#define TORUS_FAN_OUT_DELAY 20.0
+
 #define LP_CONFIG_NM (model_net_lp_config_names[TORUS])
 #define LP_METHOD_NM (model_net_method_names[TORUS])
 
@@ -45,11 +53,12 @@ static int chunk_size;
 /* codes mapping group name, lp type name */
 static char grp_name[MAX_NAME_LENGTH], type_name[MAX_NAME_LENGTH];
 /* codes mapping group id, lp type id, repetition id and offset */
-static int grp_id, lp_type_id, rep_id, offset;
+int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
 
 /* for calculating torus model statistics, average and maximum travel time of a packet */
 static tw_stime         total_time = 0;
 static tw_stime         max_latency = 0;
+static tw_stime         max_collective = 0;
 
 /* indicates delays calculated through the bandwidth calculation of the torus link */
 static float head_delay=0.0;
@@ -86,6 +95,32 @@ struct nodes_state
 
   /* records torus statistics for this LP having different communication categories */
   struct mn_stats torus_stats_array[CATEGORY_MAX];
+   /* for collective operations */
+
+  /* collective init time */
+  tw_stime collective_init_time;
+
+  /* node ID in the tree */ 
+   tw_lpid node_id;
+
+   /* messages sent & received in collectives may get interchanged several times so we have to save the 
+     origin server information in the node's state */
+   tw_lpid origin_svr; 
+  
+  /* parent node ID of the current node */
+   tw_lpid parent_node_id;
+   /* array of children to be allocated in terminal_init*/
+   tw_lpid* children;
+
+   /* children of a node can be less than or equal to the tree degree */
+   int num_children;
+
+   short is_root;
+   short is_leaf;
+
+   /* to maintain a count of child nodes that have fanned in at the parent during the collective
+      fan-in phase*/
+   int num_fan_nodes;
 };
 
 /* setup the torus model, initialize global parameters */
@@ -112,6 +147,60 @@ static void torus_setup(const void* net_params)
     }
 }
 
+void torus_collective_init(nodes_state * s,
+           		   tw_lp * lp)
+{
+    codes_mapping_get_lp_info(lp->gid, grp_name, &mapping_grp_id, &mapping_type_id, type_name, &mapping_rep_id, &mapping_offset);
+    int num_lps = codes_mapping_get_lp_count(grp_name, LP_CONFIG_NM);
+    int num_reps = codes_mapping_get_group_reps(grp_name);
+    s->node_id = (mapping_rep_id * num_lps) + mapping_offset;
+
+    int i;
+   /* handle collective operations by forming a tree of all the LPs */
+   /* special condition for root of the tree */
+   if( s->node_id == 0)
+    {
+        s->parent_node_id = -1;
+        s->is_root = 1;
+   }
+   else
+   {
+       s->parent_node_id = (s->node_id - ((s->node_id - 1) % TREE_DEGREE)) / TREE_DEGREE;
+       s->is_root = 0;
+   }
+   s->children = (tw_lpid*)malloc(TREE_DEGREE * sizeof(tw_lpid));
+
+   /* set the isleaf to zero by default */
+   s->is_leaf = 1;
+   s->num_children = 0;
+
+   /* calculate the children of the current node. If its a leaf, no need to set children,
+      only set isleaf and break the loop*/
+
+   for( i = 0; i < TREE_DEGREE; i++ )
+    {
+        tw_lpid next_child = (TREE_DEGREE * s->node_id) + i + 1;
+        if(next_child < (num_lps * num_reps))
+        {
+            s->num_children++;
+            s->is_leaf = 0;
+            s->children[i] = next_child;
+        }
+        else
+           s->children[i] = -1;
+    }
+
+#if TORUS_COLLECTIVE_DEBUG == 1
+   printf("\n LP %ld parent node id ", s->node_id);
+
+   for( i = 0; i < TREE_DEGREE; i++ )
+        printf(" child node ID %ld ", s->children[i]);
+   printf("\n");
+
+   if(s->is_leaf)
+        printf("\n LP %ld is leaf ", s->node_id);
+#endif
+}
 /* torus packet reverse event */
 static void torus_packet_event_rc(tw_lp *sender)
 {
@@ -133,18 +222,17 @@ static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, uint64
     nodes_message * msg;
     tw_lpid dest_nic_id;
     char* tmp_ptr;
-    char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
    
     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
 #if 0
     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &local_nic_id);
 #endif
-    codes_mapping_get_lp_info(final_dest_lp, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_nic_id);
+    codes_mapping_get_lp_info(final_dest_lp, grp_name, &mapping_grp_id, &mapping_type_id, type_name, &mapping_rep_id, &mapping_offset);
+    codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_nic_id);
 
     /* TODO: Should send the packets in correct sequence. Currently the last packet is being sent first due to codes_local_latency offset. */
-    xfer_to_nic_time = 0.01 + codes_local_latency(sender); /* Throws an error of found last KP time > current event time otherwise */
+    xfer_to_nic_time = g_tw_lookahead + codes_local_latency(sender); /* Throws an error of found last KP time > current event time otherwise */
     //e_new = tw_event_new(local_nic_id, xfer_to_nic_time+offset, sender);
     //msg = tw_event_data(e_new);
     e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
@@ -152,7 +240,7 @@ static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, uint64
     strcpy(msg->category, category);
     msg->final_dest_gid = final_dest_lp;
     msg->dest_lp = dest_nic_id;
-    msg->sender_lp= src_lp;
+    msg->sender_svr= src_lp;
     msg->packet_size = packet_size;
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
@@ -194,8 +282,9 @@ static void torus_init( nodes_state * s,
     int i, j;
     int dim_N[ n_dims + 1 ];
 
-    codes_mapping_get_lp_info(lp->gid, grp_name, &grp_id, &lp_type_id, type_name, &rep_id, &offset);
-    dim_N[ 0 ]=rep_id + offset;
+    codes_mapping_get_lp_info(lp->gid, grp_name, &mapping_grp_id, &mapping_type_id, type_name, &mapping_rep_id, &mapping_offset);
+
+    dim_N[ 0 ]=mapping_rep_id + mapping_offset;
 
     s->neighbour_minus_lpID = (int*)malloc(n_dims * sizeof(int));
     s->neighbour_plus_lpID = (int*)malloc(n_dims * sizeof(int));
@@ -280,8 +369,261 @@ static void torus_init( nodes_state * s,
    }
   // record LP time
     s->packet_counter = 0;
+    torus_collective_init(s, lp);
 }
 
+
+/* collective operation for the torus network */
+void torus_collective(char* category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender)
+{
+    tw_event * e_new;
+    tw_stime xfer_to_nic_time;
+    nodes_message * msg;
+    tw_lpid local_nic_id;
+    char* tmp_ptr;
+
+    codes_mapping_get_lp_info(sender->gid, grp_name, &mapping_grp_id, &mapping_type_id, type_name, &mapping_rep_id, &mapping_offset);
+    codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &local_nic_id);
+
+    xfer_to_nic_time = g_tw_lookahead + codes_local_latency(sender);
+    e_new = model_net_method_event_new(local_nic_id, xfer_to_nic_time,
+            sender, TORUS, (void**)&msg, (void**)&tmp_ptr);
+
+    msg->remote_event_size_bytes = message_size;
+    strcpy(msg->category, category);
+    msg->sender_svr=sender->gid;
+    msg->type = T_COLLECTIVE_INIT;
+
+    tmp_ptr = (char*)msg;
+    tmp_ptr += torus_get_msg_sz();
+    if(remote_event_size > 0)
+     {
+            msg->remote_event_size_bytes = remote_event_size;
+            memcpy(tmp_ptr, remote_event, remote_event_size);
+            tmp_ptr += remote_event_size;
+     }
+
+    tw_event_send(e_new);
+    return;
+}
+
+/* reverse for collective operation of the dragonfly network */
+void torus_collective_rc(int message_size, tw_lp* sender)
+{
+     codes_local_latency_reverse(sender);
+     return;
+}
+
+static void send_remote_event(nodes_state * s,
+                        tw_bf * bf,
+                        nodes_message * msg,
+                        tw_lp * lp)
+{
+    // Trigger an event on receiving server
+    if(msg->remote_event_size_bytes)
+     {
+            tw_event* e;
+            tw_stime ts;
+            nodes_message * m;
+            ts = (1/link_bandwidth) * msg->remote_event_size_bytes;
+            e = codes_event_new(s->origin_svr, ts, lp);
+            m = tw_event_data(e);
+            char* tmp_ptr = (char*)msg;
+            tmp_ptr += torus_get_msg_sz();
+            memcpy(m, tmp_ptr, msg->remote_event_size_bytes);
+            tw_event_send(e);
+     }
+}
+
+static void node_collective_init(nodes_state * s,
+                        tw_bf * bf,
+                        nodes_message * msg,
+                        tw_lp * lp)
+{
+        tw_event * e_new;
+        tw_lpid parent_nic_id;
+        tw_stime xfer_to_nic_time;
+        nodes_message * msg_new;
+        int num_lps;
+
+        msg->saved_collective_init_time = s->collective_init_time;
+        s->collective_init_time = tw_now(lp);
+	s->origin_svr = msg->sender_svr;
+	
+        if(s->is_leaf)
+        {
+            //printf("\n LP %ld sending message to parent %ld ", s->node_id, s->parent_node_id);
+            /* get the global LP ID of the parent node */
+            codes_mapping_get_lp_info(lp->gid, grp_name, &mapping_grp_id, &mapping_type_id, type_name, &mapping_rep_id, &mapping_offset);
+            num_lps = codes_mapping_get_lp_count(grp_name, LP_CONFIG_NM);
+            codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->parent_node_id/num_lps , (s->parent_node_id % num_lps), &parent_nic_id);
+
+           /* send a message to the parent that the LP has entered the collective operation */
+            xfer_to_nic_time = g_tw_lookahead + LEVEL_DELAY;
+            //e_new = codes_event_new(parent_nic_id, xfer_to_nic_time, lp);
+	    void* m_data;
+	    e_new = model_net_method_event_new(parent_nic_id, xfer_to_nic_time,
+            	lp, TORUS, (void**)&msg_new, (void**)&m_data);
+	    	
+            memcpy(msg_new, msg, sizeof(nodes_message));
+	    if (msg->remote_event_size_bytes){
+        	memcpy(m_data, model_net_method_get_edata(TORUS, msg),
+                	msg->remote_event_size_bytes);
+      	    }
+	    
+            msg_new->type = T_COLLECTIVE_FAN_IN;
+            msg_new->sender_node = s->node_id;
+
+            tw_event_send(e_new);
+        }
+        return;
+}
+
+static void node_collective_fan_in(nodes_state * s,
+                        tw_bf * bf,
+                        nodes_message * msg,
+                        tw_lp * lp)
+{
+        int i;
+        s->num_fan_nodes++;
+
+        codes_mapping_get_lp_info(lp->gid, grp_name, &mapping_grp_id, &mapping_type_id, type_name, &mapping_rep_id, &mapping_offset);
+        int num_lps = codes_mapping_get_lp_count(grp_name, LP_CONFIG_NM);
+
+        tw_event* e_new;
+        nodes_message * msg_new;
+        tw_stime xfer_to_nic_time;
+
+        bf->c1 = 0;
+        bf->c2 = 0;
+
+        /* if the number of fanned in nodes have completed at the current node then signal the parent */
+        if((s->num_fan_nodes == s->num_children) && !s->is_root)
+        {
+            bf->c1 = 1;
+            msg->saved_fan_nodes = s->num_fan_nodes-1;
+            s->num_fan_nodes = 0;
+            tw_lpid parent_nic_id;
+            xfer_to_nic_time = g_tw_lookahead + LEVEL_DELAY;
+
+            /* get the global LP ID of the parent node */
+            codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->parent_node_id/num_lps , (s->parent_node_id % num_lps), &parent_nic_id);
+
+           /* send a message to the parent that the LP has entered the collective operation */
+            //e_new = codes_event_new(parent_nic_id, xfer_to_nic_time, lp);
+            //msg_new = tw_event_data(e_new);
+	    void * m_data;
+      	    e_new = model_net_method_event_new(parent_nic_id,
+              xfer_to_nic_time,
+              lp, TORUS, (void**)&msg_new, &m_data);
+	    
+            memcpy(msg_new, msg, sizeof(nodes_message));
+            msg_new->type = T_COLLECTIVE_FAN_IN;
+            msg_new->sender_node = s->node_id;
+
+            if (msg->remote_event_size_bytes){
+	        memcpy(m_data, model_net_method_get_edata(TORUS, msg),
+        	        msg->remote_event_size_bytes);
+      	   }
+	    
+            tw_event_send(e_new);
+      }
+
+      /* root node starts off with the fan-out phase */
+      if(s->is_root && (s->num_fan_nodes == s->num_children))
+      {
+           bf->c2 = 1;
+           msg->saved_fan_nodes = s->num_fan_nodes-1;
+           s->num_fan_nodes = 0;
+           send_remote_event(s, bf, msg, lp);
+
+           for( i = 0; i < s->num_children; i++ )
+           {
+                tw_lpid child_nic_id;
+                /* Do some computation and fan out immediate child nodes from the collective */
+                xfer_to_nic_time = g_tw_lookahead + COLLECTIVE_COMPUTATION_DELAY + LEVEL_DELAY + tw_rand_exponential(lp->rng, (double)LEVEL_DELAY/50);
+
+                /* get global LP ID of the child node */
+                codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->children[i]/num_lps , (s->children[i] % num_lps), &child_nic_id);
+                //e_new = codes_event_new(child_nic_id, xfer_to_nic_time, lp);
+
+                //msg_new = tw_event_data(e_new);
+                void * m_data;
+	        e_new = model_net_method_event_new(child_nic_id,
+                xfer_to_nic_time,
+		lp, TORUS, (void**)&msg_new, &m_data);
+
+		memcpy(msg_new, msg, sizeof(nodes_message));
+	        if (msg->remote_event_size_bytes){
+	                memcpy(m_data, model_net_method_get_edata(TORUS, msg),
+        	               msg->remote_event_size_bytes);
+      		}
+		
+                msg_new->type = T_COLLECTIVE_FAN_OUT;
+                msg_new->sender_node = s->node_id;
+
+                tw_event_send(e_new);
+           }
+      }
+}
+	     
+static void node_collective_fan_out(nodes_state * s,
+                        tw_bf * bf,
+                        nodes_message * msg,
+                        tw_lp * lp)
+{
+        int i;
+        int num_lps = codes_mapping_get_lp_count(grp_name, LP_CONFIG_NM);
+        bf->c1 = 0;
+        bf->c2 = 0;
+
+        send_remote_event(s, bf, msg, lp);
+
+        if(!s->is_leaf)
+        {
+            bf->c1 = 1;
+            tw_event* e_new;
+            nodes_message * msg_new;
+            tw_stime xfer_to_nic_time;
+
+           for( i = 0; i < s->num_children; i++ )
+           {
+                xfer_to_nic_time = g_tw_lookahead + TORUS_FAN_OUT_DELAY + tw_rand_exponential(lp->rng, (double)TORUS_FAN_OUT_DELAY/10);
+
+                if(s->children[i] > 0)
+                {
+                        tw_lpid child_nic_id;
+
+                        /* get global LP ID of the child node */
+                        codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->children[i]/num_lps , (s->children[i] % num_lps), &child_nic_id);
+                        //e_new = codes_event_new(child_nic_id, xfer_to_nic_time, lp);
+                        //msg_new = tw_event_data(e_new);
+                        //memcpy(msg_new, msg, sizeof(nodes_message) + msg->remote_event_size_bytes);
+			void* m_data;
+			e_new = model_net_method_event_new(child_nic_id,
+							xfer_to_nic_time,
+					                lp, TORUS, (void**)&msg_new, &m_data);
+		        memcpy(msg_new, msg, sizeof(nodes_message));
+		        if (msg->remote_event_size_bytes){
+			        memcpy(m_data, model_net_method_get_edata(TORUS, msg),
+			                msg->remote_event_size_bytes);
+      			}
+
+
+                        msg_new->type = T_COLLECTIVE_FAN_OUT;
+                        msg_new->sender_node = s->node_id;
+                        tw_event_send(e_new);
+                }
+           }
+         }
+	//printf("\n Fan out phase completed %ld ", lp->gid);
+        if(max_collective < tw_now(lp) - s->collective_init_time )
+          {
+              bf->c2 = 1;
+              max_collective = tw_now(lp) - s->collective_init_time;
+          }
+}
+    
 /*Returns the next neighbor to which the packet should be routed by using DOR (Taken from Ning's code of the torus model)*/
 static void dimension_order_routing( nodes_state * s,
 			     tw_lpid * dst_lp, 
@@ -293,8 +635,8 @@ static void dimension_order_routing( nodes_state * s,
       i,
       dest_id=0;
 
-  codes_mapping_get_lp_info(*dst_lp, grp_name, &grp_id, &lp_type_id, type_name, &rep_id, &offset);
-  dim_N[ 0 ]=rep_id + offset;
+  codes_mapping_get_lp_info(*dst_lp, grp_name, &mapping_grp_id, &mapping_type_id, type_name, &mapping_rep_id, &mapping_offset);
+  dim_N[ 0 ]=mapping_rep_id + mapping_offset;
 
   // find destination dimensions using destination LP ID 
   for ( i = 0; i < n_dims; i++ )
@@ -452,7 +794,7 @@ static void credit_send( nodes_state * s,
 
     //buf_e = tw_event_new( msg->sender_lp, s->next_credit_available_time[(2 * src_dim) + src_dir][0] - tw_now(lp), lp);
     //m = tw_event_data(buf_e);
-    buf_e = model_net_method_event_new(msg->sender_lp,
+    buf_e = model_net_method_event_new(msg->sender_node,
             s->next_credit_available_time[(2*src_dim) + src_dir][0] - tw_now(lp),
             lp, TORUS, (void**)&m, NULL);
     m->source_direction = msg->source_direction;
@@ -510,7 +852,7 @@ static void packet_send( nodes_state * s,
       m->source_dim = tmp_dim;
       m->source_direction = tmp_dir;
       m->next_stop = dst_lp;
-      m->sender_lp = lp->gid;
+      m->sender_node = lp->gid;
       m->local_event_size_bytes = 0; /* We just deliver the local event here */
 
       tw_event_send( e );
@@ -520,13 +862,14 @@ static void packet_send( nodes_state * s,
       if(msg->chunk_id == num_chunks - 1)
       {
         bf->c1 = 1;
+	/* Invoke an event on the sending server */
 	if(msg->local_event_size_bytes > 0)
 	{
           tw_event* e_new;
 	  nodes_message* m_new;
 	  void* local_event;
 	  ts = (1/link_bandwidth) * msg->local_event_size_bytes;
-	  e_new = tw_event_new(msg->sender_lp, ts, lp);
+	  e_new = tw_event_new(msg->sender_svr, ts, lp);
 	  m_new = tw_event_data(e_new);
 	  //local_event = (char*)msg;
 	  //local_event += torus_get_msg_sz() + msg->remote_event_size_bytes;
@@ -592,7 +935,7 @@ static void packet_arrive( nodes_state * s,
                void *tmp_ptr = model_net_method_get_edata(TORUS, msg);
                if (msg->is_pull){
                    int net_id = model_net_get_id(LP_METHOD_NM);
-                   model_net_event(net_id, msg->category, msg->sender_lp,
+                   model_net_event(net_id, msg->category, msg->sender_svr,
                            msg->pull_size, ts, msg->remote_event_size_bytes,
                            tmp_ptr, 0, NULL, lp);
                }
@@ -728,6 +1071,40 @@ static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw
 		  s->buffer[ msg->source_direction + ( msg->source_dim * 2 ) ][  0 ]++;
               }
        break;
+	
+       case T_COLLECTIVE_INIT:
+                {
+                    s->collective_init_time = msg->saved_collective_init_time;
+                }
+        break;
+
+        case T_COLLECTIVE_FAN_IN:
+                {
+                   int i;
+                   s->num_fan_nodes--;
+                   if(bf->c1)
+                    {
+                        s->num_fan_nodes = msg->saved_fan_nodes;
+                    }
+                   if(bf->c2)
+                     {
+                        s->num_fan_nodes = msg->saved_fan_nodes;
+                        for( i = 0; i < s->num_children; i++ )
+                            tw_rand_reverse_unif(lp->rng);
+                     }
+                }
+        break;
+
+        case T_COLLECTIVE_FAN_OUT:
+                {
+                 int i;
+                 if(bf->c1)
+                    {
+                        for( i = 0; i < s->num_children; i++ )
+                            tw_rand_reverse_unif(lp->rng);
+                    }
+                }
+        break;      
      }
 }
 
@@ -740,17 +1117,33 @@ static void event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_l
   case GENERATE:
     packet_generate(s,bf,msg,lp);
   break;
+
   case ARRIVAL:
     packet_arrive(s,bf,msg,lp);
   break;
+
   case SEND:
    packet_send(s,bf,msg,lp);
   break;
+
   case CREDIT:
     packet_buffer_process(s,bf,msg,lp);
    break;
+
+  case T_COLLECTIVE_INIT:
+    node_collective_init(s, bf, msg, lp);
+  break;
+
+  case T_COLLECTIVE_FAN_IN:
+    node_collective_fan_in(s, bf, msg, lp);
+  break;
+
+  case T_COLLECTIVE_FAN_OUT:
+    node_collective_fan_out(s, bf, msg, lp);
+  break;
+ 
   default:
-	printf("\n Being sent to wrong LP");
+	printf("\n Being sent to wrong LP %d", msg->type);
   break;
  }
 }
@@ -773,12 +1166,10 @@ static const tw_lptype* torus_get_lp_type(void)
 
 static tw_lpid torus_find_local_device(tw_lp *sender)
 {
-     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
-     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
      tw_lpid dest_id;
 
-     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_id);
+     codes_mapping_get_lp_info(sender->gid, grp_name, &mapping_grp_id, &mapping_type_id, type_name, &mapping_rep_id, &mapping_offset);
+     codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_id);
 
     return(dest_id);
 }
@@ -793,6 +1184,8 @@ struct model_net_method torus_method =
    .mn_get_msg_sz = torus_get_msg_sz,
    .mn_report_stats = torus_report_stats,
    .model_net_method_find_local_device = torus_find_local_device,
+   .mn_collective_call = torus_collective,
+   .mn_collective_call_rc = torus_collective_rc
 };
 
 /*

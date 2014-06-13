@@ -67,6 +67,12 @@ static int loggp_get_msg_sz(void);
 /* Returns the loggp magic number */
 static int loggp_get_magic();
 
+/* collective network calls */
+static void loggp_collective();
+
+/* collective network calls-- rc */
+static void loggp_collective_rc();
+
 /* allocate a new event that will pass through loggp to arriave at its
  * destination:
  *
@@ -118,6 +124,8 @@ struct model_net_method loggp_method =
     .mn_get_msg_sz = loggp_get_msg_sz,
     .mn_report_stats = loggp_report_stats,
     .model_net_method_find_local_device = loggp_find_local_device,
+    .mn_collective_call = loggp_collective,
+    .mn_collective_call_rc = loggp_collective_rc
 };
 
 static void loggp_init(
@@ -187,6 +195,20 @@ static void loggp_report_stats()
    /* TODO: Do we have some loggp statistics to report like we have for torus and dragonfly? */
    return;
 }
+
+/* collective network calls */
+static void loggp_collective()
+{
+/* collectives not supported */
+    return;
+}
+
+static void loggp_collective_rc()
+{
+/* collectives not supported */
+   return;
+}
+
 static void loggp_init(
     loggp_state * ns,
     tw_lp * lp)
