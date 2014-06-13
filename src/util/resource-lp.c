@@ -151,7 +151,7 @@ static void resource_response(
         memcpy(((char*)msg)+m->i.msg_header_offset, &h, sizeof(h));
         memcpy(((char*)msg)+m->i.msg_callback_offset, &c, sizeof(c));
         if (m->i.msg_callback_misc_size > 0){
-            memcpy(((char*)msg)+m->i.msg_callback_offset, 
+            memcpy(((char*)msg)+m->i.msg_callback_misc_offset, 
                         m->i.msg_callback_misc, m->i.msg_callback_misc_size);
         }
         tw_event_send(e);
