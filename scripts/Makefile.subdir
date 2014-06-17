@@ -1,1 +1,21 @@
-#bin_SCRIPTS += scripts/codes_configurator.py
+my_bin_scripts = scripts/codes_configurator \
+			   scripts/codes_filter_configs \
+			   scripts/codes_config_get_vals
+
+bin_SCRIPTS += $(my_bin_scripts)
+EXTRA_DIST += $(my_bin_scripts)
+CLEANFILES += $(my_bin_scripts)
+
+# manual rules for now
+do_subst = sed -e 's![@]libdir[@]!$(libdir)!g'
+
+%: %.py.in Makefile
+	$(do_subst) < $< > $@
+	chmod +x $@
+
+# install hook for configurator utility lib
+# TODO: actually use the install program, use more of a 'standard' approach
+install-data-local:
+	cp $(top_srcdir)/scripts/configurator.py $(libdir)
+uninstall-local:
+	rm -f $(libdir)/configurator.py

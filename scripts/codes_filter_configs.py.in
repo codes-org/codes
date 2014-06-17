@@ -1,8 +1,22 @@
 #!/usr/bin/python2.7
 
-import configurator as conf
 from sys import stdout
+import os
 import argparse
+import imp
+
+# internal testing: import directly
+#import configurator as conf
+
+# dynamically load from lib path
+def import_from(fname):
+    path,name = os.path.split(fname)
+    name,ext  = os.path.splitext(name) 
+
+    fmod, fname, data = imp.find_module(name, [path])
+    return imp.load_module(name,fmod,fname,data)
+
+conf = import_from("@libdir@/configurator.py")
 
 def main():
     args = parse_args()

@@ -1,9 +1,25 @@
 #!/usr/bin/python2.7
 import argparse
 import sys
+import os
+import imp
 from itertools import islice
 
-import configurator as conf
+# internal testing: import directly
+#import configurator as conf
+
+# internal testing: import directly
+#import configurator as conf
+
+# dynamically load from lib path
+def import_from(fname):
+    path,name = os.path.split(fname)
+    name,ext  = os.path.splitext(name) 
+
+    fmod, fname, data = imp.find_module(name, [path])
+    return imp.load_module(name,fmod,fname,data)
+
+conf = import_from("@libdir@/configurator.py")
 
 def main():
     args = parse_args()
