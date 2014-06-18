@@ -151,7 +151,7 @@ int load_workload(char *conf_path, int rank)
         configuration_get_value(&config, "PARAMS", "log_file_path",
                                 d_params.log_file_path, MAX_NAME_LENGTH_WKLD);
         configuration_get_value(&config, "PARAMS", "aggregator_count", aggregator_count, 10);
-        d_params.aggregator_cnt = atoi(aggregator_count);
+        d_params.aggregator_cnt = atol(aggregator_count);
 
         return codes_workload_load(workload_type, (char *)&d_params, rank);
     }
@@ -175,10 +175,13 @@ int load_workload(char *conf_path, int rank)
     }
     else if (strcmp(workload_type, "recorder_io_workload") == 0) {
         struct recorder_params r_params;
+        char nprocs[10];
 
         /* get the recorder params from the config file */
         configuration_get_value(&config, "PARAMS", "trace_dir_path",
                                 r_params.trace_dir_path, MAX_NAME_LENGTH_WKLD);
+        configuration_get_value(&config, "PARAMS", "nprocs", nprocs, 10);
+        r_params.nprocs = atol(nprocs);
 
         return codes_workload_load(workload_type, (char *)&r_params, rank);
 
