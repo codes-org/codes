@@ -40,7 +40,6 @@ int hash_file_compare(void *key, struct qlist_head *link);
 /* command line options */
 static int opt_verbose = 0;
 static int opt_noop = 0;
-static int opt_lockless = 0;
 static double opt_delay_pct = 1.0;
 
 /* hash table for storing file descriptors of opened files */
@@ -67,7 +66,6 @@ void usage(char *exename)
     fprintf(stderr, "\t<workload_test_dir> : the directory to replay the workload I/O in\n");
     fprintf(stderr, "\n\t[OPTIONS] includes:\n");
     fprintf(stderr, "\t\t--noop : do not perform i/o\n");
-    fprintf(stderr, "\t\t--lockless : use bgq lockless file i/o optimization\n");
     fprintf(stderr, "\t\t    -v : verbose (output i/o details)\n");
 
     exit(1);
@@ -81,7 +79,6 @@ void parse_args(int argc, char **argv, char **conf_path, char **test_dir)
         {"conf", 1, NULL, 'c'},
         {"test-dir", 1, NULL, 'd'},
         {"noop", 0, NULL, 'n'},
-        {"lockless", 0, NULL, 'l'},
         {"delay", 1, NULL, 'p'},
         {"help", 0, NULL, 0},
         {0, 0, 0, 0}
@@ -103,9 +100,6 @@ void parse_args(int argc, char **argv, char **conf_path, char **test_dir)
                 break;
             case 'n':
                 opt_noop = 1;
-                break;
-            case 'l':
-                opt_lockless = 1;
                 break;
             case 'c':
                 *conf_path = optarg;
@@ -175,6 +169,7 @@ int load_workload(char *conf_path, int rank)
         strcpy(b_params.io_kernel_path, "");
         strcpy(b_params.io_kernel_def_path, "");
         b_params.num_cns = atoi(rank_count);
+        b_params.use_relpath = 1;
 
         return codes_workload_load(workload_type, (char *)&b_params, rank);
     }
@@ -209,7 +204,6 @@ int main(int argc, char *argv[])
     struct codes_workload_op next_op;
     long long int replay_op_number = 1;
     double load_start, load_end;
-    int first_op = 1;
     int ret = 0;
     int i;
 
@@ -273,25 +267,13 @@ int main(int argc, char *argv[])
     /* loading is finished */
     load_end = MPI_Wtime();
 
+    if (myrank == 0) printf("Note: Workload took %.2lf seconds to load.\n", load_end - load_start);
+
     /* replay loop */
     while (1)
     {
         /* get the next replay operation from the workload generator */
         codes_workload_get_next(workload_id, myrank, &next_op);
-
-        /* subtract the load time from any initial delay to be fair */
-        if (first_op && (next_op.op_type == CODES_WK_DELAY))
-        {
-            first_op = 0;
-            if (next_op.u.delay.seconds > (load_end - load_start))
-            {
-                next_op.u.delay.seconds -= (load_end - load_start);
-            }
-            else
-            {
-                continue;
-            }
-        }
 
         if (next_op.op_type != CODES_WK_END)
         {
@@ -333,8 +315,7 @@ error_exit:
 
 int replay_workload_op(struct codes_workload_op replay_op, int rank, long long int op_number)
 {
-    unsigned int secs;
-    unsigned int usecs;
+    struct timespec delay;
     int open_flags = O_RDWR;
     char file_name[250];
     int fildes;
@@ -357,21 +338,14 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             if (!opt_noop)
             {
                 /* satisfy delay using second delay then microsecond delay */
-                secs = (unsigned int)replay_op.u.delay.seconds;
-                usecs = (unsigned int)((replay_op.u.delay.seconds - secs) * 1000 * 1000);
-                ret = sleep(secs);
+                delay.tv_sec = (long long)replay_op.u.delay.seconds;
+                delay.tv_nsec = (unsigned int)((replay_op.u.delay.seconds - delay.tv_sec) *
+                                               1000 * 1000 * 1000);
+                ret = nanosleep(&delay, NULL);
                 if (ret)
                 {
                     /* error in sleep */
                     errno = EINTR;
-                    fprintf(stderr, "Rank %d failure on operation %lld [DELAY: %s]\n",
-                            rank, op_number, strerror(errno));
-                    return -1;
-                }
-                ret = usleep(usecs);
-                if (ret < 0)
-                {
-                    /* error in usleep */
                     fprintf(stderr, "Rank %d failure on operation %lld [DELAY: %s]\n",
                             rank, op_number, strerror(errno));
                     return -1;
@@ -416,11 +390,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                     open_flags |= O_CREAT;
 
                 /* write the file hash to string to be used as the actual file name */
-                if (!opt_lockless)
-                    snprintf(file_name, sizeof(file_name), "%"PRIu64, replay_op.u.open.file_id);
-                else
-                    snprintf(file_name, sizeof(file_name), "bglockless:%"PRIu64,
-                             replay_op.u.open.file_id);
+                snprintf(file_name, sizeof(file_name), "%"PRIu64, replay_op.u.open.file_id);
 
                 /* perform the open operation */
                 fildes = open(file_name, open_flags, 0666);
