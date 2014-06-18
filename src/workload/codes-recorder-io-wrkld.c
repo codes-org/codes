@@ -67,10 +67,9 @@ static int rank_tbl_pop = 0;
 static int recorder_io_workload_load(const char *params, int rank)
 {
     recorder_params *r_params = (recorder_params *) params;
-
-    int64_t nprocs = 16384;
     struct rank_traces_context *new = NULL;
 
+    int64_t nprocs = r_params->nprocs;
     char *trace_dir = r_params->trace_dir_path;
     if(!trace_dir)
         return -1;
@@ -125,6 +124,7 @@ static int recorder_io_workload_load(const char *params, int rank)
             r_op.codes_op.u.open.file_id = atoi(token);
 
             token = strtok(NULL, ", \n");
+            r_op.end_time = r_op.start_time + atof(token);
         }
         else if(!strcmp(function_name, "close")) {
             r_op.codes_op.op_type = CODES_WK_CLOSE;
@@ -134,6 +134,7 @@ static int recorder_io_workload_load(const char *params, int rank)
 
             token = strtok(NULL, ", ");
             token = strtok(NULL, ", \n");
+            r_op.end_time = r_op.start_time + atof(token);
         }
         else if(!strcmp(function_name, "read") || !strcmp(function_name, "read64")) {
             r_op.codes_op.op_type = CODES_WK_READ;
@@ -152,6 +153,7 @@ static int recorder_io_workload_load(const char *params, int rank)
 
             token = strtok(NULL, ", ");
             token = strtok(NULL, ", \n");
+            r_op.end_time = r_op.start_time + atof(token);
         }
         else if(!strcmp(function_name, "write") || !strcmp(function_name, "write64")) {
             r_op.codes_op.op_type = CODES_WK_WRITE;
@@ -170,23 +172,20 @@ static int recorder_io_workload_load(const char *params, int rank)
 
             token = strtok(NULL, ", ");
             token = strtok(NULL, ", \n");
+            r_op.end_time = r_op.start_time + atof(token);
         }
-        else if(!strcmp(function_name, "MPI_Barrier")) {
-            char *tmp;
+        else if(!strcmp(function_name, "MPI_Barrier") ||
+                !strcmp(function_name, "MPI_File_read_at_all") ||
+                !strcmp(function_name, "MPI_File_write_at_all")) {
             r_op.codes_op.op_type = CODES_WK_BARRIER;
 
             r_op.codes_op.u.barrier.count = nprocs;
             r_op.codes_op.u.barrier.root = 0;
-
-            token = strtok(NULL, ", ()");
-            token = strtok(NULL, ", ");
-            tmp = strtok(NULL, ", \n");
-            if (tmp) token = tmp;
+            r_op.end_time = r_op.start_time + .000001;
         }
         else{
             continue;
         }
-        r_op.end_time = r_op.start_time + atof(token);
 
         new->trace_ops[new->trace_list_ndx++] = r_op;
         if (new->trace_list_ndx == 2048) break;

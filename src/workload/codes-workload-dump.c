@@ -13,7 +13,7 @@
 static char type[128] = {'\0'};
 static darshan_params d_params = {"", 0}; 
 static bgp_params b_params = {0, 0, "", "", "", ""};
-static recorder_params r_params = {""};
+static recorder_params r_params = {"", 0};
 static int n = -1;
 
 static struct option long_opts[] = 
@@ -27,6 +27,7 @@ static struct option long_opts[] =
     {"i-rank-cnt", required_argument, NULL, 'r'},
     {"i-use-relpath", no_argument, NULL, 'p'},
     {"r-trace-dir", required_argument, NULL, 'd'},
+    {"r-nprocs", required_argument, NULL, 'x'},
     {NULL, 0, NULL, 0}
 };
 
@@ -43,6 +44,7 @@ void usage(){
             "--i-rank-cnt: i/o language rank count\n"
             "--i-use-relpath: use i/o kernel path relative meta file path\n"
             "--r-trace-dir: directory containing recorder trace files\n"
+            "--r-nprocs: number of ranks in original recorder workload\n"
             "-s: print final workload stats\n");
 }
 
@@ -87,6 +89,9 @@ int main(int argc, char *argv[])
                 break;
             case 'd':
                 strcpy(r_params.trace_dir_path, optarg);
+                break;
+            case 'x':
+                r_params.nprocs = atol(optarg);
                 break;
             case 's':
                 print_stats = 1;
@@ -146,6 +151,11 @@ int main(int argc, char *argv[])
     else if (strcmp(type, "recorder_io_workload") == 0){
         if (r_params.trace_dir_path[0] == '\0'){
             fprintf(stderr, "Expected \"--r-trace-dir\" argument for recorder workload\n");
+            usage();
+            return 1;
+        }
+        if (r_params.nprocs == 0){
+            fprintf(stderr, "Expected \"--r-nprocs\" argument for recorder workload\n");
             usage();
             return 1;
         }

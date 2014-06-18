@@ -43,6 +43,7 @@ struct darshan_params
 struct recorder_params
 {
     char trace_dir_path[MAX_NAME_LENGTH_WKLD];
+    int64_t nprocs;
 };
 
 
