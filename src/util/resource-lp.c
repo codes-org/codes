@@ -128,13 +128,13 @@ void resource_lp_ind_init(
 }
 
 static void resource_response(
-        resource_msg *m,
+        resource_msg_internal *m,
         tw_lp *lp,
         int ret,
         resource_token_t tok){
     /* send return message */
     msg_header h;
-    msg_set_header(m->i.h_callback.magic, m->i.h_callback.event_type, 
+    msg_set_header(m->h_callback.magic, m->h_callback.event_type, 
             lp->gid, &h);
 
     resource_callback c;
@@ -142,17 +142,17 @@ static void resource_response(
     c.tok = tok;
 
     /* before we send the message, sanity check the sizes */
-    if (m->i.msg_size >= m->i.msg_header_offset+sizeof(h) &&
-            m->i.msg_size >= m->i.msg_callback_offset+sizeof(c) &&
-            m->i.msg_size >= m->i.msg_callback_offset+m->i.msg_callback_misc_size){
-        tw_event *e = codes_event_new(m->i.h_callback.src, 
+    if (m->msg_size >= m->msg_header_offset+sizeof(h) &&
+            m->msg_size >= m->msg_callback_offset+sizeof(c) &&
+            m->msg_size >= m->msg_callback_offset+m->msg_callback_misc_size){
+        tw_event *e = codes_event_new(m->h_callback.src, 
                 codes_local_latency(lp), lp);
         void *msg = tw_event_data(e);
-        memcpy(((char*)msg)+m->i.msg_header_offset, &h, sizeof(h));
-        memcpy(((char*)msg)+m->i.msg_callback_offset, &c, sizeof(c));
-        if (m->i.msg_callback_misc_size > 0){
-            memcpy(((char*)msg)+m->i.msg_callback_misc_offset, 
-                        m->i.msg_callback_misc, m->i.msg_callback_misc_size);
+        memcpy(((char*)msg)+m->msg_header_offset, &h, sizeof(h));
+        memcpy(((char*)msg)+m->msg_callback_offset, &c, sizeof(c));
+        if (m->msg_callback_misc_size > 0){
+            memcpy(((char*)msg)+m->msg_callback_misc_offset, 
+                        m->msg_callback_misc, m->msg_callback_misc_size);
         }
         tw_event_send(e);
     }
@@ -163,9 +163,9 @@ static void resource_response(
                 "msg size: %3d, header   off/size:  %d, %d\n"
                 "               callback off/size:  %d, %d\n"
                 "               callback misc size: %d",
-                m->i.msg_size, m->i.msg_header_offset, (int)sizeof(h),
-                m->i.msg_callback_offset, (int)sizeof(c),
-                m->i.msg_callback_misc_size);
+                m->msg_size, m->msg_header_offset, (int)sizeof(h),
+                m->msg_callback_offset, (int)sizeof(c),
+                m->msg_callback_misc_size);
     }
 }
 static void resource_response_rc(tw_lp *lp){
@@ -193,11 +193,12 @@ static void handle_resource_get(
             pending_op *op = malloc(sizeof(pending_op));
             op->m = m->i; /* no need to set rc msg here */
             qlist_add_tail(&op->ql, &ns->pending[m->i.tok]);
+            send_ack = 0;
         }
     }
     if (send_ack){
         b->c1 = 1;
-        resource_response(m, lp, ret, TOKEN_DUMMY);
+        resource_response(&m->i, lp, ret, TOKEN_DUMMY);
     }
 
     b->c2 = !ret;
@@ -270,7 +271,7 @@ static void handle_resource_deq(
         /* success, dequeue (saving as rc) and send to client */
         qlist_del(front);
         m->i_rc = p->m;
-        resource_response(m, lp, ret, TOKEN_DUMMY);
+        resource_response(&p->m, lp, ret, TOKEN_DUMMY);
         free(p);
         /* additionally attempt to dequeue next one down */
         tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
@@ -314,7 +315,7 @@ static void handle_resource_reserve(
     resource_token_t tok;
     int ret = resource_reserve(m->i.req, &tok, &ns->r);
     assert(!ret);
-    resource_response(m, lp, ret, tok);
+    resource_response(&m->i, lp, ret, tok);
 }
 static void handle_resource_reserve_rc(
         resource_state * ns,
