@@ -128,7 +128,7 @@ void resource_lp_ind_init(
 }
 
 static void resource_response(
-        resource_msg_internal *m,
+        struct resource_msg_internal *m,
         tw_lp *lp,
         int ret,
         resource_token_t tok){
