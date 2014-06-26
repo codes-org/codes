@@ -266,8 +266,8 @@ static void handle_resource_deq(
     pending_op *p = qlist_entry(front, pending_op, ql);
     int ret = resource_get(p->m.req, p->m.tok, &ns->r);
     assert(ret != 2);
-    b->c0 = !ret;
     if (!ret){
+        b->c0 = 1;
         /* success, dequeue (saving as rc) and send to client */
         qlist_del(front);
         m->i_rc = p->m;
@@ -302,6 +302,7 @@ static void handle_resource_deq_rc(
         op->m = m->i_rc;
         qlist_add(&op->ql, &ns->pending[m->i.tok]);
         resource_response_rc(lp);
+        assert(!resource_free(op->m.req, op->m.tok, &ns->r));
         /* reverse "deq next" op */
         codes_local_latency_reverse(lp);
     }
