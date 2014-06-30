@@ -9,7 +9,12 @@ CLEANFILES += $(my_bin_scripts)
 # manual rules for now
 do_subst = sed -e 's![@]libdir[@]!$(libdir)!g'
 
-%: %.py.in Makefile
+.PHONY: scriptdir
+# need to ensure that the scripts directory exists before running the sub cmd
+scriptdir:
+	test -d scripts || mkdir scripts
+
+%: %.py.in Makefile scriptdir
 	$(do_subst) < $< > $@
 	chmod +x $@
 
