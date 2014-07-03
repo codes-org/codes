@@ -404,6 +404,8 @@ int model_net_set_params()
 	   net_params.routing = 0;
        else if(strcmp(routing, "nonminimal")==0 || strcmp(routing,"non-minimal")==0)
 	       net_params.routing = 1;
+	else if (strcmp(routing, "adaptive") == 0)
+		net_params.routing = 2;
        else
        {
        	   printf("\n No routing protocol specified, setting to minimal routing");
