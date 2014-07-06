@@ -53,7 +53,7 @@ static int num_vcs, num_routers, num_cn, num_global_channels, num_groups;
 static int total_routers, adaptive_threshold = 10;
 
 /* minimal and non-minimal packet counts for adaptive routing*/
-int minimal_count, nonmin_count;
+int minimal_count=0, nonmin_count=0;
 
 /* configurable parameters, global channel, local channel and 
  * compute node bandwidth */
@@ -153,9 +153,9 @@ enum last_hop
  * for detecting load on global channels are not very accurate */
 enum ROUTING_ALGO
 {
-   MINIMAL,
-   NON_MINIMAL,
-   ADAPTIVE
+    MINIMAL = 0,
+    NON_MINIMAL,
+    ADAPTIVE
 };
 
 struct router_state
@@ -311,6 +311,7 @@ static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, ui
     terminal_message * msg;
     tw_lpid dest_nic_id;
     char* tmp_ptr;
+//    printf("\n g_tw_lookahead default %f", g_tw_lookahead);
 #if 0
     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
 
@@ -323,7 +324,8 @@ static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, ui
     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_nic_id);
   
     xfer_to_nic_time = g_tw_lookahead + codes_local_latency(sender); /* Throws an error of found last KP time > current event time otherwise when LPs of one type are placed together*/
-    //e_new = tw_event_new(local_nic_id, xfer_to_nic_time+offset, sender);
+    //printf("\n transfer in time %f %f ", xfer_to_nic_time+offset, tw_now(sender));
+    //e_new = tw_event_new(sender->gid, xfer_to_nic_time+offset, sender);
     //msg = tw_event_data(e_new);
     e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
             sender, DRAGONFLY, (void**)&msg, (void**)&tmp_ptr);
@@ -429,7 +431,7 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
     int output_port = msg->saved_vc / num_vcs;
     msg->saved_available_time = s->next_credit_available_time[output_port];
     s->next_credit_available_time[output_port] = max(tw_now(lp), s->next_credit_available_time[output_port]);
-    ts = credit_delay + tw_rand_exponential(lp->rng, (double)credit_delay/1000);
+    ts = credit_delay + 0.1 + tw_rand_exponential(lp->rng, (double)credit_delay/1000);
 	
     s->next_credit_available_time[output_port]+=ts;
     if (is_terminal){
@@ -576,7 +578,7 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp *
 	   void* local_event = 
                (char*)model_net_method_get_edata(DRAGONFLY, msg) + 
                msg->remote_event_size_bytes;
-	   ts = (1/cn_bandwidth) * msg->local_event_size_bytes;
+	   ts = g_tw_lookahead + (1/cn_bandwidth) * msg->local_event_size_bytes;
 	   e_new = tw_event_new(msg->sender_lp, ts, lp);
 	   m_new = tw_event_data(e_new);
 	   memcpy(m_new, local_event, msg->local_event_size_bytes);
@@ -639,7 +641,7 @@ if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
 	if(msg->remote_event_size_bytes)
 	{
             void * tmp_ptr = model_net_method_get_edata(DRAGONFLY, msg);
-            ts = (1/cn_bandwidth) * msg->remote_event_size_bytes;
+            ts = g_tw_lookahead + 0.1 + (1/cn_bandwidth) * msg->remote_event_size_bytes;
             if (msg->is_pull){
                 int net_id = model_net_get_id(LP_METHOD_NM);
                 model_net_event(net_id, msg->category, msg->sender_lp,
@@ -656,7 +658,7 @@ if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
   }
 
   int credit_delay = (1 / cn_bandwidth) * CREDIT_SIZE;
-  ts = credit_delay + tw_rand_exponential(lp->rng, credit_delay/1000);
+  ts = credit_delay + 0.1 + tw_rand_exponential(lp->rng, credit_delay/1000);
   
   msg->saved_credit_time = s->next_credit_available_time;
   s->next_credit_available_time = max(s->next_credit_available_time, tw_now(lp));
@@ -1056,13 +1058,14 @@ get_next_stop(router_state * s,
         return dest_lp;
     }
    /* Generate inter-mediate destination for non-minimal routing (selecting a random group) */
-   if(msg->last_hop == TERMINAL && path == NON_MINIMAL)
+   if(msg->last_hop == TERMINAL && msg->path_type == NON_MINIMAL)
     {
       if(dest_router_id / num_routers != s->group_id)
          {
             bf->c2 = 1;
             int intm_grp_id = tw_rand_integer(lp->rng, 0, num_groups-1);
-            msg->intm_group_id = intm_grp_id;
+            //int intm_grp_id = (s->group_id + s->group_id/2) % num_groups;
+	    msg->intm_group_id = intm_grp_id;
           }    
     }
   /* It means that the packet has arrived at the inter-mediate group for non-minimal routing. Reset the group now. */
@@ -1151,7 +1154,7 @@ router_packet_send( router_state * s,
 		    tw_bf * bf, 
 		     terminal_message * msg, tw_lp * lp)
 {
-   *(int *)bf = (int)0;
+//   *(int *)bf = (int)0;
    tw_stime ts;
    tw_event *e;
    terminal_message *m;
@@ -1160,10 +1163,10 @@ router_packet_send( router_state * s,
    float bandwidth = local_bandwidth;
    int path = routing;
    int minimal_out_port = -1, nonmin_out_port = -1;
-   bf->c1 = 0;
-   bf->c4 = 0;  
- if(msg->last_hop == TERMINAL && routing == ADAPTIVE)
-  {
+   bf->c3 = 0;
+
+   if(msg->last_hop == TERMINAL && routing == ADAPTIVE)
+   {
   // decide which routing to take
     int minimal_next_stop=get_next_stop(s, bf, msg, lp, MINIMAL);
     minimal_out_port = get_output_port(s, bf, msg, lp, minimal_next_stop);
@@ -1175,34 +1178,33 @@ router_packet_send( router_state * s,
     int min_vc = s->vc_occupancy[minimal_out_port * num_vcs + 1];
 
     // Adaptive routing condition from the dragonfly paper Page 83
+   // modified according to booksim adaptive routing condition
    if((min_vc <= (nonmin_vc * 2 + adaptive_threshold) && minimal_out_port == nonmin_out_port)
                || (min_port_count <= (nonmin_port_count * 2 + adaptive_threshold) && minimal_out_port != nonmin_out_port))
         {
+	   msg->path_type = MINIMAL;
            next_stop = minimal_next_stop;
            output_port = minimal_out_port;
            minimal_count++;
            msg->intm_group_id = -1;
-           path = MINIMAL;
-
-           bf->c1 = 1;
 
            if(msg->packet_ID == TRACK)
               printf("\n (%lf) [Router %d] Packet %d routing minimally ", tw_now(lp), (int)lp->gid, (int)msg->packet_ID);
         }
        else
          {
+	   msg->path_type = NON_MINIMAL;
            next_stop = nonmin_next_stop;
            output_port = nonmin_out_port;
            nonmin_count++;
-           path=NON_MINIMAL;
            if(msg->packet_ID == TRACK)
                 printf("\n (%lf) [Router %d] Packet %d routing non-minimally ", tw_now(lp), (int)lp->gid, (int)msg->packet_ID);
 
-          bf->c4 = 1;
          }
   }
   else
    {
+	msg->path_type = routing; /*defaults to the routing algorithm if we don't have adaptive routing here*/
    	next_stop = get_next_stop(s, bf, msg, lp, path);
    	output_port = get_output_port(s, bf, msg, lp, next_stop); 
    }
@@ -1256,7 +1258,7 @@ if( msg->packet_ID == TRACK && next_stop != msg->dest_terminal_id && msg->chunk_
 #endif
  // If source router doesn't have global channel and buffer space is available, then assign to appropriate intra-group virtual channel 
   msg->saved_available_time = s->next_output_available_time[output_port];
-  ts = g_tw_lookahead + ((1/bandwidth) * CHUNK_SIZE) + tw_rand_exponential(lp->rng, (double)CHUNK_SIZE/200);
+  ts = g_tw_lookahead + 0.1 + ((1/bandwidth) * CHUNK_SIZE) + tw_rand_exponential(lp->rng, (double)CHUNK_SIZE/200);
 
   s->next_output_available_time[output_port] = max(s->next_output_available_time[output_port], tw_now(lp));
   s->next_output_available_time[output_port] += ts;
@@ -1330,7 +1332,7 @@ router_packet_receive( router_state * s,
     tw_stime ts;
 
     msg->my_N_hop++;
-    ts = g_tw_lookahead + tw_rand_exponential(lp->rng, (double)MEAN_INTERVAL/200);
+    ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, (double)MEAN_INTERVAL/200);
     num_chunks = msg->packet_size/CHUNK_SIZE;
 
     if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
@@ -1528,11 +1530,12 @@ void router_rc_event_handler(router_state * s, tw_bf * bf, terminal_message * ms
     {
             case R_SEND:
 		    {
-			if(bf->c2)
+			if(msg->path_type == NON_MINIMAL && bf->c2)
 			   tw_rand_reverse_unif(lp->rng);
-			if(bf->c1)
+
+			if(routing == ADAPTIVE && msg->path_type == MINIMAL)
                                 minimal_count--;
-                        if(bf->c4)
+                        if(routing == ADAPTIVE && msg->path_type == NON_MINIMAL)
                                 nonmin_count--;
 
 			if(bf->c3)
@@ -1545,7 +1548,6 @@ void router_rc_event_handler(router_state * s, tw_bf * bf, terminal_message * ms
 			s->next_output_available_time[output_port] = msg->saved_available_time;
 			s->vc_occupancy[output_chan]--;
 			s->output_vc_state[output_chan]=VC_IDLE;
-		
 
 		    }
 	    break;
