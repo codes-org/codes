@@ -30,13 +30,17 @@ static inline tw_event * codes_event_new(
 /* Modeled latency for communication between local software components and
  * communication between daemons and hardware devices.  Measured in
  * nanoseconds.
+ * Modified Jul 7: We want to make sure that the event time stamp generated
+is always greater than the default g_tw_lookahead value. Multiplying by 1.1
+ensures that if tw_rand_exponential generates a zero time-stamped event, we
+still have a timestamp that is greater than g_tw_lookahead. 
  */
 #define CODES_MEAN_LOCAL_LATENCY 0.01
 static inline tw_stime codes_local_latency(tw_lp *lp)
 {
     tw_stime tmp;
 
-    tmp = tw_rand_exponential(lp->rng, CODES_MEAN_LOCAL_LATENCY);
+    tmp = (1.1 * g_tw_lookahead) + tw_rand_exponential(lp->rng, CODES_MEAN_LOCAL_LATENCY);
 
     return(tmp);
 }
@@ -46,7 +50,6 @@ static inline void codes_local_latency_reverse(tw_lp *lp)
     tw_rand_reverse_unif(lp->rng);
     return;
 }
-
 
 #endif /* CODES_H */
 
