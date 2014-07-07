@@ -311,7 +311,7 @@ static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, ui
     terminal_message * msg;
     tw_lpid dest_nic_id;
     char* tmp_ptr;
-//    printf("\n g_tw_lookahead default %f", g_tw_lookahead);
+//    printf("\n g_tw_lookahead default %f src lp %d sender %d ", g_tw_lookahead, src_lp, sender->gid);
 #if 0
     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
 
@@ -323,7 +323,7 @@ static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, ui
     codes_mapping_get_lp_info(final_dest_lp, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_nic_id);
   
-    xfer_to_nic_time = g_tw_lookahead + codes_local_latency(sender); /* Throws an error of found last KP time > current event time otherwise when LPs of one type are placed together*/
+    xfer_to_nic_time = codes_local_latency(sender); /* Throws an error of found last KP time > current event time otherwise when LPs of one type are placed together*/
     //printf("\n transfer in time %f %f ", xfer_to_nic_time+offset, tw_now(sender));
     //e_new = tw_event_new(sender->gid, xfer_to_nic_time+offset, sender);
     //msg = tw_event_data(e_new);
@@ -718,7 +718,7 @@ void dragonfly_collective(char* category, int message_size, int remote_event_siz
     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &local_nic_id);
 
-    xfer_to_nic_time = g_tw_lookahead + codes_local_latency(sender);
+    xfer_to_nic_time = codes_local_latency(sender);
     e_new = model_net_method_event_new(local_nic_id, xfer_to_nic_time,
             sender, DRAGONFLY, (void**)&msg, (void**)&tmp_ptr);
 

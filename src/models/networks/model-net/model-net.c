@@ -178,7 +178,7 @@ static void model_net_event_impl_base(
     }
 
     tw_lpid mn_lp = model_net_find_local_device(net_id, sender);
-    tw_stime poffset = g_tw_lookahead + codes_local_latency(sender);
+    tw_stime poffset = codes_local_latency(sender);
     if (in_sequence){
         tw_stime tmp = mn_msg_offset;
         mn_msg_offset += poffset;
