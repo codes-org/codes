@@ -17,7 +17,6 @@
 #include "codes/model-net-lp.h"
 #include "codes/net/dragonfly.h"
 
-#define CHUNK_SIZE 32.0
 #define CREDIT_SIZE 8
 #define MEAN_PROCESS 1.0
 
@@ -47,7 +46,7 @@ static int radix=0;
 /* number of virtual channels, number of routers comes from the
  * config file, number of compute nodes, global channels and group
  * is calculated from these configurable parameters */
-static int num_vcs, num_routers, num_cn, num_global_channels, num_groups;
+static int num_vcs, num_routers, num_cn, num_global_channels, num_groups, chunk_size;
 
 /* adaptive threshold is to bias the adaptive routing */
 static int total_routers, adaptive_threshold = 10;
@@ -212,6 +211,7 @@ static void dragonfly_setup(const void* net_params)
    local_vc_size = d_param->local_vc_size;
    cn_vc_size = d_param->cn_vc_size;
    routing = d_param->routing;
+   chunk_size = d_param->chunk_size;
 
    radix = num_vcs * (num_cn + num_global_channels + num_routers);
    total_routers = num_groups * num_routers;
@@ -460,7 +460,7 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_
   tw_event *e;
   terminal_message *m;
   int i, total_event_size;
-  num_chunks = msg->packet_size / CHUNK_SIZE;
+  num_chunks = msg->packet_size / chunk_size;
   msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter + tw_rand_integer(lp->rng, 0, lp->gid + g_tw_nlp * s->packet_counter);
   msg->travel_start_time = tw_now(lp);
   msg->my_N_hop = 0;
@@ -541,7 +541,7 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp *
 
    //  Each packet is broken into chunks and then sent over the channel
    msg->saved_available_time = s->terminal_available_time;
-   head_delay = (1/cn_bandwidth) * CHUNK_SIZE;
+   head_delay = (1/cn_bandwidth) * chunk_size;
    ts = head_delay + tw_rand_exponential(lp->rng, (double)head_delay/200);
    s->terminal_available_time = max(s->terminal_available_time, tw_now(lp));
    s->terminal_available_time += ts;
@@ -1258,7 +1258,7 @@ if( msg->packet_ID == TRACK && next_stop != msg->dest_terminal_id && msg->chunk_
 #endif
  // If source router doesn't have global channel and buffer space is available, then assign to appropriate intra-group virtual channel 
   msg->saved_available_time = s->next_output_available_time[output_port];
-  ts = g_tw_lookahead + 0.1 + ((1/bandwidth) * CHUNK_SIZE) + tw_rand_exponential(lp->rng, (double)CHUNK_SIZE/200);
+  ts = g_tw_lookahead + 0.1 + ((1/bandwidth) * chunk_size) + tw_rand_exponential(lp->rng, (double)chunk_size/200);
 
   s->next_output_available_time[output_port] = max(s->next_output_available_time[output_port], tw_now(lp));
   s->next_output_available_time[output_port] += ts;
@@ -1333,7 +1333,7 @@ router_packet_receive( router_state * s,
 
     msg->my_N_hop++;
     ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, (double)MEAN_INTERVAL/200);
-    num_chunks = msg->packet_size/CHUNK_SIZE;
+    num_chunks = msg->packet_size/chunk_size;
 
     if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
        printf("\n packet %lld chunk %d received at router %d ", msg->packet_ID, msg->chunk_id, (int)lp->gid);

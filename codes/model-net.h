@@ -124,6 +124,7 @@ struct dragonfly_param
   int global_vc_size; /* buffer size of the global channels */
   int cn_vc_size; /* buffer size of the compute node channels */
   short routing; /* minimal or non-minimal routing */
+  short chunk_size; /* full-sized packets are broken into smaller chunks.*/
 };
 
 struct torus_param

@@ -331,7 +331,7 @@ int model_net_set_params()
   else if(strcmp(model_net_method_names[DRAGONFLY], mn_name)==0)	  
     {
        dragonfly_param net_params;
-       int num_routers=0, num_vcs=0, local_vc_size=0, global_vc_size=0, cn_vc_size=0;
+       int num_routers=0, num_vcs=0, local_vc_size=0, global_vc_size=0, cn_vc_size=0, chunk_size=0;
        double local_bandwidth=0.0, cn_bandwidth=0.0, global_bandwidth=0.0;
        
        configuration_get_value_int(&config, "PARAMS", "num_routers", &num_routers);
@@ -374,6 +374,14 @@ int model_net_set_params()
 	 }
        net_params.cn_vc_size = cn_vc_size;
 
+	configuration_get_value_int(&config, "PARAMS", "chunk_size", &chunk_size);
+	if(!chunk_size)
+	  {
+		chunk_size = 64;
+		printf("\n Chunk size for packets is specified, setting to %d ", chunk_size);
+	  }
+	net_params.chunk_size = chunk_size;
+
 	configuration_get_value_double(&config, "PARAMS", "local_bandwidth", &local_bandwidth);
         if(!local_bandwidth)
 	  {
@@ -398,6 +406,7 @@ int model_net_set_params()
 	}
 	net_params.cn_bandwidth = cn_bandwidth;
 
+	
        char routing[MAX_NAME_LENGTH];
        configuration_get_value(&config, "PARAMS", "routing", routing, MAX_NAME_LENGTH);
        if(strcmp(routing, "minimal") == 0)
