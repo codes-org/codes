@@ -225,7 +225,7 @@ void handle_new_msg(
     
     if (ns->in_sched_loop == 0){
         b->c0 = 1;
-        tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
+        tw_event *e = codes_event_new(lp->gid, g_tw_lookahead + codes_local_latency(lp), lp);
         model_net_wrap_msg *m = tw_event_data(e);
         m->event_type = MN_BASE_SCHED_NEXT;
         m->magic = model_net_base_magic;
@@ -265,7 +265,7 @@ void handle_sched_next(
     }
     else {
         tw_event *e = codes_event_new(lp->gid, 
-                poffset+codes_local_latency(lp), lp);
+                poffset+codes_local_latency(lp) + g_tw_lookahead, lp);
         model_net_wrap_msg *m = tw_event_data(e);
         m->event_type = MN_BASE_SCHED_NEXT;
         m->magic = model_net_base_magic;

@@ -38,6 +38,9 @@ struct terminal_message
   short saved_vc;
   /* last hop of the message, can be a terminal, local router or global router */
   short last_hop;
+
+  /* for reverse computation */
+  short path_type;
   // For buffer message
    short vc_index;
    int input_chan;
