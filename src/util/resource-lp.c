@@ -251,7 +251,8 @@ static void handle_resource_free_rc(
 }
 
 /* bitfield usage:
- * c0 - dequeue+alloc success */ 
+ * c0 - queue was empty to begin with
+ * c1 - assuming !c0, alloc succeeded */ 
 static void handle_resource_deq(
         resource_state * ns,
         tw_bf * b,
@@ -259,6 +260,7 @@ static void handle_resource_deq(
         tw_lp * lp){
     if (qlist_empty(&ns->pending[m->i.tok])){
         /* nothing to do */
+        b->c0 = 1;
         return;
     }
 
@@ -267,7 +269,7 @@ static void handle_resource_deq(
     int ret = resource_get(p->m.req, p->m.tok, &ns->r);
     assert(ret != 2);
     if (!ret){
-        b->c0 = 1;
+        b->c1 = 1;
         /* success, dequeue (saving as rc) and send to client */
         qlist_del(front);
         m->i_rc = p->m;
@@ -291,12 +293,11 @@ static void handle_resource_deq_rc(
         tw_bf * b,
         resource_msg * m,
         tw_lp * lp){
-    if (qlist_empty(&ns->pending[m->i.tok])){
-        /* nothing to do */
+    if (b->c0){
         return;
     }
 
-    if (b->c0){
+    if (b->c1){
         /* add operation back to the front of the queue */
         pending_op *op = malloc(sizeof(pending_op));
         op->m = m->i_rc;
@@ -376,12 +377,21 @@ void resource_rev_handler(
         default:
             assert(0);
     }
+
+    // NOTE: ross doesn't reset b in the case of multiple rollbacks...
+    *(int*)b = 0;
 }
 
 void resource_finalize(
         resource_state * ns,
         tw_lp * lp){
     /* Fill me in... */
+    struct qlist_head *ent;
+    qlist_for_each(ent, ns->pending){
+        pending_op *op = qlist_entry(ent, pending_op, ql);
+        fprintf(stderr, "WARNING: resource LP %lu has a pending allocation\n",
+                lp->gid);
+    }
 }
 
 /**** END IMPLEMENTATIONS ****/
