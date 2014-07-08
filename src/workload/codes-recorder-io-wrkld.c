@@ -19,6 +19,7 @@
 #include "codes/codes-workload.h"
 #include "codes-workload-method.h"
 #include "codes/quickhash.h"
+#include "codes/jenkins-hash.h"
 
 #define RECORDER_NEGLIGIBLE_DELAY .00001
 
@@ -31,6 +32,13 @@ struct recorder_io_op
     struct codes_workload_op codes_op;
 };
 
+struct file_entry
+{
+    uint64_t file_id;
+    int fd;
+    struct qhash_head hash_link;
+};
+
 /* structure for storing all context needed to retrieve traces for this rank */
 struct rank_traces_context
 {
@@ -41,9 +49,9 @@ struct rank_traces_context
     int trace_list_ndx;
     int trace_list_max;
 
+    /* hash table link to next rank (if any) */
     struct qhash_head hash_link;
 };
-
 
 /* CODES workload API functions for workloads generated from recorder traces*/
 static int recorder_io_workload_load(const char *params, int rank);
@@ -51,6 +59,7 @@ static void recorder_io_workload_get_next(int rank, struct codes_workload_op *op
 
 /* helper functions for recorder workload CODES API */
 static int hash_rank_compare(void *key, struct qhash_head *link);
+static int hash_file_compare(void *key, struct qhash_head *link);
 
 /* workload method name and function pointers for the CODES workload API */
 struct codes_workload_method recorder_io_workload_method =
@@ -68,6 +77,9 @@ static int recorder_io_workload_load(const char *params, int rank)
 {
     recorder_params *r_params = (recorder_params *) params;
     struct rank_traces_context *new = NULL;
+    struct qhash_table *file_id_tbl = NULL;
+    struct qhash_head *link = NULL;
+    struct file_entry *file;
 
     int64_t nprocs = r_params->nprocs;
     char *trace_dir = r_params->trace_dir_path;
@@ -108,39 +120,80 @@ static int recorder_io_workload_load(const char *params, int rank)
     while((ret_value = getline(&line, &len, trace_file)) != -1) {
         struct recorder_io_op r_op;
         char *token = strtok(line, ", ");
+        int fd;
         r_op.start_time = atof(token);
         token = strtok(NULL, ", ");
         strcpy(function_name, token);
 
         if(!strcmp(function_name, "open") || !strcmp(function_name, "open64")) {
+            char *filename = NULL;
+
             r_op.codes_op.op_type = CODES_WK_OPEN;
 
-            token = strtok(NULL, ", (");
+            filename = strtok(NULL, ", (");
             token = strtok(NULL, ", )");
             r_op.codes_op.u.open.create_flag = atoi(token);
 
             token = strtok(NULL, ", )");
             token = strtok(NULL, ", ");
-            r_op.codes_op.u.open.file_id = atoi(token);
+            fd = atoi(token);
 
             token = strtok(NULL, ", \n");
             r_op.end_time = r_op.start_time + atof(token);
+
+            if (!file_id_tbl)
+            {
+                file_id_tbl = qhash_init(hash_file_compare, quickhash_32bit_hash, 11);
+                if (!file_id_tbl)
+                {
+                    free(new);
+                    return -1;
+                }
+            }
+
+            file = malloc(sizeof(struct file_entry));
+            if (!file)
+            {
+                free(new);
+                return -1;
+            }
+            
+            uint32_t h1, h2;
+            bj_hashlittle2(filename, strlen(filename), &h1, &h2);
+            file->file_id = h1 + (((uint64_t)h2)<<32);
+            file->fd = fd;
+            r_op.codes_op.u.open.file_id = file->file_id;
+
+            qhash_add(file_id_tbl, &fd, &(file->hash_link));
         }
         else if(!strcmp(function_name, "close")) {
             r_op.codes_op.op_type = CODES_WK_CLOSE;
 
             token = strtok(NULL, ", ()");
-            r_op.codes_op.u.close.file_id = atoi(token);
+            fd = atoi(token);
 
             token = strtok(NULL, ", ");
             token = strtok(NULL, ", \n");
             r_op.end_time = r_op.start_time + atof(token);
+
+            link = qhash_search(file_id_tbl, &fd);
+            if (!link)
+            {
+                free(new);
+                return -1;
+            }
+
+            file = qhash_entry(link, struct file_entry, hash_link);
+            r_op.codes_op.u.close.file_id = file->file_id;
+
+            qhash_del(link);
+            free(file);
         }
         else if(!strcmp(function_name, "read") || !strcmp(function_name, "read64")) {
             r_op.codes_op.op_type = CODES_WK_READ;
 
             token = strtok(NULL, ", (");
-            r_op.codes_op.u.read.file_id = atoi(token);
+            fd = atoi(token);
 
             // Throw out the buffer
             token = strtok(NULL, ", ");
@@ -154,12 +207,22 @@ static int recorder_io_workload_load(const char *params, int rank)
             token = strtok(NULL, ", ");
             token = strtok(NULL, ", \n");
             r_op.end_time = r_op.start_time + atof(token);
+
+            link = qhash_search(file_id_tbl, &fd);
+            if (!link)
+            {
+                free(new);
+                return -1;
+            }
+
+            file = qhash_entry(link, struct file_entry, hash_link);
+            r_op.codes_op.u.read.file_id = file->file_id;
         }
         else if(!strcmp(function_name, "write") || !strcmp(function_name, "write64")) {
             r_op.codes_op.op_type = CODES_WK_WRITE;
 
             token = strtok(NULL, ", (");
-            r_op.codes_op.u.write.file_id = atoi(token);
+            fd = atoi(token);
 
             // Throw out the buffer
             token = strtok(NULL, ", ");
@@ -173,6 +236,16 @@ static int recorder_io_workload_load(const char *params, int rank)
             token = strtok(NULL, ", ");
             token = strtok(NULL, ", \n");
             r_op.end_time = r_op.start_time + atof(token);
+
+            link = qhash_search(file_id_tbl, &fd);
+            if (!link)
+            {
+                free(new);
+                return -1;
+            }
+
+            file = qhash_entry(link, struct file_entry, hash_link);
+            r_op.codes_op.u.write.file_id = file->file_id;
         }
         else if(!strcmp(function_name, "MPI_Barrier") ||
                 !strcmp(function_name, "MPI_File_read_at_all") ||
@@ -192,6 +265,7 @@ static int recorder_io_workload_load(const char *params, int rank)
     }
 
     fclose(trace_file);
+    qhash_finalize(file_id_tbl);
 
     /* reset ndx to 0 and set max to event count */
     /* now we can read all events by counting through array from 0 - max */
@@ -282,6 +356,17 @@ static int hash_rank_compare(void *key, struct qhash_head *link)
     return 0;
 }
 
+static int hash_file_compare(void *key, struct qhash_head *link)
+{
+    int *in_file = (int *)key;
+    struct file_entry *tmp;
+
+    tmp = qhash_entry(link, struct file_entry, hash_link);
+    if (tmp->fd == *in_file)
+        return 1;
+
+    return 0;
+}
 
 /*
  * Local variables:
