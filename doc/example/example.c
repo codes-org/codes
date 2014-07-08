@@ -181,6 +181,7 @@ int main(
 {
     int nprocs;
     int rank;
+    int num_nets, *net_ids;
 
     /* TODO: explain why we need this (ROSS has cutoff??) */
     g_tw_ts_end = s_to_ns(60*60*24*365); /* one year, in nsecs */
@@ -210,8 +211,12 @@ int main(
     }
 
     /* Setup the model-net parameters specified in the global config object,
-     * returned is the identifier for the network type */
-    net_id = model_net_set_params();
+     * returned are the identifier(s) for the network type. In this example, we
+     * only expect one*/
+    net_ids = model_net_set_params(&num_nets);
+    assert(num_nets==1);
+    net_id = *net_ids;
+    free(net_ids);
     /* in this example, we are using simplenet, which simulates point to point 
      * communication between any two entities (other networks are trickier to
      * setup). Hence: */
