@@ -358,7 +358,7 @@ static void handle_msg_ready_event(
       /* schedule event to final destination for when the recv is complete */
 //      printf("\n Remote message to LP %d ", m->final_dest_gid); 
 
-        void *tmp_ptr = model_net_method_get_edata(SIMPLENET, m);
+        void *tmp_ptr = model_net_method_get_edata(LOGGP, m);
         //char* tmp_ptr = (char*)m;
         //tmp_ptr += loggp_get_msg_sz();
         if (m->is_pull){
@@ -495,7 +495,7 @@ static void handle_msg_start_event(
         e_new = tw_event_new(m->src_gid, send_queue_time+codes_local_latency(lp), lp);
         m_new = tw_event_data(e_new);
 
-        void * m_loc = (char*) model_net_method_get_edata(SIMPLENET, m) +
+        void * m_loc = (char*) model_net_method_get_edata(LOGGP, m) +
             m->event_size_bytes;
          //local_event = (char*)m;
          //local_event += loggp_get_msg_sz() + m->event_size_bytes;         	 

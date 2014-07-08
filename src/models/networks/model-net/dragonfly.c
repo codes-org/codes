@@ -888,7 +888,7 @@ static void node_collective_fan_in(terminal_state * s,
 
 		memcpy(msg_new, msg, sizeof(terminal_message));
 	        if (msg->remote_event_size_bytes){
-	                memcpy(m_data, model_net_method_get_edata(TORUS, msg),
+	                memcpy(m_data, model_net_method_get_edata(DRAGONFLY, msg),
         	               msg->remote_event_size_bytes);
       		}
 		
