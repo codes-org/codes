@@ -251,19 +251,34 @@ void model_net_pull_event(
             1, offset, self_event_size, self_event, 0, NULL, sender);
 }
 
-
-int model_net_set_params()
+int* model_net_set_params(int *id_count)
 {
-  char mn_name[MAX_NAME_LENGTH];
   char sched[MAX_NAME_LENGTH];
   long int packet_size_l = 0;
   uint64_t packet_size;
-  int net_id=-1;
   int ret;
+  config_lpgroups_t lpconf;
 
-  config_lpgroups_t paramconf;
-  configuration_get_lpgroups(&config, "PARAMS", &paramconf);
-  configuration_get_value(&config, "PARAMS", "modelnet", mn_name, MAX_NAME_LENGTH);
+  // TODO: currently just hard-coding the name determination, should probably
+  // refactor to do this elsewhere (in codes-base?)
+  int do_config_nets[MAX_NETS];
+  memset(do_config_nets, 0, MAX_NETS*sizeof(*do_config_nets));
+  // TODO: inefficient (codes_mapping opens up the same section), but at least
+  // this avoids the need to call codes_mapping_setup first
+  configuration_get_lpgroups(&config, "LPGROUPS", &lpconf);
+  for (int grp = 0; grp < lpconf.lpgroups_count; grp++){
+      config_lpgroup_t *lpgroup = &lpconf.lpgroups[grp];
+      for (int lpt = 0; lpt < lpgroup->lptypes_count; lpt++){
+          char *nm = lpgroup->lptypes[lpt].name;
+          for (int n = 0; n < MAX_NETS; n++){
+              if (strcmp(model_net_lp_config_names[n], nm) == 0){
+                  do_config_nets[n] = 1;
+                  break;
+              }
+          }
+      }
+  }
+
   ret = configuration_get_value(&config, "PARAMS", "modelnet_scheduler", sched,
           MAX_NAME_LENGTH);
 
@@ -298,10 +313,10 @@ int model_net_set_params()
     else if (!packet_size && mn_sched_type != MN_SCHED_FCFS_FULL)
     {
         packet_size = 512;
-        fprintf(stderr, "\n Warning, no packet size specified, setting packet size to %llu ", packet_size);
+        fprintf(stderr, "\n Warning, no packet size specified, setting packet size to %llu\n", packet_size);
     }
 
-  if(strcmp(model_net_method_names[SIMPLENET],mn_name)==0)
+  if(do_config_nets[SIMPLENET])
    {
      double net_startup_ns, net_bw_mbps;
      simplenet_param net_params;
@@ -310,25 +325,25 @@ int model_net_set_params()
      configuration_get_value_double(&config, "PARAMS", "net_bw_mbps", &net_bw_mbps);
      net_params.net_startup_ns = net_startup_ns;
      net_params.net_bw_mbps =  net_bw_mbps;
-     net_id = model_net_setup(model_net_method_names[SIMPLENET], packet_size, (const void*)&net_params); /* Sets the network as simplenet and packet size 512 */
+     model_net_setup(model_net_method_names[SIMPLENET], packet_size, (const void*)&net_params); /* Sets the network as simplenet and packet size 512 */
    }
-  else if (strcmp(model_net_method_names[SIMPLEWAN],mn_name)==0){
+  if (do_config_nets[SIMPLEWAN]){
     simplewan_param net_params;
     configuration_get_value_relpath(&config, "PARAMS", "net_startup_ns_file", net_params.startup_filename, MAX_NAME_LENGTH);
     configuration_get_value_relpath(&config, "PARAMS", "net_bw_mbps_file", net_params.bw_filename, MAX_NAME_LENGTH);
-    net_id = model_net_setup(model_net_method_names[SIMPLEWAN], packet_size, (const void*)&net_params);
+    model_net_setup(model_net_method_names[SIMPLEWAN], packet_size, (const void*)&net_params);
   }
-   else if(strcmp(model_net_method_names[LOGGP],mn_name)==0)
+   if(do_config_nets[LOGGP])
    {
      char net_config_file[256];
      loggp_param net_params;
      
      configuration_get_value_relpath(&config, "PARAMS", "net_config_file", net_config_file, 256);
      net_params.net_config_file = net_config_file;
-     net_id = model_net_setup(model_net_method_names[LOGGP], packet_size, (const void*)&net_params); /* Sets the network as loggp and packet size 512 */
+     model_net_setup(model_net_method_names[LOGGP], packet_size, (const void*)&net_params); /* Sets the network as loggp and packet size 512 */
    }
 
-  else if(strcmp(model_net_method_names[DRAGONFLY], mn_name)==0)	  
+  if(do_config_nets[DRAGONFLY])	  
     {
        dragonfly_param net_params;
        int num_routers=0, num_vcs=0, local_vc_size=0, global_vc_size=0, cn_vc_size=0, chunk_size=0;
@@ -420,9 +435,9 @@ int model_net_set_params()
        	   printf("\n No routing protocol specified, setting to minimal routing");
    	   net_params.routing = 0;	   
        }
-    net_id = model_net_setup(model_net_method_names[DRAGONFLY], packet_size, (const void*)&net_params);   
+    model_net_setup(model_net_method_names[DRAGONFLY], packet_size, (const void*)&net_params);   
     }
-   else if(strcmp(model_net_method_names[TORUS], mn_name)==0)
+   if(do_config_nets[TORUS])
      {
 	torus_param net_params;
 	char dim_length[MAX_NAME_LENGTH];
@@ -484,12 +499,58 @@ int model_net_set_params()
 	   i++;
 	   token = strtok(NULL,",");
 	}
-	net_id = model_net_setup(model_net_method_names[TORUS], packet_size, (const void*)&net_params);
+	model_net_setup(model_net_method_names[TORUS], packet_size, (const void*)&net_params);
      }
-  else
-       printf("\n Invalid network argument %s ", mn_name);
-  model_net_base_init();
-  return net_id;
+
+  // now that the LP-specific nets are set up...
+  // - get the number of nets used
+  *id_count = 0;
+  for (int i = 0; i < MAX_NETS; i++){
+      if (do_config_nets[i]){
+          (*id_count)++;
+      }
+  }
+  // - allocate the output
+  int *ids = malloc(*id_count * sizeof(int));
+  // - read the ordering provided by modelnet_order
+  char **values;
+  size_t length;
+  ret = configuration_get_multivalue(&config, "PARAMS", "modelnet_order", &values, &length);
+  if (ret != 1){
+      fprintf(stderr, "unable to read PARAMS:modelnet_order variable\n");
+      abort();
+  }
+  if (length != (size_t) *id_count){
+      fprintf(stderr, "number of networks in PARAMS:modelnet_order "
+              "do not match number in LPGROUPS\n");
+      abort();
+  }
+  // - set the index
+  for (int i = 0; i < *id_count; i++){
+      ids[i] = -1;
+      for (int n = 0; n < MAX_NETS; n++){
+          if (strcmp(values[i], model_net_method_names[n]) == 0){
+              if (!do_config_nets[n]){
+                  fprintf(stderr, "network in PARAMS:modelnet_order not "
+                          "present in LPGROUPS: %s\n", values[i]);
+                  abort();
+              }
+              ids[i] = n;
+              break;
+          }
+      }
+      if (ids[i] == -1){
+          fprintf(stderr, "unknown network in PARAMS:modelnet_order: %s\n",
+                  values[i]);
+          abort();
+      }
+      free(values[i]);
+  }
+  free(values);
+  // - pass along to model_net_base_init
+  model_net_base_init(*id_count, ids);
+  // - done
+  return ids;
 }
 
 void model_net_event_rc(

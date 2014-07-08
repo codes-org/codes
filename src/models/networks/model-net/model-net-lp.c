@@ -93,7 +93,7 @@ tw_lptype model_net_base_lp = {
 
 /**** BEGIN IMPLEMENTATIONS ****/
 
-void model_net_base_init(){
+void model_net_base_init(int id_count, int *ids){
     uint32_t h1=0, h2=0;
 
     bj_hashlittle2(MN_NAME, strlen(MN_NAME), &h1, &h2);
@@ -101,16 +101,37 @@ void model_net_base_init(){
 
     // here, we initialize ALL lp types to use the base type
     // TODO: only initialize ones that are actually used
-    for (int i = 0; i < MAX_NETS; i++){
-        lp_type_register(model_net_lp_config_names[i], &model_net_base_lp);
+    for (int i = 0; i < id_count; i++){
+        lp_type_register(model_net_lp_config_names[ids[i]], &model_net_base_lp);
     }
 
     // initialize the msg-specific offsets
-    msg_offsets[SIMPLENET] = offsetof(model_net_wrap_msg, msg.m_snet);
-    msg_offsets[SIMPLEWAN] = offsetof(model_net_wrap_msg, msg.m_swan);
-    msg_offsets[TORUS] = offsetof(model_net_wrap_msg, msg.m_torus);
-    msg_offsets[DRAGONFLY] = offsetof(model_net_wrap_msg, msg.m_dfly);
-    msg_offsets[LOGGP] = offsetof(model_net_wrap_msg, msg.m_loggp);
+    for (int i = 0; i < id_count; i++){
+        switch(ids[i]){
+            case SIMPLENET:
+                msg_offsets[SIMPLENET] = 
+                    offsetof(model_net_wrap_msg, msg.m_snet);
+                break;
+            case SIMPLEWAN:
+                msg_offsets[SIMPLEWAN] = 
+                    offsetof(model_net_wrap_msg, msg.m_swan);
+                break;
+            case TORUS:
+                msg_offsets[TORUS] = 
+                    offsetof(model_net_wrap_msg, msg.m_torus);
+                break;
+            case DRAGONFLY:
+                msg_offsets[DRAGONFLY] = 
+                    offsetof(model_net_wrap_msg, msg.m_dfly);
+                break;
+            case LOGGP:
+                msg_offsets[LOGGP] = 
+                    offsetof(model_net_wrap_msg, msg.m_loggp);
+                break;
+            default:
+                assert(0);
+        }
+    }
 }
 
 void model_net_base_lp_init(
@@ -192,6 +213,8 @@ void model_net_base_event_rc(
             assert(!"model_net_base event type not known");
             break;
     }
+
+    *(int*)b = 0;
 }
 
 void model_net_base_finalize(

@@ -454,6 +454,7 @@ tw_stime s_to_ns(tw_stime ns)
 
 int main(int argc, char *argv[])
 {
+    int num_nets, *net_ids;
     g_tw_ts_end = s_to_ns(60*60*24*365); /* one year, in nsecs */
 
     tw_opt_add(app_opt);
@@ -475,8 +476,11 @@ int main(int argc, char *argv[])
     }
 
     /* Setup the model-net parameters specified in the global config object,
-     * returned is the identifier for the network type */
-    net_id = model_net_set_params();
+     * returned are the identifier for the network type */
+    net_ids = model_net_set_params(&num_nets);
+    assert(num_nets==1);
+    net_id = *net_ids;
+    free(net_ids);
 
     /* currently restrict to simplenet, as other networks are trickier to
      * setup. TODO: handle other networks properly */

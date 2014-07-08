@@ -1,6 +1,6 @@
 
 check_PROGRAMS += tests/modelnet-test tests/modelnet-p2p-bw \
-				  tests/concurrent-msg-recv tests/modelnet-simplewan-test \		
+				  tests/concurrent-msg-recv tests/modelnet-simplewan-test \
 				  tests/modelnet-test-collective
 
 TESTS += tests/modelnet-test.sh \

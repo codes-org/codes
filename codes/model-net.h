@@ -140,14 +140,12 @@ struct torus_param
  /* In general we need to figure out how to pass configuration information to
  * the methods and we need to be able to calculate ross event message size.
  */
-/*Initialize the network by specifying the network parameters. The 
- * underlying model-net.c function call will set the network parameters 
- * according to the network name specified*/
-// return an integer being the identifier for the type of network
-// call modelnet setup 1 time for a torus and retur value is 0 for e.g.
 
-/* call set params for configuring the network parameters from the config file*/
-int model_net_set_params();
+/* Initialize/configure the network(s) based on the CODES configuration.
+ * returns an array of the network ids, indexed in the order given by the 
+ * modelnet_order configuration parameter 
+ * OUTPUT id_count - the output number of networks */
+int* model_net_set_params(int *id_count);
 
 // setup the modelnet parameters
 int model_net_setup(char* net_name, uint64_t packet_size, const void* net_params);

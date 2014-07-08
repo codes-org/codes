@@ -142,6 +142,7 @@ int main(
 {
     int nprocs;
     int rank;
+    int num_nets, *net_ids;
     //printf("\n Config count %d ",(int) config.lpgroups_count);
     g_tw_ts_end = s_to_ns(60*60*24*365); /* one year, in nsecs */
     lp_io_handle handle;
@@ -159,7 +160,10 @@ int main(
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
   
     configuration_load(argv[2], MPI_COMM_WORLD, &config);
-    net_id=model_net_set_params();
+    net_ids = model_net_set_params(&num_nets);
+    assert(num_nets==1);
+    net_id = *net_ids;
+    free(net_ids);
     svr_add_lp_type();
     
     codes_mapping_setup();

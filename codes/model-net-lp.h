@@ -49,7 +49,7 @@ void * model_net_method_get_edata(int net_id, void * msg);
 /// use them
 
 // init method
-void model_net_base_init();
+void model_net_base_init(int id_count, int *ids);
 
 enum model_net_base_event_type {
     MN_BASE_NEW_MSG,
