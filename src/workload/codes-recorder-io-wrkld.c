@@ -158,7 +158,7 @@ static int recorder_io_workload_load(const char *params, int rank)
                 return -1;
             }
             
-            uint32_t h1, h2;
+            uint32_t h1 = 0x00000000, h2 = 0xFFFFFFFF;
             bj_hashlittle2(filename, strlen(filename), &h1, &h2);
             file->file_id = h1 + (((uint64_t)h2)<<32);
             file->fd = fd;
