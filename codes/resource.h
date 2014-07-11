@@ -32,16 +32,40 @@ int resource_get(uint64_t req, resource_token_t tok, resource *r);
  * Returns 0 on success, 2 on invalid token */
 int resource_free(uint64_t req, resource_token_t tok, resource *r);
 
-/* Reservation functions, same return value as get. 
- * These functions expect exactly one caller per LP group as 
- * defined by the codes configuration 
+/* Determine amount of resource units remaining
+ * Returns 0 on success, 2 on invalid token */
+int resource_get_avail(resource_token_t tok, uint64_t *avail, resource *r);
+
+/* Determine amount of used resource units.
+ * The number returned is based on the pool-specific maximums, for which
+ * reserve calls can change */
+int resource_get_used(resource_token_t tok, uint64_t *used, resource *r);
+
+/* Get and restore minimum stat (support for RC). So that the resource
+ * interface doesn't need to upgrade to a full LP, store stats in
+ * caller-provided arguments. */
+int resource_get_min_avail(resource_token_t tok, uint64_t *min_avail,
+        resource *r);
+int resource_restore_min_avail(resource_token_t tok, uint64_t min_avail,
+        resource *r);
+
+/* Reservation functions, same return value as get.
+ * These functions expect exactly one caller per LP group as
+ * defined by the codes configuration
  * TODO: "un-reserving" not yet supported */
 int resource_reserve(uint64_t req, resource_token_t *tok, resource *r);
 
 #define MAX_RESERVE 8
 struct resource_s {
-    /* index 0 is the general pool, 1... are the reserved pools */
+    // index 0 is the general pool, 1... are the reserved pools
+    // current available 
     uint64_t avail[MAX_RESERVE+1];
+    // maximums per pool (the max for the general pool is reduced on reserve!)
+    uint64_t max[MAX_RESERVE+1];
+    // statistics - minimum available at any time
+    uint64_t min_avail[MAX_RESERVE+1];
+    // global maximum
+    uint64_t max_all;
     unsigned int num_tokens;
 };
 

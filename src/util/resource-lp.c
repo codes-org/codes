@@ -9,6 +9,7 @@
 #include "codes/codes_mapping.h"
 #include "codes/jenkins-hash.h"
 #include "codes/quicklist.h"
+#include "codes/lp-io.h"
 #include "ross.h"
 #include <assert.h>
 #include <stdio.h>
@@ -73,6 +74,9 @@ struct resource_msg_internal{
 
 struct resource_msg {
     struct resource_msg_internal i, i_rc;
+    // for RC (asides from the message itself): the previous minimum resource
+    // value
+    uint64_t min_avail_rc;
 };
 
 struct pending_op {
@@ -183,6 +187,8 @@ static void handle_resource_get(
         tw_lp * lp){
     int ret = 1;
     int send_ack = 1;
+    // save the previous minimum for RC
+    assert(!resource_get_min_avail(m->i.tok, &m->min_avail_rc, &ns->r));
     if (!qlist_empty(&ns->pending[m->i.tok]) || 
             (ret = resource_get(m->i.req, m->i.tok, &ns->r))){
         /* failed to receive data */
@@ -223,8 +229,8 @@ static void handle_resource_get_rc(
     }
 
     if (b->c2){
-        int ret = resource_free(m->i.req, m->i.tok, &ns->r);
-        assert(ret != 2);
+        assert(!resource_restore_min_avail(m->i.tok, m->min_avail_rc, &ns->r));
+        assert(!resource_free(m->i.req, m->i.tok, &ns->r));
     }
 }
 
@@ -266,6 +272,7 @@ static void handle_resource_deq(
 
     struct qlist_head *front = ns->pending[m->i.tok].next;
     pending_op *p = qlist_entry(front, pending_op, ql);
+    assert(!resource_get_min_avail(m->i.tok, &m->min_avail_rc, &ns->r));
     int ret = resource_get(p->m.req, p->m.tok, &ns->r);
     assert(ret != 2);
     if (!ret){
@@ -303,6 +310,7 @@ static void handle_resource_deq_rc(
         op->m = m->i_rc;
         qlist_add(&op->ql, &ns->pending[m->i.tok]);
         resource_response_rc(lp);
+        assert(!resource_restore_min_avail(m->i.tok, m->min_avail_rc, &ns->r)); 
         assert(!resource_free(op->m.req, op->m.tok, &ns->r));
         /* reverse "deq next" op */
         codes_local_latency_reverse(lp);
@@ -377,9 +385,6 @@ void resource_rev_handler(
         default:
             assert(0);
     }
-
-    // NOTE: ross doesn't reset b in the case of multiple rollbacks...
-    *(int*)b = 0;
 }
 
 void resource_finalize(
@@ -387,11 +392,29 @@ void resource_finalize(
         tw_lp * lp){
     /* Fill me in... */
     struct qlist_head *ent;
-    qlist_for_each(ent, ns->pending){
-        pending_op *op = qlist_entry(ent, pending_op, ql);
-        fprintf(stderr, "WARNING: resource LP %lu has a pending allocation\n",
-                lp->gid);
+    for (int i = 0; i < MAX_RESERVE+1; i++){
+        qlist_for_each(ent, &ns->pending[i]){
+            fprintf(stderr, "WARNING: resource LP %lu has a pending allocation\n",
+                    lp->gid);
+        }
     }
+
+    char *out_buf = malloc(1<<12);
+    int written;
+    // see if I'm the "first" resource
+    if (codes_mapping_get_lp_global_rel_id(lp->gid) == 0){
+        written = sprintf(out_buf, 
+                "# format: <LP> <max used general> <max used token...>\n");
+        lp_io_write(lp->gid, "resource", written, out_buf);
+    }
+    written = sprintf(out_buf, "%lu", lp->gid);
+
+    // TODO: wrap this up in the resource interface
+    for (int i = 0; i < ns->r.num_tokens+1; i++){
+        written += sprintf(out_buf+written, " %lu", ns->r.max[i]-ns->r.min_avail[i]);
+    }
+    written += sprintf(out_buf+written, "\n");
+    lp_io_write(lp->gid, "resource", written, out_buf);
 }
 
 /**** END IMPLEMENTATIONS ****/
