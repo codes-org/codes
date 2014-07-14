@@ -40,6 +40,13 @@ int codes_mapping_get_lp_global_rel_id(tw_lpid gid);
  * (for multiple LPs in a repetition). */
 void codes_mapping_get_lp_info(tw_lpid gid, char* grp_name, int* grp_id, int* lp_type_id, char* lp_type_name, int* grp_rep_id, int* offset);
 
+/* given the group and LP type name, return the annotation (or NULL if there is
+ * none) */
+const char* codes_mapping_get_annotation_by_name(char *grp_name, char *lp_type_name);
+/* given the LP ID, return the annotation (or NULL if there is none)
+ * NOTE: both functions have equivalent results. The different ways of accessing
+ * are for convenience */
+const char* codes_mapping_get_annotation_by_lpid(tw_lpid gid);
 
 /*
  * Local variables:

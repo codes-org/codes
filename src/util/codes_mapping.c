@@ -317,6 +317,98 @@ void codes_mapping_setup()
   tw_define_lps(codes_mapping_get_lps_for_pe(), message_size, 0);
 }
 
+/* given the group and LP type name, return the annotation (or NULL) */
+const char* codes_mapping_get_annotation_by_name(char *grp_name, char *lp_type_name){
+    int grp, lpt, lp_types_count;
+    short found = 0;
+
+    // find the group
+    for(grp = 0; grp < lpconf.lpgroups_count; grp++) {
+        if(strcmp(lpconf.lpgroups[grp].name, grp_name) == 0) {
+            found = 1;
+            break;
+        }
+    }
+
+    assert(found);
+    found = 0;
+
+    lp_types_count = lpconf.lpgroups[grp].lptypes_count;
+
+    // find the lp type
+    for(lpt = 0; lpt < lp_types_count; lpt++) {
+        if(strcmp(lpconf.lpgroups[grp].lptypes[lpt].name, lp_type_name) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    assert(found);
+
+    const char * anno = lpconf.lpgroups[grp].lptypes[lpt].anno;
+    if (anno[0]=='\0'){
+        return NULL;
+    }
+    else{
+        return anno;
+    }
+}
+
+const char* codes_mapping_get_annotation_by_lpid(tw_lpid gid){
+    int grp, lpt, rep, grp_offset, lp_offset, rep_offset;
+    int lp_tmp_id, lp_types_count, lp_count;
+    unsigned long grp_lp_count=0;
+    short found = 0;
+
+    /* Find the group id first */ 
+    for(grp = 0; grp < lpconf.lpgroups_count; grp++)
+    {
+        grp_offset = 0;
+        rep_offset = 0;
+        rep = lpconf.lpgroups[grp].repetitions;
+        lp_types_count = lpconf.lpgroups[grp].lptypes_count;
+
+        for(lpt = 0; lpt < lp_types_count; lpt++)
+        {
+            lp_count = lpconf.lpgroups[grp].lptypes[lpt].count;
+            grp_offset += (rep * lp_count);
+            rep_offset += lp_count;
+        }
+        /* Each gid is assigned an increasing number starting from 0th group and 0th lp type
+         * so we check here if the gid lies within the numeric range of a group */ 
+        if(gid >= grp_lp_count && gid < grp_lp_count + grp_offset)
+        {
+            strcpy(local_grp_name, lpconf.lpgroups[grp].name);
+            lp_offset = gid - grp_lp_count; /* gets the lp offset starting from the point where the group begins */
+            int grp_rep_id = lp_offset / rep_offset;
+            lp_tmp_id = lp_offset - (grp_rep_id * rep_offset);
+            found = 1;
+            break;
+        }
+        grp_lp_count += grp_offset; /* keep on increasing the group lp count to next group range*/
+    }
+    assert(found);
+
+    lp_offset = 0;
+    found = 0; /* reset found for finding LP type */
+    /* Now we compute the LP type ID here based on the lp offset that we just got */ 
+    for(lpt = 0; lpt < lp_types_count; lpt++)
+    {
+        lp_count = lpconf.lpgroups[grp].lptypes[lpt].count;
+        if(lp_tmp_id >= lp_offset && lp_tmp_id < lp_offset + lp_count)
+        {
+            found = 1;
+            if (lpconf.lpgroups[grp].lptypes[lpt].anno[0] == '\0'){
+                return NULL;
+            }
+            else{
+                return lpconf.lpgroups[grp].lptypes[lpt].anno;
+            }
+        }
+        lp_offset += lp_count;
+    }
+    assert(found);
+    return NULL;
+}
 
 /*
  * Local variables:

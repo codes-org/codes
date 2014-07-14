@@ -164,7 +164,7 @@ tw_lptype lsm_lp =
  * lsm_load_config
  *  - load configuration disk parameters
  */
-static void lsm_load_config (ConfigHandle *ch, char *name, lsm_state_t *ns)
+static void lsm_load_config (ConfigHandle *ch, char *name, lsm_state_t *ns, tw_lp *lp)
 {
     disk_model_t *model;
     char       **values;
@@ -175,8 +175,11 @@ static void lsm_load_config (ConfigHandle *ch, char *name, lsm_state_t *ns)
     model = (disk_model_t *) malloc(sizeof(disk_model_t));
     assert(model);
 
+    // get my annotation (if any)
+    const char *anno = codes_mapping_get_annotation_by_lpid(lp->gid);
+
     // request sizes
-    rc = configuration_get_multivalue(ch, name, "request_sizes", NULL,
+    rc = configuration_get_multivalue(ch, name, "request_sizes", anno,
             &values,&length);
     assert(rc == 1);
     model->request_sizes = malloc(sizeof(int)*length);
@@ -189,7 +192,7 @@ static void lsm_load_config (ConfigHandle *ch, char *name, lsm_state_t *ns)
     free(values);
 
     // write rates
-    rc = configuration_get_multivalue(ch, name, "write_rates", NULL,
+    rc = configuration_get_multivalue(ch, name, "write_rates", anno,
             &values,&length);
     assert(rc == 1);
     model->write_rates = malloc(sizeof(double)*length);
@@ -202,7 +205,7 @@ static void lsm_load_config (ConfigHandle *ch, char *name, lsm_state_t *ns)
     free(values);
 
     // read rates
-    rc = configuration_get_multivalue(ch, name, "read_rates", NULL,
+    rc = configuration_get_multivalue(ch, name, "read_rates", anno,
             &values,&length);
     assert(rc == 1);
     model->read_rates = malloc(sizeof(double)*length);
@@ -215,7 +218,7 @@ static void lsm_load_config (ConfigHandle *ch, char *name, lsm_state_t *ns)
     free(values);
 
     // write overheads
-    rc = configuration_get_multivalue(ch, name, "write_overheads", NULL,
+    rc = configuration_get_multivalue(ch, name, "write_overheads", anno,
             &values,&length);
     assert(rc == 1);
     model->write_overheads = malloc(sizeof(double)*length);
@@ -228,7 +231,7 @@ static void lsm_load_config (ConfigHandle *ch, char *name, lsm_state_t *ns)
     free(values);
 
     // read overheades
-    rc = configuration_get_multivalue(ch, name, "read_overheads", NULL,
+    rc = configuration_get_multivalue(ch, name, "read_overheads", anno,
             &values,&length);
     assert(rc == 1);
     model->read_overheads = malloc(sizeof(double)*length);
@@ -241,7 +244,7 @@ static void lsm_load_config (ConfigHandle *ch, char *name, lsm_state_t *ns)
     free(values);
 
     // write seek latency
-    rc = configuration_get_multivalue(ch, name, "write_seeks", NULL,
+    rc = configuration_get_multivalue(ch, name, "write_seeks", anno,
             &values,&length);
     assert(rc == 1);
     model->write_seeks = malloc(sizeof(double)*length);
@@ -254,7 +257,7 @@ static void lsm_load_config (ConfigHandle *ch, char *name, lsm_state_t *ns)
     free(values);
 
     // read seek latency
-    rc = configuration_get_multivalue(ch, name, "read_seeks", NULL,
+    rc = configuration_get_multivalue(ch, name, "read_seeks", anno,
             &values,&length);
     assert(rc == 1);
     model->read_seeks = malloc(sizeof(double)*length);
@@ -509,7 +512,7 @@ static void lsm_event (lsm_state_t *ns, tw_bf *b, lsm_message_t *m, tw_lp *lp)
                 printf("svr(%llu): INIT name:%s\n",
                     (unsigned long long)lp->gid,
                     m->u.init.name);
-            lsm_load_config(&config, m->u.init.name, ns);
+            lsm_load_config(&config, m->u.init.name, ns, lp);
             break;
         case LSM_WRITE_REQUEST:
         case LSM_READ_REQUEST:

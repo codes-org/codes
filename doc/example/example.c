@@ -243,8 +243,8 @@ int main(
     /* for this example, we read from a separate configuration group for
      * server message parameters. Since they are constant for all LPs,
      * go ahead and read them prior to running */
-    configuration_get_value_int(&config, param_group_nm, num_reqs_key, &num_reqs);
-    configuration_get_value_int(&config, param_group_nm, payload_sz_key, &payload_sz);
+    configuration_get_value_int(&config, param_group_nm, num_reqs_key, NULL, &num_reqs);
+    configuration_get_value_int(&config, param_group_nm, payload_sz_key, NULL, &payload_sz);
 
     /* begin simulation */ 
     tw_run();
