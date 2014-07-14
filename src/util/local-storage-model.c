@@ -176,7 +176,8 @@ static void lsm_load_config (ConfigHandle *ch, char *name, lsm_state_t *ns)
     assert(model);
 
     // request sizes
-    rc = configuration_get_multivalue(ch, name, "request_sizes",&values,&length);
+    rc = configuration_get_multivalue(ch, name, "request_sizes", NULL,
+            &values,&length);
     assert(rc == 1);
     model->request_sizes = malloc(sizeof(int)*length);
     assert(model->request_sizes);
@@ -188,7 +189,8 @@ static void lsm_load_config (ConfigHandle *ch, char *name, lsm_state_t *ns)
     free(values);
 
     // write rates
-    rc = configuration_get_multivalue(ch, name, "write_rates",&values,&length);
+    rc = configuration_get_multivalue(ch, name, "write_rates", NULL,
+            &values,&length);
     assert(rc == 1);
     model->write_rates = malloc(sizeof(double)*length);
     assert(model->write_rates);
@@ -200,7 +202,8 @@ static void lsm_load_config (ConfigHandle *ch, char *name, lsm_state_t *ns)
     free(values);
 
     // read rates
-    rc = configuration_get_multivalue(ch, name, "read_rates",&values,&length);
+    rc = configuration_get_multivalue(ch, name, "read_rates", NULL,
+            &values,&length);
     assert(rc == 1);
     model->read_rates = malloc(sizeof(double)*length);
     assert(model->read_rates);
@@ -212,7 +215,8 @@ static void lsm_load_config (ConfigHandle *ch, char *name, lsm_state_t *ns)
     free(values);
 
     // write overheads
-    rc = configuration_get_multivalue(ch, name, "write_overheads",&values,&length);
+    rc = configuration_get_multivalue(ch, name, "write_overheads", NULL,
+            &values,&length);
     assert(rc == 1);
     model->write_overheads = malloc(sizeof(double)*length);
     assert(model->write_overheads);
@@ -224,7 +228,8 @@ static void lsm_load_config (ConfigHandle *ch, char *name, lsm_state_t *ns)
     free(values);
 
     // read overheades
-    rc = configuration_get_multivalue(ch, name, "read_overheads",&values,&length);
+    rc = configuration_get_multivalue(ch, name, "read_overheads", NULL,
+            &values,&length);
     assert(rc == 1);
     model->read_overheads = malloc(sizeof(double)*length);
     assert(model->read_overheads);
@@ -236,7 +241,8 @@ static void lsm_load_config (ConfigHandle *ch, char *name, lsm_state_t *ns)
     free(values);
 
     // write seek latency
-    rc = configuration_get_multivalue(ch, name, "write_seeks",&values,&length);
+    rc = configuration_get_multivalue(ch, name, "write_seeks", NULL,
+            &values,&length);
     assert(rc == 1);
     model->write_seeks = malloc(sizeof(double)*length);
     assert(model->write_seeks);
@@ -248,7 +254,8 @@ static void lsm_load_config (ConfigHandle *ch, char *name, lsm_state_t *ns)
     free(values);
 
     // read seek latency
-    rc = configuration_get_multivalue(ch, name, "read_seeks",&values,&length);
+    rc = configuration_get_multivalue(ch, name, "read_seeks", NULL,
+            &values,&length);
     assert(rc == 1);
     model->read_seeks = malloc(sizeof(double)*length);
     assert(model->read_seeks);

@@ -64,12 +64,14 @@ int configuration_free (ConfigHandle *handle);
  * handle - configuration handle
  * section_name - name of the section the key is in
  * key_name - name of the key
+ * annotation - optional annotation to look for (NULL -> no annotation)
  * value - pointer to string
  * length - maximum length of string
  */
 int configuration_get_value(ConfigHandle *handle,
                             const char * section_name,
                             const char * key_name,
+                            const char * annotation,
                             char *value,
                             size_t length);
 
@@ -82,12 +84,14 @@ int configuration_get_value(ConfigHandle *handle,
  * handle - configuration handle
  * section_name - name of the section the key is in
  * key_name - name of the key
+ * annotation - optional annotation to look for (NULL -> no annotation)
  * value - pointer to string
  * length - maximum length of string */
 int configuration_get_value_relpath(
         ConfigHandle *handle,
         const char * section_name,
         const char * key_name,
+        const char * annotation,
         char *value,
         size_t length);
 
@@ -100,12 +104,14 @@ int configuration_get_value_relpath(
  * handle - configuration handle
  * section_name - name of the section the key is in
  * key_name - name of the key
+ * annotation - optional annotation to look for (NULL -> no annotation)
  * values - array of points to values (must be freed by caller)
  * length - number of value items
  */
 int configuration_get_multivalue(ConfigHandle *handle,
                                  const char * section_name,
                                  const char * key_name,
+                                 const char * annotation,
                                  char ***values,
                                  size_t *length);
 
@@ -116,11 +122,13 @@ int configuration_get_multivalue(ConfigHandle *handle,
  * handle - configuration handle
  * section_name - name of the section the key is in
  * key_name - name of the key
+ * annotation - optional annotation to look for (NULL -> no annotation)
  * value - returned as a pointer to an integer
  */
 int configuration_get_value_int (ConfigHandle *handle,
                                  const char *section_name,
                                  const char *key_name,
+                                 const char * annotation,
                                  int *value);
 
 /*
@@ -131,11 +139,13 @@ int configuration_get_value_int (ConfigHandle *handle,
  * handle - configuration handle
  * section_name - name of the section the key is in
  * key_name - name of the key
+ * annotation - optional annotation to look for (NULL -> no annotation)
  * value - returned as a pointer to an unsigned integer
  */
 int configuration_get_value_uint (ConfigHandle *handle,
                                   const char *section_name,
                                   const char *key_name,
+                                  const char * annotation,
                                   unsigned int *value);
 
 /*
@@ -145,11 +155,13 @@ int configuration_get_value_uint (ConfigHandle *handle,
  * handle - configuration handle
  * section_name - name of the section the key is in
  * key_name - name of the key
+ * annotation - optional annotation to look for (NULL -> no annotation)
  * value - returned as a pointer to a long integer
  */
 int configuration_get_value_longint (ConfigHandle *handle,
                                      const char *section_name,
                                      const char *key_name,
+                                     const char * annotation,
                                      long int *value);
 
 /*
@@ -159,11 +171,13 @@ int configuration_get_value_longint (ConfigHandle *handle,
  * handle - configuration handle
  * section_name - name of the section the key is in
  * key_name - name of the key
+ * annotation - optional annotation to look for (NULL -> no annotation)
  * value - returned as a pointer to a double
  */
 int configuration_get_value_double (ConfigHandle *handle,
                                     const char *section_name,
                                     const char *key_name,
+                                    const char * annotation,
                                     double *value);
 
 /*

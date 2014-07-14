@@ -77,16 +77,30 @@ int configuration_load (const char *filepath,
 int configuration_get_value(ConfigHandle *handle,
                             const char *section_name,
                             const char *key_name,
+                            const char *annotation,
                             char *value,
                             size_t len)
 {
     SectionHandle section_handle;
     int           rc;
+    // reading directly from the config, so need to inject the annotation
+    // directly into the search string
+    char key_name_tmp[CONFIGURATION_MAX_NAME];
+    char *key_name_full;
+    if (annotation==NULL){
+        // sorry const type... we promise we won't change you
+        key_name_full = (char*) key_name;
+    }
+    else{
+        assert(snprintf(key_name_tmp, CONFIGURATION_MAX_NAME, "%s@%s",
+                    key_name, annotation) < CONFIGURATION_MAX_NAME);
+        key_name_full = key_name_tmp;
+    }
 
     rc = cf_openSection(*handle, ROOT_SECTION, section_name, &section_handle);
     assert(rc == 1);
 
-    rc = cf_getKey(*handle, section_handle, key_name, value, len);
+    rc = cf_getKey(*handle, section_handle, key_name_full, value, len);
     assert(rc);
 
     (void) cf_closeSection(*handle, section_handle);
@@ -98,11 +112,13 @@ int configuration_get_value_relpath(
         ConfigHandle *handle,
         const char * section_name,
         const char * key_name,
+        const char *annotation,
         char *value,
         size_t length){
     char *tmp = malloc(length);
 
-    configuration_get_value(handle, section_name, key_name, tmp, length);
+    configuration_get_value(handle, section_name, key_name, annotation, tmp,
+            length);
 
     /* concat the configuration value with the directory */
     int w = snprintf(value, length, "%s/%s", (*handle)->config_dir, tmp);
@@ -114,16 +130,30 @@ int configuration_get_value_relpath(
 int configuration_get_multivalue(ConfigHandle *handle,
                                  const char *section_name,
                                  const char *key_name,
+                                 const char *annotation,
                                  char ***values,
                                  size_t *len)
 {
     SectionHandle section_handle;
     int           rc;
+    // reading directly from the config, so need to inject the annotation
+    // directly into the search string
+    char key_name_tmp[CONFIGURATION_MAX_NAME];
+    char *key_name_full;
+    if (annotation==NULL){
+        // sorry const type... we promise we won't change you
+        key_name_full = (char*) key_name;
+    }
+    else{
+        assert(snprintf(key_name_tmp, CONFIGURATION_MAX_NAME, "%s@%s",
+                    key_name, annotation) < CONFIGURATION_MAX_NAME);
+        key_name_full = key_name_tmp;
+    }
 
     rc = cf_openSection(*handle, ROOT_SECTION, section_name, &section_handle);
     assert(rc == 1);
 
-    rc = cf_getMultiKey(*handle, section_handle, key_name, values, len);
+    rc = cf_getMultiKey(*handle, section_handle, key_name_full, values, len);
     assert(rc);
 
     (void) cf_closeSection(*handle, section_handle);
@@ -134,6 +164,7 @@ int configuration_get_multivalue(ConfigHandle *handle,
 int configuration_get_value_int (ConfigHandle *handle,
                                  const char *section_name,
                                  const char *key_name,
+                                 const char *annotation,
                                  int *value)
 {
     char valuestr[256];
@@ -143,6 +174,7 @@ int configuration_get_value_int (ConfigHandle *handle,
     r = configuration_get_value(handle,
                                 section_name,
                                 key_name,
+                                annotation,
                                 valuestr,
                                 sizeof(valuestr));
     if (r > 0)
@@ -157,6 +189,7 @@ int configuration_get_value_int (ConfigHandle *handle,
 int configuration_get_value_uint (ConfigHandle *handle,
                                   const char *section_name,
                                   const char *key_name,
+                                  const char *annotation,
                                   unsigned int *value)
 {
     char valuestr[256];
@@ -166,6 +199,7 @@ int configuration_get_value_uint (ConfigHandle *handle,
     r = configuration_get_value(handle,
                                 section_name,
                                 key_name,
+                                annotation,
                                 valuestr,
                                 sizeof(valuestr));
     if (r > 0)
@@ -180,6 +214,7 @@ int configuration_get_value_uint (ConfigHandle *handle,
 int configuration_get_value_longint (ConfigHandle *handle,
                                      const char *section_name,
                                      const char *key_name,
+                                     const char *annotation,
                                      long int *value)
 {
     char valuestr[256];
@@ -189,6 +224,7 @@ int configuration_get_value_longint (ConfigHandle *handle,
     r = configuration_get_value(handle,
                                 section_name,
                                 key_name,
+                                annotation,
                                 valuestr,
                                 sizeof(valuestr));
     if (r > 0)
@@ -204,6 +240,7 @@ int configuration_get_value_longint (ConfigHandle *handle,
 int configuration_get_value_double (ConfigHandle *handle,
                                     const char *section_name,
                                     const char *key_name,
+                                    const char *annotation,
                                     double *value)
 {
     char valuestr[256];
@@ -213,6 +250,7 @@ int configuration_get_value_double (ConfigHandle *handle,
     r = configuration_get_value(handle,
                                 section_name,
                                 key_name,
+                                annotation,
                                 valuestr,
                                 sizeof(valuestr));
     if (r > 0)

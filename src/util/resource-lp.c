@@ -432,7 +432,7 @@ void resource_lp_init(){
 void resource_lp_configure(){
     long int avail;
     int ret = configuration_get_value_longint(&config, "resource", 
-            "available", &avail);
+            "available", NULL, &avail);
     if (ret){
         fprintf(stderr, "Could not find section:resource value:available for "
                         "resource LP\n");
