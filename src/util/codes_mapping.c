@@ -17,7 +17,7 @@
 static int lps_per_pe_floor = 0;
 static int lps_leftover = 0;
 
-static int mem_factor = 1024;
+static int mem_factor = 256;
 
 static inline int mini(int a, int b){ return a < b ? a : b; }
 
