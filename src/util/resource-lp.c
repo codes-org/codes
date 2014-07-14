@@ -390,7 +390,6 @@ void resource_rev_handler(
 void resource_finalize(
         resource_state * ns,
         tw_lp * lp){
-    /* Fill me in... */
     struct qlist_head *ent;
     for (int i = 0; i < MAX_RESERVE+1; i++){
         qlist_for_each(ent, &ns->pending[i]){
@@ -409,6 +408,7 @@ void resource_finalize(
     }
     written = sprintf(out_buf, "%lu", lp->gid);
 
+    // compute peak resource usage
     // TODO: wrap this up in the resource interface
     for (int i = 0; i < ns->r.num_tokens+1; i++){
         written += sprintf(out_buf+written, " %lu", ns->r.max[i]-ns->r.min_avail[i]);

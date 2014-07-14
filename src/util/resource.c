@@ -18,11 +18,11 @@ void resource_init(uint64_t avail, resource *r){
     r->max_all  = avail;
     r->avail[0] = avail;
     r->max[0] = avail;
-    r->min_avail[0] = UINT64_MAX;
+    r->min_avail[0] = avail;
     for (int i = 1; i < MAX_RESERVE; i++){
         r->avail[i] = 0;
         r->max[i] = 0;
-        r->min_avail[i] = UINT64_MAX;
+        r->min_avail[i] = avail;
     }
 }
 
@@ -119,6 +119,7 @@ int resource_reserve(uint64_t req, resource_token_t *tok, resource *r){
         *tok = ++(r->num_tokens);
         r->avail[*tok] = req;
         r->max[*tok] = req;
+        r->min_avail[*tok] = req;
         r->max[0] -= req;
         r->avail[0] -= req;
         return 0;
