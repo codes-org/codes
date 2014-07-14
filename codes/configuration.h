@@ -18,6 +18,7 @@
 typedef struct config_lptype_s
 {
     char     name[CONFIGURATION_MAX_NAME];
+    char     anno[CONFIGURATION_MAX_NAME];
     uint64_t count;
 } config_lptype_t;
 

@@ -268,10 +268,21 @@ int configuration_get_lpgroups (ConfigHandle *handle,
                    }
                    else
                    {
+                       size_t s = sizeof(lpgroups->lpgroups[i].lptypes[lpt].name);
+                       char *nm   = lpgroups->lpgroups[i].lptypes[lpt].name;
+                       char *anno = lpgroups->lpgroups[i].lptypes[lpt].anno;
                        // assume these are lptypes and counts
-                       strncpy(lpgroups->lpgroups[i].lptypes[lpt].name,
-                               subse[j].name,
-                               sizeof(lpgroups->lpgroups[i].lptypes[lpt].name));
+                       strncpy(nm, subse[j].name, s-1);
+                       lpgroups->lpgroups[i].lptypes[lpt].name[s-1] = '\0';
+
+                       char *c = strchr(nm, '@');
+                       if (c) {
+                           strcpy(anno, c+1);
+                           *c = '\0';
+                       }
+                       else {
+                           anno[0] = '\0';
+                       }
                        lpgroups->lpgroups[i].lptypes[lpt].count = atoi(data);
                        lpgroups->lpgroups[i].lptypes_count++;
                        lpt++;
