@@ -279,10 +279,11 @@ int* model_net_set_params(int *id_count)
       }
   }
 
-  ret = configuration_get_value(&config, "PARAMS", "modelnet_scheduler", sched,
-          MAX_NAME_LENGTH);
+  ret = configuration_get_value(&config, "PARAMS", "modelnet_scheduler", NULL,
+          sched, MAX_NAME_LENGTH);
 
-  configuration_get_value_longint(&config, "PARAMS", "packet_size", &packet_size_l);
+  configuration_get_value_longint(&config, "PARAMS", "packet_size", NULL,
+          &packet_size_l);
   packet_size = packet_size_l;
 
     if (ret > 0){
@@ -321,16 +322,18 @@ int* model_net_set_params(int *id_count)
      double net_startup_ns, net_bw_mbps;
      simplenet_param net_params;
      
-     configuration_get_value_double(&config, "PARAMS", "net_startup_ns", &net_startup_ns);
-     configuration_get_value_double(&config, "PARAMS", "net_bw_mbps", &net_bw_mbps);
+     configuration_get_value_double(&config, "PARAMS", "net_startup_ns", NULL,
+             &net_startup_ns);
+     configuration_get_value_double(&config, "PARAMS", "net_bw_mbps", NULL,
+             &net_bw_mbps);
      net_params.net_startup_ns = net_startup_ns;
      net_params.net_bw_mbps =  net_bw_mbps;
      model_net_setup(model_net_method_names[SIMPLENET], packet_size, (const void*)&net_params); /* Sets the network as simplenet and packet size 512 */
    }
   if (do_config_nets[SIMPLEWAN]){
     simplewan_param net_params;
-    configuration_get_value_relpath(&config, "PARAMS", "net_startup_ns_file", net_params.startup_filename, MAX_NAME_LENGTH);
-    configuration_get_value_relpath(&config, "PARAMS", "net_bw_mbps_file", net_params.bw_filename, MAX_NAME_LENGTH);
+    configuration_get_value_relpath(&config, "PARAMS", "net_startup_ns_file", NULL, net_params.startup_filename, MAX_NAME_LENGTH);
+    configuration_get_value_relpath(&config, "PARAMS", "net_bw_mbps_file", NULL, net_params.bw_filename, MAX_NAME_LENGTH);
     model_net_setup(model_net_method_names[SIMPLEWAN], packet_size, (const void*)&net_params);
   }
    if(do_config_nets[LOGGP])
@@ -338,7 +341,7 @@ int* model_net_set_params(int *id_count)
      char net_config_file[256];
      loggp_param net_params;
      
-     configuration_get_value_relpath(&config, "PARAMS", "net_config_file", net_config_file, 256);
+     configuration_get_value_relpath(&config, "PARAMS", "net_config_file", NULL, net_config_file, 256);
      net_params.net_config_file = net_config_file;
      model_net_setup(model_net_method_names[LOGGP], packet_size, (const void*)&net_params); /* Sets the network as loggp and packet size 512 */
    }
@@ -349,7 +352,7 @@ int* model_net_set_params(int *id_count)
        int num_routers=0, num_vcs=0, local_vc_size=0, global_vc_size=0, cn_vc_size=0, chunk_size=0;
        double local_bandwidth=0.0, cn_bandwidth=0.0, global_bandwidth=0.0;
        
-       configuration_get_value_int(&config, "PARAMS", "num_routers", &num_routers);
+       configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers);
        if(!num_routers)
 	{
 	   num_routers = 4; 
@@ -357,7 +360,7 @@ int* model_net_set_params(int *id_count)
         } 
        net_params.num_routers = num_routers; 
 
-       configuration_get_value_int(&config, "PARAMS", "num_vcs", &num_vcs);
+       configuration_get_value_int(&config, "PARAMS", "num_vcs", NULL, &num_vcs);
        if(!num_vcs)
        {
           num_vcs = 1;
@@ -365,7 +368,7 @@ int* model_net_set_params(int *id_count)
        }
        net_params.num_vcs = num_vcs;
 
-       configuration_get_value_int(&config, "PARAMS", "local_vc_size", &local_vc_size);
+       configuration_get_value_int(&config, "PARAMS", "local_vc_size", NULL, &local_vc_size);
        if(!local_vc_size)
 	{
 	   local_vc_size = 1024;
@@ -373,7 +376,7 @@ int* model_net_set_params(int *id_count)
 	}
        net_params.local_vc_size = local_vc_size;
 
-       configuration_get_value_int(&config, "PARAMS", "global_vc_size", &global_vc_size);
+       configuration_get_value_int(&config, "PARAMS", "global_vc_size", NULL, &global_vc_size);
        if(!global_vc_size)
 	{
 	  global_vc_size = 2048;
@@ -381,7 +384,7 @@ int* model_net_set_params(int *id_count)
 	}
        net_params.global_vc_size = global_vc_size;
 
-       configuration_get_value_int(&config, "PARAMS", "cn_vc_size", &cn_vc_size);
+       configuration_get_value_int(&config, "PARAMS", "cn_vc_size", NULL, &cn_vc_size);
        if(!cn_vc_size)
 	 {
 	    cn_vc_size = 1024;
@@ -389,7 +392,7 @@ int* model_net_set_params(int *id_count)
 	 }
        net_params.cn_vc_size = cn_vc_size;
 
-	configuration_get_value_int(&config, "PARAMS", "chunk_size", &chunk_size);
+	configuration_get_value_int(&config, "PARAMS", "chunk_size", NULL, &chunk_size);
 	if(!chunk_size)
 	  {
 		chunk_size = 64;
@@ -397,7 +400,7 @@ int* model_net_set_params(int *id_count)
 	  }
 	net_params.chunk_size = chunk_size;
 
-	configuration_get_value_double(&config, "PARAMS", "local_bandwidth", &local_bandwidth);
+	configuration_get_value_double(&config, "PARAMS", "local_bandwidth", NULL, &local_bandwidth);
         if(!local_bandwidth)
 	  {
 	    local_bandwidth = 5.25;
@@ -405,7 +408,7 @@ int* model_net_set_params(int *id_count)
 	 }
        net_params.local_bandwidth = local_bandwidth;
 
-       configuration_get_value_double(&config, "PARAMS", "global_bandwidth", &global_bandwidth);
+       configuration_get_value_double(&config, "PARAMS", "global_bandwidth", NULL, &global_bandwidth);
         if(!global_bandwidth)
 	{
 	     global_bandwidth = 4.7;
@@ -413,7 +416,7 @@ int* model_net_set_params(int *id_count)
 	}
 	net_params.global_bandwidth = global_bandwidth;
 
-	configuration_get_value_double(&config, "PARAMS", "cn_bandwidth", &cn_bandwidth);
+	configuration_get_value_double(&config, "PARAMS", "cn_bandwidth", NULL, &cn_bandwidth);
 	if(!cn_bandwidth)
 	 {
 	     cn_bandwidth = 5.25;
@@ -423,7 +426,7 @@ int* model_net_set_params(int *id_count)
 
 	
        char routing[MAX_NAME_LENGTH];
-       configuration_get_value(&config, "PARAMS", "routing", routing, MAX_NAME_LENGTH);
+       configuration_get_value(&config, "PARAMS", "routing", NULL, routing, MAX_NAME_LENGTH);
        if(strcmp(routing, "minimal") == 0)
 	   net_params.routing = 0;
        else if(strcmp(routing, "nonminimal")==0 || strcmp(routing,"non-minimal")==0)
@@ -444,41 +447,41 @@ int* model_net_set_params(int *id_count)
 	int n_dims=0, buffer_size=0, num_vc=0, i=0, chunk_size = 0;
 	double link_bandwidth=0;
 
-	configuration_get_value_int(&config, "PARAMS", "n_dims", &n_dims);
+	configuration_get_value_int(&config, "PARAMS", "n_dims", NULL, &n_dims);
 	if(!n_dims)
 	{
 	   n_dims = 4; /* a 4-D torus */
 	   printf("\n Number of dimensions not specified, setting to %d ", n_dims);
 	}
 	
-	configuration_get_value_double(&config, "PARAMS", "link_bandwidth", &link_bandwidth);	
+	configuration_get_value_double(&config, "PARAMS", "link_bandwidth", NULL, &link_bandwidth);	
 	if(!link_bandwidth)
 	{
 		link_bandwidth = 2.0; /*default bg/q configuration */
 		printf("\n Link bandwidth not specified, setting to %lf ", link_bandwidth);
 	}
 
-	configuration_get_value_int(&config, "PARAMS", "buffer_size", &buffer_size);
+	configuration_get_value_int(&config, "PARAMS", "buffer_size", NULL, &buffer_size);
 	if(!buffer_size)
 	{
 		buffer_size = 2048;
 		printf("\n Buffer size not specified, setting to %d ",buffer_size);
 	}
 
-	configuration_get_value_int(&config, "PARAMS", "chunk_size", &chunk_size);
+	configuration_get_value_int(&config, "PARAMS", "chunk_size", NULL, &chunk_size);
 	if(!chunk_size)
 	{
 	       chunk_size = 32;
 	       printf("\n Chunk size not specified, setting to %d ", chunk_size);
 	}
-	configuration_get_value_int(&config, "PARAMS", "num_vc", &num_vc);
+	configuration_get_value_int(&config, "PARAMS", "num_vc", NULL, &num_vc);
 	if(!num_vc)
 	{
 		num_vc = 1; /*by default, we have one for taking packets, another for taking credit*/
 		printf("\n num_vc not specified, setting to %d ", num_vc);
 	}
 
-        configuration_get_value(&config, "PARAMS", "dim_length", dim_length, MAX_NAME_LENGTH);
+        configuration_get_value(&config, "PARAMS", "dim_length", NULL, dim_length, MAX_NAME_LENGTH);
         char* token;
 	net_params.n_dims=n_dims;
 	net_params.num_vc=num_vc;
@@ -515,7 +518,7 @@ int* model_net_set_params(int *id_count)
   // - read the ordering provided by modelnet_order
   char **values;
   size_t length;
-  ret = configuration_get_multivalue(&config, "PARAMS", "modelnet_order", &values, &length);
+  ret = configuration_get_multivalue(&config, "PARAMS", "modelnet_order", NULL, &values, &length);
   if (ret != 1){
       fprintf(stderr, "unable to read PARAMS:modelnet_order variable\n");
       abort();
