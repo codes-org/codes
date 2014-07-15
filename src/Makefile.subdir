@@ -108,8 +108,7 @@ src_libcodes_base_a_SOURCES =  \
     codes/codes-nw-workload.h \
     src/network-workload/codes-nw-workload.c \
     src/network-workload/codes-nw-workload-method.h \
-    src/network-workload/codes-scala-trace-nw-wrkld.c \
-    src/network-workload/codes-dumpi-trace-nw-wrkld.c 
+    src/network-workload/codes-scala-trace-nw-wrkld.c
 
 # stealth testing of the template code (actual test is not run, just compiled as
 # a program - Make error signifies test failure)
