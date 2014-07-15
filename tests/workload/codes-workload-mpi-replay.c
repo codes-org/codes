@@ -139,7 +139,7 @@ int load_workload(char *conf_path, int rank)
 
     /* get the workload type out of PARAMS */
     configuration_get_value(&config, "PARAMS", "workload_type",
-                            workload_type, MAX_NAME_LENGTH_WKLD);
+                            NULL, workload_type, MAX_NAME_LENGTH_WKLD);
 
     /* set up the workload parameters and load into the workload API */
     if (strcmp(workload_type, "darshan_io_workload") == 0)
@@ -149,8 +149,8 @@ int load_workload(char *conf_path, int rank)
 
         /* get the darshan params from the config file */
         configuration_get_value(&config, "PARAMS", "log_file_path",
-                                d_params.log_file_path, MAX_NAME_LENGTH_WKLD);
-        configuration_get_value(&config, "PARAMS", "aggregator_count", aggregator_count, 10);
+                                NULL, d_params.log_file_path, MAX_NAME_LENGTH_WKLD);
+        configuration_get_value(&config, "PARAMS", "aggregator_count", NULL, aggregator_count, 10);
         d_params.aggregator_cnt = atol(aggregator_count);
 
         return codes_workload_load(workload_type, (char *)&d_params, rank);
@@ -162,10 +162,10 @@ int load_workload(char *conf_path, int rank)
 
         /* get the bgp i/o params from the config file */
         configuration_get_value(&config, "PARAMS", "io_kernel_meta_path",
-                                b_params.io_kernel_meta_path, MAX_NAME_LENGTH_WKLD);
+                                NULL, b_params.io_kernel_meta_path, MAX_NAME_LENGTH_WKLD);
         configuration_get_value(&config, "PARAMS", "bgp_config_file",
-                                b_params.bgp_config_file, MAX_NAME_LENGTH_WKLD);
-        configuration_get_value(&config, "PARAMS", "rank_count", rank_count, 10);
+                                NULL, b_params.bgp_config_file, MAX_NAME_LENGTH_WKLD);
+        configuration_get_value(&config, "PARAMS", "rank_count", NULL, rank_count, 10);
         strcpy(b_params.io_kernel_path, "");
         strcpy(b_params.io_kernel_def_path, "");
         b_params.num_cns = atoi(rank_count);
@@ -179,8 +179,8 @@ int load_workload(char *conf_path, int rank)
 
         /* get the recorder params from the config file */
         configuration_get_value(&config, "PARAMS", "trace_dir_path",
-                                r_params.trace_dir_path, MAX_NAME_LENGTH_WKLD);
-        configuration_get_value(&config, "PARAMS", "nprocs", nprocs, 10);
+                                NULL, r_params.trace_dir_path, MAX_NAME_LENGTH_WKLD);
+        configuration_get_value(&config, "PARAMS", "nprocs", NULL, nprocs, 10);
         r_params.nprocs = atol(nprocs);
 
         return codes_workload_load(workload_type, (char *)&r_params, rank);
