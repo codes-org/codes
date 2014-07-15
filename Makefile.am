@@ -47,3 +47,9 @@ if USE_RECORDER
 AM_CPPFLAGS += ${RECORDER_CPPFLAGS}
 src_libcodes_base_a_SOURCES += src/workload/codes-recorder-io-wrkld.c
 endif
+
+if USE_DUMPI
+AM_CPPFLAGS += ${DUMPI_CFLAGS} -DUSE_DUMPI=1
+src_libcodes_base_a_SOURCES += src/network-workload/codes-dumpi-trace-nw-wrkld.c 
+AM_LIBS += ${DUMPI_LIBS}
+endif

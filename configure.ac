@@ -112,6 +112,24 @@ AM_CONDITIONAL(USE_RECORDER, true)
 RECORDER_CPPFLAGS="-DUSE_RECORDER=1"
 AC_SUBST(RECORDER_CPPFLAGS)
 
+#check for Dumpi
+AC_ARG_WITH([dumpi],[AS_HELP_STRING([--with-dumpi@<:@=DIR@:>@],
+                        [location of Dumpi installation])])
+if test "x${with_dumpi}" != "x" ; then
+	AC_CHECK_FILE([${with_dumpi}/lib/libundumpi.la],
+                  AM_CONDITIONAL(USE_DUMPI, true),
+                  AC_MSG_ERROR(Could not find libundumpi.la))
+	DUMPI_CFLAGS="-I${with_dumpi}/include"
+#	DUMPI_CFLAGS+=" -I${with_dumpi}/include/dumpi/common" 
+#	DUMPI_CFLAGS+=" -I${with_dumpi}/include/dumpi/libdumpi"
+#	DUMPI_CFLAGS+=" -I${with_dumpi}/include/dumpi/libundumpi"
+	DUMPI_LIBS="-L${with_dumpi}/lib/ -ldumpi -lundumpi"
+	AC_SUBST(DUMPI_LIBS)
+	AC_SUBST(DUMPI_CFLAGS)
+else
+	AM_CONDITIONAL(USE_DUMPI, false)
+fi
+
 dnl ======================================================================
 dnl  Try harder to be valgrind safe
 dnl ======================================================================

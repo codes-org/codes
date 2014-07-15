@@ -8,7 +8,7 @@
 
 char workload_file[8192];
 char offset_file[8192];
-static int total_nw_lps = 16;
+static int total_nw_lps = 8;
 static int nlp_per_pe;
 static int wrkld_id;
 
@@ -36,10 +36,12 @@ tw_peid nw_test_map(tw_lpid gid)
 void nw_test_init(nw_state* s, tw_lp* lp)
 {
    /* initialize the LP's and load the data */
-   scala_trace_params params;
-   strcpy(params.offset_file_name, offset_file);
-   strcpy(params.nw_wrkld_file_name, workload_file);
-   wrkld_id = codes_nw_workload_load("scala-trace-workload", (char*)&params, (int)lp->gid);
+   //scala_trace_params params;
+   //strcpy(params.offset_file_name, offset_file);
+   //strcpy(params.nw_wrkld_file_name, workload_file);
+   dumpi_trace_params params;
+   strcpy(params.file_name, workload_file);
+   wrkld_id = codes_nw_workload_load("dumpi-trace-workload", (char*)&params, (int)lp->gid);
    
    tw_event *e;
    tw_stime kickoff_time;
@@ -108,10 +110,10 @@ int main( int argc, char** argv )
   tw_opt_add(app_opt);
   tw_init(&argc, &argv);
 
-  if(strlen(offset_file) == 0 || strlen(workload_file) == 0 || total_nw_lps == 0)
+  if(strlen(workload_file) == 0 || total_nw_lps == 0)
     {
 	if(tw_ismaster())
-		printf("\n Usage: mpirun -np n ./codes-nw-test --sync=1/2/3 --total_nw_lps=n --workload_file=workload-file-name --offset_file=offset-file-name ");
+		printf("\n Usage: mpirun -np n ./codes-nw-test --sync=1/2/3 --total_nw_lps=n --workload_file=workload-file-name");
 	tw_end();
 	return -1;
     }

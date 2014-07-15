@@ -108,7 +108,8 @@ src_libcodes_base_a_SOURCES =  \
     codes/codes-nw-workload.h \
     src/network-workload/codes-nw-workload.c \
     src/network-workload/codes-nw-workload-method.h \
-    src/network-workload/codes-scala-trace-nw-wrkld.c
+    src/network-workload/codes-scala-trace-nw-wrkld.c \
+    src/network-workload/codes-dumpi-trace-nw-wrkld.c 
 
 # stealth testing of the template code (actual test is not run, just compiled as
 # a program - Make error signifies test failure)
@@ -133,6 +134,13 @@ bin_PROGRAMS += src/network-workload/codes-nw-test
 
 src_network_workload_codes_nw_test_SOURCES = \
  src/network-workload/codes-nw-test.c
-src_network_workload_codes_nw_test_LDADD = $(testlib) ${ROSS_LIBS}
+src_network_workload_codes_nw_test_LDADD = $(testlib) ${ROSS_LIBS} ${DUMPI_LIBS}
 src_network_workload_codes_nw_test_LDFLAGS =  ${ROSS_LDFLAGS}
+
+#bin_PROGRAMS += src/network-workload/codes-dumpi-wrkld
+
+#src_network_workload_codes_dumpi_wrkld_SOURCES = \
+ src/network-workload/codes-dumpi-wrkld.c
+#src_network_workload_codes_dumpi_wrkld_LDADD = $(testlib) ${ROSS_LIBS} ${DUMPI_LIBS}
+#src_network_workload_codes_dumpi_wrkld_LDFLAGS =  ${ROSS_LDFLAGS}
 
