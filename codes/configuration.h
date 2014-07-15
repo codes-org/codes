@@ -210,6 +210,15 @@ int configuration_get_lpgroups (ConfigHandle *handle,
                                 config_lpgroups_t *lpgroups);
 
 /*
+ * Helper function - get the position in the LP annotation list of the
+ * given annotation. Used for configuration schemes where an array of
+ * configuration values is generated based on the annotations in
+ * config_anno_map_t
+ * If annotation is not found, -1 is returned */
+int configuration_get_annotation_index(const char *              anno,
+                                       const config_anno_map_t * anno_map);
+
+/*
  * Forward reference to the configuration handle
  */
 extern ConfigHandle config;

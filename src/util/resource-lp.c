@@ -7,6 +7,7 @@
 #include "codes/resource-lp.h"
 #include "codes/resource.h"
 #include "codes/codes_mapping.h"
+#include "codes/configuration.h"
 #include "codes/jenkins-hash.h"
 #include "codes/quicklist.h"
 #include "codes/lp-io.h"
@@ -19,10 +20,11 @@
 /**** BEGIN SIMULATION DATA STRUCTURES ****/
 
 static int resource_magic; /* use this as sanity check on events */
-/* TODO: we currently use a single config value to initialize the resource unit
- * count for all resources in the system. Later on, we'll want to do this on a
- * per-group basis */
-static uint64_t avail_global;
+
+/* configuration globals (will be consumed by LP when they init) */
+static uint64_t avail_unanno;
+static uint64_t *avail_per_anno;
+static const config_anno_map_t *anno_map;
 
 typedef struct resource_state resource_state;
 typedef struct resource_msg resource_msg;
@@ -123,8 +125,21 @@ static tw_lptype resource_lp = {
 void resource_lp_ind_init(
         resource_state * ns,
         tw_lp * lp){
-    /* currently use global to initialize, may need to have other LPs init */
-    resource_init(avail_global, &ns->r);
+    // get my annotation
+    const char * anno = codes_mapping_get_annotation_by_lpid(lp->gid);
+    if (anno == NULL){
+        resource_init(avail_unanno, &ns->r);
+    }
+    else{
+        int idx = configuration_get_annotation_index(anno, anno_map);
+        if (idx < 0){
+            tw_error("resource LP %lu: unable to find annotation "
+                    "%s in configuration\n", lp->gid, anno);
+        }
+        else{
+            resource_init(avail_per_anno[idx], &ns->r);
+        }
+    }
     int i;
     for (i = 0; i < MAX_RESERVE+1; i++){
         INIT_QLIST_HEAD(&ns->pending[i]);
@@ -404,7 +419,7 @@ void resource_finalize(
     if (codes_mapping_get_lp_global_rel_id(lp->gid) == 0){
         written = sprintf(out_buf, 
                 "# format: <LP> <max used general> <max used token...>\n");
-        lp_io_write(lp->gid, "resource", written, out_buf);
+        lp_io_write(lp->gid, RESOURCE_LP_NM, written, out_buf);
     }
     written = sprintf(out_buf, "%lu", lp->gid);
 
@@ -414,7 +429,7 @@ void resource_finalize(
         written += sprintf(out_buf+written, " %lu", ns->r.max[i]-ns->r.min_avail[i]);
     }
     written += sprintf(out_buf+written, "\n");
-    lp_io_write(lp->gid, "resource", written, out_buf);
+    lp_io_write(lp->gid, RESOURCE_LP_NM, written, out_buf);
 }
 
 /**** END IMPLEMENTATIONS ****/
@@ -423,23 +438,45 @@ void resource_finalize(
 void resource_lp_init(){
     uint32_t h1=0, h2=0;
 
-    bj_hashlittle2("resource", strlen("resource"), &h1, &h2);
+    bj_hashlittle2(RESOURCE_LP_NM, strlen(RESOURCE_LP_NM), &h1, &h2);
     resource_magic = h1+h2;
 
-    lp_type_register("resource", &resource_lp);
+    lp_type_register(RESOURCE_LP_NM, &resource_lp);
 }
 
 void resource_lp_configure(){
+
+    anno_map = codes_mapping_get_lp_anno_map(RESOURCE_LP_NM);
+    avail_per_anno = (anno_map->num_annos > 0) ?
+            malloc(anno_map->num_annos * sizeof(*avail_per_anno)) :
+            NULL;
+    // get the unannotated version
     long int avail;
-    int ret = configuration_get_value_longint(&config, "resource", 
+    int ret;
+    if (anno_map->num_unanno_lps > 0){
+        ret = configuration_get_value_longint(&config, RESOURCE_LP_NM,
             "available", NULL, &avail);
-    if (ret){
-        fprintf(stderr, "Could not find section:resource value:available for "
-                        "resource LP\n");
-        exit(1);
+        if (ret){
+            fprintf(stderr,
+                    "Could not find section:resource value:available for "
+                    "resource LP\n");
+            exit(1);
+        }
+        assert(avail > 0);
+        avail_unanno = (uint64_t)avail;
     }
-    assert(avail > 0);
-    avail_global = (uint64_t) avail;
+    for (uint64_t i = 0; i < anno_map->num_annos; i++){
+        ret = configuration_get_value_longint(&config, RESOURCE_LP_NM,
+            "available", anno_map->annotations[i], &avail);
+        if (ret){
+            fprintf(stderr,
+                    "Could not find section:resource value:available@%s for "
+                    "resource LP\n", anno_map->annotations[i]);
+            exit(1);
+        }
+        assert(avail > 0);
+        avail_per_anno[i] = (uint64_t)avail;
+    }
 }
 
 static void resource_lp_issue_event(
@@ -464,7 +501,7 @@ static void resource_lp_issue_event(
     codes_mapping_get_lp_info(sender->gid, lp_group_name, 
             &mapping_grp_id, &mapping_type_id, lp_type_name, 
             &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, "resource", mapping_rep_id, 
+    codes_mapping_get_lp_id(lp_group_name, RESOURCE_LP_NM, mapping_rep_id,
             mapping_offset, &resource_lpid); 
 
     tw_event *e = codes_event_new(resource_lpid, codes_local_latency(sender),

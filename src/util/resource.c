@@ -22,7 +22,7 @@ void resource_init(uint64_t avail, resource *r){
     for (int i = 1; i < MAX_RESERVE; i++){
         r->avail[i] = 0;
         r->max[i] = 0;
-        r->min_avail[i] = avail;
+        r->min_avail[i] = 0;
     }
 }
 
