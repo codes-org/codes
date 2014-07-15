@@ -60,7 +60,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        return;
 #endif
    }
-   wrkld_id = codes_nw_workload_load("dumpi-trace-workload", (char*)&params, (int)lp->gid);
+   wrkld_id = codes_nw_workload_load("dumpi-trace-workload", params, (int)lp->gid);
    
    tw_event *e;
    tw_stime kickoff_time;
