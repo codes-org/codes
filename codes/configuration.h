@@ -14,6 +14,7 @@
 #define CONFIGURATION_MAX_NAME 256
 #define CONFIGURATION_MAX_GROUPS 10
 #define CONFIGURATION_MAX_TYPES 10
+#define CONFIGURATION_MAX_ANNOS 10
 
 typedef struct config_lptype_s
 {
@@ -30,10 +31,26 @@ typedef struct config_lpgroup_s
     uint64_t lptypes_count;
 } config_lpgroup_t;
 
+// mapping of lp type to the list of annotations used. Used for convenience when
+// models are performing configuraiton code 
+typedef struct config_anno_map_s
+{
+    char     lp_name[CONFIGURATION_MAX_NAME];
+    // only explicit annotations tracked here - use a flag to indicate a
+    // non-annotated LP type
+    uint64_t num_unanno_lps;
+    uint64_t num_annos;
+    // maintain the number of lps that have the particular annotation 
+    uint64_t num_anno_lps[CONFIGURATION_MAX_ANNOS];
+    char   * annotations[CONFIGURATION_MAX_ANNOS];
+} config_anno_map_t;
+
 typedef struct config_lpgroups_s
 {
-    config_lpgroup_t lpgroups[CONFIGURATION_MAX_GROUPS];
     uint64_t lpgroups_count;
+    config_lpgroup_t lpgroups[CONFIGURATION_MAX_GROUPS];
+    uint64_t lpannos_count;
+    config_anno_map_t lpannos[CONFIGURATION_MAX_TYPES];
 } config_lpgroups_t;
 
 /*

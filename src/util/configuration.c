@@ -263,6 +263,55 @@ int configuration_get_value_double (ConfigHandle *handle,
     return rc;
 }
 
+static void check_add_anno(
+        const char *anno,
+        config_anno_map_t *map){
+    if (anno[0] == '\0'){
+        map->num_unanno_lps++;
+    }
+    else{
+        uint64_t a = 0;
+        for (; a < map->num_annos; a++){
+            if (strcmp(map->annotations[a], anno) == 0){
+                map->num_anno_lps[a]++;
+                break;
+            }
+        }
+        if (a == map->num_annos){
+            // we have a new anno!
+            assert(a < CONFIGURATION_MAX_ANNOS);
+            map->annotations[a] = strdup(anno);
+            map->num_annos++;
+            map->num_anno_lps[a] = 1;
+        } // else anno was already there, do nothing
+    }
+}
+static void check_add_lp_type_anno(
+        const char *lp_name,
+        const char *anno,
+        config_lpgroups_t *lpgroups){
+    uint64_t lpt_anno = 0;
+    for (; lpt_anno < lpgroups->lpannos_count; lpt_anno++){
+        config_anno_map_t *map = &lpgroups->lpannos[lpt_anno];
+        if (strcmp(map->lp_name, lp_name) == 0){
+            check_add_anno(anno, map);
+        }
+    }
+    if (lpt_anno == lpgroups->lpannos_count){
+        // we haven't seen this lp type before
+        assert(lpt_anno < CONFIGURATION_MAX_TYPES);
+        config_anno_map_t *map = &lpgroups->lpannos[lpt_anno];
+        // initialize this annotation map
+        strcpy(map->lp_name, lp_name);
+        map->num_annos = 0;
+        map->num_unanno_lps = 0;
+        memset(map->num_anno_lps, 0, 
+                CONFIGURATION_MAX_ANNOS*sizeof(*map->num_anno_lps));
+        check_add_anno(anno, map);
+        lpgroups->lpannos_count++;
+    }
+}
+
 int configuration_get_lpgroups (ConfigHandle *handle,
                                 const char *section_name,
                                 config_lpgroups_t *lpgroups)
@@ -321,6 +370,8 @@ int configuration_get_lpgroups (ConfigHandle *handle,
                        else {
                            anno[0] = '\0';
                        }
+                       // add to anno map
+                       check_add_lp_type_anno(nm, anno, lpgroups);
                        lpgroups->lpgroups[i].lptypes[lpt].count = atoi(data);
                        lpgroups->lpgroups[i].lptypes_count++;
                        lpt++;

@@ -49,6 +49,14 @@ const char* codes_mapping_get_annotation_by_name(char *grp_name, char *lp_type_n
 const char* codes_mapping_get_annotation_by_lpid(tw_lpid gid);
 
 /*
+ * Returns a mapping of LP name to all annotations used with the type
+ *
+ * lp_name     - lp name as used in the configuration
+ */
+const config_anno_map_t * 
+codes_mapping_get_lp_anno_map(const char *lp_name);
+
+/*
  * Local variables:
  *  c-indent-level: 4
  *  c-basic-offset: 4

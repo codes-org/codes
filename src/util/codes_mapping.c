@@ -411,6 +411,21 @@ const char* codes_mapping_get_annotation_by_lpid(tw_lpid gid){
 }
 
 /*
+ * Returns a mapping of LP name to all annotations used with the type
+ *
+ * lp_name     - lp name as used in the configuration
+ */
+const config_anno_map_t * 
+codes_mapping_get_lp_anno_map(const char *lp_name){
+    for (uint64_t i = 0; i < lpconf.lpannos_count; i++){
+        if (strcmp(lp_name, lpconf.lpannos[i].lp_name) == 0){
+            return &lpconf.lpannos[i];
+        }
+    }
+    return NULL;
+}
+
+/*
  * Local variables:
  *  c-indent-level: 4
  *  c-basic-offset: 4
