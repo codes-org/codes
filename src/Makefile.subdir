@@ -113,7 +113,6 @@ src_libcodes_base_a_SOURCES =  \
 # stealth testing of the template code (actual test is not run, just compiled as
 # a program - Make error signifies test failure)
 check_PROGRAMS += src/util/templates/lp_template_dummy_main
-testlib = src/libcodes-base.a
 src_util_templates_lp_template_dummy_main_LDADD = $(testlib) ${ROSS_LIBS}
 src_util_templates_lp_template_dummy_main_LDFLAGS = ${ROSS_LDFLAGS}
 src_util_templates_lp_template_dummy_main_SOURCES = \
