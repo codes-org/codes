@@ -238,7 +238,7 @@ static double * parse_mat(char * buf, int *nvals_first, int *nvals_total, int is
     *nvals_total = 0;
 
     /* parse the files by line */ 
-    int line_ct, line_ct_prev;
+    int line_ct, line_ct_prev = 0;
     char * line_save;
     char * line = strtok_r(buf, "\r\n", &line_save);
     while (line != NULL){
@@ -310,8 +310,8 @@ static void sw_set_params(char * startup_fname, char * bw_fname){
     sbuf[fsize_s] = '\0';
     char *bbuf = malloc(fsize_b+1);
     bbuf[fsize_b] = '\0';
-    fread(sbuf, 1, fsize_s, sf);
-    fread(bbuf, 1, fsize_b, bf);
+    assert(fread(sbuf, 1, fsize_s, sf) == fsize_s);
+    assert(fread(bbuf, 1, fsize_b, bf) == fsize_b);
     fclose(sf);
     fclose(bf);
 
@@ -357,12 +357,13 @@ static void sw_init(
     sw_magic = h1+h2;
     /* printf("\n sw_magic %d ", sw_magic); */
 
-    /* inititalize logical ID */
-    ns->id = codes_mapping_get_lp_global_rel_id(lp->gid);
+    /* inititalize global logical ID
+     * TODO: be annotation aware */
+    ns->id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
 
     /* get the total number of simplewans */
     if (num_lps == -1){
-        num_lps = codes_mapping_get_global_lp_count(LP_CONFIG_NM);
+        num_lps = codes_mapping_get_lp_count(NULL, 0, LP_CONFIG_NM, NULL, 1);
         assert(num_lps > 0);
         if (mat_len == -1){
             tw_error(TW_LOC, "Simplewan config matrix not initialized "
@@ -651,9 +652,9 @@ static void handle_msg_start_event(
     sw_message *m_new;
     tw_stime send_queue_time = 0;
     mn_stats* stat;
-    int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
+    int mapping_rep_id, mapping_offset, dummy;
     tw_lpid dest_id;
-    char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
+    char lp_group_name[MAX_NAME_LENGTH];
     int total_event_size;
     int dest_rel_id;
     double bw, startup;
@@ -661,9 +662,12 @@ static void handle_msg_start_event(
     total_event_size = model_net_get_msg_sz(SIMPLEWAN) + m->event_size_bytes +
         m->local_event_size_bytes;
 
-    codes_mapping_get_lp_info(m->final_dest_gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id , mapping_offset, &dest_id); 
-    dest_rel_id = codes_mapping_get_lp_global_rel_id(dest_id);
+    // TODO: don't ignore annotations 
+    codes_mapping_get_lp_info(m->final_dest_gid, lp_group_name, &dummy,
+            NULL, &dummy, NULL, &mapping_rep_id, &mapping_offset);
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
+            mapping_rep_id, mapping_offset, &dest_id); 
+    dest_rel_id = codes_mapping_get_lp_relative_id(dest_id, 0, 0);
     m->dest_mn_rel_id = dest_rel_id;
 
     /* grab the link params */
@@ -796,28 +800,17 @@ static tw_stime simplewan_packet_event(
      tw_event * e_new;
      tw_stime xfer_to_nic_time;
      sw_message * msg;
-     tw_lpid dest_id;
      char* tmp_ptr;
-#if 0
-     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
-
-     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
-     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_id);
-#endif
-     dest_id = src_lp;
 
      xfer_to_nic_time = codes_local_latency(sender);
 
 #if SIMPLEWAN_DEBUG
     printf("%lu: final %lu packet sz %d remote sz %d self sz %d is_last_pckt %d latency %lf\n",
-            (dest_id - 1) / 2, final_dest_lp, packet_size, 
+            (src_lp - 1) / 2, final_dest_lp, packet_size, 
             remote_event_size, self_event_size, is_last_pckt,
             xfer_to_nic_time+offset);
 #endif
 
-     //e_new = tw_event_new(dest_id, xfer_to_nic_time+offset, sender);
-     //msg = tw_event_data(e_new);
      e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
              sender, SIMPLEWAN, (void**)&msg, (void**)&tmp_ptr);
      strcpy(msg->category, category);
@@ -831,9 +824,6 @@ static tw_stime simplewan_packet_event(
      msg->is_pull = is_pull;
      msg->pull_size = pull_size;
 
-     //tmp_ptr = (char*)msg;
-     //tmp_ptr += sw_get_msg_sz();
-      
     //printf("\n Sending to LP %d msg magic %d ", (int)dest_id, sw_get_magic()); 
      /*Fill in simplewan information*/     
      if(is_last_pckt) /* Its the last packet so pass in remote event information*/
@@ -871,12 +861,13 @@ static void simplewan_packet_event_rc(tw_lp *sender)
 
 static tw_lpid sw_find_local_device(tw_lp *sender)
 {
-     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
-     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
+     char lp_group_name[MAX_NAME_LENGTH];
+     int mapping_rep_id, mapping_offset, dummy;
      tw_lpid dest_id;
 
-     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_id);
+     // TODO: don't ignore annotation
+     codes_mapping_get_lp_info(sender->gid, lp_group_name, &dummy, NULL, &dummy, NULL, &mapping_rep_id, &mapping_offset);
+     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1, mapping_rep_id, mapping_offset, &dest_id);
 
     return(dest_id);
 }

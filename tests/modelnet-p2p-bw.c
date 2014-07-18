@@ -156,11 +156,13 @@ int main(
    
     codes_mapping_setup();
     
-    num_servers = codes_mapping_get_group_reps("MODELNET_GRP") * codes_mapping_get_lp_count("MODELNET_GRP", "server");
+    num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "server",
+            NULL, 1);
     assert(num_servers == 2);
     if(net_id == DRAGONFLY)
     {
-	  num_routers = codes_mapping_get_group_reps("MODELNET_GRP") * codes_mapping_get_lp_count("MODELNET_GRP", "dragonfly_router"); 
+	  num_routers = codes_mapping_get_lp_count("MODELNET_GRP", 0,
+                  "dragonfly_router", NULL, 1); 
 	  offset = 1;
     }
 
@@ -207,7 +209,7 @@ static void svr_init(
 
     /* find my own server index */
     codes_mapping_get_lp_info(lp->gid, grp_name, &grp_id,
-            &lp_type_id, lp_type_name, &grp_rep_id, &offset);
+            lp_type_name, &lp_type_id, NULL, &grp_rep_id, &offset);
     ns->svr_idx = grp_rep_id;
 
     /* first server sends a dummy event to itself that will kick off the real
@@ -381,7 +383,7 @@ static void handle_pong_event(
         return;
     }
 
-    codes_mapping_get_lp_id("MODELNET_GRP", "server", 1,
+    codes_mapping_get_lp_id("MODELNET_GRP", "server", NULL, 1, 1,
         0, &peer_gid);
 
     m_remote.svr_event_type = PING;

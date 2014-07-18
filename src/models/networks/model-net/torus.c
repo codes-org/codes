@@ -51,7 +51,7 @@ static int * half_length;
 static int chunk_size;
 
 /* codes mapping group name, lp type name */
-static char grp_name[MAX_NAME_LENGTH], type_name[MAX_NAME_LENGTH];
+static char grp_name[MAX_NAME_LENGTH];
 /* codes mapping group id, lp type id, repetition id and offset */
 int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
 
@@ -150,8 +150,9 @@ static void torus_setup(const void* net_params)
 void torus_collective_init(nodes_state * s,
            		   tw_lp * lp)
 {
-    codes_mapping_get_lp_info(lp->gid, grp_name, &mapping_grp_id, &mapping_type_id, type_name, &mapping_rep_id, &mapping_offset);
-    int num_lps = codes_mapping_get_lp_count(grp_name, LP_CONFIG_NM);
+    // TODO: be annotation-aware somehow 
+    codes_mapping_get_lp_info(lp->gid, grp_name, &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+    int num_lps = codes_mapping_get_lp_count(grp_name, 1, LP_CONFIG_NM, NULL, 1);
     int num_reps = codes_mapping_get_group_reps(grp_name);
     s->node_id = (mapping_rep_id * num_lps) + mapping_offset;
 
@@ -224,12 +225,11 @@ static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, uint64
     char* tmp_ptr;
    
     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
-#if 0
-    codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &local_nic_id);
-#endif
-    codes_mapping_get_lp_info(final_dest_lp, grp_name, &mapping_grp_id, &mapping_type_id, type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_nic_id);
+    // TODO: be annotation-aware
+    codes_mapping_get_lp_info(final_dest_lp, grp_name, &mapping_grp_id, NULL,
+            &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+    codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, NULL, 1, mapping_rep_id,
+            mapping_offset, &dest_nic_id);
 
     /* TODO: Should send the packets in correct sequence. Currently the last packet is being sent first due to codes_local_latency offset. */
     xfer_to_nic_time = g_tw_lookahead + codes_local_latency(sender); /* Throws an error of found last KP time > current event time otherwise */
@@ -282,7 +282,8 @@ static void torus_init( nodes_state * s,
     int i, j;
     int dim_N[ n_dims + 1 ];
 
-    codes_mapping_get_lp_info(lp->gid, grp_name, &mapping_grp_id, &mapping_type_id, type_name, &mapping_rep_id, &mapping_offset);
+    // TODO: be annotation-aware 
+    codes_mapping_get_lp_info(lp->gid, grp_name, &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
 
     dim_N[ 0 ]=mapping_rep_id + mapping_offset;
 
@@ -336,7 +337,8 @@ static void torus_init( nodes_state * s,
       for ( i = 0; i < n_dims; i++ )
         s->neighbour_minus_lpID[ j ] += factor[ i ] * temp_dim_pos[ i ];
       
-      codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->neighbour_minus_lpID[ j ], 0, &neighbor_id);
+      codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, NULL, 1,
+              s->neighbour_minus_lpID[ j ], 0, &neighbor_id);
       //printf("\n neighbor %d lp id %d ", (int)s->neighbour_minus_lpID[ j ], (int)neighbor_id);
       
       temp_dim_pos[ j ] = s->dim_position[ j ];
@@ -351,7 +353,8 @@ static void torus_init( nodes_state * s,
       for ( i = 0; i < n_dims; i++ )
         s->neighbour_plus_lpID[ j ] += factor[ i ] * temp_dim_pos[ i ];
 
-      codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->neighbour_plus_lpID[ j ], 0, &neighbor_id);
+      codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, NULL, 1,
+              s->neighbour_plus_lpID[ j ], 0, &neighbor_id);
       //printf("\n neighbor %d lp id %d ", (int)s->neighbour_plus_lpID[ j ], (int)neighbor_id);
       
       temp_dim_pos[ j ] = s->dim_position[ j ];
@@ -382,8 +385,11 @@ void torus_collective(char* category, int message_size, int remote_event_size, c
     tw_lpid local_nic_id;
     char* tmp_ptr;
 
-    codes_mapping_get_lp_info(sender->gid, grp_name, &mapping_grp_id, &mapping_type_id, type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &local_nic_id);
+    // TODO: be annotation-aware
+    codes_mapping_get_lp_info(sender->gid, grp_name, &mapping_grp_id, NULL,
+            &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+    codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, NULL, 1,
+            mapping_rep_id, mapping_offset, &local_nic_id);
 
     xfer_to_nic_time = g_tw_lookahead + codes_local_latency(sender);
     e_new = model_net_method_event_new(local_nic_id, xfer_to_nic_time,
@@ -454,9 +460,14 @@ static void node_collective_init(nodes_state * s,
         {
             //printf("\n LP %ld sending message to parent %ld ", s->node_id, s->parent_node_id);
             /* get the global LP ID of the parent node */
-            codes_mapping_get_lp_info(lp->gid, grp_name, &mapping_grp_id, &mapping_type_id, type_name, &mapping_rep_id, &mapping_offset);
-            num_lps = codes_mapping_get_lp_count(grp_name, LP_CONFIG_NM);
-            codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->parent_node_id/num_lps , (s->parent_node_id % num_lps), &parent_nic_id);
+            // TODO: be annotation-aware
+            codes_mapping_get_lp_info(lp->gid, grp_name, &mapping_grp_id, NULL,
+                    &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+            num_lps = codes_mapping_get_lp_count(grp_name, 1, LP_CONFIG_NM,
+                    NULL, 1);
+            codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, NULL, 1,
+                    s->parent_node_id/num_lps, (s->parent_node_id % num_lps),
+                    &parent_nic_id);
 
            /* send a message to the parent that the LP has entered the collective operation */
             xfer_to_nic_time = g_tw_lookahead + LEVEL_DELAY;
@@ -487,8 +498,11 @@ static void node_collective_fan_in(nodes_state * s,
         int i;
         s->num_fan_nodes++;
 
-        codes_mapping_get_lp_info(lp->gid, grp_name, &mapping_grp_id, &mapping_type_id, type_name, &mapping_rep_id, &mapping_offset);
-        int num_lps = codes_mapping_get_lp_count(grp_name, LP_CONFIG_NM);
+        // TODO: be annotation-aware
+        codes_mapping_get_lp_info(lp->gid, grp_name, &mapping_grp_id, NULL,
+                &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+        int num_lps = codes_mapping_get_lp_count(grp_name, 1, LP_CONFIG_NM,
+                NULL, 1);
 
         tw_event* e_new;
         nodes_message * msg_new;
@@ -507,7 +521,9 @@ static void node_collective_fan_in(nodes_state * s,
             xfer_to_nic_time = g_tw_lookahead + LEVEL_DELAY;
 
             /* get the global LP ID of the parent node */
-            codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->parent_node_id/num_lps , (s->parent_node_id % num_lps), &parent_nic_id);
+            codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, NULL, 1,
+                    s->parent_node_id/num_lps, (s->parent_node_id % num_lps),
+                    &parent_nic_id);
 
            /* send a message to the parent that the LP has entered the collective operation */
             //e_new = codes_event_new(parent_nic_id, xfer_to_nic_time, lp);
@@ -544,7 +560,9 @@ static void node_collective_fan_in(nodes_state * s,
                 xfer_to_nic_time = g_tw_lookahead + COLLECTIVE_COMPUTATION_DELAY + LEVEL_DELAY + tw_rand_exponential(lp->rng, (double)LEVEL_DELAY/50);
 
                 /* get global LP ID of the child node */
-                codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->children[i]/num_lps , (s->children[i] % num_lps), &child_nic_id);
+                codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, NULL, 1,
+                        s->children[i]/num_lps, (s->children[i] % num_lps),
+                        &child_nic_id);
                 //e_new = codes_event_new(child_nic_id, xfer_to_nic_time, lp);
 
                 //msg_new = tw_event_data(e_new);
@@ -573,7 +591,9 @@ static void node_collective_fan_out(nodes_state * s,
                         tw_lp * lp)
 {
         int i;
-        int num_lps = codes_mapping_get_lp_count(grp_name, LP_CONFIG_NM);
+        //TODO: be annotation-aware
+        int num_lps = codes_mapping_get_lp_count(grp_name, 1, LP_CONFIG_NM,
+                NULL, 1);
         bf->c1 = 0;
         bf->c2 = 0;
 
@@ -595,7 +615,9 @@ static void node_collective_fan_out(nodes_state * s,
                         tw_lpid child_nic_id;
 
                         /* get global LP ID of the child node */
-                        codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->children[i]/num_lps , (s->children[i] % num_lps), &child_nic_id);
+                        codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, NULL, 1,
+                                s->children[i]/num_lps,
+                                (s->children[i] % num_lps), &child_nic_id);
                         //e_new = codes_event_new(child_nic_id, xfer_to_nic_time, lp);
                         //msg_new = tw_event_data(e_new);
                         //memcpy(msg_new, msg, sizeof(nodes_message) + msg->remote_event_size_bytes);
@@ -635,7 +657,8 @@ static void dimension_order_routing( nodes_state * s,
       i,
       dest_id=0;
 
-  codes_mapping_get_lp_info(*dst_lp, grp_name, &mapping_grp_id, &mapping_type_id, type_name, &mapping_rep_id, &mapping_offset);
+  //TODO: be annotation-aware
+  codes_mapping_get_lp_info(*dst_lp, grp_name, &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
   dim_N[ 0 ]=mapping_rep_id + mapping_offset;
 
   // find destination dimensions using destination LP ID 
@@ -676,7 +699,7 @@ static void dimension_order_routing( nodes_state * s,
 	  break;
 	}
     }
-  codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, dest_id, 0, dst_lp);
+  codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, NULL, 1, dest_id, 0, dst_lp);
 }
 
 /*Generates a packet. If there is a buffer slot available, then the packet is 
@@ -1168,8 +1191,11 @@ static tw_lpid torus_find_local_device(tw_lp *sender)
 {
      tw_lpid dest_id;
 
-     codes_mapping_get_lp_info(sender->gid, grp_name, &mapping_grp_id, &mapping_type_id, type_name, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_id);
+     //TODO: be annotation-aware
+     codes_mapping_get_lp_info(sender->gid, grp_name, &mapping_grp_id, NULL,
+             &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+     codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, NULL, 1, mapping_rep_id,
+             mapping_offset, &dest_id);
 
     return(dest_id);
 }

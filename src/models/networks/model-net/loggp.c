@@ -417,7 +417,7 @@ static void handle_msg_start_event(
     mn_stats* stat;
     int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
     tw_lpid dest_id;
-    char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
+    char lp_group_name[MAX_NAME_LENGTH];
     int total_event_size;
     double xmit_time;
     struct param_table_entry *param;
@@ -462,8 +462,11 @@ static void handle_msg_start_event(
     ns->net_send_next_idle += xmit_time + param->g*1000.0;
 
     /* create new event to send msg to receiving NIC */
-    codes_mapping_get_lp_info(m->final_dest_gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id , mapping_offset, &dest_id); 
+    // TODO: make annotation-aware
+    codes_mapping_get_lp_info(m->final_dest_gid, lp_group_name, &mapping_grp_id,
+            NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
+            mapping_rep_id, mapping_offset, &dest_id); 
 
     void *m_data;
 //    printf("\n msg start sending to %d ", dest_id);
@@ -529,13 +532,6 @@ static tw_stime loggp_packet_event(
      tw_stime xfer_to_nic_time;
      loggp_message * msg;
      char* tmp_ptr;
-#if 0
-     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
-
-     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
-     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_id);
-#endif
 
      xfer_to_nic_time = codes_local_latency(sender);
      e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
@@ -661,12 +657,15 @@ static struct param_table_entry* find_params(uint64_t msg_size)
 
 static tw_lpid loggp_find_local_device(tw_lp *sender)
 {
-     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
+     char lp_group_name[MAX_NAME_LENGTH];
      int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
      tw_lpid dest_id;
 
-     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_id);
+     //TODO: be annotation-aware
+     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id,
+             NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
+             mapping_rep_id, mapping_offset, &dest_id);
 
     return(dest_id);
 }

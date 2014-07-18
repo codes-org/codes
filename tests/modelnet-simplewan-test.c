@@ -168,7 +168,8 @@ int main(
     
     codes_mapping_setup();
     
-    num_servers = codes_mapping_get_group_reps("MODELNET_GRP") * codes_mapping_get_lp_count("MODELNET_GRP", "server");
+    num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "server",
+            NULL, 1);
     assert(num_servers == 3);
 
     if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)

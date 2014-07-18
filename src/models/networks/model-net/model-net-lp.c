@@ -138,11 +138,14 @@ void model_net_base_lp_init(
         model_net_base_state * ns,
         tw_lp * lp){
     // obtain the underlying lp type through codes-mapping
-    char grp_name[MAX_NAME_LENGTH], lp_type_name[MAX_NAME_LENGTH];
-    int grp_id, lp_type_id, grp_rep_id, offset;
+    char lp_type_name[MAX_NAME_LENGTH];
+    int dummy;
 
-    codes_mapping_get_lp_info(lp->gid, grp_name, &grp_id, &lp_type_id,
-            lp_type_name, &grp_rep_id, &offset);
+    // TODO: ignoring annotation to get things up and running, but we'll want
+    // to actually have a sane design here at some point
+    // we only need the lp type name for this lp
+    codes_mapping_get_lp_info(lp->gid, NULL, &dummy, 
+            lp_type_name, &dummy, NULL, &dummy, &dummy);
 
     // find the corresponding method name / index
     for (int i = 0; i < MAX_NETS; i++){

@@ -63,7 +63,7 @@ static double global_bandwidth, local_bandwidth, cn_bandwidth;
 static int global_vc_size, local_vc_size, cn_vc_size;
 
 /* global variables for codes mapping */
-static char lp_group_name[MAX_NAME_LENGTH], lp_type_name[MAX_NAME_LENGTH];
+static char lp_group_name[MAX_NAME_LENGTH];
 static int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
 
 /* handles terminal and router events like packet generate/send/receive/buffer */
@@ -251,8 +251,11 @@ static void dragonfly_report_stats()
 void dragonfly_collective_init(terminal_state * s,
            		   tw_lp * lp)
 {
-    codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    int num_lps = codes_mapping_get_lp_count(lp_group_name, LP_CONFIG_NM);
+    // TODO: be annotation-aware
+    codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
+            &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
+            NULL, 1);
     int num_reps = codes_mapping_get_group_reps(lp_group_name);
     s->node_id = (mapping_rep_id * num_lps) + mapping_offset;
 
@@ -311,17 +314,12 @@ static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, ui
     terminal_message * msg;
     tw_lpid dest_nic_id;
     char* tmp_ptr;
-//    printf("\n g_tw_lookahead default %f src lp %d sender %d ", g_tw_lookahead, src_lp, sender->gid);
-#if 0
-    char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
 
-    int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
-    codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &local_nic_id);
-#endif
-
-    codes_mapping_get_lp_info(final_dest_lp, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_nic_id);
+    //TODO: be annotation-aware
+    codes_mapping_get_lp_info(final_dest_lp, lp_group_name, &mapping_grp_id,
+            NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
+            mapping_rep_id, mapping_offset, &dest_nic_id);
   
     xfer_to_nic_time = codes_local_latency(sender); /* Throws an error of found last KP time > current event time otherwise when LPs of one type are placed together*/
     //printf("\n transfer in time %f %f ", xfer_to_nic_time+offset, tw_now(sender));
@@ -546,8 +544,11 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp *
    s->terminal_available_time = max(s->terminal_available_time, tw_now(lp));
    s->terminal_available_time += ts;
 
-   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-   codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", s->router_id, 0, &router_id);
+   //TODO: be annotation-aware
+   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
+           &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+   codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", NULL, 1,
+           s->router_id, 0, &router_id);
    // we are sending an event to the router, so no method_event here
    e = tw_event_new(router_id, s->terminal_available_time - tw_now(lp), lp);
 
@@ -665,8 +666,11 @@ if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
   s->next_credit_available_time += ts;
 
   tw_lpid router_dest_id;
-  codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-  codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", s->router_id, 0, &router_dest_id);
+  //TODO: be annotation-aware
+  codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
+          &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+  codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", NULL, 1,
+          s->router_id, 0, &router_dest_id);
   // no method_event here - message going to router
   buf_e = tw_event_new(router_dest_id, s->next_credit_available_time - tw_now(lp), lp);
   buf_msg = tw_event_data(buf_e);
@@ -686,8 +690,10 @@ terminal_init( terminal_state * s,
 {
     int i;
     // Assign the global router ID
-   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-   int num_lps = codes_mapping_get_lp_count(lp_group_name, LP_CONFIG_NM);
+    // TODO: be annotation-aware
+   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+   int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
+           NULL, 1);
 
    s->terminal_id = (mapping_rep_id * num_lps) + mapping_offset;  
    s->router_id=(int)s->terminal_id / num_routers;
@@ -715,8 +721,10 @@ void dragonfly_collective(char* category, int message_size, int remote_event_siz
     tw_lpid local_nic_id;
     char* tmp_ptr;
 
-    codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &local_nic_id);
+    codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id,
+            NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
+            mapping_rep_id, mapping_offset, &local_nic_id);
 
     xfer_to_nic_time = codes_local_latency(sender);
     e_new = model_net_method_event_new(local_nic_id, xfer_to_nic_time,
@@ -787,9 +795,15 @@ static void node_collective_init(terminal_state * s,
         {
             //printf("\n LP %ld sending message to parent %ld ", s->node_id, s->parent_node_id);
             /* get the global LP ID of the parent node */
-            codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-            num_lps = codes_mapping_get_lp_count(lp_group_name, LP_CONFIG_NM);
-            codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, s->parent_node_id/num_lps , (s->parent_node_id % num_lps), &parent_nic_id);
+            // TODO: be annotation-aware
+            codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id,
+                    NULL, &mapping_type_id, NULL, &mapping_rep_id,
+                    &mapping_offset);
+            num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
+                    NULL, 1);
+            codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
+                    s->parent_node_id/num_lps, (s->parent_node_id % num_lps),
+                    &parent_nic_id);
 
            /* send a message to the parent that the LP has entered the collective operation */
             xfer_to_nic_time = g_tw_lookahead + LEVEL_DELAY;
@@ -820,8 +834,10 @@ static void node_collective_fan_in(terminal_state * s,
         int i;
         s->num_fan_nodes++;
 
-        codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-        int num_lps = codes_mapping_get_lp_count(lp_group_name, LP_CONFIG_NM);
+        codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id,
+                NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+        int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
+                NULL, 1);
 
         tw_event* e_new;
         terminal_message * msg_new;
@@ -840,7 +856,9 @@ static void node_collective_fan_in(terminal_state * s,
             xfer_to_nic_time = g_tw_lookahead + LEVEL_DELAY;
 
             /* get the global LP ID of the parent node */
-            codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, s->parent_node_id/num_lps , (s->parent_node_id % num_lps), &parent_nic_id);
+            codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
+                    s->parent_node_id/num_lps, (s->parent_node_id % num_lps),
+                    &parent_nic_id);
 
            /* send a message to the parent that the LP has entered the collective operation */
             //e_new = codes_event_new(parent_nic_id, xfer_to_nic_time, lp);
@@ -877,7 +895,9 @@ static void node_collective_fan_in(terminal_state * s,
                 xfer_to_nic_time = g_tw_lookahead + COLLECTIVE_COMPUTATION_DELAY + LEVEL_DELAY + tw_rand_exponential(lp->rng, (double)LEVEL_DELAY/50);
 
                 /* get global LP ID of the child node */
-                codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, s->children[i]/num_lps , (s->children[i] % num_lps), &child_nic_id);
+                codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
+                        s->children[i]/num_lps, (s->children[i] % num_lps),
+                        &child_nic_id);
                 //e_new = codes_event_new(child_nic_id, xfer_to_nic_time, lp);
 
                 //msg_new = tw_event_data(e_new);
@@ -906,7 +926,8 @@ static void node_collective_fan_out(terminal_state * s,
                         tw_lp * lp)
 {
         int i;
-        int num_lps = codes_mapping_get_lp_count(lp_group_name, LP_CONFIG_NM);
+        int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
+                NULL, 1);
         bf->c1 = 0;
         bf->c2 = 0;
 
@@ -928,7 +949,9 @@ static void node_collective_fan_out(terminal_state * s,
                         tw_lpid child_nic_id;
 
                         /* get global LP ID of the child node */
-                        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, s->children[i]/num_lps , (s->children[i] % num_lps), &child_nic_id);
+                        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM,
+                                NULL, 1, s->children[i]/num_lps,
+                                (s->children[i] % num_lps), &child_nic_id);
                         //e_new = codes_event_new(child_nic_id, xfer_to_nic_time, lp);
                         //msg_new = tw_event_data(e_new);
                         //memcpy(msg_new, msg, sizeof(nodes_message) + msg->remote_event_size_bytes);
@@ -1041,11 +1064,16 @@ get_next_stop(router_state * s,
    int i;
    int dest_group_id;
 
-   codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset); 
-   int num_lps = codes_mapping_get_lp_count(lp_group_name, LP_CONFIG_NM);
+   //TODO: be annotation-aware
+   codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name,
+           &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id,
+           &mapping_offset); 
+   int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
+           NULL, 1);
    int dest_router_id = (mapping_offset + (mapping_rep_id * num_lps)) / num_routers;
    
-   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
+   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
+           &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
    int local_router_id = (mapping_offset + mapping_rep_id);
 
    bf->c2 = 0;
@@ -1102,7 +1130,8 @@ get_next_stop(router_state * s,
           }
       }
    }
-  codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", dest_lp, 0, &router_dest_id);
+  codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", NULL, 1, dest_lp,
+          0, &router_dest_id);
   return router_dest_id;
 }
 
@@ -1115,8 +1144,10 @@ get_output_port( router_state * s,
 		int next_stop )
 {
   int output_port = -1, i, terminal_id;
-  codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-  int num_lps = codes_mapping_get_lp_count(lp_group_name,LP_CONFIG_NM);
+  codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name,
+          &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id,
+          &mapping_offset);
+  int num_lps = codes_mapping_get_lp_count(lp_group_name,1,LP_CONFIG_NM,NULL,1);
   terminal_id = (mapping_rep_id * num_lps) + mapping_offset;
 
   if(next_stop == msg->dest_terminal_id)
@@ -1127,7 +1158,8 @@ get_output_port( router_state * s,
     }
     else
     {
-     codes_mapping_get_lp_info(next_stop, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
+     codes_mapping_get_lp_info(next_stop, lp_group_name, &mapping_grp_id,
+             NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
      int local_router_id = mapping_rep_id + mapping_offset;
      int intm_grp_id = local_router_id / num_routers;
 
@@ -1351,7 +1383,8 @@ router_packet_receive( router_state * s,
 /* sets up the router virtual channels, global channels, local channels, compute node channels */
 void router_setup(router_state * r, tw_lp * lp)
 {
-   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
+   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
+           &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
    r->router_id=mapping_rep_id + mapping_offset;
    r->group_id=r->router_id/num_routers;
 
@@ -1623,12 +1656,13 @@ static const tw_lptype* dragonfly_get_router_lp_type(void)
 
 static tw_lpid dragonfly_find_local_device(tw_lp *sender)
 {
-     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
      int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
      tw_lpid dest_id;
 
-     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_id);
+     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id,
+             NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
+             mapping_rep_id, mapping_offset, &dest_id);
 
     return(dest_id);
 }

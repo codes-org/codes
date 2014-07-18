@@ -168,10 +168,12 @@ int main(
     
     codes_mapping_setup();
     
-    num_servers = codes_mapping_get_group_reps("MODELNET_GRP") * codes_mapping_get_lp_count("MODELNET_GRP", "server");
+    num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "server",
+            NULL, 1);
     if(net_id == DRAGONFLY)
     {
-	  num_routers = codes_mapping_get_group_reps("MODELNET_GRP") * codes_mapping_get_lp_count("MODELNET_GRP", "dragonfly_router"); 
+	  num_routers = codes_mapping_get_lp_count("MODELNET_GRP", 0,
+                  "dragonfly_router", NULL, 1); 
 	  offset = 1;
     }
 
@@ -320,8 +322,10 @@ static void handle_kickoff_event(
     /* record when transfers started on this server */
     ns->start_ts = tw_now(lp);
 
-    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", "server");
-    num_routers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", "dragonfly_router");
+    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1,
+            "server", NULL, 1);
+    num_routers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1,
+            "dragonfly_router", NULL, 1);
 
     lps_per_rep = num_servers_per_rep * 2 + num_routers_per_rep;
 

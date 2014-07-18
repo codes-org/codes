@@ -60,7 +60,9 @@ static int sn_get_msg_sz(void);
 /* Returns the simplenet magic number */
 static int sn_get_magic();
 
+#if SIMPLENET_DEBUG
 static void print_msg(sn_message *m);
+#endif
 
 /* collective network calls */
 static void simple_net_collective();
@@ -423,9 +425,9 @@ static void handle_msg_start_event(
     sn_message *m_new;
     tw_stime send_queue_time = 0;
     mn_stats* stat;
-    int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
+    int mapping_rep_id, mapping_offset, dummy;
     tw_lpid dest_id;
-    char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
+    char lp_group_name[MAX_NAME_LENGTH];
     int total_event_size;
 
     total_event_size = model_net_get_msg_sz(SIMPLENET) + m->event_size_bytes +
@@ -456,8 +458,11 @@ static void handle_msg_start_event(
 
 
     /* create new event to send msg to receiving NIC */
-    codes_mapping_get_lp_info(m->final_dest_gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id , mapping_offset, &dest_id); 
+    // TODO: don't ignore annotations
+    codes_mapping_get_lp_info(m->final_dest_gid, lp_group_name, &dummy, NULL,
+            &dummy, NULL, &mapping_rep_id, &mapping_offset);
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
+            mapping_rep_id, mapping_offset, &dest_id); 
 
 //    printf("\n msg start sending to %d ", dest_id);
     void *m_data;
@@ -527,21 +532,9 @@ static tw_stime simplenet_packet_event(
      tw_event * e_new;
      tw_stime xfer_to_nic_time;
      sn_message * msg;
-     tw_lpid dest_id;
      char* tmp_ptr;
-#if 0
-     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
-
-     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
-     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_id);
-#endif
-     //dest_id = sender->gid;
-     dest_id = src_lp;
 
      xfer_to_nic_time = codes_local_latency(sender);
-     //e_new = tw_event_new(dest_id, xfer_to_nic_time+offset, sender);
-     //msg = tw_event_data(e_new);
      // this is a self message
      e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
              sender, SIMPLENET, (void**)&msg, (void**)&tmp_ptr);
@@ -556,10 +549,6 @@ static tw_stime simplenet_packet_event(
      msg->is_pull = is_pull;
      msg->pull_size = pull_size;
 
-     //tmp_ptr = (char*)msg;
-     //tmp_ptr += model_net_get_msg_sz(SIMPLENET);
-      
-    //printf("\n Sending to LP %d msg magic %d ", (int)dest_id, sn_get_magic()); 
      /*Fill in simplenet information*/     
      if(is_last_pckt) /* Its the last packet so pass in remote event information*/
       {
@@ -575,10 +564,7 @@ static tw_stime simplenet_packet_event(
 	   memcpy(tmp_ptr, self_event, self_event_size);
 	   tmp_ptr += self_event_size;
        }
-      // printf("\n Last packet size: %d ", sn_get_msg_sz() + remote_event_size + self_event_size);
       }
-    //print_base_from(SIMPLENET, msg);
-    //print_msg(msg);
      tw_event_send(e_new);
      return xfer_to_nic_time;
 }
@@ -587,7 +573,6 @@ static void sn_setup(const void* net_params)
 {
   simplenet_param* sn_param = (simplenet_param*)net_params;
   sn_set_params(sn_param->net_startup_ns, sn_param->net_bw_mbps); 
-  //printf("\n Bandwidth setup %lf %lf ", sn_param->net_startup_ns, sn_param->net_bw_mbps);
 }
 
 static void simplenet_packet_event_rc(tw_lp *sender)
@@ -598,21 +583,26 @@ static void simplenet_packet_event_rc(tw_lp *sender)
 
 static tw_lpid sn_find_local_device(tw_lp *sender)
 {
-     char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
-     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
+     char lp_group_name[MAX_NAME_LENGTH];
+     int mapping_rep_id, mapping_offset, dummy;
      tw_lpid dest_id;
 
-     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, mapping_rep_id, mapping_offset, &dest_id);
+     // TODO: don't ignore annotations
+     codes_mapping_get_lp_info(sender->gid, lp_group_name, &dummy, NULL,
+             &dummy, NULL, &mapping_rep_id, &mapping_offset);
+     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
+             mapping_rep_id, mapping_offset, &dest_id);
 
     return(dest_id);
 }
 
+#if SIMPLENET_DEBUG
 void print_msg(sn_message *m){
     printf(" sn:\n  type:%d, magic:%d, src:%lu, dest:%lu, esize:%d, lsize:%d\n",
             m->event_type, m->magic, m->src_gid, m->final_dest_gid,
             m->event_size_bytes, m->local_event_size_bytes);
 }
+#endif
 
 
 /*
