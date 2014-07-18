@@ -23,6 +23,7 @@
 #include "codes/configuration.h"
 #include "codes/model-net.h"
 #include "codes/lp-type-lookup.h"
+#include "codes/local-storage-model.h"
 
 static int num_reqs = 0;/* number of requests sent by each server (read from config) */
 static int payload_sz = 0; /* size of simulated data payload, bytes (read from config) */
@@ -237,8 +238,9 @@ int main(
      * codes */
     codes_mapping_setup();
     
-    /* calculate the number of servers in this simulation */
-    num_servers = codes_mapping_get_group_reps(group_name) * codes_mapping_get_lp_count(group_name, "server");
+    /* calculate the number of servers in this simulation,
+     * ignoring annotations */
+    num_servers = codes_mapping_get_lp_count(group_name, 0, "server", NULL, 1);
 
     /* for this example, we read from a separate configuration group for
      * server message parameters. Since they are constant for all LPs,
@@ -391,18 +393,20 @@ tw_lpid get_next_server(tw_lpid sender_id)
     /* first, get callers LP and group info from codes-mapping. Caching this 
      * info in the LP struct isn't a bad idea for preventing a huge number of
      * lookups */
-    char grp_name[MAX_NAME_LENGTH], lp_type_name[MAX_NAME_LENGTH];
+    char grp_name[MAX_NAME_LENGTH], lp_type_name[MAX_NAME_LENGTH],
+         annotation[MAX_NAME_LENGTH];
     int  lp_type_id, grp_id, grp_rep_id, offset, num_reps;
     int dest_rep_id;
-    codes_mapping_get_lp_info(sender_id, grp_name, &grp_id, &lp_type_id, 
-            lp_type_name, &grp_rep_id, &offset);
+    codes_mapping_get_lp_info(sender_id, grp_name, &grp_id, lp_type_name,
+            &lp_type_id, annotation, &grp_rep_id, &offset);
     /* in this example, we assume that, for our group of servers, each 
      * "repetition" consists of a single server/NIC pair. Hence, we grab the 
      * server ID for the next repetition, looping around if necessary */
     num_reps = codes_mapping_get_group_reps(grp_name);
     dest_rep_id = (grp_rep_id+1) % num_reps;
     /* finally, get the server (exactly 1 server per rep -> offset w/in rep = 0 */
-    codes_mapping_get_lp_id(grp_name, lp_type_name, dest_rep_id, 0, &rtn_id);
+    codes_mapping_get_lp_id(grp_name, lp_type_name, NULL, 1, dest_rep_id,
+            0, &rtn_id);
     return rtn_id;
 }
 

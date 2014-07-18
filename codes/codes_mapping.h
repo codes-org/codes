@@ -22,36 +22,128 @@ tw_peid codes_mapping( tw_lpid gid);
 void codes_mapping_setup(void);
 
 /*Takes the group name and returns the number of repetitions in the group */
-int codes_mapping_get_group_reps(char* grp_name);
+int codes_mapping_get_group_reps(const char* group_name);
 
-/* Takes the group name and lp type name, returns the count for that lp type */
-int codes_mapping_get_lp_count(char* grp_name, char* lp_type_name);
-/* Gets the total lp type count across all groups */ 
-int codes_mapping_get_global_lp_count(char* lp_type_name);
+/* Calculates the count for LPs of the given type
+ *
+ * group_name         - name of group. If NULL, count is across all groups.
+ * ignore_repetitions - if group_name is given, then don't include repetitions
+ *                      in count. This exists at the moment to support some
+ *                      uses of the function that haven't been fleshed out in
+ *                      other parts of the API (used by the dragonfly/torus
+ *                      models)
+ * lp_type_name       - name of LP type
+ * annotation         - optional annotation. If NULL, entry is considered
+ *                      unannotated
+ * ignore_annos       - If non-zero, then count across all annotations (and
+ *                      ignore whatever annotation parameter is passed in) 
+ *
+ * returns the number of LPs found (0 in the case of some combination of group,
+ * lp_type_name, and annotation not being found)
+ */
+int codes_mapping_get_lp_count(
+        const char * group_name,
+        int          ignore_repetitions,
+        const char * lp_type_name,
+        const char * annotation,
+        int          ignore_annos);
 
-/* Takes the group name , type name, rep ID and offset (for that lp type + repetition) and then returns the global LP ID. */
-void codes_mapping_get_lp_id(char* grp_name, char* lp_type_name, int rep_id, int offset, tw_lpid* gid);
+/* Calculates the global LP ID given config identifying info. 
+ *
+ * group_name   - name of group
+ * lp_type_name - name of LP type
+ * annotation   - optional annotation (NULL -> unannotated)
+ * ignore_anno  - ignores annotation and sets gid to the first found LP type
+ *                with matching names
+ * rep_id       - repetition within the group
+ * offset       - lp offset within the repetition
+ * gid          - output ID
+ *
+ * If the LP is unable to be found, a tw_error will occur
+ */
+void codes_mapping_get_lp_id(
+        const char * group_name,
+        const char * lp_type_name,
+        const char * annotation,
+        int          ignore_anno,
+        int          rep_id,
+        int          offset,
+        tw_lpid    * gid);
 
-/* Takes the LP ID and returns its logical ID across LPs of the same type in 
- * all groups */
-int codes_mapping_get_lp_global_rel_id(tw_lpid gid);
+/* Calculates the LP ID relative to other LPs (0..N-1, where N is the number of
+ * LPs sharing the same type)
+ *
+ * gid             - LP ID
+ * group_wise      - whether to compute id relative to the LP's group
+ * annotation_wise - whether to compute id relative to the annotation the LP has
+ */
+int codes_mapping_get_lp_relative_id(
+        tw_lpid gid,
+        int     group_wise,
+        int     annotation_wise);
 
-/* takes the LP ID and returns its grp name and index, lp type name and ID, repetition ID and the offset of the LP 
- * (for multiple LPs in a repetition). */
-void codes_mapping_get_lp_info(tw_lpid gid, char* grp_name, int* grp_id, int* lp_type_id, char* lp_type_name, int* grp_rep_id, int* offset);
+/* Returns configuration group information for a given LP-id
+ *
+ * gid           - LP to look up
+ * group_name    - output LP group name
+ * group_index   - index in config struct of group (mostly used internally)
+ * lp_type_name  - output LP type name
+ * lp_type_index - index in config struct of lp type (mostly used internally)
+ * annotation    - output annotation (given that the caller is responsible for
+ *                 providing the memory, if there's no annotation then the empty
+ *                 string is returned)
+ * rep_id        - output repetition within the group
+ * offset        - output LP offset within the LP (for multiple lps in a rep.)
+ *
+ * The *_name and annotation parameters can be NULL, in which case the result
+ * strings aren't copied to them. This is useful when you just need the
+ * repetition ID and/or the offset. Otherwise, the caller is expected to pass in
+ * properly-allocated buffers for each (of size MAX_NAME_LENGTH)
+ */
+void codes_mapping_get_lp_info(
+        tw_lpid gid,
+        char  * group_name,
+        int   * group_index,
+        char  * lp_type_name,
+        int   * lp_type_index,
+        char  * annotation,
+        int   * rep_id,
+        int   * offset);
 
-/* given the group and LP type name, return the annotation (or NULL if there is
- * none) */
-const char* codes_mapping_get_annotation_by_name(char *grp_name, char *lp_type_name);
-/* given the LP ID, return the annotation (or NULL if there is none)
- * NOTE: both functions have equivalent results. The different ways of accessing
- * are for convenience */
+//void codes_mapping_get_lp_info(tw_lpid gid, char* group_name, int* grp_id, int* lp_type_id, char* lp_type_name, int* grp_rep_id, int* offset);
+
+/* Returns the annotation for the given LP.
+ *
+ * group_name   - group name of LP
+ * lp_type_name - name of the LP
+ *
+ * NOTE: This function returns the annotation for the first found LP with
+ * lp_type_name within the group. In the case of having multiple LP types with
+ * different annotations in the same group, use the _by_lpid version.
+ *
+ * Either the annotation string or NULL (in the case of an unannotated entry) is
+ * returned. */
+const char* codes_mapping_get_annotation_by_name(
+        const char * group_name,
+        const char * lp_type_name);
+
+/* Returns the annotation for the given LP. 
+ *
+ * gid - LP id to look up
+ *
+ * NOTE: both functions have equivalent results if there is only one LP type in
+ * the requested group. The different ways of accessing are for convenience.
+ * This function is the one to use if there are multiple group entries of the
+ * same LP type (and different annotations)
+ *
+ * Either the annotation string or NULL (in the case of an unannotated entry) is
+ * returned. */
 const char* codes_mapping_get_annotation_by_lpid(tw_lpid gid);
 
 /*
  * Returns a mapping of LP name to all annotations used with the type
  *
- * lp_name     - lp name as used in the configuration
+ * lp_name - lp name as used in the configuration
  */
 const config_anno_map_t * 
 codes_mapping_get_lp_anno_map(const char *lp_name);

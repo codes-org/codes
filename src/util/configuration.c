@@ -392,11 +392,13 @@ int configuration_get_lpgroups (ConfigHandle *handle,
  * given annotation. Used for configuration schemes where an array of
  * configuration values is generated based on the annotations in
  * config_anno_map_t
- * If annotation is not found, -1 is returned */
+ * If anno is not found or a NULL anno is passed in,
+ * -1 is returned */
 int configuration_get_annotation_index(const char *              anno,
                                        const config_anno_map_t * anno_map){
+    if (anno == NULL) return -1;
     for (uint64_t i = 0; i < anno_map->num_annos; i++){
-        if (strcmp(anno, anno_map->annotations[i]) == 0){
+        if (!strcmp(anno, anno_map->annotations[i])){
             return (int)i;
         }
     }

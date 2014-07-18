@@ -415,8 +415,8 @@ void resource_finalize(
 
     char *out_buf = malloc(1<<12);
     int written;
-    // see if I'm the "first" resource
-    if (codes_mapping_get_lp_global_rel_id(lp->gid) == 0){
+    // see if I'm the "first" resource (currently doing it globally)
+    if (codes_mapping_get_lp_relative_id(lp->gid, 0, 0) == 0){
         written = sprintf(out_buf, 
                 "# format: <LP> <max used general> <max used token...>\n");
         lp_io_write(lp->gid, RESOURCE_LP_NM, written, out_buf);
@@ -496,13 +496,15 @@ static void resource_lp_issue_event(
     tw_lpid resource_lpid;
 
     /* map out the lpid of the resource */
-    int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
-    char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
-    codes_mapping_get_lp_info(sender->gid, lp_group_name, 
-            &mapping_grp_id, &mapping_type_id, lp_type_name, 
+    int mapping_rep_id, mapping_offset, dummy;
+    char lp_group_name[MAX_NAME_LENGTH];
+    // TODO: currently ignoring annotations... perhaps give annotation as a
+    // parameter?
+    codes_mapping_get_lp_info(sender->gid, lp_group_name, &dummy,
+            NULL, &dummy, NULL,
             &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, RESOURCE_LP_NM, mapping_rep_id,
-            mapping_offset, &resource_lpid); 
+    codes_mapping_get_lp_id(lp_group_name, RESOURCE_LP_NM, NULL, 1,
+            mapping_rep_id, mapping_offset, &resource_lpid); 
 
     tw_event *e = codes_event_new(resource_lpid, codes_local_latency(sender),
             sender);

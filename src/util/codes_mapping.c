@@ -19,10 +19,49 @@ static int lps_leftover = 0;
 
 static int mem_factor = 256;
 
-static inline int mini(int a, int b){ return a < b ? a : b; }
+static int mini(int a, int b){ return a < b ? a : b; }
+
+// compare passed in annotation strings (NULL or nonempty) against annotation
+// strings in the config (empty or nonempty)
+static int cmp_anno(const char * anno_user, const char * anno_config){
+    return anno_user == NULL ? anno_config[0]=='\0'
+                             : !strcmp(anno_user, anno_config);
+}
+
+
+#if 0
+// TODO: this code seems useful, but I'm not sure where to put it for the time
+// being. It should be useful when we are directly reading from the
+// configuration file, which has the unprocessed annotated strings
+
+// return code matches that of strcmp and friends, checks
+// lp_type_name@annotation against full name
+// NOTE: no argument should be NULL or invalid strings
+static int strcmp_anno(
+        const char * full_name,
+        const char * prefix,
+        const char * annotation){
+    int i;
+    // first phase - check full_name against prefix
+    for (i = 0; i < MAX_NAME_LENGTH; i++){
+        char cf = full_name[i], cl = prefix[i];
+        if (cl == '\0')
+            break; // match successful
+        else if (cf != cl) // captures case where cf is null char or @
+            return (int)(cf-cl); // lp name on full doesn't match
+    }
+    if (i==MAX_NAME_LENGTH) return 1;
+    // second phase - ensure the next character after the match is an @
+    if (full_name[i] != '@') return -1;
+    // third phase, compare the remaining full_name against annotation
+    return strcmp(full_name+i+1, annotation);
+}
+#endif
 
 /* char arrays for holding lp type name and group name*/
-char local_grp_name[MAX_NAME_LENGTH], local_lp_name[MAX_NAME_LENGTH];
+// (unused var atm) static char local_group_name[MAX_NAME_LENGTH];
+static char local_lp_name[MAX_NAME_LENGTH],
+            local_annotation[MAX_NAME_LENGTH];
 
 config_lpgroups_t lpconf;
 
@@ -49,194 +88,227 @@ tw_peid codes_mapping( tw_lpid gid)
   /*return gid / lps_per_pe_floor;*/
 }
 
-int codes_mapping_get_group_reps(char* grp_name)
+int codes_mapping_get_group_reps(const char* group_name)
 {
   int grp;
   for(grp = 0; grp < lpconf.lpgroups_count; grp++)
   {
-     if(strcmp(lpconf.lpgroups[grp].name, grp_name) == 0)
+     if(strcmp(lpconf.lpgroups[grp].name, group_name) == 0)
 	     return lpconf.lpgroups[grp].repetitions;
   }
   return -1;
 }
-int codes_mapping_get_lp_count(char* grp_name, char* lp_type_name)
-{
-   int grp, lpt, lp_types_count;
 
-// Account for all lps in the previous groups 
-  for(grp = 0; grp < lpconf.lpgroups_count; grp++)
-   {
-       lp_types_count = lpconf.lpgroups[grp].lptypes_count;
-        
-       if(strcmp(lpconf.lpgroups[grp].name, grp_name) == 0)
-	{
-	 for(lpt = 0; lpt < lp_types_count; lpt++)
- 	 {
-	    if(strcmp(lpconf.lpgroups[grp].lptypes[lpt].name, lp_type_name) == 0)
-		return lpconf.lpgroups[grp].lptypes[lpt].count;
-	 }		 
-	}
-   }
-  return -1;
+int codes_mapping_get_lp_count(
+        const char * group_name,
+        int          ignore_repetitions,
+        const char * lp_type_name,
+        const char * annotation,
+        int          ignore_annos){
+    int lp_type_ct_total = 0;
+
+    // check - if group name is null, then disable ignore_repetitions (the
+    // former takes precedence)
+    if (group_name == NULL) 
+        ignore_repetitions = 0;
+    for (int g = 0; g < lpconf.lpgroups_count; g++){
+        config_lpgroup_t *lpg = &lpconf.lpgroups[g];
+        // iterate over the lps if the group is null (count across all groups)
+        // or if the group names match
+        if (group_name == NULL || strcmp(lpg->name, group_name) == 0){
+            for (int l = 0; l < lpg->lptypes_count; l++){
+                config_lptype_t *lpt = &lpg->lptypes[l];
+                if (strcmp(lp_type_name, lpt->name) == 0){
+                    // increment the count if we are ignoring annotations,
+                    // query and entry are both unannotated, or if the
+                    // annotations match
+                    if (ignore_annos || cmp_anno(annotation, lpt->anno)){
+                        if (ignore_repetitions)
+                            lp_type_ct_total += lpt->count;
+                        else
+                            lp_type_ct_total += lpt->count * lpg->repetitions;
+                    }
+                }
+            }
+            if (group_name != NULL) break; // we've processed the exact group
+        }
+    }
+    // no error needed here - 0 is a valid value
+    return lp_type_ct_total;
 }
 
-int codes_mapping_get_global_lp_count(char* lp_type_name){
-    int total_ct = 0;
-    int grp;
-    for (grp = 0; grp < lpconf.lpgroups_count; grp++){
-        int lpt;
-        int lp_types_count = lpconf.lpgroups[grp].lptypes_count;
-        int reps = lpconf.lpgroups[grp].repetitions;
-        config_lptype_t *c = lpconf.lpgroups[grp].lptypes;
-        for (lpt = 0; lpt < lp_types_count; lpt++){
-            if(strcmp(c[lpt].name, lp_type_name) == 0){
-                total_ct += c[lpt].count * reps;
+void codes_mapping_get_lp_id(
+        const char * group_name,
+        const char * lp_type_name,
+        const char * annotation,
+        int          ignore_anno,
+        int          rep_id,
+        int          offset,
+        tw_lpid    * gid){
+    // sanity checks
+    if (rep_id < 0 || offset < 0 || group_name == NULL || lp_type_name == NULL)
+        goto ERROR;
+    *gid = 0;
+    // for each group
+    for (int g = 0; g < lpconf.lpgroups_count; g++){
+        config_lpgroup_t *lpg = &lpconf.lpgroups[g];
+        // in any case, count up the lps (need for repetition handling)
+        tw_lpid rep_count = 0;
+        for (int l = 0; l < lpg->lptypes_count; l++){
+            rep_count += lpg->lptypes[l].count;
+        }
+        // does group name match?
+        if (strcmp(lpg->name, group_name) == 0){
+            tw_lpid local_rep_count = 0;
+            // for each lp type
+            for (int l = 0; l < lpg->lptypes_count; l++){
+                config_lptype_t *lpt = &lpg->lptypes[l];
+                // does lp name match?
+                if (strcmp(lpt->name, lp_type_name) == 0){
+                    // does annotation match (or are we ignoring annotations?)
+                    if (ignore_anno || cmp_anno(annotation, lpt->anno)){
+                        // return if sane offset 
+                        if (offset >= (int) lpt->count){
+                            goto ERROR;
+                        }
+                        else{
+                            *gid += (rep_count * (tw_lpid)rep_id) + 
+                                local_rep_count + (tw_lpid)offset;
+                            return;
+                        }
+                    }
+                }
+                else{
+                    local_rep_count += lpt->count;
+                }
+            }
+            // after a group match, short circuit to end if lp not found
+            goto ERROR;
+        }
+        // group name doesn't match, add count to running total and move on
+        else{
+            *gid += lpg->repetitions * rep_count;
+        }
+    }
+ERROR:
+    // LP not found
+    tw_error(TW_LOC, "Unable to find LP id given "
+                     "group \"%s\", "
+                     "typename \"%s\", "
+                     "annotation \"%s\"",
+                     "repetition %d, and offset %d",
+                     group_name==NULL    ? "<NULL>" : group_name,
+                     lp_type_name==NULL? "<NULL>" : lp_type_name,
+                     annotation==NULL  ? "<NULL>" : annotation,
+                     rep_id, offset);
+}
+
+int codes_mapping_get_lp_relative_id(
+        tw_lpid gid,
+        int     group_wise,
+        int     annotation_wise){
+    int group_index, lp_type_index, rep_id, offset;
+    codes_mapping_get_lp_info(gid, NULL, &group_index,
+            local_lp_name, &lp_type_index, local_annotation, &rep_id, &offset);
+    char * anno = (local_annotation[0]=='\0') ? NULL : local_annotation;
+
+    uint64_t group_lp_count = 0;
+    // if not group_specific, then count up LPs of all preceding groups
+    if (!group_wise){
+        for (int g = 0; g < group_index; g++){
+            uint64_t lp_count = 0;
+            config_lpgroup_t *lpg = &lpconf.lpgroups[g];
+            for (int l = 0; l < lpg->lptypes_count; l++){
+                config_lptype_t *lpt = &lpg->lptypes[l];
+                if (strcmp(local_lp_name, lpt->name) == 0){
+                    // increment the count if we are ignoring annotations,
+                    // both LPs are unannotated, or if the annotations match
+                    if (!annotation_wise || cmp_anno(anno, lpt->anno)){
+                        lp_count += lpt->count;
+                    }
+                }
+            }
+            group_lp_count += lp_count * lpg->repetitions;
+        }
+    }
+    // count up LPs within my group occuring before me 
+    // (the loop is necessary because different annotated LPs may exist in the
+    // same group)
+    uint64_t lp_count = 0;
+    uint64_t lp_pre_count = 0;
+    for (int l = 0; l < lpconf.lpgroups[group_index].lptypes_count; l++){
+        config_lptype_t *lpt = &lpconf.lpgroups[group_index].lptypes[l];
+        if (strcmp(local_lp_name, lpt->name) == 0){
+            if (!annotation_wise || cmp_anno(anno, lpt->anno)){
+                lp_count += lpt->count;
+                // special case: if we find an LP entry that matches, but is not
+                // the same entry where the input gid comes from, then increment
+                // a separate "pre" counter
+                if (l < lp_type_index){
+                    lp_pre_count += lpt->count;
+                }
             }
         }
     }
-    return total_ct;
+    // now we have the necessary counts
+    // return lps in groups that came before + 
+    // lps within the group that came before the target LP
+    return (int) (group_lp_count + (lp_count * rep_id) + lp_pre_count + offset);
 }
 
-/* This function takes the group ID , type ID and rep ID then returns the global LP ID */
-/* TODO: Add string based search for LP group and type names */
-void codes_mapping_get_lp_id(char* grp_name, char* lp_type_name, int rep_id, int offset, tw_lpid* gid)
-{
- int grp, lpt, lpcount = 0, lp_types_count, rep, count_for_this_lpt;
- short found = 0;
-
- // Account for all lps in the previous groups 
- for(grp = 0; grp < lpconf.lpgroups_count; grp++)
-  {
-    lp_types_count = lpconf.lpgroups[grp].lptypes_count;
-    rep = lpconf.lpgroups[grp].repetitions;
-
-    if(strcmp(lpconf.lpgroups[grp].name, grp_name) == 0)
-    {
-	    found = 1;
-	    break;
-    }
-    
-    for(lpt = 0; lpt < lp_types_count; lpt++)
-      lpcount += (rep * lpconf.lpgroups[grp].lptypes[lpt].count);
-  }
-
- assert(found);
- found = 0;
-
- lp_types_count = lpconf.lpgroups[grp].lptypes_count;
- 
- // Account for the previous lp types in the current repetition
- for(lpt = 0; lpt < lp_types_count; lpt++)
- {
-   count_for_this_lpt = lpconf.lpgroups[grp].lptypes[lpt].count;
-
-   if(strcmp(lpconf.lpgroups[grp].lptypes[lpt].name, lp_type_name) == 0)
-   {
-     found = 1;
-     break;
-   }
-   
-   lpcount += count_for_this_lpt;
- }
-
- assert(found);
- // Account for all previous repetitions
- for(rep = 0; rep < rep_id; rep++)
- {
-    for(lpt = 0; lpt < lp_types_count; lpt++)
-      lpcount += lpconf.lpgroups[grp].lptypes[lpt].count;
- }
-   *gid = lpcount + offset % count_for_this_lpt;
-}
-
-int codes_mapping_get_lp_global_rel_id(tw_lpid gid){
-    /* use mapping function to get our starting point */
-    char grp_name[MAX_NAME_LENGTH];
-    char lp_type_name[MAX_NAME_LENGTH];
-    int grp_id, lp_type_id, grp_rep_id, offset;
-    codes_mapping_get_lp_info(gid, grp_name, &grp_id, &lp_type_id, lp_type_name,
-            &grp_rep_id, &offset);
-
-    /* now, go through the groups that occurred before and count up the lps of
-     * the same name */
-    int grp;
-    int total_lp_count = 0;
-    for (grp = 0; grp < grp_id; grp++){
-        int rep = lpconf.lpgroups[grp].repetitions;
-        int l;
-        /* get the total number of LPs in this group */
-        for (l = 0; l < lpconf.lpgroups[grp].lptypes_count; l++){
-            if (strcmp(lp_type_name, lpconf.lpgroups[grp].lptypes[l].name) == 0){
-                total_lp_count += rep * lpconf.lpgroups[grp].lptypes[l].count;
+void codes_mapping_get_lp_info(
+        tw_lpid gid,
+        char  * group_name,
+        int   * group_index,
+        char  * lp_type_name,
+        int   * lp_type_index,
+        char  * annotation,
+        int   * rep_id,
+        int   * offset){
+    // running total of lp's we've seen so far
+    tw_lpid id_total = 0;
+    // for each group
+    for (int g = 0; g < lpconf.lpgroups_count; g++){
+        config_lpgroup_t *lpg = &lpconf.lpgroups[g];
+        tw_lpid num_id_group, num_id_per_rep = 0;
+        // count up the number of ids in this group
+        for (int l = 0; l < lpg->lptypes_count; l++){
+            num_id_per_rep += lpg->lptypes[l].count;
+        }
+        num_id_group = num_id_per_rep * lpg->repetitions;
+        if (num_id_group+id_total > gid){
+            // we've found the group
+            tw_lpid rem = gid - id_total;
+            if (group_name != NULL)
+                strncpy(group_name, lpg->name, MAX_NAME_LENGTH);
+            *group_index = g;
+            // find repetition within group
+            *rep_id = (int) (rem / num_id_per_rep);
+            rem -=  num_id_per_rep * (tw_lpid)*rep_id;
+            num_id_per_rep = 0;
+            for (int l = 0; l < lpg->lptypes_count; l++){
+                config_lptype_t *lpt = &lpg->lptypes[l];
+                if (rem < num_id_per_rep + lpt->count){
+                    // found the specific LP
+                    if (lp_type_name != NULL)
+                        strncpy(lp_type_name, lpt->name, MAX_NAME_LENGTH);
+                    if (annotation != NULL)
+                        strncpy(annotation, lpt->anno, MAX_NAME_LENGTH);
+                    *offset = (int) (rem - num_id_per_rep);
+                    *lp_type_index = l;
+                    return; // done
+                }
+                else{
+                    num_id_per_rep += lpg->lptypes[l].count;
+                }
             }
         }
+        else{
+            id_total += num_id_group;
+        }
     }
-
-    /* the global relative lp id is my relative position within the group +
-     * the number of lps that came before */
-    int nlp_per_rep = lpconf.lpgroups[grp_id].lptypes[lp_type_id].count;
-    return total_lp_count + (grp_rep_id * nlp_per_rep) + offset;
-}
-
-
-/* This function takes the LP ID and returns its grp index, lp type ID and repetition ID */
-void codes_mapping_get_lp_info(tw_lpid gid, char* grp_name, int* grp_id, int* lp_type_id, char* lp_type_name, int* grp_rep_id, int* offset)
-{
-  int grp, lpt, rep, grp_offset, lp_offset, rep_offset;
-  int lp_tmp_id, lp_types_count, lp_count;
-  unsigned long grp_lp_count=0;
-  short found = 0;
- 
-  /* Find the group id first */ 
-  for(grp = 0; grp < lpconf.lpgroups_count; grp++)
-  {
-    grp_offset = 0;
-    rep_offset = 0;
-    rep = lpconf.lpgroups[grp].repetitions;
-    lp_types_count = lpconf.lpgroups[grp].lptypes_count;
-
-    for(lpt = 0; lpt < lp_types_count; lpt++)
-    {
-	lp_count = lpconf.lpgroups[grp].lptypes[lpt].count;
-	grp_offset += (rep * lp_count);
-	rep_offset += lp_count;
-    }
-    /* Each gid is assigned an increasing number starting from 0th group and 0th lp type
-     * so we check here if the gid lies within the numeric range of a group */ 
-    if(gid >= grp_lp_count && gid < grp_lp_count + grp_offset)
-    {
-	*grp_id = grp;
-	 strcpy(local_grp_name, lpconf.lpgroups[grp].name);
-	 lp_offset = gid - grp_lp_count; /* gets the lp offset starting from the point where the group begins */
-         *grp_rep_id = lp_offset / rep_offset;
-          lp_tmp_id = lp_offset - (*grp_rep_id * rep_offset);
-	  found = 1;
-	 break;
-    }
-    grp_lp_count += grp_offset; /* keep on increasing the group lp count to next group range*/
-  }
-  assert(found);
-
-  lp_offset = 0;
-  found = 0; /* reset found for finding LP type */
- /* Now we compute the LP type ID here based on the lp offset that we just got */ 
-  for(lpt = 0; lpt < lp_types_count; lpt++)
-  {
-     lp_count = lpconf.lpgroups[grp].lptypes[lpt].count;
-     if(lp_tmp_id >= lp_offset && lp_tmp_id < lp_offset + lp_count)
-     {
-	     *lp_type_id = lpt;
-	      strcpy(local_lp_name, lpconf.lpgroups[grp].lptypes[lpt].name);
-	      *offset = lp_tmp_id - lp_offset;
-	      found = 1;
-     	      break;
-     }
-     lp_offset += lp_count;
-  }
-  assert(found);
-  strncpy(grp_name, local_grp_name, MAX_NAME_LENGTH);
-  strncpy(lp_type_name, local_lp_name, MAX_NAME_LENGTH);
-  //printf("\n gid %d lp type name %s rep_id %d ", gid, lp_type_name, *grp_rep_id);
+    // LP not found
+    tw_error(TW_LOC, "Unable to find LP info given gid %lu", gid);
 }
 
 /* This function assigns local and global LP Ids to LPs */
@@ -246,7 +318,6 @@ static void codes_mapping_init(void)
      tw_lpid ross_gid, ross_lid; /* ross global and local IDs */
      tw_pe * pe;
      char lp_type_name[MAX_NAME_LENGTH];
-     char grp_name[MAX_NAME_LENGTH];
      int nkp_per_pe = g_tw_nkp;
      tw_lpid         lpid, kpid;
 
@@ -258,7 +329,6 @@ static void codes_mapping_init(void)
          g_tw_mynode * lps_per_pe_floor + mini(g_tw_mynode,lps_leftover);
      int lp_end =
          (g_tw_mynode+1) * lps_per_pe_floor + mini(g_tw_mynode+1,lps_leftover);
-     codes_mapping_get_lp_info(lp_start, grp_name, &grp_id, &lpt_id, lp_type_name, &rep_id, &offset);
 
      for (lpid = lp_start; lpid < lp_end; lpid++)
       {
@@ -266,7 +336,8 @@ static void codes_mapping_init(void)
 	 ross_lid = lpid - lp_start;
 	 kpid = ross_lid % g_tw_nkp;
 	 pe = tw_getpe(kpid % g_tw_npe);
-	 codes_mapping_get_lp_info(ross_gid, grp_name, &grp_id, &lpt_id, lp_type_name, &rep_id, &offset);
+	 codes_mapping_get_lp_info(ross_gid, NULL, &grp_id, lp_type_name,
+                 &lpt_id, NULL, &rep_id, &offset);
 #if CODES_MAPPING_DEBUG
          printf("lp:%lu --> kp:%lu, pe:%llu\n", ross_gid, kpid, pe->id);
 #endif
@@ -318,102 +389,46 @@ void codes_mapping_setup()
 }
 
 /* given the group and LP type name, return the annotation (or NULL) */
-const char* codes_mapping_get_annotation_by_name(char *grp_name, char *lp_type_name){
-    int grp, lpt, lp_types_count;
-    short found = 0;
-
-    // find the group
-    for(grp = 0; grp < lpconf.lpgroups_count; grp++) {
-        if(strcmp(lpconf.lpgroups[grp].name, grp_name) == 0) {
-            found = 1;
-            break;
+const char* codes_mapping_get_annotation_by_name(
+        const char * group_name,
+        const char * lp_type_name){
+    for (int g = 0; g < lpconf.lpgroups_count; g++){
+        config_lpgroup_t *lpg = &lpconf.lpgroups[g];
+        if (strcmp(lpg->name, group_name) == 0){
+            // group found, iterate through types
+            for (int l = 0; l < lpg->lptypes_count; l++){
+                config_lptype_t *lpt = &lpg->lptypes[l];
+                if (strcmp(lpt->name, lp_type_name) == 0){
+                    // type found, return the annotation
+                    if (lpt->anno[0] == '\0')
+                        return NULL;
+                    else
+                        return lpt->anno;
+                }
+            }
         }
     }
-
-    assert(found);
-    found = 0;
-
-    lp_types_count = lpconf.lpgroups[grp].lptypes_count;
-
-    // find the lp type
-    for(lpt = 0; lpt < lp_types_count; lpt++) {
-        if(strcmp(lpconf.lpgroups[grp].lptypes[lpt].name, lp_type_name) == 0) {
-            found = 1;
-            break;
-        }
-    }
-    assert(found);
-
-    const char * anno = lpconf.lpgroups[grp].lptypes[lpt].anno;
-    if (anno[0]=='\0'){
-        return NULL;
-    }
-    else{
-        return anno;
-    }
+    tw_error(TW_LOC, "unable to find annotation using "
+            "group \"%s\" and lp_type_name \"%s\"", group_name, lp_type_name);
+    return NULL;
 }
 
 const char* codes_mapping_get_annotation_by_lpid(tw_lpid gid){
-    int grp, lpt, rep, grp_offset, lp_offset, rep_offset;
-    int lp_tmp_id, lp_types_count, lp_count;
-    unsigned long grp_lp_count=0;
-    short found = 0;
-
-    /* Find the group id first */ 
-    for(grp = 0; grp < lpconf.lpgroups_count; grp++)
-    {
-        grp_offset = 0;
-        rep_offset = 0;
-        rep = lpconf.lpgroups[grp].repetitions;
-        lp_types_count = lpconf.lpgroups[grp].lptypes_count;
-
-        for(lpt = 0; lpt < lp_types_count; lpt++)
-        {
-            lp_count = lpconf.lpgroups[grp].lptypes[lpt].count;
-            grp_offset += (rep * lp_count);
-            rep_offset += lp_count;
-        }
-        /* Each gid is assigned an increasing number starting from 0th group and 0th lp type
-         * so we check here if the gid lies within the numeric range of a group */ 
-        if(gid >= grp_lp_count && gid < grp_lp_count + grp_offset)
-        {
-            strcpy(local_grp_name, lpconf.lpgroups[grp].name);
-            lp_offset = gid - grp_lp_count; /* gets the lp offset starting from the point where the group begins */
-            int grp_rep_id = lp_offset / rep_offset;
-            lp_tmp_id = lp_offset - (grp_rep_id * rep_offset);
-            found = 1;
-            break;
-        }
-        grp_lp_count += grp_offset; /* keep on increasing the group lp count to next group range*/
-    }
-    assert(found);
-
-    lp_offset = 0;
-    found = 0; /* reset found for finding LP type */
-    /* Now we compute the LP type ID here based on the lp offset that we just got */ 
-    for(lpt = 0; lpt < lp_types_count; lpt++)
-    {
-        lp_count = lpconf.lpgroups[grp].lptypes[lpt].count;
-        if(lp_tmp_id >= lp_offset && lp_tmp_id < lp_offset + lp_count)
-        {
-            found = 1;
-            if (lpconf.lpgroups[grp].lptypes[lpt].anno[0] == '\0'){
-                return NULL;
-            }
-            else{
-                return lpconf.lpgroups[grp].lptypes[lpt].anno;
-            }
-        }
-        lp_offset += lp_count;
-    }
-    assert(found);
-    return NULL;
+    int group_index, lp_type_index, dummy;
+    codes_mapping_get_lp_info(gid, NULL, &group_index, NULL, &lp_type_index,
+            NULL, &dummy, &dummy);
+    const char * anno = 
+        lpconf.lpgroups[group_index].lptypes[lp_type_index].anno;
+    if (anno[0] == '\0')
+        return NULL;
+    else
+        return anno;
 }
 
 /*
  * Returns a mapping of LP name to all annotations used with the type
  *
- * lp_name     - lp name as used in the configuration
+ * lp_name - lp name as used in the configuration
  */
 const config_anno_map_t * 
 codes_mapping_get_lp_anno_map(const char *lp_name){

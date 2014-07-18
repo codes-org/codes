@@ -156,9 +156,11 @@ int main(
     }
 
     lp_type_register("server", &svr_lp);
-    lsm_init();
+    lsm_register();
 
     codes_mapping_setup();
+
+    lsm_configure();
 
     ret = lp_io_prepare("lsm-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD);
     if(ret < 0)
@@ -315,7 +317,6 @@ static void handle_kickoff_event(
            (unsigned long long)lp->gid,
            rate,
            seek);
-    lsm_send_init(lp->gid, lp, NULL);
 
     e_new = lsm_event_new("test", lp->gid, 0, 0, PAYLOAD_SZ, LSM_WRITE_REQUEST, sizeof(svr_msg), lp, 1.0);
     m_new = lsm_event_data(e_new);

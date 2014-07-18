@@ -12,25 +12,48 @@
 /* define three types of lps for mapping test */
 
 typedef struct a_state_s{
-    int id;
+    int id_global, id_by_group, id_by_anno, id_by_group_anno;
+    const char * anno;
 } a_state;
 typedef a_state b_state;
 typedef a_state c_state;
 
 static void a_init(a_state *ns, tw_lp *lp){
-    ns->id = codes_mapping_get_lp_global_rel_id(lp->gid);
+    ns->anno = codes_mapping_get_annotation_by_lpid(lp->gid);
+    ns->id_global = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
+    ns->id_by_group = codes_mapping_get_lp_relative_id(lp->gid, 1, 0);
+    ns->id_by_anno = codes_mapping_get_lp_relative_id(lp->gid, 0, 1);
+    ns->id_by_group_anno = codes_mapping_get_lp_relative_id(lp->gid, 1, 1);
 }
 static void b_init(b_state *ns, tw_lp *lp){ a_init(ns,lp); }
 static void c_init(c_state *ns, tw_lp *lp){ a_init(ns,lp); }
 
 static void a_finalize(a_state *ns, tw_lp *lp){
-    printf("TEST2 %lu %d a\n", lp->gid, ns->id);
+    char anno[128];
+    if (ns->anno == NULL)
+        anno[0] = '\0';
+    else
+        sprintf(anno, "@%s", ns->anno);
+    printf("TEST2 %2lu %2d %2d %2d %2d a%s\n", lp->gid, ns->id_global,
+            ns->id_by_group, ns->id_by_anno, ns->id_by_group_anno, anno);
 }
 static void b_finalize(b_state *ns, tw_lp *lp){
-    printf("TEST2 %lu %d b\n", lp->gid, ns->id);
+    char anno[128];
+    if (ns->anno == NULL)
+        anno[0] = '\0';
+    else
+        sprintf(anno, "@%s", ns->anno);
+    printf("TEST2 %2lu %2d %2d %2d %2d b%s\n", lp->gid, ns->id_global, 
+            ns->id_by_group, ns->id_by_anno, ns->id_by_group_anno, anno);
 }
 static void c_finalize(c_state *ns, tw_lp *lp){
-    printf("TEST2 %lu %d c\n", lp->gid, ns->id);
+    char anno[128];
+    if (ns->anno == NULL)
+        anno[0] = '\0';
+    else
+        sprintf(anno, "@%s", ns->anno);
+    printf("TEST2 %2lu %2d %2d %2d %2d c%s\n", lp->gid, ns->id_global,
+            ns->id_by_group, ns->id_by_anno, ns->id_by_group_anno, anno);
 }
 
 tw_lptype a_lp = {
@@ -88,9 +111,31 @@ int main(int argc, char *argv[])
 
     codes_mapping_setup();
 
-    printf("TEST1 %d a\n", codes_mapping_get_global_lp_count("a"));
-    printf("TEST1 %d b\n", codes_mapping_get_global_lp_count("b"));
-    printf("TEST1 %d c\n", codes_mapping_get_global_lp_count("c"));
+    printf("# test 2 format:\n"
+           "# <lp> rel id <global <group-wise> <anno.-wise> <both> <lp name>\n");
+            
+    const char * lps[]    = {"a", "b", "c"};
+    const char * groups[] = {NULL, "GRP1", "GRP2"};
+    const char * annos[]  = {NULL, "foo", "bar"};
+    char lpnm[128];
+    for (int l = 0; l < 3; l++){
+        for (int g = 0; g < 3; g++){
+            for (int a = 0; a < 3; a++){
+                if (annos[a]==NULL)
+                    sprintf(lpnm, "%s", lps[l]);
+                else
+                    sprintf(lpnm, "%s@%s", lps[l], annos[a]);
+                printf("TEST1 %2d %6s %s\n",
+                    codes_mapping_get_lp_count(groups[g], 0, lps[l],
+                        annos[a], 0),
+                    groups[g], lpnm);
+            }
+            printf("TEST1 %2d %6s %s ignore annos\n",
+                codes_mapping_get_lp_count(groups[g], 0, lps[l], NULL, 1),
+                groups[g], lps[l]);
+        }
+
+    }
 
     tw_run();
     tw_end();

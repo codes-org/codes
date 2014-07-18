@@ -146,6 +146,10 @@ static void write_stats(tw_lp* lp, lsm_stats_t* stat);
 
 static int lsm_magic = 0;
 
+/* configuration parameters (by annotation) */
+static disk_model_t model_unanno, *models_anno = NULL;
+static const config_anno_map_t *anno_map = NULL;
+
 /*
  * lsm_lp
  *   - implements ROSS callback interfaces
@@ -159,120 +163,6 @@ tw_lptype lsm_lp =
     (map_f) codes_mapping,
     sizeof(lsm_state_t)
 };
-
-/*
- * lsm_load_config
- *  - load configuration disk parameters
- */
-static void lsm_load_config (ConfigHandle *ch, char *name, lsm_state_t *ns, tw_lp *lp)
-{
-    disk_model_t *model;
-    char       **values;
-    size_t       length; 
-    int          rc;
-    int          i;
-
-    model = (disk_model_t *) malloc(sizeof(disk_model_t));
-    assert(model);
-
-    // get my annotation (if any)
-    const char *anno = codes_mapping_get_annotation_by_lpid(lp->gid);
-
-    // request sizes
-    rc = configuration_get_multivalue(ch, name, "request_sizes", anno,
-            &values,&length);
-    assert(rc == 1);
-    model->request_sizes = malloc(sizeof(int)*length);
-    assert(model->request_sizes);
-    model->bins = length;
-    for (i = 0; i < length; i++)
-    {
-        model->request_sizes[i] = atoi(values[i]);
-    }
-    free(values);
-
-    // write rates
-    rc = configuration_get_multivalue(ch, name, "write_rates", anno,
-            &values,&length);
-    assert(rc == 1);
-    model->write_rates = malloc(sizeof(double)*length);
-    assert(model->write_rates);
-    assert(length == model->bins);
-    for (i = 0; i < length; i++)
-    {
-        model->write_rates[i] = strtod(values[i], NULL);
-    }
-    free(values);
-
-    // read rates
-    rc = configuration_get_multivalue(ch, name, "read_rates", anno,
-            &values,&length);
-    assert(rc == 1);
-    model->read_rates = malloc(sizeof(double)*length);
-    assert(model->read_rates);
-    assert(model->bins == length);
-    for (i = 0; i < length; i++)
-    {
-        model->read_rates[i] = strtod(values[i], NULL);
-    }
-    free(values);
-
-    // write overheads
-    rc = configuration_get_multivalue(ch, name, "write_overheads", anno,
-            &values,&length);
-    assert(rc == 1);
-    model->write_overheads = malloc(sizeof(double)*length);
-    assert(model->write_overheads);
-    assert(model->bins == length);
-    for (i = 0; i < length; i++)
-    {
-        model->write_overheads[i] = strtod(values[i], NULL);
-    }
-    free(values);
-
-    // read overheades
-    rc = configuration_get_multivalue(ch, name, "read_overheads", anno,
-            &values,&length);
-    assert(rc == 1);
-    model->read_overheads = malloc(sizeof(double)*length);
-    assert(model->read_overheads);
-    assert(model->bins == length);
-    for (i = 0; i < length; i++)
-    {
-        model->read_overheads[i] = strtod(values[i], NULL);
-    }
-    free(values);
-
-    // write seek latency
-    rc = configuration_get_multivalue(ch, name, "write_seeks", anno,
-            &values,&length);
-    assert(rc == 1);
-    model->write_seeks = malloc(sizeof(double)*length);
-    assert(model->write_seeks);
-    assert(model->bins == length);
-    for (i = 0; i < length; i++)
-    {
-        model->write_seeks[i] = strtod(values[i], NULL);
-    }
-    free(values);
-
-    // read seek latency
-    rc = configuration_get_multivalue(ch, name, "read_seeks", anno,
-            &values,&length);
-    assert(rc == 1);
-    model->read_seeks = malloc(sizeof(double)*length);
-    assert(model->read_seeks);
-    assert(model->bins == length);
-    for (i = 0; i < length; i++)
-    {
-        model->read_seeks[i] = strtod(values[i], NULL);
-    }
-    free(values);
-
-    ns->model = model;
-
-    return;
-}
 
 static tw_stime transfer_time_table (lsm_state_t *ns,
                                      lsm_stats_t *stat,
@@ -348,37 +238,6 @@ static tw_stime transfer_time_table (lsm_state_t *ns,
     return time;
 }
 
-/*
- * lsm_send_init
- *   - generates an init event with supplies parameters
- *   - no ack is generated
- */
-void lsm_send_init (tw_lpid gid,
-                    tw_lp *lp,
-                    char *diskname)
-{
-    tw_lpid lsm_gid;
-    tw_event *e;
-    lsm_message_t *m;
-    char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
-    int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
-    tw_stime offset;
-
-    codes_mapping_get_lp_info(gid, lp_group_name, &mapping_grp_id, 
-        &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id("TRITON_GRP", "lsm", mapping_rep_id, 
-        mapping_offset, &lsm_gid);
-
-    offset = codes_local_latency(lp);
-    e = codes_event_new(lsm_gid, offset, lp);
-    m = tw_event_data(e);
-    m->magic = lsm_magic;
-    m->event = LSM_INIT;
-    strncpy(m->u.init.name, (diskname) ? diskname : "lsm", sizeof(m->u.init.name));
-
-    tw_event_send(e);
-}
-
 void lsm_event_new_reverse(tw_lp *sender)
 {
     codes_local_latency_reverse(sender);
@@ -389,21 +248,22 @@ void lsm_event_new_reverse(tw_lp *sender)
  * lsm_find_local_device()
  *
  * returns the LP id of the lsm device connected to the caller
+ *
+ * TODO: currently ignores annotations 
  */
 tw_lpid lsm_find_local_device(tw_lp *sender)
 {
-    char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
-    int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
+    char lp_group_name[MAX_NAME_LENGTH];
+    int mapping_rep_id, mapping_offset, dummy;
     tw_lpid lsm_gid; 
 
-    codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, 
-        &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id("TRITON_GRP", "lsm", mapping_rep_id, 
+    codes_mapping_get_lp_info(sender->gid, lp_group_name, &dummy, 
+        NULL, &dummy, NULL, &mapping_rep_id, &mapping_offset);
+    codes_mapping_get_lp_id(lp_group_name, LSM_NAME, NULL, 1, mapping_rep_id, 
         mapping_offset, &lsm_gid);
 
     return(lsm_gid);
 }
-
 
 /*
  * lsm_event_new
@@ -433,8 +293,6 @@ tw_event* lsm_event_new(const char* category,
     tw_event *e;
     lsm_message_t *m;
     tw_lpid lsm_gid; 
-    char lp_type_name[MAX_NAME_LENGTH], lp_group_name[MAX_NAME_LENGTH];
-    int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
 
     assert(strlen(category) < CATEGORY_NAME_MAX-1);
     assert(strlen(category) > 0);
@@ -442,10 +300,7 @@ tw_event* lsm_event_new(const char* category,
     /* Generate an event for the local storage model, and send the
      * event to an lsm LP. 
      */
-    codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id, 
-        &mapping_type_id, lp_type_name, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id("TRITON_GRP", "lsm", mapping_rep_id, 
-        mapping_offset, &lsm_gid);
+    lsm_gid = lsm_find_local_device(sender);
 
     e = codes_event_new(lsm_gid, codes_local_latency(sender)+delay, sender);
     m = tw_event_data(e);
@@ -484,13 +339,21 @@ void* lsm_event_data(tw_event *event)
  * lsm_lp_init
  *   - initialize the lsm model
  *   - sets the disk to be idle now
- *   - other parameters must be set through init event
  */
 static void lsm_lp_init (lsm_state_t *ns, tw_lp *lp)
 {
     memset(ns, 0, sizeof(*ns));
 
     ns->next_idle = tw_now(lp);
+
+    // set the correct model
+    const char *anno = codes_mapping_get_annotation_by_lpid(lp->gid);
+    if (anno == NULL)
+        ns->model = &model_unanno;
+    else {
+        int id = configuration_get_annotation_index(anno, anno_map);
+        ns->model = &models_anno[id];
+    }
 
     return;
 }
@@ -507,13 +370,6 @@ static void lsm_event (lsm_state_t *ns, tw_bf *b, lsm_message_t *m, tw_lp *lp)
 
     switch (m->event)
     {
-        case LSM_INIT:
-            if (LSM_DEBUG)
-                printf("svr(%llu): INIT name:%s\n",
-                    (unsigned long long)lp->gid,
-                    m->u.init.name);
-            lsm_load_config(&config, m->u.init.name, ns, lp);
-            break;
         case LSM_WRITE_REQUEST:
         case LSM_READ_REQUEST:
             if (LSM_DEBUG)
@@ -555,13 +411,6 @@ static void lsm_rev_event(lsm_state_t *ns,
 
     switch (m->event)
     {
-        case LSM_INIT:
-            if (LSM_DEBUG)
-                printf("svr(%llu): reverse INIT name:%s\n",
-                    (unsigned long long)lp->gid,
-                    m->u.init.name);
-            if (ns->model) free(ns->model);
-            break;
         case LSM_WRITE_REQUEST:
         case LSM_READ_REQUEST:
             if (LSM_DEBUG)
@@ -814,14 +663,129 @@ static void write_stats(tw_lp* lp, lsm_stats_t* stat)
 
 }
 
-void lsm_init(void)
+void lsm_register(void)
 {
     uint32_t h1=0, h2=0;
 
     bj_hashlittle2("localstorage", strlen("localstorage"), &h1, &h2);
     lsm_magic = h1+h2;
 
-    lp_type_register("lsm", &lsm_lp);
+    lp_type_register(LSM_NAME, &lsm_lp);
+}
+
+// read the configuration file for a given annotation
+static void read_config(ConfigHandle *ch, char * anno, disk_model_t *model)
+{
+    char       **values;
+    size_t       length; 
+    int          rc;
+    // request sizes
+    rc = configuration_get_multivalue(ch, LSM_NAME, "request_sizes", anno,
+            &values,&length);
+    assert(rc == 1);
+    model->request_sizes = malloc(sizeof(int)*length);
+    assert(model->request_sizes);
+    model->bins = length;
+    for (int i = 0; i < length; i++)
+    {
+        model->request_sizes[i] = atoi(values[i]);
+    }
+    free(values);
+
+    // write rates
+    rc = configuration_get_multivalue(ch, LSM_NAME, "write_rates", anno,
+            &values,&length);
+    assert(rc == 1);
+    model->write_rates = malloc(sizeof(double)*length);
+    assert(model->write_rates);
+    assert(length == model->bins);
+    for (int i = 0; i < length; i++)
+    {
+        model->write_rates[i] = strtod(values[i], NULL);
+    }
+    free(values);
+
+    // read rates
+    rc = configuration_get_multivalue(ch, LSM_NAME, "read_rates", anno,
+            &values,&length);
+    assert(rc == 1);
+    model->read_rates = malloc(sizeof(double)*length);
+    assert(model->read_rates);
+    assert(model->bins == length);
+    for (int i = 0; i < length; i++)
+    {
+        model->read_rates[i] = strtod(values[i], NULL);
+    }
+    free(values);
+
+    // write overheads
+    rc = configuration_get_multivalue(ch, LSM_NAME, "write_overheads", anno,
+            &values,&length);
+    assert(rc == 1);
+    model->write_overheads = malloc(sizeof(double)*length);
+    assert(model->write_overheads);
+    assert(model->bins == length);
+    for (int i = 0; i < length; i++)
+    {
+        model->write_overheads[i] = strtod(values[i], NULL);
+    }
+    free(values);
+
+    // read overheades
+    rc = configuration_get_multivalue(ch, LSM_NAME, "read_overheads", anno,
+            &values,&length);
+    assert(rc == 1);
+    model->read_overheads = malloc(sizeof(double)*length);
+    assert(model->read_overheads);
+    assert(model->bins == length);
+    for (int i = 0; i < length; i++)
+    {
+        model->read_overheads[i] = strtod(values[i], NULL);
+    }
+    free(values);
+
+    // write seek latency
+    rc = configuration_get_multivalue(ch, LSM_NAME, "write_seeks", anno,
+            &values,&length);
+    assert(rc == 1);
+    model->write_seeks = malloc(sizeof(double)*length);
+    assert(model->write_seeks);
+    assert(model->bins == length);
+    for (int i = 0; i < length; i++)
+    {
+        model->write_seeks[i] = strtod(values[i], NULL);
+    }
+    free(values);
+
+    // read seek latency
+    rc = configuration_get_multivalue(ch, LSM_NAME, "read_seeks", anno,
+            &values,&length);
+    assert(rc == 1);
+    model->read_seeks = malloc(sizeof(double)*length);
+    assert(model->read_seeks);
+    assert(model->bins == length);
+    for (int i = 0; i < length; i++)
+    {
+        model->read_seeks[i] = strtod(values[i], NULL);
+    }
+    free(values);
+}
+
+void lsm_configure(void)
+{
+    anno_map = codes_mapping_get_lp_anno_map(LSM_NAME);
+    assert(anno_map);
+    models_anno = malloc(anno_map->num_annos * sizeof(*models_anno));
+
+    // read the configuration for unannotated entries 
+    if (anno_map->num_unanno_lps > 0){
+        read_config(&config, NULL, &model_unanno);
+    }
+
+    for (uint64_t i = 0; i < anno_map->num_annos; i++){
+        char * anno = anno_map->annotations[i];
+        read_config(&config, anno, &models_anno[i]);
+    }
 }
 
 /*

@@ -35,7 +35,7 @@ typedef struct {
 static void s_init(s_state *ns, tw_lp *lp){
     ns->mem = 0;
     ns->mem_max = 0;
-    ns->id = codes_mapping_get_lp_global_rel_id(lp->gid);
+    ns->id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
     tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
     s_msg *m = tw_event_data(e);
     msg_set_header(s_magic, S_KICKOFF, lp->gid, &m->h);

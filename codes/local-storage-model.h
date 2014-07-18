@@ -9,13 +9,14 @@
 
 #include <ross.h>
 
+#define LSM_NAME "lsm"
+
 /*
  * lsm_event_t
  *   - events supported by the local storage model
  */
 typedef enum lsm_event_e
 {
-    LSM_INIT = 0,
     LSM_WRITE_REQUEST = 1,
     LSM_READ_REQUEST = 2,
     LSM_WRITE_COMPLETION = 3,
@@ -41,7 +42,8 @@ tw_event* lsm_event_new(const char* category,
 
 void* lsm_event_data(tw_event *event);
 
-void lsm_init(void);
+void lsm_register(void);
+void lsm_configure(void);
 
 void lsm_send_init (tw_lpid gid, tw_lp *lp, char *name);
 
