@@ -11,74 +11,103 @@
 
 /* define three types of lps for mapping test */
 
-typedef struct a_state_s{
+typedef struct state_s{
     int id_global, id_by_group, id_by_anno, id_by_group_anno;
-    const char * anno;
-} a_state;
-typedef a_state b_state;
-typedef a_state c_state;
+    char group_name[MAX_NAME_LENGTH], lp_name[MAX_NAME_LENGTH],
+         anno[MAX_NAME_LENGTH];
+} state;
 
-static void a_init(a_state *ns, tw_lp *lp){
-    ns->anno = codes_mapping_get_annotation_by_lpid(lp->gid);
+static void init(state *ns, tw_lp *lp){
+    int dummy;
+    // only need the names
+    codes_mapping_get_lp_info(lp->gid, ns->group_name, &dummy,
+            ns->lp_name, &dummy, ns->anno, &dummy, &dummy);
+    const char * anno = codes_mapping_get_annotation_by_lpid(lp->gid);
+    // annotation check
+    if (    (anno == NULL && ns->anno[0] != '\0') ||
+            (anno != NULL && strcmp(anno, ns->anno) != 0)){
+        fprintf(stderr, "LP %lu: annotations don't match: "
+                "_get_lp_info:\"%s\", _get_anno_by_lpid:\"%s\"\n",
+                lp->gid, ns->anno, anno);
+    }
+
     ns->id_global = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
     ns->id_by_group = codes_mapping_get_lp_relative_id(lp->gid, 1, 0);
     ns->id_by_anno = codes_mapping_get_lp_relative_id(lp->gid, 0, 1);
     ns->id_by_group_anno = codes_mapping_get_lp_relative_id(lp->gid, 1, 1);
-}
-static void b_init(b_state *ns, tw_lp *lp){ a_init(ns,lp); }
-static void c_init(c_state *ns, tw_lp *lp){ a_init(ns,lp); }
 
-static void a_finalize(a_state *ns, tw_lp *lp){
-    char anno[128];
-    if (ns->anno == NULL)
-        anno[0] = '\0';
+    // relative ID check - looking up the gid works correctly
+    tw_lpid id_from_global_rel =
+        codes_mapping_get_lpid_from_relative(ns->id_global, NULL,
+                ns->lp_name, NULL, 0);
+    tw_lpid id_from_group_rel =
+        codes_mapping_get_lpid_from_relative(ns->id_by_group, ns->group_name,
+                ns->lp_name, NULL, 0);
+    tw_lpid id_from_anno_rel =
+        codes_mapping_get_lpid_from_relative(ns->id_by_anno, NULL,
+                ns->lp_name, anno, 1);
+    tw_lpid id_from_group_anno_rel =
+        codes_mapping_get_lpid_from_relative(ns->id_by_group_anno, ns->group_name,
+                ns->lp_name, anno, 1);
+    if (lp->gid != id_from_global_rel){
+        fprintf(stderr, "LP %lu (%s): "
+                "global relative id %d doesn't match (got %lu)\n",
+                lp->gid, ns->lp_name, ns->id_global, id_from_global_rel);
+    }
+    if (lp->gid != id_from_group_rel){
+        fprintf(stderr, "LP %lu (%s): "
+                "group %s relative id %d doesn't match (got %lu)\n",
+                lp->gid, ns->lp_name, ns->group_name, ns->id_by_group,
+                id_from_group_rel);
+    }
+    if (lp->gid != id_from_anno_rel){
+        fprintf(stderr, "LP %lu (%s): "
+                "anno \"%s\" relative id %d doesn't match (got %lu)\n",
+                lp->gid, ns->lp_name, ns->anno, ns->id_by_group,
+                id_from_anno_rel);
+    }
+    if (lp->gid != id_from_group_anno_rel){
+        fprintf(stderr, "LP %lu (%s): "
+                "group %s anno \"%s\" relative id %d doesn't match (got %lu)\n",
+                lp->gid, ns->lp_name, ns->group_name, ns->anno, ns->id_by_group,
+                id_from_group_anno_rel);
+    }
+
+
+    // output-based check - print out IDs, compare against expected
+    char tmp[128];
+    if (ns->anno == NULL || ns->anno[0]=='\0')
+        tmp[0] = '\0';
     else
-        sprintf(anno, "@%s", ns->anno);
-    printf("TEST2 %2lu %2d %2d %2d %2d a%s\n", lp->gid, ns->id_global,
-            ns->id_by_group, ns->id_by_anno, ns->id_by_group_anno, anno);
-}
-static void b_finalize(b_state *ns, tw_lp *lp){
-    char anno[128];
-    if (ns->anno == NULL)
-        anno[0] = '\0';
-    else
-        sprintf(anno, "@%s", ns->anno);
-    printf("TEST2 %2lu %2d %2d %2d %2d b%s\n", lp->gid, ns->id_global, 
-            ns->id_by_group, ns->id_by_anno, ns->id_by_group_anno, anno);
-}
-static void c_finalize(c_state *ns, tw_lp *lp){
-    char anno[128];
-    if (ns->anno == NULL)
-        anno[0] = '\0';
-    else
-        sprintf(anno, "@%s", ns->anno);
-    printf("TEST2 %2lu %2d %2d %2d %2d c%s\n", lp->gid, ns->id_global,
-            ns->id_by_group, ns->id_by_anno, ns->id_by_group_anno, anno);
+        sprintf(tmp, "@%s", ns->anno);
+    printf("TEST2 %2lu %2d %2d %2d %2d %s%s\n", lp->gid, ns->id_global,
+            ns->id_by_group, ns->id_by_anno, ns->id_by_group_anno, ns->lp_name,
+            tmp);
 }
 
 tw_lptype a_lp = {
-     (init_f) a_init,
+     (init_f) init,
      (event_f) NULL,
      (revent_f) NULL,
-     (final_f)  a_finalize, 
+     (final_f)  NULL,
      (map_f) codes_mapping,
-     sizeof(a_state),
+     sizeof(state),
 };
 tw_lptype b_lp = {
-     (init_f) b_init,
+     (init_f) init,
      (event_f) NULL,
      (revent_f) NULL,
-     (final_f)  b_finalize, 
+     (final_f) NULL,
      (map_f) codes_mapping,
-     sizeof(b_state),
+     sizeof(state),
 };
 tw_lptype c_lp = {
-     (init_f) c_init,
+     (init_f) init,
      (event_f) NULL,
      (revent_f) NULL,
-     (final_f)  c_finalize, 
+     (final_f) NULL,
      (map_f) codes_mapping,
-     sizeof(c_state),
+     sizeof(state),
 };
 
 static char conf_file_name[128] = {'\0'};
@@ -134,7 +163,6 @@ int main(int argc, char *argv[])
                 codes_mapping_get_lp_count(groups[g], 0, lps[l], NULL, 1),
                 groups[g], lps[l]);
         }
-
     }
 
     tw_run();

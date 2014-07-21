@@ -82,6 +82,28 @@ int codes_mapping_get_lp_relative_id(
         int     group_wise,
         int     annotation_wise);
 
+/* Calculates the ROSS global LP ID of an LP given the relative ID and LP type
+ * information
+ *
+ * relative_id     - LP id relative to set of "like" LPs
+ * group_name      - name of LP's group. If non-NULL, ID is considered local
+ *                   to that group. If NULL, then ID is considered across all
+ *                   groups
+ * lp_type_name    - name of the LP to look up. Must be provided
+ * annotation      - LP's annotation. If NULL, ID is considered among
+ *                   unannotated LPs
+ * annotation_wise - whether to consider ID across a specific annotation (using
+ *                   the annotation parameter) or all annotations (ignoring the
+ *                   annotation parameter)
+ */
+tw_lpid codes_mapping_get_lpid_from_relative(
+        int          relative_id,
+        const char * group_name,
+        const char * lp_type_name,
+        const char * annotation,
+        int          annotation_wise);
+
+
 /* Returns configuration group information for a given LP-id
  *
  * gid           - LP to look up

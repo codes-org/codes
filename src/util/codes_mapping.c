@@ -256,6 +256,86 @@ int codes_mapping_get_lp_relative_id(
     return (int) (group_lp_count + (lp_count * rep_id) + lp_pre_count + offset);
 }
 
+tw_lpid codes_mapping_get_lpid_from_relative(
+        int          relative_id,
+        const char * group_name,
+        const char * lp_type_name,
+        const char * annotation,
+        int          annotation_wise){
+    // strategy: count up all preceding LPs. When we reach a point where an LP
+    // type matches, count up the relative ID. When the accumulated relative ID
+    // matches or surpasses the input, then we've found our LP
+    int rel_id_count = 0;
+    tw_lpid gid_count = 0;
+    for (int g = 0; g < lpconf.lpgroups_count; g++){
+        config_lpgroup_t *lpg = &lpconf.lpgroups[g];
+        if (group_name == NULL || strcmp(group_name, lpg->name) == 0){
+            // consider this group for counting
+            tw_lpid local_gid_count = 0;
+            int local_rel_id_count = 0;
+            for (int l = 0; l < lpg->lptypes_count; l++){
+                config_lptype_t *lpt = &lpg->lptypes[l];
+                local_gid_count += lpt->count;
+                if (strcmp(lp_type_name, lpt->name) == 0 &&
+                        (!annotation_wise || cmp_anno(annotation, lpt->anno))){
+                    local_rel_id_count += lpt->count;
+                }
+            }
+            // is our relative id within this group? 
+            if (relative_id < rel_id_count + 
+                    lpg->repetitions * local_rel_id_count){
+                tw_lpid gid = gid_count;
+                int rem = relative_id - rel_id_count;
+                int rep = rem / local_rel_id_count;
+                rem -= (rep * local_rel_id_count);
+                gid += local_gid_count * rep;
+                // count up lps listed prior to this entry
+                for (int l = 0; l < lpg->lptypes_count; l++){
+                    config_lptype_t *lpt = &lpg->lptypes[l];
+                    if (    strcmp(lp_type_name, lpt->name) == 0 &&
+                            (!annotation_wise || 
+                            cmp_anno(annotation, lpt->anno))){
+                        if (rem < (int) lpt->count){
+                            return gid + (tw_lpid) rem;
+                        }
+                        else{
+                            rem -= lpt->count; 
+                        }
+                    }
+                    gid += lpt->count;
+                }
+                // this shouldn't happen
+                goto NOT_FOUND;
+            }
+            else if (group_name != NULL){
+                // immediate error - found the group, but not the id
+                goto NOT_FOUND;
+            }
+            else{
+                // increment and move to the next group
+                rel_id_count += local_rel_id_count * lpg->repetitions;
+                gid_count    += local_gid_count    * lpg->repetitions;
+            }
+        }
+        else{
+            // just count up the group LPs
+            tw_lpid local_gid_count = 0;
+            for (int l = 0; l < lpg->lptypes_count; l++){
+                local_gid_count += lpg->lptypes[l].count;
+            }
+            gid_count += local_gid_count * lpg->repetitions;  
+        }
+    }
+NOT_FOUND:
+    tw_error(TW_LOC, "Unable to find LP-ID for ID %d relative to group %s, "
+            "lp name %s, annotation %s",
+            relative_id,
+            group_name == NULL ? "(all)" : group_name,
+            lp_type_name,
+            annotation_wise ? annotation : "(all)");
+    return 0; // dummy return
+}
+
 void codes_mapping_get_lp_info(
         tw_lpid gid,
         char  * group_name,
