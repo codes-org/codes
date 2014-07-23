@@ -112,12 +112,12 @@ int codes_mapping_get_lp_count(
     if (group_name == NULL) 
         ignore_repetitions = 0;
     for (int g = 0; g < lpconf.lpgroups_count; g++){
-        config_lpgroup_t *lpg = &lpconf.lpgroups[g];
+        const config_lpgroup_t *lpg = &lpconf.lpgroups[g];
         // iterate over the lps if the group is null (count across all groups)
         // or if the group names match
         if (group_name == NULL || strcmp(lpg->name, group_name) == 0){
             for (int l = 0; l < lpg->lptypes_count; l++){
-                config_lptype_t *lpt = &lpg->lptypes[l];
+                const config_lptype_t *lpt = &lpg->lptypes[l];
                 if (strcmp(lp_type_name, lpt->name) == 0){
                     // increment the count if we are ignoring annotations,
                     // query and entry are both unannotated, or if the
@@ -151,7 +151,7 @@ void codes_mapping_get_lp_id(
     *gid = 0;
     // for each group
     for (int g = 0; g < lpconf.lpgroups_count; g++){
-        config_lpgroup_t *lpg = &lpconf.lpgroups[g];
+        const config_lpgroup_t *lpg = &lpconf.lpgroups[g];
         // in any case, count up the lps (need for repetition handling)
         tw_lpid rep_count = 0;
         for (int l = 0; l < lpg->lptypes_count; l++){
@@ -162,7 +162,7 @@ void codes_mapping_get_lp_id(
             tw_lpid local_rep_count = 0;
             // for each lp type
             for (int l = 0; l < lpg->lptypes_count; l++){
-                config_lptype_t *lpt = &lpg->lptypes[l];
+                const config_lptype_t *lpt = &lpg->lptypes[l];
                 // does lp name match?
                 if (strcmp(lpt->name, lp_type_name) == 0){
                     // does annotation match (or are we ignoring annotations?)
@@ -210,16 +210,16 @@ int codes_mapping_get_lp_relative_id(
     int group_index, lp_type_index, rep_id, offset;
     codes_mapping_get_lp_info(gid, NULL, &group_index,
             local_lp_name, &lp_type_index, local_annotation, &rep_id, &offset);
-    char * anno = (local_annotation[0]=='\0') ? NULL : local_annotation;
+    const char * anno = (local_annotation[0]=='\0') ? NULL : local_annotation;
 
     uint64_t group_lp_count = 0;
     // if not group_specific, then count up LPs of all preceding groups
     if (!group_wise){
         for (int g = 0; g < group_index; g++){
             uint64_t lp_count = 0;
-            config_lpgroup_t *lpg = &lpconf.lpgroups[g];
+            const config_lpgroup_t *lpg = &lpconf.lpgroups[g];
             for (int l = 0; l < lpg->lptypes_count; l++){
-                config_lptype_t *lpt = &lpg->lptypes[l];
+                const config_lptype_t *lpt = &lpg->lptypes[l];
                 if (strcmp(local_lp_name, lpt->name) == 0){
                     // increment the count if we are ignoring annotations,
                     // both LPs are unannotated, or if the annotations match
@@ -237,7 +237,7 @@ int codes_mapping_get_lp_relative_id(
     uint64_t lp_count = 0;
     uint64_t lp_pre_count = 0;
     for (int l = 0; l < lpconf.lpgroups[group_index].lptypes_count; l++){
-        config_lptype_t *lpt = &lpconf.lpgroups[group_index].lptypes[l];
+        const config_lptype_t *lpt = &lpconf.lpgroups[group_index].lptypes[l];
         if (strcmp(local_lp_name, lpt->name) == 0){
             if (!annotation_wise || cmp_anno(anno, lpt->anno)){
                 lp_count += lpt->count;
@@ -268,13 +268,13 @@ tw_lpid codes_mapping_get_lpid_from_relative(
     int rel_id_count = 0;
     tw_lpid gid_count = 0;
     for (int g = 0; g < lpconf.lpgroups_count; g++){
-        config_lpgroup_t *lpg = &lpconf.lpgroups[g];
+        const config_lpgroup_t *lpg = &lpconf.lpgroups[g];
         if (group_name == NULL || strcmp(group_name, lpg->name) == 0){
             // consider this group for counting
             tw_lpid local_gid_count = 0;
             int local_rel_id_count = 0;
             for (int l = 0; l < lpg->lptypes_count; l++){
-                config_lptype_t *lpt = &lpg->lptypes[l];
+                const config_lptype_t *lpt = &lpg->lptypes[l];
                 local_gid_count += lpt->count;
                 if (strcmp(lp_type_name, lpt->name) == 0 &&
                         (!annotation_wise || cmp_anno(annotation, lpt->anno))){
@@ -291,7 +291,7 @@ tw_lpid codes_mapping_get_lpid_from_relative(
                 gid += local_gid_count * rep;
                 // count up lps listed prior to this entry
                 for (int l = 0; l < lpg->lptypes_count; l++){
-                    config_lptype_t *lpt = &lpg->lptypes[l];
+                    const config_lptype_t *lpt = &lpg->lptypes[l];
                     if (    strcmp(lp_type_name, lpt->name) == 0 &&
                             (!annotation_wise ||
                             cmp_anno(annotation, lpt->anno))){
@@ -349,7 +349,7 @@ void codes_mapping_get_lp_info(
     tw_lpid id_total = 0;
     // for each group
     for (int g = 0; g < lpconf.lpgroups_count; g++){
-        config_lpgroup_t *lpg = &lpconf.lpgroups[g];
+        const config_lpgroup_t *lpg = &lpconf.lpgroups[g];
         tw_lpid num_id_group, num_id_per_rep = 0;
         // count up the number of ids in this group
         for (int l = 0; l < lpg->lptypes_count; l++){
@@ -367,7 +367,7 @@ void codes_mapping_get_lp_info(
             rem -=  num_id_per_rep * (tw_lpid)*rep_id;
             num_id_per_rep = 0;
             for (int l = 0; l < lpg->lptypes_count; l++){
-                config_lptype_t *lpt = &lpg->lptypes[l];
+                const config_lptype_t *lpt = &lpg->lptypes[l];
                 if (rem < num_id_per_rep + lpt->count){
                     // found the specific LP
                     if (lp_type_name != NULL)
@@ -473,11 +473,11 @@ const char* codes_mapping_get_annotation_by_name(
         const char * group_name,
         const char * lp_type_name){
     for (int g = 0; g < lpconf.lpgroups_count; g++){
-        config_lpgroup_t *lpg = &lpconf.lpgroups[g];
+        const config_lpgroup_t *lpg = &lpconf.lpgroups[g];
         if (strcmp(lpg->name, group_name) == 0){
             // group found, iterate through types
             for (int l = 0; l < lpg->lptypes_count; l++){
-                config_lptype_t *lpt = &lpg->lptypes[l];
+                const config_lptype_t *lpt = &lpg->lptypes[l];
                 if (strcmp(lpt->name, lp_type_name) == 0){
                     // type found, return the annotation
                     if (lpt->anno[0] == '\0')
