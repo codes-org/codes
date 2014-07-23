@@ -281,8 +281,8 @@ tw_lpid codes_mapping_get_lpid_from_relative(
                     local_rel_id_count += lpt->count;
                 }
             }
-            // is our relative id within this group? 
-            if (relative_id < rel_id_count + 
+            // is our relative id within this group?
+            if (relative_id < rel_id_count +
                     lpg->repetitions * local_rel_id_count){
                 tw_lpid gid = gid_count;
                 int rem = relative_id - rel_id_count;
@@ -293,13 +293,13 @@ tw_lpid codes_mapping_get_lpid_from_relative(
                 for (int l = 0; l < lpg->lptypes_count; l++){
                     config_lptype_t *lpt = &lpg->lptypes[l];
                     if (    strcmp(lp_type_name, lpt->name) == 0 &&
-                            (!annotation_wise || 
+                            (!annotation_wise ||
                             cmp_anno(annotation, lpt->anno))){
                         if (rem < (int) lpt->count){
                             return gid + (tw_lpid) rem;
                         }
                         else{
-                            rem -= lpt->count; 
+                            rem -= lpt->count;
                         }
                     }
                     gid += lpt->count;
@@ -323,7 +323,7 @@ tw_lpid codes_mapping_get_lpid_from_relative(
             for (int l = 0; l < lpg->lptypes_count; l++){
                 local_gid_count += lpg->lptypes[l].count;
             }
-            gid_count += local_gid_count * lpg->repetitions;  
+            gid_count += local_gid_count * lpg->repetitions;
         }
     }
 NOT_FOUND:

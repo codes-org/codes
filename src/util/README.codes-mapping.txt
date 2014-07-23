@@ -1,3 +1,6 @@
+Codes Mapping API Overview
+==========================
+
 - The codes-mapping.h header file contains the function definitions for the codes LP mapping.
 
 Step 1: Specifying the LP types in the config file:
@@ -56,13 +59,15 @@ file.
 
 codes_mapping_setup();
 
-Step 5: Querying number of LPs in a repetition
+Step 5: Querying number of LPs in a group/repetition.
 
-int codes_mapping_get_lp_count(group_name, lp_type_name);
+int codes_mapping_get_lp_count(group_name, 1, lp_type_name, NULL, 0);
 
-For example, to query the number of server LPs in example-test2.conf file, calling
+The second argument indicates whether to include the number of repetitions into
+the count or not (the NULL, 0 arguments will be discussed later). For example,
+to query the number of server LPs in example-test2.conf file, calling
 
-num_servers = codes_mapping_get_lp_count("MODELNET_GRP", "server");
+num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 1, "server", NULL, 0);
  
 will return 2.
 
@@ -85,3 +90,53 @@ second N to the second PE, and so forth, where N is the floor of the LP count
 and the PE count. If the number of LPs is not divisible by the number of PEs,
 then the first N+1 LPs are mapped to the first PE and so on, until the remainder
 has been taken care of.
+
+=== Namespaces supported by codes mapping API ===
+The configuration scheme suppports "annotation"-based specifications. For
+example:
+
+-------------------------------------------------------------------------------
+LPGROUPS
+{
+   GROUP_1
+   {
+      repetitions="16";
+      server@foo="1";
+      example_net@foo="1";
+   }
+
+   SWITCH
+   {
+      repetitions="1";
+      example_net@foo="1";
+      example_net@bar="1";
+   }
+
+   GROUP_2
+   {
+      repetitions="16";
+      server@bar="1";
+      example_net@bar="1";
+   }
+}
+
+PARAMS
+{
+   net_bandwidth@foo="100";
+   net_bandwidth@bar="50";
+}
+-------------------------------------------------------------------------------
+
+In this example, the example_net LP will be configured corresponding to their
+annotations "foo" and "bar". Not only does this allow specialization of
+otherwise identical models, this also presents the opportunity to provide
+namespace functionality to the mapping API.
+
+Current namespace support includes (see codes_mapping.h for more details)
+- Global (e.g., LPs). Additional specializations for doing lookups corresponding
+  to a specific annotation, to support use cases such as the two example_net's
+  in the SWITCH group.
+- LP-specific namespace (0..N) where N is the number of LPs of a specific type
+  (codes_mapping_get_lp_relative_id and codes_mapping_get_lpid_from_relative)
+  - relative IDs can be with respect to a particular group, a particular
+    annotation, both, or neither
