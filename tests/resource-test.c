@@ -15,6 +15,8 @@ static int bsize = 1024;
 
 static int s_magic = 12345;
 
+static uint64_t maxu64(uint64_t a, uint64_t b) { return a < b ? b : a; }
+
 enum s_type {
     S_KICKOFF,
     S_ALLOC_ACK,
@@ -59,7 +61,7 @@ static void s_event(s_state *ns, tw_bf *bf, s_msg *m, tw_lp *lp){
             if (m->c.ret == 0){
                 ns->mem += bsize;
                 m->mem_max_prev = ns->mem_max;
-                ns->mem_max = max(ns->mem, ns->mem_max);
+                ns->mem_max = maxu64(ns->mem, ns->mem_max);
                 msg_header h;
                 msg_set_header(s_magic, S_ALLOC_ACK, lp->gid, &h);
                 resource_lp_get(&h, bsize, 0, sizeof(s_msg), 
