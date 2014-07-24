@@ -31,6 +31,8 @@
 #define LP_CONFIG_NM (model_net_lp_config_names[TORUS])
 #define LP_METHOD_NM (model_net_method_names[TORUS])
 
+static double maxd(double a, double b) { return a < b ? b : a; }
+
 /* Torus network model implementation of codes, implements the modelnet API */
 
 /* Link bandwidth for each torus link, configurable from the config file */
@@ -811,7 +813,7 @@ static void credit_send( nodes_state * s,
     int src_dim = msg->source_dim;
 
     msg->saved_available_time = s->next_credit_available_time[(2 * src_dim) + src_dir][0];
-    s->next_credit_available_time[(2 * src_dim) + src_dir][0] = max(s->next_credit_available_time[(2 * src_dim) + src_dir][0], tw_now(lp));
+    s->next_credit_available_time[(2 * src_dim) + src_dir][0] = maxd(s->next_credit_available_time[(2 * src_dim) + src_dir][0], tw_now(lp));
     ts =  credit_delay + tw_rand_exponential(lp->rng, credit_delay/1000);
     s->next_credit_available_time[(2 * src_dim) + src_dir][0] += ts;
 
@@ -852,7 +854,7 @@ static void packet_send( nodes_state * s,
 //    For reverse computation 
       msg->saved_available_time = s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0];
 
-      s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] = max( s->next_link_available_time[ tmp_dir + ( tmp_dim * 2 )][0], tw_now(lp) );
+      s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] = maxd( s->next_link_available_time[ tmp_dir + ( tmp_dim * 2 )][0], tw_now(lp) );
       s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] += ts;
     
       //e = tw_event_new( dst_lp, s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] - tw_now(lp), lp );

@@ -36,6 +36,8 @@
 #define LP_CONFIG_NM (model_net_lp_config_names[DRAGONFLY])
 #define LP_METHOD_NM (model_net_method_names[DRAGONFLY])
 
+static double maxd(double a, double b) { return a < b ? b : a; }
+
 // arrival rate
 static double MEAN_INTERVAL=200.0;
 /* radix of a dragonfly router = number of global channels + number of
@@ -428,7 +430,7 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
    // Assume it takes 0.1 ns of serialization latency for processing the credits in the queue
     int output_port = msg->saved_vc / num_vcs;
     msg->saved_available_time = s->next_credit_available_time[output_port];
-    s->next_credit_available_time[output_port] = max(tw_now(lp), s->next_credit_available_time[output_port]);
+    s->next_credit_available_time[output_port] = maxd(tw_now(lp), s->next_credit_available_time[output_port]);
     ts = credit_delay + 0.1 + tw_rand_exponential(lp->rng, (double)credit_delay/1000);
 	
     s->next_credit_available_time[output_port]+=ts;
@@ -541,7 +543,7 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp *
    msg->saved_available_time = s->terminal_available_time;
    head_delay = (1/cn_bandwidth) * chunk_size;
    ts = head_delay + tw_rand_exponential(lp->rng, (double)head_delay/200);
-   s->terminal_available_time = max(s->terminal_available_time, tw_now(lp));
+   s->terminal_available_time = maxd(s->terminal_available_time, tw_now(lp));
    s->terminal_available_time += ts;
 
    //TODO: be annotation-aware
@@ -662,7 +664,7 @@ if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
   ts = credit_delay + 0.1 + tw_rand_exponential(lp->rng, credit_delay/1000);
   
   msg->saved_credit_time = s->next_credit_available_time;
-  s->next_credit_available_time = max(s->next_credit_available_time, tw_now(lp));
+  s->next_credit_available_time = maxd(s->next_credit_available_time, tw_now(lp));
   s->next_credit_available_time += ts;
 
   tw_lpid router_dest_id;
@@ -1292,7 +1294,7 @@ if( msg->packet_ID == TRACK && next_stop != msg->dest_terminal_id && msg->chunk_
   msg->saved_available_time = s->next_output_available_time[output_port];
   ts = g_tw_lookahead + 0.1 + ((1/bandwidth) * chunk_size) + tw_rand_exponential(lp->rng, (double)chunk_size/200);
 
-  s->next_output_available_time[output_port] = max(s->next_output_available_time[output_port], tw_now(lp));
+  s->next_output_available_time[output_port] = maxd(s->next_output_available_time[output_port], tw_now(lp));
   s->next_output_available_time[output_port] += ts;
   // dest can be a router or a terminal, so we must check
   void * m_data;
