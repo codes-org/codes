@@ -38,7 +38,7 @@ typedef struct config_anno_map_s
     char     lp_name[CONFIGURATION_MAX_NAME];
     // only explicit annotations tracked here - use a flag to indicate a
     // non-annotated LP type
-    uint64_t num_unanno_lps;
+    int has_unanno_lp;
     uint64_t num_annos;
     // maintain the number of lps that have the particular annotation 
     uint64_t num_anno_lps[CONFIGURATION_MAX_ANNOS];
@@ -222,6 +222,8 @@ int configuration_get_annotation_index(const char *              anno,
  * Forward reference to the configuration handle
  */
 extern ConfigHandle config;
+
+extern config_lpgroups_t lpconf;
 
 #endif
 

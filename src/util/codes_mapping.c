@@ -63,8 +63,6 @@ static int strcmp_anno(
 static char local_lp_name[MAX_NAME_LENGTH],
             local_annotation[MAX_NAME_LENGTH];
 
-config_lpgroups_t lpconf;
-
 int codes_mapping_get_lps_for_pe()
 {
     int rank;
@@ -444,8 +442,6 @@ void codes_mapping_setup()
 {
   int grp, lpt, message_size;
   int pes = tw_nnodes();
-
-  configuration_get_lpgroups(&config, "LPGROUPS", &lpconf);
 
   for (grp = 0; grp < lpconf.lpgroups_count; grp++)
    {

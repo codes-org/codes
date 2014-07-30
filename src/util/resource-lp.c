@@ -453,7 +453,7 @@ void resource_lp_configure(){
     // get the unannotated version
     long int avail;
     int ret;
-    if (anno_map->num_unanno_lps > 0){
+    if (anno_map->has_unanno_lp > 0){
         ret = configuration_get_value_longint(&config, RESOURCE_LP_NM,
             "available", NULL, &avail);
         if (ret){

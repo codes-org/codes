@@ -17,6 +17,9 @@
  */
 ConfigHandle config;
 
+/* Global to hold LP configuration */
+config_lpgroups_t lpconf;
+
 int configuration_load (const char *filepath,
                         MPI_Comm comm,
                         ConfigHandle *handle)
@@ -70,6 +73,9 @@ int configuration_load (const char *filepath,
     tmp_path = strdup(filepath);
     (*handle)->config_dir = strdup(dirname(tmp_path));
     free(tmp_path);
+
+    if (rc == 0)
+        configuration_get_lpgroups(handle, "LPGROUPS", &lpconf);
 
     return rc;
 }
@@ -267,7 +273,7 @@ static void check_add_anno(
         const char *anno,
         config_anno_map_t *map){
     if (anno[0] == '\0'){
-        map->num_unanno_lps++;
+        map->has_unanno_lp = 1;
     }
     else{
         uint64_t a = 0;
@@ -304,7 +310,7 @@ static void check_add_lp_type_anno(
         // initialize this annotation map
         strcpy(map->lp_name, lp_name);
         map->num_annos = 0;
-        map->num_unanno_lps = 0;
+        map->has_unanno_lp = 0;
         memset(map->num_anno_lps, 0, 
                 CONFIGURATION_MAX_ANNOS*sizeof(*map->num_anno_lps));
         check_add_anno(anno, map);

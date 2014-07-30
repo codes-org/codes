@@ -778,7 +778,7 @@ void lsm_configure(void)
     models_anno = malloc(anno_map->num_annos * sizeof(*models_anno));
 
     // read the configuration for unannotated entries 
-    if (anno_map->num_unanno_lps > 0){
+    if (anno_map->has_unanno_lp > 0){
         read_config(&config, NULL, &model_unanno);
     }
 
