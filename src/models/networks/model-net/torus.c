@@ -359,7 +359,7 @@ static void torus_init( nodes_state * s,
         s->params = &all_params[num_params-1];
     }
     else{
-        s->anno = anno;
+        s->anno = strdup(anno);
         int id = configuration_get_annotation_index(anno, anno_map);
         s->params = &all_params[id];
     }

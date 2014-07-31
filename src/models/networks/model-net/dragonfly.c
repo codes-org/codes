@@ -803,7 +803,7 @@ terminal_init( terminal_state * s,
         s->params = &all_params[num_params-1];
     }
     else{
-        s->anno = anno;
+        s->anno = strdup(anno);
         int id = configuration_get_annotation_index(anno, anno_map);
         s->params = &all_params[id];
     }
@@ -1517,7 +1517,7 @@ void router_setup(router_state * r, tw_lp * lp)
         r->params = &all_params[num_params-1];
     }
     else{
-        r->anno = anno;
+        r->anno = strdup(anno);
         int id = configuration_get_annotation_index(anno, anno_map);
         r->params = &all_params[id];
     }
