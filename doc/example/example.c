@@ -211,10 +211,22 @@ int main(
         return 1;
     }
 
+    /* register model-net LPs with ROSS */
+    model_net_register();
+
+    /* register the server LP type with ROSS */
+    svr_add_lp_type();
+
+    /* Setup takes the global config object, the registered LPs, and
+     * generates/places the LPs as specified in the configuration file.
+     * This should only be called after ALL LP types have been registered in 
+     * codes */
+    codes_mapping_setup();
+
     /* Setup the model-net parameters specified in the global config object,
      * returned are the identifier(s) for the network type. In this example, we
      * only expect one*/
-    net_ids = model_net_set_params(&num_nets);
+    net_ids = model_net_configure(&num_nets);
     assert(num_nets==1);
     net_id = *net_ids;
     free(net_ids);
@@ -227,16 +239,6 @@ int main(
 	    MPI_Finalize();
 	    return 0;
     }
-
-    /* register the server LP type with codes-base 
-     * (model-net LP type is registered internally in model_net_set_params() */
-    svr_add_lp_type();
-    
-    /* Setup takes the global config object, the registered LPs, and 
-     * generates/places the LPs as specified in the configuration file. 
-     * This should only be called after ALL LP types have been registered in 
-     * codes */
-    codes_mapping_setup();
     
     /* calculate the number of servers in this simulation,
      * ignoring annotations */
