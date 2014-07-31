@@ -6,6 +6,7 @@
 
 #include <ross.h>
 #include <assert.h>
+#include <string.h>
 
 #include "codes/lp-io.h"
 #include "codes/codes_mapping.h"
@@ -18,7 +19,7 @@
 #define CHUNK_SIZE 32
 #define DEBUG 1
 #define MEAN_INTERVAL 100
-#define TRACE -1 
+#define TRACE -1
 
 /* collective specific parameters */
 #define TREE_DEGREE 4
@@ -35,22 +36,27 @@ static double maxd(double a, double b) { return a < b ? b : a; }
 
 /* Torus network model implementation of codes, implements the modelnet API */
 
-/* Link bandwidth for each torus link, configurable from the config file */
-static double link_bandwidth;
-/* buffer size of each torus link, configurable */
-static int buffer_size;
-/* number of virtual channels for each torus link, configurable */
-static int num_vc;
-/* number of torus dimensions, configurable */
-static int n_dims;
-/* length of each torus dimension, configurable */
-static int * dim_length;
-/* factor, used in torus coordinate calculation */
-static int * factor;
-/* half length of each dimension, used in torus coordinates calculation */
-static int * half_length;
-/* size of each torus chunk, by default it is set to 32 */
-static int chunk_size;
+typedef struct torus_param torus_param;
+struct torus_param
+{
+    int n_dims; /*Dimension of the torus network, 5-D, 7-D or any other*/
+    int* dim_length; /*Length of each torus dimension*/
+    double link_bandwidth;/* bandwidth for each torus link */
+    int buffer_size; /* number of buffer slots for each vc in flits*/
+    int num_vc; /* number of virtual channels for each torus link */
+    float mean_process;/* mean process time for each flit  */
+    int chunk_size; /* chunk is the smallest unit--default set to 32 */
+
+    /* "derived" torus parameters */
+
+    /* factor, used in torus coordinate calculation */
+    int * factor;
+    /* half length of each dimension, used in torus coordinates calculation */
+    int * half_length;
+
+    double head_delay;
+    double credit_delay;
+};
 
 /* codes mapping group name, lp type name */
 static char grp_name[MAX_NAME_LENGTH];
@@ -62,17 +68,16 @@ static tw_stime         total_time = 0;
 static tw_stime         max_latency = 0;
 static tw_stime         max_collective = 0;
 
-/* indicates delays calculated through the bandwidth calculation of the torus link */
-static float head_delay=0.0;
-static float credit_delay = 0.0;
-
 /* number of finished packets on each PE */
 static long long       N_finished_packets = 0;
 /* total number of hops traversed by a message on each PE */
 static long long       total_hops = 0;
 
-/* number of chunks/flits in each torus packet, calculated through the size of each flit (32 bytes by default) */
-static uint64_t num_chunks;
+/* annotation-specific parameters (unannotated entry occurs at the 
+ * last index) */
+static uint64_t                  num_params = 0;
+static torus_param             * all_params = NULL;
+static const config_anno_map_t * anno_map   = NULL;
 
 typedef struct nodes_state nodes_state;
 
@@ -123,29 +128,110 @@ struct nodes_state
    /* to maintain a count of child nodes that have fanned in at the parent during the collective
       fan-in phase*/
    int num_fan_nodes;
+
+   /* LPs annotation */
+   const char * anno;
+   /* LPs configuration */
+   const torus_param * params;
 };
 
-/* setup the torus model, initialize global parameters */
-static void torus_setup(const void* net_params)
-{
+static void torus_read_config(
+        const char         * anno,
+        torus_param        * params){
+    char dim_length_str[MAX_NAME_LENGTH];
     int i;
-    torus_param* t_param = (torus_param*)net_params;
-    n_dims = t_param->n_dims;
-    link_bandwidth = t_param->link_bandwidth;
-    buffer_size = t_param->buffer_size;
-    num_vc = t_param->num_vc;
-    chunk_size = t_param->chunk_size;
-    head_delay = (1 / link_bandwidth) * chunk_size;
-    credit_delay = (1 / link_bandwidth) * 8;
-    dim_length = malloc(n_dims * sizeof(int));
-    factor = malloc(n_dims * sizeof(int));
-    half_length = malloc(n_dims * sizeof(int));
-   
-    for(i = 0; i < n_dims; i++)
+
+    // shorthand
+    torus_param *p = params;
+
+    configuration_get_value_int(&config, "PARAMS", "n_dims", anno, &p->n_dims);
+    if(!p->n_dims) {
+        p->n_dims = 4; /* a 4-D torus */
+        fprintf(stderr, 
+                "Warning: Number of dimensions not specified, setting to %d\n",
+                p->n_dims);
+    }
+
+    configuration_get_value_double(&config, "PARAMS", "link_bandwidth", anno,
+            &p->link_bandwidth);
+    if(!p->link_bandwidth) {
+        p->link_bandwidth = 2.0; /*default bg/q configuration */
+        fprintf(stderr, "Link bandwidth not specified, setting to %lf\n",
+                p->link_bandwidth);
+    }
+
+    configuration_get_value_int(&config, "PARAMS", "buffer_size", anno, &p->buffer_size);
+    if(!p->buffer_size) {
+        p->buffer_size = 2048;
+        fprintf(stderr, "Buffer size not specified, setting to %d",
+                p->buffer_size);
+    }
+
+    configuration_get_value_int(&config, "PARAMS", "chunk_size", anno, &p->chunk_size);
+    if(!p->chunk_size) {
+        p->chunk_size = 32;
+        fprintf(stderr, "Warning: Chunk size not specified, setting to %d\n",
+                p->chunk_size);
+    }
+    configuration_get_value_int(&config, "PARAMS", "num_vc", anno, &p->num_vc);
+    if(!p->num_vc) {
+        /* by default, we have one for taking packets,
+         * another for taking credit*/
+        p->num_vc = 1;
+        fprintf(stderr, "Warning: num_vc not specified, setting to %d\n",
+                p->num_vc);
+    }
+
+    int rc = configuration_get_value(&config, "PARAMS", "dim_length", anno,
+            dim_length_str, MAX_NAME_LENGTH);
+    if (rc == 0){
+        tw_error(TW_LOC, "couldn't read PARAMS:dim_length");
+    }
+    char* token;
+    p->dim_length=malloc(p->n_dims*sizeof(*p->dim_length));
+    token = strtok(dim_length_str, ",");
+    i = 0;
+    while(token != NULL)
     {
-       dim_length[i] = t_param->dim_length[i]; 
-       if(!dim_length[i])
-	       dim_length[i] = 8;
+        sscanf(token, "%d", &p->dim_length[i]);
+        if(p->dim_length[i] <= 0)
+        {
+            tw_error(TW_LOC, "Invalid torus dimension specified "
+                    "(%d at pos %d), exiting... ", p->dim_length[i], i);
+        }
+        i++;
+        token = strtok(NULL,",");
+    }
+
+    // create derived parameters
+   
+    // factor is an exclusive prefix product
+    p->factor = malloc(p->n_dims * sizeof(int));
+    p->factor[0] = 1;
+    for(i = 1; i < p->n_dims; i++)
+        p->factor[i] = p->factor[i-1] * p->dim_length[i-1];
+
+    p->half_length = malloc(p->n_dims * sizeof(int));
+    for (i = 0; i < p->n_dims; i++)
+        p->half_length[i] = p->dim_length[i] / 2;
+
+    // some latency numbers
+    p->head_delay = (1.0 / p->link_bandwidth) * p->chunk_size;
+    p->credit_delay = (1.0 / p->link_bandwidth) * p->chunk_size;
+}
+
+static void torus_configure(){
+    anno_map = codes_mapping_get_lp_anno_map(LP_CONFIG_NM);
+    assert(anno_map);
+    num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
+    all_params = malloc(num_params * sizeof(*all_params));
+
+    for (uint64_t i = 0; i < anno_map->num_annos; i++){
+        const char * anno = anno_map->annotations[i];
+        torus_read_config(anno, &all_params[i]);
+    }
+    if (anno_map->has_unanno_lp > 0){
+        torus_read_config(NULL, &all_params[anno_map->num_annos]);
     }
 }
 
@@ -154,7 +240,7 @@ void torus_collective_init(nodes_state * s,
 {
     // TODO: be annotation-aware somehow 
     codes_mapping_get_lp_info(lp->gid, grp_name, &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-    int num_lps = codes_mapping_get_lp_count(grp_name, 1, LP_CONFIG_NM, NULL, 1);
+    int num_lps = codes_mapping_get_lp_count(grp_name, 1, LP_CONFIG_NM, s->anno, 0);
     int num_reps = codes_mapping_get_group_reps(grp_name);
     s->node_id = (mapping_rep_id * num_lps) + mapping_offset;
 
@@ -223,17 +309,8 @@ static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, uint64
     tw_event * e_new;
     tw_stime xfer_to_nic_time;
     nodes_message * msg;
-    tw_lpid dest_nic_id;
     char* tmp_ptr;
    
-    int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
-    // TODO: be annotation-aware
-    codes_mapping_get_lp_info(final_dest_lp, grp_name, &mapping_grp_id, NULL,
-            &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, NULL, 1, mapping_rep_id,
-            mapping_offset, &dest_nic_id);
-
-    /* TODO: Should send the packets in correct sequence. Currently the last packet is being sent first due to codes_local_latency offset. */
     xfer_to_nic_time = g_tw_lookahead + codes_local_latency(sender); /* Throws an error of found last KP time > current event time otherwise */
     //e_new = tw_event_new(local_nic_id, xfer_to_nic_time+offset, sender);
     //msg = tw_event_data(e_new);
@@ -241,7 +318,6 @@ static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, uint64
             sender, TORUS, (void**)&msg, (void**)&tmp_ptr);
     strcpy(msg->category, category);
     msg->final_dest_gid = final_dest_lp;
-    msg->dest_lp = dest_nic_id;
     msg->sender_svr= src_lp;
     msg->packet_size = packet_size;
     msg->remote_event_size_bytes = 0;
@@ -250,13 +326,6 @@ static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, uint64
     msg->is_pull = is_pull;
     msg->pull_size = pull_size;
     
-    num_chunks = msg->packet_size/chunk_size;
-
-    if(msg->packet_size % chunk_size)
-    {
-	    num_chunks++;
-    }
-
     if(is_last_pckt) /* Its the last packet so pass in remote event information*/
      {
 	if(remote_event_size > 0)
@@ -282,90 +351,101 @@ static void torus_init( nodes_state * s,
 	   tw_lp * lp )
 {
     int i, j;
-    int dim_N[ n_dims + 1 ];
+    char anno[MAX_NAME_LENGTH];
 
-    // TODO: be annotation-aware 
-    codes_mapping_get_lp_info(lp->gid, grp_name, &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+    codes_mapping_get_lp_info(lp->gid, grp_name, &mapping_grp_id, NULL, &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
+    if (anno[0] == '\0'){
+        s->anno = NULL;
+        s->params = &all_params[num_params-1];
+    }
+    else{
+        s->anno = anno;
+        int id = configuration_get_annotation_index(anno, anno_map);
+        s->params = &all_params[id];
+    }
+    int dim_N[ s->params->n_dims + 1 ];
+
+    // shorthand
+    const torus_param *p = s->params;
 
     dim_N[ 0 ]=mapping_rep_id + mapping_offset;
 
-    s->neighbour_minus_lpID = (int*)malloc(n_dims * sizeof(int));
-    s->neighbour_plus_lpID = (int*)malloc(n_dims * sizeof(int));
-    s->dim_position = (int*)malloc(n_dims * sizeof(int));
-    s->buffer = (int**)malloc(2*n_dims * sizeof(int*));
-    s->next_link_available_time = (tw_stime**)malloc(2*n_dims * sizeof(tw_stime*));
-    s->next_credit_available_time = (tw_stime**)malloc(2*n_dims * sizeof(tw_stime*));
-    s->next_flit_generate_time = (tw_stime**)malloc(2*n_dims*sizeof(tw_stime*));
+    s->neighbour_minus_lpID = (int*)malloc(p->n_dims * sizeof(int));
+    s->neighbour_plus_lpID = (int*)malloc(p->n_dims * sizeof(int));
+    s->dim_position = (int*)malloc(p->n_dims * sizeof(int));
+    s->buffer = (int**)malloc(2*p->n_dims * sizeof(int*));
+    s->next_link_available_time = 
+        (tw_stime**)malloc(2*p->n_dims * sizeof(tw_stime*));
+    s->next_credit_available_time = 
+        (tw_stime**)malloc(2*p->n_dims * sizeof(tw_stime*));
+    s->next_flit_generate_time = 
+        (tw_stime**)malloc(2*p->n_dims*sizeof(tw_stime*));
 
-    for(i=0; i < 2*n_dims; i++)
+    for(i=0; i < 2*p->n_dims; i++)
     {
-	s->buffer[i] = (int*)malloc(num_vc * sizeof(int));
-	s->next_link_available_time[i] = (tw_stime*)malloc(num_vc * sizeof(tw_stime));
-	s->next_credit_available_time[i] = (tw_stime*)malloc(num_vc * sizeof(tw_stime));
-	s->next_flit_generate_time[i] = (tw_stime*)malloc(num_vc * sizeof(tw_stime));
+	s->buffer[i] = (int*)malloc(p->num_vc * sizeof(int));
+	s->next_link_available_time[i] =
+            (tw_stime*)malloc(p->num_vc * sizeof(tw_stime));
+	s->next_credit_available_time[i] = 
+            (tw_stime*)malloc(p->num_vc * sizeof(tw_stime));
+	s->next_flit_generate_time[i] = 
+            (tw_stime*)malloc(p->num_vc * sizeof(tw_stime));
     }
 
     //printf("\n LP ID %d ", (int)lp->gid);
   // calculate my torus co-ordinates
-  for ( i=0; i < n_dims; i++ ) 
+  for ( i=0; i < p->n_dims; i++ )
     {
-      s->dim_position[ i ] = dim_N[ i ]%dim_length[ i ];
+      s->dim_position[i] = dim_N[i]%p->dim_length[i];
       //printf(" dim position %d ", s->dim_position[i]);
-      dim_N[ i + 1 ] = ( dim_N[ i ] - s->dim_position[ i ] )/dim_length[ i ];
-
-      half_length[ i ] = dim_length[ i ] / 2;
+      dim_N[i + 1] = ( dim_N[i] - s->dim_position[i] )/p->dim_length[i];
     }
    //printf("\n");
 
-  factor[ 0 ] = 1;
-  for ( i=1; i < n_dims; i++ )
-    {
-      factor[ i ] = 1;
-      for ( j = 0; j < i; j++ )
-        factor[ i ] *= dim_length[ j ];
-    }
-  int temp_dim_pos[ n_dims ];
-  for ( i = 0; i < n_dims; i++ )
+  int temp_dim_pos[ p->n_dims ];
+  for ( i = 0; i < p->n_dims; i++ )
     temp_dim_pos[ i ] = s->dim_position[ i ];
 
   tw_lpid neighbor_id;
   // calculate minus neighbour's lpID
-  for ( j = 0; j < n_dims; j++ )
+  for ( j = 0; j < p->n_dims; j++ )
     {
-      temp_dim_pos[ j ] = (s->dim_position[ j ] -1 + dim_length[ j ]) % dim_length[ j ];
+      temp_dim_pos[ j ] = (s->dim_position[ j ] -1 + p->dim_length[ j ]) %
+          p->dim_length[ j ];
 
       s->neighbour_minus_lpID[ j ] = 0;
       
-      for ( i = 0; i < n_dims; i++ )
-        s->neighbour_minus_lpID[ j ] += factor[ i ] * temp_dim_pos[ i ];
+      for ( i = 0; i < p->n_dims; i++ )
+        s->neighbour_minus_lpID[ j ] += p->factor[ i ] * temp_dim_pos[ i ];
       
-      codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, NULL, 1,
+      codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->anno, 0,
               s->neighbour_minus_lpID[ j ], 0, &neighbor_id);
-      //printf("\n neighbor %d lp id %d ", (int)s->neighbour_minus_lpID[ j ], (int)neighbor_id);
+      //printf("\n minus neighbor %d lp id %d ", (int)s->neighbour_minus_lpID[ j ], (int)neighbor_id);
       
       temp_dim_pos[ j ] = s->dim_position[ j ];
     }
   // calculate plus neighbour's lpID
-  for ( j = 0; j < n_dims; j++ )
+  for ( j = 0; j < p->n_dims; j++ )
     {
-      temp_dim_pos[ j ] = ( s->dim_position[ j ] + 1 + dim_length[ j ]) % dim_length[ j ];
+      temp_dim_pos[ j ] = ( s->dim_position[ j ] + 1 + p->dim_length[ j ]) %
+          p->dim_length[ j ];
 
       s->neighbour_plus_lpID[ j ] = 0;
       
-      for ( i = 0; i < n_dims; i++ )
-        s->neighbour_plus_lpID[ j ] += factor[ i ] * temp_dim_pos[ i ];
+      for ( i = 0; i < s->params->n_dims; i++ )
+        s->neighbour_plus_lpID[ j ] += p->factor[ i ] * temp_dim_pos[ i ];
 
-      codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, NULL, 1,
+      codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->anno, 0,
               s->neighbour_plus_lpID[ j ], 0, &neighbor_id);
-      //printf("\n neighbor %d lp id %d ", (int)s->neighbour_plus_lpID[ j ], (int)neighbor_id);
+      //printf("\n plus neighbor %d lp id %d ", (int)s->neighbour_plus_lpID[ j ], (int)neighbor_id);
       
       temp_dim_pos[ j ] = s->dim_position[ j ];
     }
 
   //printf("\n");
-  for( j=0; j < 2 * n_dims; j++ )
+  for( j=0; j < 2 * p->n_dims; j++ )
    {
-    for( i = 0; i < num_vc; i++ )
+    for( i = 0; i < p->num_vc; i++ )
      {
        s->buffer[ j ][ i ] = 0; 
        s->next_link_available_time[ j ][ i ] = 0.0;
@@ -433,7 +513,7 @@ static void send_remote_event(nodes_state * s,
             tw_event* e;
             tw_stime ts;
             nodes_message * m;
-            ts = (1/link_bandwidth) * msg->remote_event_size_bytes;
+            ts = (1/s->params->link_bandwidth) * msg->remote_event_size_bytes;
             e = codes_event_new(s->origin_svr, ts, lp);
             m = tw_event_data(e);
             char* tmp_ptr = (char*)msg;
@@ -654,8 +734,8 @@ static void dimension_order_routing( nodes_state * s,
 			     int * dim, 
 			     int * dir )
 {
-  int dim_N[n_dims], 
-      dest[n_dims],
+  int dim_N[s->params->n_dims], 
+      dest[s->params->n_dims],
       i,
       dest_id=0;
 
@@ -664,36 +744,38 @@ static void dimension_order_routing( nodes_state * s,
   dim_N[ 0 ]=mapping_rep_id + mapping_offset;
 
   // find destination dimensions using destination LP ID 
-  for ( i = 0; i < n_dims; i++ )
+  for ( i = 0; i < s->params->n_dims; i++ )
     {
-      dest[ i ] = dim_N[ i ] % dim_length[ i ];
-      dim_N[ i + 1 ] = ( dim_N[ i ] - dest[ i ] ) / dim_length[ i ];
+      dest[ i ] = dim_N[ i ] % s->params->dim_length[ i ];
+      dim_N[ i + 1 ] = ( dim_N[ i ] - dest[ i ] ) / s->params->dim_length[ i ];
     }
 
-  for( i = 0; i < n_dims; i++ )
+  for( i = 0; i < s->params->n_dims; i++ )
     {
-      if ( s->dim_position[ i ] - dest[ i ] > half_length[ i ] )
+      if ( s->dim_position[ i ] - dest[ i ] > s->params->half_length[ i ] )
 	{
 	  dest_id = s->neighbour_plus_lpID[ i ];
 	  *dim = i;
 	  *dir = 1;
 	  break;
 	}
-      if ( s->dim_position[ i ] - dest[ i ] < -half_length[ i ] )
+      if ( s->dim_position[ i ] - dest[ i ] < -s->params->half_length[ i ] )
 	{
 	  dest_id = s->neighbour_minus_lpID[ i ];
 	  *dim = i;
 	  *dir = 0;
 	  break;
 	}
-      if ( ( s->dim_position[ i ] - dest[ i ] <= half_length[ i ] ) && ( s->dim_position[ i ] - dest[ i ] > 0 ) )
+      if ( ( s->dim_position[i] - dest[i] <= s->params->half_length[i] ) &&
+              ( s->dim_position[ i ] - dest[ i ] > 0 ) )
 	{
 	  dest_id = s->neighbour_minus_lpID[ i ];
 	  *dim = i;
 	  *dir = 0;
 	  break;
 	}
-      if (( s->dim_position[ i ] - dest[ i ] >= -half_length[ i ] ) && ( s->dim_position[ i ] - dest[ i ] < 0) )
+      if (( s->dim_position[i] - dest[i] >= -s->params->half_length[i] ) &&
+              ( s->dim_position[ i ] - dest[ i ] < 0) )
 	{
 	  dest_id = s->neighbour_plus_lpID[ i ];
 	  *dim = i;
@@ -722,7 +804,17 @@ static void packet_generate( nodes_state * s,
     tw_event * e_h;
     nodes_message *m;
 
-    tw_lpid dst_lp = msg->dest_lp; 
+    int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
+    tw_lpid dst_lp;
+    // TODO: be annotation-aware
+    codes_mapping_get_lp_info(msg->final_dest_gid, grp_name, &mapping_grp_id, NULL,
+            &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+    codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->anno, 0, mapping_rep_id,
+            mapping_offset, &dst_lp);
+    // dest_lp gets included to other required msgs through memcpys, so just
+    // set here
+    msg->dest_lp = dst_lp;
+
     dimension_order_routing( s, &dst_lp, &tmp_dim, &tmp_dir );
 
     msg->saved_src_dim = tmp_dim;
@@ -733,6 +825,10 @@ static void packet_generate( nodes_state * s,
     msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
     msg->my_N_hop = 0;
 
+    uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
+    if(msg->packet_size % s->params->chunk_size)
+        num_chunks++;
+
 
     s->packet_counter++;
 
@@ -740,7 +836,7 @@ static void packet_generate( nodes_state * s,
 	    printf("\n packet generated %lld at lp %d dest %d final dest %d", msg->packet_ID, (int)lp->gid, (int)dst_lp, (int)msg->dest_lp);
     for(j = 0; j < num_chunks; j++)
     { 
-     if(s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ] < buffer_size)
+     if(s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ] < s->params->buffer_size)
       {
        ts = j + tw_rand_exponential(lp->rng, MEAN_INTERVAL/200);
        //s->next_flit_generate_time[(2*tmp_dim) + tmp_dir][0] = max(s->next_flit_generate_time[(2*tmp_dim) + tmp_dir][0], tw_now(lp));
@@ -790,7 +886,7 @@ static void packet_generate( nodes_state * s,
    stat = model_net_find_stats(msg->category, s->torus_stats_array);
    stat->send_count++;  
    stat->send_bytes += msg->packet_size;
-   stat->send_time += (1/link_bandwidth) * msg->packet_size;
+   stat->send_time += (1/s->params->link_bandwidth) * msg->packet_size;
    /* record the maximum ROSS event size */
    if(stat->max_event_size < total_event_size)
 	   stat->max_event_size = total_event_size;
@@ -802,8 +898,7 @@ static void credit_send( nodes_state * s,
 	    nodes_message * msg)
 {
 #if DEBUG
-//if(lp->gid == TRACK_LP)
-//	printf("\n (%lf) sending credit tmp_dir %d tmp_dim %d %lf ", tw_now(lp), msg->source_direction, msg->source_dim, credit_delay );
+    //printf("\n (%lf) sending credit tmp_dir %d tmp_dim %d %lf ", tw_now(lp), msg->source_direction, msg->source_dim, s->params->credit_delay );
 #endif
     bf->c1 = 0;
     tw_event * buf_e;
@@ -814,7 +909,8 @@ static void credit_send( nodes_state * s,
 
     msg->saved_available_time = s->next_credit_available_time[(2 * src_dim) + src_dir][0];
     s->next_credit_available_time[(2 * src_dim) + src_dir][0] = maxd(s->next_credit_available_time[(2 * src_dim) + src_dir][0], tw_now(lp));
-    ts =  credit_delay + tw_rand_exponential(lp->rng, credit_delay/1000);
+    ts =  s->params->credit_delay + 
+        tw_rand_exponential(lp->rng, s->params->credit_delay/1000);
     s->next_credit_available_time[(2 * src_dim) + src_dir][0] += ts;
 
     //buf_e = tw_event_new( msg->sender_lp, s->next_credit_available_time[(2 * src_dim) + src_dir][0] - tw_now(lp), lp);
@@ -844,12 +940,13 @@ static void packet_send( nodes_state * s,
     tw_lpid dst_lp = msg->dest_lp;
     dimension_order_routing( s, &dst_lp, &tmp_dim, &tmp_dir );     
 
-    if(s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ] < buffer_size)
+    if(s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ] < s->params->buffer_size)
     {
        bf->c2 = 1;
        msg->saved_src_dir = tmp_dir;
        msg->saved_src_dim = tmp_dim;
-       ts = tw_rand_exponential( lp->rng, ( double )head_delay/200 )+ head_delay;
+       ts = tw_rand_exponential( lp->rng, s->params->head_delay/200.0 ) + 
+           s->params->head_delay;
 
 //    For reverse computation 
       msg->saved_available_time = s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0];
@@ -884,6 +981,11 @@ static void packet_send( nodes_state * s,
 
       s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ]++;
     
+      uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
+
+      if(msg->packet_size % s->params->chunk_size)
+          num_chunks++;
+
       if(msg->chunk_id == num_chunks - 1)
       {
         bf->c1 = 1;
@@ -893,7 +995,7 @@ static void packet_send( nodes_state * s,
           tw_event* e_new;
 	  nodes_message* m_new;
 	  void* local_event;
-	  ts = (1/link_bandwidth) * msg->local_event_size_bytes;
+	  ts = (1/s->params->link_bandwidth) * msg->local_event_size_bytes;
 	  e_new = tw_event_new(msg->sender_svr, ts, lp);
 	  m_new = tw_event_data(e_new);
 	  //local_event = (char*)msg;
@@ -935,6 +1037,10 @@ static void packet_arrive( nodes_state * s,
 	  printf("\n packet arrived at lp %d final dest %d ", (int)lp->gid, (int)msg->dest_lp);
   if( lp->gid == msg->dest_lp )
     {   
+        uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
+        if(msg->packet_size % s->params->chunk_size)
+            num_chunks++;
+
         if( msg->chunk_id == num_chunks - 1 )    
         {
 	    bf->c2 = 1;
@@ -956,12 +1062,11 @@ static void packet_arrive( nodes_state * s,
 	    // Trigger an event on receiving server
 	    if(msg->remote_event_size_bytes)
 	    {
-	       ts = (1/link_bandwidth) * msg->remote_event_size_bytes;
                void *tmp_ptr = model_net_method_get_edata(TORUS, msg);
                if (msg->is_pull){
                    int net_id = model_net_get_id(LP_METHOD_NM);
                    model_net_event(net_id, msg->category, msg->sender_svr,
-                           msg->pull_size, ts, msg->remote_event_size_bytes,
+                           msg->pull_size, 0.0, msg->remote_event_size_bytes,
                            tmp_ptr, 0, NULL, lp);
                }
                else{
@@ -1017,7 +1122,12 @@ final( nodes_state * s, tw_lp * lp )
   free(s->next_link_available_time);
   free(s->next_credit_available_time);
   free(s->next_flit_generate_time);
-  free(s->buffer); 
+  // since all LPs are sharing params, just let them leak for now
+  // TODO: add a post-sim "cleanup" function?
+  //free(s->buffer); 
+  //free(s->params->dim_length);
+  //free(s->params->factor);
+  //free(s->params->half_length);
 }
 
 /* increments the buffer count after a credit arrives from the remote compute node */
@@ -1038,6 +1148,10 @@ static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw
 	 	     //saved_dim = msg->saved_src_dim;
 		     //saved_dir = msg->saved_src_dir;
 
+                     uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
+                     if(msg->packet_size % s->params->chunk_size)
+                         num_chunks++;
+
 		     //s->next_flit_generate_time[(saved_dim * 2) + saved_dir][0] = msg->saved_available_time;
 		     for(i=0; i < num_chunks; i++)
   		        tw_rand_reverse_unif(lp->rng);
@@ -1045,7 +1159,7 @@ static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw
 		     stat = model_net_find_stats(msg->category, s->torus_stats_array);
 		     stat->send_count--; 
 		     stat->send_bytes -= msg->packet_size;
-		     stat->send_time -= (1/link_bandwidth) * msg->packet_size;
+		     stat->send_time -= (1/s->params->link_bandwidth) * msg->packet_size;
 		   }
 	break;
 	
@@ -1055,6 +1169,9 @@ static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw
 		    tw_rand_reverse_unif(lp->rng);
 		    int next_dim = msg->source_dim;
 		    int next_dir = msg->source_direction;
+                    uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
+                    if(msg->packet_size % s->params->chunk_size)
+                        num_chunks++;
 
 		    s->next_credit_available_time[next_dir + ( next_dim * 2 )][0] = msg->saved_available_time;
 		    if(bf->c2)
@@ -1205,7 +1322,7 @@ static tw_lpid torus_find_local_device(tw_lp *sender)
 /* data structure for torus statistics */
 struct model_net_method torus_method =
 {
-   .mn_setup = torus_setup,
+   .mn_configure = torus_configure,
    .model_net_method_packet_event = torus_packet_event,
    .model_net_method_packet_event_rc = torus_packet_event_rc,
    .mn_get_lp_type = torus_get_lp_type,

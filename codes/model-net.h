@@ -24,7 +24,8 @@
  * messages as part of an event and expects FCFS ordering. A proper fix which
  * involves model-net LP-level scheduling of requests is ideal, but not 
  * feasible for now (would basically have to redesign model-net), so expose
- * explicit start-sequence and stop-sequence markers as a workaround */
+ * explicit start-sequence and stop-sequence markers as a workaround
+ */
 extern int in_sequence;
 extern tw_stime mn_msg_offset;
 #define MN_START_SEQ() do {\
@@ -36,11 +37,6 @@ extern tw_stime mn_msg_offset;
 } while (0)
 
 
-typedef struct simplenet_param simplenet_param;
-typedef struct simplewan_param simplewan_param;
-typedef struct dragonfly_param dragonfly_param;
-typedef struct torus_param torus_param;
-typedef struct loggp_param loggp_param;
 typedef struct mn_stats mn_stats;
 
 // use the X-macro to get types and names rolled up into one structure
@@ -93,53 +89,18 @@ struct mn_stats
     long max_event_size;
 };
 
-/* structs for initializing a network/ specifying network parameters */
-struct loggp_param
-{
-  char* net_config_file; /* file with loggp parameter table */
-};
+/* Registers all model-net LPs in ROSS. Should be called after 
+ * configuration_load, but before codes_mapping_setup */
+void model_net_register();
 
-/* structs for initializing a network/ specifying network parameters */
-struct simplenet_param
-{
-  double net_startup_ns; /*simplenet startup cost*/
-  double net_bw_mbps; /*Link bandwidth per byte*/
-  int num_nics;
-};
-
-struct simplewan_param
-{
-    char bw_filename[MAX_NAME_LENGTH];
-    char startup_filename[MAX_NAME_LENGTH];
-};
-
-struct dragonfly_param
-{
-  int num_routers; /*Number of routers in a group*/
-  double local_bandwidth;/* bandwidth of the router-router channels within a group */
-  double global_bandwidth;/* bandwidth of the inter-group router connections */
-  double cn_bandwidth;/* bandwidth of the compute node channels connected to routers */
-  int num_vcs; /* number of virtual channels */
-  int local_vc_size; /* buffer size of the router-router channels */
-  int global_vc_size; /* buffer size of the global channels */
-  int cn_vc_size; /* buffer size of the compute node channels */
-  short routing; /* minimal or non-minimal routing */
-  short chunk_size; /* full-sized packets are broken into smaller chunks.*/
-};
-
-struct torus_param
-{
-  int n_dims; /*Dimension of the torus network, 5-D, 7-D or any other*/
-  int* dim_length; /*Length of each torus dimension*/
-  double link_bandwidth;/* bandwidth for each torus link */
-  int buffer_size; /* number of buffer slots for each vc in flits*/
-  int num_vc; /* number of virtual channels for each torus link */
-  float mean_process;/* mean process time for each flit  */
-  int chunk_size; /* chunk is the smallest unit--default set to 32 */
-};
- /* In general we need to figure out how to pass configuration information to
- * the methods and we need to be able to calculate ross event message size.
- */
+/* Configures all model-net LPs based on the CODES configuration, and returns
+ * ids to address the different types by.
+ *
+ * id_count - the output number of networks
+ *
+ * return - the set of network IDs, indexed in the order given by the
+ * modelnet_order configuration parameter */
+int* model_net_configure(int *id_count);
 
 /* Initialize/configure the network(s) based on the CODES configuration.
  * returns an array of the network ids, indexed in the order given by the 

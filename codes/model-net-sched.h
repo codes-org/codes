@@ -30,10 +30,6 @@ enum sched_type {
 
 extern char * sched_names[];
 
-/// global for scheduler
-/// TODO: move away from using the global for when we have multiple networks
-extern enum sched_type mn_sched_type;
-
 /// scheduler decls
 
 typedef struct model_net_sched_s model_net_sched;

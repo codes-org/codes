@@ -23,6 +23,14 @@
 #define LP_CONFIG_NM (model_net_lp_config_names[SIMPLENET])
 #define LP_METHOD_NM (model_net_method_names[SIMPLENET])
 
+/* structs for initializing a network/ specifying network parameters */
+struct simplenet_param
+{
+  double net_startup_ns; /*simplenet startup cost*/
+  double net_bw_mbps; /*Link bandwidth per byte*/
+};
+typedef struct simplenet_param simplenet_param;
+
 /*Define simplenet data types and structs*/
 typedef struct sn_state sn_state;
 
@@ -31,25 +39,21 @@ struct sn_state
     /* next idle times for network card, both inbound and outbound */
     tw_stime net_send_next_idle;
     tw_stime net_recv_next_idle;
+    const char * anno;
+    simplenet_param params;
     struct mn_stats sn_stats_array[CATEGORY_MAX];
 };
 
-/* net startup cost, ns */
-static double global_net_startup_ns = 0;
-/* net bw, MB/s */
-static double global_net_bw_mbs = 0;
+/* annotation-specific parameters (unannotated entry occurs at the 
+ * last index) */
+static uint64_t                  num_params = 0;
+static simplenet_param         * all_params = NULL;
+static const config_anno_map_t * anno_map   = NULL;
 
 static int sn_magic = 0;
 
 /* returns a pointer to the lptype struct to use for simplenet LPs */
 static const tw_lptype* sn_get_lp_type(void);
-
-/* set model parameters:
- *
- * - net_startup_ns: network startup cost in ns.
- * - net_bs_mbs: network bandwidth in MiB/s (megabytes per second).
- */
-static void sn_set_params(double net_startup_ns, double net_bw_mbs);
 
 /* retrieve the size of the portion of the event struct that is consumed by
  * the simplenet module.  The caller should add this value to the size of
@@ -84,7 +88,7 @@ static void simple_net_collective_rc();
  */
 /* Modelnet interface events */
 /* sets up the simplenet parameters through modelnet interface */
-static void sn_setup(const void* net_params);
+static void sn_configure();
 
 /* Issues a simplenet packet event call */
 static tw_stime simplenet_packet_event(
@@ -112,7 +116,7 @@ static tw_lpid sn_find_local_device(tw_lp *sender);
 /* data structure for model-net statistics */
 struct model_net_method simplenet_method =
 {
-    .mn_setup = sn_setup,
+    .mn_configure = sn_configure,
     .model_net_method_packet_event = simplenet_packet_event,
     .model_net_method_packet_event_rc = simplenet_packet_event_rc,
     .mn_get_lp_type = sn_get_lp_type,
@@ -198,17 +202,6 @@ static void simple_net_collective_rc()
    return;
 }
 
-/* lets caller specify model parameters to use */
-static void sn_set_params(double net_startup_ns, double net_bw_mbs)
-{
-    assert(net_startup_ns > 0);
-    assert(net_bw_mbs > 0);
-    global_net_startup_ns = net_startup_ns;
-    global_net_bw_mbs = net_bw_mbs;
-    
-    return;
-}
-
 /* report network statistics */
 static void sn_report_stats()
 {
@@ -225,6 +218,14 @@ static void sn_init(
     /* all devices are idle to begin with */
     ns->net_send_next_idle = tw_now(lp);
     ns->net_recv_next_idle = tw_now(lp);
+
+    ns->anno = codes_mapping_get_annotation_by_lpid(lp->gid);
+    if (ns->anno == NULL)
+        ns->params = all_params[num_params-1];
+    else{
+        int id = configuration_get_annotation_index(ns->anno, anno_map);
+        ns->params = all_params[id];
+    }
 
     bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
     sn_magic = h1+h2;
@@ -349,7 +350,8 @@ static void handle_msg_ready_event(
     stat->recv_count++;
     stat->recv_bytes += m->net_msg_size_bytes;
     m->recv_time_saved = stat->recv_time;
-    stat->recv_time += rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
+    stat->recv_time += rate_to_ns(m->net_msg_size_bytes,
+            ns->params.net_bw_mbps);
 
     /* are we available to recv the msg? */
     /* were we available when the transmission was started? */
@@ -357,7 +359,8 @@ static void handle_msg_ready_event(
         recv_queue_time += ns->net_recv_next_idle - tw_now(lp);
 
     /* calculate transfer time based on msg size and bandwidth */
-    recv_queue_time += rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
+    recv_queue_time += rate_to_ns(m->net_msg_size_bytes,
+            ns->params.net_bw_mbps);
 
     /* bump up input queue idle time accordingly */
     m->net_recv_next_idle_saved = ns->net_recv_next_idle;
@@ -439,12 +442,13 @@ static void handle_msg_start_event(
     stat->send_count++;
     stat->send_bytes += m->net_msg_size_bytes;
     m->send_time_saved = stat->send_time;
-    stat->send_time += (global_net_startup_ns + rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs));
+    stat->send_time += (ns->params.net_startup_ns + rate_to_ns(m->net_msg_size_bytes,
+                ns->params.net_bw_mbps));
     if(stat->max_event_size < total_event_size)
         stat->max_event_size = total_event_size;
 
     /* calculate send time stamp */
-    send_queue_time = global_net_startup_ns; /* net msg startup cost */
+    send_queue_time = ns->params.net_startup_ns; /* net msg startup cost */
     /* bump up time if the NIC send queue isn't idle right now */
     if(ns->net_send_next_idle > tw_now(lp))
         send_queue_time += ns->net_send_next_idle - tw_now(lp);
@@ -454,14 +458,14 @@ static void handle_msg_start_event(
      */ 
     m->net_send_next_idle_saved = ns->net_send_next_idle;
     ns->net_send_next_idle = send_queue_time + tw_now(lp) +
-        rate_to_ns(m->net_msg_size_bytes, global_net_bw_mbs);
+        rate_to_ns(m->net_msg_size_bytes, ns->params.net_bw_mbps);
 
 
     /* create new event to send msg to receiving NIC */
     // TODO: don't ignore annotations
     codes_mapping_get_lp_info(m->final_dest_gid, lp_group_name, &dummy, NULL,
             &dummy, NULL, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, ns->anno, 0,
             mapping_rep_id, mapping_offset, &dest_id); 
 
 //    printf("\n msg start sending to %d ", dest_id);
@@ -569,10 +573,43 @@ static tw_stime simplenet_packet_event(
      return xfer_to_nic_time;
 }
 
-static void sn_setup(const void* net_params)
+static void sn_configure()
 {
-  simplenet_param* sn_param = (simplenet_param*)net_params;
-  sn_set_params(sn_param->net_startup_ns, sn_param->net_bw_mbps); 
+    anno_map = codes_mapping_get_lp_anno_map(LP_CONFIG_NM);
+    assert(anno_map);
+    num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
+    all_params = malloc(num_params * sizeof(*all_params));
+    for (uint64_t i = 0; i < anno_map->num_annos; i++){
+        const char * anno = anno_map->annotations[i];
+        int rc;
+        rc = configuration_get_value_double(&config, "PARAMS",
+                "net_startup_ns", anno, &all_params[i].net_startup_ns);
+        if (rc != 0){
+            tw_error(TW_LOC,
+                    "simplenet: unable to read PARAMS:net_startup_ns@%s",
+                    anno);
+        }
+        rc = configuration_get_value_double(&config, "PARAMS", "net_bw_mbps",
+                anno, &all_params[i].net_bw_mbps);
+        if (rc != 0){
+            tw_error(TW_LOC, "simplenet: unable to read PARAMS:net_bw_mbps@%s",
+                    anno);
+        }
+    }
+    if (anno_map->has_unanno_lp > 0){
+        int rc;
+        rc = configuration_get_value_double(&config, "PARAMS",
+                "net_startup_ns", NULL,
+                &all_params[num_params-1].net_startup_ns);
+        if (rc != 0){
+            tw_error(TW_LOC, "simplenet: unable to read PARAMS:net_startup_ns");
+        }
+        rc = configuration_get_value_double(&config, "PARAMS", "net_bw_mbps",
+                NULL, &all_params[num_params-1].net_bw_mbps);
+        if (rc != 0){
+            tw_error(TW_LOC, "simplenet: unable to read PARAMS:net_bw_mbps");
+        }
+    }
 }
 
 static void simplenet_packet_event_rc(tw_lp *sender)

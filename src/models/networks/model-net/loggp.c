@@ -26,15 +26,6 @@
 /*Define loggp data types and structs*/
 typedef struct loggp_state loggp_state;
 
-
-struct loggp_state
-{
-    /* next idle times for network card, both inbound and outbound */
-    tw_stime net_send_next_idle;
-    tw_stime net_recv_next_idle;
-    struct mn_stats loggp_stats_array[CATEGORY_MAX];
-};
-
 /* loggp parameters for a given msg size, as reported by netgauge */
 struct param_table_entry
 {
@@ -50,8 +41,32 @@ struct param_table_entry
     double G;
     double lsqu_gG;
 };
-struct param_table_entry param_table[100];
-static int param_table_size = 0;
+typedef struct param_table_entry param_table_entry;
+
+typedef struct loggp_param loggp_param;
+// loggp parameters
+struct loggp_param
+{
+    int table_size;
+    param_table_entry table[100];
+};
+
+
+struct loggp_state
+{
+    /* next idle times for network card, both inbound and outbound */
+    tw_stime net_send_next_idle;
+    tw_stime net_recv_next_idle;
+    const char * anno;
+    const loggp_param *params;
+    struct mn_stats loggp_stats_array[CATEGORY_MAX];
+};
+
+/* annotation-specific parameters (unannotated entry occurs at the 
+ * last index) */
+static uint64_t                  num_params = 0;
+static loggp_param             * all_params = NULL;
+static const config_anno_map_t * anno_map   = NULL;
 
 static int loggp_magic = 0;
 
@@ -73,21 +88,11 @@ static void loggp_collective();
 /* collective network calls-- rc */
 static void loggp_collective_rc();
 
-/* allocate a new event that will pass through loggp to arriave at its
- * destination:
- *
- * - category: category name to associate with this communication
- * - final_dest_gid: the LP that the message should be delivered to.
- * - event_size_bytes: size of event msg that will be delivered to
- * final_dest_gid.
- * - local_event_size_byte: size of event message that will delivered to
- *   local LP upon local send comletion (set to 0 if not used)
- * - net_msg_size_bytes: size of simulated network message in bytes.
- * - sender: LP calling this function.
- */
 /* Modelnet interface events */
 /* sets up the loggp parameters through modelnet interface */
-static void loggp_setup(const void* net_params);
+static void loggp_configure();
+
+static void loggp_set_params(const char * config_file, loggp_param * params);
 
 /* Issues a loggp packet event call */
 static tw_stime loggp_packet_event(
@@ -112,12 +117,14 @@ static void loggp_report_stats();
 
 static tw_lpid loggp_find_local_device(tw_lp *sender);
 
-static struct param_table_entry* find_params(uint64_t msg_size);
+static const struct param_table_entry* find_params(
+        uint64_t msg_size,
+        const loggp_param *params);
 
 /* data structure for model-net statistics */
 struct model_net_method loggp_method =
 {
-    .mn_setup = loggp_setup,
+    .mn_configure = loggp_configure,
     .model_net_method_packet_event = loggp_packet_event,
     .model_net_method_packet_event_rc = loggp_packet_event_rc,
     .mn_get_lp_type = loggp_get_lp_type,
@@ -219,6 +226,14 @@ static void loggp_init(
     /* all devices are idle to begin with */
     ns->net_send_next_idle = tw_now(lp);
     ns->net_recv_next_idle = tw_now(lp);
+
+    ns->anno = codes_mapping_get_annotation_by_lpid(lp->gid);
+    if (ns->anno == NULL)
+        ns->params = &all_params[num_params-1];
+    else{
+        int id = configuration_get_annotation_index(ns->anno, anno_map);
+        ns->params = &all_params[id];
+    }
 
     bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
     loggp_magic = h1+h2;
@@ -324,9 +339,9 @@ static void handle_msg_ready_event(
     loggp_message *m_new;
     struct mn_stats* stat;
     double recv_time;
-    struct param_table_entry *param;
+    const struct param_table_entry *param;
 
-    param = find_params(m->net_msg_size_bytes);
+    param = find_params(m->net_msg_size_bytes, ns->params);
 
     recv_time = ((double)(m->net_msg_size_bytes-1)*param->G);
     /* scale to nanoseconds */
@@ -420,9 +435,9 @@ static void handle_msg_start_event(
     char lp_group_name[MAX_NAME_LENGTH];
     int total_event_size;
     double xmit_time;
-    struct param_table_entry *param;
+    const struct param_table_entry *param;
 
-    param = find_params(m->net_msg_size_bytes);
+    param = find_params(m->net_msg_size_bytes, ns->params);
 
     total_event_size = model_net_get_msg_sz(LOGGP) + m->event_size_bytes +
         m->local_event_size_bytes;
@@ -465,7 +480,7 @@ static void handle_msg_start_event(
     // TODO: make annotation-aware
     codes_mapping_get_lp_info(m->final_dest_gid, lp_group_name, &mapping_grp_id,
             NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, ns->anno, 0,
             mapping_rep_id, mapping_offset, &dest_id); 
 
     void *m_data;
@@ -574,52 +589,76 @@ static tw_stime loggp_packet_event(
      return xfer_to_nic_time;
 }
 
-static void loggp_setup(const void* net_params)
-{
-    loggp_param* loggp_params = (loggp_param*)net_params;
+static void loggp_configure(){
+    char config_file[MAX_NAME_LENGTH];
+
+    anno_map = codes_mapping_get_lp_anno_map(LP_CONFIG_NM);
+    assert(anno_map);
+    num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
+    all_params = malloc(num_params * sizeof(*all_params));
+
+    for (uint64_t i = 0; i < anno_map->num_annos; i++){
+        const char * anno = anno_map->annotations[i];
+        int rc = configuration_get_value_relpath(&config, "PARAMS",
+                "net_config_file", anno, config_file, MAX_NAME_LENGTH);
+        if (rc == 0){
+            tw_error(TW_LOC, "unable to read PARAMS:net_config_file@%s",
+                    anno);
+        }
+        loggp_set_params(config_file, &all_params[i]);
+    }
+    if (anno_map->has_unanno_lp > 0){
+        int rc = configuration_get_value_relpath(&config, "PARAMS",
+                "net_config_file", NULL, config_file, MAX_NAME_LENGTH);
+        if (rc == 0){
+            tw_error(TW_LOC, "unable to read PARAMS:net_config_file");
+        }
+        loggp_set_params(config_file, &all_params[anno_map->num_annos]);
+    }
+}
+
+void loggp_set_params(const char * config_file, loggp_param * params){
     FILE *conf;
     int ret;
     char buffer[512];
     int line_nr = 0;
+    printf("Loggp configured to use parameters from file %s\n", config_file);
 
-    /* TODO: update this to read on one proc and then broadcast */
-
-    printf("Loggp configured to use parameters from file %s\n", loggp_params->net_config_file);
-
-    conf = fopen(loggp_params->net_config_file, "r");
+    conf = fopen(config_file, "r");
     if(!conf)
     {
         perror("fopen");
         assert(0);
     }
 
+    params->table_size = 0;
     while(fgets(buffer, 512, conf))
     {
         line_nr++;
         if(buffer[0] == '#')
             continue;
         ret = sscanf(buffer, "%llu %d %lf %lf %lf %lf %lf %lf %lf %lf %lf", 
-            &param_table[param_table_size].size,
-            &param_table[param_table_size].n,
-            &param_table[param_table_size].PRTT_10s,
-            &param_table[param_table_size].PRTT_n0s,
-            &param_table[param_table_size].PRTT_nPRTT_10ss,
-            &param_table[param_table_size].L,
-            &param_table[param_table_size].o_s,
-            &param_table[param_table_size].o_r,
-            &param_table[param_table_size].g,
-            &param_table[param_table_size].G,
-            &param_table[param_table_size].lsqu_gG);
+            &params->table[params->table_size].size,
+            &params->table[params->table_size].n,
+            &params->table[params->table_size].PRTT_10s,
+            &params->table[params->table_size].PRTT_n0s,
+            &params->table[params->table_size].PRTT_nPRTT_10ss,
+            &params->table[params->table_size].L,
+            &params->table[params->table_size].o_s,
+            &params->table[params->table_size].o_r,
+            &params->table[params->table_size].g,
+            &params->table[params->table_size].G,
+            &params->table[params->table_size].lsqu_gG);
         if(ret != 11)
         {
             fprintf(stderr, "Error: malformed line %d in %s\n", line_nr, 
-                loggp_params->net_config_file);
+                config_file);
             assert(0);
         }
-        param_table_size++;
+        params->table_size++;
     }
 
-    printf("Parsed %d loggp table entries.\n", param_table_size);
+    printf("Parsed %d loggp table entries.\n", params->table_size);
 
     fclose(conf);
  
@@ -634,25 +673,26 @@ static void loggp_packet_event_rc(tw_lp *sender)
 
 /* find the parameters corresponding to the message size we are transmitting
  */
-static struct param_table_entry* find_params(uint64_t msg_size)
-{
+static const struct param_table_entry* find_params(
+        uint64_t msg_size,
+        const loggp_param *params) {
     int i;
 
     /* pick parameters based on the next smallest size in the table, but
      * default to beginning or end of table if we are out of range
      */
 
-    for(i=0; i<param_table_size; i++)
+    for(i=0; i < params->table_size; i++)
     {
-        if(param_table[i].size > msg_size)
+        if(params->table[i].size > msg_size)
         {
             break;
         }
     }
-    if(i>=param_table_size)
-        i = param_table_size-1;
+    if(i>=params->table_size)
+        i = params->table_size-1;
 
-    return(&param_table[i]);
+    return(&params->table[i]);
 }
 
 static tw_lpid loggp_find_local_device(tw_lp *sender)

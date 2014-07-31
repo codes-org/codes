@@ -475,13 +475,6 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    /* Setup the model-net parameters specified in the global config object,
-     * returned are the identifier for the network type */
-    net_ids = model_net_set_params(&num_nets);
-    assert(num_nets==1);
-    net_id = *net_ids;
-    free(net_ids);
-
     /* currently restrict to simplenet, as other networks are trickier to
      * setup. TODO: handle other networks properly */
     if(net_id != SIMPLENET) {
@@ -493,6 +486,13 @@ int main(int argc, char *argv[])
     testsvr_init();
 
     codes_mapping_setup();
+
+    /* Setup the model-net parameters specified in the global config object,
+     * returned are the identifier for the network type */
+    net_ids = model_net_configure(&num_nets);
+    assert(num_nets==1);
+    net_id = *net_ids;
+    free(net_ids);
 
     tw_run();
     tw_end();

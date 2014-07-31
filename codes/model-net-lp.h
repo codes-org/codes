@@ -24,6 +24,12 @@
 
 extern int model_net_base_magic;
 
+// register the networks with ROSS, given the array of flags, one for each
+// network type
+void model_net_base_register(int *do_config_nets);
+// configure the base LP type, setting up general parameters
+void model_net_base_configure();
+
 // Construct a model-net-specific event, analagous to a tw_event_new and
 // codes_event_new. The difference here is that we return pointers to 
 // both the message data (to be cast into the appropriate type) and the
@@ -49,7 +55,7 @@ void * model_net_method_get_edata(int net_id, void * msg);
 /// use them
 
 // init method
-void model_net_base_init(int id_count, int *ids);
+void model_net_base_init(int *do_config_nets);
 
 enum model_net_base_event_type {
     MN_BASE_NEW_MSG,

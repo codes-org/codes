@@ -12,7 +12,7 @@
 struct model_net_method
 {
     uint64_t packet_size; /* packet size */
-    void (*mn_setup)(const void* net_params); /* For initializing the network */
+    void (*mn_configure)(); /* For initializing the network */
     tw_stime (*model_net_method_packet_event)(
         char* category, 
         tw_lpid final_dest_lp, 

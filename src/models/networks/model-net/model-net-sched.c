@@ -14,8 +14,6 @@
 #include "codes/model-net-lp.h"
 #include "codes/quicklist.h"
 
-enum sched_type mn_sched_type = -1;
-
 #define X(a,b,c) b,
 char * sched_names [] = {
     SCHEDULER_TYPES

@@ -148,14 +148,15 @@ int main(
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
   
     configuration_load(argv[2], MPI_COMM_WORLD, &config);
-    net_ids = model_net_set_params(&num_nets);
-    assert(num_nets==1);
-    net_id = *net_ids;
-    free(net_ids);
     svr_add_lp_type();
+    model_net_register();
    
     codes_mapping_setup();
     
+    net_ids = model_net_configure(&num_nets);
+    assert(num_nets==1);
+    net_id = *net_ids;
+    free(net_ids);
     num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "server",
             NULL, 1);
     assert(num_servers == 2);

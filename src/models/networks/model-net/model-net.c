@@ -12,6 +12,7 @@
 #include "codes/model-net-lp.h"
 #include "codes/model-net-sched.h"
 #include "codes/codes.h"
+#include <codes/codes_mapping.h>
 
 #define STR_SIZE 16
 #define PROC_TIME 10.0
@@ -41,26 +42,83 @@ struct model_net_method* method_array[] = {
 };
 #undef X
 
+// counter and offset for the MN_START_SEQ / MN_END_SEQ macros
 int in_sequence = 0;
 tw_stime mn_msg_offset = 0.0;
 
-int model_net_setup(char* name,
-		    uint64_t packet_size,
-		    const void* net_params)
-{
-     int i;
-    /* find struct for underlying method (according to configuration file) */
-     for(i=0; method_array[i] != NULL; i++)
-     {
-     	if(strcmp(model_net_method_names[i], name) == 0)
-	{
-	   method_array[i]->mn_setup(net_params);
-	   method_array[i]->packet_size = packet_size;
-	   return(i);
-	}
-     }
-     fprintf(stderr, "Error: undefined network name %s (Available options simplenet, torus, dragonfly) \n", name);
-     return -1; // indicating error
+// global listing of lp types found by model_net_register
+// - needs to be held between the register and configure calls
+static int do_config_nets[MAX_NETS];
+
+void model_net_register(){
+    // first set up which networks need to be registered, then pass off to base
+    // LP to do its thing
+    memset(do_config_nets, 0, MAX_NETS * sizeof(*do_config_nets));
+    for (int grp = 0; grp < lpconf.lpgroups_count; grp++){
+        config_lpgroup_t *lpgroup = &lpconf.lpgroups[grp];
+        for (int lpt = 0; lpt < lpgroup->lptypes_count; lpt++){
+            char *nm = lpgroup->lptypes[lpt].name;
+            for (int n = 0; n < MAX_NETS; n++){
+                if (!do_config_nets[n] && 
+                        strcmp(model_net_lp_config_names[n], nm) == 0){
+                    do_config_nets[n] = 1;
+                    break;
+                }
+            }
+        }
+    }
+    model_net_base_register(do_config_nets);
+}
+
+int* model_net_configure(int *id_count){
+    // first call the base LP configure, which sets up the general parameters
+    model_net_base_configure();
+
+    // do network-specific configures
+    *id_count = 0;
+    for (int i = 0; i < MAX_NETS; i++) {
+        if (do_config_nets[i]){
+            method_array[i]->mn_configure();
+            (*id_count)++;
+        }
+    }
+
+    // allocate the output
+    int *ids = malloc(*id_count * sizeof(int));
+    // read the ordering provided by modelnet_order
+    char **values;
+    size_t length;
+    int ret = configuration_get_multivalue(&config, "PARAMS", "modelnet_order",
+            NULL, &values, &length);
+    if (ret != 1){
+        tw_error(TW_LOC, "unable to read PARAMS:modelnet_order variable\n");
+    }
+    if (length != (size_t) *id_count){
+        tw_error(TW_LOC, "number of networks in PARAMS:modelnet_order "
+                "do not match number in LPGROUPS\n");
+    }
+    // set the index
+    for (int i = 0; i < *id_count; i++){
+        ids[i] = -1;
+        for (int n = 0; n < MAX_NETS; n++){
+            if (strcmp(values[i], model_net_method_names[n]) == 0){
+                if (!do_config_nets[n]){
+                    tw_error(TW_LOC, "network in PARAMS:modelnet_order not "
+                            "present in LPGROUPS: %s\n", values[i]);
+                }
+                ids[i] = n;
+                break;
+            }
+        }
+        if (ids[i] == -1){
+            tw_error(TW_LOC, "unknown network in PARAMS:modelnet_order: %s\n",
+                    values[i]);
+        }
+        free(values[i]);
+    }
+    free(values);
+
+    return ids;
 }
 
 int model_net_get_id(char *name){
@@ -193,7 +251,6 @@ static void model_net_event_impl_base(
     // set the request struct 
     model_net_request *r = &m->msg.m_base.u.req;
     r->net_id = net_id;
-    r->packet_size = model_net_get_packet_size(net_id);
     r->final_dest_lp = final_dest_lp;
     r->src_lp = sender->gid;
     r->msg_size = message_size;
@@ -249,311 +306,6 @@ void model_net_pull_event(
      * from the destination's POV */
     model_net_event_impl_base(net_id, category, final_dest_lp, message_size,
             1, offset, self_event_size, self_event, 0, NULL, sender);
-}
-
-int* model_net_set_params(int *id_count)
-{
-  char sched[MAX_NAME_LENGTH];
-  long int packet_size_l = 0;
-  uint64_t packet_size;
-  int ret;
-  config_lpgroups_t lpconf;
-
-  // TODO: currently just hard-coding the name determination, should probably
-  // refactor to do this elsewhere (in codes-base?)
-  int do_config_nets[MAX_NETS];
-  memset(do_config_nets, 0, MAX_NETS*sizeof(*do_config_nets));
-  // TODO: inefficient (codes_mapping opens up the same section), but at least
-  // this avoids the need to call codes_mapping_setup first
-  configuration_get_lpgroups(&config, "LPGROUPS", &lpconf);
-  for (int grp = 0; grp < lpconf.lpgroups_count; grp++){
-      config_lpgroup_t *lpgroup = &lpconf.lpgroups[grp];
-      for (int lpt = 0; lpt < lpgroup->lptypes_count; lpt++){
-          char *nm = lpgroup->lptypes[lpt].name;
-          for (int n = 0; n < MAX_NETS; n++){
-              if (strcmp(model_net_lp_config_names[n], nm) == 0){
-                  do_config_nets[n] = 1;
-                  break;
-              }
-          }
-      }
-  }
-
-  ret = configuration_get_value(&config, "PARAMS", "modelnet_scheduler", NULL,
-          sched, MAX_NAME_LENGTH);
-
-  configuration_get_value_longint(&config, "PARAMS", "packet_size", NULL,
-          &packet_size_l);
-  packet_size = packet_size_l;
-
-    if (ret > 0){
-        int i;
-        for (i = 0; i < MAX_SCHEDS; i++){
-            if (strcmp(sched_names[i], sched) == 0){
-                mn_sched_type = i;
-                break;
-            }
-        }
-        if (i == MAX_SCHEDS){
-            fprintf(stderr, 
-                    "Unknown value for PARAMS:modelnet-scheduler : %s\n", 
-                    sched);
-            abort();
-        }
-    }
-    else{
-        // default: FCFS
-        mn_sched_type = MN_SCHED_FCFS;
-    }
-
-    if (mn_sched_type == MN_SCHED_FCFS_FULL){
-        // override packet size to something huge (leave a bit in the unlikely
-        // case that an op using packet size causes overflow)
-        packet_size = 1ull << 62;
-    }
-    else if (!packet_size && mn_sched_type != MN_SCHED_FCFS_FULL)
-    {
-        packet_size = 512;
-        fprintf(stderr, "\n Warning, no packet size specified, setting packet size to %llu\n", packet_size);
-    }
-
-  if(do_config_nets[SIMPLENET])
-   {
-     double net_startup_ns, net_bw_mbps;
-     simplenet_param net_params;
-     
-     configuration_get_value_double(&config, "PARAMS", "net_startup_ns", NULL,
-             &net_startup_ns);
-     configuration_get_value_double(&config, "PARAMS", "net_bw_mbps", NULL,
-             &net_bw_mbps);
-     net_params.net_startup_ns = net_startup_ns;
-     net_params.net_bw_mbps =  net_bw_mbps;
-     model_net_setup(model_net_method_names[SIMPLENET], packet_size, (const void*)&net_params); /* Sets the network as simplenet and packet size 512 */
-   }
-  if (do_config_nets[SIMPLEWAN]){
-    simplewan_param net_params;
-    configuration_get_value_relpath(&config, "PARAMS", "net_startup_ns_file", NULL, net_params.startup_filename, MAX_NAME_LENGTH);
-    configuration_get_value_relpath(&config, "PARAMS", "net_bw_mbps_file", NULL, net_params.bw_filename, MAX_NAME_LENGTH);
-    model_net_setup(model_net_method_names[SIMPLEWAN], packet_size, (const void*)&net_params);
-  }
-   if(do_config_nets[LOGGP])
-   {
-     char net_config_file[256];
-     loggp_param net_params;
-     
-     configuration_get_value_relpath(&config, "PARAMS", "net_config_file", NULL, net_config_file, 256);
-     net_params.net_config_file = net_config_file;
-     model_net_setup(model_net_method_names[LOGGP], packet_size, (const void*)&net_params); /* Sets the network as loggp and packet size 512 */
-   }
-
-  if(do_config_nets[DRAGONFLY])	  
-    {
-       dragonfly_param net_params;
-       int num_routers=0, num_vcs=0, local_vc_size=0, global_vc_size=0, cn_vc_size=0, chunk_size=0;
-       double local_bandwidth=0.0, cn_bandwidth=0.0, global_bandwidth=0.0;
-       
-       configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers);
-       if(!num_routers)
-	{
-	   num_routers = 4; 
-	   printf("\n Number of dimensions not specified, setting to %d ", num_routers);
-        } 
-       net_params.num_routers = num_routers; 
-
-       configuration_get_value_int(&config, "PARAMS", "num_vcs", NULL, &num_vcs);
-       if(!num_vcs)
-       {
-          num_vcs = 1;
-	  printf("\n Number of virtual channels not specified, setting to %d ", num_vcs);
-       }
-       net_params.num_vcs = num_vcs;
-
-       configuration_get_value_int(&config, "PARAMS", "local_vc_size", NULL, &local_vc_size);
-       if(!local_vc_size)
-	{
-	   local_vc_size = 1024;
-	   printf("\n Buffer size of local channels not specified, setting to %d ", local_vc_size);
-	}
-       net_params.local_vc_size = local_vc_size;
-
-       configuration_get_value_int(&config, "PARAMS", "global_vc_size", NULL, &global_vc_size);
-       if(!global_vc_size)
-	{
-	  global_vc_size = 2048;
-	  printf("\n Buffer size of global channels not specified, setting to %d ", global_vc_size);
-	}
-       net_params.global_vc_size = global_vc_size;
-
-       configuration_get_value_int(&config, "PARAMS", "cn_vc_size", NULL, &cn_vc_size);
-       if(!cn_vc_size)
-	 {
-	    cn_vc_size = 1024;
-	    printf("\n Buffer size of compute node channels not specified, setting to %d ", cn_vc_size);
-	 }
-       net_params.cn_vc_size = cn_vc_size;
-
-	configuration_get_value_int(&config, "PARAMS", "chunk_size", NULL, &chunk_size);
-	if(!chunk_size)
-	  {
-		chunk_size = 64;
-		printf("\n Chunk size for packets is specified, setting to %d ", chunk_size);
-	  }
-	net_params.chunk_size = chunk_size;
-
-	configuration_get_value_double(&config, "PARAMS", "local_bandwidth", NULL, &local_bandwidth);
-        if(!local_bandwidth)
-	  {
-	    local_bandwidth = 5.25;
-	    printf("\n Bandwidth of local channels not specified, setting to %lf ", local_bandwidth);
-	 }
-       net_params.local_bandwidth = local_bandwidth;
-
-       configuration_get_value_double(&config, "PARAMS", "global_bandwidth", NULL, &global_bandwidth);
-        if(!global_bandwidth)
-	{
-	     global_bandwidth = 4.7;
-	     printf("\n Bandwidth of global channels not specified, setting to %lf ", global_bandwidth);
-	}
-	net_params.global_bandwidth = global_bandwidth;
-
-	configuration_get_value_double(&config, "PARAMS", "cn_bandwidth", NULL, &cn_bandwidth);
-	if(!cn_bandwidth)
-	 {
-	     cn_bandwidth = 5.25;
-	     printf("\n Bandwidth of compute node channels not specified, setting to %lf ", cn_bandwidth);
-	}
-	net_params.cn_bandwidth = cn_bandwidth;
-
-	
-       char routing[MAX_NAME_LENGTH];
-       configuration_get_value(&config, "PARAMS", "routing", NULL, routing, MAX_NAME_LENGTH);
-       if(strcmp(routing, "minimal") == 0)
-	   net_params.routing = 0;
-       else if(strcmp(routing, "nonminimal")==0 || strcmp(routing,"non-minimal")==0)
-	       net_params.routing = 1;
-	else if (strcmp(routing, "adaptive") == 0)
-		net_params.routing = 2;
-       else
-       {
-       	   printf("\n No routing protocol specified, setting to minimal routing");
-   	   net_params.routing = 0;	   
-       }
-    model_net_setup(model_net_method_names[DRAGONFLY], packet_size, (const void*)&net_params);   
-    }
-   if(do_config_nets[TORUS])
-     {
-	torus_param net_params;
-	char dim_length[MAX_NAME_LENGTH];
-	int n_dims=0, buffer_size=0, num_vc=0, i=0, chunk_size = 0;
-	double link_bandwidth=0;
-
-	configuration_get_value_int(&config, "PARAMS", "n_dims", NULL, &n_dims);
-	if(!n_dims)
-	{
-	   n_dims = 4; /* a 4-D torus */
-	   printf("\n Number of dimensions not specified, setting to %d ", n_dims);
-	}
-	
-	configuration_get_value_double(&config, "PARAMS", "link_bandwidth", NULL, &link_bandwidth);	
-	if(!link_bandwidth)
-	{
-		link_bandwidth = 2.0; /*default bg/q configuration */
-		printf("\n Link bandwidth not specified, setting to %lf ", link_bandwidth);
-	}
-
-	configuration_get_value_int(&config, "PARAMS", "buffer_size", NULL, &buffer_size);
-	if(!buffer_size)
-	{
-		buffer_size = 2048;
-		printf("\n Buffer size not specified, setting to %d ",buffer_size);
-	}
-
-	configuration_get_value_int(&config, "PARAMS", "chunk_size", NULL, &chunk_size);
-	if(!chunk_size)
-	{
-	       chunk_size = 32;
-	       printf("\n Chunk size not specified, setting to %d ", chunk_size);
-	}
-	configuration_get_value_int(&config, "PARAMS", "num_vc", NULL, &num_vc);
-	if(!num_vc)
-	{
-		num_vc = 1; /*by default, we have one for taking packets, another for taking credit*/
-		printf("\n num_vc not specified, setting to %d ", num_vc);
-	}
-
-        configuration_get_value(&config, "PARAMS", "dim_length", NULL, dim_length, MAX_NAME_LENGTH);
-        char* token;
-	net_params.n_dims=n_dims;
-	net_params.num_vc=num_vc;
-	net_params.buffer_size=buffer_size;
-	net_params.chunk_size = chunk_size;
-	net_params.link_bandwidth=link_bandwidth;
-	net_params.dim_length=malloc(n_dims*sizeof(int));
-        token = strtok(dim_length, ",");	
-	while(token != NULL)
-	{
-	   sscanf(token, "%d", &net_params.dim_length[i]);
-	   if(!net_params.dim_length[i])
-	   {
-	      printf("\n Invalid torus dimension specified %d, exitting... ", net_params.dim_length[i]);
-	      MPI_Finalize();
-	      exit(-1);
-	   }
-	   i++;
-	   token = strtok(NULL,",");
-	}
-	model_net_setup(model_net_method_names[TORUS], packet_size, (const void*)&net_params);
-     }
-
-  // now that the LP-specific nets are set up...
-  // - get the number of nets used
-  *id_count = 0;
-  for (int i = 0; i < MAX_NETS; i++){
-      if (do_config_nets[i]){
-          (*id_count)++;
-      }
-  }
-  // - allocate the output
-  int *ids = malloc(*id_count * sizeof(int));
-  // - read the ordering provided by modelnet_order
-  char **values;
-  size_t length;
-  ret = configuration_get_multivalue(&config, "PARAMS", "modelnet_order", NULL, &values, &length);
-  if (ret != 1){
-      fprintf(stderr, "unable to read PARAMS:modelnet_order variable\n");
-      abort();
-  }
-  if (length != (size_t) *id_count){
-      fprintf(stderr, "number of networks in PARAMS:modelnet_order "
-              "do not match number in LPGROUPS\n");
-      abort();
-  }
-  // - set the index
-  for (int i = 0; i < *id_count; i++){
-      ids[i] = -1;
-      for (int n = 0; n < MAX_NETS; n++){
-          if (strcmp(values[i], model_net_method_names[n]) == 0){
-              if (!do_config_nets[n]){
-                  fprintf(stderr, "network in PARAMS:modelnet_order not "
-                          "present in LPGROUPS: %s\n", values[i]);
-                  abort();
-              }
-              ids[i] = n;
-              break;
-          }
-      }
-      if (ids[i] == -1){
-          fprintf(stderr, "unknown network in PARAMS:modelnet_order: %s\n",
-                  values[i]);
-          abort();
-      }
-      free(values[i]);
-  }
-  free(values);
-  // - pass along to model_net_base_init
-  model_net_base_init(*id_count, ids);
-  // - done
-  return ids;
 }
 
 void model_net_event_rc(

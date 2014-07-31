@@ -25,6 +25,16 @@
 #define LP_CONFIG_NM (model_net_lp_config_names[SIMPLEWAN])
 #define LP_METHOD_NM (model_net_method_names[SIMPLEWAN])
 
+// parameters for simplewan configuration
+struct simplewan_param
+{
+    double * net_startup_ns_table;
+    double * net_bw_mbps_table;
+    int mat_len;
+    int num_lps;
+};
+typedef struct simplewan_param simplewan_param;
+
 /*Define simplewan data types and structs*/
 typedef struct sw_state sw_state;
 
@@ -46,6 +56,9 @@ struct sw_state
     tw_stime *send_next_idle;
     tw_stime *recv_next_idle;
 
+    const char * anno;
+    const simplewan_param * params;
+
     int id; /* logical id for matrix lookups */
 
     /* Each simplewan "NIC" actually has N connections, so we need to track
@@ -57,14 +70,11 @@ struct sw_state
     struct mn_stats sw_stats_array[CATEGORY_MAX];
 };
 
-/* net startup cost, ns */
-static double *global_net_startup_ns = NULL;
-/* net bw, MB/s */
-static double *global_net_bw_mbs = NULL;
-static int mat_len = -1;
-/* number of simplewan lps, used for addressing the network parameters
- * set by the first LP to init per process */
-static int num_lps = -1;
+/* annotation-specific parameters (unannotated entry occurs at the 
+ * last index) */
+static uint64_t                  num_params = 0;
+static simplewan_param         * all_params = NULL;
+static const config_anno_map_t * anno_map   = NULL;
 
 static int sw_magic = 0;
 
@@ -76,7 +86,12 @@ static const tw_lptype* sw_get_lp_type(void);
  * - bw_fname      - path containing triangular matrix of bandwidths in MB/s.
  * note that this merely stores the files, they will be parsed later 
  */
-static void sw_set_params(char * startup_fname, char * bw_fname);
+static void sw_set_params(
+        const char      * startup_fname,
+        const char      * bw_fname,
+        simplewan_param * params);
+
+static void sw_configure();
 
 /* retrieve the size of the portion of the event struct that is consumed by
  * the simplewan module.  The caller should add this value to the size of
@@ -89,8 +104,11 @@ static int sw_get_magic();
 
 /* given two simplewan logical ids, do matrix lookups to get the point-to-point
  * latency/bandwidth */
-static double sw_get_bw(int from_id, int to_id);
-static double sw_get_startup(int from_id, int to_id);
+static double sw_get_table_ent(
+        int      from_id, 
+        int      to_id,
+        int      num_lps,
+        double * table);
 
 /* category lookup */
 static category_idles* sw_get_category_idles(
@@ -101,22 +119,6 @@ static void simple_wan_collective();
 
 /* collective network calls-- rc */
 static void simple_wan_collective_rc();
-
-/* allocate a new event that will pass through simplewan to arriave at its
- * destination:
- *
- * - category: category name to associate with this communication
- * - final_dest_gid: the LP that the message should be delivered to.
- * - event_size_bytes: size of event msg that will be delivered to
- * final_dest_gid.
- * - local_event_size_byte: size of event message that will delivered to
- *   local LP upon local send comletion (set to 0 if not used)
- * - net_msg_size_bytes: size of simulated network message in bytes.
- * - sender: LP calling this function.
- */
-/* Modelnet interface events */
-/* sets up the simplewan parameters through modelnet interface */
-static void sw_setup(const void* net_params);
 
 /* Issues a simplewan packet event call */
 static tw_stime simplewan_packet_event(
@@ -144,13 +146,13 @@ static tw_lpid sw_find_local_device(tw_lp *sender);
 /* data structure for model-net statistics */
 struct model_net_method simplewan_method =
 {
-    .mn_setup = sw_setup,
+    .mn_configure = sw_configure,
     .model_net_method_packet_event = simplewan_packet_event,
     .model_net_method_packet_event_rc = simplewan_packet_event_rc,
     .mn_get_lp_type = sw_get_lp_type,
     .mn_get_msg_sz = sw_get_msg_sz,
     .mn_report_stats = sw_report_stats,
-      .model_net_method_find_local_device = sw_find_local_device,
+    .model_net_method_find_local_device = sw_find_local_device,
     .mn_collective_call = simple_wan_collective,
     .mn_collective_call_rc = simple_wan_collective_rc  
 };
@@ -292,7 +294,10 @@ static void fill_tri_mat(int N, double *mat, double *tri){
 }
 
 /* lets caller specify model parameters to use */
-static void sw_set_params(char * startup_fname, char * bw_fname){
+static void sw_set_params(
+        const char      * startup_fname,
+        const char      * bw_fname,
+        simplewan_param * params){
     long int fsize_s, fsize_b;
     /* TODO: make this a run-time option */
     int is_tri_mat = 0;
@@ -300,6 +305,10 @@ static void sw_set_params(char * startup_fname, char * bw_fname){
     /* slurp the files */
     FILE *sf = fopen(startup_fname, "r");
     FILE *bf = fopen(bw_fname, "r");
+    if (!sf)
+        tw_error(TW_LOC, "simplewan: unable to open %s", startup_fname);
+    if (!bf)
+        tw_error(TW_LOC, "simplewan: unable to open %s", bw_fname);
     fseek(sf, 0, SEEK_END);
     fsize_s = ftell(sf);
     fseek(sf, 0, SEEK_SET);
@@ -323,18 +332,20 @@ static void sw_set_params(char * startup_fname, char * bw_fname){
 
     /* convert tri mat into a regular mat */
     assert(nvals_first_s == nvals_first_b);
-    mat_len = nvals_first_s + ((is_tri_mat) ? 1 : 0);
+    params->mat_len = nvals_first_s + ((is_tri_mat) ? 1 : 0);
     if (is_tri_mat){
-        global_net_startup_ns = malloc(mat_len*mat_len*sizeof(double));
-        global_net_bw_mbs = malloc(mat_len*mat_len*sizeof(double));
-        fill_tri_mat(mat_len, global_net_startup_ns, startup_tmp);
-        fill_tri_mat(mat_len, global_net_bw_mbs, bw_tmp);
+        params->net_startup_ns_table = 
+            malloc(params->mat_len*params->mat_len*sizeof(double));
+        params->net_bw_mbps_table = 
+            malloc(params->mat_len*params->mat_len*sizeof(double));
+        fill_tri_mat(params->mat_len, params->net_startup_ns_table, startup_tmp);
+        fill_tri_mat(params->mat_len, params->net_bw_mbps_table, bw_tmp);
         free(startup_tmp);
         free(bw_tmp);
     }
     else{
-        global_net_startup_ns = startup_tmp;
-        global_net_bw_mbs = bw_tmp;
+        params->net_startup_ns_table = startup_tmp;
+        params->net_bw_mbps_table = bw_tmp;
     }
 
     /* done */
@@ -357,30 +368,25 @@ static void sw_init(
     sw_magic = h1+h2;
     /* printf("\n sw_magic %d ", sw_magic); */
 
-    /* inititalize global logical ID
-     * TODO: be annotation aware */
-    ns->id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
-
-    /* get the total number of simplewans */
-    if (num_lps == -1){
-        num_lps = codes_mapping_get_lp_count(NULL, 0, LP_CONFIG_NM, NULL, 1);
-        assert(num_lps > 0);
-        if (mat_len == -1){
-            tw_error(TW_LOC, "Simplewan config matrix not initialized "
-                             "at lp init time\n");
-        }
-        else if (mat_len != num_lps){
-            tw_error(TW_LOC, "Simplewan config matrix doesn't match the "
-                             "number of simplewan LPs\n");
-        }
+    ns->anno = codes_mapping_get_annotation_by_lpid(lp->gid);
+    if (ns->anno == NULL)
+        ns->params = &all_params[num_params-1];
+    else{
+        int id = configuration_get_annotation_index(ns->anno, anno_map);
+        ns->params = &all_params[id];
     }
 
+    /* inititalize global logical ID w.r.t. annotation */
+    ns->id = codes_mapping_get_lp_relative_id(lp->gid, 0, 1);
+
     /* all devices are idle to begin with */
-    ns->send_next_idle = malloc(num_lps * sizeof(ns->send_next_idle));
-    ns->recv_next_idle = malloc(num_lps * sizeof(ns->recv_next_idle));
+    ns->send_next_idle = malloc(ns->params->num_lps * 
+            sizeof(ns->send_next_idle));
+    ns->recv_next_idle = malloc(ns->params->num_lps * 
+            sizeof(ns->recv_next_idle));
     tw_stime st = tw_now(lp);
     int i;
-    for (i = 0; i < num_lps; i++){
+    for (i = 0; i < ns->params->num_lps; i++){
         ns->send_next_idle[i] = st;
         ns->recv_next_idle[i] = st;
     }
@@ -524,8 +530,10 @@ static void handle_msg_ready_event(
     struct mn_stats* stat;
 
     /* get source->me network stats */
-    double bw = sw_get_bw(m->src_mn_rel_id, ns->id);
-    double startup = sw_get_startup(m->src_mn_rel_id, ns->id);
+    double bw = sw_get_table_ent(m->src_mn_rel_id, ns->id,
+            ns->params->num_lps, ns->params->net_bw_mbps_table);
+    double startup = sw_get_table_ent(m->src_mn_rel_id, ns->id,
+            ns->params->num_lps, ns->params->net_startup_ns_table);
     if (bw <= 0.0 || startup < 0.0){
         fprintf(stderr, 
                 "Invalid link from Rel. id %d to LP %lu (rel. id %d)\n", 
@@ -662,17 +670,18 @@ static void handle_msg_start_event(
     total_event_size = model_net_get_msg_sz(SIMPLEWAN) + m->event_size_bytes +
         m->local_event_size_bytes;
 
-    // TODO: don't ignore annotations 
     codes_mapping_get_lp_info(m->final_dest_gid, lp_group_name, &dummy,
             NULL, &dummy, NULL, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, ns->anno, 0,
             mapping_rep_id, mapping_offset, &dest_id); 
     dest_rel_id = codes_mapping_get_lp_relative_id(dest_id, 0, 0);
     m->dest_mn_rel_id = dest_rel_id;
 
     /* grab the link params */
-    bw      = sw_get_bw(ns->id, dest_rel_id);
-    startup = sw_get_startup(ns->id, dest_rel_id);
+    bw = sw_get_table_ent(ns->id, dest_rel_id,
+            ns->params->num_lps, ns->params->net_bw_mbps_table);
+    startup = sw_get_table_ent(ns->id, dest_rel_id,
+            ns->params->num_lps, ns->params->net_startup_ns_table);
     if (bw <= 0.0 || startup < 0.0){
         fprintf(stderr, 
                 "Invalid link from LP %lu (rel. id %d) to LP %lu (rel. id %d)\n", 
@@ -846,11 +855,53 @@ static tw_stime simplewan_packet_event(
      return xfer_to_nic_time;
 }
 
-static void sw_setup(const void* net_params)
-{
-  simplewan_param* sw_param = (simplewan_param*)net_params;
-  sw_set_params(sw_param->startup_filename, sw_param->bw_filename); 
-  //printf("\n Bandwidth setup %lf %lf ", sw_param->net_startup_ns, sw_param->net_bw_mbps);
+static void sw_read_config(const char * anno, simplewan_param *p){
+    char startup_file[MAX_NAME_LENGTH];
+    char bw_file[MAX_NAME_LENGTH];
+    int rc;
+    rc = configuration_get_value_relpath(&config, "PARAMS", 
+            "net_startup_ns_file", anno, startup_file, MAX_NAME_LENGTH);
+    if (rc == 0){
+        if (anno == NULL)
+            tw_error(TW_LOC,
+                    "simplewan: unable to read PARAMS:net_startup_ns_file");
+        else
+            tw_error(TW_LOC,
+                    "simplewan: unable to read PARAMS:net_startup_ns_file@%s",
+                    anno);
+    }
+    rc = configuration_get_value_relpath(&config, "PARAMS", "net_bw_mbps_file",
+            anno, bw_file, MAX_NAME_LENGTH);
+    if (rc == 0){
+        if (anno == NULL)
+            tw_error(TW_LOC,
+                    "simplewan: unable to read PARAMS:net_bw_mbps_file");
+        else
+            tw_error(TW_LOC,
+                    "simplewan: unable to read PARAMS:net_bw_mbps_file@%s",
+                    anno);
+    }
+    p->num_lps = codes_mapping_get_lp_count(NULL, 0,
+            LP_CONFIG_NM, anno, 0);
+    sw_set_params(startup_file, bw_file, p);
+    if (p->mat_len != p->num_lps){
+        tw_error(TW_LOC, "Simplewan config matrix doesn't match the "
+                "number of simplewan LPs (%d vs. %d)\n",
+                p->mat_len, p->num_lps);
+    }
+}
+
+static void sw_configure(){
+    anno_map = codes_mapping_get_lp_anno_map(LP_CONFIG_NM);
+    assert(anno_map);
+    num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
+    all_params = malloc(num_params * sizeof(*all_params));
+    for (uint64_t i = 0; i < anno_map->num_annos; i++){
+        sw_read_config(anno_map->annotations[i], &all_params[i]);
+    }
+    if (anno_map->has_unanno_lp > 0){
+        sw_read_config(NULL, &all_params[anno_map->num_annos]);
+    }
 }
 
 static void simplewan_packet_event_rc(tw_lp *sender)
@@ -872,11 +923,13 @@ static tw_lpid sw_find_local_device(tw_lp *sender)
     return(dest_id);
 }
 
-static double sw_get_bw(int from_id, int to_id){
-    return global_net_bw_mbs[from_id * num_lps + to_id];
-}
-static double sw_get_startup(int from_id, int to_id){
-    return global_net_startup_ns[from_id * num_lps + to_id];
+static double sw_get_table_ent(
+        int      from_id, 
+        int      to_id,
+        int      num_lps,
+        double * table){
+    // TODO: if a tri-matrix, then change the addressing
+    return table[from_id * num_lps + to_id]; 
 }
 
 /* category lookup (more or less copied from model_net_find_stats) */
