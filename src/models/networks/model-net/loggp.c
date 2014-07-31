@@ -115,7 +115,10 @@ static void loggp_packet_event_rc(tw_lp *sender);
 
 static void loggp_report_stats();
 
-static tw_lpid loggp_find_local_device(tw_lp *sender);
+static tw_lpid loggp_find_local_device(
+        const char * annotation,
+        int          ignore_annotations,
+        tw_lp      * sender);
 
 static const struct param_table_entry* find_params(
         uint64_t msg_size,
@@ -695,7 +698,10 @@ static const struct param_table_entry* find_params(
     return(&params->table[i]);
 }
 
-static tw_lpid loggp_find_local_device(tw_lp *sender)
+static tw_lpid loggp_find_local_device(
+        const char * annotation,
+        int          ignore_annotations,
+        tw_lp      * sender)
 {
      char lp_group_name[MAX_NAME_LENGTH];
      int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
@@ -704,8 +710,8 @@ static tw_lpid loggp_find_local_device(tw_lp *sender)
      //TODO: be annotation-aware
      codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id,
              NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
-             mapping_rep_id, mapping_offset, &dest_id);
+     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, annotation,
+             ignore_annotations, mapping_rep_id, mapping_offset, &dest_id);
 
     return(dest_id);
 }

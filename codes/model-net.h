@@ -173,7 +173,11 @@ void model_net_event(
  *
  * returns the LP id of the network card attached to the calling LP
  */
-tw_lpid model_net_find_local_device(int net_id, tw_lp *sender);
+tw_lpid model_net_find_local_device(
+        int          net_id,
+        const char * annotation,
+        int          ignore_annotations,
+        tw_lp      * sender);
 
 int model_net_get_msg_sz(int net_id);
 

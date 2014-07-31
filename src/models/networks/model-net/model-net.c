@@ -235,7 +235,7 @@ static void model_net_event_impl_base(
         return;
     }
 
-    tw_lpid mn_lp = model_net_find_local_device(net_id, sender);
+    tw_lpid mn_lp = model_net_find_local_device(net_id, NULL, 1, sender);
     tw_stime poffset = codes_local_latency(sender);
     if (in_sequence){
         tw_stime tmp = mn_msg_offset;
@@ -399,9 +399,14 @@ void model_net_report_stats(int net_id)
    return;
 }
 
-tw_lpid model_net_find_local_device(int net_id, tw_lp *sender)
+tw_lpid model_net_find_local_device(
+        int          net_id,
+        const char * annotation,
+        int          ignore_annotations,
+        tw_lp      * sender)
 {
-    return(method_array[net_id]->model_net_method_find_local_device(sender));
+    return(method_array[net_id]->model_net_method_find_local_device(annotation,
+                ignore_annotations, sender));
 }
 
 /*

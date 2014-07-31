@@ -141,7 +141,10 @@ static void simplewan_packet_event_rc(tw_lp *sender);
 
 static void sw_report_stats();
 
-static tw_lpid sw_find_local_device(tw_lp *sender);
+static tw_lpid sw_find_local_device(
+        const char * annotation,
+        int ignore_annotations,
+        tw_lp *sender);
 
 /* data structure for model-net statistics */
 struct model_net_method simplewan_method =
@@ -910,7 +913,10 @@ static void simplewan_packet_event_rc(tw_lp *sender)
     return;
 }
 
-static tw_lpid sw_find_local_device(tw_lp *sender)
+static tw_lpid sw_find_local_device(
+        const char * annotation,
+        int ignore_annotations,
+        tw_lp *sender)
 {
      char lp_group_name[MAX_NAME_LENGTH];
      int mapping_rep_id, mapping_offset, dummy;
@@ -918,7 +924,8 @@ static tw_lpid sw_find_local_device(tw_lp *sender)
 
      // TODO: don't ignore annotation
      codes_mapping_get_lp_info(sender->gid, lp_group_name, &dummy, NULL, &dummy, NULL, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1, mapping_rep_id, mapping_offset, &dest_id);
+     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, annotation,
+             ignore_annotations, mapping_rep_id, mapping_offset, &dest_id);
 
     return(dest_id);
 }

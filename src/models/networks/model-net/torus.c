@@ -1306,15 +1306,18 @@ static const tw_lptype* torus_get_lp_type(void)
    return(&torus_lp); 
 }
 
-static tw_lpid torus_find_local_device(tw_lp *sender)
+static tw_lpid torus_find_local_device(
+        const char * annotation,
+        int          ignore_annotations,
+        tw_lp *sender)
 {
      tw_lpid dest_id;
 
      //TODO: be annotation-aware
      codes_mapping_get_lp_info(sender->gid, grp_name, &mapping_grp_id, NULL,
              &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, NULL, 1, mapping_rep_id,
-             mapping_offset, &dest_id);
+     codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, annotation,
+             ignore_annotations, mapping_rep_id, mapping_offset, &dest_id);
 
     return(dest_id);
 }
