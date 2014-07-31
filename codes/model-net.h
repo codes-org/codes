@@ -155,6 +155,11 @@ void model_net_event_collective_rc(
  * - self_event: pionter to data to be used as the self event message
  * - sender: pointer to the tw_lp structure of the API caller.  This is
  *     identical to the sender argument to tw_event_new().
+ *
+ * The modelnet LP used for communication is the LP in the same group, same
+ * repetition, using net_id to differentiate different model types. If
+ * more than one modelnet model of the same type but different annotation exist,
+ * then the first one listed will be used.
  */
 // first argument becomes the network ID
 void model_net_event(
@@ -168,6 +173,25 @@ void model_net_event(
     int self_event_size,
     const void* self_event,
     tw_lp *sender);
+/*
+ * See model_net_event for a general description.
+ *
+ * Unlike model_net_event, this function uses the annotation to differentiate
+ * multiple modelnet LPs with the same type but different annotation. The caller
+ * annotation is not consulted here.
+ */
+void model_net_event_annotated(
+        int net_id,
+        const char * annotation,
+        char* category, 
+        tw_lpid final_dest_lp, 
+        uint64_t message_size, 
+        tw_stime offset,
+        int remote_event_size,
+        const void* remote_event,
+        int self_event_size,
+        const void* self_event,
+        tw_lp *sender);
 
 /* model_net_find_local_device()
  *
@@ -211,6 +235,16 @@ void model_net_event_rc(
  */
 void model_net_pull_event(
         int net_id,
+        char *category,
+        tw_lpid final_dest_lp,
+        uint64_t message_size,
+        tw_stime offset,
+        int self_event_size,
+        const void *self_event,
+        tw_lp *sender);
+void model_net_pull_event_annotated(
+        int net_id,
+        const char * annotation,
         char *category,
         tw_lpid final_dest_lp,
         uint64_t message_size,

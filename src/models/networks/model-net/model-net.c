@@ -215,6 +215,8 @@ struct mn_stats* model_net_find_stats(const char* category, mn_stats mn_stats_ar
 
 static void model_net_event_impl_base(
         int net_id,
+        const char * annotation,
+        int ignore_annotations,
         char* category, 
         tw_lpid final_dest_lp, 
         uint64_t message_size, 
@@ -235,7 +237,8 @@ static void model_net_event_impl_base(
         return;
     }
 
-    tw_lpid mn_lp = model_net_find_local_device(net_id, NULL, 1, sender);
+    tw_lpid mn_lp = model_net_find_local_device(net_id, annotation, 
+            ignore_annotations, sender);
     tw_stime poffset = codes_local_latency(sender);
     if (in_sequence){
         tw_stime tmp = mn_msg_offset;
@@ -288,9 +291,26 @@ void model_net_event(
     const void* self_event,
     tw_lp *sender)
 {
-    model_net_event_impl_base(net_id, category, final_dest_lp, message_size,
-            0, offset, remote_event_size, remote_event, self_event_size,
-            self_event, sender);
+    model_net_event_impl_base(net_id, NULL, 1, category, final_dest_lp,
+            message_size, 0, offset, remote_event_size, remote_event,
+            self_event_size, self_event, sender);
+}
+
+void model_net_event_annotated(
+        int net_id,
+        const char * annotation,
+        char* category, 
+        tw_lpid final_dest_lp, 
+        uint64_t message_size, 
+        tw_stime offset,
+        int remote_event_size,
+        const void* remote_event,
+        int self_event_size,
+        const void* self_event,
+        tw_lp *sender){
+    model_net_event_impl_base(net_id, annotation, 0, category, final_dest_lp,
+            message_size, 0, offset, remote_event_size, remote_event,
+            self_event_size, self_event, sender);
 }
 
 void model_net_pull_event(
@@ -304,8 +324,26 @@ void model_net_pull_event(
         tw_lp *sender){
     /* NOTE: for a pull, we are filling the *remote* event - it will be remote
      * from the destination's POV */
-    model_net_event_impl_base(net_id, category, final_dest_lp, message_size,
-            1, offset, self_event_size, self_event, 0, NULL, sender);
+    model_net_event_impl_base(net_id, NULL, 0, category, final_dest_lp,
+            message_size, 1, offset, self_event_size, self_event, 0, NULL,
+            sender);
+}
+
+void model_net_pull_event_annotated(
+        int net_id,
+        const char * annotation,
+        char *category,
+        tw_lpid final_dest_lp,
+        uint64_t message_size,
+        tw_stime offset,
+        int self_event_size,
+        const void *self_event,
+        tw_lp *sender){
+    /* NOTE: for a pull, we are filling the *remote* event - it will be remote
+     * from the destination's POV */
+    model_net_event_impl_base(net_id, annotation, 1, category, final_dest_lp,
+            message_size, 1, offset, self_event_size, self_event, 0, NULL,
+            sender);
 }
 
 void model_net_event_rc(
