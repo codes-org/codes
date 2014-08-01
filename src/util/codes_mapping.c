@@ -157,7 +157,7 @@ void codes_mapping_get_lp_id(
         }
         // does group name match?
         if (strcmp(lpg->name, group_name) == 0){
-            tw_lpid local_rep_count = 0;
+            tw_lpid local_lp_count = 0;
             // for each lp type
             for (int l = 0; l < lpg->lptypes_count; l++){
                 const config_lptype_t *lpt = &lpg->lptypes[l];
@@ -171,14 +171,12 @@ void codes_mapping_get_lp_id(
                         }
                         else{
                             *gid += (rep_count * (tw_lpid)rep_id) + 
-                                local_rep_count + (tw_lpid)offset;
+                                local_lp_count + (tw_lpid)offset;
                             return;
                         }
                     }
                 }
-                else{
-                    local_rep_count += lpt->count;
-                }
+                local_lp_count += lpt->count;
             }
             // after a group match, short circuit to end if lp not found
             goto ERROR;
@@ -193,11 +191,11 @@ ERROR:
     tw_error(TW_LOC, "Unable to find LP id given "
                      "group \"%s\", "
                      "typename \"%s\", "
-                     "annotation \"%s\"",
+                     "annotation \"%s\", "
                      "repetition %d, and offset %d",
-                     group_name==NULL    ? "<NULL>" : group_name,
-                     lp_type_name==NULL? "<NULL>" : lp_type_name,
-                     annotation==NULL  ? "<NULL>" : annotation,
+                     group_name==NULL   ? "<NULL>" : group_name,
+                     lp_type_name==NULL ? "<NULL>" : lp_type_name,
+                     annotation==NULL   ? "<NULL>" : annotation,
                      rep_id, offset);
 }
 
