@@ -450,7 +450,7 @@ static void handle_msg_start_event(
      * msg xfer as well) and therefore are more important for overlapping
      * computation rather than simulating communication time.
      */
-    xmit_time = param->L + ((double)(m->net_msg_size_bytes-1)*param->G);
+    xmit_time = ((double)(m->net_msg_size_bytes-1)*param->G);
     /* scale to nanoseconds */
     xmit_time *= 1000.0;
     m->xmit_time_saved = xmit_time;
