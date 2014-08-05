@@ -10,14 +10,12 @@
 #include "ross.h"
 
 #define MAX_NAME_LENGTH 512
+//#define MAX_REQUESTS 128
 
 /* struct to hold the actual data from a single MPI event*/
 typedef struct mpi_event_list mpi_event_list;
 typedef struct scala_trace_params scala_trace_params;
-
-#ifdef USE_DUMPI
 typedef struct dumpi_trace_params dumpi_trace_params;
-#endif
 
 struct scala_trace_params
 {
@@ -25,12 +23,10 @@ struct scala_trace_params
    char nw_wrkld_file_name[MAX_NAME_LENGTH];
 };
 
-#ifdef USE_DUMPI
 struct dumpi_trace_params
 {
    char file_name[MAX_NAME_LENGTH];
 };
-#endif
 
 enum NW_WORKLOADS
 {
@@ -42,10 +38,12 @@ enum NW_WORKLOADS
 };
 enum mpi_workload_type
 {
-    /* terminator; there are no more operations for this rank */
-     CODES_NW_END = 1,
     /* sleep/delay to simulate computation or other activity */
-     CODES_NW_DELAY,
+     CODES_NW_DELAY = 1,
+    /* MPI wait all operation */
+     CODES_NW_WAITALL,
+    /* terminator; there are no more operations for this rank */
+     CODES_NW_END,
     /* MPI blocking send operation */
      CODES_NW_SEND,
     /* MPI blocking recv operation */
@@ -68,8 +66,12 @@ enum mpi_workload_type
      CODES_NW_REDUCE,
     /* MPI Allreduce operation */
      CODES_NW_ALLREDUCE,
+    /* MPI test all operation */
+     CODES_NW_TESTALL,
+    /* MPI test operation */
+     CODES_NW_TEST,
     /* Generic collective operation */
-    CODES_NW_COL
+    CODES_NW_COL,
 };
 
 /* data structure for holding data from a MPI event (coming through scala-trace) 
@@ -93,20 +95,36 @@ struct mpi_event_list
   	{
       	    int source_rank;/* source rank of MPI send message */
             int dest_rank; /* dest rank of MPI send message */
-	    int num_bytes;
-            int blocking; /* boolean value to indicate if message is blocking or non-blocking*/
+	    int num_bytes; /* number of bytes to be transferred over the network */
+	    short data_type; /* MPI data type to be matched with the recv */
+	    int count; /* number of elements to be received */
+	    int tag; /* tag of the message */
+	    int32_t request;
 	} send;
        struct
        {
      	    int source_rank;/* source rank of MPI recv message */
      	    int dest_rank;/* dest rank of MPI recv message */
-	    int num_bytes;
-     	    int blocking;/* boolean value to indicate if message is blocking or non-blocking*/
-       } recv; 
+	    int num_bytes; /* number of bytes to be transferred over the network */
+	    short data_type; /* MPI data type to be matched with the send */
+	    int count; /* number of elements to be sent */
+	    int tag; /* tag of the message */
+       	    int32_t request;
+	} recv; 
       struct
       {
 	  int num_bytes;
       } collective;
+      /*struct
+      {
+	int count;
+        int requests[MAX_REQUESTS]; 
+      } wait_all;*/
+      struct
+      {
+	int32_t request;
+	int flag;
+      } test;
     }u;
 };
 

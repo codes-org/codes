@@ -106,28 +106,28 @@ void scala_trace_nw_workload_get_next(int rank, struct mpi_event_list *op)
 		op->op_type = CODES_NW_SEND;
 		op->u.send.source_rank = temp_data.source_rank;
 		op->u.send.dest_rank = temp_data.dest_rank;
-		op->u.send.blocking = 0; /* non-blocking operation */
+		//op->u.send.blocking = 0; /* non-blocking operation */
 	}
      else if(strcmp( temp_data.mpi_type, "MPI_Irecv") == 0)
 	{
 		op->op_type = CODES_NW_RECV;
 		op->u.recv.source_rank = temp_data.source_rank;    
 		op->u.recv.dest_rank = temp_data.dest_rank; 
-		op->u.recv.blocking = 0; /* non-blocking recv operation */
+		//op->u.recv.blocking = 0; /* non-blocking recv operation */
 	}
      else if(strcmp( temp_data.mpi_type, "MPI_Send") == 0)
 	{
 		op->op_type = CODES_NW_SEND;
 		op->u.send.source_rank = temp_data.source_rank;
 		op->u.send.dest_rank = temp_data.dest_rank;
-		op->u.send.blocking = 1; /* blocking send operation */
+		//op->u.send.blocking = 1; /* blocking send operation */
 	}
      else if(strcmp( temp_data.mpi_type, "MPI_Recv") == 0)
 	{
 		op->op_type = CODES_NW_RECV;
 		op->u.recv.source_rank = temp_data.source_rank;    
 		op->u.recv.dest_rank = temp_data.dest_rank; 
-		op->u.recv.blocking = 1; /* blocking recv operation */
+		//op->u.recv.blocking = 1; /* blocking recv operation */
 	}
 
    /* increment current counter */

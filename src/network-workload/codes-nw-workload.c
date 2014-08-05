@@ -14,7 +14,9 @@
  * could make generators optional via autoconf tests etc. if needed
  */
 extern struct codes_nw_workload_method scala_trace_workload_method;
+#ifdef USE_DUMPI
 extern struct codes_nw_workload_method dumpi_trace_workload_method;
+#endif
 
 static struct codes_nw_workload_method *method_array[] =
 {
@@ -122,7 +124,7 @@ void codes_nw_workload_get_next(int wkld_id, int rank, struct mpi_event_list *op
     }
 
     /* ask generator for the next operation */
-    //printf("codes_workload_get_next issuing new operation.\n");
+    //printf("codes_workload_get_next issuing new operation rank %d %d.\n", rank, wkld_id);
     method_array[wkld_id]->codes_nw_workload_get_next(rank, op);
 
     return;
@@ -157,26 +159,26 @@ void codes_nw_workload_print_op(FILE *f, struct mpi_event_list *op, int rank){
             fprintf(f, "op: rank:%d type:end\n", rank);
             break;
         case CODES_NW_DELAY:
-            fprintf(f, "op: rank:%d type:delay seconds:%f \n",
+            fprintf(f, "op: rank:%d type:delay nsecs:%f \n",
                     rank, op->u.delay.nsecs);
             break;
         case CODES_NW_SEND:
 	case CODES_NW_ISEND:
             fprintf(f, "op: rank:%d type:send "
-                       "sender: %d receiver: %d blocking: %d number of bytes: %d "
+                       "sender: %d receiver: %d number of bytes: %d "
 			"start time: %f end time: %f \n",
                     rank, op->u.send.source_rank, op->u.send.dest_rank,
-                    op->u.send.blocking, op->u.send.num_bytes,
+                    op->u.send.num_bytes,
 		    op->start_time, op->end_time);
             break;
         case CODES_NW_RECV:
 	case CODES_NW_IRECV:
             fprintf(f, "op: rank:%d type:recv "
-                       "sender: %d receiver: %d blocking: %d number of bytes: %d "
-			"start time: %f end time: %f \n",
+                       "sender: %d receiver: %d number of bytes: %d "
+			"start time: %f end time: %f request ID: %d \n",
                     rank, op->u.recv.source_rank, op->u.recv.dest_rank,
-                    op->u.recv.blocking, op->u.recv.num_bytes,
-		    op->start_time, op->end_time);
+                    op->u.recv.num_bytes,
+		    op->start_time, op->end_time, (int)op->u.recv.request);
             break;
 	case CODES_NW_COL:
 	case CODES_NW_BCAST:
@@ -189,7 +191,21 @@ void codes_nw_workload_print_op(FILE *f, struct mpi_event_list *op, int rank){
             fprintf(f, "op: rank:%d type:collective "
                        "count: %d \n",
                     rank, op->u.collective.num_bytes);
-            break;	    
+            break;	
+	case CODES_NW_TEST:
+		fprintf(f, "op: rank:%d type:test "
+			"request ID: %d flag: %d "
+			"start time: %f end time: %f \n",
+			rank, (int)op->u.test.request, op->u.test.flag,
+			 op->start_time, op->end_time);
+	    break; 
+	/*case CODES_NW_WAITALL:
+                fprintf(f, "op: rank:%d type:waitall "
+                        "count: %d "
+                        "start time: %f end time: %f \n",
+                        rank, op->u.wait_all.count, 
+                         op->start_time, op->end_time);
+	break;*/
     }
 }
 

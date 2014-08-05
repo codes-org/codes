@@ -104,16 +104,17 @@ static void dumpi_insert_next_op(void *mpi_op_array, struct mpi_event_list *mpi_
 static void dumpi_finalize_mpi_op_data(void *mpi_op_array)
 {
 	struct dumpi_op_data_array* array = (struct dumpi_op_data_array*)mpi_op_array;
-	
+
 	array->op_arr_cnt = array->op_arr_ndx;	
 	array->op_arr_ndx = 0;
 }
 
-/* removes the next operation from the dynamic array */
+/* removes the next operation from the array */
 static void dumpi_remove_next_op(void *mpi_op_array, struct mpi_event_list *mpi_op,
                                       double last_op_time)
 {
 	dumpi_op_data_array *array = (dumpi_op_data_array*)mpi_op_array;
+	//printf("\n op array index %d array count %d ", array->op_arr_ndx, array->op_arr_cnt);
 	if (array->op_arr_ndx == array->op_arr_cnt)
 	 {
 		mpi_op->op_type = CODES_NW_END;
@@ -137,18 +138,14 @@ void update_compute_time(const dumpi_time* time, rank_mpi_context* my_ctx)
 {
    if((time->start.nsec - my_ctx->last_op_time) > DUMPI_IGNORE_DELAY)
     {
-	    struct mpi_event_list* wrkld_per_rank = NULL;
+	    struct mpi_event_list wrkld_per_rank;
 
-            wrkld_per_rank = malloc(sizeof(*wrkld_per_rank));
-            if(!wrkld_per_rank)
-               return;
-
-            wrkld_per_rank->op_type = CODES_NW_DELAY;
-            wrkld_per_rank->start_time = my_ctx->last_op_time;
-	    wrkld_per_rank->end_time = time->start.nsec;
-	    wrkld_per_rank->u.delay.nsecs = time->start.nsec - my_ctx->last_op_time;
+            wrkld_per_rank.op_type = CODES_NW_DELAY;
+            wrkld_per_rank.start_time = my_ctx->last_op_time;
+	    wrkld_per_rank.end_time = time->start.nsec;
+	    wrkld_per_rank.u.delay.nsecs = time->start.nsec - my_ctx->last_op_time;
             my_ctx->last_op_time = time->stop.nsec;
-	    dumpi_insert_next_op(my_ctx->dumpi_mpi_array, wrkld_per_rank); 
+	    dumpi_insert_next_op(my_ctx->dumpi_mpi_array, &wrkld_per_rank); 
     }
 }
 
@@ -165,18 +162,20 @@ int handleDUMPIISend(const dumpi_isend *prm, uint16_t thread, const dumpi_time *
 {
 	rank_mpi_context* myctx = (rank_mpi_context*)userarg;
 
-        struct mpi_event_list * wrkld_per_rank = malloc(sizeof(*wrkld_per_rank));
-        if(!wrkld_per_rank)
-              return -1;
+	struct mpi_event_list wrkld_per_rank;
 
-	wrkld_per_rank->op_type = CODES_NW_ISEND;
-        wrkld_per_rank->u.send.num_bytes = prm->count * get_num_bytes(prm->datatype);
-        wrkld_per_rank->u.send.dest_rank = prm->dest;
-        wrkld_per_rank->u.send.source_rank = -1;
-        wrkld_per_rank->start_time = cpu->start.nsec;
-        wrkld_per_rank->end_time = cpu->stop.nsec;
-      
- 	dumpi_insert_next_op(myctx->dumpi_mpi_array, wrkld_per_rank);
+	wrkld_per_rank.op_type = CODES_NW_ISEND;
+	wrkld_per_rank.u.send.tag = prm->tag;
+	wrkld_per_rank.u.send.count = prm->count;
+	wrkld_per_rank.u.send.data_type = prm->datatype;
+        wrkld_per_rank.u.send.num_bytes = prm->count * get_num_bytes(prm->datatype);
+        wrkld_per_rank.u.send.dest_rank = prm->dest;
+        wrkld_per_rank.u.send.source_rank = myctx->my_rank;
+        wrkld_per_rank.start_time = cpu->start.nsec;
+        wrkld_per_rank.end_time = cpu->stop.nsec;
+     
+	assert(wrkld_per_rank.u.send.num_bytes > 0); 
+ 	dumpi_insert_next_op(myctx->dumpi_mpi_array, &wrkld_per_rank);
 	
 	update_compute_time(cpu, myctx);
 	return 0;
@@ -186,19 +185,19 @@ int handleDUMPIIRecv(const dumpi_irecv *prm, uint16_t thread, const dumpi_time *
 {
 	//printf("\n irecv source %d count %d data type %d", prm->source, prm->count, prm->datatype);
 	rank_mpi_context* myctx = (rank_mpi_context*)userarg;
-        struct mpi_event_list * wrkld_per_rank = NULL;
-
-        wrkld_per_rank = malloc(sizeof(*wrkld_per_rank));
-        if(!wrkld_per_rank)
-              return -1;
+        struct mpi_event_list* wrkld_per_rank = malloc(sizeof(mpi_event_list));
 
         wrkld_per_rank->op_type = CODES_NW_IRECV;
+	wrkld_per_rank->u.recv.data_type = prm->datatype;
+	wrkld_per_rank->u.recv.count = prm->count;
+	wrkld_per_rank->u.recv.tag = prm->tag;
         wrkld_per_rank->u.recv.num_bytes = prm->count * get_num_bytes(prm->datatype);
         wrkld_per_rank->u.recv.source_rank = prm->source;
         wrkld_per_rank->u.recv.dest_rank = -1;
         wrkld_per_rank->start_time = cpu->start.nsec;	
 	wrkld_per_rank->end_time = cpu->stop.nsec;             
-	
+
+	assert(wrkld_per_rank->u.recv.num_bytes > 0);	
 	dumpi_insert_next_op(myctx->dumpi_mpi_array, wrkld_per_rank); 
 
 	update_compute_time(cpu, myctx);
@@ -210,20 +209,22 @@ int handleDUMPISend(const dumpi_send *prm, uint16_t thread,
                       const dumpi_perfinfo *perf, void *uarg)
 {
 	rank_mpi_context* myctx = (rank_mpi_context*)uarg;
-        struct mpi_event_list * wrkld_per_rank = NULL;
+        struct mpi_event_list wrkld_per_rank;
 
-        wrkld_per_rank = malloc(sizeof(*wrkld_per_rank));
-        if(!wrkld_per_rank)
-              return -1;
+        wrkld_per_rank.op_type = CODES_NW_SEND;
+	wrkld_per_rank.u.send.tag = prm->tag;
+        wrkld_per_rank.u.send.count = prm->count;
+        wrkld_per_rank.u.send.data_type = prm->datatype;
+        wrkld_per_rank.u.send.num_bytes = prm->count * get_num_bytes(prm->datatype);
+        wrkld_per_rank.u.send.dest_rank = prm->dest;
+        wrkld_per_rank.u.send.source_rank = myctx->my_rank;
+        wrkld_per_rank.start_time = cpu->start.nsec;
+        wrkld_per_rank.end_time = cpu->stop.nsec;
 
-        wrkld_per_rank->op_type = CODES_NW_SEND;
-        wrkld_per_rank->u.send.num_bytes = prm->count * get_num_bytes(prm->datatype);
-        wrkld_per_rank->u.send.dest_rank = prm->dest;
-        wrkld_per_rank->u.send.source_rank = -1;
-        wrkld_per_rank->start_time = cpu->start.nsec;
-        wrkld_per_rank->end_time = cpu->stop.nsec;
-
-	dumpi_insert_next_op(myctx->dumpi_mpi_array, wrkld_per_rank); 
+	if(wrkld_per_rank.u.send.num_bytes < 0)
+		printf("\n Number of bytes %d count %d data type %d num_bytes %d", prm->count * get_num_bytes(prm->datatype), prm->count, prm->datatype, get_num_bytes(prm->datatype));
+	assert(wrkld_per_rank.u.send.num_bytes > 0);
+	dumpi_insert_next_op(myctx->dumpi_mpi_array, &wrkld_per_rank); 
 	update_compute_time(cpu, myctx);
         return 0;
 }
@@ -232,21 +233,19 @@ int handleDUMPIRecv(const dumpi_recv *prm, uint16_t thread,
                       const dumpi_time *cpu, const dumpi_time *wall,
                       const dumpi_perfinfo *perf, void *uarg)
 {
+	//printf("\n irecv source %d count %d data type %d", prm->source, prm->count, prm->datatype);
 	rank_mpi_context* myctx = (rank_mpi_context*)uarg;
-	struct mpi_event_list * wrkld_per_rank = NULL;
+	struct mpi_event_list wrkld_per_rank;
 
-        wrkld_per_rank = malloc(sizeof(*wrkld_per_rank));
-        if(!wrkld_per_rank)
-              return -1;
-        
-	wrkld_per_rank->op_type = CODES_NW_RECV;
-        wrkld_per_rank->u.recv.num_bytes = prm->count * get_num_bytes(prm->datatype);
-        wrkld_per_rank->u.recv.source_rank = prm->source;
-        wrkld_per_rank->u.recv.dest_rank = -1;
-        wrkld_per_rank->start_time = cpu->start.nsec;
-        wrkld_per_rank->end_time = cpu->stop.nsec;
+	wrkld_per_rank.op_type = CODES_NW_RECV;
+        wrkld_per_rank.u.recv.num_bytes = prm->count * get_num_bytes(prm->datatype);
+        wrkld_per_rank.u.recv.source_rank = prm->source;
+        wrkld_per_rank.u.recv.dest_rank = -1;
+        wrkld_per_rank.start_time = cpu->start.nsec;
+        wrkld_per_rank.end_time = cpu->stop.nsec;
 
-	dumpi_insert_next_op(myctx->dumpi_mpi_array, wrkld_per_rank); 
+	assert(wrkld_per_rank.u.recv.num_bytes > 0);
+	dumpi_insert_next_op(myctx->dumpi_mpi_array, &wrkld_per_rank); 
 	update_compute_time(cpu, myctx);
         return 0;
 
@@ -257,18 +256,15 @@ int handleDUMPIBcast(const dumpi_bcast *prm, uint16_t thread,
                        const dumpi_perfinfo *perf, void *uarg)
 {
 	rank_mpi_context* myctx = (rank_mpi_context*)uarg;
-	struct mpi_event_list * wrkld_per_rank = NULL;
+	struct mpi_event_list wrkld_per_rank;
 
-        wrkld_per_rank = malloc(sizeof(*wrkld_per_rank));
-        if(!wrkld_per_rank)
-              return -1;
+        wrkld_per_rank.op_type = CODES_NW_BCAST;
+        wrkld_per_rank.u.collective.num_bytes = prm->count * get_num_bytes(prm->datatype);
+        wrkld_per_rank.start_time = cpu->start.nsec; 
+        wrkld_per_rank.end_time = cpu->stop.nsec;
 
-        wrkld_per_rank->op_type = CODES_NW_BCAST;
-        wrkld_per_rank->u.collective.num_bytes = prm->count * get_num_bytes(prm->datatype);
-        wrkld_per_rank->start_time = cpu->start.nsec; 
-        wrkld_per_rank->end_time = cpu->stop.nsec;
-
-	dumpi_insert_next_op(myctx->dumpi_mpi_array, wrkld_per_rank);
+	assert(wrkld_per_rank.u.collective.num_bytes > 0);
+	dumpi_insert_next_op(myctx->dumpi_mpi_array, &wrkld_per_rank);
 	update_compute_time(cpu, myctx);
         return 0;
 }
@@ -278,18 +274,15 @@ int handleDUMPIAllgather(const dumpi_allgather *prm, uint16_t thread,
                            const dumpi_perfinfo *perf, void *uarg)
 {
 	rank_mpi_context* myctx = (rank_mpi_context*)uarg;
-	struct mpi_event_list * wrkld_per_rank = NULL;
+	struct mpi_event_list wrkld_per_rank;
 
-        wrkld_per_rank = malloc(sizeof(*wrkld_per_rank));
-        if(!wrkld_per_rank)
-              return -1;
+        wrkld_per_rank.op_type = CODES_NW_ALLGATHER;
+        wrkld_per_rank.u.collective.num_bytes = prm->sendcount * get_num_bytes(prm->sendtype);
+        wrkld_per_rank.start_time = cpu->start.nsec;
+        wrkld_per_rank.end_time = cpu->stop.nsec;
 
-        wrkld_per_rank->op_type = CODES_NW_ALLGATHER;
-        wrkld_per_rank->u.collective.num_bytes = prm->sendcount * get_num_bytes(prm->sendtype);
-        wrkld_per_rank->start_time = cpu->start.nsec;
-        wrkld_per_rank->end_time = cpu->stop.nsec;
-
-	dumpi_insert_next_op(myctx->dumpi_mpi_array, wrkld_per_rank);
+	assert(wrkld_per_rank.u.collective.num_bytes > 0);
+	dumpi_insert_next_op(myctx->dumpi_mpi_array, &wrkld_per_rank);
 	update_compute_time(cpu, myctx);
         return 0;
 }
@@ -299,18 +292,15 @@ int handleDUMPIAllgatherv(const dumpi_allgatherv *prm, uint16_t thread,
                             const dumpi_perfinfo *perf, void *uarg)
 {
 	rank_mpi_context* myctx = (rank_mpi_context*)uarg;
-	struct mpi_event_list * wrkld_per_rank = NULL;
+	struct mpi_event_list wrkld_per_rank;
 
-        wrkld_per_rank = malloc(sizeof(*wrkld_per_rank));
-        if(!wrkld_per_rank)
-              return -1;
+        wrkld_per_rank.op_type = CODES_NW_ALLGATHERV;
+        wrkld_per_rank.u.collective.num_bytes = prm->sendcount * get_num_bytes(prm->sendtype);
+        wrkld_per_rank.start_time = cpu->start.nsec;
+        wrkld_per_rank.end_time = cpu->stop.nsec;
 
-        wrkld_per_rank->op_type = CODES_NW_ALLGATHERV;
-        wrkld_per_rank->u.collective.num_bytes = prm->sendcount * get_num_bytes(prm->sendtype);
-        wrkld_per_rank->start_time = cpu->start.nsec;
-        wrkld_per_rank->end_time = cpu->stop.nsec;
-
-	dumpi_insert_next_op(myctx->dumpi_mpi_array, wrkld_per_rank);
+	assert(wrkld_per_rank.u.collective.num_bytes > 0);
+	dumpi_insert_next_op(myctx->dumpi_mpi_array, &wrkld_per_rank);
 	update_compute_time(cpu, myctx);
         return 0;
 }
@@ -320,18 +310,15 @@ int handleDUMPIAlltoall(const dumpi_alltoall *prm, uint16_t thread,
                           const dumpi_perfinfo *perf, void *uarg)
 {
 	rank_mpi_context* myctx = (rank_mpi_context*)uarg;
-	struct mpi_event_list * wrkld_per_rank = NULL;
+	struct mpi_event_list wrkld_per_rank;
 
-        wrkld_per_rank = malloc(sizeof(*wrkld_per_rank));
-        if(!wrkld_per_rank)
-              return -1;
+        wrkld_per_rank.op_type = CODES_NW_ALLTOALL;
+        wrkld_per_rank.u.collective.num_bytes = prm->sendcount * get_num_bytes(prm->sendtype);
+        wrkld_per_rank.start_time = cpu->start.nsec;
+        wrkld_per_rank.end_time = cpu->stop.nsec;
 
-        wrkld_per_rank->op_type = CODES_NW_ALLTOALL;
-        wrkld_per_rank->u.collective.num_bytes = prm->sendcount * get_num_bytes(prm->sendtype);
-        wrkld_per_rank->start_time = cpu->start.nsec;
-        wrkld_per_rank->end_time = cpu->stop.nsec;
-
-	dumpi_insert_next_op(myctx->dumpi_mpi_array, wrkld_per_rank);
+	assert(wrkld_per_rank.u.collective.num_bytes > 0);
+	dumpi_insert_next_op(myctx->dumpi_mpi_array, &wrkld_per_rank);
 	update_compute_time(cpu, myctx);
         return 0;
 }
@@ -341,18 +328,15 @@ int handleDUMPIAlltoallv(const dumpi_alltoallv *prm, uint16_t thread,
                            const dumpi_perfinfo *perf, void *uarg)
 {
 	rank_mpi_context* myctx = (rank_mpi_context*)uarg;
-	struct mpi_event_list * wrkld_per_rank = NULL;
+	struct mpi_event_list wrkld_per_rank;
 
-        wrkld_per_rank = malloc(sizeof(*wrkld_per_rank));
-        if(!wrkld_per_rank)
-              return -1;
-	
-        wrkld_per_rank->op_type = CODES_NW_ALLTOALLV;
-        wrkld_per_rank->u.collective.num_bytes = prm->sendcounts[0] * get_num_bytes(prm->sendtype);
-        wrkld_per_rank->start_time = cpu->start.nsec;
-        wrkld_per_rank->end_time = cpu->stop.nsec;
+        wrkld_per_rank.op_type = CODES_NW_ALLTOALLV;
+        wrkld_per_rank.u.collective.num_bytes = prm->sendcounts[0] * get_num_bytes(prm->sendtype);
+        wrkld_per_rank.start_time = cpu->start.nsec;
+        wrkld_per_rank.end_time = cpu->stop.nsec;
 
-	dumpi_insert_next_op(myctx->dumpi_mpi_array, wrkld_per_rank);
+	assert(wrkld_per_rank.u.collective.num_bytes > 0);
+	dumpi_insert_next_op(myctx->dumpi_mpi_array, &wrkld_per_rank);
 	update_compute_time(cpu, myctx);
         return 0;
 }
@@ -362,18 +346,15 @@ int handleDUMPIReduce(const dumpi_reduce *prm, uint16_t thread,
                         const dumpi_perfinfo *perf, void *uarg)
 {
 	rank_mpi_context* myctx = (rank_mpi_context*)uarg;
-	struct mpi_event_list * wrkld_per_rank = NULL;
+	struct mpi_event_list wrkld_per_rank;
 
-        wrkld_per_rank = malloc(sizeof(*wrkld_per_rank));
-        if(!wrkld_per_rank)
-              return -1;
+        wrkld_per_rank.op_type = CODES_NW_REDUCE;
+        wrkld_per_rank.u.collective.num_bytes = prm->count * get_num_bytes(prm->datatype);
+        wrkld_per_rank.start_time = cpu->start.nsec;
+        wrkld_per_rank.end_time = cpu->stop.nsec;
 
-        wrkld_per_rank->op_type = CODES_NW_REDUCE;
-        wrkld_per_rank->u.collective.num_bytes = prm->count * get_num_bytes(prm->datatype);
-        wrkld_per_rank->start_time = cpu->start.nsec;
-        wrkld_per_rank->end_time = cpu->stop.nsec;
-
-	dumpi_insert_next_op(myctx->dumpi_mpi_array, wrkld_per_rank);
+	assert(wrkld_per_rank.u.collective.num_bytes > 0);
+	dumpi_insert_next_op(myctx->dumpi_mpi_array, &wrkld_per_rank);
 	update_compute_time(cpu, myctx);
         return 0;
 }
@@ -383,18 +364,15 @@ int handleDUMPIAllreduce(const dumpi_allreduce *prm, uint16_t thread,
                            const dumpi_perfinfo *perf, void *uarg)
 {
 	rank_mpi_context* myctx = (rank_mpi_context*)uarg;
-	struct mpi_event_list * wrkld_per_rank = NULL;
+	struct mpi_event_list wrkld_per_rank;
 
-	wrkld_per_rank = malloc(sizeof(*wrkld_per_rank));
-        if(!wrkld_per_rank)
-              return -1;
+        wrkld_per_rank.op_type = CODES_NW_ALLREDUCE;
+        wrkld_per_rank.u.collective.num_bytes = prm->count * get_num_bytes(prm->datatype);
+        wrkld_per_rank.start_time = cpu->start.nsec;
+        wrkld_per_rank.end_time = cpu->stop.nsec;
 
-        wrkld_per_rank->op_type = CODES_NW_ALLREDUCE;
-        wrkld_per_rank->u.collective.num_bytes = prm->count * get_num_bytes(prm->datatype);
-        wrkld_per_rank->start_time = cpu->start.nsec;
-        wrkld_per_rank->end_time = cpu->stop.nsec;
-
-	dumpi_insert_next_op(myctx->dumpi_mpi_array, wrkld_per_rank);
+	assert(wrkld_per_rank.u.collective.num_bytes > 0);
+	dumpi_insert_next_op(myctx->dumpi_mpi_array, &wrkld_per_rank);
 	update_compute_time(cpu, myctx);
         return 0;
 
@@ -403,17 +381,13 @@ int handleDUMPIAllreduce(const dumpi_allreduce *prm, uint16_t thread,
 int handleDUMPIFinalize(const dumpi_finalize *prm, uint16_t thread, const dumpi_time *cpu, const dumpi_time *wall, const dumpi_perfinfo *perf, void *uarg)
 {
 	rank_mpi_context* myctx = (rank_mpi_context*)uarg;
-	struct mpi_event_list * wrkld_per_rank = NULL;
+	struct mpi_event_list wrkld_per_rank;
 
-	wrkld_per_rank = malloc(sizeof(*wrkld_per_rank));
-        if(!wrkld_per_rank)
-              return -1;
-
-        wrkld_per_rank->op_type = CODES_NW_END;
-        wrkld_per_rank->start_time = cpu->start.nsec;
-        wrkld_per_rank->end_time = cpu->stop.nsec;
+        wrkld_per_rank.op_type = CODES_NW_END;
+        wrkld_per_rank.start_time = cpu->start.nsec;
+        wrkld_per_rank.end_time = cpu->stop.nsec;
 	
-	dumpi_insert_next_op(myctx->dumpi_mpi_array, wrkld_per_rank);
+	dumpi_insert_next_op(myctx->dumpi_mpi_array, &wrkld_per_rank);
 	update_compute_time(cpu, myctx);
         return 0;
 }
@@ -475,7 +449,7 @@ int dumpi_trace_nw_workload_load(const char* params, int rank)
         callbacks.on_isend = (dumpi_isend_call)handleDUMPIISend;
         callbacks.on_irecv = (dumpi_irecv_call)handleDUMPIIRecv;
         callbacks.on_allreduce = (dumpi_allreduce_call)handleDUMPIAllreduce;
-        callbacks.on_bcast = (dumpi_bcast_call)handleDUMPIBcast;
+	callbacks.on_bcast = (dumpi_bcast_call)handleDUMPIBcast;
 	callbacks.on_get_count = (dumpi_get_count_call)handleDUMPIGeneric;
 	callbacks.on_bsend = (dumpi_bsend_call)handleDUMPIGeneric;
 	callbacks.on_ssend = (dumpi_ssend_call)handleDUMPIGeneric;
