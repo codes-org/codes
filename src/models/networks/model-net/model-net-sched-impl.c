@@ -13,14 +13,6 @@
 #include "codes/quicklist.h"
 
 /// scheduler-specific data structures 
-/// NOTE: for now, scheduler data structures are the same - this may change in
-/// later versions
-
-typedef struct mn_sched {
-    // method containing packet event to call
-    struct model_net_method *method;
-    struct qlist_head reqs; // of type mn_sched_qitem
-} mn_sched;
 
 typedef struct mn_sched_qitem {
     model_net_request req;
@@ -33,61 +25,130 @@ typedef struct mn_sched_qitem {
     struct qlist_head ql;
 } mn_sched_qitem;
 
-/// scheduler-specific function decls and function table
+// fcfs and round-robin each use a single queue
+typedef struct mn_sched_queue {
+    // method containing packet event to call
+    const struct model_net_method *method;
+    struct qlist_head reqs; // of type mn_sched_qitem
+} mn_sched_queue;
+
+// priority scheduler consists of a bunch of rr/fcfs queues
+typedef struct mn_sched_prio {
+    mn_prio_params params;
+    const model_net_sched_interface *sub_sched_iface;
+    mn_sched_queue ** sub_scheds; // one for each params.num_prios
+} mn_sched_prio;
+
+/// scheduler-specific function decls and tables
 
 /// FCFS
 // void used to avoid ptr-to-ptr conv warnings
-static void fcfs_init (struct model_net_method *method, void ** sched);
+static void fcfs_init (
+        const struct model_net_method     * method, 
+        const model_net_sched_cfg_params  * params,
+        void                             ** sched);
 static void fcfs_destroy (void *sched);
 static void fcfs_add (
-        model_net_request *req, 
-        int remote_event_size,
-        void * remote_event,
-        int local_event_size,
-        void * local_event,
-        void *sched, 
-        model_net_sched_rc *rc, 
-        tw_lp *lp);
+        model_net_request  * req,
+        void               * sched_msg_params,
+        int                  remote_event_size,
+        void               * remote_event,
+        int                  local_event_size,
+        void               * local_event,
+        void               * sched,
+        model_net_sched_rc * rc,
+        tw_lp              * lp);
 static void fcfs_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp);
-static int  fcfs_next(tw_stime *poffset, void *sched, void *rc_event_save, 
-        model_net_sched_rc *rc, tw_lp *lp);
-static void fcfs_next_rc(void *sched, void *rc_event_save,
-        model_net_sched_rc *rc, tw_lp *lp);
+static int  fcfs_next(
+        tw_stime           * poffset,
+        void               * sched,
+        void               * rc_event_save,
+        model_net_sched_rc * rc,
+        tw_lp              * lp);
+static void fcfs_next_rc(
+        void               * sched,
+        void               * rc_event_save,
+        model_net_sched_rc * rc,
+        tw_lp              * lp);
 
-static void rr_init (struct model_net_method *method, void ** sched);
+// ROUND-ROBIN
+static void rr_init (
+        const struct model_net_method     * method, 
+        const model_net_sched_cfg_params  * params,
+        void                             ** sched);
 static void rr_destroy (void *sched);
 static void rr_add (
-        model_net_request *req,
-        int remote_event_size,
-        void * remote_event,
-        int local_event_size,
-        void * local_event,
-        void *sched,
-        model_net_sched_rc *rc,
-        tw_lp *lp);
+        model_net_request  * req,
+        void               * sched_msg_params,
+        int                  remote_event_size,
+        void               * remote_event,
+        int                  local_event_size,
+        void               * local_event,
+        void               * sched,
+        model_net_sched_rc * rc,
+        tw_lp              * lp);
 static void rr_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp);
-static int  rr_next(tw_stime *poffset, void *sched, void *rc_event_save,
-        model_net_sched_rc *rc, tw_lp *lp);
-static void rr_next_rc (void *sched, void *rc_event_save,
-        model_net_sched_rc *rc, tw_lp *lp);
+static int  rr_next(
+        tw_stime           * poffset,
+        void               * sched,
+        void               * rc_event_save,
+        model_net_sched_rc * rc,
+        tw_lp              * lp);
+static void rr_next_rc (
+        void               * sched,
+        void               * rc_event_save,
+        model_net_sched_rc * rc,
+        tw_lp              * lp);
+static void prio_init (
+        const struct model_net_method     * method, 
+        const model_net_sched_cfg_params  * params,
+        void                             ** sched);
+static void prio_destroy (void *sched);
+static void prio_add (
+        model_net_request  * req,
+        void               * sched_msg_params,
+        int                  remote_event_size,
+        void               * remote_event,
+        int                  local_event_size,
+        void               * local_event,
+        void               * sched,
+        model_net_sched_rc * rc,
+        tw_lp              * lp);
+static void prio_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp);
+static int  prio_next(
+        tw_stime           * poffset,
+        void               * sched,
+        void               * rc_event_save,
+        model_net_sched_rc * rc,
+        tw_lp              * lp);
+static void prio_next_rc (
+        void               * sched,
+        void               * rc_event_save,
+        model_net_sched_rc * rc,
+        tw_lp              * lp);
 
 /// function tables (names defined by X macro in model-net-sched.h)
-static model_net_sched_interface fcfs_tab = 
+static const model_net_sched_interface fcfs_tab = 
 { &fcfs_init, &fcfs_destroy, &fcfs_add, &fcfs_add_rc, &fcfs_next, &fcfs_next_rc};
-static model_net_sched_interface rr_tab = 
+static const model_net_sched_interface rr_tab = 
 { &rr_init, &rr_destroy, &rr_add, &rr_add_rc, &rr_next, &rr_next_rc};
+static const model_net_sched_interface prio_tab =
+{ &prio_init, &prio_destroy, &prio_add, &prio_add_rc, &prio_next, &prio_next_rc};
 
 #define X(a,b,c) c,
-model_net_sched_interface * sched_interfaces[] = {
+const model_net_sched_interface * sched_interfaces[] = {
     SCHEDULER_TYPES
 };
 #undef X
 
 /// FCFS implementation 
 
-void fcfs_init(struct model_net_method *method, void ** sched){
-    *sched = malloc(sizeof(mn_sched));
-    mn_sched *ss = *sched;
+void fcfs_init(
+        const struct model_net_method     * method, 
+        const model_net_sched_cfg_params  * params,
+        void                             ** sched){
+    *sched = malloc(sizeof(mn_sched_queue));
+    mn_sched_queue *ss = *sched;
     ss->method = method;
     INIT_QLIST_HEAD(&ss->reqs);
 }
@@ -97,14 +158,15 @@ void fcfs_destroy(void *sched){
 }
 
 void fcfs_add (
-        model_net_request *req, 
-        int remote_event_size,
-        void * remote_event,
-        int local_event_size,
-        void * local_event,
-        void *sched, 
-        model_net_sched_rc *rc, 
-        tw_lp *lp){
+        model_net_request  * req,
+        void               * sched_msg_params,
+        int                  remote_event_size,
+        void               * remote_event,
+        int                  local_event_size,
+        void               * local_event,
+        void               * sched,
+        model_net_sched_rc * rc,
+        tw_lp              * lp){
     // NOTE: in optimistic mode, we currently do not have a good way to
     // reliably free and re-initialize the q item and the local/remote events
     // when processing next/next_rc events. Hence, the memory leaks. Later on
@@ -123,12 +185,12 @@ void fcfs_add (
         memcpy(q->local_event, local_event, local_event_size);
     }
     else { q->local_event = NULL; }
-    mn_sched *s = sched;
+    mn_sched_queue *s = sched;
     qlist_add_tail(&q->ql, &s->reqs);
 }
 
 void fcfs_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp){
-    mn_sched *s = sched;
+    mn_sched_queue *s = sched;
     struct qlist_head *ent = qlist_pop_back(&s->reqs);
     assert(ent != NULL);
     mn_sched_qitem *q = qlist_entry(ent, mn_sched_qitem, ql);
@@ -138,9 +200,13 @@ void fcfs_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp){
     free(q);
 }
 
-int fcfs_next(tw_stime *poffset, void *sched, void *rc_event_save,
-        model_net_sched_rc *rc, tw_lp *lp){
-    mn_sched *s = sched;
+int fcfs_next(
+        tw_stime           * poffset,
+        void               * sched,
+        void               * rc_event_save,
+        model_net_sched_rc * rc,
+        tw_lp              * lp){
+    mn_sched_queue *s = sched;
     struct qlist_head *ent = s->reqs.next;
     if (ent == &s->reqs){
         rc->rtn = -1;
@@ -189,9 +255,12 @@ int fcfs_next(tw_stime *poffset, void *sched, void *rc_event_save,
     return rc->rtn;
 }
 
-void fcfs_next_rc(void *sched, void *rc_event_save, model_net_sched_rc *rc,
-        tw_lp *lp){
-    mn_sched *s = sched;
+void fcfs_next_rc(
+        void               * sched,
+        void               * rc_event_save,
+        model_net_sched_rc * rc,
+        tw_lp              * lp){
+    mn_sched_queue *s = sched;
     if (rc->rtn == -1){
         // no op
     }
@@ -233,26 +302,29 @@ void fcfs_next_rc(void *sched, void *rc_event_save, model_net_sched_rc *rc,
     }
 }
 
-void rr_init (struct model_net_method *method, void ** sched){
-    *sched = malloc(sizeof(mn_sched));
-    mn_sched *ss = *sched;
-    ss->method = method;
-    INIT_QLIST_HEAD(&ss->reqs);
+void rr_init (
+        const struct model_net_method     * method, 
+        const model_net_sched_cfg_params  * params,
+        void                             ** sched){
+    // same underlying representation
+    fcfs_init(method, params, sched);
 }
 
 void rr_destroy (void *sched){
-    free(sched);
+    // same underlying representation
+    fcfs_destroy(sched);
 }
 
 void rr_add (
-        model_net_request *req,
-        int remote_event_size,
-        void * remote_event,
-        int local_event_size,
-        void * local_event,
-        void *sched,
-        model_net_sched_rc *rc,
-        tw_lp *lp){
+        model_net_request  * req,
+        void               * sched_msg_params,
+        int                  remote_event_size,
+        void               * remote_event,
+        int                  local_event_size,
+        void               * local_event,
+        void               * sched,
+        model_net_sched_rc * rc,
+        tw_lp              * lp){
     // NOTE: in optimistic mode, we currently do not have a good way to
     // reliably free and re-initialize the q item and the local/remote events
     // when processing next/next_rc events. Hence, the memory leaks. Later on
@@ -270,11 +342,11 @@ void rr_add (
         memcpy(q->local_event, local_event, local_event_size);
     }
     else{ q->local_event = NULL; }
-    mn_sched *s = sched;
+    mn_sched_queue *s = sched;
     qlist_add_tail(&q->ql, &s->reqs);
 }
 void rr_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp){
-    mn_sched *s = sched;
+    mn_sched_queue *s = sched;
     struct qlist_head *ent = qlist_pop_back(&s->reqs);
     assert(ent != NULL);
     mn_sched_qitem *q = qlist_entry(ent, mn_sched_qitem, ql);
@@ -283,9 +355,13 @@ void rr_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp){
     free(q);
 }
 
-int rr_next(tw_stime *poffset, void *sched, void *rc_event_save,
-        model_net_sched_rc *rc, tw_lp *lp){
-    mn_sched *s = sched;
+int rr_next(
+        tw_stime           * poffset,
+        void               * sched,
+        void               * rc_event_save,
+        model_net_sched_rc * rc,
+        tw_lp              * lp){
+    mn_sched_queue *s = sched;
     struct qlist_head *ent = qlist_pop(&s->reqs);
     if (ent == NULL){
         rc->rtn = -1;
@@ -334,8 +410,12 @@ int rr_next(tw_stime *poffset, void *sched, void *rc_event_save,
     return rc->rtn;
 }
 
-void rr_next_rc (void *sched, void *rc_event_save, model_net_sched_rc *rc, tw_lp *lp){
-    mn_sched *s = sched;
+void rr_next_rc (
+        void               * sched,
+        void               * rc_event_save,
+        model_net_sched_rc * rc,
+        tw_lp              * lp){
+    mn_sched_queue *s = sched;
     if (rc->rtn == -1){
         // no op
     }
@@ -376,6 +456,97 @@ void rr_next_rc (void *sched, void *rc_event_save, model_net_sched_rc *rc, tw_lp
             assert(0);
         }
     }
+}
+
+void prio_init (
+        const struct model_net_method     * method, 
+        const model_net_sched_cfg_params  * params,
+        void                             ** sched){
+    *sched = malloc(sizeof(mn_sched_prio));
+    mn_sched_prio *ss = *sched;
+    ss->params = params->u.prio;
+    ss->sub_scheds = malloc(ss->params.num_prios*sizeof(mn_sched_queue*));
+    ss->sub_sched_iface = sched_interfaces[ss->params.sub_stype];
+    for (int i = 0; i < ss->params.num_prios; i++){
+        ss->sub_sched_iface->init(method, params, (void**)&ss->sub_scheds[i]);
+    }
+}
+
+void prio_destroy (void *sched){
+    mn_sched_prio *ss = sched;
+    for (int i = 0; i < ss->params.num_prios; i++){
+        ss->sub_sched_iface->destroy(ss->sub_scheds[i]);
+        free(ss->sub_scheds);
+        free(ss);
+    }
+}
+
+void prio_add (
+        model_net_request  * req,
+        void               * sched_msg_params,
+        int                  remote_event_size,
+        void               * remote_event,
+        int                  local_event_size,
+        void               * local_event,
+        void               * sched,
+        model_net_sched_rc * rc,
+        tw_lp              * lp){
+    // sched_msg_params is simply an int
+    mn_sched_prio *ss = sched;
+    int prio = *(int*) sched_msg_params;
+    if (prio == -1){
+        // default prio - lowest possible 
+        prio = ss->params.num_prios-1;
+    }
+    else if (prio >= ss->params.num_prios){
+        tw_error(TW_LOC, "sched for lp %lu: invalid prio (%d vs [%d,%d))",
+                lp->gid, prio, 0, ss->params.num_prios);
+    }
+    //NOTE: currently no support for sub-scheduler parameters
+    ss->sub_sched_iface->add(req, NULL, remote_event_size, remote_event,
+            local_event_size, local_event, ss->sub_scheds[prio], rc, lp);
+    rc->prio = prio;
+}
+
+void prio_add_rc(void * sched, model_net_sched_rc *rc, tw_lp *lp){
+    // just call the sub scheduler's add_rc
+    mn_sched_prio *ss = sched;
+    ss->sub_sched_iface->add_rc(ss->sub_scheds[rc->prio], rc, lp);
+}
+
+int prio_next(
+        tw_stime           * poffset,
+        void               * sched,
+        void               * rc_event_save,
+        model_net_sched_rc * rc,
+        tw_lp              * lp){
+    // check each priority, first one that's non-empty gets the next
+    mn_sched_prio *ss = sched;
+    for (int i = 0; i < ss->params.num_prios; i++){
+        // TODO: this works for now while the other schedulers have the same
+        // internal representation
+        if (!qlist_empty(&ss->sub_scheds[i]->reqs)){
+            rc->prio = i;
+            return ss->sub_sched_iface->next(
+                    poffset, ss->sub_scheds[i], rc_event_save, rc, lp);
+        }
+    }
+    rc->prio = -1;
+    return -1; // all sub schedulers had no work 
+}
+
+void prio_next_rc (
+        void               * sched,
+        void               * rc_event_save,
+        model_net_sched_rc * rc,
+        tw_lp              * lp){
+    if (rc->prio != -1){
+        // we called a next somewhere
+        mn_sched_prio *ss = sched;
+        ss->sub_sched_iface->next_rc(ss->sub_scheds[rc->prio], rc_event_save,
+                rc, lp);
+    }
+    // else, no-op
 }
 
 /*

@@ -23,18 +23,18 @@ char * sched_names [] = {
 /// general scheduler functions
 
 void model_net_sched_init(
-        enum sched_type type, 
+        const model_net_sched_cfg_params * params,
         struct model_net_method *method,
         model_net_sched *sched){
-    if (type >= MAX_SCHEDS){
+    if (params->type >= MAX_SCHEDS){
         fprintf(stderr, "unknown scheduler type");
         abort();
     }
     else{
-        sched->impl = sched_interfaces[type];
+        sched->impl = sched_interfaces[params->type];
     }
-    sched->type = type;
-    sched->impl->init(method, &sched->dat);
+    sched->type = params->type;
+    sched->impl->init(method, params, &sched->dat);
 }
 
 int model_net_sched_next(
@@ -56,6 +56,7 @@ void model_net_sched_next_rc(
 
 void model_net_sched_add(
         model_net_request *req,
+        void * sched_msg_params,
         int remote_event_size,
         void * remote_event,
         int local_event_size,
@@ -63,8 +64,8 @@ void model_net_sched_add(
         model_net_sched *sched,
         model_net_sched_rc *sched_rc,
         tw_lp *lp){
-    sched->impl->add(req, remote_event_size, remote_event, local_event_size,
-            local_event, sched->dat, sched_rc, lp);
+    sched->impl->add(req, sched_msg_params, remote_event_size, remote_event,
+            local_event_size, local_event, sched->dat, sched_rc, lp);
 }
 
 void model_net_sched_add_rc(

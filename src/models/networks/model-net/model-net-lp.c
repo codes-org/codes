@@ -23,8 +23,8 @@ int model_net_base_magic;
 // issues...
 static int msg_offsets[MAX_NETS];
 
-typedef struct model_net_base_params {
-    enum sched_type stype;
+typedef struct model_net_base_params_s {
+    model_net_sched_cfg_params sched_params;
     uint64_t packet_size;
 } model_net_base_params;
 
@@ -145,29 +145,65 @@ static void base_read_config(const char * anno, model_net_base_params *p){
         int i;
         for (i = 0; i < MAX_SCHEDS; i++){
             if (strcmp(sched_names[i], sched) == 0){
-                p->stype = i;
+                p->sched_params.type = i;
                 break;
             }
         }
         if (i == MAX_SCHEDS){
             tw_error(TW_LOC,"Unknown value for PARAMS:modelnet-scheduler : "
-                    "%s\n", sched); 
+                    "%s", sched); 
         }
     }
     else{
         // default: FCFS
-        p->stype = MN_SCHED_FCFS;
+        p->sched_params.type = MN_SCHED_FCFS;
     }
 
-    if (p->stype == MN_SCHED_FCFS_FULL){
+    if (p->sched_params.type == MN_SCHED_FCFS_FULL){
         // override packet size to something huge (leave a bit in the unlikely
         // case that an op using packet size causes overflow)
         packet_size = 1ull << 62;
     }
-    else if (!packet_size && p->stype != MN_SCHED_FCFS_FULL)
+    else if (!packet_size && p->sched_params.type != MN_SCHED_FCFS_FULL)
     {
         packet_size = 512;
-        fprintf(stderr, "Warning, no packet size specified, setting packet size to %llu\n", packet_size);
+        fprintf(stderr, "Warning, no packet size specified, setting packet "
+                "size to %llu\n", packet_size);
+    }
+
+    // get scheduler-specific parameters
+    if (p->sched_params.type == MN_SCHED_PRIO){
+        // prio scheduler uses default parameters 
+        int             * num_prios = &p->sched_params.u.prio.num_prios;
+        enum sched_type * sub_stype = &p->sched_params.u.prio.sub_stype;
+        // number of priorities to allocate
+        ret = configuration_get_value_int(&config, "PARAMS",
+                "prio-sched-num-prios", anno, num_prios);
+        if (ret != 0)
+            *num_prios = 10;
+
+        ret = configuration_get_value(&config, "PARAMS",
+                "prio-sched-sub-sched", anno, sched, MAX_NAME_LENGTH);
+        if (ret == 0)
+            *sub_stype = MN_SCHED_FCFS;
+        else{
+            int i;
+            for (i = 0; i < MAX_SCHEDS; i++){
+                if (strcmp(sched_names[i], sched) == 0){
+                    *sub_stype = i;
+                    break;
+                }
+            }
+            if (i == MAX_SCHEDS){
+                tw_error(TW_LOC, "Unknown value for "
+                        "PARAMS:prio-sched-sub-sched %s", sched);
+            }
+            else if (i == MN_SCHED_PRIO){
+                tw_error(TW_LOC, "priority scheduler cannot be used as a "
+                        "priority scheduler's sub sched "
+                        "(PARAMS:prio-sched-sub-sched)");
+            }
+        }
     }
 
     p->packet_size = packet_size;
@@ -265,7 +301,7 @@ void model_net_base_lp_init(
 
     // TODO: parameterize scheduler type
     ns->sched = malloc(sizeof(model_net_sched));
-    model_net_sched_init(ns->params->stype, method_array[ns->net_id],
+    model_net_sched_init(&ns->params->sched_params, method_array[ns->net_id],
             ns->sched);
 
     ns->sub_type = model_net_get_lp_type(ns->net_id);
@@ -357,8 +393,22 @@ void handle_new_msg(
         local = m_data;
     }
     
-    model_net_sched_add(r, r->remote_event_size, remote, r->self_event_size,
-            local, ns->sched, &m->msg.m_base.rc, lp);
+    // set message-specific params
+    void * params = NULL;
+    switch(ns->sched->type){
+        case MN_SCHED_FCFS:
+        case MN_SCHED_FCFS_FULL:
+        case MN_SCHED_RR:
+            // no parameters
+            break;
+        case MN_SCHED_PRIO:
+            params = (void*)&m->msg.m_base.sched_params.prio;
+            break;
+        default:
+            assert(0);
+    }
+    model_net_sched_add(r, params, r->remote_event_size, remote,
+            r->self_event_size, local, ns->sched, &m->msg.m_base.rc, lp);
     
     if (ns->in_sched_loop == 0){
         b->c0 = 1;

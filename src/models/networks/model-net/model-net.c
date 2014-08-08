@@ -46,6 +46,10 @@ struct model_net_method* method_array[] = {
 int in_sequence = 0;
 tw_stime mn_msg_offset = 0.0;
 
+// message parameters for use via model_net_set_msg_param
+static int is_msg_params_set[MAX_MN_MSG_PARAM_TYPES];
+static mn_sched_params sched_params;
+
 // global listing of lp types found by model_net_register
 // - needs to be held between the register and configure calls
 static int do_config_nets[MAX_NETS];
@@ -117,6 +121,10 @@ int* model_net_configure(int *id_count){
         free(values[i]);
     }
     free(values);
+
+    // init the per-msg params here
+    memset(is_msg_params_set, 0,
+            MAX_MN_MSG_PARAM_TYPES*sizeof(*is_msg_params_set));
 
     return ids;
 }
@@ -263,6 +271,15 @@ static void model_net_event_impl_base(
     strncpy(r->category, category, CATEGORY_NAME_MAX-1);
     r->category[CATEGORY_NAME_MAX-1]='\0';
     
+    // set the msg-specific params
+    if (is_msg_params_set[MN_SCHED_PARAM_PRIO])
+        m->msg.m_base.sched_params = sched_params;
+    else // set the default
+        m->msg.m_base.sched_params.prio = -1;
+    // once params are set, clear the flags 
+    memset(is_msg_params_set, 0,
+            MAX_MN_MSG_PARAM_TYPES*sizeof(*is_msg_params_set));
+
     void *e_msg = (m+1);
     if (remote_event_size > 0){
         memcpy(e_msg, remote_event, remote_event_size);
@@ -357,6 +374,27 @@ void model_net_pull_event_rc(
         int net_id,
         tw_lp *sender) {
     model_net_event_impl_base_rc(sender);
+}
+
+void model_net_set_msg_param(
+        enum msg_param_type type,
+        int sub_type,
+        const void * params){
+    switch(type){
+        case MN_MSG_PARAM_SCHED:
+            is_msg_params_set[MN_MSG_PARAM_SCHED] = 1;
+            switch(sub_type){
+                case MN_SCHED_PARAM_PRIO:
+                    sched_params.prio = *(int*)params;
+                    break;
+                default:
+                    tw_error(TW_LOC, "unknown or unsupported "
+                            "MN_MSG_PARAM_SCHED parameter type");
+            }
+            break;
+        default:
+            tw_error(TW_LOC, "unknown or unsupported msg_param_type");
+    }
 }
 
 /* returns the message size, can be either simplenet, dragonfly or torus message size*/

@@ -71,6 +71,9 @@ typedef struct model_net_base_msg {
         model_net_request req;
         struct {} sched; // needs nothing at the moment
     } u;
+    // parameters to pass to new messages (via model_net_set_msg_params)
+    // TODO: make this a union for multiple types of parameters
+    mn_sched_params sched_params;
     model_net_sched_rc rc; // rc for scheduling events
 } model_net_base_msg;
 

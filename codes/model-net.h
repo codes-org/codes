@@ -57,6 +57,13 @@ enum NETWORKS
 };
 #undef X
 
+// message parameter types
+enum msg_param_type {
+    // currently, scheduler parameters are the only type
+    MN_MSG_PARAM_SCHED,
+    MAX_MN_MSG_PARAM_TYPES
+};
+
 // network identifiers (both the config lp names and the model-net internal
 // names)
 extern char * model_net_lp_config_names[];
@@ -255,6 +262,28 @@ void model_net_pull_event_annotated(
 void model_net_pull_event_rc(
         int net_id,
         tw_lp *sender);
+
+/*
+ * Set message-specific parameters
+ * type     - overall type (see msg_param_type)
+ * sub_type - type of parameter specific to type. This is intended to be
+ *            an enum for each of msg_param_type's values
+ * params   - the parameter payload
+ *
+ * This function works by setting up a temporary parameter context within the
+ * model-net implementation (currently implemented as a set of translation-unit
+ * globals). Upon a subsequent model_net_*event* call, the context is consumed
+ * and reset to an unused state.
+ * 
+ * NOTE: this call MUST be placed in the same calling context as the subsequent
+ * model_net_*event* call. Otherwise, the parameters are not guaranteed to work
+ * on the intended event, and may possibly be consumed by another, unrelated
+ * event.
+ */
+void model_net_set_msg_param(
+        enum msg_param_type type,
+        int sub_type,
+        const void * params);
 
 /* returns pointer to LP information for simplenet module */
 const tw_lptype* model_net_get_lp_type(int net_id);

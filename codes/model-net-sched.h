@@ -20,6 +20,7 @@
     X(MN_SCHED_FCFS,      "fcfs",        &fcfs_tab) \
     X(MN_SCHED_FCFS_FULL, "fcfs-full",   &fcfs_tab) \
     X(MN_SCHED_RR,        "round-robin", &rr_tab) \
+    X(MN_SCHED_PRIO,      "priority",    &prio_tab) \
     X(MAX_SCHEDS,         NULL,          NULL)
 
 #define X(a,b,c) a,
@@ -28,37 +29,84 @@ enum sched_type {
 };
 #undef X
 
-extern char * sched_names[];
-
 /// scheduler decls
 
 typedef struct model_net_sched_s model_net_sched;
 typedef struct model_net_sched_rc_s model_net_sched_rc;
 
+// priority scheduler configurtion parameters
+typedef struct mn_prio_params_s {
+    int num_prios; // number of priorities
+    // sub-scheduler to use. can be any but prio
+    enum sched_type sub_stype;
+} mn_prio_params;
+
+// TODO: other scheduler config params
+
+// initialization parameter set
+typedef struct model_net_sched_cfg_params_s {
+    enum sched_type type;
+    union {
+        mn_prio_params prio;
+    } u;
+} model_net_sched_cfg_params;
+
+typedef struct mn_sched_cfg_params {
+    mn_prio_params prio;
+} mn_sched_cfg_params;
+
+/// message-specific parameters
+enum sched_msg_param_type {
+    MN_SCHED_PARAM_PRIO, // currently, only the priority scheduler has params
+    MAX_SCHED_MSG_PARAM_TYPES
+};
+
+// scheduler-specific parameter definitions must go here
+typedef struct mn_sched_params_s {
+    int prio; // MN_SCHED_PARAM_PRIO (currently the only one)
+} mn_sched_params;
+
 /// interface to be implemented by schedulers
 /// see corresponding general functions
 typedef struct model_net_sched_interface {
-    void (*init)(struct model_net_method *method, void ** sched);
+    // initialize the scheduler
+    // params - scheduler specific params (currently only prio q uses)
+    void (*init)(
+            const struct model_net_method     * method, 
+            const model_net_sched_cfg_params  * params,
+            void                             ** sched);
+    // finalize the scheduler
     void (*destroy)(void * sched);
+    // add a new request to the scheduler
+    // sched_params - per-message parameters distinct to each scheduler:
+    //                prio (currently the only user): int priority
+    //              - NULL arguments should be treated as "use default value" 
     void (*add)(
-            model_net_request *req,
-            int remote_event_size,
-            void * remote_event,
-            int local_event_size,
-            void * local_event,
-            void *sched,
-            model_net_sched_rc *rc,
-            tw_lp *lp);
+            model_net_request  * req,
+            void               * sched_params,
+            int                  remote_event_size,
+            void               * remote_event,
+            int                  local_event_size,
+            void               * local_event,
+            void               * sched,
+            model_net_sched_rc * rc,
+            tw_lp              * lp);
+    // reverse the previous request addition
     void (*add_rc)(void *sched, model_net_sched_rc *rc, tw_lp *lp);
+    // schedule the next packet for processing by the model
     int  (*next)(
-            tw_stime *poffset,
-            void *sched,
+            tw_stime           * poffset,
+            void               * sched,
             // NOTE: copy here when deleting remote/local events for rc
-            void *rc_event_save,
-            model_net_sched_rc *rc,
-            tw_lp *lp);
-    void (*next_rc)(void * sched, void *rc_event_save, 
-            model_net_sched_rc *rc, tw_lp *lp);
+            void               * rc_event_save,
+            model_net_sched_rc * rc,
+            tw_lp              * lp);
+    // reverse schedule the previous packet
+    void (*next_rc)(
+            void               * sched,
+            void               * rc_event_save,
+            model_net_sched_rc * rc,
+            tw_lp              * lp);
 } model_net_sched_interface;
 
 /// overall scheduler struct - type puns the actual data structure
@@ -66,8 +114,10 @@ typedef struct model_net_sched_interface {
 struct model_net_sched_s {
     enum sched_type type;
     void * dat;
-    model_net_sched_interface *impl;
+    const model_net_sched_interface * impl;
 };
+
+/// scheduler-specific structures go here
 
 /// reverse computation structure - this is expected to be held by upper-level
 /// model-net LPs and passed to the scheduler functions to allow proper rc
@@ -78,10 +128,14 @@ struct model_net_sched_rc_s {
     // are equivalent 
     model_net_request req; // request gets deleted...
     int rtn; // return code from a sched_next 
+    int prio; // prio when doing priority queue events 
 };
 
+// initialize the scheduler
+// - params is created by the configuration routine and can be different from
+//   type to type. Currently only priority scheduler uses it
 void model_net_sched_init(
-        enum sched_type type, 
+        const model_net_sched_cfg_params * params,
         struct model_net_method *method,
         model_net_sched *sched);
 
@@ -108,8 +162,11 @@ void model_net_sched_next_rc(
 
 /// enter a new request into the scheduler, storing any info needed for rc in
 /// sched_rc
+/// sched_msg_params is scheduler-specific parameters (currently only used by
+/// prio scheduler)
 void model_net_sched_add(
         model_net_request *req,
+        void * sched_msg_params,
         int remote_event_size,
         void * remote_event,
         int local_event_size,
@@ -122,6 +179,8 @@ void model_net_sched_add_rc(
         model_net_sched *sched,
         model_net_sched_rc *sched_rc,
         tw_lp *lp);
+
+extern char * sched_names[];
 
 #endif /* end of include guard: MODEL_NET_SCHED_H */
 
