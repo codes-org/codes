@@ -159,18 +159,6 @@ static void base_read_config(const char * anno, model_net_base_params *p){
         p->sched_params.type = MN_SCHED_FCFS;
     }
 
-    if (p->sched_params.type == MN_SCHED_FCFS_FULL){
-        // override packet size to something huge (leave a bit in the unlikely
-        // case that an op using packet size causes overflow)
-        packet_size = 1ull << 62;
-    }
-    else if (!packet_size && p->sched_params.type != MN_SCHED_FCFS_FULL)
-    {
-        packet_size = 512;
-        fprintf(stderr, "Warning, no packet size specified, setting packet "
-                "size to %llu\n", packet_size);
-    }
-
     // get scheduler-specific parameters
     if (p->sched_params.type == MN_SCHED_PRIO){
         // prio scheduler uses default parameters 
@@ -205,6 +193,23 @@ static void base_read_config(const char * anno, model_net_base_params *p){
             }
         }
     }
+
+    if (p->sched_params.type == MN_SCHED_FCFS_FULL ||
+            (p->sched_params.type == MN_SCHED_PRIO &&
+             p->sched_params.u.prio.sub_stype == MN_SCHED_FCFS_FULL)){
+        // override packet size to something huge (leave a bit in the unlikely
+        // case that an op using packet size causes overflow)
+        packet_size = 1ull << 62;
+    }
+    else if (!packet_size &&
+            (p->sched_params.type != MN_SCHED_FCFS_FULL ||
+             (p->sched_params.type == MN_SCHED_PRIO &&
+              p->sched_params.u.prio.sub_stype != MN_SCHED_FCFS_FULL))){
+        packet_size = 512;
+        fprintf(stderr, "WARNING, no packet size specified, setting packet "
+                "size to %llu\n", packet_size);
+    }
+
 
     p->packet_size = packet_size;
 }
