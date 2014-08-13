@@ -452,6 +452,14 @@ void codes_mapping_setup()
   g_tw_mapping=CUSTOM;
   g_tw_custom_initial_mapping=&codes_mapping_init;
   g_tw_custom_lp_global_to_local_map=&codes_mapping_to_lp;
+
+  // configure mem-factor
+  int mem_factor_conf;
+  int rc = configuration_get_value_int(&config, "PARAMS", "pe_mem_factor", NULL,
+          &mem_factor_conf);
+  if (rc == 0 && mem_factor_conf > 0)
+    mem_factor = mem_factor_conf;
+
   g_tw_events_per_pe = mem_factor * codes_mapping_get_lps_for_pe();
   configuration_get_value_int(&config, "PARAMS", "message_size", NULL, &message_size);
   if(!message_size)
