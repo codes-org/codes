@@ -9,7 +9,7 @@
 
 #include "ross.h"
 
-#define MAX_NAME_LENGTH 512
+#define MAX_LENGTH 512
 //#define MAX_REQUESTS 128
 
 /* struct to hold the actual data from a single MPI event*/
@@ -19,13 +19,14 @@ typedef struct dumpi_trace_params dumpi_trace_params;
 
 struct scala_trace_params
 {
-   char offset_file_name[MAX_NAME_LENGTH];
-   char nw_wrkld_file_name[MAX_NAME_LENGTH];
+   char offset_file_name[MAX_LENGTH];
+   char nw_wrkld_file_name[MAX_LENGTH];
 };
 
 struct dumpi_trace_params
 {
-   char file_name[MAX_NAME_LENGTH];
+   int num_net_traces;
+   char file_name[MAX_LENGTH];
 };
 
 enum NW_WORKLOADS
@@ -41,7 +42,7 @@ enum mpi_workload_type
     /* sleep/delay to simulate computation or other activity */
      CODES_NW_DELAY = 1,
     /* MPI wait all operation */
-     CODES_NW_WAITALL,
+     //CODES_NW_WAITALL,
     /* terminator; there are no more operations for this rank */
      CODES_NW_END,
     /* MPI blocking send operation */
@@ -67,9 +68,9 @@ enum mpi_workload_type
     /* MPI Allreduce operation */
      CODES_NW_ALLREDUCE,
     /* MPI test all operation */
-     CODES_NW_TESTALL,
+     //CODES_NW_TESTALL,
     /* MPI test operation */
-     CODES_NW_TEST,
+     //CODES_NW_TEST,
     /* Generic collective operation */
     CODES_NW_COL,
 };
@@ -99,7 +100,7 @@ struct mpi_event_list
 	    short data_type; /* MPI data type to be matched with the recv */
 	    int count; /* number of elements to be received */
 	    int tag; /* tag of the message */
-	    int32_t request;
+	    //int32_t request;
 	} send;
        struct
        {
@@ -109,7 +110,7 @@ struct mpi_event_list
 	    short data_type; /* MPI data type to be matched with the send */
 	    int count; /* number of elements to be sent */
 	    int tag; /* tag of the message */
-       	    int32_t request;
+       	    //int32_t request;
 	} recv; 
       struct
       {
@@ -119,12 +120,12 @@ struct mpi_event_list
       {
 	int count;
         int requests[MAX_REQUESTS]; 
-      } wait_all;*/
+      } wait_all;
       struct
       {
 	int32_t request;
 	int flag;
-      } test;
+      } test;*/
     }u;
 };
 

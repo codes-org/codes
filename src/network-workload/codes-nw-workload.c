@@ -175,10 +175,10 @@ void codes_nw_workload_print_op(FILE *f, struct mpi_event_list *op, int rank){
 	case CODES_NW_IRECV:
             fprintf(f, "op: rank:%d type:recv "
                        "sender: %d receiver: %d number of bytes: %d "
-			"start time: %f end time: %f request ID: %d \n",
+			"start time: %f end time: %f  \n",
                     rank, op->u.recv.source_rank, op->u.recv.dest_rank,
                     op->u.recv.num_bytes,
-		    op->start_time, op->end_time, (int)op->u.recv.request);
+		    op->start_time, op->end_time);
             break;
 	case CODES_NW_COL:
 	case CODES_NW_BCAST:
@@ -192,13 +192,13 @@ void codes_nw_workload_print_op(FILE *f, struct mpi_event_list *op, int rank){
                        "count: %d \n",
                     rank, op->u.collective.num_bytes);
             break;	
-	case CODES_NW_TEST:
+	/*case CODES_NW_TEST:
 		fprintf(f, "op: rank:%d type:test "
 			"request ID: %d flag: %d "
 			"start time: %f end time: %f \n",
 			rank, (int)op->u.test.request, op->u.test.flag,
 			 op->start_time, op->end_time);
-	    break; 
+	    break; */
 	/*case CODES_NW_WAITALL:
                 fprintf(f, "op: rank:%d type:waitall "
                         "count: %d "

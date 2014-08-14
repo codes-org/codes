@@ -63,8 +63,8 @@ int scala_trace_nw_workload_load(const char* params, int rank)
 
     scala_trace_params* st_params = (scala_trace_params*)params;
 
-    char offset_file[MAX_NAME_LENGTH];
-    char wrkld_file[MAX_NAME_LENGTH];
+    char offset_file[MAX_LENGTH];
+    char wrkld_file[MAX_LENGTH];
 
     strcpy(offset_file, st_params->offset_file_name);
     strcpy(wrkld_file, st_params->nw_wrkld_file_name);

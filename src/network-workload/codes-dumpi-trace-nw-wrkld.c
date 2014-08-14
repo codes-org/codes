@@ -412,6 +412,9 @@ int dumpi_trace_nw_workload_load(const char* params, int rank)
 	dumpi_trace_params* dumpi_params = (dumpi_trace_params*)params;
 	char file_name[MAX_LENGTH];
 
+	if(rank >= dumpi_params->num_net_traces)
+		return -1;
+
 	if(!rank_tbl)
     	{
             rank_tbl = qhash_init(hash_rank_compare, quickhash_32bit_hash, RANK_HASH_TABLE_SIZE);
