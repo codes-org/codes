@@ -7,11 +7,13 @@ ross_ldflags=@ROSS_LDFLAGS@
 ross_libs=@ROSS_LIBS@
 darshan_libs=@DARSHAN_LIBS@
 darshan_cflags=@DARSHAN_CFLAGS@
+dumpi_cflags=@DUMPI_CFLAGS@
+dumpi_libs=@DUMPI_LIBS@
 
 Name: codes-base
 Description: Base functionality for CODES storage simulation
 Version: @CODES_BASE_VERSION@
 URL: http://trac.mcs.anl.gov/projects/CODES
 Requires:
-Libs: -L${libdir} -lcodes-base ${ross_ldflags} ${ross_libs} ${darshan_libs}
-Cflags: -I${includedir} ${ross_cflags} ${darshan_cflags}
+Libs: -L${libdir} -lcodes-base ${ross_ldflags} ${ross_libs} ${darshan_libs} ${dumpi_libs} 
+Cflags: -I${includedir} ${ross_cflags} ${darshan_cflags} ${dumpi_cflags}
