@@ -24,7 +24,7 @@
 /* collective specific parameters */
 #define TREE_DEGREE 4
 #define LEVEL_DELAY 1000
-#define TORUS_COLLECTIVE_DEBUG 1
+#define TORUS_COLLECTIVE_DEBUG 0
 #define NUM_COLLECTIVES  1
 #define COLLECTIVE_COMPUTATION_DELAY 5700
 #define TORUS_FAN_OUT_DELAY 20.0
@@ -43,6 +43,7 @@ struct torus_param
     int* dim_length; /*Length of each torus dimension*/
     double link_bandwidth;/* bandwidth for each torus link */
     int buffer_size; /* number of buffer slots for each vc in flits*/
+    //int num_net_traces; /* number of network traces to be mapped on torus */
     int num_vc; /* number of virtual channels for each torus link */
     float mean_process;/* mean process time for each flit  */
     int chunk_size; /* chunk is the smallest unit--default set to 32 */
@@ -167,6 +168,7 @@ static void torus_read_config(
                 p->buffer_size);
     }
 
+
     configuration_get_value_int(&config, "PARAMS", "chunk_size", anno, &p->chunk_size);
     if(!p->chunk_size) {
         p->chunk_size = 32;
@@ -202,7 +204,20 @@ static void torus_read_config(
         i++;
         token = strtok(NULL,",");
     }
+    /*int num_nodes = 1;
 
+    for( i = 0; i < p->n_dims; i++)
+	   num_nodes *= p->dim_length[i];
+    
+    configuration_get_value_int(&config, "PARAMS", "num_net_traces", anno, &p->num_net_traces);
+    if(!p->num_net_traces) {
+
+	p->num_net_traces = num_nodes;
+        fprintf(stderr, "Number of network traces not specified, setting to %d",
+                p->num_net_traces);
+    }
+   // Number of network traces should be <= number of torus network nodes `
+   assert(p->num_net_traces <= num_nodes);*/
     // create derived parameters
    
     // factor is an exclusive prefix product
