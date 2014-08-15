@@ -404,6 +404,8 @@ static void handle_msg_start_rev_event(
 {
     ns->net_send_next_idle = m->net_send_next_idle_saved;
 
+    codes_local_latency_reverse(lp);
+
     if(m->local_event_size_bytes > 0)
     {
         codes_local_latency_reverse(lp);
@@ -493,6 +495,11 @@ static void handle_msg_start_event(
     //print_base_from(SIMPLENET, m_new);
     //print_msg(m_new);
     tw_event_send(e_new);
+
+    // now that message is sent, issue an "idle" event to tell the scheduler
+    // when I'm next available
+    model_net_method_idle_event(codes_local_latency(lp) +
+            ns->net_send_next_idle - tw_now(lp), lp);
 
     /* if there is a local event to handle, then create an event for it as
      * well

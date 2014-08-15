@@ -458,7 +458,7 @@ void handle_sched_next(
     // currently, loggp is the only network implementing the 
     // callback-based scheduling loop, all others schedule the next packet
     // immediately
-    else if (ns->net_id != LOGGP){
+    else if (ns->net_id == SIMPLEWAN || ns->net_id == TORUS){
         tw_event *e = codes_event_new(lp->gid, 
                 poffset+codes_local_latency(lp), lp);
         model_net_wrap_msg *m = tw_event_data(e);
@@ -479,7 +479,7 @@ void handle_sched_next_rc(
     if (b->c0){
         ns->in_sched_loop = 1;
     }
-    else if (ns->net_id != LOGGP){
+    else if (ns->net_id == SIMPLEWAN || ns->net_id == TORUS){
         codes_local_latency_reverse(lp);
     }
 }

@@ -620,6 +620,7 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_
   stat->send_time += (1/p->cn_bandwidth) * msg->packet_size;
   if(stat->max_event_size < total_event_size)
 	  stat->max_event_size = total_event_size;
+
   return;
 }
 
@@ -671,6 +672,11 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp *
 
    if(msg->chunk_id == num_chunks - 1) 
     {
+      // now that message is sent, issue an "idle" event to tell the scheduler
+      // when I'm next available
+      model_net_method_idle_event(codes_local_latency(lp) +
+              s->terminal_available_time - tw_now(lp), lp);
+
       /* local completion message */
       if(msg->local_event_size_bytes > 0)
 	 {
@@ -1629,6 +1635,11 @@ void terminal_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_message 
 		   s->vc_occupancy[vc]--;
 		   s->packet_counter--;
 		   s->output_vc_state[vc] = VC_IDLE;
+
+                   uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
+                   if (msg->chunk_id == num_chunks-1){
+                     codes_local_latency_reverse(lp);
+                   }
 		 }
 	   break;
 

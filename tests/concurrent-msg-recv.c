@@ -484,6 +484,7 @@ int main(int argc, char *argv[])
     }
 
     testsvr_init();
+    model_net_register();
 
     codes_mapping_setup();
 
