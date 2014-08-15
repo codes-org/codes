@@ -23,6 +23,15 @@
 #define LP_CONFIG_NM (model_net_lp_config_names[LOGGP])
 #define LP_METHOD_NM (model_net_method_names[LOGGP])
 
+#define LOGGP_MSG_TRACE 0
+
+#if LOGGP_MSG_TRACE
+#define dprintf(_fmt, ...) printf(_fmt, __VA_ARGS__);
+#else
+#define dprintf(_fmt, ...)
+#endif
+
+
 /*Define loggp data types and structs*/
 typedef struct loggp_state loggp_state;
 
@@ -311,6 +320,13 @@ static void handle_msg_ready_rev_event(
     loggp_message * m,
     tw_lp * lp)
 {
+
+    dprintf("%lu (mn): ready msg rc %lu->%lu, size %lu (%3s last)\n"
+            "          now:%0.3le, idle[now:%0.3le, prev:%0.3le]\n",
+            lp->gid, m->src_gid, m->final_dest_gid, m->net_msg_size_bytes,
+            m->event_size_bytes+m->local_event_size_bytes > 0 ? "is" : "not",
+            tw_now(lp), ns->net_recv_next_idle, m->net_recv_next_idle_saved);
+
     struct mn_stats* stat;
 
     ns->net_recv_next_idle = m->net_recv_next_idle_saved;
@@ -370,6 +386,14 @@ static void handle_msg_ready_event(
     m->net_recv_next_idle_saved = ns->net_recv_next_idle;
     ns->net_recv_next_idle = recv_queue_time + tw_now(lp) + param->g*1000.0;
 
+    dprintf("%lu (mn): ready msg    %lu->%lu, size %lu (%3s last)\n"
+            "          now:%0.3le, idle[prev:%0.3le, next:%0.3le], "
+            "q-time:%0.3le\n",
+            lp->gid, m->src_gid, m->final_dest_gid, m->net_msg_size_bytes,
+            m->event_size_bytes+m->local_event_size_bytes > 0 ? "is" : "not",
+            tw_now(lp), m->net_recv_next_idle_saved, ns->net_recv_next_idle,
+            recv_queue_time);
+
     /* copy only the part of the message used by higher level */
     if(m->event_size_bytes)
     {
@@ -404,6 +428,13 @@ static void handle_msg_start_rev_event(
     loggp_message * m,
     tw_lp * lp)
 {
+
+    dprintf("%lu (mn): start msg rc %lu->%lu, size %lu (%3s last)\n"
+            "          now:%0.3le, idle[now:%0.3le, prev:%0.3le]\n",
+            lp->gid, m->src_gid, m->final_dest_gid, m->net_msg_size_bytes,
+            m->event_size_bytes+m->local_event_size_bytes > 0 ? "is" : "not",
+            tw_now(lp), ns->net_send_next_idle, m->net_send_next_idle_saved);
+
     ns->net_send_next_idle = m->net_send_next_idle_saved;
 
     if(m->local_event_size_bytes > 0)
@@ -492,6 +523,14 @@ static void handle_msg_start_event(
     //m_new = tw_event_data(e_new);
     e_new = model_net_method_event_new(dest_id, send_queue_time, lp, LOGGP,
             (void**)&m_new, &m_data);
+
+    dprintf("%lu (mn): start msg    %lu->%lu, size %lu (%3s last)\n"
+            "          now:%0.3le, idle[prev:%0.3le, next:%0.3le], "
+            "q-time:%0.3le\n",
+            lp->gid, m->src_gid, m->final_dest_gid, m->net_msg_size_bytes,
+            m->event_size_bytes+m->local_event_size_bytes > 0 ? "is" : "not",
+            tw_now(lp), m->net_send_next_idle_saved, ns->net_send_next_idle,
+            send_queue_time);
 
     /* copy entire previous message over, including payload from user of
      * this module
