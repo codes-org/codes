@@ -455,7 +455,10 @@ void handle_sched_next(
         b->c0 = 1;
         ns->in_sched_loop = 0;
     }
-    else {
+    // currently, loggp is the only network implementing the 
+    // callback-based scheduling loop, all others schedule the next packet
+    // immediately
+    else if (ns->net_id != LOGGP){
         tw_event *e = codes_event_new(lp->gid, 
                 poffset+codes_local_latency(lp), lp);
         model_net_wrap_msg *m = tw_event_data(e);
@@ -476,7 +479,7 @@ void handle_sched_next_rc(
     if (b->c0){
         ns->in_sched_loop = 1;
     }
-    else{
+    else if (ns->net_id != LOGGP){
         codes_local_latency_reverse(lp);
     }
 }
@@ -500,6 +503,14 @@ tw_event * model_net_method_event_new(
         *extra_data = m_wrap + 1;
     }
     return e;
+}
+
+void model_net_method_idle_event(tw_stime offset_ts, tw_lp * lp){
+    tw_event *e = tw_event_new(lp->gid, offset_ts, lp);
+    model_net_wrap_msg *m_wrap = tw_event_data(e);
+    m_wrap->event_type = MN_BASE_SCHED_NEXT;
+    m_wrap->magic = model_net_base_magic;
+    tw_event_send(e);
 }
 
 void * model_net_method_get_edata(int net_id, void *msg){

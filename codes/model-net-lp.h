@@ -45,6 +45,16 @@ tw_event * model_net_method_event_new(
         void **msg_data,
         void **extra_data);
 
+// Issue an event from the underlying model (e.g., simplenet, loggp) to tell the
+// scheduler when next to issue a packet event. As different models update their
+// notion of "idleness" separately, this is necessary. DANGER: Failure to call
+// this function appropriately will cause the scheduler to hang or cause other
+// weird behavior.
+//
+// This function is expected to be called within each specific model-net
+// method - strange and disturbing things will happen otherwise
+void model_net_method_idle_event(tw_stime offset_ts, tw_lp * lp);
+
 // Get a ptr to past the message struct area, where the self/remote events
 // are located, given the type of network.
 // NOTE: this should ONLY be called on model-net implementations, nowhere else
