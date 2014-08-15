@@ -287,7 +287,8 @@ void fcfs_next_rc(
             mn_sched_qitem *q = malloc(sizeof(mn_sched_qitem));
             assert(q);
             q->req = rc->req;
-            q->rem = q->req.msg_size % q->req.packet_size;
+            q->rem = (q->req.is_pull ? PULL_MSG_SIZE : q->req.msg_size) % 
+                q->req.packet_size;
             if (q->rem == 0){ // processed exactly a packet's worth of data
                 q->rem = q->req.packet_size;
             }
@@ -449,7 +450,8 @@ void rr_next_rc (
             mn_sched_qitem *q = malloc(sizeof(mn_sched_qitem));
             assert(q);
             q->req = rc->req;
-            q->rem = q->req.msg_size % q->req.packet_size;
+            q->rem = (q->req.is_pull ? PULL_MSG_SIZE : q->req.msg_size) % 
+                q->req.packet_size;
             if (q->rem == 0){ // processed exactly a packet's worth of data
                 q->rem = q->req.packet_size;
             }
