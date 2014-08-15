@@ -12,6 +12,14 @@
 #include "codes/model-net-method.h"
 #include "codes/quicklist.h"
 
+#define MN_SCHED_DEBUG_VERBOSE 0
+
+#if MN_SCHED_DEBUG_VERBOSE
+#define dprintf(_fmt, ...) printf(_fmt, __VA_ARGS__);
+#else
+#define dprintf(_fmt, ...)
+#endif
+
 /// scheduler-specific data structures 
 
 typedef struct mn_sched_qitem {
@@ -226,6 +234,8 @@ int fcfs_next(
         is_last_packet = 0;
     }
 
+    dprintf("%lu (mn):    issuing packet of size %lu (of %lu) from %lu to %lu\n",
+            lp->gid, psize, q->rem, q->req.src_lp, q->req.final_dest_lp);
     *poffset = s->method->model_net_method_packet_event(q->req.category,
             q->req.final_dest_lp, psize, q->req.is_pull, q->req.msg_size, 0.0,
             q->req.remote_event_size, q->remote_event, q->req.self_event_size,
@@ -381,6 +391,8 @@ int rr_next(
         is_last_packet = 0;
     }
 
+    dprintf("%lu (mn):    issuing packet of size %lu (of %lu) from %lu to %lu\n",
+            lp->gid, psize, q->rem, q->req.src_lp, q->req.final_dest_lp);
     *poffset = s->method->model_net_method_packet_event(q->req.category,
             q->req.final_dest_lp, psize, q->req.is_pull, q->req.msg_size, 0.0,
             q->req.remote_event_size, q->remote_event, q->req.self_event_size,
@@ -427,6 +439,10 @@ void rr_next_rc (
             qlist_add(ent, &s->reqs);
             mn_sched_qitem *q = qlist_entry(ent, mn_sched_qitem, ql);
             q->rem += q->req.packet_size;
+            dprintf("%lu (mn): rc issuing packet of size %lu (of %lu) from "
+                    "%lu to %lu\n",
+                    lp->gid, q->req.packet_size, q->rem, q->req.src_lp,
+                    q->req.final_dest_lp);
         }
         else if (rc->rtn == 1){
             // re-create the q item
@@ -451,6 +467,10 @@ void rr_next_rc (
             else { q->local_event = NULL; }
             // add back to front of list
             qlist_add(&q->ql, &s->reqs);
+            dprintf("%lu (mn): rc issuing packet of size %lu (of %lu) from "
+                    "%lu to %lu\n",
+                    lp->gid, q->rem, q->rem, q->req.src_lp,
+                    q->req.final_dest_lp);
         }
         else {
             assert(0);
