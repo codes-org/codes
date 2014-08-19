@@ -91,22 +91,12 @@ static void handle_recv_event(
     tw_bf * b,
     svr_msg * m,
     tw_lp * lp);
-static void handle_ack_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
 static void handle_kickoff_rev_event(
     svr_state * ns,
     tw_bf * b,
     svr_msg * m,
     tw_lp * lp);
 static void handle_recv_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void handle_ack_rev_event(
     svr_state * ns,
     tw_bf * b,
     svr_msg * m,
@@ -334,21 +324,6 @@ static void handle_recv_rev_event(
 	       tw_lp * lp)
 {
     ns->num_recv[m->src_svr_idx]--;
-}
-
-static void handle_ack_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp){
-
-}
-
-static void handle_ack_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp){
 }
 
 /*
