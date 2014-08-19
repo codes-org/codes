@@ -14,6 +14,7 @@
 #define MODEL_NET_LP_H
 
 #include <ross.h>
+#include "codes/lp-msg.h"
 #include "model-net.h"
 #include "model-net-sched.h"
 #include "net/dragonfly.h"
@@ -88,8 +89,7 @@ typedef struct model_net_base_msg {
 } model_net_base_msg;
 
 typedef struct model_net_wrap_msg {
-    enum model_net_base_event_type event_type;
-    int magic;
+    msg_header h;
     union {
         model_net_base_msg m_base;  // base lp
         terminal_message   m_dfly;  // dragonfly

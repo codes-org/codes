@@ -256,8 +256,7 @@ static void model_net_event_impl_base(
     tw_event *e = codes_event_new(mn_lp, poffset+offset, sender);
 
     model_net_wrap_msg *m = tw_event_data(e);
-    m->event_type = MN_BASE_NEW_MSG;
-    m->magic = model_net_base_magic;
+    msg_set_header(model_net_base_magic, MN_BASE_NEW_MSG, sender->gid, &m->h);
 
     // set the request struct 
     model_net_request *r = &m->msg.m_base.u.req;

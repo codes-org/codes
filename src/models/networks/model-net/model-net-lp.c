@@ -26,6 +26,7 @@ static int msg_offsets[MAX_NETS];
 typedef struct model_net_base_params_s {
     model_net_sched_cfg_params sched_params;
     uint64_t packet_size;
+    int use_recv_queue;
 } model_net_base_params;
 
 /* annotation-specific parameters (unannotated entry occurs at the 
@@ -133,8 +134,6 @@ static void base_read_config(const char * anno, model_net_base_params *p){
     uint64_t packet_size;
     int ret;
 
-    // TODO: make this annotation-specific - put in the config loop, make part
-    // of model-net base
     ret = configuration_get_value(&config, "PARAMS", "modelnet_scheduler",
             anno, sched, MAX_NAME_LENGTH);
     configuration_get_value_longint(&config, "PARAMS", "packet_size", anno,
@@ -323,9 +322,9 @@ void model_net_base_event(
         tw_bf * b,
         model_net_wrap_msg * m,
         tw_lp * lp){
-    assert(m->magic == model_net_base_magic);
+    assert(m->h.magic == model_net_base_magic);
     
-    switch (m->event_type){
+    switch (m->h.event_type){
         case MN_BASE_NEW_MSG:
             handle_new_msg(ns, b, m, lp);
             break;
@@ -348,9 +347,9 @@ void model_net_base_event_rc(
         tw_bf * b,
         model_net_wrap_msg * m,
         tw_lp * lp){
-    assert(m->magic == model_net_base_magic);
+    assert(m->h.magic == model_net_base_magic);
     
-    switch (m->event_type){
+    switch (m->h.event_type){
         case MN_BASE_NEW_MSG:
             handle_new_msg_rc(ns, b, m, lp);
             break;
@@ -419,8 +418,8 @@ void handle_new_msg(
         b->c0 = 1;
         tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
         model_net_wrap_msg *m = tw_event_data(e);
-        m->event_type = MN_BASE_SCHED_NEXT;
-        m->magic = model_net_base_magic;
+        msg_set_header(model_net_base_magic, MN_BASE_SCHED_NEXT, lp->gid,
+                &m->h);
         // m_base not used in sched event
         tw_event_send(e);
         ns->in_sched_loop = 1;
@@ -462,8 +461,8 @@ void handle_sched_next(
         tw_event *e = codes_event_new(lp->gid, 
                 poffset+codes_local_latency(lp), lp);
         model_net_wrap_msg *m = tw_event_data(e);
-        m->event_type = MN_BASE_SCHED_NEXT;
-        m->magic = model_net_base_magic;
+        msg_set_header(model_net_base_magic, MN_BASE_SCHED_NEXT, lp->gid,
+                &m->h);
         // no need to set m_base here
         tw_event_send(e);
     }
@@ -495,8 +494,8 @@ tw_event * model_net_method_event_new(
         void **extra_data){
     tw_event *e = tw_event_new(dest_gid, offset_ts, sender);
     model_net_wrap_msg *m_wrap = tw_event_data(e);
-    m_wrap->event_type = MN_BASE_PASS;
-    m_wrap->magic = model_net_base_magic;
+    msg_set_header(model_net_base_magic, MN_BASE_PASS, sender->gid,
+            &m_wrap->h);
     *msg_data = ((char*)m_wrap)+msg_offsets[net_id];
     // extra_data is optional
     if (extra_data != NULL){
@@ -508,8 +507,8 @@ tw_event * model_net_method_event_new(
 void model_net_method_idle_event(tw_stime offset_ts, tw_lp * lp){
     tw_event *e = tw_event_new(lp->gid, offset_ts, lp);
     model_net_wrap_msg *m_wrap = tw_event_data(e);
-    m_wrap->event_type = MN_BASE_SCHED_NEXT;
-    m_wrap->magic = model_net_base_magic;
+    msg_set_header(model_net_base_magic, MN_BASE_SCHED_NEXT, lp->gid,
+            &m_wrap->h);
     tw_event_send(e);
 }
 
