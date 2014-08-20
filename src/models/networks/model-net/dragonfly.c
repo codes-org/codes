@@ -397,7 +397,7 @@ void dragonfly_collective_init(terminal_state * s,
 }
 
 /* dragonfly packet event , generates a dragonfly packet on the compute node */
-static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, int is_pull, uint64_t pull_size, tw_stime offset, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lpid src_lp, tw_lp *sender, int is_last_pckt)
+static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, int is_pull, uint64_t pull_size, tw_stime offset, const mn_sched_params *sched_params, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lpid src_lp, tw_lp *sender, int is_last_pckt)
 {
     tw_event * e_new;
     tw_stime xfer_to_nic_time;
@@ -675,7 +675,7 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp *
       // now that message is sent, issue an "idle" event to tell the scheduler
       // when I'm next available
       model_net_method_idle_event(codes_local_latency(lp) +
-              s->terminal_available_time - tw_now(lp), lp);
+              s->terminal_available_time - tw_now(lp), 0, lp);
 
       /* local completion message */
       if(msg->local_event_size_bytes > 0)
@@ -1832,6 +1832,8 @@ struct model_net_method dragonfly_method =
     .mn_configure = dragonfly_configure,
     .model_net_method_packet_event = dragonfly_packet_event,
     .model_net_method_packet_event_rc = dragonfly_packet_event_rc,
+    .model_net_method_recv_msg_event = NULL,
+    .model_net_method_recv_msg_event_rc = NULL,
     .mn_get_lp_type = dragonfly_get_cn_lp_type,
     .mn_get_msg_sz = dragonfly_get_msg_sz,
     .mn_report_stats = dragonfly_report_stats,

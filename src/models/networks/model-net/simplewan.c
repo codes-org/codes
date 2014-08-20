@@ -128,6 +128,7 @@ static tw_stime simplewan_packet_event(
         int is_pull,
         uint64_t pull_size, /* only used when is_pull == 1 */
         tw_stime offset,
+        const mn_sched_params *sched_params,
         int remote_event_size,
         const void* remote_event,
         int self_event_size,
@@ -152,6 +153,8 @@ struct model_net_method simplewan_method =
     .mn_configure = sw_configure,
     .model_net_method_packet_event = simplewan_packet_event,
     .model_net_method_packet_event_rc = simplewan_packet_event_rc,
+    .model_net_method_recv_msg_event = NULL,
+    .model_net_method_recv_msg_event_rc = NULL,
     .mn_get_lp_type = sw_get_lp_type,
     .mn_get_msg_sz = sw_get_msg_sz,
     .mn_report_stats = sw_report_stats,
@@ -801,6 +804,7 @@ static tw_stime simplewan_packet_event(
         int is_pull,
         uint64_t pull_size, /* only used when is_pull == 1 */
         tw_stime offset,
+        const mn_sched_params *sched_params,
         int remote_event_size,
         const void* remote_event,
         int self_event_size,

@@ -38,9 +38,9 @@ static model_net_base_params     all_params[CONFIGURATION_MAX_ANNOS];
 typedef struct model_net_base_state {
     int net_id;
     // whether scheduler loop is running
-    int in_sched_loop;
-    // model-net scheduler
-    model_net_sched *sched;
+    int in_sched_send_loop, in_sched_recv_loop;
+    // model-net schedulers
+    model_net_sched *sched_send, *sched_recv;
     // parameters
     const model_net_base_params * params;
     // lp type and state of underlying model net method - cache here so we
@@ -303,10 +303,13 @@ void model_net_base_lp_init(
         }
     }
 
-    // TODO: parameterize scheduler type
-    ns->sched = malloc(sizeof(model_net_sched));
-    model_net_sched_init(&ns->params->sched_params, method_array[ns->net_id],
-            ns->sched);
+    ns->sched_send = malloc(sizeof(model_net_sched));
+    ns->sched_recv = malloc(sizeof(model_net_sched));
+    // init both the sender queue and the 'receiver' queue 
+    model_net_sched_init(&ns->params->sched_params, 0, method_array[ns->net_id],
+            ns->sched_send);
+    model_net_sched_init(&ns->params->sched_params, 1, method_array[ns->net_id],
+            ns->sched_recv);
 
     ns->sub_type = model_net_get_lp_type(ns->net_id);
     // NOTE: some models actually expect LP state to be 0 initialized...
@@ -384,7 +387,7 @@ void handle_new_msg(
         model_net_wrap_msg * m,
         tw_lp * lp){
     // simply pass down to the scheduler
-    model_net_request *r = &m->msg.m_base.u.req;
+    model_net_request *r = &m->msg.m_base.req;
     // don't forget to set packet size, now that we're responsible for it!
     r->packet_size = ns->params->packet_size;
     void * m_data = m+1;
@@ -398,31 +401,23 @@ void handle_new_msg(
     }
     
     // set message-specific params
-    void * params = NULL;
-    switch(ns->sched->type){
-        case MN_SCHED_FCFS:
-        case MN_SCHED_FCFS_FULL:
-        case MN_SCHED_RR:
-            // no parameters
-            break;
-        case MN_SCHED_PRIO:
-            params = (void*)&m->msg.m_base.sched_params.prio;
-            break;
-        default:
-            assert(0);
-    }
-    model_net_sched_add(r, params, r->remote_event_size, remote,
-            r->self_event_size, local, ns->sched, &m->msg.m_base.rc, lp);
+    int is_from_remote = m->msg.m_base.is_from_remote;
+    model_net_sched *ss = is_from_remote ? ns->sched_recv : ns->sched_send;
+    int *in_sched_loop = is_from_remote  ? 
+        &ns->in_sched_recv_loop : &ns->in_sched_send_loop;
+    model_net_sched_add(r, &m->msg.m_base.sched_params, r->remote_event_size,
+            remote, r->self_event_size, local, ss, &m->msg.m_base.rc, lp);
     
-    if (ns->in_sched_loop == 0){
+    if (*in_sched_loop == 0){
         b->c0 = 1;
         tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
         model_net_wrap_msg *m = tw_event_data(e);
         msg_set_header(model_net_base_magic, MN_BASE_SCHED_NEXT, lp->gid,
                 &m->h);
+        m->msg.m_base.is_from_remote = is_from_remote;
         // m_base not used in sched event
         tw_event_send(e);
-        ns->in_sched_loop = 1;
+        *in_sched_loop = 1;
     }
 }
 
@@ -431,10 +426,15 @@ void handle_new_msg_rc(
         tw_bf *b,
         model_net_wrap_msg *m,
         tw_lp *lp){
-    model_net_sched_add_rc(ns->sched, &m->msg.m_base.rc, lp);
+    int is_from_remote = m->msg.m_base.is_from_remote;
+    model_net_sched *ss = is_from_remote ? ns->sched_recv : ns->sched_send;
+    int *in_sched_loop = is_from_remote  ? 
+        &ns->in_sched_recv_loop : &ns->in_sched_send_loop;
+
+    model_net_sched_add_rc(ss, &m->msg.m_base.rc, lp);
     if (b->c0){
         codes_local_latency_reverse(lp);
-        ns->in_sched_loop = 0;
+        *in_sched_loop = 0;
     }
 }
 
@@ -446,13 +446,16 @@ void handle_sched_next(
         model_net_wrap_msg * m,
         tw_lp * lp){
     tw_stime poffset;
-    int ret = model_net_sched_next(&poffset, ns->sched, m+1, 
-            &m->msg.m_base.rc, lp);
+    int is_from_remote = m->msg.m_base.is_from_remote;
+    model_net_sched * ss = is_from_remote ? ns->sched_recv : ns->sched_send;
+    int *in_sched_loop = is_from_remote ?
+        &ns->in_sched_recv_loop : &ns->in_sched_send_loop;
+    int ret = model_net_sched_next(&poffset, ss, m+1, &m->msg.m_base.rc, lp);
     // we only need to know whether scheduling is finished or not - if not,
     // go to the 'next iteration' of the loop
     if (ret == -1){
         b->c0 = 1;
-        ns->in_sched_loop = 0;
+        *in_sched_loop = 0;
     }
     // currently, loggp is the only network implementing the 
     // callback-based scheduling loop, all others schedule the next packet
@@ -460,9 +463,10 @@ void handle_sched_next(
     else if (ns->net_id == SIMPLEWAN || ns->net_id == TORUS){
         tw_event *e = codes_event_new(lp->gid, 
                 poffset+codes_local_latency(lp), lp);
-        model_net_wrap_msg *m = tw_event_data(e);
+        model_net_wrap_msg *m_wrap = tw_event_data(e);
         msg_set_header(model_net_base_magic, MN_BASE_SCHED_NEXT, lp->gid,
-                &m->h);
+                &m_wrap->h);
+        m_wrap->msg.m_base.is_from_remote = is_from_remote;
         // no need to set m_base here
         tw_event_send(e);
     }
@@ -473,10 +477,14 @@ void handle_sched_next_rc(
         tw_bf *b,
         model_net_wrap_msg * m,
         tw_lp * lp){
-    model_net_sched_next_rc(ns->sched, m+1, &m->msg.m_base.rc, lp);
+    int is_from_remote = m->msg.m_base.is_from_remote;
+    model_net_sched * ss = is_from_remote ? ns->sched_recv : ns->sched_send;
+    int *in_sched_loop = is_from_remote ?
+        &ns->in_sched_recv_loop : &ns->in_sched_send_loop;
 
+    model_net_sched_next_rc(ss, m+1, &m->msg.m_base.rc, lp);
     if (b->c0){
-        ns->in_sched_loop = 1;
+        *in_sched_loop = 1;
     }
     else if (ns->net_id == SIMPLEWAN || ns->net_id == TORUS){
         codes_local_latency_reverse(lp);
@@ -504,11 +512,58 @@ tw_event * model_net_method_event_new(
     return e;
 }
 
-void model_net_method_idle_event(tw_stime offset_ts, tw_lp * lp){
+void model_net_method_send_msg_recv_event(
+        tw_lpid final_dest_lp,
+        tw_lpid dest_mn_lp,
+        tw_lpid src_lp, // the "actual" source (as opposed to the model net lp)
+        uint64_t msg_size,
+        int is_pull,
+        uint64_t pull_size,
+        int remote_event_size,
+        const mn_sched_params *sched_params,
+        const char * category,
+        int net_id,
+        void * msg,
+        tw_lp *sender){
+    tw_event *e = 
+        tw_event_new(dest_mn_lp, codes_local_latency(sender), sender);
+    model_net_wrap_msg *m = tw_event_data(e);
+    msg_set_header(model_net_base_magic, MN_BASE_NEW_MSG, sender->gid, &m->h);
+
+    if (sched_params != NULL)
+        m->msg.m_base.sched_params = *sched_params;
+    else
+        model_net_sched_set_default_params(&m->msg.m_base.sched_params);
+
+    m->msg.m_base.req.final_dest_lp = final_dest_lp;
+    m->msg.m_base.req.src_lp = src_lp;
+    m->msg.m_base.req.msg_size    = is_pull ? pull_size : msg_size;
+    m->msg.m_base.req.packet_size = m->msg.m_base.req.msg_size;
+    m->msg.m_base.req.net_id = net_id;
+    m->msg.m_base.req.is_pull = is_pull;
+    m->msg.m_base.req.remote_event_size = remote_event_size;
+    m->msg.m_base.req.self_event_size = 0;
+    m->msg.m_base.is_from_remote = 1;
+
+    strncpy(m->msg.m_base.req.category, category, CATEGORY_NAME_MAX-1);
+    m->msg.m_base.req.category[CATEGORY_NAME_MAX-1] = '\0';
+
+    if (remote_event_size > 0){
+        void * m_dat = model_net_method_get_edata(net_id, msg);
+        memcpy(m+1, m_dat, remote_event_size);
+    }
+
+    tw_event_send(e);
+}
+
+
+void model_net_method_idle_event(tw_stime offset_ts, int is_recv_queue,
+        tw_lp * lp){
     tw_event *e = tw_event_new(lp->gid, offset_ts, lp);
     model_net_wrap_msg *m_wrap = tw_event_data(e);
     msg_set_header(model_net_base_magic, MN_BASE_SCHED_NEXT, lp->gid,
             &m_wrap->h);
+    m_wrap->msg.m_base.is_from_remote = is_recv_queue;
     tw_event_send(e);
 }
 

@@ -33,7 +33,7 @@ static int num_servers = 0;
 static int offset = 2;
 
 /* whether to pull instead of push */ 
-static int do_pull = 0; 
+static int do_pull = 0;
 
 static int num_routers_per_rep = 0;
 static int num_servers_per_rep = 0;

@@ -8,7 +8,6 @@
 #define MODEL_NET_SCHED_IMPL_H
 
 #include "codes/model-net-sched.h"
-#include "codes/model-net-method.h"
 
 extern const model_net_sched_interface * sched_interfaces[];
 

@@ -259,7 +259,7 @@ static void model_net_event_impl_base(
     msg_set_header(model_net_base_magic, MN_BASE_NEW_MSG, sender->gid, &m->h);
 
     // set the request struct 
-    model_net_request *r = &m->msg.m_base.u.req;
+    model_net_request *r = &m->msg.m_base.req;
     r->net_id = net_id;
     r->final_dest_lp = final_dest_lp;
     r->src_lp = sender->gid;
@@ -274,7 +274,7 @@ static void model_net_event_impl_base(
     if (is_msg_params_set[MN_SCHED_PARAM_PRIO])
         m->msg.m_base.sched_params = sched_params;
     else // set the default
-        m->msg.m_base.sched_params.prio = -1;
+        model_net_sched_set_default_params(&m->msg.m_base.sched_params);
     // once params are set, clear the flags 
     memset(is_msg_params_set, 0,
             MAX_MN_MSG_PARAM_TYPES*sizeof(*is_msg_params_set));

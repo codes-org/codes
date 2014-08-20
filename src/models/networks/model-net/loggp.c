@@ -13,6 +13,7 @@
 #include "codes/model-net-method.h"
 #include "codes/model-net.h"
 #include "codes/model-net-lp.h"
+#include "codes/model-net-sched.h"
 #include "codes/codes_mapping.h"
 #include "codes/codes.h"
 #include "codes/net/loggp.h"
@@ -22,6 +23,10 @@
 
 #define LP_CONFIG_NM (model_net_lp_config_names[LOGGP])
 #define LP_METHOD_NM (model_net_method_names[LOGGP])
+
+// conditionally use the new recv-queue stuff. this is only here in the case
+// that we want to collect results based on the old model
+#define USE_RECV_QUEUE 1
 
 #define LOGGP_MSG_TRACE 0
 
@@ -111,6 +116,7 @@ static tw_stime loggp_packet_event(
      int is_pull,
      uint64_t pull_size, /* only used when is_pull==1 */
      tw_stime offset,
+     const mn_sched_params *sched_params,
      int remote_event_size, 
      const void* remote_event, 
      int self_event_size,
@@ -120,7 +126,19 @@ static tw_stime loggp_packet_event(
      int is_last_pckt);
 static void loggp_packet_event_rc(tw_lp *sender);
 
-static void loggp_packet_event_rc(tw_lp *sender);
+tw_stime loggp_recv_msg_event(
+        const char * category,
+        tw_lpid final_dest_lp,
+        uint64_t msg_size,
+        int is_pull,
+        uint64_t pull_size,
+        tw_stime offset,
+        int remote_event_size,
+        const void* remote_event,
+        tw_lpid src_lp,
+        tw_lp *sender);
+
+void loggp_recv_msg_event_rc(tw_lp *sender);
 
 static void loggp_report_stats();
 
@@ -139,6 +157,8 @@ struct model_net_method loggp_method =
     .mn_configure = loggp_configure,
     .model_net_method_packet_event = loggp_packet_event,
     .model_net_method_packet_event_rc = loggp_packet_event_rc,
+    .model_net_method_recv_msg_event = loggp_recv_msg_event,
+    .model_net_method_recv_msg_event_rc = loggp_recv_msg_event_rc,
     .mn_get_lp_type = loggp_get_lp_type,
     .mn_get_msg_sz = loggp_get_msg_sz,
     .mn_report_stats = loggp_report_stats,
@@ -394,6 +414,13 @@ static void handle_msg_ready_event(
             tw_now(lp), m->net_recv_next_idle_saved, ns->net_recv_next_idle,
             recv_queue_time);
 
+    // if we're using a recv-side queue, then we need to tell the scheduler we
+    // are idle
+#if USE_RECV_QUEUE
+    model_net_method_idle_event(codes_local_latency(lp) +
+            ns->net_recv_next_idle - tw_now(lp), 1, lp);
+#endif
+
     /* copy only the part of the message used by higher level */
     if(m->event_size_bytes)
     {
@@ -519,13 +546,6 @@ static void handle_msg_start_event(
     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, ns->anno, 0,
             mapping_rep_id, mapping_offset, &dest_id); 
 
-    void *m_data;
-//    printf("\n msg start sending to %d ", dest_id);
-    //e_new = tw_event_new(dest_id, send_queue_time, lp);
-    //m_new = tw_event_data(e_new);
-    e_new = model_net_method_event_new(dest_id, send_queue_time, lp, LOGGP,
-            (void**)&m_new, &m_data);
-
     dprintf("%lu (mn): start msg    %lu->%lu, size %lu (%3s last)\n"
             "          now:%0.3le, idle[prev:%0.3le, next:%0.3le], "
             "q-time:%0.3le\n",
@@ -534,6 +554,17 @@ static void handle_msg_start_event(
             tw_now(lp), m->net_send_next_idle_saved, ns->net_send_next_idle,
             send_queue_time);
 
+#if USE_RECV_QUEUE
+    model_net_method_send_msg_recv_event(m->final_dest_gid, dest_id, m->src_gid,
+            m->net_msg_size_bytes, m->is_pull, m->pull_size,
+            m->event_size_bytes, &m->sched_params, m->category, LOGGP, m, lp);
+#else 
+    void *m_data;
+//    printf("\n msg start sending to %d ", dest_id);
+    //e_new = tw_event_new(dest_id, send_queue_time, lp);
+    //m_new = tw_event_data(e_new);
+    e_new = model_net_method_event_new(dest_id, send_queue_time, lp, LOGGP,
+            (void**)&m_new, &m_data);
     /* copy entire previous message over, including payload from user of
      * this module
      */
@@ -546,11 +577,12 @@ static void handle_msg_start_event(
     m_new->event_type = LG_MSG_READY;
     
     tw_event_send(e_new);
+#endif
 
     // now that message is sent, issue an "idle" event to tell the scheduler
     // when I'm next available
     model_net_method_idle_event(codes_local_latency(lp) +
-            ns->net_send_next_idle - tw_now(lp), lp);
+            ns->net_send_next_idle - tw_now(lp), 0, lp);
 
     /* if there is a local event to handle, then create an event for it as
      * well
@@ -584,6 +616,7 @@ static tw_stime loggp_packet_event(
                 int is_pull,
                 uint64_t pull_size, /* only used when is_pull==1 */
                 tw_stime offset,
+                const mn_sched_params *sched_params,
 		int remote_event_size,
 		const void* remote_event,
 		int self_event_size,
@@ -612,6 +645,7 @@ static tw_stime loggp_packet_event(
      msg->event_type = LG_MSG_START;
      msg->is_pull = is_pull;
      msg->pull_size = pull_size;
+     msg->sched_params = *sched_params;
 
      //tmp_ptr = (char*)msg;
      //tmp_ptr += loggp_get_msg_sz();
@@ -636,6 +670,54 @@ static tw_stime loggp_packet_event(
       }
      tw_event_send(e_new);
      return xfer_to_nic_time;
+}
+
+tw_stime loggp_recv_msg_event(
+        const char * category,
+        tw_lpid final_dest_lp,
+        uint64_t msg_size,
+        int is_pull,
+        uint64_t pull_size,
+        tw_stime offset,
+        int remote_event_size,
+        const void* remote_event,
+        tw_lpid src_lp,
+        tw_lp *sender){
+    loggp_message *m;
+    void *m_data;
+
+    tw_stime moffset = offset + codes_local_latency(sender);
+
+    // this message goes to myself
+    tw_event *e = model_net_method_event_new(sender->gid, moffset, sender,
+            LOGGP, (void**)&m, &m_data);
+
+    m->magic = loggp_magic;
+    m->event_type = LG_MSG_READY;
+    m->src_gid = src_lp;
+    m->final_dest_gid = final_dest_lp;
+    m->net_msg_size_bytes = msg_size;
+    m->event_size_bytes = remote_event_size;
+    m->local_event_size_bytes = 0;
+    strncpy(m->category, category, CATEGORY_NAME_MAX-1);
+    m->category[CATEGORY_NAME_MAX-1]='\0';
+    m->is_pull = is_pull;
+    m->pull_size = pull_size;
+    // default sched params for just calling the receiver (for now...)
+    model_net_sched_set_default_params(&m->sched_params);
+
+    // copy the remote event over if necessary
+    if (remote_event_size > 0){
+        memcpy(m_data, remote_event, remote_event_size);
+    }
+
+    tw_event_send(e);
+
+    return moffset;
+}
+
+void loggp_recv_msg_event_rc(tw_lp *sender){
+    codes_local_latency_reverse(sender);
 }
 
 static void loggp_configure(){

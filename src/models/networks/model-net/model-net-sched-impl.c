@@ -15,7 +15,7 @@
 #define MN_SCHED_DEBUG_VERBOSE 0
 
 #if MN_SCHED_DEBUG_VERBOSE
-#define dprintf(_fmt, ...) printf(_fmt, __VA_ARGS__);
+#define dprintf(_fmt, ...) printf(_fmt, ##__VA_ARGS__)
 #else
 #define dprintf(_fmt, ...)
 #endif
@@ -24,6 +24,7 @@
 
 typedef struct mn_sched_qitem {
     model_net_request req;
+    mn_sched_params sched_params;
     // remaining bytes to send
     uint64_t rem;
     // pointers to event structures 
@@ -37,6 +38,7 @@ typedef struct mn_sched_qitem {
 typedef struct mn_sched_queue {
     // method containing packet event to call
     const struct model_net_method *method;
+    int is_recv_queue;
     struct qlist_head reqs; // of type mn_sched_qitem
 } mn_sched_queue;
 
@@ -54,25 +56,26 @@ typedef struct mn_sched_prio {
 static void fcfs_init (
         const struct model_net_method     * method, 
         const model_net_sched_cfg_params  * params,
+        int                                 is_recv_queue,
         void                             ** sched);
 static void fcfs_destroy (void *sched);
 static void fcfs_add (
-        model_net_request  * req,
-        void               * sched_msg_params,
-        int                  remote_event_size,
-        void               * remote_event,
-        int                  local_event_size,
-        void               * local_event,
-        void               * sched,
-        model_net_sched_rc * rc,
-        tw_lp              * lp);
+        model_net_request     * req,
+        const mn_sched_params * sched_params,
+        int                     remote_event_size,
+        void                  * remote_event,
+        int                     local_event_size,
+        void                  * local_event,
+        void                  * sched,
+        model_net_sched_rc    * rc,
+        tw_lp                 * lp);
 static void fcfs_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp);
 static int  fcfs_next(
-        tw_stime           * poffset,
-        void               * sched,
-        void               * rc_event_save,
-        model_net_sched_rc * rc,
-        tw_lp              * lp);
+        tw_stime              * poffset,
+        void                  * sched,
+        void                  * rc_event_save,
+        model_net_sched_rc    * rc,
+        tw_lp                 * lp);
 static void fcfs_next_rc(
         void               * sched,
         void               * rc_event_save,
@@ -83,25 +86,26 @@ static void fcfs_next_rc(
 static void rr_init (
         const struct model_net_method     * method, 
         const model_net_sched_cfg_params  * params,
+        int                                 is_recv_queue,
         void                             ** sched);
 static void rr_destroy (void *sched);
 static void rr_add (
-        model_net_request  * req,
-        void               * sched_msg_params,
-        int                  remote_event_size,
-        void               * remote_event,
-        int                  local_event_size,
-        void               * local_event,
-        void               * sched,
-        model_net_sched_rc * rc,
-        tw_lp              * lp);
+        model_net_request     * req,
+        const mn_sched_params * sched_params,
+        int                     remote_event_size,
+        void                  * remote_event,
+        int                     local_event_size,
+        void                  * local_event,
+        void                  * sched,
+        model_net_sched_rc    * rc,
+        tw_lp                 * lp);
 static void rr_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp);
 static int  rr_next(
-        tw_stime           * poffset,
-        void               * sched,
-        void               * rc_event_save,
-        model_net_sched_rc * rc,
-        tw_lp              * lp);
+        tw_stime              * poffset,
+        void                  * sched,
+        void                  * rc_event_save,
+        model_net_sched_rc    * rc,
+        tw_lp                 * lp);
 static void rr_next_rc (
         void               * sched,
         void               * rc_event_save,
@@ -110,25 +114,26 @@ static void rr_next_rc (
 static void prio_init (
         const struct model_net_method     * method, 
         const model_net_sched_cfg_params  * params,
+        int                                 is_recv_queue,
         void                             ** sched);
 static void prio_destroy (void *sched);
 static void prio_add (
-        model_net_request  * req,
-        void               * sched_msg_params,
-        int                  remote_event_size,
-        void               * remote_event,
-        int                  local_event_size,
-        void               * local_event,
-        void               * sched,
-        model_net_sched_rc * rc,
-        tw_lp              * lp);
+        model_net_request     * req,
+        const mn_sched_params * sched_params,
+        int                     remote_event_size,
+        void                  * remote_event,
+        int                     local_event_size,
+        void                  * local_event,
+        void                  * sched,
+        model_net_sched_rc    * rc,
+        tw_lp                 * lp);
 static void prio_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp);
 static int  prio_next(
-        tw_stime           * poffset,
-        void               * sched,
-        void               * rc_event_save,
-        model_net_sched_rc * rc,
-        tw_lp              * lp);
+        tw_stime              * poffset,
+        void                  * sched,
+        void                  * rc_event_save,
+        model_net_sched_rc    * rc,
+        tw_lp                 * lp);
 static void prio_next_rc (
         void               * sched,
         void               * rc_event_save,
@@ -154,10 +159,12 @@ const model_net_sched_interface * sched_interfaces[] = {
 void fcfs_init(
         const struct model_net_method     * method, 
         const model_net_sched_cfg_params  * params,
+        int                                 is_recv_queue,
         void                             ** sched){
     *sched = malloc(sizeof(mn_sched_queue));
     mn_sched_queue *ss = *sched;
     ss->method = method;
+    ss->is_recv_queue = is_recv_queue;
     INIT_QLIST_HEAD(&ss->reqs);
 }
 
@@ -166,17 +173,18 @@ void fcfs_destroy(void *sched){
 }
 
 void fcfs_add (
-        model_net_request  * req,
-        void               * sched_msg_params,
-        int                  remote_event_size,
-        void               * remote_event,
-        int                  local_event_size,
-        void               * local_event,
-        void               * sched,
-        model_net_sched_rc * rc,
-        tw_lp              * lp){
+        model_net_request     * req,
+        const mn_sched_params * sched_params,
+        int                     remote_event_size,
+        void                  * remote_event,
+        int                     local_event_size,
+        void                  * local_event,
+        void                  * sched,
+        model_net_sched_rc    * rc,
+        tw_lp                 * lp){
     mn_sched_qitem *q = malloc(sizeof(mn_sched_qitem));
     q->req = *req;
+    q->sched_params = *sched_params;
     q->rem = req->is_pull ? PULL_MSG_SIZE : req->msg_size;
     if (remote_event_size > 0){
         q->remote_event = malloc(remote_event_size);
@@ -190,6 +198,8 @@ void fcfs_add (
     else { q->local_event = NULL; }
     mn_sched_queue *s = sched;
     qlist_add_tail(&q->ql, &s->reqs);
+    dprintf("%lu (mn):    adding request from %lu to %lu\n", lp->gid,
+            req->src_lp, req->final_dest_lp);
 }
 
 void fcfs_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp){
@@ -197,6 +207,8 @@ void fcfs_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp){
     struct qlist_head *ent = qlist_pop_back(&s->reqs);
     assert(ent != NULL);
     mn_sched_qitem *q = qlist_entry(ent, mn_sched_qitem, ql);
+    dprintf("%lu (mn): rc adding request from %lu to %lu\n", lp->gid,
+            q->req.src_lp, q->req.final_dest_lp);
     // free'ing NULLs is a no-op 
     free(q->remote_event);
     free(q->local_event);
@@ -204,11 +216,11 @@ void fcfs_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp){
 }
 
 int fcfs_next(
-        tw_stime           * poffset,
-        void               * sched,
-        void               * rc_event_save,
-        model_net_sched_rc * rc,
-        tw_lp              * lp){
+        tw_stime              * poffset,
+        void                  * sched,
+        void                  * rc_event_save,
+        model_net_sched_rc    * rc,
+        tw_lp                 * lp){
     mn_sched_queue *s = sched;
     struct qlist_head *ent = s->reqs.next;
     if (ent == &s->reqs){
@@ -229,17 +241,31 @@ int fcfs_next(
         is_last_packet = 0;
     }
 
-    dprintf("%lu (mn):    issuing packet of size %lu (of %lu) from %lu to %lu\n",
-            lp->gid, psize, q->rem, q->req.src_lp, q->req.final_dest_lp);
-    *poffset = s->method->model_net_method_packet_event(q->req.category,
-            q->req.final_dest_lp, psize, q->req.is_pull, q->req.msg_size, 0.0,
-            q->req.remote_event_size, q->remote_event, q->req.self_event_size,
-            q->local_event, q->req.src_lp, lp, is_last_packet);
+    if (s->is_recv_queue){
+        dprintf("%lu (mn):    receiving message of size %lu (of %lu) "
+                "from %lu to %lu\n",
+                lp->gid, psize, q->rem, q->req.src_lp, q->req.final_dest_lp);
+        *poffset = s->method->model_net_method_recv_msg_event(q->req.category,
+                q->req.final_dest_lp, psize, q->req.is_pull, q->req.msg_size,
+                0.0, q->req.remote_event_size, q->remote_event, q->req.src_lp,
+                lp);
+    }
+    else{
+        dprintf("%lu (mn):    issuing packet of size %lu (of %lu) "
+                "from %lu to %lu\n",
+                lp->gid, psize, q->rem, q->req.src_lp, q->req.final_dest_lp);
+        *poffset = s->method->model_net_method_packet_event(q->req.category,
+                q->req.final_dest_lp, psize, q->req.is_pull, q->req.msg_size,
+                0.0, &q->sched_params, q->req.remote_event_size, q->remote_event,
+                q->req.self_event_size, q->local_event, q->req.src_lp, lp,
+                is_last_packet);
+    }
 
     // if last packet - remove from list, free, save for rc
     if (is_last_packet){
         qlist_pop(&s->reqs);
         rc->req = q->req;
+        rc->sched_params = q->sched_params;
         void *e_dat = rc_event_save;
         if (q->req.remote_event_size > 0){
             memcpy(e_dat, q->remote_event, q->req.remote_event_size);
@@ -270,7 +296,14 @@ void fcfs_next_rc(
         // no op
     }
     else{
-        s->method->model_net_method_packet_event_rc(lp);
+        if (s->is_recv_queue){
+            dprintf("%lu (mn): rc receiving message\n", lp->gid);
+            s->method->model_net_method_recv_msg_event_rc(lp);
+        }
+        else {
+            dprintf("%lu (mn): rc issuing packet\n", lp->gid);
+            s->method->model_net_method_packet_event_rc(lp);
+        }
         if (rc->rtn == 0){
             // just get the front and increment rem
             mn_sched_qitem *q = qlist_entry(s->reqs.next, mn_sched_qitem, ql);
@@ -282,6 +315,7 @@ void fcfs_next_rc(
             mn_sched_qitem *q = malloc(sizeof(mn_sched_qitem));
             assert(q);
             q->req = rc->req;
+            q->sched_params = rc->sched_params;
             q->rem = (q->req.is_pull ? PULL_MSG_SIZE : q->req.msg_size) % 
                 q->req.packet_size;
             if (q->rem == 0){ // processed exactly a packet's worth of data
@@ -311,9 +345,10 @@ void fcfs_next_rc(
 void rr_init (
         const struct model_net_method     * method, 
         const model_net_sched_cfg_params  * params,
+        int                                 is_recv_queue,
         void                             ** sched){
     // same underlying representation
-    fcfs_init(method, params, sched);
+    fcfs_init(method, params, is_recv_queue, sched);
 }
 
 void rr_destroy (void *sched){
@@ -322,16 +357,16 @@ void rr_destroy (void *sched){
 }
 
 void rr_add (
-        model_net_request  * req,
-        void               * sched_msg_params,
-        int                  remote_event_size,
-        void               * remote_event,
-        int                  local_event_size,
-        void               * local_event,
-        void               * sched,
-        model_net_sched_rc * rc,
-        tw_lp              * lp){
-    fcfs_add(req, sched_msg_params, remote_event_size, remote_event,
+        model_net_request     * req,
+        const mn_sched_params * sched_params,
+        int                     remote_event_size,
+        void                  * remote_event,
+        int                     local_event_size,
+        void                  * local_event,
+        void                  * sched,
+        model_net_sched_rc    * rc,
+        tw_lp                 * lp){
+    fcfs_add(req, sched_params, remote_event_size, remote_event,
             local_event_size, local_event, sched, rc, lp);
 }
 
@@ -340,11 +375,11 @@ void rr_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp){
 }
 
 int rr_next(
-        tw_stime           * poffset,
-        void               * sched,
-        void               * rc_event_save,
-        model_net_sched_rc * rc,
-        tw_lp              * lp){
+        tw_stime              * poffset,
+        void                  * sched,
+        void                  * rc_event_save,
+        model_net_sched_rc    * rc,
+        tw_lp                 * lp){
     int ret = fcfs_next(poffset, sched, rc_event_save, rc, lp);
     // if error in fcfs or the request was finished & removed, then nothing to
     // do here
@@ -375,6 +410,7 @@ void rr_next_rc (
 void prio_init (
         const struct model_net_method     * method, 
         const model_net_sched_cfg_params  * params,
+        int                                 is_recv_queue,
         void                             ** sched){
     *sched = malloc(sizeof(mn_sched_prio));
     mn_sched_prio *ss = *sched;
@@ -382,7 +418,8 @@ void prio_init (
     ss->sub_scheds = malloc(ss->params.num_prios*sizeof(mn_sched_queue*));
     ss->sub_sched_iface = sched_interfaces[ss->params.sub_stype];
     for (int i = 0; i < ss->params.num_prios; i++){
-        ss->sub_sched_iface->init(method, params, (void**)&ss->sub_scheds[i]);
+        ss->sub_sched_iface->init(method, params, is_recv_queue,
+                (void**)&ss->sub_scheds[i]);
     }
 }
 
@@ -396,18 +433,19 @@ void prio_destroy (void *sched){
 }
 
 void prio_add (
-        model_net_request  * req,
-        void               * sched_msg_params,
-        int                  remote_event_size,
-        void               * remote_event,
-        int                  local_event_size,
-        void               * local_event,
-        void               * sched,
-        model_net_sched_rc * rc,
-        tw_lp              * lp){
+        model_net_request     * req,
+        const mn_sched_params * sched_params,
+        int                     remote_event_size,
+        void                  * remote_event,
+        int                     local_event_size,
+        void                  * local_event,
+        void                  * sched,
+        model_net_sched_rc    * rc,
+        tw_lp                 * lp){
     // sched_msg_params is simply an int
     mn_sched_prio *ss = sched;
-    int prio = *(int*) sched_msg_params;
+    int prio = sched_params->prio;
+    dprintf("%lu (mn):    adding with prio %d\n", lp->gid, prio);
     if (prio == -1){
         // default prio - lowest possible 
         prio = ss->params.num_prios-1;
@@ -416,24 +454,25 @@ void prio_add (
         tw_error(TW_LOC, "sched for lp %lu: invalid prio (%d vs [%d,%d))",
                 lp->gid, prio, 0, ss->params.num_prios);
     }
-    //NOTE: currently no support for sub-scheduler parameters
-    ss->sub_sched_iface->add(req, NULL, remote_event_size, remote_event,
-            local_event_size, local_event, ss->sub_scheds[prio], rc, lp);
+    ss->sub_sched_iface->add(req, sched_params, remote_event_size,
+            remote_event, local_event_size, local_event, ss->sub_scheds[prio],
+            rc, lp);
     rc->prio = prio;
 }
 
 void prio_add_rc(void * sched, model_net_sched_rc *rc, tw_lp *lp){
     // just call the sub scheduler's add_rc
     mn_sched_prio *ss = sched;
+    dprintf("%lu (mn): rc adding with prio %d\n", lp->gid, rc->prio);
     ss->sub_sched_iface->add_rc(ss->sub_scheds[rc->prio], rc, lp);
 }
 
 int prio_next(
-        tw_stime           * poffset,
-        void               * sched,
-        void               * rc_event_save,
-        model_net_sched_rc * rc,
-        tw_lp              * lp){
+        tw_stime              * poffset,
+        void                  * sched,
+        void                  * rc_event_save,
+        model_net_sched_rc    * rc,
+        tw_lp                 * lp){
     // check each priority, first one that's non-empty gets the next
     mn_sched_prio *ss = sched;
     for (int i = 0; i < ss->params.num_prios; i++){

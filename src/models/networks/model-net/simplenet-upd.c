@@ -98,6 +98,7 @@ static tw_stime simplenet_packet_event(
      int is_pull,
      uint64_t pull_size, /* only used when is_pull==1 */
      tw_stime offset,
+     const mn_sched_params *sched_params,
      int remote_event_size, 
      const void* remote_event, 
      int self_event_size,
@@ -122,6 +123,8 @@ struct model_net_method simplenet_method =
     .mn_configure = sn_configure,
     .model_net_method_packet_event = simplenet_packet_event,
     .model_net_method_packet_event_rc = simplenet_packet_event_rc,
+    .model_net_method_recv_msg_event = NULL,
+    .model_net_method_recv_msg_event_rc = NULL,
     .mn_get_lp_type = sn_get_lp_type,
     .mn_get_msg_sz = sn_get_msg_sz,
     .mn_report_stats = sn_report_stats,
@@ -499,7 +502,7 @@ static void handle_msg_start_event(
     // now that message is sent, issue an "idle" event to tell the scheduler
     // when I'm next available
     model_net_method_idle_event(codes_local_latency(lp) +
-            ns->net_send_next_idle - tw_now(lp), lp);
+            ns->net_send_next_idle - tw_now(lp), 0, lp);
 
     /* if there is a local event to handle, then create an event for it as
      * well
@@ -535,6 +538,7 @@ static tw_stime simplenet_packet_event(
                 int is_pull,
                 uint64_t pull_size, /* only used when is_pull == 1 */
                 tw_stime offset,
+                const mn_sched_params *sched_params,
 		int remote_event_size,
 		const void* remote_event,
 		int self_event_size,

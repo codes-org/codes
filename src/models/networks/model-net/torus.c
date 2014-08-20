@@ -319,7 +319,7 @@ static int torus_get_msg_sz(void)
 }
 
 /* torus packet event , generates a torus packet on the compute node */
-static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, int is_pull, uint64_t pull_size, tw_stime offset, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lpid src_lp, tw_lp *sender, int is_last_pckt)
+static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, int is_pull, uint64_t pull_size, tw_stime offset, const mn_sched_params *sched_params, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lpid src_lp, tw_lp *sender, int is_last_pckt)
 {
     tw_event * e_new;
     tw_stime xfer_to_nic_time;
@@ -1343,6 +1343,8 @@ struct model_net_method torus_method =
    .mn_configure = torus_configure,
    .model_net_method_packet_event = torus_packet_event,
    .model_net_method_packet_event_rc = torus_packet_event_rc,
+   .model_net_method_recv_msg_event = NULL,
+   .model_net_method_recv_msg_event_rc = NULL,
    .mn_get_lp_type = torus_get_lp_type,
    .mn_get_msg_sz = torus_get_msg_sz,
    .mn_report_stats = torus_report_stats,

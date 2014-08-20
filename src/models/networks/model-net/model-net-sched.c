@@ -9,9 +9,9 @@
 #include <assert.h>
 #include <ross.h>
 
-#include "model-net-sched-impl.h"
 #include "codes/model-net-sched.h"
 #include "codes/model-net-lp.h"
+#include "model-net-sched-impl.h"
 #include "codes/quicklist.h"
 
 #define X(a,b,c) b,
@@ -24,6 +24,7 @@ char * sched_names [] = {
 
 void model_net_sched_init(
         const model_net_sched_cfg_params * params,
+        int is_recv_queue,
         struct model_net_method *method,
         model_net_sched *sched){
     if (params->type >= MAX_SCHEDS){
@@ -34,7 +35,7 @@ void model_net_sched_init(
         sched->impl = sched_interfaces[params->type];
     }
     sched->type = params->type;
-    sched->impl->init(method, params, &sched->dat);
+    sched->impl->init(method, params, is_recv_queue, &sched->dat);
 }
 
 int model_net_sched_next(
@@ -56,7 +57,7 @@ void model_net_sched_next_rc(
 
 void model_net_sched_add(
         model_net_request *req,
-        void * sched_msg_params,
+        const mn_sched_params * sched_params,
         int remote_event_size,
         void * remote_event,
         int local_event_size,
@@ -64,7 +65,7 @@ void model_net_sched_add(
         model_net_sched *sched,
         model_net_sched_rc *sched_rc,
         tw_lp *lp){
-    sched->impl->add(req, sched_msg_params, remote_event_size, remote_event,
+    sched->impl->add(req, sched_params, remote_event_size, remote_event,
             local_event_size, local_event, sched->dat, sched_rc, lp);
 }
 
@@ -73,6 +74,10 @@ void model_net_sched_add_rc(
         model_net_sched_rc *sched_rc,
         tw_lp *lp){
     sched->impl->add_rc(sched->dat, sched_rc, lp);
+}
+
+void model_net_sched_set_default_params(mn_sched_params *sched_params){
+    sched_params->prio = -1;
 }
 
 /*

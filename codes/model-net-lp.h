@@ -46,6 +46,27 @@ tw_event * model_net_method_event_new(
         void **msg_data,
         void **extra_data);
 
+// Construct a model-net-specific event, similar to model_net_method_event_new.
+// The primary differences are:
+// - the event gets sent to final_dest_lp and put on it's receiver queue
+// - no message initialization is needed - that's the job of the
+//   model_net_method_recv_msg_event functions
+//
+// NOTE: this is largely a constructor of a model_net_request
+void model_net_method_send_msg_recv_event(
+        tw_lpid final_dest_lp,
+        tw_lpid dest_mn_lp, // which model-net lp is going to handle message
+        tw_lpid src_lp, // the "actual" source (as opposed to the model net lp)
+        uint64_t msg_size, // the size of this message
+        int is_pull,
+        uint64_t pull_size, // the size of the message to pull if is_pull==1
+        int remote_event_size,
+        const mn_sched_params *sched_params,
+        const char * category,
+        int net_id,
+        void * msg,
+        tw_lp *sender);
+
 // Issue an event from the underlying model (e.g., simplenet, loggp) to tell the
 // scheduler when next to issue a packet event. As different models update their
 // notion of "idleness" separately, this is necessary. DANGER: Failure to call
@@ -54,7 +75,8 @@ tw_event * model_net_method_event_new(
 //
 // This function is expected to be called within each specific model-net
 // method - strange and disturbing things will happen otherwise
-void model_net_method_idle_event(tw_stime offset_ts, tw_lp * lp);
+void model_net_method_idle_event(tw_stime offset_ts, int is_recv_queue,
+        tw_lp * lp);
 
 // Get a ptr to past the message struct area, where the self/remote events
 // are located, given the type of network.
@@ -78,10 +100,8 @@ enum model_net_base_event_type {
 
 typedef struct model_net_base_msg {
     // no need for event type - in wrap message
-    union {
-        model_net_request req;
-        struct {} sched; // needs nothing at the moment
-    } u;
+    model_net_request req;
+    int is_from_remote;
     // parameters to pass to new messages (via model_net_set_msg_params)
     // TODO: make this a union for multiple types of parameters
     mn_sched_params sched_params;

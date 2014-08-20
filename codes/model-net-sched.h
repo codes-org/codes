@@ -11,6 +11,11 @@
 
 #include <ross.h>
 #include "model-net.h"
+
+// forward decl of mn_sched_params since we currently have a circular include
+// (method needs sched def, sched needs method def)
+typedef struct mn_sched_params_s mn_sched_params;
+
 #include "model-net-method.h"
 
 /// types of schedulers
@@ -62,9 +67,9 @@ enum sched_msg_param_type {
 };
 
 // scheduler-specific parameter definitions must go here
-typedef struct mn_sched_params_s {
+struct mn_sched_params_s {
     int prio; // MN_SCHED_PARAM_PRIO (currently the only one)
-} mn_sched_params;
+} ;
 
 /// interface to be implemented by schedulers
 /// see corresponding general functions
@@ -74,6 +79,7 @@ typedef struct model_net_sched_interface {
     void (*init)(
             const struct model_net_method     * method, 
             const model_net_sched_cfg_params  * params,
+            int                                 is_recv_queue,
             void                             ** sched);
     // finalize the scheduler
     void (*destroy)(void * sched);
@@ -82,25 +88,25 @@ typedef struct model_net_sched_interface {
     //                prio (currently the only user): int priority
     //              - NULL arguments should be treated as "use default value" 
     void (*add)(
-            model_net_request  * req,
-            void               * sched_params,
-            int                  remote_event_size,
-            void               * remote_event,
-            int                  local_event_size,
-            void               * local_event,
-            void               * sched,
-            model_net_sched_rc * rc,
-            tw_lp              * lp);
+            model_net_request     * req,
+            const mn_sched_params * sched_params,
+            int                     remote_event_size,
+            void                  * remote_event,
+            int                     local_event_size,
+            void                  * local_event,
+            void                  * sched,
+            model_net_sched_rc    * rc,
+            tw_lp                 * lp);
     // reverse the previous request addition
     void (*add_rc)(void *sched, model_net_sched_rc *rc, tw_lp *lp);
     // schedule the next packet for processing by the model
     int  (*next)(
-            tw_stime           * poffset,
-            void               * sched,
+            tw_stime              * poffset,
+            void                  * sched,
             // NOTE: copy here when deleting remote/local events for rc
-            void               * rc_event_save,
-            model_net_sched_rc * rc,
-            tw_lp              * lp);
+            void                  * rc_event_save,
+            model_net_sched_rc    * rc,
+            tw_lp                 * lp);
     // reverse schedule the previous packet
     void (*next_rc)(
             void               * sched,
@@ -113,6 +119,8 @@ typedef struct model_net_sched_interface {
 
 struct model_net_sched_s {
     enum sched_type type;
+    // data for the underlying scheduler implementation (see
+    // model-net-sched-impl*)
     void * dat;
     const model_net_sched_interface * impl;
 };
@@ -127,8 +135,9 @@ struct model_net_sched_rc_s {
     // NOTE: sched implementations may need different types, but for now they
     // are equivalent 
     model_net_request req; // request gets deleted...
+    mn_sched_params sched_params; // along with msg params
     int rtn; // return code from a sched_next 
-    int prio; // prio when doing priority queue events 
+    int prio; // prio when doing priority queue events
 };
 
 // initialize the scheduler
@@ -136,6 +145,7 @@ struct model_net_sched_rc_s {
 //   type to type. Currently only priority scheduler uses it
 void model_net_sched_init(
         const model_net_sched_cfg_params * params,
+        int is_recv_queue,
         struct model_net_method *method,
         model_net_sched *sched);
 
@@ -166,7 +176,7 @@ void model_net_sched_next_rc(
 /// prio scheduler)
 void model_net_sched_add(
         model_net_request *req,
-        void * sched_msg_params,
+        const mn_sched_params * sched_params,
         int remote_event_size,
         void * remote_event,
         int local_event_size,
@@ -179,6 +189,9 @@ void model_net_sched_add_rc(
         model_net_sched *sched,
         model_net_sched_rc *sched_rc,
         tw_lp *lp);
+
+// set default parameters for messages that don't specify any
+void model_net_sched_set_default_params(mn_sched_params *sched_params);
 
 extern char * sched_names[];
 

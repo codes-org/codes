@@ -9,6 +9,12 @@
 
 #include <ross.h>
 
+// forward decl of model_net_method since we currently have a circular include
+// (method needs sched def, sched needs method def)
+struct model_net_method;
+
+#include "codes/model-net-sched.h"
+
 struct model_net_method
 {
     uint64_t packet_size; /* packet size */
@@ -20,6 +26,12 @@ struct model_net_method
         int is_pull,
         uint64_t pull_size, /* only used when is_pull==1 */
         tw_stime offset,
+        // this parameter is used to propagate message specific parameters
+        // to modelnet models that need it. Required by routing-related
+        // functions (currently just model_net_method_send_msg_recv_event)
+        //
+        // TODO: make this param more general
+        const mn_sched_params *sched_params,
         int remote_event_size,  /* 0 means don't deliver remote event */
         const void* remote_event,
         int self_event_size,    /* 0 means don't deliver self event */
@@ -28,6 +40,18 @@ struct model_net_method
         tw_lp *sender, // lp message is being called from (base LP)
 	int is_last_pckt);
     void (*model_net_method_packet_event_rc)(tw_lp *sender);
+    tw_stime (*model_net_method_recv_msg_event)(
+            const char * category,
+            tw_lpid final_dest_lp,
+            uint64_t msg_size,
+            int is_pull,
+            uint64_t pull_size,
+            tw_stime offset,
+            int remote_event_size,
+            const void* remote_event,
+            tw_lpid src_lp, // original caller of model_net_(pull_)event
+            tw_lp *sender); // lp message is being called from (base LP)
+    void (*model_net_method_recv_msg_event_rc)(tw_lp *lp);
     const tw_lptype* (*mn_get_lp_type)();
     int (*mn_get_msg_sz)();
     void (*mn_report_stats)();

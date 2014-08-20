@@ -6,6 +6,9 @@
 
 #ifndef LOGGP_H
 #define LOGGP_H
+
+#include "../model-net-sched.h"
+
 /* types of events that will constitute triton requests */
 enum loggp_event_type 
 {
@@ -27,6 +30,10 @@ struct loggp_message
     char category[CATEGORY_NAME_MAX]; /* category for communication */
     int is_pull;
     uint64_t pull_size;
+
+    // scheduling parameters used in this message. Necessary for receiver-side
+    // queueing
+    mn_sched_params sched_params;
 
     /* for reverse computation */
     tw_stime net_send_next_idle_saved;
