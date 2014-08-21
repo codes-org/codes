@@ -269,6 +269,9 @@ static void model_net_event_impl_base(
     r->is_pull = is_pull;
     strncpy(r->category, category, CATEGORY_NAME_MAX-1);
     r->category[CATEGORY_NAME_MAX-1]='\0';
+
+    // this is an outgoing message
+    m->msg.m_base.is_from_remote = 0;
     
     // set the msg-specific params
     if (is_msg_params_set[MN_SCHED_PARAM_PRIO])
