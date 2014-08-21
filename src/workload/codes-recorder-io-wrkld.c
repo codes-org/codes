@@ -117,12 +117,21 @@ static int recorder_io_workload_load(const char *params, int rank)
     size_t len;
     ssize_t ret_value;
     char function_name[128] = {'\0'};
+    double last_end = 0.0;
     while((ret_value = getline(&line, &len, trace_file)) != -1) {
         struct recorder_io_op r_op;
-        char *token = strtok(line, ", ");
+        char *token = strtok(line, ", \n");
         int fd;
-        r_op.start_time = atof(token);
-        token = strtok(NULL, ", ");
+
+        if (!strcmp(token, "BARRIER"))
+        {
+            r_op.start_time = last_end;
+        }
+        else
+        {
+            r_op.start_time = atof(token);
+            token = strtok(NULL, ", ");
+        }
         strcpy(function_name, token);
 
         if(!strcmp(function_name, "open") || !strcmp(function_name, "open64")) {
@@ -248,8 +257,7 @@ static int recorder_io_workload_load(const char *params, int rank)
             r_op.codes_op.u.write.file_id = file->file_id;
         }
         else if(!strcmp(function_name, "MPI_Barrier") ||
-                !strcmp(function_name, "MPI_File_read_at_all") ||
-                !strcmp(function_name, "MPI_File_write_at_all")) {
+                !strcmp(function_name, "BARRIER")) {       
             r_op.codes_op.op_type = CODES_WK_BARRIER;
 
             r_op.codes_op.u.barrier.count = nprocs;
@@ -262,6 +270,7 @@ static int recorder_io_workload_load(const char *params, int rank)
 
         new->trace_ops[new->trace_list_ndx++] = r_op;
         if (new->trace_list_ndx == 2048) break;
+        last_end = r_op.end_time;
     }
 
     fclose(trace_file);
