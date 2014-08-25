@@ -436,16 +436,18 @@ static tw_lp * codes_mapping_to_lp( tw_lpid lpid)
 }
 
 /* This function loads the configuration file and sets up the number of LPs on each PE */
-void codes_mapping_setup()
+void codes_mapping_setup_with_seed_offset(int offset)
 {
   int grp, lpt, message_size;
   int pes = tw_nnodes();
 
+  lps_per_pe_floor = 0;
   for (grp = 0; grp < lpconf.lpgroups_count; grp++)
    {
     for (lpt = 0; lpt < lpconf.lpgroups[grp].lptypes_count; lpt++)
 	lps_per_pe_floor += (lpconf.lpgroups[grp].lptypes[lpt].count * lpconf.lpgroups[grp].repetitions);
    }
+  tw_lpid global_nlps = lps_per_pe_floor;
   lps_leftover = lps_per_pe_floor % pes;
   lps_per_pe_floor /= pes;
  //printf("\n LPs for this PE are %d reps %d ", lps_per_pe_floor,  lpconf.lpgroups[grp].repetitions);
@@ -468,6 +470,24 @@ void codes_mapping_setup()
       printf("\n Warning: ross message size not defined, resetting it to %d", message_size);
   }
   tw_define_lps(codes_mapping_get_lps_for_pe(), message_size, 0);
+
+  // use a similar computation to codes_mapping_init to compute the lpids and
+  // offsets to use in tw_rand_initial_seed
+  // an "offset" of 0 reverts to default RNG seeding behavior - see
+  // ross/rand-clcg4.c for the specific computation
+  // an "offset" < 0 is ignored
+  if (offset > 0){
+      for (tw_lpid l = 0; l < g_tw_nlp; l++){
+          for (int i = 0; i < g_tw_nRNG_per_lp; i++){
+              tw_rand_initial_seed(&g_tw_lp[l]->rng[i], (g_tw_lp[l]->gid +
+                          global_nlps * offset) * g_tw_rng_max + i);
+          }
+      }
+  }
+}
+
+void codes_mapping_setup(){
+    codes_mapping_setup_with_seed_offset(0);
 }
 
 /* given the group and LP type name, return the annotation (or NULL) */

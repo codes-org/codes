@@ -21,6 +21,14 @@ tw_peid codes_mapping( tw_lpid gid);
 /* loads the configuration file and sets up the number of LPs on each PE. */
 void codes_mapping_setup(void);
 
+/* set up lps with an RNG offset
+ *
+ * NOTE: manual seeding is discouraged by the ROSS folks, who instead suggest to
+ * set the number of RNGs each LP will "skip". offset here is a multiplier by
+ * the global number of LPs
+ */
+void codes_mapping_setup_with_seed_offset(int offset);
+
 /*Takes the group name and returns the number of repetitions in the group */
 int codes_mapping_get_group_reps(const char* group_name);
 
