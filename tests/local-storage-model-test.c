@@ -78,12 +78,13 @@ static tw_peid svr_node_mapping(
     tw_lpid gid);
 
 tw_lptype svr_lp = {
-     (init_f) svr_init,
-     (event_f) svr_event,
-     (revent_f) svr_rev_event,
-     (final_f) svr_finalize, 
-     (map_f) svr_node_mapping,
-     sizeof(svr_state),
+    (init_f) svr_init,
+    (pre_run_f) NULL,
+    (event_f) svr_event,
+    (revent_f) svr_rev_event,
+    (final_f) svr_finalize, 
+    (map_f) svr_node_mapping,
+    sizeof(svr_state),
 };
 
 static tw_stime ns_to_s(tw_stime ns);

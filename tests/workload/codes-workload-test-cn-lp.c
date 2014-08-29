@@ -91,12 +91,13 @@ static tw_peid node_mapping(
     tw_lpid gid);
 
 tw_lptype client_lp = {
-     (init_f) client_init,
-     (event_f) client_event,
-     (revent_f) client_rev_event,
-     (final_f) client_finalize, 
-     (map_f) node_mapping,
-     sizeof(client_state),
+    (init_f) client_init,
+    (pre_run_f) NULL,
+    (event_f) client_event,
+    (revent_f) client_rev_event,
+    (final_f) client_finalize, 
+    (map_f) node_mapping,
+    sizeof(client_state),
 };
 
 static int g_num_clients = -1;

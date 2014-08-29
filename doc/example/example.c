@@ -101,12 +101,13 @@ static void svr_finalize(
 /* set up the function pointers for ROSS, as well as the size of the LP state
  * structure (NOTE: ROSS is in charge of event and state (de-)allocation) */
 tw_lptype svr_lp = {
-     (init_f) svr_init,
-     (event_f) svr_event,
-     (revent_f) svr_rev_event,
-     (final_f)  svr_finalize, 
-     (map_f) codes_mapping,
-     sizeof(svr_state),
+    (init_f) svr_init,
+    (pre_run_f) NULL,
+    (event_f) svr_event,
+    (revent_f) svr_rev_event,
+    (final_f)  svr_finalize, 
+    (map_f) codes_mapping,
+    sizeof(svr_state),
 };
 
 extern const tw_lptype* svr_get_lp_type();

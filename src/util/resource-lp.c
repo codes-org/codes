@@ -110,12 +110,13 @@ static void resource_finalize(
 
 /* ROSS function pointer table for this LP */
 static tw_lptype resource_lp = {
-     (init_f) resource_lp_ind_init,
-     (event_f) resource_event_handler,
-     (revent_f) resource_rev_handler,
-     (final_f)  resource_finalize, 
-     (map_f) codes_mapping,
-     sizeof(resource_state),
+    (init_f) resource_lp_ind_init,
+    (pre_run_f) NULL,
+    (event_f) resource_event_handler,
+    (revent_f) resource_rev_handler,
+    (final_f)  resource_finalize, 
+    (map_f) codes_mapping,
+    sizeof(resource_state),
 };
 
 /**** END LP, EVENT PROCESSING FUNCTION DECLS ****/

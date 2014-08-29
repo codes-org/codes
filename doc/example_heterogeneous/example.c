@@ -217,12 +217,13 @@ void node_event_handler(
 
 /* ROSS function pointer table for this LP */
 static tw_lptype node_lp = {
-     (init_f) node_lp_init,
-     (event_f) node_event_handler,
-     (revent_f) NULL,
-     (final_f)  node_finalize, 
-     (map_f) codes_mapping,
-     sizeof(node_state),
+    (init_f) node_lp_init,
+    (pre_run_f) NULL,
+    (event_f) node_event_handler,
+    (revent_f) NULL,
+    (final_f)  node_finalize, 
+    (map_f) codes_mapping,
+    sizeof(node_state),
 };
 
 void node_register(){
@@ -341,12 +342,13 @@ void forwarder_event_handler(
 }
 
 static tw_lptype forwarder_lp = {
-     (init_f) forwarder_lp_init,
-     (event_f) forwarder_event_handler,
-     (revent_f) NULL,
-     (final_f)  forwarder_finalize, 
-     (map_f) codes_mapping,
-     sizeof(forwarder_state),
+    (init_f) forwarder_lp_init,
+    (pre_run_f) NULL,
+    (event_f) forwarder_event_handler,
+    (revent_f) NULL,
+    (final_f)  forwarder_finalize, 
+    (map_f) codes_mapping,
+    sizeof(forwarder_state),
 };
 
 void forwarder_register(){

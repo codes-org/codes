@@ -86,28 +86,31 @@ static void init(state *ns, tw_lp *lp){
 }
 
 tw_lptype a_lp = {
-     (init_f) init,
-     (event_f) NULL,
-     (revent_f) NULL,
-     (final_f)  NULL,
-     (map_f) codes_mapping,
-     sizeof(state),
+    (init_f) init,
+    (pre_run_f) NULL,
+    (event_f) NULL,
+    (revent_f) NULL,
+    (final_f)  NULL,
+    (map_f) codes_mapping,
+    sizeof(state),
 };
 tw_lptype b_lp = {
-     (init_f) init,
-     (event_f) NULL,
-     (revent_f) NULL,
-     (final_f) NULL,
-     (map_f) codes_mapping,
-     sizeof(state),
+    (init_f) init,
+    (pre_run_f) NULL,
+    (event_f) NULL,
+    (revent_f) NULL,
+    (final_f) NULL,
+    (map_f) codes_mapping,
+    sizeof(state),
 };
 tw_lptype c_lp = {
-     (init_f) init,
-     (event_f) NULL,
-     (revent_f) NULL,
-     (final_f) NULL,
-     (map_f) codes_mapping,
-     sizeof(state),
+    (init_f) init,
+    (pre_run_f) NULL,
+    (event_f) NULL,
+    (revent_f) NULL,
+    (final_f) NULL,
+    (map_f) codes_mapping,
+    sizeof(state),
 };
 
 static char conf_file_name[128] = {'\0'};

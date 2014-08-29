@@ -108,12 +108,13 @@ static void s_event_rc(s_state *ns, tw_bf * b, s_msg *m, tw_lp *lp){
 }
 
 static tw_lptype s_lp = {
-     (init_f) s_init,
-     (event_f) s_event,
-     (revent_f) s_event_rc,
-     (final_f) s_finalize, 
-     (map_f) codes_mapping,
-     sizeof(s_state),
+    (init_f) s_init,
+    (pre_run_f) NULL,
+    (event_f) s_event,
+    (revent_f) s_event_rc,
+    (final_f) s_finalize, 
+    (map_f) codes_mapping,
+    sizeof(s_state),
 };
 
 static char conf_file_name[128] = {'\0'};

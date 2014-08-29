@@ -157,6 +157,7 @@ static const config_anno_map_t *anno_map = NULL;
 tw_lptype lsm_lp =
 {
     (init_f) lsm_lp_init,
+    (pre_run_f) NULL,
     (event_f) lsm_event,
     (revent_f) lsm_rev_event,
     (final_f) lsm_finalize,
