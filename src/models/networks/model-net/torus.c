@@ -1307,12 +1307,13 @@ static void event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_l
 /* event types */
 tw_lptype torus_lp =
 {
-  (init_f) torus_init,
-  (event_f) event_handler,
-  (revent_f) node_rc_handler,
-  (final_f) final,
-  (map_f) codes_mapping,
-  sizeof(nodes_state),
+    (init_f) torus_init,
+    (pre_run_f) NULL,
+    (event_f) event_handler,
+    (revent_f) node_rc_handler,
+    (final_f) final,
+    (map_f) codes_mapping,
+    sizeof(nodes_state),
 };
 
 /* returns the torus lp type for lp registration */

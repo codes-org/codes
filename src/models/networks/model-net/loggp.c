@@ -185,12 +185,13 @@ static void loggp_finalize(
     tw_lp * lp);
 
 tw_lptype loggp_lp = {
-     (init_f) loggp_init,
-     (event_f) loggp_event,
-     (revent_f) loggp_rev_event,
-     (final_f) loggp_finalize,
-     (map_f) codes_mapping,
-     sizeof(loggp_state),
+    (init_f) loggp_init,
+    (pre_run_f) NULL,
+    (event_f) loggp_event,
+    (revent_f) loggp_rev_event,
+    (final_f) loggp_finalize,
+    (map_f) codes_mapping,
+    sizeof(loggp_state),
 };
 
 static void handle_msg_ready_rev_event(

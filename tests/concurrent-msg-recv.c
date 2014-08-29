@@ -120,12 +120,13 @@ static void handle_testsvr_local_rev(
 
 /* ROSS function pointer table for this LP */
 tw_lptype testsvr_lp = {
-     (init_f) testsvr_lp_init,
-     (event_f) testsvr_event_handler,
-     (revent_f) testsvr_rev_handler,
-     (final_f)  testsvr_finalize, 
-     (map_f) codes_mapping,
-     sizeof(testsvr_state),
+    (init_f) testsvr_lp_init,
+    (pre_run_f) NULL,
+    (event_f) testsvr_event_handler,
+    (revent_f) testsvr_rev_handler,
+    (final_f)  testsvr_finalize, 
+    (map_f) codes_mapping,
+    sizeof(testsvr_state),
 };
 
 /* for debugging: print messages */

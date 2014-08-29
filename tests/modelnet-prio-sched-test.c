@@ -71,12 +71,13 @@ static void svr_finalize(
     tw_lp * lp);
 
 tw_lptype svr_lp = {
-     (init_f) svr_init,
-     (event_f) svr_event,
-     (revent_f) svr_rev_event,
-     (final_f)  svr_finalize, 
-     (map_f) codes_mapping,
-     sizeof(svr_state),
+    (init_f) svr_init,
+    (pre_run_f) NULL,
+    (event_f) svr_event,
+    (revent_f) svr_rev_event,
+    (final_f)  svr_finalize, 
+    (map_f) codes_mapping,
+    sizeof(svr_state),
 };
 
 static void svr_add_lp_type();

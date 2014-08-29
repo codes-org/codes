@@ -96,12 +96,13 @@ static void handle_sched_next_rc(
 
 /* ROSS function pointer table for this LP */
 tw_lptype model_net_base_lp = {
-     (init_f) model_net_base_lp_init,
-     (event_f) model_net_base_event,
-     (revent_f) model_net_base_event_rc,
-     (final_f)  model_net_base_finalize, 
-     (map_f) codes_mapping,
-     sizeof(model_net_base_state),
+    (init_f) model_net_base_lp_init,
+    (pre_run_f) NULL,
+    (event_f) model_net_base_event,
+    (revent_f) model_net_base_event_rc,
+    (final_f)  model_net_base_finalize, 
+    (map_f) codes_mapping,
+    sizeof(model_net_base_state),
 };
 
 /**** END LP, EVENT PROCESSING FUNCTION DECLS ****/

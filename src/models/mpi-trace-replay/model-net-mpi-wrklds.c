@@ -806,12 +806,13 @@ const tw_optdef app_opt [] =
 };
 
 tw_lptype nw_lp = {
-	 (init_f) nw_test_init,
-         (event_f) nw_test_event_handler,
-         (revent_f) nw_test_event_handler_rc,
-         (final_f) nw_test_finalize,
-         (map_f) codes_mapping,
-         sizeof(nw_state)
+    (init_f) nw_test_init,
+    (pre_run_f) NULL,
+    (event_f) nw_test_event_handler,
+    (revent_f) nw_test_event_handler_rc,
+    (final_f) nw_test_finalize,
+    (map_f) codes_mapping,
+    sizeof(nw_state)
 };
 
 const tw_lptype* nw_get_lp_type()

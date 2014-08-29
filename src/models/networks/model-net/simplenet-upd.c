@@ -151,12 +151,13 @@ static void sn_finalize(
     tw_lp * lp);
 
 tw_lptype sn_lp = {
-     (init_f) sn_init,
-     (event_f) sn_event,
-     (revent_f) sn_rev_event,
-     (final_f) sn_finalize,
-     (map_f) codes_mapping,
-     sizeof(sn_state),
+    (init_f) sn_init,
+    (pre_run_f) NULL,
+    (event_f) sn_event,
+    (revent_f) sn_rev_event,
+    (final_f) sn_finalize,
+    (map_f) codes_mapping,
+    sizeof(sn_state),
 };
 
 static tw_stime rate_to_ns(uint64_t bytes, double MB_p_s);
