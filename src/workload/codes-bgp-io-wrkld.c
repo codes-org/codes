@@ -155,7 +155,8 @@ void bgp_io_workload_get_next(int rank, struct codes_workload_op *op)
 	    break;
 	    case CODES_WK_DELAY:
 	    {
-		op->u.delay.seconds = (next_wrkld->next_event).var[0];
+            /* io language represents delays in nanoseconds */
+            op->u.delay.seconds = (double)(next_wrkld->next_event).var[0] / (1000 * 1000 * 1000);
 	    }
 	    break;
 	    case CODES_WK_END:
