@@ -175,7 +175,7 @@ static int darshan_io_workload_load(const char *params, int rank)
 
         assert(next_file.counters[CP_POSIX_OPENS] == 0);
         assert(next_file.counters[CP_POSIX_READS] == 0);
-        assert(next_file.counters[CP_POSIX_WRITES] == 0);
+        //assert(next_file.counters[CP_POSIX_WRITES] == 0);
     }
     if (ret < 0)
         return -1;
@@ -542,7 +542,8 @@ void generate_psx_coll_file_events(
 
     total_delay = file->fcounters[CP_F_CLOSE_TIMESTAMP] -
                   file->fcounters[CP_F_OPEN_TIMESTAMP] -
-                  file->fcounters[CP_F_SLOWEST_RANK_TIME];
+                  ((file->fcounters[CP_F_MPI_META_TIME] + file->fcounters[CP_F_MPI_READ_TIME] +
+                  file->fcounters[CP_F_MPI_WRITE_TIME]) / nprocs);
 
     if (file->counters[CP_COLL_OPENS] || file->counters[CP_INDEP_OPENS])
     {
@@ -552,14 +553,25 @@ void generate_psx_coll_file_events(
         total_coll_opens = file->counters[CP_COLL_OPENS];
         total_ind_opens = file->counters[CP_POSIX_OPENS] - total_coll_opens - extra_opens;
 
-        total_ind_io_ops = file->counters[CP_INDEP_READS] + file->counters[CP_INDEP_WRITES];
+        total_ind_io_ops = 0;//file->counters[CP_INDEP_READS] + file->counters[CP_INDEP_WRITES];
         total_coll_io_ops = (file->counters[CP_COLL_READS] + file->counters[CP_COLL_WRITES]) / nprocs;
 
         if (file->counters[CP_COLL_OPENS])
         {
+            int tmp_ind_io_cycles;
+            if (total_ind_io_ops < total_coll_io_ops)
+            {
+                tmp_ind_io_cycles = total_ind_io_ops;
+            }
+            else
+            {
+                tmp_ind_io_cycles = ceil(((double)total_ind_io_ops / total_coll_io_ops) / nprocs) *
+                                    total_coll_io_ops;
+            }
+
             open_cycles = total_coll_opens / nprocs;
             calc_io_delays(file, ceil(((double)(total_coll_opens + total_ind_opens)) / nprocs),
-                           total_coll_io_ops + ceil((double)total_ind_io_ops / nprocs), total_delay,
+                           total_coll_io_ops + tmp_ind_io_cycles, total_delay,
                            &first_io_delay, &close_delay, &inter_cycle_delay, &inter_io_delay);
         }
         else
@@ -928,7 +940,6 @@ static double generate_psx_coll_io_events(
     double ranks_per_aggregator = (double)(nprocs - 1) / (aggregator_cnt - 1);
     int64_t ind_ops_remaining = 0;
     double io_op_time;
-    double max_cur_time = 0.0;
     size_t io_sz;
     off_t io_off;
     int64_t i, j;
@@ -989,8 +1000,6 @@ static double generate_psx_coll_io_events(
         {
             tmp_rank = (next_ind_io_rank++) % nprocs;
             ind_io_ops_this_cycle--;
-            ind_ops_remaining--;
-            if (!ind_ops_remaining) next_ind_io_rank = 0;
 
             determine_ind_io_params(file, rw, &io_sz, &io_off, io_context);
             if (!rw)
@@ -1036,18 +1045,15 @@ static double generate_psx_coll_io_events(
 
             /* store the io operation if it belongs to this rank */
             if (tmp_rank == io_context->my_rank)
-                darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
-
-            if (next_io_op.end_time > max_cur_time)
-                max_cur_time = next_io_op.end_time;
-
-            if ((tmp_rank == (nprocs - 1)) || (i == (total_io_ops_this_cycle - 1)))
-
             {
-                cur_time = max_cur_time;
-                if (i != (total_io_ops_this_cycle - 1))
+                darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
+                cur_time = next_io_op.end_time;
+                if (coll_io_ops_this_cycle || (ind_ops_remaining > nprocs))
                     cur_time += inter_io_delay;
             }
+
+            ind_ops_remaining--;
+            if (!ind_ops_remaining) next_ind_io_rank = 0;
         }
         else
         {
@@ -1140,12 +1146,13 @@ static double generate_psx_coll_io_events(
                 psx_rw_ops_remaining -= tmp_coll_cnt;
                 assert(file->counters[CP_POSIX_READS] >= 0);
                 assert(file->counters[CP_POSIX_WRITES] >= 0);
-
-                if (i != (total_io_ops_this_cycle - 1))
-                    cur_time += inter_io_delay;
             }
+
+            if (i != (total_io_ops_this_cycle - 1))
+                cur_time += inter_io_delay;
         }
         io_ops_this_rw--;
+
 
         /* determine whether to toggle between reads and writes */
         if (!io_ops_this_rw && psx_rw_ops_remaining)
