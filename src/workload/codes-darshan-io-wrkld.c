@@ -173,8 +173,8 @@ static int darshan_io_workload_load(const char *params, int rank)
         else
             break;
 
-        assert(next_file.counters[CP_POSIX_OPENS] == 0);
-        assert(next_file.counters[CP_POSIX_READS] == 0);
+        //assert(next_file.counters[CP_POSIX_OPENS] == 0);
+        //assert(next_file.counters[CP_POSIX_READS] == 0);
         //assert(next_file.counters[CP_POSIX_WRITES] == 0);
     }
     if (ret < 0)
@@ -522,7 +522,7 @@ void generate_psx_coll_file_events(
     int64_t coll_io_ops_this_cycle;
     int64_t rank_cnt;
     int create_flag = 0;
-    double cur_time = file->fcounters[CP_F_OPEN_TIMESTAMP];
+    double cur_time = 0.0;//file->fcounters[CP_F_OPEN_TIMESTAMP];
     double total_delay;
     double first_io_delay = 0.0;
     double close_delay = 0.0;
@@ -631,8 +631,8 @@ void generate_psx_coll_file_events(
          */
         if (extra_opens && !(i % (open_cycles / extra_opens)))
         {
-            cur_time = generate_psx_open_event(file, create_flag, meta_op_time, cur_time,
-                                               io_context, (io_context->my_rank == 0));
+            //cur_time = generate_psx_open_event(file, create_flag, meta_op_time, cur_time,
+            //                                   io_context, (io_context->my_rank == 0));
             create_flag = 0;
 
             if (!file->counters[CP_COLL_OPENS] && !file->counters[CP_INDEP_OPENS])
@@ -642,8 +642,8 @@ void generate_psx_coll_file_events(
                 extra_io_ops--;
             }
 
-            cur_time = generate_psx_close_event(file, meta_op_time, cur_time, io_context,
-                                                (io_context->my_rank == 0));
+            //cur_time = generate_psx_close_event(file, meta_op_time, cur_time, io_context,
+            //                                    (io_context->my_rank == 0));
             file->counters[CP_POSIX_OPENS]--;
         }
 
@@ -685,10 +685,10 @@ void generate_psx_coll_file_events(
 
             cur_time = generate_barrier_event(file, 0, cur_time, io_context);
 
-            cur_time = generate_psx_open_event(file, create_flag, meta_op_time,
+            cur_time = generate_psx_open_event(file, /*create_flag */1, meta_op_time,
                                                cur_time, io_context, 1);
 
-            cur_time += first_io_delay;
+            //cur_time += first_io_delay;
 
             if (file->counters[CP_INDEP_OPENS])
                 ind_io_ops_this_cycle = 0;
@@ -705,7 +705,7 @@ void generate_psx_coll_file_events(
             total_ind_io_ops -= ind_io_ops_this_cycle;
             total_coll_io_ops -= coll_io_ops_this_cycle;
 
-            cur_time += close_delay;
+            //cur_time += close_delay;
 
             cur_time = generate_psx_close_event(file, meta_op_time, cur_time, io_context, 1);
 
@@ -778,7 +778,7 @@ static double generate_barrier_event(
     struct darshan_io_op next_io_op =
     {
         .codes_op.op_type = CODES_WK_BARRIER, 
-        .codes_op.u.barrier.count = -1, /* all processes */
+        .codes_op.u.barrier.count = 8192, /* all processes */
         .codes_op.u.barrier.root = root,
         .start_time = cur_time
     };
@@ -1048,8 +1048,8 @@ static double generate_psx_coll_io_events(
             {
                 darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
                 cur_time = next_io_op.end_time;
-                if (coll_io_ops_this_cycle || (ind_ops_remaining > nprocs))
-                    cur_time += inter_io_delay;
+                //if (coll_io_ops_this_cycle || (ind_ops_remaining > nprocs))
+                //    cur_time += inter_io_delay;
             }
 
             ind_ops_remaining--;
@@ -1148,8 +1148,8 @@ static double generate_psx_coll_io_events(
                 assert(file->counters[CP_POSIX_WRITES] >= 0);
             }
 
-            if (i != (total_io_ops_this_cycle - 1))
-                cur_time += inter_io_delay;
+            //if (i != (total_io_ops_this_cycle - 1))
+            //    cur_time += inter_io_delay;
         }
         io_ops_this_rw--;
 
