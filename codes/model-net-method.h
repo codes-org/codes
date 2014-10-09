@@ -58,7 +58,7 @@ struct model_net_method
     tw_lpid (*model_net_method_find_local_device)(
         const char * annotation,
         int          ignore_annotations,
-        tw_lp      * sender);
+        tw_lpid      sender_gid);
     void (*mn_collective_call)(char* category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender);
     void (*mn_collective_call_rc)(int message_size, tw_lp* sender);    
 };

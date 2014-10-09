@@ -822,10 +822,9 @@ static void packet_generate( nodes_state * s,
     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
     tw_lpid dst_lp;
     // TODO: be annotation-aware
-    codes_mapping_get_lp_info(msg->final_dest_gid, grp_name, &mapping_grp_id, NULL,
-            &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->anno, 0, mapping_rep_id,
-            mapping_offset, &dst_lp);
+    dst_lp = model_net_find_local_device(TORUS, s->anno, 0,
+            msg->final_dest_gid);
+            //mapping_offset, &dst_lp);
     // dest_lp gets included to other required msgs through memcpys, so just
     // set here
     msg->dest_lp = dst_lp;
@@ -1349,7 +1348,7 @@ struct model_net_method torus_method =
    .mn_get_lp_type = torus_get_lp_type,
    .mn_get_msg_sz = torus_get_msg_sz,
    .mn_report_stats = torus_report_stats,
-   .model_net_method_find_local_device = torus_find_local_device,
+   .model_net_method_find_local_device = NULL,
    .mn_collective_call = torus_collective,
    .mn_collective_call_rc = torus_collective_rc
 };

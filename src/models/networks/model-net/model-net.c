@@ -246,7 +246,7 @@ static void model_net_event_impl_base(
     }
 
     tw_lpid mn_lp = model_net_find_local_device(net_id, annotation, 
-            ignore_annotations, sender);
+            ignore_annotations, sender->gid);
     tw_stime poffset = codes_local_latency(sender);
     if (in_sequence){
         tw_stime tmp = mn_msg_offset;
@@ -477,14 +477,38 @@ void model_net_report_stats(int net_id)
    return;
 }
 
+static tw_lpid model_net_find_local_device_default(
+        int          net_id,
+        const char * annotation,
+        int          ignore_annotations,
+        tw_lpid      sender_gid) {
+    char group_name[MAX_NAME_LENGTH];
+    int dummy, mapping_rep, mapping_offset;
+    int num_mn_lps;
+    tw_lpid rtn;
+
+    codes_mapping_get_lp_info(sender_gid, group_name, &dummy, NULL, &dummy,
+            NULL, &mapping_rep, &mapping_offset);
+    num_mn_lps = codes_mapping_get_lp_count(group_name, 1,
+            model_net_lp_config_names[net_id], annotation, ignore_annotations);
+    codes_mapping_get_lp_id(group_name, model_net_lp_config_names[net_id],
+            annotation, ignore_annotations, mapping_rep,
+            mapping_offset % num_mn_lps, &rtn);
+    return rtn;
+}
+
 tw_lpid model_net_find_local_device(
         int          net_id,
         const char * annotation,
         int          ignore_annotations,
-        tw_lp      * sender)
+        tw_lpid      sender_gid)
 {
-    return(method_array[net_id]->model_net_method_find_local_device(annotation,
-                ignore_annotations, sender));
+    if (method_array[net_id]->model_net_method_find_local_device == NULL)
+        return model_net_find_local_device_default(net_id, annotation,
+                ignore_annotations, sender_gid);
+    else
+        return(method_array[net_id]->model_net_method_find_local_device(
+                    annotation, ignore_annotations, sender_gid));
 }
 
 /*

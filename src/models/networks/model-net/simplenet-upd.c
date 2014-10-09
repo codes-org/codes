@@ -128,7 +128,7 @@ struct model_net_method simplenet_method =
     .mn_get_lp_type = sn_get_lp_type,
     .mn_get_msg_sz = sn_get_msg_sz,
     .mn_report_stats = sn_report_stats,
-    .model_net_method_find_local_device = sn_find_local_device,
+    .model_net_method_find_local_device = NULL, /* use the default */
     .mn_collective_call = simple_net_collective,	
     .mn_collective_call_rc = simple_net_collective_rc
 };
@@ -471,11 +471,8 @@ static void handle_msg_start_event(
 
 
     /* create new event to send msg to receiving NIC */
-    // TODO: don't ignore annotations
-    codes_mapping_get_lp_info(m->final_dest_gid, lp_group_name, &dummy, NULL,
-            &dummy, NULL, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, ns->anno, 0,
-            mapping_rep_id, mapping_offset, &dest_id); 
+    dest_id = model_net_find_local_device(SIMPLENET, ns->anno, 0,
+            m->final_dest_gid);
 
 //    printf("\n msg start sending to %d ", dest_id);
     void *m_data;

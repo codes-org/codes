@@ -158,7 +158,7 @@ struct model_net_method simplewan_method =
     .mn_get_lp_type = sw_get_lp_type,
     .mn_get_msg_sz = sw_get_msg_sz,
     .mn_report_stats = sw_report_stats,
-    .model_net_method_find_local_device = sw_find_local_device,
+    .model_net_method_find_local_device = NULL,
     .mn_collective_call = simple_wan_collective,
     .mn_collective_call_rc = simple_wan_collective_rc  
 };
@@ -677,10 +677,8 @@ static void handle_msg_start_event(
     total_event_size = model_net_get_msg_sz(SIMPLEWAN) + m->event_size_bytes +
         m->local_event_size_bytes;
 
-    codes_mapping_get_lp_info(m->final_dest_gid, lp_group_name, &dummy,
-            NULL, &dummy, NULL, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, ns->anno, 0,
-            mapping_rep_id, mapping_offset, &dest_id); 
+    dest_id = model_net_find_local_device(SIMPLEWAN, ns->anno, 0,
+            m->final_dest_gid);
     dest_rel_id = codes_mapping_get_lp_relative_id(dest_id, 0, 0);
     m->dest_mn_rel_id = dest_rel_id;
 

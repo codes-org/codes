@@ -208,7 +208,7 @@ tw_lpid model_net_find_local_device(
         int          net_id,
         const char * annotation,
         int          ignore_annotations,
-        tw_lp      * sender);
+        tw_lpid      sender_gid);
 
 int model_net_get_msg_sz(int net_id);
 

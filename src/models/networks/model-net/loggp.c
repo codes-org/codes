@@ -162,7 +162,7 @@ struct model_net_method loggp_method =
     .mn_get_lp_type = loggp_get_lp_type,
     .mn_get_msg_sz = loggp_get_msg_sz,
     .mn_report_stats = loggp_report_stats,
-    .model_net_method_find_local_device = loggp_find_local_device,
+    .model_net_method_find_local_device = NULL,
     .mn_collective_call = loggp_collective,
     .mn_collective_call_rc = loggp_collective_rc
 };
@@ -541,11 +541,8 @@ static void handle_msg_start_event(
     ns->net_send_next_idle += xmit_time + param->g*1000.0;
 
     /* create new event to send msg to receiving NIC */
-    // TODO: make annotation-aware
-    codes_mapping_get_lp_info(m->final_dest_gid, lp_group_name, &mapping_grp_id,
-            NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, ns->anno, 0,
-            mapping_rep_id, mapping_offset, &dest_id); 
+    dest_id = model_net_find_local_device(LOGGP, ns->anno, 0,
+            m->final_dest_gid);
 
     dprintf("%lu (mn): start msg    %lu->%lu, size %lu (%3s last)\n"
             "          now:%0.3le, idle[prev:%0.3le, next:%0.3le], "

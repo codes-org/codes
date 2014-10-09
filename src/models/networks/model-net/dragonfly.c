@@ -539,10 +539,8 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
 void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
     tw_lpid dest_terminal_id;
-    codes_mapping_get_lp_info(msg->final_dest_gid, lp_group_name, &mapping_grp_id,
-            NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, s->anno, 0,
-            mapping_rep_id, mapping_offset, &dest_terminal_id);
+    dest_terminal_id = model_net_find_local_device(DRAGONFLY, s->anno, 0,
+            msg->final_dest_gid);
     msg->dest_terminal_id = dest_terminal_id;
 
     const dragonfly_param *p = s->params;
@@ -1839,7 +1837,7 @@ struct model_net_method dragonfly_method =
     .mn_get_lp_type = dragonfly_get_cn_lp_type,
     .mn_get_msg_sz = dragonfly_get_msg_sz,
     .mn_report_stats = dragonfly_report_stats,
-    .model_net_method_find_local_device = dragonfly_find_local_device,
+    .model_net_method_find_local_device = NULL,
     .mn_collective_call = dragonfly_collective,
     .mn_collective_call_rc = dragonfly_collective_rc   
 };
