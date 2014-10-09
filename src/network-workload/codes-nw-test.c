@@ -113,6 +113,7 @@ const tw_optdef app_opt [] =
 tw_lptype nwlps[] = {
         {
 	 (init_f) nw_test_init,
+     (pre_run_f) NULL,
          (event_f) nw_test_event_handler,
          (revent_f) nw_test_event_handler_rc,
          (final_f) nw_test_finalize,
