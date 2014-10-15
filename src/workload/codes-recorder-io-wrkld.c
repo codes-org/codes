@@ -117,31 +117,41 @@ static int recorder_io_workload_load(const char *params, int rank)
     size_t len;
     ssize_t ret_value;
     char function_name[128] = {'\0'};
-    double last_end = 0.0;
+    double wkld_start_time = 0.0;
+    double io_start_time = 0.0;
     while((ret_value = getline(&line, &len, trace_file)) != -1) {
         struct recorder_io_op r_op;
         char *token = strtok(line, ", \n");
         int fd;
 
-        if (!strcmp(token, "BARRIER"))
+        if (strcmp(token, "BARRIER") && strcmp(token, "0"))
         {
-            r_op.start_time = last_end;
-        }
-        else
-        {
-            r_op.start_time = atof(token);
+            if (wkld_start_time == 0.0)
+                wkld_start_time = atof(token);
+
+            r_op.start_time = atof(token) - wkld_start_time;
             token = strtok(NULL, ", ");
         }
         strcpy(function_name, token);
 
         if(!strcmp(function_name, "open") || !strcmp(function_name, "open64")) {
             char *filename = NULL;
-
-            r_op.codes_op.op_type = CODES_WK_OPEN;
+            char *open_flags = NULL;
 
             filename = strtok(NULL, ", (");
-            token = strtok(NULL, ", )");
-            r_op.codes_op.u.open.create_flag = atoi(token);
+            open_flags = strtok(NULL, ", )");
+
+            if (!(atoi(open_flags) & O_CREAT))
+            {
+                r_op.codes_op.op_type = CODES_WK_BARRIER;
+                r_op.end_time = r_op.start_time;
+
+                r_op.codes_op.u.barrier.count = nprocs;
+                r_op.codes_op.u.barrier.root = 0;
+
+                new->trace_ops[new->trace_list_ndx++] = r_op;
+                if (new->trace_list_ndx == 2048) break;
+            }
 
             token = strtok(NULL, ", )");
             token = strtok(NULL, ", ");
@@ -171,7 +181,9 @@ static int recorder_io_workload_load(const char *params, int rank)
             bj_hashlittle2(filename, strlen(filename), &h1, &h2);
             file->file_id = h1 + (((uint64_t)h2)<<32);
             file->fd = fd;
+            r_op.codes_op.op_type = CODES_WK_OPEN;
             r_op.codes_op.u.open.file_id = file->file_id;
+            r_op.codes_op.u.open.create_flag = atoi(open_flags) & O_CREAT;
 
             qhash_add(file_id_tbl, &fd, &(file->hash_link));
         }
@@ -215,7 +227,15 @@ static int recorder_io_workload_load(const char *params, int rank)
 
             token = strtok(NULL, ", ");
             token = strtok(NULL, ", \n");
-            r_op.end_time = r_op.start_time + atof(token);
+
+            if (io_start_time == 0.0)
+            {
+                r_op.end_time = r_op.start_time + atof(token);
+            }
+            else
+            {
+                r_op.start_time = r_op.end_time = io_start_time;
+            }
 
             link = qhash_search(file_id_tbl, &fd);
             if (!link)
@@ -244,7 +264,15 @@ static int recorder_io_workload_load(const char *params, int rank)
 
             token = strtok(NULL, ", ");
             token = strtok(NULL, ", \n");
-            r_op.end_time = r_op.start_time + atof(token);
+
+            if (io_start_time == 0.0)
+            {
+                r_op.end_time = r_op.start_time + atof(token);
+            }
+            else
+            {
+                r_op.start_time = r_op.end_time = io_start_time;
+            }
 
             link = qhash_search(file_id_tbl, &fd);
             if (!link)
@@ -256,21 +284,30 @@ static int recorder_io_workload_load(const char *params, int rank)
             file = qhash_entry(link, struct file_entry, hash_link);
             r_op.codes_op.u.write.file_id = file->file_id;
         }
-        else if(!strcmp(function_name, "MPI_Barrier") ||
-                !strcmp(function_name, "BARRIER")) {       
+        else if(!strcmp(function_name, "BARRIER")) {
+            r_op.start_time = r_op.end_time = io_start_time;
+            
             r_op.codes_op.op_type = CODES_WK_BARRIER;
-
             r_op.codes_op.u.barrier.count = nprocs;
             r_op.codes_op.u.barrier.root = 0;
-            r_op.end_time = r_op.start_time + .000001;
+        }
+        else if(!strcmp(function_name, "0")) {
+            token = strtok (NULL, ", \n");
+            new->trace_ops[new->trace_list_ndx-1].end_time += atof(token);
+
+            io_start_time = 0.0;
+            continue;
         }
         else{
+            if (!strcmp(function_name, "MPI_File_write_at_all") ||
+                !strcmp(function_name, "MPI_File_read_at_all")) {
+                io_start_time = r_op.start_time;
+            }
             continue;
         }
 
         new->trace_ops[new->trace_list_ndx++] = r_op;
         if (new->trace_list_ndx == 2048) break;
-        last_end = r_op.end_time;
     }
 
     fclose(trace_file);
@@ -280,9 +317,7 @@ static int recorder_io_workload_load(const char *params, int rank)
     /* now we can read all events by counting through array from 0 - max */
     new->trace_list_max = new->trace_list_ndx;
     new->trace_list_ndx = 0;
-    if (new->trace_list_max > 0) {
-        new->last_op_time = new->trace_ops[0].start_time;
-    }
+    new->last_op_time = 0.0;
 
     /* initialize the hash table of rank contexts, if it has not been initialized */
     if (!rank_tbl) {
