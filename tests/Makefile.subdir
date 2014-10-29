@@ -13,8 +13,13 @@ TESTS += tests/lp-io-test.sh \
 
 EXTRA_DIST += tests/lp-io-test.sh \
  tests/workload/codes-workload-test.sh \
+ tests/workload/codes-workload-test.conf \
  tests/mapping_test.sh \
- tests/lsm-test.sh
+ tests/lsm-test.sh \
+ tests/conf/buffer_test.conf \
+ tests/conf/lsm-test.conf \
+ tests/conf/mapping_test.conf \
+ tests/expected/mapping_test.out
 
 testlib = src/libcodes-base.a
 

@@ -2,8 +2,8 @@ my_bin_scripts = scripts/codes_configurator \
 			   scripts/codes_filter_configs \
 			   scripts/codes_config_get_vals
 
-bin_SCRIPTS += $(my_bin_scripts)
-EXTRA_DIST += $(my_bin_scripts)
+bin_SCRIPTS += $(my_bin_scripts) 
+EXTRA_DIST += $(my_bin_scripts) scripts/configurator.py
 CLEANFILES += $(my_bin_scripts)
 
 # manual rules for now
