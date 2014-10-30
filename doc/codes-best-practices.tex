@@ -641,6 +641,52 @@ event handlers are buggy).
         strategies using it, tips on testing, common issues that come up, etc.
     \item put a pdf or latex2html version of this document on the codes web page
         when it's ready
+    \item use msg\_header at the top of all message structs
+        \begin{itemize}
+            \item makes debugging a lot easier if they share the same first few fields
+        \end{itemize}
+    \item use different starting values for event type enums - along with
+        previous point, helps determine originating LP message 
+    \item use self suspend (this deserves its own section)
+    \item separate register / configure functions for LPs
+        \begin{itemize}
+            \item need to add lp type struct prior to codes\_mapping\_setup,
+                and it is often useful for LP-specific configuration to have
+                access to codes-mapping functionsk
+                \item especially needed for global config schemes with multiple
+                    annotations - need the annotations provided by
+                    codes-mapping, configuration APIs to know what fields to
+                    look for
+        \end{itemize}
+    \item lp-io
+        \begin{itemize}
+            \item use command-line to configure turning io on and off, and
+                where (dir) to place output. Use LP-specific options in the
+                configuration file to drive specific options for output within
+                the LP
+            \item suggested command line options
+                \begin{itemize}
+                    \item "--lp-io-dir=DIR" : use DIR as the directory -
+                        absence of option indicates no lp-io output
+                    \item "--lp-io-use-suffix=DUMMY" : add the PID of the root
+                        rank to the directory name to avoid clashes between
+                        multiple runs. If not specified, then the DIR option
+                        will be exactly used, possibly leading to an assert.
+                \end{itemize}
+        \end{itemize}
+
+    \item dealing with simulations with many 'destructive' operations and
+        mutable state (esp. state used/reset in multiple event sequences)
+          \begin{itemize}
+              \item use self-suspend liberally!!!
+              \item consider the *entire* sequence of events that affect a
+                  piece of mutable/destructible state, esp. from different LPs.
+                  You can get an event from the future on state that you've
+                  rolled back, for example, or multiple equivalent events that
+                  differ only in timestamp (e.g., event to remote -> roll back
+                  -> event to remote)
+          \end{itemize}
+    \item don't use tw\_now at finalize - gives inconsistent results
 \end{itemize}
 
 \begin{comment} ==== SCRATCH MATERIAL ====
