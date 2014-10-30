@@ -1,0 +1,46 @@
+This is an outline for the getting started document in a roughly asciidoc
+format.
+
+= Resources/links
+ROSS site + repo
+CODES site + repo + trac
+mailing lists
+
+= Components of CODES 
+
+== configuration
+
+== LP mapping
+
+== workload generator(s)
+
+=== IO
+
+==== Darshan
+
+==== Synthetic IO language
+
+==== ...
+
+=== Network
+
+==== ...
+
+=== Darshan
+
+=== synthetic IO 
+
+== LP-IO
+
+== miscellaneous utilities
+
+=== generic message header (see best practices)
+
+=== lp template (src/util/templates)
+
+
+= Utility models
+
+== local storage model
+
+== resource model
