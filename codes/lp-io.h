@@ -21,9 +21,7 @@ int lp_io_prepare(char *directory, int flags, lp_io_handle* handle, MPI_Comm com
 /* to be called within LPs to store a block of data */
 int lp_io_write(tw_lpid gid, char* identifier, int size, void* buffer);
 
-/* undo the immediately preceding write for the given LP 
- * (hack for logging/testing optimistic mode, not recommended for general use)
- */
+/* undo the immediately preceding write for the given LP */
 int lp_io_write_rev(tw_lpid gid, char* identifier);
 
 /* to be called (collectively) after tw_run() to flush data to disk */

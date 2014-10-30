@@ -31,6 +31,7 @@
 \usepackage{color}
 \usepackage{listing}
 \usepackage{listings}
+\usepackage{verbatim}
 
 \lstset{ %
 frame=single,
@@ -244,20 +245,6 @@ model.  This can help simplify reverse computation by breaking complex
 operations into smaller, easier to understand (and reverse) event units with
 deterministic ordering.
 
-Adding reference to storage server example: 
-
-In the simple storage server example following this section, there are multiple
-LP types i.e. a storage server LP and a Network LP. The storage server LP initiates
-data transmission and reception to/from neighboring storage server LP, it also keeps
-track of the amount of data sent/received in bytes. The job of data transmission 
-is delegated to the network LP which simply transports the data to destination storage 
-server LP. The network LP is unaware of the total amount of data sent by a particular
-server. At the same time, the storage server LP is unaware of the networking protocol
-used by the network LP for transporting the messages. 
-
-TODO: reference example, for now see how the LPs are organized in Triton
-model.
-
 \subsection{Protecting data structures}
 
 ROSS operates by exchanging events between LPs.  If an LP is sending
@@ -283,141 +270,94 @@ headers.  If the definitions are placed in a header then it makes it
 possible for those event and state structs to be used as an ad-hoc interface
 between LPs of different types.
 
-Section~\ref{sec:completion} will describe alternative mechanisms for
-exchanging information between different LP types.
-
-TODO: reference example, for now see how structs are defined in Triton
-model.
-
-\subsection{Techniques for exchanging information and completion events
-across LP types}
-\label{sec:completion}
-
-TODO: fill this in.
-
-Send events into an LP using a C function API that calls event\_new under
-the covers.
-
-Indicate completion back to the calling LP by either delivering an opaque 
-message back to the calling LP (that was passed in by the caller in a void*
-argument), or by providing an API function for 2nd LP type to
-use to call back (show examples of both).
-
 \section{CODES: common utilities}
-
-TODO: point out what repo each of these utilities can be found in.
-
-\subsection{codes\_mapping}
-\label{sec:mapping}
-
-TODO: pull in Misbah's codes-mapping documentation.
 
 \subsection{modelnet}
 
-TODO: fill this in.  Modelnet is a network abstraction layer for use in
-CODES models.  It provides a consistent API that can be used to send
-messages between nodes using a variety of different network transport
-models.  Note that modelnet requires the use of the codes-mapping API,
-described in previous section.
+Modelnet is a network abstraction layer for use in CODES models. It provides a
+consistent API that can be used to send messages between nodes using a variety
+of different network transport models. Note that modelnet requires the use of
+the codes-mapping API, described in previous section.
+
+modelnet can be found in the codes-net repository. See the example program for
+general usage.
 
 \subsection{lp-io}
 
-TODO: fill this in.  lp-io is a simple API for storing modest-sized
+% TODO: flesh out further
+lp-io is a simple API for storing modest-sized
 simulation results (not continuous traces).  It handles reverse computation
-and avoids doing any disk I/O until the simulation is complete.  All data is
-written with collective I/O into a unified output directory.  lp-io is
+and avoids doing any disk I/O until the simulation is complete. All data is
+written with collective I/O into a unified output directory. lp-io is
 mostly useful for cases in which you would like each LP instance to report
 statistics, but for scalability and data management reasons those results
 should be aggregated into a single file rather than producing a separate
-file per LP.
+file per LP. It is not recommended that lp-io be used for data intensive,
+streaming output.
 
-TODO: look at ross/IO code and determine how it relates to this.
+The API for lp-io can be found in codes/lp-io.h
+
+% TODO: look at ross/IO code and determine how it relates to this.
 
 \subsection{codes-workload generator}
 
-TODO: fill this in.  codes-workload is an abstraction layer for feeding I/O
-workloads into a simulation.  It supports multiple back-ends for generating
-those I/O events; data could come from a trace file, from Darshan, or from a
+% TODO: fill in further
+codes-workload is an abstraction layer for feeding I/O / network
+workloads into a simulation. It supports multiple back-ends for generating
+I/O and network events; data could come from a trace file, from Darshan, or from a
 synthetic description.
 
-This component is under active development right now, not complete yet.  The
-synthetic generator is probably pretty solid for use already though.
+This component is under active development right now and not complete yet.  If
+you are interested in using it, a minimal example of the I/O API can be seen in
+the codes-workload-dump utility and in
+tests/workload/codes-workload-test-cn-lp.c
+
+The API for the workload generator can be found in codes/codes-(nw-)workload.h.
 
 \subsection{codes\_event\_new}
 
-TODO: fill this in.  codes\_event\_new is a small wrapper to tw\_event\_new
-that checks the incoming timestamp and makes sure that you don't exceed the
-global end timestamp for ROSS.  The assumption is that CODES models will
-normally run to a completion condition rather than until simulation time
-runs out, see later section for more information on this approach.
+Defined in codes/codes.h, codes\_event\_new is a small convenience wrapper to
+tw\_event\_new that errors out if an event exceeds the global end timestamp for
+ROSS. The assumption is that CODES models will normally run to a completion
+condition rather than until simulation time runs out, see later section for
+more information on this approach.
 
-\subsection{ross/IO}
-
-TODO: fill this in.  This is the I/O library included with ROSS, based on
-phasta I/O library.  What are the use cases and how do you use it. Does it
-deprecate the lp-io tool?
-
-\section{CODES: reproducability and model safety}
-
-TODO: fill this in.  These are things that aren't required for modularity,
-but just help you create models that produce consistent results and avoid
-some common bugs.
+\section{CODES/ROSS: general tips and tricks}
 
 \subsection{Event magic numbers}
 
-TODO: fill this in.  Put magic numbers at the top of each event struct and
+Put magic numbers at the top of each event struct and
 check them in event handler.  This makes sure that you don't accidentally
-send the wrong event type to an LP.
-
-\subsection{Small timestamps for LP transitions}
-
-TODO: fill this in.  Sometimes you need to exchange events between LPs
-without really consuming significant time (for example, to transfer
-information from a server to its locally attached network card).  It is
-tempting to use a timestamp of 0, but this causes timestamp ties in ROSS
-which might have a variety of unintended consequences.  Use
-codes\_local\_latency for timing of local event transitions to add some
-random noise, can be thought of as bus overhead or context switch overhead.
-
-\section{ROSS: general tips}
-
-\subsection{Organizing event structures}
-
-TODO: fill this in.  The main idea is to use unions to organize fields
-within event structures.  Keeps the size down and makes it a little clearer
-what variables are used by which event types.
+send the wrong event type to an LP, and aids debugging.
 
 \subsection{Avoiding event timestamp ties}
 
-TODO: fill this in.   Why ties are bad (hurts reproducability, if not
-accuracy, which in turn makes correctness testing more difficult).  Things
-you can do to avoid ties, like skewing initial events by a random number
-generator.
+Event timestamp ties in ROSS occur when two or more events have the same
+timestamp. These have a variety of unintended consequences, most significant of
+which is hampering both reproducability and determinism in simulations. To
+avoid this, use codes\_local\_latency for events with small or zero time deltas
+to add some random noise. codes\_local\_latency must be reversed, so use
+codes\_local\_latency\_reverse in reverse event handlers.
+
+One example of this usage is exchanging events between LPs without really
+consuming significant time (for example, to transfer information from a server
+to its locally attached network card). It is tempting to use a timestamp of 0,
+but this would cause timestamp ties in ROSS. Use of codes\_local\_latency for
+timing of local event transitions in this case can be thought of as bus
+overhead or context switch overhead.
+
+\subsection{Organizing event structures}
+
+Since a single event structure contains data for all of the different types of
+events processed by the LP, use a type enum + unions as an organizational
+strategy. Keeps the event size down and makes it a little clearer what
+variables are used by which event types.
 
 \subsection{Validating across simulation modes}
 
-TODO: fill this in.  The general idea is that during development you should
-do test runs with serial, parallel conservative, and parallel optimistic
-runs to make sure that you get consistent results.  These modes stress
-different aspects of the model.
-
-\subsection{Reverse computation}
-
-TODO: fill this in.  General philosophy of when the best time to add reverse
-computation is (probably not in your initial rough draft prototype, but it
-is best to go ahead and add it before the model is fully complete or else it
-becomes too daunting/invasive).
-
-Other things to talk about (maybe these are different subsections):
-\begin{itemize}
-\item propagate and maintain as much state as possible in event structures
-rather than state structures
-\item rely on ordering enforced by ROSS (each
-reverse handler only needs to reverse as single event, in order)
-\item keeping functions small 
-\item building internal APIs for managing functions with reverse functions
-\item how to handle queues
-\end{itemize}
+During development, you should do test runs with serial, parallel conservative,
+and parallel optimistic runs to make sure that you get consistent results.
+These modes stress different aspects of the model.
 
 \subsection{Working with floating-point data}
 
@@ -429,20 +369,20 @@ structure and perform assignment on rollback.
 
 \subsection{How to complete a simulation}
 
-TODO: fill this in.  Most core ROSS examples are design to intentionally hit
+Most core ROSS examples are design to intentionally hit
 the end timestamp for the simulation (i.e. they are modeling a continuous,
-steady state system).  This isn't necessarily true when modeling a
-distributed storage system.  You might instead want the simulation to end
-when you have completed a particular application workload (or collection of
-application workloads), when a fault has been repaired, etc.  Talk about how
-to handle this cleanly.
+steady state system). This isn't necessarily true for other models. Quite
+simply, set g\_tw\_ts\_end to an arbitrary large number when running simulations
+that have a well-defined end-point in terms of events processed. 
 
+\begin{comment} ROSS takes care of this
 \subsection{Kicking off a simulation}
 \label{sec_kickoff}
 
 TOOD: fill this in.  Each LP needs to send an event to itself at the
 beginning of the simulation (explain why).  We usually skew these with
 random numbers to help break ties right off the bat (explain why).
+\end{comment}
 
 \subsection{Handling non-trivial event dependencies}
 
@@ -509,7 +449,7 @@ section(s).
     \item prefer placing state in event structure to LP state structure
     \begin{enumerate}
         \item simplifies reverse computation -- less persistent state
-        \item NOTE: tradeoff with previous point - consider efficiency vs.
+        \item NOTE: tradeoff with previous point - consider efficiency vs.\
             complexity
     \end{enumerate}
 
@@ -528,7 +468,8 @@ section(s).
 
 TODO: Standardize the namings for codes configuration, mapping, and model-net.
 
-This is a simple CODES example to demonstrate the concepts described above.  In
+An example model representing most of the functionality present in CODES is
+available in doc/example. In
 this scenario, we have a certain number of storage servers, identified
 through indices $0,\ldots, n-1$ where each server has a network interface card
 (NIC) associated with it. The servers exchange messages with their neighboring
@@ -542,36 +483,15 @@ to concurrent messages being sent.
 
 The model is relatively simple to simulate through the usage of ROSS. There are
 two distinct LP types in the simulation: the server and the NIC. Refer to
-Listings \ref{snippet1} for data structure definitions. The server LPs
+example.c for data structure definitions. The server LPs
 are in charge of issuing/acknowledging the messages, while the NIC LPs
 (implemented via CODES's model-net) transmit the data and inform their
 corresponding servers upon completion. This LP decomposition strategy is
 generally preferred for ROSS-based simulations: have single-purpose, simple LPs
 representing logical system components.
 
-\begin{figure}
-\begin{lstlisting}[caption=Server state and event message struct, label=snippet1]
-struct svr_state
-{
-    int msg_sent_count;   /* requests sent */
-    int msg_recvd_count;  /* requests recvd */
-    int local_recvd_count; /* number of local messages received */
-    tw_stime start_ts;    /* time that we started sending requests */
-};
-
-struct svr_msg
-{
-    enum svr_event svr_event_type;
-    tw_lpid src;          /* source of this request or ack */
-
-    int incremented_flag; /* helper for reverse computation */
-};
-
-\end{lstlisting}
-\end{figure}
-
 In this program, CODES is used in the following four ways: to provide
-configuration utilities for the program, to logically separate and provide
+configuration utilities for the program (example.conf), to logically separate and provide
 lookup functionality for multiple LP types, to automate LP placement on KPs/PEs,
 and to simplify/modularize the underlying network structure. The \codesconfig{}
 API is used for the first use-case, the \codesmapping{} API is used for
@@ -581,53 +501,23 @@ ROSS-specific information.
 
 \subsection{\codesconfig{}}
 
-Listing~\ref{snippet2} shows a stripped version of example.conf (see the file
-for comments). The configuration format allows categories, and optionally
-subgroups within the category, of key-value pairs for configuration. The LPGROUPS
-listing defines the LP configuration and (described in
-Section~\ref{subsec:codes_mapping}). The PARAMS category is used by both
-\codesmapping{} and \codesmodelnet{} for configuration, providing both ROSS-specific and
-network specific parameters. For instance, the \texttt{message\_size} field defines the
-maximum event size used in ROSS for memory management. Of course, user-defined
-categories can be used as well, which are used in this case to define the rounds
-of communication and the size of each message.
-
-\begin{figure}
-\begin{lstlisting}[caption=example configuration file for CODES LP mapping, label=snippet2]
-LPGROUPS
-{
-   SERVERS
-   {
-      repetitions="16";
-      server="1";
-      modelnet_simplenet="1";
-   }
-}
-PARAMS
-{
-   packet_size="512";
-   message_size="256";
-   modelnet="simplenet";
-   net_startup_ns="1.5";
-   net_bw_mbps="20000";
-}
-server_pings
-{
-  num_reqs="5";
-  payload_sz="4096";
-} 
-\end{lstlisting}
-\end{figure} 
-
+The configuration format allows categories, and optionally subgroups within the
+category, of key-value pairs for configuration. The LPGROUPS category defines
+the LP configuration. The PARAMS category is currently used for
+\codesmodelnet{} and ROSS-specific parameters. For instance, the
+\texttt{message\_size} field defines the maximum event size used in ROSS for
+memory management. Of course, user-defined categories can be used as well,
+which are used in this case to define the rounds of communication and the size
+of each message.
 
 \subsection{\codesmapping{}}
 \label{subsec:codes_mapping}
 
-The \codesmapping{} API transparently maps LP types to MPI ranks (Aka ROSS PE's).
-The LP type and count can be specified through \codesconfig{}. In this
-section, we focus on the \codesmapping{} API as well as configuration. Refer again
-to Listing~\ref{snippet2}. Multiple LP types are specified in a single LP group
-(there can also be multiple LP groups in a config file).
+The \codesmapping{} API transparently maps user LPs to global LP IDs and MPI
+ranks (Aka ROSS PE's). The LP type and count can be specified through
+\codesconfig{}. In this section, we focus on the \codesmapping{} API as well as
+configuration. Multiple LP types are specified in a single LP group (there can
+also be multiple LP groups in a config file).
 
 In Listing~\ref{snippet2}, there is 1 server LP and 1
 \texttt{modelnet\_simplenet} LP type in a group and this combination is repeated
@@ -645,48 +535,10 @@ level LPs (e.g., the servers). Specifically, each NIC is mapped in a one-to-one
 manner with the calling LP through the calling LP's group name, repetition
 number, and number within the repetition.
 
-After the initialization function calls of ROSS (\texttt{tw\_init}), the configuration
-file can be loaded in the example program using the calls in Figure
-\ref{snippet3}. Each LP type must register itself using \texttt{lp\_type\_register}
-before setting up the mapping. Figure \ref{snippet4} shows an example of how
-the server LP registers itself. 
-
-\begin{figure}
-\begin{lstlisting}[caption=CODES mapping function calls in example program, label=snippet3]
-    int main(int argc, char **argv)
-    {
-    	.....
-	/* ROSS initialization function calls */
-    	tw_opt_add(app_opt);
-    	tw_init(&argc, &argv);
-
-	/* loading the config file of codes-mapping */
-    	configuration_load(argv[2], MPI_COMM_WORLD, &config);
-
-	/* Setup the model-net parameters specified in the config file */
-    	net_id=model_net_set_params();
-	
-	/* register the server LP type (model-net LP type is registered internally in model_net_set_params() */
-    	svr_add_lp_type();
-
-	/* Now setup codes mapping */
-    	codes_mapping_setup();
-
-	/* query codes mapping API */
-    	num_servers = codes_mapping_get_group_reps("MODELNET_GRP") * codes_mapping_get_lp_count("MODELNET_GRP", "server");
-    	..... 
-   }
-\end{lstlisting}
-\end{figure}
-
-\begin{figure}
-\begin{lstlisting}[caption=Registering an LP type, label=snippet4]
-static void svr_add_lp_type()
-{
-  lp_type_register("server", svr_get_lp_type());
-}
-\end{lstlisting}
-\end{figure}
+After the initialization function calls of ROSS (\texttt{tw\_init}), the
+configuration file can be loaded in the example program (see the main function
+in example.c). Each LP type must register itself using
+\texttt{lp\_type\_register} before setting up the mapping.
 
 The \codesmapping{} API provides ways to query information like number of LPs of
 a particular LP types, group to which a LP type belongs, repetitions in the
@@ -702,85 +554,31 @@ maintains a count of the number of remote messages it has sent and received as
 well as the number of local completion messages.   
 
 For the server event message, we have four message types KICKOFF, REQ, ACK and
-LOCAL. With a KICKOFF event, each LP sends a message to itself (the simulation
-begins from here).  To avoid event ties, we add a small noise using the random
-number generator (See Section \ref{sec_kickoff}). The server LP state data structure
-and server message data structures are given in Figure \ref{snippet5}. The \`REQ\'
-message is sent by a server to its neighboring server and when received,
-neighboring server sends back a message of type \`ACK\'.
-
-TODO: Add magic numbers in the example file to demonstrate the magic number best
-practice. 
-
-\begin{figure}
-\begin{lstlisting}[caption=Event handler of the server LP type., label=snippet5]
-static void svr_event(svr_state * ns, tw_bf * b, svr_msg * m, tw_lp * lp)
-{
-   switch (m->svr_event_type)
-    {
-        case REQ:
-        ...
-	case ACK:
-        ...
-	case KICKOFF:
-        ...
-	case LOCAL:
-        ...
-	default:
-            printf("\n Invalid message type %d ", m->svr_event_type);
-            assert(0);
-        break;
-    }
-}
-\end{lstlisting}
-\end{figure}
+LOCAL. With a KICKOFF event, each LP sends a message to itself to begin the
+simulation proper. To avoid event ties, we add a small noise using
+codes\_local\_latency. The ``REQ'' message is sent by a server to its
+neighboring server and when received, neighboring server sends back a message
+of type ``ACK''.
 
 \subsection{\codesmodelnet{}}
 \codesmodelnet{} is an abstraction layer that allow models to send messages
-across components using different network transports. This is a
-consistent API that can send messages across either torus, dragonfly, or
-simplenet network models without changing the higher level model code.
+across components using different network transports. This is a consistent API
+that can send messages across both simple and complex network models without
+changing the higher level model code.
 
 In the CODES example, we use \emph{simple-net} as the underlying plug-in for
-\codesmodelnet{}. The simple-net parameters are specified by the user in the config
-file (See Figure \ref{snippet2}). A call to \texttt{model\_net\_set\_params} sets up
-the model\-net parameters as given in the config file.
+\codesmodelnet{}. The simple-net parameters are specified by the user in the
+example.conf config file and loaded via model\_net\_configure.
 
 \codesmodelnet{} assumes that the caller already knows what LP it wants to
-deliver the message to and how large the simulated message is. It carries two
-types of events (1) a remote event to be delivered to a higher level model LP
-(In the example, the \codesmodelnet{} LPs carry the remote event to the server LPs) and
-(2) a local event to be delivered to the caller once the message has been
-transmitted from the node (In the example, a local completion message is
-delivered to the server LP once the Model-Net LP sends the message). Figure
-\ref{snippet6} shows how the server LP sends messages to the neighboring server
-using the model\-net LP. 
+deliver the message to (e.g.\ by using the codes-mapping API) and how large the
+simulated message is. It carries two types of events (1) a remote event to be
+delivered to a higher level model LP (In the example, the \codesmodelnet{} LPs
+carry the remote event to the server LPs) and (2) a local event to be delivered
+to the caller once the message has been transmitted from the node (In the
+example, a local completion message is delivered to the server LP once the
+\codesmodelnet{} LP sends the message).
 
-\begin{figure}
-\begin{lstlisting}[caption=Example code snippet showing data transfer through model-net API, label=snippet6]
-static void handle_kickoff_event(svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
-    ......
-    /* record when transfers started on this server */
-    ns->start_ts = tw_now(lp);
-
-    /* each server sends a request to the next highest server */
-    int dest_id = (lp->gid + offset)%(num_servers*2 + num_routers);
-
-    /* model-net needs to know about (1) higher-level destination LP which is a neighboring server in this case
-     * (2) struct and size of remote message and (3) struct and size of local message (a local message can be null) */
-    
-    model_net_event(net_id, "test", dest_id, PAYLOAD_SZ, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
-    ns->msg_sent_count++;
-   .....
-}
-
-\end{lstlisting}
-\end{figure}
- 
 \subsection{Reverse computation}
 
 ROSS has the capability for optimistic parallel simulation, but instead of
@@ -792,7 +590,7 @@ functionality to reverse the LP state, given the event to be reversed. ROSS
 makes this simpler in that events will always be rolled back in exactly the
 order they were applied. Note that ROSS also has both serial and parallel
 conservative modes, so reverse computation may not be necessary if the
-simulation is not computationally intense.
+simulation is not compute- or memory-intensive.
 
 For our example program, recall the ``forward'' event handlers. They perform the
 following: 
@@ -835,13 +633,17 @@ event handlers are buggy).
 \section{TODO}
 
 \begin{itemize}
-\item Build a single example model that demonstrates the concepts in this
-document, refer to it throughout.
-\item reference to ROSS user's guide, airport model, etc.
-\item put a pdf or latex2html version of this document on the codes web page
-when ready
+    \item reference to ROSS user's guide, airport model, etc.
+    \item add code examples?
+    \item techniques for exchanging events across LP types (API tips)
+    \item add codes-mapping overview
+    \item add more content on reverse computation. Specifically, development
+        strategies using it, tips on testing, common issues that come up, etc.
+    \item put a pdf or latex2html version of this document on the codes web page
+        when it's ready
 \end{itemize}
 
+\begin{comment} ==== SCRATCH MATERIAL ====
 \begin{figure}
 \begin{lstlisting}[caption=Example code snippet., label=snippet-example]
 for (i=0; i<n; i++) {
@@ -854,5 +656,6 @@ for (i=0; i<n; i++) {
 
 Figure ~\ref{fig:snippet-example} shows an example of how to show a code
 snippet in latex.  We can use this format as needed throughout the document.
+\end{comment}
 
 \end{document}
