@@ -178,7 +178,9 @@ xleftmargin=6ex
 This document outlines best practices for developing models in the
 CODES/ROSS framework.  The reader should already be familiar with ROSS
 and discrete event simulation in general; those topics are covered in the primary
-ROSS documentation.
+ROSS documentation. Additionally, the GETTING\_STARTED file presents a better
+introduction/overview to CODES - this guide should be consulted after becoming
+familiar with CODES/ROSS.
 %
 The main purpose of this document is to help the reader produce
 CODES models in a consistent, modular style so that components can be more
@@ -270,58 +272,6 @@ headers.  If the definitions are placed in a header then it makes it
 possible for those event and state structs to be used as an ad-hoc interface
 between LPs of different types.
 
-\section{CODES: common utilities}
-
-\subsection{modelnet}
-
-Modelnet is a network abstraction layer for use in CODES models. It provides a
-consistent API that can be used to send messages between nodes using a variety
-of different network transport models. Note that modelnet requires the use of
-the codes-mapping API, described in previous section.
-
-modelnet can be found in the codes-net repository. See the example program for
-general usage.
-
-\subsection{lp-io}
-
-% TODO: flesh out further
-lp-io is a simple API for storing modest-sized
-simulation results (not continuous traces).  It handles reverse computation
-and avoids doing any disk I/O until the simulation is complete. All data is
-written with collective I/O into a unified output directory. lp-io is
-mostly useful for cases in which you would like each LP instance to report
-statistics, but for scalability and data management reasons those results
-should be aggregated into a single file rather than producing a separate
-file per LP. It is not recommended that lp-io be used for data intensive,
-streaming output.
-
-The API for lp-io can be found in codes/lp-io.h
-
-% TODO: look at ross/IO code and determine how it relates to this.
-
-\subsection{codes-workload generator}
-
-% TODO: fill in further
-codes-workload is an abstraction layer for feeding I/O / network
-workloads into a simulation. It supports multiple back-ends for generating
-I/O and network events; data could come from a trace file, from Darshan, or from a
-synthetic description.
-
-This component is under active development right now and not complete yet.  If
-you are interested in using it, a minimal example of the I/O API can be seen in
-the codes-workload-dump utility and in
-tests/workload/codes-workload-test-cn-lp.c
-
-The API for the workload generator can be found in codes/codes-(nw-)workload.h.
-
-\subsection{codes\_event\_new}
-
-Defined in codes/codes.h, codes\_event\_new is a small convenience wrapper to
-tw\_event\_new that errors out if an event exceeds the global end timestamp for
-ROSS. The assumption is that CODES models will normally run to a completion
-condition rather than until simulation time runs out, see later section for
-more information on this approach.
-
 \section{CODES/ROSS: general tips and tricks}
 
 \subsection{Event magic numbers}
@@ -375,14 +325,8 @@ steady state system). This isn't necessarily true for other models. Quite
 simply, set g\_tw\_ts\_end to an arbitrary large number when running simulations
 that have a well-defined end-point in terms of events processed. 
 
-\begin{comment} ROSS takes care of this
-\subsection{Kicking off a simulation}
-\label{sec_kickoff}
-
-TOOD: fill this in.  Each LP needs to send an event to itself at the
-beginning of the simulation (explain why).  We usually skew these with
-random numbers to help break ties right off the bat (explain why).
-\end{comment}
+Within the LP finalize function, do not call tw\_now. The time returned may not
+be consistent in the case of an optimistic simulation.
 
 \subsection{Handling non-trivial event dependencies}
 
@@ -464,172 +408,6 @@ section(s).
 
 \end{enumerate}
 
-\section{CODES Example Model}
-
-TODO: Standardize the namings for codes configuration, mapping, and model-net.
-
-An example model representing most of the functionality present in CODES is
-available in doc/example. In
-this scenario, we have a certain number of storage servers, identified
-through indices $0,\ldots, n-1$ where each server has a network interface card
-(NIC) associated with it. The servers exchange messages with their neighboring
-server via their NIC card (i.e., server $i$ pings server $i+1$, rolling over the
-index if necessary). When the neighboring server receives the message, it sends
-an acknowledgement message to the sending server in response. Upon receiving the
-acknowledgement, the sending server issues another message. This process continues until
-some number of messages have been sent. For simplicity, it is assumed that each
-server has a direct link to its neighbor, and no network congestion occurs due
-to concurrent messages being sent.
-
-The model is relatively simple to simulate through the usage of ROSS. There are
-two distinct LP types in the simulation: the server and the NIC. Refer to
-example.c for data structure definitions. The server LPs
-are in charge of issuing/acknowledging the messages, while the NIC LPs
-(implemented via CODES's model-net) transmit the data and inform their
-corresponding servers upon completion. This LP decomposition strategy is
-generally preferred for ROSS-based simulations: have single-purpose, simple LPs
-representing logical system components.
-
-In this program, CODES is used in the following four ways: to provide
-configuration utilities for the program (example.conf), to logically separate and provide
-lookup functionality for multiple LP types, to automate LP placement on KPs/PEs,
-and to simplify/modularize the underlying network structure. The \codesconfig{}
-API is used for the first use-case, the \codesmapping{} API is used for
-the second and third use-cases, and the \codesmodelnet{} API is used for the
-fourth use-case. The following sections discuss these while covering necessary
-ROSS-specific information.
-
-\subsection{\codesconfig{}}
-
-The configuration format allows categories, and optionally subgroups within the
-category, of key-value pairs for configuration. The LPGROUPS category defines
-the LP configuration. The PARAMS category is currently used for
-\codesmodelnet{} and ROSS-specific parameters. For instance, the
-\texttt{message\_size} field defines the maximum event size used in ROSS for
-memory management. Of course, user-defined categories can be used as well,
-which are used in this case to define the rounds of communication and the size
-of each message.
-
-\subsection{\codesmapping{}}
-\label{subsec:codes_mapping}
-
-The \codesmapping{} API transparently maps user LPs to global LP IDs and MPI
-ranks (Aka ROSS PE's). The LP type and count can be specified through
-\codesconfig{}. In this section, we focus on the \codesmapping{} API as well as
-configuration. Multiple LP types are specified in a single LP group (there can
-also be multiple LP groups in a config file).
-
-In Listing~\ref{snippet2}, there is 1 server LP and 1
-\texttt{modelnet\_simplenet} LP type in a group and this combination is repeated
-16 time (repetitions="16").  ROSS will assign the LPs to the PEs (PEs is an
-abstraction for MPI rank in ROSS) by placing 1 server LP then 1
-\texttt{modelnet\_simplenet} LP a total of 16 times. This configuration is
-useful if there is heavy communication involved between the server and
-\texttt{modelnet\_simplenet} LP types, in which case ROSS will place them on the
-same PE so that the communication between server and
-\texttt{modelnet\_simplenet} LPs will not involve remote messages. 
-
-An important consideration when defining the configuration file is the way
-\codesmodelnet{} maps the network-layer LPs (the NICs in this example) and the upper
-level LPs (e.g., the servers). Specifically, each NIC is mapped in a one-to-one
-manner with the calling LP through the calling LP's group name, repetition
-number, and number within the repetition.
-
-After the initialization function calls of ROSS (\texttt{tw\_init}), the
-configuration file can be loaded in the example program (see the main function
-in example.c). Each LP type must register itself using
-\texttt{lp\_type\_register} before setting up the mapping.
-
-The \codesmapping{} API provides ways to query information like number of LPs of
-a particular LP types, group to which a LP type belongs, repetitions in the
-group (For details see codes-base/codes/codes-mapping.h file).  Figure
-\ref{snippet3} shows how to setup the \codesmapping{} API with our CODES example
-and computes basic information by querying the number of servers in a particular
-group. 
-
-\subsection{Event Handlers}
-In this example, we have two LP types i.e. a server LP and a model-net LP.
-Since the servers only send and receive messages to each other, the server LP state
-maintains a count of the number of remote messages it has sent and received as
-well as the number of local completion messages.   
-
-For the server event message, we have four message types KICKOFF, REQ, ACK and
-LOCAL. With a KICKOFF event, each LP sends a message to itself to begin the
-simulation proper. To avoid event ties, we add a small noise using
-codes\_local\_latency. The ``REQ'' message is sent by a server to its
-neighboring server and when received, neighboring server sends back a message
-of type ``ACK''.
-
-\subsection{\codesmodelnet{}}
-\codesmodelnet{} is an abstraction layer that allow models to send messages
-across components using different network transports. This is a consistent API
-that can send messages across both simple and complex network models without
-changing the higher level model code.
-
-In the CODES example, we use \emph{simple-net} as the underlying plug-in for
-\codesmodelnet{}. The simple-net parameters are specified by the user in the
-example.conf config file and loaded via model\_net\_configure.
-
-\codesmodelnet{} assumes that the caller already knows what LP it wants to
-deliver the message to (e.g.\ by using the codes-mapping API) and how large the
-simulated message is. It carries two types of events (1) a remote event to be
-delivered to a higher level model LP (In the example, the \codesmodelnet{} LPs
-carry the remote event to the server LPs) and (2) a local event to be delivered
-to the caller once the message has been transmitted from the node (In the
-example, a local completion message is delivered to the server LP once the
-\codesmodelnet{} LP sends the message).
-
-\subsection{Reverse computation}
-
-ROSS has the capability for optimistic parallel simulation, but instead of
-saving the state of each LP, they instead require users to perform \emph{reverse
-computation}. That is, while the event messages are themselves preserved (until
-the Global Virtual Time (GVT) algorithm renders the messages unneeded), the LP
-state is not preserved. Hence, it is up to the simulation developer to provide
-functionality to reverse the LP state, given the event to be reversed. ROSS
-makes this simpler in that events will always be rolled back in exactly the
-order they were applied. Note that ROSS also has both serial and parallel
-conservative modes, so reverse computation may not be necessary if the
-simulation is not compute- or memory-intensive.
-
-For our example program, recall the ``forward'' event handlers. They perform the
-following: 
-\begin{enumerate}
-    \item Kickoff: send a message to the peer server, and increment sender LP's
-        count of sent messages.
-    \item Request (received from peer server): increment receiver count of
-        received messages, and send an acknowledgement to the sender.
-    \item Acknowledgement (received from message receiver): send the next
-        message to the receiver and increment messages sent count. Set a flag
-        indicating whether a message has been sent.  
-    \item Local \codesmodelnet{} callback: increment the local model-net
-        received messages count.
-\end{enumerate}
-
-In terms of LP state, the four operations are simply modifying counts. Hence,
-the ``reverse'' event handlers need to merely roll back those changes: 
-\begin{enumerate}
-    \item  Kickoff: decrement sender LP's count of sent messages.
-    \item Request (received from peer server): decrement receiver count of
-        received messages.
-    \item Acknowledgement (received from message receiver): decrement messages
-        sent count if flag indicating a message has been sent has not been
-        set.
-    \item Local \codesmodelnet{} callback: decrement the local model-net
-        received messages count.
-\end{enumerate}
-
-For more complex LP states (such as maintaining queues), reverse event
-processing becomes similarly more complex. Other sections of this document
-highlight strategies of dealing with those.
-
-Note that ROSS maintains the ``lineage'' of events currently stored, which
-enables ROSS to roll back the messages in the order they were originally
-processed. This greatly simplifies the reverse computation process: the LP state
-when reversing the effects of a particular event is exactly the state that
-resulted from processing the event in the first place (of course, unless the
-event handlers are buggy).
-
 \section{TODO}
 
 \begin{itemize}
@@ -686,7 +464,6 @@ event handlers are buggy).
                   differ only in timestamp (e.g., event to remote -> roll back
                   -> event to remote)
           \end{itemize}
-    \item don't use tw\_now at finalize - gives inconsistent results
 \end{itemize}
 
 \begin{comment} ==== SCRATCH MATERIAL ====
