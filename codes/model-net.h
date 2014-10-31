@@ -115,9 +115,6 @@ int* model_net_configure(int *id_count);
  * OUTPUT id_count - the output number of networks */
 int* model_net_set_params(int *id_count);
 
-// setup the modelnet parameters
-int model_net_setup(char* net_name, uint64_t packet_size, const void* net_params);
-
 /* utility function to get the modelnet ID post-setup */
 int model_net_get_id(char *net_name);
 
