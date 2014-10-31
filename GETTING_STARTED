@@ -1,5 +1,9 @@
-This is an outline for the getting started document in a roughly asciidoc
-format.
+This document serves the following purposes:
+* Document project resources (repository links, etc.)
+* Introduce and present an overview of the key components making up the CODES
+  library
+* Walk through the CODES example model, which shows the majority of CODES
+  features currently available.
 
 = CODES/ROSS resources
 
@@ -11,16 +15,18 @@ https://lists.mcs.anl.gov/mailman/listinfo/codes-ross-users
 * main site: http://www.mcs.anl.gov/projects/codes/ 
 * repositories:
   * "base" (this repository): git.mcs.anl.gov:radix/codes-base
-  * codes-net (networking support): git.mcs.anl.gov:radix/codes-net
+  * codes-net (networking component of CODES): git.mcs.anl.gov:radix/codes-net
 * bug tracking: https://trac.mcs.anl.gov/projects/CODES
 
 == ROSS
 
 * main site, repository, etc.: https://github.com/carothersc/ROSS
+  * both the site and repository contain good documentation as well - refer to
+    it for an in-depth introduction and overview of ROSS proper
 
 = Components of CODES 
 
-== configuration
+== Configuration
 
 The configuration of LPs, LP parameterization, and miscellaneous simulation
 parameters are specified by the CODES configuration system, which uses a
@@ -52,7 +58,7 @@ simple example of the mapping functionality, while the test program
 tests/mapping_test.c with configuration file tests/conf/mapping_test.conf
 exhaustively demonstrate the mapping API.
 
-== workload generator(s)
+== Workload generator(s)
 
 codes-workload is an in-development abstraction layer for feeding I/O / network
 workloads into a simulation. It supports multiple back-ends for generating I/O
@@ -108,22 +114,22 @@ are codes_configurator.py, codes_filter_configs.py, and
 codes_config_get_vals.py, each with detailed usage info. These scripts have
 heavily-overlapping functionality, so in the future these may be merged.
 
-== miscellaneous utilities
+== Miscellaneous utilities
 
-=== lp template (src/util/templates)
+=== LP template (src/util/templates)
 
 As writing ROSS/CODES models currently entail a not-insignificant amount of
 boilerplate for defining LPs and hooking them into ROSS, we have a template
 model for use at src/util/templates/lp_template.* .
 
-=== generic message header (see best practices)
+=== Generic message header (see best practices)
 
 We recommend the use of codes/lp-msg.h to standardize LP event headers, making it
 easier to identify messages.
 
 = Utility models
 
-== local storage model
+== Local storage model
 
 The local storage model (LSM) is fairly simple in design but is sufficient for
 many simulations with reasonable I/O access patterns. It is an
@@ -154,7 +160,7 @@ lsm
 The API can be found at codes/local-storage-model.h and example usage can be
 seen in tests/local-storage-model-test.c and tests/conf/lsm-test.conf. 
 
-== resource model
+== Resource model
 
 The resource model presents a simple integer counter representing some finite
 resource (e.g., bytes of memory available). LPs request some number of units of
@@ -173,3 +179,101 @@ resource
 The API for the underlying resource data structure can be found in
 codes/resource.h. The user-facing API for communicating with the LP can be
 found in codes/resource-lp.h.
+
+= CODES example model
+
+An example model representing most of the functionality present in CODES is
+available in doc/example. In this scenario, we have a certain number of storage
+servers, identified through indices 0, ... , n-1 where each server has a
+network interface card (NIC) associated with it. The servers exchange messages
+with their neighboring server via their NIC card (i.e., server i pings server
+i+1, rolling over the index if necessary). When the neighboring server receives
+the message, it sends an acknowledgement message to the sending server in
+response. Upon receiving the acknowledgement, the sending server issues another
+message. This process continues until some number of messages have been sent.
+For simplicity, it is assumed that each server has a direct link to its
+neighbor, and no network congestion occurs due to concurrent messages being
+sent.
+
+The model is relatively simple to simulate through the usage of ROSS. There are
+two distinct LP types in the simulation: the server and the NIC. Refer to
+example.c for data structure definitions. The server LPs are in charge of
+issuing/acknowledging the messages, while the NIC LPs (implemented via CODES's
+model-net component, available in the codes-net repository) transmit the data
+and inform their corresponding servers upon completion. This LP decomposition
+strategy is generally preferred for ROSS-based simulations: have
+single-purpose, simple LPs representing logical system components.
+
+In this program, CODES is used in the following four ways: to provide
+configuration utilities for the program (example.conf), to logically separate
+and provide lookup functionality for multiple LP types, to automate LP
+placement on KPs/PEs, and to simplify/modularize the underlying network
+structure. The configuration API is used for the first use-case, the
+mapping API is used for the second and third use-cases, and the
+model-net API is used for the fourth use-case. The following sections
+discuss these while covering necessary ROSS-specific information.
+
+== Configuration and mapping
+
+In the example program, there are one server LP and one
+"modelnet_simplenet" LP type in a group and this combination is
+repeated 16 times (repetitions="16") for a total of 32 LPs. The section
+"server_pings" is server-LP-specific and defines the number of rounds of
+communication and the payload for each round.
+
+We use the simple-net LP provided by model-net as the underlying network
+model. The simple-net parameters are specified by the user in the PARAMS
+section of the example.conf config file.
+
+== Server state and event handlers
+
+The server LP state maintains a count of the number of remote messages it has
+sent and received as well as the number of local completion messages.   
+
+For the server event message, we have four message types: KICKOFF, REQ, ACK and
+LOCAL. With a KICKOFF event, each LP sends a message to itself to begin the
+simulation proper. To avoid event ties, we add a small amount of random noise
+using codes_local_latency. The REQ message is sent by a server to its
+neighboring server and when received, neighboring server sends back a message
+of type ACK. We've shown a hard-coded direct communication method which
+directly computes the LP ID, and a codes-mapping API-based method. 
+
+== Server reverse computation
+
+ROSS has the capability for optimistic parallel simulation, but instead of
+saving the state of each LP, they instead require users to perform reverse
+computation. That is, while the event messages are themselves preserved (until
+the Global Virtual Time (GVT) algorithm renders the messages unneeded), the LP
+state is not preserved. Hence, it is up to the simulation developer to provide
+functionality to reverse the LP state, given the event to be reversed. ROSS
+makes this simpler in that events will always be rolled back in exactly the
+order they were applied. Note that ROSS also has both serial and parallel
+conservative modes, so reverse computation may not be necessary if the
+simulation is not compute- or memory-intensive.
+
+For our example program, recall the "forward" event handlers. They perform the
+following: 
+* Kickoff: send a message to the peer server, and increment sender LP's
+    count of sent messages.
+* Request (received from peer server): increment receiver count of
+    received messages, and send an acknowledgement to the sender.
+* Acknowledgement (received from message receiver): send the next
+    message to the receiver and increment messages sent count. Set a flag
+    indicating whether a message has been sent.  
+* Local model-net callback: increment the local model-net
+    received messages count.
+
+In terms of LP state, the four operations are simply modifying counts. Hence,
+the "reverse" event handlers need to merely roll back those changes: 
+* Kickoff: decrement sender LP's count of sent messages.
+* Request (received from peer server): decrement receiver count of
+    received messages.
+* Acknowledgement (received from message receiver): decrement messages
+    sent count if flag indicating a message has been sent has not been
+    set.
+* Local model-net callback: decrement the local model-net
+    received messages count.
+
+For more complex LP states (such as maintaining queues), reverse event
+processing becomes similarly more complex. Refer to the best practices document
+for strategies of coping with the increase in complexity.
