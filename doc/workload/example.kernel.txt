@@ -1,0 +1,17 @@
+r = getgrouprank -1;
+s = getgroupsize -1;
+f = 13;
+
+b = 4194304;
+
+open f;
+
+writeat f, b, (r*b);
+
+sync f;
+
+readat f, b, ((s-r-1)*b);
+
+close f;
+
+exit 0;
