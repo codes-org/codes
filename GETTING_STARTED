@@ -41,6 +41,15 @@ The configuration system additionally allows LP specialization via the usage of
 parameterizations. Annotations have a simple "@" syntax appended to the LP
 fields, and are optional.
 
+CODES currently exposes a small number of ROSS simulation engine options within
+the configuration file. These are "PARAMS:message_size" and
+"PARAMS:pe_mem_factor". The "message_size" parameter indicates the upper bound
+of event sizes that ROSS is expected to handle, while the "pe_mem_factor"
+parameter indicates the multiplier to the number of events allocated per ROSS
+PE (an MPI rank). Both of these exist to support the static allocation scheme
+ROSS uses for efficiency - both LP states and the maximum population of events
+are allocated statically at the beginning of the simulation.
+
 The API is located at codes/configuration.h, which provides various types of
 access into the simulation configuration. Detailed configuration files can be
 found at doc/example/example.conf and doc/example_heterogeneous/example.conf.
