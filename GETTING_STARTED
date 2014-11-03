@@ -118,7 +118,11 @@ usage and caveats, see the document src/models/model-net/doc/README.loggp.txt.
 
 The torus model (model-net LP name: "torus") represents a torus topology with
 arbitrary dimension, used primarily in HPC systems. It is based on the work
-performed in (TODO: cites).
+performed in:
+    M. Mubarak, C. D. Carothers, R. B. Ross, P. Carns. “A case study in using
+    massively parallel simulation for extreme-scale torus network co-design”,
+    ACM SIGSIM conference on Principles of Advanced Discrete Simulations
+    (PADS), 2014.
 
 The configuration parameters are as follows:
 * n_dims - the dimensionality of the torus
@@ -126,7 +130,8 @@ The configuration parameters are as follows:
   four-dimensional, 4x2x2x2 torus.
 * link_bandwidth - the bandwidth available per torus link
 * buffer_size - the buffer size available at each torus node
-* num_vc - number of virtual channels (currently unused)
+* num_vc - number of virtual channels (currently unused - all traffic goes
+  through a single channel)
 * chunk_size - element size per transfer. Messages/packets are sent in
   individual chunks. This is typically a small number (e.g., 32 bytes)
 
