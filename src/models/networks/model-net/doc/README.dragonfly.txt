@@ -62,7 +62,6 @@ connections between routers, network nodes and the servers.
 
 Some other dragonfly specific parameters in the PARAMS section are
 
-- packet_size: size of a dragonfly packet in bytes (default set to 512 bytes)
 - num_vcs: number of virtual channels connecting a router-router, node-router (default set to 1)
 - local_vc_size: Number of packet chunks (default: 32 bytes) that can fit in the channel connecting routers
 within the same group.

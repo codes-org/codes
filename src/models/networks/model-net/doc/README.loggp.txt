@@ -27,7 +27,7 @@ data format as mpptest.
 
 The loggp modelnet method reads in output produced by Torsten's netgauge
 tool and uses it as a lookup table to calculate delays for network messages.
-You can find an exmaple of netgauge output from the Tukey system at ANL
+You can find an example of netgauge output from the Tukey system at ANL
 (using MVAPICH over InfiniBand) in tests/ng-mpi-tukey.dat.
 
 A few notes on the implementation:
@@ -64,4 +64,4 @@ A few notes on the implementation:
   handling network card contention.  It tracks the state of input and output
   queues in terms of when they will next be available for communication and
   adjusts those times as new messages are scheduled for communication.  The
-  model assuems infinite buffering in the network switch fabric.
+  model assumes infinite buffering in the network switch fabric.
