@@ -92,9 +92,54 @@ IO kernel language, and in-development ScalaTrace
 (http://moss.csc.ncsu.edu/~mueller/ScalaTrace/) and IO Recorder
 (https://github.com/babakbehzad/Recorder) traces.
 
-==== Synthetic IO language (TODO)
+==== Synthetic IO language
 
-=== Network (TODO)
+The synthetic IO language is a simple, interpreted set of IO and basic
+arithmetic commands meant to simplify the specification and running of
+application workloads. In the code it's currently called the "bgp" workload
+generator but that is just a historical artifact - in the future it will be
+refactored/renamed.
+
+The input for the workload generator consists of an IO kernel metadata file and
+a number of IO kernel files. The former specifies a set of kernel files to run
+and logical client IDs to participate in the workload, while the latter
+describes the IO to be performed.
+
+The format of the metadata file is a set of lines containing:
+  <group ID> <start ID> <end ID inclusive> <kernel file>
+where:
+* <group ID> is the ID of this group (see restrictions)
+* <start ID> and <end ID> form the range of logical client IDs that will 
+  perform the given workload. Note that the end ID is inclusive, so a start,
+  end pair of 0, 3 will include IDs 0, 1, 2, and 3. An <end ID> of -1 indicates
+  to use the remaining number of clients as specified by the user.
+* <kernel file> is the path to the IO kernel workload. It may either be an
+  absolute or relative path.
+
+The IO kernel file contains a set of commands performed on a per-client
+basis. Like the workload generator interface, files are represented by integer
+IDs, and the standard set of "POSIX-ish" operations can be applied (e.g., open,
+close, sync, write, read) and have a similar argument list (file ID, [length],
+[offset] where applicable). pread/pwrite equivalents are given by
+readat/writeat.
+
+More detailed documentation on the language is ongoing, but for now a general
+example can be seen at doc/workload, which shows a simple out-of-core data
+shuffle. Braver souls may wish to visit the implementation at src/iokerellang
+and src/workload/codes-bgp-io-wrkld.c.
+
+The following restrictions currently apply to the IO language:
+* all user-defined variables must be a single, lower-case letter (the symbol
+  table from the code we inherited is an array of 26 chars)
+* the implementation of "groups" is currently broken. We have gotten around
+  this by hard-coding in the group size and client ID into the parser when a
+  kernel file is loaded (parsing currently occurs on a per-client basis).
+  Hence, getgroupid should be completely ignored and getgrouprank and
+  getgroupsize ignore the group ID parameter passed in.
+
+=== Network
+
+Documentation will be provided as this feature is further developed.
 
 == LP-IO
 
@@ -116,7 +161,7 @@ in the parameter sweep is defined by a python source file with well-defined
 field names, to maximize flexibility and enable some essential features for
 flexible parameter sweeps (disabling certain combinations of parameters,
 deriving parameters from other parameters in the sweep). The actual replacement
-is driven by token replacement defined by the values in the configuraiton file.
+is driven by token replacement defined by the values in the configuration file.
 
 An exhaustive example can be found at scripts/example. The scripts themselves
 are codes_configurator.py, codes_filter_configs.py, and
@@ -124,6 +169,12 @@ codes_config_get_vals.py, each with detailed usage info. These scripts have
 heavily-overlapping functionality, so in the future these may be merged.
 
 == Miscellaneous utilities
+
+=== Workload display utility
+
+For debugging and experimentation purposes, a plain-text "dump" of an IO
+workload can be seen using the utility src/workload/codes-workload-dump
+(it gets installed into $bindir).
 
 === LP template (src/util/templates)
 
