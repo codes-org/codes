@@ -8,7 +8,6 @@
 #include <codes/CodesIOKernelParser.h>
 #include <codes/CodesIOKernelContext.h>
 #include <codes/codesparser.h>
-#include <codes/codeslogging.h>
 #include <codes/CodesKernelHelpers.h>
 #include <codes/codeslexer.h>
 
