@@ -1,4 +1,11 @@
 #!/usr/bin/python2.7
+
+#
+# Copyright (C) 2014 University of Chicago.
+# See COPYRIGHT notice in top-level directory.
+#
+#
+
 import argparse
 import sys
 import os

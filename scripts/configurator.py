@@ -1,5 +1,11 @@
 """ Helpers and utilities for use by codes_configurator and friends """
 
+#
+# Copyright (C) 2013 University of Chicago.
+# See COPYRIGHT notice in top-level directory.
+#
+#
+
 import re
 import os
 import imp

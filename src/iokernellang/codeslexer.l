@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2013 University of Chicago.
+ * See COPYRIGHT notice in top-level directory.
+ *
+ */
+
 %{
 #include <stdlib.h>
 #include "codes/CodesIOKernelTypes.h"
