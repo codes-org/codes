@@ -15,7 +15,20 @@ EXTRA_DIST += tests/modelnet-test.sh \
 	      tests/modelnet-test-loggp.sh \
 	      tests/modelnet-test-dragonfly.sh \
 	      tests/modelnet-p2p-bw-loggp.sh \
-		  tests/modelnet-prio-sched-test.sh
+		  tests/modelnet-prio-sched-test.sh \
+		  tests/conf/concurrent_msg_recv.conf \
+		  tests/conf/modelnet-p2p-bw-loggp.conf \
+		  tests/conf/modelnet-prio-sched-test.conf \
+		  tests/conf/modelnet-test-bw.conf \
+		  tests/conf/modelnet-test-bw-tri.conf \
+		  tests/conf/modelnet-test.conf \
+		  tests/conf/modelnet-test-dragonfly.conf \
+		  tests/conf/modelnet-test-loggp.conf \
+		  tests/conf/modelnet-test-simplewan.conf \
+		  tests/conf/modelnet-test-startup.conf \
+		  tests/conf/modelnet-test-startup-tri.conf \
+		  tests/conf/modelnet-test-torus.conf \
+		  tests/conf/ng-mpi-tukey.dat
 
 testlib = src/libcodes-net.a
 
