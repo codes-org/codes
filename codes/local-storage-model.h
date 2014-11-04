@@ -26,10 +26,25 @@ typedef enum lsm_event_e
 /*
  * Prototypes
  */
-void lsm_event_new_reverse(tw_lp *sender);
 
+/* given LP sender, find the LSM device LP in the same group */ 
 tw_lpid lsm_find_local_device(tw_lp *sender);
 
+/*
+ * lsm_event_new
+ *   - creates a new event that is targeted for the corresponding
+ *     LSM LP.
+ *   - this event will allow wrapping the callers completion event
+ *   - category: string name to identify the traffic category
+ *   - dest_gid: the gid to send the callers event to
+ *   - gid_offset: relative offset of the LSM LP to the originating LP
+ *   - io_object: id of byte stream the caller will modify
+ *   - io_offset: offset into byte stream
+ *   - io_size_bytes: size in bytes of IO request
+ *   - io_type: read or write request
+ *   - message_bytes: size of the event message the caller will have
+ *   - sender: id of the sender
+ */
 tw_event* lsm_event_new(const char* category,
                         tw_lpid  dest_gid,
                         uint64_t io_object,
@@ -40,12 +55,20 @@ tw_event* lsm_event_new(const char* category,
                         tw_lp   *sender,
                         tw_stime delay);
 
+void lsm_event_new_reverse(tw_lp *sender);
+
+/*
+ * lsm_event_data
+ *   - returns the pointer to the message data for the callers data
+ *   - event: a lsm_event_t event
+ */
 void* lsm_event_data(tw_event *event);
 
+/* registers the storage model LP with CODES/ROSS */
 void lsm_register(void);
-void lsm_configure(void);
 
-void lsm_send_init (tw_lpid gid, tw_lp *lp, char *name);
+/* configures the LSM model(s) */
+void lsm_configure(void);
 
 /*
  * Macros
