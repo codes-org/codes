@@ -87,9 +87,6 @@ void * model_net_method_get_edata(int net_id, void * msg);
 /// model developers - they are just provided so other internal components can
 /// use them
 
-// init method
-void model_net_base_init(int *do_config_nets);
-
 enum model_net_base_event_type {
     MN_BASE_NEW_MSG,
     // schedule next packet
