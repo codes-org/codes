@@ -10,7 +10,11 @@
 
 #include "ross.h"
 
+/* look up the lp type registered through lp_type_register. Mostly used
+ * internally */
 const tw_lptype* lp_type_lookup(const char* name);
+
+/* register an LP with CODES/ROSS */
 void lp_type_register(const char* name, const tw_lptype* type);
 
 #endif /* LP_TYPE_LOOKUP_H */

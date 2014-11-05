@@ -26,7 +26,11 @@ typedef struct {
     resource_token_t tok;
 } resource_callback;
 
+
+/* registers the resource LP with CODES/ROSS */
 void resource_lp_init();
+
+/* reads the resource LP configuration */
 void resource_lp_configure();
 
 /* Wrappers for the underlying resource structure.
@@ -34,7 +38,21 @@ void resource_lp_configure();
  * the resource LP with the request.
  * The following functions expect the sending LP to put its magic and callback
  * event type into the header parameter (lpid not necessary, it's grabbed from
- * sender) */
+ * sender)
+ *
+ * block_on_unavail - flag whether to wait to message the requester if
+ *                    request cannot be satisfied
+ * msg_size - size of the requester event structure
+ * msg_header_offset - offset in the requester event to place the resource's 
+ *                     msg_header
+ * msg_callback_offset - offset in the requester event struct to place the
+ *                       resource-provided resource_callback data
+ * msg_callback_misc_size - size of requester-provided callback data
+ * msg_callback_misc_offset - offset in the requester event struct to place the
+ *                            requester-provided callback data
+ * msg_callback_misc_data - requester-provided callback data
+ *
+ */
 void resource_lp_get(
         msg_header *header,
         uint64_t req, 
