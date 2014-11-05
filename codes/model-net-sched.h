@@ -4,7 +4,7 @@
  *
  */
 
-/* A scheduler interface for use by model-net. */
+/* A scheduler interface for use by model-net models. */
 
 #ifndef MODEL_NET_SCHED_H
 #define MODEL_NET_SCHED_H

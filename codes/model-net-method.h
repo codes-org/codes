@@ -15,6 +15,8 @@ struct model_net_method;
 
 #include "codes/model-net-sched.h"
 
+// interface that each model-net model implements
+
 struct model_net_method
 {
     uint64_t packet_size; /* packet size */

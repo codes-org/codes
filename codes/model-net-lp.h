@@ -31,6 +31,9 @@ void model_net_base_register(int *do_config_nets);
 // configure the base LP type, setting up general parameters
 void model_net_base_configure();
 
+/// The remaining functions/data structures are only of interest to model-net
+/// model developers
+
 // Construct a model-net-specific event, analagous to a tw_event_new and
 // codes_event_new. The difference here is that we return pointers to 
 // both the message data (to be cast into the appropriate type) and the
