@@ -6,7 +6,18 @@ BUILT_SOURCES += src/modelconfig/configparser.h \
 EXTRA_DIST += src/iokernellang/codesparser.y.in \
               src/iokernellang/codeslexer.l \
               src/modelconfig/configparser.y \
-              src/modelconfig/configlex.l 
+              src/modelconfig/configlex.l \
+			  src/modelconfig/README.txt \
+			  src/network-workload/README \
+			  src/network-workload/offsets \
+			  src/network-workload/scala-trace-data \
+			  src/util/templates/README.txt
+			  src/util/README.codes-mapping.txt \
+			  src/util/README.lp-io.txt \
+			  src/workload/README.codes-workload \
+			  src/workload/TODO.codes-workload
+
+
 
 PHONY: maintainer-clean-local
 maintainer-clean-local::

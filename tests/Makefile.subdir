@@ -14,6 +14,7 @@ TESTS += tests/lp-io-test.sh \
 EXTRA_DIST += tests/lp-io-test.sh \
  tests/workload/codes-workload-test.sh \
  tests/workload/codes-workload-test.conf \
+ tests/workload/README.txt \
  tests/mapping_test.sh \
  tests/lsm-test.sh \
  tests/conf/buffer_test.conf \

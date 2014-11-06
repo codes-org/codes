@@ -20,7 +20,7 @@ pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = maint/codes-base.pc
 $(pkgconfig_DATA): config.status
 
-EXTRA_DIST += prepare.sh INSTALL
+EXTRA_DIST += prepare.sh INSTALL RELEASE_NOTES COPYRIGHT
 
 AM_CPPFLAGS = -I$(top_srcdir)/src ${ROSS_CPPFLAGS}
 
