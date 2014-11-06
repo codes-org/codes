@@ -1,3 +1,9 @@
+/*
+ * Copyright (C) 2014 University of Chicago
+ * See COPYRIGHT notice in top-level directory.
+ *
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
