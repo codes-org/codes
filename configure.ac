@@ -12,7 +12,7 @@ AM_INIT_AUTOMAKE([foreign subdir-objects -Wall])
 
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 
-AC_CONFIG_SRCDIR([README.txt])
+AC_CONFIG_SRCDIR([INSTALL])
 AC_CONFIG_HEADERS([codes_base_config.h])
 
 AX_PROG_BISON([],[AC_MSG_WARN([Could not find bison])])
