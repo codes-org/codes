@@ -28,9 +28,9 @@ src/modelconfig/configlex.h: src/modelconfig/configlex.l
 
 #src/iokernellang/codesparser.c codes/codesparser.h: src/iokernellang/codesparser.y
 
-codes/codeslexer.h: src/iokernellang/codeslexer.h
-	mkdir -p codes
-	cp src/iokernellang/codeslexer.h codes/codeslexer.h
+#codes/codeslexer.h: $(top_srcdir)/src/iokernellang/codeslexer.h
+#mkdir -p codes
+#cp $(top_srcdir)/src/iokernellang/codeslexer.h codes/codeslexer.h
 
 nobase_include_HEADERS = \
     codes/CodesKernelHelpers.h \
