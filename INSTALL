@@ -1,24 +1,21 @@
-0 - Checkout, build, and install codes-base
+0 - Install codes-base, either from the repository or using the 0.3.0 release
+    tarball (see http://www.mcs.anl.gov/projects/codes/).
 
-    git clone git@git.mcs.anl.gov:radix/codes-base
-    <see codes-base/README.txt>
-
-1 - If this is the first time you are building codes-net, run
+1 - If you are building codes-net directly from the repository, run
 
     ./prepare.sh
 
-2- Configure codes-net. This can be done in the source directory or in a
-   dedicated build directory if you prefer out-of-tree builds.  The CC
-   environment variable must refer to an MPI compiler.
+2 - Configure codes-net. This can be done in the source directory or in a
+    dedicated build directory if you prefer out-of-tree builds.  The CC
+    environment variable must refer to an MPI compiler.
 
-    ./configure --with-codes-base=/path/to/codes-base/install --prefix=/path/to/codes-net/install CC=mpicc
+    mkdir build
+    cd build
+    ../configure --with-codes-base=/path/to/codes-base/install --prefix=/path/to/codes-net/install CC=mpicc
 
 3 - Build codes-net
 
-    make clean && make
-    make install
-    make tests
-
+    make && make install
 4 - (optional) run test programs
 
-    make check
+    make tests && make check
