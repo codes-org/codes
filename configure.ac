@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.67])
-AC_INIT([codes-net], [0.2], [http://trac.mcs.anl.gov/projects/codes/newticket],[],[http://trac.mcs.anl.gov/projects/codes/wiki])
+AC_INIT([codes-net], [0.3.0], [http://trac.mcs.anl.gov/projects/codes/newticket],[],[http://www.mcs.anl.gov/projects/codes])
 
 AC_CANONICAL_TARGET
 AC_CANONICAL_SYSTEM
