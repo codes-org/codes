@@ -28,7 +28,8 @@ EXTRA_DIST += tests/modelnet-test.sh \
 		  tests/conf/modelnet-test-startup.conf \
 		  tests/conf/modelnet-test-startup-tri.conf \
 		  tests/conf/modelnet-test-torus.conf \
-		  tests/conf/ng-mpi-tukey.dat
+		  tests/conf/ng-mpi-tukey.dat \
+		  tests/README_MN_TEST.txt
 
 testlib = src/libcodes-net.a
 

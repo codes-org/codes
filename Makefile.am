@@ -18,7 +18,8 @@ pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = maint/codes-net.pc
 $(pkgconfig_DATA): config.status
 
-EXTRA_DIST += prepare.sh
+EXTRA_DIST += prepare.sh GETTING_STARTED COPYRIGHT RELEASE_NOTES TODO.txt \
+			  misc/README misc/ptrn_loggp-2.4.6.patch
 
 AM_CPPFLAGS = -I$(top_srcdir)/src ${CODES_BASE_CFLAGS}
 

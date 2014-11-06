@@ -1,5 +1,20 @@
 lib_LIBRARIES += src/libcodes-net.a
 
+EXTRA_DIST += \
+ src/models/mpi-trace-replay/README.txt \
+ src/models/mpi-trace-replay/conf/modelnet-mpi-test.conf \
+ src/models/mpi-trace-replay/conf/modelnet-mpi-test-cry-router.conf \
+ src/models/mpi-trace-replay/conf/modelnet-mpi-test-dragonfly.conf \
+ src/models/mpi-trace-replay/conf/modelnet-mpi-test-mini-fe.conf \
+ src/models/mpi-trace-replay/conf/modelnet-mpi-test-torus.conf \
+ src/models/networks/model-net/doc/README \
+ src/models/networks/model-net/doc/README.dragonfly.txt \
+ src/models/networks/model-net/doc/README.loggp.txt \
+ src/models/networks/model-net/doc/README.simplenet.txt \
+ src/models/networks/model-net/doc/README.simplewan.txt \
+ src/models/networks/model-net/MN_TODO
+
+
 nobase_include_HEADERS = \
  codes/model-net.h	\
  codes/model-net-method.h \
