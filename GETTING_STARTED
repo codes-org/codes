@@ -80,25 +80,25 @@ models for high-performance networking, with an HPC bent.
 Configuration files for each model can be found in tests/conf, under the name
 "model-net-test*.conf".
 
-== Simplenet/Simplewan
+== Simplenet/SimpleP2P
 
-The Simplenet and Simplewan models (model-net LP names "simplenet" and
-"simplewan") are basic queued point-to-point latency/bandwidth models, assuming
+The Simplenet and SimpleP2P models (model-net LP names "simplenet" and
+"simplep2p") are basic queued point-to-point latency/bandwidth models, assuming
 infinite packet buffering when routing. These are best used for models that
-require little fidelity out of the network performance. Simplewan is the same
+require little fidelity out of the network performance. SimpleP2P is the same
 model as Simplenet, except it provides heterogeneous link capacities from point
 to point. Rather than a single entry, it requires files containing a matrix of
 point-to-point bandwidths and latencies. 
 
 Simplenet models require two configuration parameters: "net_startup_ns" and
 "net_bw_mbps", which define the startup and bandwidth costs in nanoseconds and
-megabytes per second, respectively. Simplewan requires two configuration files
-for the startup and bandwidth costs: "net_startup_ns_file" and
+megabytes per second, respectively. SimpleP2P requires two configuration files
+for the latency and bandwidth costs: "net_latency_ns_file" and
 "net_bw_mbps_file".
 
 More details about the models can be found at
 src/models/networks/model-net/doc/README.simplenet.txt and
-src/models/networks/model-net/doc/README.simplewan.txt, respectively.
+src/models/networks/model-net/doc/README.simplep2p.txt, respectively.
 
 == LogGP
 

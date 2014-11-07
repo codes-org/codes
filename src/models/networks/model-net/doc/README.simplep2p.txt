@@ -1,24 +1,24 @@
-"Simplewan"
+"SimpleP2P"
 ----------
 
 Model overview:
 ---------------
 
-Simplewan is an extension of simplenet to allow for arbitrary point-to-point
+SimpleP2P is an extension of simplenet to allow for arbitrary point-to-point
 capacities.
 
-Simplewan has nearly the same duplex queued transmission semantics as
+SimpleP2P has nearly the same duplex queued transmission semantics as
 simplenet, though with a few important differences. First, point-to-point
 latencies and bandwidths are different. Second, each unique link is given its
 own queue that do not interfere with the others. The use case for this model is
 a set of sites with internal networks, with each site communicating via
-simplewan; we assume the internal network is capable of servicing all
+simplep2p; we assume the internal network is capable of servicing all
 outgoing/incoming WAN transmissions at their full capacities.
 
 Additional configuration is needed to initialize the link latencies/capacities.
-In the codes-configuration file, the variables "net_startup_ns_file" and
+In the codes-configuration file, the variables "net_latency_ns_file" and
 "net_bw_mbps_file" must be set under the PARAMS group. They point (in a path
-relative to the configuration file) to configurations for the startup and
+relative to the configuration file) to configurations for the latency and
 bandwidth costs, respectively.
 
 Each of the latency/bandwidth configuration files have the same format, based
@@ -32,7 +32,7 @@ N:1 N:2 ... N:N
 
 where x:y is the latency or bandwidth between components x and y. Whitespace is
 ignored, but linebreaks are not, and delimit rows of the matrix. The relative
-simplewan identifiers 1..N are assigned to simplewan LPs in the order of
+simplep2p identifiers 1..N are assigned to simplep2p LPs in the order of
 their appearance in the codes-configuration file. It is expected that all i:i
 entries are 0 - modelnet currently doesn't handle self messages.
 
@@ -51,13 +51,13 @@ Caveats:
 --------
 
 The model-net statistics are slightly more complex than in other model-net
-implementations because there are in essence multiple queues per simplewan
+implementations because there are in essence multiple queues per simplep2p
 instance. In particular, the "send time" and "recv time" stats are computed as
-ranges of time in which the simplewan LP is actively sending/receiving data
+ranges of time in which the simplep2p LP is actively sending/receiving data
 from *any* link. Hence, simple bandwidth calculations (send bytes / send time)
 may not be accurate due to skew in message issuance.
 
-Having more than one category in simplewan will cause the times in the
+Having more than one category in simplep2p will cause the times in the
 derived "all" category to be off. "all" is currently implemented as the sum of
 the various categories, which doesn't work when times in certain categories may
 overlap.

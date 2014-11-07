@@ -11,7 +11,7 @@ EXTRA_DIST += \
  src/models/networks/model-net/doc/README.dragonfly.txt \
  src/models/networks/model-net/doc/README.loggp.txt \
  src/models/networks/model-net/doc/README.simplenet.txt \
- src/models/networks/model-net/doc/README.simplewan.txt \
+ src/models/networks/model-net/doc/README.simplep2p.txt \
  src/models/networks/model-net/MN_TODO
 
 
@@ -23,7 +23,7 @@ nobase_include_HEADERS = \
  codes/net/dragonfly.h \
  codes/net/loggp.h \
  codes/net/simplenet-upd.h \
- codes/net/simplewan.h \
+ codes/net/simplep2p.h \
  codes/net/torus.h
 
 src_libcodes_net_a_SOURCES = \
@@ -32,7 +32,7 @@ src_libcodes_net_a_SOURCES = \
  src/models/networks/model-net/torus.c \
  src/models/networks/model-net/dragonfly.c \
  src/models/networks/model-net/loggp.c \
- src/models/networks/model-net/simplewan.c \
+ src/models/networks/model-net/simplep2p.c \
  src/models/networks/model-net/model-net-lp.c \
  src/models/networks/model-net/model-net-sched.c \
  src/models/networks/model-net/model-net-sched-impl.h \

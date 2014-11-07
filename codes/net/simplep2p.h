@@ -4,24 +4,24 @@
  *
  */
 
-#ifndef SIMPLEWAN_H
-#define SIMPLEWAN_H
+#ifndef SIMPLEP2P_H
+#define SIMPLEP2P_H
 
-typedef struct sw_message sw_message;
+typedef struct sp_message sp_message;
 
-enum sw_event_type 
+enum sp_event_type 
 {
-    SW_MSG_READY = 1,  /* sender has transmitted msg to receiver */
-    SW_MSG_START,      /* initiate a transmission */
+    SP_MSG_READY = 1,  /* sender has transmitted msg to receiver */
+    SP_MSG_START,      /* initiate a transmission */
 };
 
-struct sw_message
+struct sp_message
 {
     int magic; /* magic number */
-    enum sw_event_type event_type;
+    enum sp_event_type event_type;
     tw_lpid src_gid; /* who transmitted this msg? */
     tw_lpid final_dest_gid; /* who is eventually targetted with this msg? */
-    /* relative ID of the sending simplewan message (for latency/bandwidth lookup) */
+    /* relative ID of the sending simplep2p message (for latency/bandwidth lookup) */
     int src_mn_rel_id;
     int dest_mn_rel_id; /* included to make rc easier */
     uint64_t net_msg_size_bytes;     /* size of modeled network message */
@@ -44,7 +44,7 @@ struct sw_message
     tw_stime recv_prev_idle_all_saved;
 };
 
-#endif /* end of include guard: SIMPLEWAN_H */
+#endif /* end of include guard: SIMPLEP2P_H */
 
 /*
  * Local variables:

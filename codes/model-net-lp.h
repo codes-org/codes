@@ -20,7 +20,7 @@
 #include "net/dragonfly.h"
 #include "net/loggp.h"
 #include "net/simplenet-upd.h"
-#include "net/simplewan.h"
+#include "net/simplep2p.h"
 #include "net/torus.h"
 
 extern int model_net_base_magic;
@@ -115,7 +115,7 @@ typedef struct model_net_wrap_msg {
         terminal_message   m_dfly;  // dragonfly
         loggp_message      m_loggp; // loggp
         sn_message         m_snet;  // simplenet
-        sw_message         m_swan;  // simplewan
+        sp_message         m_sp2p;  // simplep2p
         nodes_message      m_torus; // torus
         // add new ones here
     } msg;

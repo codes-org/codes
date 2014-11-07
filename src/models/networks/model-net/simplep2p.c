@@ -15,33 +15,33 @@
 #include "codes/model-net-lp.h"
 #include "codes/codes_mapping.h"
 #include "codes/codes.h"
-#include "codes/net/simplewan.h"
+#include "codes/net/simplep2p.h"
 
 #define CATEGORY_NAME_MAX 16
 #define CATEGORY_MAX 12
 
-#define SIMPLEWAN_DEBUG 0
+#define SIMPLEP2P_DEBUG 0
 
-#define LP_CONFIG_NM (model_net_lp_config_names[SIMPLEWAN])
-#define LP_METHOD_NM (model_net_method_names[SIMPLEWAN])
+#define LP_CONFIG_NM (model_net_lp_config_names[SIMPLEP2P])
+#define LP_METHOD_NM (model_net_method_names[SIMPLEP2P])
 
-// parameters for simplewan configuration
-struct simplewan_param
+// parameters for simplep2p configuration
+struct simplep2p_param
 {
-    double * net_startup_ns_table;
+    double * net_latency_ns_table;
     double * net_bw_mbps_table;
     int mat_len;
     int num_lps;
 };
-typedef struct simplewan_param simplewan_param;
+typedef struct simplep2p_param simplep2p_param;
 
-/*Define simplewan data types and structs*/
-typedef struct sw_state sw_state;
+/*Define simplep2p data types and structs*/
+typedef struct sp_state sp_state;
 
 typedef struct category_idles_s category_idles;
 
 struct category_idles_s{
-    /* each simplewan "NIC" actually has N connections, so we need to track
+    /* each simplep2p "NIC" actually has N connections, so we need to track
      * idle times across all of them to correctly do stats */
     tw_stime send_next_idle_all;
     tw_stime send_prev_idle_all;
@@ -50,68 +50,68 @@ struct category_idles_s{
     char category[CATEGORY_NAME_MAX];
 };
 
-struct sw_state
+struct sp_state
 {
     /* next idle times for network card, both inbound and outbound */
     tw_stime *send_next_idle;
     tw_stime *recv_next_idle;
 
     const char * anno;
-    const simplewan_param * params;
+    const simplep2p_param * params;
 
     int id; /* logical id for matrix lookups */
 
-    /* Each simplewan "NIC" actually has N connections, so we need to track
+    /* Each simplep2p "NIC" actually has N connections, so we need to track
      * idle times across all of them to correctly do stats.
      * Additionally need to track different idle times across different 
      * categories */
     category_idles idle_times_cat[CATEGORY_MAX];
 
-    struct mn_stats sw_stats_array[CATEGORY_MAX];
+    struct mn_stats sp_stats_array[CATEGORY_MAX];
 };
 
 /* annotation-specific parameters (unannotated entry occurs at the 
  * last index) */
 static uint64_t                  num_params = 0;
-static simplewan_param         * all_params = NULL;
+static simplep2p_param         * all_params = NULL;
 static const config_anno_map_t * anno_map   = NULL;
 
-static int sw_magic = 0;
+static int sp_magic = 0;
 
-/* returns a pointer to the lptype struct to use for simplewan LPs */
-static const tw_lptype* sw_get_lp_type(void);
+/* returns a pointer to the lptype struct to use for simplep2p LPs */
+static const tw_lptype* sp_get_lp_type(void);
 
 /* set model parameters:
- * - startup_fname - path containing triangular matrix of net latencies, in ns
+ * - latency_fname - path containing triangular matrix of net latencies, in ns
  * - bw_fname      - path containing triangular matrix of bandwidths in MB/s.
  * note that this merely stores the files, they will be parsed later 
  */
-static void sw_set_params(
-        const char      * startup_fname,
+static void sp_set_params(
+        const char      * latency_fname,
         const char      * bw_fname,
-        simplewan_param * params);
+        simplep2p_param * params);
 
-static void sw_configure();
+static void sp_configure();
 
 /* retrieve the size of the portion of the event struct that is consumed by
- * the simplewan module.  The caller should add this value to the size of
+ * the simplep2p module.  The caller should add this value to the size of
  * its own event structure to get the maximum total size of a message.
  */
-static int sw_get_msg_sz(void);
+static int sp_get_msg_sz(void);
 
-/* Returns the simplewan magic number */
-static int sw_get_magic();
+/* Returns the simplep2p magic number */
+static int sp_get_magic();
 
-/* given two simplewan logical ids, do matrix lookups to get the point-to-point
+/* given two simplep2p logical ids, do matrix lookups to get the point-to-point
  * latency/bandwidth */
-static double sw_get_table_ent(
+static double sp_get_table_ent(
         int      from_id, 
         int      to_id,
         int      num_lps,
         double * table);
 
 /* category lookup */
-static category_idles* sw_get_category_idles(
+static category_idles* sp_get_category_idles(
         char * category, category_idles *idles);
 
 /* collective network calls */
@@ -120,8 +120,8 @@ static void simple_wan_collective();
 /* collective network calls-- rc */
 static void simple_wan_collective_rc();
 
-/* Issues a simplewan packet event call */
-static tw_stime simplewan_packet_event(
+/* Issues a simplep2p packet event call */
+static tw_stime simplep2p_packet_event(
         char* category,
         tw_lpid final_dest_lp,
         uint64_t packet_size,
@@ -136,80 +136,80 @@ static tw_stime simplewan_packet_event(
         tw_lpid src_lp,
         tw_lp *sender,
         int is_last_pckt);
-static void simplewan_packet_event_rc(tw_lp *sender);
+static void simplep2p_packet_event_rc(tw_lp *sender);
 
-static void simplewan_packet_event_rc(tw_lp *sender);
+static void simplep2p_packet_event_rc(tw_lp *sender);
 
-static void sw_report_stats();
+static void sp_report_stats();
 
-static tw_lpid sw_find_local_device(
+static tw_lpid sp_find_local_device(
         const char * annotation,
         int ignore_annotations,
         tw_lp *sender);
 
 /* data structure for model-net statistics */
-struct model_net_method simplewan_method =
+struct model_net_method simplep2p_method =
 {
-    .mn_configure = sw_configure,
-    .model_net_method_packet_event = simplewan_packet_event,
-    .model_net_method_packet_event_rc = simplewan_packet_event_rc,
+    .mn_configure = sp_configure,
+    .model_net_method_packet_event = simplep2p_packet_event,
+    .model_net_method_packet_event_rc = simplep2p_packet_event_rc,
     .model_net_method_recv_msg_event = NULL,
     .model_net_method_recv_msg_event_rc = NULL,
-    .mn_get_lp_type = sw_get_lp_type,
-    .mn_get_msg_sz = sw_get_msg_sz,
-    .mn_report_stats = sw_report_stats,
+    .mn_get_lp_type = sp_get_lp_type,
+    .mn_get_msg_sz = sp_get_msg_sz,
+    .mn_report_stats = sp_report_stats,
     .model_net_method_find_local_device = NULL,
     .mn_collective_call = simple_wan_collective,
     .mn_collective_call_rc = simple_wan_collective_rc  
 };
 
-static void sw_init(
-    sw_state * ns,
+static void sp_init(
+    sp_state * ns,
     tw_lp * lp);
-static void sw_event(
-    sw_state * ns,
+static void sp_event(
+    sp_state * ns,
     tw_bf * b,
-    sw_message * m,
+    sp_message * m,
     tw_lp * lp);
-static void sw_rev_event(
-    sw_state * ns,
+static void sp_rev_event(
+    sp_state * ns,
     tw_bf * b,
-    sw_message * m,
+    sp_message * m,
     tw_lp * lp);
-static void sw_finalize(
-    sw_state * ns,
+static void sp_finalize(
+    sp_state * ns,
     tw_lp * lp);
 
-tw_lptype sw_lp = {
-    (init_f) sw_init,
+tw_lptype sp_lp = {
+    (init_f) sp_init,
     (pre_run_f) NULL,
-    (event_f) sw_event,
-    (revent_f) sw_rev_event,
-    (final_f) sw_finalize,
+    (event_f) sp_event,
+    (revent_f) sp_rev_event,
+    (final_f) sp_finalize,
     (map_f) codes_mapping,
-    sizeof(sw_state),
+    sizeof(sp_state),
 };
 
 static tw_stime rate_to_ns(uint64_t bytes, double MB_p_s);
 static void handle_msg_ready_rev_event(
-    sw_state * ns,
+    sp_state * ns,
     tw_bf * b,
-    sw_message * m,
+    sp_message * m,
     tw_lp * lp);
 static void handle_msg_ready_event(
-    sw_state * ns,
+    sp_state * ns,
     tw_bf * b,
-    sw_message * m,
+    sp_message * m,
     tw_lp * lp);
 static void handle_msg_start_rev_event(
-    sw_state * ns,
+    sp_state * ns,
     tw_bf * b,
-    sw_message * m,
+    sp_message * m,
     tw_lp * lp);
 static void handle_msg_start_event(
-    sw_state * ns,
+    sp_state * ns,
     tw_bf * b,
-    sw_message * m,
+    sp_message * m,
     tw_lp * lp);
 
 /* collective network calls */
@@ -225,18 +225,18 @@ static void simple_wan_collective_rc()
    return;
 }
 
-/* returns pointer to LP information for simplewan module */
-static const tw_lptype* sw_get_lp_type()
+/* returns pointer to LP information for simplep2p module */
+static const tw_lptype* sp_get_lp_type()
 {
-    return(&sw_lp);
+    return(&sp_lp);
 }
 
-/* returns number of bytes that the simplewan module will consume in event
+/* returns number of bytes that the simplep2p module will consume in event
  * messages
  */
-static int sw_get_msg_sz(void)
+static int sp_get_msg_sz(void)
 {
-    return(sizeof(sw_message));
+    return(sizeof(sp_message));
 }
 
 static double * parse_mat(char * buf, int *nvals_first, int *nvals_total, int is_tri_mat){
@@ -301,21 +301,21 @@ static void fill_tri_mat(int N, double *mat, double *tri){
 }
 
 /* lets caller specify model parameters to use */
-static void sw_set_params(
-        const char      * startup_fname,
+static void sp_set_params(
+        const char      * latency_fname,
         const char      * bw_fname,
-        simplewan_param * params){
+        simplep2p_param * params){
     long int fsize_s, fsize_b;
     /* TODO: make this a run-time option */
     int is_tri_mat = 0;
 
     /* slurp the files */
-    FILE *sf = fopen(startup_fname, "r");
+    FILE *sf = fopen(latency_fname, "r");
     FILE *bf = fopen(bw_fname, "r");
     if (!sf)
-        tw_error(TW_LOC, "simplewan: unable to open %s", startup_fname);
+        tw_error(TW_LOC, "simplep2p: unable to open %s", latency_fname);
     if (!bf)
-        tw_error(TW_LOC, "simplewan: unable to open %s", bw_fname);
+        tw_error(TW_LOC, "simplep2p: unable to open %s", bw_fname);
     fseek(sf, 0, SEEK_END);
     fsize_s = ftell(sf);
     fseek(sf, 0, SEEK_SET);
@@ -333,7 +333,7 @@ static void sw_set_params(
 
     int nvals_first_s, nvals_first_b, nvals_total_s, nvals_total_b;
 
-    double *startup_tmp = parse_mat(sbuf, &nvals_first_s, 
+    double *latency_tmp = parse_mat(sbuf, &nvals_first_s, 
             &nvals_total_s, is_tri_mat);
     double *bw_tmp = parse_mat(bbuf, &nvals_first_b, &nvals_total_b, is_tri_mat);
 
@@ -341,17 +341,17 @@ static void sw_set_params(
     assert(nvals_first_s == nvals_first_b);
     params->mat_len = nvals_first_s + ((is_tri_mat) ? 1 : 0);
     if (is_tri_mat){
-        params->net_startup_ns_table = 
+        params->net_latency_ns_table = 
             malloc(params->mat_len*params->mat_len*sizeof(double));
         params->net_bw_mbps_table = 
             malloc(params->mat_len*params->mat_len*sizeof(double));
-        fill_tri_mat(params->mat_len, params->net_startup_ns_table, startup_tmp);
+        fill_tri_mat(params->mat_len, params->net_latency_ns_table, latency_tmp);
         fill_tri_mat(params->mat_len, params->net_bw_mbps_table, bw_tmp);
-        free(startup_tmp);
+        free(latency_tmp);
         free(bw_tmp);
     }
     else{
-        params->net_startup_ns_table = startup_tmp;
+        params->net_latency_ns_table = latency_tmp;
         params->net_bw_mbps_table = bw_tmp;
     }
 
@@ -359,21 +359,21 @@ static void sw_set_params(
 }
 
 /* report network statistics */
-static void sw_report_stats()
+static void sp_report_stats()
 {
-   /* TODO: Do we have some simplewan statistics to report like we have for torus and dragonfly? */
+   /* TODO: Do we have some simplep2p statistics to report like we have for torus and dragonfly? */
    return;
 }
-static void sw_init(
-    sw_state * ns,
+static void sp_init(
+    sp_state * ns,
     tw_lp * lp)
 {
     uint32_t h1 = 0, h2 = 0;
     memset(ns, 0, sizeof(*ns));
 
     bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
-    sw_magic = h1+h2;
-    /* printf("\n sw_magic %d ", sw_magic); */
+    sp_magic = h1+h2;
+    /* printf("\n sp_magic %d ", sp_magic); */
 
     ns->anno = codes_mapping_get_annotation_by_lpid(lp->gid);
     if (ns->anno == NULL)
@@ -409,20 +409,20 @@ static void sw_init(
     return;
 }
 
-static void sw_event(
-    sw_state * ns,
+static void sp_event(
+    sp_state * ns,
     tw_bf * b,
-    sw_message * m,
+    sp_message * m,
     tw_lp * lp)
 {
-    assert(m->magic == sw_magic);
+    assert(m->magic == sp_magic);
 
     switch (m->event_type)
     {
-        case SW_MSG_START:
+        case SP_MSG_START:
             handle_msg_start_event(ns, b, m, lp);
             break;
-        case SW_MSG_READY:
+        case SP_MSG_READY:
             handle_msg_ready_event(ns, b, m, lp);
             break;
         default:
@@ -431,20 +431,20 @@ static void sw_event(
     }
 }
 
-static void sw_rev_event(
-    sw_state * ns,
+static void sp_rev_event(
+    sp_state * ns,
     tw_bf * b,
-    sw_message * m,
+    sp_message * m,
     tw_lp * lp)
 {
-    assert(m->magic == sw_magic);
+    assert(m->magic == sp_magic);
 
     switch (m->event_type)
     {
-        case SW_MSG_START:
+        case SP_MSG_START:
             handle_msg_start_rev_event(ns, b, m, lp);
             break;
-        case SW_MSG_READY:
+        case SP_MSG_READY:
             handle_msg_ready_rev_event(ns, b, m, lp);
             break;
         default:
@@ -455,8 +455,8 @@ static void sw_rev_event(
     return;
 }
 
-static void sw_finalize(
-    sw_state * ns,
+static void sp_finalize(
+    sp_state * ns,
     tw_lp * lp)
 {
     /* first need to add last known active-range times (they aren't added 
@@ -466,18 +466,18 @@ static void sw_finalize(
             i < CATEGORY_MAX && strlen(ns->idle_times_cat[i].category) > 0; 
             i++){
         category_idles *id = ns->idle_times_cat + i;
-        mn_stats       *st = ns->sw_stats_array + i;
+        mn_stats       *st = ns->sp_stats_array + i;
         st->send_time += id->send_next_idle_all - id->send_prev_idle_all;
         st->recv_time += id->recv_next_idle_all - id->recv_prev_idle_all;
     }
 
-    model_net_print_stats(lp->gid, &ns->sw_stats_array[0]);
+    model_net_print_stats(lp->gid, &ns->sp_stats_array[0]);
     return;
 }
 
-int sw_get_magic()
+int sp_get_magic()
 {
-  return sw_magic;
+  return sp_magic;
 }
 
 /* convert MiB/s and bytes to ns */
@@ -497,21 +497,21 @@ static tw_stime rate_to_ns(uint64_t bytes, double MB_p_s)
 
 /* reverse computation for msg ready event */
 static void handle_msg_ready_rev_event(
-    sw_state * ns,
+    sp_state * ns,
     tw_bf * b,
-    sw_message * m,
+    sp_message * m,
     tw_lp * lp)
 {
     struct mn_stats* stat;
     category_idles * idles;
 
-    stat = model_net_find_stats(m->category, ns->sw_stats_array);
+    stat = model_net_find_stats(m->category, ns->sp_stats_array);
     stat->recv_count--;
     stat->recv_bytes -= m->net_msg_size_bytes;
     stat->recv_time = m->recv_time_saved;
 
     ns->recv_next_idle[m->src_mn_rel_id] = m->recv_next_idle_saved;
-    idles = sw_get_category_idles(m->category, ns->idle_times_cat);
+    idles = sp_get_category_idles(m->category, ns->idle_times_cat);
     idles->recv_next_idle_all = m->recv_next_idle_all_saved;
     idles->recv_prev_idle_all = m->recv_prev_idle_all_saved;
 
@@ -527,9 +527,9 @@ static void handle_msg_ready_rev_event(
  * to recv, but we haven't checked to see if the recv queue is available yet
  */
 static void handle_msg_ready_event(
-    sw_state * ns,
+    sp_state * ns,
     tw_bf * b,
-    sw_message * m,
+    sp_message * m,
     tw_lp * lp)
 {
     tw_stime recv_queue_time = 0;
@@ -537,11 +537,11 @@ static void handle_msg_ready_event(
     struct mn_stats* stat;
 
     /* get source->me network stats */
-    double bw = sw_get_table_ent(m->src_mn_rel_id, ns->id,
+    double bw = sp_get_table_ent(m->src_mn_rel_id, ns->id,
             ns->params->num_lps, ns->params->net_bw_mbps_table);
-    double startup = sw_get_table_ent(m->src_mn_rel_id, ns->id,
-            ns->params->num_lps, ns->params->net_startup_ns_table);
-    if (bw <= 0.0 || startup < 0.0){
+    double latency = sp_get_table_ent(m->src_mn_rel_id, ns->id,
+            ns->params->num_lps, ns->params->net_latency_ns_table);
+    if (bw <= 0.0 || latency < 0.0){
         fprintf(stderr, 
                 "Invalid link from Rel. id %d to LP %lu (rel. id %d)\n", 
                 m->src_mn_rel_id, lp->gid, ns->id);
@@ -562,16 +562,16 @@ static void handle_msg_ready_event(
     ns->recv_next_idle[m->src_mn_rel_id] = recv_queue_time + tw_now(lp);
 
     /* get stats, save state (TODO: smarter save state than param dump?)  */
-    stat = model_net_find_stats(m->category, ns->sw_stats_array);
+    stat = model_net_find_stats(m->category, ns->sp_stats_array);
     category_idles *idles = 
-        sw_get_category_idles(m->category, ns->idle_times_cat);
+        sp_get_category_idles(m->category, ns->idle_times_cat);
     stat->recv_count++;
     stat->recv_bytes += m->net_msg_size_bytes;
     m->recv_time_saved = stat->recv_time;
     m->recv_next_idle_all_saved = idles->recv_next_idle_all;
     m->recv_prev_idle_all_saved = idles->recv_prev_idle_all;
 
-#if SIMPLEWAN_DEBUG
+#if SIMPLEP2P_DEBUG
     printf("%d: from_id:%d now: %8.3lf next_idle_recv: %8.3lf\n",
             ns->id, m->src_mn_rel_id,
             tw_now(lp), ns->recv_next_idle[m->src_mn_rel_id]);
@@ -593,7 +593,7 @@ static void handle_msg_ready_event(
         idles->recv_next_idle_all = ns->recv_next_idle[m->src_mn_rel_id];
     }
 
-#if SIMPLEWAN_DEBUG
+#if SIMPLEP2P_DEBUG
     printf("%d: AFTER  all_idles_recv %8.3lf %8.3lf",
             ns->id, idles->recv_prev_idle_all, idles->recv_next_idle_all);
     if (m->event_size_bytes>0){
@@ -608,8 +608,8 @@ static void handle_msg_ready_event(
     if(m->event_size_bytes)
     {
         //char* tmp_ptr = (char*)m;
-        //tmp_ptr += sw_get_msg_sz();
-        void *tmp_ptr = model_net_method_get_edata(SIMPLEWAN, m);
+        //tmp_ptr += sp_get_msg_sz();
+        void *tmp_ptr = model_net_method_get_edata(SIMPLEP2P, m);
         if (m->is_pull){
             int net_id = model_net_get_id(LP_METHOD_NM);
             model_net_event(net_id, m->category, m->src_gid, m->pull_size,
@@ -629,9 +629,9 @@ static void handle_msg_ready_event(
 
 /* reverse computation for msg start event */
 static void handle_msg_start_rev_event(
-    sw_state * ns,
+    sp_state * ns,
     tw_bf * b,
-    sw_message * m,
+    sp_message * m,
     tw_lp * lp)
 {
     if(m->local_event_size_bytes > 0)
@@ -640,13 +640,13 @@ static void handle_msg_start_rev_event(
     }
 
     mn_stats* stat;
-    stat = model_net_find_stats(m->category, ns->sw_stats_array);
+    stat = model_net_find_stats(m->category, ns->sp_stats_array);
     stat->send_count--;
     stat->send_bytes -= m->net_msg_size_bytes;
     stat->send_time = m->send_time_saved;
 
     category_idles *idles = 
-        sw_get_category_idles(m->category, ns->idle_times_cat);
+        sp_get_category_idles(m->category, ns->idle_times_cat);
     ns->send_next_idle[m->dest_mn_rel_id] = m->send_next_idle_saved;
     idles->send_next_idle_all = m->send_next_idle_all_saved;
     idles->send_prev_idle_all = m->send_prev_idle_all_saved;
@@ -658,13 +658,13 @@ static void handle_msg_start_rev_event(
  * transmit a message through this NIC
  */
 static void handle_msg_start_event(
-    sw_state * ns,
+    sp_state * ns,
     tw_bf * b,
-    sw_message * m,
+    sp_message * m,
     tw_lp * lp)
 {
     tw_event *e_new;
-    sw_message *m_new;
+    sp_message *m_new;
     tw_stime send_queue_time = 0;
     mn_stats* stat;
     int mapping_rep_id, mapping_offset, dummy;
@@ -672,22 +672,22 @@ static void handle_msg_start_event(
     char lp_group_name[MAX_NAME_LENGTH];
     int total_event_size;
     int dest_rel_id;
-    double bw, startup;
+    double bw, latency;
 
-    total_event_size = model_net_get_msg_sz(SIMPLEWAN) + m->event_size_bytes +
+    total_event_size = model_net_get_msg_sz(SIMPLEP2P) + m->event_size_bytes +
         m->local_event_size_bytes;
 
-    dest_id = model_net_find_local_device(SIMPLEWAN, ns->anno, 0,
+    dest_id = model_net_find_local_device(SIMPLEP2P, ns->anno, 0,
             m->final_dest_gid);
     dest_rel_id = codes_mapping_get_lp_relative_id(dest_id, 0, 0);
     m->dest_mn_rel_id = dest_rel_id;
 
     /* grab the link params */
-    bw = sw_get_table_ent(ns->id, dest_rel_id,
+    bw = sp_get_table_ent(ns->id, dest_rel_id,
             ns->params->num_lps, ns->params->net_bw_mbps_table);
-    startup = sw_get_table_ent(ns->id, dest_rel_id,
-            ns->params->num_lps, ns->params->net_startup_ns_table);
-    if (bw <= 0.0 || startup < 0.0){
+    latency = sp_get_table_ent(ns->id, dest_rel_id,
+            ns->params->num_lps, ns->params->net_latency_ns_table);
+    if (bw <= 0.0 || latency < 0.0){
         fprintf(stderr, 
                 "Invalid link from LP %lu (rel. id %d) to LP %lu (rel. id %d)\n", 
                 lp->gid, ns->id, dest_id, dest_rel_id);
@@ -695,7 +695,7 @@ static void handle_msg_start_event(
     }
 
     /* calculate send time stamp */
-    send_queue_time = 0.0; /* net msg startup cost (negligible for this model) */
+    send_queue_time = 0.0; /* net msg latency cost (negligible for this model) */
     /* bump up time if the NIC send queue isn't idle right now */
     if(ns->send_next_idle[dest_rel_id] > tw_now(lp))
         send_queue_time += ns->send_next_idle[dest_rel_id] - tw_now(lp);
@@ -708,9 +708,9 @@ static void handle_msg_start_event(
         rate_to_ns(m->net_msg_size_bytes, bw);
 
     /* get stats, save state (TODO: smarter save state than param dump?)  */
-    stat = model_net_find_stats(m->category, ns->sw_stats_array);
+    stat = model_net_find_stats(m->category, ns->sp_stats_array);
     category_idles *idles = 
-        sw_get_category_idles(m->category, ns->idle_times_cat);
+        sp_get_category_idles(m->category, ns->idle_times_cat);
     stat->send_count++;
     stat->send_bytes += m->net_msg_size_bytes;
     m->send_time_saved = stat->send_time;
@@ -719,7 +719,7 @@ static void handle_msg_start_event(
     if(stat->max_event_size < total_event_size)
         stat->max_event_size = total_event_size;
 
-#if SIMPLEWAN_DEBUG
+#if SIMPLEP2P_DEBUG
     printf("%d: to_id:%d now: %8.3lf next_idle_send: %8.3lf\n",
             ns->id, dest_rel_id,
             tw_now(lp), ns->send_next_idle[dest_rel_id]);
@@ -738,7 +738,7 @@ static void handle_msg_start_event(
         idles->send_next_idle_all = ns->send_next_idle[dest_rel_id];
     }
 
-#if SIMPLEWAN_DEBUG
+#if SIMPLEP2P_DEBUG
     printf("%d: AFTER  all_idles_send %8.3lf %8.3lf",
             ns->id, idles->send_prev_idle_all, idles->send_next_idle_all);
     if (m->local_event_size_bytes>0){
@@ -754,19 +754,19 @@ static void handle_msg_start_event(
     void *m_data;
     //e_new = tw_event_new(dest_id, send_queue_time, lp);
     //m_new = tw_event_data(e_new);
-    e_new = model_net_method_event_new(dest_id, send_queue_time+startup, lp,
-            SIMPLEWAN, (void**)&m_new, &m_data);
+    e_new = model_net_method_event_new(dest_id, send_queue_time+latency, lp,
+            SIMPLEP2P, (void**)&m_new, &m_data);
 
     /* copy entire previous message over, including payload from user of
      * this module
      */
-    //memcpy(m_new, m, m->event_size_bytes + sw_get_msg_sz());
-    memcpy(m_new, m, sizeof(sw_message));
+    //memcpy(m_new, m, m->event_size_bytes + sp_get_msg_sz());
+    memcpy(m_new, m, sizeof(sp_message));
     if (m->event_size_bytes){
-        memcpy(m_data, model_net_method_get_edata(SIMPLEWAN, m),
+        memcpy(m_data, model_net_method_get_edata(SIMPLEP2P, m),
                 m->event_size_bytes);
     }
-    m_new->event_type = SW_MSG_READY;
+    m_new->event_type = SP_MSG_READY;
     m_new->src_mn_rel_id = ns->id;
     
     tw_event_send(e_new);
@@ -781,10 +781,10 @@ static void handle_msg_start_event(
         e_new = tw_event_new(m->src_gid, send_queue_time+codes_local_latency(lp), lp);
         m_new = tw_event_data(e_new);
 
-        void * m_loc = (char*) model_net_method_get_edata(SIMPLEWAN, m) +
+        void * m_loc = (char*) model_net_method_get_edata(SIMPLEP2P, m) +
             m->event_size_bytes;
          //local_event = (char*)m;
-         //local_event += sw_get_msg_sz() + m->event_size_bytes;         	 
+         //local_event += sp_get_msg_sz() + m->event_size_bytes;         	 
         /* copy just the local event data over */
         memcpy(m_new, m_loc, m->local_event_size_bytes);
         tw_event_send(e_new);
@@ -794,9 +794,9 @@ static void handle_msg_start_event(
 
 /* Model-net function calls */
 
-/*This method will serve as an intermediate layer between simplewan and modelnet. 
- * It takes the packets from modelnet layer and calls underlying simplewan methods*/
-static tw_stime simplewan_packet_event(
+/*This method will serve as an intermediate layer between simplep2p and modelnet. 
+ * It takes the packets from modelnet layer and calls underlying simplep2p methods*/
+static tw_stime simplep2p_packet_event(
         char* category,
         tw_lpid final_dest_lp,
         uint64_t packet_size,
@@ -814,12 +814,12 @@ static tw_stime simplewan_packet_event(
 {
      tw_event * e_new;
      tw_stime xfer_to_nic_time;
-     sw_message * msg;
+     sp_message * msg;
      char* tmp_ptr;
 
      xfer_to_nic_time = codes_local_latency(sender);
 
-#if SIMPLEWAN_DEBUG
+#if SIMPLEP2P_DEBUG
     printf("%lu: final %lu packet sz %d remote sz %d self sz %d is_last_pckt %d latency %lf\n",
             (src_lp - 1) / 2, final_dest_lp, packet_size, 
             remote_event_size, self_event_size, is_last_pckt,
@@ -827,20 +827,20 @@ static tw_stime simplewan_packet_event(
 #endif
 
      e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
-             sender, SIMPLEWAN, (void**)&msg, (void**)&tmp_ptr);
+             sender, SIMPLEP2P, (void**)&msg, (void**)&tmp_ptr);
      strcpy(msg->category, category);
      msg->final_dest_gid = final_dest_lp;
      msg->src_gid = src_lp;
-     msg->magic = sw_get_magic();
+     msg->magic = sp_get_magic();
      msg->net_msg_size_bytes = packet_size;
      msg->event_size_bytes = 0;
      msg->local_event_size_bytes = 0;
-     msg->event_type = SW_MSG_START;
+     msg->event_type = SP_MSG_START;
      msg->is_pull = is_pull;
      msg->pull_size = pull_size;
 
-    //printf("\n Sending to LP %d msg magic %d ", (int)dest_id, sw_get_magic()); 
-     /*Fill in simplewan information*/     
+    //printf("\n Sending to LP %d msg magic %d ", (int)dest_id, sp_get_magic()); 
+     /*Fill in simplep2p information*/     
      if(is_last_pckt) /* Its the last packet so pass in remote event information*/
       {
        if(remote_event_size)
@@ -855,25 +855,25 @@ static tw_stime simplewan_packet_event(
 	   memcpy(tmp_ptr, self_event, self_event_size);
 	   tmp_ptr += self_event_size;
        }
-      // printf("\n Last packet size: %d ", sw_get_msg_sz() + remote_event_size + self_event_size);
+      // printf("\n Last packet size: %d ", sp_get_msg_sz() + remote_event_size + self_event_size);
       }
      tw_event_send(e_new);
      return xfer_to_nic_time;
 }
 
-static void sw_read_config(const char * anno, simplewan_param *p){
-    char startup_file[MAX_NAME_LENGTH];
+static void sp_read_config(const char * anno, simplep2p_param *p){
+    char latency_file[MAX_NAME_LENGTH];
     char bw_file[MAX_NAME_LENGTH];
     int rc;
     rc = configuration_get_value_relpath(&config, "PARAMS", 
-            "net_startup_ns_file", anno, startup_file, MAX_NAME_LENGTH);
+            "net_latency_ns_file", anno, latency_file, MAX_NAME_LENGTH);
     if (rc == 0){
         if (anno == NULL)
             tw_error(TW_LOC,
-                    "simplewan: unable to read PARAMS:net_startup_ns_file");
+                    "simplep2p: unable to read PARAMS:net_latency_ns_file");
         else
             tw_error(TW_LOC,
-                    "simplewan: unable to read PARAMS:net_startup_ns_file@%s",
+                    "simplep2p: unable to read PARAMS:net_latency_ns_file@%s",
                     anno);
     }
     rc = configuration_get_value_relpath(&config, "PARAMS", "net_bw_mbps_file",
@@ -881,42 +881,42 @@ static void sw_read_config(const char * anno, simplewan_param *p){
     if (rc == 0){
         if (anno == NULL)
             tw_error(TW_LOC,
-                    "simplewan: unable to read PARAMS:net_bw_mbps_file");
+                    "simplep2p: unable to read PARAMS:net_bw_mbps_file");
         else
             tw_error(TW_LOC,
-                    "simplewan: unable to read PARAMS:net_bw_mbps_file@%s",
+                    "simplep2p: unable to read PARAMS:net_bw_mbps_file@%s",
                     anno);
     }
     p->num_lps = codes_mapping_get_lp_count(NULL, 0,
             LP_CONFIG_NM, anno, 0);
-    sw_set_params(startup_file, bw_file, p);
+    sp_set_params(latency_file, bw_file, p);
     if (p->mat_len != p->num_lps){
-        tw_error(TW_LOC, "Simplewan config matrix doesn't match the "
-                "number of simplewan LPs (%d vs. %d)\n",
+        tw_error(TW_LOC, "simplep2p config matrix doesn't match the "
+                "number of simplep2p LPs (%d vs. %d)\n",
                 p->mat_len, p->num_lps);
     }
 }
 
-static void sw_configure(){
+static void sp_configure(){
     anno_map = codes_mapping_get_lp_anno_map(LP_CONFIG_NM);
     assert(anno_map);
     num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
     all_params = malloc(num_params * sizeof(*all_params));
     for (uint64_t i = 0; i < anno_map->num_annos; i++){
-        sw_read_config(anno_map->annotations[i], &all_params[i]);
+        sp_read_config(anno_map->annotations[i], &all_params[i]);
     }
     if (anno_map->has_unanno_lp > 0){
-        sw_read_config(NULL, &all_params[anno_map->num_annos]);
+        sp_read_config(NULL, &all_params[anno_map->num_annos]);
     }
 }
 
-static void simplewan_packet_event_rc(tw_lp *sender)
+static void simplep2p_packet_event_rc(tw_lp *sender)
 {
     codes_local_latency_reverse(sender);
     return;
 }
 
-static tw_lpid sw_find_local_device(
+static tw_lpid sp_find_local_device(
         const char * annotation,
         int ignore_annotations,
         tw_lp *sender)
@@ -933,7 +933,7 @@ static tw_lpid sw_find_local_device(
     return(dest_id);
 }
 
-static double sw_get_table_ent(
+static double sp_get_table_ent(
         int      from_id, 
         int      to_id,
         int      num_lps,
@@ -943,7 +943,7 @@ static double sw_get_table_ent(
 }
 
 /* category lookup (more or less copied from model_net_find_stats) */
-static category_idles* sw_get_category_idles(
+static category_idles* sp_get_category_idles(
         char * category, category_idles *idles){
     int i;
     int new_flag = 0;

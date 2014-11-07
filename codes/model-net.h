@@ -44,7 +44,7 @@ typedef struct mn_stats mn_stats;
 // last value is sentinel
 #define NETWORK_DEF \
     X(SIMPLENET, "modelnet_simplenet", "simplenet", &simplenet_method)\
-    X(SIMPLEWAN, "modelnet_simplewan", "simplewan", &simplewan_method)\
+    X(SIMPLEP2P, "modelnet_simplep2p", "simplep2p", &simplep2p_method)\
     X(TORUS,     "modelnet_torus",     "torus",     &torus_method)\
     X(DRAGONFLY, "modelnet_dragonfly", "dragonfly", &dragonfly_method)\
     X(LOGGP,     "modelnet_loggp",     "loggp",     &loggp_method)\

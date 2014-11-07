@@ -1,6 +1,6 @@
 
 check_PROGRAMS += tests/modelnet-test tests/modelnet-p2p-bw \
-				  tests/concurrent-msg-recv tests/modelnet-simplewan-test \
+				  tests/concurrent-msg-recv tests/modelnet-simplep2p-test \
 				  tests/modelnet-test-collective \
 				  tests/modelnet-prio-sched-test
 
@@ -24,9 +24,9 @@ EXTRA_DIST += tests/modelnet-test.sh \
 		  tests/conf/modelnet-test.conf \
 		  tests/conf/modelnet-test-dragonfly.conf \
 		  tests/conf/modelnet-test-loggp.conf \
-		  tests/conf/modelnet-test-simplewan.conf \
-		  tests/conf/modelnet-test-startup.conf \
-		  tests/conf/modelnet-test-startup-tri.conf \
+		  tests/conf/modelnet-test-simplep2p.conf \
+		  tests/conf/modelnet-test-latency.conf \
+		  tests/conf/modelnet-test-latency-tri.conf \
 		  tests/conf/modelnet-test-torus.conf \
 		  tests/conf/ng-mpi-tukey.dat \
 		  tests/README_MN_TEST.txt
@@ -37,9 +37,9 @@ tests_modelnet_test_LDADD = $(testlib) ${CODES_BASE_LIBS}
 tests_modelnet_test_CFLAGS = ${CODES_BASE_CFLAGS}
 tests_modelnet_test_SOURCES = tests/modelnet-test.c
 
-tests_modelnet_simplewan_test_LDADD = $(testlib) ${CODES_BASE_LIBS}
-tests_modelnet_simplewan_test_CFLAGS = ${CODES_BASE_CFLAGS}
-tests_modelnet_simplewan_test_SOURCES = tests/modelnet-simplewan-test.c
+tests_modelnet_simplep2p_test_LDADD = $(testlib) ${CODES_BASE_LIBS}
+tests_modelnet_simplep2p_test_CFLAGS = ${CODES_BASE_CFLAGS}
+tests_modelnet_simplep2p_test_SOURCES = tests/modelnet-simplep2p-test.c
 
 tests_modelnet_p2p_bw_LDADD = $(testlib) ${CODES_BASE_LIBS}
 tests_modelnet_p2p_bw_CFLAGS = ${CODES_BASE_CFLAGS}
