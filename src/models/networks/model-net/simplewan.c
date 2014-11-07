@@ -695,7 +695,7 @@ static void handle_msg_start_event(
     }
 
     /* calculate send time stamp */
-    send_queue_time = startup; /* net msg startup cost */
+    send_queue_time = 0.0; /* net msg startup cost (negligible for this model) */
     /* bump up time if the NIC send queue isn't idle right now */
     if(ns->send_next_idle[dest_rel_id] > tw_now(lp))
         send_queue_time += ns->send_next_idle[dest_rel_id] - tw_now(lp);
@@ -754,7 +754,7 @@ static void handle_msg_start_event(
     void *m_data;
     //e_new = tw_event_new(dest_id, send_queue_time, lp);
     //m_new = tw_event_data(e_new);
-    e_new = model_net_method_event_new(dest_id, send_queue_time, lp,
+    e_new = model_net_method_event_new(dest_id, send_queue_time+startup, lp,
             SIMPLEWAN, (void**)&m_new, &m_data);
 
     /* copy entire previous message over, including payload from user of
