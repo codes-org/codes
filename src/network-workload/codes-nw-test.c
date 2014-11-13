@@ -66,6 +66,10 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        return;
 #endif
    }
+   else{
+        tw_error(TW_LOC, "unsupported option: %s\n", workload_type);
+        return;
+   }
    wrkld_id = codes_nw_workload_load(wtype, params, (int)lp->gid);
    
    tw_event *e;
