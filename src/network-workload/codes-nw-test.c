@@ -38,9 +38,13 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 {
    /* initialize the LP's and load the data */
    char * params;
+   const char * wtype;
+   /* TODO: expose the network workload names */
+   const char * sc_name = "scala-trace-workload";
    scala_trace_params params_sc;
 #if USE_DUMPI
    dumpi_trace_params params_d;
+   const char * d_name = "dumpi-trace_workload";
 #endif
    if (strcmp(workload_type, "scalatrace") == 0){
        if (params_sc.offset_file_name[0] == '\0'){
@@ -50,17 +54,19 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        strcpy(params_sc.offset_file_name, offset_file);
        strcpy(params_sc.nw_wrkld_file_name, workload_file);
        params = (char*)&params_sc;
+       wtype = sc_name;
    }
    else if (strcmp(workload_type, "dumpi") == 0){
 #if USE_DUMPI
        strcpy(params_d.file_name, workload_file);
        params = (char*)&params_d;
+       wtype = d_name;
 #else
        tw_error(TW_LOC, "dumpi support not enable");
        return;
 #endif
    }
-   wrkld_id = codes_nw_workload_load("dumpi-trace-workload", params, (int)lp->gid);
+   wrkld_id = codes_nw_workload_load(wtype, params, (int)lp->gid);
    
    tw_event *e;
    tw_stime kickoff_time;
