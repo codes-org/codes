@@ -186,6 +186,9 @@ The main purpose of this document is to help the reader produce
 CODES models in a consistent, modular style so that components can be more
 easily shared and reused.  It also includes a few tips to help avoid common
 simulation bugs.
+
+For more information, ROSS has a bunch of documentation available in their
+repository/wiki - see \url{https://github.com/carothersc/ROSS}.
 \end{abstract}
 
 \section{CODES: modularizing models}
@@ -247,7 +250,18 @@ model.  This can help simplify reverse computation by breaking complex
 operations into smaller, easier to understand (and reverse) event units with
 deterministic ordering.
 
-\subsection{Protecting data structures}
+\subsection{Sharing message representation}
+
+It is often difficult to debug cases where an LP sends a message to the wrong
+LP, as the event structures can be completely different. Hence, it greatly aids
+debugging to adhere to a common structure in messages. In particular, the
+message header struct \texttt{msg\_header} in lp-msg.h should be placed and
+used at the top of every LP's event structure, enabling inspection of any kind
+of message in the simulation. The ``magic'' number should be unique to each LP
+type to delineate what the expected type of the intended LP recipient. It is a
+similarly good idea to use unique event type IDs.
+
+\subsection{Providing a sane communication API between LPs}
 
 ROSS operates by exchanging events between LPs.  If an LP is sending
 an event to another LP of the same type, then in general it can do so
@@ -272,63 +286,102 @@ headers.  If the definitions are placed in a header then it makes it
 possible for those event and state structs to be used as an ad-hoc interface
 between LPs of different types.
 
-\section{CODES/ROSS: general tips and tricks}
+\section{Coping with time warp / reverse computation}
 
-\subsection{Event magic numbers}
+Time warp and ROSS's reverse computation mechanism, while vital to providing
+scalable simulation performance, also complicates model development and
+debugging. This section lists some ways of coping with these kinds of errors,
+and with reverse computation in general.
 
-Put magic numbers at the top of each event struct and
-check them in event handler.  This makes sure that you don't accidentally
-send the wrong event type to an LP, and aids debugging.
+The time warp protocol is susceptible to certain classes of simulation behavior
+by which LPs are asked to perform messages that are potentially outside the
+scope of the behavior the programmer intended to perform (not including logic
+bugs by the programmer). An excellent discussion of this topic is given in the
+paper ``The Dark Side of Risk (What your mother never told you about Time
+Warp)'' by Nicol and Liu
+(\url{http://ieeexplore.ieee.org/xpls/abs_all.jsp?arnumber=594606}).
 
-\subsection{Avoiding event timestamp ties}
+As a small example, consider two LPs, $A$ and $B$. Say $A$ has sent some
+message to $B$ at some logical time $t$, then at $t+1$, $A$ is rolled back and
+sends an anti-message to $B$. However, before $B$ can process the anti-message,
+it processes the original message sent by $A$ *and* sends a message back to
+$A$. Now, $A$ receives a message that resulted from a state that, in $A$'s
+view, is undefined/unexpected.
 
-Event timestamp ties in ROSS occur when two or more events have the same
-timestamp. These have a variety of unintended consequences, most significant of
-which is hampering both reproducability and determinism in simulations. To
-avoid this, use codes\_local\_latency for events with small or zero time deltas
-to add some random noise. codes\_local\_latency must be reversed, so use
-codes\_local\_latency\_reverse in reverse event handlers.
+Depending on the event dependencies between LPs, issues such as the example can
+easily occur in optimistic simulations. In general, when diagnosing these
+issues it is useful to determine the full flow of events coming into an LP and
+ordering dependencies between those events. For example, protocols for
+performing a distributed storage write may have a number of steps represented
+as events. Knowing the order that these events can arrive in the system, and
+whether multiple events from e.g.\ different writes are possible can go a
+long way in determining the vectors for possible errors.
 
-One example of this usage is exchanging events between LPs without really
-consuming significant time (for example, to transfer information from a server
-to its locally attached network card). It is tempting to use a timestamp of 0,
-but this would cause timestamp ties in ROSS. Use of codes\_local\_latency for
-timing of local event transitions in this case can be thought of as bus
-overhead or context switch overhead.
+\subsection{Self-suspend}
 
-\subsection{Organizing event structures}
+Self-suspend is a technique for limiting how far down a path of undefined
+behavior an LP goes when receiving unexpected/undefined combinations of events.
+It is a relatively simple concept that falls into four steps:
+\begin{enumerate}
+    \item Aggressively check events for potential unexpected input, putting the
+        LP into \emph{suspend mode} by setting a suspend counter and returning
+        (keeping the LP state as it was before the offending event was
+        processed). Typically these can intersect with asserts in LP code, but
+        it is often unclear whether a model error is a programmer error or a
+        result of time warp event ordering.
+    \item While the suspend counter is positive, increment upon forward event
+        receipt and decrement upon reverse event receipt. Don't process the
+        received events.
+    \item When the suspend counter returns to zero, start processing forward
+        events again as normal.
+    \item Report whether an LP is in suspend state at the end of the
+        simulation.
+\end{enumerate}
 
-Since a single event structure contains data for all of the different types of
-events processed by the LP, use a type enum + unions as an organizational
-strategy. Keeps the event size down and makes it a little clearer what
-variables are used by which event types.
+The primary benefit of self-suspend is that it prevents arbitrary changing (or
+destructing) of state based on unexpected messages, leading to a much more
+stable simulation. Additionally, the machinery for self-suspend is easy to
+implement -- steps 2--4 are a few lines of code each. Also, LP-IO can be
+used upon encountering a suspend condition to give error specifics (the reverse
+write would occur in the reverse handler in step 3).
 
-\subsection{Validating across simulation modes}
+\subsection{Stash data needed for reverse computation within event structures}
 
-During development, you should do test runs with serial, parallel conservative,
-and parallel optimistic runs to make sure that you get consistent results.
-These modes stress different aspects of the model.
+Writing discrete-event simulations will necessarily involve ``destructive''
+operations, which, in the view of an optimistic simulation, are operations in
+which the information needed for rollback is no longer available. Destructive
+operations include:
+\begin{enumerate}
+    \item Re-assignment of a variable (losing the original value)
+    \item Most floating point operations. Floating-point math is not
+        associative and rounding errors cause issues such as
+        $a+b-b \neq a$, which need to be considered when making a simulation
+        that involves floating-point math.
+    \item \texttt{free}'ing data.
+\end{enumerate}
 
-\subsection{Working with floating-point data}
+One nice property of events is that the data in an event structure will stick
+around until GVT sweeps by and the event is guaranteed to be no longer needed.
+Hence, one strategy for rolling back destructive operations is to stash the
+original values in the event structures causing the destruction, and restoring
+them upon rollback. The primary downside of this is that event structure size
+increases, which increases ROSS-related overheads (manipulating event-related
+data structures and sending events to other processes).
 
-Floating point variables are particularly tricky to use in optimistic
-simulations, as rounding errors prevent rolling back to a consistent state by
-merely performing the inverse operations (e.g., $a+b-b \neq a$). Hence, it is
-instead preferable to simply store the local floating-point state in the event
-structure and perform assignment on rollback.
+\subsection{Prefer static to dynamic memory in LP state}
 
-\subsection{How to complete a simulation}
+In many cases (such as implementing data structures like queues and stacks), an
+LP will want to malloc memory within in an event and free it within another.
+This is discouraged for the time being. Once a piece of data is freed, it
+cannot be recovered upon rollback later on. If your data structures being
+allocated are simple and relatively small, you can put the data to be freed
+directly into the event structure then free the original copy, though it will
+increase the event structure size for the LP accordingly.
 
-Most core ROSS examples are design to intentionally hit
-the end timestamp for the simulation (i.e. they are modeling a continuous,
-steady state system). This isn't necessarily true for other models. Quite
-simply, set g\_tw\_ts\_end to an arbitrary large number when running simulations
-that have a well-defined end-point in terms of events processed. 
+In the future, optimistic-mode-aware free lists may be provided by ROSS that
+will mitigate this problem.
 
-Within the LP finalize function, do not call tw\_now. The time returned may not
-be consistent in the case of an optimistic simulation.
-
-\subsection{Handling non-trivial event dependencies}
+\subsection{Handling non-trivial event dependencies: queuing example}
 
 In storage system simulations, it will often be the case that clients, servers,
 or both issue multiple asynchronous (parallel) operations, performing some
@@ -356,6 +409,84 @@ other asynchronous events, allowing us to easily recover the state. Furthermore,
 events are garbage-collected as the GVT, reducing memory management complexity.
 However, this strategy has the disadvantage of increasing event size
 accordingly.
+
+\section{CODES/ROSS: general tips and tricks}
+
+\subsection{Initializing the model}
+
+There are two conceptual steps to initializing a CODES model - LP registration
+in ROSS and configuration via consulting the CODES configuration file. In older
+versions of models we wrote, these two steps were together. However, it is
+highly suggested to separate these two steps into different functions, with the
+registration occurring before the call to \texttt{codes\_mapping\_setup}, and
+the configuration occurring after the call. This allows the codes-mapping API
+to be used at configuration time, which is often useful when LPs need to know
+things like LP counts and doing these in the ROSS LP init function would lead
+to unnecessary computation. It is especially useful for configuration schemes
+that require knowledge of LP annotations.
+
+\subsection{LP-IO usage}
+
+LP-IO is a simple and useful optimistic-aware IO utility for optimistic
+simulations. Based on our usage, we have the following recommendations for
+effective usage of it:
+\begin{enumerate}
+    \item Use the command-line to configure turning IO on and off in its
+        entirety, and to specify where the output should be placed. Suggested
+        options:
+        \begin{enumerate}
+            \item \texttt{--lp-io-dir=DIR} -- use DIR as the output directory -
+                absence of the option indicates no LP-IO output.
+            \item \texttt{--lp-io-use-suffix=DUMMY} -- add the PID of the root
+                rank to the directory name to avoid clashes between
+                multiple runs. If not specified, then the DIR option
+                will be exactly used, possibly leading to an error/exit. The
+                dummy argument is due to a ROSS limitation of not allowing
+                ``flag''-style options (options with no arguments).
+        \end{enumerate}
+    \item Use LP-specific options in the CODES configuration file to drive
+        specific options for output within the LP.
+\end{enumerate}
+
+\subsection{Avoiding event timestamp ties}
+
+Event timestamp ties in ROSS occur when two or more events have the same
+timestamp. These have a variety of unintended consequences, most significant of
+which is hampering both reproducability and determinism in simulations. To
+avoid this, use codes\_local\_latency for events with small or zero time deltas
+to add some random noise. codes\_local\_latency must be reversed, so use
+codes\_local\_latency\_reverse in reverse event handlers.
+
+One example of this usage is exchanging events between LPs without really
+consuming significant time (for example, to transfer information from a server
+to its locally attached network card). It is tempting to use a timestamp of 0,
+but this would cause timestamp ties in ROSS. Use of codes\_local\_latency for
+timing of local event transitions in this case can be thought of as bus
+overhead or context switch overhead.
+
+\subsection{Organizing event structures}
+
+Since a single event structure contains data for all of the different types of
+events processed by the LP, use a type enum + unions (otherwise known as a
+``tagged struct'') as an organizational strategy. Keeps the event size down and
+makes it a little clearer what variables are used by which event types.
+
+\subsection{Validating across simulation modes}
+
+During development, you should do test runs with serial, parallel conservative,
+and parallel optimistic runs to make sure that you get consistent results.
+These modes stress different aspects of the model.
+
+\subsection{How to complete a simulation}
+
+Most core ROSS examples are design to intentionally hit
+the end timestamp for the simulation (i.e. they are modeling a continuous,
+steady state system). This isn't necessarily true for other models. Quite
+simply, set g\_tw\_ts\_end to an arbitrary large number when running simulations
+that have a well-defined end-point in terms of events processed. 
+
+Within the LP finalize function, do not call tw\_now. The time returned may not
+be consistent in the case of an optimistic simulation.
 
 \section{Best practices quick reference}
 
@@ -402,68 +533,22 @@ section(s).
         \item reverse computation with collective knowledge is difficult
     \end{enumerate}
 
-    \item for optimistic-mode-capable tracking of multiple asynchronous event
-        dependencies, cache status in the event state signifying the last
-        satisfied dependency to ease reverse computation
+    \item separate ROSS registration from LP configuration functionality
+
+    \item use self-suspend liberally
+    \item stash data from destructive operations (floating point computations,
+        freed data, re-assigned variables) in the event structure causing the
+        destruction
+    \item prefer static memory in LP states to dynamic memory
 
 \end{enumerate}
 
 \section{TODO}
 
 \begin{itemize}
-    \item reference to ROSS user's guide, airport model, etc.
     \item add code examples?
-    \item techniques for exchanging events across LP types (API tips)
-    \item add codes-mapping overview
-    \item add more content on reverse computation. Specifically, development
-        strategies using it, tips on testing, common issues that come up, etc.
     \item put a pdf or latex2html version of this document on the codes web page
         when it's ready
-    \item use msg\_header at the top of all message structs
-        \begin{itemize}
-            \item makes debugging a lot easier if they share the same first few fields
-        \end{itemize}
-    \item use different starting values for event type enums - along with
-        previous point, helps determine originating LP message 
-    \item use self suspend (this deserves its own section)
-    \item separate register / configure functions for LPs
-        \begin{itemize}
-            \item need to add lp type struct prior to codes\_mapping\_setup,
-                and it is often useful for LP-specific configuration to have
-                access to codes-mapping functionsk
-                \item especially needed for global config schemes with multiple
-                    annotations - need the annotations provided by
-                    codes-mapping, configuration APIs to know what fields to
-                    look for
-        \end{itemize}
-    \item lp-io
-        \begin{itemize}
-            \item use command-line to configure turning io on and off, and
-                where (dir) to place output. Use LP-specific options in the
-                configuration file to drive specific options for output within
-                the LP
-            \item suggested command line options
-                \begin{itemize}
-                    \item "--lp-io-dir=DIR" : use DIR as the directory -
-                        absence of option indicates no lp-io output
-                    \item "--lp-io-use-suffix=DUMMY" : add the PID of the root
-                        rank to the directory name to avoid clashes between
-                        multiple runs. If not specified, then the DIR option
-                        will be exactly used, possibly leading to an assert.
-                \end{itemize}
-        \end{itemize}
-
-    \item dealing with simulations with many 'destructive' operations and
-        mutable state (esp. state used/reset in multiple event sequences)
-          \begin{itemize}
-              \item use self-suspend liberally!!!
-              \item consider the *entire* sequence of events that affect a
-                  piece of mutable/destructible state, esp. from different LPs.
-                  You can get an event from the future on state that you've
-                  rolled back, for example, or multiple equivalent events that
-                  differ only in timestamp (e.g., event to remote -> roll back
-                  -> event to remote)
-          \end{itemize}
 \end{itemize}
 
 \begin{comment} ==== SCRATCH MATERIAL ====
