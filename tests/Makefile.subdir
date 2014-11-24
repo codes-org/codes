@@ -4,12 +4,14 @@ check_PROGRAMS += tests/lp-io-test \
  tests/workload/codes-workload-mpi-replay \
  tests/mapping_test \
  tests/lsm-test \
- tests/resource-test
+ tests/resource-test \
+ tests/rc-stack-test
 
 TESTS += tests/lp-io-test.sh \
  tests/workload/codes-workload-test.sh \
  tests/mapping_test.sh \
- tests/lsm-test.sh
+ tests/lsm-test.sh \
+ tests/rc-stack-test
 
 EXTRA_DIST += tests/lp-io-test.sh \
  tests/workload/codes-workload-test.sh \
@@ -39,6 +41,10 @@ tests_resource_test_SOURCES = tests/resource-test.c
 tests_lsm_test_LDADD = $(testlib) ${ROSS_LIBS}
 tests_lsm_test_LDFLAGS = ${ROSS_LDFLAGS}
 tests_lsm_test_SOURCES = tests/local-storage-model-test.c
+
+tests_rc_stack_test_LDADD = $(testlib) ${ROSS_LIBS}
+tests_rc_stack_test_LDFLAGS = ${ROSS_LDFLAGS}
+tests_rc_stack_test_SOURCES = tests/rc-stack-test.c
 
 tests_workload_codes_workload_test_LDADD = $(testlib) ${ROSS_LIBS}
 tests_workload_codes_workload_test_LDFLAGS = ${ROSS_LDFLAGS}
