@@ -22,6 +22,10 @@ class configurator:
             raise ValueError("token pairs must come in twos")
 
         self.mod = module
+        # simplify None-checking for cfields by generating an empty tuple
+        # instead
+        if self.mod.cfields == None:
+            self.mod.cfields = ()
         self.num_fields = len(self.mod.cfields)
         self.labels = [k[0] for k in self.mod.cfields] + replace_pairs[0::2]
         self.replace_map = { k[0] : None for k in self.mod.cfields }
@@ -114,9 +118,13 @@ def is_replace_except(except_map, replace_map):
     return False
 
 # checks - make sure cfields is set and is the correct type 
+# note: cfields can be None or an empty sequence
 def check_cfields(module):
     if "cfields" not in module.__dict__:
         raise TypeError("Expected cfields to be defined in " + str(module))
+    elif module.cfields == None or \
+            (isinstance(module.cfields, Sequence) and len(module.cfields) == 0):
+        return
     elif not \
             (isinstance(module.cfields, Sequence) and \
             isinstance(module.cfields[0][0], str) and \
