@@ -48,7 +48,8 @@ static inline tw_stime codes_local_latency(tw_lp *lp)
 
 static inline void codes_local_latency_reverse(tw_lp *lp)
 {
-    tw_rand_reverse_unif(lp->rng);
+    int r = g_tw_nRNG_per_lp-1;
+    tw_rand_reverse_unif(&lp->rng[r]);
     return;
 }
 
