@@ -38,9 +38,10 @@ still have a timestamp that is greater than g_tw_lookahead.
 #define CODES_MEAN_LOCAL_LATENCY 0.01
 static inline tw_stime codes_local_latency(tw_lp *lp)
 {
+    int r = g_tw_nRNG_per_lp-1;
     tw_stime tmp;
 
-    tmp = (1.1 * g_tw_lookahead) + tw_rand_exponential(lp->rng, CODES_MEAN_LOCAL_LATENCY);
+    tmp = (1.1 * g_tw_lookahead) + tw_rand_exponential(&lp->rng[r], CODES_MEAN_LOCAL_LATENCY);
 
     return(tmp);
 }

@@ -469,6 +469,11 @@ void codes_mapping_setup_with_seed_offset(int offset)
       message_size = 256;
       printf("\n Warning: ross message size not defined, resetting it to %d", message_size);
   }
+
+  // we increment the number of RNGs used to let codes_local_latency use the
+  // last one
+  g_tw_nRNG_per_lp++;
+
   tw_define_lps(codes_mapping_get_lps_for_pe(), message_size, 0);
 
   // use a similar computation to codes_mapping_init to compute the lpids and
@@ -480,7 +485,7 @@ void codes_mapping_setup_with_seed_offset(int offset)
       for (tw_lpid l = 0; l < g_tw_nlp; l++){
           for (int i = 0; i < g_tw_nRNG_per_lp; i++){
               tw_rand_initial_seed(&g_tw_lp[l]->rng[i], (g_tw_lp[l]->gid +
-                          global_nlps * offset) * g_tw_rng_max + i);
+                          global_nlps * offset) * g_tw_nRNG_per_lp + i);
           }
       }
   }
