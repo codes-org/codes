@@ -8,15 +8,15 @@ EXTRA_DIST += src/iokernellang/codesparser.y.in \
               src/modelconfig/configparser.y \
               src/modelconfig/configlex.l \
 			  src/modelconfig/README.txt \
-			  src/network-workload/README \
-			  src/network-workload/offsets \
-			  src/network-workload/scala-trace-data \
 			  src/util/templates/README.txt
 			  src/util/README.codes-mapping.txt \
 			  src/util/README.lp-io.txt \
 			  src/workload/README.codes-workload \
 			  src/workload/TODO.codes-workload
 
+#src/network-workload/README
+#src/network-workload/offsets
+#src/network-workload/scala-trace-data
 
 
 PHONY: maintainer-clean-local
@@ -118,11 +118,12 @@ src_libcodes_base_a_SOURCES =  \
     src/workload/codes-bgp-io-wrkld.c \
     src/workload/test-workload-method.c \
     codes/codes-nw-workload.h \
-    src/network-workload/codes-nw-workload.c \
-    src/network-workload/codes-nw-workload-method.h \
-    src/network-workload/codes-scala-trace-nw-wrkld.c \
 	codes/rc-stack.h \
 	src/util/rc-stack.c
+
+#src/network-workload/codes-nw-workload.c
+#src/network-workload/codes-nw-workload-method.h
+#src/network-workload/codes-scala-trace-nw-wrkld.c
 
 # stealth testing of the template code (actual test is not run, just compiled as
 # a program - Make error signifies test failure)
@@ -142,12 +143,12 @@ src_workload_codes_workload_dump_SOURCES = \
 src_workload_codes_workload_dump_LDADD = $(testlib) ${DARSHAN_LIBS} ${ROSS_LIBS}
 src_workload_codes_workload_dump_LDFLAGS =  ${DARSHAN_LDFLAGS} ${ROSS_LDFLAGS}
 
-bin_PROGRAMS += src/network-workload/codes-nw-test
+#bin_PROGRAMS += src/network-workload/codes-nw-test
 
-src_network_workload_codes_nw_test_SOURCES = \
- src/network-workload/codes-nw-test.c
-src_network_workload_codes_nw_test_LDADD = $(testlib) ${ROSS_LIBS} ${DUMPI_LIBS}
-src_network_workload_codes_nw_test_LDFLAGS =  ${ROSS_LDFLAGS}
+#src_network_workload_codes_nw_test_SOURCES = \
+ #src/network-workload/codes-nw-test.c
+#src_network_workload_codes_nw_test_LDADD = $(testlib) ${ROSS_LIBS} ${DUMPI_LIBS}
+#src_network_workload_codes_nw_test_LDFLAGS =  ${ROSS_LDFLAGS}
 
 #bin_PROGRAMS += src/network-workload/codes-dumpi-wrkld
 
