@@ -38,14 +38,14 @@ include $(top_srcdir)/tests/Makefile.subdir
 
 if USE_DARSHAN
 AM_CPPFLAGS += ${DARSHAN_CFLAGS} -DUSE_DARSHAN=1
-src_libcodes_base_a_SOURCES += src/workload/codes-darshan-io-wrkld.c
+src_libcodes_base_a_SOURCES += src/workload/methods/codes-darshan-io-wrkld.c
 tests_workload_codes_workload_test_LDADD += ${DARSHAN_LIBS}
 tests_workload_codes_workload_mpi_replay_LDADD += ${DARSHAN_LIBS}
 endif
 
 if USE_RECORDER
 AM_CPPFLAGS += ${RECORDER_CPPFLAGS}
-src_libcodes_base_a_SOURCES += src/workload/codes-recorder-io-wrkld.c
+src_libcodes_base_a_SOURCES += src/workload/methods/codes-recorder-io-wrkld.c
 endif
 
 if USE_DUMPI

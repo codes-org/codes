@@ -116,8 +116,8 @@ src_libcodes_base_a_SOURCES =  \
     src/logging/timeline.c \
     src/workload/codes-workload.c \
     src/workload/codes-workload-method.h \
-    src/workload/codes-bgp-io-wrkld.c \
-    src/workload/test-workload-method.c \
+    src/workload/methods/codes-bgp-io-wrkld.c \
+    src/workload/methods/test-workload-method.c \
 	codes/rc-stack.h \
 	src/util/rc-stack.c
 

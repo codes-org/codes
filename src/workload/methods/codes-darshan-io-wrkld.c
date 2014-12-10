@@ -8,7 +8,7 @@
 
 #include "codes/codes-workload.h"
 #include "codes/quickhash.h"
-#include "codes-workload-method.h"
+#include "src/workload/codes-workload-method.h"
 
 #include "darshan-logutils.h"
 

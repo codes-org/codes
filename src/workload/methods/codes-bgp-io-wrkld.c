@@ -12,7 +12,7 @@
 #include <codes/codeslexer.h>
 
 #include "codes/codes-workload.h"
-#include "codes-workload-method.h"
+#include "src/workload/codes-workload-method.h"
 #include "codes/quickhash.h"
 
 #define RANK_HASH_TABLE_SIZE 400 
