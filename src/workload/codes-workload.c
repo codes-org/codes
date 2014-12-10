@@ -213,6 +213,74 @@ void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank){
                     rank, op->u.read.file_id, op->u.read.offset,
                     op->u.read.size);
             break;
+        case CODES_WK_SEND:
+            fprintf(f, "op: rank:%d type:send "
+                    "src:%d dst:%d bytes:%d type:%d count:%d tag:%d\n",
+                    rank,
+                    op->u.send.source_rank, op->u.send.dest_rank,
+                    op->u.send.num_bytes, op->u.send.data_type,
+                    op->u.send.count, op->u.send.tag);
+            break;
+        case CODES_WK_RECV:
+            fprintf(f, "op: rank:%d type:recv "
+                    "src:%d dst:%d bytes:%d type:%d count:%d tag:%d\n",
+                    rank,
+                    op->u.recv.source_rank, op->u.recv.dest_rank,
+                    op->u.recv.num_bytes, op->u.recv.data_type,
+                    op->u.recv.count, op->u.recv.tag);
+            break;
+        case CODES_WK_ISEND:
+            fprintf(f, "op: rank:%d type:isend "
+                    "src:%d dst:%d bytes:%d type:%d count:%d tag:%d\n",
+                    rank,
+                    op->u.send.source_rank, op->u.send.dest_rank,
+                    op->u.send.num_bytes, op->u.send.data_type,
+                    op->u.send.count, op->u.send.tag);
+            break;
+        case CODES_WK_IRECV:
+            fprintf(f, "op: rank:%d type:irecv "
+                    "src:%d dst:%d bytes:%d type:%d count:%d tag:%d\n",
+                    rank,
+                    op->u.recv.source_rank, op->u.recv.dest_rank,
+                    op->u.recv.num_bytes, op->u.recv.data_type,
+                    op->u.recv.count, op->u.recv.tag);
+            break;
+        case CODES_WK_BCAST:
+            fprintf(f, "op: rank:%d type:bcast "
+                    "bytes:%d\n", rank, op->u.collective.num_bytes);
+            break;
+        case CODES_WK_ALLGATHER:
+            fprintf(f, "op: rank:%d type:allgather "
+                    "bytes:%d\n", rank, op->u.collective.num_bytes);
+            break;
+        case CODES_WK_ALLGATHERV:
+            fprintf(f, "op: rank:%d type:allgatherv "
+                    "bytes:%d\n", rank, op->u.collective.num_bytes);
+            break;
+        case CODES_WK_ALLTOALL:
+            fprintf(f, "op: rank:%d type:alltoall "
+                    "bytes:%d\n", rank, op->u.collective.num_bytes);
+            break;
+        case CODES_WK_ALLTOALLV:
+            fprintf(f, "op: rank:%d type:alltoallv "
+                    "bytes:%d\n", rank, op->u.collective.num_bytes);
+            break;
+        case CODES_WK_REDUCE:
+            fprintf(f, "op: rank:%d type:reduce "
+                    "bytes:%d\n", rank, op->u.collective.num_bytes);
+            break;
+        case CODES_WK_ALLREDUCE:
+            fprintf(f, "op: rank:%d type:allreduce "
+                    "bytes:%d\n", rank, op->u.collective.num_bytes);
+            break;
+        case CODES_WK_COL:
+            fprintf(f, "op: rank:? type:collective "
+                    "bytes:%d\n", op->u.collective.num_bytes);
+            break;
+        default:
+            tw_error(TW_LOC,
+                    "codes_workload_print_op: unrecognized workload type "
+                    "(op code %d)\n", op->op_type);
     }
 }
 

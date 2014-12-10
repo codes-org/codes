@@ -65,6 +65,8 @@ enum codes_workload_op_type
     CODES_WK_DELAY,
     /* block until specified ranks have reached the same point */
     CODES_WK_BARRIER,
+
+    /* IO operations */
     /* open */
     CODES_WK_OPEN,
     /* close */
@@ -72,7 +74,33 @@ enum codes_workload_op_type
     /* write */
     CODES_WK_WRITE,
     /* read */
-    CODES_WK_READ
+    CODES_WK_READ,
+
+    /* network operations (modelled after MPI operations) */
+    /* blocking send operation */
+    CODES_WK_SEND,
+    /* blocking recv operation */
+    CODES_WK_RECV,
+    /* non-blocking send operation */
+    CODES_WK_ISEND,
+    /* non-blocking receive operation */
+    CODES_WK_IRECV,
+    /* broadcast operation */
+    CODES_WK_BCAST,
+    /* Allgather operation */
+    CODES_WK_ALLGATHER,
+    /* Allgatherv operation */
+    CODES_WK_ALLGATHERV,
+    /* Alltoall operation */
+    CODES_WK_ALLTOALL,
+    /* Alltoallv operation */
+    CODES_WK_ALLTOALLV,
+    /* Reduce operation */
+    CODES_WK_REDUCE,
+    /* Allreduce operation */
+    CODES_WK_ALLREDUCE,
+    /* Generic collective operation */
+    CODES_WK_COL,
 };
 
 /* I/O operation paramaters */
@@ -84,6 +112,9 @@ struct codes_workload_op
 
     /* what type of operation this is */
     enum codes_workload_op_type op_type;
+    /* currently only used by network workloads */
+    double start_time;
+    double end_time;
 
     /* parameters for each operation type */
     union
@@ -112,6 +143,30 @@ struct codes_workload_op
         struct {
             uint64_t file_id;  /* file to operate on */
         } close;
+        struct {
+            /* TODO: not sure why source rank is here */
+            int source_rank;/* source rank of MPI send message */
+            int dest_rank; /* dest rank of MPI send message */
+            int num_bytes; /* number of bytes to be transferred over the network */
+            int data_type; /* MPI data type to be matched with the recv */
+            int count; /* number of elements to be received */
+            int tag; /* tag of the message */
+            //int32_t request;
+        } send;
+        struct {
+            /* TODO: not sure why source rank is here */
+            int source_rank;/* source rank of MPI recv message */
+            int dest_rank;/* dest rank of MPI recv message */
+            int num_bytes; /* number of bytes to be transferred over the network */
+            int data_type; /* MPI data type to be matched with the send */
+            int count; /* number of elements to be sent */
+            int tag; /* tag of the message */
+            //int32_t request;
+        } recv;
+        /* TODO: non-stub for other collectives */
+        struct {
+            int num_bytes;
+        } collective;
     }u;
 };
 
