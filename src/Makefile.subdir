@@ -118,13 +118,13 @@ src_libcodes_base_a_SOURCES =  \
     src/workload/codes-workload-method.h \
     src/workload/methods/codes-bgp-io-wrkld.c \
     src/workload/methods/test-workload-method.c \
+	src/workload/methods/codes-scala-trace-nw-wrkld.c \
 	codes/rc-stack.h \
 	src/util/rc-stack.c
 
 #codes/codes-nw-workload.h
 #src/network-workload/codes-nw-workload.c
 #src/network-workload/codes-nw-workload-method.h
-#src/network-workload/codes-scala-trace-nw-wrkld.c
 
 # stealth testing of the template code (actual test is not run, just compiled as
 # a program - Make error signifies test failure)
@@ -141,8 +141,19 @@ bin_PROGRAMS += src/workload/codes-workload-dump
 
 src_workload_codes_workload_dump_SOURCES = \
  src/workload/codes-workload-dump.c
-src_workload_codes_workload_dump_LDADD = $(testlib) ${DARSHAN_LIBS} ${ROSS_LIBS}
-src_workload_codes_workload_dump_LDFLAGS =  ${DARSHAN_LDFLAGS} ${ROSS_LDFLAGS}
+src_workload_codes_workload_dump_LDADD = $(testlib) ${ROSS_LIBS}
+src_workload_codes_workload_dump_LDFLAGS =  ${ROSS_LDFLAGS}
+
+if USE_DARSHAN
+src_workload_codes_workload_dump_LDFLAGS +=  ${DARSHAN_LDFLAGS}
+src_workload_codes_workload_dump_LDADD += ${DARSHAN_LIBS}
+endif
+
+# TODO: does recorder need any specific linker flags??
+
+if USE_DUMPI
+src_workload_codes_workload_dump_LDADD += ${DUMPI_LIBS}
+endif
 
 #bin_PROGRAMS += src/network-workload/codes-nw-test
 

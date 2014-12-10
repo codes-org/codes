@@ -50,6 +50,8 @@ endif
 
 if USE_DUMPI
 AM_CPPFLAGS += ${DUMPI_CFLAGS} -DUSE_DUMPI=1
-src_libcodes_base_a_SOURCES += src/network-workload/codes-dumpi-trace-nw-wrkld.c 
+src_libcodes_base_a_SOURCES += src/workload/methods/codes-dumpi-trace-nw-wrkld.c 
+tests_workload_codes_workload_test_LDADD += ${DUMPI_LIBS}
+tests_workload_codes_workload_mpi_replay_LDADD += ${DUMPI_LIBS}
 AM_LIBS += ${DUMPI_LIBS}
 endif

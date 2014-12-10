@@ -20,6 +20,10 @@ typedef struct darshan_params darshan_params;
 typedef struct recorder_params recorder_params;
 typedef struct codes_workload_info codes_workload_info;
 
+/* struct to hold the actual data from a single MPI event*/
+typedef struct scala_trace_params scala_trace_params;
+typedef struct dumpi_trace_params dumpi_trace_params;
+
 struct bgp_params
 {
     /* We have the number of ranks passed in from the bg/p model because
@@ -55,6 +59,17 @@ struct codes_workload_info
     int local_rank; /* local rank? never being used in the bg/p model */
     int num_lrank; /* number of ranks participating in the collective operation*/
 };
+
+struct scala_trace_params {
+   char offset_file_name[MAX_NAME_LENGTH_WKLD];
+   char nw_wrkld_file_name[MAX_NAME_LENGTH_WKLD];
+};
+
+struct dumpi_trace_params {
+   int num_net_traces;
+   char file_name[MAX_NAME_LENGTH_WKLD];
+};
+
 
 /* supported I/O operations */
 enum codes_workload_op_type

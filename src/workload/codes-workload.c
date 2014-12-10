@@ -15,6 +15,10 @@
  */
 extern struct codes_workload_method test_workload_method;
 extern struct codes_workload_method bgp_io_workload_method;
+extern struct codes_workload_method scala_trace_workload_method;
+#ifdef USE_DUMPI
+extern struct codes_workload_method dumpi_trace_workload_method;
+#endif
 #ifdef USE_DARSHAN
 extern struct codes_workload_method darshan_io_workload_method;
 #endif
@@ -26,6 +30,10 @@ static struct codes_workload_method *method_array[] =
 {
     &test_workload_method,
     &bgp_io_workload_method,
+    &scala_trace_workload_method,
+#ifdef USE_DUMPI
+    &dumpi_trace_workload_method,
+#endif
 #ifdef USE_DARSHAN
     &darshan_io_workload_method,
 #endif
