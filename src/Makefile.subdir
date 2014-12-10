@@ -58,7 +58,6 @@ nobase_include_HEADERS = \
     codes/configfile.h \
     codes/quicklist.h \
     codes/codes_mapping.h \
-    codes/codes-nw-workload.h \
     codes/lp-type-lookup.h \
     codes/codes.h \
     codes/configuration.h \
@@ -70,6 +69,8 @@ nobase_include_HEADERS = \
 	codes/resource-lp.h \
 	codes/local-storage-model.h \
 	codes/rc-stack.h
+
+#codes/codes-nw-workload.h
 
 src_libcodes_base_a_SOURCES =  \
     codes/codesparser.h \
@@ -117,10 +118,10 @@ src_libcodes_base_a_SOURCES =  \
     src/workload/codes-workload-method.h \
     src/workload/codes-bgp-io-wrkld.c \
     src/workload/test-workload-method.c \
-    codes/codes-nw-workload.h \
 	codes/rc-stack.h \
 	src/util/rc-stack.c
 
+#codes/codes-nw-workload.h
 #src/network-workload/codes-nw-workload.c
 #src/network-workload/codes-nw-workload-method.h
 #src/network-workload/codes-scala-trace-nw-wrkld.c
