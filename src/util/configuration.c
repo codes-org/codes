@@ -27,55 +27,51 @@ int configuration_load (const char *filepath,
     MPI_File   fh;
     MPI_Status status;
     MPI_Offset txtsize;
-    FILE      *f;
-    char      *txtdata;
-    char      *error;
-    int        rc;
-    char      *tmp_path;
+    FILE      *f = NULL;
+    char      *txtdata = NULL;
+    char      *error = NULL;
+    int        rc = 0;
+    char      *tmp_path = NULL;
 
     rc = MPI_File_open(comm, (char*)filepath, MPI_MODE_RDONLY, MPI_INFO_NULL, &fh);
-    assert(rc == MPI_SUCCESS);
+    if (rc != MPI_SUCCESS) goto finalize;
 
     rc = MPI_File_get_size(fh, &txtsize);
-    assert(rc == MPI_SUCCESS);
+    if (rc != MPI_SUCCESS) goto finalize;
 
     txtdata = malloc(txtsize);
-    assert(txtdata); 
+    assert(txtdata);
 
     rc = MPI_File_read_all(fh, txtdata, txtsize, MPI_BYTE, &status);
-    assert(rc == MPI_SUCCESS);
-
-    rc = MPI_File_close(&fh);
-    assert(rc == MPI_SUCCESS);
+    if (rc != MPI_SUCCESS) goto finalize;
 
 #ifdef __APPLE__
     f = fopen(filepath, "r");
 #else
     f = fmemopen(txtdata, txtsize, "rb");
 #endif
-    assert(f);
+    if (!f) { rc = 1; goto finalize; }
 
     *handle = txtfile_openStream(f, &error);
-    if (error)
-    {
-        fprintf(stderr, "config error: %s\n", error);
-        free(error);
-        rc = 1;
-    }
-    else
-    {
-        rc = 0;
-    }
-
-    fclose(f);
+    if (error) { rc = 1; goto finalize; }
 
     /* NOTE: posix version overwrites argument :(. */
     tmp_path = strdup(filepath);
+    assert(tmp_path);
     (*handle)->config_dir = strdup(dirname(tmp_path));
-    free(tmp_path);
+    assert((*handle)->config_dir);
 
-    if (rc == 0)
-        configuration_get_lpgroups(handle, "LPGROUPS", &lpconf);
+    configuration_get_lpgroups(handle, "LPGROUPS", &lpconf);
+
+finalize:
+    if (fh != MPI_FILE_NULL) MPI_File_close(&fh);
+    if (f) fclose(f);
+    free(txtdata);
+    free(tmp_path);
+    if (error) {
+        fprintf(stderr, "config error: %s\n", error);
+        free(error);
+    }
 
     return rc;
 }
@@ -98,17 +94,21 @@ int configuration_get_value(ConfigHandle *handle,
         key_name_full = (char*) key_name;
     }
     else{
-        assert(snprintf(key_name_tmp, CONFIGURATION_MAX_NAME, "%s@%s",
-                    key_name, annotation) < CONFIGURATION_MAX_NAME);
-        key_name_full = key_name_tmp;
+        if (snprintf(key_name_tmp, CONFIGURATION_MAX_NAME, "%s@%s",
+                    key_name, annotation) >= CONFIGURATION_MAX_NAME) {
+            fprintf(stderr,
+                    "config error: name@annotation pair too long: %s@%s\n",
+                    key_name, annotation);
+            return 1;
+        }
+        else
+            key_name_full = key_name_tmp;
     }
 
     rc = cf_openSection(*handle, ROOT_SECTION, section_name, &section_handle);
-    assert(rc == 1);
+    if (rc != 1) return 0;
 
     rc = cf_getKey(*handle, section_handle, key_name_full, value, len);
-    assert(rc);
-
     (void) cf_closeSection(*handle, section_handle);
 
     return rc;
@@ -151,17 +151,21 @@ int configuration_get_multivalue(ConfigHandle *handle,
         key_name_full = (char*) key_name;
     }
     else{
-        assert(snprintf(key_name_tmp, CONFIGURATION_MAX_NAME, "%s@%s",
-                    key_name, annotation) < CONFIGURATION_MAX_NAME);
-        key_name_full = key_name_tmp;
+        if (snprintf(key_name_tmp, CONFIGURATION_MAX_NAME, "%s@%s",
+                    key_name, annotation) >= CONFIGURATION_MAX_NAME) {
+            fprintf(stderr,
+                    "config error: name@annotation pair too long: %s@%s\n",
+                    key_name, annotation);
+            return 1;
+        }
+        else
+            key_name_full = key_name_tmp;
     }
 
     rc = cf_openSection(*handle, ROOT_SECTION, section_name, &section_handle);
-    assert(rc == 1);
+    if (rc != 1) return rc;
 
     rc = cf_getMultiKey(*handle, section_handle, key_name_full, values, len);
-    assert(rc);
-
     (void) cf_closeSection(*handle, section_handle);
 
     return rc;
