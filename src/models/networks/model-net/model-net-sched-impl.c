@@ -388,7 +388,7 @@ int rr_next(
     // otherwise request was successful, still in the queue
     else {
         mn_sched_queue *s = sched;
-        qlist_add_tail(&s->reqs, qlist_pop(&s->reqs));
+        qlist_add_tail(qlist_pop(&s->reqs), &s->reqs);
         return ret;
     }
 }
