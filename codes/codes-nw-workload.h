@@ -10,7 +10,7 @@
 #include "ross.h"
 
 #define MAX_LENGTH 512
-//#define MAX_REQUESTS 128
+#define MAX_REQUESTS 128
 
 /* struct to hold the actual data from a single MPI event*/
 typedef struct mpi_event_list mpi_event_list;
@@ -37,12 +37,19 @@ enum NW_WORKLOADS
 #endif
    OTHERS, /* add the names of other workload generators here */
 };
+
 enum mpi_workload_type
 {
     /* sleep/delay to simulate computation or other activity */
      CODES_NW_DELAY = 1,
     /* MPI wait all operation */
-     //CODES_NW_WAITALL,
+     CODES_NW_WAITALL,
+    /* MPI Wait operation */
+     CODES_NW_WAIT,
+    /* MPI Waitsome operation */
+     CODES_NW_WAITSOME,
+    /* MPI Waitany operation */
+     CODES_NW_WAITANY,
     /* terminator; there are no more operations for this rank */
      CODES_NW_END,
     /* MPI blocking send operation */
@@ -68,9 +75,9 @@ enum mpi_workload_type
     /* MPI Allreduce operation */
      CODES_NW_ALLREDUCE,
     /* MPI test all operation */
-     //CODES_NW_TESTALL,
+     CODES_NW_TESTALL,
     /* MPI test operation */
-     //CODES_NW_TEST,
+     CODES_NW_TEST,
     /* Generic collective operation */
     CODES_NW_COL,
 };
@@ -83,6 +90,7 @@ struct mpi_event_list
     enum mpi_workload_type op_type;
     double start_time;
     double end_time;
+    double sim_start_time;
 
    /* parameters for each operation type */
     union
@@ -100,7 +108,7 @@ struct mpi_event_list
 	    short data_type; /* MPI data type to be matched with the recv */
 	    int count; /* number of elements to be received */
 	    int tag; /* tag of the message */
-	    //int32_t request;
+	    int16_t req_id;
 	} send;
        struct
        {
@@ -110,22 +118,21 @@ struct mpi_event_list
 	    short data_type; /* MPI data type to be matched with the send */
 	    int count; /* number of elements to be sent */
 	    int tag; /* tag of the message */
-       	    //int32_t request;
+       	    int16_t req_id;
 	} recv; 
       struct
       {
 	  int num_bytes;
       } collective;
-      /*struct
-      {
-	int count;
-        int requests[MAX_REQUESTS]; 
-      } wait_all;
       struct
       {
-	int32_t request;
-	int flag;
-      } test;*/
+	int count;
+        int16_t* req_ids; 
+      } waits;
+      struct
+      {
+	int16_t req_id;
+      } wait;
     }u;
 };
 
