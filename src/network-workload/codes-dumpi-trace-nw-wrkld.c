@@ -178,6 +178,7 @@ int handleDUMPIISend(const dumpi_isend *prm, uint16_t thread, const dumpi_time *
         wrkld_per_rank.u.send.dest_rank = prm->dest;
         wrkld_per_rank.u.send.source_rank = myctx->my_rank;
         wrkld_per_rank.start_time = cpu->start.nsec;
+	wrkld_per_rank.u.send.req_id = prm->request;
         wrkld_per_rank.end_time = cpu->stop.nsec;
      
 	assert(wrkld_per_rank.u.send.num_bytes > 0); 
@@ -200,9 +201,12 @@ int handleDUMPIIRecv(const dumpi_irecv *prm, uint16_t thread, const dumpi_time *
         wrkld_per_rank->u.recv.num_bytes = prm->count * get_num_bytes(prm->datatype);
         wrkld_per_rank->u.recv.source_rank = prm->source;
         wrkld_per_rank->u.recv.dest_rank = -1;
+	wrkld_per_rank->u.recv.req_id = prm->request;
         wrkld_per_rank->start_time = cpu->start.nsec;	
 	wrkld_per_rank->end_time = cpu->stop.nsec;             
 
+	if(wrkld_per_rank->u.recv.num_bytes == 0)
+		wrkld_per_rank->u.recv.num_bytes = 8;
 	assert(wrkld_per_rank->u.recv.num_bytes > 0);	
 	dumpi_insert_next_op(myctx->dumpi_mpi_array, wrkld_per_rank); 
 
@@ -229,6 +233,9 @@ int handleDUMPISend(const dumpi_send *prm, uint16_t thread,
 
 	if(wrkld_per_rank.u.send.num_bytes < 0)
 		printf("\n Number of bytes %d count %d data type %d num_bytes %d", prm->count * get_num_bytes(prm->datatype), prm->count, prm->datatype, get_num_bytes(prm->datatype));
+	if(wrkld_per_rank.u.send.num_bytes == 0)
+		wrkld_per_rank.u.send.num_bytes = 8;
+	//	printf("\n Number of data bytes %d ", prm->count);
 	assert(wrkld_per_rank.u.send.num_bytes > 0);
 	dumpi_insert_next_op(myctx->dumpi_mpi_array, &wrkld_per_rank); 
 	update_compute_time(cpu, myctx);
@@ -329,6 +336,92 @@ int handleDUMPIAlltoall(const dumpi_alltoall *prm, uint16_t thread,
         return 0;
 }
 
+int handleDUMPIWait(const dumpi_wait *prm, uint16_t thread, 
+		    const dumpi_time *cpu, const dumpi_time *wall, 
+		    const dumpi_perfinfo *perf, void *userarg)
+{
+	rank_mpi_context* myctx = (rank_mpi_context*)userarg;
+	struct mpi_event_list wrkld_per_rank;
+
+        wrkld_per_rank.op_type = CODES_NW_WAIT;
+        wrkld_per_rank.u.wait.req_id = prm->request;
+	wrkld_per_rank.start_time = cpu->start.nsec;
+        wrkld_per_rank.end_time = cpu->stop.nsec;
+
+	dumpi_insert_next_op(myctx->dumpi_mpi_array, &wrkld_per_rank);
+	update_compute_time(cpu, myctx);
+	return 0;
+}
+int handleDUMPIWaitsome(const dumpi_waitsome *prm, uint16_t thread,
+		    const dumpi_time *cpu, const dumpi_time *wall,
+		    const dumpi_perfinfo *perf, void *userarg)
+{
+	int i;	
+	rank_mpi_context* myctx = (rank_mpi_context*)userarg;
+        struct mpi_event_list wrkld_per_rank;
+	
+	wrkld_per_rank.op_type = CODES_NW_WAITSOME;
+	wrkld_per_rank.u.waits.count = prm->count;
+	wrkld_per_rank.u.waits.req_ids = (int16_t*)malloc(prm->count * sizeof(int16_t));	
+
+	for( i = 0; i < prm->count; i++ )
+		wrkld_per_rank.u.waits.req_ids[i] = (int16_t)prm->requests[i];
+
+	wrkld_per_rank.start_time = cpu->start.nsec;
+        wrkld_per_rank.end_time = cpu->stop.nsec;
+
+        dumpi_insert_next_op(myctx->dumpi_mpi_array, &wrkld_per_rank);
+        update_compute_time(cpu, myctx);
+        return 0;
+
+}
+
+int handleDUMPIWaitany(const dumpi_waitany *prm, uint16_t thread, 
+                    const dumpi_time *cpu, const dumpi_time *wall, 
+                    const dumpi_perfinfo *perf, void *userarg)
+{
+	int i;	
+        rank_mpi_context* myctx = (rank_mpi_context*)userarg;
+        struct mpi_event_list wrkld_per_rank;
+
+        wrkld_per_rank.op_type = CODES_NW_WAITANY;
+	wrkld_per_rank.u.waits.count = prm->count;
+	wrkld_per_rank.u.waits.req_ids = (int16_t*)malloc(prm->count * sizeof(int16_t));	
+
+	for( i = 0; i < prm->count; i++ )
+		wrkld_per_rank.u.waits.req_ids[i] = (int16_t)prm->requests[i];
+
+        wrkld_per_rank.start_time = cpu->start.nsec;
+        wrkld_per_rank.end_time = cpu->stop.nsec;
+
+	dumpi_insert_next_op(myctx->dumpi_mpi_array, &wrkld_per_rank);
+	update_compute_time(cpu, myctx);
+        return 0;		
+}
+
+int handleDUMPIWaitall(const dumpi_waitall *prm, uint16_t thread,
+                    const dumpi_time *cpu, const dumpi_time *wall,
+                    const dumpi_perfinfo *perf, void *userarg)
+{
+        int i;
+        rank_mpi_context* myctx = (rank_mpi_context*)userarg;
+        struct mpi_event_list wrkld_per_rank;
+
+        wrkld_per_rank.op_type = CODES_NW_WAITALL;
+
+	wrkld_per_rank.u.waits.count = prm->count;
+	wrkld_per_rank.u.waits.req_ids = (int16_t*)malloc(prm->count * sizeof(int16_t));	
+        for( i = 0; i < prm->count; i++ )
+                wrkld_per_rank.u.waits.req_ids[i] = prm->requests[i];
+	
+        wrkld_per_rank.start_time = cpu->start.nsec;
+        wrkld_per_rank.end_time = cpu->stop.nsec;
+
+        dumpi_insert_next_op(myctx->dumpi_mpi_array, &wrkld_per_rank);
+        update_compute_time(cpu, myctx);
+        return 0;
+}
+
 int handleDUMPIAlltoallv(const dumpi_alltoallv *prm, uint16_t thread,
                            const dumpi_time *cpu, const dumpi_time *wall,
                            const dumpi_perfinfo *perf, void *uarg)
@@ -423,7 +516,7 @@ int dumpi_trace_nw_workload_load(const char* params, int rank)
 
 	if(!rank_tbl)
     	{
-            rank_tbl = qhash_init(hash_rank_compare, quickhash_32bit_hash, RANK_HASH_TABLE_SIZE);
+            rank_tbl = qhash_init(hash_rank_compare, quickhash_64bit_hash, RANK_HASH_TABLE_SIZE);
             if(!rank_tbl)
                   return -1;
     	}
@@ -468,14 +561,14 @@ int dumpi_trace_nw_workload_load(const char* params, int rank)
 	callbacks.on_ibsend = (dumpi_ibsend_call)handleDUMPIGeneric;
 	callbacks.on_issend = (dumpi_issend_call)handleDUMPIGeneric;
 	callbacks.on_irsend = (dumpi_irsend_call)handleDUMPIGeneric;
-	callbacks.on_wait = (dumpi_wait_call)handleDUMPIGeneric;
+	callbacks.on_wait = (dumpi_wait_call)handleDUMPIWait;
 	callbacks.on_test = (dumpi_test_call)handleDUMPIGeneric;
 	callbacks.on_request_free = (dumpi_request_free_call)handleDUMPIGeneric;
-	callbacks.on_waitany = (dumpi_waitany_call)handleDUMPIGeneric;
+	callbacks.on_waitany = (dumpi_waitany_call)handleDUMPIWaitany;
 	callbacks.on_testany = (dumpi_testany_call)handleDUMPIGeneric;
-	callbacks.on_waitall = (dumpi_waitall_call)handleDUMPIGeneric;
+	callbacks.on_waitall = (dumpi_waitall_call)handleDUMPIWaitall;
 	callbacks.on_testall = (dumpi_testall_call)handleDUMPIGeneric;
-	callbacks.on_waitsome = (dumpi_waitsome_call)handleDUMPIGeneric;
+	callbacks.on_waitsome = (dumpi_waitsome_call)handleDUMPIWaitsome;
 	callbacks.on_testsome = (dumpi_testsome_call)handleDUMPIGeneric;
 	callbacks.on_iprobe = (dumpi_iprobe_call)handleDUMPIGeneric;
 	callbacks.on_probe = (dumpi_probe_call)handleDUMPIGeneric;
