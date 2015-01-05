@@ -37,11 +37,19 @@ src_libcodes_net_a_SOURCES = \
  src/models/networks/model-net/model-net-sched.c \
  src/models/networks/model-net/model-net-sched-impl.h \
  src/models/networks/model-net/model-net-sched-impl.c \
- src/models/mpi-trace-replay/model-net-mpi-wrklds.c
+ src/models/mpi-trace-replay/model-net-mpi-wrklds.c \
+ src/models/mpi-trace-replay/model-net-dumpi-traces-dump.c
 
 bin_PROGRAMS += src/models/mpi-trace-replay/model-net-mpi-wrklds
+bin_PROGRAMS += src/models/mpi-trace-replay/model-net-dumpi-traces-dump
 
 src_models_mpi_trace_replay_model_net_mpi_wrklds_SOURCES = src/models/mpi-trace-replay/model-net-mpi-wrklds.c
 src_models_mpi_trace_replay_model_net_mpi_wrklds_LDADD = $(testlib) $(CODES_BASE_LIBS)
 src_models_mpi_trace_replay_model_net_mpi_wrklds_LDFLAGS = $(CODES_BASE_LDFLAGS)
 src_models_mpi_trace_replay_model_net_mpi_wrklds_CFLAGS = ${CODES_BASE_CFLAGS}
+
+src_models_mpi_trace_replay_model_net_dumpi_traces_dump_SOURCES = src/models/mpi-trace-replay/model-net-dumpi-traces-dump.c
+src_models_mpi_trace_replay_model_net_dumpi_traces_dump_LDADD = $(testlib) $(CODES_BASE_LIBS)
+src_models_mpi_trace_replay_model_net_dumpi_traces_dump_LDFLAGS = $(CODES_BASE_LDFLAGS)
+src_models_mpi_trace_replay_model_net_dumpi_traces_dump_CFLAGS = ${CODES_BASE_CFLAGS}
+
