@@ -123,11 +123,13 @@ int configuration_get_value_relpath(
         size_t length){
     char *tmp = malloc(length);
 
-    configuration_get_value(handle, section_name, key_name, annotation, tmp,
+    int w = configuration_get_value(handle, section_name, key_name, annotation, tmp,
             length);
+    if (w <= 0)
+        return w;
 
     /* concat the configuration value with the directory */
-    int w = snprintf(value, length, "%s/%s", (*handle)->config_dir, tmp);
+    w = snprintf(value, length, "%s/%s", (*handle)->config_dir, tmp);
 
     free(tmp);
     return w;
