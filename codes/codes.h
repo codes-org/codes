@@ -40,7 +40,7 @@ static inline tw_stime codes_local_latency(tw_lp *lp)
     int r = g_tw_nRNG_per_lp-1;
     tw_stime tmp;
 
-    tmp = g_tw_lookahead + CODES_MIN_LATENCY *
+    tmp = g_tw_lookahead + CODES_MIN_LATENCY +
         tw_rand_unif(&lp->rng[r]) * CODES_LATENCY_RANGE;
 
     if (g_tw_synchronization_protocol == CONSERVATIVE &&
@@ -48,7 +48,9 @@ static inline tw_stime codes_local_latency(tw_lp *lp)
         tw_error(TW_LOC,
                 "codes_local_latency produced a precision loss "
                 "sufficient to fail lookahead check (conservative mode) - "
-                "increase CODES_MIN_LATENCY/CODES_MAX_LATENCY)\n");
+                "increase CODES_MIN_LATENCY/CODES_MAX_LATENCY. "
+                "Now:%0.5le, lookahead:%0.5le, return:%0.5le\n",
+                tw_now(lp), g_tw_lookahead, tmp);
 
     return(tmp);
 }
