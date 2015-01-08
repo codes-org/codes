@@ -730,7 +730,7 @@ static void loggp_configure(){
         const char * anno = anno_map->annotations[i];
         int rc = configuration_get_value_relpath(&config, "PARAMS",
                 "net_config_file", anno, config_file, MAX_NAME_LENGTH);
-        if (rc == 0){
+        if (rc <= 0){
             tw_error(TW_LOC, "unable to read PARAMS:net_config_file@%s",
                     anno);
         }
@@ -739,7 +739,7 @@ static void loggp_configure(){
     if (anno_map->has_unanno_lp > 0){
         int rc = configuration_get_value_relpath(&config, "PARAMS",
                 "net_config_file", NULL, config_file, MAX_NAME_LENGTH);
-        if (rc == 0){
+        if (rc <= 0){
             tw_error(TW_LOC, "unable to read PARAMS:net_config_file");
         }
         loggp_set_params(config_file, &all_params[anno_map->num_annos]);

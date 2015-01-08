@@ -867,7 +867,7 @@ static void sp_read_config(const char * anno, simplep2p_param *p){
     int rc;
     rc = configuration_get_value_relpath(&config, "PARAMS", 
             "net_latency_ns_file", anno, latency_file, MAX_NAME_LENGTH);
-    if (rc == 0){
+    if (rc <= 0){
         if (anno == NULL)
             tw_error(TW_LOC,
                     "simplep2p: unable to read PARAMS:net_latency_ns_file");
@@ -878,7 +878,7 @@ static void sp_read_config(const char * anno, simplep2p_param *p){
     }
     rc = configuration_get_value_relpath(&config, "PARAMS", "net_bw_mbps_file",
             anno, bw_file, MAX_NAME_LENGTH);
-    if (rc == 0){
+    if (rc <= 0){
         if (anno == NULL)
             tw_error(TW_LOC,
                     "simplep2p: unable to read PARAMS:net_bw_mbps_file");
