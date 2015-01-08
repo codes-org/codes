@@ -30,18 +30,25 @@ static inline tw_event * codes_event_new(
 /* Modeled latency for communication between local software components and
  * communication between daemons and hardware devices.  Measured in
  * nanoseconds.
- * Modified Jul 7: We want to make sure that the event time stamp generated
-is always greater than the default g_tw_lookahead value. Multiplying by 1.1
-ensures that if tw_rand_exponential generates a zero time-stamped event, we
-still have a timestamp that is greater than g_tw_lookahead. 
  */
-#define CODES_MEAN_LOCAL_LATENCY 0.01
+#define CODES_MIN_LATENCY 0.5
+#define CODES_MAX_LATENCY 1.0
+#define CODES_LATENCY_RANGE \
+    (CODES_MAX_LATENCY-CODES_MIN_LATENCY)
 static inline tw_stime codes_local_latency(tw_lp *lp)
 {
     int r = g_tw_nRNG_per_lp-1;
     tw_stime tmp;
 
-    tmp = (1.1 * g_tw_lookahead) + tw_rand_exponential(&lp->rng[r], CODES_MEAN_LOCAL_LATENCY);
+    tmp = g_tw_lookahead + CODES_MIN_LATENCY *
+        tw_rand_unif(&lp->rng[r]) * CODES_LATENCY_RANGE;
+
+    if (g_tw_synchronization_protocol == CONSERVATIVE &&
+            (tw_now(lp) + g_tw_lookahead) >= (tw_now(lp) + tmp))
+        tw_error(TW_LOC,
+                "codes_local_latency produced a precision loss "
+                "sufficient to fail lookahead check (conservative mode) - "
+                "increase CODES_MIN_LATENCY/CODES_MAX_LATENCY)\n");
 
     return(tmp);
 }
