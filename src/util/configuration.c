@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <libgen.h>
 #include "codes/configuration.h"
+#include <ross.h>
 
 /*
  * Global to hold configuration in memory
@@ -61,7 +62,7 @@ int configuration_load (const char *filepath,
     (*handle)->config_dir = strdup(dirname(tmp_path));
     assert((*handle)->config_dir);
 
-    configuration_get_lpgroups(handle, "LPGROUPS", &lpconf);
+    rc = configuration_get_lpgroups(handle, "LPGROUPS", &lpconf);
 
 finalize:
     if (fh != MPI_FILE_NULL) MPI_File_close(&fh);
@@ -339,8 +340,21 @@ int configuration_get_lpgroups (ConfigHandle *handle,
 
     memset (lpgroups, 0, sizeof(*lpgroups));
 
-    cf_openSection(*handle, ROOT_SECTION, section_name, &sh);
+    int ret = cf_openSection(*handle, ROOT_SECTION, section_name, &sh);
+    if (ret == -1)
+        return -1;
     cf_listSection(*handle, sh, se, &se_count); 
+
+#define CHECKED_STRTOL(_val, _field, _data) \
+    do{ \
+        errno = 0; \
+        long int _rd = strtol(_data, NULL, 10); \
+        if (_rd <= 0 || errno) \
+            tw_error(TW_LOC, "bad value (expected positive integer) for " \
+                    "\"%s\": %s\n", _field, _data); \
+        else \
+            _val = _rd; \
+    }while(0);
 
     for (i = 0; i < se_count; i++)
     {
@@ -362,7 +376,8 @@ int configuration_get_lpgroups (ConfigHandle *handle,
                    //printf("key: %s value: %s\n", subse[j].name, data);
                    if (strcmp("repetitions", subse[j].name) == 0)
                    {
-                       lpgroups->lpgroups[i].repetitions = atoi(data);
+                       CHECKED_STRTOL(lpgroups->lpgroups[i].repetitions,
+                               "repetitions", data);
 		       //printf("\n Repetitions: %ld ", lpgroups->lpgroups[i].repetitions);
                    }
                    else
@@ -384,7 +399,8 @@ int configuration_get_lpgroups (ConfigHandle *handle,
                        }
                        // add to anno map
                        check_add_lp_type_anno(nm, anno, lpgroups);
-                       lpgroups->lpgroups[i].lptypes[lpt].count = atoi(data);
+                       CHECKED_STRTOL(lpgroups->lpgroups[i].lptypes[lpt].count,
+                               nm, data);
                        lpgroups->lpgroups[i].lptypes_count++;
                        lpt++;
                    }
