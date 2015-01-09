@@ -128,14 +128,10 @@ void parse_args(int argc, char **argv, char **conf_path, char **test_dir)
 
 int load_workload(char *conf_path, int rank)
 {
-    config_lpgroups_t paramconf;
     char workload_type[MAX_NAME_LENGTH_WKLD];
 
     /* load the config file across all ranks */
     configuration_load(conf_path, MPI_COMM_WORLD, &config);
-
-    /* get the PARAMS group out of the config file */
-    configuration_get_lpgroups(&config, "PARAMS", &paramconf);
 
     /* get the workload type out of PARAMS */
     configuration_get_value(&config, "PARAMS", "workload_type",

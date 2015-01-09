@@ -35,12 +35,9 @@ static int num_clients_per_lp = -1;
 
 void workload_set_params()
 {
-    config_lpgroups_t paramconf;
     char io_kernel_meta_path[MAX_NAME_LENGTH_WKLD];
     char bgp_config_file[MAX_NAME_LENGTH_WKLD];
     
-    configuration_get_lpgroups(&config, "PARAMS", &paramconf);
-
     configuration_get_value(&config, "PARAMS", "workload_type", NULL, workload_type, MAX_NAME_LENGTH_WKLD);
     if(strcmp(workload_type,"bgp_io_workload") == 0)
     {
