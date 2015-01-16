@@ -17,8 +17,8 @@
 #define CATEGORY_NAME_MAX 16
 #define CATEGORY_MAX 12
 
-int in_sequence = 0;
-tw_stime mn_msg_offset = 0.0;
+int lsm_in_sequence = 0;
+tw_stime lsm_msg_offset = 0.0;
 
 /*
  * wrapped_event_t
@@ -307,7 +307,7 @@ tw_event* lsm_event_new(const char* category,
     lsm_gid = lsm_find_local_device(sender);
 
     delta = codes_local_latency(sender) + delay;
-    if (in_sequence) {
+    if (lsm_in_sequence) {
         tw_stime tmp = lsm_msg_offset;
         lsm_msg_offset += delta;
         delta += tmp;

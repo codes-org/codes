@@ -16,14 +16,14 @@
  * delay, but that is hacky as well (and relies on knowing bounds on internal
  * codes_local_latency bounds. Hence, expose explicit start-sequence and
  * stop-sequence markers */
-extern int in_sequence;
+extern int lsm_in_sequence;
 extern tw_stime lsm_msg_offset;
 #define LSM_START_SEQ() do {\
-    in_sequence = 1; \
+    lsm_in_sequence = 1; \
     lsm_msg_offset = 0.0; \
 } while (0)
 #define LSM_END_SEQ() do {\
-    in_sequence = 0;\
+    lsm_in_sequence = 0;\
 } while (0)
 
 /*
