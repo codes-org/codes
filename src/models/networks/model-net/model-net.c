@@ -43,7 +43,7 @@ struct model_net_method* method_array[] = {
 #undef X
 
 // counter and offset for the MN_START_SEQ / MN_END_SEQ macros
-int in_sequence = 0;
+int mn_in_seqence = 0;
 tw_stime mn_msg_offset = 0.0;
 
 // message parameters for use via model_net_set_msg_param
@@ -248,7 +248,7 @@ static void model_net_event_impl_base(
     tw_lpid mn_lp = model_net_find_local_device(net_id, annotation, 
             ignore_annotations, sender->gid);
     tw_stime poffset = codes_local_latency(sender);
-    if (in_sequence){
+    if (mn_in_seqence){
         tw_stime tmp = mn_msg_offset;
         mn_msg_offset += poffset;
         poffset += tmp;

@@ -26,14 +26,14 @@
  * feasible for now (would basically have to redesign model-net), so expose
  * explicit start-sequence and stop-sequence markers as a workaround
  */
-extern int in_sequence;
+extern int mn_in_seqence;
 extern tw_stime mn_msg_offset;
 #define MN_START_SEQ() do {\
-    in_sequence = 1; \
+    mn_in_seqence = 1; \
     mn_msg_offset = 0.0; \
 } while (0)
 #define MN_END_SEQ() do {\
-    in_sequence = 0;\
+    mn_in_seqence = 0;\
 } while (0)
 
 
