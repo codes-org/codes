@@ -396,6 +396,7 @@ static void codes_mapping_init(void)
      char lp_type_name[MAX_NAME_LENGTH];
      int nkp_per_pe = g_tw_nkp;
      tw_lpid         lpid, kpid;
+     const tw_lptype *lptype;
 
      /* have 16 kps per pe, this is the optimized configuration for ROSS custom mapping */
      for(kpid = 0; kpid < nkp_per_pe; kpid++)
@@ -419,7 +420,12 @@ static void codes_mapping_init(void)
 #endif
 	 tw_lp_onpe(ross_lid, pe, ross_gid);
 	 tw_lp_onkp(g_tw_lp[ross_lid], g_tw_kp[kpid]);
-	 tw_lp_settype(ross_lid, lp_type_lookup(lp_type_name));
+         lptype = lp_type_lookup(lp_type_name);
+         if (lptype == NULL)
+             tw_error(TW_LOC, "could not find LP with type name \"%s\", "
+                     "did you forget to register the LP?\n", lp_type_name);
+         else
+             tw_lp_settype(ross_lid, lptype);
      }
      return;
 }
