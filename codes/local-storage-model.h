@@ -11,6 +11,21 @@
 
 #define LSM_NAME "lsm"
 
+/* HACK: problems arise when some LP sends multiple messages as part of an
+ * event and expects FCFS ordering. One could simply set a higher delay in
+ * delay, but that is hacky as well (and relies on knowing bounds on internal
+ * codes_local_latency bounds. Hence, expose explicit start-sequence and
+ * stop-sequence markers */
+extern int in_sequence;
+extern tw_stime lsm_msg_offset;
+#define LSM_START_SEQ() do {\
+    in_sequence = 1; \
+    lsm_msg_offset = 0.0; \
+} while (0)
+#define LSM_END_SEQ() do {\
+    in_sequence = 0;\
+} while (0)
+
 /*
  * lsm_event_t
  *   - events supported by the local storage model

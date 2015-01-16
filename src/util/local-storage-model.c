@@ -17,6 +17,8 @@
 #define CATEGORY_NAME_MAX 16
 #define CATEGORY_MAX 12
 
+int in_sequence = 0;
+tw_stime mn_msg_offset = 0.0;
 
 /*
  * wrapped_event_t
@@ -294,6 +296,7 @@ tw_event* lsm_event_new(const char* category,
     tw_event *e;
     lsm_message_t *m;
     tw_lpid lsm_gid; 
+    tw_stime delta;
 
     assert(strlen(category) < CATEGORY_NAME_MAX-1);
     assert(strlen(category) > 0);
@@ -303,7 +306,13 @@ tw_event* lsm_event_new(const char* category,
      */
     lsm_gid = lsm_find_local_device(sender);
 
-    e = codes_event_new(lsm_gid, codes_local_latency(sender)+delay, sender);
+    delta = codes_local_latency(sender) + delay;
+    if (in_sequence) {
+        tw_stime tmp = lsm_msg_offset;
+        lsm_msg_offset += delta;
+        delta += tmp;
+    }
+    e = codes_event_new(lsm_gid, delta, sender);
     m = tw_event_data(e);
     m->magic = lsm_magic;
     m->event  = io_type;
