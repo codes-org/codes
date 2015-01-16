@@ -783,6 +783,11 @@ static void read_config(ConfigHandle *ch, char * anno, disk_model_t *model)
 
 void lsm_configure(void)
 {
+    /* check and see if any lsm LPs are being used - otherwise,
+     * skip the config */
+    if (0 == codes_mapping_get_lp_count(NULL, 0, LSM_NAME, NULL, 1))
+        return;
+
     anno_map = codes_mapping_get_lp_anno_map(LSM_NAME);
     assert(anno_map);
     models_anno = malloc(anno_map->num_annos * sizeof(*models_anno));
