@@ -557,6 +557,10 @@ void model_net_method_send_msg_recv_event(
     tw_event_send(e);
 }
 
+void model_net_method_send_msg_recv_event_rc(tw_lp *sender){
+    codes_local_latency_reverse(sender);
+}
+
 
 void model_net_method_idle_event(tw_stime offset_ts, int is_recv_queue,
         tw_lp * lp){

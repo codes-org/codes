@@ -69,6 +69,8 @@ void model_net_method_send_msg_recv_event(
         int net_id,
         void * msg,
         tw_lp *sender);
+// just need to reverse an RNG for the time being
+void model_net_method_send_msg_recv_event_rc(tw_lp *sender);
 
 // Issue an event from the underlying model (e.g., simplenet, loggp) to tell the
 // scheduler when next to issue a packet event. As different models update their
