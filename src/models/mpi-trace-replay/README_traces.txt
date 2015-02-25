@@ -2,26 +2,44 @@
    instructions available at:
    http://sst.sandia.gov/about_dumpi.html
 
+   Configure dumpi with the following parameters:
+
+   ../configure --enable-libdumpi --enable-test --disable-shared --prefix=/home/mubarm/dumpi/dumpi/install CC=mpicc CXX=mpicxx
+
 2- Configure codes-base with DUMPI. Make sure the CC environment variable
    refers to a MPI compiler
 
    ./configure --with-ross=/path/to/ross/install --with-dumpi=/path/to/dumpi/install
 	 --prefix=/path/to/codes-base/install CC=mpicc 
 
-3- Build codes-base
+3- Build codes-base (See codes-base INSTALL for instructions on building codes-base with dumpi)
 
     make clean && make && make install
 
-4- Configure and build codes-net (See README.txt for instructions on building codes-net).
+4- Configure and build codes-net (See INSTALL for instructions on building codes-net).
 
 5- Download and untar the design forward DUMPI traces from URL
 
    http://portal.nersc.gov/project/CAL/designforward.htm
 
-6- Configure model-net using its config file (Example .conf files available at src/models/mpi-trace-replay/)
+----------------- RUNNING CODES NETWORK WORKLOAD TEST PROGRAM -----------------------
+6- Download and untar the DUMPI AMG application trace for 27 MPI ranks using the following download link:
+
+wget http://portal.nersc.gov/project/CAL/doe-miniapps-mpi-traces/AMG/df_AMG_n27_dumpi.tar.gz
+
+7- Run the test program for codes-nw-workload using. 
+
+mpirun -np 4 ./src/models/mpi-trace-replay/model-net-dumpi-traces-dump --sync=3 --workload_type=dumpi --workload_file=/home/mubarm/df_traces/df_AMG_n27_dumpi/dumpi-2014.03.03.14.55.00- ../src/models/mpi-trace-replay/conf/modelnet-mpi-test.conf
+
+The program shows the number of sends, receives, collectives and wait operations in the DUMPI trace log.
+
+Note: If using a different DUMPI trace file, make sure to update the modelnet-mpi-test.conf file in the config directory.
+
+----------------- RUNNING MODEL-NET WITH CODES NW WORKLOADS -----------------------------
+8- Configure model-net using its config file (Example .conf files available at src/models/mpi-trace-replay/)
    Make sure the number of nw-lp and model-net LP are the same in the config file.
 
-7- From the main source directory of codes-net, run the DUMPI trace replay simulation on top of
+9- From the main source directory of codes-net, run the DUMPI trace replay simulation on top of
    model-net using (/dumpi-2014-04-05.22.12.17.37- is the prefix of the all DUMPI trace files. 
    We skip the last 4 digit prefix of the DUMPI trace file names).
 
@@ -29,7 +47,7 @@
 
   The simulation runs in ROSS serial, conservative and optimistic modes.
 
-8- Some example runs with small-scale traces
+10- Some example runs with small-scale traces
 
 (i) AMG 8 MPI tasks http://portal.nersc.gov/project/CAL/designforward.htm#AMG
 
