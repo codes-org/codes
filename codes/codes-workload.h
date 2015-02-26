@@ -116,6 +116,16 @@ enum codes_workload_op_type
     CODES_WK_ALLREDUCE,
     /* Generic collective operation */
     CODES_WK_COL,
+    /* Waitall operation */
+    CODES_NW_WAITALL,
+    /* Wait operation */
+    CODES_NW_WAIT,
+    /* Waitsome operation */
+    CODES_NW_WAITSOME,
+    /* Waitany operation */
+    CODES_NW_WAITANY,
+    /* Testall operation */
+    CODES_NW_TESTALL,
 };
 
 /* I/O operation paramaters */
@@ -130,12 +140,14 @@ struct codes_workload_op
     /* currently only used by network workloads */
     double start_time;
     double end_time;
+    double sim_start_time;
 
     /* parameters for each operation type */
     union
     {
         struct {
             double seconds;
+	    double nsecs;
         } delay;
         struct {
             int count;  /* num ranks in barrier, -1 means "all" */
@@ -166,7 +178,7 @@ struct codes_workload_op
             int data_type; /* MPI data type to be matched with the recv */
             int count; /* number of elements to be received */
             int tag; /* tag of the message */
-            //int32_t request;
+            int16_t req_id;
         } send;
         struct {
             /* TODO: not sure why source rank is here */
@@ -176,12 +188,19 @@ struct codes_workload_op
             int data_type; /* MPI data type to be matched with the send */
             int count; /* number of elements to be sent */
             int tag; /* tag of the message */
-            //int32_t request;
+            int16_t req_id;
         } recv;
         /* TODO: non-stub for other collectives */
         struct {
             int num_bytes;
         } collective;
+	struct {
+	    int count;
+	    int16_t* req_ids;
+	} waits;
+	struct {
+	   int16_t req_id;
+	} wait;
     }u;
 };
 
