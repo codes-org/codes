@@ -357,6 +357,10 @@ static void handle_msg_ready_rev_event(
     stat->recv_bytes -= m->net_msg_size_bytes;
     stat->recv_time -= m->recv_time_saved;
 
+#if USE_RECV_QUEUE
+    codes_local_latency_reverse(lp);
+#endif
+
     if (m->event_size_bytes && m->is_pull){
         int net_id = model_net_get_id(LP_METHOD_NM);
         model_net_event_rc(net_id, lp, m->pull_size);
@@ -464,6 +468,10 @@ static void handle_msg_start_rev_event(
             tw_now(lp), ns->net_send_next_idle, m->net_send_next_idle_saved);
 
     ns->net_send_next_idle = m->net_send_next_idle_saved;
+
+#if USE_RECV_QUEUE
+    model_net_method_send_msg_recv_event_rc(lp);
+#endif
 
     codes_local_latency_reverse(lp);
 
