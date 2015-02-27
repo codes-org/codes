@@ -516,7 +516,7 @@ int dumpi_trace_nw_workload_load(const char* params, int rank)
 
 	if(!rank_tbl)
     	{
-            rank_tbl = qhash_init(hash_rank_compare, quickhash_64bit_hash, RANK_HASH_TABLE_SIZE);
+            rank_tbl = qhash_init(hash_rank_compare, quickhash_32bit_hash, RANK_HASH_TABLE_SIZE);
             if(!rank_tbl)
                   return -1;
     	}
