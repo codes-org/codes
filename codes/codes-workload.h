@@ -24,6 +24,7 @@ typedef struct codes_workload_info codes_workload_info;
 typedef struct scala_trace_params scala_trace_params;
 typedef struct dumpi_trace_params dumpi_trace_params;
 
+
 struct bgp_params
 {
     /* We have the number of ranks passed in from the bg/p model because
@@ -117,15 +118,15 @@ enum codes_workload_op_type
     /* Generic collective operation */
     CODES_WK_COL,
     /* Waitall operation */
-    CODES_NW_WAITALL,
+    CODES_WK_WAITALL,
     /* Wait operation */
-    CODES_NW_WAIT,
+    CODES_WK_WAIT,
     /* Waitsome operation */
-    CODES_NW_WAITSOME,
+    CODES_WK_WAITSOME,
     /* Waitany operation */
-    CODES_NW_WAITANY,
+    CODES_WK_WAITANY,
     /* Testall operation */
-    CODES_NW_TESTALL,
+    CODES_WK_TESTALL,
 };
 
 /* I/O operation paramaters */
