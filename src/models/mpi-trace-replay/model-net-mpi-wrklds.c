@@ -142,6 +142,7 @@ struct nw_message
 	double saved_send_time;
 	double saved_recv_time;
 	double saved_wait_time;
+        struct codes_workload_op op;
 };
 
 /* executes MPI wait operation */
@@ -802,8 +803,8 @@ static void codes_exec_comp_delay(nw_state* s, nw_message* m, tw_lp* lp)
 	tw_stime ts;
 	nw_message* msg;
 
-	s->compute_time += mpi_op->u.delay.nsecs;
-	ts = mpi_op->u.delay.nsecs + g_tw_lookahead + 0.1;
+	s->compute_time += s_to_ns(mpi_op->u.delay.seconds);
+	ts = s_to_ns(mpi_op->u.delay.seconds) + g_tw_lookahead + 0.1;
 	ts += tw_rand_exponential(lp->rng, noise);
 	
 	e = tw_event_new( lp->gid, ts , lp );
@@ -974,7 +975,6 @@ static void update_send_completion_queue_rc(nw_state* s, tw_bf * bf, nw_message 
 /* completed isends are added in the list */
 static void update_send_completion_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-
 	if(TRACE == lp->gid)
 		printf("\n %lf isend operation completed req id %d ", tw_now(lp), m->op.u.send.req_id);
 	if(m->op.op_type == CODES_WK_ISEND)
@@ -1166,9 +1166,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 			num_bytes_sent -= m->op.u.send.num_bytes;
 		}
 		break;
-
 		case CODES_WK_RECV:
-		case CODES_WK_IRECV:
 		{
 			codes_exec_mpi_recv_rc(s, m, lp);
 			s->num_recvs--;
@@ -1178,7 +1176,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 		{
 			tw_rand_reverse_unif(lp->rng);
 			s->num_delays--;
-			s->compute_time -= m->op.u.delay.nsecs;
+			s->compute_time -= s_to_ns(m->op.u.delay.seconds);
 		}
 		break;
 		case CODES_WK_BCAST:
