@@ -6,7 +6,7 @@
 #include <ross.h>
 #include <inttypes.h>
 
-#include "codes/codes-nw-workload.h"
+#include "codes/codes-workload.h"
 #include "codes/codes.h"
 #include "codes/configuration.h"
 #include "codes/codes_mapping.h"
@@ -95,7 +95,7 @@ struct nw_state
 struct nw_message
 {
 	int msg_type;
-        struct mpi_event_list op;
+        struct codes_workload_op op;
 };
 
 /* initialize queues, get next operation */
@@ -163,7 +163,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 	//printf("\n network LP not generating events %d ", (int)s->nw_id);
 	return;
      }
-   wrkld_id = codes_nw_workload_load("dumpi-trace-workload", params, (int)s->nw_id);
+   wrkld_id = codes_workload_load("dumpi-trace-workload", params, (int)s->nw_id);
 
    /* clock starts ticking */
    s->elapsed_time = tw_now(lp);
@@ -188,15 +188,15 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 
 void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-        codes_nw_workload_get_next_rc(wrkld_id, (int)s->nw_id, &m->op);
-        if(m->op.op_type == CODES_NW_END)
+        codes_workload_get_next_rc(wrkld_id, (int)s->nw_id, &m->op);
+        if(m->op.op_type == CODES_WK_END)
                 return;
 
 	s->total_time -= (m->op.end_time - m->op.start_time);
         switch(m->op.op_type)
         {
-		case CODES_NW_SEND:
-                case CODES_NW_ISEND:
+		case CODES_WK_SEND:
+                case CODES_WK_ISEND:
 		{
 			s->num_sends--;
 			s->send_time -= (m->op.end_time - m->op.start_time);
@@ -204,8 +204,8 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
 		};
 		break;
 
-		case CODES_NW_RECV:
-		case CODES_NW_IRECV:
+		case CODES_WK_RECV:
+		case CODES_WK_IRECV:
 		{
 			s->num_recvs--;
 			s->recv_time -= (m->op.end_time - m->op.start_time);	
@@ -213,49 +213,49 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
 		}
 		break;
 
-		case CODES_NW_DELAY:
+		case CODES_WK_DELAY:
 		{
 			s->num_delays--;
 			s->compute_time -= (m->op.end_time - m->op.start_time);
 		}
 		break;
 
-		case CODES_NW_BCAST:
-		case CODES_NW_ALLGATHER:
-		case CODES_NW_ALLGATHERV:
-		case CODES_NW_ALLTOALL:
-		case CODES_NW_ALLTOALLV:
-		case CODES_NW_REDUCE:
-		case CODES_NW_ALLREDUCE:
-		case CODES_NW_COL:
+		case CODES_WK_BCAST:
+		case CODES_WK_ALLGATHER:
+		case CODES_WK_ALLGATHERV:
+		case CODES_WK_ALLTOALL:
+		case CODES_WK_ALLTOALLV:
+		case CODES_WK_REDUCE:
+		case CODES_WK_ALLREDUCE:
+		case CODES_WK_COL:
 		{
 			s->num_cols--;
 			s->col_time -= (m->op.end_time - m->op.start_time);
 		}
 		break;
 
-		case CODES_NW_WAIT:
+		case CODES_WK_WAIT:
 		{
 			s->num_wait--;
 			s->wait_time -= (m->op.end_time - m->op.start_time);
 		}
 		break;
 
-		case CODES_NW_WAITALL:
+		case CODES_WK_WAITALL:
 		{
 			s->num_waitall--;
 			s->wait_time -= (m->op.end_time - m->op.start_time);
 		}
 		break;
 
-		case CODES_NW_WAITSOME:
+		case CODES_WK_WAITSOME:
 		{
 			s->num_waitsome--;
 			s->wait_time -= (m->op.end_time - m->op.start_time);
 		}
 		break;
 
-		case CODES_NW_WAITANY:
+		case CODES_WK_WAITANY:
 		{
 			s->num_waitany--;
 			s->wait_time -= (m->op.end_time - m->op.start_time);
@@ -273,12 +273,13 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
 
 static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-		mpi_event_list mpi_op;
-    		codes_nw_workload_get_next(wrkld_id, (int)s->nw_id, &mpi_op);
-		memcpy(&m->op, &mpi_op, sizeof(struct mpi_event_list));
+		struct codes_workload_op mpi_op;
+    		codes_workload_get_next(wrkld_id, (int)s->nw_id, &mpi_op);
+		memcpy(&m->op, &mpi_op, sizeof(struct codes_workload_op));
 
-    		if(mpi_op.op_type == CODES_NW_END)
+    		if(mpi_op.op_type == CODES_WK_END)
     	 	{
+			//printf("\n workload ending!!! ");
 			return;
      		}
 		
@@ -286,8 +287,8 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 		
 		switch(mpi_op.op_type)
 		{
-			case CODES_NW_SEND:
-			case CODES_NW_ISEND:
+			case CODES_WK_SEND:
+			case CODES_WK_ISEND:
 			 {
 				s->num_sends++;
 				s->send_time += (mpi_op.end_time - mpi_op.start_time);
@@ -295,8 +296,8 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			 }
 			break;
 	
-			case CODES_NW_RECV:
-			case CODES_NW_IRECV:
+			case CODES_WK_RECV:
+			case CODES_WK_IRECV:
 			  {
 				s->num_recvs++;
 				s->recv_time += (mpi_op.end_time - mpi_op.start_time);
@@ -304,46 +305,46 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			  }
 			break;
 
-			case CODES_NW_DELAY:
+			case CODES_WK_DELAY:
 			  {
 				s->num_delays++;
 				s->compute_time += (mpi_op.end_time - mpi_op.start_time);
 			  }
 			break;
 
-			case CODES_NW_BCAST:
-			case CODES_NW_ALLGATHER:
-			case CODES_NW_ALLGATHERV:
-			case CODES_NW_ALLTOALL:
-			case CODES_NW_ALLTOALLV:
-			case CODES_NW_REDUCE:
-			case CODES_NW_ALLREDUCE:
-			case CODES_NW_COL:
+			case CODES_WK_BCAST:
+			case CODES_WK_ALLGATHER:
+			case CODES_WK_ALLGATHERV:
+			case CODES_WK_ALLTOALL:
+			case CODES_WK_ALLTOALLV:
+			case CODES_WK_REDUCE:
+			case CODES_WK_ALLREDUCE:
+			case CODES_WK_COL:
 			  {
 				s->num_cols++;
 				s->col_time += (mpi_op.end_time - mpi_op.start_time);
 			  }
 			break;
-			case CODES_NW_WAIT:
+			case CODES_WK_WAIT:
 			{
 				s->num_wait++;
 				s->wait_time += (mpi_op.end_time - mpi_op.start_time);
 			}
 			break;
-			case CODES_NW_WAITALL:
+			case CODES_WK_WAITALL:
 			{
 				s->num_waitall++;
 				s->wait_time += (mpi_op.end_time - mpi_op.start_time);	
 			}
 			break;
-			case CODES_NW_WAITSOME:
+			case CODES_WK_WAITSOME:
 			{
 				s->num_waitsome++;
 				s->wait_time += (mpi_op.end_time - mpi_op.start_time);
 			}
 			break;
 
-			case CODES_NW_WAITANY:
+			case CODES_WK_WAITANY:
 			{
 			   s->num_waitany++;
 			   s->wait_time += (mpi_op.end_time - mpi_op.start_time);
