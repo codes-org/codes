@@ -17,10 +17,10 @@
 #include "src/workload/codes-workload-method.h"
 #include "codes/quickhash.h"
 
-#define RANK_HASH_TABLE_SIZE 400 
 #define MAX_LENGTH 512
 #define MAX_OPERATIONS 32768
 #define DUMPI_IGNORE_DELAY 100
+#define RANK_HASH_TABLE_SIZE 400
 
 static struct qhash_table *rank_tbl = NULL;
 static int rank_tbl_pop = 0;
@@ -171,7 +171,7 @@ int handleDUMPIWait(const dumpi_wait *prm, uint16_t thread,
         rank_mpi_context* myctx = (rank_mpi_context*)userarg;
         struct codes_workload_op wrkld_per_rank;
 
-        wrkld_per_rank.op_type = CODES_NW_WAIT;
+        wrkld_per_rank.op_type = CODES_WK_WAIT;
         wrkld_per_rank.u.wait.req_id = prm->request;
         wrkld_per_rank.start_time = cpu->start.nsec;
         wrkld_per_rank.end_time = cpu->stop.nsec;
@@ -189,7 +189,7 @@ int handleDUMPIWaitsome(const dumpi_waitsome *prm, uint16_t thread,
         rank_mpi_context* myctx = (rank_mpi_context*)userarg;
         struct codes_workload_op wrkld_per_rank;
 
-        wrkld_per_rank.op_type = CODES_NW_WAITSOME;
+        wrkld_per_rank.op_type = CODES_WK_WAITSOME;
         wrkld_per_rank.u.waits.count = prm->count;
         wrkld_per_rank.u.waits.req_ids = (int16_t*)malloc(prm->count * sizeof(int16_t));
 
@@ -213,7 +213,7 @@ int handleDUMPIWaitany(const dumpi_waitany *prm, uint16_t thread,
         rank_mpi_context* myctx = (rank_mpi_context*)userarg;
         struct codes_workload_op wrkld_per_rank;
 
-        wrkld_per_rank.op_type = CODES_NW_WAITANY;
+        wrkld_per_rank.op_type = CODES_WK_WAITANY;
         wrkld_per_rank.u.waits.count = prm->count;
         wrkld_per_rank.u.waits.req_ids = (int16_t*)malloc(prm->count * sizeof(int16_t));
 
@@ -236,7 +236,7 @@ int handleDUMPIWaitall(const dumpi_waitall *prm, uint16_t thread,
         rank_mpi_context* myctx = (rank_mpi_context*)userarg;
         struct codes_workload_op wrkld_per_rank;
 
-        wrkld_per_rank.op_type = CODES_NW_WAITALL;
+        wrkld_per_rank.op_type = CODES_WK_WAITALL;
 
         wrkld_per_rank.u.waits.count = prm->count;
         wrkld_per_rank.u.waits.req_ids = (int16_t*)malloc(prm->count * sizeof(int16_t));
@@ -512,7 +512,7 @@ int dumpi_trace_nw_workload_load(const char* params, int rank)
 
 	if(!rank_tbl)
     	{
-            rank_tbl = qhash_init(hash_rank_compare, quickhash_64bit_hash, RANK_HASH_TABLE_SIZE);
+            rank_tbl = qhash_init(hash_rank_compare, quickhash_32bit_hash, RANK_HASH_TABLE_SIZE);
             if(!rank_tbl)
                   return -1;
     	}
@@ -689,6 +689,7 @@ void dumpi_trace_nw_workload_get_next(int rank, struct codes_workload_op *op)
    hash_link = qhash_search(rank_tbl, &rank);
    if(!hash_link)
    {
+      printf("\n not found for rank id %d ", rank);
       op->op_type = CODES_WK_END;
       return;
    }
