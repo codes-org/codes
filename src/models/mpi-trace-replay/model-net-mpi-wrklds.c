@@ -142,7 +142,6 @@ struct nw_message
 	double saved_send_time;
 	double saved_recv_time;
 	double saved_wait_time;
-        struct codes_workload_op op;
 };
 
 /* executes MPI wait operation */
