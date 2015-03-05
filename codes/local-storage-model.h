@@ -43,7 +43,10 @@ typedef enum lsm_event_e
  */
 
 /* given LP sender, find the LSM device LP in the same group */ 
-tw_lpid lsm_find_local_device(tw_lp *sender);
+tw_lpid lsm_find_local_device(
+        const char * annotation,
+        int ignore_annotations,
+        tw_lpid sender_gid);
 
 /*
  * lsm_event_new
@@ -69,6 +72,21 @@ tw_event* lsm_event_new(const char* category,
                         size_t   message_bytes,
                         tw_lp   *sender,
                         tw_stime delay);
+/* equivalent to lsm_event_new, except it allows to specify an annotation to
+ * filter by. If ignore_annotations is nonzero, A null annotation parameter
+ * indicates that the lsm LP to issue to has no annotation */
+tw_event* lsm_event_new_annotated(
+        const char* category,
+        tw_lpid  dest_gid,
+        uint64_t io_object,
+        int64_t  io_offset,
+        uint64_t io_size_bytes,
+        int      io_type,
+        size_t   message_bytes,
+        tw_lp   *sender,
+        tw_stime delay,
+        const char * annotation,
+        int ignore_annotations);
 
 void lsm_event_new_reverse(tw_lp *sender);
 
