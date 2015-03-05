@@ -247,6 +247,25 @@ void lsm_event_new_reverse(tw_lp *sender)
     return;
 }
 
+static tw_lpid lsm_find_local_device_default(
+        const char * annotation,
+        int          ignore_annotations,
+        tw_lpid      sender_gid) {
+    char group_name[MAX_NAME_LENGTH];
+    int dummy, mapping_rep, mapping_offset;
+    int num_lsm_lps;
+    tw_lpid rtn;
+
+    codes_mapping_get_lp_info(sender_gid, group_name, &dummy, NULL, &dummy,
+            NULL, &mapping_rep, &mapping_offset);
+    num_lsm_lps = codes_mapping_get_lp_count(group_name, 1, LSM_NAME,
+            annotation, ignore_annotations);
+    codes_mapping_get_lp_id(group_name, LSM_NAME, annotation,
+            ignore_annotations, mapping_rep, mapping_offset % num_lsm_lps,
+            &rtn);
+    return rtn;
+}
+
 /*
  * lsm_find_local_device()
  *
@@ -256,16 +275,7 @@ void lsm_event_new_reverse(tw_lp *sender)
  */
 tw_lpid lsm_find_local_device(tw_lp *sender)
 {
-    char lp_group_name[MAX_NAME_LENGTH];
-    int mapping_rep_id, mapping_offset, dummy;
-    tw_lpid lsm_gid; 
-
-    codes_mapping_get_lp_info(sender->gid, lp_group_name, &dummy, 
-        NULL, &dummy, NULL, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LSM_NAME, NULL, 1, mapping_rep_id, 
-        mapping_offset, &lsm_gid);
-
-    return(lsm_gid);
+    return lsm_find_local_device_default(NULL, 1, sender->gid);
 }
 
 /*
