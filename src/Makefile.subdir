@@ -96,8 +96,6 @@ src_libcodes_base_a_SOURCES =  \
     src/modelconfig/configstoreadapter.c \
     codes/txt_configfile.h \
     src/modelconfig/txt_configfile.c \
-    src/util/codes-callbacks.h \
-    src/util/codes-callbacks.c \
     src/util/codes_mapping.c \
     src/util/lp-type-lookup.c \
     src/util/configuration.c \
