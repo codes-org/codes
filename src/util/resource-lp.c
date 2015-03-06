@@ -480,7 +480,7 @@ void resource_lp_configure(){
     }
 }
 
-static void resource_lp_issue_event(
+static void resource_lp_issue_event_base(
         msg_header *header,
         uint64_t req,
         resource_token_t tok, /* only used in reserve_get/free */
@@ -492,20 +492,26 @@ static void resource_lp_issue_event(
         int msg_callback_misc_offset,
         void *msg_callback_misc_data,
         enum resource_event type,
-        tw_lp *sender){
+        tw_lp *sender,
+        const char * annotation,
+        int ignore_annotations){
 
     tw_lpid resource_lpid;
 
     /* map out the lpid of the resource */
     int mapping_rep_id, mapping_offset, dummy;
     char lp_group_name[MAX_NAME_LENGTH];
+    int resource_count;
     // TODO: currently ignoring annotations... perhaps give annotation as a
     // parameter?
     codes_mapping_get_lp_info(sender->gid, lp_group_name, &dummy,
             NULL, &dummy, NULL,
             &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, RESOURCE_LP_NM, NULL, 1,
-            mapping_rep_id, mapping_offset, &resource_lpid); 
+    resource_count = codes_mapping_get_lp_count(lp_group_name, 1,
+            RESOURCE_LP_NM, annotation, ignore_annotations);
+    codes_mapping_get_lp_id(lp_group_name, RESOURCE_LP_NM, annotation,
+            ignore_annotations, mapping_rep_id, mapping_offset % resource_count,
+            &resource_lpid);
 
     tw_event *e = codes_event_new(resource_lpid, codes_local_latency(sender),
             sender);
@@ -538,6 +544,45 @@ static void resource_lp_issue_event(
     }
 
     tw_event_send(e);
+}
+
+static void resource_lp_issue_event_annotated(
+        msg_header *header,
+        uint64_t req,
+        resource_token_t tok, /* only used in reserve_get/free */
+        int block_on_unavail,
+        int msg_size,
+        int msg_header_offset,
+        int msg_callback_offset,
+        int msg_callback_misc_size,
+        int msg_callback_misc_offset,
+        void *msg_callback_misc_data,
+        enum resource_event type,
+        tw_lp *sender,
+        const char * annotation,
+        int ignore_annotations){
+    resource_lp_issue_event_base(header, req, tok, block_on_unavail, msg_size,
+            msg_header_offset, msg_callback_offset, msg_callback_misc_size,
+            msg_callback_misc_offset, msg_callback_misc_data, type, sender,
+            annotation, ignore_annotations);
+}
+static void resource_lp_issue_event(
+        msg_header *header,
+        uint64_t req,
+        resource_token_t tok, /* only used in reserve_get/free */
+        int block_on_unavail,
+        int msg_size,
+        int msg_header_offset,
+        int msg_callback_offset,
+        int msg_callback_misc_size,
+        int msg_callback_misc_offset,
+        void *msg_callback_misc_data,
+        enum resource_event type,
+        tw_lp *sender) {
+    resource_lp_issue_event_base(header, req, tok, block_on_unavail, msg_size,
+            msg_header_offset, msg_callback_offset, msg_callback_misc_size,
+            msg_callback_misc_offset, msg_callback_misc_data, type, sender,
+            NULL, 1);
 }
 
 void resource_lp_get(
