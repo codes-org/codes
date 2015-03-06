@@ -50,8 +50,6 @@ nobase_include_HEADERS = \
     codes/CodesIOKernelTypes.h \
     codes/codeslexer.h \
     codes/txt_configfile.h \
-    codes/codeslogging.h \
-    codes/timeline.h \
     codes/codesparser.h \
     codes/quickhash.h \
     codes/configfile.h \
@@ -105,10 +103,6 @@ src_libcodes_base_a_SOURCES =  \
 	src/util/resource.c \
 	src/util/resource-lp.c \
 	src/util/local-storage-model.c \
-    codes/codeslogging.h \
-    src/logging/codeslogging.c \
-    codes/timeline.h \
-    src/logging/timeline.c \
     src/workload/codes-workload.c \
     src/workload/codes-workload-method.h \
     src/workload/methods/codes-bgp-io-wrkld.c \

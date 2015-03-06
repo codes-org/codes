@@ -6,7 +6,6 @@
 
 #include <assert.h>
 #include <ross.h>
-#include "codes/timeline.h"
 #include "codes/lp-io.h"
 #include "codes/jenkins-hash.h"
 #include "codes/codes.h"
@@ -542,12 +541,6 @@ static void handle_io_request(lsm_state_t *ns,
     tw_stime (*transfer_time) (lsm_state_t *, lsm_stats_t *, int, uint64_t, int64_t, uint64_t);
 
     transfer_time = transfer_time_table;
-
-    if (TIMELINE_ENABLED)
-    {
-        __attribute__((unused)) char rwc = (rw) ? 'R' : 'W';
-        (void) timeline_event(lp, "%c %llu %llu\n", rwc, m_in->u.data.offset, m_in->u.data.size);
-    }
 
     stat = find_stats(m_in->u.data.category, ns);
 
