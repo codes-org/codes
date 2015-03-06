@@ -50,7 +50,6 @@ nobase_include_HEADERS = \
     codes/CodesIOKernelTypes.h \
     codes/codeslexer.h \
     codes/txt_configfile.h \
-    codes/tools.h \
     codes/codeslogging.h \
     codes/timeline.h \
     codes/codesparser.h \
@@ -97,8 +96,6 @@ src_libcodes_base_a_SOURCES =  \
     src/modelconfig/configstoreadapter.c \
     codes/txt_configfile.h \
     src/modelconfig/txt_configfile.c \
-    codes/tools.h \
-    src/util/tools.c \
     src/util/codes-callbacks.h \
     src/util/codes-callbacks.c \
     src/util/codes_mapping.c \

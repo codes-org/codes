@@ -3,7 +3,6 @@
 #include <string.h>
 #include "src/modelconfig/configglue.h"
 #include "src/modelconfig/configparser.h"
-#include "codes/tools.h"
 
 #define YY_EXTRA_TYPE ParserParams * 
 

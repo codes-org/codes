@@ -15,8 +15,17 @@
 
 #include <string.h>
 #include "configstoreadapter.h"
-#include "codes/tools.h"
 #include "configstore.h"
+
+/* unused attribute is only used here, so use directly in source */
+#ifdef UNUSED
+#elif defined(__GNUC__)
+# define UNUSED(x) UNUSED_ ## x __attribute__((unused))
+#elif defined(__LCLINT__)
+# define UNUSED(x) /*@unused@*/ x
+#else
+# define UNUSED(x) x
+#endif /* UNUSED */
 
 static int cfsa_getKey (void *  handle, SectionHandle section, const char * name,
       char * buf, size_t bufsize)
@@ -53,7 +62,7 @@ static int cfsa_getKey (void *  handle, SectionHandle section, const char * name
 
    if (!dcount)
    {
-      ALWAYS_ASSERT (buf);
+      assert(buf);
       *buf = 0;
       ret = 0;
       /* tmp was not modified no need to free */
