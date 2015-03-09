@@ -8,8 +8,8 @@
 #include <stdio.h>
 #include "txt_configfile.h"
 #include "configglue.h"
-#include "configparser.h"
-#include "configlex.h"
+#include "src/modelconfig/configparser.h"
+#include "src/modelconfig/configlex.h"
 #include "configstoreadapter.h"
 
 #define MAX_CONFIG_SIZE 10*1024*1024
