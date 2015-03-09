@@ -77,15 +77,15 @@
 /* Copy the first part of user declarations.  */
 
 /* Line 268 of yacc.c  */
-#line 1 "src/iokernellang/codesparser.y"
+#line 1 "codesparser.y"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include "codes/CodesIOKernelTypes.h"
-#include "codes/CodesIOKernelContext.h"
+#include "CodesIOKernelTypes.h"
+#include "CodesIOKernelContext.h"
 
 /* prototypes */
 nodeType *opr(int64_t oper, int64_t nops, ...);
@@ -102,7 +102,7 @@ int * group_size = NULL;
 
 
 /* Line 268 of yacc.c  */
-#line 106 "src/iokernellang/codesparser.c"
+#line 106 "codesparser.c"
 
 /* Enabling traces.  */
 #ifndef YYDEBUG
@@ -207,7 +207,7 @@ typedef union YYSTYPE
 {
 
 /* Line 293 of yacc.c  */
-#line 37 "src/iokernellang/codesparser.y"
+#line 37 "codesparser.y"
 
     int64_t iValue;                 /* integer value */
     int64_t sIndex;              /* symbol table index */
@@ -216,7 +216,7 @@ typedef union YYSTYPE
 
 
 /* Line 293 of yacc.c  */
-#line 220 "src/iokernellang/codesparser.c"
+#line 220 "codesparser.c"
 } YYSTYPE;
 # define YYSTYPE_IS_TRIVIAL 1
 # define yystype YYSTYPE /* obsolescent; will be withdrawn */
@@ -264,9 +264,9 @@ void yypstate_delete ();
 /* Copy the second part of user declarations.  */
 
 /* Line 343 of yacc.c  */
-#line 58 "src/iokernellang/codesparser.y"
+#line 58 "codesparser.y"
 
-	#include "codes/CodesIOKernelContext.h"
+	#include "CodesIOKernelContext.h"
 
 	int CodesIOKernel_lex(YYSTYPE * lvalp, YYLTYPE * llocp, void * scanner);
 
@@ -279,7 +279,7 @@ void yypstate_delete ();
 
 
 /* Line 343 of yacc.c  */
-#line 283 "src/iokernellang/codesparser.c"
+#line 283 "codesparser.c"
 
 #ifdef short
 # undef short
@@ -1833,343 +1833,343 @@ yyreduce:
         case 2:
 
 /* Line 1806 of yacc.c  */
-#line 74 "src/iokernellang/codesparser.y"
+#line 74 "codesparser.y"
     { /*exit(0)*/; }
     break;
 
   case 3:
 
 /* Line 1806 of yacc.c  */
-#line 78 "src/iokernellang/codesparser.y"
+#line 78 "codesparser.y"
     { ex((yyvsp[(2) - (2)].nPtr)); freeNode((yyvsp[(2) - (2)].nPtr)); }
     break;
 
   case 5:
 
 /* Line 1806 of yacc.c  */
-#line 83 "src/iokernellang/codesparser.y"
+#line 83 "codesparser.y"
     { (yyval.nPtr) = opr(';', 2, NULL, NULL); }
     break;
 
   case 6:
 
 /* Line 1806 of yacc.c  */
-#line 84 "src/iokernellang/codesparser.y"
+#line 84 "codesparser.y"
     { (yyval.nPtr) = (yyvsp[(1) - (2)].nPtr); }
     break;
 
   case 7:
 
 /* Line 1806 of yacc.c  */
-#line 85 "src/iokernellang/codesparser.y"
+#line 85 "codesparser.y"
     { (yyval.nPtr) = opr(EXIT, 1, (yyvsp[(2) - (3)].nPtr)); }
     break;
 
   case 8:
 
 /* Line 1806 of yacc.c  */
-#line 86 "src/iokernellang/codesparser.y"
+#line 86 "codesparser.y"
     { (yyval.nPtr) = opr(PRINT, 1, (yyvsp[(2) - (3)].nPtr)); }
     break;
 
   case 9:
 
 /* Line 1806 of yacc.c  */
-#line 87 "src/iokernellang/codesparser.y"
+#line 87 "codesparser.y"
     { (yyval.nPtr) = opr(WRITE, 2, (yyvsp[(2) - (5)].nPtr), (yyvsp[(4) - (5)].nPtr)); }
     break;
 
   case 10:
 
 /* Line 1806 of yacc.c  */
-#line 88 "src/iokernellang/codesparser.y"
+#line 88 "codesparser.y"
     { (yyval.nPtr) = opr(WRITE_ALL, 2, (yyvsp[(2) - (5)].nPtr), (yyvsp[(4) - (5)].nPtr)); }
     break;
 
   case 11:
 
 /* Line 1806 of yacc.c  */
-#line 89 "src/iokernellang/codesparser.y"
+#line 89 "codesparser.y"
     { (yyval.nPtr) = opr(WRITEAT, 3, (yyvsp[(2) - (7)].nPtr), (yyvsp[(4) - (7)].nPtr), (yyvsp[(6) - (7)].nPtr)); }
     break;
 
   case 12:
 
 /* Line 1806 of yacc.c  */
-#line 90 "src/iokernellang/codesparser.y"
+#line 90 "codesparser.y"
     { (yyval.nPtr) = opr(WRITEAT_ALL, 3, (yyvsp[(2) - (7)].nPtr), (yyvsp[(4) - (7)].nPtr), (yyvsp[(6) - (7)].nPtr)); }
     break;
 
   case 13:
 
 /* Line 1806 of yacc.c  */
-#line 91 "src/iokernellang/codesparser.y"
+#line 91 "codesparser.y"
     { (yyval.nPtr) = opr(READ, 2, (yyvsp[(2) - (5)].nPtr), (yyvsp[(4) - (5)].nPtr)); }
     break;
 
   case 14:
 
 /* Line 1806 of yacc.c  */
-#line 92 "src/iokernellang/codesparser.y"
+#line 92 "codesparser.y"
     { (yyval.nPtr) = opr(READ_ALL, 2, (yyvsp[(2) - (5)].nPtr), (yyvsp[(4) - (5)].nPtr)); }
     break;
 
   case 15:
 
 /* Line 1806 of yacc.c  */
-#line 93 "src/iokernellang/codesparser.y"
+#line 93 "codesparser.y"
     { (yyval.nPtr) = opr(READAT, 3, (yyvsp[(2) - (7)].nPtr), (yyvsp[(4) - (7)].nPtr), (yyvsp[(6) - (7)].nPtr) ); }
     break;
 
   case 16:
 
 /* Line 1806 of yacc.c  */
-#line 94 "src/iokernellang/codesparser.y"
+#line 94 "codesparser.y"
     { (yyval.nPtr) = opr(READAT_ALL, 3, (yyvsp[(2) - (7)].nPtr), (yyvsp[(4) - (7)].nPtr), (yyvsp[(6) - (7)].nPtr) ); }
     break;
 
   case 17:
 
 /* Line 1806 of yacc.c  */
-#line 95 "src/iokernellang/codesparser.y"
+#line 95 "codesparser.y"
     { (yyval.nPtr) = opr(SYNC, 1, (yyvsp[(2) - (3)].nPtr)); }
     break;
 
   case 18:
 
 /* Line 1806 of yacc.c  */
-#line 96 "src/iokernellang/codesparser.y"
+#line 96 "codesparser.y"
     { (yyval.nPtr) = opr(SLEEP, 1, (yyvsp[(2) - (3)].nPtr)); }
     break;
 
   case 19:
 
 /* Line 1806 of yacc.c  */
-#line 97 "src/iokernellang/codesparser.y"
+#line 97 "codesparser.y"
     { (yyval.nPtr) = opr(OPEN, 1, (yyvsp[(2) - (3)].nPtr)); }
     break;
 
   case 20:
 
 /* Line 1806 of yacc.c  */
-#line 98 "src/iokernellang/codesparser.y"
+#line 98 "codesparser.y"
     { (yyval.nPtr) = opr(CLOSE, 1, (yyvsp[(2) - (3)].nPtr)); }
     break;
 
   case 21:
 
 /* Line 1806 of yacc.c  */
-#line 99 "src/iokernellang/codesparser.y"
+#line 99 "codesparser.y"
     { (yyval.nPtr) = opr(DELETE, 1, (yyvsp[(2) - (3)].nPtr)); }
     break;
 
   case 22:
 
 /* Line 1806 of yacc.c  */
-#line 100 "src/iokernellang/codesparser.y"
+#line 100 "codesparser.y"
     { (yyval.nPtr) = opr(FLUSH, 1, (yyvsp[(2) - (3)].nPtr)); }
     break;
 
   case 23:
 
 /* Line 1806 of yacc.c  */
-#line 101 "src/iokernellang/codesparser.y"
+#line 101 "codesparser.y"
     { (yyval.nPtr) = opr(SEEK, 2, (yyvsp[(2) - (5)].nPtr), (yyvsp[(4) - (5)].nPtr)); }
     break;
 
   case 24:
 
 /* Line 1806 of yacc.c  */
-#line 102 "src/iokernellang/codesparser.y"
+#line 102 "codesparser.y"
     { (yyval.nPtr) = opr('=', 2, id((yyvsp[(1) - (4)].sIndex)), (yyvsp[(3) - (4)].nPtr)); }
     break;
 
   case 25:
 
 /* Line 1806 of yacc.c  */
-#line 103 "src/iokernellang/codesparser.y"
+#line 103 "codesparser.y"
     { (yyval.nPtr) = opr(WHILE, 2, (yyvsp[(3) - (5)].nPtr), (yyvsp[(5) - (5)].nPtr)); }
     break;
 
   case 26:
 
 /* Line 1806 of yacc.c  */
-#line 104 "src/iokernellang/codesparser.y"
+#line 104 "codesparser.y"
     { (yyval.nPtr) = opr(IF, 2, (yyvsp[(3) - (5)].nPtr), (yyvsp[(5) - (5)].nPtr)); }
     break;
 
   case 27:
 
 /* Line 1806 of yacc.c  */
-#line 105 "src/iokernellang/codesparser.y"
+#line 105 "codesparser.y"
     { (yyval.nPtr) = opr(IF, 3, (yyvsp[(3) - (7)].nPtr), (yyvsp[(5) - (7)].nPtr), (yyvsp[(7) - (7)].nPtr)); }
     break;
 
   case 28:
 
 /* Line 1806 of yacc.c  */
-#line 106 "src/iokernellang/codesparser.y"
+#line 106 "codesparser.y"
     { (yyval.nPtr) = (yyvsp[(2) - (3)].nPtr); }
     break;
 
   case 29:
 
 /* Line 1806 of yacc.c  */
-#line 110 "src/iokernellang/codesparser.y"
+#line 110 "codesparser.y"
     { (yyval.nPtr) = (yyvsp[(1) - (1)].nPtr); }
     break;
 
   case 30:
 
 /* Line 1806 of yacc.c  */
-#line 111 "src/iokernellang/codesparser.y"
+#line 111 "codesparser.y"
     { (yyval.nPtr) = opr(';', 2, (yyvsp[(1) - (2)].nPtr), (yyvsp[(2) - (2)].nPtr)); }
     break;
 
   case 31:
 
 /* Line 1806 of yacc.c  */
-#line 115 "src/iokernellang/codesparser.y"
+#line 115 "codesparser.y"
     { (yyval.nPtr) = con((yyvsp[(1) - (1)].iValue)); }
     break;
 
   case 32:
 
 /* Line 1806 of yacc.c  */
-#line 116 "src/iokernellang/codesparser.y"
+#line 116 "codesparser.y"
     { (yyval.nPtr) = id((yyvsp[(1) - (1)].sIndex)); }
     break;
 
   case 33:
 
 /* Line 1806 of yacc.c  */
-#line 117 "src/iokernellang/codesparser.y"
+#line 117 "codesparser.y"
     { (yyval.nPtr) = opr(UMINUS, 1, (yyvsp[(2) - (2)].nPtr)); }
     break;
 
   case 34:
 
 /* Line 1806 of yacc.c  */
-#line 118 "src/iokernellang/codesparser.y"
+#line 118 "codesparser.y"
     { (yyval.nPtr) = opr('+', 2, (yyvsp[(1) - (3)].nPtr), (yyvsp[(3) - (3)].nPtr)); }
     break;
 
   case 35:
 
 /* Line 1806 of yacc.c  */
-#line 119 "src/iokernellang/codesparser.y"
+#line 119 "codesparser.y"
     { (yyval.nPtr) = opr('-', 2, (yyvsp[(1) - (3)].nPtr), (yyvsp[(3) - (3)].nPtr)); }
     break;
 
   case 36:
 
 /* Line 1806 of yacc.c  */
-#line 120 "src/iokernellang/codesparser.y"
+#line 120 "codesparser.y"
     { (yyval.nPtr) = opr('*', 2, (yyvsp[(1) - (3)].nPtr), (yyvsp[(3) - (3)].nPtr)); }
     break;
 
   case 37:
 
 /* Line 1806 of yacc.c  */
-#line 121 "src/iokernellang/codesparser.y"
+#line 121 "codesparser.y"
     { (yyval.nPtr) = opr('/', 2, (yyvsp[(1) - (3)].nPtr), (yyvsp[(3) - (3)].nPtr)); }
     break;
 
   case 38:
 
 /* Line 1806 of yacc.c  */
-#line 122 "src/iokernellang/codesparser.y"
+#line 122 "codesparser.y"
     { (yyval.nPtr) = opr('%', 2, (yyvsp[(1) - (3)].nPtr), (yyvsp[(3) - (3)].nPtr)); }
     break;
 
   case 39:
 
 /* Line 1806 of yacc.c  */
-#line 123 "src/iokernellang/codesparser.y"
+#line 123 "codesparser.y"
     { (yyval.nPtr) = opr('<', 2, (yyvsp[(1) - (3)].nPtr), (yyvsp[(3) - (3)].nPtr)); }
     break;
 
   case 40:
 
 /* Line 1806 of yacc.c  */
-#line 124 "src/iokernellang/codesparser.y"
+#line 124 "codesparser.y"
     { (yyval.nPtr) = opr('>', 2, (yyvsp[(1) - (3)].nPtr), (yyvsp[(3) - (3)].nPtr)); }
     break;
 
   case 41:
 
 /* Line 1806 of yacc.c  */
-#line 125 "src/iokernellang/codesparser.y"
+#line 125 "codesparser.y"
     { (yyval.nPtr) = opr(GE, 2, (yyvsp[(1) - (3)].nPtr), (yyvsp[(3) - (3)].nPtr)); }
     break;
 
   case 42:
 
 /* Line 1806 of yacc.c  */
-#line 126 "src/iokernellang/codesparser.y"
+#line 126 "codesparser.y"
     { (yyval.nPtr) = opr(LE, 2, (yyvsp[(1) - (3)].nPtr), (yyvsp[(3) - (3)].nPtr)); }
     break;
 
   case 43:
 
 /* Line 1806 of yacc.c  */
-#line 127 "src/iokernellang/codesparser.y"
+#line 127 "codesparser.y"
     { (yyval.nPtr) = opr(NE, 2, (yyvsp[(1) - (3)].nPtr), (yyvsp[(3) - (3)].nPtr)); }
     break;
 
   case 44:
 
 /* Line 1806 of yacc.c  */
-#line 128 "src/iokernellang/codesparser.y"
+#line 128 "codesparser.y"
     { (yyval.nPtr) = opr(EQ, 2, (yyvsp[(1) - (3)].nPtr), (yyvsp[(3) - (3)].nPtr)); }
     break;
 
   case 45:
 
 /* Line 1806 of yacc.c  */
-#line 129 "src/iokernellang/codesparser.y"
+#line 129 "codesparser.y"
     { (yyval.nPtr) = opr(GETGROUPRANK, 1, (yyvsp[(2) - (2)].nPtr)); }
     break;
 
   case 46:
 
 /* Line 1806 of yacc.c  */
-#line 130 "src/iokernellang/codesparser.y"
+#line 130 "codesparser.y"
     { (yyval.nPtr) = opr(GETGROUPSIZE, 1, (yyvsp[(2) - (2)].nPtr)); }
     break;
 
   case 47:
 
 /* Line 1806 of yacc.c  */
-#line 131 "src/iokernellang/codesparser.y"
+#line 131 "codesparser.y"
     { (yyval.nPtr) = opr(GETCURTIME, 0); }
     break;
 
   case 48:
 
 /* Line 1806 of yacc.c  */
-#line 132 "src/iokernellang/codesparser.y"
+#line 132 "codesparser.y"
     { (yyval.nPtr) = opr(GETGROUPID, 0); }
     break;
 
   case 49:
 
 /* Line 1806 of yacc.c  */
-#line 133 "src/iokernellang/codesparser.y"
+#line 133 "codesparser.y"
     { (yyval.nPtr) = opr(GETNUMGROUPS, 0); }
     break;
 
   case 50:
 
 /* Line 1806 of yacc.c  */
-#line 134 "src/iokernellang/codesparser.y"
+#line 134 "codesparser.y"
     { (yyval.nPtr) = (yyvsp[(2) - (3)].nPtr); }
     break;
 
 
 
 /* Line 1806 of yacc.c  */
-#line 2173 "src/iokernellang/codesparser.c"
+#line 2173 "codesparser.c"
       default: break;
     }
   /* User semantic actions sometimes alter yychar, and that requires
@@ -2410,7 +2410,7 @@ yypushreturn:
 
 
 /* Line 2067 of yacc.c  */
-#line 137 "src/iokernellang/codesparser.y"
+#line 137 "codesparser.y"
 
 
 #define SIZEOF_NODETYPE ((char *)&p->con - (char *)p)

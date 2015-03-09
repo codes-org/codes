@@ -4,12 +4,12 @@
  *
  */
 #include <ross.h>
-#include <codes/CodesIOKernelTypes.h>
-#include <codes/CodesIOKernelParser.h>
-#include <codes/CodesIOKernelContext.h>
-#include <codes/codesparser.h>
-#include <codes/CodesKernelHelpers.h>
-#include <codes/codeslexer.h>
+#include "src/iokernellang/CodesIOKernelTypes.h"
+#include "src/iokernellang/CodesIOKernelParser.h"
+#include "src/iokernellang/CodesIOKernelContext.h"
+#include "src/iokernellang/codesparser.h"
+#include "src/iokernellang/CodesKernelHelpers.h"
+#include "src/iokernellang/codeslexer.h"
 
 #include "codes/codes-workload.h"
 #include "src/workload/codes-workload-method.h"

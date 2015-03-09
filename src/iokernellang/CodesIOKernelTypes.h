@@ -7,7 +7,7 @@
 #ifndef CODES_H
 #define CODES_H
 
-#include "codes/CodesIOKernelContext.h"
+#include "CodesIOKernelContext.h"
 
 typedef enum { typeCon, typeId, typeOpr } nodeEnum;
 

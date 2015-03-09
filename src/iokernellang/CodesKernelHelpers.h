@@ -17,9 +17,9 @@
 #include <unistd.h>
 
 
-#include "codes/CodesIOKernelTypes.h"
-#include "codes/CodesIOKernelParser.h"
-#include "codes/codeslexer.h"
+#include "CodesIOKernelTypes.h"
+#include "CodesIOKernelParser.h"
+#include "codeslexer.h"
 #include "codes/codes-workload.h"
 
 #define CL_INST_MAX_ARGS 10

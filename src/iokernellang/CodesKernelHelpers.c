@@ -4,7 +4,7 @@
  *
  */
 
-#include "codes/CodesKernelHelpers.h"
+#include "CodesKernelHelpers.h"
 
 #include <stdlib.h>
 #include <stdio.h>
