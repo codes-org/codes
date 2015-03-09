@@ -47,7 +47,7 @@ int cfgp_parser_error(ParserParams * p, const char * err,
    return -1;
 }
 
-void cfgp_initparams (ParserParams * p, ConfigHandle h)
+void cfgp_initparams (ParserParams * p, struct ConfigVTable * h)
 {
    p->configfile = h;
    p->stacktop = 0;

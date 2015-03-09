@@ -211,7 +211,7 @@ static int cfsa_getSectionSize (void * handle, SectionHandle section,
 
 
 
-static ConfigVTable cfsa_template = {
+static struct ConfigVTable cfsa_template = {
    .getKey = cfsa_getKey,
    .getMultiKey = cfsa_getMultiKey,
    .listSection = cfsa_listSection,
@@ -224,15 +224,15 @@ static ConfigVTable cfsa_template = {
    .data = 0
 };
 
-ConfigHandle cfsa_create (mcs_entry * e)
+struct ConfigVTable * cfsa_create (mcs_entry * e)
 {
-   ConfigHandle newh = malloc (sizeof (ConfigVTable));
+   struct ConfigVTable * newh = malloc (sizeof (struct ConfigVTable));
    *newh = cfsa_template;
    newh->data = e;
    return newh; 
 }
 
-ConfigHandle cfsa_create_empty ()
+struct ConfigVTable * cfsa_create_empty ()
 {
    return cfsa_create (mcs_initroot ());
 }

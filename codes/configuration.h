@@ -53,6 +53,8 @@ typedef struct config_lpgroups_s
     config_anno_map_t lpannos[CONFIGURATION_MAX_TYPES];
 } config_lpgroups_t;
 
+typedef struct ConfigVTable * ConfigHandle;
+
 /*
  * Load a configuration on the system (collectively)
  *

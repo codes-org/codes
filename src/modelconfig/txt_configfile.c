@@ -30,10 +30,10 @@ static inline int mymin (int v1, int v2)
    return (v1 < v2 ?  v1 : v2);
 }
 
-static int dump_section (FILE * f, ConfigHandle h, SectionHandle s, unsigned
+static int dump_section (FILE * f, struct ConfigVTable * h, SectionHandle s, unsigned
       int indent);
 
-static int dump_entry (FILE * f, ConfigHandle h, SectionHandle s, 
+static int dump_entry (FILE * f, struct ConfigVTable * h, SectionHandle s, 
       unsigned int indent, const SectionEntry * entry)
 {
    int ret = 1;
@@ -89,7 +89,7 @@ static int dump_entry (FILE * f, ConfigHandle h, SectionHandle s,
    return ret;
 }
 
-static int dump_section (FILE * f, ConfigHandle h, SectionHandle s, unsigned
+static int dump_section (FILE * f, struct ConfigVTable * h, SectionHandle s, unsigned
       int indent)
 {
    unsigned int sectionsize;
@@ -129,7 +129,7 @@ fail:
 }
 
 
-int txtfile_writeConfig (ConfigHandle cf, SectionHandle h, FILE * f, char ** err)
+int txtfile_writeConfig (struct ConfigVTable * cf, SectionHandle h, FILE * f, char ** err)
 {
    int ret;
    assert(err);
@@ -146,7 +146,7 @@ int txtfile_writeConfig (ConfigHandle cf, SectionHandle h, FILE * f, char ** err
    return ret;
 }
 
-ConfigHandle txtfile_openStream (FILE * f, char ** err)
+struct ConfigVTable * txtfile_openStream (FILE * f, char ** err)
 {
    long size;
    ParserParams p; 
@@ -201,10 +201,10 @@ ConfigHandle txtfile_openStream (FILE * f, char ** err)
    return p.configfile;
  }
 
-ConfigHandle txtfile_openConfig (const char * filename, char ** error)
+struct ConfigVTable * txtfile_openConfig (const char * filename, char ** error)
 {
    FILE  * f;
-   ConfigHandle ret;
+   struct ConfigVTable * ret;
 
 
    f = fopen (filename, "r");

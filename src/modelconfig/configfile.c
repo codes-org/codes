@@ -18,7 +18,7 @@
 #include "codes/configfile.h"
 #include "codes/txt_configfile.h"
 
-static int cf_equal_helper (ConfigHandle h1, SectionHandle s1, ConfigHandle h2, 
+static int cf_equal_helper (struct ConfigVTable * h1, SectionHandle s1, struct ConfigVTable * h2, 
       SectionHandle s2)
 {
    unsigned int sectionsize1;
@@ -169,13 +169,13 @@ static int cf_equal_helper (ConfigHandle h1, SectionHandle s1, ConfigHandle h2,
    return ret;
 }
 
-int cf_equal (ConfigHandle h1, ConfigHandle h2)
+int cf_equal (struct ConfigVTable * h1, struct ConfigVTable * h2)
 {
    return cf_equal_helper (h1, ROOT_SECTION, h2, ROOT_SECTION);
 }
 
 
-int cf_dump (ConfigHandle cf, SectionHandle h, char ** err)
+int cf_dump (struct ConfigVTable * cf, SectionHandle h, char ** err)
 {
    return txtfile_writeConfig (cf, h, stdout, err);
 }
