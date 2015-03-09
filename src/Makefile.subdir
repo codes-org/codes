@@ -49,10 +49,8 @@ nobase_include_HEADERS = \
     codes/CodesIOKernelParser.h \
     codes/CodesIOKernelTypes.h \
     codes/codeslexer.h \
-    codes/txt_configfile.h \
     codes/codesparser.h \
     codes/quickhash.h \
-    codes/configfile.h \
     codes/quicklist.h \
     codes/codes_mapping.h \
     codes/lp-type-lookup.h \
@@ -87,16 +85,16 @@ src_libcodes_base_a_SOURCES =  \
     src/modelconfig/configfile.c \
     src/modelconfig/configglue.h \
     src/modelconfig/configglue.c \
-    codes/configfile.h \
+    src/modelconfig/configfile.h \
     src/modelconfig/configstore.h \
     src/modelconfig/configstore.c \
     src/modelconfig/configstoreadapter.h \
     src/modelconfig/configstoreadapter.c \
-    codes/txt_configfile.h \
+    src/modelconfig/txt_configfile.h \
     src/modelconfig/txt_configfile.c \
+    src/modelconfig/configuration.c \
     src/util/codes_mapping.c \
     src/util/lp-type-lookup.c \
-    src/util/configuration.c \
     src/util/lp-io.c \
 	src/util/lp-msg.c \
     src/util/lookup3.c \

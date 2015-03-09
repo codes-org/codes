@@ -7,9 +7,9 @@
 #ifndef __CONFIGURATION_H__
 #define __CONFIGURATION_H__
 
+#include <stddef.h>
 #include <inttypes.h>
 #include <mpi.h>
-#include "codes/txt_configfile.h"
 
 #define CONFIGURATION_MAX_NAME 256
 #define CONFIGURATION_MAX_GROUPS 10
