@@ -136,6 +136,8 @@ void model_net_event_collective_rc(
 /* allocate and transmit a new event that will pass through model_net to 
  * arrive at its destination:
  *
+ * - net_id: the type of network to send this message through. The set of
+ *   net_id's is given by model_net_configure.
  * - category: category name to associate with this communication
  *   - OPTIONAL: callers can set this to NULL if they don't want to use it,
  *     and model_net methods can ignore it if they don't support it
