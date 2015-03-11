@@ -150,7 +150,9 @@ void model_net_event_collective_rc(
  *     (i.e. it is not constrained by transport packet size).
  * - remote_event_size: this is the size of the ROSS event structure that
  *     will be delivered to the final_dest_lp.
- * - remote_event: pointer ot data to be used as the remove event message
+ * - remote_event: pointer to data to be used as the remote event message. When
+ *   the message payload (of size message_size) has been fully delivered to the
+ *   destination (given by final_dest_lp), this event will be issued.
  * - self_event_size: this is the size of the ROSS event structure that will
  *     be delivered to the calling LP once local completion has occurred for
  *     the network transmission.
@@ -158,7 +160,10 @@ void model_net_event_collective_rc(
  *       transmitted the data off of the local node, but it does not mean that
  *       the data has been (or even will be) delivered.  Once this event is
  *       delivered the caller is free to re-use its buffer.
- * - self_event: pionter to data to be used as the self event message
+ * - self_event: pointer to data to be used as the self event message. When the
+ *   message payload (of size message_size) has been fully sent from the
+ *   sender's point of view (e.g. the corresponding NIC has sent out all
+ *   packets for this message), the event will be issued to the sender.
  * - sender: pointer to the tw_lp structure of the API caller.  This is
  *     identical to the sender argument to tw_event_new().
  *
