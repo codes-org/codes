@@ -285,10 +285,12 @@ void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank){
             fprintf(f, "op: rank:? type:collective "
                     "bytes:%d\n", op->u.collective.num_bytes);
             break;
+        case CODES_WK_IGNORE:
+            break;
         default:
-            tw_error(TW_LOC,
-                    "codes_workload_print_op: unrecognized workload type "
-                    "(op code %d)\n", op->op_type);
+            fprintf(stderr,
+                    "%s:%d: codes_workload_print_op: unrecognized workload type "
+                    "(op code %d)\n", __FILE__, __LINE__, op->op_type);
     }
 }
 

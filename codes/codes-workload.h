@@ -27,14 +27,11 @@ typedef struct dumpi_trace_params dumpi_trace_params;
 
 struct bgp_params
 {
-    /* We have the number of ranks passed in from the bg/p model because
-     * the I/O lang workloads have no information about the number of ranks.
-     * Only the bg/p config file knows the number of ranks. */
+    /* the rank count is defined in the workload config file */
     int num_cns;
     /* flag - use path to find kernel files relative to the metafile */
     int use_relpath;
     char io_kernel_meta_path[MAX_NAME_LENGTH_WKLD];
-    char bgp_config_file[MAX_NAME_LENGTH_WKLD];
     char io_kernel_path[MAX_NAME_LENGTH_WKLD];
     char io_kernel_def_path[MAX_NAME_LENGTH_WKLD];
 };
@@ -127,6 +124,10 @@ enum codes_workload_op_type
     CODES_WK_WAITANY,
     /* Testall operation */
     CODES_WK_TESTALL,
+
+    /* for workloads that have events not yet handled
+     * (eg the workload language) */
+    CODES_WK_IGNORE
 };
 
 /* I/O operation paramaters */

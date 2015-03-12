@@ -12,7 +12,7 @@
 
 static char type[128] = {'\0'};
 static darshan_params d_params = {"", 0}; 
-static bgp_params b_params = {0, 0, "", "", "", ""};
+static bgp_params b_params = {0, 0, "", "", ""};
 static recorder_params r_params = {"", 0};
 static int n = -1;
 
@@ -23,7 +23,6 @@ static struct option long_opts[] =
     {"d-log", required_argument, NULL, 'l'},
     {"d-aggregator-cnt", required_argument, NULL, 'a'},
     {"i-meta", required_argument, NULL, 'm'},
-    {"i-bgp-config", required_argument, NULL, 'b'},
     {"i-rank-cnt", required_argument, NULL, 'r'},
     {"i-use-relpath", no_argument, NULL, 'p'},
     {"r-trace-dir", required_argument, NULL, 'd'},
@@ -40,7 +39,6 @@ void usage(){
             "--d-log: darshan log file\n"
             "--d-aggregator-cnt: number of aggregators for collective I/O in darshan\n"
             "--i-meta: i/o language kernel meta file path\n"
-            "--i-bgp-config: i/o language bgp config file\n"
             "--i-rank-cnt: i/o language rank count\n"
             "--i-use-relpath: use i/o kernel path relative meta file path\n"
             "--r-trace-dir: directory containing recorder trace files\n"
@@ -90,7 +88,7 @@ int main(int argc, char *argv[])
     int64_t num_testalls = 0;
 
     char ch;
-    while ((ch = getopt_long(argc, argv, "t:n:l:a:m:b:r:sp", long_opts, NULL)) != -1){
+    while ((ch = getopt_long(argc, argv, "t:n:l:a:m:r:sp", long_opts, NULL)) != -1){
         switch (ch){
             case 't':
                 strcpy(type, optarg);
@@ -107,9 +105,6 @@ int main(int argc, char *argv[])
                 break;
             case 'm':
                 strcpy(b_params.io_kernel_meta_path, optarg);
-                break;
-            case 'b':
-                strcpy(b_params.bgp_config_file, optarg);
                 break;
             case 'r':
                 b_params.num_cns = atoi(optarg);
@@ -168,13 +163,6 @@ int main(int argc, char *argv[])
             usage();
             return 1;
         }
-        /* TODO: unused in codes-base, codes-triton, but don't remove entirely for now 
-        else if (b_params.bgp_config_file[0] == '\0'){
-            fprintf(stderr, "Expected \"--i-bgp-conf\" argument for bgp io workload\n");
-            usage();
-            return 1;
-        }
-        */
 
         wparams = (char *)&b_params;
     }
@@ -202,6 +190,12 @@ int main(int argc, char *argv[])
     /* if num_ranks not set, pull it from the workload */
     if (n == -1){
         n = codes_workload_get_rank_cnt(type, wparams);
+        if (n == -1) {
+            fprintf(stderr,
+                    "Unable to get rank count from workload. "
+                    "Specify option --num-ranks\n");
+            return 1;
+        }
     }
 
     for (i = 0 ; i < n; i++){
@@ -298,6 +292,10 @@ int main(int argc, char *argv[])
                     break;
                 case CODES_WK_TESTALL:
                     num_testalls++;
+                    break;
+                case CODES_WK_END:
+                    break;
+                case CODES_WK_IGNORE:
                     break;
                 default:
                     fprintf(stderr,

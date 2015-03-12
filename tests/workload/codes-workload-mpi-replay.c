@@ -159,8 +159,6 @@ int load_workload(char *conf_path, int rank)
         /* get the bgp i/o params from the config file */
         configuration_get_value(&config, "PARAMS", "io_kernel_meta_path",
                                 NULL, b_params.io_kernel_meta_path, MAX_NAME_LENGTH_WKLD);
-        configuration_get_value(&config, "PARAMS", "bgp_config_file",
-                                NULL, b_params.bgp_config_file, MAX_NAME_LENGTH_WKLD);
         configuration_get_value(&config, "PARAMS", "rank_count", NULL, rank_count, 10);
         strcpy(b_params.io_kernel_path, "");
         strcpy(b_params.io_kernel_def_path, "");

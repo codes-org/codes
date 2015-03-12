@@ -116,13 +116,13 @@ static int convertTypes(int inst)
 	case CL_EXIT:
 	    return CODES_WK_END; /* end of the operations/ no more operations in file */
 	case CL_DELETE:
-	    return -2;
+	    return CODES_WK_IGNORE;
 	case CL_GETRANK: 
-	    return -3; /* defined in I/O lang but not in workloads API*/
+	    return CODES_WK_IGNORE; /* defined in I/O lang but not in workloads API*/
 	case CL_GETSIZE: 
-	    return -4; /* defined in I/O lang but not in workload API */
+	    return CODES_WK_IGNORE; /* defined in I/O lang but not in workload API */
 	default:
-	   return -1;
+	   return CODES_WK_IGNORE;
     } 
 }
 
@@ -143,6 +143,8 @@ void bgp_io_workload_get_next(int rank, struct codes_workload_op *op)
 
 	int type = codes_kernel_helper_parse_input(next_wrkld->codes_pstate, &(next_wrkld->codes_context),&(next_wrkld->next_event));
         op->op_type = convertTypes(type);
+    if (op->op_type == CODES_WK_IGNORE)
+        return;
 	switch(op->op_type)
 	{
 	    case CODES_WK_WRITE:
@@ -198,6 +200,7 @@ void bgp_io_workload_get_next(int rank, struct codes_workload_op *op)
 	    break;
 	    default:
 	     {
+
 		// Return error code
 		//printf("\n Invalid operation specified %d ", op->op_type);
 	     }
