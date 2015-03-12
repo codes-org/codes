@@ -15,7 +15,7 @@
 #include "ross.h"
 #define MAX_NAME_LENGTH_WKLD 512
 
-typedef struct bgp_params bgp_params;
+typedef struct iolang_params iolang_params;
 typedef struct darshan_params darshan_params;
 typedef struct recorder_params recorder_params;
 typedef struct codes_workload_info codes_workload_info;
@@ -25,7 +25,7 @@ typedef struct scala_trace_params scala_trace_params;
 typedef struct dumpi_trace_params dumpi_trace_params;
 
 
-struct bgp_params
+struct iolang_params
 {
     /* the rank count is defined in the workload config file */
     int num_cns;

@@ -38,13 +38,13 @@ void workload_set_params()
     char io_kernel_meta_path[MAX_NAME_LENGTH_WKLD];
     
     configuration_get_value(&config, "PARAMS", "workload_type", NULL, workload_type, MAX_NAME_LENGTH_WKLD);
-    if(strcmp(workload_type,"bgp_io_workload") == 0)
+    if(strcmp(workload_type,"iolang_workload") == 0)
     {
-        strcpy(bgparams.io_kernel_path,"");
-	    bgparams.num_cns = NUM_CLIENTS;
+        strcpy(ioparams.io_kernel_path,"");
+	    ioparams.num_cns = NUM_CLIENTS;
 
         configuration_get_value(&config, "PARAMS", "io_kernel_meta_path", NULL, io_kernel_meta_path, MAX_NAME_LENGTH_WKLD);
-        strcpy(bgparams.io_kernel_meta_path, io_kernel_meta_path);
+        strcpy(ioparams.io_kernel_meta_path, io_kernel_meta_path);
     }
 }
 

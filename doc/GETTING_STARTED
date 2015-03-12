@@ -96,9 +96,7 @@ IO kernel language, and in-development ScalaTrace
 
 The synthetic IO language is a simple, interpreted set of IO and basic
 arithmetic commands meant to simplify the specification and running of
-application workloads. In the code it's currently called the "bgp" workload
-generator but that is just a historical artifact - in the future it will be
-refactored/renamed.
+application workloads.
 
 The input for the workload generator consists of an IO kernel metadata file and
 a number of IO kernel files. The former specifies a set of kernel files to run
