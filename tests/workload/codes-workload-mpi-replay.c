@@ -161,7 +161,6 @@ int load_workload(char *conf_path, int rank)
                                 NULL, b_params.io_kernel_meta_path, MAX_NAME_LENGTH_WKLD);
         configuration_get_value(&config, "PARAMS", "rank_count", NULL, rank_count, 10);
         strcpy(b_params.io_kernel_path, "");
-        strcpy(b_params.io_kernel_def_path, "");
         b_params.num_cns = atoi(rank_count);
         b_params.use_relpath = 1;
 

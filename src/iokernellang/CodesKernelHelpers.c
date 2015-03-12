@@ -110,8 +110,9 @@ static int convertKLInstToEvent(int inst)
     return CL_UNKNOWN;
 }
 
-static void codes_kernel_helper_parse_cf(char * io_kernel_path, char *
-        io_kernel_def_path, char * io_kernel_meta_path, int task_rank, int max_ranks_default, codes_workload_info * task_info, int use_relpath)
+static void codes_kernel_helper_parse_cf(char * io_kernel_path,
+        char * io_kernel_meta_path, int task_rank, int max_ranks_default,
+        codes_workload_info * task_info, int use_relpath)
 {
        int foundit = 0;
        char line[CK_LINE_LIMIT];
@@ -193,18 +194,12 @@ static void codes_kernel_helper_parse_cf(char * io_kernel_path, char *
        fclose(ikmp);
 
        /* if we did not find the config file, set it to the default */
-       if(foundit == 0)
-       {
-               /* default kernel */
-               strcpy(io_kernel_path, io_kernel_def_path);
-
-               /* default gid and task attrs */
-               /* TODO can we detect the gaps instead of -1 */
-               task_info->group_id = CL_DEFAULT_GID;
-               task_info->min_rank = -1;
-               task_info->max_rank = -1;
-               task_info->local_rank = -1;
-               task_info->num_lrank = -1;
+       if(foundit == 0) {
+           fprintf(stderr,
+                   "ERROR: Unable to find iolang workload file "
+                   "from given metadata file %s... exiting\n",
+                   io_kernel_meta_path);
+           exit(1);
        }
 
        return;
@@ -301,11 +296,10 @@ int codes_kernel_helper_parse_input(CodesIOKernel_pstate * ps, CodesIOKernelCont
     return codes_inst;
 }
 
-int codes_kernel_helper_bootstrap(char * io_kernel_path, char *
-        io_kernel_def_path, char * io_kernel_meta_path,
-        int rank, int num_ranks, int use_relpath, CodesIOKernelContext * c,
-        CodesIOKernel_pstate ** ps, codes_workload_info * task_info,
-        codeslang_inst * next_event)
+int codes_kernel_helper_bootstrap(char * io_kernel_path,
+        char * io_kernel_meta_path, int rank, int num_ranks, int use_relpath,
+        CodesIOKernelContext * c, CodesIOKernel_pstate ** ps,
+        codes_workload_info * task_info, codeslang_inst * next_event)
 {
     int t = CL_NOOP;
     int ret = 0;
@@ -316,7 +310,7 @@ int codes_kernel_helper_bootstrap(char * io_kernel_path, char *
 
     temp_group_rank = rank;
     /* get the kernel from the file */
-    codes_kernel_helper_parse_cf(io_kernel_path, io_kernel_def_path,
+    codes_kernel_helper_parse_cf(io_kernel_path,
             io_kernel_meta_path, rank, num_ranks, task_info, use_relpath);
     temp_group_size = task_info->num_lrank;
     /* stat the kernel file */

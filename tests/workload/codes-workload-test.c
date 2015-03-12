@@ -41,7 +41,6 @@ void workload_set_params()
     if(strcmp(workload_type,"bgp_io_workload") == 0)
     {
         strcpy(bgparams.io_kernel_path,"");
-        strcpy(bgparams.io_kernel_def_path, "");
 	    bgparams.num_cns = NUM_CLIENTS;
 
         configuration_get_value(&config, "PARAMS", "io_kernel_meta_path", NULL, io_kernel_meta_path, MAX_NAME_LENGTH_WKLD);

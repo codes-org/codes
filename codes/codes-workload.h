@@ -32,8 +32,8 @@ struct bgp_params
     /* flag - use path to find kernel files relative to the metafile */
     int use_relpath;
     char io_kernel_meta_path[MAX_NAME_LENGTH_WKLD];
+    /* set by config in the metadata path */
     char io_kernel_path[MAX_NAME_LENGTH_WKLD];
-    char io_kernel_def_path[MAX_NAME_LENGTH_WKLD];
 };
 
 struct darshan_params

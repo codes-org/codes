@@ -82,7 +82,6 @@ int bgp_io_workload_load(const char* params, int rank)
     wrkld_per_rank->codes_pstate = CodesIOKernel_pstate_new();
     wrkld_per_rank->rank = rank;
     t = codes_kernel_helper_bootstrap(b_param->io_kernel_path, 
-				      b_param->io_kernel_def_path, 
 				      b_param->io_kernel_meta_path,
         			      rank, 
                           num_ranks,

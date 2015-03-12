@@ -61,7 +61,7 @@ typedef struct codeslang_inst
 int codes_kernel_helper_parse_input(CodesIOKernel_pstate * ps,
         CodesIOKernelContext * c, codeslang_inst * inst);
 
-int codes_kernel_helper_bootstrap(char * io_kernel_path, char * def_io_kernel_path,
+int codes_kernel_helper_bootstrap(char * io_kernel_path,
         char * io_kernel_meta_path, int rank, int num_ranks, int use_relpath, CodesIOKernelContext * c,
         CodesIOKernel_pstate ** ps, codes_workload_info * task_info,
         codeslang_inst * next_event);

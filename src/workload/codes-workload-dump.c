@@ -12,7 +12,7 @@
 
 static char type[128] = {'\0'};
 static darshan_params d_params = {"", 0}; 
-static bgp_params b_params = {0, 0, "", "", ""};
+static bgp_params b_params = {0, 0, "", ""};
 static recorder_params r_params = {"", 0};
 static int n = -1;
 
