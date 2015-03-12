@@ -23,7 +23,6 @@ static struct option long_opts[] =
     {"d-log", required_argument, NULL, 'l'},
     {"d-aggregator-cnt", required_argument, NULL, 'a'},
     {"i-meta", required_argument, NULL, 'm'},
-    {"i-rank-cnt", required_argument, NULL, 'r'},
     {"i-use-relpath", no_argument, NULL, 'p'},
     {"r-trace-dir", required_argument, NULL, 'd'},
     {"r-nprocs", required_argument, NULL, 'x'},
@@ -32,15 +31,16 @@ static struct option long_opts[] =
 
 void usage(){
     fprintf(stderr,
-            "Usage: codes-workload-dump --type TYPE --num-ranks N "
-            "[--d-log LOG --d-aggregator-cnt CNT]\n"
+            "Usage: codes-workload-dump --type TYPE --num-ranks N [OPTION...]"
             "--type: type of workload (\"darshan_io_workload\", \"iolang_workload\", etc.)\n"
             "--num-ranks: number of ranks to process (if not set, it is set by the workload)\n"
+            "DARSHAN OPTIONS (darshan_io_workload)\n"
             "--d-log: darshan log file\n"
             "--d-aggregator-cnt: number of aggregators for collective I/O in darshan\n"
+            "IOLANG OPTIONS (iolang_workload)\n"
             "--i-meta: i/o language kernel meta file path\n"
-            "--i-rank-cnt: i/o language rank count\n"
             "--i-use-relpath: use i/o kernel path relative meta file path\n"
+            "RECORDER OPTIONS (recorder_io_workload)\n"
             "--r-trace-dir: directory containing recorder trace files\n"
             "--r-nprocs: number of ranks in original recorder workload\n"
             "-s: print final workload stats\n");
@@ -88,7 +88,7 @@ int main(int argc, char *argv[])
     int64_t num_testalls = 0;
 
     char ch;
-    while ((ch = getopt_long(argc, argv, "t:n:l:a:m:r:sp", long_opts, NULL)) != -1){
+    while ((ch = getopt_long(argc, argv, "t:n:l:a:m:sp", long_opts, NULL)) != -1){
         switch (ch){
             case 't':
                 strcpy(type, optarg);
@@ -105,9 +105,6 @@ int main(int argc, char *argv[])
                 break;
             case 'm':
                 strcpy(i_params.io_kernel_meta_path, optarg);
-                break;
-            case 'r':
-                i_params.num_cns = atoi(optarg);
                 break;
             case 'p':
                 i_params.use_relpath = 1;
@@ -148,18 +145,18 @@ int main(int argc, char *argv[])
         }
     }
     else if (strcmp(type, "iolang_workload") == 0){
-        if (i_params.num_cns == 0){
-            if (n == -1){
-                fprintf(stderr, "Expected \"--i-rank-cnt\" or \"--num-ranks\" argument for iolang workload\n");
-                usage();
-                return 1;
-            }
-            else{
-                i_params.num_cns = n;
-            }
+        if (n == -1){
+            fprintf(stderr,
+                    "Expected \"--num-ranks\" argument for iolang workload\n");
+            usage();
+            return 1;
         }
-        else if (i_params.io_kernel_meta_path[0] == '\0'){
-            fprintf(stderr, "Expected \"--i-meta\" argument for iolang workload\n");
+        else{
+            i_params.num_cns = n;
+        }
+        if (i_params.io_kernel_meta_path[0] == '\0'){
+            fprintf(stderr,
+                    "Expected \"--i-meta\" argument for iolang workload\n");
             usage();
             return 1;
         }
