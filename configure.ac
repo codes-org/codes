@@ -123,7 +123,7 @@ if test "x${with_dumpi}" != "x" ; then
 #	DUMPI_CFLAGS+=" -I${with_dumpi}/include/dumpi/common" 
 #	DUMPI_CFLAGS+=" -I${with_dumpi}/include/dumpi/libdumpi"
 #	DUMPI_CFLAGS+=" -I${with_dumpi}/include/dumpi/libundumpi"
-	DUMPI_LIBS="-L${with_dumpi}/lib/ -ldumpi -lundumpi"
+	DUMPI_LIBS="-L${with_dumpi}/lib/ -lundumpi"
 	AC_SUBST(DUMPI_LIBS)
 	AC_SUBST(DUMPI_CFLAGS)
 else
