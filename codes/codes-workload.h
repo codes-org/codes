@@ -64,8 +64,8 @@ struct scala_trace_params {
 };
 
 struct dumpi_trace_params {
-   int num_net_traces;
    char file_name[MAX_NAME_LENGTH_WKLD];
+   int num_net_traces;
 };
 
 

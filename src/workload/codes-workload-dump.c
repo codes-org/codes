@@ -14,6 +14,7 @@ static char type[128] = {'\0'};
 static darshan_params d_params = {"", 0}; 
 static iolang_params i_params = {0, 0, "", ""};
 static recorder_params r_params = {"", 0};
+static dumpi_trace_params du_params = {"", 0}; 
 static int n = -1;
 
 static struct option long_opts[] = 
@@ -26,13 +27,14 @@ static struct option long_opts[] =
     {"i-use-relpath", no_argument, NULL, 'p'},
     {"r-trace-dir", required_argument, NULL, 'd'},
     {"r-nprocs", required_argument, NULL, 'x'},
+    {"dumpi-log", required_argument, NULL, 'w'},
     {NULL, 0, NULL, 0}
 };
 
 void usage(){
     fprintf(stderr,
             "Usage: codes-workload-dump --type TYPE --num-ranks N [OPTION...]"
-            "--type: type of workload (\"darshan_io_workload\", \"iolang_workload\", etc.)\n"
+            "--type: type of workload (\"darshan_io_workload\", \"iolang_workload\", dumpi-trace-workload\" etc.)\n"
             "--num-ranks: number of ranks to process (if not set, it is set by the workload)\n"
             "DARSHAN OPTIONS (darshan_io_workload)\n"
             "--d-log: darshan log file\n"
@@ -43,7 +45,9 @@ void usage(){
             "RECORDER OPTIONS (recorder_io_workload)\n"
             "--r-trace-dir: directory containing recorder trace files\n"
             "--r-nprocs: number of ranks in original recorder workload\n"
-            "-s: print final workload stats\n");
+            "-s: print final workload stats\n"
+	    "DUMPI TRACE OPTIONS (dumpi-trace-workload) \n"
+	    "--dumpi-log: dumpi log file \n");
 }
 
 int main(int argc, char *argv[])
@@ -88,7 +92,7 @@ int main(int argc, char *argv[])
     int64_t num_testalls = 0;
 
     char ch;
-    while ((ch = getopt_long(argc, argv, "t:n:l:a:m:sp", long_opts, NULL)) != -1){
+    while ((ch = getopt_long(argc, argv, "t:n:l:a:m:sp:w", long_opts, NULL)) != -1){
         switch (ch){
             case 't':
                 strcpy(type, optarg);
@@ -115,6 +119,9 @@ int main(int argc, char *argv[])
             case 'x':
                 r_params.nprocs = atol(optarg);
                 break;
+	    case 'w':
+		strcpy(du_params.file_name, optarg);
+		break;
             case 's':
                 print_stats = 1;
                 break;
@@ -178,6 +185,28 @@ int main(int argc, char *argv[])
             wparams = (char *)&r_params;
         }
     }
+   else if(strcmp(type, "dumpi-trace-workload") == 0)
+	{
+	if(n == -1){
+            fprintf(stderr,
+                    "Expected \"--num-ranks\" argument for iolang workload\n");
+            usage();
+            return 1;		
+	}
+	else{
+	    du_params.num_net_traces = n;	
+	}
+
+	if(du_params.file_name[0] == '\0' ){
+            fprintf(stderr, "Expected \"--r-trace-dir\" argument for dumpi workload\n");
+            usage();
+            return 1;
+	}
+	else
+	{
+	  wparams = (char*)&du_params;
+	}
+	}
     else {
         fprintf(stderr, "Invalid type argument\n");
         usage();
@@ -247,7 +276,8 @@ int main(int argc, char *argv[])
                 case CODES_WK_BCAST:
                     num_bcasts++;
                     bcast_size += op.u.collective.num_bytes;
-                case CODES_WK_ALLGATHER:
+                    break;
+		case CODES_WK_ALLGATHER:
                     num_allgathers++;
                     allgather_size += op.u.collective.num_bytes;
                     break;

@@ -285,6 +285,22 @@ void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank){
             fprintf(f, "op: rank:? type:collective "
                     "bytes:%d\n", op->u.collective.num_bytes);
             break;
+	case CODES_WK_WAITALL:
+	    fprintf(f, "op: rank:? type:waitall "
+                     "num reqs: :%d\n", op->u.waits.count);
+	    break;
+	case CODES_WK_WAIT:
+	    fprintf(f, "op: rank:? type:wait "
+                     "num reqs: :%d\n", op->u.wait.req_id);
+	    break;
+	case CODES_WK_WAITSOME:
+	    fprintf(f, "op: rank:? type:waitsome "
+                     "num reqs: :%d\n", op->u.waits.count);
+	    break;
+	case CODES_WK_WAITANY:
+	    fprintf(f, "op: rank:? type:waitany "
+                     "num reqs: :%d\n", op->u.waits.count);
+	    break;
         case CODES_WK_IGNORE:
             break;
         default:
