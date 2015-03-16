@@ -18,6 +18,7 @@ USAGE: reformat.sh [-x] [-i] [-c CFG] [-b FILE] {-a | FILE...}
     -a: perform recursively on all files ending in .c or .h
         if -a not provided, then perform on all files passed in
     -x: instead of formatting, check if output format is the same as input
+    -h: show this help and exit
 EOF
 }
 
@@ -40,7 +41,7 @@ do_recursive=no
 do_check=no
 blacklist=
 
-while getopts ":ib:ax" opt; do
+while getopts ":ib:axh" opt; do
     case $opt in
         i)
             do_inplace=yes
@@ -56,6 +57,10 @@ while getopts ":ib:ax" opt; do
             ;;
         x)
             do_check=yes
+            ;;
+        h)
+            usage
+            exit 1
             ;;
         \?)
             usage
