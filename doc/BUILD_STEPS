@@ -67,3 +67,12 @@ Notes on using the clang static analyzer
 - edit Makefile, and delete the "CC = mpicc" (or similar) line
 - run "scan-build --use-cc=mpicc make"
 
+Notes on using uncrustify
+-----------------
+- version 0.61 is required
+- build/install uncrustify from your favorite distro (0.61), OR download from
+  https://github.com/bengardner/uncrustify and build from source
+  (configure --prefix /path/to/install && make && make install)
+- either use uncrustify directly (see uncrustify --help) or use the provided
+  reformat.sh tool which is a shim over some of the options (see reformat.sh
+  -h)
