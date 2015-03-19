@@ -30,6 +30,7 @@ struct simplep2p_param
 {
     double * net_latency_ns_table;
     double * net_bw_mbps_table;
+
     int mat_len;
     int num_lps;
 };
@@ -107,6 +108,7 @@ static int sp_get_magic();
 static double sp_get_table_ent(
         int      from_id, 
         int      to_id,
+	int	 is_outgoing,
         int      num_lps,
         double * table);
 
@@ -136,7 +138,6 @@ static tw_stime simplep2p_packet_event(
         tw_lpid src_lp,
         tw_lp *sender,
         int is_last_pckt);
-static void simplep2p_packet_event_rc(tw_lp *sender);
 
 static void simplep2p_packet_event_rc(tw_lp *sender);
 
@@ -246,6 +247,7 @@ static double * parse_mat(char * buf, int *nvals_first, int *nvals_total, int is
     *nvals_first = 0;
     *nvals_total = 0;
 
+    printf("\n parsing the matrix ");
     /* parse the files by line */ 
     int line_ct, line_ct_prev = 0;
     char * line_save;
@@ -255,13 +257,19 @@ static double * parse_mat(char * buf, int *nvals_first, int *nvals_total, int is
         char * tok_save;
         char * tok = strtok_r(line, " \t", &tok_save);
         while (tok != NULL){
+	    char * val_save;
             if (line_ct + *nvals_total >= bufn){
                 bufn<<=1;
                 vals = realloc(vals, bufn*sizeof(double));
             }
-            vals[line_ct+*nvals_total] = atof(tok);
-            line_ct++;
-            tok = strtok_r(NULL, " \t", &tok_save);
+	    char * val = strtok_r(tok, ",", &val_save);
+	    while(val != NULL)
+	    {
+            	vals[line_ct+*nvals_total] = atof(val);
+	        val = strtok_r(NULL, " \t", &val_save);
+		line_ct++;
+            }
+	    tok = strtok_r(NULL, " \t", &tok_save);
         }
         /* first line check - number of tokens = the matrix dim */
         if (*nvals_first == 0) {
@@ -342,10 +350,11 @@ static void sp_set_params(
     params->mat_len = nvals_first_s + ((is_tri_mat) ? 1 : 0);
     if (is_tri_mat){
         params->net_latency_ns_table = 
-            malloc(params->mat_len*params->mat_len*sizeof(double));
-        params->net_bw_mbps_table = 
-            malloc(params->mat_len*params->mat_len*sizeof(double));
-        fill_tri_mat(params->mat_len, params->net_latency_ns_table, latency_tmp);
+            malloc(2*params->mat_len*params->mat_len*sizeof(double));
+	params->net_bw_mbps_table = 
+            malloc(2*params->mat_len*params->mat_len*sizeof(double));
+
+	fill_tri_mat(params->mat_len, params->net_latency_ns_table, latency_tmp);
         fill_tri_mat(params->mat_len, params->net_bw_mbps_table, bw_tmp);
         free(latency_tmp);
         free(bw_tmp);
@@ -354,7 +363,6 @@ static void sp_set_params(
         params->net_latency_ns_table = latency_tmp;
         params->net_bw_mbps_table = bw_tmp;
     }
-
     /* done */
 }
 
@@ -538,9 +546,11 @@ static void handle_msg_ready_event(
 
     /* get source->me network stats */
     double bw = sp_get_table_ent(m->src_mn_rel_id, ns->id,
-            ns->params->num_lps, ns->params->net_bw_mbps_table);
+            1, ns->params->num_lps, ns->params->net_bw_mbps_table);
     double latency = sp_get_table_ent(m->src_mn_rel_id, ns->id,
-            ns->params->num_lps, ns->params->net_latency_ns_table);
+            1, ns->params->num_lps, ns->params->net_latency_ns_table);
+    
+   // printf("\n LP %d outgoing bandwidth with LP %d is %f ", ns->id, m->src_mn_rel_id, bw);
     if (bw <= 0.0 || latency < 0.0){
         fprintf(stderr, 
                 "Invalid link from Rel. id %d to LP %lu (rel. id %d)\n", 
@@ -579,7 +589,6 @@ static void handle_msg_ready_event(
             ns->id,
             idles->recv_prev_idle_all, idles->recv_next_idle_all);
 #endif
-    
 
     /* update global idles, recv time */
     if (tw_now(lp) > idles->recv_next_idle_all){
@@ -684,9 +693,11 @@ static void handle_msg_start_event(
 
     /* grab the link params */
     bw = sp_get_table_ent(ns->id, dest_rel_id,
-            ns->params->num_lps, ns->params->net_bw_mbps_table);
+            0, ns->params->num_lps, ns->params->net_bw_mbps_table);
     latency = sp_get_table_ent(ns->id, dest_rel_id,
-            ns->params->num_lps, ns->params->net_latency_ns_table);
+            0, ns->params->num_lps, ns->params->net_latency_ns_table);
+    
+    //printf("\n LP %d incoming bandwidth with LP %d is %f ", ns->id, dest_rel_id, bw);
     if (bw <= 0.0 || latency < 0.0){
         fprintf(stderr, 
                 "Invalid link from LP %lu (rel. id %d) to LP %lu (rel. id %d)\n", 
@@ -890,7 +901,7 @@ static void sp_read_config(const char * anno, simplep2p_param *p){
     p->num_lps = codes_mapping_get_lp_count(NULL, 0,
             LP_CONFIG_NM, anno, 0);
     sp_set_params(latency_file, bw_file, p);
-    if (p->mat_len != p->num_lps){
+    if (p->mat_len != (2 * p->num_lps)){
         tw_error(TW_LOC, "simplep2p config matrix doesn't match the "
                 "number of simplep2p LPs (%d vs. %d)\n",
                 p->mat_len, p->num_lps);
@@ -936,10 +947,11 @@ static tw_lpid sp_find_local_device(
 static double sp_get_table_ent(
         int      from_id, 
         int      to_id,
+	int 	 is_incoming, /* chooses between incoming and outgoing bandwidths */
         int      num_lps,
         double * table){
     // TODO: if a tri-matrix, then change the addressing
-    return table[from_id * num_lps + to_id]; 
+    return table[2 * from_id * num_lps + 2 * to_id + is_incoming]; 
 }
 
 /* category lookup (more or less copied from model_net_find_stats) */
