@@ -21,7 +21,7 @@ struct rc_stack {
 };
 
 void rc_stack_create(struct rc_stack **s){
-    struct rc_stack *ss = malloc(sizeof(*ss));
+    struct rc_stack *ss = (struct rc_stack*)malloc(sizeof(*ss));
     if (ss) {
         INIT_QLIST_HEAD(&ss->head);
         ss->count = 0;
@@ -54,7 +54,7 @@ void rc_stack_push(
         tw_lp *lp,
         void * data,
         struct rc_stack *s){
-    rc_entry * ent = malloc(sizeof(*ent));
+    rc_entry * ent = (rc_entry*)malloc(sizeof(*ent));
     assert(ent);
     ent->time = tw_now(lp);
     ent->data = data;

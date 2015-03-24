@@ -86,7 +86,7 @@ static int cfsa_getMultiKey (void * handle, SectionHandle section, const char *n
    if (count < 0)
       return -2;
 
-   *buf = malloc (sizeof (char **) * count);
+   *buf = (char **) malloc (sizeof (char **) * count);
    dcount = count;
    mcs_getvaluemultiple (key, *buf, &dcount);
    *e = dcount;
@@ -106,7 +106,7 @@ static int cfsa_listSection (void * handle, SectionHandle section,
       section = handle;
 
 
-   count = mcs_childcount (section);
+   count = mcs_childcount ((mcs_entry *)section);
    if (count < 0)
    {
       *maxentries = 0;
@@ -122,9 +122,9 @@ static int cfsa_listSection (void * handle, SectionHandle section,
 
    ret = count;
    
-   out = malloc (sizeof(mcs_section_entry)* *maxentries);
+   out = (mcs_section_entry*) malloc (sizeof(mcs_section_entry)* *maxentries);
 
-   count = mcs_listsection (section, out,  *maxentries);
+   count = mcs_listsection ((mcs_entry*)section, (mcs_section_entry*)out,  *maxentries);
    if (count < 0)
    {
       *maxentries = 0;
@@ -217,7 +217,7 @@ static ConfigVTable cfsa_template = {
 
 ConfigHandle cfsa_create (mcs_entry * e)
 {
-   ConfigHandle newh = malloc (sizeof (ConfigVTable));
+    ConfigHandle newh = (ConfigHandle) malloc (sizeof (ConfigVTable));
    *newh = cfsa_template;
    newh->data = e;
    return newh; 

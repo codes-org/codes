@@ -99,7 +99,8 @@ int64_t * var = NULL;
 int * inst_ready = NULL;
 int * group_rank = NULL;
 int * group_size = NULL;
-
+int temp_group_rank = 0;
+int temp_group_size = 0;
 
 /* Line 268 of yacc.c  */
 #line 106 "src/iokernellang/codesparser.c"
@@ -2422,7 +2423,7 @@ nodeType * con(int64_t value)
 
     /* allocate node */
     nodeSize = SIZEOF_NODETYPE + sizeof(conNodeType);
-    if((p = malloc(nodeSize)) == NULL)
+    if((p = (nodeType*)malloc(nodeSize)) == NULL)
     {
         fprintf(stderr, "out of memory\n");
     }
@@ -2441,7 +2442,7 @@ nodeType * id(int64_t i)
 
     /* allocate node */
     nodeSize = SIZEOF_NODETYPE + sizeof(idNodeType);
-    if((p = malloc(nodeSize)) == NULL)
+    if((p = (nodeType*)malloc(nodeSize)) == NULL)
     {
         fprintf(stderr, "out of memory\n");
     }
@@ -2464,7 +2465,7 @@ nodeType * opr(int64_t oper, int64_t nops, ...)
     nodeSize = SIZEOF_NODETYPE + sizeof(oprNodeType) +
         (nops - 1) * sizeof(nodeType*);
 
-    if ((p = malloc(nodeSize)) == NULL)
+    if ((p = (nodeType*)malloc(nodeSize)) == NULL)
     {
         fprintf(stderr, "out of memory\n");
     }

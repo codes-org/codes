@@ -70,8 +70,8 @@ extern int64_t * var;
 extern int * inst_ready;
 extern int * group_rank;
 extern int * group_size;
-int temp_group_rank;
-int temp_group_size;
+extern int temp_group_rank;
+extern int temp_group_size;
 #endif
 
 /*

@@ -43,13 +43,13 @@ static int test_workload_load(const char* params, int rank)
     /* no params in this case; this example will work with any number of
      * ranks
      */
-    struct wkload_stream_state* new;
+    struct wkload_stream_state* newv;
 
-    new = malloc(sizeof(*new));
-    if(!new)
+    newv = (wkload_stream_state*)malloc(sizeof(*newv));
+    if(!newv)
         return(-1);
 
-    new->rank = rank;
+    newv->rank = rank;
 
     /* arbitrary synthetic workload for testing purposes */
     /* rank 0 sleeps 43 seconds, then does open and barrier, while all other
@@ -57,32 +57,32 @@ static int test_workload_load(const char* params, int rank)
      */
     if(rank == 0)
     {
-        new->op_array_len = 3;
-        new->op_array_index = 0;
-        new->op_array[0].op_type = CODES_WK_DELAY;
-        new->op_array[0].u.delay.seconds = 43;
-        new->op_array[1].op_type = CODES_WK_OPEN;
-        new->op_array[1].u.open.file_id = 3;
-        new->op_array[1].u.open.create_flag = 1;
-        new->op_array[2].op_type = CODES_WK_BARRIER;
-        new->op_array[2].u.barrier.root = 0;
-        new->op_array[2].u.barrier.count = -1; /* all ranks */
+        newv->op_array_len = 3;
+        newv->op_array_index = 0;
+        newv->op_array[0].op_type = CODES_WK_DELAY;
+        newv->op_array[0].u.delay.seconds = 43;
+        newv->op_array[1].op_type = CODES_WK_OPEN;
+        newv->op_array[1].u.open.file_id = 3;
+        newv->op_array[1].u.open.create_flag = 1;
+        newv->op_array[2].op_type = CODES_WK_BARRIER;
+        newv->op_array[2].u.barrier.root = 0;
+        newv->op_array[2].u.barrier.count = -1; /* all ranks */
     }
     else
     {
-        new->op_array_len = 2;
-        new->op_array_index = 0;
-        new->op_array[0].op_type = CODES_WK_OPEN;
-        new->op_array[0].u.open.file_id = 3;
-        new->op_array[0].u.open.create_flag = 1;
-        new->op_array[1].op_type = CODES_WK_BARRIER;
-        new->op_array[1].u.barrier.root = 0;
-        new->op_array[1].u.barrier.count = -1; /* all ranks */
+        newv->op_array_len = 2;
+        newv->op_array_index = 0;
+        newv->op_array[0].op_type = CODES_WK_OPEN;
+        newv->op_array[0].u.open.file_id = 3;
+        newv->op_array[0].u.open.create_flag = 1;
+        newv->op_array[1].op_type = CODES_WK_BARRIER;
+        newv->op_array[1].u.barrier.root = 0;
+        newv->op_array[1].u.barrier.count = -1; /* all ranks */
     }
 
     /* add to front of list of streams that we are tracking */
-    new->next = wkload_streams;
-    wkload_streams = new;
+    newv->next = wkload_streams;
+    wkload_streams = newv;
 
     return(0);
 }

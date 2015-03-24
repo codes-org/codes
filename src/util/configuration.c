@@ -40,7 +40,7 @@ int configuration_load (const char *filepath,
     rc = MPI_File_get_size(fh, &txtsize);
     if (rc != MPI_SUCCESS) goto finalize;
 
-    txtdata = malloc(txtsize);
+    txtdata = (char*) malloc(txtsize);
     assert(txtdata);
 
     rc = MPI_File_read_all(fh, txtdata, txtsize, MPI_BYTE, &status);
@@ -122,7 +122,7 @@ int configuration_get_value_relpath(
         const char *annotation,
         char *value,
         size_t length){
-    char *tmp = malloc(length);
+    char *tmp = (char*) malloc(length);
 
     int w = configuration_get_value(handle, section_name, key_name, annotation, tmp,
             length);

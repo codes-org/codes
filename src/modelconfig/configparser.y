@@ -124,7 +124,7 @@ multikeyentry : multikeynonzero multikeyentry | ;
 multikeyinit : /* empty */ {
              param->maxsize = 1000;
              param->count = 0;
-             param->keyvals = malloc (sizeof(char*)*param->maxsize);
+             param->keyvals = (char**) malloc (sizeof(char*)*param->maxsize);
              }
 
 multikeystart : LITERAL_STRING  { 

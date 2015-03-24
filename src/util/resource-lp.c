@@ -212,7 +212,7 @@ static void handle_resource_get(
         if (m->i.block_on_unavail){
             /* queue up operation, save til later */
             b->c0 = 1;
-            pending_op *op = malloc(sizeof(pending_op));
+            pending_op *op = (pending_op*)malloc(sizeof(pending_op));
             op->m = m->i; /* no need to set rc msg here */
             qlist_add_tail(&op->ql, &ns->pending[m->i.tok]);
             send_ack = 0;
@@ -258,7 +258,7 @@ static void handle_resource_free(
     assert(!resource_free(m->i.req, m->i.tok, &ns->r));
     /* create an event to pop the next queue item */
     tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
-    resource_msg *m_deq = tw_event_data(e);
+    resource_msg *m_deq = (resource_msg*)tw_event_data(e);
     msg_set_header(resource_magic, RESOURCE_DEQ, lp->gid, &m_deq->i.h);
     m_deq->i.tok = m->i.tok; /* only tok is needed, all others grabbed from q */
     tw_event_send(e);
@@ -300,7 +300,7 @@ static void handle_resource_deq(
         free(p);
         /* additionally attempt to dequeue next one down */
         tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
-        resource_msg *m_deq = tw_event_data(e);
+        resource_msg *m_deq = (resource_msg*)tw_event_data(e);
         msg_set_header(resource_magic, RESOURCE_DEQ, lp->gid, &m_deq->i.h);
         /* only tok is needed, all others grabbed from q */
         m_deq->i.tok = m->i.tok; 
@@ -322,7 +322,7 @@ static void handle_resource_deq_rc(
 
     if (b->c1){
         /* add operation back to the front of the queue */
-        pending_op *op = malloc(sizeof(pending_op));
+        pending_op *op = (pending_op*)malloc(sizeof(pending_op));
         op->m = m->i_rc;
         qlist_add(&op->ql, &ns->pending[m->i.tok]);
         resource_response_rc(lp);
@@ -414,7 +414,7 @@ void resource_finalize(
         }
     }
 
-    char *out_buf = malloc(1<<12);
+    char *out_buf = (char*)malloc(1<<12);
     int written;
     // see if I'm the "first" resource (currently doing it globally)
     if (codes_mapping_get_lp_relative_id(lp->gid, 0, 0) == 0){
@@ -449,7 +449,7 @@ void resource_lp_configure(){
 
     anno_map = codes_mapping_get_lp_anno_map(RESOURCE_LP_NM);
     avail_per_anno = (anno_map->num_annos > 0) ?
-            malloc(anno_map->num_annos * sizeof(*avail_per_anno)) :
+        (uint64_t*)malloc(anno_map->num_annos * sizeof(*avail_per_anno)) :
             NULL;
     // get the unannotated version
     long int avail;
@@ -511,7 +511,7 @@ static void resource_lp_issue_event(
             sender);
 
     /* set message info */
-    resource_msg *m = tw_event_data(e);
+    resource_msg *m = (resource_msg*)tw_event_data(e);
     msg_set_header(resource_magic, type, sender->gid, &m->i.h);
     m->i.req = req;
     m->i.tok = tok;

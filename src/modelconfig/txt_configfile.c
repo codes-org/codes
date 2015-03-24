@@ -105,7 +105,7 @@ static int dump_section (FILE * f, ConfigHandle h, SectionHandle s, unsigned
 
    count = sectionsize;
   
-   entries = malloc (sizeof (SectionEntry) * sectionsize);
+   entries = (SectionEntry*)malloc (sizeof (SectionEntry) * sectionsize);
 
    ret = mymin(ret, cf_listSection (h, s, &entries[0], &count));
 
@@ -174,7 +174,7 @@ ConfigHandle txtfile_openStream (FILE * f, char ** err)
    cfgp_lex_init_extra (&p, &scanner);
    cfgp_set_in (f, scanner); 
    cfgp_initparams (&p, cfsa_create (mcs_initroot ()));
-   reject = cfgp_parse(scanner, &p);
+   reject = cfgp_parse((yyscan_t*)scanner, &p);
    cfgp_lex_destroy (scanner);
 
    /* either we have a valid confighandle or we have a parser error... */

@@ -223,7 +223,7 @@ int codes_kernel_helper_parse_input(CodesIOKernel_pstate * ps, CodesIOKernelCont
     do
     {
         c->locval = CodesIOKernel_get_lloc(*((yyscan_t *)c->scanner_));
-        yychar = CodesIOKernel_lex(c->lval, c->locval, c->scanner_);
+        yychar = CodesIOKernel_lex((codesYYType*)c->lval, (YYLTYPE*)c->locval, c->scanner_);
         c->locval = NULL;
       
         /* for each instructions */
@@ -242,14 +242,14 @@ int codes_kernel_helper_parse_input(CodesIOKernel_pstate * ps, CodesIOKernelCont
             case DELETE:
             {
                 c->inst_ready = 0;
-                status = CodesIOKernel_push_parse(ps, yychar, c->lval, c->locval, c);
+                status = CodesIOKernel_push_parse(ps, yychar, (codesYYType*)c->lval, (YYLTYPE*)c->locval, c);
                 codes_inst = convertKLInstToEvent(yychar);
 		break;
             }
             /* not a simulator event */
             default:
             {
-                status = CodesIOKernel_push_parse(ps, yychar, c->lval, c->locval, c);
+                status = CodesIOKernel_push_parse(ps, yychar, (codesYYType*)c->lval, (YYLTYPE*)c->locval, c);
 		break;
             }
         };

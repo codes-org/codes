@@ -48,7 +48,7 @@ int lp_io_write(tw_lpid gid, char* identifier, int size, void* buffer)
         return(-1);
     }
 
-    buf = malloc(sizeof(*buf));
+    buf = (io_buffer*)malloc(sizeof(*buf));
     if(!buf)
         return(-1);
 
@@ -80,7 +80,7 @@ int lp_io_write(tw_lpid gid, char* identifier, int size, void* buffer)
     else
     {
         /* new identifier */
-        id = malloc(sizeof(*id));
+        id = (struct identifier*)malloc(sizeof(*id));
         if(!id)
         {
             free(buf->buffer);
@@ -172,7 +172,7 @@ int lp_io_prepare(char *directory, int flags, lp_io_handle* handle, MPI_Comm com
 
     if(flags & LP_IO_UNIQ_SUFFIX)
     {
-        *handle = malloc(256);
+        *handle = (lp_io_handle)malloc(256);
         if(!(*handle))
         {
             return(-1);
@@ -352,9 +352,9 @@ static int write_id(char* directory, char* identifier, MPI_Comm comm)
     /* build datatype for our buffers */
     if(id)
     {
-        lengths = malloc(id->buffers_count*sizeof(int));
+        lengths = (int*)malloc(id->buffers_count*sizeof(int));
         assert(lengths);
-        displacements = malloc(id->buffers_count*sizeof(MPI_Aint));
+        displacements = (MPI_Aint*)malloc(id->buffers_count*sizeof(MPI_Aint));
         assert(displacements);
 
         /* NOTE: some versions of MPI-IO have a bug related to using

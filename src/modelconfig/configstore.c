@@ -31,7 +31,7 @@ struct  mcs_entry
 
 static inline mcs_entry * mcs_allocentry ()
 {
-   mcs_entry * n = malloc (sizeof (mcs_entry));
+    mcs_entry * n = (mcs_entry *) malloc (sizeof (mcs_entry));
    memset (n, 0, sizeof (mcs_entry));
    return n;
 }

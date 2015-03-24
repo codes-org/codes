@@ -76,7 +76,7 @@ static int rank_tbl_pop = 0;
 static int recorder_io_workload_load(const char *params, int rank)
 {
     recorder_params *r_params = (recorder_params *) params;
-    struct rank_traces_context *new = NULL;
+    struct rank_traces_context *newv = NULL;
     struct qhash_table *file_id_tbl = NULL;
     struct qhash_head *link = NULL;
     struct file_entry *file;
@@ -87,13 +87,13 @@ static int recorder_io_workload_load(const char *params, int rank)
         return -1;
 
     /* allocate a new trace context for this rank */
-    new = malloc(sizeof(*new));
-    if(!new)
+    newv = (struct rank_traces_context*)malloc(sizeof(*newv));
+    if(!newv)
         return -1;
 
-    new->rank = rank;
-    new->trace_list_ndx = 0;
-    new->trace_list_max = 0;
+    newv->rank = rank;
+    newv->trace_list_ndx = 0;
+    newv->trace_list_max = 0;
 
 #if 0
     DIR *dirp;
@@ -149,8 +149,8 @@ static int recorder_io_workload_load(const char *params, int rank)
                 r_op.codes_op.u.barrier.count = nprocs;
                 r_op.codes_op.u.barrier.root = 0;
 
-                new->trace_ops[new->trace_list_ndx++] = r_op;
-                if (new->trace_list_ndx == 2048) break;
+                newv->trace_ops[newv->trace_list_ndx++] = r_op;
+                if (newv->trace_list_ndx == 2048) break;
             }
 
             token = strtok(NULL, ", )");
@@ -165,15 +165,15 @@ static int recorder_io_workload_load(const char *params, int rank)
                 file_id_tbl = qhash_init(hash_file_compare, quickhash_32bit_hash, 11);
                 if (!file_id_tbl)
                 {
-                    free(new);
+                    free(newv);
                     return -1;
                 }
             }
 
-            file = malloc(sizeof(struct file_entry));
+            file = (struct file_entry*)malloc(sizeof(struct file_entry));
             if (!file)
             {
-                free(new);
+                free(newv);
                 return -1;
             }
             
@@ -200,7 +200,7 @@ static int recorder_io_workload_load(const char *params, int rank)
             link = qhash_search(file_id_tbl, &fd);
             if (!link)
             {
-                free(new);
+                free(newv);
                 return -1;
             }
 
@@ -240,7 +240,7 @@ static int recorder_io_workload_load(const char *params, int rank)
             link = qhash_search(file_id_tbl, &fd);
             if (!link)
             {
-                free(new);
+                free(newv);
                 return -1;
             }
 
@@ -277,7 +277,7 @@ static int recorder_io_workload_load(const char *params, int rank)
             link = qhash_search(file_id_tbl, &fd);
             if (!link)
             {
-                free(new);
+                free(newv);
                 return -1;
             }
 
@@ -293,7 +293,7 @@ static int recorder_io_workload_load(const char *params, int rank)
         }
         else if(!strcmp(function_name, "0")) {
             token = strtok (NULL, ", \n");
-            new->trace_ops[new->trace_list_ndx-1].end_time += atof(token);
+            newv->trace_ops[newv->trace_list_ndx-1].end_time += atof(token);
 
             io_start_time = 0.0;
             continue;
@@ -306,8 +306,8 @@ static int recorder_io_workload_load(const char *params, int rank)
             continue;
         }
 
-        new->trace_ops[new->trace_list_ndx++] = r_op;
-        if (new->trace_list_ndx == 2048) break;
+        newv->trace_ops[newv->trace_list_ndx++] = r_op;
+        if (newv->trace_list_ndx == 2048) break;
     }
 
     fclose(trace_file);
@@ -315,22 +315,22 @@ static int recorder_io_workload_load(const char *params, int rank)
 
     /* reset ndx to 0 and set max to event count */
     /* now we can read all events by counting through array from 0 - max */
-    new->trace_list_max = new->trace_list_ndx;
-    new->trace_list_ndx = 0;
-    new->last_op_time = 0.0;
+    newv->trace_list_max = newv->trace_list_ndx;
+    newv->trace_list_ndx = 0;
+    newv->last_op_time = 0.0;
 
     /* initialize the hash table of rank contexts, if it has not been initialized */
     if (!rank_tbl) {
         rank_tbl = qhash_init(hash_rank_compare, quickhash_32bit_hash, RANK_HASH_TABLE_SIZE);
 
         if (!rank_tbl) {
-            free(new);
+            free(newv);
             return -1;
         }
     }
 
     /* add this rank context to the hash table */
-    qhash_add(rank_tbl, &(new->rank), &(new->hash_link));
+    qhash_add(rank_tbl, &(newv->rank), &(newv->hash_link));
     rank_tbl_pop++;
 
     return 0;

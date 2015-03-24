@@ -313,9 +313,9 @@ tw_event* lsm_event_new(const char* category,
         delta += tmp;
     }
     e = codes_event_new(lsm_gid, delta, sender);
-    m = tw_event_data(e);
+    m = (lsm_message_t*)tw_event_data(e);
     m->magic = lsm_magic;
-    m->event  = io_type;
+    m->event  = (lsm_event_t)io_type;
     m->u.data.object = io_object;
     m->u.data.offset = io_offset;
     m->u.data.size   = io_size_bytes;
@@ -540,7 +540,7 @@ static void handle_io_request(lsm_state_t *ns,
     ns->current_object = m_in->u.data.object;
 
     e = codes_event_new(lp->gid, queue_time, lp);
-    m_out = tw_event_data(e);
+    m_out = (lsm_message_t*)tw_event_data(e);
 
     memcpy(m_out, m_in, sizeof(*m_in)+m_in->wrap.size);
     if (m_out->event == LSM_WRITE_REQUEST)
@@ -693,7 +693,7 @@ static void read_config(ConfigHandle *ch, char * anno, disk_model_t *model)
     rc = configuration_get_multivalue(ch, LSM_NAME, "request_sizes", anno,
             &values,&length);
     assert(rc == 1);
-    model->request_sizes = malloc(sizeof(int)*length);
+    model->request_sizes = (unsigned int*)malloc(sizeof(int)*length);
     assert(model->request_sizes);
     model->bins = length;
     for (int i = 0; i < length; i++)
@@ -706,7 +706,7 @@ static void read_config(ConfigHandle *ch, char * anno, disk_model_t *model)
     rc = configuration_get_multivalue(ch, LSM_NAME, "write_rates", anno,
             &values,&length);
     assert(rc == 1);
-    model->write_rates = malloc(sizeof(double)*length);
+    model->write_rates = (double*)malloc(sizeof(double)*length);
     assert(model->write_rates);
     assert(length == model->bins);
     for (int i = 0; i < length; i++)
@@ -719,7 +719,7 @@ static void read_config(ConfigHandle *ch, char * anno, disk_model_t *model)
     rc = configuration_get_multivalue(ch, LSM_NAME, "read_rates", anno,
             &values,&length);
     assert(rc == 1);
-    model->read_rates = malloc(sizeof(double)*length);
+    model->read_rates = (double*)malloc(sizeof(double)*length);
     assert(model->read_rates);
     assert(model->bins == length);
     for (int i = 0; i < length; i++)
@@ -732,7 +732,7 @@ static void read_config(ConfigHandle *ch, char * anno, disk_model_t *model)
     rc = configuration_get_multivalue(ch, LSM_NAME, "write_overheads", anno,
             &values,&length);
     assert(rc == 1);
-    model->write_overheads = malloc(sizeof(double)*length);
+    model->write_overheads = (double*)malloc(sizeof(double)*length);
     assert(model->write_overheads);
     assert(model->bins == length);
     for (int i = 0; i < length; i++)
@@ -745,7 +745,7 @@ static void read_config(ConfigHandle *ch, char * anno, disk_model_t *model)
     rc = configuration_get_multivalue(ch, LSM_NAME, "read_overheads", anno,
             &values,&length);
     assert(rc == 1);
-    model->read_overheads = malloc(sizeof(double)*length);
+    model->read_overheads = (double*)malloc(sizeof(double)*length);
     assert(model->read_overheads);
     assert(model->bins == length);
     for (int i = 0; i < length; i++)
@@ -758,7 +758,7 @@ static void read_config(ConfigHandle *ch, char * anno, disk_model_t *model)
     rc = configuration_get_multivalue(ch, LSM_NAME, "write_seeks", anno,
             &values,&length);
     assert(rc == 1);
-    model->write_seeks = malloc(sizeof(double)*length);
+    model->write_seeks = (double*)malloc(sizeof(double)*length);
     assert(model->write_seeks);
     assert(model->bins == length);
     for (int i = 0; i < length; i++)
@@ -771,7 +771,7 @@ static void read_config(ConfigHandle *ch, char * anno, disk_model_t *model)
     rc = configuration_get_multivalue(ch, LSM_NAME, "read_seeks", anno,
             &values,&length);
     assert(rc == 1);
-    model->read_seeks = malloc(sizeof(double)*length);
+    model->read_seeks = (double*)malloc(sizeof(double)*length);
     assert(model->read_seeks);
     assert(model->bins == length);
     for (int i = 0; i < length; i++)
@@ -790,7 +790,7 @@ void lsm_configure(void)
 
     anno_map = codes_mapping_get_lp_anno_map(LSM_NAME);
     assert(anno_map);
-    models_anno = malloc(anno_map->num_annos * sizeof(*models_anno));
+    models_anno = (disk_model_t*)malloc(anno_map->num_annos * sizeof(*models_anno));
 
     // read the configuration for unannotated entries 
     if (anno_map->has_unanno_lp > 0){

@@ -75,7 +75,7 @@ int bgp_io_workload_load(const char* params, int rank)
 		  return -1;
 	  }
     }
-    wrkld_per_rank = malloc(sizeof(*wrkld_per_rank));
+    wrkld_per_rank = (codes_bgp_wrkld_state_per_rank*)malloc(sizeof(*wrkld_per_rank));
     if(!wrkld_per_rank)
 	    return -1;
 
@@ -142,7 +142,7 @@ void bgp_io_workload_get_next(int rank, struct codes_workload_op *op)
 	next_wrkld = qhash_entry(hash_link, struct codes_bgp_wrkld_state_per_rank, hash_link);
 
 	int type = codes_kernel_helper_parse_input(next_wrkld->codes_pstate, &(next_wrkld->codes_context),&(next_wrkld->next_event));
-        op->op_type = convertTypes(type);
+        op->op_type = (codes_workload_op_type)convertTypes(type);
 	switch(op->op_type)
 	{
 	    case CODES_WK_WRITE:

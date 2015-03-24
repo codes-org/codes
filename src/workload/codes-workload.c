@@ -96,7 +96,7 @@ int codes_workload_load(const char* type, const char* params, int rank)
             }
             if(tmp == NULL)
             {
-                tmp = malloc(sizeof(*tmp));
+                tmp = (rank_queue*)malloc(sizeof(*tmp));
                 assert(tmp);
                 tmp->rank = rank;
                 tmp->lifo = NULL;
@@ -160,7 +160,7 @@ void codes_workload_get_next_rc(int wkld_id, int rank, const struct codes_worklo
     }
     assert(tmp);
 
-    tmp_op = malloc(sizeof(*tmp_op));
+    tmp_op = (struct rc_op*)malloc(sizeof(*tmp_op));
     assert(tmp_op);
     tmp_op->op = *op;
     tmp_op->next = tmp->lifo;
