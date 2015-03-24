@@ -458,8 +458,9 @@ void handle_sched_next(
         b->c0 = 1;
         *in_sched_loop = 0;
     }
-    // currently, loggp is the only network implementing the 
-    // callback-based scheduling loop, all others schedule the next packet
+    // Currently, only a subset of the network implementations use the
+    // callback-based scheduling loop (model_net_method_idle_event).
+    // For all others, we need to schedule the next packet
     // immediately
     else if (ns->net_id == SIMPLEP2P || ns->net_id == TORUS){
         tw_event *e = codes_event_new(lp->gid, 
