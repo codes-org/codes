@@ -304,9 +304,9 @@ static void handle_client_op_loop_event(
 	if(strcmp(workload_type, "test") == 0)
            ns->wkld_id = codes_workload_load("test", NULL, ns->my_rank);
 	else 
-	    if(strcmp(workload_type, "bgp_io_workload") == 0)
+	    if(strcmp(workload_type, "iolang_workload") == 0)
 	    {
-	        ns->wkld_id = codes_workload_load("bgp_io_workload", (char*)&bgparams, ns->my_rank);
+	        ns->wkld_id = codes_workload_load("iolang_workload", (char*)&ioparams, ns->my_rank);
 	    }
 
         assert(ns->wkld_id > -1);

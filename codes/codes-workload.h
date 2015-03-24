@@ -15,7 +15,7 @@
 #include "ross.h"
 #define MAX_NAME_LENGTH_WKLD 512
 
-typedef struct bgp_params bgp_params;
+typedef struct iolang_params iolang_params;
 typedef struct darshan_params darshan_params;
 typedef struct recorder_params recorder_params;
 typedef struct codes_workload_info codes_workload_info;
@@ -25,18 +25,15 @@ typedef struct scala_trace_params scala_trace_params;
 typedef struct dumpi_trace_params dumpi_trace_params;
 
 
-struct bgp_params
+struct iolang_params
 {
-    /* We have the number of ranks passed in from the bg/p model because
-     * the I/O lang workloads have no information about the number of ranks.
-     * Only the bg/p config file knows the number of ranks. */
+    /* the rank count is defined in the workload config file */
     int num_cns;
     /* flag - use path to find kernel files relative to the metafile */
     int use_relpath;
     char io_kernel_meta_path[MAX_NAME_LENGTH_WKLD];
-    char bgp_config_file[MAX_NAME_LENGTH_WKLD];
+    /* set by config in the metadata path */
     char io_kernel_path[MAX_NAME_LENGTH_WKLD];
-    char io_kernel_def_path[MAX_NAME_LENGTH_WKLD];
 };
 
 struct darshan_params
@@ -67,8 +64,8 @@ struct scala_trace_params {
 };
 
 struct dumpi_trace_params {
-   int num_net_traces;
    char file_name[MAX_NAME_LENGTH_WKLD];
+   int num_net_traces;
 };
 
 
@@ -127,6 +124,10 @@ enum codes_workload_op_type
     CODES_WK_WAITANY,
     /* Testall operation */
     CODES_WK_TESTALL,
+
+    /* for workloads that have events not yet handled
+     * (eg the workload language) */
+    CODES_WK_IGNORE
 };
 
 /* I/O operation paramaters */

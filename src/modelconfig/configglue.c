@@ -4,10 +4,10 @@
  *
  */
 
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 #include "configglue.h"
-#include "codes/tools.h"
 
 int cfgp_lex_error (ParserParams * p, int lineno, int colno, const char * msg)
 {
@@ -47,7 +47,7 @@ int cfgp_parser_error(ParserParams * p, const char * err,
    return -1;
 }
 
-void cfgp_initparams (ParserParams * p, ConfigHandle h)
+void cfgp_initparams (ParserParams * p, struct ConfigVTable * h)
 {
    p->configfile = h;
    p->stacktop = 0;
@@ -68,17 +68,17 @@ int cfgp_parse_ok (const ParserParams * p, char * buf, int bufsize)
 {
    /* doublecheck that if an error string is present, the error code is also
     * set */
-   ALWAYS_ASSERT(!p->lexer_error_string || p->lexer_error_code);
-   ALWAYS_ASSERT(!p->parser_error_string || p->parser_error_code);
+   assert(!p->lexer_error_string || p->lexer_error_code);
+   assert(!p->parser_error_string || p->parser_error_code);
 
    if (p->lexer_error_code)
    {
-      safe_strncpy (buf, p->lexer_error_string, bufsize);
+      strncpy (buf, p->lexer_error_string, bufsize);
       return 0;
    }
    if (p->parser_error_code)
    {
-      safe_strncpy (buf, p->parser_error_string, bufsize);
+      strncpy (buf, p->parser_error_string, bufsize);
       return 0;
    }
    return 1;

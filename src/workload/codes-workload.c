@@ -14,7 +14,7 @@
  * could make generators optional via autoconf tests etc. if needed
  */
 extern struct codes_workload_method test_workload_method;
-extern struct codes_workload_method bgp_io_workload_method;
+extern struct codes_workload_method iolang_workload_method;
 extern struct codes_workload_method scala_trace_workload_method;
 #ifdef USE_DUMPI
 extern struct codes_workload_method dumpi_trace_workload_method;
@@ -29,7 +29,7 @@ extern struct codes_workload_method recorder_io_workload_method;
 static struct codes_workload_method *method_array[] =
 {
     &test_workload_method,
-    &bgp_io_workload_method,
+    &iolang_workload_method,
     &scala_trace_workload_method,
 #ifdef USE_DUMPI
     &dumpi_trace_workload_method,
@@ -285,10 +285,28 @@ void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank){
             fprintf(f, "op: rank:? type:collective "
                     "bytes:%d\n", op->u.collective.num_bytes);
             break;
+	case CODES_WK_WAITALL:
+	    fprintf(f, "op: rank:? type:waitall "
+                     "num reqs: :%d\n", op->u.waits.count);
+	    break;
+	case CODES_WK_WAIT:
+	    fprintf(f, "op: rank:? type:wait "
+                     "num reqs: :%d\n", op->u.wait.req_id);
+	    break;
+	case CODES_WK_WAITSOME:
+	    fprintf(f, "op: rank:? type:waitsome "
+                     "num reqs: :%d\n", op->u.waits.count);
+	    break;
+	case CODES_WK_WAITANY:
+	    fprintf(f, "op: rank:? type:waitany "
+                     "num reqs: :%d\n", op->u.waits.count);
+	    break;
+        case CODES_WK_IGNORE:
+            break;
         default:
-            tw_error(TW_LOC,
-                    "codes_workload_print_op: unrecognized workload type "
-                    "(op code %d)\n", op->op_type);
+            fprintf(stderr,
+                    "%s:%d: codes_workload_print_op: unrecognized workload type "
+                    "(op code %d)\n", __FILE__, __LINE__, op->op_type);
     }
 }
 

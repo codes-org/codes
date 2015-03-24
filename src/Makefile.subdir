@@ -29,33 +29,22 @@ maintainer-clean-local::
 src/modelconfig/configparser.h: src/modelconfig/configparser.y
 src/modelconfig/configlex.h: src/modelconfig/configlex.l
 
-#BUILT_SOURCES += codes/codesparser.h \
+#BUILT_SOURCES += src/iokernellang/codesparser.h \
 #		 src/iokernellang/codesparser.c \
 #                 src/iokernellang/codeslexer.h \
-#                 codes/codeslexer.h
+#                 src/iokernellang/codeslexer.h
 
 
 #src/iokernellang/codesparser.y: src/iokernellang/codesparser.y.in Makefile
 
-#src/iokernellang/codesparser.c codes/codesparser.h: src/iokernellang/codesparser.y
+#src/iokernellang/codesparser.c src/iokernellang/codesparser.h: src/iokernellang/codesparser.y
 
-#codes/codeslexer.h: $(top_srcdir)/src/iokernellang/codeslexer.h
+#src/iokernellang/codeslexer.h: $(top_srcdir)/src/iokernellang/codeslexer.h
 #mkdir -p codes
-#cp $(top_srcdir)/src/iokernellang/codeslexer.h codes/codeslexer.h
+#cp $(top_srcdir)/src/iokernellang/codeslexer.h src/iokernellang/codeslexer.h
 
 nobase_include_HEADERS = \
-    codes/CodesKernelHelpers.h \
-    codes/CodesIOKernelContext.h \
-    codes/CodesIOKernelParser.h \
-    codes/CodesIOKernelTypes.h \
-    codes/codeslexer.h \
-    codes/txt_configfile.h \
-    codes/tools.h \
-    codes/codeslogging.h \
-    codes/timeline.h \
-    codes/codesparser.h \
     codes/quickhash.h \
-    codes/configfile.h \
     codes/quicklist.h \
     codes/codes_mapping.h \
     codes/lp-type-lookup.h \
@@ -73,15 +62,15 @@ nobase_include_HEADERS = \
 #codes/codes-nw-workload.h
 
 src_libcodes_base_a_SOURCES =  \
-    codes/codesparser.h \
+    src/iokernellang/codesparser.h \
     src/iokernellang/codesparser.c \
-    codes/codeslexer.h \
+    src/iokernellang/codeslexer.h \
     src/iokernellang/codeslexer.c \
     src/iokernellang/codesImpl.c \
-    codes/CodesIOKernelContext.h \
-    codes/CodesIOKernelParser.h \
-    codes/CodesIOKernelTypes.h \
-    codes/CodesKernelHelpers.h \
+    src/iokernellang/CodesIOKernelContext.h \
+    src/iokernellang/CodesIOKernelParser.h \
+    src/iokernellang/CodesIOKernelTypes.h \
+    src/iokernellang/CodesKernelHelpers.h \
     src/iokernellang/CodesKernelHelpers.c \
     src/modelconfig/configlex.c \
     src/modelconfig/configlex.h \
@@ -90,33 +79,25 @@ src_libcodes_base_a_SOURCES =  \
     src/modelconfig/configfile.c \
     src/modelconfig/configglue.h \
     src/modelconfig/configglue.c \
-    codes/configfile.h \
+    src/modelconfig/configfile.h \
     src/modelconfig/configstore.h \
     src/modelconfig/configstore.c \
     src/modelconfig/configstoreadapter.h \
     src/modelconfig/configstoreadapter.c \
-    codes/txt_configfile.h \
+    src/modelconfig/txt_configfile.h \
     src/modelconfig/txt_configfile.c \
-    codes/tools.h \
-    src/util/tools.c \
-    src/util/codes-callbacks.h \
-    src/util/codes-callbacks.c \
+    src/modelconfig/configuration.c \
     src/util/codes_mapping.c \
     src/util/lp-type-lookup.c \
-    src/util/configuration.c \
     src/util/lp-io.c \
 	src/util/lp-msg.c \
     src/util/lookup3.c \
 	src/util/resource.c \
 	src/util/resource-lp.c \
 	src/util/local-storage-model.c \
-    codes/codeslogging.h \
-    src/logging/codeslogging.c \
-    codes/timeline.h \
-    src/logging/timeline.c \
     src/workload/codes-workload.c \
     src/workload/codes-workload-method.h \
-    src/workload/methods/codes-bgp-io-wrkld.c \
+    src/workload/methods/codes-iolang-wrkld.c \
     src/workload/methods/test-workload-method.c \
 	src/workload/methods/codes-scala-trace-nw-wrkld.c \
 	codes/rc-stack.h \

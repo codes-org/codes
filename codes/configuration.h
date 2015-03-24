@@ -7,9 +7,9 @@
 #ifndef __CONFIGURATION_H__
 #define __CONFIGURATION_H__
 
+#include <stddef.h>
 #include <inttypes.h>
 #include <mpi.h>
-#include "codes/txt_configfile.h"
 
 #define CONFIGURATION_MAX_NAME 256
 #define CONFIGURATION_MAX_GROUPS 10
@@ -52,6 +52,8 @@ typedef struct config_lpgroups_s
     uint64_t lpannos_count;
     config_anno_map_t lpannos[CONFIGURATION_MAX_TYPES];
 } config_lpgroups_t;
+
+typedef struct ConfigVTable * ConfigHandle;
 
 /*
  * Load a configuration on the system (collectively)

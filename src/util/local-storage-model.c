@@ -6,7 +6,6 @@
 
 #include <assert.h>
 #include <ross.h>
-#include "codes/timeline.h"
 #include "codes/lp-io.h"
 #include "codes/jenkins-hash.h"
 #include "codes/codes.h"
@@ -247,51 +246,45 @@ void lsm_event_new_reverse(tw_lp *sender)
     return;
 }
 
-/*
- * lsm_find_local_device()
- *
- * returns the LP id of the lsm device connected to the caller
- *
- * TODO: currently ignores annotations 
- */
-tw_lpid lsm_find_local_device(tw_lp *sender)
-{
-    char lp_group_name[MAX_NAME_LENGTH];
-    int mapping_rep_id, mapping_offset, dummy;
-    tw_lpid lsm_gid; 
+static tw_lpid lsm_find_local_device_default(
+        const char * annotation,
+        int          ignore_annotations,
+        tw_lpid      sender_gid) {
+    char group_name[MAX_NAME_LENGTH];
+    int dummy, mapping_rep, mapping_offset;
+    int num_lsm_lps;
+    tw_lpid rtn;
 
-    codes_mapping_get_lp_info(sender->gid, lp_group_name, &dummy, 
-        NULL, &dummy, NULL, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LSM_NAME, NULL, 1, mapping_rep_id, 
-        mapping_offset, &lsm_gid);
-
-    return(lsm_gid);
+    codes_mapping_get_lp_info(sender_gid, group_name, &dummy, NULL, &dummy,
+            NULL, &mapping_rep, &mapping_offset);
+    num_lsm_lps = codes_mapping_get_lp_count(group_name, 1, LSM_NAME,
+            annotation, ignore_annotations);
+    codes_mapping_get_lp_id(group_name, LSM_NAME, annotation,
+            ignore_annotations, mapping_rep, mapping_offset % num_lsm_lps,
+            &rtn);
+    return rtn;
 }
 
-/*
- * lsm_event_new
- *   - creates a new event that is targeted for the corresponding
- *     LSM LP.
- *   - this event will allow wrapping the callers completion event
- *   - category: string name to identify the traffic category
- *   - dest_gid: the gid to send the callers event to
- *   - gid_offset: relative offset of the LSM LP to the originating LP
- *   - io_object: id of byte stream the caller will modify
- *   - io_offset: offset into byte stream
- *   - io_size_bytes: size in bytes of IO request
- *   - io_type: read or write request
- *   - message_bytes: size of the event message the caller will have
- *   - sender: id of the sender
- */
-tw_event* lsm_event_new(const char* category,
-                        tw_lpid  dest_gid,
-                        uint64_t io_object,
-                        int64_t  io_offset,
-                        uint64_t io_size_bytes,
-                        int      io_type,
-                        size_t   message_bytes,
-                        tw_lp   *sender,
-                        tw_stime delay)
+tw_lpid lsm_find_local_device(
+        const char * annotation,
+        int ignore_annotations,
+        tw_lpid sender_gid) {
+    return lsm_find_local_device_default(annotation, ignore_annotations,
+            sender_gid);
+}
+
+static tw_event* lsm_event_new_base(
+        const char* category,
+        tw_lpid  dest_gid,
+        uint64_t io_object,
+        int64_t  io_offset,
+        uint64_t io_size_bytes,
+        int      io_type,
+        size_t   message_bytes,
+        tw_lp   *sender,
+        tw_stime delay,
+        const char * annotation,
+        int ignore_annotations)
 {
     tw_event *e;
     lsm_message_t *m;
@@ -304,7 +297,7 @@ tw_event* lsm_event_new(const char* category,
     /* Generate an event for the local storage model, and send the
      * event to an lsm LP. 
      */
-    lsm_gid = lsm_find_local_device(sender);
+    lsm_gid = lsm_find_local_device(annotation, ignore_annotations, sender->gid);
 
     delta = codes_local_latency(sender) + delay;
     if (lsm_in_sequence) {
@@ -326,6 +319,51 @@ tw_event* lsm_event_new(const char* category,
     m->wrap.size = message_bytes;
 
     return e;
+}
+
+/*
+ * lsm_event_new
+ *   - creates a new event that is targeted for the corresponding
+ *     LSM LP.
+ *   - this event will allow wrapping the callers completion event
+ *   - category: string name to identify the traffic category
+ *   - dest_gid: the gid to send the callers event to
+ *   - gid_offset: relative offset of the LSM LP to the originating LP
+ *   - io_object: id of byte stream the caller will modify
+ *   - io_offset: offset into byte stream
+ *   - io_size_bytes: size in bytes of IO request
+ *   - io_type: read or write request
+ *   - message_bytes: size of the event message the caller will have
+ *   - sender: id of the sender
+ */
+tw_event* lsm_event_new(
+        const char* category,
+        tw_lpid  dest_gid,
+        uint64_t io_object,
+        int64_t  io_offset,
+        uint64_t io_size_bytes,
+        int      io_type,
+        size_t   message_bytes,
+        tw_lp   *sender,
+        tw_stime delay) {
+    return lsm_event_new_base(category, dest_gid, io_object, io_offset,
+            io_size_bytes, io_type, message_bytes, sender, delay, NULL, 1);
+}
+tw_event* lsm_event_new_annotated(
+        const char* category,
+        tw_lpid  dest_gid,
+        uint64_t io_object,
+        int64_t  io_offset,
+        uint64_t io_size_bytes,
+        int      io_type,
+        size_t   message_bytes,
+        tw_lp   *sender,
+        tw_stime delay,
+        const char * annotation,
+        int ignore_annotations) {
+    return lsm_event_new_base(category, dest_gid, io_object, io_offset,
+            io_size_bytes, io_type, message_bytes, sender, delay, annotation,
+            ignore_annotations);
 }
 
 /*
@@ -503,12 +541,6 @@ static void handle_io_request(lsm_state_t *ns,
     tw_stime (*transfer_time) (lsm_state_t *, lsm_stats_t *, int, uint64_t, int64_t, uint64_t);
 
     transfer_time = transfer_time_table;
-
-    if (TIMELINE_ENABLED)
-    {
-        __attribute__((unused)) char rwc = (rw) ? 'R' : 'W';
-        (void) timeline_event(lp, "%c %llu %llu\n", rwc, m_in->u.data.offset, m_in->u.data.size);
-    }
 
     stat = find_stats(m_in->u.data.category, ns);
 

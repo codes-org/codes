@@ -6,8 +6,7 @@
 
 #include <assert.h>
 #include <stdio.h>
-#include "codes/txt_configfile.h"
-#include "codes/tools.h"
+#include "txt_configfile.h"
 #include "configglue.h"
 #include "src/modelconfig/configparser.h"
 #include "src/modelconfig/configlex.h"
@@ -31,10 +30,10 @@ static inline int mymin (int v1, int v2)
    return (v1 < v2 ?  v1 : v2);
 }
 
-static int dump_section (FILE * f, ConfigHandle h, SectionHandle s, unsigned
+static int dump_section (FILE * f, struct ConfigVTable * h, SectionHandle s, unsigned
       int indent);
 
-static int dump_entry (FILE * f, ConfigHandle h, SectionHandle s, 
+static int dump_entry (FILE * f, struct ConfigVTable * h, SectionHandle s, 
       unsigned int indent, const SectionEntry * entry)
 {
    int ret = 1;
@@ -90,7 +89,7 @@ static int dump_entry (FILE * f, ConfigHandle h, SectionHandle s,
    return ret;
 }
 
-static int dump_section (FILE * f, ConfigHandle h, SectionHandle s, unsigned
+static int dump_section (FILE * f, struct ConfigVTable * h, SectionHandle s, unsigned
       int indent)
 {
    unsigned int sectionsize;
@@ -112,7 +111,7 @@ static int dump_section (FILE * f, ConfigHandle h, SectionHandle s, unsigned
    if (ret < 0)
       goto fail;
 
-   ALWAYS_ASSERT (sectionsize == count);
+   assert(sectionsize == count);
 
    for (i=0; i<count; ++i)
    {
@@ -130,11 +129,11 @@ fail:
 }
 
 
-int txtfile_writeConfig (ConfigHandle cf, SectionHandle h, FILE * f, char ** err)
+int txtfile_writeConfig (struct ConfigVTable * cf, SectionHandle h, FILE * f, char ** err)
 {
    int ret;
-   ALWAYS_ASSERT(err);
-   ALWAYS_ASSERT(f);
+   assert(err);
+   assert(f);
 
    *err = 0;
 
@@ -147,7 +146,7 @@ int txtfile_writeConfig (ConfigHandle cf, SectionHandle h, FILE * f, char ** err
    return ret;
 }
 
-ConfigHandle txtfile_openStream (FILE * f, char ** err)
+struct ConfigVTable * txtfile_openStream (FILE * f, char ** err)
 {
    long size;
    ParserParams p; 
@@ -155,7 +154,7 @@ ConfigHandle txtfile_openStream (FILE * f, char ** err)
    int reject;
    char buf[512];
    
-   ALWAYS_ASSERT(err);
+   assert(err);
 
    *err=0;
 
@@ -179,12 +178,12 @@ ConfigHandle txtfile_openStream (FILE * f, char ** err)
 
    /* either we have a valid confighandle or we have a parser error... */
    /* not true: we can have a partial config tree */
-   // ALWAYS_ASSERT((p.error_code || p.configfile) && (!p.error_code || !p.configfile));
+   // assert((p.error_code || p.configfile) && (!p.error_code || !p.configfile));
 
    /* If ther parser failed we need to have an error code */
-   ALWAYS_ASSERT(!reject || p.parser_error_code || p.lexer_error_code);
-   ALWAYS_ASSERT(!p.lexer_error_string || p.lexer_error_code);
-   ALWAYS_ASSERT(!p.parser_error_string || p.parser_error_code);
+   assert(!reject || p.parser_error_code || p.lexer_error_code);
+   assert(!p.lexer_error_string || p.lexer_error_code);
+   assert(!p.parser_error_string || p.parser_error_code);
 
    if (!cfgp_parse_ok (&p, buf, sizeof(buf)))
    {
@@ -192,8 +191,8 @@ ConfigHandle txtfile_openStream (FILE * f, char ** err)
    }
    else
    {
-      ALWAYS_ASSERT(!p.parser_error_string);
-      ALWAYS_ASSERT(!p.lexer_error_string);
+      assert(!p.parser_error_string);
+      assert(!p.lexer_error_string);
       if (err) *err = 0;
    }
 
@@ -202,10 +201,10 @@ ConfigHandle txtfile_openStream (FILE * f, char ** err)
    return p.configfile;
  }
 
-ConfigHandle txtfile_openConfig (const char * filename, char ** error)
+struct ConfigVTable * txtfile_openConfig (const char * filename, char ** error)
 {
    FILE  * f;
-   ConfigHandle ret;
+   struct ConfigVTable * ret;
 
 
    f = fopen (filename, "r");

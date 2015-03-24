@@ -115,7 +115,7 @@ typedef union YYSTYPE
 {
 
 /* Line 2068 of yacc.c  */
-#line 37 "src/iokernellang/codesparser.y"
+#line 37 "codesparser.y"
 
     int64_t iValue;                 /* integer value */
     int64_t sIndex;              /* symbol table index */
@@ -124,7 +124,7 @@ typedef union YYSTYPE
 
 
 /* Line 2068 of yacc.c  */
-#line 128 "codes/codesparser.h"
+#line 128 "codesparser.h"
 } YYSTYPE;
 # define YYSTYPE_IS_TRIVIAL 1
 # define yystype YYSTYPE /* obsolescent; will be withdrawn */

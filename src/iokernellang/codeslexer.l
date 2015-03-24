@@ -6,8 +6,8 @@
 
 %{
 #include <stdlib.h>
-#include "codes/CodesIOKernelTypes.h"
-#include "codes/CodesIOKernelParser.h"
+#include "src/iokernellang/CodesIOKernelTypes.h"
+#include "src/iokernellang/CodesIOKernelParser.h"
 
 #define YY_NO_INPUT
 

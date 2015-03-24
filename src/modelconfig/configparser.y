@@ -18,7 +18,6 @@
 
 #include <assert.h>
 #include "src/modelconfig/configglue.h"
-#include "codes/tools.h"
 
 #if defined __GNUC__
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -116,7 +115,7 @@ singlekey: IDENTIFIER EQUAL_TOKEN LITERAL_STRING SEMICOLUMN {
 
 multikeynonzero: KOMMA LITERAL_STRING {
                    param->keyvals[param->count++] = strdup ($<string_buf>2);
-                   ALWAYS_ASSERT (param->count < param->maxsize); 
+                   assert (param->count < param->maxsize); 
                }
 
 multikeyentry : multikeynonzero multikeyentry | ;
@@ -129,7 +128,7 @@ multikeyinit : /* empty */ {
 
 multikeystart : LITERAL_STRING  { 
                 param->keyvals[param->count++] = strdup ($<string_buf>1);
-                ALWAYS_ASSERT (param->count < param->maxsize); 
+                assert (param->count < param->maxsize); 
              }
 
 /* this can probably be simplified */
@@ -159,7 +158,7 @@ opt_semicolumn: SEMICOLUMN | ;
 subsection_openaction: IDENTIFIER OPENSECTION
                      {
                          SectionHandle newsection;
-                         ALWAYS_ASSERT(param->stacktop < ARRAY_SIZEOF(param->sectionstack));
+                         assert(param->stacktop < sizeof(param->sectionstack)/sizeof(param->sectionstack[0]));
                          
                          cf_createSection (param->configfile,
                          param->sectionstack[param->stacktop], $1,
@@ -172,7 +171,7 @@ subsection_openaction: IDENTIFIER OPENSECTION
 
 subsection_closeaction: CLOSESECTION opt_semicolumn
                       {
-                          ALWAYS_ASSERT (param->stacktop > 0);
+                          assert (param->stacktop > 0);
                           SectionHandle old = param->sectionstack[param->stacktop--];
                           cf_closeSection (param->configfile, old);
                       };

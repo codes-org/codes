@@ -12,7 +12,6 @@
 #include <assert.h>
 #include <ross.h>
 
-#include "codes/timeline.h"
 #include "codes/lp-io.h"
 #include "codes/codes.h"
 #include "codes/codes_mapping.h"
@@ -139,12 +138,6 @@ int main(
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
  
-    ret = timeline_init("timeline.data");
-    if (ret != 1)
-    {
-        return(-1);
-    }
-
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
    
@@ -174,7 +167,6 @@ int main(
     ret = lp_io_flush(handle, MPI_COMM_WORLD);
     assert(ret == 0);
 
-    timeline_finalize();
     tw_end();
 
     return 0;
@@ -302,8 +294,6 @@ static void handle_kickoff_event(
     tw_event *e_new;
     double rate;
     double seek;
-
-    (void) timeline_event(lp, "\n");
 
     if (LSM_DEBUG)
         printf("handle_kickoff_event(), lp %llu.\n",

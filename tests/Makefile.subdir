@@ -11,7 +11,8 @@ TESTS += tests/lp-io-test.sh \
  tests/workload/codes-workload-test.sh \
  tests/mapping_test.sh \
  tests/lsm-test.sh \
- tests/rc-stack-test
+ tests/rc-stack-test \
+ tests/resource-test.sh
 
 EXTRA_DIST += tests/lp-io-test.sh \
  tests/workload/codes-workload-test.sh \

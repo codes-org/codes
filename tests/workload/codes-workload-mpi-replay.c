@@ -151,23 +151,20 @@ int load_workload(char *conf_path, int rank)
 
         return codes_workload_load(workload_type, (char *)&d_params, rank);
     }
-    else if (strcmp(workload_type, "bgp_io_workload") == 0)
+    else if (strcmp(workload_type, "iolang_workload") == 0)
     {
-        struct bgp_params b_params;
+        struct iolang_params i_params;
         char rank_count[10];
 
-        /* get the bgp i/o params from the config file */
+        /* get the iolang i/o params from the config file */
         configuration_get_value(&config, "PARAMS", "io_kernel_meta_path",
-                                NULL, b_params.io_kernel_meta_path, MAX_NAME_LENGTH_WKLD);
-        configuration_get_value(&config, "PARAMS", "bgp_config_file",
-                                NULL, b_params.bgp_config_file, MAX_NAME_LENGTH_WKLD);
+                                NULL, i_params.io_kernel_meta_path, MAX_NAME_LENGTH_WKLD);
         configuration_get_value(&config, "PARAMS", "rank_count", NULL, rank_count, 10);
-        strcpy(b_params.io_kernel_path, "");
-        strcpy(b_params.io_kernel_def_path, "");
-        b_params.num_cns = atoi(rank_count);
-        b_params.use_relpath = 1;
+        strcpy(i_params.io_kernel_path, "");
+        i_params.num_cns = atoi(rank_count);
+        i_params.use_relpath = 1;
 
-        return codes_workload_load(workload_type, (char *)&b_params, rank);
+        return codes_workload_load(workload_type, (char *)&i_params, rank);
     }
     else if (strcmp(workload_type, "recorder_io_workload") == 0) {
         struct recorder_params r_params;

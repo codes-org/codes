@@ -39,7 +39,7 @@ typedef struct
 
 #define ROOT_SECTION ((SectionHandle) 0)
 
-typedef struct
+struct ConfigVTable
 {
    /* File path of the configuration file. Used in computing the relative path
     * of file fields */
@@ -94,20 +94,18 @@ typedef struct
 
    void * data; 
 
-} ConfigVTable; 
-
-typedef ConfigVTable * ConfigHandle; 
+}; 
 
 /* utility debug function: write config tree to stdout;
  * If all OK: ret >= 0, otherwise ret < 0 and *err is set
  * to error message
  * */
-int cf_dump (ConfigHandle cf, SectionHandle h, char ** err);
+int cf_dump (struct ConfigVTable * cf, SectionHandle h, char ** err);
 
 /* Compare two config trees: return true if equal, false if not */
-int cf_equal (ConfigHandle h1, ConfigHandle h2);
+int cf_equal (struct ConfigVTable * h1, struct ConfigVTable * h2);
 
-static inline int cf_free (ConfigHandle cf)
+static inline int cf_free (struct ConfigVTable * cf)
 {
    if (!cf)
       return 1;
@@ -117,49 +115,49 @@ static inline int cf_free (ConfigHandle cf)
    return 1;
 }
 
-static inline int cf_getSectionSize (ConfigHandle cf, SectionHandle section, 
+static inline int cf_getSectionSize (struct ConfigVTable * cf, SectionHandle section, 
       unsigned int * count)
 {
    return cf->getSectionSize (cf->data, section, count); 
 }
 
-static inline int cf_closeSection (ConfigHandle cf, SectionHandle section)
+static inline int cf_closeSection (struct ConfigVTable * cf, SectionHandle section)
 {
    return cf->closeSection (cf->data, section);
 }
 
-static inline int cf_openSection (ConfigHandle cf, SectionHandle section, 
+static inline int cf_openSection (struct ConfigVTable * cf, SectionHandle section, 
       const char * sectionname, SectionHandle * newsection)
 {
    return cf->openSection (cf->data, section, sectionname, newsection);
 }
 
-static inline int cf_getKey (ConfigHandle cf, SectionHandle section, 
+static inline int cf_getKey (struct ConfigVTable * cf, SectionHandle section, 
       const char * keyname, char * buf, size_t maxbuf)
 {
    return cf->getKey (cf->data, section, keyname, buf, maxbuf);
 }
 
-static inline int cf_getMultiKey (ConfigHandle cf, SectionHandle section,
+static inline int cf_getMultiKey (struct ConfigVTable * cf, SectionHandle section,
       const char * keyname, char *** buf, size_t * e)
 {
    return cf->getMultiKey (cf->data, section, keyname, buf, e);
 }
 
-static inline int cf_listSection (ConfigHandle cf, SectionHandle section, 
+static inline int cf_listSection (struct ConfigVTable * cf, SectionHandle section, 
          SectionEntry * entries, size_t * maxentries)
 {
    return cf->listSection (cf->data, section, entries, maxentries);
 }
 
-static inline int cf_createSection (ConfigHandle handle, SectionHandle
+static inline int cf_createSection (struct ConfigVTable * handle, SectionHandle
       section, const char * name, SectionHandle * newsection)
 {
    return handle->createSection (handle->data, section, name, 
          newsection);
 }
 
-static inline int cf_createKey (ConfigHandle handle, SectionHandle section,
+static inline int cf_createKey (struct ConfigVTable * handle, SectionHandle section,
       const char * key, const char ** data, unsigned int count)
 {
    return handle->createKey (handle->data, section, key, data, count);

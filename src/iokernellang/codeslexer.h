@@ -2,9 +2,9 @@
 #define CodesIOKernel_HEADER_H 1
 #define CodesIOKernel_IN_HEADER 1
 
-#line 6 "src/iokernellang/codeslexer.h"
+#line 6 "codeslexer.h"
 
-#line 8 "src/iokernellang/codeslexer.h"
+#line 8 "codeslexer.h"
 
 #define  YY_INT_ALIGNED short int
 
@@ -351,9 +351,9 @@ extern int CodesIOKernel_lex \
 #undef YY_DECL
 #endif
 
-#line 111 "src/iokernellang/codeslexer.l"
+#line 117 "codeslexer.l"
 
 
-#line 358 "src/iokernellang/codeslexer.h"
+#line 358 "codeslexer.h"
 #undef CodesIOKernel_IN_HEADER
 #endif /* CodesIOKernel_HEADER_H */

@@ -7,8 +7,8 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "codes/CodesIOKernelTypes.h"
-#include "codes/CodesIOKernelParser.h"
+#include "CodesIOKernelTypes.h"
+#include "CodesIOKernelParser.h"
 
 int64_t ex(
     nodeType * p)

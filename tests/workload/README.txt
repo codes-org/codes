@@ -34,7 +34,7 @@ NOTE: NUM_PROCS need not match the number of ranks in the actual workload. I.E. 
 ==============================
 
 This file contains the sample configuration for each of the 3 (current) workload generators: test
-workload generator, bgp i/o language workload generator, and the darshan i/o workload_generator.
+workload generator, i/o language workload generator, and the darshan i/o workload_generator.
 These configuration files are passed as arguments to both the codes-workload-test and the
 codes-workload-mpi-replay programs. A summary of each workloads parameters is given below (NOTE:
 these parameters should be updated each time a new paramter is added to each workload):
@@ -50,24 +50,21 @@ PARAMS
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-2.) bgp i/o language workload generator:
+2.) i/o language workload generator:
 
 PARAMS
 {
-    workload_type = "bgp_io_workload";
+    workload_type = "iolang_workload";
     io_kernel_meta_path = "/path/to/io/kernel/meta.txt";
-    bgp_config_file = "/path/to/bgp/config/file.txt";
     rank_count = "8";
 }
 
-- workload_type is just the name of this generator ("bgp_io_workload")
+- workload_type is just the name of this generator ("iolang_workload")
 - io_kernel_meta_path is the path to the i/o kernel meta file
-- bgp_config_file is the path to the bgp config file
 - rank_count is the number of ranks to generate i/o for
     - this needs to match the range of ranks given in the io_kernel_meta_file
-    - this also needs to match the num_cn value in the bgp_config_file
-        - NOTE: num_ion should be set so there is 1 ion for every 64 cns
-        - NOTE: num_fileserver and num_es must be 64 or 123 (half or full storage system)
+      (unless -1 is used in the meta file, in which case the given number of
+      ranks will be used)
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

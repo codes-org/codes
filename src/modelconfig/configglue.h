@@ -9,12 +9,12 @@
 
 /* Common header for parser and lexer */
 
-#include "codes/configfile.h"
+#include "configfile.h"
 
 
 typedef struct
 {
-   ConfigHandle configfile;
+   struct ConfigVTable * configfile;
 
    SectionHandle sectionstack [20];
    unsigned int stacktop;
@@ -35,9 +35,9 @@ typedef struct
    char *               lexer_error_string;
 } ParserParams;
 
-void cfgp_initparams (ParserParams * p, ConfigHandle h);
+void cfgp_initparams (ParserParams * p, struct ConfigVTable * h);
 
-/* Free private data (but not the ConfigHandle) */
+/* Free private data (but not the ConfigVTable) */
 void cfgp_freeparams (ParserParams * p);
 
 int cfgp_parser_error (ParserParams * p, const char* str, 
@@ -46,7 +46,7 @@ int cfgp_parser_error (ParserParams * p, const char* str,
 int cfgp_lex_error (ParserParams * p, int lineno, int colno, const char * msg); 
 
 /* Return true if parse and lex went ok; false otherwise, and puts
- * error message in buf. Note: ConfigHandle might still contain the partial 
+ * error message in buf. Note: ConfigVTable might still contain the partial 
  * parsed tree */
 int cfgp_parse_ok (const ParserParams * p, char * buf, int bufsize);
 
