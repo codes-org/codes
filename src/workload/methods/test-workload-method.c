@@ -45,7 +45,7 @@ static int test_workload_load(const char* params, int rank)
      */
     struct wkload_stream_state* newv;
 
-    newv = (wkload_stream_state*)malloc(sizeof(*newv));
+    newv = (struct wkload_stream_state*)malloc(sizeof(*newv));
     if(!newv)
         return(-1);
 

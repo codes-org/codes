@@ -48,7 +48,7 @@ int lp_io_write(tw_lpid gid, char* identifier, int size, void* buffer)
         return(-1);
     }
 
-    buf = (io_buffer*)malloc(sizeof(*buf));
+    buf = (struct io_buffer*)malloc(sizeof(*buf));
     if(!buf)
         return(-1);
 

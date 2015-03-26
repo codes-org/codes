@@ -96,7 +96,7 @@ int codes_workload_load(const char* type, const char* params, int rank)
             }
             if(tmp == NULL)
             {
-                tmp = (rank_queue*)malloc(sizeof(*tmp));
+                tmp = (struct rank_queue*)malloc(sizeof(*tmp));
                 assert(tmp);
                 tmp->rank = rank;
                 tmp->lifo = NULL;

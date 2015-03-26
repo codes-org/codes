@@ -58,7 +58,7 @@ struct codes_iolang_wrkld_state_per_rank
 int iolang_io_workload_load(const char* params, int rank)
 {
     int t = -1;
-    iolang_params* i_param = (iolang_params*)params;
+    iolang_params* i_param = (struct iolang_params*)params;
 
     /* we have to get the number of compute nodes/ranks from the bg/p model parameters
      * because the number of ranks are specified in the iolang config file not the
@@ -75,7 +75,7 @@ int iolang_io_workload_load(const char* params, int rank)
 		  return -1;
 	  }
     }
-    wrkld_per_rank = (codes_bgp_wrkld_state_per_rank*)malloc(sizeof(*wrkld_per_rank));
+    wrkld_per_rank = (codes_iolang_wrkld_state_per_rank*)malloc(sizeof(*wrkld_per_rank));
     if(!wrkld_per_rank)
 	    return -1;
 
@@ -141,7 +141,7 @@ void iolang_io_workload_get_next(int rank, struct codes_workload_op *op)
 	next_wrkld = qhash_entry(hash_link, struct codes_iolang_wrkld_state_per_rank, hash_link);
 
 	int type = codes_kernel_helper_parse_input(next_wrkld->codes_pstate, &(next_wrkld->codes_context),&(next_wrkld->next_event));
-        op->op_type = (codes_workload_op_type) convertTypes(type);
+        op->op_type = (enum codes_workload_op_type) convertTypes(type);
         if (op->op_type == CODES_WK_IGNORE)
             return;
 	switch(op->op_type)
