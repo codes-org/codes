@@ -816,7 +816,7 @@ terminal_init( terminal_state * s,
            s->anno, 0);
 
    s->terminal_id = (mapping_rep_id * num_lps) + mapping_offset;  
-   s->router_id=(int)s->terminal_id / s->params->num_routers;
+   s->router_id=(int)s->terminal_id / (s->params->num_routers/2);
    s->terminal_available_time = 0.0;
    s->packet_counter = 0;
 
