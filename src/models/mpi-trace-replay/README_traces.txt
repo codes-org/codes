@@ -4,7 +4,7 @@
 
    Configure dumpi with the following parameters:
 
-   ../configure --enable-libdumpi --enable-test --disable-shared --prefix=/home/mubarm/dumpi/dumpi/install CC=mpicc CXX=mpicxx
+   ../configure --enable-test --disable-shared --prefix=/home/mubarm/dumpi/dumpi/install CC=mpicc CXX=mpicxx
 
 2- Configure codes-base with DUMPI. Make sure the CC environment variable
    refers to a MPI compiler
