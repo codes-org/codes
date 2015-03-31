@@ -1165,6 +1165,8 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 			num_bytes_sent -= m->op.u.send.num_bytes;
 		}
 		break;
+
+		case CODES_WK_IRECV:
 		case CODES_WK_RECV:
 		{
 			codes_exec_mpi_recv_rc(s, m, lp);
