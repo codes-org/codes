@@ -52,14 +52,14 @@ Note: If using a different DUMPI trace file, make sure to update the modelnet-mp
 (i) AMG 8 MPI tasks http://portal.nersc.gov/project/CAL/designforward.htm#AMG
 
    ** Torus network model
-   mpirun -np 8 ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=3 --extramem=462144 --workload_file=/home/mubarm/dumpi/df_AMG_n8_dumpi/dumpi-2014.03.03.14.12.46- --workload_type="dumpi" --batch=2 --gvt-interval=2 --num_net_traces=8 tests/conf/modelnet-mpi-test-torus.conf
+   mpirun -np 4 ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=3 --extramem=962144 --workload_file=/home/mubarm/dumpi/df_AMG_n27_dumpi/dumpi-2014.03.03.14.12.46- --workload_type="dumpi" --batch=2 --gvt-interval=2 --num_net_traces=27 tests/conf/modelnet-mpi-test-torus.conf
 
   ** Simplenet network model
 
-  mpirun -np 8 ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=3 --extramem=462144 --workload_file=/home/mubarm/dumpi/df_AMG_n8_dumpi/dumpi-2014.03.03.14.12.46- --workload_type="dumpi" --batch=2 --gvt-interval=2 tests/conf/modelnet-mpi-test.conf
+  mpirun -np 8 ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=3 --workload_file=/home/mubarm/dumpi/df_AMG_n27_dumpi/dumpi-2014.03.03.14.12.46- --workload_type="dumpi" --batch=2 --gvt-interval=2 tests/conf/modelnet-mpi-test.conf
 
   ** Dragonfly network model
-   mpirun -np 8 ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=3 --extramem=462144 --workload_file=/home/mubarm/dumpi/df_AMG_n8_dumpi/dumpi-2014.03.03.14.12.46- --workload_type="dumpi" --batch=2 --gvt-interval=2 --num_net_traces=8 src/models/mpi-trace-replay//conf/modelnet-mpi-test-dragonfly.conf
+   mpirun -np 8 ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=3 --extramem=2962144 --workload_file=/home/mubarm/dumpi/df_AMG_n27_dumpi/dumpi-2014.03.03.14.12.46- --workload_type="dumpi" --batch=2 --gvt-interval=2 --num_net_traces=27 src/models/mpi-trace-replay//conf/modelnet-mpi-test-dragonfly.conf
   
    Note: Dragonfly and torus networks may have more number of nodes in the network than the number network traces (Some network nodes will only pass messages and they will not end up loading the traces). Thats why --num_net_traces argument is used to specify exact number of traces available in the DUMPI directory if there is a mis-match between number of network nodes and traces.
 
