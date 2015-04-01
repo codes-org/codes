@@ -29,7 +29,7 @@ wget http://portal.nersc.gov/project/CAL/doe-miniapps-mpi-traces/AMG/df_AMG_n27_
 
 7- Run the test program for codes-nw-workload using. 
 
-mpirun -np 4 ./src/models/mpi-trace-replay/model-net-dumpi-traces-dump --sync=3 --workload_type=dumpi --workload_file=/home/mubarm/df_traces/df_AMG_n27_dumpi/dumpi-2014.03.03.14.55.00- ../src/models/mpi-trace-replay/conf/modelnet-mpi-test.conf
+mpirun -np 4 ./src/models/mpi-trace-replay/model-net-dumpi-traces-dump --sync=3 --workload_type=dumpi --workload_file=/home/mubarm/df_traces/df_AMG_n27_dumpi/dumpi-2014.03.03.14.55.00- -- ../src/models/mpi-trace-replay/conf/modelnet-mpi-test.conf
 
 The program shows the number of sends, receives, collectives and wait operations in the DUMPI trace log.
 
@@ -43,7 +43,7 @@ Note: If using a different DUMPI trace file, make sure to update the modelnet-mp
    model-net using (/dumpi-2014-04-05.22.12.17.37- is the prefix of the all DUMPI trace files. 
    We skip the last 4 digit prefix of the DUMPI trace file names).
 
-   ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=1 --workload_file=/path/to/dumpi/trace/directory/dumpi-2014-04-05.22.12.17.37- - --workload_type="dumpi" src/models/mpi-trace-replay/conf/modelnet-mpi-test.conf 
+   ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=1 --workload_file=/path/to/dumpi/trace/directory/dumpi-2014-04-05.22.12.17.37- - --workload_type="dumpi" -- src/models/mpi-trace-replay/conf/modelnet-mpi-test.conf 
 
   The simulation runs in ROSS serial, conservative and optimistic modes.
 
@@ -52,23 +52,23 @@ Note: If using a different DUMPI trace file, make sure to update the modelnet-mp
 (i) AMG 8 MPI tasks http://portal.nersc.gov/project/CAL/designforward.htm#AMG
 
    ** Torus network model
-   mpirun -np 4 ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=3 --extramem=962144 --workload_file=/home/mubarm/dumpi/df_AMG_n27_dumpi/dumpi-2014.03.03.14.12.46- --workload_type="dumpi" --batch=2 --gvt-interval=2 --num_net_traces=27 tests/conf/modelnet-mpi-test-torus.conf
+   mpirun -np 4 ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=3 --extramem=962144 --workload_file=/home/mubarm/dumpi/df_AMG_n27_dumpi/dumpi-2014.03.03.14.12.46- --workload_type="dumpi" --batch=2 --gvt-interval=2 --num_net_traces=27 -- tests/conf/modelnet-mpi-test-torus.conf
 
   ** Simplenet network model
 
-  mpirun -np 8 ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=3 --workload_file=/home/mubarm/dumpi/df_AMG_n27_dumpi/dumpi-2014.03.03.14.12.46- --workload_type="dumpi" --batch=2 --gvt-interval=2 tests/conf/modelnet-mpi-test.conf
+  mpirun -np 8 ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=3 --workload_file=/home/mubarm/dumpi/df_AMG_n27_dumpi/dumpi-2014.03.03.14.12.46- --workload_type="dumpi" --batch=2 --gvt-interval=2 -- tests/conf/modelnet-mpi-test.conf
 
   ** Dragonfly network model
-   mpirun -np 8 ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=3 --extramem=2962144 --workload_file=/home/mubarm/dumpi/df_AMG_n27_dumpi/dumpi-2014.03.03.14.12.46- --workload_type="dumpi" --batch=2 --gvt-interval=2 --num_net_traces=27 src/models/mpi-trace-replay//conf/modelnet-mpi-test-dragonfly.conf
+   mpirun -np 8 ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=3 --extramem=2962144 --workload_file=/home/mubarm/dumpi/df_AMG_n27_dumpi/dumpi-2014.03.03.14.12.46- --workload_type="dumpi" --batch=2 --gvt-interval=2 --num_net_traces=27 -- src/models/mpi-trace-replay//conf/modelnet-mpi-test-dragonfly.conf
   
    Note: Dragonfly and torus networks may have more number of nodes in the network than the number network traces (Some network nodes will only pass messages and they will not end up loading the traces). Thats why --num_net_traces argument is used to specify exact number of traces available in the DUMPI directory if there is a mis-match between number of network nodes and traces.
 
 (ii) Crystal router 10 MPI tasks http://portal.nersc.gov/project/CAL/designforward.htm#CrystalRouter
 
   ** Simple-net network model 
-  mpirun -np 10 ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=3 --extramem=185536 --workload_file=/home/mubarm/dumpi/cry_router/dumpi--2014.04.23.12.08.27- --workload_type="dumpi" src/models/mpi-trace-replay/conf/modelnet-mpi-test-cry-router.conf
+  mpirun -np 10 ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=3 --extramem=185536 --workload_file=/home/mubarm/dumpi/cry_router/dumpi--2014.04.23.12.08.27- --workload_type="dumpi" -- src/models/mpi-trace-replay/conf/modelnet-mpi-test-cry-router.conf
 
 (iii) MiniFE 18 MPI tasks http://portal.nersc.gov/project/CAL/designforward.htm#MiniFE
 
 ** Simple-net network model
-  mpirun -np 18 ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=3 --extramem=6185536 --workload_file=/home/mubarm/dumpi/dumpi_data_18/dumpi-2014.04.22.12.17.37- --workload_type="dumpi" src/models/mpi-trace-replay/conf/modelnet-mpi-test-mini-fe.conf 
+  mpirun -np 18 ./src/models/mpi-trace-replay/model-net-mpi-wrklds --sync=3 --extramem=6185536 --workload_file=/home/mubarm/dumpi/dumpi_data_18/dumpi-2014.04.22.12.17.37- --workload_type="dumpi" -- src/models/mpi-trace-replay/conf/modelnet-mpi-test-mini-fe.conf 
