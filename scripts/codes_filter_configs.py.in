@@ -48,11 +48,6 @@ def main():
             v = tp[i+1]
         tdict[tp[i]] = v
 
-    # quick check - make sure pairs are actually in the config
-    for k in tdict:
-        if k not in cfg.replace_map:
-            raise ValueError("key " + k + " not in original config")
-
     # hack - if we are using an output prefix, append the "dot" here
     if args.output_prefix == None:
         args.output_prefix = ""
@@ -62,7 +57,7 @@ def main():
     # (cfg iterator returns nothing, eval'd for side effects)
     for i,_ in enumerate(cfg):
         for k in tdict:
-            if tdict[k] != cfg.replace_map[k]:
+            if k not in cfg.replace_map or tdict[k] != cfg.replace_map[k]:
                 break
         else:
             stdout.write(args.output_prefix + str(i) + "\n")
