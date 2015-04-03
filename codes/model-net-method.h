@@ -21,6 +21,11 @@ struct model_net_method
 {
     uint64_t packet_size; /* packet size */
     void (*mn_configure)(); /* For initializing the network */
+    /* Register lp types with ROSS. This may be left as NULL, in which case the
+     * type corresponding to name "modelnet_<type>" will be registered
+     * automatically. Most networks don't need this (currently, only dragonfly
+     * uses it) */
+    void (*mn_register)(tw_lptype *base_type);
     tw_stime (*model_net_method_packet_event)(
         char* category, 
         tw_lpid final_dest_lp, 

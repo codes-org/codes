@@ -152,6 +152,7 @@ static tw_lpid sp_find_local_device(
 struct model_net_method simplep2p_method =
 {
     .mn_configure = sp_configure,
+    .mn_register = NULL,
     .model_net_method_packet_event = simplep2p_packet_event,
     .model_net_method_packet_event_rc = simplep2p_packet_event_rc,
     .model_net_method_recv_msg_event = NULL,

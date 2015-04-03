@@ -1341,6 +1341,7 @@ static tw_lpid torus_find_local_device(
 struct model_net_method torus_method =
 {
    .mn_configure = torus_configure,
+   .mn_register = NULL,
    .model_net_method_packet_event = torus_packet_event,
    .model_net_method_packet_event_rc = torus_packet_event_rc,
    .model_net_method_recv_msg_event = NULL,

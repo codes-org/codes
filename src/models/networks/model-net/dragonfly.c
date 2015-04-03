@@ -1826,10 +1826,16 @@ static tw_lpid dragonfly_find_local_device(
     return(dest_id);
 }
 
+static void dragonfly_register(tw_lptype *base_type) {
+    lp_type_register(LP_CONFIG_NM, base_type);
+    lp_type_register("dragonfly_router", &dragonfly_lps[1]);
+}
+
 /* data structure for dragonfly statistics */
 struct model_net_method dragonfly_method =
 {
     .mn_configure = dragonfly_configure,
+    .mn_register = dragonfly_register,
     .model_net_method_packet_event = dragonfly_packet_event,
     .model_net_method_packet_event_rc = dragonfly_packet_event_rc,
     .model_net_method_recv_msg_event = NULL,

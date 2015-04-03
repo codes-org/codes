@@ -155,6 +155,7 @@ static const struct param_table_entry* find_params(
 struct model_net_method loggp_method =
 {
     .mn_configure = loggp_configure,
+    .mn_register = NULL,
     .model_net_method_packet_event = loggp_packet_event,
     .model_net_method_packet_event_rc = loggp_packet_event_rc,
     .model_net_method_recv_msg_event = loggp_recv_msg_event,

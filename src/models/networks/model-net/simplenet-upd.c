@@ -74,6 +74,10 @@ static void simple_net_collective();
 /* collective network calls-- rc */
 static void simple_net_collective_rc();
 
+/* Modelnet interface events */
+/* sets up the simplenet parameters through modelnet interface */
+static void sn_configure();
+
 /* allocate a new event that will pass through simplenet to arriave at its
  * destination:
  *
@@ -86,10 +90,6 @@ static void simple_net_collective_rc();
  * - net_msg_size_bytes: size of simulated network message in bytes.
  * - sender: LP calling this function.
  */
-/* Modelnet interface events */
-/* sets up the simplenet parameters through modelnet interface */
-static void sn_configure();
-
 /* Issues a simplenet packet event call */
 static tw_stime simplenet_packet_event(
      char* category, 
@@ -121,6 +121,7 @@ static tw_lpid sn_find_local_device(
 struct model_net_method simplenet_method =
 {
     .mn_configure = sn_configure,
+    .mn_register = NULL,
     .model_net_method_packet_event = simplenet_packet_event,
     .model_net_method_packet_event_rc = simplenet_packet_event_rc,
     .model_net_method_recv_msg_event = NULL,

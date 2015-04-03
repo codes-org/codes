@@ -113,18 +113,13 @@ void model_net_base_register(int *do_config_nets){
     // here, we initialize ALL lp types to use the base type
     for (int i = 0; i < MAX_NETS; i++){
         if (do_config_nets[i]){
-            lp_type_register(model_net_lp_config_names[i], &model_net_base_lp);
-            // HACK: unfortunately, we need to special-case dragonfly 
-            // registration at the moment - there are two LPs, and
-            // previously the LP matched on configuration initialized
-            // the "router" LP. Now that the base LP is in charge of
-            // registration, we need to take care of it
-            // TODO: fix the interface to have underlying networks do
-            // the registration
-            if (i==DRAGONFLY){
-                lp_type_register("dragonfly_router",
-                        &method_array[DRAGONFLY]->mn_get_lp_type()[1]);
-            }
+            // some model-net lps need custom registration hooks (dragonfly).
+            // Those that don't NULL out the reg. function
+            if (method_array[i]->mn_register == NULL)
+                lp_type_register(model_net_lp_config_names[i],
+                        &model_net_base_lp);
+            else
+                method_array[i]->mn_register(&model_net_base_lp);
         }
     }
 }
