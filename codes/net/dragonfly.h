@@ -30,6 +30,8 @@ struct terminal_message
   unsigned int dest_terminal_id;
   /* source terminal ID of the dragonfly */
   unsigned int src_terminal_id;
+  /* local LP ID to calculate the radix of the sender node/router */
+  unsigned int local_id;
   /* number of hops traversed by the packet */
   short my_N_hop;
   /* Intermediate LP ID from which this message is coming */

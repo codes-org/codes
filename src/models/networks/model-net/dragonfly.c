@@ -487,10 +487,12 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
   int is_terminal = 0;
 
   const dragonfly_param *p = s->params;
+  int sender_radix;
  // Notify sender terminal about available buffer space
   if(msg->last_hop == TERMINAL)
   {
    dest = msg->src_terminal_id;
+   sender_radix = msg->local_id % p->num_cn;  
    //determine the time in ns to transfer the credit
    credit_delay = (1 / p->cn_bandwidth) * CREDIT_SIZE;
    type = T_BUFFER;
@@ -499,11 +501,13 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
    else if(msg->last_hop == GLOBAL)
    {
      dest = msg->intm_lp_id;
+     sender_radix = p->num_cn + (msg->local_id % p->num_routers);
      credit_delay = (1 / p->global_bandwidth) * CREDIT_SIZE;
    }
     else if(msg->last_hop == LOCAL)
      {
         dest = msg->intm_lp_id;
+        sender_radix = p->num_cn + p->num_routers + (msg->local_id % p->num_routers);
      	credit_delay = (1/p->local_bandwidth) * CREDIT_SIZE;
      }
     else
@@ -511,18 +515,19 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
 
    // Assume it takes 0.1 ns of serialization latency for processing the credits in the queue
     int output_port = msg->saved_vc / p->num_vcs;
-    msg->saved_available_time = s->next_credit_available_time[output_port];
-    s->next_credit_available_time[output_port] = maxd(tw_now(lp), s->next_credit_available_time[output_port]);
+
+    msg->saved_available_time = s->next_credit_available_time[sender_radix];
+    s->next_credit_available_time[sender_radix] = maxd(tw_now(lp), s->next_credit_available_time[output_port]);
     ts = credit_delay + 0.1 + tw_rand_exponential(lp->rng, (double)credit_delay/1000);
 	
-    s->next_credit_available_time[output_port]+=ts;
+    s->next_credit_available_time[sender_radix]+=ts;
     if (is_terminal){
         buf_e = model_net_method_event_new(dest, 
-                s->next_credit_available_time[output_port] - tw_now(lp), lp,
+                s->next_credit_available_time[sender_radix] - tw_now(lp), lp,
                 DRAGONFLY, (void**)&buf_msg, NULL);
     }
     else{
-        buf_e = tw_event_new(dest, s->next_credit_available_time[output_port] - tw_now(lp) , lp);
+        buf_e = tw_event_new(dest, s->next_credit_available_time[sender_radix] - tw_now(lp) , lp);
         buf_msg = tw_event_data(buf_e);
     }
     buf_msg->vc_index = msg->saved_vc;
@@ -665,6 +670,7 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp *
    m->last_hop = TERMINAL;
    m->intm_group_id = -1;
    m->local_event_size_bytes = 0;
+   m->local_id = s->terminal_id;
    tw_event_send(e);
 //  Each chunk is 32B and the VC occupancy is in chunks to enable efficient flow control
 
@@ -1367,7 +1373,6 @@ router_packet_send( router_state * s,
    	output_port = get_output_port(s, bf, msg, lp, next_stop); 
    }
    output_chan = output_port * s->params->num_vcs;
-
     // Even numbered channels for minimal routing
    // Odd numbered channels for nonminimal routing
    // Separate the queue occupancy into minimal and non minimal virtual channels if the min & non min
@@ -1444,6 +1449,7 @@ if( msg->packet_ID == TRACK && next_stop != msg->dest_terminal_id && msg->chunk_
     m->last_hop = LOCAL;
 
   m->saved_vc = output_chan;
+  m->local_id = s->router_id;
   msg->old_vc = output_chan;
   m->intm_lp_id = lp->gid;
   s->vc_occupancy[output_chan]++;
