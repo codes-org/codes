@@ -31,7 +31,11 @@ release (0.3.0), ROSS's latest commit hash was c04babe, so this revision is
     cd build
     ../configure --with-ross=/path/to/ross/install --prefix=/path/to/codes-base/install CC=mpicc
 
-    To enable network tracing with dumpi, use optional --with-dumpi = /path/to/dumpi/install with configure.
+    To enable network tracing with dumpi, use the option
+    --with-dumpi = /path/to/dumpi/install with configure.
+
+    To enable using the darshan I/O generator, use the option
+    --with-darshan=/path/to/darshan with configure
 
 3 - Build and install codes-base
 
