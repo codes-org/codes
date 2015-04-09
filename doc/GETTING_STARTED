@@ -65,7 +65,7 @@ provides LP counts using the aforementioned filtering options.
 The API can be found at codes/codes_mapping.h. doc/example/example.c shows a
 simple example of the mapping functionality, while the test program
 tests/mapping_test.c with configuration file tests/conf/mapping_test.conf
-exhaustively demonstrate the mapping API.
+extensively demonstrates the mapping API.
 
 == Workload generator(s)
 
@@ -75,13 +75,12 @@ and network events; data could come from a trace file, from Darshan, or from a
 synthetic description.
 
 The workload generator is currently a work in progress, and the API is subject
-to change. We currently have standalone IO and network workload generators, the
-former exposing a "POSIX-ish" open/close/read/write interface, and the latter
-exposing an "MPI-ish" send/recv/barrier/collective interface. In the future, we
-will be unifying these generators.
+to change. The I/O generation component exposes a "POSIX-ish"
+open/close/read/write interface, while the network generation component exposes
+an "MPI-ish" send/recv/barrier/collective interface.
 
 As an additional utility, we provide a simple debug program,
-src/workload/codes-workload-dump, that processes the workload and prints to
+src/workload/codes-workload-dump, that processes a given workload and prints to
 standard out.
 
 === IO
