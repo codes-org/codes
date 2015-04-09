@@ -60,7 +60,7 @@ def main():
             if k not in cfg.replace_map or tdict[k] != cfg.replace_map[k]:
                 break
         else:
-            stdout.write(args.output_prefix + str(i) + "\n")
+            stdout.write(args.output_prefix + "{:05d}".format(i) + "\n")
 
 def parse_args():
     parser = argparse.ArgumentParser(\

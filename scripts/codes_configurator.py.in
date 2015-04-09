@@ -47,7 +47,7 @@ def main():
     for i,_ in enumerate(cfg):
         new_config = conf.replace_many(tstr, cfg.replace_map)
         fname = template+"."+str(i) if args.output_prefix==None else \
-            args.output_prefix+"."+str(i)
+                args.output_prefix +"." + "{:05d}".format(i)
         with open(fname, "w") as fout:
             fout.write(new_config)
         
