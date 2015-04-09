@@ -135,3 +135,11 @@ void scala_trace_nw_workload_get_next(int rank, struct codes_workload_op *op)
    assert(current_counter <= mpi_info.events_per_rank);
 }
 
+/*
+ * Local variables:
+ *  c-indent-level: 4
+ *  c-basic-offset: 4
+ * End:
+ *
+ * vim: ft=c ts=8 sts=4 sw=4 expandtab
+ */

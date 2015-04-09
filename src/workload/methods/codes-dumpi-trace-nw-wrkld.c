@@ -720,3 +720,12 @@ struct codes_workload_method dumpi_trace_workload_method =
     .codes_workload_load = dumpi_trace_nw_workload_load,
     .codes_workload_get_next = dumpi_trace_nw_workload_get_next,
 };
+
+/*
+ * Local variables:
+ *  c-indent-level: 4
+ *  c-basic-offset: 4
+ * End:
+ *
+ * vim: ft=c ts=8 sts=4 sw=4 expandtab
+ */
