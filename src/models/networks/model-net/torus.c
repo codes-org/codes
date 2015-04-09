@@ -250,6 +250,33 @@ static void torus_configure(){
     }
 }
 
+/* helper functions - convert between flat ids and torus n-dimensional ids */
+static void to_dim_id(
+        int flat_id,
+        int ndims,
+        const int *dim_lens,
+        int *out_dim_ids)
+{
+    for (int i = 0; i < ndims; i++) {
+        out_dim_ids[i] = flat_id % dim_lens[i];
+        flat_id /= dim_lens[i];
+    }
+}
+
+static int to_flat_id(
+        int ndims,
+        const int *dim_lens,
+        const int *dim_ids)
+{
+    int flat_id = dim_ids[0];
+    int mult = dim_lens[0];
+    for (int i = 1; i < ndims; i++) {
+        flat_id += dim_ids[i] * mult;
+        mult *= dim_lens[i];
+    }
+    return flat_id;
+}
+
 void torus_collective_init(nodes_state * s,
            		   tw_lp * lp)
 {
@@ -382,8 +409,6 @@ static void torus_init( nodes_state * s,
     // shorthand
     const torus_param *p = s->params;
 
-    int intm_dim = mapping_rep_id + mapping_offset;
-
     s->neighbour_minus_lpID = (int*)malloc(p->n_dims * sizeof(int));
     s->neighbour_plus_lpID = (int*)malloc(p->n_dims * sizeof(int));
     s->dim_position = (int*)malloc(p->n_dims * sizeof(int));
@@ -406,36 +431,30 @@ static void torus_init( nodes_state * s,
             (tw_stime*)malloc(p->num_vc * sizeof(tw_stime));
     }
 
-    //printf("\n LP ID %d ", (int)lp->gid);
-  // calculate my torus co-ordinates
-  for ( i=0; i < p->n_dims; i++ )
-    {
-      s->dim_position[i] = intm_dim % p->dim_length[i];
-      //printf(" dim position %d ", s->dim_position[i]);
-      intm_dim = ( intm_dim - s->dim_position[i] )/p->dim_length[i];
-    }
-   //printf("\n");
+    // calculate my torus coords
+    to_dim_id(codes_mapping_get_lp_relative_id(lp->gid, 0, 1),
+            s->params->n_dims, s->params->dim_length, s->dim_position);
 
   int temp_dim_pos[ p->n_dims ];
   for ( i = 0; i < p->n_dims; i++ )
     temp_dim_pos[ i ] = s->dim_position[ i ];
 
-  tw_lpid neighbor_id;
   // calculate minus neighbour's lpID
   for ( j = 0; j < p->n_dims; j++ )
     {
       temp_dim_pos[ j ] = (s->dim_position[ j ] -1 + p->dim_length[ j ]) %
           p->dim_length[ j ];
 
-      s->neighbour_minus_lpID[ j ] = 0;
-      
-      for ( i = 0; i < p->n_dims; i++ )
-        s->neighbour_minus_lpID[ j ] += p->factor[ i ] * temp_dim_pos[ i ];
-      
-      codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->anno, 0,
-              s->neighbour_minus_lpID[ j ], 0, &neighbor_id);
-      //printf("\n minus neighbor %d lp id %d ", (int)s->neighbour_minus_lpID[ j ], (int)neighbor_id);
-      
+      s->neighbour_minus_lpID[j] =
+          to_flat_id(p->n_dims, p->dim_length, temp_dim_pos);
+
+      /* DEBUG
+      printf(" minus neighbor: flat:%d lpid:%lu\n",
+              s->neighbour_minus_lpID[j],
+              codes_mapping_get_lpid_from_relative(s->neighbour_minus_lpID[j],
+                      NULL, LP_CONFIG_NM, s->anno, 1));
+      */
+
       temp_dim_pos[ j ] = s->dim_position[ j ];
     }
   // calculate plus neighbour's lpID
@@ -444,15 +463,16 @@ static void torus_init( nodes_state * s,
       temp_dim_pos[ j ] = ( s->dim_position[ j ] + 1 + p->dim_length[ j ]) %
           p->dim_length[ j ];
 
-      s->neighbour_plus_lpID[ j ] = 0;
-      
-      for ( i = 0; i < s->params->n_dims; i++ )
-        s->neighbour_plus_lpID[ j ] += p->factor[ i ] * temp_dim_pos[ i ];
+      s->neighbour_plus_lpID[j] =
+          to_flat_id(p->n_dims, p->dim_length, temp_dim_pos);
 
-      codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, s->anno, 0,
-              s->neighbour_plus_lpID[ j ], 0, &neighbor_id);
-      //printf("\n plus neighbor %d lp id %d ", (int)s->neighbour_plus_lpID[ j ], (int)neighbor_id);
-      
+      /* DEBUG
+      printf(" plus neighbor: flat:%d lpid:%lu\n",
+              s->neighbour_plus_lpID[j],
+              codes_mapping_get_lpid_from_relative(s->neighbour_plus_lpID[j],
+                      NULL, LP_CONFIG_NM, s->anno, 1));
+      */
+
       temp_dim_pos[ j ] = s->dim_position[ j ];
     }
 
@@ -748,27 +768,17 @@ static void dimension_order_routing( nodes_state * s,
 			     int * dim, 
 			     int * dir )
 {
-     int dest[s->params->n_dims],
-      i,
-      dest_id=0,
-      intm_dim;
+     int dest[s->params->n_dims];
+     int dest_id;
 
   /* dummys - check later */
   *dim = -1;
   *dir = -1;
 
-  //TODO: be annotation-aware
-  codes_mapping_get_lp_info(*dst_lp, grp_name, &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-  intm_dim = mapping_rep_id + mapping_offset;
+  to_dim_id(codes_mapping_get_lp_relative_id(*dst_lp, 0, 1),
+          s->params->n_dims, s->params->dim_length, dest);
 
-  // find destination dimensions using destination LP ID 
-  for ( i = 0; i < s->params->n_dims; i++ )
-    {
-      dest[ i ] = intm_dim % s->params->dim_length[ i ];
-      intm_dim = ( intm_dim - dest[ i ] ) / s->params->dim_length[ i ];
-    }
-
-  for( i = 0; i < s->params->n_dims; i++ )
+  for(int i = 0; i < s->params->n_dims; i++ )
     {
       if ( s->dim_position[ i ] - dest[ i ] > s->params->half_length[ i ] )
 	{
@@ -803,7 +813,8 @@ static void dimension_order_routing( nodes_state * s,
     }
 
   assert(*dim != -1 && *dir != -1);
-  codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, NULL, 1, dest_id, 0, dst_lp);
+  *dst_lp = codes_mapping_get_lpid_from_relative(dest_id, NULL, LP_CONFIG_NM,
+          s->anno, 1);
 }
 
 /*Generates a packet. If there is a buffer slot available, then the packet is 
@@ -824,7 +835,6 @@ static void packet_generate( nodes_state * s,
     tw_event * e_h;
     nodes_message *m;
 
-    int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
     tw_lpid dst_lp;
     // TODO: be annotation-aware
     dst_lp = model_net_find_local_device(TORUS, s->anno, 0,
@@ -1333,7 +1343,6 @@ static tw_lpid torus_find_local_device(
 {
      tw_lpid dest_id;
 
-     //TODO: be annotation-aware
      codes_mapping_get_lp_info(sender->gid, grp_name, &mapping_grp_id, NULL,
              &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
      codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, annotation,
