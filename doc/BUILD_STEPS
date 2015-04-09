@@ -2,8 +2,9 @@ NOTE: see bottom of this file for suggested configurations on particular ANL
 machines.
 
 0 - Checkout, build, and install the trunk version of ROSS. At the time of
-release (0.3.0), ROSS's latest commit hash was c04babe, so this revision is
-"safe" in the unlikely case incompatible changes come along in the future.
+release (0.4.0), ROSS's latest commit hash was 44b7b9a, so this revision is
+"safe" in the unlikely case incompatible changes come along in the future. If
+working from the CODES master branches, use the ROSS master branch.
 
     git clone http://github.com/carothersc/ROSS.git
     # optional: git checkout c04babe
