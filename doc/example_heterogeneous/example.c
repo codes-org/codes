@@ -26,8 +26,8 @@ static int num_foo_forwarders, num_bar_forwarders;
 static int      num_pings;
 static uint64_t payload_sz;
 
-/* network type */
-static int net_id;
+/* network type for the various clusters */
+static int net_id_foo, net_id_bar, net_id_forwarding;
 
 /* event types */
 enum node_event
@@ -140,8 +140,8 @@ void handle_node_next(
 
     // as cluster nodes have only one network type (+ annotation), no need to
     // use annotation-specific messaging
-    model_net_event(net_id, "ping", dest_fwd_lpid, payload_sz, 0.0,
-            sizeof(m_fwd), &m_fwd, 0, NULL, lp);
+    model_net_event_annotated(net_id_foo, "foo", "ping", dest_fwd_lpid,
+            payload_sz, 0.0, sizeof(m_fwd), &m_fwd, 0, NULL, lp);
 }
 
 void handle_node_recv_ping(
@@ -169,8 +169,8 @@ void handle_node_recv_ping(
     tw_lpid dest_fwd_lpid = codes_mapping_get_lpid_from_relative(dest_fwd_id,
             "BAR_FORWARDERS", "forwarder", NULL, 0);
 
-    model_net_event(net_id, "pong", dest_fwd_lpid, payload_sz, 0.0,
-            sizeof(m_fwd), &m_fwd, 0, NULL, lp);
+    model_net_event_annotated(net_id_bar, "bar", "pong", dest_fwd_lpid,
+            payload_sz, 0.0, sizeof(m_fwd), &m_fwd, 0, NULL, lp);
 
     ns->num_processed++;
 }
@@ -281,7 +281,7 @@ void handle_forwarder_fwd(
 
     // here, we need to use the unannotated forwarding network, so we
     // use the annotation version of model_net_event
-    model_net_event_annotated(net_id, NULL, category, dest_lpid,
+    model_net_event_annotated(net_id_forwarding, NULL, category, dest_lpid,
             payload_sz, 0.0, sizeof(m_fwd), &m_fwd, 0, NULL, lp);
 
     ns->fwd_node_count++;
@@ -295,15 +295,18 @@ void handle_forwarder_recv(
     const char * dest_group;
     const char * annotation;
     char * category;
+    int net_id;
     if (ns->is_in_foo){
         dest_group = "FOO_CLUSTER";    
         annotation = "foo";
         category = "pong";
+        net_id = net_id_foo;
     }
     else{
         dest_group = "BAR_CLUSTER";
         annotation = "bar";
         category = "ping";
+        net_id = net_id_bar;
     }
 
     tw_lpid dest_lpid = codes_mapping_get_lpid_from_relative(
@@ -437,12 +440,29 @@ int main(int argc, char *argv[])
 
 
     /* Setup the model-net parameters specified in the global config object,
-     * returned are the identifier(s) for the network type. In this example, we
-     * only expect one*/
+     * returned are the identifier(s) for the network type.
+     * 1 ID  -> all the same modelnet model
+     * 2 IDs -> clusters are the first id, forwarding network the second
+     * 3 IDs -> cluster foo is the first, bar is the second,
+     *          forwarding network the third */
     int num_nets;
     int *net_ids = model_net_configure(&num_nets);
-    assert(num_nets==1);
-    net_id = *net_ids;
+    assert(num_nets <= 3);
+    if (num_nets == 1) {
+        net_id_foo = net_ids[0];
+        net_id_bar = net_ids[0];
+        net_id_forwarding = net_ids[0];
+    }
+    else if (num_nets == 2) {
+        net_id_foo = net_ids[0];
+        net_id_bar = net_ids[0];
+        net_id_forwarding = net_ids[1];
+    }
+    else {
+        net_id_foo = net_ids[0];
+        net_id_bar = net_ids[1];
+        net_id_forwarding = net_ids[2];
+    }
     free(net_ids);
 
     /* begin simulation */ 
