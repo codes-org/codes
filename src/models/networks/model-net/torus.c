@@ -754,6 +754,10 @@ static void dimension_order_routing( nodes_state * s,
       i,
       dest_id=0;
 
+  /* dummys - check later */
+  *dim = -1;
+  *dir = -1;
+
   //TODO: be annotation-aware
   codes_mapping_get_lp_info(*dst_lp, grp_name, &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
   dim_N[ 0 ]=mapping_rep_id + mapping_offset;
@@ -798,6 +802,8 @@ static void dimension_order_routing( nodes_state * s,
 	  break;
 	}
     }
+
+  assert(*dim != -1 && *dir != -1);
   codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, NULL, 1, dest_id, 0, dst_lp);
 }
 
