@@ -491,6 +491,13 @@ static tw_lpid model_net_find_local_device_default(
             NULL, &mapping_rep, &mapping_offset);
     num_mn_lps = codes_mapping_get_lp_count(group_name, 1,
             model_net_lp_config_names[net_id], annotation, ignore_annotations);
+    if (num_mn_lps <= 0) {
+        tw_error(TW_LOC,
+                "ERROR: Found no modelnet lps in group %s "
+                "(source lpid %lu) with network type %s, annotation %s\n",
+                group_name, sender_gid, model_net_lp_config_names[net_id],
+                (ignore_annotations) ? "<ignored>" : annotation);
+    }
     codes_mapping_get_lp_id(group_name, model_net_lp_config_names[net_id],
             annotation, ignore_annotations, mapping_rep,
             mapping_offset % num_mn_lps, &rtn);
