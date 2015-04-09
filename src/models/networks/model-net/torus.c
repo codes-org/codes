@@ -434,6 +434,12 @@ static void torus_init( nodes_state * s,
     // calculate my torus coords
     to_dim_id(codes_mapping_get_lp_relative_id(lp->gid, 0, 1),
             s->params->n_dims, s->params->dim_length, s->dim_position);
+    /* DEBUG
+    printf("%lu: my coords:", lp->gid);
+    for (i = 0; i < p->n_dims; i++)
+        printf(" %d", s->dim_position[i]);
+    printf("\n");
+    */
 
   int temp_dim_pos[ p->n_dims ];
   for ( i = 0; i < p->n_dims; i++ )
