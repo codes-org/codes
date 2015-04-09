@@ -378,12 +378,11 @@ static void torus_init( nodes_state * s,
         int id = configuration_get_annotation_index(anno, anno_map);
         s->params = &all_params[id];
     }
-    int dim_N[ s->params->n_dims + 1 ];
 
     // shorthand
     const torus_param *p = s->params;
 
-    dim_N[ 0 ]=mapping_rep_id + mapping_offset;
+    int intm_dim = mapping_rep_id + mapping_offset;
 
     s->neighbour_minus_lpID = (int*)malloc(p->n_dims * sizeof(int));
     s->neighbour_plus_lpID = (int*)malloc(p->n_dims * sizeof(int));
@@ -411,9 +410,9 @@ static void torus_init( nodes_state * s,
   // calculate my torus co-ordinates
   for ( i=0; i < p->n_dims; i++ )
     {
-      s->dim_position[i] = dim_N[i]%p->dim_length[i];
+      s->dim_position[i] = intm_dim % p->dim_length[i];
       //printf(" dim position %d ", s->dim_position[i]);
-      dim_N[i + 1] = ( dim_N[i] - s->dim_position[i] )/p->dim_length[i];
+      intm_dim = ( intm_dim - s->dim_position[i] )/p->dim_length[i];
     }
    //printf("\n");
 
@@ -749,10 +748,10 @@ static void dimension_order_routing( nodes_state * s,
 			     int * dim, 
 			     int * dir )
 {
-  int dim_N[s->params->n_dims], 
-      dest[s->params->n_dims],
+     int dest[s->params->n_dims],
       i,
-      dest_id=0;
+      dest_id=0,
+      intm_dim;
 
   /* dummys - check later */
   *dim = -1;
@@ -760,13 +759,13 @@ static void dimension_order_routing( nodes_state * s,
 
   //TODO: be annotation-aware
   codes_mapping_get_lp_info(*dst_lp, grp_name, &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-  dim_N[ 0 ]=mapping_rep_id + mapping_offset;
+  intm_dim = mapping_rep_id + mapping_offset;
 
   // find destination dimensions using destination LP ID 
   for ( i = 0; i < s->params->n_dims; i++ )
     {
-      dest[ i ] = dim_N[ i ] % s->params->dim_length[ i ];
-      dim_N[ i + 1 ] = ( dim_N[ i ] - dest[ i ] ) / s->params->dim_length[ i ];
+      dest[ i ] = intm_dim % s->params->dim_length[ i ];
+      intm_dim = ( intm_dim - dest[ i ] ) / s->params->dim_length[ i ];
     }
 
   for( i = 0; i < s->params->n_dims; i++ )
