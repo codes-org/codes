@@ -9,7 +9,8 @@ capacities.
 
 SimpleP2P has nearly the same duplex queued transmission semantics as
 simplenet, though with a few important differences. First, point-to-point
-latencies and bandwidths are different. Second, each unique link is given its
+latencies and bandwidths are different. Network links can also have different
+ingress and egress latencies/bandwidths. Second, each unique link is given its
 own queue that do not interfere with the others. The use case for this model is
 a set of sites with internal networks, with each site communicating via
 simplep2p; we assume the internal network is capable of servicing all
@@ -30,11 +31,13 @@ it has the format:
       ...
 N:1 N:2 ... N:N
 
-where x:y is the latency or bandwidth between components x and y. Whitespace is
-ignored, but linebreaks are not, and delimit rows of the matrix. The relative
-simplep2p identifiers 1..N are assigned to simplep2p LPs in the order of
-their appearance in the codes-configuration file. It is expected that all i:i
-entries are 0 - modelnet currently doesn't handle self messages.
+where x:y is a pair of latency or bandwidth between components x and y.
+An individual entry in this matrix is specified as "a,b" where 'a' is the egress 
+latency/bandwidth of the link and 'b' is the ingress latency/bandwidth of the link.
+Whitespace is ignored, but linebreaks are not, and delimit rows of the matrix.
+The relative simplep2p identifiers 1..N are assigned to simplep2p LPs in the
+order of their appearance in the codes-configuration file. It is expected that
+all i:i entries are 0 - modelnet currently doesn't handle self messages.
 
 Support in the code is also available for triangular matrices of the format:
 

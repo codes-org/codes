@@ -248,7 +248,7 @@ static double * parse_mat(char * buf, int *nvals_first, int *nvals_total, int is
     *nvals_first = 0;
     *nvals_total = 0;
 
-    printf("\n parsing the matrix ");
+    //printf("\n parsing the matrix ");
     /* parse the files by line */ 
     int line_ct, line_ct_prev = 0;
     char * line_save;
