@@ -6,6 +6,7 @@
 
 /*
 * The test program generates some synthetic traffic patterns for the model-net network models.
+* currently it only support the dragonfly network model uniform random and nearest neighbor traffic patterns.
 */
 
 #include "codes/model-net.h"
@@ -27,9 +28,13 @@ static double arrival_time = 1000.0;
 /* whether to pull instead of push */
 static int do_pull = 0;
 
-static int num_routers_per_rep = 0;
 static int num_servers_per_rep = 0;
+static int num_routers_per_grp = 0;
+static int num_nodes_per_grp = 0;
+
 static int num_reps = 0;
+static int num_groups = 0;
+static int num_nodes = 0;
 
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
@@ -50,8 +55,9 @@ enum svr_event
 /* type of synthetic traffic */
 enum TRAFFIC
 {
-	UNIFORM = 1,
-	NEAREST_NEIGHBOR = 2
+	UNIFORM = 1, /* sends message to a randomly selected node */
+	NEAREST_GROUP = 2, /* sends message to the node connected to the neighboring router */
+	NEAREST_NEIGHBOR = 3 /* sends message to the next node (potentially connected to the same router) */
 };
 
 struct svr_state
@@ -175,34 +181,26 @@ static void handle_kickoff_event(
 
     ns->start_ts = tw_now(lp);
     
-    int num_routers_per_grp;
-    configuration_get_value_int(&config, "PARAMS", "num_routers", anno, &num_routers_per_grp);
-   
-    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1,
-            "server", NULL, 1);
-    num_routers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1,
-            "dragonfly_router", NULL, 1);
-    int lps_per_rep = num_servers_per_rep * 2 + num_routers_per_rep;
-    
-    int num_groups = (num_routers_per_grp * (num_routers_per_grp/2) + 1);
-    int num_nodes = num_groups * num_routers_per_grp * (num_routers_per_grp / 2);
-    int num_nodes_per_grp = num_routers_per_grp * (num_routers_per_grp / 2);
-
    codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
    /* in case of uniform random traffic, send to a random destination. */
    if(traffic == UNIFORM)
    {
    	local_dest = tw_rand_integer(lp->rng, 0, num_nodes - 1);
-	//printf("\n LP %ld sending to %d ", lp->gid, local_dest);
+//	printf("\n LP %ld sending to %d ", lp->gid, local_dest);
    }
-   else if(traffic == NEAREST_NEIGHBOR)
+   else if(traffic == NEAREST_GROUP)
    {
 	local_dest = (rep_id * 2 + offset + num_nodes_per_grp) % num_nodes;
-	//printf("\n LP %ld sending to %ld num nodes %d ", rep_id * 2 + offset, local_dest, num_nodes);
+//	printf("\n LP %ld sending to %ld num nodes %d ", rep_id * 2 + offset, local_dest, num_nodes);
    }	
+   else if(traffic == NEAREST_NEIGHBOR)
+   {
+	local_dest =  (rep_id * 2 + offset + 2) % num_nodes;
+//	 printf("\n LP %ld sending to %ld num nodes %d ", rep_id * 2 + offset, local_dest, num_nodes);
+   }
    assert(local_dest < num_nodes);
    codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest / num_servers_per_rep, local_dest % num_servers_per_rep, &global_dest);
-   
+  
    ns->msg_sent_count++;
    model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
    issue_event(ns, lp);
@@ -322,11 +320,13 @@ int main(
     int rank;
     int num_nets;
     int *net_ids;
+    char* anno;
 
     lp_io_handle handle;
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
+    offset = 1;
 
     if(argc < 2)
     {
@@ -350,14 +350,19 @@ int main(
     net_id = *net_ids;
     free(net_ids);
 
-    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 0, "server",
-            NULL, 1);
-   if(net_id == DRAGONFLY)
+    if(net_id != DRAGONFLY)
     {
-          num_routers = codes_mapping_get_lp_count("MODELNET_GRP", 0,
-                  "dragonfly_router", NULL, 1);
-          offset = 1;
+	printf("\n The test works with dragonfly model configuration only! ");
+        MPI_Finalize();
+        return 0;
     }
+    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "server",
+            NULL, 1);
+    configuration_get_value_int(&config, "PARAMS", "num_routers", anno, &num_routers_per_grp);
+    
+    num_groups = (num_routers_per_grp * (num_routers_per_grp/2) + 1);
+    num_nodes = num_groups * num_routers_per_grp * (num_routers_per_grp / 2);
+    num_nodes_per_grp = num_routers_per_grp * (num_routers_per_grp / 2);
 
     if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
     {
