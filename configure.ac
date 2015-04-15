@@ -65,9 +65,6 @@ CODES_BASE_CFLAGS=`PKG_CONFIG_PATH=${withval}/lib/pkgconfig pkg-config codes-bas
 AC_SUBST(CODES_BASE_LIBS)
 AC_SUBST(CODES_BASE_CFLAGS)
 
-# put include files in a codes/ subdir 
-includedir="${includedir}/codes"
-
 if test "x$srcdir" != "x."; then
     AC_CONFIG_LINKS([tests/conf:$srcdir/tests/conf])
 fi
