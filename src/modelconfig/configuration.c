@@ -310,6 +310,7 @@ static void check_add_lp_type_anno(
         config_anno_map_t *map = &lpgroups->lpannos[lpt_anno];
         if (strcmp(map->lp_name, lp_name) == 0){
             check_add_anno(anno, map);
+            break;
         }
     }
     if (lpt_anno == lpgroups->lpannos_count){
