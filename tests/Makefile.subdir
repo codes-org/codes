@@ -20,6 +20,7 @@ EXTRA_DIST += tests/lp-io-test.sh \
  tests/workload/README.txt \
  tests/mapping_test.sh \
  tests/lsm-test.sh \
+ tests/resource-test.sh \
  tests/conf/buffer_test.conf \
  tests/conf/lsm-test.conf \
  tests/conf/mapping_test.conf \

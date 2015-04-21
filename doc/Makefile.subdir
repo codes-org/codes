@@ -1,0 +1,25 @@
+docs_general = doc/BUILD_STEPS doc/GETTING_STARTED doc/RELEASE_NOTES
+
+docs_best_practices = \
+  doc/acmsmall.cls \
+  doc/algorithm.sty \
+  doc/algorithmic.sty \
+  doc/codes-best-practices.tex \
+  doc/Makefile
+
+docs_examples = \
+  doc/example/example.c \
+  doc/example/example.conf \
+  doc/example/Makefile \
+  doc/example_heterogeneous/example.c \
+  doc/example_heterogeneous/example.conf \
+  doc/example_heterogeneous/example_torus.conf \
+  doc/example_heterogeneous/Makefile \
+  doc/example_heterogeneous/README
+
+docs_workload = \
+  doc/workload/example.kernel.txt \
+  doc/workload/meta.txt
+
+EXTRA_DIST += $(docs_general) $(docs_best_practices) $(docs_examples) \
+			  $(docs_workload)

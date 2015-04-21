@@ -20,7 +20,7 @@ pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = maint/codes-base.pc
 $(pkgconfig_DATA): config.status
 
-EXTRA_DIST += prepare.sh INSTALL RELEASE_NOTES COPYRIGHT
+EXTRA_DIST += prepare.sh COPYRIGHT configure.ac reformat.sh uc-codes.cfg
 
 AM_CPPFLAGS = -I$(top_srcdir)/src ${ROSS_CPPFLAGS}
 
@@ -35,6 +35,7 @@ include Make.rules
 include $(top_srcdir)/scripts/Makefile.subdir
 include $(top_srcdir)/src/Makefile.subdir
 include $(top_srcdir)/tests/Makefile.subdir
+include $(top_srcdir)/doc/Makefile.subdir
 
 if USE_DARSHAN
 AM_CPPFLAGS += ${DARSHAN_CFLAGS} -DUSE_DARSHAN=1
