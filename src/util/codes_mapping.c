@@ -425,7 +425,8 @@ static void codes_mapping_init(void)
              tw_error(TW_LOC, "could not find LP with type name \"%s\", "
                      "did you forget to register the LP?\n", lp_type_name);
          else
-             tw_lp_settype(ross_lid, lptype);
+             /* sorry, const... */
+             tw_lp_settype(ross_lid, (tw_lptype*) lptype);
      }
      return;
 }
