@@ -4,6 +4,7 @@ general:
 ==========
 cleanup of much of the code base
 more informative error for failure to find modelnet lps
+removed redundant include directory on install (was 'install/codes/codes/*.h')
 
 documentation:
 ==========
@@ -17,7 +18,7 @@ tweaked config error handling
 networks:
 ==========
 made torus lps agnostic to groups and aware of annotations
-miscellaneous fixes to dragonfly model (TODO: which UIUC folks to credit)
+miscellaneous fixes to dragonfly model
 updates to simplep2p: support for having different latency/bw at sender &
   receiver end. See src/models/networks/model-net/doc/README.simplep2p.txt
 minor fixes to usage of quickhash in replay tool
