@@ -14,6 +14,7 @@
 #include <ross.h>
 
 #include "configfile.h"
+#include "txt_configfile.h"
 
 /*
  * Global to hold configuration in memory
