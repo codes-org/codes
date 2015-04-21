@@ -1,7 +1,8 @@
 lib_LIBRARIES += src/libcodes-net.a
 
 EXTRA_DIST += \
- src/models/network-workloads/README.txt \
+ src/models/network-workloads/README_synthetic.txt \
+ src/models/network-workloads/README_traces.txt \
  src/models/network-workloads/conf/modelnet-mpi-test.conf \
  src/models/network-workloads/conf/modelnet-mpi-test-cry-router.conf \
  src/models/network-workloads/conf/modelnet-mpi-test-dragonfly.conf \
