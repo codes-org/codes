@@ -9,6 +9,7 @@ dead code removal
 documentation:
 ==========
 improved example_heterogeneous example program
+added configuration to example_heterogeneous showing two torus networks
 reorganized files to prevent name collisions on OSX. Top-level docs other than
   copyright now in doc directory
 additions to best practice document
@@ -31,6 +32,7 @@ network workload API more fleshed out
 
 utilities:
 ==========
+configuration bug fixes for larger LP type counts
 resource LP annotation mapping hooks
 local storage model API switch to use annotations
 better configuration error handling

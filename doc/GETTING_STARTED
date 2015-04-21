@@ -86,10 +86,9 @@ standard out.
 === IO
 
 We currently have initial support for extrapolating (lossy) Darshan logs
-(https://www.mcs.anl.gov/research/projects/darshan/), a simple synthetic
-IO kernel language, and in-development ScalaTrace
-(http://moss.csc.ncsu.edu/~mueller/ScalaTrace/) and IO Recorder
-(https://github.com/babakbehzad/Recorder) traces.
+(https://www.mcs.anl.gov/research/projects/darshan/), a simple synthetic IO
+kernel language, and IO Recorder (https://github.com/babakbehzad/Recorder)
+traces.
 
 ==== Synthetic IO language
 
@@ -136,7 +135,9 @@ The following restrictions currently apply to the IO language:
 
 === Network
 
-Documentation will be provided as this feature is further developed.
+Our primary network workload generator is via the DUMPI tool
+(http://sst.sandia.gov/about_dumpi.html). DUMPI collects and reads events from
+MPI applications. See the DUMPI documentation for how to generate traces.
 
 == LP-IO
 
