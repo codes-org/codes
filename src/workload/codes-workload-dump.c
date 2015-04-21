@@ -189,7 +189,7 @@ int main(int argc, char *argv[])
 	{
 	if(n == -1){
             fprintf(stderr,
-                    "Expected \"--num-ranks\" argument for iolang workload\n");
+                    "Expected \"--num-ranks\" argument for dumpi workload\n");
             usage();
             return 1;		
 	}
