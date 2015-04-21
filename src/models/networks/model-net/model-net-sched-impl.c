@@ -198,8 +198,9 @@ void fcfs_add (
     else { q->local_event = NULL; }
     mn_sched_queue *s = sched;
     qlist_add_tail(&q->ql, &s->reqs);
-    dprintf("%lu (mn):    adding request from %lu to %lu\n", lp->gid,
-            req->src_lp, req->final_dest_lp);
+    dprintf("%lu (mn):    adding %srequest from %lu to %lu, size %lu, at %lf\n",
+            lp->gid, req->is_pull ? "pull " : "", req->src_lp,
+            req->final_dest_lp, req->msg_size, tw_now(lp));
 }
 
 void fcfs_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp){
@@ -243,8 +244,9 @@ int fcfs_next(
 
     if (s->is_recv_queue){
         dprintf("%lu (mn):    receiving message of size %lu (of %lu) "
-                "from %lu to %lu\n",
-                lp->gid, psize, q->rem, q->req.src_lp, q->req.final_dest_lp);
+                "from %lu to %lu at %lf\n",
+                lp->gid, psize, q->rem, q->req.src_lp, q->req.final_dest_lp,
+                tw_now(lp));
         *poffset = s->method->model_net_method_recv_msg_event(q->req.category,
                 q->req.final_dest_lp, psize, q->req.is_pull, q->req.msg_size,
                 0.0, q->req.remote_event_size, q->remote_event, q->req.src_lp,
@@ -252,8 +254,9 @@ int fcfs_next(
     }
     else{
         dprintf("%lu (mn):    issuing packet of size %lu (of %lu) "
-                "from %lu to %lu\n",
-                lp->gid, psize, q->rem, q->req.src_lp, q->req.final_dest_lp);
+                "from %lu to %lu at %lf\n",
+                lp->gid, psize, q->rem, q->req.src_lp, q->req.final_dest_lp,
+                tw_now(lp));
         *poffset = s->method->model_net_method_packet_event(q->req.category,
                 q->req.final_dest_lp, psize, q->req.is_pull, q->req.msg_size,
                 0.0, &q->sched_params, q->req.remote_event_size, q->remote_event,
@@ -445,7 +448,6 @@ void prio_add (
     // sched_msg_params is simply an int
     mn_sched_prio *ss = sched;
     int prio = sched_params->prio;
-    dprintf("%lu (mn):    adding with prio %d\n", lp->gid, prio);
     if (prio == -1){
         // default prio - lowest possible 
         prio = ss->params.num_prios-1;
@@ -454,6 +456,7 @@ void prio_add (
         tw_error(TW_LOC, "sched for lp %lu: invalid prio (%d vs [%d,%d))",
                 lp->gid, prio, 0, ss->params.num_prios);
     }
+    dprintf("%lu (mn):    adding with prio %d\n", lp->gid, prio);
     ss->sub_sched_iface->add(req, sched_params, remote_event_size,
             remote_event, local_event_size, local_event, ss->sub_scheds[prio],
             rc, lp);
