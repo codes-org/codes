@@ -11,6 +11,10 @@ AC_DEFUN([AX_PROG_BISON_CLFEATURES], [
   	])
 
 cat > conftest.y <<ACEOF
+%{
+    int yylex(void*);
+    void yyerror(const char *s);
+%}
 %pure-parser
 %token  FIRST_TOK
 %token  LAST_TOK
@@ -35,6 +39,10 @@ then
 else
 
 cat > conftest.y <<ACEOF
+%{
+    int yylex(void*);
+    void yyerror(const char *s);
+%}
 %define api.pure
 %token  FIRST_TOK
 %token  LAST_TOK
@@ -61,6 +69,10 @@ ac_compile_yacc='$CC -c $CFLAGS $CPPFLAGS $ac_cv_prog_yacc_root.c >&5'
 fi
 
 cat > conftest.y <<ACEOF
+%{
+    int yylex(void*);
+    void yyerror(const char *s);
+%}
 %define api.push_pull "push"
 %token  FIRST_TOK
 %token  LAST_TOK
@@ -83,6 +95,10 @@ then
 else
  
 cat > conftest.y <<ACEOF
+%{
+    int yylex(void*);
+    void yyerror(const char *s);
+%}
 %define api.push-pull push
 %token  FIRST_TOK
 %token  LAST_TOK
