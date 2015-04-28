@@ -564,7 +564,8 @@ static void handle_msg_start_event(
 #if USE_RECV_QUEUE
     model_net_method_send_msg_recv_event(m->final_dest_gid, dest_id, m->src_gid,
             m->net_msg_size_bytes, m->is_pull, m->pull_size,
-            m->event_size_bytes, &m->sched_params, m->category, LOGGP, m, lp);
+            m->event_size_bytes, &m->sched_params, m->category, LOGGP, m,
+            send_queue_time, lp);
 #else 
     void *m_data;
 //    printf("\n msg start sending to %d ", dest_id);

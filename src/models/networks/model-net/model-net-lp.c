@@ -521,9 +521,10 @@ void model_net_method_send_msg_recv_event(
         const char * category,
         int net_id,
         void * msg,
+        tw_stime offset,
         tw_lp *sender){
     tw_event *e = 
-        tw_event_new(dest_mn_lp, codes_local_latency(sender), sender);
+        tw_event_new(dest_mn_lp, offset+codes_local_latency(sender), sender);
     model_net_wrap_msg *m = tw_event_data(e);
     msg_set_header(model_net_base_magic, MN_BASE_NEW_MSG, sender->gid, &m->h);
 

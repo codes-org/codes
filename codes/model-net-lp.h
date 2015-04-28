@@ -68,6 +68,7 @@ void model_net_method_send_msg_recv_event(
         const char * category,
         int net_id,
         void * msg,
+        tw_stime offset,
         tw_lp *sender);
 // just need to reverse an RNG for the time being
 void model_net_method_send_msg_recv_event_rc(tw_lp *sender);
