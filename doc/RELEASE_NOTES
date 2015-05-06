@@ -17,6 +17,7 @@ tweaked config error handling
 
 networks:
 ==========
+fix to loggp latency calculation when using "receive queue"
 made torus lps agnostic to groups and aware of annotations
 miscellaneous fixes to dragonfly model
 updates to simplep2p: support for having different latency/bw at sender &
