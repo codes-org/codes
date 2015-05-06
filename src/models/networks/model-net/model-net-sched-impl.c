@@ -27,6 +27,7 @@ typedef struct mn_sched_qitem {
     mn_sched_params sched_params;
     // remaining bytes to send
     uint64_t rem;
+    tw_stime entry_time;
     // pointers to event structures 
     // sizes are given in the request struct
     void * remote_event;
@@ -39,6 +40,7 @@ typedef struct mn_sched_queue {
     // method containing packet event to call
     const struct model_net_method *method;
     int is_recv_queue;
+    int queue_len;
     struct qlist_head reqs; // of type mn_sched_qitem
 } mn_sched_queue;
 
@@ -165,6 +167,7 @@ void fcfs_init(
     mn_sched_queue *ss = *sched;
     ss->method = method;
     ss->is_recv_queue = is_recv_queue;
+    ss->queue_len = 0;
     INIT_QLIST_HEAD(&ss->reqs);
 }
 
@@ -183,6 +186,7 @@ void fcfs_add (
         model_net_sched_rc    * rc,
         tw_lp                 * lp){
     mn_sched_qitem *q = malloc(sizeof(mn_sched_qitem));
+    q->entry_time = tw_now(lp);
     q->req = *req;
     q->sched_params = *sched_params;
     q->rem = req->is_pull ? PULL_MSG_SIZE : req->msg_size;
@@ -197,6 +201,7 @@ void fcfs_add (
     }
     else { q->local_event = NULL; }
     mn_sched_queue *s = sched;
+    s->queue_len++;
     qlist_add_tail(&q->ql, &s->reqs);
     dprintf("%lu (mn):    adding %srequest from %lu to %lu, size %lu, at %lf\n",
             lp->gid, req->is_pull ? "pull " : "", req->src_lp,
@@ -205,6 +210,7 @@ void fcfs_add (
 
 void fcfs_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp){
     mn_sched_queue *s = sched;
+    s->queue_len--;
     struct qlist_head *ent = qlist_pop_back(&s->reqs);
     assert(ent != NULL);
     mn_sched_qitem *q = qlist_entry(ent, mn_sched_qitem, ql);
@@ -244,9 +250,9 @@ int fcfs_next(
 
     if (s->is_recv_queue){
         dprintf("%lu (mn):    receiving message of size %lu (of %lu) "
-                "from %lu to %lu at %lf\n",
+                "from %lu to %lu at %1.5e (last:%d)\n",
                 lp->gid, psize, q->rem, q->req.src_lp, q->req.final_dest_lp,
-                tw_now(lp));
+                tw_now(lp), is_last_packet);
         *poffset = s->method->model_net_method_recv_msg_event(q->req.category,
                 q->req.final_dest_lp, psize, q->req.is_pull, q->req.msg_size,
                 0.0, q->req.remote_event_size, q->remote_event, q->req.src_lp,
@@ -254,9 +260,9 @@ int fcfs_next(
     }
     else{
         dprintf("%lu (mn):    issuing packet of size %lu (of %lu) "
-                "from %lu to %lu at %lf\n",
+                "from %lu to %lu at %1.5e (last:%d)\n",
                 lp->gid, psize, q->rem, q->req.src_lp, q->req.final_dest_lp,
-                tw_now(lp));
+                tw_now(lp), is_last_packet);
         *poffset = s->method->model_net_method_packet_event(q->req.category,
                 q->req.final_dest_lp, psize, q->req.is_pull, q->req.msg_size,
                 0.0, &q->sched_params, q->req.remote_event_size, q->remote_event,
@@ -266,7 +272,13 @@ int fcfs_next(
 
     // if last packet - remove from list, free, save for rc
     if (is_last_packet){
+        dprintf("last %spkt: %lu (%lu) to %lu, size %lu at %1.5e (pull:%d)\n",
+                s->is_recv_queue ? "recv " : "send ",
+                lp->gid, q->req.src_lp, q->req.final_dest_lp,
+                q->req.is_pull ? PULL_MSG_SIZE : q->req.msg_size, tw_now(lp),
+                q->req.is_pull);
         qlist_pop(&s->reqs);
+        s->queue_len--;
         rc->req = q->req;
         rc->sched_params = q->sched_params;
         void *e_dat = rc_event_save;
@@ -338,6 +350,7 @@ void fcfs_next_rc(
             else { q->local_event = NULL; }
             // add back to front of list
             qlist_add(&q->ql, &s->reqs);
+            s->queue_len++;
         }
         else {
             assert(0);
