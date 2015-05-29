@@ -1,7 +1,8 @@
 NOTE: see bottom of this file for suggested configurations on particular ANL
 machines.
 
-0 - Checkout, build, and install the trunk version of ROSS. At the time of
+0 - Checkout, build, and install the trunk version of ROSS
+(https://github.com/carothersc/ROSS). At the time of
 release (0.4.0), ROSS's latest commit hash was 44b7b9a, so this revision is
 "safe" in the unlikely case incompatible changes come along in the future. If
 working from the CODES master branches, use the ROSS master branch.
@@ -20,6 +21,12 @@ working from the CODES master branches, use the ROSS master branch.
     <the result should be that the latest version of ROSS is installed in the 
     ROSS/install/ directory>
 
+    For more details on installing ROSS, go to
+    https://github.com/carothersc/ROSS/blob/master/README.md .
+
+    If using ccmake to configure, don't forget to set CMAKE_C_COMPILER and
+    CMAKE_CXX_COMPILER to mpicc/mpicxx
+
 1 - If you are building codes-base directly from the repository, run
 
     ./prepare.sh
@@ -32,10 +39,18 @@ working from the CODES master branches, use the ROSS master branch.
     cd build
     ../configure --with-ross=/path/to/ross/install --prefix=/path/to/codes-base/install CC=mpicc
 
-    To enable network tracing with dumpi, use the option
-    --with-dumpi = /path/to/dumpi/install with configure.
+    To enable network tracing with dumpi
+    (http://sst.sandia.gov/about_dumpi.html), use the option
+    --with-dumpi=/path/to/dumpi/install with configure.
 
-    To enable using the darshan I/O generator, use the option
+    NOTE: we only require libundumpi for trace processing. Hence, if building
+    dumpi from source you may configure with --disable-libdumpi and
+    --enable-libundumpi (this is especially useful if you have mpich3, which
+    breaks libdumpi's function wrappers through const'ifying the MPI
+    interface).
+
+    To enable using the darshan I/O generator
+    (http://www.mcs.anl.gov/research/projects/darshan/), use the option
     --with-darshan=/path/to/darshan with configure
 
 3 - Build and install codes-base

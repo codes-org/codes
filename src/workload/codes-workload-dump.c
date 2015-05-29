@@ -198,7 +198,7 @@ int main(int argc, char *argv[])
 	}
 
 	if(du_params.file_name[0] == '\0' ){
-            fprintf(stderr, "Expected \"--r-trace-dir\" argument for dumpi workload\n");
+            fprintf(stderr, "Expected \"--dumpi-log\" argument for dumpi workload\n");
             usage();
             return 1;
 	}
