@@ -29,9 +29,9 @@
 #define DRAGONFLY_FAN_OUT_DELAY 20.0
 
 // debugging parameters
-#define TRACK 235221
+#define TRACK -1
 #define PRINT_ROUTER_TABLE 1
-#define DEBUG 1
+#define DEBUG 0
 
 #define LP_CONFIG_NM (model_net_lp_config_names[DRAGONFLY])
 #define LP_METHOD_NM (model_net_method_names[DRAGONFLY])
@@ -44,7 +44,7 @@ static double MEAN_INTERVAL=200.0;
 static int adaptive_threshold = 10;
 
 /* minimal and non-minimal packet counts for adaptive routing*/
-int minimal_count=0, nonmin_count=0;
+unsigned int minimal_count=0, nonmin_count=0, completed_packets;
 
 typedef struct dragonfly_param dragonfly_param;
 /* annotation-specific parameters (unannotated entry occurs at the 
@@ -68,7 +68,6 @@ struct dragonfly_param
     int local_vc_size; /* buffer size of the router-router channels */
     int global_vc_size; /* buffer size of the global channels */
     int cn_vc_size; /* buffer size of the compute node channels */
-    int routing; /* minimal or non-minimal routing */
     int chunk_size; /* full-sized packets are broken into smaller chunks.*/
 
     // derived parameters
@@ -76,6 +75,7 @@ struct dragonfly_param
     int num_groups;
     int radix;
     int total_routers;
+    int total_terminals;
     int num_global_channels;
 };
 
@@ -170,7 +170,8 @@ enum ROUTING_ALGO
 {
     MINIMAL = 0,
     NON_MINIMAL,
-    ADAPTIVE
+    ADAPTIVE,
+    PROG_ADAPTIVE
 };
 
 struct router_state
@@ -269,20 +270,22 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     }
 
 
-    char routing[MAX_NAME_LENGTH];
-    configuration_get_value(&config, "PARAMS", "routing", anno, routing,
+    char routing_str[MAX_NAME_LENGTH];
+    configuration_get_value(&config, "PARAMS", "routing", anno, routing_str,
             MAX_NAME_LENGTH);
-    if(strcmp(routing, "minimal") == 0)
-        p->routing = 0;
-    else if(strcmp(routing, "nonminimal")==0 || strcmp(routing,"non-minimal")==0)
-        p->routing = 1;
-    else if (strcmp(routing, "adaptive") == 0)
-        p->routing = 2;
+    if(strcmp(routing_str, "minimal") == 0)
+        routing = MINIMAL;
+    else if(strcmp(routing_str, "nonminimal")==0 || strcmp(routing_str,"non-minimal")==0)
+        routing = NON_MINIMAL;
+    else if (strcmp(routing_str, "adaptive") == 0)
+        routing = ADAPTIVE;
+    else if (strcmp(routing_str, "prog-adaptive") == 0)
+	routing = PROG_ADAPTIVE;
     else
     {
         fprintf(stderr, 
                 "No routing protocol specified, setting to minimal routing\n");
-        p->routing = 0;
+        routing = -1;
     }
 
     // set the derived parameters
@@ -292,6 +295,11 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     p->radix = p->num_vcs *
         (p->num_cn + p->num_global_channels + p->num_routers);
     p->total_routers = p->num_groups * p->num_routers;
+    p->total_terminals = p->total_routers * p->num_cn;
+    printf("\n Total nodes %d routers %d groups %d radix %d ", p->num_cn * p->total_routers,
+								p->total_routers,
+								p->num_groups,
+								p->radix);
 }
 
 static void dragonfly_configure(){
@@ -312,7 +320,6 @@ static void dragonfly_configure(){
 /* report dragonfly statistics like average and maximum packet latency, average number of hops traversed */
 static void dragonfly_report_stats()
 {
-/* TODO: Add dragonfly packet average, maximum latency and average number of hops traversed */
    long long avg_hops, total_finished_packets;
    tw_stime avg_time, max_time;
    int total_minimal_packets, total_nonmin_packets;
@@ -321,7 +328,7 @@ static void dragonfly_report_stats()
    MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
    MPI_Reduce( &dragonfly_total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
    MPI_Reduce( &dragonfly_max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-   if(routing == ADAPTIVE)
+   if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
     {
 	MPI_Reduce(&minimal_count, &total_minimal_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
  	MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -329,10 +336,10 @@ static void dragonfly_report_stats()
 
    /* print statistics */
    if(!g_tw_mynode)
-   {
+   {	
       printf(" Average number of hops traversed %f average message latency %lf us maximum message latency %lf us \n", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets*1000), max_time/1000);
-     if(routing == ADAPTIVE)
-              printf("\n ADAPTIVE ROUTING STATS: %d packets routed minimally %d packets routed non-minimally ", total_minimal_packets, total_nonmin_packets);
+     if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
+              printf("\n ADAPTIVE ROUTING STATS: %d packets routed minimally %d packets routed non-minimally completed packets %d ", total_minimal_packets, total_nonmin_packets, completed_packets);
  
   }
    return;
@@ -447,23 +454,22 @@ static void dragonfly_packet_event_rc(tw_lp *sender)
 	    return;
 }
 
-/* given a group ID gid, find the router in the current group that is attached
- * to a router in the group gid */
-tw_lpid getRouterFromGroupID(int gid, 
-		    router_state * r)
+/* given two group IDs, find the router of the src_gid that connects to the dest_gid*/
+tw_lpid getRouterFromGroupID(int dest_gid, 
+		    int src_gid,
+		    int num_routers)
 {
-    const dragonfly_param *p = r->params;
-  int group_begin = r->group_id * p->num_routers;
-  int group_end = (r->group_id * p->num_routers) + p->num_routers-1;
-  int offset = (gid * p->num_routers - group_begin) / p->num_routers;
+  int group_begin = src_gid * num_routers;
+  int group_end = (src_gid * num_routers) + num_routers-1;
+  int offset = (dest_gid * num_routers - group_begin) / num_routers;
   
-  if((gid * p->num_routers) < group_begin)
-    offset = (group_begin - gid * p->num_routers) / p->num_routers; // take absolute value
+  if((dest_gid * num_routers) < group_begin)
+    offset = (group_begin - dest_gid * num_routers) / num_routers; // take absolute value
   
-  int half_channel = p->num_global_channels / 2;
-  int index = (offset - 1)/(half_channel * p->num_routers);
+  int half_channel = num_routers / 4;
+  int index = (offset - 1)/(half_channel * num_routers);
   
-  offset=(offset - 1) % (half_channel * p->num_routers);
+  offset=(offset - 1) % (half_channel * num_routers);
 
   // If the destination router is in the same group
   tw_lpid router_id;
@@ -501,19 +507,20 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
    else if(msg->last_hop == GLOBAL)
    {
      dest = msg->intm_lp_id;
-     sender_radix = p->num_cn + (msg->local_id % p->num_routers);
+     sender_radix = p->num_cn + (msg->local_id % p->num_global_channels);
      credit_delay = (1 / p->global_bandwidth) * CREDIT_SIZE;
    }
     else if(msg->last_hop == LOCAL)
      {
         dest = msg->intm_lp_id;
-        sender_radix = p->num_cn + p->num_routers + (msg->local_id % p->num_routers);
+        sender_radix = p->num_cn + p->num_global_channels + (msg->local_id % p->num_routers);
      	credit_delay = (1/p->local_bandwidth) * CREDIT_SIZE;
      }
     else
       printf("\n Invalid message type");
 
    // Assume it takes 0.1 ns of serialization latency for processing the credits in the queue
+    assert(sender_radix < s->params->radix );
     int output_port = msg->saved_vc / p->num_vcs;
 
     msg->saved_available_time = s->next_credit_available_time[sender_radix];
@@ -530,6 +537,9 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
         buf_e = tw_event_new(dest, s->next_credit_available_time[sender_radix] - tw_now(lp) , lp);
         buf_msg = tw_event_data(buf_e);
     }
+    //if(dest == TRACK)
+//	printf("\n LP %d sending credit back to dest %d at channel %d last hop %d ", lp->gid, dest, msg->saved_vc, msg->last_hop);
+    buf_msg->origin_router_id = lp->gid;
     buf_msg->vc_index = msg->saved_vc;
     buf_msg->type=type;
     buf_msg->last_hop = msg->last_hop;
@@ -576,9 +586,6 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_
          }
 
         // this is a terminal event, so use the method-event version
-       //e = tw_event_new(lp->gid, i + ts, lp);
-       //m = tw_event_data(e);
-       //memcpy(m, msg, sizeof(terminal_message) + msg->remote_event_size_bytes + msg->local_event_size_bytes);
        void * m_data;
        e = model_net_method_event_new(lp->gid, i+ts, lp, DRAGONFLY,
                (void**)&m, &m_data);
@@ -597,9 +604,9 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_
        m->saved_vc=0;
        m->chunk_id = i;
        
-       if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
+      /* if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
          printf("\n packet generated %lld at terminal %d chunk id %d ", msg->packet_ID, (int)lp->gid, i);
-       
+       */
        m->output_chan = -1;
        if(chan != -1) // If the input queue is available
    	{
@@ -656,23 +663,24 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp *
    if(msg->packet_size % s->params->chunk_size)
        num_chunks++;
 
-   if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
-     printf("\n terminal %d packet %lld chunk %d being sent to router %d router id %d ", (int)lp->gid, (long long)msg->packet_ID, msg->chunk_id, (int)router_id, s->router_id);
+   //if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
+   //  printf("\n terminal %d packet %lld chunk %d being sent to router %d router id %d ", (int)lp->gid, (long long)msg->packet_ID, msg->chunk_id, (int)router_id, s->router_id);
    m = tw_event_data(e);
    memcpy(m, msg, sizeof(terminal_message));
    if (msg->remote_event_size_bytes){
         memcpy(m+1, model_net_method_get_edata(DRAGONFLY, msg),
                 msg->remote_event_size_bytes);
    }
+   m->origin_router_id = router_id;
    m->type = R_ARRIVE;
    m->src_terminal_id = lp->gid;
    m->saved_vc = vc;
    m->last_hop = TERMINAL;
    m->intm_group_id = -1;
+   m->path_type = -1;
    m->local_event_size_bytes = 0;
    m->local_id = s->terminal_id;
    tw_event_send(e);
-//  Each chunk is 32B and the VC occupancy is in chunks to enable efficient flow control
 
    if(msg->chunk_id == num_chunks - 1) 
     {
@@ -711,7 +719,16 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp
     uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
     if (msg->packet_size % s->params->chunk_size)
         num_chunks++;
-#if DEBUG
+
+    completed_packets++;
+
+    if(msg->path_type == MINIMAL)
+	minimal_count++;
+
+    if(msg->path_type == NON_MINIMAL)
+	nonmin_count++;
+
+#if DEBUG == 1
 if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
     {
 	printf( "(%lf) [Terminal %d] packet %lld has arrived  \n",
@@ -778,14 +795,11 @@ if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
   s->next_credit_available_time = maxd(s->next_credit_available_time, tw_now(lp));
   s->next_credit_available_time += ts;
 
-  tw_lpid router_dest_id;
+  if(msg->intm_lp_id == TRACK)
+	printf("\n terminal sending credit at chan %d ", msg->saved_vc);
   //TODO: be annotation-aware
-  codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
-          &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-  codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", s->anno, 0,
-          s->router_id, 0, &router_dest_id);
   // no method_event here - message going to router
-  buf_e = tw_event_new(router_dest_id, s->next_credit_available_time - tw_now(lp), lp);
+  buf_e = tw_event_new(msg->intm_lp_id, s->next_credit_available_time - tw_now(lp), lp);
   buf_msg = tw_event_data(buf_e);
   buf_msg->vc_index = msg->saved_vc;
   buf_msg->type=R_BUFFER;
@@ -1116,6 +1130,7 @@ terminal_buf_update(terminal_state * s,
     int msg_indx = msg->vc_index;
     
     s->vc_occupancy[msg_indx]--;
+    assert(s->vc_occupancy[msg_indx] >= 0);
     s->output_vc_state[msg_indx] = VC_IDLE;
 
     return;
@@ -1175,6 +1190,41 @@ void dragonfly_router_final(router_state * s,
 {
    free(s->global_channel);
 }
+
+/* Get the number of hops for this particular path source and destination groups */
+int get_num_hops(int local_router_id,
+		 int dest_router_id,
+		 int num_routers,
+		 int non_min)
+{
+   int local_grp_id = local_router_id / num_routers;
+   int dest_group_id = dest_router_id / num_routers;
+   int num_hops = 4;
+
+   /* Already at the destination router */
+   if(local_router_id == dest_router_id)
+    {
+	return 1; /* already at the destination, traverse one hop only*/
+    }
+   else if(local_grp_id == dest_group_id)
+    {
+		return 2; /* in the same group, each router is connected so 2 additional hops to traverse (source and dest routers). */		
+    }	
+
+     /* if the router in the source group has direct connection to the destination group */
+     tw_lpid src_connecting_router = getRouterFromGroupID(dest_group_id, local_grp_id, num_routers);
+
+     if(src_connecting_router == local_router_id)		
+		num_hops--;
+
+     tw_lpid dest_connecting_router = getRouterFromGroupID(local_grp_id, dest_group_id, num_routers);	
+
+     if(dest_connecting_router == dest_router_id)	
+			num_hops--;
+
+     return num_hops;
+}
+
 /* get the next stop for the current packet
  * determines if it is a router within a group, a router in another group
  * or the destination terminal */
@@ -1183,21 +1233,15 @@ get_next_stop(router_state * s,
 		      tw_bf * bf, 
 		      terminal_message * msg, 
 		      tw_lp * lp, 
-		      int path)
+		      int path,
+		      int dest_router_id,
+		      int intm_id)
 {
    int dest_lp;
    tw_lpid router_dest_id = -1;
    int i;
    int dest_group_id;
 
-   //TODO: be annotation-aware
-   codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name,
-           &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id,
-           &mapping_offset); 
-   int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
-           s->anno, 0);
-   int dest_router_id = (mapping_offset + (mapping_rep_id * num_lps)) / s->params->num_routers;
-   
    codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
            &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
    int local_router_id = (mapping_offset + mapping_rep_id);
@@ -1208,7 +1252,6 @@ get_next_stop(router_state * s,
    if(dest_router_id == local_router_id)
     {
         dest_lp = msg->dest_terminal_id;
-
         return dest_lp;
     }
    /* Generate inter-mediate destination for non-minimal routing (selecting a random group) */
@@ -1217,17 +1260,16 @@ get_next_stop(router_state * s,
       if(dest_router_id / s->params->num_routers != s->group_id)
          {
             bf->c2 = 1;
-            int intm_grp_id = tw_rand_integer(lp->rng, 0, s->params->num_groups-1);
-            //int intm_grp_id = (s->group_id + s->group_id/2) % num_groups;
-	    msg->intm_group_id = intm_grp_id;
+	    msg->intm_group_id = intm_id;
           }    
     }
+   /******************** DECIDE THE DESTINATION GROUP ***********************/
   /* It means that the packet has arrived at the inter-mediate group for non-minimal routing. Reset the group now. */
    if(msg->intm_group_id == s->group_id)
    {  
            msg->intm_group_id = -1;//no inter-mediate group
    } 
-  /* Intermediate group ID is set. Divert the packet to an intermediate group. */
+  /* Intermediate group ID is set. Divert the packet to the intermediate group. */
   if(msg->intm_group_id >= 0)
    {
       dest_group_id = msg->intm_group_id;
@@ -1236,7 +1278,8 @@ get_next_stop(router_state * s,
    {
      dest_group_id = dest_router_id / s->params->num_routers;
    }
-  
+ 
+/********************** DECIDE THE ROUTER IN THE DESTINATION GROUP ***************/ 
   /* It means the packet has arrived at the destination group. Now divert it to the destination router. */
   if(s->group_id == dest_group_id)
    {
@@ -1245,7 +1288,7 @@ get_next_stop(router_state * s,
    else
    {
       /* Packet is at the source or intermediate group. Find a router that has a path to the destination group. */
-      dest_lp=getRouterFromGroupID(dest_group_id,s);
+      dest_lp=getRouterFromGroupID(dest_group_id,s->router_id/s->params->num_routers, s->params->num_routers);
   
       if(dest_lp == local_router_id)
       {
@@ -1260,7 +1303,6 @@ get_next_stop(router_state * s,
           0, &router_dest_id);
   return router_dest_id;
 }
-
 /* gets the output port corresponding to the next stop of the message */
 int 
 get_output_port( router_state * s, 
@@ -1280,8 +1322,6 @@ get_output_port( router_state * s,
    {
       output_port = s->params->num_routers + s->params->num_global_channels +
           ( terminal_id % s->params->num_cn);
-      //if(output_port > 6)
-	//      printf("\n incorrect output port %d terminal id %d ", output_port, terminal_id);
     }
     else
     {
@@ -1307,49 +1347,47 @@ get_output_port( router_state * s,
     return output_port;
 }
 
-/* routes the current packet to the next stop */
-void 
-router_packet_send( router_state * s, 
-		    tw_bf * bf, 
-		     terminal_message * msg, tw_lp * lp)
+
+/* UGAL (first condition is from booksim), output port equality check comes from Dally dragonfly'09*/
+static int do_adaptive_routing( router_state * s,
+				 tw_bf * bf,
+				 terminal_message * msg,
+				 tw_lp * lp,
+				 int dest_router_id,
+				 int intm_id)
 {
-//   *(int *)bf = (int)0;
-   tw_stime ts;
-   tw_event *e;
-   terminal_message *m;
-
-   int next_stop = -1, output_port = -1, output_chan = -1;
-   float bandwidth = s->params->local_bandwidth;
-   int path = s->params->routing;
-   int minimal_out_port = -1, nonmin_out_port = -1;
-   bf->c3 = 0;
-
-   uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
-   if(msg->packet_size % s->params->chunk_size)
-       num_chunks++;
-    
-
-   if(msg->last_hop == TERMINAL && s->params->routing == ADAPTIVE)
-   {
-  // decide which routing to take
-    int minimal_next_stop=get_next_stop(s, bf, msg, lp, MINIMAL);
+    int next_stop;
+    int minimal_out_port = -1, nonmin_out_port = -1;
+     // decide which routing to take
+    // get the queue occupancy of both the minimal and non-minimal output ports 
+    int minimal_next_stop=get_next_stop(s, bf, msg, lp, MINIMAL, dest_router_id, -1);
     minimal_out_port = get_output_port(s, bf, msg, lp, minimal_next_stop);
-    int nonmin_next_stop = get_next_stop(s, bf, msg, lp, NON_MINIMAL);
+    int nonmin_next_stop = get_next_stop(s, bf, msg, lp, NON_MINIMAL, dest_router_id, intm_id);
     nonmin_out_port = get_output_port(s, bf, msg, lp, nonmin_next_stop);
     int nonmin_port_count = s->vc_occupancy[nonmin_out_port];
     int min_port_count = s->vc_occupancy[minimal_out_port];
     int nonmin_vc = s->vc_occupancy[nonmin_out_port * s->params->num_vcs + 2];
     int min_vc = s->vc_occupancy[minimal_out_port * s->params->num_vcs + 1];
 
+    // Now get the expected number of hops to be traversed for both routes 
+    int dest_group_id = dest_router_id / s->params->num_routers;
+    int num_min_hops = get_num_hops(s->router_id, dest_router_id, s->params->num_routers, 0);
+
+    int intm_router_id = getRouterFromGroupID(intm_id, s->router_id / s->params->num_routers, s->params->num_routers);
+
+    //printf("\n source %d Intm router id is %d dest router id %d ", s->router_id, intm_router_id, dest_router_id);
+    int num_nonmin_hops = get_num_hops(s->router_id, intm_router_id, s->params->num_routers, 1) + get_num_hops(intm_router_id, dest_router_id, s->params->num_routers, 1);
+
+    assert(num_nonmin_hops <= 6);
+
     // Adaptive routing condition from the dragonfly paper Page 83
    // modified according to booksim adaptive routing condition
-   if((min_vc <= (nonmin_vc * 2 + adaptive_threshold) && minimal_out_port == nonmin_out_port)
-               || (min_port_count <= (nonmin_port_count * 2 + adaptive_threshold) && minimal_out_port != nonmin_out_port))
-        {
+ /*  if((min_vc <= (nonmin_vc * 2 + adaptive_threshold) && minimal_out_port == nonmin_out_port)
+               || (min_port_count <= (nonmin_port_count * 2 + adaptive_threshold) && minimal_out_port != nonmin_out_port))*/
+   if(num_min_hops * min_port_count <= num_nonmin_hops * nonmin_port_count)
+     {
 	   msg->path_type = MINIMAL;
            next_stop = minimal_next_stop;
-           output_port = minimal_out_port;
-           minimal_count++;
            msg->intm_group_id = -1;
 
            if(msg->packet_ID == TRACK)
@@ -1359,38 +1397,69 @@ router_packet_send( router_state * s,
          {
 	   msg->path_type = NON_MINIMAL;
            next_stop = nonmin_next_stop;
-           output_port = nonmin_out_port;
-           nonmin_count++;
            if(msg->packet_ID == TRACK)
                 printf("\n (%lf) [Router %d] Packet %d routing non-minimally ", tw_now(lp), (int)lp->gid, (int)msg->packet_ID);
 
          }
-  }
+   return next_stop;
+}
+
+/* routes the current packet to the next stop */
+void 
+router_packet_send( router_state * s, 
+		    tw_bf * bf, 
+		     terminal_message * msg, tw_lp * lp)
+{
+/*
+   if(lp->gid == TRACK)
+   {
+	printf("\n Router %d ", s->router_id);
+	int i;
+	for (i = 0; i < s->params->radix; i++)
+		printf("\n vc occupancy %d ", s->vc_occupancy[i]);
+   }
+*/
+   tw_stime ts;
+   tw_event *e;
+   terminal_message *m;
+
+   int next_stop = -1, output_port = -1, output_chan = -1;
+   float bandwidth = s->params->local_bandwidth;
+   bf->c3 = 0;
+
+   uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
+   if(msg->packet_size % s->params->chunk_size)
+       num_chunks++;
+    
+   codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name,
+           &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id,
+           &mapping_offset); 
+   int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
+           s->anno, 0);
+   int dest_router_id = (mapping_offset + (mapping_rep_id * num_lps)) / s->params->num_routers;
+   int intm_id = tw_rand_integer(lp->rng, 0, s->params->num_groups - 1);  
+   int local_grp_id = s->router_id / s->params->num_routers;
+   if(intm_id == local_grp_id) 
+	intm_id = (local_grp_id + 2) % s->params->num_groups;
+
+/* progressive adaptive routing makes a check at every node/router at the source group to sense congestion. Once it does and decides on taking non-minimal path, it does not check any longer. */
+   if(routing == PROG_ADAPTIVE
+	 && msg->path_type != NON_MINIMAL
+	 && local_grp_id == ( msg->origin_router_id / s->params->num_routers))
+	next_stop = do_adaptive_routing(s, bf, msg, lp, dest_router_id, intm_id);	
+   else if(msg->last_hop == TERMINAL && routing == ADAPTIVE)
+	next_stop = do_adaptive_routing(s, bf, msg, lp, dest_router_id, intm_id);
   else
    {
 	msg->path_type = routing; /*defaults to the routing algorithm if we don't have adaptive routing here*/
-   	next_stop = get_next_stop(s, bf, msg, lp, path);
-   	output_port = get_output_port(s, bf, msg, lp, next_stop); 
+   	next_stop = get_next_stop(s, bf, msg, lp, msg->path_type, dest_router_id, intm_id);
    }
+   output_port = get_output_port(s, bf, msg, lp, next_stop); 
    output_chan = output_port * s->params->num_vcs;
-    // Even numbered channels for minimal routing
-   // Odd numbered channels for nonminimal routing
-   // Separate the queue occupancy into minimal and non minimal virtual channels if the min & non min
-   // paths start at the same output port
-   /*if((routing == ADAPTIVE) && (minimal_out_port == nonmin_out_port))
-   {
-        if(path == MINIMAL)
-          output_chan = output_chan + 1;
-        else
-          if(path == NON_MINIMAL)
-            output_chan = output_chan + 2;
-   }*/
-
    int global=0;
    int buf_size = s->params->local_vc_size;
 
-   assert(output_port != -1);
-   assert(output_chan != -1);
+   assert(output_port != -1 && output_chan != -1 && output_port < s->params->radix);
    // Allocate output Virtual Channel
   if(output_port >= s->params->num_routers && 
           output_port < s->params->num_routers + s->params->num_global_channels)
@@ -1402,24 +1471,14 @@ router_packet_send( router_state * s,
 
   if(output_port >= s->params->num_routers + s->params->num_global_channels)
 	buf_size = s->params->cn_vc_size;
-
+   
    if(s->vc_occupancy[output_chan] >= buf_size)
     {
-	    printf("\n %lf Router %ld buffers overflowed from incoming terminals channel %d occupancy %d radix %d next_stop %d ", tw_now(lp),(long int) lp->gid, output_chan, s->vc_occupancy[output_chan], s->params->radix, next_stop);
+	    printf("\n %lf Router %ld buffers overflowed from incoming terminals channel %d occupancy %d radix %d next_stop %d buffer size %d ", tw_now(lp),(long int) lp->gid, output_chan, s->vc_occupancy[output_chan], s->params->radix, next_stop, buf_size);
 	    bf->c3 = 1;
 	    return;
-	    //MPI_Finalize();
-	    //exit(-1);
     }
 
-#if DEBUG
-if( msg->packet_ID == TRACK && next_stop != msg->dest_terminal_id && msg->chunk_id == num_chunks-1)
-  {
-   printf("\n (%lf) [Router %d] Packet %lld being sent to intermediate group router %d Final destination terminal %d Output Channel Index %d Saved vc %d msg_intm_id %d \n", 
-              tw_now(lp), (int)lp->gid, msg->packet_ID, next_stop, 
-	      msg->dest_terminal_id, output_chan, msg->saved_vc, msg->intm_group_id);
-  }
-#endif
  // If source router doesn't have global channel and buffer space is available, then assign to appropriate intra-group virtual channel 
   msg->saved_available_time = s->next_output_available_time[output_port];
   ts = g_tw_lookahead + 0.1 + ((1/bandwidth) * s->params->chunk_size) + tw_rand_exponential(lp->rng, (double)s->params->chunk_size/200);
@@ -1454,6 +1513,14 @@ if( msg->packet_ID == TRACK && next_stop != msg->dest_terminal_id && msg->chunk_
   m->intm_lp_id = lp->gid;
   s->vc_occupancy[output_chan]++;
 
+/*  if(lp->gid == TRACK)
+	printf("\n Sending packet from %d output chan %d VC occupancy %d stop %d dest term %d ", 
+								lp->gid,
+								output_chan, 
+								s->vc_occupancy[output_chan], 
+								next_stop,
+								msg->dest_terminal_id);
+*/
   /* Determine the event type. If the packet has arrived at the final destination
      router then it should arrive at the destination terminal next. */
   if(next_stop == msg->dest_terminal_id)
@@ -1502,15 +1569,16 @@ router_packet_receive( router_state * s,
     if(msg->packet_size % s->params->chunk_size)
         num_chunks++;
 
-    if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
+/*    if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
        printf("\n packet %lld chunk %d received at router %d ", msg->packet_ID, msg->chunk_id, (int)lp->gid);
-   
+*/   
+    router_credit_send(s, bf, msg, lp);
+    
     // router self message - no need for method_event
     e = tw_event_new(lp->gid, ts, lp);
     m = tw_event_data(e);
     memcpy(m, msg, sizeof(terminal_message) + msg->remote_event_size_bytes);
     m->type = R_SEND;
-    router_credit_send(s, bf, msg, lp);
     tw_event_send(e);  
     return;
 }
@@ -1556,6 +1624,9 @@ void router_setup(router_state * r, tw_lp * lp)
         r->output_vc_state[i]= VC_IDLE;
     }
 
+#if DEBUG == 1
+   printf("\n LP ID %d VC occupancy radix %d Router %d is connected to ", lp->gid, p->radix, r->router_id);
+#endif 
    //round the number of global channels to the nearest even number
    for(i=0; i < p->num_global_channels; i++)
     {
@@ -1572,7 +1643,14 @@ void router_setup(router_state * r, tw_lp * lp)
          {
            r->global_channel[i]=p->total_routers+r->global_channel[i]; 
 	 }
+#if DEBUG == 1
+    printf("\n channel %d ", r->global_channel[i]);
+#endif 
     }
+
+#if DEBUG == 1
+   printf("\n");
+#endif
    return;
 }	
 
@@ -1580,6 +1658,16 @@ void router_setup(router_state * r, tw_lp * lp)
 void router_buf_update(router_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
     int msg_indx = msg->vc_index;
+
+    if(TRACK == lp->gid)
+	{
+	    /*printf("\n router %d lp id %d msg indx %d vc_occupancy %d from %d last hop %d ", s->router_id, lp->gid, msg_indx, s->vc_occupancy[msg_indx], msg->origin_router_id, msg->last_hop); */
+	    int i;
+	    printf("\n channel occupancy ");
+	    for(i = 0; i < s->params->radix; i++)
+		printf(" %d ", s->vc_occupancy[i]);
+	}
+    assert(s->vc_occupancy[msg_indx] > 0);
     s->vc_occupancy[msg_indx]--;
     s->output_vc_state[msg_indx] = VC_IDLE;
     return;
@@ -1587,7 +1675,6 @@ void router_buf_update(router_state * s, tw_bf * bf, terminal_message * msg, tw_
 
 void router_event(router_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
-  *(int *)bf = (int)0;
   switch(msg->type)
    {
 	   case R_SEND: // Router has sent a packet to an intra-group router (local channel)
@@ -1725,11 +1812,6 @@ void router_rc_event_handler(router_state * s, tw_bf * bf, terminal_message * ms
 		    {
 			if(msg->path_type == NON_MINIMAL && bf->c2)
 			   tw_rand_reverse_unif(lp->rng);
-
-			if(routing == ADAPTIVE && msg->path_type == MINIMAL)
-                                minimal_count--;
-                        if(routing == ADAPTIVE && msg->path_type == NON_MINIMAL)
-                                nonmin_count--;
 
 			if(bf->c3)
 			   return;

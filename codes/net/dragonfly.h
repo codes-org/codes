@@ -32,6 +32,9 @@ struct terminal_message
   unsigned int src_terminal_id;
   /* local LP ID to calculate the radix of the sender node/router */
   unsigned int local_id;
+  /* message originating router id */
+  unsigned int origin_router_id;
+
   /* number of hops traversed by the packet */
   short my_N_hop;
   /* Intermediate LP ID from which this message is coming */
