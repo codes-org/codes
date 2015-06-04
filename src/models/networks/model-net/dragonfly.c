@@ -539,7 +539,7 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
     }
     //if(dest == TRACK)
 //	printf("\n LP %d sending credit back to dest %d at channel %d last hop %d ", lp->gid, dest, msg->saved_vc, msg->last_hop);
-    buf_msg->origin_router_id = lp->gid;
+    buf_msg->origin_router_id = s->router_id;
     buf_msg->vc_index = msg->saved_vc;
     buf_msg->type=type;
     buf_msg->last_hop = msg->last_hop;
@@ -671,7 +671,7 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp *
         memcpy(m+1, model_net_method_get_edata(DRAGONFLY, msg),
                 msg->remote_event_size_bytes);
    }
-   m->origin_router_id = router_id;
+   m->origin_router_id = s->router_id;
    m->type = R_ARRIVE;
    m->src_terminal_id = lp->gid;
    m->saved_vc = vc;
@@ -727,7 +727,9 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp
 
     if(msg->path_type == NON_MINIMAL)
 	nonmin_count++;
-
+    
+    if(msg->path_type != MINIMAL && msg->path_type != NON_MINIMAL)
+	printf("\n Wrong message path type %d ", msg->path_type);
 #if DEBUG == 1
 if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
     {
@@ -1366,8 +1368,8 @@ static int do_adaptive_routing( router_state * s,
     nonmin_out_port = get_output_port(s, bf, msg, lp, nonmin_next_stop);
     int nonmin_port_count = s->vc_occupancy[nonmin_out_port];
     int min_port_count = s->vc_occupancy[minimal_out_port];
-    int nonmin_vc = s->vc_occupancy[nonmin_out_port * s->params->num_vcs + 2];
-    int min_vc = s->vc_occupancy[minimal_out_port * s->params->num_vcs + 1];
+    //int nonmin_vc = s->vc_occupancy[nonmin_out_port * s->params->num_vcs + 2];
+    //int min_vc = s->vc_occupancy[minimal_out_port * s->params->num_vcs + 1];
 
     // Now get the expected number of hops to be traversed for both routes 
     int dest_group_id = dest_router_id / s->params->num_routers;
@@ -1384,7 +1386,17 @@ static int do_adaptive_routing( router_state * s,
    // modified according to booksim adaptive routing condition
  /*  if((min_vc <= (nonmin_vc * 2 + adaptive_threshold) && minimal_out_port == nonmin_out_port)
                || (min_port_count <= (nonmin_port_count * 2 + adaptive_threshold) && minimal_out_port != nonmin_out_port))*/
-   if(num_min_hops * min_port_count <= num_nonmin_hops * nonmin_port_count)
+
+   /* average the local queues of the router */
+   unsigned int q_avg = 0;
+   int i;
+   for( i = 0; i < s->params->radix; i++)
+    {
+	if( i != minimal_out_port)
+		q_avg += s->vc_occupancy[i]; 
+   }
+   q_avg = q_avg / (s->params->radix - 1);
+   if(num_min_hops * min_port_count <= (num_nonmin_hops * (q_avg + 1)))
      {
 	   msg->path_type = MINIMAL;
            next_stop = minimal_next_stop;
@@ -1443,15 +1455,21 @@ router_packet_send( router_state * s,
 	intm_id = (local_grp_id + 2) % s->params->num_groups;
 
 /* progressive adaptive routing makes a check at every node/router at the source group to sense congestion. Once it does and decides on taking non-minimal path, it does not check any longer. */
+//   printf("\n local grp id %d origin router id %d ", local_grp_id, msg->origin_router_id / s->params->num_routers);
    if(routing == PROG_ADAPTIVE
 	 && msg->path_type != NON_MINIMAL
 	 && local_grp_id == ( msg->origin_router_id / s->params->num_routers))
-	next_stop = do_adaptive_routing(s, bf, msg, lp, dest_router_id, intm_id);	
+	{
+		next_stop = do_adaptive_routing(s, bf, msg, lp, dest_router_id, intm_id);	
+	}
    else if(msg->last_hop == TERMINAL && routing == ADAPTIVE)
-	next_stop = do_adaptive_routing(s, bf, msg, lp, dest_router_id, intm_id);
+	{
+		next_stop = do_adaptive_routing(s, bf, msg, lp, dest_router_id, intm_id);
+	}
   else
    {
-	msg->path_type = routing; /*defaults to the routing algorithm if we don't have adaptive routing here*/
+	if(routing == MINIMAL || routing == NON_MINIMAL)
+		msg->path_type = routing; /*defaults to the routing algorithm if we don't have adaptive routing here*/
    	next_stop = get_next_stop(s, bf, msg, lp, msg->path_type, dest_router_id, intm_id);
    }
    output_port = get_output_port(s, bf, msg, lp, next_stop); 

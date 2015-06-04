@@ -24,13 +24,15 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 
-#define NUM_REQS 20  /* number of requests sent by each server */
+#define NUM_REQS 5  /* number of requests sent by each server */
 #define PAYLOAD_SZ 2048 /* size of simulated data payload, bytes  */
+#define TRAFFIC 0
 
 static int net_id = 0;
 static int num_routers = 0;
 static int num_servers = 0;
 static int offset = 2;
+static int num_reps = 0;
 
 /* whether to pull instead of push */ 
 static int do_pull = 0;
@@ -42,6 +44,11 @@ static int lps_per_rep = 0;
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
 
+/* global variables for codes mapping */
+static char group_name[MAX_NAME_LENGTH];
+static char lp_type_name[MAX_NAME_LENGTH];
+static int group_index, lp_type_index, rep_id, offset;
+
 /* types of events that will constitute triton requests */
 enum svr_event
 {
@@ -51,6 +58,11 @@ enum svr_event
     LOCAL      /* local event */
 };
 
+enum traffic_pattern
+{
+    UNIFORM_RANDOM,	/* uniform random traffic */
+    WORST_CASE		/* sends packets to neighboring groups */
+};
 struct svr_state
 {
     int msg_sent_count;   /* requests sent */
@@ -326,6 +338,7 @@ static void handle_kickoff_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    char anno[MAX_NAME_LENGTH];
     svr_msg * m_local = malloc(sizeof(svr_msg));
     svr_msg * m_remote = malloc(sizeof(svr_msg));
 
@@ -344,12 +357,22 @@ static void handle_kickoff_event(
     num_routers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1,
             "dragonfly_router", NULL, 1);
 
+    num_reps = codes_mapping_get_group_reps("MODELNET_GRP");
+    
     lps_per_rep = num_servers_per_rep * 2 + num_routers_per_rep;
+    
+     codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
 
     int opt_offset = 0;
     int total_lps = num_servers * 2 + num_routers;
 
-    int dest_svr = tw_rand_integer(lp->rng, 0, num_servers - 1);
+    int dest_svr;
+    if(TRAFFIC == UNIFORM_RANDOM) 
+	dest_svr = tw_rand_integer(lp->rng, 0, num_servers - 1);
+    else
+	{
+	dest_svr = ((rep_id * num_servers_per_rep) + (num_servers_per_rep * 2)) % (num_reps * num_servers_per_rep);
+	}
     dest_svr = dest_svr + ((dest_svr / num_servers_per_rep) * (num_routers_per_rep + num_servers_per_rep)); 
 
     if (do_pull){
@@ -440,6 +463,7 @@ static void handle_ack_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    char anno[MAX_NAME_LENGTH];
     svr_msg * m_local = malloc(sizeof(svr_msg));
     svr_msg * m_remote = malloc(sizeof(svr_msg));
 
@@ -448,6 +472,8 @@ static void handle_ack_event(
 
     memcpy(m_remote, m_local, sizeof(svr_msg));
     m_remote->svr_event_type = (do_pull) ? ACK : REQ;
+     
+    codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
 
 //    printf("handle_ack_event(), lp %llu.\n", (unsigned long long)lp->gid);
 
@@ -455,6 +481,13 @@ static void handle_ack_event(
 //    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
 
     int dest_svr = tw_rand_integer(lp->rng, 0, num_servers - 1);
+    if(TRAFFIC == UNIFORM_RANDOM) 
+	dest_svr = tw_rand_integer(lp->rng, 0, num_servers - 1);
+    else
+	{
+	dest_svr = ((rep_id * num_servers_per_rep) + (num_servers_per_rep * 2)) % (num_reps * num_servers_per_rep);
+	}
+
     dest_svr = dest_svr + ((dest_svr / num_servers_per_rep) * (num_routers_per_rep + num_servers_per_rep)); 
 
     if(ns->msg_sent_count < NUM_REQS)
