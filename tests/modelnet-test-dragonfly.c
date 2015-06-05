@@ -24,7 +24,7 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 
-#define NUM_REQS 5  /* number of requests sent by each server */
+#define NUM_REQS 10  /* number of requests sent by each server */
 #define PAYLOAD_SZ 2048 /* size of simulated data payload, bytes  */
 #define TRAFFIC 0
 

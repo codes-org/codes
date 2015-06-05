@@ -27,6 +27,7 @@
 #define NUM_COLLECTIVES  1
 #define COLLECTIVE_COMPUTATION_DELAY 5700
 #define DRAGONFLY_FAN_OUT_DELAY 20.0
+#define WINDOW_LENGTH 0
 
 // debugging parameters
 #define TRACK -1
@@ -44,7 +45,7 @@ static double MEAN_INTERVAL=200.0;
 static int adaptive_threshold = 10;
 
 /* minimal and non-minimal packet counts for adaptive routing*/
-unsigned int minimal_count=0, nonmin_count=0, completed_packets;
+unsigned int minimal_count=0, nonmin_count=0, completed_packets = 0;
 
 typedef struct dragonfly_param dragonfly_param;
 /* annotation-specific parameters (unannotated entry occurs at the 
@@ -56,6 +57,7 @@ static const config_anno_map_t * anno_map   = NULL;
 /* global variables for codes mapping */
 static char lp_group_name[MAX_NAME_LENGTH];
 static int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
+
 
 struct dragonfly_param
 {
@@ -180,13 +182,19 @@ struct router_state
    unsigned int group_id;
   
    int* global_channel; 
+   
    tw_stime* next_output_available_time;
    tw_stime* next_credit_available_time;
+   tw_stime* cur_hist_start_time;
+   
    int* vc_occupancy;
    int* output_vc_state;
 
    const char * anno;
    const dragonfly_param *params;
+
+   int* prev_hist_num;
+   int* cur_hist_num;
 };
 
 static short routing = MINIMAL;
@@ -322,7 +330,7 @@ static void dragonfly_report_stats()
 {
    long long avg_hops, total_finished_packets;
    tw_stime avg_time, max_time;
-   int total_minimal_packets, total_nonmin_packets;
+   int total_minimal_packets, total_nonmin_packets, total_completed_packets;
 
    MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
    MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -332,6 +340,7 @@ static void dragonfly_report_stats()
     {
 	MPI_Reduce(&minimal_count, &total_minimal_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
  	MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+ 	MPI_Reduce(&completed_packets, &total_completed_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     }
 
    /* print statistics */
@@ -339,7 +348,7 @@ static void dragonfly_report_stats()
    {	
       printf(" Average number of hops traversed %f average message latency %lf us maximum message latency %lf us \n", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets*1000), max_time/1000);
      if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
-              printf("\n ADAPTIVE ROUTING STATS: %d packets routed minimally %d packets routed non-minimally completed packets %d ", total_minimal_packets, total_nonmin_packets, completed_packets);
+              printf("\n ADAPTIVE ROUTING STATS: %d percent packets routed minimally %d percent packets routed non-minimally completed packets %d ", total_minimal_packets, total_nonmin_packets, total_completed_packets);
  
   }
    return;
@@ -1257,7 +1266,7 @@ get_next_stop(router_state * s,
         return dest_lp;
     }
    /* Generate inter-mediate destination for non-minimal routing (selecting a random group) */
-   if(msg->last_hop == TERMINAL && msg->path_type == NON_MINIMAL)
+   if(msg->last_hop == TERMINAL && path == NON_MINIMAL)
     {
       if(dest_router_id / s->params->num_routers != s->group_id)
          {
@@ -1267,12 +1276,12 @@ get_next_stop(router_state * s,
     }
    /******************** DECIDE THE DESTINATION GROUP ***********************/
   /* It means that the packet has arrived at the inter-mediate group for non-minimal routing. Reset the group now. */
-   if(msg->intm_group_id == s->group_id)
+   if(path == NON_MINIMAL && msg->intm_group_id == s->group_id)
    {  
            msg->intm_group_id = -1;//no inter-mediate group
    } 
   /* Intermediate group ID is set. Divert the packet to the intermediate group. */
-  if(msg->intm_group_id >= 0)
+  if(path == NON_MINIMAL && msg->intm_group_id >= 0)
    {
       dest_group_id = msg->intm_group_id;
    }
@@ -1371,6 +1380,7 @@ static int do_adaptive_routing( router_state * s,
     //int nonmin_vc = s->vc_occupancy[nonmin_out_port * s->params->num_vcs + 2];
     //int min_vc = s->vc_occupancy[minimal_out_port * s->params->num_vcs + 1];
 
+//    printf("\n min output port %d nonmin output port %d ", minimal_next_stop, nonmin_next_stop);
     // Now get the expected number of hops to be traversed for both routes 
     int dest_group_id = dest_router_id / s->params->num_routers;
     int num_min_hops = get_num_hops(s->router_id, dest_router_id, s->params->num_routers, 0);
@@ -1382,11 +1392,6 @@ static int do_adaptive_routing( router_state * s,
 
     assert(num_nonmin_hops <= 6);
 
-    // Adaptive routing condition from the dragonfly paper Page 83
-   // modified according to booksim adaptive routing condition
- /*  if((min_vc <= (nonmin_vc * 2 + adaptive_threshold) && minimal_out_port == nonmin_out_port)
-               || (min_port_count <= (nonmin_port_count * 2 + adaptive_threshold) && minimal_out_port != nonmin_out_port))*/
-
    /* average the local queues of the router */
    unsigned int q_avg = 0;
    int i;
@@ -1396,7 +1401,20 @@ static int do_adaptive_routing( router_state * s,
 		q_avg += s->vc_occupancy[i]; 
    }
    q_avg = q_avg / (s->params->radix - 1);
-   if(num_min_hops * min_port_count <= (num_nonmin_hops * (q_avg + 1)))
+
+   int min_out_chan = minimal_out_port * s->params->num_vcs;
+   int nonmin_out_chan = nonmin_out_port * s->params->num_vcs;
+
+   /* Adding history window approach, not taking the queue status at every simulation time thats why, we are maintaining the current history window number and an average of the previous history window number. */
+   int min_hist_count = s->cur_hist_num[min_out_chan] + (s->prev_hist_num[min_out_chan]/2);
+   int nonmin_hist_count = s->cur_hist_num[nonmin_out_chan] + (s->prev_hist_num[min_out_chan]/2);
+
+   /*printf("\n min hist count %d chan %d nonmin hist count %d %d ", min_hist_count, 
+								min_out_chan,
+							nonmin_hist_count,
+							nonmin_out_chan);
+ */ 
+  if(num_min_hops * (min_port_count - min_hist_count) <= (num_nonmin_hops * ((q_avg + 1) - nonmin_hist_count)))
      {
 	   msg->path_type = MINIMAL;
            next_stop = minimal_next_stop;
@@ -1409,6 +1427,8 @@ static int do_adaptive_routing( router_state * s,
          {
 	   msg->path_type = NON_MINIMAL;
            next_stop = nonmin_next_stop;
+    	   msg->intm_group_id = intm_id;
+
            if(msg->packet_ID == TRACK)
                 printf("\n (%lf) [Router %d] Packet %d routing non-minimally ", tw_now(lp), (int)lp->gid, (int)msg->packet_ID);
 
@@ -1468,7 +1488,10 @@ router_packet_send( router_state * s,
 	}
   else
    {
-	if(routing == MINIMAL || routing == NON_MINIMAL)
+	if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
+		assert(msg->path_type == MINIMAL || msg->path_type == NON_MINIMAL);
+
+	if(routing == MINIMAL || routing == NON_MINIMAL)	
 		msg->path_type = routing; /*defaults to the routing algorithm if we don't have adaptive routing here*/
    	next_stop = get_next_stop(s, bf, msg, lp, msg->path_type, dest_router_id, intm_id);
    }
@@ -1531,6 +1554,17 @@ router_packet_send( router_state * s,
   m->intm_lp_id = lp->gid;
   s->vc_occupancy[output_chan]++;
 
+  if(tw_now(lp) - s->cur_hist_start_time[output_chan] >= WINDOW_LENGTH)
+  {
+	s->prev_hist_num[output_chan] = s->cur_hist_num[output_chan];
+
+	s->cur_hist_start_time[output_chan] = tw_now(lp);
+	s->cur_hist_num[output_chan] = 1;
+  }
+  else
+  {
+	s->cur_hist_num[output_chan]++;
+  }
 /*  if(lp->gid == TRACK)
 	printf("\n Sending packet from %d output chan %d VC occupancy %d stop %d dest term %d ", 
 								lp->gid,
@@ -1630,15 +1664,21 @@ void router_setup(router_state * r, tw_lp * lp)
    r->global_channel = (int*)malloc(p->num_global_channels * sizeof(int));
    r->next_output_available_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
    r->next_credit_available_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
+   r->cur_hist_start_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
    r->vc_occupancy = (int*)malloc(p->radix * sizeof(int));
    r->output_vc_state = (int*)malloc(p->radix * sizeof(int));
+   r->cur_hist_num = (int*)malloc(p->radix * sizeof(int));
+   r->prev_hist_num = (int*)malloc(p->radix * sizeof(int));
   
    for(i=0; i < p->radix; i++)
     {
        // Set credit & router occupancy
 	r->next_output_available_time[i]=0;
         r->next_credit_available_time[i]=0;
+	r->cur_hist_start_time[i] = 0;
         r->vc_occupancy[i]=0;
+	r->cur_hist_num[i] = 0;
+	r->prev_hist_num[i] = 0;
         r->output_vc_state[i]= VC_IDLE;
     }
 
