@@ -376,7 +376,7 @@ void model_net_base_finalize(
 }
 
 /// bitfields used:
-/// c0 - we initiated a sched_next event
+/// c31 - we initiated a sched_next event
 void handle_new_msg(
         model_net_base_state * ns,
         tw_bf *b,
@@ -405,15 +405,14 @@ void handle_new_msg(
             remote, r->self_event_size, local, ss, &m->msg.m_base.rc, lp);
     
     if (*in_sched_loop == 0){
-        b->c0 = 1;
-        tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
-        model_net_wrap_msg *m = tw_event_data(e);
-        msg_set_header(model_net_base_magic, MN_BASE_SCHED_NEXT, lp->gid,
-                &m->h);
-        m->msg.m_base.is_from_remote = is_from_remote;
-        // m_base not used in sched event
-        tw_event_send(e);
+        b->c31 = 1;
+        /* No need to issue an extra sched-next event if we're currently idle */
         *in_sched_loop = 1;
+        /* NOTE: we can do this because the sched rc struct in the event is
+         * *very* lightly used (there's harmless overlap in usage for the
+         * priority scheduler) */
+        handle_sched_next(ns, b, m, lp);
+        assert(*in_sched_loop); // we shouldn't have fallen out of the loop
     }
 }
 
@@ -427,11 +426,11 @@ void handle_new_msg_rc(
     int *in_sched_loop = is_from_remote  ? 
         &ns->in_sched_recv_loop : &ns->in_sched_send_loop;
 
-    model_net_sched_add_rc(ss, &m->msg.m_base.rc, lp);
-    if (b->c0){
-        codes_local_latency_reverse(lp);
+    if (b->c31) {
+        handle_sched_next_rc(ns, b, m, lp);
         *in_sched_loop = 0;
     }
+    model_net_sched_add_rc(ss, &m->msg.m_base.rc, lp);
 }
 
 /// bitfields used
