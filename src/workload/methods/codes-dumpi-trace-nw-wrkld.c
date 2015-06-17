@@ -28,11 +28,18 @@ static int rank_tbl_pop = 0;
 /* context of the MPI workload */
 typedef struct rank_mpi_context
 {
-	int64_t my_rank;
-	double last_op_time;
-	void* dumpi_mpi_array;	
-	struct qhash_head hash_link;
+    int my_app_id;
+    int64_t my_rank;
+    double last_op_time;
+    void* dumpi_mpi_array;	
+    struct qhash_head hash_link;
 } rank_mpi_context;
+
+typedef struct rank_mpi_compare
+{
+    int app;
+    int rank;
+} rank_mpi_compare;
 
 /* Holds all the data about MPI operations from the log */
 typedef struct dumpi_op_data_array
@@ -43,16 +50,16 @@ typedef struct dumpi_op_data_array
 } dumpi_op_data_array;
 
 /* load the trace */
-int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank);
+static int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank);
 
 /* dumpi implementation of get next operation in the workload */
-void dumpi_trace_nw_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
+static void dumpi_trace_nw_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
 
 /* get number of bytes from the workload data type and count */
-int get_num_bytes(dumpi_datatype dt);
+static int get_num_bytes(dumpi_datatype dt);
 
 /* computes the delay between MPI operations */
-void update_compute_time(const dumpi_time* time, rank_mpi_context* my_ctx);
+static void update_compute_time(const dumpi_time* time, rank_mpi_context* my_ctx);
 
 /* initializes the data structures */
 static void* dumpi_init_op_data();
@@ -489,11 +496,11 @@ int handleDUMPIFinalize(const dumpi_finalize *prm, uint16_t thread, const dumpi_
 
 static int hash_rank_compare(void *key, struct qhash_head *link)
 {
-    int *in_rank = (int *)key;
+    rank_mpi_compare *in = key;
     rank_mpi_context *tmp;
 
     tmp = qhash_entry(link, rank_mpi_context, hash_link);
-    if (tmp->my_rank == *in_rank)
+    if (tmp->my_rank == in->rank && tmp->my_app_id == in->app)
         return 1;
 
     return 0;
@@ -507,14 +514,12 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	dumpi_trace_params* dumpi_params = (dumpi_trace_params*)params;
 	char file_name[MAX_LENGTH];
 
-        APP_ID_UNSUPPORTED(app_id, "dumpi")
-
 	if(rank >= dumpi_params->num_net_traces)
 		return -1;
 
 	if(!rank_tbl)
     	{
-            rank_tbl = qhash_init(hash_rank_compare, quickhash_32bit_hash, RANK_HASH_TABLE_SIZE);
+            rank_tbl = qhash_init(hash_rank_compare, quickhash_64bit_hash, RANK_HASH_TABLE_SIZE);
             if(!rank_tbl)
                   return -1;
     	}
@@ -523,6 +528,7 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	my_ctx = malloc(sizeof(rank_mpi_context));
 	assert(my_ctx);
 	my_ctx->my_rank = rank;
+        my_ctx->my_app_id = app_id;
 	my_ctx->last_op_time = 0.0;
 	my_ctx->dumpi_mpi_array = dumpi_init_op_data();
 
@@ -620,7 +626,10 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	undumpi_close(profile);
 	dumpi_finalize_mpi_op_data(my_ctx->dumpi_mpi_array);
 	/* add this rank context to hash table */	
-	qhash_add(rank_tbl, &(my_ctx->my_rank), &(my_ctx->hash_link));
+        rank_mpi_compare cmp;
+        cmp.app = my_ctx->my_app_id;
+        cmp.rank = my_ctx->my_rank;
+	qhash_add(rank_tbl, &cmp, &(my_ctx->hash_link));
 	rank_tbl_pop++;
 
 	return 0;
@@ -688,7 +697,10 @@ void dumpi_trace_nw_workload_get_next(int app_id, int rank, struct codes_workloa
    rank_mpi_context* temp_data;
    struct qhash_head *hash_link = NULL;
    struct codes_workload_op mpi_op;
-   hash_link = qhash_search(rank_tbl, &rank);
+   rank_mpi_compare cmp;
+   cmp.rank = rank;
+   cmp.app = app_id;
+   hash_link = qhash_search(rank_tbl, &cmp);
    if(!hash_link)
    {
       printf("\n not found for rank id %d ", rank);
