@@ -212,36 +212,36 @@ void codes_workload_print_op(
             break;
         case CODES_WK_DELAY:
             fprintf(f, "op: app:%d rank:%d type:delay seconds:%lf\n",
-                    rank, op->u.delay.seconds);
+                    app_id, rank, op->u.delay.seconds);
             break;
         case CODES_WK_BARRIER:
             fprintf(f, "op: app:%d rank:%d type:barrier count:%d root:%d\n",
-                    rank, op->u.barrier.count, op->u.barrier.root);
+                    app_id, rank, op->u.barrier.count, op->u.barrier.root);
             break;
         case CODES_WK_OPEN:
             fprintf(f, "op: app:%d rank:%d type:open file_id:%lu flag:%d\n",
-                    rank, op->u.open.file_id, op->u.open.create_flag);
+                    app_id, rank, op->u.open.file_id, op->u.open.create_flag);
             break;
         case CODES_WK_CLOSE:
             fprintf(f, "op: app:%d rank:%d type:close file_id:%lu\n",
-                    rank, op->u.close.file_id);
+                    app_id, rank, op->u.close.file_id);
             break;
         case CODES_WK_WRITE:
             fprintf(f, "op: app:%d rank:%d type:write "
                        "file_id:%lu off:%lu size:%lu\n",
-                    rank, op->u.write.file_id, op->u.write.offset,
+                    app_id, rank, op->u.write.file_id, op->u.write.offset,
                     op->u.write.size);
             break;
         case CODES_WK_READ:
             fprintf(f, "op: app:%d rank:%d type:read "
                        "file_id:%lu off:%lu size:%lu\n",
-                    rank, op->u.read.file_id, op->u.read.offset,
+                    app_id, rank, op->u.read.file_id, op->u.read.offset,
                     op->u.read.size);
             break;
         case CODES_WK_SEND:
             fprintf(f, "op: app:%d rank:%d type:send "
                     "src:%d dst:%d bytes:%d type:%d count:%d tag:%d\n",
-                    rank,
+                    app_id, rank,
                     op->u.send.source_rank, op->u.send.dest_rank,
                     op->u.send.num_bytes, op->u.send.data_type,
                     op->u.send.count, op->u.send.tag);
@@ -249,7 +249,7 @@ void codes_workload_print_op(
         case CODES_WK_RECV:
             fprintf(f, "op: app:%d rank:%d type:recv "
                     "src:%d dst:%d bytes:%d type:%d count:%d tag:%d\n",
-                    rank,
+                    app_id, rank,
                     op->u.recv.source_rank, op->u.recv.dest_rank,
                     op->u.recv.num_bytes, op->u.recv.data_type,
                     op->u.recv.count, op->u.recv.tag);
@@ -257,7 +257,7 @@ void codes_workload_print_op(
         case CODES_WK_ISEND:
             fprintf(f, "op: app:%d rank:%d type:isend "
                     "src:%d dst:%d bytes:%d type:%d count:%d tag:%d\n",
-                    rank,
+                    app_id, rank,
                     op->u.send.source_rank, op->u.send.dest_rank,
                     op->u.send.num_bytes, op->u.send.data_type,
                     op->u.send.count, op->u.send.tag);
@@ -265,38 +265,38 @@ void codes_workload_print_op(
         case CODES_WK_IRECV:
             fprintf(f, "op: app:%d rank:%d type:irecv "
                     "src:%d dst:%d bytes:%d type:%d count:%d tag:%d\n",
-                    rank,
+                    app_id, rank,
                     op->u.recv.source_rank, op->u.recv.dest_rank,
                     op->u.recv.num_bytes, op->u.recv.data_type,
                     op->u.recv.count, op->u.recv.tag);
             break;
         case CODES_WK_BCAST:
             fprintf(f, "op: app:%d rank:%d type:bcast "
-                    "bytes:%d\n", rank, op->u.collective.num_bytes);
+                    "bytes:%d\n", app_id, rank, op->u.collective.num_bytes);
             break;
         case CODES_WK_ALLGATHER:
             fprintf(f, "op: app:%d rank:%d type:allgather "
-                    "bytes:%d\n", rank, op->u.collective.num_bytes);
+                    "bytes:%d\n", app_id, rank, op->u.collective.num_bytes);
             break;
         case CODES_WK_ALLGATHERV:
             fprintf(f, "op: app:%d rank:%d type:allgatherv "
-                    "bytes:%d\n", rank, op->u.collective.num_bytes);
+                    "bytes:%d\n", app_id, rank, op->u.collective.num_bytes);
             break;
         case CODES_WK_ALLTOALL:
             fprintf(f, "op: app:%d rank:%d type:alltoall "
-                    "bytes:%d\n", rank, op->u.collective.num_bytes);
+                    "bytes:%d\n", app_id, rank, op->u.collective.num_bytes);
             break;
         case CODES_WK_ALLTOALLV:
             fprintf(f, "op: app:%d rank:%d type:alltoallv "
-                    "bytes:%d\n", rank, op->u.collective.num_bytes);
+                    "bytes:%d\n", app_id, rank, op->u.collective.num_bytes);
             break;
         case CODES_WK_REDUCE:
             fprintf(f, "op: app:%d rank:%d type:reduce "
-                    "bytes:%d\n", rank, op->u.collective.num_bytes);
+                    "bytes:%d\n", app_id, rank, op->u.collective.num_bytes);
             break;
         case CODES_WK_ALLREDUCE:
             fprintf(f, "op: app:%d rank:%d type:allreduce "
-                    "bytes:%d\n", rank, op->u.collective.num_bytes);
+                    "bytes:%d\n", app_id, rank, op->u.collective.num_bytes);
             break;
         case CODES_WK_COL:
             fprintf(f, "op: app:%d rank:%d type:collective "
@@ -304,19 +304,19 @@ void codes_workload_print_op(
             break;
         case CODES_WK_WAITALL:
             fprintf(f, "op: app:%d rank:%d type:waitall "
-                    "num reqs: :%d\n", op->u.waits.count);
+                    "num reqs: :%d\n", app_id, rank, op->u.waits.count);
             break;
         case CODES_WK_WAIT:
             fprintf(f, "op: app:%d rank:%d type:wait "
-                    "num reqs: :%d\n", op->u.wait.req_id);
+                    "num reqs: :%d\n", app_id, rank, op->u.wait.req_id);
             break;
         case CODES_WK_WAITSOME:
             fprintf(f, "op: app:%d rank:%d type:waitsome "
-                    "num reqs: :%d\n", op->u.waits.count);
+                    "num reqs: :%d\n", app_id, rank, op->u.waits.count);
             break;
         case CODES_WK_WAITANY:
             fprintf(f, "op: app:%d rank:%d type:waitany "
-                    "num reqs: :%d\n", op->u.waits.count);
+                    "num reqs: :%d\n", app_id, rank, op->u.waits.count);
             break;
         case CODES_WK_IGNORE:
             break;
