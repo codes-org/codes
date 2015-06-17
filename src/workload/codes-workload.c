@@ -60,6 +60,7 @@ struct rc_op
 /* tracks lifo queue of reversed operations for a given rank */
 struct rank_queue
 {
+    int app;
     int rank;
     struct rc_op *lifo;
     struct rank_queue *next;
@@ -92,7 +93,7 @@ int codes_workload_load(
             tmp = ranks;
             while(tmp)
             {
-                if(tmp->rank == rank)
+                if(tmp->rank == rank && tmp->app == app_id)
                     break;
                 tmp = tmp->next;
             }
@@ -100,6 +101,7 @@ int codes_workload_load(
             {
                 tmp = (struct rank_queue*)malloc(sizeof(*tmp));
                 assert(tmp);
+                tmp->app  = app_id;
                 tmp->rank = rank;
                 tmp->lifo = NULL;
                 tmp->next = ranks;
@@ -129,7 +131,7 @@ void codes_workload_get_next(
     tmp = ranks;
     while(tmp)
     {
-        if(tmp->rank == rank)
+        if(tmp->rank == rank && tmp->app == app_id)
             break;
         tmp = tmp->next;
     }
@@ -145,7 +147,7 @@ void codes_workload_get_next(
     }
 
     /* ask generator for the next operation */
-    method_array[wkld_id]->codes_workload_get_next(rank, app_id, op);
+    method_array[wkld_id]->codes_workload_get_next(app_id, rank, op);
 
     return;
 }
@@ -162,7 +164,7 @@ void codes_workload_get_next_rc(
     tmp = ranks;
     while(tmp)
     {
-        if(tmp->rank == rank)
+        if(tmp->rank == rank && tmp->app == app_id)
             break;
         tmp = tmp->next;
     }
