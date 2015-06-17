@@ -112,7 +112,7 @@ static int convertKLInstToEvent(int inst)
 
 static void codes_kernel_helper_parse_cf(char * io_kernel_path,
         char * io_kernel_meta_path, int task_rank, int max_ranks_default,
-        codes_workload_info * task_info, int use_relpath)
+        iolang_workload_info * task_info, int use_relpath)
 {
        int foundit = 0;
        char line[CK_LINE_LIMIT];
@@ -299,7 +299,7 @@ int codes_kernel_helper_parse_input(CodesIOKernel_pstate * ps, CodesIOKernelCont
 int codes_kernel_helper_bootstrap(char * io_kernel_path,
         char * io_kernel_meta_path, int rank, int num_ranks, int use_relpath,
         CodesIOKernelContext * c, CodesIOKernel_pstate ** ps,
-        codes_workload_info * task_info, codeslang_inst * next_event)
+        iolang_workload_info * task_info, codeslang_inst * next_event)
 {
     int t = CL_NOOP;
     int ret = 0;

@@ -51,7 +51,7 @@ struct codes_iolang_wrkld_state_per_rank
     CodesIOKernel_pstate * codes_pstate;
     codeslang_inst next_event;
     struct qhash_head hash_link;
-    codes_workload_info task_info;
+    iolang_workload_info task_info;
 };
 
 /* loads the workload file for each simulated MPI rank/ compute node LP */

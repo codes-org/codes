@@ -18,7 +18,6 @@
 typedef struct iolang_params iolang_params;
 typedef struct darshan_params darshan_params;
 typedef struct recorder_params recorder_params;
-typedef struct codes_workload_info codes_workload_info;
 
 /* struct to hold the actual data from a single MPI event*/
 typedef struct scala_trace_params scala_trace_params;
@@ -48,15 +47,6 @@ struct recorder_params
     int64_t nprocs;
 };
 
-
-struct codes_workload_info
-{
-    int group_id; /* group id */
-    int min_rank; /* minimum rank in the collective operation */
-    int max_rank; /* maximum rank in the collective operation */
-    int local_rank; /* local rank? never being used in the bg/p model */
-    int num_lrank; /* number of ranks participating in the collective operation*/
-};
 
 struct scala_trace_params {
    char offset_file_name[MAX_NAME_LENGTH_WKLD];
