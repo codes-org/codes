@@ -15,6 +15,13 @@
 #include "ross.h"
 #include "codes/codes-workload.h"
 
+#define APP_ID_UNSUPPORTED(id, name) \
+    if (id != 0) \
+        tw_error(TW_LOC,\
+                "APP IDs not supported for %s generator, 0 required", name);
+
+
+
 struct codes_workload_method
 {
     char *method_name; /* name of the generator */

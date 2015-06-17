@@ -60,6 +60,8 @@ int iolang_io_workload_load(const char* params, int app_id, int rank)
     int t = -1;
     iolang_params* i_param = (struct iolang_params*)params;
 
+    APP_ID_UNSUPPORTED(app_id, "iolang")
+
     /* we have to get the number of compute nodes/ranks from the bg/p model parameters
      * because the number of ranks are specified in the iolang config file not the
      * workload files */

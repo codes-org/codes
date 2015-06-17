@@ -507,6 +507,8 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	dumpi_trace_params* dumpi_params = (dumpi_trace_params*)params;
 	char file_name[MAX_LENGTH];
 
+        APP_ID_UNSUPPORTED(app_id, "dumpi")
+
 	if(rank >= dumpi_params->num_net_traces)
 		return -1;
 

@@ -81,6 +81,8 @@ static int recorder_io_workload_load(const char *params, int app_id, int rank)
     struct qhash_head *link = NULL;
     struct file_entry *file;
 
+    APP_ID_UNSUPPORTED(app_id, "recorder")
+
     int64_t nprocs = r_params->nprocs;
     char *trace_dir = r_params->trace_dir_path;
     if(!trace_dir)

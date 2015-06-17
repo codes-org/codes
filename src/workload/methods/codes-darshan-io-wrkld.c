@@ -114,6 +114,8 @@ static int darshan_io_workload_load(const char *params, int app_id, int rank)
     struct rank_io_context *my_ctx;
     int ret;
 
+    APP_ID_UNSUPPORTED(app_id, "darshan")
+
     if (!d_params)
         return -1;
 
