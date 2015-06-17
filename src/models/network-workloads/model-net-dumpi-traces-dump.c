@@ -163,7 +163,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 	//printf("\n network LP not generating events %d ", (int)s->nw_id);
 	return;
      }
-   wrkld_id = codes_workload_load("dumpi-trace-workload", params, (int)s->nw_id);
+   wrkld_id = codes_workload_load("dumpi-trace-workload", params, 0, (int)s->nw_id);
 
    /* clock starts ticking */
    s->elapsed_time = tw_now(lp);
@@ -188,7 +188,7 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 
 void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-        codes_workload_get_next_rc(wrkld_id, (int)s->nw_id, &m->op);
+        codes_workload_get_next_rc(wrkld_id, 0, (int)s->nw_id, &m->op);
         if(m->op.op_type == CODES_WK_END)
                 return;
 
@@ -274,7 +274,7 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
 static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
 		struct codes_workload_op mpi_op;
-    		codes_workload_get_next(wrkld_id, (int)s->nw_id, &mpi_op);
+    		codes_workload_get_next(wrkld_id, 0, (int)s->nw_id, &mpi_op);
 		memcpy(&m->op, &mpi_op, sizeof(struct codes_workload_op));
 
     		if(mpi_op.op_type == CODES_WK_END)
