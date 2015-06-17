@@ -149,7 +149,7 @@ int load_workload(char *conf_path, int rank)
         configuration_get_value(&config, "PARAMS", "aggregator_count", NULL, aggregator_count, 10);
         d_params.aggregator_cnt = atol(aggregator_count);
 
-        return codes_workload_load(workload_type, (char *)&d_params, rank);
+        return codes_workload_load(workload_type, (char *)&d_params, 0, rank);
     }
     else if (strcmp(workload_type, "iolang_workload") == 0)
     {
@@ -164,7 +164,7 @@ int load_workload(char *conf_path, int rank)
         i_params.num_cns = atoi(rank_count);
         i_params.use_relpath = 1;
 
-        return codes_workload_load(workload_type, (char *)&i_params, rank);
+        return codes_workload_load(workload_type, (char *)&i_params, 0, rank);
     }
     else if (strcmp(workload_type, "recorder_io_workload") == 0) {
         struct recorder_params r_params;
@@ -176,7 +176,7 @@ int load_workload(char *conf_path, int rank)
         configuration_get_value(&config, "PARAMS", "nprocs", NULL, nprocs, 10);
         r_params.nprocs = atol(nprocs);
 
-        return codes_workload_load(workload_type, (char *)&r_params, rank);
+        return codes_workload_load(workload_type, (char *)&r_params, 0, rank);
 
 	}
     else
@@ -264,7 +264,7 @@ int main(int argc, char *argv[])
     while (1)
     {
         /* get the next replay operation from the workload generator */
-        codes_workload_get_next(workload_id, myrank, &next_op);
+        codes_workload_get_next(workload_id, 0, myrank, &next_op);
 
         if (next_op.op_type != CODES_WK_END)
         {

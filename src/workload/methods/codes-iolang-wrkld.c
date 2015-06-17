@@ -21,10 +21,10 @@
 the BG/P storage model */
 
 /* load the workload file */
-int iolang_io_workload_load(const char* params, int rank);
+int iolang_io_workload_load(const char* params, int app_id, int rank);
 
 /* get next operation */
-void iolang_io_workload_get_next(int rank, struct codes_workload_op *op);
+void iolang_io_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
 
 /* mapping from bg/p operation enums to CODES workload operations enum */
 static int convertTypes(int inst);
@@ -55,7 +55,7 @@ struct codes_iolang_wrkld_state_per_rank
 };
 
 /* loads the workload file for each simulated MPI rank/ compute node LP */
-int iolang_io_workload_load(const char* params, int rank)
+int iolang_io_workload_load(const char* params, int app_id, int rank)
 {
     int t = -1;
     iolang_params* i_param = (struct iolang_params*)params;
@@ -126,7 +126,7 @@ static int convertTypes(int inst)
 }
 
 /* Gets the next operation specified in the workload file for the simulated MPI rank */
-void iolang_io_workload_get_next(int rank, struct codes_workload_op *op)
+void iolang_io_workload_get_next(int app_id, int rank, struct codes_workload_op *op)
 {
     /* If the number of simulated compute nodes per LP is initialized only then we get the next operation
 	else we return an error code may be?  */

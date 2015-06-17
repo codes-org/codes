@@ -186,19 +186,21 @@ struct codes_workload_op
         struct {
             int num_bytes;
         } collective;
-	struct {
-	    int count;
-	    int16_t* req_ids;
-	} waits;
-	struct {
-	   int16_t req_id;
-	} wait;
+        struct {
+            int count;
+            int16_t* req_ids;
+        } waits;
+        struct {
+            int16_t req_id;
+        } wait;
     }u;
 };
 
 /* load and initialize workload of of type "type" with parameters specified by
  * "params".  The rank is the caller's relative rank within the collection
- * of processes that will participate in this workload.
+ * of processes that will participate in this workload. The app_id is the
+ * "application" that the rank is participating in, used to differentiate
+ * between multiple, concurrent workloads
  *
  * This function is intended to be called by a compute node LP in a model
  * and may be called multiple times over the course of a
@@ -207,22 +209,41 @@ struct codes_workload_op
  * Returns and identifier that can be used to retrieve operations later.
  * Returns -1 on failure.
  */
-int codes_workload_load(const char* type, const char* params, int rank);
+int codes_workload_load(
+        const char* type,
+        const char* params,
+        int app_id,
+        int rank);
 
 /* Retrieves the next I/O operation to execute.  the wkld_id is the
  * identifier returned by the init() function.  The op argument is a pointer
  * to a structure to be filled in with I/O operation information.
  */
-void codes_workload_get_next(int wkld_id, int rank, struct codes_workload_op *op);
+void codes_workload_get_next(
+        int wkld_id,
+        int app_id,
+        int rank,
+        struct codes_workload_op *op);
 
 /* Reverse of the above function. */
-void codes_workload_get_next_rc(int wkld_id, int rank, const struct codes_workload_op *op);
+void codes_workload_get_next_rc(
+        int wkld_id,
+        int app_id,
+        int rank,
+        const struct codes_workload_op *op);
 
 /* Retrieve the number of ranks contained in a workload */
-int codes_workload_get_rank_cnt(const char* type, const char* params);
+int codes_workload_get_rank_cnt(
+        const char* type,
+        const char* params,
+        int app_id);
 
 /* for debugging/logging: print an individual operation to the specified file */
-void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank);
+void codes_workload_print_op(
+        FILE *f,
+        struct codes_workload_op *op,
+        int app_id,
+        int rank);
 
 /* NOTE: there is deliberately no finalize function; we don't have any
  * reliable way to tell when a workload is truly done and will not
@@ -236,6 +257,7 @@ void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank);
  * Local variables:
  *  c-indent-level: 4
  *  c-basic-offset: 4
+ *  indent-tabs-mode: nil
  * End:
  *
  * vim: ft=c ts=8 sts=4 sw=4 expandtab

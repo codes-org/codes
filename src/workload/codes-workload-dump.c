@@ -215,7 +215,7 @@ int main(int argc, char *argv[])
 
     /* if num_ranks not set, pull it from the workload */
     if (n == -1){
-        n = codes_workload_get_rank_cnt(type, wparams);
+        n = codes_workload_get_rank_cnt(type, wparams, 0);
         if (n == -1) {
             fprintf(stderr,
                     "Unable to get rank count from workload. "
@@ -227,11 +227,11 @@ int main(int argc, char *argv[])
     for (i = 0 ; i < n; i++){
         struct codes_workload_op op;
         printf("loading %s, %d\n", type, i);
-        int id = codes_workload_load(type, wparams, i);
+        int id = codes_workload_load(type, wparams, 0, i);
         assert(id != -1);
         do {
-            codes_workload_get_next(id, i, &op);
-            codes_workload_print_op(stdout, &op, i);
+            codes_workload_get_next(id, 0, i, &op);
+            codes_workload_print_op(stdout, &op, 0, i);
 
             switch(op.op_type)
             {

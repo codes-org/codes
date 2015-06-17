@@ -15,8 +15,8 @@
 #include "codes/codes-workload.h"
 #include "src/workload/codes-workload-method.h"
 
-static int test_workload_load(const char* params, int rank);
-static void test_workload_get_next(int rank, struct codes_workload_op *op);
+static int test_workload_load(const char* params, int app_id, int rank);
+static void test_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
 
 /* state information for each rank that is retrieving requests */
 struct wkload_stream_state
@@ -38,7 +38,7 @@ struct codes_workload_method test_workload_method =
     .codes_workload_get_next = test_workload_get_next,
 };
 
-static int test_workload_load(const char* params, int rank)
+static int test_workload_load(const char* params, int app_id, int rank)
 {
     /* no params in this case; this example will work with any number of
      * ranks
@@ -88,7 +88,7 @@ static int test_workload_load(const char* params, int rank)
 }
 
 /* find the next workload operation to issue for this rank */
-static void test_workload_get_next(int rank, struct codes_workload_op *op)
+static void test_workload_get_next(int app_id, int rank, struct codes_workload_op *op)
 {
     struct wkload_stream_state* tmp = wkload_streams;
     struct wkload_stream_state* tmp2 = wkload_streams;

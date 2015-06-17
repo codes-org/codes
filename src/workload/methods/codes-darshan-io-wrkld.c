@@ -44,9 +44,9 @@ struct rank_io_context
 };
 
 /* Darshan workload generator's implementation of the CODES workload API */
-static int darshan_io_workload_load(const char *params, int rank);
-static void darshan_io_workload_get_next(int rank, struct codes_workload_op *op);
-static int darshan_io_workload_get_rank_cnt(const char *params);
+static int darshan_io_workload_load(const char *params, int app_id, int rank);
+static void darshan_io_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
+static int darshan_io_workload_get_rank_cnt(const char *params, int app_id);
 static int darshan_rank_hash_compare(void *key, struct qhash_head *link);
 
 /* Darshan I/O op data structure access (insert, remove) abstraction */
@@ -105,7 +105,7 @@ static struct qhash_table *rank_tbl = NULL;
 static int rank_tbl_pop = 0;
 
 /* load the workload generator for this rank, given input params */
-static int darshan_io_workload_load(const char *params, int rank)
+static int darshan_io_workload_load(const char *params, int app_id, int rank)
 {
     darshan_params *d_params = (darshan_params *)params;
     darshan_fd logfile_fd;
@@ -201,7 +201,7 @@ static int darshan_io_workload_load(const char *params, int rank)
 }
 
 /* pull the next event (independent or collective) for this rank from its event context */
-static void darshan_io_workload_get_next(int rank, struct codes_workload_op *op)
+static void darshan_io_workload_get_next(int app_id, int rank, struct codes_workload_op *op)
 {
     int64_t my_rank = (int64_t)rank;
     struct qhash_head *hash_link = NULL;
@@ -252,7 +252,7 @@ static void darshan_io_workload_get_next(int rank, struct codes_workload_op *op)
     return;
 }
 
-static int darshan_io_workload_get_rank_cnt(const char *params)
+static int darshan_io_workload_get_rank_cnt(const char *params, int app_id)
 {
     darshan_params *d_params = (darshan_params *)params;
     darshan_fd logfile_fd;
@@ -1718,6 +1718,7 @@ static void file_sanity_check(
  * Local variables:
  *  c-indent-level: 4
  *  c-basic-offset: 4
+ *  indent-tabs-mode: nil
  * End:
  *
  * vim: ft=c ts=8 sts=4 sw=4 expandtab

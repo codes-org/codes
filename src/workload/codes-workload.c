@@ -67,7 +67,11 @@ struct rank_queue
 
 static struct rank_queue *ranks = NULL;
 
-int codes_workload_load(const char* type, const char* params, int rank)
+int codes_workload_load(
+        const char* type,
+        const char* params,
+        int app_id,
+        int rank)
 {
     int i;
     int ret;
@@ -78,7 +82,7 @@ int codes_workload_load(const char* type, const char* params, int rank)
         if(strcmp(method_array[i]->method_name, type) == 0)
         {
             /* load appropriate workload generator */
-            ret = method_array[i]->codes_workload_load(params, rank);
+            ret = method_array[i]->codes_workload_load(params, app_id, rank);
             if(ret < 0)
             {
                 return(-1);
@@ -110,7 +114,11 @@ int codes_workload_load(const char* type, const char* params, int rank)
     return(-1);
 }
 
-void codes_workload_get_next(int wkld_id, int rank, struct codes_workload_op *op)
+void codes_workload_get_next(
+        int wkld_id,
+        int app_id,
+        int rank,
+        struct codes_workload_op *op)
 {
     struct rank_queue *tmp;
     struct rc_op *tmp_op;
@@ -133,18 +141,20 @@ void codes_workload_get_next(int wkld_id, int rank, struct codes_workload_op *op
 
         *op = tmp_op->op;
         free(tmp_op);
-        //printf("codes_workload_get_next re-issuing reversed operation.\n");
         return;
     }
 
     /* ask generator for the next operation */
-    //printf("codes_workload_get_next issuing new operation.\n");
-    method_array[wkld_id]->codes_workload_get_next(rank, op);
+    method_array[wkld_id]->codes_workload_get_next(rank, app_id, op);
 
     return;
 }
 
-void codes_workload_get_next_rc(int wkld_id, int rank, const struct codes_workload_op *op)
+void codes_workload_get_next_rc(
+        int wkld_id,
+        int app_id,
+        int rank,
+        const struct codes_workload_op *op)
 {
     struct rank_queue *tmp;
     struct rc_op *tmp_op;
@@ -167,7 +177,10 @@ void codes_workload_get_next_rc(int wkld_id, int rank, const struct codes_worklo
     return;
 }
 
-int codes_workload_get_rank_cnt(const char* type, const char* params)
+int codes_workload_get_rank_cnt(
+        const char* type,
+        const char* params,
+        int app_id)
 {
     int i;
     int rank_cnt;
@@ -176,7 +189,8 @@ int codes_workload_get_rank_cnt(const char* type, const char* params)
     {
         if(strcmp(method_array[i]->method_name, type) == 0)
         {
-            rank_cnt = method_array[i]->codes_workload_get_rank_cnt(params);
+            rank_cnt =
+                method_array[i]->codes_workload_get_rank_cnt(params, app_id);
             assert(rank_cnt > 0);
             return(rank_cnt);
         }
@@ -186,41 +200,46 @@ int codes_workload_get_rank_cnt(const char* type, const char* params)
     return(-1);
 }
 
-void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank){
+void codes_workload_print_op(
+        FILE *f,
+        struct codes_workload_op *op,
+        int app_id,
+        int rank)
+{
     switch(op->op_type){
         case CODES_WK_END:
-            fprintf(f, "op: rank:%d type:end\n", rank);
+            fprintf(f, "op: app:%d rank:%d type:end\n", app_id, rank);
             break;
         case CODES_WK_DELAY:
-            fprintf(f, "op: rank:%d type:delay seconds:%lf\n",
+            fprintf(f, "op: app:%d rank:%d type:delay seconds:%lf\n",
                     rank, op->u.delay.seconds);
             break;
         case CODES_WK_BARRIER:
-            fprintf(f, "op: rank:%d type:barrier count:%d root:%d\n",
+            fprintf(f, "op: app:%d rank:%d type:barrier count:%d root:%d\n",
                     rank, op->u.barrier.count, op->u.barrier.root);
             break;
         case CODES_WK_OPEN:
-            fprintf(f, "op: rank:%d type:open file_id:%lu flag:%d\n",
+            fprintf(f, "op: app:%d rank:%d type:open file_id:%lu flag:%d\n",
                     rank, op->u.open.file_id, op->u.open.create_flag);
             break;
         case CODES_WK_CLOSE:
-            fprintf(f, "op: rank:%d type:close file_id:%lu\n",
+            fprintf(f, "op: app:%d rank:%d type:close file_id:%lu\n",
                     rank, op->u.close.file_id);
             break;
         case CODES_WK_WRITE:
-            fprintf(f, "op: rank:%d type:write "
+            fprintf(f, "op: app:%d rank:%d type:write "
                        "file_id:%lu off:%lu size:%lu\n",
                     rank, op->u.write.file_id, op->u.write.offset,
                     op->u.write.size);
             break;
         case CODES_WK_READ:
-            fprintf(f, "op: rank:%d type:read "
+            fprintf(f, "op: app:%d rank:%d type:read "
                        "file_id:%lu off:%lu size:%lu\n",
                     rank, op->u.read.file_id, op->u.read.offset,
                     op->u.read.size);
             break;
         case CODES_WK_SEND:
-            fprintf(f, "op: rank:%d type:send "
+            fprintf(f, "op: app:%d rank:%d type:send "
                     "src:%d dst:%d bytes:%d type:%d count:%d tag:%d\n",
                     rank,
                     op->u.send.source_rank, op->u.send.dest_rank,
@@ -228,7 +247,7 @@ void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank){
                     op->u.send.count, op->u.send.tag);
             break;
         case CODES_WK_RECV:
-            fprintf(f, "op: rank:%d type:recv "
+            fprintf(f, "op: app:%d rank:%d type:recv "
                     "src:%d dst:%d bytes:%d type:%d count:%d tag:%d\n",
                     rank,
                     op->u.recv.source_rank, op->u.recv.dest_rank,
@@ -236,7 +255,7 @@ void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank){
                     op->u.recv.count, op->u.recv.tag);
             break;
         case CODES_WK_ISEND:
-            fprintf(f, "op: rank:%d type:isend "
+            fprintf(f, "op: app:%d rank:%d type:isend "
                     "src:%d dst:%d bytes:%d type:%d count:%d tag:%d\n",
                     rank,
                     op->u.send.source_rank, op->u.send.dest_rank,
@@ -244,7 +263,7 @@ void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank){
                     op->u.send.count, op->u.send.tag);
             break;
         case CODES_WK_IRECV:
-            fprintf(f, "op: rank:%d type:irecv "
+            fprintf(f, "op: app:%d rank:%d type:irecv "
                     "src:%d dst:%d bytes:%d type:%d count:%d tag:%d\n",
                     rank,
                     op->u.recv.source_rank, op->u.recv.dest_rank,
@@ -252,53 +271,53 @@ void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank){
                     op->u.recv.count, op->u.recv.tag);
             break;
         case CODES_WK_BCAST:
-            fprintf(f, "op: rank:%d type:bcast "
+            fprintf(f, "op: app:%d rank:%d type:bcast "
                     "bytes:%d\n", rank, op->u.collective.num_bytes);
             break;
         case CODES_WK_ALLGATHER:
-            fprintf(f, "op: rank:%d type:allgather "
+            fprintf(f, "op: app:%d rank:%d type:allgather "
                     "bytes:%d\n", rank, op->u.collective.num_bytes);
             break;
         case CODES_WK_ALLGATHERV:
-            fprintf(f, "op: rank:%d type:allgatherv "
+            fprintf(f, "op: app:%d rank:%d type:allgatherv "
                     "bytes:%d\n", rank, op->u.collective.num_bytes);
             break;
         case CODES_WK_ALLTOALL:
-            fprintf(f, "op: rank:%d type:alltoall "
+            fprintf(f, "op: app:%d rank:%d type:alltoall "
                     "bytes:%d\n", rank, op->u.collective.num_bytes);
             break;
         case CODES_WK_ALLTOALLV:
-            fprintf(f, "op: rank:%d type:alltoallv "
+            fprintf(f, "op: app:%d rank:%d type:alltoallv "
                     "bytes:%d\n", rank, op->u.collective.num_bytes);
             break;
         case CODES_WK_REDUCE:
-            fprintf(f, "op: rank:%d type:reduce "
+            fprintf(f, "op: app:%d rank:%d type:reduce "
                     "bytes:%d\n", rank, op->u.collective.num_bytes);
             break;
         case CODES_WK_ALLREDUCE:
-            fprintf(f, "op: rank:%d type:allreduce "
+            fprintf(f, "op: app:%d rank:%d type:allreduce "
                     "bytes:%d\n", rank, op->u.collective.num_bytes);
             break;
         case CODES_WK_COL:
-            fprintf(f, "op: rank:? type:collective "
-                    "bytes:%d\n", op->u.collective.num_bytes);
+            fprintf(f, "op: app:%d rank:%d type:collective "
+                    "bytes:%d\n", app_id, rank, op->u.collective.num_bytes);
             break;
-	case CODES_WK_WAITALL:
-	    fprintf(f, "op: rank:? type:waitall "
-                     "num reqs: :%d\n", op->u.waits.count);
-	    break;
-	case CODES_WK_WAIT:
-	    fprintf(f, "op: rank:? type:wait "
-                     "num reqs: :%d\n", op->u.wait.req_id);
-	    break;
-	case CODES_WK_WAITSOME:
-	    fprintf(f, "op: rank:? type:waitsome "
-                     "num reqs: :%d\n", op->u.waits.count);
-	    break;
-	case CODES_WK_WAITANY:
-	    fprintf(f, "op: rank:? type:waitany "
-                     "num reqs: :%d\n", op->u.waits.count);
-	    break;
+        case CODES_WK_WAITALL:
+            fprintf(f, "op: app:%d rank:%d type:waitall "
+                    "num reqs: :%d\n", op->u.waits.count);
+            break;
+        case CODES_WK_WAIT:
+            fprintf(f, "op: app:%d rank:%d type:wait "
+                    "num reqs: :%d\n", op->u.wait.req_id);
+            break;
+        case CODES_WK_WAITSOME:
+            fprintf(f, "op: app:%d rank:%d type:waitsome "
+                    "num reqs: :%d\n", op->u.waits.count);
+            break;
+        case CODES_WK_WAITANY:
+            fprintf(f, "op: app:%d rank:%d type:waitany "
+                    "num reqs: :%d\n", op->u.waits.count);
+            break;
         case CODES_WK_IGNORE:
             break;
         default:
@@ -312,6 +331,7 @@ void codes_workload_print_op(FILE *f, struct codes_workload_op *op, int rank){
  * Local variables:
  *  c-indent-level: 4
  *  c-basic-offset: 4
+ *  indent-tabs-mode: nil
  * End:
  *
  * vim: ft=c ts=8 sts=4 sw=4 expandtab

@@ -43,10 +43,10 @@ typedef struct dumpi_op_data_array
 } dumpi_op_data_array;
 
 /* load the trace */
-int dumpi_trace_nw_workload_load(const char* params, int rank);
+int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank);
 
 /* dumpi implementation of get next operation in the workload */
-void dumpi_trace_nw_workload_get_next(int rank, struct codes_workload_op *op);
+void dumpi_trace_nw_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
 
 /* get number of bytes from the workload data type and count */
 int get_num_bytes(dumpi_datatype dt);
@@ -499,7 +499,7 @@ static int hash_rank_compare(void *key, struct qhash_head *link)
     return 0;
 }
 
-int dumpi_trace_nw_workload_load(const char* params, int rank)
+int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 {
 	libundumpi_callbacks callbacks;
 	libundumpi_cbpair callarr[DUMPI_END_OF_STREAM];
@@ -681,7 +681,7 @@ int get_num_bytes(dumpi_datatype dt)
    } 
 }
 
-void dumpi_trace_nw_workload_get_next(int rank, struct codes_workload_op *op)
+void dumpi_trace_nw_workload_get_next(int app_id, int rank, struct codes_workload_op *op)
 {
    rank_mpi_context* temp_data;
    struct qhash_head *hash_link = NULL;
@@ -725,6 +725,7 @@ struct codes_workload_method dumpi_trace_workload_method =
  * Local variables:
  *  c-indent-level: 4
  *  c-basic-offset: 4
+ *  indent-tabs-mode: nil
  * End:
  *
  * vim: ft=c ts=8 sts=4 sw=4 expandtab

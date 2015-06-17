@@ -221,7 +221,7 @@ static void handle_client_op_loop_rev_event(
     tw_lp * lp)
 {
 
-    codes_workload_get_next_rc(ns->wkld_id, ns->my_rank, &m->op_rc);
+    codes_workload_get_next_rc(ns->wkld_id, 0, ns->my_rank, &m->op_rc);
 
     switch(m->op_rc.op_type)
     {
@@ -302,11 +302,11 @@ static void handle_client_op_loop_event(
         printf("codes_workload_load on gid: %ld\n", lp->gid);
 	
 	if(strcmp(workload_type, "test") == 0)
-           ns->wkld_id = codes_workload_load("test", NULL, ns->my_rank);
+           ns->wkld_id = codes_workload_load("test", NULL, 0, ns->my_rank);
 	else 
 	    if(strcmp(workload_type, "iolang_workload") == 0)
 	    {
-	        ns->wkld_id = codes_workload_load("iolang_workload", (char*)&ioparams, ns->my_rank);
+	        ns->wkld_id = codes_workload_load("iolang_workload", (char*)&ioparams, 0, ns->my_rank);
 	    }
 
         assert(ns->wkld_id > -1);
@@ -316,7 +316,7 @@ static void handle_client_op_loop_event(
      * inbound message for this function, so that we have it saved for
      * reverse computation if needed.
      */
-   codes_workload_get_next(ns->wkld_id, ns->my_rank, &m->op_rc);
+   codes_workload_get_next(ns->wkld_id, 0, ns->my_rank, &m->op_rc);
 
     /* NOTE: in this test model the LP is doing its own math to find the LP
      * ID of servers just to do something simple.  It knows that compute
