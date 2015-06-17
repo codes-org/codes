@@ -1374,6 +1374,36 @@ struct model_net_method torus_method =
    .mn_collective_call_rc = torus_collective_rc
 };
 
+/* user-facing modelnet functions */
+void model_net_torus_get_dims(
+        char const        * anno,
+        int                 ignore_annotations,
+        int               * n,
+        int const        ** dims)
+{
+    torus_param const * p = NULL;
+    int i;
+
+    if (ignore_annotations)
+        p = &all_params[0];
+    else if (anno_map->has_unanno_lp > 0 && anno == NULL)
+        p = &all_params[anno_map->num_annos];
+    else {
+        for (i = 0; i < num_params; i++) {
+            if (strcmp(anno, anno_map->annotations[i]) == 0) {
+                p = &all_params[i];
+                break;
+            }
+        }
+    }
+
+    if (p == NULL)
+        tw_error(TW_LOC, "unable to find configuration for annotation %s", anno);
+
+    *n = p->n_dims;
+    *dims = p->dim_length;
+}
+
 /*
  * Local variables:
  *  c-indent-level: 4
