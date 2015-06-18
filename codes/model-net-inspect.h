@@ -15,6 +15,8 @@
  * annotation), while ignore_annotations is a flag controlling whether
  * annotations are checked for or not - if not, then */
 
+/** TORUS FUNCTIONS **/
+
 /* get the dimensions of a torus configuration torus network. n and dims are
  * return paramters */
 void model_net_torus_get_dims(
@@ -23,6 +25,17 @@ void model_net_torus_get_dims(
         int               * n,
         int const * const * dims);
 
+/* mapping utilities to and from linearized torus node ids */
+void model_net_torus_get_dim_id(
+        int         flat_id,
+        int         ndims,
+        const int * dim_lens,
+        int       * out_dim_ids);
+
+int model_net_torus_get_flat_id(
+        int         ndims,
+        const int * dim_lens,
+        const int * dim_ids);
 
 #endif /* end of include guard: MODEL_NET_INSPECT_H */
 

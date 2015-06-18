@@ -1404,6 +1404,24 @@ void model_net_torus_get_dims(
     *dims = p->dim_length;
 }
 
+void model_net_torus_get_dim_id(
+        int         flat_id,
+        int         ndims,
+        const int * dim_lens,
+        int       * out_dim_ids)
+{
+    to_dim_id(flat_id, ndims, dim_lens, out_dim_ids);
+}
+
+int model_net_torus_get_flat_id(
+        int         ndims,
+        const int * dim_lens,
+        const int * dim_ids)
+{
+    return to_flat_id(ndims, dim_lens, dim_ids);
+}
+
+
 /*
  * Local variables:
  *  c-indent-level: 4
