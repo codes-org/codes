@@ -379,7 +379,9 @@ directly into the event structure then free the original copy, though it will
 increase the event structure size for the LP accordingly.
 
 In the future, optimistic-mode-aware free lists may be provided by ROSS that
-will mitigate this problem.
+will mitigate this problem. At the moment, a manual implementation of this is
+provided in codes by codes/rc-stack.h (see tests/rc-stack-test.c for a
+simple demonstration).
 
 \subsection{Handling non-trivial event dependencies: queuing example}
 
