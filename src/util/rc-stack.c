@@ -63,12 +63,17 @@ void rc_stack_push(
 }
 
 void* rc_stack_pop(struct rc_stack *s){
+    void * ret = NULL;
+    rc_entry *ent = NULL;
     struct qlist_head *item = qlist_pop_back(&s->head);
     if (item == NULL)
         tw_error(TW_LOC,
                 "could not pop item from rc stack (stack likely empty)\n");
     s->count--;
-    return qlist_entry(item, rc_entry, ql)->data;
+    ent = qlist_entry(item, rc_entry, ql);
+    ret = ent->data;
+    free(ent);
+    return ret;
 }
 
 int rc_stack_count(struct rc_stack *s) { return s->count; }
