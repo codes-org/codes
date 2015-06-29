@@ -52,7 +52,7 @@ tests_rc_stack_test_SOURCES = tests/rc-stack-test.c
 
 tests_jobmap_test_LDADD = $(testlib) ${ROSS_LIBS}
 tests_jobmap_test_LDFLAGS = ${ROSS_LDFLAGS}
-tests_jobmap_test_SOURCES = tests/rc-stack-test.c
+tests_jobmap_test_SOURCES = tests/jobmap-test.c
 
 tests_workload_codes_workload_test_LDADD = $(testlib) ${ROSS_LIBS}
 tests_workload_codes_workload_test_LDFLAGS = ${ROSS_LDFLAGS}

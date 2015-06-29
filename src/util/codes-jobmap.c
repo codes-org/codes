@@ -45,11 +45,18 @@ void codes_jobmap_destroy(struct codes_jobmap_ctx *c)
     free(c);
 }
 
-struct codes_jobmap_id codes_jobmap_lookup(
+struct codes_jobmap_id codes_jobmap_to_local_id(
         int id,
         struct codes_jobmap_ctx const * c)
 {
-    return c->impl->lookup(id, c->ctx);
+    return c->impl->to_local(id, c->ctx);
+}
+
+int codes_jobmap_to_global_id(
+        struct codes_jobmap_id id,
+        struct codes_jobmap_ctx const * c)
+{
+    return c->impl->to_global(id, c->ctx);
 }
 
 int codes_jobmap_get_num_jobs(struct codes_jobmap_ctx const * c)

@@ -24,18 +24,22 @@ int main(int argc, char *argv[])
 
     /* initialize */
     c = codes_jobmap_configure(CODES_JOBMAP_DUMMY, &p);
-    if (c) ERR("jobmap configure failure");
+    if (!c) ERR("jobmap configure failure");
 
     /* successful lookups */
     struct codes_jobmap_id id;
     for (int i = 0; i < N; i++) {
-        id = codes_jobmap_lookup(i, c);
+        id = codes_jobmap_to_local_id(i, c);
         if (id.job != i || id.rank != 0)
             ERR("lookup failure for %d: expected (%d,%d), got (%d,%d)",
                     i, i, 0, id.job, id.rank);
+        else {
+            id.job = -1;
+            id.rank = -1;
+        }
     }
     /* bad lookup */
-    id = codes_jobmap_lookup(10, c);
+    id = codes_jobmap_to_local_id(10, c);
     if (id.job != -1 || id.rank != -1)
         ERR("lookup expected failure for 10: expected (%d,%d), got (%d,%d)",
                 -1,-1, id.job,id.rank);

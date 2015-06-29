@@ -11,9 +11,9 @@
  *
  * Example:
  *
- * job  0      1    2
- * rank 0 1 2  0 1  0 1 2 3
- * ID   0 1 2  3 4  5 6 7 8  (<-- LP relative ID)
+ * job  0      1    2        (<-- jobmap defined "local" IDs)
+ * rank 0 1 2  0 1  0 1 2 3  (<-- jobmap defined "local" IDs)
+ * ID   0 1 2  3 4  5 6 7 8  (<-- LP relative "global" ID)
  * LP   A B C  D E  F G H I  (<-- provided by codes-mapping)
  * */
 
@@ -46,8 +46,18 @@ codes_jobmap_configure(enum codes_jobmap_type t, void const * params);
 
 void codes_jobmap_destroy(struct codes_jobmap_ctx *c);
 
-struct codes_jobmap_id codes_jobmap_lookup(
+/* main mapping functions - bidirectional mapping is needed:
+ * - global -> local ID for initialization
+ * - local -> global ID for communication between local IDs
+ *
+ * functions return {-1, -1} and -1, respectively, for invalid id input */
+
+struct codes_jobmap_id codes_jobmap_to_local_id(
         int id,
+        struct codes_jobmap_ctx const * c);
+
+int codes_jobmap_to_global_id(
+        struct codes_jobmap_id id,
         struct codes_jobmap_ctx const * c);
 
 int codes_jobmap_get_num_jobs(struct codes_jobmap_ctx const * c);
