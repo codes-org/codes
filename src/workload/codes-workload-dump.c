@@ -16,11 +16,13 @@ static iolang_params i_params = {0, 0, "", ""};
 static recorder_params r_params = {"", 0};
 static dumpi_trace_params du_params = {"", 0}; 
 static int n = -1;
+static int start_rank = 0;
 
 static struct option long_opts[] = 
 {
     {"type", required_argument, NULL, 't'},
     {"num-ranks", required_argument, NULL, 'n'},
+    {"start-rank", required_argument, NULL, 'r'},
     {"d-log", required_argument, NULL, 'l'},
     {"d-aggregator-cnt", required_argument, NULL, 'a'},
     {"i-meta", required_argument, NULL, 'm'},
@@ -92,7 +94,7 @@ int main(int argc, char *argv[])
     int64_t num_testalls = 0;
 
     char ch;
-    while ((ch = getopt_long(argc, argv, "t:n:l:a:m:sp:w", long_opts, NULL)) != -1){
+    while ((ch = getopt_long(argc, argv, "t:n:l:a:m:sp:wr:", long_opts, NULL)) != -1){
         switch (ch){
             case 't':
                 strcpy(type, optarg);
@@ -124,6 +126,10 @@ int main(int argc, char *argv[])
 		break;
             case 's':
                 print_stats = 1;
+                break;
+            case 'r':
+                start_rank = atoi(optarg);
+                assert(n>0);
                 break;
         }
     }
@@ -224,7 +230,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    for (i = 0 ; i < n; i++){
+    for (i = start_rank ; i < start_rank+n; i++){
         struct codes_workload_op op;
         printf("loading %s, %d\n", type, i);
         int id = codes_workload_load(type, wparams, 0, i);
