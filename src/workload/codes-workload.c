@@ -243,7 +243,7 @@ void codes_workload_print_op(
         case CODES_WK_SEND:
             fprintf(f, "op: app:%d rank:%d type:send "
                     "src:%d dst:%d bytes:%d type:%d count:%d tag:%d "
-                    "start:%.3e end:%.3e\n",
+                    "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.send.source_rank, op->u.send.dest_rank,
                     op->u.send.num_bytes, op->u.send.data_type,
@@ -253,7 +253,7 @@ void codes_workload_print_op(
         case CODES_WK_RECV:
             fprintf(f, "op: app:%d rank:%d type:recv "
                     "src:%d dst:%d bytes:%d type:%d count:%d tag:%d\n"
-                    "start:%.3e end:%.3e\n",
+                    "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.recv.source_rank, op->u.recv.dest_rank,
                     op->u.recv.num_bytes, op->u.recv.data_type,
@@ -263,7 +263,7 @@ void codes_workload_print_op(
         case CODES_WK_ISEND:
             fprintf(f, "op: app:%d rank:%d type:isend "
                     "src:%d dst:%d bytes:%d type:%d count:%d tag:%d\n"
-                    "start:%.3e end:%.3e\n",
+                    "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.send.source_rank, op->u.send.dest_rank,
                     op->u.send.num_bytes, op->u.send.data_type,
@@ -273,7 +273,7 @@ void codes_workload_print_op(
         case CODES_WK_IRECV:
             fprintf(f, "op: app:%d rank:%d type:irecv "
                     "src:%d dst:%d bytes:%d type:%d count:%d tag:%d\n"
-                    "start:%.3e end:%.3e\n",
+                    "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.recv.source_rank, op->u.recv.dest_rank,
                     op->u.recv.num_bytes, op->u.recv.data_type,
@@ -282,7 +282,7 @@ void codes_workload_print_op(
             break;
 #define PRINT_COL(_type_str) \
             fprintf(f, "op: app:%d rank:%d type:%s" \
-                    " bytes:%d, start:%.3e, end:%.3e\n", app_id, rank, \
+                    " bytes:%d, start:%.5e, end:%.5e\n", app_id, rank, \
                     _type_str, op->u.collective.num_bytes, op->start_time, \
                     op->end_time)
         case CODES_WK_BCAST:
@@ -312,7 +312,7 @@ void codes_workload_print_op(
 #undef PRINT_COL
 #define PRINT_WAIT(_type_str, _ct) \
             fprintf(f, "op: app:%d rank:%d type:%s" \
-                    "num reqs:%d, start:%.3e, end:%.3e\n", \
+                    "num reqs:%d, start:%.5e, end:%.5e\n", \
                     app_id, rank, _type_str, _ct, op->start_time, op->end_time)
         case CODES_WK_WAITALL:
             PRINT_WAIT("waitall", op->u.waits.count);
