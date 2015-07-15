@@ -22,11 +22,11 @@ $(pkgconfig_DATA): config.status
 
 EXTRA_DIST += prepare.sh COPYRIGHT configure.ac reformat.sh uc-codes.cfg
 
-AM_CPPFLAGS = -I$(top_srcdir)/src ${ROSS_CPPFLAGS}
+AM_CPPFLAGS = -I$(top_srcdir)/src ${ROSS_CFLAGS}
 
-AM_CFLAGS = ${ROSS_CFLAGS}
+AM_CFLAGS =
 
-AM_LIBS = ${ROSS_LIBS}
+AM_LDFLAGS = ${ROSS_LDFLAGS}
 
 AM_CXXFLAGS = $(AM_CFLAGS)
 
@@ -54,5 +54,4 @@ AM_CPPFLAGS += ${DUMPI_CFLAGS} -DUSE_DUMPI=1
 src_libcodes_base_a_SOURCES += src/workload/methods/codes-dumpi-trace-nw-wrkld.c 
 tests_workload_codes_workload_test_LDADD += ${DUMPI_LIBS}
 tests_workload_codes_workload_mpi_replay_LDADD += ${DUMPI_LIBS}
-AM_LIBS += ${DUMPI_LIBS}
 endif

@@ -27,6 +27,8 @@ AC_PROG_CXX
 AC_PROG_CXXCPP
 AC_PROG_RANLIB
 
+PKG_PROG_PKG_CONFIG
+
 # Check for C99
 AC_PROG_CC_C99
 
@@ -65,32 +67,11 @@ AC_MSG_CHECKING(whether the mpicc compiler works)
 AC_TRY_COMPILE([#include <mpi.h>], [int ret = MPI_Init(0, (void*)0)],
     AC_MSG_RESULT(yes),
     AC_MSG_RESULT(no)
-    AC_MSG_ERROR(CC doesn't appear to be a valid MPI compiler.  See INSTALL document or try adding CC=mpicc to your configure command line.)
+    AC_MSG_ERROR(CC doesnt appear to be a valid MPI compiler.  See INSTALL document or try adding CC=mpicc to your configure command line.)
 )
 
-# get ROSS flags
-AC_ARG_WITH([ross],[AS_HELP_STRING([--with-ross@<:@=DIR@:>@],
-                        [location of ROSS installation])])
-if test "x${with_ross}" != "x" ; then
-
-    checkpath="${with_ross}/bin"
-    ROSS_CONFIG=""
-    AC_CHECK_PROGS(ROSS_CONFIG, [ross-config], [NOT_FOUND], [$checkpath])
-    if test "${ROSS_CONFIG}" = "NOT_FOUND" ; then
-        AC_MSG_ERROR(ROSS not found at: $with_ross)
-    fi
-
-    ROSS_LDFLAGS=`${with_ross}/bin/ross-config --ldflags`
-    ROSS_CFLAGS=`${with_ross}/bin/ross-config --cflags`
-    ROSS_CPPFLAGS=`${with_ross}/bin/ross-config --cflags`
-    ROSS_LIBS=`${with_ross}/bin/ross-config --libs`
-    AC_SUBST(ROSS_LDFLAGS)
-    AC_SUBST(ROSS_CFLAGS)
-    AC_SUBST(ROSS_CPPFLAGS)
-    AC_SUBST(ROSS_LIBS)
-else
-    AC_MSG_ERROR([Could not find usable ROSS installation, try --with-ross=DIR])
-fi
+PKG_CHECK_MODULES([ROSS], [ross], [],
+                  [AC_MSG_ERROR([Could not find working ross installation])])
 
 # check for Darshan
 AC_ARG_WITH([darshan],[AS_HELP_STRING([--with-darshan@<:@=DIR@:>@],

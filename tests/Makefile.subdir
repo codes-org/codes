@@ -28,34 +28,27 @@ EXTRA_DIST += tests/lp-io-test.sh \
  tests/conf/mapping_test.conf \
  tests/expected/mapping_test.out
 
-testlib = src/libcodes-base.a
+testlib = src/libcodes-base.a ${ROSS_LIBS}
 
-tests_lp_io_test_LDADD = $(testlib) ${ROSS_LIBS}
-tests_lp_io_test_LDFLAGS = ${ROSS_LDFLAGS}
+tests_lp_io_test_LDADD = $(testlib)
 tests_lp_io_test_SOURCES = tests/lp-io-test.c
 
-tests_mapping_test_LDADD = $(testlib) ${ROSS_LIBS}
-tests_mapping_test_LDFLAGS = ${ROSS_LDFLAGS}
+tests_mapping_test_LDADD = $(testlib)
 tests_mapping_test_SOURCES = tests/mapping_test.c
 
-tests_resource_test_LDADD = $(testlib) ${ROSS_LIBS}
-tests_resource_test_LDFLAGS = ${ROSS_LDFLAGS}
+tests_resource_test_LDADD = $(testlib)
 tests_resource_test_SOURCES = tests/resource-test.c
 
-tests_lsm_test_LDADD = $(testlib) ${ROSS_LIBS}
-tests_lsm_test_LDFLAGS = ${ROSS_LDFLAGS}
+tests_lsm_test_LDADD = $(testlib)
 tests_lsm_test_SOURCES = tests/local-storage-model-test.c
 
-tests_rc_stack_test_LDADD = $(testlib) ${ROSS_LIBS}
-tests_rc_stack_test_LDFLAGS = ${ROSS_LDFLAGS}
+tests_rc_stack_test_LDADD = $(testlib)
 tests_rc_stack_test_SOURCES = tests/rc-stack-test.c
 
-tests_jobmap_test_LDADD = $(testlib) ${ROSS_LIBS}
-tests_jobmap_test_LDFLAGS = ${ROSS_LDFLAGS}
+tests_jobmap_test_LDADD = $(testlib)
 tests_jobmap_test_SOURCES = tests/jobmap-test.c
 
-tests_workload_codes_workload_test_LDADD = $(testlib) ${ROSS_LIBS}
-tests_workload_codes_workload_test_LDFLAGS = ${ROSS_LDFLAGS}
+tests_workload_codes_workload_test_LDADD = $(testlib)
 tests_workload_codes_workload_test_SOURCES = \
  tests/workload/codes-workload-test.c \
  tests/workload/codes-workload-test-svr-lp.c \
@@ -63,6 +56,5 @@ tests_workload_codes_workload_test_SOURCES = \
  tests/workload/codes-workload-test-cn-lp.c \
  tests/workload/codes-workload-test-cn-lp.h 
 
-tests_workload_codes_workload_mpi_replay_LDADD = $(testlib) ${ROSS_LIBS}
-tests_workload_codes_workload_mpi_replay_LDFLAGS = ${ROSS_LDFLAGS}
+tests_workload_codes_workload_mpi_replay_LDADD = $(testlib)
 tests_workload_codes_workload_mpi_replay_SOURCES = tests/workload/codes-workload-mpi-replay.c
