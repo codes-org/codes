@@ -25,17 +25,23 @@
 enum codes_jobmap_type {
     /* the "dummy" jobmap is an example implementation. It simply specifies N
      * jobs, with exactly one rank per job, with a trivial mapping */
-    CODES_JOBMAP_DUMMY
+    CODES_JOBMAP_DUMMY,
+    CODES_JOBMAP_DUMPI
 };
 
 struct codes_jobmap_params_dummy {
     int num_jobs;
 };
 
+struct codes_jobmap_params_dumpi {
+    int num_jobs;
+    int *num_traces_job; 
+};
+
+
 /** jobmap interface **/
 
-struct codes_jobmap_ctx;
-
+struct codes_jobmap_ctx; 
 struct codes_jobmap_id {
     int job;
     int rank; // relative to job

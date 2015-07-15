@@ -11,6 +11,7 @@
 #include "codes/codes-jobmap.h"
 
 extern struct codes_jobmap_impl jobmap_dummy_impl;
+extern struct codes_jobmap_impl jobmap_dumpi_impl;
 
 struct codes_jobmap_ctx *
 codes_jobmap_configure(enum codes_jobmap_type t, void const * params)
@@ -23,6 +24,9 @@ codes_jobmap_configure(enum codes_jobmap_type t, void const * params)
     switch(t) {
         case CODES_JOBMAP_DUMMY:
             c->impl = &jobmap_dummy_impl;
+            break;
+        case CODES_JOBMAP_DUMPI:
+            c->impl = &jobmap_dumpi_impl;
             break;
         default:
             free(c);
