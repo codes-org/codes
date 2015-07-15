@@ -70,23 +70,20 @@ AC_TRY_COMPILE([#include <mpi.h>], [int ret = MPI_Init(0, (void*)0)],
     AC_MSG_ERROR(CC doesnt appear to be a valid MPI compiler.  See INSTALL document or try adding CC=mpicc to your configure command line.)
 )
 
-PKG_CHECK_MODULES([ROSS], [ross], [],
-                  [AC_MSG_ERROR([Could not find working ross installation])])
+# check for ROSS
+PKG_CHECK_MODULES_STATIC([ROSS], [ross], [],
+                  [AC_MSG_ERROR([Could not find working ross installation via pkg-config])])
 
 # check for Darshan
-AC_ARG_WITH([darshan],[AS_HELP_STRING([--with-darshan@<:@=DIR@:>@],
-                        [location of Darshan installation])])
-if test "x${with_darshan}" != "x" ; then
-    AC_CHECK_FILE([${with_darshan}/lib/pkgconfig/darshan-util.pc],
-                  AM_CONDITIONAL(USE_DARSHAN, true),
-                  AC_MSG_ERROR(Could not find darshan-util.pc))
-    DARSHAN_LIBS+=`PKG_CONFIG_PATH=${with_darshan}/lib/pkgconfig pkg-config darshan-util --static --libs`
-    DARSHAN_CFLAGS=`PKG_CONFIG_PATH=${with_darshan}/lib/pkgconfig pkg-config darshan-util --cflags`
-    AC_SUBST(DARSHAN_LIBS)
-    AC_SUBST(DARSHAN_CFLAGS) 
-else
-    AM_CONDITIONAL(USE_DARSHAN, false)
+AC_ARG_WITH([darshan],[AS_HELP_STRING([--with-darshan],
+                        [Build with the darshan workload support])],
+                      [use_darshan=yes],[use_darshan=no])
+if test "x${use_darshan}" = xyes ; then
+    PKG_CHECK_MODULES_STATIC([DARSHAN], [darshan-util], [],
+                      [AC_MSG_ERROR([Could not find working darshan installation via pkg-config])])
 fi
+AM_CONDITIONAL(USE_DARSHAN, [test "x${use_darshan}" = xyes])
+
 
 # check for Recorder
 AM_CONDITIONAL(USE_RECORDER, true)
