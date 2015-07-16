@@ -32,33 +32,10 @@ EXTRA_DIST += tests/modelnet-test.sh \
 		  tests/conf/ng-mpi-tukey.dat \
 		  tests/README_MN_TEST.txt
 
-testlib = src/libcodes-net.a
-
-tests_modelnet_test_LDADD = $(testlib) ${CODES_BASE_LIBS}
-tests_modelnet_test_CFLAGS = ${CODES_BASE_CFLAGS}
 tests_modelnet_test_SOURCES = tests/modelnet-test.c
-
-tests_modelnet_test_dragonfly_LDADD = $(testlib) ${CODES_BASE_LIBS}
-tests_modelnet_test_dragonfly_CFLAGS = ${CODES_BASE_CFLAGS}
 tests_modelnet_test_dragonfly_SOURCES = tests/modelnet-test-dragonfly.c
-
-tests_modelnet_simplep2p_test_LDADD = $(testlib) ${CODES_BASE_LIBS}
-tests_modelnet_simplep2p_test_CFLAGS = ${CODES_BASE_CFLAGS}
 tests_modelnet_simplep2p_test_SOURCES = tests/modelnet-simplep2p-test.c
-
-tests_modelnet_p2p_bw_LDADD = $(testlib) ${CODES_BASE_LIBS}
-tests_modelnet_p2p_bw_CFLAGS = ${CODES_BASE_CFLAGS}
 tests_modelnet_p2p_bw_SOURCES = tests/modelnet-p2p-bw.c
-
-tests_concurrent_msg_recv_LDFLAGS = ${CODES_BASE_LDFLAGS}
-tests_concurrent_msg_recv_LDADD = $(testlib) ${CODES_BASE_LIBS} 
-tests_concurrent_msg_recv_CFLAGS = ${CODES_BASE_CFLAGS} 
 tests_concurrent_msg_recv_SOURCES = tests/concurrent-msg-recv.c
-
-tests_modelnet_test_collective_LDADD = $(testlib) ${CODES_BASE_LIBS}
-tests_modelnet_test_collective_CFLAGS = ${CODES_BASE_CFLAGS}
 tests_modelnet_test_collective_SOURCES = tests/modelnet-test-collective.c
-
-tests_modelnet_prio_sched_test_LDADD = $(testlib) ${CODES_BASE_LIBS}
-tests_modelnet_prio_sched_test_CFLAGS = ${CODES_BASE_CFLAGS}
 tests_modelnet_prio_sched_test_SOURCES = tests/modelnet-prio-sched-test.c

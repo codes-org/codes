@@ -5,8 +5,8 @@ includedir=@includedir@
 
 Name: codes-net
 Description: Network functionality for CODES storage simulation
-Version: @CODES_NET_VERSION@
+Version: @PACKAGE_VERSION@
 URL: http://trac.mcs.anl.gov/projects/CODES
-Requires:
-Libs: -L${libdir} -lcodes-net 
+Requires: codes-base
+Libs: -L${libdir} -lcodes-net
 Cflags: -I${includedir}

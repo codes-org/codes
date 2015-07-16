@@ -22,6 +22,8 @@ AC_PROG_CXX
 AC_PROG_CXXCPP
 AC_PROG_RANLIB
 
+PKG_PROG_PKG_CONFIG
+
 # Check for C99 
 AC_PROG_CC_C99
 
@@ -45,25 +47,9 @@ AC_TYPE_UINT64_T
 AC_TYPE_SIZE_T
 AC_TYPE_SSIZE_T
 
-# Checks for library functions.
-AC_CHECK_FUNCS([memset])
-AC_CHECK_LIB([pthread],[pthread_create],,[AC_MSG_ERROR([Could not find pthread_create!])])
-AC_CHECK_LIB([m],[sqrt],,[AC_MSG_ERROR([Could not find sqrt!])])
-
-USE_CODES_BASE=UNKNOWN
-AC_ARG_WITH(codes-base,
-       [  --with-codes-base=<dir>         Location of codes-base installation],
-       [
-        AC_CHECK_FILE(${withval}/lib/pkgconfig/codes-base.pc)
-        USE_CODES_BASE=${withval}
-       ],
-       [
-        AC_MSG_ERROR([Requires --with-codes-base])
-       ])
-CODES_BASE_LIBS=`PKG_CONFIG_PATH=${withval}/lib/pkgconfig pkg-config codes-base --libs`
-CODES_BASE_CFLAGS=`PKG_CONFIG_PATH=${withval}/lib/pkgconfig pkg-config codes-base --cflags`
-AC_SUBST(CODES_BASE_LIBS)
-AC_SUBST(CODES_BASE_CFLAGS)
+# check for codes-base
+PKG_CHECK_MODULES_STATIC([CODES_BASE], [codes-base], [],
+                  [AC_MSG_ERROR([Could not find working codes-base installation via pkg-config])])
 
 if test "x$srcdir" != "x."; then
     AC_CONFIG_LINKS([tests/conf:$srcdir/tests/conf])

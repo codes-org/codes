@@ -1,4 +1,4 @@
 #!/bin/sh
 
 echo "Regenerating build files..."
-autoreconf -fi 
+autoreconf -fi -Im4
