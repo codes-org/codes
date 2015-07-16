@@ -8,13 +8,14 @@ ifndef ROSS
 $(error ROSS is undefined, see README.txt)
 endif
 
-# ross conflates CFLAGS with CPPFLAGS, so use just this one
-override CPPFLAGS += $(shell $(ROSS)/bin/ross-config --cflags) -I$(CODESBASE)/include -I$(CODESNET)/include
-CC = $(shell $(ROSS)/bin/ross-config --cc)
-LDFLAGS = $(shell $(ROSS)/bin/ross-config --ldflags) -L$(CODESBASE)/lib -L$(CODESNET)/lib
-LDLIBS = $(shell $(ROSS)/bin/ross-config --libs) -lcodes-net -lcodes-base 
+PKG_PATH = $(ROSS)/lib/pkgconfig:$(CODESBASE)/lib/pkgconfig:$(CODESNET)/lib/pkgconfig
+
+override CPPFLAGS += $(shell PKG_CONFIG_PATH=$(PKG_PATH) pkg-config --cflags codes-net codes-base ross)
+LDFLAGS += $(shell PKG_CONFIG_PATH=$(PKG_PATH) pkg-config --libs-only-L ross codes-net codes-base ross)
+LDLIBS = $(shell PKG_CONFIG_PATH=$(PKG_PATH) pkg-config --libs-only-l ross codes-net codes-base ross)
+CC = mpicc
 
 example: example.c
 
-clean:   
+clean:
 	rm -f example
