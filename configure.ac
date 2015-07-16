@@ -78,12 +78,14 @@ PKG_CHECK_MODULES_STATIC([ROSS], [ross], [],
 AC_ARG_WITH([darshan],[AS_HELP_STRING([--with-darshan],
                         [Build with the darshan workload support])],
                       [use_darshan=yes],[use_darshan=no])
+DARSHAN_PKG=
 if test "x${use_darshan}" = xyes ; then
     PKG_CHECK_MODULES_STATIC([DARSHAN], [darshan-util], [],
                       [AC_MSG_ERROR([Could not find working darshan installation via pkg-config])])
+    DARSHAN_PKG=darshan-util
 fi
 AM_CONDITIONAL(USE_DARSHAN, [test "x${use_darshan}" = xyes])
-
+AC_SUBST(DARSHAN_PKG)
 
 # check for Recorder
 AM_CONDITIONAL(USE_RECORDER, true)
