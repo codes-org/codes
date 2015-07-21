@@ -34,14 +34,13 @@ struct codes_jobmap_params_dummy {
 };
 
 struct codes_jobmap_params_dumpi {
-    int num_jobs;
-    int *num_traces_job; 
+    char *alloc_file;
 };
 
 
 /** jobmap interface **/
 
-struct codes_jobmap_ctx; 
+struct codes_jobmap_ctx;
 struct codes_jobmap_id {
     int job;
     int rank; // relative to job
