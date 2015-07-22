@@ -9,6 +9,11 @@
 #include <assert.h>
 #include "src/util/codes-jobmap-method-impl.h"
 
+#define ERR(str, ...)\
+    do{\
+        fprintf(stderr, "ERROR at %s:%d: " str "\n", __FILE__, __LINE__, ##__VA_ARGS__);\
+        return -1; \
+    }while(0)
 
 struct workload_params {
     int num_jobs;
@@ -16,18 +21,16 @@ struct workload_params {
     int **lp_arrays;
 };
 
-static int jobmap_dumpi_configure(void const * params, void ** ctx)
+static int jobmap_list_configure(void const * params, void ** ctx)
 {
     struct codes_jobmap_params_dumpi const * p = params;
     struct workload_params *wp = malloc(sizeof(*wp));
     assert(wp);
 
-    /*open first time, count No. lines, each line is the LP list for a job*/
     FILE *alloc_file_name = fopen(p->alloc_file, "r");
     if(!alloc_file_name)
     {
-        printf("Coudld not open file %s ======\n ", p->alloc_file);
-        exit(1);
+        ERR( "Coudld not open file %s\n ", p->alloc_file);
     }
     else{
         wp->num_jobs = 0;
@@ -37,38 +40,37 @@ static int jobmap_dumpi_configure(void const * params, void ** ctx)
             if(ch == '\n')
                 wp->num_jobs++;//how many jobs
         }
-        fclose(alloc_file_name);
     }
-
 
     wp->num_rank_job = malloc(sizeof(wp->num_rank_job)*wp->num_jobs);
     assert(wp->num_rank_job);
     for(int i=0; i<wp->num_jobs; i++)
         wp->num_rank_job[i]=0;
 
-    /*open second time, read No. of LP id in each line, No. of LP id equals to No. of rank in each job*/
-    alloc_file_name = fopen(p->alloc_file, "r");
-    int job_id = 0;
-    while(!feof(alloc_file_name))
-    {
-        char ch = (char)fgetc(alloc_file_name);
-        if(ch == '\n'){
-            job_id++;//how many jobs
-            continue;
-        }
-        if(ch == ' '){
-            wp->num_rank_job[job_id]++;//how many ranks in each job
-        }
-    }
-    fclose(alloc_file_name);
 
-    /*open third time, read in each LP id for each rank in every job*/
+    rewind(alloc_file_name);
+    {
+        int job_id = 0;
+        while(!feof(alloc_file_name))
+        {
+            char ch = (char)fgetc(alloc_file_name);
+            if(ch == '\n'){
+                job_id++;//how many jobs
+                continue;
+            }
+            if(ch == ' '){
+                wp->num_rank_job[job_id]++;//how many ranks in each job
+            }
+        }
+
+    }
+
     wp->lp_arrays = (int **)malloc(sizeof(int *)*wp->num_jobs);
     for(int i=0; i<wp->num_jobs; i++){
         wp->lp_arrays[i] = (int *)malloc(sizeof(int)*wp->num_rank_job[i]);
     }
 
-    alloc_file_name = fopen(p->alloc_file, "r");
+    rewind(alloc_file_name);
     for(int i=0; i < wp->num_jobs; i++)
     {
         for(int j=0; j < wp->num_rank_job[i]; j++)
@@ -86,7 +88,7 @@ static int jobmap_dumpi_configure(void const * params, void ** ctx)
         printf("\nIn Job %d, there are %d ranks, LP list is:\n", i, wp->num_rank_job[i]);
         for(int j=0; j < wp->num_rank_job[i]; j++)
         {
-            printf(",%d,", wp->lp_arrays[i][j]);
+            printf("%d,", wp->lp_arrays[i][j]);
         }
         printf("\n==========\n");
     }
@@ -94,7 +96,7 @@ static int jobmap_dumpi_configure(void const * params, void ** ctx)
     return 0;
 }
 
-static struct codes_jobmap_id jobmap_dumpi_to_local(int id, void const * ctx)
+static struct codes_jobmap_id jobmap_list_to_local(int id, void const * ctx)
 {
     struct codes_jobmap_id rtn;
     struct workload_params *wp = (struct workload_params*)ctx;
@@ -119,7 +121,7 @@ static struct codes_jobmap_id jobmap_dumpi_to_local(int id, void const * ctx)
     return rtn;
 }
 
-static int jobmap_dumpi_to_global(struct codes_jobmap_id id, void const * ctx)
+static int jobmap_list_to_global(struct codes_jobmap_id id, void const * ctx)
 {
 
     struct workload_params *wp = (struct workload_params*)ctx;
@@ -130,7 +132,7 @@ static int jobmap_dumpi_to_global(struct codes_jobmap_id id, void const * ctx)
         return -1;
 }
 
-int jobmap_dumpi_get_num_jobs(void const * ctx)
+int jobmap_list_get_num_jobs(void const * ctx)
 {
     struct workload_params *wp = (struct workload_params*)ctx;
     return wp->num_jobs;
@@ -138,18 +140,27 @@ int jobmap_dumpi_get_num_jobs(void const * ctx)
 }
 
 
-static void jobmap_dumpi_destroy(void * ctx)
+static void jobmap_list_destroy(void * ctx)
 {
+    struct workload_params *wp = (struct workload_params*)ctx;
+    for(int i=0; i<wp->num_jobs; i++){
+        free(wp->lp_arrays[i]);
+    }
+
+    free(wp->lp_arrays);
+
+    free(wp->num_rank_job);
+
     free(ctx);
 }
 
 
-struct codes_jobmap_impl jobmap_dumpi_impl = {
-    jobmap_dumpi_configure,
-    jobmap_dumpi_destroy,
-    jobmap_dumpi_to_local,
-    jobmap_dumpi_to_global,
-    jobmap_dumpi_get_num_jobs
+struct codes_jobmap_impl jobmap_list_impl = {
+    jobmap_list_configure,
+    jobmap_list_destroy,
+    jobmap_list_to_local,
+    jobmap_list_to_global,
+    jobmap_list_get_num_jobs
 };
 
 /*
