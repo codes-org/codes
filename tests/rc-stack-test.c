@@ -25,23 +25,28 @@ int main(int argc, char *argv[])
     rc_stack_create(&s);
     assert(s != NULL);
 
-    int *a = malloc(sizeof(*a));
-    int *b = malloc(sizeof(*b));
-    int *c = malloc(sizeof(*c));
-    *a = 1;
-    *b = 2;
-    *c = 3;
+    int *a, *b, *c;
+#define ALLOC_ALL() \
+    do { \
+        a = malloc(sizeof(*a)); \
+        b = malloc(sizeof(*b)); \
+        c = malloc(sizeof(*c)); \
+        *a = 1; \
+        *b = 2; \
+        *c = 3; \
+    } while (0)
 
 #define PUSH_ALL() \
     do { \
         kp.last_time = 1.0; \
-        rc_stack_push(&lp, a, s); \
+        rc_stack_push(&lp, a, free, s); \
         kp.last_time = 2.0; \
-        rc_stack_push(&lp, b, s); \
+        rc_stack_push(&lp, b, free, s); \
         kp.last_time = 3.0; \
-        rc_stack_push(&lp, c, s); \
+        rc_stack_push(&lp, c, free, s); \
     } while (0)
 
+    ALLOC_ALL();
     PUSH_ALL();
 
     void *dat;
@@ -57,16 +62,18 @@ int main(int argc, char *argv[])
     PUSH_ALL();
     /* garbage collect the first two (NOT freeing the pointers first) */
     pe.GVT = 2.5;
-    rc_stack_gc(&lp, 0, s);
+    rc_stack_gc(&lp, s);
     assert(1 == rc_stack_count(s));
 
     dat = rc_stack_pop(s);
     assert(c == dat);
     assert(0 == rc_stack_count(s));
+    free(dat);
 
     /* destroy everything */
+    ALLOC_ALL();
     PUSH_ALL();
-    rc_stack_destroy(1, s);
+    rc_stack_destroy(s);
 
     return 0;
 }

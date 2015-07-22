@@ -12,6 +12,7 @@
 typedef struct rc_entry_s {
     tw_stime time;
     void * data;
+    void (*free_fn)(void*);
     struct qlist_head ql;
 } rc_entry;
 
@@ -29,35 +30,21 @@ void rc_stack_create(struct rc_stack **s){
     *s = ss;
 }
 
-void rc_stack_destroy(int free_data, struct rc_stack *s) {
-#define FREE_ENTRY(_e, _free_data)\
-    do { \
-        if (_e != NULL){\
-            rc_entry *r = qlist_entry(_e, rc_entry, ql);\
-            if (_free_data) free(r->data);\
-            free(r);\
-        } \
-    } while(0)
-
-    struct qlist_head *ent, *ent_prev = NULL;
-    qlist_for_each(ent, &s->head) {
-        FREE_ENTRY(ent_prev, free_data);
-        ent_prev = ent;
-    }
-    FREE_ENTRY(ent_prev, free_data);
+void rc_stack_destroy(struct rc_stack *s) {
+    rc_stack_gc(NULL, s);
     free(s);
-
-#undef FREE_ENTRY
 }
 
 void rc_stack_push(
-        tw_lp *lp,
+        tw_lp const *lp,
         void * data,
+        void (*free_fn)(void*),
         struct rc_stack *s){
     rc_entry * ent = (rc_entry*)malloc(sizeof(*ent));
     assert(ent);
     ent->time = tw_now(lp);
     ent->data = data;
+    ent->free_fn = free_fn;
     qlist_add_tail(&ent->ql, &s->head);
     s->count++;
 }
@@ -76,15 +63,15 @@ void* rc_stack_pop(struct rc_stack *s){
     return ret;
 }
 
-int rc_stack_count(struct rc_stack *s) { return s->count; }
+int rc_stack_count(struct rc_stack const *s) { return s->count; }
 
-void rc_stack_gc(tw_lp *lp, int free_data, struct rc_stack *s) {
+void rc_stack_gc(tw_lp const *lp, struct rc_stack *s) {
     struct qlist_head *ent = s->head.next;
     while (ent != &s->head) {
         rc_entry *r = qlist_entry(ent, rc_entry, ql);
-        if (r->time < lp->pe->GVT){
+        if (lp == NULL || r->time < lp->pe->GVT){
             qlist_del(ent);
-            if (free_data) free(r->data);
+            if (r->free_fn) r->free_fn(r->data);
             free(r);
             s->count--;
             ent = s->head.next;

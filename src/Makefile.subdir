@@ -58,7 +58,8 @@ nobase_include_HEADERS = \
 	codes/resource-lp.h \
 	codes/local-storage-model.h \
 	codes/rc-stack.h \
-	codes/codes-jobmap.h
+	codes/codes-jobmap.h \
+	codes/codes-callback.h
 
 #codes/codes-nw-workload.h
 
