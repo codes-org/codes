@@ -864,7 +864,7 @@ terminal_init( terminal_state * s,
 }
 
 /* collective operation for the torus network */
-void dragonfly_collective(char* category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender)
+void dragonfly_collective(char const * category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender)
 {
     tw_event * e_new;
     tw_stime xfer_to_nic_time;

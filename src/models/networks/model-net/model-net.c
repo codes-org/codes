@@ -191,7 +191,7 @@ void model_net_print_stats(tw_lpid lpid, mn_stats mn_stats_array[])
     model_net_write_stats(lpid, &all);
 }
 
-struct mn_stats* model_net_find_stats(const char* category, mn_stats mn_stats_array[])
+struct mn_stats* model_net_find_stats(char const * category, mn_stats mn_stats_array[])
 {
     int i;
     int new_flag = 0;
@@ -223,17 +223,17 @@ struct mn_stats* model_net_find_stats(const char* category, mn_stats mn_stats_ar
 
 static void model_net_event_impl_base(
         int net_id,
-        const char * annotation,
+        char const * annotation,
         int ignore_annotations,
-        char* category, 
+        char const * category, 
         tw_lpid final_dest_lp, 
         uint64_t message_size, 
         int is_pull,
         tw_stime offset,
         int remote_event_size,
-        const void* remote_event,
+        void const * remote_event,
         int self_event_size,
-        const void* self_event,
+        void const * self_event,
         tw_lp *sender) {
 
     if (remote_event_size + self_event_size + sizeof(model_net_wrap_msg) 
@@ -300,14 +300,14 @@ static void model_net_event_impl_base_rc(tw_lp *sender){
 
 void model_net_event(
     int net_id,
-    char* category, 
+    char const * category, 
     tw_lpid final_dest_lp, 
     uint64_t message_size, 
     tw_stime offset,
     int remote_event_size,
-    const void* remote_event,
+    void const * remote_event,
     int self_event_size,
-    const void* self_event,
+    void const * self_event,
     tw_lp *sender)
 {
     model_net_event_impl_base(net_id, NULL, 1, category, final_dest_lp,
@@ -317,15 +317,15 @@ void model_net_event(
 
 void model_net_event_annotated(
         int net_id,
-        const char * annotation,
-        char* category, 
+        char const * annotation,
+        char const * category, 
         tw_lpid final_dest_lp, 
         uint64_t message_size, 
         tw_stime offset,
         int remote_event_size,
-        const void* remote_event,
+        void const * remote_event,
         int self_event_size,
-        const void* self_event,
+        void const * self_event,
         tw_lp *sender){
     model_net_event_impl_base(net_id, annotation, 0, category, final_dest_lp,
             message_size, 0, offset, remote_event_size, remote_event,
@@ -334,12 +334,12 @@ void model_net_event_annotated(
 
 void model_net_pull_event(
         int net_id,
-        char *category,
+        char const *category,
         tw_lpid final_dest_lp,
         uint64_t message_size,
         tw_stime offset,
         int self_event_size,
-        const void *self_event,
+        void const *self_event,
         tw_lp *sender){
     /* NOTE: for a pull, we are filling the *remote* event - it will be remote
      * from the destination's POV */
@@ -350,13 +350,13 @@ void model_net_pull_event(
 
 void model_net_pull_event_annotated(
         int net_id,
-        const char * annotation,
-        char *category,
+        char const * annotation,
+        char const *category,
         tw_lpid final_dest_lp,
         uint64_t message_size,
         tw_stime offset,
         int self_event_size,
-        const void *self_event,
+        void const *self_event,
         tw_lp *sender){
     /* NOTE: for a pull, we are filling the *remote* event - it will be remote
      * from the destination's POV */
@@ -428,7 +428,7 @@ uint64_t model_net_get_packet_size(int net_id)
 }
 
 /* This event does a collective operation call for model-net */
-void model_net_event_collective(int net_id, char* category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender)
+void model_net_event_collective(int net_id, char const * category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender)
 {
   if(net_id < 0 || net_id > MAX_NETS)
      {

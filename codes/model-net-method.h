@@ -27,7 +27,7 @@ struct model_net_method
      * uses it) */
     void (*mn_register)(tw_lptype *base_type);
     tw_stime (*model_net_method_packet_event)(
-        char* category, 
+        char const * category, 
         tw_lpid final_dest_lp, 
         uint64_t packet_size, 
         int is_pull,
@@ -66,7 +66,7 @@ struct model_net_method
         const char * annotation,
         int          ignore_annotations,
         tw_lpid      sender_gid);
-    void (*mn_collective_call)(char* category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender);
+    void (*mn_collective_call)(char const * category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender);
     void (*mn_collective_call_rc)(int message_size, tw_lp* sender);    
 };
 

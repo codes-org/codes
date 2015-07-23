@@ -121,10 +121,10 @@ int model_net_get_id(char *net_name);
 /* This event does a collective operation call for model-net */
 void model_net_event_collective(
     int net_id,
-    char* category,
+    char const * category,
     int message_size,
     int remote_event_size,
-    const void* remote_event,
+    void const * remote_event,
     tw_lp *sender);
 
 /* reverse event of the collective operation call */
@@ -175,14 +175,14 @@ void model_net_event_collective_rc(
 // first argument becomes the network ID
 void model_net_event(
     int net_id,
-    char* category, 
+    char const * category, 
     tw_lpid final_dest_lp, 
     uint64_t message_size, 
     tw_stime offset,
     int remote_event_size,
-    const void* remote_event,
+    void const * remote_event,
     int self_event_size,
-    const void* self_event,
+    void const * self_event,
     tw_lp *sender);
 /*
  * See model_net_event for a general description.
@@ -193,15 +193,15 @@ void model_net_event(
  */
 void model_net_event_annotated(
         int net_id,
-        const char * annotation,
-        char* category, 
+        char const * annotation,
+        char const * category, 
         tw_lpid final_dest_lp, 
         uint64_t message_size, 
         tw_stime offset,
         int remote_event_size,
-        const void* remote_event,
+        void const * remote_event,
         int self_event_size,
-        const void* self_event,
+        void const * self_event,
         tw_lp *sender);
 
 /* model_net_find_local_device()
@@ -246,22 +246,22 @@ void model_net_event_rc(
  */
 void model_net_pull_event(
         int net_id,
-        char *category,
+        char const *category,
         tw_lpid final_dest_lp,
         uint64_t message_size,
         tw_stime offset,
         int self_event_size,
-        const void *self_event,
+        void const *self_event,
         tw_lp *sender);
 void model_net_pull_event_annotated(
         int net_id,
-        const char * annotation,
-        char *category,
+        char const * annotation,
+        char const *category,
         tw_lpid final_dest_lp,
         uint64_t message_size,
         tw_stime offset,
         int self_event_size,
-        const void *self_event,
+        void const *self_event,
         tw_lp *sender);
 void model_net_pull_event_rc(
         int net_id,
@@ -306,7 +306,7 @@ void model_net_write_stats(tw_lpid lpid, mn_stats* stat);
 void model_net_print_stats(tw_lpid lpid, mn_stats mn_stats_array[]);
 
 /* find model-net statistics */
-mn_stats* model_net_find_stats(const char* category, mn_stats mn_stats_array[]);
+mn_stats* model_net_find_stats(char const * category, mn_stats mn_stats_array[]);
 #endif /* MODELNET_H */
 
 /*
