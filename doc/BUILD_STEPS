@@ -11,7 +11,7 @@
 
     mkdir build
     cd build
-    ../configure --with-codes-base=/path/to/codes-base/install --prefix=/path/to/codes-net/install CC=mpicc
+    ../configure --prefix=/path/to/codes-net/install CC=mpicc PKG_CONFIG_PATH=/path/to/codes-base/install/lib/pkgconfig
 
 3 - Build codes-net
 
