@@ -37,7 +37,7 @@ working from the CODES master branches, use the ROSS master branch.
 
     mkdir build
     cd build
-    ../configure --with-ross=/path/to/ross/install --prefix=/path/to/codes-base/install CC=mpicc
+    ../configure --prefix=/path/to/codes-base/install CC=mpicc PKG_CONFIG_PATH=/path/to/ross/install/lib/pkgconfig
 
     To enable network tracing with dumpi
     (http://sst.sandia.gov/about_dumpi.html), use the option
