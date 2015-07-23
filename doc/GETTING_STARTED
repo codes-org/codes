@@ -57,7 +57,7 @@ model-net parameters and model-specific parameters. The general parameters are:
   knowing the particular models used. All models used in the CODES
   configuration file must be referenced in the parameter. See
   doc/example_heterogeneous in the codes-base repository.
-* packet_size - the size of packets model-net will break messages into
+* packet_size - the size of packets in bytes. model-net will break messages into
 * modelnet_scheduler - the algorithm for scheduling packets when multiple
   concurrent messages are being processed. Options can be found in the
   SCHEDULER_TYPES macro in codes/model-net-sched.h). In particular, the
@@ -125,15 +125,16 @@ performed in:
     (PADS), 2014.
 
 The configuration parameters are as follows:
-* n_dims - the dimensionality of the torus
-* dim_length - the dimensions of the torus. For example, "4,2,2,2" describes a
+* n_dims - the number of torus dimensions.
+* dim_length - the length of each torus dimension. For example, "4,2,2,2" describes a
   four-dimensional, 4x2x2x2 torus.
-* link_bandwidth - the bandwidth available per torus link
-* buffer_size - the buffer size available at each torus node
+* link_bandwidth - the bandwidth available per torus link (specified in GiB/sec).
+* buffer_size - the buffer size available at each torus node. Buffer size is measured
+in number of flits or chunks (flit/chunk size is configurable using chunk_size parameter).
 * num_vc - number of virtual channels (currently unused - all traffic goes
-  through a single channel)
-* chunk_size - element size per transfer. Messages/packets are sent in
-  individual chunks. This is typically a small number (e.g., 32 bytes)
+  through a single channel).
+* chunk_size - element size per transfer, specified in bytes. Messages/packets are sent in
+  individual chunks. This is typically a small number (e.g., 32 bytes).
 
 == Dragonfly
 

@@ -71,8 +71,8 @@ within the same group.
 two groups with each other.
 - cn_vc_size: Number of packet chunks (default: 32 bytes) that can fit in the channel connecting the network 
 node with its router.
-- local_bandwidth: bandwidth of the channels connecting the routers within the same group. 
-- global_bandwidth: bandwidth of the global channels connecting routers of two different groups. Note than 
+- local_bandwidth: bandwidth of the channels in GiB/sec connecting the routers within the same group. 
+- global_bandwidth: bandwidth of the global channels in GiB/sec connecting routers of two different groups. Note than 
 each router has 'h' number of global channels connected to it where a=2p=2h in our configuration.
 - cn_bandwidth: bandwidth of the channel connecing the compute node with the router.
 ** All the above bandwidth parameters are in Gigabytes/sec.
