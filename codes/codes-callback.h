@@ -25,7 +25,8 @@
  * - use the resulting set of offsets to write and issue the callback
  *
  * The recommended calling convention for these types of event flows is:
- * void event_func(<params...>, int tag, struct codes_cb_info const * cb);
+ * void event_func(<params...>,
+ *         msg_header const * h, int tag, struct codes_cb_info const * cb);
  */
 
 struct codes_cb_info {
