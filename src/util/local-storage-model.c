@@ -12,6 +12,7 @@
 #include <codes/codes_mapping.h>
 #include <codes/lp-type-lookup.h>
 #include <codes/local-storage-model.h>
+#include <codes/quicklist.h>
 
 #define CATEGORY_NAME_MAX 16
 #define CATEGORY_MAX 12
@@ -58,24 +59,11 @@ typedef struct disk_model_s
     double *write_seeks;
     double *read_seeks;
     unsigned int bins;
+    // sched params
+    //   0  - no scheduling
+    //  >0  - make scheduler with use_sched priority lanes
+    int use_sched;
 } disk_model_t;
-
-/*
- * lsm_state_s
- *   - state tracking structure for each LP node
- *   - next_idle: next point in time the disk will be idle
- *   - model: disk parameters
- *   - current_offset: last offset the disk operated on
- *   - current_object: last object id that operated on
- */
-typedef struct lsm_state_s
-{
-    tw_stime next_idle;
-    disk_model_t *model;
-    int64_t  current_offset;
-    uint64_t current_object;
-    lsm_stats_t lsm_stats_array[CATEGORY_MAX];
-} lsm_state_t;
 
 /*
  * lsm_message_data_t
@@ -92,6 +80,44 @@ typedef struct lsm_message_data_s
     uint64_t    size;
     char category[CATEGORY_NAME_MAX]; /* category for traffic */
 } lsm_message_data_t;
+
+/*
+ * lsm_sched_op_s - operation to be scheduled
+ */
+typedef struct lsm_sched_op_s
+{
+    lsm_message_data_t data;
+    struct qlist_head ql;
+} lsm_sched_op_t;
+
+/*
+ * lsm_sched_s - data structure for implementing scheduling loop
+ */
+typedef struct lsm_sched_s
+{
+    int num_prios;
+    struct qlist_head *queues;
+} lsm_sched_t;
+
+/*
+ * lsm_state_s
+ *   - state tracking structure for each LP node
+ *   - next_idle: next point in time the disk will be idle
+ *   - model: disk parameters
+ *   - current_offset: last offset the disk operated on
+ *   - current_object: last object id that operated on
+ */
+typedef struct lsm_state_s
+{
+    tw_stime next_idle;
+    disk_model_t *model;
+    int64_t  current_offset;
+    uint64_t current_object;
+    lsm_stats_t lsm_stats_array[CATEGORY_MAX];
+    /* scheduling state */
+    int use_sched;
+    lsm_sched_t sched;
+} lsm_state_t;
 
 /*
  * lsm_message_init_t
@@ -401,6 +427,16 @@ static void lsm_lp_init (lsm_state_t *ns, tw_lp *lp)
     else {
         int id = configuration_get_annotation_index(anno, anno_map);
         ns->model = &models_anno[id];
+    }
+
+    // initialize the scheduler if need be
+    ns->use_sched = ns->model->use_sched > 0;
+    if (ns->use_sched) {
+        ns->sched.num_prios = ns->model->use_sched;
+        ns->sched.queues =
+            malloc(ns->sched.num_prios * sizeof(*ns->sched.queues));
+        for (int i = 0; i < ns->sched.num_prios; i++)
+            INIT_QLIST_HEAD(&ns->sched.queues[i]);
     }
 
     return;
@@ -811,6 +847,11 @@ static void read_config(ConfigHandle *ch, char * anno, disk_model_t *model)
         model->read_seeks[i] = strtod(values[i], NULL);
     }
     free(values);
+
+    // scheduling parameters (this can fail)
+    configuration_get_value_int(ch, LSM_NAME, "enable_scheduler", anno,
+            &model->use_sched);
+    assert(model->use_sched >= 0);
 }
 
 void lsm_configure(void)
