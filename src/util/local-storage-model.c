@@ -6,12 +6,12 @@
 
 #include <assert.h>
 #include <ross.h>
-#include "codes/lp-io.h"
-#include "codes/jenkins-hash.h"
-#include "codes/codes.h"
-#include "codes/codes_mapping.h"
-#include "codes/lp-type-lookup.h"
-#include "codes/local-storage-model.h"
+#include <codes/lp-io.h>
+#include <codes/jenkins-hash.h>
+#include <codes/codes.h>
+#include <codes/codes_mapping.h>
+#include <codes/lp-type-lookup.h>
+#include <codes/local-storage-model.h>
 
 #define CATEGORY_NAME_MAX 16
 #define CATEGORY_MAX 12
