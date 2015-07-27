@@ -290,8 +290,8 @@ static void handle_kickoff_event(
     svr_msg * m,
     tw_lp * lp)
 {
-    svr_msg * m_new;
-    tw_event *e_new;
+    svr_msg * m_new, * m_loc;
+    tw_event *e_new, * e_loc;
     double rate;
     double seek;
 
@@ -314,8 +314,15 @@ static void handle_kickoff_event(
     m_new->event_type = ACK;
     m_new->src = lp->gid;
     ns->msg_sent_count++;
+
+    // make a parallel dummy request to test out sched
+    e_loc = lsm_event_new("test", lp->gid, 0, 0, PAYLOAD_SZ, LSM_WRITE_REQUEST, sizeof(svr_msg), lp, 2.0);
+    m_loc = lsm_event_data(e_loc);
+    m_loc->event_type = LOCAL;
+    m_loc->src = lp->gid;
     
     tw_event_send(e_new);
+    tw_event_send(e_loc);
 }
 
 /* reverse handler for req event */
@@ -340,6 +347,7 @@ static void handle_kickoff_rev_event(
 {
 
     lsm_event_new_reverse(lp);
+    lsm_event_new_reverse(lp);
 
     ns->msg_sent_count--;
 
@@ -357,6 +365,7 @@ static void handle_ack_rev_event(
     if(m->incremented_flag)
     {
         lsm_event_new_reverse(lp);
+        lsm_event_new_reverse(lp);
         ns->msg_sent_count--;
     }
 
@@ -370,8 +379,8 @@ static void handle_ack_event(
     svr_msg * m,
     tw_lp * lp)
 {
-    svr_msg * m_new;
-    tw_event *e_new;
+    svr_msg * m_new, * m_loc;
+    tw_event *e_new, * e_loc;
 
     if (LSM_DEBUG)
         printf("handle_ack_event(), lp %llu.\n",
@@ -390,6 +399,12 @@ static void handle_ack_event(
         ns->msg_sent_count++;
         m->incremented_flag = 1;
         tw_event_send(e_new);
+
+        e_loc = lsm_write_event_new("test", lp->gid, 0, 0, PAYLOAD_SZ, sizeof(svr_msg), lp);
+        m_loc = lsm_event_data(e_loc);
+        m_loc->event_type = ACK;
+        m_loc->src = lp->gid;
+        tw_event_send(e_loc);
     }
     else
     {
