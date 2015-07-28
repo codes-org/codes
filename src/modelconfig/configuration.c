@@ -284,6 +284,8 @@ static void check_add_anno(
         config_anno_map_t *map){
     if (anno[0] == '\0'){
         map->has_unanno_lp = 1;
+        if (!map->num_annos)
+            map->is_unanno_first = 1;
     }
     else{
         uint64_t a = 0;
@@ -322,6 +324,7 @@ static void check_add_lp_type_anno(
         strcpy(map->lp_name, lp_name);
         map->num_annos = 0;
         map->has_unanno_lp = 0;
+        map->is_unanno_first = 0;
         memset(map->num_anno_lps, 0, 
                 CONFIGURATION_MAX_ANNOS*sizeof(*map->num_anno_lps));
         check_add_anno(anno, map);

@@ -39,6 +39,10 @@ typedef struct config_anno_map_s
     // only explicit annotations tracked here - use a flag to indicate a
     // non-annotated LP type
     int has_unanno_lp;
+    // for configuration/mapping functions to be able to provide "default"
+    // (annotation-ignoring) lookup semantics, provide a flag to determine if
+    // the unannotated lp type is first
+    int is_unanno_first;
     uint64_t num_annos;
     // maintain the number of lps that have the particular annotation 
     uint64_t num_anno_lps[CONFIGURATION_MAX_ANNOS];
