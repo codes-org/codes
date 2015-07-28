@@ -40,14 +40,12 @@ static int jobmap_list_configure(void const * params, void ** ctx)
     assert(lst);
 
     FILE *alloc_file_name = fopen(p->alloc_file, "r");
-    if(!alloc_file_name)
-    {
+    if(!alloc_file_name) {
         ERR("Could not open file %s\n ", p->alloc_file);
     }
     else{
         lst->num_jobs = 0;
-        while(!feof(alloc_file_name))
-        {
+        while(!feof(alloc_file_name)) {
             char ch = (char)fgetc(alloc_file_name);
             if(ch == '\n')
                 lst->num_jobs++;//how many jobs
@@ -59,11 +57,9 @@ static int jobmap_list_configure(void const * params, void ** ctx)
     for(int i=0; i<lst->num_jobs; i++)
         lst->num_rank_job[i]=0;
 
-
     rewind(alloc_file_name);
     int job_id = 0;
-    while(!feof(alloc_file_name))
-    {
+    while(!feof(alloc_file_name)) {
         char ch = (char)fgetc(alloc_file_name);
         if(ch == '\n'){
             job_id++;//how many jobs
@@ -80,10 +76,8 @@ static int jobmap_list_configure(void const * params, void ** ctx)
     }
 
     rewind(alloc_file_name);
-    for(int i=0; i < lst->num_jobs; i++)
-    {
-        for(int j=0; j < lst->num_rank_job[i]; j++)
-        {
+    for(int i=0; i < lst->num_jobs; i++) {
+        for(int j=0; j < lst->num_rank_job[i]; j++) {
             fscanf(alloc_file_name, "%d", &lst->lp_arrays[i][j]);
         }
     }
@@ -92,12 +86,10 @@ static int jobmap_list_configure(void const * params, void ** ctx)
     *ctx = lst;
 
     dprintf("read %d jobs\n", lst->num_jobs);
-    for(int i=0; i < lst->num_jobs; i++)
-    {
+    for(int i=0; i < lst->num_jobs; i++) {
         dprintf(" job %d contains %d ranks, LP list is:\n   ",
                 i, lst->num_rank_job[i]);
-        for(int j=0; j < lst->num_rank_job[i]; j++)
-        {
+        for(int j=0; j < lst->num_rank_job[i]; j++) {
             dprintf(" %d,", lst->lp_arrays[i][j]);
         }
         dprintf("\n==========\n");
@@ -109,21 +101,17 @@ static int jobmap_list_configure(void const * params, void ** ctx)
 static struct codes_jobmap_id jobmap_list_to_local(int id, void const * ctx)
 {
     struct codes_jobmap_id rtn;
+    rtn.job = -1;
+    rtn.rank = -1;
+
     struct jobmap_list *lst = (struct jobmap_list*)ctx;
 
-    for(int i=0; i<lst->num_jobs; i++)
-    {
-        for(int j=0; j < lst->num_rank_job[i]; j++)
-        {
-            if(id == lst->lp_arrays[i][j])
-            {
+    for(int i=0; i<lst->num_jobs; i++) {
+        for(int j=0; j < lst->num_rank_job[i]; j++) {
+            if(id == lst->lp_arrays[i][j]) {
                 rtn.job = i;
                 rtn.rank = j;
                 return rtn;
-            }
-            else{
-                rtn.job = -1;
-                rtn.rank = -1;
             }
         }
     }
@@ -158,9 +146,7 @@ static void jobmap_list_destroy(void * ctx)
     }
 
     free(lst->lp_arrays);
-
     free(lst->num_rank_job);
-
     free(ctx);
 }
 
