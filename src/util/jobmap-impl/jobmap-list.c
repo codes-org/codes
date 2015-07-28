@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
-#include "src/util/codes-jobmap-method-impl.h"
+#include "../codes-jobmap-method-impl.h"
 
 #define ERR(str, ...)\
     do{\
