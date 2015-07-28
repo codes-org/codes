@@ -135,6 +135,8 @@ void codes_workload_get_next(
             break;
         tmp = tmp->next;
     }
+    if(tmp==NULL)
+        printf("tmp is NULL, rank=%d, app_id = %d", rank, app_id);
     assert(tmp);
     if(tmp->lifo)
     {

@@ -713,7 +713,7 @@ void dumpi_trace_nw_workload_get_next(int app_id, int rank, struct codes_workloa
    hash_link = qhash_search(rank_tbl, &cmp);
    if(!hash_link)
    {
-      printf("\n not found for rank id %d ", rank);
+      printf("\n not found for rank id %d , %d", rank, app_id);
       op->op_type = CODES_WK_END;
       return;
    }
