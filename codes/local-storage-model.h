@@ -97,6 +97,23 @@ void lsm_event_new_reverse(tw_lp *sender);
  */
 void* lsm_event_data(tw_event *event);
 
+
+/* get the priority count for the LSM scheduler.
+ * returns 0 if priorities aren't being used, -1 if no LSMs were configured,
+ * and >0 otherwise.
+ * This should not be called before lsm_configure */
+int lsm_get_num_priorities(
+        char const * annotation,
+        int ignore_annotations);
+
+/* set a request priority for the following lsm_event_*.
+ * - tw_error will be called if the priority ends up being out-of-bounds
+ *   (won't able to tell until the lsm_event call b/c annotations)
+ * - not setting a priority (or setting a negative priority) is equivalent to
+ *   setting the message to the lowest priority
+ */
+void lsm_set_event_priority(int prio);
+
 /* registers the storage model LP with CODES/ROSS */
 void lsm_register(void);
 

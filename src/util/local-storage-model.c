@@ -174,6 +174,9 @@ static int lsm_magic = 0;
 static disk_model_t model_unanno, *models_anno = NULL;
 static const config_anno_map_t *anno_map = NULL;
 
+/* sched temporary for lsm_set_event_priority */
+static int temp_prio = -1;
+
 /*
  * lsm_lp
  *   - implements ROSS callback interfaces
@@ -336,7 +339,22 @@ static tw_event* lsm_event_new_base(
     m->data.offset = io_offset;
     m->data.size   = io_size_bytes;
     strcpy(m->data.category, category);
-    m->data.prio = 0; // TODO
+
+    // get the priority count for checking
+    int num_prios = lsm_get_num_priorities(annotation, ignore_annotations);
+    // prio checks and sets
+    if (num_prios <= 0) // disabled scheduler - ignore
+        m->data.prio = 0;
+    else if (temp_prio < 0) // unprovided priority - defer to max possible
+        m->data.prio = num_prios-1;
+    else if (temp_prio < num_prios) // valid priority
+        m->data.prio = temp_prio;
+    else
+        tw_error(TW_LOC,
+                "LP %lu, LSM LP %lu: Bad priority (%d supplied, %d lanes)\n",
+                sender->gid, dest_gid, temp_prio, num_prios);
+    // reset temp_prio
+    temp_prio = -1;
 
     /* save callers dest_gid and message size */
     m->wrap.id = dest_gid;
@@ -405,6 +423,41 @@ void* lsm_event_data(tw_event *event)
     m = (lsm_message_t *) tw_event_data(event);
 
     return m->wrap.message;
+}
+
+int lsm_get_num_priorities(
+        char const * annotation,
+        int ignore_annotations)
+{
+    if (ignore_annotations) {
+        /* find the first valid model
+         * (unannotated if listed first, annotated otherwise) */
+        if (anno_map->is_unanno_first)
+            return model_unanno.use_sched;
+        else if (anno_map->num_annos)
+            return models_anno->use_sched;
+        else
+            return -1;
+    }
+    else if (annotation == NULL) {
+        if (anno_map->has_unanno_lp)
+            return model_unanno.use_sched;
+        else
+            return -1;
+    }
+    else {
+        for (int i = 0; i < anno_map->num_annos; i++) {
+            if (strcmp(anno_map->annotations[i], annotation) == 0)
+                return models_anno[i].use_sched;
+        }
+        // bad annotation
+        return -1;
+    }
+}
+
+void lsm_set_event_priority(int prio)
+{
+    temp_prio = prio;
 }
 
 /*
