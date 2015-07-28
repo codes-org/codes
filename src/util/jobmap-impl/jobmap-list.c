@@ -121,7 +121,6 @@ static struct codes_jobmap_id jobmap_list_to_local(int id, void const * ctx)
 
 static int jobmap_list_to_global(struct codes_jobmap_id id, void const * ctx)
 {
-
     struct jobmap_list *lst = (struct jobmap_list*)ctx;
 
     if (id.job < lst->num_jobs)
