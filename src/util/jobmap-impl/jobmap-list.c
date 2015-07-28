@@ -130,13 +130,12 @@ static int jobmap_list_to_global(struct codes_jobmap_id id, void const * ctx)
         return -1;
 }
 
-int jobmap_list_get_num_jobs(void const * ctx)
+static int jobmap_list_get_num_jobs(void const * ctx)
 {
     struct jobmap_list *lst = (struct jobmap_list*)ctx;
     return lst->num_jobs;
 
 }
-
 
 static void jobmap_list_destroy(void * ctx)
 {
