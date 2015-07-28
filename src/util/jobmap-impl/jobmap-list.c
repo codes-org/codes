@@ -15,7 +15,7 @@
         return -1; \
     }while(0)
 
-struct workload_params {
+struct joblist {
     int num_jobs;
     int *num_rank_job;
     int **lp_arrays;
@@ -23,8 +23,8 @@ struct workload_params {
 
 static int jobmap_list_configure(void const * params, void ** ctx)
 {
-    struct codes_jobmap_params_dumpi const * p = params;
-    struct workload_params *wp = malloc(sizeof(*wp));
+    struct codes_jobmap_params_list const * p = params;
+    struct joblist *wp = malloc(sizeof(*wp));
     assert(wp);
 
     FILE *alloc_file_name = fopen(p->alloc_file, "r");
@@ -99,7 +99,7 @@ static int jobmap_list_configure(void const * params, void ** ctx)
 static struct codes_jobmap_id jobmap_list_to_local(int id, void const * ctx)
 {
     struct codes_jobmap_id rtn;
-    struct workload_params *wp = (struct workload_params*)ctx;
+    struct joblist *wp = (struct joblist*)ctx;
 
     for(int i=0; i<wp->num_jobs; i++)
     {
@@ -124,7 +124,7 @@ static struct codes_jobmap_id jobmap_list_to_local(int id, void const * ctx)
 static int jobmap_list_to_global(struct codes_jobmap_id id, void const * ctx)
 {
 
-    struct workload_params *wp = (struct workload_params*)ctx;
+    struct joblist *wp = (struct joblist*)ctx;
 
     if (id.job < wp->num_jobs)
         return wp->lp_arrays[id.job][id.rank];
@@ -134,7 +134,7 @@ static int jobmap_list_to_global(struct codes_jobmap_id id, void const * ctx)
 
 int jobmap_list_get_num_jobs(void const * ctx)
 {
-    struct workload_params *wp = (struct workload_params*)ctx;
+    struct joblist *wp = (struct joblist*)ctx;
     return wp->num_jobs;
 
 }
@@ -142,7 +142,7 @@ int jobmap_list_get_num_jobs(void const * ctx)
 
 static void jobmap_list_destroy(void * ctx)
 {
-    struct workload_params *wp = (struct workload_params*)ctx;
+    struct joblist *wp = (struct joblist*)ctx;
     for(int i=0; i<wp->num_jobs; i++){
         free(wp->lp_arrays[i]);
     }

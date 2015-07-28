@@ -11,9 +11,9 @@
  *
  * Example:
  *
- * job  0      1    2        (<-- jobmap defined "local" IDs)
- * rank 0 1 2  0 1  0 1 2 3  (<-- jobmap defined "local" IDs)
- * ID   0 1 2  3 4  5 6 7 8  (<-- LP relative "global" ID)
+ * job  0      1    2        (<-- jobmap defined "job" IDs)
+ * rank 0 1 2  0 1  0 1 2 3  (<-- jobmap defined "job local" IDs)
+ * ID   0 1 2  3 4  5 6 7 8  (<-- LP relative "global" IDs)
  * LP   A B C  D E  F G H I  (<-- provided by codes-mapping)
  * */
 
@@ -26,14 +26,14 @@ enum codes_jobmap_type {
     /* the "dummy" jobmap is an example implementation. It simply specifies N
      * jobs, with exactly one rank per job, with a trivial mapping */
     CODES_JOBMAP_DUMMY,
-    CODES_JOBMAP_DUMPI
+    CODES_JOBMAP_LIST
 };
 
 struct codes_jobmap_params_dummy {
     int num_jobs;
 };
 
-struct codes_jobmap_params_dumpi {
+struct codes_jobmap_params_list {
     char *alloc_file;
 };
 

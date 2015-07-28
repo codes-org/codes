@@ -25,7 +25,7 @@ codes_jobmap_configure(enum codes_jobmap_type t, void const * params)
         case CODES_JOBMAP_DUMMY:
             c->impl = &jobmap_dummy_impl;
             break;
-        case CODES_JOBMAP_DUMPI:
+        case CODES_JOBMAP_LIST:
             c->impl = &jobmap_list_impl;
             break;
         default:
