@@ -172,7 +172,7 @@ static struct codes_jobmap_id jobmap_list_to_local(int id, void const * ctx)
     rtn.job = -1;
     rtn.rank = -1;
 
-    struct jobmap_list *lst = (struct jobmap_list*)ctx;
+    struct jobmap_list const *lst = (struct jobmap_list const *)ctx;
 
     for(int i=0; i<lst->num_jobs; i++) {
         for(int j=0; j < lst->rank_counts[i]; j++) {
@@ -189,7 +189,7 @@ static struct codes_jobmap_id jobmap_list_to_local(int id, void const * ctx)
 
 static int jobmap_list_to_global(struct codes_jobmap_id id, void const * ctx)
 {
-    struct jobmap_list *lst = (struct jobmap_list*)ctx;
+    struct jobmap_list const *lst = (struct jobmap_list*)ctx;
 
     if (id.job < lst->num_jobs)
         return lst->global_ids[id.job][id.rank];
@@ -201,7 +201,15 @@ static int jobmap_list_get_num_jobs(void const * ctx)
 {
     struct jobmap_list *lst = (struct jobmap_list*)ctx;
     return lst->num_jobs;
+}
 
+static int jobmap_list_get_num_ranks(int job_id, void const * ctx)
+{
+    struct jobmap_list const *lst = (struct jobmap_list const *) ctx;
+    if (job_id < 0 || job_id >= lst->num_jobs)
+        return -1;
+    else
+        return lst->rank_counts[job_id];
 }
 
 static void jobmap_list_destroy(void * ctx)
@@ -222,7 +230,8 @@ struct codes_jobmap_impl jobmap_list_impl = {
     jobmap_list_destroy,
     jobmap_list_to_local,
     jobmap_list_to_global,
-    jobmap_list_get_num_jobs
+    jobmap_list_get_num_jobs,
+    jobmap_list_get_num_ranks
 };
 
 /*

@@ -59,12 +59,18 @@ int jobmap_identity_get_num_jobs(void const * ctx)
     return 1;
 }
 
+int jobmap_identity_get_num_ranks(int job_id, void const * ctx)
+{
+    return (job_id == 0) ? *(int const *) ctx : -1;
+}
+
 struct codes_jobmap_impl jobmap_identity_impl = {
     jobmap_identity_configure,
     jobmap_identity_destroy,
     jobmap_identity_to_local,
     jobmap_identity_to_global,
-    jobmap_identity_get_num_jobs
+    jobmap_identity_get_num_jobs,
+    jobmap_identity_get_num_ranks
 };
 
 /*

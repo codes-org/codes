@@ -12,8 +12,8 @@
  * Example:
  *
  * job  0      1    2        (<-- jobmap defined "job" IDs)
- * rank 0 1 2  0 1  0 1 2 3  (<-- jobmap defined "job local" IDs)
- * ID   0 1 2  3 4  5 6 7 8  (<-- LP relative "global" IDs)
+ * rank 0 1 2  0 1  0 1 2 3  (<-- "job local" IDs)
+ * ID   0 1 2  3 4  5 6 7 8  (<-- jobmap-defined LP relative "global" IDs)
  * LP   A B C  D E  F G H I  (<-- provided by codes-mapping)
  * */
 
@@ -77,6 +77,8 @@ int codes_jobmap_to_global_id(
         struct codes_jobmap_ctx const * c);
 
 int codes_jobmap_get_num_jobs(struct codes_jobmap_ctx const * c);
+
+int codes_jobmap_get_num_ranks(int job_id, struct codes_jobmap_ctx const * c);
 
 #endif
 

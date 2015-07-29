@@ -55,9 +55,18 @@ static int jobmap_dummy_to_global(struct codes_jobmap_id id, void const * ctx)
         return -1;
 }
 
-int jobmap_dummy_get_num_jobs(void const * ctx)
+static int jobmap_dummy_get_num_jobs(void const * ctx)
 {
     return *(int const *) ctx;
+}
+
+int jobmap_dummy_get_num_ranks(int job_id, void const * ctx)
+{
+    int num_jobs = *(int const *) ctx;
+    if (job_id < 0 || job_id >= num_jobs)
+        return -1;
+    else
+        return 1;
 }
 
 struct codes_jobmap_impl jobmap_dummy_impl = {
@@ -65,7 +74,8 @@ struct codes_jobmap_impl jobmap_dummy_impl = {
     jobmap_dummy_destroy,
     jobmap_dummy_to_local,
     jobmap_dummy_to_global,
-    jobmap_dummy_get_num_jobs
+    jobmap_dummy_get_num_jobs,
+    jobmap_dummy_get_num_ranks
 };
 
 /*

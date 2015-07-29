@@ -72,6 +72,11 @@ int codes_jobmap_get_num_jobs(struct codes_jobmap_ctx const * c)
     return c->impl->get_num_jobs(c->ctx);
 }
 
+int codes_jobmap_get_num_ranks(int job_id, struct codes_jobmap_ctx const * c)
+{
+    return c->impl->get_num_ranks(job_id, c->ctx);
+}
+
 /*
  * Local variables:
  *  c-indent-level: 4

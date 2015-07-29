@@ -18,6 +18,7 @@ struct codes_jobmap_impl {
     struct codes_jobmap_id (*to_local) (int id, void const * ctx);
     int                    (*to_global) (struct codes_jobmap_id id, void const * ctx);
     int                    (*get_num_jobs)(void const * ctx);
+    int                    (*get_num_ranks)(int job_id, void const * ctx);
 };
 
 struct codes_jobmap_ctx {

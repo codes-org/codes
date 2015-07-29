@@ -26,6 +26,11 @@ static int test_jobmap_identity(int num_ranks)
     if (1 != num_jobs)
         ERR("jobmap-identity: expected exactly 1 job, got %d\n", num_jobs);
 
+    int num_ranks_from_map = codes_jobmap_get_num_ranks(0, c);
+    if (num_ranks_from_map != num_ranks)
+        ERR("jobmap-identity: expected %d ranks for job 0, got %d\n",
+                num_ranks, num_ranks_from_map);
+
     struct codes_jobmap_id lid;
     int gid;
     for (int i = 0; i < num_ranks; i++) {
@@ -60,6 +65,11 @@ static int test_jobmap_list(char * fname)
     int gid, gid_expected = 0;
     struct codes_jobmap_id lid_expected, lid;
     for (int i = 0; i < num_jobs; i++) {
+        int num_ranks = codes_jobmap_get_num_ranks(i, c);
+        if (num_ranks != rank_count_per_job[i])
+            ERR("jobmap-list: expected %d ranks for job %d, got %d\n",
+                    rank_count_per_job[i], i, num_ranks);
+
         for (int j = 0; j < rank_count_per_job[i]; j++) {
             lid_expected.job = i;
             lid_expected.rank = j;
