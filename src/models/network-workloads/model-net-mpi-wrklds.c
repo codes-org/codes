@@ -1080,21 +1080,8 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, lp_type_name, 
 	&mapping_type_id, annotation, &mapping_rep_id, &mapping_offset);
   
+   memset(s, 0, sizeof(*s));
    s->nw_id = (mapping_rep_id * num_nw_lps) + mapping_offset;
-   s->wrkld_end = 0;
-
-   s->num_sends = 0;
-   s->num_recvs = 0;
-   s->num_cols = 0;
-   s->num_delays = 0;
-   s->num_wait = 0;
-   s->num_waitall = 0;
-   s->num_waitsome = 0;
-   s->elapsed_time = 0;
-   s->compute_time = 0;
-   s->search_overhead = 0;
-
-   //`s->completed_sends = NULL;
    s->completed_reqs = NULL;
 
    s->pending_waits = NULL;
