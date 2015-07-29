@@ -225,6 +225,12 @@ lsm
 The API can be found at codes/local-storage-model.h and example usage can be
 seen in tests/local-storage-model-test.c and tests/conf/lsm-test.conf. 
 
+The queueing policy of LSM is currently FIFO, and the default mode uses an
+implicit queue, simply incrementing counters and scheduling future events when
+I/O requests come in. Additionally, an explicit queue has been added and
+provides a simple FIFO+priority mechanism. To use, in the "lsm" group set
+"enable_scheduler" to the value "1".
+
 == Resource model
 
 The resource model presents a simple integer counter representing some finite
