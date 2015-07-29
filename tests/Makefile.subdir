@@ -14,7 +14,7 @@ TESTS += tests/lp-io-test.sh \
  tests/lsm-test.sh \
  tests/rc-stack-test \
  tests/resource-test.sh \
- tests/jobmap-test
+ tests/jobmap-test.sh
 
 EXTRA_DIST += tests/lp-io-test.sh \
  tests/workload/codes-workload-test.sh \
@@ -23,6 +23,8 @@ EXTRA_DIST += tests/lp-io-test.sh \
  tests/mapping_test.sh \
  tests/lsm-test.sh \
  tests/resource-test.sh \
+ tests/jobmap-test.sh \
+ tests/conf/jobmap-test-list.conf \
  tests/conf/buffer_test.conf \
  tests/conf/lsm-test.conf \
  tests/conf/mapping_test.conf \

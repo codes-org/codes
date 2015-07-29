@@ -14,6 +14,43 @@
         return 1; \
     } while(0)
 
+/* THIS TEST IS HARDCODED AGAINST jobmap-test-list.conf */
+static int test_jobmap_list(char * fname)
+{
+    struct codes_jobmap_ctx *c;
+    struct codes_jobmap_params_list p;
+    p.alloc_file = fname;
+
+    c = codes_jobmap_configure(CODES_JOBMAP_LIST, &p);
+    if (!c) ERR("jobmap-list: configure failure");
+
+    int rank_count_per_job[] = {10, 5, 2, 1, 1, 1, 1, 1, 1};
+
+    int num_jobs = codes_jobmap_get_num_jobs(c);
+    if (num_jobs != 9)
+        ERR("jobmap-list: expected %d jobs, got %d", 9, num_jobs);
+
+    int gid, gid_expected = 0;
+    struct codes_jobmap_id lid_expected, lid;
+    for (int i = 0; i < num_jobs; i++) {
+        for (int j = 0; j < rank_count_per_job[i]; j++) {
+            lid_expected.job = i;
+            lid_expected.rank = j;
+            gid = codes_jobmap_to_global_id(lid_expected, c);
+            if (gid != gid_expected)
+                ERR("jobmap-list: expected gid %d for lid (%d,%d), got %d",
+                        gid_expected, lid_expected.job, lid_expected.rank, gid);
+            lid = codes_jobmap_to_local_id(gid_expected, c);
+            if (lid.job != lid_expected.job || lid.rank != lid_expected.rank)
+                ERR("jobmap-list: expected lid (%d,%d) for gid %d, got (%d,%d)",
+                        lid_expected.job, lid_expected.rank, gid_expected,
+                        lid.job, lid.rank);
+            gid_expected++;
+        }
+    }
+    codes_jobmap_destroy(c);
+    return 0;
+}
 static int test_jobmap_dummy(int num_jobs)
 {
     struct codes_jobmap_ctx *c;
@@ -67,9 +104,12 @@ static int test_jobmap_dummy(int num_jobs)
 
 int main(int argc, char *argv[])
 {
+    if (argc != 2)
+        ERR("usage: jobmap-test <jobmap-list alloc file>");
     int rc;
     rc = test_jobmap_dummy(10);
     if (rc) return rc;
-
+    rc = test_jobmap_list(argv[1]);
+    if (rc) return rc;
     return 0;
 }
