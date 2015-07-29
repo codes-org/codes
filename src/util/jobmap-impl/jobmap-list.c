@@ -29,8 +29,8 @@
 
 struct jobmap_list {
     int num_jobs;
-    int *num_rank_job;
-    int **lp_arrays;
+    int *rank_counts;
+    int **global_ids;
 };
 
 #define COND_REALLOC(_len_expr, _cap_var, _buf_var) \
@@ -115,10 +115,10 @@ static int jobmap_list_configure(void const * params, void ** ctx)
     // job storage
     lst->num_jobs = 0;
     int job_cap = 8;
-    lst->num_rank_job = calloc(job_cap, sizeof(*lst->num_rank_job));
-    assert(lst->num_rank_job);
-    lst->lp_arrays = calloc(job_cap, sizeof(*lst->lp_arrays));
-    assert(lst->lp_arrays);
+    lst->rank_counts = calloc(job_cap, sizeof(*lst->rank_counts));
+    assert(lst->rank_counts);
+    lst->global_ids = calloc(job_cap, sizeof(*lst->global_ids));
+    assert(lst->global_ids);
 
     // line storage
     int line_cap = 1<<10;
@@ -128,8 +128,8 @@ static int jobmap_list_configure(void const * params, void ** ctx)
     int rc = 0;
     do {
         rc = parse_line(f, &line_buf, &line_cap,
-                &lst->num_rank_job[lst->num_jobs],
-                &lst->lp_arrays[lst->num_jobs]);
+                &lst->rank_counts[lst->num_jobs],
+                &lst->global_ids[lst->num_jobs]);
         if (rc == -1) {
             // error and exit
             if (ferror(f)) {
@@ -137,14 +137,14 @@ static int jobmap_list_configure(void const * params, void ** ctx)
                 break;
             }
         }
-        else if (lst->num_rank_job[lst->num_jobs] > 0) {
+        else if (lst->rank_counts[lst->num_jobs] > 0) {
             lst->num_jobs++;
         }
         // resize if needed
         if (!feof(f) && lst->num_jobs == job_cap) {
             int tmp = job_cap;
-            COND_REALLOC(lst->num_jobs, tmp, lst->num_rank_job);
-            COND_REALLOC(lst->num_jobs, job_cap, lst->lp_arrays);
+            COND_REALLOC(lst->num_jobs, tmp, lst->rank_counts);
+            COND_REALLOC(lst->num_jobs, job_cap, lst->global_ids);
         }
     } while (!feof(f));
 
@@ -156,10 +156,10 @@ static int jobmap_list_configure(void const * params, void ** ctx)
     }
     else {
         for (int i = 0; i < job_cap; i++) {
-            free(lst->lp_arrays[i]);
+            free(lst->global_ids[i]);
         }
-        free(lst->lp_arrays);
-        free(lst->num_rank_job);
+        free(lst->global_ids);
+        free(lst->rank_counts);
         free(lst);
         *ctx = NULL;
         return -1;
@@ -175,8 +175,8 @@ static struct codes_jobmap_id jobmap_list_to_local(int id, void const * ctx)
     struct jobmap_list *lst = (struct jobmap_list*)ctx;
 
     for(int i=0; i<lst->num_jobs; i++) {
-        for(int j=0; j < lst->num_rank_job[i]; j++) {
-            if(id == lst->lp_arrays[i][j]) {
+        for(int j=0; j < lst->rank_counts[i]; j++) {
+            if(id == lst->global_ids[i][j]) {
                 rtn.job = i;
                 rtn.rank = j;
                 return rtn;
@@ -192,7 +192,7 @@ static int jobmap_list_to_global(struct codes_jobmap_id id, void const * ctx)
     struct jobmap_list *lst = (struct jobmap_list*)ctx;
 
     if (id.job < lst->num_jobs)
-        return lst->lp_arrays[id.job][id.rank];
+        return lst->global_ids[id.job][id.rank];
     else
         return -1;
 }
@@ -208,11 +208,11 @@ static void jobmap_list_destroy(void * ctx)
 {
     struct jobmap_list *lst = (struct jobmap_list*)ctx;
     for(int i=0; i<lst->num_jobs; i++){
-        free(lst->lp_arrays[i]);
+        free(lst->global_ids[i]);
     }
 
-    free(lst->lp_arrays);
-    free(lst->num_rank_job);
+    free(lst->global_ids);
+    free(lst->rank_counts);
     free(ctx);
 }
 
