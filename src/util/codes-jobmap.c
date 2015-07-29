@@ -12,6 +12,7 @@
 
 extern struct codes_jobmap_impl jobmap_dummy_impl;
 extern struct codes_jobmap_impl jobmap_list_impl;
+extern struct codes_jobmap_impl jobmap_identity_impl;
 
 struct codes_jobmap_ctx *
 codes_jobmap_configure(enum codes_jobmap_type t, void const * params)
@@ -22,11 +23,14 @@ codes_jobmap_configure(enum codes_jobmap_type t, void const * params)
 
     c->type = t;
     switch(t) {
-        case CODES_JOBMAP_DUMMY:
-            c->impl = &jobmap_dummy_impl;
+        case CODES_JOBMAP_IDENTITY:
+            c->impl = &jobmap_identity_impl;
             break;
         case CODES_JOBMAP_LIST:
             c->impl = &jobmap_list_impl;
+            break;
+        case CODES_JOBMAP_DUMMY:
+            c->impl = &jobmap_dummy_impl;
             break;
         default:
             free(c);

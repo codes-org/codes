@@ -23,10 +23,21 @@
 /** type markers and parameter defs for jobmaps **/
 
 enum codes_jobmap_type {
-    /* the "dummy" jobmap is an example implementation. It simply specifies N
-     * jobs, with exactly one rank per job, with a trivial mapping */
+    /* the "identity" jobmap is a shim for single-job workloads */
+    CODES_JOBMAP_IDENTITY,
+    /* the "list" jobmap allows the explicit specification of mappings from
+     * jobs to lists of global ids through a text file, wiht one line per job
+     */
+    CODES_JOBMAP_LIST,
+    /* the "dummy" jobmap is an example implementation for testing, and can be
+     * seen as the inverse of the identity mapping.
+     * It simply specifies N jobs, with exactly one rank per job, with a trivial
+     * mapping */
     CODES_JOBMAP_DUMMY,
-    CODES_JOBMAP_LIST
+};
+
+struct codes_jobmap_params_identity {
+    int num_ranks;
 };
 
 struct codes_jobmap_params_dummy {

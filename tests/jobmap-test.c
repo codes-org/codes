@@ -14,6 +14,33 @@
         return 1; \
     } while(0)
 
+static int test_jobmap_identity(int num_ranks)
+{
+    struct codes_jobmap_ctx *c;
+    struct codes_jobmap_params_identity p;
+
+    c = codes_jobmap_configure(CODES_JOBMAP_IDENTITY, &p);
+    if (!c) ERR("jobmap-identity: configure failure");
+
+    int num_jobs = codes_jobmap_get_num_jobs(c);
+    if (1 != num_jobs)
+        ERR("jobmap-identity: expected exactly 1 job, got %d\n", num_jobs);
+
+    struct codes_jobmap_id lid;
+    int gid;
+    for (int i = 0; i < num_ranks; i++) {
+        lid.job = -1; lid.rank = -1;
+        lid = codes_jobmap_to_local_id(i, c);
+        if (lid.job != 0 || lid.rank != i)
+            ERR("jobmap-identity: expected lid (%d,%d), got (%d,%d) for gid %d",
+                    0,i, lid.job,lid.rank, i);
+        gid = codes_jobmap_to_global_id(lid, c);
+        if (gid != i)
+            ERR("jobmap-identity: expected gid %d, got %d for lid (%d,%d)",
+                    i, gid, lid.job, lid.rank);
+    }
+    return 0;
+}
 /* THIS TEST IS HARDCODED AGAINST jobmap-test-list.conf */
 static int test_jobmap_list(char * fname)
 {
@@ -108,6 +135,8 @@ int main(int argc, char *argv[])
         ERR("usage: jobmap-test <jobmap-list alloc file>");
     int rc;
     rc = test_jobmap_dummy(10);
+    if (rc) return rc;
+    rc = test_jobmap_identity(10);
     if (rc) return rc;
     rc = test_jobmap_list(argv[1]);
     if (rc) return rc;

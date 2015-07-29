@@ -101,6 +101,7 @@ src_libcodes_base_a_SOURCES =  \
 	src/util/codes-jobmap.c \
 	src/util/jobmap-impl/jobmap-dummy.c \
 	src/util/jobmap-impl/jobmap-list.c\
+	src/util/jobmap-impl/jobmap-identity.c\
     src/workload/codes-workload.c \
     src/workload/codes-workload-method.h \
     src/workload/methods/codes-iolang-wrkld.c \
