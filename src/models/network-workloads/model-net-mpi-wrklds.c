@@ -460,7 +460,6 @@ static void codes_exec_mpi_wait_rc(nw_state* s, tw_bf* bf, nw_message* m, tw_lp*
      }
    else
     {
-	s->wait_time = m->u.rc.saved_wait_time;
  	mpi_completed_queue_insert_op(&s->completed_reqs, m->op->u.wait.req_id);	
 	tw_rand_reverse_unif(lp->rng);		
     }
@@ -469,34 +468,26 @@ static void codes_exec_mpi_wait_rc(nw_state* s, tw_bf* bf, nw_message* m, tw_lp*
 /* execute MPI wait operation */
 static void codes_exec_mpi_wait(nw_state* s, tw_bf* bf, nw_message* m, tw_lp* lp)
 {
-/* check in the completed receives queue if the request ID has already been completed.*/
+    /* check in the completed receives queue if the request ID has already been completed.*/
+    assert(!s->pending_waits);
+    dumpi_req_id req_id = m->op->u.wait.req_id;
 
-   assert(!s->pending_waits);
-   dumpi_req_id req_id = m->op->u.wait.req_id;
-
-   unsigned long search_start_time, search_end_time;
-   struct completed_requests* current = s->completed_reqs; 
-   search_start_time = tw_now(lp);
-   while(current)
-    {
-	if(current->req_id == req_id)
-	   {
-		remove_req_id(&s->completed_reqs, req_id);
-		m->u.rc.saved_wait_time = s->wait_time;
-		s->wait_time += tw_now(lp) - search_start_time;
-		codes_issue_next_event(lp);
-		return;	
-	   }
-	current = current->next;		
+    struct completed_requests* current = s->completed_reqs;
+    while(current) {
+        if(current->req_id == req_id) {
+            remove_req_id(&s->completed_reqs, req_id);
+            m->u.rc.saved_wait_time = s->wait_time;
+            codes_issue_next_event(lp);
+            return;
+        }
+        current = current->next;
     }
-   search_end_time = tw_now(lp);
-   s->search_overhead += (search_end_time - search_start_time);
 
-   /* If not, add the wait operation in the pending 'waits' list. */
+    /* If not, add the wait operation in the pending 'waits' list. */
     struct pending_waits* wait_op = malloc(sizeof(struct pending_waits));
-    wait_op->mpi_op = m->op;  
-    wait_op->num_completed = 0; 
-    wait_op->start_time = search_start_time;
+    wait_op->mpi_op = m->op;
+    wait_op->num_completed = 0;
+    wait_op->start_time = tw_now(lp);
     s->pending_waits = wait_op;
 }
 
@@ -510,7 +501,6 @@ static void codes_exec_mpi_wait_all_rc(nw_state* s, tw_bf* bf, nw_message* m, tw
   if(m->u.rc.found_match)
     {
    	int i;
-	s->wait_time = m->u.rc.saved_wait_time;
 	int count = m->op->u.waits.count;
 	dumpi_req_id req_id[count];
 
@@ -540,9 +530,6 @@ static void codes_exec_mpi_wait_all(nw_state* s, tw_bf* bf, nw_message* m, tw_lp
   struct completed_requests* current = s->completed_reqs;
 
   /* check number of completed irecvs in the completion queue */ 
-  unsigned long start_time, search_end_time;
-  start_time = tw_now(lp);
-
   if(lp->gid == TRACE)
     {
   	printf(" \n (%lf) MPI waitall posted %d count", tw_now(lp), m->op->u.waits.count);
@@ -561,12 +548,8 @@ static void codes_exec_mpi_wait_all(nw_state* s, tw_bf* bf, nw_message* m, tw_lp
 	 current = current->next;
    }
 
-  search_end_time = tw_now(lp);
-
   if(TRACE== lp->gid)
 	  printf("\n %lf Num completed %d count %d ", tw_now(lp), num_completed, count);
-
-  s->search_overhead += (search_end_time - start_time);
 
   m->u.rc.found_match = 0;
   if(count == num_completed)
@@ -575,8 +558,6 @@ static void codes_exec_mpi_wait_all(nw_state* s, tw_bf* bf, nw_message* m, tw_lp
 	for( i = 0; i < count; i++)	
 		remove_req_id(&s->completed_reqs, req_id[i]);
 
-	m->u.rc.saved_wait_time = s->wait_time;	
-	s->wait_time += tw_now(lp) - start_time;
 	codes_issue_next_event(lp);
   }
   else
@@ -585,7 +566,7 @@ static void codes_exec_mpi_wait_all(nw_state* s, tw_bf* bf, nw_message* m, tw_lp
 	  struct pending_waits* wait_op = malloc(sizeof(struct pending_waits));
 	  wait_op->mpi_op = m->op;  
 	  wait_op->num_completed = num_completed;
-	  wait_op->start_time = start_time;
+	  wait_op->start_time = tw_now(lp);
 	  s->pending_waits = wait_op;
   }
 }
