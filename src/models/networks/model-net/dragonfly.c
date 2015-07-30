@@ -236,43 +236,43 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     }
 
     configuration_get_value_int(&config, "PARAMS", "local_vc_size", anno, &p->local_vc_size);
-    if(!p->local_vc_size) {
+    if(p->local_vc_size <= 0) {
         p->local_vc_size = 1024;
         fprintf(stderr, "Buffer size of local channels not specified, setting to %d\n", p->local_vc_size);
     }
 
     configuration_get_value_int(&config, "PARAMS", "global_vc_size", anno, &p->global_vc_size);
-    if(!p->global_vc_size) {
+    if(p->global_vc_size <= 0) {
         p->global_vc_size = 2048;
         fprintf(stderr, "Buffer size of global channels not specified, setting to %d\n", p->global_vc_size);
     }
 
     configuration_get_value_int(&config, "PARAMS", "cn_vc_size", anno, &p->cn_vc_size);
-    if(!p->cn_vc_size) {
+    if(p->cn_vc_size <= 0) {
         p->cn_vc_size = 1024;
         fprintf(stderr, "Buffer size of compute node channels not specified, setting to %d\n", p->cn_vc_size);
     }
 
     configuration_get_value_int(&config, "PARAMS", "chunk_size", anno, &p->chunk_size);
-    if(!p->chunk_size) {
+    if(p->chunk_size <= 0) {
         p->chunk_size = 64;
-        fprintf(stderr, "Chunk size for packets is specified, setting to %d\n", p->chunk_size);
+        fprintf(stderr, "Chunk size for packets is not specified, setting to %d\n", p->chunk_size);
     }
 
     configuration_get_value_double(&config, "PARAMS", "local_bandwidth", anno, &p->local_bandwidth);
-    if(!p->local_bandwidth) {
+    if(p->local_bandwidth <= 0) {
         p->local_bandwidth = 5.25;
         fprintf(stderr, "Bandwidth of local channels not specified, setting to %lf\n", p->local_bandwidth);
     }
 
     configuration_get_value_double(&config, "PARAMS", "global_bandwidth", anno, &p->global_bandwidth);
-    if(!p->global_bandwidth) {
+    if(p->global_bandwidth <= 0) {
         p->global_bandwidth = 4.7;
         fprintf(stderr, "Bandwidth of global channels not specified, setting to %lf\n", p->global_bandwidth);
     }
 
     configuration_get_value_double(&config, "PARAMS", "cn_bandwidth", anno, &p->cn_bandwidth);
-    if(!p->cn_bandwidth) {
+    if(p->cn_bandwidth <= 0) {
         p->cn_bandwidth = 5.25;
         fprintf(stderr, "Bandwidth of compute node channels not specified, setting to %lf\n", p->cn_bandwidth);
     }
@@ -314,7 +314,7 @@ static void dragonfly_configure(){
     anno_map = codes_mapping_get_lp_anno_map(LP_CONFIG_NM);
     assert(anno_map);
     num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
-    all_params = malloc(num_params * sizeof(*all_params));
+    all_params = calloc(num_params, sizeof(*all_params));
 
     for (uint64_t i = 0; i < anno_map->num_annos; i++){
         const char * anno = anno_map->annotations[i];
