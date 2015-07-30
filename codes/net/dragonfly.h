@@ -14,6 +14,9 @@ typedef struct terminal_message terminal_message;
 /* this message is used for both dragonfly compute nodes and routers */
 struct terminal_message
 {
+  /* magic number */
+  int magic;
+
   /* flit travel start time*/
   tw_stime travel_start_time;
  /* packet ID of the flit  */

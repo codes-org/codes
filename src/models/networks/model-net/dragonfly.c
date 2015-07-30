@@ -11,6 +11,7 @@
 #include <ross.h>
 
 #include "codes/codes_mapping.h"
+#include "codes/jenkins-hash.h"
 #include "codes/codes.h"
 #include "codes/model-net.h"
 #include "codes/model-net-method.h"
@@ -58,6 +59,14 @@ static const config_anno_map_t * anno_map   = NULL;
 static char lp_group_name[MAX_NAME_LENGTH];
 static int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
 
+/* router magic number */
+int router_magic_num = 0;
+
+/* terminal magic number */
+int terminal_magic_num = 0;
+
+/* number of routers in a mapping group */
+static int num_routers_per_mgrp = 0;
 
 struct dragonfly_param
 {
@@ -93,8 +102,8 @@ struct terminal_state
    unsigned long long packet_counter;
 
    // Dragonfly specific parameters
-   unsigned int router_id;
-   unsigned int terminal_id;
+   tw_lpid router_id;
+   tw_lpid terminal_id;
 
    // Each terminal will have an input and output channel with the router
    int* vc_occupancy; // NUM_VC
@@ -230,7 +239,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
 
     configuration_get_value_int(&config, "PARAMS", "num_vcs", anno,
             &p->num_vcs);
-    if(p->num_vcs <= 0) {
+    if(!p->num_vcs) {
         p->num_vcs = 1;
         fprintf(stderr, "Number of virtual channels not specified, setting to %d\n", p->num_vcs);
     }
@@ -304,10 +313,11 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
         (p->num_cn + p->num_global_channels + p->num_routers);
     p->total_routers = p->num_groups * p->num_routers;
     p->total_terminals = p->total_routers * p->num_cn;
-    printf("\n Total nodes %d routers %d groups %d radix %d ", p->num_cn * p->total_routers,
+    printf("\n Total nodes %d routers %d groups %d radix %d num_vc %d ", p->num_cn * p->total_routers,
 								p->total_routers,
 								p->num_groups,
-								p->radix);
+								p->radix,
+                                                                p->num_vcs);
 }
 
 static void dragonfly_configure(){
@@ -433,6 +443,7 @@ static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, ui
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
     msg->type = T_GENERATE;
+    msg->magic = terminal_magic_num;
     msg->is_pull = is_pull;
     msg->pull_size = pull_size;
 
@@ -500,6 +511,7 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
 
   int dest=0, credit_delay=0, type = R_BUFFER;
   int is_terminal = 0;
+  int found_magic = router_magic_num;
 
   const dragonfly_param *p = s->params;
   int sender_radix;
@@ -512,6 +524,7 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
    credit_delay = (1 / p->cn_bandwidth) * CREDIT_SIZE;
    type = T_BUFFER;
    is_terminal = 1;
+   found_magic = terminal_magic_num;
   }
    else if(msg->last_hop == GLOBAL)
    {
@@ -551,6 +564,7 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
     buf_msg->origin_router_id = s->router_id;
     buf_msg->vc_index = msg->saved_vc;
     buf_msg->type=type;
+    buf_msg->magic = found_magic;
     buf_msg->last_hop = msg->last_hop;
     buf_msg->packet_ID=msg->packet_ID;
 
@@ -612,7 +626,8 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_
        m->intm_group_id = -1;
        m->saved_vc=0;
        m->chunk_id = i;
-       
+       m->magic = terminal_magic_num;
+ 
       /* if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
          printf("\n packet generated %lld at terminal %d chunk id %d ", msg->packet_ID, (int)lp->gid, i);
        */
@@ -663,8 +678,10 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp *
    //TODO: be annotation-aware
    codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
            &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+   
    codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", NULL, 1,
-           s->router_id, 0, &router_id);
+           s->router_id/num_routers_per_mgrp, s->router_id % num_routers_per_mgrp, &router_id);
+
    // we are sending an event to the router, so no method_event here
    e = tw_event_new(router_id, s->terminal_available_time - tw_now(lp), lp);
 
@@ -680,6 +697,7 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp *
         memcpy(m+1, model_net_method_get_edata(DRAGONFLY, msg),
                 msg->remote_event_size_bytes);
    }
+   m->magic = router_magic_num;
    m->origin_router_id = s->router_id;
    m->type = R_ARRIVE;
    m->src_terminal_id = lp->gid;
@@ -812,6 +830,7 @@ if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
   // no method_event here - message going to router
   buf_e = tw_event_new(msg->intm_lp_id, s->next_credit_available_time - tw_now(lp), lp);
   buf_msg = tw_event_data(buf_e);
+  buf_msg->magic = router_magic_num;
   buf_msg->vc_index = msg->saved_vc;
   buf_msg->type=R_BUFFER;
   buf_msg->packet_ID=msg->packet_ID;
@@ -826,6 +845,10 @@ void
 terminal_init( terminal_state * s, 
 	       tw_lp * lp )
 {
+    uint32_t h1 = 0, h2 = 0; 
+    bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
+    terminal_magic_num = h1 + h2;
+    
     int i;
     char anno[MAX_NAME_LENGTH];
 
@@ -859,6 +882,7 @@ terminal_init( terminal_state * s,
       s->vc_occupancy[i]=0;
       s->output_vc_state[i]=VC_IDLE;
     }
+//   printf("\n Terminal ID %d Router ID %d ", s->terminal_id, s->router_id);
    dragonfly_collective_init(s, lp);
    return;
 }
@@ -1153,6 +1177,7 @@ terminal_event( terminal_state * s,
 		terminal_message * msg, 
 		tw_lp * lp )
 {
+  assert(msg->magic == terminal_magic_num);
   *(int *)bf = (int)0;
   switch(msg->type)
     {
@@ -1255,7 +1280,7 @@ get_next_stop(router_state * s,
 
    codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
            &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-   int local_router_id = (mapping_offset + mapping_rep_id);
+   int local_router_id = mapping_offset + (mapping_rep_id * num_routers_per_mgrp);
 
    bf->c2 = 0;
 
@@ -1310,8 +1335,8 @@ get_next_stop(router_state * s,
           }
       }
    }
-  codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", s->anno, 0, dest_lp,
-          0, &router_dest_id);
+  codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", s->anno, 0, dest_lp/num_routers_per_mgrp,
+          dest_lp % num_routers_per_mgrp, &router_dest_id);
   return router_dest_id;
 }
 /* gets the output port corresponding to the next stop of the message */
@@ -1338,7 +1363,7 @@ get_output_port( router_state * s,
     {
      codes_mapping_get_lp_info(next_stop, lp_group_name, &mapping_grp_id,
              NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-     int local_router_id = mapping_rep_id + mapping_offset;
+     int local_router_id = mapping_rep_id * num_routers_per_mgrp + mapping_offset;
      int intm_grp_id = local_router_id / s->params->num_routers;
 
      if(intm_grp_id != s->group_id)
@@ -1565,19 +1590,12 @@ router_packet_send( router_state * s,
   {
 	s->cur_hist_num[output_chan]++;
   }
-/*  if(lp->gid == TRACK)
-	printf("\n Sending packet from %d output chan %d VC occupancy %d stop %d dest term %d ", 
-								lp->gid,
-								output_chan, 
-								s->vc_occupancy[output_chan], 
-								next_stop,
-								msg->dest_terminal_id);
-*/
   /* Determine the event type. If the packet has arrived at the final destination
      router then it should arrive at the destination terminal next. */
   if(next_stop == msg->dest_terminal_id)
   {
     m->type = T_ARRIVE;
+    m->magic = terminal_magic_num;
 
     if(s->vc_occupancy[output_chan] >= s->params->cn_vc_size * num_chunks)
       s->output_vc_state[output_chan] = VC_CREDIT;
@@ -1586,6 +1604,7 @@ router_packet_send( router_state * s,
   {
     /* The packet has to be sent to another router */
     m->type = R_ARRIVE;
+    m->magic = router_magic_num;
 
    /* If this is a global channel then the buffer space is different */
    if( global )
@@ -1621,9 +1640,9 @@ router_packet_receive( router_state * s,
     if(msg->packet_size % s->params->chunk_size)
         num_chunks++;
 
-/*    if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
+    if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1) 
        printf("\n packet %lld chunk %d received at router %d ", msg->packet_ID, msg->chunk_id, (int)lp->gid);
-*/   
+   
     router_credit_send(s, bf, msg, lp);
     
     // router self message - no need for method_event
@@ -1638,10 +1657,16 @@ router_packet_receive( router_state * s,
 /* sets up the router virtual channels, global channels, local channels, compute node channels */
 void router_setup(router_state * r, tw_lp * lp)
 {
+    uint32_t h1 = 0, h2 = 0; 
+    bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
+    router_magic_num = h1 + h2;
+
     char anno[MAX_NAME_LENGTH];
     codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
             &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
 
+    num_routers_per_mgrp = codes_mapping_get_lp_count (lp_group_name, 1, "dragonfly_router",
+                               NULL, 0);
     if (anno[0] == '\0'){
         r->anno = NULL;
         r->params = &all_params[num_params-1];
@@ -1655,9 +1680,9 @@ void router_setup(router_state * r, tw_lp * lp)
     // shorthand
     const dragonfly_param *p = r->params;
 
-   r->router_id=mapping_rep_id + mapping_offset;
+   r->router_id=mapping_rep_id * num_routers_per_mgrp + mapping_offset;
    r->group_id=r->router_id/p->num_routers;
-
+   
    int i;
    int router_offset=(r->router_id % p->num_routers) * (p->num_global_channels / 2) + 1;
 
@@ -1733,6 +1758,7 @@ void router_buf_update(router_state * s, tw_bf * bf, terminal_message * msg, tw_
 
 void router_event(router_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
+  assert(msg->magic == router_magic_num);
   switch(msg->type)
    {
 	   case R_SEND: // Router has sent a packet to an intra-group router (local channel)
