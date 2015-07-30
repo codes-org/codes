@@ -98,9 +98,6 @@ struct nw_state
 	/* time spent in compute operations */
 	double compute_time;
 
-	/* search time */
-	double search_overhead;
-
 	/* time spent in message send/isend */
 	double send_time;
 
@@ -838,20 +835,16 @@ static void codes_exec_mpi_recv(nw_state* s, nw_message* m, tw_lp* lp)
 	m->u.rc.saved_recv_time = s->recv_time;
 	struct codes_workload_op* mpi_op = m->op;
 	mpi_op->sim_start_time = tw_now(lp);
-	unsigned long long start_searching, end_searching; 
 	num_bytes_recvd += mpi_op->u.recv.num_bytes;
 
 	if(lp->gid == TRACE)
 		printf("\n %lf codes exec mpi recv req id %d", tw_now(lp), (int)mpi_op->u.recv.req_id);
 	
-	start_searching = tw_now(lp);  
 	dumpi_req_id req_id;
 	int found_matching_sends = mpi_queue_remove_matching_op(s, lp, s->arrival_queue, m);
 	
 	/* save the req id inserted in the completed queue for reverse computation. */
 	//m->matched_recv = req_id;
-	end_searching = tw_now(lp); 
-	s->search_overhead += (end_searching - start_searching); 
 
 	if(found_matching_sends < 0)
 	  {
@@ -1011,15 +1004,12 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
 {
 	//int count_before = numQueue(s->pending_recvs_queue);
 	int is_blocking = 0; /* checks if the recv operation was blocking or not */
-	unsigned long long start_searching, end_searching;
 
 	m->u.rc.saved_send_time = s->send_time;
 	m->u.rc.saved_recv_time = s->recv_time;
 
 	s->send_time += tw_now(lp) - m->u.msg_info.sim_start_time;
 	dumpi_req_id req_id = -1;
-
-	start_searching = tw_now(lp);
 
         /* Now reconstruct the mpi op */
         struct codes_workload_op * arrived_op = (struct codes_workload_op *) malloc(sizeof(struct codes_workload_op));
@@ -1032,10 +1022,7 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
         m->op = arrived_op;
 
 	int found_matching_recv = mpi_queue_remove_matching_op(s, lp, s->pending_recvs_queue, m);
-	end_searching = tw_now(lp);
 
-	s->search_overhead += (end_searching - start_searching);
-		
 	if(TRACE == lp->gid)
 		printf("\n %lf update arrival queue req id %d %d", tw_now(lp), arrived_op->u.send.req_id, m->op->u.send.source_rank);
 	if(found_matching_recv < 0)
@@ -1268,8 +1255,8 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 	{
 		int count_irecv = numQueue(s->pending_recvs_queue);
         	int count_isend = numQueue(s->arrival_queue);
-		printf("\n LP %ld unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld search overhead %lf send time %lf wait %lf", 
-			lp->gid, s->pending_recvs_queue->num_elems, s->arrival_queue->num_elems, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->search_overhead, s->send_time, s->wait_time);
+		printf("\n LP %ld unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf", 
+			lp->gid, s->pending_recvs_queue->num_elems, s->arrival_queue->num_elems, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->send_time, s->wait_time);
 		if(lp->gid == TRACE)
 		{
 		   printQueue(lp->gid, s->pending_recvs_queue, "irecv ");
