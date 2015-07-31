@@ -719,7 +719,8 @@ static int mpi_queue_remove_matching_op(nw_state* s, tw_lp* lp, struct mpi_queue
 	  }
 	if(rcv_val >= 0)
 	{
-		memcpy(&m->u.rc.ptr_match_op, &tmp->mpi_op, sizeof(struct codes_workload_op));
+		/* TODO: fix RC */
+		/*memcpy(&m->u.rc.ptr_match_op, &tmp->mpi_op, sizeof(struct codes_workload_op));*/
 		if(mpi_queue->queue_head == mpi_queue->queue_tail)
 		   {
 			mpi_queue->queue_tail = NULL;
@@ -755,7 +756,8 @@ static int mpi_queue_remove_matching_op(nw_state* s, tw_lp* lp, struct mpi_queue
 	     }
    	     if(rcv_val >= 0)
 		{
-		    memcpy(&m->u.rc.ptr_match_op, &elem->mpi_op, sizeof(struct codes_workload_op));
+		    /* TODO: fix RC */
+		    /*memcpy(&m->u.rc.ptr_match_op, &elem->mpi_op, sizeof(struct codes_workload_op));*/
 		    if(elem == mpi_queue->queue_tail)
 			mpi_queue->queue_tail = tmp;
 		    
