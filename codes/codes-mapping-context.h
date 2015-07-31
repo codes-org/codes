@@ -16,6 +16,10 @@
 #include <stdbool.h>
 #include <ross.h>
 
+/* for convenience - an annotation-ignoring "group_modulo" context,
+ * matching previous mapping behavior in most interfaces (modelnet and such) */
+extern struct codes_mctx const CODES_MCTX_DEFAULT;
+
 /* types of map contexts */
 enum codes_mctx_type {
     // instructs those using the context to map directly to an LP

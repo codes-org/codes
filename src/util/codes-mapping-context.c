@@ -7,6 +7,18 @@
 #include <codes/codes-mapping-context.h>
 #include <codes/codes_mapping.h>
 
+struct codes_mctx const CODES_MCTX_DEFAULT = {
+    .type = CODES_MCTX_GROUP_MODULO,
+    .u = {
+        .group_modulo = {
+            .anno = {
+                .annotation = NULL,
+                .ignore_annotations = true
+            }
+        }
+    }
+};
+
 struct codes_mctx codes_mctx_set_global_direct(tw_lpid lpid)
 {
     struct codes_mctx rtn;
