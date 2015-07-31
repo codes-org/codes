@@ -22,7 +22,7 @@ typedef struct recorder_params recorder_params;
 /* struct to hold the actual data from a single MPI event*/
 typedef struct scala_trace_params scala_trace_params;
 typedef struct dumpi_trace_params dumpi_trace_params;
-
+typedef struct checkpoint_wrkld_params checkpoint_wrkld_params;
 
 struct iolang_params
 {
@@ -58,6 +58,14 @@ struct dumpi_trace_params {
    int num_net_traces;
 };
 
+struct checkpoint_wrkld_params
+{
+    int nprocs; /* number of workload processes */
+    double checkpoint_sz; /* size of checkpoint, in TiB */
+    double checkpoint_wr_bw; /* checkpoint write b/w, in GiB/s */
+    double app_runtime; /* app runtime, in hours */
+    double mtti; /* mean time to interrupt, in hours */
+};
 
 /* supported I/O operations */
 enum codes_workload_op_type
