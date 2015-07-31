@@ -651,7 +651,7 @@ static int match_receive(nw_state* s, tw_lp* lp, tw_lpid lpid, struct codes_work
                    {
                         if(lp->gid == TRACE)
                            printf("\n op1 rank %d bytes %d ", op1->u.recv.source_rank, op1->u.recv.num_bytes);
-                        s->recv_time += tw_now(lp) - op2->sim_start_time;
+                        s->recv_time += tw_now(lp) - op1->sim_start_time;
                         mpi_completed_queue_insert_op(&s->completed_reqs, op1->u.recv.req_id);
                         return 1;
                    }
@@ -974,8 +974,7 @@ static void update_send_completion_queue(nw_state* s, tw_bf * bf, nw_message * m
 /* reverse handler for updating arrival queue function */
 static void update_arrival_queue_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-	s->send_time = m->u.rc.saved_send_time;
-	s->recv_time = m->u.rc.saved_recv_time;
+	s->send_time = m->u.rc.saved_send_time; s->recv_time = m->u.rc.saved_recv_time;
 
 	if(m->u.rc.found_match >= 0)
 	{
@@ -1013,6 +1012,7 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
 
         /* Now reconstruct the mpi op */
         struct codes_workload_op * arrived_op = (struct codes_workload_op *) malloc(sizeof(struct codes_workload_op));
+        arrived_op->sim_start_time = m->u.msg_info.sim_start_time;
         arrived_op->op_type = m->u.msg_info.op_type;
         arrived_op->u.send.source_rank = m->u.msg_info.src_rank;
         arrived_op->u.send.dest_rank = m->u.msg_info.dest_rank;
