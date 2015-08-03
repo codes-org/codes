@@ -14,7 +14,8 @@ static char type[128] = {'\0'};
 static darshan_params d_params = {"", 0}; 
 static iolang_params i_params = {0, 0, "", ""};
 static recorder_params r_params = {"", 0};
-static dumpi_trace_params du_params = {"", 0}; 
+static dumpi_trace_params du_params = {"", 0};
+static checkpoint_wrkld_params c_params = {0, 0, 0, 0, 0};
 static int n = -1;
 static int start_rank = 0;
 
@@ -30,14 +31,19 @@ static struct option long_opts[] =
     {"r-trace-dir", required_argument, NULL, 'd'},
     {"r-nprocs", required_argument, NULL, 'x'},
     {"dumpi-log", required_argument, NULL, 'w'},
+    {"chkpoint-size", required_argument, NULL, 'S'},
+    {"chkpoint-bw", required_argument, NULL, 'B'},
+    {"chkpoint-runtime", required_argument, NULL, 'R'},
+    {"chkpoint-mtti", required_argument, NULL, 'M'},
     {NULL, 0, NULL, 0}
 };
 
 void usage(){
     fprintf(stderr,
-            "Usage: codes-workload-dump --type TYPE --num-ranks N [OPTION...]"
+            "Usage: codes-workload-dump --type TYPE --num-ranks N [OPTION...]\n"
             "--type: type of workload (\"darshan_io_workload\", \"iolang_workload\", dumpi-trace-workload\" etc.)\n"
             "--num-ranks: number of ranks to process (if not set, it is set by the workload)\n"
+            "-s: print final workload stats\n"
             "DARSHAN OPTIONS (darshan_io_workload)\n"
             "--d-log: darshan log file\n"
             "--d-aggregator-cnt: number of aggregators for collective I/O in darshan\n"
@@ -47,9 +53,13 @@ void usage(){
             "RECORDER OPTIONS (recorder_io_workload)\n"
             "--r-trace-dir: directory containing recorder trace files\n"
             "--r-nprocs: number of ranks in original recorder workload\n"
-            "-s: print final workload stats\n"
-	    "DUMPI TRACE OPTIONS (dumpi-trace-workload) \n"
-	    "--dumpi-log: dumpi log file \n");
+            "DUMPI TRACE OPTIONS (dumpi-trace-workload) \n"
+            "--dumpi-log: dumpi log file \n"
+            "CHECKPOINT OPTIONS (checkpoint_io_workload)\n"
+            "--chkpoint-size: size of aggregate checkpoint to write\n"
+            "--chkpoint-bw: checkpointing bandwidth\n"
+            "--chkpoint-runtime: desired application runtime\n"
+            "--chkpoint-mtti: mean time to interrupt\n");
 }
 
 int main(int argc, char *argv[])
@@ -121,15 +131,27 @@ int main(int argc, char *argv[])
             case 'x':
                 r_params.nprocs = atol(optarg);
                 break;
-	    case 'w':
-		strcpy(du_params.file_name, optarg);
-		break;
+            case 'w':
+                strcpy(du_params.file_name, optarg);
+                break;
             case 's':
                 print_stats = 1;
                 break;
             case 'r':
                 start_rank = atoi(optarg);
                 assert(n>0);
+                break;
+            case 'S':
+                c_params.checkpoint_sz = atof(optarg);
+                break;
+            case 'B':
+                c_params.checkpoint_wr_bw = atof(optarg);
+                break;
+            case 'R':
+                c_params.app_runtime = atof(optarg);
+                break;
+            case 'M':
+                c_params.mtti = atof(optarg);
                 break;
         }
     }
@@ -213,6 +235,21 @@ int main(int argc, char *argv[])
 	  wparams = (char*)&du_params;
 	}
 	}
+    else if(strcmp(type, "checkpoint_io_workload") == 0)
+    {
+        if(c_params.checkpoint_sz == 0 || c_params.checkpoint_wr_bw == 0 ||
+           c_params.app_runtime == 0 || c_params.mtti == 0)
+        {
+            fprintf(stderr, "All checkpoint workload arguments are required\n");
+            usage();
+            return 1;
+        }
+        else
+        {
+            c_params.nprocs = n;
+            wparams = (char *)&c_params;
+        }
+    }
     else {
         fprintf(stderr, "Invalid type argument\n");
         usage();
@@ -283,7 +320,7 @@ int main(int argc, char *argv[])
                     num_bcasts++;
                     bcast_size += op.u.collective.num_bytes;
                     break;
-		case CODES_WK_ALLGATHER:
+                case CODES_WK_ALLGATHER:
                     num_allgathers++;
                     allgather_size += op.u.collective.num_bytes;
                     break;

@@ -43,8 +43,10 @@ int codes_mapping_get_group_reps(const char* group_name);
  * lp_type_name       - name of LP type
  * annotation         - optional annotation. If NULL, entry is considered
  *                      unannotated
- * ignore_annos       - If non-zero, then count across all annotations (and
- *                      ignore whatever annotation parameter is passed in) 
+ * ignore_annos       - If zero, then count in an annotation-specific manner.
+ *                      If 1, then count the "first-found" LP in the
+ *                          configuration, regardless of annotation.
+ *                      Otherwise, count across all annotations.
  *
  * returns the number of LPs found (0 in the case of some combination of group,
  * lp_type_name, and annotation not being found)

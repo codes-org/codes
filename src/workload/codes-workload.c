@@ -24,6 +24,7 @@ extern struct codes_workload_method darshan_io_workload_method;
 #ifdef USE_RECORDER
 extern struct codes_workload_method recorder_io_workload_method;
 #endif
+extern struct codes_workload_method checkpoint_workload_method;
 
 static struct codes_workload_method *method_array[] =
 {
@@ -38,6 +39,7 @@ static struct codes_workload_method *method_array[] =
 #ifdef USE_RECORDER
     &recorder_io_workload_method,
 #endif
+    &checkpoint_workload_method,
     NULL};
 
 /* This shim layer is responsible for queueing up reversed operations and
