@@ -7,7 +7,7 @@
 #include <codes/codes-mapping-context.h>
 #include <codes/codes_mapping.h>
 
-struct codes_mctx const CODES_MCTX_DEFAULT = {
+static struct codes_mctx const CODES_MCTX_DEFAULT_VAL = {
     .type = CODES_MCTX_GROUP_MODULO,
     .u = {
         .group_modulo = {
@@ -18,6 +18,8 @@ struct codes_mctx const CODES_MCTX_DEFAULT = {
         }
     }
 };
+
+struct codes_mctx const * const CODES_MCTX_DEFAULT = &CODES_MCTX_DEFAULT_VAL;
 
 struct codes_mctx codes_mctx_set_global_direct(tw_lpid lpid)
 {

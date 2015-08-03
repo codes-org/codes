@@ -18,7 +18,7 @@
 
 /* for convenience - an annotation-ignoring "group_modulo" context,
  * matching previous mapping behavior in most interfaces (modelnet and such) */
-extern struct codes_mctx const CODES_MCTX_DEFAULT;
+extern struct codes_mctx const * const CODES_MCTX_DEFAULT;
 
 /* types of map contexts */
 enum codes_mctx_type {
@@ -31,7 +31,9 @@ enum codes_mctx_type {
     CODES_MCTX_GROUP_MODULO,
     // instructs those using the context to map into the same group/repetition
     // and directly to a callee offset
-    CODES_MCTX_GROUP_DIRECT
+    CODES_MCTX_GROUP_DIRECT,
+    // unknown/uninitialized context
+    CODES_MCTX_UNKNOWN
 };
 
 /* defines whether to specialize by destination annotation, and if so, which
@@ -80,7 +82,8 @@ struct codes_mctx codes_mctx_set_group_direct(
         bool ignore_annotations);
 
 /* helper function to do a codes mapping - this function is subject to change
- * based on what types of ctx exist */
+ * based on what types of ctx exist
+ * NOTE: in GLOBAL_DIRECT mode, dest_lp_name and sender are ignored */
 tw_lpid codes_mctx_to_lpid(
         struct codes_mctx const * ctx,
         char const * dest_lp_name,
