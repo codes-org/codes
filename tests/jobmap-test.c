@@ -19,6 +19,7 @@ static int test_jobmap_identity(int num_ranks)
     struct codes_jobmap_ctx *c;
     struct codes_jobmap_params_identity p;
 
+    p.num_ranks = num_ranks;
     c = codes_jobmap_configure(CODES_JOBMAP_IDENTITY, &p);
     if (!c) ERR("jobmap-identity: configure failure");
 
