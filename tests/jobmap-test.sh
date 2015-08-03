@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 if [[ -z $srcdir ]] ; then
     echo srcdir variable not set
