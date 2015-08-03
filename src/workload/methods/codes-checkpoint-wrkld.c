@@ -63,7 +63,7 @@ static struct qhash_table *chkpoint_state_tbl = NULL;
 static int chkpoint_tbl_pop = 0;
 
 /* function pointers for this method */
-struct codes_workload_method test_workload_method = 
+struct codes_workload_method checkpoint_workload_method = 
 {
     .method_name = "checkpoint_io_workload",
     .codes_workload_load = &checkpoint_workload_load,
