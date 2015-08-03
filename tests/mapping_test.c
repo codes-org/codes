@@ -163,7 +163,7 @@ int main(int argc, char *argv[])
                     groups[g], lpnm);
             }
             printf("TEST1 %2d %6s %s ignore annos\n",
-                codes_mapping_get_lp_count(groups[g], 0, lps[l], NULL, 1),
+                codes_mapping_get_lp_count(groups[g], 0, lps[l], NULL, 2),
                 groups[g], lps[l]);
         }
     }

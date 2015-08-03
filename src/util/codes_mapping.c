@@ -107,7 +107,7 @@ int codes_mapping_get_lp_count(
 
     // check - if group name is null, then disable ignore_repetitions (the
     // former takes precedence)
-    if (group_name == NULL) 
+    if (group_name == NULL)
         ignore_repetitions = 0;
     for (int g = 0; g < lpconf.lpgroups_count; g++){
         const config_lpgroup_t *lpg = &lpconf.lpgroups[g];
@@ -125,6 +125,8 @@ int codes_mapping_get_lp_count(
                             lp_type_ct_total += lpt->count;
                         else
                             lp_type_ct_total += lpt->count * lpg->repetitions;
+                        if (ignore_annos == 1)
+                            break;
                     }
                 }
             }
