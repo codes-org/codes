@@ -12,11 +12,12 @@
 #include <assert.h>
 #include <ross.h>
 
-#include "codes/lp-io.h"
-#include "codes/codes.h"
-#include "codes/codes_mapping.h"
-
-#include "codes/local-storage-model.h"
+#include <codes/lp-io.h>
+#include <codes/codes.h>
+#include <codes/codes_mapping.h>
+#include <codes/local-storage-model.h>
+#include <codes/codes-mapping-context.h>
+#include <codes/codes-callback.h>
 
 #define NUM_REQS 2000  /* number of requests sent by each server */
 #define PAYLOAD_SZ (1024*1024) /* size of simulated data payload, bytes  */
@@ -28,7 +29,6 @@ typedef struct svr_state svr_state;
 enum svr_event_type
 {
     KICKOFF,    /* initial event */
-    REQ,        /* request event */
     ACK,        /* ack event */
     LOCAL,      /* local completion of a send */
 };
@@ -42,11 +42,14 @@ struct svr_state
 
 struct svr_msg
 {
-    enum svr_event_type event_type;
-    tw_lpid src;          /* source of this request or ack */
-
+    msg_header h;
+    int tag;
+    lsm_return_t ret;
     int incremented_flag; /* helper for reverse computation */
 };
+
+static int magic = 123;
+static struct codes_cb_info cb_info;
 
 char conf_file_name[256] = {0};
 
@@ -98,22 +101,12 @@ static void handle_ack_event(
     tw_bf * b,
     svr_msg * m,
     tw_lp * lp);
-static void handle_req_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
 static void handle_kickoff_rev_event(
     svr_state * ns,
     tw_bf * b,
     svr_msg * m,
     tw_lp * lp);
 static void handle_ack_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void handle_req_rev_event(
     svr_state * ns,
     tw_bf * b,
     svr_msg * m,
@@ -162,6 +155,8 @@ int main(
        return(-1); 
     }
 
+    INIT_CODES_CB_INFO(&cb_info, svr_msg, h, tag, ret);
+
     tw_run();
 
     ret = lp_io_flush(handle, MPI_COMM_WORLD);
@@ -191,7 +186,7 @@ static void svr_init(
 
     e = codes_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
-    m->event_type = KICKOFF;
+    msg_set_header(magic, KICKOFF, lp->gid, &m->h);
     tw_event_send(e);
 
     return;
@@ -203,12 +198,9 @@ static void svr_event(
     svr_msg * m,
     tw_lp * lp)
 {
-
-    switch (m->event_type)
+    assert(m->h.magic == magic);
+    switch (m->h.event_type)
     {
-        case REQ:
-            handle_req_event(ns, b, m, lp);
-            break;
         case ACK:
             handle_ack_event(ns, b, m, lp);
             break;
@@ -230,11 +222,8 @@ static void svr_rev_event(
     svr_msg * m,
     tw_lp * lp)
 {
-    switch (m->event_type)
+    switch (m->h.event_type)
     {
-        case REQ:
-            handle_req_rev_event(ns, b, m, lp);
-            break;
         case ACK:
             handle_ack_rev_event(ns, b, m, lp);
             break;
@@ -290,8 +279,6 @@ static void handle_kickoff_event(
     svr_msg * m,
     tw_lp * lp)
 {
-    svr_msg * m_new, * m_loc;
-    tw_event *e_new, * e_loc;
     double rate;
     double seek;
 
@@ -302,6 +289,7 @@ static void handle_kickoff_event(
     /* record when transfers started on this server */
     ns->start_ts = tw_now(lp);
 
+    /* these are derived from the config file... */
     rate = 50.0;
     seek = 2000.0;
     printf("server %llu : disk_rate:%lf disk_seek:%lf\n",
@@ -309,34 +297,19 @@ static void handle_kickoff_event(
            rate,
            seek);
 
-    e_new = lsm_event_new("test", lp->gid, 0, 0, PAYLOAD_SZ, LSM_WRITE_REQUEST, sizeof(svr_msg), lp, 1.0);
-    m_new = lsm_event_data(e_new);
-    m_new->event_type = ACK;
-    m_new->src = lp->gid;
+    msg_header h;
+    msg_set_header(magic, ACK, lp->gid, &h);
+
+    lsm_io_event("test", 0, 0, PAYLOAD_SZ, LSM_WRITE_REQUEST, 1.0, lp,
+            CODES_MCTX_DEFAULT, 0, &h, &cb_info);
+
     ns->msg_sent_count++;
 
     // make a parallel dummy request to test out sched
-    e_loc = lsm_event_new("test", lp->gid, 0, 0, PAYLOAD_SZ, LSM_WRITE_REQUEST, sizeof(svr_msg), lp, 2.0);
-    m_loc = lsm_event_data(e_loc);
-    m_loc->event_type = LOCAL;
-    m_loc->src = lp->gid;
-    
-    tw_event_send(e_new);
-    tw_event_send(e_loc);
+    h.event_type = LOCAL;
+    lsm_io_event("test", 0, 0, PAYLOAD_SZ, LSM_WRITE_REQUEST, 2.0, lp,
+            CODES_MCTX_DEFAULT, 1, &h, &cb_info);
 }
-
-/* reverse handler for req event */
-static void handle_req_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
-    ns->msg_recvd_count--;
-
-    return;
-}
-
 
 /* reverse handler for kickoff */
 static void handle_kickoff_rev_event(
@@ -345,9 +318,8 @@ static void handle_kickoff_rev_event(
     svr_msg * m,
     tw_lp * lp)
 {
-
-    lsm_event_new_reverse(lp);
-    lsm_event_new_reverse(lp);
+    lsm_io_event_rc(lp);
+    lsm_io_event_rc(lp);
 
     ns->msg_sent_count--;
 
@@ -364,12 +336,10 @@ static void handle_ack_rev_event(
 {
     if(m->incremented_flag)
     {
-        lsm_event_new_reverse(lp);
-        lsm_event_new_reverse(lp);
+        lsm_io_event_rc(lp);
+        lsm_io_event_rc(lp);
         ns->msg_sent_count--;
     }
-
-    return;
 }
 
 /* handle recving ack */
@@ -379,67 +349,30 @@ static void handle_ack_event(
     svr_msg * m,
     tw_lp * lp)
 {
-    svr_msg * m_new, * m_loc;
-    tw_event *e_new, * e_loc;
-
     if (LSM_DEBUG)
         printf("handle_ack_event(), lp %llu.\n",
             (unsigned long long)lp->gid);
 
-    /* safety check that this request got to the right server */
-    assert(m->src == lp->gid);
-
     if(ns->msg_sent_count < NUM_REQS)
     {
         /* send another request */
-        e_new = lsm_write_event_new("test", lp->gid, 0, 0, PAYLOAD_SZ, sizeof(svr_msg), lp);
-        m_new = lsm_event_data(e_new);
-        m_new->event_type = ACK;
-        m_new->src = lp->gid;
+        msg_header h;
+        msg_set_header(magic, ACK, lp->gid, &h);
+        lsm_io_event("test", 0, 0, PAYLOAD_SZ, LSM_WRITE_REQUEST, 0.0, lp,
+                CODES_MCTX_DEFAULT, 0, &h, &cb_info);
+
         ns->msg_sent_count++;
         m->incremented_flag = 1;
-        tw_event_send(e_new);
 
-        e_loc = lsm_write_event_new("test", lp->gid, 0, 0, PAYLOAD_SZ, sizeof(svr_msg), lp);
-        m_loc = lsm_event_data(e_loc);
-        m_loc->event_type = ACK;
-        m_loc->src = lp->gid;
-        tw_event_send(e_loc);
+        // make a parallel dummy request to test out sched
+        h.event_type = LOCAL;
+        lsm_io_event("test", 0, 0, PAYLOAD_SZ, LSM_WRITE_REQUEST, 2.0, lp,
+                CODES_MCTX_DEFAULT, 1, &h, &cb_info);
     }
     else
     {
         m->incremented_flag = 0;
     }
-
-    return;
-}
-
-/* handle receiving request */
-static void handle_req_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
-    svr_msg * m_new;
-    tw_event *e_new;
-
-    if (LSM_DEBUG)
-        printf("handle_req_event(), lp %llu.\n",
-            (unsigned long long)lp->gid);
-
-    /* safety check that this request got to the right server */
-    assert(lp->gid == m->src);
-
-    ns->msg_recvd_count++;
-
-    /* send ack back */
-    e_new = codes_event_new(lp->gid, 0.00001, lp);
-    m_new = tw_event_data(e_new);
-    m_new->event_type = ACK;
-    m_new->src = lp->gid;
-
-    tw_event_send(e_new);
 
     return;
 }
@@ -454,9 +387,6 @@ static void handle_local_event(
     if (LSM_DEBUG)
         printf("handle_local_event(), lp %llu.\n",
             (unsigned long long)lp->gid);
-
-    /* safety check that this request got to the right server */
-    assert(lp->gid == m->src);
 
     return;
 }
