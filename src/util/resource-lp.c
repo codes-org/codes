@@ -459,8 +459,8 @@ static void resource_lp_issue_event_base(
         int block_on_unavail,
         tw_lp *sender,
         struct codes_mctx const * map_ctx,
-        int tag,
-        msg_header const *h,
+        int return_tag,
+        msg_header const *return_header,
         struct codes_cb_info const *cb)
 {
     if (cb)
@@ -478,10 +478,10 @@ static void resource_lp_issue_event_base(
     m->i.req = req;
     m->i.tok = tok;
     m->i.block_on_unavail = block_on_unavail;
-    if (map_ctx != NULL && cb != NULL && h != NULL) {
+    if (map_ctx != NULL && cb != NULL && return_header != NULL) {
         m->i.cb.info = *cb;
-        m->i.cb.h = *h;
-        m->i.cb.tag = tag;
+        m->i.cb.h = *return_header;
+        m->i.cb.tag = return_tag;
     }
 
     tw_event_send(e);
@@ -492,12 +492,12 @@ void resource_lp_get(
         int block_on_unavail,
         tw_lp *sender,
         struct codes_mctx const * map_ctx,
-        int tag,
-        msg_header const *h,
+        int return_tag,
+        msg_header const *return_header,
         struct codes_cb_info const *cb)
 {
     resource_lp_issue_event_base(RESOURCE_GET, req, 0, block_on_unavail,
-            sender, map_ctx, tag, h, cb);
+            sender, map_ctx, return_tag, return_header, cb);
 }
 
 /* no callback for frees thus far */
@@ -514,12 +514,12 @@ void resource_lp_reserve(
         int block_on_unavail,
         tw_lp *sender,
         struct codes_mctx const * map_ctx,
-        int tag,
-        msg_header const *h,
+        int return_tag,
+        msg_header const *return_header,
         struct codes_cb_info const *cb)
 {
     resource_lp_issue_event_base(RESOURCE_RESERVE, req, 0, block_on_unavail,
-            sender, map_ctx, tag, h, cb);
+            sender, map_ctx, return_tag, return_header, cb);
 }
 void resource_lp_get_reserved(
         uint64_t req,
@@ -527,12 +527,12 @@ void resource_lp_get_reserved(
         int block_on_unavail,
         tw_lp *sender,
         struct codes_mctx const * map_ctx,
-        int tag,
-        msg_header const *h,
+        int return_tag,
+        msg_header const *return_header,
         struct codes_cb_info const *cb)
 {
     resource_lp_issue_event_base(RESOURCE_GET, req, tok, block_on_unavail,
-            sender, map_ctx, tag, h, cb);
+            sender, map_ctx, return_tag, return_header, cb);
 }
 void resource_lp_free_reserved(
         uint64_t req,

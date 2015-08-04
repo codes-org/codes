@@ -45,15 +45,15 @@ void resource_lp_configure();
  *
  * block_on_unavail - flag whether to wait to message the requester if
  *                    request cannot be satisfied
- * tag, h - set in the return client event, using the offsets in cb
+ * return_tag, return_header - set in the return client event, using the offsets in cb
  */
 void resource_lp_get(
         uint64_t req,
         int block_on_unavail,
         tw_lp *sender,
         struct codes_mctx const * map_ctx,
-        int tag,
-        msg_header const *h,
+        int return_tag,
+        msg_header const *return_header,
         struct codes_cb_info const *cb);
 /* no callback for frees thus far */
 void resource_lp_free(
@@ -65,8 +65,8 @@ void resource_lp_reserve(
         int block_on_unavail,
         tw_lp *sender,
         struct codes_mctx const * map_ctx,
-        int tag,
-        msg_header const *h,
+        int return_tag,
+        msg_header const *return_header,
         struct codes_cb_info const *cb);
 void resource_lp_get_reserved(
         uint64_t req,
@@ -74,8 +74,8 @@ void resource_lp_get_reserved(
         int block_on_unavail,
         tw_lp *sender,
         struct codes_mctx const * map_ctx,
-        int tag,
-        msg_header const *h,
+        int return_tag,
+        msg_header const *return_header,
         struct codes_cb_info const *cb);
 void resource_lp_free_reserved(
         uint64_t req,
