@@ -93,6 +93,7 @@ struct nw_state
 	unsigned long num_waitsome;
 
 	/* time spent by the LP in executing the app trace*/
+	double start_time;
 	double elapsed_time;
 
 	/* time spent in compute operations */
@@ -1084,8 +1085,8 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->arrival_queue = queue_init(); 
    s->pending_recvs_queue = queue_init();
 
-   /* clock starts ticking */
-   s->elapsed_time = tw_now(lp);
+   /* clock starts when the first event is processed */
+   s->start_time = tw_now(lp);
    codes_issue_next_event(lp);
 
    return;
@@ -1192,6 +1193,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 
     		if(mpi_op.op_type == CODES_WK_END)
     	 	{
+			s->elapsed_time = tw_now(lp) - s->start_time;
 			return;
      		}
 		switch(mpi_op.op_type)
@@ -1265,14 +1267,11 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 		  printQueue(lp->gid, s->arrival_queue, "isend");
 	        }
 
-		double total_time = tw_now(lp) - s->elapsed_time;
-		//assert(total_time >= s->compute_time);
-
-		if(total_time - s->compute_time > max_comm_time)
-			max_comm_time = total_time - s->compute_time;
+		if(s->elapsed_time - s->compute_time > max_comm_time)
+			max_comm_time = s->elapsed_time - s->compute_time;
 		
-		if(total_time > max_time )
-			max_time = total_time;
+		if(s->elapsed_time > max_time )
+			max_time = s->elapsed_time;
 
 		if(s->wait_time > max_wait_time)
 			max_wait_time = s->wait_time;
@@ -1283,8 +1282,8 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 		if(s->recv_time > max_recv_time)
 			max_recv_time = s->recv_time;
 
-		avg_time += total_time;
-		avg_comm_time += (total_time - s->compute_time);	
+		avg_time += s->elapsed_time;
+		avg_comm_time += (s->elapsed_time - s->compute_time);
 		avg_wait_time += s->wait_time;
 		avg_send_time += s->send_time;
 		 avg_recv_time += s->recv_time;
