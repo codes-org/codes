@@ -83,11 +83,18 @@ struct codes_mctx codes_mctx_set_group_direct(
 
 /* helper function to do a codes mapping - this function is subject to change
  * based on what types of ctx exist
- * NOTE: in GLOBAL_DIRECT mode, dest_lp_name and sender are ignored */
+ * NOTE: in GLOBAL_DIRECT mode, dest_lp_name and sender_gid are ignored */
 tw_lpid codes_mctx_to_lpid(
         struct codes_mctx const * ctx,
         char const * dest_lp_name,
-        tw_lp const * sender);
+        tw_lpid sender_gid);
+
+/* helper function to extract which annotation a various map context maps to.
+ * annotation is allocated or NULL if unused */
+char const * codes_mctx_get_annotation(
+        struct codes_mctx const *ctx,
+        char const * dest_lp_name,
+        tw_lpid sender_id);
 
 #endif /* end of include guard: CODES_MAPPING_CONTEXT_H */
 

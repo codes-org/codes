@@ -56,7 +56,7 @@ struct codes_mctx codes_mctx_set_group_direct(
 tw_lpid codes_mctx_to_lpid(
         struct codes_mctx const * ctx,
         char const * dest_lp_name,
-        tw_lp const * sender)
+        tw_lpid sender_gid)
 {
     struct codes_mctx_annotation const *anno;
     // short circuit for direct mappings
@@ -77,7 +77,7 @@ tw_lpid codes_mctx_to_lpid(
     int unused, rep_id, offset;
 
     // get sender info
-    codes_mapping_get_lp_info(sender->gid, sender_group, &unused, NULL, &unused,
+    codes_mapping_get_lp_info(sender_gid, sender_group, &unused, NULL, &unused,
             NULL, &rep_id, &offset);
 
     int dest_offset;
@@ -88,7 +88,7 @@ tw_lpid codes_mctx_to_lpid(
             tw_error(TW_LOC,
                     "ERROR: Found no LPs of type %s in group %s "
                     "(source lpid %lu) with annotation: %s\n",
-                    dest_lp_name, sender_group, sender->gid,
+                    dest_lp_name, sender_group, sender_gid,
                     anno->ignore_annotations ? "ignored" :
                     (anno->annotation ? anno->annotation : "none"));
 
@@ -104,6 +104,40 @@ tw_lpid codes_mctx_to_lpid(
     codes_mapping_get_lp_id(sender_group, dest_lp_name, anno->annotation,
             anno->ignore_annotations, rep_id, dest_offset, &rtn);
     return rtn;
+}
+
+char const * codes_mctx_get_annotation(
+        struct codes_mctx const *ctx,
+        char const * dest_lp_name,
+        tw_lpid sender_id)
+{
+    switch(ctx->type) {
+        case CODES_MCTX_GLOBAL_DIRECT:
+            return codes_mapping_get_annotation_by_lpid(sender_id);
+        case CODES_MCTX_GROUP_MODULO:
+            // if not ignoring the annotation, just return what's in the
+            // context
+            if (!ctx->u.group_modulo.anno.ignore_annotations)
+                return ctx->u.group_modulo.anno.annotation;
+            break;
+        case CODES_MCTX_GROUP_DIRECT:
+            if (!ctx->u.group_direct.anno.ignore_annotations)
+                return ctx->u.group_direct.anno.annotation;
+            break;
+        default:
+            tw_error(TW_LOC, "unrecognized or uninitialized context type: %d",
+                    ctx->type);
+            return NULL;
+    }
+    // at this point, we must be a group-wise mapping ignoring annotations
+
+    char group[MAX_NAME_LENGTH];
+    int dummy;
+    // only need the group name
+    codes_mapping_get_lp_info(sender_id, group, &dummy, NULL, &dummy, NULL,
+            &dummy, &dummy);
+
+    return codes_mapping_get_annotation_by_name(group, dest_lp_name);
 }
 
 /*

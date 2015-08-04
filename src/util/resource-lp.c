@@ -467,7 +467,7 @@ static void resource_lp_issue_event_base(
         SANITY_CHECK_CB(cb, resource_return);
 
     tw_lpid resource_lpid =
-        codes_mctx_to_lpid(map_ctx, RESOURCE_LP_NM, sender);
+        codes_mctx_to_lpid(map_ctx, RESOURCE_LP_NM, sender->gid);
 
     tw_event *e = tw_event_new(resource_lpid, codes_local_latency(sender),
             sender);

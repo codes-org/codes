@@ -33,39 +33,68 @@ int main(int argc, char *argv[])
     group_modulo_anno = codes_mctx_set_group_modulo("baz", false);
     group_direct_anno = codes_mctx_set_group_direct(1, "baz", false);
 
-    tw_lp mock_lp;
-    tw_lpid rtn;
+    tw_lpid in;
+    tw_lpid rtn_id;
+    char const * rtn_anno;
 
-    rtn = codes_mctx_to_lpid(&direct, NULL, NULL);
-    if (12ul != rtn)
-        ERR("global_direct mapping: expected %lu, got %lu", 12ul, rtn);
+    rtn_id = codes_mctx_to_lpid(&direct, NULL, 0);
+    if (12ul != rtn_id)
+        ERR("global_direct mapping: expected %lu, got %lu",
+                12ul, rtn_id);
+    rtn_anno = codes_mctx_get_annotation(&direct, NULL, 0);
+    if (rtn_anno)
+        ERR("global_direct mapping: expected NULL anno, got %s", rtn_anno);
 
-    mock_lp.gid = 8ul;
-    rtn = codes_mctx_to_lpid(&group_modulo, "bar", &mock_lp);
-    if (rtn != 9ul)
-        ERR("group_modulo mapping: expected %lu, got %lu", 9ul, rtn);
+    in = 8ul;
+    rtn_id = codes_mctx_to_lpid(&group_modulo, "bar", in);
+    if (rtn_id != 9ul)
+        ERR("group_modulo mapping: expected %lu, got %lu",
+                9ul, rtn_id);
+    rtn_anno = codes_mctx_get_annotation(&group_modulo, "bar", in);
+    if (rtn_anno)
+        ERR("group_modulo mapping: expected NULL anno, got %s", rtn_anno);
 
-    mock_lp.gid = 12ul;
-    rtn = codes_mctx_to_lpid(&group_modulo, "bar", &mock_lp);
-    if (rtn != 13ul)
-        ERR("group_modulo mapping: expected %lu, got %lu", 13ul, rtn);
+    in = 12ul;
+    rtn_id = codes_mctx_to_lpid(&group_modulo, "bar", in);
+    if (rtn_id != 13ul)
+        ERR("group_modulo mapping: expected %lu, got %lu",
+                13ul, rtn_id);
+    rtn_anno = codes_mctx_get_annotation(&group_modulo, "bar", in);
+    if (rtn_anno)
+        ERR("group_modulo mapping: expected NULL anno, got %s", rtn_anno);
 
-    rtn = codes_mctx_to_lpid(CODES_MCTX_DEFAULT, "bar", &mock_lp);
-    if (rtn != 13ul)
-        ERR("group_modulo mapping (default): expected %lu, got %lu", 13ul, rtn);
+    rtn_id = codes_mctx_to_lpid(CODES_MCTX_DEFAULT, "bar", in);
+    if (rtn_id != 13ul)
+        ERR("group_modulo mapping (default): expected %lu, got %lu",
+                13ul, rtn_id);
+    rtn_anno = codes_mctx_get_annotation(CODES_MCTX_DEFAULT, "bar", in);
+    if (rtn_anno)
+        ERR("group_modulo mapping: expected NULL anno, got %s", rtn_anno);
 
-    rtn = codes_mctx_to_lpid(&group_modulo_anno, "bar", &mock_lp);
-    if (rtn != 15ul)
-        ERR("group_modulo annotated mapping: expected %lu, got %lu", 15ul, rtn);
+    rtn_id = codes_mctx_to_lpid(&group_modulo_anno, "bar", in);
+    if (rtn_id != 15ul)
+        ERR("group_modulo annotated mapping: expected %lu, got %lu",
+                15ul, rtn_id);
+    rtn_anno = codes_mctx_get_annotation(&group_modulo_anno, "bar", in);
+    if (strcmp(rtn_anno,"baz") != 0)
+        ERR("group_modulo mapping: expected anno \"baz\", got %s", rtn_anno);
 
-    mock_lp.gid = 10ul;
-    rtn = codes_mctx_to_lpid(&group_direct, "bar", &mock_lp);
-    if (rtn != 14ul)
-        ERR("group_direct mapping (default): expected %lu, got %lu", 14ul, rtn);
+    in = 10ul;
+    rtn_id = codes_mctx_to_lpid(&group_direct, "bar", in);
+    if (rtn_id != 14ul)
+        ERR("group_direct mapping (default): expected %lu, got %lu",
+                14ul, rtn_id);
+    rtn_anno = codes_mctx_get_annotation(&group_direct, "bar", in);
+    if (rtn_anno)
+        ERR("group_modulo mapping: expected NULL anno, got %s", rtn_anno);
 
-    rtn = codes_mctx_to_lpid(&group_direct_anno, "bar", &mock_lp);
-    if (rtn != 16ul)
-        ERR("group_direct mapping (default): expected %lu, got %lu", 16ul, rtn);
+    rtn_id = codes_mctx_to_lpid(&group_direct_anno, "bar", in);
+    if (rtn_id != 16ul)
+        ERR("group_direct mapping (default): expected %lu, got %lu",
+                16ul, rtn_id);
+    rtn_anno = codes_mctx_get_annotation(&group_direct_anno, "bar", in);
+    if (strcmp(rtn_anno,"baz") != 0)
+        ERR("group_modulo mapping: expected anno \"baz\", got %s", rtn_anno);
 
     return 0;
 }
