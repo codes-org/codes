@@ -4,11 +4,13 @@
  *
 */
 
-#include "codes/resource.h"
-#include "codes/resource-lp.h"
-#include "codes/lp-msg.h"
-#include "codes/configuration.h"
-#include "codes/codes_mapping.h"
+#include <codes/resource.h>
+#include <codes/resource-lp.h>
+#include <codes/lp-msg.h>
+#include <codes/configuration.h>
+#include <codes/codes_mapping.h>
+#include <codes/codes-callback.h>
+#include <codes/codes-mapping-context.h>
 #include <stdint.h>
 
 static int bsize = 1024;
@@ -26,17 +28,20 @@ enum s_type {
 typedef struct {
     int id;
     uint64_t mem, mem_max;
+    struct codes_cb_info cb;
 } s_state;
 
 typedef struct {
     msg_header h;
-    resource_callback c;
+    resource_return c;
+    int tag;
     uint64_t mem_max_prev;
 } s_msg;
 
 static void s_init(s_state *ns, tw_lp *lp){
     ns->mem = 0;
     ns->mem_max = 0;
+    INIT_CODES_CB_INFO(&ns->cb, s_msg, h, tag, c);
     ns->id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
     tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
     s_msg *m = tw_event_data(e);
@@ -53,9 +58,7 @@ static void s_event(s_state *ns, tw_bf *bf, s_msg *m, tw_lp *lp){
         case S_KICKOFF: ;
             msg_header h;
             msg_set_header(s_magic, S_ALLOC_ACK, lp->gid, &h);
-            resource_lp_get(&h, bsize, 0, sizeof(s_msg), 
-                    offsetof(s_msg, h), offsetof(s_msg, c), 
-                    0, 0, NULL, lp);
+            resource_lp_get(bsize, 0, lp, CODES_MCTX_DEFAULT, 0, &h, &ns->cb);
             break;
         case S_ALLOC_ACK:
             if (m->c.ret == 0){
@@ -64,14 +67,13 @@ static void s_event(s_state *ns, tw_bf *bf, s_msg *m, tw_lp *lp){
                 ns->mem_max = maxu64(ns->mem, ns->mem_max);
                 msg_header h;
                 msg_set_header(s_magic, S_ALLOC_ACK, lp->gid, &h);
-                resource_lp_get(&h, bsize, 0, sizeof(s_msg), 
-                        offsetof(s_msg, h), offsetof(s_msg, c), 
-                        0, 0, NULL, lp);
+                resource_lp_get(bsize, 0, lp, CODES_MCTX_DEFAULT, 0, &h,
+                        &ns->cb);
                 break;
             }
             /* else fall into the free stmt */ 
         case S_FREE:
-            resource_lp_free(bsize, lp);
+            resource_lp_free(bsize, lp, CODES_MCTX_DEFAULT);
             ns->mem -= bsize;
             if (ns->mem > 0){
                 tw_event *e = 
@@ -120,9 +122,9 @@ static tw_lptype s_lp = {
 static char conf_file_name[128] = {'\0'};
 static const tw_optdef app_opt [] =
 {
-	TWOPT_GROUP("codes-mapping test case" ),
+    TWOPT_GROUP("codes-mapping test case" ),
     TWOPT_CHAR("codes-config", conf_file_name, "name of codes configuration file"),
-	TWOPT_END()
+    TWOPT_END()
 };
 int main(int argc, char *argv[])
 {

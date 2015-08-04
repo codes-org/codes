@@ -11,10 +11,13 @@
 #ifndef RESOURCE_LP_H
 #define RESOURCE_LP_H
 
-#include "ross.h"
-#include "codes/lp-msg.h"
-#include "codes/resource.h"
+#include <ross.h>
 #include <stdint.h>
+
+#include "lp-msg.h"
+#include "resource.h"
+#include "codes-callback.h"
+#include "codes-mapping-context.h"
 
 #define RESOURCE_MAX_CALLBACK_PAYLOAD 64
 
@@ -24,7 +27,7 @@ typedef struct {
     int ret;
     /* in the case of a reserve, need to return the token */
     resource_token_t tok;
-} resource_callback;
+} resource_return;
 
 
 /* registers the resource LP with CODES/ROSS */
@@ -42,57 +45,43 @@ void resource_lp_configure();
  *
  * block_on_unavail - flag whether to wait to message the requester if
  *                    request cannot be satisfied
- * msg_size - size of the requester event structure
- * msg_header_offset - offset in the requester event to place the resource's 
- *                     msg_header
- * msg_callback_offset - offset in the requester event struct to place the
- *                       resource-provided resource_callback data
- * msg_callback_misc_size - size of requester-provided callback data
- * msg_callback_misc_offset - offset in the requester event struct to place the
- *                            requester-provided callback data
- * msg_callback_misc_data - requester-provided callback data
- *
+ * tag, h - set in the return client event, using the offsets in cb
  */
 void resource_lp_get(
-        msg_header *header,
-        uint64_t req, 
-        int block_on_unavail,
-        int msg_size, 
-        int msg_header_offset,
-        int msg_callback_offset,
-        int msg_callback_misc_size,
-        int msg_callback_misc_offset,
-        void *msg_callback_misc_data,
-        tw_lp *sender);
-/* no callback for frees thus far */
-void resource_lp_free(uint64_t req, tw_lp *sender);
-void resource_lp_reserve(
-        msg_header *header, 
         uint64_t req,
         int block_on_unavail,
-        int msg_size,
-        int msg_header_offset,
-        int msg_callback_offset,
-        int msg_callback_misc_size,
-        int msg_callback_misc_offset,
-        void *msg_callback_misc_data,
-        tw_lp *sender);
+        tw_lp *sender,
+        struct codes_mctx const * map_ctx,
+        int tag,
+        msg_header const *h,
+        struct codes_cb_info const *cb);
+/* no callback for frees thus far */
+void resource_lp_free(
+        uint64_t req,
+        tw_lp *sender,
+        struct codes_mctx const * map_ctx);
+void resource_lp_reserve(
+        uint64_t req,
+        int block_on_unavail,
+        tw_lp *sender,
+        struct codes_mctx const * map_ctx,
+        int tag,
+        msg_header const *h,
+        struct codes_cb_info const *cb);
 void resource_lp_get_reserved(
-        msg_header *header,
         uint64_t req,
         resource_token_t tok,
         int block_on_unavail,
-        int msg_size, 
-        int msg_header_offset,
-        int msg_callback_offset,
-        int msg_callback_misc_size,
-        int msg_callback_misc_offset,
-        void *msg_callback_misc_data,
-        tw_lp *sender);
+        tw_lp *sender,
+        struct codes_mctx const * map_ctx,
+        int tag,
+        msg_header const *h,
+        struct codes_cb_info const *cb);
 void resource_lp_free_reserved(
         uint64_t req,
         resource_token_t tok,
-        tw_lp *sender);
+        tw_lp *sender,
+        struct codes_mctx const * map_ctx);
 
 /* rc functions - thankfully, they only use codes-local-latency, so no need 
  * to pass in any arguments */

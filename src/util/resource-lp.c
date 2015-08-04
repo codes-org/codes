@@ -4,14 +4,15 @@
  *
 */
 
-#include "codes/resource-lp.h"
-#include "codes/resource.h"
-#include "codes/codes_mapping.h"
-#include "codes/configuration.h"
-#include "codes/jenkins-hash.h"
-#include "codes/quicklist.h"
-#include "codes/lp-io.h"
-#include "ross.h"
+#include <codes/codes-callback.h>
+#include <codes/resource-lp.h>
+#include <codes/resource.h>
+#include <codes/codes_mapping.h>
+#include <codes/configuration.h>
+#include <codes/jenkins-hash.h>
+#include <codes/quicklist.h>
+#include <codes/lp-io.h>
+#include <ross.h>
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -62,17 +63,10 @@ struct resource_msg_internal{
      * 0 - send the callback immediately if resource unavailable. 
      * 1 - send the callback when memory is available (danger - deadlock
      * possible) */
-    int block_on_unavail; 
+    int block_on_unavail;
     /* callback data */
-    msg_header h_callback;
-    int msg_size;
-    int msg_header_offset;
-    int msg_callback_offset;
-    /* user-provided data */
-    int msg_callback_misc_size;
-    int msg_callback_misc_offset;
-    char msg_callback_misc[RESOURCE_MAX_CALLBACK_PAYLOAD];
-}; 
+    struct codes_cb_params cb;
+};
 
 struct resource_msg {
     struct resource_msg_internal i, i_rc;
@@ -148,46 +142,24 @@ void resource_lp_ind_init(
 }
 
 static void resource_response(
-        struct resource_msg_internal *m,
+        struct codes_cb_params const * p,
         tw_lp *lp,
         int ret,
-        resource_token_t tok){
-    /* send return message */
-    msg_header h;
-    msg_set_header(m->h_callback.magic, m->h_callback.event_type, 
-            lp->gid, &h);
+        resource_token_t tok)
+{
+    SANITY_CHECK_CB(&p->info, resource_return);
 
-    resource_callback c;
-    c.ret = ret;
-    c.tok = tok;
+    tw_event *e = tw_event_new(p->h.src, codes_local_latency(lp), lp);
+    void * m = tw_event_data(e);
 
-    /* before we send the message, sanity check the sizes */
-    if (m->msg_size >= m->msg_header_offset+sizeof(h) &&
-            m->msg_size >= m->msg_callback_offset+sizeof(c) &&
-            m->msg_size >= m->msg_callback_offset+m->msg_callback_misc_size){
-        tw_event *e = codes_event_new(m->h_callback.src, 
-                codes_local_latency(lp), lp);
-        void *msg = tw_event_data(e);
-        memcpy(((char*)msg)+m->msg_header_offset, &h, sizeof(h));
-        memcpy(((char*)msg)+m->msg_callback_offset, &c, sizeof(c));
-        if (m->msg_callback_misc_size > 0){
-            memcpy(((char*)msg)+m->msg_callback_misc_offset, 
-                        m->msg_callback_misc, m->msg_callback_misc_size);
-        }
-        tw_event_send(e);
-    }
-    else{
-        tw_error(TW_LOC, 
-                "message size not large enough to hold header/callback/misc"
-                " structures\n"
-                "msg size: %3d, header   off/size:  %d, %d\n"
-                "               callback off/size:  %d, %d\n"
-                "               callback misc size: %d",
-                m->msg_size, m->msg_header_offset, (int)sizeof(h),
-                m->msg_callback_offset, (int)sizeof(c),
-                m->msg_callback_misc_size);
-    }
+    GET_INIT_CB_PTRS(p, m, lp->gid, h, tag, rc, resource_return);
+
+    rc->ret = ret;
+    rc->tok = tok;
+
+    tw_event_send(e);
 }
+
 static void resource_response_rc(tw_lp *lp){
     codes_local_latency_reverse(lp);
 }
@@ -220,7 +192,7 @@ static void handle_resource_get(
     }
     if (send_ack){
         b->c1 = 1;
-        resource_response(&m->i, lp, ret, TOKEN_DUMMY);
+        resource_response(&m->i.cb, lp, ret, TOKEN_DUMMY);
     }
 
     b->c2 = !ret;
@@ -296,7 +268,7 @@ static void handle_resource_deq(
         /* success, dequeue (saving as rc) and send to client */
         qlist_del(front);
         m->i_rc = p->m;
-        resource_response(&p->m, lp, ret, TOKEN_DUMMY);
+        resource_response(&p->m.cb, lp, ret, TOKEN_DUMMY);
         free(p);
         /* additionally attempt to dequeue next one down */
         tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
@@ -341,7 +313,7 @@ static void handle_resource_reserve(
     resource_token_t tok;
     int ret = resource_reserve(m->i.req, &tok, &ns->r);
     assert(!ret);
-    resource_response(&m->i, lp, ret, tok);
+    resource_response(&m->i.cb, lp, ret, tok);
 }
 static void handle_resource_reserve_rc(
         resource_state * ns,
@@ -481,194 +453,118 @@ void resource_lp_configure(){
 }
 
 static void resource_lp_issue_event_base(
-        msg_header *header,
+        enum resource_event type,
         uint64_t req,
         resource_token_t tok, /* only used in reserve_get/free */
         int block_on_unavail,
-        int msg_size,
-        int msg_header_offset,
-        int msg_callback_offset,
-        int msg_callback_misc_size,
-        int msg_callback_misc_offset,
-        void *msg_callback_misc_data,
-        enum resource_event type,
         tw_lp *sender,
-        const char * annotation,
-        int ignore_annotations){
+        struct codes_mctx const * map_ctx,
+        int tag,
+        msg_header const *h,
+        struct codes_cb_info const *cb)
+{
+    if (cb)
+        SANITY_CHECK_CB(cb, resource_return);
 
-    tw_lpid resource_lpid;
+    tw_lpid resource_lpid =
+        codes_mctx_to_lpid(map_ctx, RESOURCE_LP_NM, sender);
 
-    /* map out the lpid of the resource */
-    int mapping_rep_id, mapping_offset, dummy;
-    char lp_group_name[MAX_NAME_LENGTH];
-    int resource_count;
-    // TODO: currently ignoring annotations... perhaps give annotation as a
-    // parameter?
-    codes_mapping_get_lp_info(sender->gid, lp_group_name, &dummy,
-            NULL, &dummy, NULL,
-            &mapping_rep_id, &mapping_offset);
-    resource_count = codes_mapping_get_lp_count(lp_group_name, 1,
-            RESOURCE_LP_NM, annotation, ignore_annotations);
-    codes_mapping_get_lp_id(lp_group_name, RESOURCE_LP_NM, annotation,
-            ignore_annotations, mapping_rep_id, mapping_offset % resource_count,
-            &resource_lpid);
-
-    tw_event *e = codes_event_new(resource_lpid, codes_local_latency(sender),
+    tw_event *e = tw_event_new(resource_lpid, codes_local_latency(sender),
             sender);
 
-    /* set message info */
-    resource_msg *m = (resource_msg*)tw_event_data(e);
+    resource_msg *m = tw_event_data(e);
+
     msg_set_header(resource_magic, type, sender->gid, &m->i.h);
     m->i.req = req;
     m->i.tok = tok;
     m->i.block_on_unavail = block_on_unavail;
-
-    /* set callback info */
-    if (header != NULL){
-        m->i.h_callback = *header;
-    }
-    m->i.msg_size = msg_size;
-    m->i.msg_header_offset = msg_header_offset;
-    m->i.msg_callback_offset = msg_callback_offset;
-
-    if (msg_callback_misc_size > 0){
-        assert(msg_callback_misc_size <= RESOURCE_MAX_CALLBACK_PAYLOAD);
-        m->i.msg_callback_misc_size = msg_callback_misc_size;
-        m->i.msg_callback_misc_offset = msg_callback_misc_offset;
-        memcpy(m->i.msg_callback_misc, msg_callback_misc_data,
-                msg_callback_misc_size);
-    }
-    else{
-        m->i.msg_callback_misc_size = 0;
-        m->i.msg_callback_misc_offset = 0;
+    if (map_ctx != NULL && cb != NULL && h != NULL) {
+        m->i.cb.info = *cb;
+        m->i.cb.h = *h;
+        m->i.cb.tag = tag;
     }
 
     tw_event_send(e);
 }
 
-static void resource_lp_issue_event_annotated(
-        msg_header *header,
-        uint64_t req,
-        resource_token_t tok, /* only used in reserve_get/free */
-        int block_on_unavail,
-        int msg_size,
-        int msg_header_offset,
-        int msg_callback_offset,
-        int msg_callback_misc_size,
-        int msg_callback_misc_offset,
-        void *msg_callback_misc_data,
-        enum resource_event type,
-        tw_lp *sender,
-        const char * annotation,
-        int ignore_annotations){
-    resource_lp_issue_event_base(header, req, tok, block_on_unavail, msg_size,
-            msg_header_offset, msg_callback_offset, msg_callback_misc_size,
-            msg_callback_misc_offset, msg_callback_misc_data, type, sender,
-            annotation, ignore_annotations);
-}
-static void resource_lp_issue_event(
-        msg_header *header,
-        uint64_t req,
-        resource_token_t tok, /* only used in reserve_get/free */
-        int block_on_unavail,
-        int msg_size,
-        int msg_header_offset,
-        int msg_callback_offset,
-        int msg_callback_misc_size,
-        int msg_callback_misc_offset,
-        void *msg_callback_misc_data,
-        enum resource_event type,
-        tw_lp *sender) {
-    resource_lp_issue_event_base(header, req, tok, block_on_unavail, msg_size,
-            msg_header_offset, msg_callback_offset, msg_callback_misc_size,
-            msg_callback_misc_offset, msg_callback_misc_data, type, sender,
-            NULL, 1);
-}
-
 void resource_lp_get(
-        msg_header *header,
-        uint64_t req, 
+        uint64_t req,
         int block_on_unavail,
-        int msg_size, 
-        int msg_header_offset,
-        int msg_callback_offset,
-        int msg_callback_misc_size,
-        int msg_callback_misc_offset,
-        void *msg_callback_misc_data,
-        tw_lp *sender){
-    resource_lp_issue_event(header, req, 0, block_on_unavail,
-            msg_size, msg_header_offset, msg_callback_offset,
-            msg_callback_misc_size, msg_callback_misc_offset,
-            msg_callback_misc_data, RESOURCE_GET, sender);
+        tw_lp *sender,
+        struct codes_mctx const * map_ctx,
+        int tag,
+        msg_header const *h,
+        struct codes_cb_info const *cb)
+{
+    resource_lp_issue_event_base(RESOURCE_GET, req, 0, block_on_unavail,
+            sender, map_ctx, tag, h, cb);
 }
 
 /* no callback for frees thus far */
-void resource_lp_free(uint64_t req, tw_lp *sender){
-    resource_lp_issue_event(NULL, req, 0, -1, -1,-1,-1, 0, 0, NULL,
-            RESOURCE_FREE, sender);
+void resource_lp_free(
+        uint64_t req,
+        tw_lp *sender,
+        struct codes_mctx const * map_ctx)
+{
+    resource_lp_issue_event_base(RESOURCE_FREE, req, 0, -1, sender, map_ctx,
+            0, NULL, NULL);
 }
 void resource_lp_reserve(
-        msg_header *header, 
         uint64_t req,
         int block_on_unavail,
-        int msg_size,
-        int msg_header_offset,
-        int msg_callback_offset,
-        int msg_callback_misc_size,
-        int msg_callback_misc_offset,
-        void *msg_callback_misc_data,
-        tw_lp *sender){
-    resource_lp_issue_event(header, req, 0, block_on_unavail, msg_size,
-            msg_header_offset, msg_callback_offset, msg_callback_misc_size,
-            msg_callback_misc_offset, msg_callback_misc_data, RESOURCE_RESERVE,
-            sender);
+        tw_lp *sender,
+        struct codes_mctx const * map_ctx,
+        int tag,
+        msg_header const *h,
+        struct codes_cb_info const *cb)
+{
+    resource_lp_issue_event_base(RESOURCE_RESERVE, req, 0, block_on_unavail,
+            sender, map_ctx, tag, h, cb);
 }
 void resource_lp_get_reserved(
-        msg_header *header,
         uint64_t req,
         resource_token_t tok,
         int block_on_unavail,
-        int msg_size, 
-        int msg_header_offset,
-        int msg_callback_offset,
-        int msg_callback_misc_size,
-        int msg_callback_misc_offset,
-        void *msg_callback_misc_data,
-        tw_lp *sender){
-    resource_lp_issue_event(header, req, tok, block_on_unavail, msg_size,
-            msg_header_offset, msg_callback_offset, msg_callback_misc_size,
-            msg_callback_misc_offset, msg_callback_misc_data, RESOURCE_GET,
-            sender);
+        tw_lp *sender,
+        struct codes_mctx const * map_ctx,
+        int tag,
+        msg_header const *h,
+        struct codes_cb_info const *cb)
+{
+    resource_lp_issue_event_base(RESOURCE_GET, req, tok, block_on_unavail,
+            sender, map_ctx, tag, h, cb);
 }
 void resource_lp_free_reserved(
-        uint64_t req, 
+        uint64_t req,
         resource_token_t tok,
-        tw_lp *sender){
-    resource_lp_issue_event(NULL, req, tok, -1,-1,-1,-1, 0,0,NULL,
-            RESOURCE_FREE, sender);
+        tw_lp *sender,
+        struct codes_mctx const * map_ctx)
+{
+    resource_lp_issue_event_base(RESOURCE_FREE, req, tok, -1,
+            sender, map_ctx, 0, NULL, NULL);
 }
 
 /* rc functions - thankfully, they only use codes-local-latency, so no need 
  * to pass in any arguments */
 
-static void resource_lp_issue_event_rc(tw_lp *sender){
+static void resource_lp_issue_event_base_rc(tw_lp *sender){
     codes_local_latency_reverse(sender);
 }
 
 void resource_lp_get_rc(tw_lp *sender){
-    resource_lp_issue_event_rc(sender);
+    resource_lp_issue_event_base_rc(sender);
 }
 void resource_lp_free_rc(tw_lp *sender){
-    resource_lp_issue_event_rc(sender);
+    resource_lp_issue_event_base_rc(sender);
 }
 void resource_lp_reserve_rc(tw_lp *sender){
-    resource_lp_issue_event_rc(sender);
+    resource_lp_issue_event_base_rc(sender);
 }
 void resource_lp_get_reserved_rc(tw_lp *sender){
-    resource_lp_issue_event_rc(sender);
+    resource_lp_issue_event_base_rc(sender);
 }
 void resource_lp_free_reserved_rc(tw_lp *sender){
-    resource_lp_issue_event_rc(sender);
+    resource_lp_issue_event_base_rc(sender);
 }
 
 /*
