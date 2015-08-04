@@ -20,7 +20,9 @@ struct sp_message
     int magic; /* magic number */
     enum sp_event_type event_type;
     tw_lpid src_gid; /* who transmitted this msg? */
+    tw_lpid src_mn_lp; // src modelnet id, provided by sender
     tw_lpid final_dest_gid; /* who is eventually targetted with this msg? */
+    tw_lpid dest_mn_lp; // destination modelnet id, provided by sender
     /* relative ID of the sending simplep2p message (for latency/bandwidth lookup) */
     int src_mn_rel_id;
     int dest_mn_rel_id; /* included to make rc easier */

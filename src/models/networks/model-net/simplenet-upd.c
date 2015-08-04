@@ -92,8 +92,9 @@ static void sn_configure();
  */
 /* Issues a simplenet packet event call */
 static tw_stime simplenet_packet_event(
-     char* category, 
+     char const * category, 
      tw_lpid final_dest_lp, 
+     tw_lpid dest_mn_lp,
      uint64_t packet_size, 
      int is_pull,
      uint64_t pull_size, /* only used when is_pull==1 */
@@ -112,11 +113,6 @@ static void simplenet_packet_event_rc(tw_lp *sender);
 
 static void sn_report_stats();
 
-static tw_lpid sn_find_local_device(
-        const char * annotation, 
-        int          ignore_annotations,
-        tw_lp      * sender);
-
 /* data structure for model-net statistics */
 struct model_net_method simplenet_method =
 {
@@ -129,7 +125,6 @@ struct model_net_method simplenet_method =
     .mn_get_lp_type = sn_get_lp_type,
     .mn_get_msg_sz = sn_get_msg_sz,
     .mn_report_stats = sn_report_stats,
-    .model_net_method_find_local_device = NULL, /* use the default */
     .mn_collective_call = simple_net_collective,	
     .mn_collective_call_rc = simple_net_collective_rc
 };
@@ -383,11 +378,16 @@ static void handle_msg_ready_event(
       /* schedule event to final destination for when the recv is complete */
 //      printf("\n Remote message to LP %d ", m->final_dest_gid); 
         if (m->is_pull){
-            /* call the model-net event */
+            /* call the model-net event, using direct contexts for mapping (we
+             * know all involved LPs */
+            struct codes_mctx mc_dst =
+                codes_mctx_set_global_direct(m->src_mn_lp);
+            struct codes_mctx mc_src =
+                codes_mctx_set_global_direct(lp->gid);
             int net_id = model_net_get_id(LP_METHOD_NM);
-            model_net_event(net_id, m->category, m->src_gid, m->pull_size,
-                    recv_queue_time, m->event_size_bytes, tmp_ptr, 0, NULL,
-                    lp);
+            model_net_event_mctx(net_id, &mc_src, &mc_dst, m->category,
+                    m->src_gid, m->pull_size, recv_queue_time,
+                    m->event_size_bytes, tmp_ptr, 0, NULL, lp);
         }
         else{
             tw_event * e_new = tw_event_new(m->final_dest_gid, recv_queue_time, lp);
@@ -438,9 +438,6 @@ static void handle_msg_start_event(
     sn_message *m_new;
     tw_stime send_queue_time = 0;
     mn_stats* stat;
-    int mapping_rep_id, mapping_offset, dummy;
-    tw_lpid dest_id;
-    char lp_group_name[MAX_NAME_LENGTH];
     int total_event_size;
 
     total_event_size = model_net_get_msg_sz(SIMPLENET) + m->event_size_bytes +
@@ -470,16 +467,8 @@ static void handle_msg_start_event(
     ns->net_send_next_idle = send_queue_time + tw_now(lp) +
         rate_to_ns(m->net_msg_size_bytes, ns->params.net_bw_mbps);
 
-
-    /* create new event to send msg to receiving NIC */
-    dest_id = model_net_find_local_device(SIMPLENET, ns->anno, 0,
-            m->final_dest_gid);
-
-//    printf("\n msg start sending to %d ", dest_id);
     void *m_data;
-    //e_new = tw_event_new(dest_id, send_queue_time, lp);
-    //m_new = tw_event_data(e_new);
-    e_new = model_net_method_event_new(dest_id, send_queue_time, lp,
+    e_new = model_net_method_event_new(m->dest_mn_lp, send_queue_time, lp,
             SIMPLENET, (void**)&m_new, &m_data);
 
     /* copy entire previous message over, including payload from user of
@@ -531,8 +520,9 @@ static void handle_msg_start_event(
 /*This method will serve as an intermediate layer between simplenet and modelnet. 
  * It takes the packets from modelnet layer and calls underlying simplenet methods*/
 static tw_stime simplenet_packet_event(
-		char* category,
+		char const * category,
 		tw_lpid final_dest_lp,
+                tw_lpid dest_mn_lp,
 		uint64_t packet_size,
                 int is_pull,
                 uint64_t pull_size, /* only used when is_pull == 1 */
@@ -556,8 +546,10 @@ static tw_stime simplenet_packet_event(
      e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
              sender, SIMPLENET, (void**)&msg, (void**)&tmp_ptr);
      strcpy(msg->category, category);
-     msg->final_dest_gid = final_dest_lp;
      msg->src_gid = src_lp;
+     msg->src_mn_lp = sender->gid;
+     msg->final_dest_gid = final_dest_lp;
+     msg->dest_mn_lp = dest_mn_lp;
      msg->magic = sn_get_magic();
      msg->net_msg_size_bytes = packet_size;
      msg->event_size_bytes = 0;
@@ -629,24 +621,6 @@ static void simplenet_packet_event_rc(tw_lp *sender)
 {
     codes_local_latency_reverse(sender);
     return;
-}
-
-static tw_lpid sn_find_local_device(
-        const char * annotation, 
-        int          ignore_annotations,
-        tw_lp      * sender)
-{
-     char lp_group_name[MAX_NAME_LENGTH];
-     int mapping_rep_id, mapping_offset, dummy;
-     tw_lpid dest_id;
-
-     // TODO: don't ignore annotations
-     codes_mapping_get_lp_info(sender->gid, lp_group_name, &dummy, NULL,
-             &dummy, NULL, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, annotation,
-             ignore_annotations, mapping_rep_id, mapping_offset, &dest_id);
-
-    return(dest_id);
 }
 
 #if SIMPLENET_DEBUG

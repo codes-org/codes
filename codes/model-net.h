@@ -7,10 +7,11 @@
 #ifndef MODELNET_H
 #define MODELNET_H
 
-#include "ross.h"
-#include "codes/lp-type-lookup.h"
-#include "codes/configuration.h"
-#include "codes/lp-io.h"
+#include <ross.h>
+#include <codes/lp-type-lookup.h>
+#include <codes/configuration.h>
+#include <codes/lp-io.h>
+#include <codes/codes-mapping-context.h>
 #include <stdint.h>
 
 #define PULL_MSG_SIZE 128
@@ -73,6 +74,7 @@ extern char * model_net_method_names[];
 // not the user)
 typedef struct model_net_request {
     tw_lpid  final_dest_lp;
+    tw_lpid  dest_mn_lp; // destination modelnet lp
     tw_lpid  src_lp;
     uint64_t msg_size;
     uint64_t packet_size;
@@ -167,10 +169,10 @@ void model_net_event_collective_rc(
  * - sender: pointer to the tw_lp structure of the API caller.  This is
  *     identical to the sender argument to tw_event_new().
  *
- * The modelnet LP used for communication is the LP in the same group, same
- * repetition, using net_id to differentiate different model types. If
- * more than one modelnet model of the same type but different annotation exist,
- * then the first one listed will be used.
+ * The modelnet LP used for communication is determined by the default CODES
+ * map context (see codes-base, codes/codes-mapping-context.h), using net_id
+ * to differentiate different model types. Note that the map context is used
+ * when calculating *both* sender and receiver modelnet LPs
  */
 // first argument becomes the network ID
 void model_net_event(
@@ -189,7 +191,8 @@ void model_net_event(
  *
  * Unlike model_net_event, this function uses the annotation to differentiate
  * multiple modelnet LPs with the same type but different annotation. The caller
- * annotation is not consulted here.
+ * annotation is not consulted here. The corresponding CODES map context is
+ * CODES_MCTX_GROUP_MODULO with the supplied annotation arguments.
  */
 void model_net_event_annotated(
         int net_id,
@@ -203,16 +206,44 @@ void model_net_event_annotated(
         int self_event_size,
         void const * self_event,
         tw_lp *sender);
+/*
+ * See model_net_event for a general description.
+ *
+ * This variant uses CODES map contexts to calculate the sender and receiver
+ * modelnet LPs
+ */
+void model_net_event_mctx(
+        int net_id,
+        struct codes_mctx const * send_map_ctx,
+        struct codes_mctx const * recv_map_ctx,
+        char const * category, 
+        tw_lpid final_dest_lp, 
+        uint64_t message_size, 
+        tw_stime offset,
+        int remote_event_size,
+        void const * remote_event,
+        int self_event_size,
+        void const * self_event,
+        tw_lp *sender);
+
 
 /* model_net_find_local_device()
  *
- * returns the LP id of the network card attached to the calling LP
+ * returns the LP id of the network card attached to the calling LP using the
+ * default CODES mapping context if ignore_annotations is true, and
+ * CODES_MCTX_GROUP_MODULO with the supplied annotation parameters otherwise
  */
 tw_lpid model_net_find_local_device(
         int          net_id,
         const char * annotation,
         int          ignore_annotations,
         tw_lpid      sender_gid);
+
+/* same as ^, except use the supplied mapping context */
+tw_lpid model_net_find_local_device_mctx(
+        int net_id,
+        struct codes_mctx const * map_ctx,
+        tw_lpid sender_gid);
 
 int model_net_get_msg_sz(int net_id);
 
@@ -256,6 +287,17 @@ void model_net_pull_event(
 void model_net_pull_event_annotated(
         int net_id,
         char const * annotation,
+        char const *category,
+        tw_lpid final_dest_lp,
+        uint64_t message_size,
+        tw_stime offset,
+        int self_event_size,
+        void const *self_event,
+        tw_lp *sender);
+void model_net_pull_event_mctx(
+        int net_id,
+        struct codes_mctx * const send_map_ctx,
+        struct codes_mctx * const recv_map_ctx,
         char const *category,
         tw_lpid final_dest_lp,
         uint64_t message_size,

@@ -423,7 +423,7 @@ void dragonfly_collective_init(terminal_state * s,
 }
 
 /* dragonfly packet event , generates a dragonfly packet on the compute node */
-static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, int is_pull, uint64_t pull_size, tw_stime offset, const mn_sched_params *sched_params, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lpid src_lp, tw_lp *sender, int is_last_pckt)
+static tw_stime dragonfly_packet_event(char const * category, tw_lpid final_dest_lp, tw_lpid dest_mn_lp, uint64_t packet_size, int is_pull, uint64_t pull_size, tw_stime offset, const mn_sched_params *sched_params, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lpid src_lp, tw_lp *sender, int is_last_pckt)
 {
     tw_event * e_new;
     tw_stime xfer_to_nic_time;
@@ -438,7 +438,9 @@ static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, ui
             sender, DRAGONFLY, (void**)&msg, (void**)&tmp_ptr);
     strcpy(msg->category, category);
     msg->final_dest_gid = final_dest_lp;
+    msg->dest_terminal_id = dest_mn_lp;
     msg->sender_lp=src_lp;
+    msg->sender_mn_lp = sender->gid;
     msg->packet_size = packet_size;
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
@@ -576,11 +578,6 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
 /* generates packet at the current dragonfly compute node */
 void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
-    tw_lpid dest_terminal_id;
-    dest_terminal_id = model_net_find_local_device(DRAGONFLY, s->anno, 0,
-            msg->final_dest_gid);
-    msg->dest_terminal_id = dest_terminal_id;
-
     const dragonfly_param *p = s->params;
 
   tw_stime ts;
@@ -613,7 +610,6 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_
        e = model_net_method_event_new(lp->gid, i+ts, lp, DRAGONFLY,
                (void**)&m, &m_data);
        memcpy(m, msg, sizeof(terminal_message));
-       m->dest_terminal_id = dest_terminal_id;
        void * m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
        if (msg->remote_event_size_bytes){
             memcpy(m_data, m_data_src, msg->remote_event_size_bytes);
@@ -803,10 +799,14 @@ if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
             void * tmp_ptr = model_net_method_get_edata(DRAGONFLY, msg);
             ts = g_tw_lookahead + 0.1 + (1/s->params->cn_bandwidth) * msg->remote_event_size_bytes;
             if (msg->is_pull){
+                struct codes_mctx mc_dst =
+                    codes_mctx_set_global_direct(msg->sender_mn_lp);
+                struct codes_mctx mc_src =
+                    codes_mctx_set_global_direct(lp->gid);
                 int net_id = model_net_get_id(LP_METHOD_NM);
-                model_net_event(net_id, msg->category, msg->sender_lp,
-                        msg->pull_size, ts, msg->remote_event_size_bytes,
-                        tmp_ptr, 0, NULL, lp);
+                model_net_event_mctx(net_id, &mc_src, &mc_dst, msg->category,
+                        msg->sender_lp, msg->pull_size, ts,
+                        msg->remote_event_size_bytes, tmp_ptr, 0, NULL, lp);
             }
             else{
                 e = tw_event_new(msg->final_dest_gid, ts, lp);
@@ -1982,22 +1982,6 @@ static const tw_lptype* dragonfly_get_router_lp_type(void)
 	           return(&dragonfly_lps[1]);
 }          
 
-static tw_lpid dragonfly_find_local_device(
-        const char * annotation,
-        int          ignore_annotations,
-        tw_lp      * sender)
-{
-     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
-     tw_lpid dest_id;
-
-     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id,
-             NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, annotation,
-             ignore_annotations, mapping_rep_id, mapping_offset, &dest_id);
-
-    return(dest_id);
-}
-
 static void dragonfly_register(tw_lptype *base_type) {
     lp_type_register(LP_CONFIG_NM, base_type);
     lp_type_register("dragonfly_router", &dragonfly_lps[1]);
@@ -2015,7 +1999,6 @@ struct model_net_method dragonfly_method =
     .mn_get_lp_type = dragonfly_get_cn_lp_type,
     .mn_get_msg_sz = dragonfly_get_msg_sz,
     .mn_report_stats = dragonfly_report_stats,
-    .model_net_method_find_local_device = NULL,
     .mn_collective_call = dragonfly_collective,
     .mn_collective_call_rc = dragonfly_collective_rc   
 };

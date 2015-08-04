@@ -264,8 +264,9 @@ int fcfs_next(
                 lp->gid, psize, q->rem, q->req.src_lp, q->req.final_dest_lp,
                 tw_now(lp), is_last_packet);
         *poffset = s->method->model_net_method_packet_event(q->req.category,
-                q->req.final_dest_lp, psize, q->req.is_pull, q->req.msg_size,
-                0.0, &q->sched_params, q->req.remote_event_size, q->remote_event,
+                q->req.final_dest_lp, q->req.dest_mn_lp, psize, q->req.is_pull,
+                q->req.msg_size, 0.0, &q->sched_params,
+                q->req.remote_event_size, q->remote_event,
                 q->req.self_event_size, q->local_event, q->req.src_lp, lp,
                 is_last_packet);
     }
