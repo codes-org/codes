@@ -50,6 +50,7 @@ struct terminal_message
    int intm_group_id;
    short chunk_id;
    uint64_t packet_size;
+   uint64_t num_chunks;
    int remote_event_size_bytes;
    int local_event_size_bytes;
 

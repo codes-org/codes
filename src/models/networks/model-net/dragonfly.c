@@ -573,13 +573,10 @@ static void packet_generate_rc(terminal_state * s,
 			    terminal_message * msg, 
 			    tw_lp * lp)
 {
-    uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
-    if(msg->packet_size % s->params->chunk_size)
-        num_chunks++;
     int i;
     tw_rand_reverse_unif(lp->rng);
 
-    for(i = 0; i < num_chunks; i++)
+    for(i = 0; i < msg->num_chunks; i++)
        tw_rand_reverse_unif(lp->rng);
 	 
      mn_stats* stat;
@@ -609,9 +606,14 @@ static void packet_generate(terminal_state * s,
 	uint64_t num_chunks = msg->packet_size / p->chunk_size;
 	if (msg->packet_size % s->params->chunk_size)
 	  num_chunks++;
+	
+	if(!num_chunks)
+	   num_chunks = 1;
 
+	msg->num_chunks = num_chunks;
 	msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter + tw_rand_integer(lp->rng, 0, lp->gid + g_tw_nlp * s->packet_counter);
 	msg->travel_start_time = tw_now(lp);
+	
 	for(i = 0; i < num_chunks; i++)
 	  {
 		ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, MEAN_INTERVAL/200);
@@ -686,8 +688,7 @@ static void packet_send_rc(terminal_state * s,
    s->packet_counter--;
    s->output_vc_state[vc] = VC_IDLE;
 
-   uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
-   if (msg->chunk_id == num_chunks-1){
+   if (msg->chunk_id == (msg->num_chunks)-1){
      codes_local_latency_reverse(lp);
    }
 
@@ -722,10 +723,6 @@ static void packet_send(terminal_state * s,
    // we are sending an event to the router, so no method_event here
    e = tw_event_new(router_id, s->terminal_available_time - tw_now(lp), lp);
 
-   uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
-   if(msg->packet_size % s->params->chunk_size)
-       num_chunks++;
-
    //if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
    //  printf("\n terminal %d packet %lld chunk %d being sent to router %d router id %d ", (int)lp->gid, (long long)msg->packet_ID, msg->chunk_id, (int)router_id, s->router_id);
    m = tw_event_data(e);
@@ -746,7 +743,7 @@ static void packet_send(terminal_state * s,
    m->local_id = s->terminal_id;
    tw_event_send(e);
 
-   if(msg->chunk_id == num_chunks - 1) 
+   if(msg->chunk_id == msg->num_chunks - 1) 
     {
       // now that message is sent, issue an "idle" event to tell the scheduler
       // when I'm next available
@@ -784,10 +781,6 @@ static void packet_arrive_rc(terminal_state * s,
                    tw_lp * lp)
 {
     
-   uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
-   if(msg->packet_size % s->params->chunk_size)
-        num_chunks++;
-   
    completed_packets--;
 
    if(msg->path_type == MINIMAL)
@@ -798,7 +791,7 @@ static void packet_arrive_rc(terminal_state * s,
 
    tw_rand_reverse_unif(lp->rng);
    s->next_credit_available_time = msg->saved_credit_time;
-   if(msg->chunk_id == num_chunks-1)
+   if(msg->chunk_id == (msg->num_chunks)-1)
    {
     mn_stats* stat;
     stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
@@ -813,7 +806,7 @@ static void packet_arrive_rc(terminal_state * s,
 	 dragonfly_max_latency = msg->saved_available_time;
    }
     
-   if (msg->chunk_id == num_chunks-1 && 
+   if (msg->chunk_id == (msg->num_chunks)-1 && 
 		msg->remote_event_size_bytes && 
 		msg->is_pull)
     {
