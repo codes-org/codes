@@ -352,10 +352,10 @@ static void dragonfly_report_stats()
  	MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
  	MPI_Reduce(&completed_packets, &total_completed_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     }
-
    /* print statistics */
    if(!g_tw_mynode)
    {	
+   printf("\n Total hops %lld total finished packets %d ", avg_hops, total_finished_packets);
       printf(" Average number of hops traversed %f average message latency %lf us maximum message latency %lf us \n", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets*1000), max_time/1000);
      if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
               printf("\n ADAPTIVE ROUTING STATS: %d percent packets routed minimally %d percent packets routed non-minimally completed packets %d ", total_minimal_packets, total_nonmin_packets, total_completed_packets);
@@ -431,9 +431,6 @@ static tw_stime dragonfly_packet_event(char* category, tw_lpid final_dest_lp, ui
     char* tmp_ptr;
 
     xfer_to_nic_time = codes_local_latency(sender); /* Throws an error of found last KP time > current event time otherwise when LPs of one type are placed together*/
-    //printf("\n transfer in time %f %f ", xfer_to_nic_time+offset, tw_now(sender));
-    //e_new = tw_event_new(sender->gid, xfer_to_nic_time+offset, sender);
-    //msg = tw_event_data(e_new);
     e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
             sender, DRAGONFLY, (void**)&msg, (void**)&tmp_ptr);
     strcpy(msg->category, category);
@@ -559,8 +556,6 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
         buf_e = tw_event_new(dest, s->next_credit_available_time[sender_radix] - tw_now(lp) , lp);
         buf_msg = tw_event_data(buf_e);
     }
-    //if(dest == TRACK)
-//	printf("\n LP %d sending credit back to dest %d at channel %d last hop %d ", lp->gid, dest, msg->saved_vc, msg->last_hop);
     buf_msg->origin_router_id = s->router_id;
     buf_msg->vc_index = msg->saved_vc;
     buf_msg->type=type;
@@ -573,93 +568,135 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
     return;
 }
 
-/* generates packet at the current dragonfly compute node */
-void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
+static void packet_generate_rc(terminal_state * s, 
+			    tw_bf * bf, 
+			    terminal_message * msg, 
+			    tw_lp * lp)
 {
-    tw_lpid dest_terminal_id;
-    dest_terminal_id = model_net_find_local_device(DRAGONFLY, s->anno, 0,
-            msg->final_dest_gid);
-    msg->dest_terminal_id = dest_terminal_id;
+    uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
+    if(msg->packet_size % s->params->chunk_size)
+        num_chunks++;
+    int i;
+    tw_rand_reverse_unif(lp->rng);
 
-    const dragonfly_param *p = s->params;
+    for(i = 0; i < num_chunks; i++)
+       tw_rand_reverse_unif(lp->rng);
+	 
+     mn_stats* stat;
+     stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+     stat->send_count--;
+     stat->send_bytes -= msg->packet_size;
+     stat->send_time -= (1/s->params->cn_bandwidth) * msg->packet_size;
+}
+/* generates packet at the current dragonfly compute node */
+static void packet_generate(terminal_state * s, 
+			    tw_bf * bf, 
+			    terminal_message * msg, 
+			    tw_lp * lp)
+{
+	tw_lpid dest_terminal_id;
+	dest_terminal_id = model_net_find_local_device(DRAGONFLY, s->anno, 0,
+	msg->final_dest_gid);
+	msg->dest_terminal_id = dest_terminal_id;
 
-  tw_stime ts;
-  tw_event *e;
-  terminal_message *m;
-  int i, total_event_size;
-  uint64_t num_chunks = msg->packet_size / p->chunk_size;
-  if (msg->packet_size % s->params->chunk_size)
-      num_chunks++;
-  msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter + tw_rand_integer(lp->rng, 0, lp->gid + g_tw_nlp * s->packet_counter);
-  msg->travel_start_time = tw_now(lp);
-  msg->my_N_hop = 0;
-  for(i = 0; i < num_chunks; i++)
-  {
-	  // Before
-	  // msg->my_N_hop = 0; generating a packet, check if the input queue is available
-        ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, MEAN_INTERVAL/200);
-	int chan = -1, j;
-	for(j = 0; j < p->num_vcs; j++)
-	 {
-	     if(s->vc_occupancy[j] < p->cn_vc_size * num_chunks)
-	      {
-	       chan=j;
-	       break;
-	      }
-         }
+	const dragonfly_param *p = s->params;
 
-        // this is a terminal event, so use the method-event version
-       void * m_data;
-       e = model_net_method_event_new(lp->gid, i+ts, lp, DRAGONFLY,
-               (void**)&m, &m_data);
-       memcpy(m, msg, sizeof(terminal_message));
-       m->dest_terminal_id = dest_terminal_id;
-       void * m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
-       if (msg->remote_event_size_bytes){
-            memcpy(m_data, m_data_src, msg->remote_event_size_bytes);
-       }
-       if (msg->local_event_size_bytes){ 
-            memcpy((char*)m_data + msg->remote_event_size_bytes,
-                    (char*)m_data_src + msg->remote_event_size_bytes,
-                    msg->local_event_size_bytes);
-       }
-       m->intm_group_id = -1;
-       m->saved_vc=0;
-       m->chunk_id = i;
-       m->magic = terminal_magic_num;
+	tw_stime ts;
+	tw_event *e;
+	terminal_message *m;
+	int i, total_event_size;
+
+	uint64_t num_chunks = msg->packet_size / p->chunk_size;
+	if (msg->packet_size % s->params->chunk_size)
+	  num_chunks++;
+
+	msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter + tw_rand_integer(lp->rng, 0, lp->gid + g_tw_nlp * s->packet_counter);
+	msg->travel_start_time = tw_now(lp);
+	for(i = 0; i < num_chunks; i++)
+	  {
+		ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, MEAN_INTERVAL/200);
+		int chan = -1, j;
+		for(j = 0; j < p->num_vcs; j++)
+		 {
+		     if(s->vc_occupancy[j] < p->cn_vc_size * num_chunks)
+		      {
+		       chan=j;
+		       break;
+		      }
+		 }
+		// this is a terminal event, so use the method-event version
+	       void * m_data;
+	       e = model_net_method_event_new(lp->gid, i+ts, lp, DRAGONFLY,
+		       (void**)&m, &m_data);
+	       memcpy(m, msg, sizeof(terminal_message));
+	       m->dest_terminal_id = dest_terminal_id;
+	       void * m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
+	       if (msg->remote_event_size_bytes){
+		    memcpy(m_data, m_data_src, msg->remote_event_size_bytes);
+	       }
+	       if (msg->local_event_size_bytes){ 
+		    memcpy((char*)m_data + msg->remote_event_size_bytes,
+			    (char*)m_data_src + msg->remote_event_size_bytes,
+			    msg->local_event_size_bytes);
+	       }
+	       m->intm_group_id = -1;
+	       m->saved_vc=0;
+	       m->chunk_id = i;
+	       m->magic = terminal_magic_num;
  
-      /* if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
-         printf("\n packet generated %lld at terminal %d chunk id %d ", msg->packet_ID, (int)lp->gid, i);
-       */
-       m->output_chan = -1;
-       if(chan != -1) // If the input queue is available
-   	{
-	    // Send the packet out
-	     m->type = T_SEND;
- 	     tw_event_send(e);
-        }
-      else
-         {
-	  printf("\n Exceeded queue size, exitting %d", s->vc_occupancy[0]);
-	  MPI_Finalize();
-	  exit(-1);
-        } //else
+	      /* if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
+		 printf("\n packet generated %lld at terminal %d chunk id %d ", msg->packet_ID, (int)lp->gid, i);
+	       */
+	       m->output_chan = -1;
+	       if(chan != -1) // If the input queue is available
+		{
+		    // Send the packet out
+		     m->type = T_SEND;
+		     tw_event_send(e);
+		}
+	      else
+		 {
+		  printf("\n Exceeded queue size, exitting %d", s->vc_occupancy[0]);
+		  MPI_Finalize();
+		  exit(-1);
+		} //else
   } // for
-  total_event_size = model_net_get_msg_sz(DRAGONFLY) + 
-      msg->remote_event_size_bytes + msg->local_event_size_bytes;
-  mn_stats* stat;
-  stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
-  stat->send_count++;
-  stat->send_bytes += msg->packet_size;
-  stat->send_time += (1/p->cn_bandwidth) * msg->packet_size;
-  if(stat->max_event_size < total_event_size)
+	total_event_size = model_net_get_msg_sz(DRAGONFLY) + 
+	msg->remote_event_size_bytes + msg->local_event_size_bytes;
+	mn_stats* stat;
+	stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+	stat->send_count++;
+	stat->send_bytes += msg->packet_size;
+	stat->send_time += (1/p->cn_bandwidth) * msg->packet_size;
+	if(stat->max_event_size < total_event_size)
 	  stat->max_event_size = total_event_size;
 
   return;
 }
 
+static void packet_send_rc(terminal_state * s, 
+			tw_bf * bf, 
+			terminal_message * msg, 
+			tw_lp * lp)
+{
+   s->terminal_available_time = msg->saved_available_time;
+   tw_rand_reverse_unif(lp->rng);
+   int vc = msg->saved_vc;
+   s->vc_occupancy[vc]--;
+   s->packet_counter--;
+   s->output_vc_state[vc] = VC_IDLE;
+
+   uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
+   if (msg->chunk_id == num_chunks-1){
+     codes_local_latency_reverse(lp);
+   }
+
+}
 /* sends the packet from the current dragonfly compute node to the attached router */
-void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
+static void packet_send(terminal_state * s, 
+			tw_bf * bf, 
+			terminal_message * msg, 
+			tw_lp * lp)
 {
   tw_stime ts;
   tw_event *e;
@@ -735,13 +772,61 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp *
    s->packet_counter++;
    s->vc_occupancy[vc]++;
 
-   if(s->vc_occupancy[vc] >= (s->params->cn_vc_size * num_chunks))
+   if(s->vc_occupancy[vc] >= s->params->cn_vc_size)
       s->output_vc_state[vc] = VC_CREDIT;
+   
    return;
 }
 
+static void packet_arrive_rc(terminal_state * s, 
+		   tw_bf * bf, 
+                   terminal_message * msg, 
+                   tw_lp * lp)
+{
+    
+   uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
+   if(msg->packet_size % s->params->chunk_size)
+        num_chunks++;
+   
+   completed_packets--;
+
+   if(msg->path_type == MINIMAL)
+	minimal_count--;
+
+   if(msg->path_type == NON_MINIMAL)
+	nonmin_count--;
+
+   tw_rand_reverse_unif(lp->rng);
+   s->next_credit_available_time = msg->saved_credit_time;
+   if(msg->chunk_id == num_chunks-1)
+   {
+    mn_stats* stat;
+    stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+    stat->recv_count--;
+    stat->recv_bytes -= msg->packet_size;
+    stat->recv_time -= tw_now(lp) - msg->travel_start_time;
+    
+    N_finished_packets--;
+    
+    dragonfly_total_time -= (tw_now(lp) - msg->travel_start_time);
+    if(bf->c3)
+	 dragonfly_max_latency = msg->saved_available_time;
+   }
+    
+   if (msg->chunk_id == num_chunks-1 && 
+		msg->remote_event_size_bytes && 
+		msg->is_pull)
+    {
+	    int net_id = model_net_get_id(LP_METHOD_NM);
+	    model_net_event_rc(net_id, lp, msg->pull_size);
+    }
+
+}
 /* packet arrives at the destination terminal */
-void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
+static void packet_arrive(terminal_state * s, 
+		   tw_bf * bf, 
+                   terminal_message * msg, 
+                   tw_lp * lp)
 {
     uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
     if (msg->packet_size % s->params->chunk_size)
@@ -766,7 +851,6 @@ if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
 	printf("travel start time is %f\n",
                 msg->travel_start_time);
 
-	printf("My hop now is %d\n",msg->my_N_hop);
     }
 #endif
 
@@ -778,7 +862,6 @@ if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
    bf->c3 = 0;
    bf->c2 = 0;
 
-   msg->my_N_hop++;
   if(msg->chunk_id == num_chunks-1)
   {
 	 bf->c2 = 1;
@@ -789,7 +872,6 @@ if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
 
 	 N_finished_packets++;
 	 dragonfly_total_time += tw_now( lp ) - msg->travel_start_time;
-	 total_hops += msg->my_N_hop;
 
 	 if (dragonfly_max_latency < tw_now( lp ) - msg->travel_start_time) 
 	 {
@@ -1154,8 +1236,21 @@ static void node_collective_fan_out(terminal_state * s,
               max_collective = tw_now(lp) - s->collective_init_time;
           }
 }
+
+static void 
+terminal_buf_update_rc(terminal_state * s, 
+		    tw_bf * bf, 
+		    terminal_message * msg, 
+		    tw_lp * lp)
+{
+    int msg_indx = msg->vc_index;
+    s->vc_occupancy[msg_indx]++;
+    if(s->vc_occupancy[msg_indx] == s->params->cn_vc_size)
+       s->output_vc_state[msg_indx] = VC_CREDIT;
+}
+
 /* update the compute node-router channel buffer */
-void 
+static void 
 terminal_buf_update(terminal_state * s, 
 		    tw_bf * bf, 
 		    terminal_message * msg, 
@@ -1461,28 +1556,58 @@ static int do_adaptive_routing( router_state * s,
    return next_stop;
 }
 
-/* routes the current packet to the next stop */
-void 
-router_packet_send( router_state * s, 
-		    tw_bf * bf, 
-		     terminal_message * msg, tw_lp * lp)
+static void router_packet_send_rc( router_state * s, 
+			    tw_bf * bf, 
+		     	    terminal_message * msg, 
+			    tw_lp * lp)
 {
-/*
-   if(lp->gid == TRACK)
+	if(bf->c1)
+	   return;
+	   
+	tw_rand_reverse_unif(lp->rng);
+	int output_chan = msg->old_vc;
+	int output_port = output_chan / s->params->num_vcs;
+	
+	if(routing == PROG_ADAPTIVE)
+	{
+		if(bf->c2)
+		{
+		   s->cur_hist_num[output_chan] = s->prev_hist_num[output_chan];
+		   s->prev_hist_num[output_chan] = msg->saved_hist_num;
+		   s->cur_hist_start_time[output_chan] = msg->saved_hist_start_time;	
+		}
+		else
+		  s->cur_hist_num[output_chan]--;
+ 	}
+	
+	s->next_output_available_time[output_port] = msg->saved_available_time;
+	s->vc_occupancy[output_chan]--;
+	s->output_vc_state[output_chan]=VC_IDLE;
+}
+
+/* routes the current packet to the next stop */
+static void router_packet_send( router_state * s, 
+			    tw_bf * bf, 
+		     	    terminal_message * msg, 
+			    tw_lp * lp)
+{
+   bf->c1 = 0;
+   bf->c2 = 0;
+   bf->c3 = 0;
+
+   if(DEBUG && lp->gid == TRACK)
    {
 	printf("\n Router %d ", s->router_id);
 	int i;
 	for (i = 0; i < s->params->radix; i++)
 		printf("\n vc occupancy %d ", s->vc_occupancy[i]);
    }
-*/
    tw_stime ts;
    tw_event *e;
    terminal_message *m;
 
    int next_stop = -1, output_port = -1, output_chan = -1;
    float bandwidth = s->params->local_bandwidth;
-   bf->c3 = 0;
 
    uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
    if(msg->packet_size % s->params->chunk_size)
@@ -1500,7 +1625,6 @@ router_packet_send( router_state * s,
 	intm_id = (local_grp_id + 2) % s->params->num_groups;
 
 /* progressive adaptive routing makes a check at every node/router at the source group to sense congestion. Once it does and decides on taking non-minimal path, it does not check any longer. */
-//   printf("\n local grp id %d origin router id %d ", local_grp_id, msg->origin_router_id / s->params->num_routers);
    if(routing == PROG_ADAPTIVE
 	 && msg->path_type != NON_MINIMAL
 	 && local_grp_id == ( msg->origin_router_id / s->params->num_routers))
@@ -1541,104 +1665,130 @@ router_packet_send( router_state * s,
    if(s->vc_occupancy[output_chan] >= buf_size)
     {
 	    printf("\n %lf Router %ld buffers overflowed from incoming terminals channel %d occupancy %d radix %d next_stop %d buffer size %d ", tw_now(lp),(long int) lp->gid, output_chan, s->vc_occupancy[output_chan], s->params->radix, next_stop, buf_size);
-	    bf->c3 = 1;
+	    bf->c1 = 1;
 	    return;
     }
 
- // If source router doesn't have global channel and buffer space is available, then assign to appropriate intra-group virtual channel 
-  msg->saved_available_time = s->next_output_available_time[output_port];
-  ts = g_tw_lookahead + 0.1 + ((1/bandwidth) * s->params->chunk_size) + tw_rand_exponential(lp->rng, (double)s->params->chunk_size/200);
+	 // If source router doesn't have global channel and buffer space is available, then assign to appropriate intra-group virtual channel 
+	  msg->saved_available_time = s->next_output_available_time[output_port];
+	  ts = g_tw_lookahead + 0.1 + ((1/bandwidth) * s->params->chunk_size) + tw_rand_exponential(lp->rng, (double)s->params->chunk_size/200);
 
-  s->next_output_available_time[output_port] = maxd(s->next_output_available_time[output_port], tw_now(lp));
-  s->next_output_available_time[output_port] += ts;
-  // dest can be a router or a terminal, so we must check
-  void * m_data;
-  if (next_stop == msg->dest_terminal_id){
-      e = model_net_method_event_new(next_stop, 
-              s->next_output_available_time[output_port] - tw_now(lp), lp,
-              DRAGONFLY, (void**)&m, &m_data);
-  }
-  else{
-      e = tw_event_new(next_stop, s->next_output_available_time[output_port] - tw_now(lp), lp);
-      m = tw_event_data(e);
-      m_data = m+1;
-  }
-  memcpy(m, msg, sizeof(terminal_message));
-  if (msg->remote_event_size_bytes){
-      memcpy(m_data, msg+1, msg->remote_event_size_bytes);
-  }
+	  s->next_output_available_time[output_port] = maxd(s->next_output_available_time[output_port], tw_now(lp));
+	  s->next_output_available_time[output_port] += ts;
+	  // dest can be a router or a terminal, so we must check
+	  void * m_data;
+	  if (next_stop == msg->dest_terminal_id){
+	      e = model_net_method_event_new(next_stop, 
+		      s->next_output_available_time[output_port] - tw_now(lp), lp,
+		      DRAGONFLY, (void**)&m, &m_data);
+	  }
+	  else{
+	      e = tw_event_new(next_stop, s->next_output_available_time[output_port] - tw_now(lp), lp);
+	      m = tw_event_data(e);
+	      m_data = m+1;
+	  }
+	  memcpy(m, msg, sizeof(terminal_message));
+	  if (msg->remote_event_size_bytes){
+	      memcpy(m_data, msg+1, msg->remote_event_size_bytes);
+	  }
 
-  if(global)
-    m->last_hop=GLOBAL;
-  else
-    m->last_hop = LOCAL;
+	  if(global)
+	    m->last_hop=GLOBAL;
+	  else
+	    m->last_hop = LOCAL;
 
-  m->saved_vc = output_chan;
-  m->local_id = s->router_id;
-  msg->old_vc = output_chan;
-  m->intm_lp_id = lp->gid;
-  s->vc_occupancy[output_chan]++;
+	  m->saved_vc = output_chan;
+	  m->local_id = s->router_id;
+	  msg->old_vc = output_chan;
+	  m->intm_lp_id = lp->gid;
+	  s->vc_occupancy[output_chan]++;
 
-  if(tw_now(lp) - s->cur_hist_start_time[output_chan] >= WINDOW_LENGTH)
-  {
-	s->prev_hist_num[output_chan] = s->cur_hist_num[output_chan];
+	  if(routing == PROG_ADAPTIVE)
+	  {
+		  if(tw_now(lp) - s->cur_hist_start_time[output_chan] >= WINDOW_LENGTH)
+		  {
+			bf->c2 = 1;
+			msg->saved_hist_num = s->prev_hist_num[output_chan];
+			msg->saved_hist_start_time = s->cur_hist_start_time[output_chan];
 
-	s->cur_hist_start_time[output_chan] = tw_now(lp);
-	s->cur_hist_num[output_chan] = 1;
-  }
-  else
-  {
-	s->cur_hist_num[output_chan]++;
-  }
-  /* Determine the event type. If the packet has arrived at the final destination
-     router then it should arrive at the destination terminal next. */
-  if(next_stop == msg->dest_terminal_id)
-  {
-    m->type = T_ARRIVE;
-    m->magic = terminal_magic_num;
+			s->prev_hist_num[output_chan] = s->cur_hist_num[output_chan];
 
-    if(s->vc_occupancy[output_chan] >= s->params->cn_vc_size * num_chunks)
-      s->output_vc_state[output_chan] = VC_CREDIT;
-  }
-  else
-  {
-    /* The packet has to be sent to another router */
-    m->type = R_ARRIVE;
-    m->magic = router_magic_num;
+			s->cur_hist_start_time[output_chan] = tw_now(lp);
+			s->cur_hist_num[output_chan] = 1;
+		  }
+		  else
+		  {
+			s->cur_hist_num[output_chan]++;
+		  }
+	  }
+	  /* Determine the event type. If the packet has arrived at the final destination
+	     router then it should arrive at the destination terminal next. */
+	  if(next_stop == msg->dest_terminal_id)
+	  {
+	    m->type = T_ARRIVE;
+	    m->magic = terminal_magic_num;
 
-   /* If this is a global channel then the buffer space is different */
-   if( global )
-   {
-     if(s->vc_occupancy[output_chan] >= s->params->global_vc_size * num_chunks )
-       s->output_vc_state[output_chan] = VC_CREDIT;
-   }
-  else
-    {
-     /* buffer space is less for local channels */
-     if( s->vc_occupancy[output_chan] >= s->params->local_vc_size * num_chunks )
-	s->output_vc_state[output_chan] = VC_CREDIT;
-    }
-  }
-  tw_event_send(e);
-  return;
+	    if(s->vc_occupancy[output_chan] >= s->params->cn_vc_size)
+	      s->output_vc_state[output_chan] = VC_CREDIT;
+	  }
+	  else
+	  {
+	    /* The packet has to be sent to another router */
+	    m->type = R_ARRIVE;
+	    m->magic = router_magic_num;
+
+	   /* If this is a global channel then the buffer space is different */
+	   if( global )
+	   {
+	     if(s->vc_occupancy[output_chan] >= s->params->global_vc_size)
+	       s->output_vc_state[output_chan] = VC_CREDIT;
+	   }
+	  else
+	    {
+	     /* buffer space is less for local channels */
+	     if( s->vc_occupancy[output_chan] >= s->params->local_vc_size)
+		s->output_vc_state[output_chan] = VC_CREDIT;
+	    }
+	  }
+	  tw_event_send(e);
+	  return;
 }
 
-/* Packet arrives at the router and a credit is sent back to the sending terminal/router */
-void 
-router_packet_receive( router_state * s, 
+static void router_packet_receive_rc( router_state * s, 
 			tw_bf * bf, 
 			terminal_message * msg, 
 			tw_lp * lp )
 {
+        uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
+        if(msg->packet_size % s->params->chunk_size)
+            num_chunks++;
+        if(msg->chunk_id == num_chunks - 1)
+  	   total_hops--;
+
+	tw_rand_reverse_unif(lp->rng);
+	tw_rand_reverse_unif(lp->rng);
+	int output_port = msg->saved_vc/s->params->num_vcs;
+	s->next_credit_available_time[output_port] = msg->saved_available_time;
+}
+
+/* Packet arrives at the router and a credit is sent back to the sending terminal/router */
+static void router_packet_receive( router_state * s, 
+			tw_bf * bf, 
+			terminal_message * msg, 
+			tw_lp * lp )
+{
+    uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
+    if(msg->packet_size % s->params->chunk_size)
+       num_chunks++;
+    
+    if(msg->chunk_id == num_chunks - 1)
+        total_hops++;
+
     tw_event *e;
     terminal_message *m;
     tw_stime ts;
 
-    msg->my_N_hop++;
     ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, (double)MEAN_INTERVAL/200);
-    uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
-    if(msg->packet_size % s->params->chunk_size)
-        num_chunks++;
 
     if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1) 
        printf("\n packet %lld chunk %d received at router %d ", msg->packet_ID, msg->chunk_id, (int)lp->gid);
@@ -1737,6 +1887,29 @@ void router_setup(router_state * r, tw_lp * lp)
    return;
 }	
 
+void router_buf_update_rc(
+	router_state * s,
+	tw_bf * bf,
+	terminal_message * msg,
+	tw_lp * lp)
+{
+	uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
+	if(msg->packet_size % s->params->chunk_size)
+	    num_chunks++;
+	
+	int msg_indx = msg->vc_index;
+	s->vc_occupancy[msg_indx]++;
+
+	int buf = s->params->local_vc_size;
+
+	if(msg->last_hop == GLOBAL)
+	 buf = s->params->global_vc_size;
+	else if(msg->last_hop == TERMINAL)
+	 buf = s->params->cn_vc_size;
+
+	if(s->vc_occupancy[msg_indx] >= buf * num_chunks)
+	  s->output_vc_state[msg_indx] = VC_CREDIT;
+}
 /* Update the buffer space associated with this router LP */
 void router_buf_update(router_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
@@ -1750,7 +1923,7 @@ void router_buf_update(router_state * s, tw_bf * bf, terminal_message * msg, tw_
 	    for(i = 0; i < s->params->radix; i++)
 		printf(" %d ", s->vc_occupancy[i]);
 	}
-    assert(s->vc_occupancy[msg_indx] > 0);
+    //assert(s->vc_occupancy[msg_indx] > 0);
     s->vc_occupancy[msg_indx]--;
     s->output_vc_state[msg_indx] = VC_IDLE;
     return;
@@ -1782,71 +1955,22 @@ void router_event(router_state * s, tw_bf * bf, terminal_message * msg, tw_lp * 
 /* Reverse computation handler for a terminal event */
 void terminal_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
-    uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
-    if(msg->packet_size % s->params->chunk_size)
-        num_chunks++;
    switch(msg->type)
    {
 	   case T_GENERATE:
-		 {
-		 int i;
-		 tw_rand_reverse_unif(lp->rng);
-
-		 for(i = 0; i < num_chunks; i++)
-                     tw_rand_reverse_unif(lp->rng);
-		 mn_stats* stat;
-		 stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
-		 stat->send_count--;
-		 stat->send_bytes -= msg->packet_size;
-		 stat->send_time -= (1/s->params->cn_bandwidth) * msg->packet_size;
-		 }
-	   break;
+	        packet_generate_rc(s, bf, msg, lp);
+           break;
 	   
 	   case T_SEND:
-	         {
-	           s->terminal_available_time = msg->saved_available_time;
-		   tw_rand_reverse_unif(lp->rng);
-		   int vc = msg->saved_vc;
-		   s->vc_occupancy[vc]--;
-		   s->packet_counter--;
-		   s->output_vc_state[vc] = VC_IDLE;
-
-                   uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
-                   if (msg->chunk_id == num_chunks-1){
-                     codes_local_latency_reverse(lp);
-                   }
-		 }
+		packet_send_rc(s, bf, msg, lp);
 	   break;
 
 	   case T_ARRIVE:
-	   	 {
-		   tw_rand_reverse_unif(lp->rng);
-		   s->next_credit_available_time = msg->saved_credit_time;
-		   if(bf->c2)
-		   {
-		    mn_stats* stat;
-		    stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
-		    stat->recv_count--;
-		    stat->recv_bytes -= msg->packet_size;
-		    stat->recv_time -= tw_now(lp) - msg->travel_start_time;
-		    N_finished_packets--;
-		    dragonfly_total_time -= (tw_now(lp) - msg->travel_start_time);
-		    total_hops -= msg->my_N_hop;
-		   if(bf->c3)
-		         dragonfly_max_latency = msg->saved_available_time;
-		   }
-		    
-		   msg->my_N_hop--;
-		 }
+                packet_arrive_rc(s, bf, msg, lp);
            break;
 
 	   case T_BUFFER:
-	        {
-		   int msg_indx = msg->vc_index;
-		   s->vc_occupancy[msg_indx]++;
-		   if(s->vc_occupancy[msg_indx] == s->params->cn_vc_size)
-			s->output_vc_state[msg_indx] = VC_CREDIT;
-	     }  
+                   terminal_buf_update_rc(s, bf, msg, lp);
 	   break;
 	
           case D_COLLECTIVE_INIT:
@@ -1893,56 +2017,15 @@ void router_rc_event_handler(router_state * s, tw_bf * bf, terminal_message * ms
   switch(msg->type)
     {
             case R_SEND:
-		    {
-			if(msg->path_type == NON_MINIMAL && bf->c2)
-			   tw_rand_reverse_unif(lp->rng);
-
-			if(bf->c3)
-			   return;
-			    
-		        tw_rand_reverse_unif(lp->rng);
-			int output_chan = msg->old_vc;
-			int output_port = output_chan / s->params->num_vcs;
-
-			s->next_output_available_time[output_port] = msg->saved_available_time;
-			s->vc_occupancy[output_chan]--;
-			s->output_vc_state[output_chan]=VC_IDLE;
-
-		    }
+		router_packet_send_rc(s, bf, msg, lp);
 	    break;
 
 	    case R_ARRIVE:
-	    	    {
-			msg->my_N_hop--;
-			tw_rand_reverse_unif(lp->rng);
-			tw_rand_reverse_unif(lp->rng);
-			int output_port = msg->saved_vc/s->params->num_vcs;
-			s->next_credit_available_time[output_port] = msg->saved_available_time;
-                        if (msg->chunk_id == num_chunks-1 && 
-                                msg->remote_event_size_bytes && 
-                                msg->is_pull){
-                            int net_id = model_net_get_id(LP_METHOD_NM);
-                            model_net_event_rc(net_id, lp, msg->pull_size);
-                        }
-		    }
+		 router_packet_receive_rc(s, bf, msg, lp);
 	    break;
 
 	    case R_BUFFER:
-	    	   {
-		      int msg_indx = msg->vc_index;
-                      s->vc_occupancy[msg_indx]++;
-
-                      int buf = s->params->local_vc_size;
-
-		      if(msg->last_hop == GLOBAL)
-			 buf = s->params->global_vc_size;
-		       else if(msg->last_hop == TERMINAL)
-			 buf = s->params->cn_vc_size;
-	 
-		      if(s->vc_occupancy[msg_indx] >= buf * num_chunks)
-                          s->output_vc_state[msg_indx] = VC_CREDIT;
-
-		   }
+	    	 router_buf_update_rc(s, bf, msg, lp);
 	    break;
 	  
     }

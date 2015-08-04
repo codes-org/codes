@@ -46,9 +46,13 @@ struct terminal_message
   short saved_vc;
   /* last hop of the message, can be a terminal, local router or global router */
   short last_hop;
+   /* For routing */
+   int intm_group_id;
+   short chunk_id;
+   uint64_t packet_size;
+   int remote_event_size_bytes;
+   int local_event_size_bytes;
 
-  /* for reverse computation */
-  short path_type;
   // For buffer message
    short vc_index;
    int input_chan;
@@ -57,15 +61,13 @@ struct terminal_message
     uint64_t pull_size;
 
    /* for reverse computation */   
+   short path_type;
    tw_stime saved_available_time;
    tw_stime saved_credit_time;
    tw_stime saved_collective_init_time;  
+   tw_stime saved_hist_start_time;
+   int saved_hist_num;
 
-   int intm_group_id;
-   short chunk_id;
-   uint64_t packet_size;
-   int remote_event_size_bytes;
-   int local_event_size_bytes;
 
    /* for reverse computation of a node's fan in*/
    int saved_fan_nodes;
