@@ -227,8 +227,8 @@ static void update_times_and_insert(
 {
     op->start_time = time_to_ns_lf(t->start) - ctx->init_time;
     op->end_time = time_to_ns_lf(t->stop) - ctx->init_time;
-    dumpi_insert_next_op(ctx->dumpi_mpi_array, op);
     update_compute_time(t, ctx);
+    dumpi_insert_next_op(ctx->dumpi_mpi_array, op);
 }
 
 
