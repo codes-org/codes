@@ -29,6 +29,8 @@ static int rank_tbl_pop = 0;
 typedef struct rank_mpi_context
 {
     int my_app_id;
+    // whether we've seen an init op (needed for timing correctness)
+    int is_init;
     int64_t my_rank;
     double last_op_time;
     double init_time;
@@ -180,22 +182,32 @@ static void dumpi_remove_next_op(void *mpi_op_array, struct codes_workload_op *m
 	}
 }
 
+/* check for initialization and normalize reported time */
+static inline void check_set_init_time(const dumpi_time *t, rank_mpi_context * my_ctx)
+{
+    if (!my_ctx->is_init) {
+        my_ctx->is_init = 1;
+        my_ctx->init_time = time_to_ns_lf(t->start);
+        my_ctx->last_op_time = time_to_ns_lf(t->stop) - my_ctx->init_time;
+    }
+}
+
 /* introduce delay between operations: delay is the compute time NOT spent in MPI operations*/
 void update_compute_time(const dumpi_time* time, rank_mpi_context* my_ctx)
 {
     double start = time_to_ns_lf(time->start) - my_ctx->init_time;
     double stop = time_to_ns_lf(time->stop) - my_ctx->init_time;
-   if((start - my_ctx->last_op_time) > DUMPI_IGNORE_DELAY)
+    if((start - my_ctx->last_op_time) > DUMPI_IGNORE_DELAY)
     {
-	    struct codes_workload_op wrkld_per_rank;
+        struct codes_workload_op wrkld_per_rank;
 
-            wrkld_per_rank.op_type = CODES_WK_DELAY;
-            wrkld_per_rank.start_time = my_ctx->last_op_time;
-	    wrkld_per_rank.end_time = start;
-	    wrkld_per_rank.u.delay.seconds = (start - my_ctx->last_op_time) / 1e9;
-            my_ctx->last_op_time = stop;
-	    dumpi_insert_next_op(my_ctx->dumpi_mpi_array, &wrkld_per_rank); 
+        wrkld_per_rank.op_type = CODES_WK_DELAY;
+        wrkld_per_rank.start_time = my_ctx->last_op_time;
+        wrkld_per_rank.end_time = start;
+        wrkld_per_rank.u.delay.seconds = (start - my_ctx->last_op_time) / 1e9;
+        dumpi_insert_next_op(my_ctx->dumpi_mpi_array, &wrkld_per_rank); 
     }
+    my_ctx->last_op_time = stop;
 }
 
 static int handleDUMPIInit(
@@ -207,7 +219,7 @@ static int handleDUMPIInit(
         void *uarg)
 {
     rank_mpi_context *myctx = (rank_mpi_context*)uarg;
-    myctx->init_time = time_to_ns_lf(wall->stop);
+    check_set_init_time(wall, myctx);
     return 0;
 }
 
@@ -215,6 +227,7 @@ int handleDUMPIIgnore(const void* prm, uint16_t thread, const dumpi_time *cpu, c
 {
 	rank_mpi_context* myctx = (rank_mpi_context*)uarg;
 
+        check_set_init_time(wall, myctx);
 	update_compute_time(wall, myctx);
 
 	return 0;
@@ -225,6 +238,7 @@ static void update_times_and_insert(
         const dumpi_time *t,
         rank_mpi_context *ctx)
 {
+    check_set_init_time(t, ctx);
     op->start_time = time_to_ns_lf(t->start) - ctx->init_time;
     op->end_time = time_to_ns_lf(t->stop) - ctx->init_time;
     update_compute_time(t, ctx);
@@ -539,6 +553,7 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	my_ctx->my_rank = rank;
         my_ctx->my_app_id = app_id;
 	my_ctx->last_op_time = 0.0;
+        my_ctx->is_init = 0;
 	my_ctx->dumpi_mpi_array = dumpi_init_op_data();
 
 	if(rank < 10)
