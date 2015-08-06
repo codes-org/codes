@@ -287,6 +287,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     }
 
 
+
     char routing_str[MAX_NAME_LENGTH];
     configuration_get_value(&config, "PARAMS", "routing", anno, routing_str,
             MAX_NAME_LENGTH);
@@ -312,6 +313,8 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     p->radix = p->num_vcs *
         (p->num_cn + p->num_global_channels + p->num_routers);
     p->total_routers = p->num_groups * p->num_routers;
+
+
     p->total_terminals = p->total_routers * p->num_cn;
     printf("\n Total nodes %d routers %d groups %d radix %d num_vc %d ", p->num_cn * p->total_routers,
 								p->total_routers,
@@ -1804,12 +1807,16 @@ void router_setup(router_state * r, tw_lp * lp)
     bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
     router_magic_num = h1 + h2;
 
+    num_routers_per_mgrp = codes_mapping_get_lp_count (lp_group_name, 1, "dragonfly_router",
+                               NULL, 0);
+    
+    int num_grp_reps = codes_mapping_get_group_reps(lp_group_name);
+    
     char anno[MAX_NAME_LENGTH];
     codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
             &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
 
-    num_routers_per_mgrp = codes_mapping_get_lp_count (lp_group_name, 1, "dragonfly_router",
-                               NULL, 0);
+    
     if (anno[0] == '\0'){
         r->anno = NULL;
         r->params = &all_params[num_params-1];
@@ -1822,6 +1829,12 @@ void router_setup(router_state * r, tw_lp * lp)
 
     // shorthand
     const dragonfly_param *p = r->params;
+    
+   /* Checking for consistency of configuration */
+   if(p->total_routers != num_grp_reps * num_routers_per_mgrp)
+        tw_error(TW_LOC, 
+		"\n Config error: num_routers specified %d total routers computed in the network %d does not match with repetitions * dragonfly_router %d  ", 
+		    p->num_routers, p->total_routers, num_grp_reps * num_routers_per_mgrp);
 
    r->router_id=mapping_rep_id * num_routers_per_mgrp + mapping_offset;
    r->group_id=r->router_id/p->num_routers;
