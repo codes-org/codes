@@ -7,6 +7,7 @@
 #include "codes/resource.h"
 #include <assert.h>
 #include <string.h>
+#include <stdio.h>
 
 static uint64_t min_u64(uint64_t a, uint64_t b){
     return a < b ? a : b;
@@ -63,7 +64,8 @@ int resource_get_avail(resource_token_t tok, uint64_t *avail, resource *r){
         return 2;
     }
     else{
-        return r->avail[tok];
+        *avail = r->avail[tok];
+	return 0;
     }
 }
 
@@ -75,7 +77,8 @@ int resource_get_used(resource_token_t tok, uint64_t *used, resource *r){
         return 2;
     }
     else{
-        return r->max[tok] - r->avail[tok];
+        *used = r->max[tok] - r->avail[tok];
+	return 0;
     }
 }
 
