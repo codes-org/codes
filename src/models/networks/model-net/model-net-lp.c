@@ -534,6 +534,8 @@ void model_net_method_send_msg_recv_event(
 
     m->msg.m_base.req.final_dest_lp = final_dest_lp;
     m->msg.m_base.req.src_lp = src_lp;
+    // for "recv" events, set the "dest" to this LP in the case of a pull event
+    m->msg.m_base.req.dest_mn_lp = sender->gid;
     m->msg.m_base.req.msg_size    = is_pull ? pull_size : msg_size;
     m->msg.m_base.req.packet_size = m->msg.m_base.req.msg_size;
     m->msg.m_base.req.net_id = net_id;

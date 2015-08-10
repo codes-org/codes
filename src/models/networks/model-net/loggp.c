@@ -110,8 +110,9 @@ static void loggp_set_params(const char * config_file, loggp_param * params);
 
 /* Issues a loggp packet event call */
 static tw_stime loggp_packet_event(
-     char* category, 
+     char const * category, 
      tw_lpid final_dest_lp, 
+     tw_lpid dest_mn_lp,
      uint64_t packet_size, 
      int is_pull,
      uint64_t pull_size, /* only used when is_pull==1 */
@@ -129,6 +130,7 @@ static void loggp_packet_event_rc(tw_lp *sender);
 tw_stime loggp_recv_msg_event(
         const char * category,
         tw_lpid final_dest_lp,
+        tw_lpid src_mn_lp,
         uint64_t msg_size,
         int is_pull,
         uint64_t pull_size,
@@ -141,11 +143,6 @@ tw_stime loggp_recv_msg_event(
 void loggp_recv_msg_event_rc(tw_lp *sender);
 
 static void loggp_report_stats();
-
-static tw_lpid loggp_find_local_device(
-        const char * annotation,
-        int          ignore_annotations,
-        tw_lp      * sender);
 
 static const struct param_table_entry* find_params(
         uint64_t msg_size,
@@ -163,7 +160,6 @@ struct model_net_method loggp_method =
     .mn_get_lp_type = loggp_get_lp_type,
     .mn_get_msg_sz = loggp_get_msg_sz,
     .mn_report_stats = loggp_report_stats,
-    .model_net_method_find_local_device = NULL,
     .mn_collective_call = loggp_collective,
     .mn_collective_call_rc = loggp_collective_rc
 };
@@ -438,10 +434,14 @@ static void handle_msg_ready_event(
         //tmp_ptr += loggp_get_msg_sz();
         if (m->is_pull){
             /* call the model-net event */
+            struct codes_mctx mc_dst =
+                codes_mctx_set_global_direct(m->src_mn_lp);
+            struct codes_mctx mc_src =
+                codes_mctx_set_global_direct(lp->gid);
             int net_id = model_net_get_id(LP_METHOD_NM);
-            model_net_event(net_id, m->category, m->src_gid, m->pull_size,
-                    recv_queue_time, m->event_size_bytes, tmp_ptr, 0, NULL,
-                    lp);
+            model_net_event_mctx(net_id, &mc_src, &mc_dst, m->category,
+                    m->src_gid, m->pull_size, recv_queue_time,
+                    m->event_size_bytes, tmp_ptr, 0, NULL, lp);
         }
         else{
             e_new = tw_event_new(m->final_dest_gid, recv_queue_time, lp);
@@ -503,9 +503,6 @@ static void handle_msg_start_event(
     loggp_message *m_new;
     tw_stime send_queue_time = 0;
     mn_stats* stat;
-    int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
-    tw_lpid dest_id;
-    char lp_group_name[MAX_NAME_LENGTH];
     int total_event_size;
     double xmit_time;
     const struct param_table_entry *param;
@@ -549,10 +546,6 @@ static void handle_msg_start_event(
         ns->net_send_next_idle = tw_now(lp);
     ns->net_send_next_idle += xmit_time + param->g*1000.0;
 
-    /* create new event to send msg to receiving NIC */
-    dest_id = model_net_find_local_device(LOGGP, ns->anno, 0,
-            m->final_dest_gid);
-
     dprintf("%lu (mn): start msg    %lu->%lu, size %lu (%3s last)\n"
             "          now:%0.3le, idle[prev:%0.3le, next:%0.3le], "
             "q-time:%0.3le\n",
@@ -562,16 +555,13 @@ static void handle_msg_start_event(
             send_queue_time);
 
 #if USE_RECV_QUEUE
-    model_net_method_send_msg_recv_event(m->final_dest_gid, dest_id, m->src_gid,
-            m->net_msg_size_bytes, m->is_pull, m->pull_size,
+    model_net_method_send_msg_recv_event(m->final_dest_gid, m->dest_mn_lp,
+            m->src_gid, m->net_msg_size_bytes, m->is_pull, m->pull_size,
             m->event_size_bytes, &m->sched_params, m->category, LOGGP, m,
             send_queue_time, lp);
 #else 
     void *m_data;
-//    printf("\n msg start sending to %d ", dest_id);
-    //e_new = tw_event_new(dest_id, send_queue_time, lp);
-    //m_new = tw_event_data(e_new);
-    e_new = model_net_method_event_new(dest_id, send_queue_time, lp, LOGGP,
+    e_new = model_net_method_event_new(m->dest_mn_lp, send_queue_time, lp, LOGGP,
             (void**)&m_new, &m_data);
     /* copy entire previous message over, including payload from user of
      * this module
@@ -618,8 +608,9 @@ static void handle_msg_start_event(
 /*This method will serve as an intermediate layer between loggp and modelnet. 
  * It takes the packets from modelnet layer and calls underlying loggp methods*/
 static tw_stime loggp_packet_event(
-		char* category,
+		char const* category,
 		tw_lpid final_dest_lp,
+		tw_lpid dest_mn_lp,
 		uint64_t packet_size,
                 int is_pull,
                 uint64_t pull_size, /* only used when is_pull==1 */
@@ -645,7 +636,9 @@ static tw_stime loggp_packet_event(
      //msg = tw_event_data(e_new);
      strcpy(msg->category, category);
      msg->final_dest_gid = final_dest_lp;
+     msg->dest_mn_lp = dest_mn_lp;
      msg->src_gid = src_lp;
+     msg->src_mn_lp = sender->gid;
      msg->magic = loggp_get_magic();
      msg->net_msg_size_bytes = packet_size;
      msg->event_size_bytes = 0;
@@ -683,6 +676,7 @@ static tw_stime loggp_packet_event(
 tw_stime loggp_recv_msg_event(
         const char * category,
         tw_lpid final_dest_lp,
+        tw_lpid src_mn_lp,
         uint64_t msg_size,
         int is_pull,
         uint64_t pull_size,
@@ -703,6 +697,7 @@ tw_stime loggp_recv_msg_event(
     m->magic = loggp_magic;
     m->event_type = LG_MSG_READY;
     m->src_gid = src_lp;
+    m->src_mn_lp = src_mn_lp;
     m->final_dest_gid = final_dest_lp;
     m->net_msg_size_bytes = msg_size;
     m->event_size_bytes = remote_event_size;
@@ -833,25 +828,6 @@ static const struct param_table_entry* find_params(
 
     return(&params->table[i]);
 }
-
-static tw_lpid loggp_find_local_device(
-        const char * annotation,
-        int          ignore_annotations,
-        tw_lp      * sender)
-{
-     char lp_group_name[MAX_NAME_LENGTH];
-     int mapping_grp_id, mapping_rep_id, mapping_type_id, mapping_offset;
-     tw_lpid dest_id;
-
-     //TODO: be annotation-aware
-     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id,
-             NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, annotation,
-             ignore_annotations, mapping_rep_id, mapping_offset, &dest_id);
-
-    return(dest_id);
-}
-
 
 /*
  * Local variables:

@@ -29,8 +29,9 @@ struct terminal_message
   tw_lpid final_dest_gid;
   /*sending LP ID from CODES, can be a server or any other LP type */
   tw_lpid sender_lp;
+  tw_lpid sender_mn_lp; // source modelnet id
  /* destination terminal ID of the dragonfly */
-  unsigned int dest_terminal_id;
+  tw_lpid dest_terminal_id;
   /* source terminal ID of the dragonfly */
   unsigned int src_terminal_id;
   /* local LP ID to calculate the radix of the sender node/router */

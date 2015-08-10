@@ -21,7 +21,9 @@ struct sn_message
     int magic; /* magic number */
     enum sn_event_type event_type;
     tw_lpid src_gid; /* who transmitted this msg? */
+    tw_lpid src_mn_lp; // src modelnet id, provided by sender
     tw_lpid final_dest_gid; /* who is eventually targetted with this msg? */
+    tw_lpid dest_mn_lp; // destination modelnet id, provided by sender
     uint64_t net_msg_size_bytes;     /* size of modeled network message */
     int event_size_bytes;     /* size of simulator event message that will be tunnelled to destination */
     int local_event_size_bytes;     /* size of simulator event message that delivered locally upon local completion */

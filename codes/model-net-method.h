@@ -29,6 +29,7 @@ struct model_net_method
     tw_stime (*model_net_method_packet_event)(
         char const * category, 
         tw_lpid final_dest_lp, 
+        tw_lpid dest_mn_lp, // destination modelnet lp, computed by sender
         uint64_t packet_size, 
         int is_pull,
         uint64_t pull_size, /* only used when is_pull==1 */
@@ -50,6 +51,7 @@ struct model_net_method
     tw_stime (*model_net_method_recv_msg_event)(
             const char * category,
             tw_lpid final_dest_lp,
+            tw_lpid src_mn_lp, // the modelnet LP this message came from
             uint64_t msg_size,
             int is_pull,
             uint64_t pull_size,
@@ -62,10 +64,6 @@ struct model_net_method
     const tw_lptype* (*mn_get_lp_type)();
     int (*mn_get_msg_sz)();
     void (*mn_report_stats)();
-    tw_lpid (*model_net_method_find_local_device)(
-        const char * annotation,
-        int          ignore_annotations,
-        tw_lpid      sender_gid);
     void (*mn_collective_call)(char const * category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender);
     void (*mn_collective_call_rc)(int message_size, tw_lp* sender);    
 };

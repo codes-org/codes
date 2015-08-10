@@ -346,7 +346,7 @@ static int torus_get_msg_sz(void)
 }
 
 /* torus packet event , generates a torus packet on the compute node */
-static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, uint64_t packet_size, int is_pull, uint64_t pull_size, tw_stime offset, const mn_sched_params *sched_params, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lpid src_lp, tw_lp *sender, int is_last_pckt)
+static tw_stime torus_packet_event(char const * category, tw_lpid final_dest_lp, tw_lpid dest_mn_lp, uint64_t packet_size, int is_pull, uint64_t pull_size, tw_stime offset, const mn_sched_params *sched_params, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lpid src_lp, tw_lp *sender, int is_last_pckt)
 {
     tw_event * e_new;
     tw_stime xfer_to_nic_time;
@@ -360,7 +360,9 @@ static tw_stime torus_packet_event(char* category, tw_lpid final_dest_lp, uint64
             sender, TORUS, (void**)&msg, (void**)&tmp_ptr);
     strcpy(msg->category, category);
     msg->final_dest_gid = final_dest_lp;
+    msg->dest_lp = dest_mn_lp;
     msg->sender_svr= src_lp;
+    msg->sender_node = sender->gid;
     msg->packet_size = packet_size;
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
@@ -499,7 +501,7 @@ static void torus_init( nodes_state * s,
 
 
 /* collective operation for the torus network */
-void torus_collective(char* category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender)
+void torus_collective(char const * category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender)
 {
     tw_event * e_new;
     tw_stime xfer_to_nic_time;
@@ -841,14 +843,7 @@ static void packet_generate( nodes_state * s,
     tw_event * e_h;
     nodes_message *m;
 
-    tw_lpid dst_lp;
-    // TODO: be annotation-aware
-    dst_lp = model_net_find_local_device(TORUS, s->anno, 0,
-            msg->final_dest_gid);
-            //mapping_offset, &dst_lp);
-    // dest_lp gets included to other required msgs through memcpys, so just
-    // set here
-    msg->dest_lp = dst_lp;
+    tw_lpid dst_lp = msg->dest_lp;
 
     dimension_order_routing( s, &dst_lp, &tmp_dim, &tmp_dir );
 
@@ -1100,9 +1095,14 @@ static void packet_arrive( nodes_state * s,
                void *tmp_ptr = model_net_method_get_edata(TORUS, msg);
                if (msg->is_pull){
                    int net_id = model_net_get_id(LP_METHOD_NM);
-                   model_net_event(net_id, msg->category, msg->sender_svr,
-                           msg->pull_size, 0.0, msg->remote_event_size_bytes,
-                           tmp_ptr, 0, NULL, lp);
+                   struct codes_mctx mc_dst =
+                       codes_mctx_set_global_direct(msg->sender_node);
+                   struct codes_mctx mc_src =
+                       codes_mctx_set_global_direct(lp->gid);
+                   model_net_event_mctx(net_id, &mc_src, &mc_dst,
+                           msg->category, msg->sender_svr, msg->pull_size,
+                           0.0, msg->remote_event_size_bytes, tmp_ptr, 0,
+                           NULL, lp);
                }
                else{
                    e = tw_event_new(msg->final_dest_gid, ts, lp);
@@ -1342,21 +1342,6 @@ static const tw_lptype* torus_get_lp_type(void)
    return(&torus_lp); 
 }
 
-static tw_lpid torus_find_local_device(
-        const char * annotation,
-        int          ignore_annotations,
-        tw_lp *sender)
-{
-     tw_lpid dest_id;
-
-     codes_mapping_get_lp_info(sender->gid, grp_name, &mapping_grp_id, NULL,
-             &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-     codes_mapping_get_lp_id(grp_name, LP_CONFIG_NM, annotation,
-             ignore_annotations, mapping_rep_id, mapping_offset, &dest_id);
-
-    return(dest_id);
-}
-
 /* data structure for torus statistics */
 struct model_net_method torus_method =
 {
@@ -1369,7 +1354,6 @@ struct model_net_method torus_method =
    .mn_get_lp_type = torus_get_lp_type,
    .mn_get_msg_sz = torus_get_msg_sz,
    .mn_report_stats = torus_report_stats,
-   .model_net_method_find_local_device = NULL,
    .mn_collective_call = torus_collective,
    .mn_collective_call_rc = torus_collective_rc
 };
