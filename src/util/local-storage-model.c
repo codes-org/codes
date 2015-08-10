@@ -21,18 +21,6 @@
 int lsm_in_sequence = 0;
 tw_stime lsm_msg_offset = 0.0;
 
-/*
- * wrapped_event_t
- *   - holds the callers event and data they want sent upon
- *     completion of a IO operation.
- */
-typedef struct wrapped_event_s
-{
-    tw_lpid id;
-    size_t  size;
-    char    message[1];
-} wrapped_event_t;
-
 /* holds statistics about disk traffic on each LP */
 typedef struct lsm_stats_s
 {
@@ -143,7 +131,7 @@ typedef struct lsm_message_s
     int64_t     prev_offset;
     uint64_t    prev_object;
     lsm_message_data_t data;
-    wrapped_event_t wrap;
+    struct codes_cb_params cb;
 } lsm_message_t;
 
 /*
@@ -266,82 +254,55 @@ static tw_stime transfer_time_table (lsm_state_t *ns,
     return time;
 }
 
-void lsm_event_new_reverse(tw_lp *sender)
+void lsm_io_event_rc(tw_lp *sender)
 {
     codes_local_latency_reverse(sender);
-    return;
-}
-
-static tw_lpid lsm_find_local_device_default(
-        const char * annotation,
-        int          ignore_annotations,
-        tw_lpid      sender_gid) {
-    char group_name[MAX_NAME_LENGTH];
-    int dummy, mapping_rep, mapping_offset;
-    int num_lsm_lps;
-    tw_lpid rtn;
-
-    codes_mapping_get_lp_info(sender_gid, group_name, &dummy, NULL, &dummy,
-            NULL, &mapping_rep, &mapping_offset);
-    num_lsm_lps = codes_mapping_get_lp_count(group_name, 1, LSM_NAME,
-            annotation, ignore_annotations);
-    codes_mapping_get_lp_id(group_name, LSM_NAME, annotation,
-            ignore_annotations, mapping_rep, mapping_offset % num_lsm_lps,
-            &rtn);
-    return rtn;
 }
 
 tw_lpid lsm_find_local_device(
-        const char * annotation,
-        int ignore_annotations,
-        tw_lpid sender_gid) {
-    return lsm_find_local_device_default(annotation, ignore_annotations,
-            sender_gid);
+        struct codes_mctx const * map_ctx,
+        tw_lpid sender_gid)
+{
+    return codes_mctx_to_lpid(map_ctx, LSM_NAME, sender_gid);
 }
 
-static tw_event* lsm_event_new_base(
-        const char* category,
-        tw_lpid  dest_gid,
+void lsm_io_event(
+        const char * lp_io_category,
         uint64_t io_object,
         int64_t  io_offset,
         uint64_t io_size_bytes,
         int      io_type,
-        size_t   message_bytes,
-        tw_lp   *sender,
         tw_stime delay,
-        const char * annotation,
-        int ignore_annotations)
+        tw_lp *sender,
+        struct codes_mctx const * map_ctx,
+        int return_tag,
+        msg_header const * return_header,
+        struct codes_cb_info const * cb)
 {
-    tw_event *e;
-    lsm_message_t *m;
-    tw_lpid lsm_gid; 
-    tw_stime delta;
+    assert(strlen(lp_io_category) < CATEGORY_NAME_MAX-1);
+    assert(strlen(lp_io_category) > 0);
+    SANITY_CHECK_CB(cb, lsm_return_t);
 
-    assert(strlen(category) < CATEGORY_NAME_MAX-1);
-    assert(strlen(category) > 0);
+    tw_lpid lsm_id = codes_mctx_to_lpid(map_ctx, LSM_NAME, sender->gid);
 
-    /* Generate an event for the local storage model, and send the
-     * event to an lsm LP. 
-     */
-    lsm_gid = lsm_find_local_device(annotation, ignore_annotations, sender->gid);
-
-    delta = codes_local_latency(sender) + delay;
+    tw_stime delta = delay + codes_local_latency(sender);
     if (lsm_in_sequence) {
         tw_stime tmp = lsm_msg_offset;
         lsm_msg_offset += delta;
         delta += tmp;
     }
-    e = codes_event_new(lsm_gid, delta, sender);
-    m = (lsm_message_t*)tw_event_data(e);
+
+    tw_event *e = tw_event_new(lsm_id, delta, sender);
+    lsm_message_t *m = tw_event_data(e);
     m->magic = lsm_magic;
-    m->event  = (lsm_event_t)io_type;
+    m->event = (lsm_event_t) io_type;
     m->data.object = io_object;
     m->data.offset = io_offset;
     m->data.size   = io_size_bytes;
-    strcpy(m->data.category, category);
+    strcpy(m->data.category, lp_io_category);
 
     // get the priority count for checking
-    int num_prios = lsm_get_num_priorities(annotation, ignore_annotations);
+    int num_prios = lsm_get_num_priorities(map_ctx, sender->gid);
     // prio checks and sets
     if (num_prios <= 0) // disabled scheduler - ignore
         m->data.prio = 0;
@@ -352,105 +313,34 @@ static tw_event* lsm_event_new_base(
     else
         tw_error(TW_LOC,
                 "LP %lu, LSM LP %lu: Bad priority (%d supplied, %d lanes)\n",
-                sender->gid, dest_gid, temp_prio, num_prios);
+                sender->gid, lsm_id, temp_prio, num_prios);
     // reset temp_prio
     temp_prio = -1;
 
-    /* save callers dest_gid and message size */
-    m->wrap.id = dest_gid;
-    m->wrap.size = message_bytes;
+    m->cb.info = *cb;
+    m->cb.h = *return_header;
+    m->cb.tag = return_tag;
 
-    return e;
-}
-
-/*
- * lsm_event_new
- *   - creates a new event that is targeted for the corresponding
- *     LSM LP.
- *   - this event will allow wrapping the callers completion event
- *   - category: string name to identify the traffic category
- *   - dest_gid: the gid to send the callers event to
- *   - gid_offset: relative offset of the LSM LP to the originating LP
- *   - io_object: id of byte stream the caller will modify
- *   - io_offset: offset into byte stream
- *   - io_size_bytes: size in bytes of IO request
- *   - io_type: read or write request
- *   - message_bytes: size of the event message the caller will have
- *   - sender: id of the sender
- */
-tw_event* lsm_event_new(
-        const char* category,
-        tw_lpid  dest_gid,
-        uint64_t io_object,
-        int64_t  io_offset,
-        uint64_t io_size_bytes,
-        int      io_type,
-        size_t   message_bytes,
-        tw_lp   *sender,
-        tw_stime delay) {
-    return lsm_event_new_base(category, dest_gid, io_object, io_offset,
-            io_size_bytes, io_type, message_bytes, sender, delay, NULL, 1);
-}
-tw_event* lsm_event_new_annotated(
-        const char* category,
-        tw_lpid  dest_gid,
-        uint64_t io_object,
-        int64_t  io_offset,
-        uint64_t io_size_bytes,
-        int      io_type,
-        size_t   message_bytes,
-        tw_lp   *sender,
-        tw_stime delay,
-        const char * annotation,
-        int ignore_annotations) {
-    return lsm_event_new_base(category, dest_gid, io_object, io_offset,
-            io_size_bytes, io_type, message_bytes, sender, delay, annotation,
-            ignore_annotations);
-}
-
-/*
- * lsm_event_data
- *   - returns the pointer to the message data for the callers data
- *   - event: a lsm_event_t event
- */
-void* lsm_event_data(tw_event *event)
-{
-    lsm_message_t *m;
-    
-    /* return a pointer to space for caller to store event message
-     * space was allocated in lsm_event_new
-     */
-    m = (lsm_message_t *) tw_event_data(event);
-
-    return m->wrap.message;
+    tw_event_send(e);
 }
 
 int lsm_get_num_priorities(
-        char const * annotation,
-        int ignore_annotations)
+        struct codes_mctx const * map_ctx,
+        tw_lpid sender_id)
 {
-    if (ignore_annotations) {
-        /* find the first valid model
-         * (unannotated if listed first, annotated otherwise) */
-        if (anno_map->is_unanno_first)
-            return model_unanno.use_sched;
-        else if (anno_map->num_annos)
-            return models_anno->use_sched;
-        else
-            return -1;
-    }
-    else if (annotation == NULL) {
-        if (anno_map->has_unanno_lp)
-            return model_unanno.use_sched;
-        else
-            return -1;
+    char const * annotation =
+        codes_mctx_get_annotation(map_ctx, LSM_NAME, sender_id);
+
+    if (annotation == NULL) {
+        assert(anno_map->has_unanno_lp);
+        return model_unanno.use_sched;
     }
     else {
         for (int i = 0; i < anno_map->num_annos; i++) {
             if (strcmp(anno_map->annotations[i], annotation) == 0)
                 return models_anno[i].use_sched;
         }
-        // bad annotation
+        assert(0);
         return -1;
     }
 }
@@ -749,10 +639,10 @@ static void handle_io_request(lsm_state_t *ns,
     ns->current_offset = data->offset + data->size;
     ns->current_object = data->object;
 
-    e = codes_event_new(lp->gid, queue_time, lp);
+    e = tw_event_new(lp->gid, queue_time, lp);
     m_out = (lsm_message_t*)tw_event_data(e);
 
-    memcpy(m_out, m_in, sizeof(*m_in)+m_in->wrap.size);
+    memcpy(m_out, m_in, sizeof(*m_in));
     if (m_out->event == LSM_WRITE_REQUEST)
     {
         m_out->event = LSM_WRITE_COMPLETION;
@@ -802,13 +692,15 @@ static void handle_io_completion (lsm_state_t *ns,
                                   lsm_message_t *m_in,
                                   tw_lp *lp)
 {
-    tw_event *e;
-    void     *m;
+    SANITY_CHECK_CB(&m_in->cb.info, lsm_return_t);
 
-    e = codes_event_new(m_in->wrap.id, codes_local_latency(lp), lp);
-    m = tw_event_data(e);
+    tw_event * e = tw_event_new(m_in->cb.h.src, codes_local_latency(lp), lp);
+    void * m = tw_event_data(e);
 
-    memcpy(m, m_in->wrap.message, m_in->wrap.size);
+    GET_INIT_CB_PTRS(&m_in->cb, m, lp->gid, h, tag, rc, lsm_return_t);
+
+    /* no failures to speak of yet */
+    rc->rc = 0;
 
     tw_event_send(e);
 

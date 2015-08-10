@@ -9,6 +9,9 @@
 
 #include <ross.h>
 
+#include "codes-callback.h"
+#include "codes-mapping-context.h"
+
 #define LSM_NAME "lsm"
 
 /* HACK: problems arise when some LP sends multiple messages as part of an
@@ -39,72 +42,57 @@ typedef enum lsm_event_e
 } lsm_event_t;
 
 /*
+ * return type for lsm events (in the codes-callback sense)
+ */
+typedef struct {
+    int rc;
+} lsm_return_t;
+
+/*
  * Prototypes
  */
 
 /* given LP sender, find the LSM device LP in the same group */ 
 tw_lpid lsm_find_local_device(
-        const char * annotation,
-        int ignore_annotations,
+        struct codes_mctx const * map_ctx,
         tw_lpid sender_gid);
 
 /*
- * lsm_event_new
+ * lsm_io_event
  *   - creates a new event that is targeted for the corresponding
  *     LSM LP.
  *   - this event will allow wrapping the callers completion event
- *   - category: string name to identify the traffic category
- *   - dest_gid: the gid to send the callers event to
+ *   - lp_io_category: string name to identify the traffic category for use in
+ *     lp-io
  *   - gid_offset: relative offset of the LSM LP to the originating LP
  *   - io_object: id of byte stream the caller will modify
  *   - io_offset: offset into byte stream
  *   - io_size_bytes: size in bytes of IO request
  *   - io_type: read or write request
- *   - message_bytes: size of the event message the caller will have
- *   - sender: id of the sender
  */
-tw_event* lsm_event_new(const char* category,
-                        tw_lpid  dest_gid,
-                        uint64_t io_object,
-                        int64_t  io_offset,
-                        uint64_t io_size_bytes,
-                        int      io_type,
-                        size_t   message_bytes,
-                        tw_lp   *sender,
-                        tw_stime delay);
-/* equivalent to lsm_event_new, except it allows to specify an annotation to
- * filter by. If ignore_annotations is nonzero, A null annotation parameter
- * indicates that the lsm LP to issue to has no annotation */
-tw_event* lsm_event_new_annotated(
-        const char* category,
-        tw_lpid  dest_gid,
+
+void lsm_io_event(
+        const char * lp_io_category,
         uint64_t io_object,
         int64_t  io_offset,
         uint64_t io_size_bytes,
         int      io_type,
-        size_t   message_bytes,
-        tw_lp   *sender,
         tw_stime delay,
-        const char * annotation,
-        int ignore_annotations);
+        tw_lp *sender,
+        struct codes_mctx const * map_ctx,
+        int return_tag,
+        msg_header const * return_header,
+        struct codes_cb_info const * cb);
 
-void lsm_event_new_reverse(tw_lp *sender);
-
-/*
- * lsm_event_data
- *   - returns the pointer to the message data for the callers data
- *   - event: a lsm_event_t event
- */
-void* lsm_event_data(tw_event *event);
-
+void lsm_io_event_rc(tw_lp *sender);
 
 /* get the priority count for the LSM scheduler.
  * returns 0 if priorities aren't being used, -1 if no LSMs were configured,
  * and >0 otherwise.
  * This should not be called before lsm_configure */
 int lsm_get_num_priorities(
-        char const * annotation,
-        int ignore_annotations);
+        struct codes_mctx const * map_ctx,
+        tw_lpid sender_id);
 
 /* set a request priority for the following lsm_event_*.
  * - tw_error will be called if the priority ends up being out-of-bounds
@@ -119,15 +107,6 @@ void lsm_register(void);
 
 /* configures the LSM model(s) */
 void lsm_configure(void);
-
-/*
- * Macros
- */
-#define lsm_write_event_new(cat,gid,obj,off,sz,mb,s) \
-  lsm_event_new((cat),(gid),(obj),(off),(sz),LSM_WRITE_REQUEST,(mb),(s),0.0)
-
-#define lsm_read_event_new(cat,gid,obj,off,sz,mb,s) \
-  lsm_event_new((cat),(gid),(obj),(off),(sz),LSM_READ_REQUEST,(mb),(s),0.0)
 
 #define LSM_DEBUG 0
 

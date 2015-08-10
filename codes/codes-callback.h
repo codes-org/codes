@@ -52,6 +52,23 @@ struct codes_cb_params {
         (_cb_info_ptr)->cb_ret_offset = offsetof(_event_type, _cb_ret_field); \
     } while (0)
 
+#define CB_HO(_cb_params_ptr) ((_cb_params_ptr)->info.header_offset)
+#define CB_TO(_cb_params_ptr) ((_cb_params_ptr)->info.tag_offset)
+#define CB_RO(_cb_params_ptr) ((_cb_params_ptr)->info.cb_ret_offset)
+
+/* Declare return variables at the right byte offsets from a codes_cb_params.
+ * Additionally, set the header and tag vars */
+#define GET_INIT_CB_PTRS(_cb_params_ptr, _data_ptr, _sender_gid_val, _header_nm, _tag_nm, _rtn_name, _rtn_type) \
+    msg_header * _header_nm = \
+            (msg_header*)((char*)(_data_ptr) + CB_HO(_cb_params_ptr)); \
+    int * _tag_nm = \
+            (int*)((char*)(_data_ptr) + CB_TO(_cb_params_ptr));\
+    _rtn_type * _rtn_name = \
+            (_rtn_type*)((char*)(_data_ptr) + CB_RO(_cb_params_ptr)); \
+    msg_set_header((_cb_params_ptr)->h.magic, (_cb_params_ptr)->h.event_type, \
+            _sender_gid_val, _header_nm); \
+    *_tag_nm = (_cb_params_ptr)->tag
+
 #define SANITY_CHECK_CB(_cb_info_ptr, _ret_type) \
     do { \
         int _total_size = sizeof(_ret_type) + sizeof(int) + sizeof(msg_header);\
