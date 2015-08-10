@@ -130,6 +130,7 @@ static void loggp_packet_event_rc(tw_lp *sender);
 tw_stime loggp_recv_msg_event(
         const char * category,
         tw_lpid final_dest_lp,
+        tw_lpid src_mn_lp,
         uint64_t msg_size,
         int is_pull,
         uint64_t pull_size,
@@ -675,6 +676,7 @@ static tw_stime loggp_packet_event(
 tw_stime loggp_recv_msg_event(
         const char * category,
         tw_lpid final_dest_lp,
+        tw_lpid src_mn_lp,
         uint64_t msg_size,
         int is_pull,
         uint64_t pull_size,
@@ -695,6 +697,7 @@ tw_stime loggp_recv_msg_event(
     m->magic = loggp_magic;
     m->event_type = LG_MSG_READY;
     m->src_gid = src_lp;
+    m->src_mn_lp = src_mn_lp;
     m->final_dest_gid = final_dest_lp;
     m->net_msg_size_bytes = msg_size;
     m->event_size_bytes = remote_event_size;

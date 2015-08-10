@@ -253,10 +253,12 @@ int fcfs_next(
                 "from %lu to %lu at %1.5e (last:%d)\n",
                 lp->gid, psize, q->rem, q->req.src_lp, q->req.final_dest_lp,
                 tw_now(lp), is_last_packet);
+        // note: we overloaded on the dest_mn_lp field - it's the dest of the
+        // soruce in the case of a pull
         *poffset = s->method->model_net_method_recv_msg_event(q->req.category,
-                q->req.final_dest_lp, psize, q->req.is_pull, q->req.msg_size,
-                0.0, q->req.remote_event_size, q->remote_event, q->req.src_lp,
-                lp);
+                q->req.final_dest_lp, q->req.dest_mn_lp, psize,
+                q->req.is_pull, q->req.msg_size, 0.0, q->req.remote_event_size,
+                q->remote_event, q->req.src_lp, lp);
     }
     else{
         dprintf("%lu (mn):    issuing packet of size %lu (of %lu) "

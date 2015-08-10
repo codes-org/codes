@@ -51,6 +51,7 @@ struct model_net_method
     tw_stime (*model_net_method_recv_msg_event)(
             const char * category,
             tw_lpid final_dest_lp,
+            tw_lpid src_mn_lp, // the modelnet LP this message came from
             uint64_t msg_size,
             int is_pull,
             uint64_t pull_size,
