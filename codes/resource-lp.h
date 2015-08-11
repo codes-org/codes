@@ -19,8 +19,6 @@
 #include "codes-callback.h"
 #include "codes-mapping-context.h"
 
-#define RESOURCE_MAX_CALLBACK_PAYLOAD 64
-
 #define RESOURCE_LP_NM "resource"
 
 typedef struct {
