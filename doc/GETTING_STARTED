@@ -67,6 +67,24 @@ simple example of the mapping functionality, while the test program
 tests/mapping_test.c with configuration file tests/conf/mapping_test.conf
 extensively demonstrates the mapping API.
 
+=== LP mapping context
+
+In many cases (the resource and local storage model LPs, and modelnet in
+codes-net), the mapping from caller to callee LPs are implicit. The
+codes-mapping context API (codes/codes-mapping-context.h) provides various
+options for influencing these mappings, as well as providing the capability to
+bypass codes-mapping and send messages directly to an LP. The test file
+tests/map-ctx-test.c, along with the config file tests/conf/map-ctx-test.conf
+provides the best usage examples.
+
+== LP messaging conventions
+
+Models in CODES that have a request-response form of communication resembling
+that of RPCs follow a specific convention, defined in codes/codes-callback.h.
+The header documents the convention. The current best example usage is in the
+CODES sources themselves, i.e. in codes/resource-lp.h, src/util/resource-lp.c,
+codes/local-storage-model.h, and src/util/local-storage-model.c.
+
 == Workload generator(s)
 
 codes-workload is an in-development abstraction layer for feeding I/O / network
