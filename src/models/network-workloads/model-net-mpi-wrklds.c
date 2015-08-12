@@ -36,6 +36,9 @@ double avg_time = 0, avg_comm_time = 0, avg_wait_time = 0, avg_send_time = 0, av
 static char lp_group_name[MAX_NAME_LENGTH], lp_type_name[MAX_NAME_LENGTH], annotation[MAX_NAME_LENGTH];
 static int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
 
+/* runtime option for disabling computation time simulation */
+static int disable_delay = 0;
+
 /* MPI_OP_GET_NEXT is for getting next MPI operation when the previous operation completes.
 * MPI_SEND_ARRIVED is issued when a MPI message arrives at its destination (the message is transported by model-net and an event is invoked when it arrives. 
 * MPI_SEND_POSTED is issued when a MPI message has left the source LP (message is transported via model-net). */
@@ -809,9 +812,15 @@ static void codes_exec_comp_delay(nw_state* s, nw_message* m, tw_lp* lp)
 	tw_stime ts;
 	nw_message* msg;
 
-	s->compute_time += s_to_ns(mpi_op->u.delay.seconds);
-	ts = s_to_ns(mpi_op->u.delay.seconds) + g_tw_lookahead + 0.1;
-	ts += tw_rand_exponential(lp->rng, noise);
+        if (disable_delay) {
+            ts = 0.0; // no compute time sim
+        }
+        else {
+            s->compute_time += s_to_ns(mpi_op->u.delay.seconds);
+            ts = s_to_ns(mpi_op->u.delay.seconds);
+        }
+
+	ts += g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
 	
 	e = tw_event_new( lp->gid, ts , lp );
 	msg = tw_event_data(e);
@@ -1188,9 +1197,11 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 		break;
 		case CODES_WK_DELAY:
 		{
-			tw_rand_reverse_unif(lp->rng);
 			s->num_delays--;
-			s->compute_time -= s_to_ns(m->op->u.delay.seconds);
+                        if (!disable_delay) {
+                            tw_rand_reverse_unif(lp->rng);
+                            s->compute_time -= s_to_ns(m->op->u.delay.seconds);
+                        }
 		}
 		break;
 		case CODES_WK_BCAST:
@@ -1369,6 +1380,7 @@ const tw_optdef app_opt [] =
     	TWOPT_CHAR("workload_type", workload_type, "workload type (either \"scalatrace\" or \"dumpi\")"),
 	TWOPT_CHAR("workload_file", workload_file, "workload file name"),
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
+        TWOPT_UINT("disable_compute", disable_delay, "disable compute simulation"),
 	TWOPT_CHAR("offset_file", offset_file, "offset file name"),
 	TWOPT_END()
 };
