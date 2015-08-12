@@ -43,6 +43,7 @@ enum MPI_NW_EVENTS
 {
 	MPI_OP_GET_NEXT=1,
 	MPI_SEND_ARRIVED,
+        MPI_SEND_ARRIVED_CB, // for tracking message times on sender
 	MPI_SEND_POSTED,
 };
 
@@ -142,6 +143,8 @@ struct nw_message
         int num_bytes;
         int data_type;
         double sim_start_time;
+        // for callbacks - time message was received
+        double msg_send_time;
         int16_t req_id;   
         int tag;
      } msg_info;
@@ -205,6 +208,10 @@ static void update_arrival_queue(nw_state*s, tw_bf* bf, nw_message* m, tw_lp * l
 /* reverse of the above function */
 static void update_arrival_queue_rc(nw_state*s, tw_bf* bf, nw_message* m, tw_lp * lp);
 
+/* callback to a message sender for computing message time */
+static void update_message_time(nw_state*s, tw_bf* bf, nw_message* m, tw_lp * lp);
+static void update_message_time_rc(nw_state*s, tw_bf* bf, nw_message* m, tw_lp * lp);
+
 /* insert MPI operation in the waiting queue*/
 static void mpi_pending_queue_insert_op(struct mpi_queue_ptrs* mpi_queue, struct codes_workload_op* mpi_op);
 
@@ -229,6 +236,11 @@ static void notify_waits_rc(nw_state* s, tw_bf* bf, tw_lp* lp, nw_message* m, du
 /* conversion from seconds to eanaoseconds */
 static tw_stime s_to_ns(tw_stime ns);
 
+/* helper function - maps an MPI rank to an LP id */
+static tw_lpid rank_to_lpid(int rank)
+{
+    return codes_mapping_get_lpid_from_relative(rank, NULL, "nw-lp", NULL, 0);
+}
 
 /* initializes the queue and allocates memory */
 static struct mpi_queue_ptrs* queue_init()
@@ -977,7 +989,9 @@ static void update_send_completion_queue(nw_state* s, tw_bf * bf, nw_message * m
 /* reverse handler for updating arrival queue function */
 static void update_arrival_queue_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-	s->send_time = m->u.rc.saved_send_time; s->recv_time = m->u.rc.saved_recv_time;
+	s->recv_time = m->u.rc.saved_recv_time;
+
+        codes_local_latency_reverse(lp);
 
 	if(m->u.rc.found_match >= 0)
 	{
@@ -1007,10 +1021,20 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
 	//int count_before = numQueue(s->pending_recvs_queue);
 	int is_blocking = 0; /* checks if the recv operation was blocking or not */
 
-	m->u.rc.saved_send_time = s->send_time;
 	m->u.rc.saved_recv_time = s->recv_time;
 
-	s->send_time += tw_now(lp) - m->u.msg_info.sim_start_time;
+        // send a callback to the sender to increment times
+        tw_event *e_callback =
+            tw_event_new(rank_to_lpid(m->u.msg_info.src_rank),
+                    codes_local_latency(lp), lp);
+        nw_message *m_callback = tw_event_data(e_callback);
+        m_callback->msg_type = MPI_SEND_ARRIVED_CB;
+        m_callback->u.msg_info.msg_send_time = tw_now(lp) - m->u.msg_info.sim_start_time;
+        tw_event_send(e_callback);
+
+        /*NOTE: this computes send time with respect to the receiver, not the
+         * sender
+         * s->send_time += tw_now(lp) - m->u.msg_info.sim_start_time; */
 	dumpi_req_id req_id = -1;
 
         /* Now reconstruct the mpi op */
@@ -1038,6 +1062,25 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
 		m->u.rc.found_match = found_matching_recv;
 	   	notify_waits(s, bf, lp, m, m->u.rc.saved_matched_req);
 	  }
+}
+
+static void update_message_time(
+        nw_state * s,
+        tw_bf * bf,
+        nw_message * m,
+        tw_lp * lp)
+{
+    m->u.rc.saved_send_time = s->send_time;
+    s->send_time += m->u.msg_info.msg_send_time;
+}
+
+static void update_message_time_rc(
+        nw_state * s,
+        tw_bf * bf,
+        nw_message * m,
+        tw_lp * lp)
+{
+    s->send_time = m->u.rc.saved_send_time;
 }
 
 /* initializes the network node LP, loads the trace file in the structs, calls the first MPI operation to be executed */
@@ -1103,6 +1146,10 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 
 		case MPI_SEND_ARRIVED:
 			update_arrival_queue(s, bf, m, lp);
+		break;
+
+		case MPI_SEND_ARRIVED_CB:
+			update_message_time(s, bf, m, lp);
 		break;
 
 		case MPI_OP_GET_NEXT:
@@ -1306,6 +1353,10 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
 			update_arrival_queue_rc(s, bf, m, lp);
 		break;
 
+		case MPI_SEND_ARRIVED_CB:
+			update_message_time_rc(s, bf, m, lp);
+		break;
+
 		case MPI_OP_GET_NEXT:
 			get_next_mpi_operation_rc(s, bf, m, lp);
 		break;
@@ -1357,7 +1408,7 @@ int main( int argc, char** argv )
   if(strlen(workload_file) == 0)
     {
 	if(tw_ismaster())
-		printf("\n Usage: mpirun -np n ./codes-nw-test --sync=1/2/3 --workload_type=type --workload_file=workload-file-name");
+		printf("Usage: mpirun -np n ./codes-nw-test --sync=1/2/3 --workload_type=type --workload_file=workload-file-name\n");
 	tw_end();
 	return -1;
     }
