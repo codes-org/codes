@@ -113,6 +113,91 @@ tw_lptype c_lp = {
     sizeof(state),
 };
 
+#define TEST_TO_NM(_expected_nm, _input, _fn_type) \
+    do { \
+        char const * _anm = \
+                codes_mapping_get_ ##_fn_type ##_name_by_cid(_input); \
+        char const * _enm = \
+                (_expected_nm) == NULL ? "" : (_expected_nm); \
+        if ((_expected_nm) == NULL && _anm != NULL) { \
+            fprintf(stderr, "%s:%d: " \
+                    " cid->name check error (expected NULL, got %s)\n", \
+                    __FILE__, __LINE__, _anm);\
+            return 1; \
+        } else if ((_expected_nm) != NULL && strcmp(_enm, _anm) != 0) { \
+            fprintf(stderr, "%s:%d: " \
+                    " cid->name check error (expected %s, got %s)\n", \
+                    __FILE__, __LINE__, \
+                    (_expected_nm) == NULL ? "null" : (_expected_nm), _anm);\
+            return 1; \
+        } \
+    } while (0);
+
+#define TEST_TO_CID(_expected_cid, _input, _name_type, _fn_type) \
+    do { \
+        int _ecid = (_expected_cid); \
+        int _acid = \
+            codes_mapping_get_ ##_fn_type ##_cid_by_ ##_name_type (_input); \
+        if (_ecid != _acid) { \
+            fprintf(stderr, "%s:%d: " #_name_type \
+                    " name->cid check error (expected %d, got %d)\n", \
+                    __FILE__, __LINE__, _ecid, _acid);\
+            return 1; \
+        } \
+    } while (0);
+
+#define TEST_TO_CID_NM(_expected_cid, _input, _fn_type) \
+    TEST_TO_CID(_expected_cid, _input, name, _fn_type)
+#define TEST_TO_CID_LP(_expected_cid, _input, _fn_type) \
+    TEST_TO_CID(_expected_cid, _input, lpid, _fn_type)
+
+static int test_cids()
+{
+    TEST_TO_CID_NM(0, "GRP1", group)
+    TEST_TO_CID_NM(1, "GRP2", group)
+    TEST_TO_NM("GRP1", 0, group)
+    TEST_TO_NM("GRP2", 1, group)
+
+    TEST_TO_CID_NM(0, "a", lp)
+    TEST_TO_CID_NM(1, "b", lp)
+    TEST_TO_CID_NM(2, "c", lp)
+    TEST_TO_NM("a", 0, lp)
+    TEST_TO_NM("b", 1, lp)
+    TEST_TO_NM("c", 2, lp)
+
+    TEST_TO_CID_NM(0, "foo", anno)
+    TEST_TO_CID_NM(1, "bar", anno)
+    TEST_TO_CID_NM(2, NULL, anno)
+    TEST_TO_CID_NM(2, "", anno)
+    TEST_TO_NM("foo", 0, anno)
+    TEST_TO_NM("bar", 1, anno)
+    TEST_TO_NM(NULL, 2, anno)
+
+    TEST_TO_CID_LP(0, 0, group)
+    TEST_TO_CID_LP(0, 1, group)
+    TEST_TO_CID_LP(0, 9, group)
+    TEST_TO_CID_LP(1, 10, group)
+    TEST_TO_CID_LP(1, 11, group)
+    TEST_TO_CID_LP(1, 24, group)
+
+    TEST_TO_CID_LP(0, 0, lp)
+    TEST_TO_CID_LP(1, 1, lp)
+    TEST_TO_CID_LP(2, 9, lp)
+    TEST_TO_CID_LP(2, 10, lp)
+    TEST_TO_CID_LP(1, 11, lp)
+    TEST_TO_CID_LP(0, 24, lp)
+
+    TEST_TO_CID_LP(2, 0, anno)
+    TEST_TO_CID_LP(2, 1, anno)
+    TEST_TO_CID_LP(2, 9, anno)
+    TEST_TO_CID_LP(0, 8, anno)
+    TEST_TO_CID_LP(1, 10, anno)
+    TEST_TO_CID_LP(0, 11, anno)
+    TEST_TO_CID_LP(0, 24, anno)
+
+    return 0;
+}
+
 static char conf_file_name[128] = {'\0'};
 static const tw_optdef app_opt [] =
 {
@@ -169,9 +254,12 @@ int main(int argc, char *argv[])
     }
 
     tw_run();
+
+    int rc = test_cids();
+
     tw_end();
 
-    return 0;
+    return rc;
 }
 
 /*

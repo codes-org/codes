@@ -180,6 +180,28 @@ const char* codes_mapping_get_annotation_by_lpid(tw_lpid gid);
 const config_anno_map_t * 
 codes_mapping_get_lp_anno_map(const char *lp_name);
 
+/* the following functions are meant to aide in transferring LP mapping
+ * information across PEs - basically, a canonical mapping of names (group,
+ * LP, annotations) to indexes. This is separate from the indices returned from
+ * codes_mapping_get_lp_info, which points directly to configuration entities
+ */
+
+/* returns a canonical index (cid) for the group name, or -1 if not found */
+int codes_mapping_get_group_cid_by_name(char const * group_name);
+int codes_mapping_get_group_cid_by_lpid(tw_lpid id);
+char const * codes_mapping_get_group_name_by_cid(int cid);
+
+/* returns a canonical index (cid) for the LP name, or -1 if not found */
+int codes_mapping_get_lp_cid_by_name(char const * lp_type_name);
+int codes_mapping_get_lp_cid_by_lpid(tw_lpid id);
+char const * codes_mapping_get_lp_name_by_cid(int cid);
+
+/* returns a canonical index (cid) for an annotation, or -1 if not found.
+ * NOTE: a NULL or "\0" annotation corresponds to the lack of an annotation */
+int codes_mapping_get_anno_cid_by_name(char const * annotation);
+int codes_mapping_get_anno_cid_by_lpid(tw_lpid id);
+char const * codes_mapping_get_anno_name_by_cid(int cid);
+
 /*
  * Local variables:
  *  c-indent-level: 4

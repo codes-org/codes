@@ -19,6 +19,15 @@ static int lps_leftover = 0;
 
 static int mem_factor = 256;
 
+/* canonical group/lp/annotation name-index mappings */
+static char const * * group_names;
+static char const * * lp_names;
+// unannotated is represented by index num_uniq_annos
+static char const * * anno_names;
+static int num_uniq_groups;
+static int num_uniq_lptypes;
+static int num_uniq_annos;
+
 static int mini(int a, int b){ return a < b ? a : b; }
 
 // compare passed in annotation strings (NULL or nonempty) against annotation
@@ -444,11 +453,75 @@ static tw_lp * codes_mapping_to_lp( tw_lpid lpid)
    return g_tw_lp[index];
 }
 
+/* helper for setting up the canonical name mapping */
+static void check_add_uniq_str(
+        char const *** str_array_ref,
+        int * num_strs,
+        int * cap, // buffer capacity for resizing
+        char const * str)
+{
+    int slen = strlen(str);
+
+    for (int i = 0; i < *num_strs; i++) {
+        char const * b = (*str_array_ref)[i];
+        int blen = strlen(b);
+        if (slen == blen && memcmp(b, str, blen) == 0)
+            return;
+    }
+
+    if (*num_strs == *cap) {
+        *cap *= 2;
+        *str_array_ref =
+            realloc(*str_array_ref, *cap * sizeof(**str_array_ref));
+        assert(*str_array_ref);
+    }
+
+    (*str_array_ref)[*num_strs] = str;
+    *num_strs += 1;
+}
+
+static void setup_canonical_name_mapping()
+{
+    num_uniq_groups = 0;
+    num_uniq_lptypes = 0;
+    num_uniq_annos = 0;
+    int group_cap = 8;
+    int lptype_cap = 8;
+    int anno_cap = 8;
+    group_names = malloc(group_cap*sizeof(*group_names));
+    lp_names = malloc(lptype_cap*sizeof(*lp_names));
+    anno_names = malloc(anno_cap*sizeof(*anno_names));
+
+    for (int g = 0; g < lpconf.lpgroups_count; g++) {
+        const config_lpgroup_t *lpg = &lpconf.lpgroups[g];
+        check_add_uniq_str(&group_names, &num_uniq_groups, &group_cap,
+                lpg->name);
+        for (int l = 0; l < lpg->lptypes_count; l++) {
+            const config_lptype_t *lpt = &lpg->lptypes[l];
+            check_add_uniq_str(&lp_names, &num_uniq_lptypes, &lptype_cap,
+                    lpt->name);
+            // have to treat empty annotations specially
+            if (lpt->anno[0] != '\0')
+                check_add_uniq_str(&anno_names, &num_uniq_annos, &anno_cap,
+                        lpt->anno);
+        }
+    }
+
+    assert(num_uniq_groups);
+    assert(num_uniq_lptypes);
+    if (num_uniq_annos == 0) {
+        free(anno_names);
+        anno_names = NULL;
+    }
+}
+
 /* This function loads the configuration file and sets up the number of LPs on each PE */
 void codes_mapping_setup_with_seed_offset(int offset)
 {
   int grp, lpt, message_size;
   int pes = tw_nnodes();
+
+  setup_canonical_name_mapping();
 
   lps_per_pe_floor = 0;
   for (grp = 0; grp < lpconf.lpgroups_count; grp++)
@@ -554,6 +627,89 @@ codes_mapping_get_lp_anno_map(const char *lp_name){
         }
     }
     return NULL;
+}
+
+static int get_cid_by_name(
+        char const * name,
+        char const * * names,
+        int num_names)
+{
+    for (int i = 0; i < num_names; i++)
+        if (strcmp(name, names[i]) == 0)
+            return i;
+    return -1;
+}
+
+static char const * get_name_by_cid(
+        int cid,
+        char const * * names,
+        int num_names)
+{
+    if (cid < 0 || cid >= num_names)
+        return NULL;
+    else
+        return names[cid];
+}
+
+
+int codes_mapping_get_group_cid_by_name(char const * group_name)
+{
+    return get_cid_by_name(group_name, group_names, num_uniq_groups);
+}
+
+int codes_mapping_get_group_cid_by_lpid(tw_lpid id)
+{
+    char group_name[MAX_NAME_LENGTH];
+    int ignore;
+    codes_mapping_get_lp_info(id, group_name, &ignore, NULL, &ignore, NULL,
+            &ignore, &ignore);
+    return codes_mapping_get_group_cid_by_name(group_name);
+}
+
+char const * codes_mapping_get_group_name_by_cid(int cid)
+{
+    return get_name_by_cid(cid, group_names, num_uniq_groups);
+}
+
+int codes_mapping_get_lp_cid_by_name(char const * lp_type_name)
+{
+    return get_cid_by_name(lp_type_name, lp_names, num_uniq_lptypes);
+}
+
+int codes_mapping_get_lp_cid_by_lpid(tw_lpid id)
+{
+    char lp_name[MAX_NAME_LENGTH];
+    int ignore;
+    codes_mapping_get_lp_info(id, NULL, &ignore, lp_name, &ignore, NULL,
+            &ignore, &ignore);
+    return codes_mapping_get_lp_cid_by_name(lp_name);
+}
+
+char const * codes_mapping_get_lp_name_by_cid(int cid)
+{
+    return get_name_by_cid(cid, lp_names, num_uniq_lptypes);
+}
+
+int codes_mapping_get_anno_cid_by_name(char const * annotation)
+{
+    if (annotation == NULL || annotation[0] == '\0')
+        return num_uniq_annos;
+    else
+        return get_cid_by_name(annotation, anno_names, num_uniq_annos);
+}
+
+int codes_mapping_get_anno_cid_by_lpid(tw_lpid id)
+{
+    char anno[MAX_NAME_LENGTH];
+    int ignore;
+    codes_mapping_get_lp_info(id, NULL, &ignore, NULL, &ignore, anno,
+            &ignore, &ignore);
+    return codes_mapping_get_anno_cid_by_name(anno);
+}
+
+char const * codes_mapping_get_anno_name_by_cid(int cid)
+{
+    return get_name_by_cid(cid, anno_names, num_uniq_annos);
 }
 
 /*
