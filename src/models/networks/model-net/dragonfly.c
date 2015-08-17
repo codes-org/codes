@@ -330,7 +330,7 @@ static void dragonfly_configure(){
     all_params = calloc(num_params, sizeof(*all_params));
 
     for (uint64_t i = 0; i < anno_map->num_annos; i++){
-        const char * anno = anno_map->annotations[i];
+        const char * anno = anno_map->annotations[i].ptr;
         dragonfly_read_config(anno, &all_params[i]);
     }
     if (anno_map->has_unanno_lp > 0){

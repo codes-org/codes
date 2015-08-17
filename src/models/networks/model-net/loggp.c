@@ -732,7 +732,7 @@ static void loggp_configure(){
     all_params = malloc(num_params * sizeof(*all_params));
 
     for (uint64_t i = 0; i < anno_map->num_annos; i++){
-        const char * anno = anno_map->annotations[i];
+        const char * anno = anno_map->annotations[i].ptr;
         int rc = configuration_get_value_relpath(&config, "PARAMS",
                 "net_config_file", anno, config_file, MAX_NAME_LENGTH);
         if (rc <= 0){

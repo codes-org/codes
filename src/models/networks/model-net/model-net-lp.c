@@ -237,18 +237,18 @@ void model_net_base_configure(){
     // first grab all of the annotations and store locally
     for (int c = 0; c < lpconf.lpannos_count; c++){
         const config_anno_map_t *amap = &lpconf.lpannos[c];
-        if (strncmp("modelnet_", amap->lp_name, 9) == 0){
+        if (strncmp("modelnet_", amap->lp_name.ptr, 9) == 0){
             for (int n = 0; n < amap->num_annos; n++){
                 int a;
                 for (a = 0; a < num_params; a++){
-                    if (annos[a] != NULL &&
-                            strcmp(amap->annotations[n], annos[a]) == 0){
+                    if (annos[a] != NULL && amap->annotations[n].ptr != NULL &&
+                            strcmp(amap->annotations[n].ptr, annos[a]) == 0){
                         break;
                     }
                 }
                 if (a == num_params){
                     // found a new annotation
-                    annos[num_params++] = amap->annotations[n];
+                    annos[num_params++] = amap->annotations[n].ptr;
                 }
             }
             if (amap->has_unanno_lp){

@@ -61,7 +61,7 @@ void model_net_register(){
     for (int grp = 0; grp < lpconf.lpgroups_count; grp++){
         config_lpgroup_t *lpgroup = &lpconf.lpgroups[grp];
         for (int lpt = 0; lpt < lpgroup->lptypes_count; lpt++){
-            char *nm = lpgroup->lptypes[lpt].name;
+            char const *nm = lpgroup->lptypes[lpt].name.ptr;
             for (int n = 0; n < MAX_NETS; n++){
                 if (!do_config_nets[n] && 
                         strcmp(model_net_lp_config_names[n], nm) == 0){

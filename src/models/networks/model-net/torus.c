@@ -242,7 +242,7 @@ static void torus_configure(){
     all_params = malloc(num_params * sizeof(*all_params));
 
     for (uint64_t i = 0; i < anno_map->num_annos; i++){
-        const char * anno = anno_map->annotations[i];
+        const char * anno = anno_map->annotations[i].ptr;
         torus_read_config(anno, &all_params[i]);
     }
     if (anno_map->has_unanno_lp > 0){
@@ -1374,7 +1374,7 @@ void model_net_torus_get_dims(
         p = &all_params[anno_map->num_annos];
     else {
         for (i = 0; i < num_params; i++) {
-            if (strcmp(anno, anno_map->annotations[i]) == 0) {
+            if (strcmp(anno, anno_map->annotations[i].ptr) == 0) {
                 p = &all_params[i];
                 break;
             }

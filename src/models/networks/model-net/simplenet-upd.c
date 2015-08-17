@@ -585,7 +585,7 @@ static void sn_configure()
     num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
     all_params = malloc(num_params * sizeof(*all_params));
     for (uint64_t i = 0; i < anno_map->num_annos; i++){
-        const char * anno = anno_map->annotations[i];
+        const char * anno = anno_map->annotations[i].ptr;
         int rc;
         rc = configuration_get_value_double(&config, "PARAMS",
                 "net_startup_ns", anno, &all_params[i].net_startup_ns);

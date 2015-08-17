@@ -910,7 +910,7 @@ static void sp_configure(){
     num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
     all_params = malloc(num_params * sizeof(*all_params));
     for (uint64_t i = 0; i < anno_map->num_annos; i++){
-        sp_read_config(anno_map->annotations[i], &all_params[i]);
+        sp_read_config(anno_map->annotations[i].ptr, &all_params[i]);
     }
     if (anno_map->has_unanno_lp > 0){
         sp_read_config(NULL, &all_params[anno_map->num_annos]);
