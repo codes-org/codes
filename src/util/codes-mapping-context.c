@@ -12,8 +12,7 @@ static struct codes_mctx const CODES_MCTX_DEFAULT_VAL = {
     .u = {
         .group_modulo = {
             .anno = {
-                .annotation = NULL,
-                .ignore_annotations = true
+                .cid = -1,
             }
         }
     }
@@ -34,8 +33,11 @@ struct codes_mctx codes_mctx_set_group_modulo(
 {
     struct codes_mctx rtn;
     rtn.type = CODES_MCTX_GROUP_MODULO;
-    rtn.u.group_modulo.anno.annotation = annotation;
-    rtn.u.group_modulo.anno.ignore_annotations = ignore_annotations;
+    if (ignore_annotations)
+        rtn.u.group_modulo.anno.cid = -1;
+    else
+        rtn.u.group_modulo.anno.cid =
+            codes_mapping_get_anno_cid_by_name(annotation);
     return rtn;
 }
 struct codes_mctx codes_mctx_set_group_direct(
@@ -46,8 +48,11 @@ struct codes_mctx codes_mctx_set_group_direct(
     struct codes_mctx rtn;
     rtn.type = CODES_MCTX_GROUP_DIRECT;
     rtn.u.group_direct.offset = offset;
-    rtn.u.group_direct.anno.annotation = annotation;
-    rtn.u.group_direct.anno.ignore_annotations = ignore_annotations;
+    if (ignore_annotations)
+        rtn.u.group_direct.anno.cid = -1;
+    else
+        rtn.u.group_direct.anno.cid =
+            codes_mapping_get_anno_cid_by_name(annotation);
     return rtn;
 }
 
@@ -80,17 +85,23 @@ tw_lpid codes_mctx_to_lpid(
     codes_mapping_get_lp_info(sender_gid, sender_group, &unused, NULL, &unused,
             NULL, &rep_id, &offset);
 
+    char const * anno_str;
+    if (anno->cid < 0)
+        anno_str = NULL;
+    else
+        anno_str = codes_mapping_get_anno_name_by_cid(anno->cid);
+
     int dest_offset;
     if (ctx->type == CODES_MCTX_GROUP_MODULO) {
         int num_dest_lps = codes_mapping_get_lp_count(sender_group, 1,
-                dest_lp_name, anno->annotation, anno->ignore_annotations);
+                dest_lp_name, anno_str, anno->cid == -1);
         if (num_dest_lps == 0)
             tw_error(TW_LOC,
                     "ERROR: Found no LPs of type %s in group %s "
                     "(source lpid %lu) with annotation: %s\n",
                     dest_lp_name, sender_group, sender_gid,
-                    anno->ignore_annotations ? "ignored" :
-                    (anno->annotation ? anno->annotation : "none"));
+                    anno->cid == -1 ? "ignored" :
+                    codes_mapping_get_anno_name_by_cid(anno->cid));
 
         dest_offset = offset % num_dest_lps;
     }
@@ -101,8 +112,8 @@ tw_lpid codes_mctx_to_lpid(
         assert(0);
 
     tw_lpid rtn;
-    codes_mapping_get_lp_id(sender_group, dest_lp_name, anno->annotation,
-            anno->ignore_annotations, rep_id, dest_offset, &rtn);
+    codes_mapping_get_lp_id(sender_group, dest_lp_name, anno_str,
+            anno->cid == -1, rep_id, dest_offset, &rtn);
     return rtn;
 }
 
@@ -117,12 +128,14 @@ char const * codes_mctx_get_annotation(
         case CODES_MCTX_GROUP_MODULO:
             // if not ignoring the annotation, just return what's in the
             // context
-            if (!ctx->u.group_modulo.anno.ignore_annotations)
-                return ctx->u.group_modulo.anno.annotation;
+            if (ctx->u.group_modulo.anno.cid >= 0)
+                return codes_mapping_get_anno_name_by_cid(
+                        ctx->u.group_modulo.anno.cid);
             break;
         case CODES_MCTX_GROUP_DIRECT:
-            if (!ctx->u.group_direct.anno.ignore_annotations)
-                return ctx->u.group_direct.anno.annotation;
+            if (ctx->u.group_direct.anno.cid >= 0)
+                return codes_mapping_get_anno_name_by_cid(
+                        ctx->u.group_direct.anno.cid);
             break;
         default:
             tw_error(TW_LOC, "unrecognized or uninitialized context type: %d",

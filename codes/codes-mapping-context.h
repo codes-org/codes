@@ -37,13 +37,11 @@ enum codes_mctx_type {
 };
 
 /* defines whether to specialize by destination annotation, and if so, which
- * one.
- *
- * NOTE: this structure does not "own" the annotation, and makes no attempt to
- * clean it up. */
+ * one */
 struct codes_mctx_annotation {
-    char const * annotation;
-    bool ignore_annotations;
+    // see canonical name mapping api in codes_mapping.h. -1 is used for
+    // ignoring annotations
+    int cid;
 };
 
 /* parameters for each mapping context type */
