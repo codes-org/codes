@@ -51,10 +51,20 @@ typedef struct config_anno_map_s
 
 typedef struct config_lpgroups_s
 {
-    uint64_t lpgroups_count;
+    // counts for the underlying structures, not the number of string entities
+    int lpgroups_count;
+    int lpannos_count;
     config_lpgroup_t lpgroups[CONFIGURATION_MAX_GROUPS];
-    uint64_t lpannos_count;
     config_anno_map_t lpannos[CONFIGURATION_MAX_TYPES];
+    int num_uniq_lptypes;
+    int num_uniq_annos;
+    // ptrs into the name buffers
+    char const ** group_names;
+    char const ** lp_names;
+    char const ** anno_names;
+    char * group_names_buf;
+    char * lp_names_buf;
+    char * anno_names_buf;
 } config_lpgroups_t;
 
 typedef struct ConfigVTable * ConfigHandle;

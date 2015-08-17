@@ -332,6 +332,44 @@ static void check_add_lp_type_anno(
     }
 }
 
+#define REALLOC_IF(_cap_var, _len_exp, _buf_var) \
+    do { \
+        while ((_cap_var) <= (_len_exp)) { \
+            _cap_var *= 2; \
+            _buf_var = realloc(_buf_var, (_cap_var) * sizeof(*_buf_var)); \
+            assert(_buf_var); \
+        } \
+    } while (0)
+
+/* helper for setting up the canonical name mapping */
+static void check_add_uniq_str(
+        char const *** str_array_ref,
+        char ** str_buf,
+        int * num_strs,
+        int * str_array_cap, // buffer capacity for resizing
+        int * str_buf_len,
+        int * str_buf_cap,   // buffer capacity for resizing
+        char const * str)
+{
+    int slen = strlen(str);
+
+    for (int i = 0; i < *num_strs; i++) {
+        char const * b = (*str_array_ref)[i];
+        int blen = strlen(b);
+        if (slen == blen && memcmp(b, str, blen) == 0)
+            return;
+    }
+
+    REALLOC_IF(*str_array_cap, *num_strs, *str_array_ref);
+    REALLOC_IF(*str_buf_cap, *str_buf_len + slen + 1, *str_buf);
+
+    // include null char
+    memcpy(*str_buf + *str_buf_len, str, slen+1);
+    (*str_array_ref)[*num_strs] = *str_buf + *str_buf_len;
+    *num_strs += 1;
+    *str_buf_len += slen+1;
+}
+
 int configuration_get_lpgroups (ConfigHandle *handle,
                                 const char *section_name,
                                 config_lpgroups_t *lpgroups)
@@ -344,8 +382,37 @@ int configuration_get_lpgroups (ConfigHandle *handle,
     size_t subse_count = 10;
     int i, j, lpt;
     char data[256];
+    int num_uniq_group_names = 0;
+    int group_names_buf_len = 0;
+    int lp_names_buf_len = 0;
+    int anno_names_buf_len = 0;
+    int group_names_cap = 1;
+    int lp_names_cap = 1;
+    int anno_names_cap = 1;
+    int group_names_buf_cap = 1;
+    int lp_names_buf_cap = 1;
+    int anno_names_buf_cap = 1;
 
     memset (lpgroups, 0, sizeof(*lpgroups));
+
+    lpgroups->group_names =
+        malloc(sizeof(*lpgroups->group_names) * group_names_cap);
+    lpgroups->lp_names =
+        malloc(sizeof(*lpgroups->lp_names) * lp_names_cap);
+    lpgroups->anno_names =
+        malloc(sizeof(*lpgroups->anno_names) * anno_names_cap);
+    lpgroups->group_names_buf =
+        malloc(sizeof(*lpgroups->group_names_buf) * group_names_buf_cap);
+    lpgroups->lp_names_buf =
+        malloc(sizeof(*lpgroups->lp_names_buf) * lp_names_buf_cap);
+    lpgroups->anno_names_buf =
+        malloc(sizeof(*lpgroups->anno_names_buf) * anno_names_buf_cap);
+    assert(lpgroups->group_names != NULL);
+    assert(lpgroups->lp_names != NULL);
+    assert(lpgroups->anno_names != NULL);
+    assert(lpgroups->group_names_buf != NULL);
+    assert(lpgroups->lp_names_buf != NULL);
+    assert(lpgroups->anno_names_buf != NULL);
 
     int ret = cf_openSection(*handle, ROOT_SECTION, section_name, &sh);
     if (ret == -1)
@@ -371,10 +438,18 @@ int configuration_get_lpgroups (ConfigHandle *handle,
             subse_count = 10;
             cf_openSection(*handle, sh, se[i].name, &subsh);
             cf_listSection(*handle, subsh, subse, &subse_count);
+            check_add_uniq_str(&lpgroups->group_names,
+                    &lpgroups->group_names_buf, &num_uniq_group_names,
+                    &group_names_cap, &group_names_buf_len,
+                    &group_names_buf_cap, se[i].name);
             strncpy(lpgroups->lpgroups[i].name, se[i].name,
                     CONFIGURATION_MAX_NAME);
             lpgroups->lpgroups[i].repetitions = 1;
             lpgroups->lpgroups_count++;
+            if (num_uniq_group_names != lpgroups->lpgroups_count)
+                tw_error(TW_LOC,
+                        "config error: non-unique group names detected\n");
+
             for (j = 0, lpt = 0; j < subse_count; j++)
             {
                 if (subse[j].type == SE_KEY)
@@ -400,10 +475,28 @@ int configuration_get_lpgroups (ConfigHandle *handle,
                        if (c) {
                            strcpy(anno, c+1);
                            *c = '\0';
+                           check_add_uniq_str(
+                               &lpgroups->anno_names,
+                               &lpgroups->anno_names_buf,
+                               &lpgroups->num_uniq_annos,
+                               &anno_names_cap,
+                               &anno_names_buf_len,
+                               &anno_names_buf_cap,
+                               c+1);
                        }
                        else {
                            anno[0] = '\0';
                        }
+
+                       check_add_uniq_str(
+                               &lpgroups->lp_names,
+                               &lpgroups->lp_names_buf,
+                               &lpgroups->num_uniq_lptypes,
+                               &lp_names_cap,
+                               &lp_names_buf_len,
+                               &lp_names_buf_cap,
+                               nm);
+
                        // add to anno map
                        check_add_lp_type_anno(nm, anno, lpgroups);
                        CHECKED_STRTOL(lpgroups->lpgroups[i].lptypes[lpt].count,
@@ -415,6 +508,13 @@ int configuration_get_lpgroups (ConfigHandle *handle,
             }
             cf_closeSection(*handle, subsh);
         }
+    }
+
+    if (lpgroups->lpannos_count == 0) {
+        free(lpgroups->anno_names);
+        free(lpgroups->anno_names_buf);
+        lpgroups->anno_names = NULL;
+        lpgroups->anno_names_buf = NULL;
     }
 
     cf_closeSection(*handle, sh);
