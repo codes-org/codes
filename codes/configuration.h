@@ -16,26 +16,34 @@
 #define CONFIGURATION_MAX_TYPES 10
 #define CONFIGURATION_MAX_ANNOS 10
 
+// NOTE: direct offsets are used when first building the structure as we're
+// building up one big buffer to hold entity names. Pointers are set after the
+// initialization process during configuration_load
+typedef union {
+    char const * ptr;
+    int offset;
+} config_name_u;
+
 typedef struct config_lptype_s
 {
-    char     name[CONFIGURATION_MAX_NAME];
-    char     anno[CONFIGURATION_MAX_NAME];
-    uint64_t count;
+    config_name_u name;
+    config_name_u anno;
+    int count;
 } config_lptype_t;
 
 typedef struct config_lpgroup_s
 {
-    char     name[CONFIGURATION_MAX_NAME];
-    uint64_t repetitions;
+    config_name_u name;
+    int repetitions;
+    int lptypes_count;
     config_lptype_t lptypes[CONFIGURATION_MAX_TYPES];
-    uint64_t lptypes_count;
 } config_lpgroup_t;
 
 // mapping of lp type to the list of annotations used. Used for convenience when
 // models are performing configuraiton code 
 typedef struct config_anno_map_s
 {
-    char     lp_name[CONFIGURATION_MAX_NAME];
+    config_name_u lp_name;
     // only explicit annotations tracked here - use a flag to indicate a
     // non-annotated LP type
     int has_unanno_lp;
@@ -43,10 +51,10 @@ typedef struct config_anno_map_s
     // (annotation-ignoring) lookup semantics, provide a flag to determine if
     // the unannotated lp type is first
     int is_unanno_first;
-    uint64_t num_annos;
+    int num_annos;
     // maintain the number of lps that have the particular annotation 
-    uint64_t num_anno_lps[CONFIGURATION_MAX_ANNOS];
-    char   * annotations[CONFIGURATION_MAX_ANNOS];
+    int num_anno_lps[CONFIGURATION_MAX_ANNOS];
+    config_name_u annotations[CONFIGURATION_MAX_ANNOS];
 } config_anno_map_t;
 
 typedef struct config_lpgroups_s

@@ -280,17 +280,17 @@ int configuration_get_value_double (ConfigHandle *handle,
 }
 
 static void check_add_anno(
-        const char *anno,
+        int anno_offset,
         config_anno_map_t *map){
-    if (anno[0] == '\0'){
+    if (anno_offset == -1) {
         map->has_unanno_lp = 1;
         if (!map->num_annos)
             map->is_unanno_first = 1;
     }
     else{
-        uint64_t a = 0;
+        int a = 0;
         for (; a < map->num_annos; a++){
-            if (strcmp(map->annotations[a], anno) == 0){
+            if (map->annotations[a].offset == anno_offset) {
                 map->num_anno_lps[a]++;
                 break;
             }
@@ -298,21 +298,21 @@ static void check_add_anno(
         if (a == map->num_annos){
             // we have a new anno!
             assert(a < CONFIGURATION_MAX_ANNOS);
-            map->annotations[a] = strdup(anno);
+            map->annotations[a].offset = anno_offset;
             map->num_annos++;
             map->num_anno_lps[a] = 1;
         } // else anno was already there, do nothing
     }
 }
 static void check_add_lp_type_anno(
-        const char *lp_name,
-        const char *anno,
+        int lp_name_offset,
+        int anno_offset,
         config_lpgroups_t *lpgroups){
     uint64_t lpt_anno = 0;
     for (; lpt_anno < lpgroups->lpannos_count; lpt_anno++){
         config_anno_map_t *map = &lpgroups->lpannos[lpt_anno];
-        if (strcmp(map->lp_name, lp_name) == 0){
-            check_add_anno(anno, map);
+        if (map->lp_name.offset == lp_name_offset){
+            check_add_anno(anno_offset, map);
             break;
         }
     }
@@ -321,13 +321,13 @@ static void check_add_lp_type_anno(
         assert(lpt_anno < CONFIGURATION_MAX_TYPES);
         config_anno_map_t *map = &lpgroups->lpannos[lpt_anno];
         // initialize this annotation map
-        strcpy(map->lp_name, lp_name);
+        map->lp_name.offset = lp_name_offset;
         map->num_annos = 0;
         map->has_unanno_lp = 0;
         map->is_unanno_first = 0;
         memset(map->num_anno_lps, 0, 
                 CONFIGURATION_MAX_ANNOS*sizeof(*map->num_anno_lps));
-        check_add_anno(anno, map);
+        check_add_anno(anno_offset, map);
         lpgroups->lpannos_count++;
     }
 }
@@ -342,11 +342,11 @@ static void check_add_lp_type_anno(
     } while (0)
 
 /* helper for setting up the canonical name mapping */
-static void check_add_uniq_str(
-        char const *** str_array_ref,
+static int check_add_uniq_str(
+        int ** offset_array,
         char ** str_buf,
         int * num_strs,
-        int * str_array_cap, // buffer capacity for resizing
+        int * offset_array_cap, // buffer capacity for resizing
         int * str_buf_len,
         int * str_buf_cap,   // buffer capacity for resizing
         char const * str)
@@ -354,20 +354,21 @@ static void check_add_uniq_str(
     int slen = strlen(str);
 
     for (int i = 0; i < *num_strs; i++) {
-        char const * b = (*str_array_ref)[i];
+        char const * b = (*str_buf) + (*offset_array)[i];
         int blen = strlen(b);
         if (slen == blen && memcmp(b, str, blen) == 0)
-            return;
+            return i;
     }
 
-    REALLOC_IF(*str_array_cap, *num_strs, *str_array_ref);
+    REALLOC_IF(*offset_array_cap, *num_strs, *offset_array);
     REALLOC_IF(*str_buf_cap, *str_buf_len + slen + 1, *str_buf);
 
     // include null char
     memcpy(*str_buf + *str_buf_len, str, slen+1);
-    (*str_array_ref)[*num_strs] = *str_buf + *str_buf_len;
+    (*offset_array)[*num_strs] = *str_buf_len;
     *num_strs += 1;
     *str_buf_len += slen+1;
+    return *num_strs-1;
 }
 
 int configuration_get_lpgroups (ConfigHandle *handle,
@@ -382,6 +383,7 @@ int configuration_get_lpgroups (ConfigHandle *handle,
     size_t subse_count = 10;
     int i, j, lpt;
     char data[256];
+    // buffer mgmt vars
     int num_uniq_group_names = 0;
     int group_names_buf_len = 0;
     int lp_names_buf_len = 0;
@@ -392,24 +394,25 @@ int configuration_get_lpgroups (ConfigHandle *handle,
     int group_names_buf_cap = 1;
     int lp_names_buf_cap = 1;
     int anno_names_buf_cap = 1;
+    int name_pos;
 
     memset (lpgroups, 0, sizeof(*lpgroups));
 
-    lpgroups->group_names =
-        malloc(sizeof(*lpgroups->group_names) * group_names_cap);
-    lpgroups->lp_names =
-        malloc(sizeof(*lpgroups->lp_names) * lp_names_cap);
-    lpgroups->anno_names =
-        malloc(sizeof(*lpgroups->anno_names) * anno_names_cap);
+    int *group_names_offsets =
+        malloc(sizeof(*group_names_offsets) * group_names_cap);
+    int *lp_names_offsets =
+        malloc(sizeof(*lp_names_offsets) * lp_names_cap);
+    int *anno_names_offsets =
+        malloc(sizeof(*anno_names_offsets) * anno_names_cap);
     lpgroups->group_names_buf =
         malloc(sizeof(*lpgroups->group_names_buf) * group_names_buf_cap);
     lpgroups->lp_names_buf =
         malloc(sizeof(*lpgroups->lp_names_buf) * lp_names_buf_cap);
     lpgroups->anno_names_buf =
         malloc(sizeof(*lpgroups->anno_names_buf) * anno_names_buf_cap);
-    assert(lpgroups->group_names != NULL);
-    assert(lpgroups->lp_names != NULL);
-    assert(lpgroups->anno_names != NULL);
+    assert(group_names_offsets != NULL);
+    assert(lp_names_offsets != NULL);
+    assert(anno_names_offsets != NULL);
     assert(lpgroups->group_names_buf != NULL);
     assert(lpgroups->lp_names_buf != NULL);
     assert(lpgroups->anno_names_buf != NULL);
@@ -438,12 +441,11 @@ int configuration_get_lpgroups (ConfigHandle *handle,
             subse_count = 10;
             cf_openSection(*handle, sh, se[i].name, &subsh);
             cf_listSection(*handle, subsh, subse, &subse_count);
-            check_add_uniq_str(&lpgroups->group_names,
+            name_pos = check_add_uniq_str(&group_names_offsets,
                     &lpgroups->group_names_buf, &num_uniq_group_names,
                     &group_names_cap, &group_names_buf_len,
                     &group_names_buf_cap, se[i].name);
-            strncpy(lpgroups->lpgroups[i].name, se[i].name,
-                    CONFIGURATION_MAX_NAME);
+            lpgroups->lpgroups[i].name.offset = group_names_offsets[name_pos];
             lpgroups->lpgroups[i].repetitions = 1;
             lpgroups->lpgroups_count++;
             if (num_uniq_group_names != lpgroups->lpgroups_count)
@@ -464,43 +466,47 @@ int configuration_get_lpgroups (ConfigHandle *handle,
                    }
                    else
                    {
-                       size_t s = sizeof(lpgroups->lpgroups[i].lptypes[lpt].name);
-                       char *nm   = lpgroups->lpgroups[i].lptypes[lpt].name;
-                       char *anno = lpgroups->lpgroups[i].lptypes[lpt].anno;
-                       // assume these are lptypes and counts
-                       strncpy(nm, subse[j].name, s-1);
-                       lpgroups->lpgroups[i].lptypes[lpt].name[s-1] = '\0';
-
-                       char *c = strchr(nm, '@');
-                       if (c) {
-                           strcpy(anno, c+1);
+                       // to avoid copy, find a possible annotation, change the
+                       // string in the config structure itself, then change
+                       // back for posterity
+                       char *c = strchr(subse[j].name, '@');
+                       if (c != NULL) {
                            *c = '\0';
-                           check_add_uniq_str(
-                               &lpgroups->anno_names,
-                               &lpgroups->anno_names_buf,
-                               &lpgroups->num_uniq_annos,
-                               &anno_names_cap,
-                               &anno_names_buf_len,
-                               &anno_names_buf_cap,
-                               c+1);
+                           name_pos = check_add_uniq_str(
+                                   &anno_names_offsets,
+                                   &lpgroups->anno_names_buf,
+                                   &lpgroups->num_uniq_annos,
+                                   &anno_names_cap,
+                                   &anno_names_buf_len,
+                                   &anno_names_buf_cap,
+                                   c+1);
+                           lpgroups->lpgroups[i].lptypes[lpt].anno.offset =
+                                   anno_names_offsets[name_pos];
                        }
-                       else {
-                           anno[0] = '\0';
-                       }
+                       else
+                           lpgroups->lpgroups[i].lptypes[lpt].anno.offset = -1;
 
-                       check_add_uniq_str(
-                               &lpgroups->lp_names,
+                       name_pos = check_add_uniq_str(
+                               &lp_names_offsets,
                                &lpgroups->lp_names_buf,
                                &lpgroups->num_uniq_lptypes,
                                &lp_names_cap,
                                &lp_names_buf_len,
                                &lp_names_buf_cap,
-                               nm);
+                               subse[j].name);
+                       lpgroups->lpgroups[i].lptypes[lpt].name.offset =
+                               lp_names_offsets[name_pos];
+
+                       if (c != NULL)
+                           *c = '@';
 
                        // add to anno map
-                       check_add_lp_type_anno(nm, anno, lpgroups);
+                       check_add_lp_type_anno(
+                               lpgroups->lpgroups[i].lptypes[lpt].name.offset,
+                               lpgroups->lpgroups[i].lptypes[lpt].anno.offset,
+                               lpgroups);
                        CHECKED_STRTOL(lpgroups->lpgroups[i].lptypes[lpt].count,
-                               nm, data);
+                               lpgroups->lpgroups[i].lptypes[lpt].name, data);
                        lpgroups->lpgroups[i].lptypes_count++;
                        lpt++;
                    }
@@ -510,15 +516,68 @@ int configuration_get_lpgroups (ConfigHandle *handle,
         }
     }
 
-    if (lpgroups->lpannos_count == 0) {
-        free(lpgroups->anno_names);
+    // set up the string pointers
+    lpgroups->group_names =
+        malloc(lpgroups->lpgroups_count * sizeof(*lpgroups->group_names));
+    lpgroups->lp_names =
+        malloc(lpgroups->num_uniq_lptypes * sizeof(*lpgroups->lp_names));
+    assert(lpgroups->group_names);
+    assert(lpgroups->lp_names);
+
+    for (int i = 0; i < lpgroups->lpgroups_count; i++) {
+        lpgroups->group_names[i] = lpgroups->group_names_buf +
+            group_names_offsets[i];
+    }
+    for (int i = 0; i < lpgroups->num_uniq_lptypes; i++) {
+        lpgroups->lp_names[i] = lpgroups->lp_names_buf +
+            lp_names_offsets[i];
+    }
+    if (lpgroups->num_uniq_annos == 0) {
         free(lpgroups->anno_names_buf);
         lpgroups->anno_names = NULL;
         lpgroups->anno_names_buf = NULL;
     }
+    else {
+        lpgroups->anno_names =
+            malloc(lpgroups->num_uniq_annos * sizeof(*lpgroups->anno_names));
+        assert(lpgroups->anno_names);
+        for (int i = 0; i < lpgroups->num_uniq_annos; i++) {
+            lpgroups->anno_names[i] = lpgroups->anno_names_buf +
+                anno_names_offsets[i];
+        }
+    }
+
+    // everything is set up in offset mode, now make a second pass and convert
+    // to pointers
+    for (int g = 0; g < lpgroups->lpgroups_count; g++) {
+        config_lpgroup_t *lpg = &lpgroups->lpgroups[g];
+        lpg->name.ptr = lpgroups->group_names_buf + lpg->name.offset;
+        for (int t = 0; t < lpg->lptypes_count; t++) {
+            config_lptype_t *lpt = &lpg->lptypes[t];
+            lpt->name.ptr = lpgroups->lp_names_buf + lpt->name.offset;
+            lpt->anno.ptr =
+                (lpt->anno.offset == -1)
+                    ? NULL
+                    : lpgroups->anno_names_buf + lpt->anno.offset;
+        }
+    }
+    for (int m = 0; m < lpgroups->lpannos_count; m++) {
+        config_anno_map_t *map = &lpgroups->lpannos[m];
+        map->lp_name.ptr = lpgroups->lp_names_buf + map->lp_name.offset;
+        for (int a = 0; a < map->num_annos; a++) {
+            map->annotations[a].ptr =
+                (map->annotations[a].offset == -1)
+                    ? NULL
+                    : lpgroups->anno_names_buf + map->annotations[a].offset;
+        }
+    }
 
     cf_closeSection(*handle, sh);
-    
+
+    free(group_names_offsets);
+    free(lp_names_offsets);
+    free(anno_names_offsets);
+
     return 0;
 }
 
@@ -533,7 +592,7 @@ int configuration_get_annotation_index(const char *              anno,
                                        const config_anno_map_t * anno_map){
     if (anno == NULL) return -1;
     for (uint64_t i = 0; i < anno_map->num_annos; i++){
-        if (!strcmp(anno, anno_map->annotations[i])){
+        if (!strcmp(anno, anno_map->annotations[i].ptr)){
             return (int)i;
         }
     }

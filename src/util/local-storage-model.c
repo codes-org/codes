@@ -337,7 +337,7 @@ int lsm_get_num_priorities(
     }
     else {
         for (int i = 0; i < anno_map->num_annos; i++) {
-            if (strcmp(anno_map->annotations[i], annotation) == 0)
+            if (strcmp(anno_map->annotations[i].ptr, annotation) == 0)
                 return models_anno[i].use_sched;
         }
         assert(0);
@@ -796,7 +796,7 @@ void lsm_register(void)
 }
 
 // read the configuration file for a given annotation
-static void read_config(ConfigHandle *ch, char * anno, disk_model_t *model)
+static void read_config(ConfigHandle *ch, char const * anno, disk_model_t *model)
 {
     char       **values;
     size_t       length; 
@@ -915,7 +915,7 @@ void lsm_configure(void)
     }
 
     for (uint64_t i = 0; i < anno_map->num_annos; i++){
-        char * anno = anno_map->annotations[i];
+        char const * anno = anno_map->annotations[i].ptr;
         read_config(&config, anno, &models_anno[i]);
     }
 }

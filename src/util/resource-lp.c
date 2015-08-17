@@ -440,11 +440,11 @@ void resource_lp_configure(){
     }
     for (uint64_t i = 0; i < anno_map->num_annos; i++){
         ret = configuration_get_value_longint(&config, RESOURCE_LP_NM,
-            "available", anno_map->annotations[i], &avail);
+            "available", anno_map->annotations[i].ptr, &avail);
         if (ret){
             fprintf(stderr,
                     "Could not find section:resource value:available@%s for "
-                    "resource LP\n", anno_map->annotations[i]);
+                    "resource LP\n", anno_map->annotations[i].ptr);
             exit(1);
         }
         assert(avail > 0);
