@@ -296,8 +296,8 @@ void model_net_pull_event_annotated(
         tw_lp *sender);
 void model_net_pull_event_mctx(
         int net_id,
-        struct codes_mctx * const send_map_ctx,
-        struct codes_mctx * const recv_map_ctx,
+        struct codes_mctx const * send_map_ctx,
+        struct codes_mctx const * recv_map_ctx,
         char const *category,
         tw_lpid final_dest_lp,
         uint64_t message_size,
