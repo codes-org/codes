@@ -49,7 +49,7 @@ struct terminal_message
   short last_hop;
    /* For routing */
    int intm_group_id;
-   short chunk_id;
+   int chunk_id;
    uint64_t packet_size;
    uint64_t num_chunks;
    int remote_event_size_bytes;

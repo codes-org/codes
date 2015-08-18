@@ -859,11 +859,10 @@ static void packet_generate( nodes_state * s,
 
     s->packet_counter++;
 
-    if(msg->packet_ID == TRACE)
-	    printf("\n packet generated %lld at lp %d dest %d final dest %d chunk_id %d num_chunks %d", msg->packet_ID, (int)lp->gid, (int)dst_lp, (int)msg->dest_lp, msg->chunk_id, num_chunks);
+    /*if(msg->packet_ID == TRACE)
+	    printf("\n packet generated %lld at lp %d dest %d final dest %d chunk_id %d num_chunks %d", msg->packet_ID, (int)lp->gid, (int)dst_lp, (int)msg->dest_lp, msg->chunk_id, num_chunks); */
        
     ts = codes_local_latency(lp);
-    printf("\n Packet send after %f ", ts);
 
     void *m_data;
     e_h = model_net_method_event_new(lp->gid, ts, lp, TORUS, (void**)&m,
@@ -891,6 +890,7 @@ static void packet_generate( nodes_state * s,
    
    if(chunk_id < num_chunks - 1)
    {
+     bf->c1 = 1;
      /* Issue another packet generate event */
      tw_event * e_gen;
      nodes_message * m_gen;
@@ -1201,8 +1201,12 @@ static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw
 		     if(!num_chunks)
 			num_chunks = 1;
 		     //s->next_flit_generate_time[(saved_dim * 2) + saved_dir][0] = msg->saved_available_time;
-  		     tw_rand_reverse_unif(lp->rng);
-	     	     mn_stats* stat;
+	     	     codes_local_latency_reverse(lp);
+			
+		     if(bf->c1)
+			codes_local_latency_reverse(lp);
+
+		     mn_stats* stat;
 		     stat = model_net_find_stats(msg->category, s->torus_stats_array);
 		     stat->send_count--; 
 		     stat->send_bytes -= msg->packet_size;

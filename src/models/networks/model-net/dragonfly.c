@@ -358,7 +358,7 @@ static void dragonfly_report_stats()
    /* print statistics */
    if(!g_tw_mynode)
    {	
-   printf("\n Total hops %lld total finished packets %d ", avg_hops, total_finished_packets);
+   printf("\n total finished packets %d ", total_finished_packets);
       printf(" Average number of hops traversed %f average message latency %lf us maximum message latency %lf us \n", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets*1000), max_time/1000);
      if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
               printf("\n ADAPTIVE ROUTING STATS: %d percent packets routed minimally %d percent packets routed non-minimally completed packets %d ", total_minimal_packets, total_nonmin_packets, total_completed_packets);
@@ -448,6 +448,7 @@ static tw_stime dragonfly_packet_event(char const * category, tw_lpid final_dest
     msg->magic = terminal_magic_num;
     msg->is_pull = is_pull;
     msg->pull_size = pull_size;
+    msg->chunk_id = 0;
 
     if(is_last_pckt) /* Its the last packet so pass in remote and local event information*/
       {
@@ -464,7 +465,6 @@ static tw_stime dragonfly_packet_event(char const * category, tw_lpid final_dest
 		tmp_ptr += self_event_size;
 	}
      }
-	   //printf("\n dragonfly remote event %d local event %d last packet %d %lf ", msg->remote_event_size_bytes, msg->local_event_size_bytes, is_last_pckt, xfer_to_nic_time);
     tw_event_send(e_new);
     return xfer_to_nic_time;
 }
@@ -596,71 +596,102 @@ static void packet_generate(terminal_state * s,
 			    terminal_message * msg, 
 			    tw_lp * lp)
 {
-    const dragonfly_param *p = s->params;
+       const dragonfly_param *p = s->params;
 
 	tw_stime ts;
 	tw_event *e;
 	terminal_message *m;
 	int i, total_event_size;
 
+	int chunk_id = msg->chunk_id;
 	uint64_t num_chunks = msg->packet_size / p->chunk_size;
 	if (msg->packet_size % s->params->chunk_size)
 	  num_chunks++;
-	
+
 	if(!num_chunks)
 	   num_chunks = 1;
 
 	msg->num_chunks = num_chunks;
 	msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter + tw_rand_integer(lp->rng, 0, lp->gid + g_tw_nlp * s->packet_counter);
 	msg->travel_start_time = tw_now(lp);
-	
-	for(i = 0; i < num_chunks; i++)
-	  {
-		ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, MEAN_INTERVAL/200);
-		int chan = -1, j;
-		for(j = 0; j < p->num_vcs; j++)
-		 {
-		     if(s->vc_occupancy[j] < p->cn_vc_size * num_chunks)
-		      {
-		       chan=j;
-		       break;
-		      }
-		 }
-		// this is a terminal event, so use the method-event version
-	       void * m_data;
-	       e = model_net_method_event_new(lp->gid, i+ts, lp, DRAGONFLY,
-		       (void**)&m, &m_data);
-	       memcpy(m, msg, sizeof(terminal_message));
-	       void * m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
-	       if (msg->remote_event_size_bytes){
-		    memcpy(m_data, m_data_src, msg->remote_event_size_bytes);
-	       }
-	       if (msg->local_event_size_bytes){ 
-		    memcpy((char*)m_data + msg->remote_event_size_bytes,
-			    (char*)m_data_src + msg->remote_event_size_bytes,
-			    msg->local_event_size_bytes);
-	       }
-	       m->intm_group_id = -1;
-	       m->saved_vc=0;
-	       m->chunk_id = i;
-	       m->magic = terminal_magic_num;
-	      /* if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
-		 printf("\n packet generated %lld at terminal %d chunk id %d ", msg->packet_ID, (int)lp->gid, i);
-	       */
-	       m->output_chan = -1;
-	       if(chan != -1) // If the input queue is available
-		{
-		    // Send the packet out
-		     m->type = T_SEND;
-		     tw_event_send(e);
-		}
-	      else
-		 {
-		  printf("\n Exceeded queue size, exitting %d", s->vc_occupancy[0]);
-		  MPI_Finalize();
-		  exit(-1);
-		} //else
-  } // for
+
+	ts = codes_local_latency(lp);
+
+	int chan = -1, j;
+	for(j = 0; j < p->num_vcs; j++)
+	 {
+	     if(s->vc_occupancy[j] < p->cn_vc_size * num_chunks)
+	      {
+	       chan=j;
+	       break;
+	      }
+	 }
+	// this is a terminal event, so use the method-event version
+       void * m_data;
+       e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY,
+	       (void**)&m, &m_data);
+       memcpy(m, msg, sizeof(terminal_message));
+       void * m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
+       if (msg->remote_event_size_bytes){
+	    memcpy(m_data, m_data_src, msg->remote_event_size_bytes);
+       }
+       if (msg->local_event_size_bytes){ 
+	    memcpy((char*)m_data + msg->remote_event_size_bytes,
+		    (char*)m_data_src + msg->remote_event_size_bytes,
+		    msg->local_event_size_bytes);
+       }
+       m->intm_group_id = -1;
+       m->saved_vc=0;
+       m->chunk_id = msg->chunk_id;
+       m->magic = terminal_magic_num;
+      /* if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
+	 printf("\n packet generated %lld at terminal %d chunk id %d ", msg->packet_ID, (int)lp->gid, i);
+       */
+       m->output_chan = -1;
+       if(chan != -1) // If the input queue is available
+	{
+	    // Send the packet out
+	     m->type = T_SEND;
+	     tw_event_send(e);
+	}
+      else
+	 {
+	  printf("\n Exceeded queue size, exitting %d", s->vc_occupancy[0]);
+	  MPI_Finalize();
+	  exit(-1);
+	} //else
+
+        /* Now schedule another packet generate event */
+	if(chunk_id < num_chunks - 1)
+	{
+	     /* Issue another packet generate event */
+	     tw_event * e_gen;
+	     terminal_message * m_gen;
+	     void * m_gen_data;
+
+	     /* Keep the packet generate event a little behind packet send */
+	     ts = ts + codes_local_latency(lp);
+
+	     e_gen = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY, (void**)&m_gen,(void**)&m_gen_data); 
+
+	     void *m_gen_data_src = model_net_method_get_edata(DRAGONFLY, msg);
+	     memcpy(m_gen, msg, sizeof(terminal_message));
+
+	     m_gen->chunk_id = ++chunk_id;
+             m_gen->type = T_GENERATE;
+
+	      if (msg->remote_event_size_bytes){
+		memcpy(m_gen_data, m_gen_data_src,
+			msg->remote_event_size_bytes);
+		m_gen_data = (char*)m_gen_data + msg->remote_event_size_bytes;
+		m_gen_data_src = (char*)m_gen_data_src + msg->remote_event_size_bytes;
+	      }
+	    if (msg->local_event_size_bytes)
+		memcpy(m_gen_data, m_gen_data_src, msg->local_event_size_bytes);
+     
+           tw_event_send(e_gen); 
+       }
+
 	total_event_size = model_net_get_msg_sz(DRAGONFLY) + 
 	msg->remote_event_size_bytes + msg->local_event_size_bytes;
 	mn_stats* stat;
@@ -922,6 +953,7 @@ void
 terminal_init( terminal_state * s, 
 	       tw_lp * lp )
 {
+//    printf("\n terminal ID %ld ", lp->gid);
     uint32_t h1 = 0, h2 = 0; 
     bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
     terminal_magic_num = h1 + h2;
@@ -1189,7 +1221,7 @@ static void node_collective_fan_out(terminal_state * s,
         {
             bf->c1 = 1;
             tw_event* e_new;
-            nodes_message * msg_new;
+            terminal_message * msg_new;
             tw_stime xfer_to_nic_time;
 
            for( i = 0; i < s->num_children; i++ )
@@ -1211,7 +1243,7 @@ static void node_collective_fan_out(terminal_state * s,
 			e_new = model_net_method_event_new(child_nic_id,
 							xfer_to_nic_time,
 					                lp, DRAGONFLY, (void**)&msg_new, &m_data);
-		        memcpy(msg_new, msg, sizeof(nodes_message));
+		        memcpy(msg_new, msg, sizeof(terminal_message));
 		        if (msg->remote_event_size_bytes){
 			        memcpy(m_data, model_net_method_get_edata(DRAGONFLY, msg),
 			                msg->remote_event_size_bytes);
@@ -1802,6 +1834,7 @@ static void router_packet_receive( router_state * s,
 /* sets up the router virtual channels, global channels, local channels, compute node channels */
 void router_setup(router_state * r, tw_lp * lp)
 {
+    //printf("\n Router ID %ld ", lp->gid);
     uint32_t h1 = 0, h2 = 0; 
     bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
     router_magic_num = h1 + h2;
