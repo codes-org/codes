@@ -72,7 +72,7 @@ struct nodes_message
   int saved_fan_nodes;
 
   /* chunk id of the flit (distinguishes flits) */
-  short chunk_id;
+  int chunk_id;
 
   int is_pull;
   uint64_t pull_size;

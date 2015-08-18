@@ -366,6 +366,7 @@ static tw_stime torus_packet_event(char const * category, tw_lpid final_dest_lp,
     msg->packet_size = packet_size;
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
+    msg->chunk_id = 0;
     msg->type = GENERATE;
     msg->is_pull = is_pull;
     msg->pull_size = pull_size;
@@ -835,22 +836,16 @@ static void packet_generate( nodes_state * s,
 		nodes_message * msg, 
 		tw_lp * lp )
 {
-//    printf("\n msg local event size %d remote event size %d ", msg->local_event_size_bytes, msg->remote_event_size_bytes);
-    int j, tmp_dir=-1, tmp_dim=-1, total_event_size;
+    int j, total_event_size;
     tw_stime ts;
+
+    int chunk_id = msg->chunk_id;
 
 //    event triggered when packet head is sent
     tw_event * e_h;
     nodes_message *m;
-
     tw_lpid dst_lp = msg->dest_lp;
 
-    dimension_order_routing( s, &dst_lp, &tmp_dim, &tmp_dir );
-
-    msg->saved_src_dim = tmp_dim;
-    msg->saved_src_dir = tmp_dir;
-
-    //msg->saved_available_time = s->next_flit_generate_time[(2*tmp_dim) + tmp_dir][0];
     msg->travel_start_time = tw_now(lp);
     msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
     msg->my_N_hop = 0;
@@ -858,57 +853,67 @@ static void packet_generate( nodes_state * s,
     uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
     if(msg->packet_size % s->params->chunk_size)
         num_chunks++;
-
+    
+    if(!num_chunks)
+	num_chunks = 1;
 
     s->packet_counter++;
 
     if(msg->packet_ID == TRACE)
-	    printf("\n packet generated %lld at lp %d dest %d final dest %d", msg->packet_ID, (int)lp->gid, (int)dst_lp, (int)msg->dest_lp);
-    for(j = 0; j < num_chunks; j++)
-    { 
-     if(s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ] < s->params->buffer_size)
-      {
-       ts = j + tw_rand_exponential(lp->rng, MEAN_INTERVAL/200);
-       //s->next_flit_generate_time[(2*tmp_dim) + tmp_dir][0] = max(s->next_flit_generate_time[(2*tmp_dim) + tmp_dir][0], tw_now(lp));
-       //s->next_flit_generate_time[(2*tmp_dim) + tmp_dir][0] += ts;
-       //e_h = tw_event_new( lp->gid, s->next_flit_generate_time[(2*tmp_dim) + tmp_dir][0] - tw_now(lp), lp);
-       //e_h = tw_event_new(lp->gid, ts, lp);
-       msg->source_direction = tmp_dir;
-       msg->source_dim = tmp_dim;
-
-       void *m_data;
-       e_h = model_net_method_event_new(lp->gid, ts, lp, TORUS, (void**)&m,
+	    printf("\n packet generated %lld at lp %d dest %d final dest %d chunk_id %d num_chunks %d", msg->packet_ID, (int)lp->gid, (int)dst_lp, (int)msg->dest_lp, msg->chunk_id, num_chunks);
+       
+    ts = j + tw_rand_exponential(lp->rng, MEAN_INTERVAL/200);
+    void *m_data;
+    e_h = model_net_method_event_new(lp->gid, ts, lp, TORUS, (void**)&m,
                (void**)&m_data);
 
-       //m = tw_event_data( e_h );
-       //memcpy(m, msg, torus_get_msg_sz() + msg->local_event_size_bytes + msg->remote_event_size_bytes);
-       void *m_data_src = model_net_method_get_edata(TORUS, msg);
-       memcpy(m, msg, sizeof(nodes_message));
-       if (msg->remote_event_size_bytes){
-           memcpy(m_data, m_data_src,
-                   msg->remote_event_size_bytes);
-           m_data = (char*)m_data + msg->remote_event_size_bytes;
-           m_data_src = (char*)m_data_src + msg->remote_event_size_bytes;
-       }
-       if (msg->local_event_size_bytes){
-           memcpy(m_data, m_data_src, msg->local_event_size_bytes);
-       }
-       m->next_stop = dst_lp;
-       m->chunk_id = j;
+    void *m_data_src = model_net_method_get_edata(TORUS, msg);
+    memcpy(m, msg, sizeof(nodes_message));
+    if (msg->remote_event_size_bytes)
+    {
+   	memcpy(m_data, m_data_src,
+	   msg->remote_event_size_bytes);
+   	m_data = (char*)m_data + msg->remote_event_size_bytes;
+   	m_data_src = (char*)m_data_src + msg->remote_event_size_bytes;
+    }
+    
+    if (msg->local_event_size_bytes)
+   	memcpy(m_data, m_data_src, msg->local_event_size_bytes);
+	
+    m->next_stop = dst_lp;
+    m->chunk_id = chunk_id;
 
-      // find destination dimensions using destination LP ID 
-       m->type = SEND;
-       m->source_direction = tmp_dir;
-       m->source_dim = tmp_dim;
-       tw_event_send(e_h);
+    // find destination dimensions using destination LP ID 
+    m->type = SEND;
+    tw_event_send(e_h);
+   
+   if(chunk_id < num_chunks - 1)
+   {
+     /* Issue another packet generate event */
+     tw_event * e_gen;
+     nodes_message * m_gen;
+     void * m_gen_data;
+
+     e_gen = model_net_method_event_new(lp->gid, ts, lp, TORUS, (void**)&m_gen,
+				(void**)&m_gen_data); 
+
+     void *m_gen_data_src = model_net_method_get_edata(TORUS, msg);
+     memcpy(m_gen, msg, sizeof(nodes_message));
+
+     m_gen->chunk_id = ++chunk_id;
+     m_gen->type = GENERATE;
+
+      if (msg->remote_event_size_bytes){
+        memcpy(m_gen_data, m_gen_data_src,
+                msg->remote_event_size_bytes);
+        m_gen_data = (char*)m_gen_data + msg->remote_event_size_bytes;
+        m_gen_data_src = (char*)m_gen_data_src + msg->remote_event_size_bytes;
       }
-      else 
-       {
-   printf("\n %d Packet queued in line increase buffer space, dir %d dim %d buffer space %d dest LP %d ", (int)lp->gid, tmp_dir, tmp_dim, s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ], (int)msg->dest_lp);
-       MPI_Finalize();
-       exit(-1); 
-       }
-   }
+    if (msg->local_event_size_bytes)
+   	memcpy(m_gen_data, m_gen_data_src, msg->local_event_size_bytes);
+
+     tw_event_send(e_gen); 
+  }
 
    total_event_size = model_net_get_msg_sz(TORUS) + msg->remote_event_size_bytes + msg->local_event_size_bytes;   
    /* record the statistics of the generated packets */
@@ -917,9 +922,10 @@ static void packet_generate( nodes_state * s,
    stat->send_count++;  
    stat->send_bytes += msg->packet_size;
    stat->send_time += (1/s->params->link_bandwidth) * msg->packet_size;
+
    /* record the maximum ROSS event size */
    if(stat->max_event_size < total_event_size)
-	   stat->max_event_size = total_event_size;
+     stat->max_event_size = total_event_size;
 }
 /*Sends a 8-byte credit back to the torus node LP that sent the message */
 static void credit_send( nodes_state * s, 
@@ -1187,9 +1193,10 @@ static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw
                      if(msg->packet_size % s->params->chunk_size)
                          num_chunks++;
 
+		     if(!num_chunks)
+			num_chunks = 1;
 		     //s->next_flit_generate_time[(saved_dim * 2) + saved_dir][0] = msg->saved_available_time;
-		     for(i=0; i < num_chunks; i++)
-  		        tw_rand_reverse_unif(lp->rng);
+  		     tw_rand_reverse_unif(lp->rng);
 	     	     mn_stats* stat;
 		     stat = model_net_find_stats(msg->category, s->torus_stats_array);
 		     stat->send_count--; 
