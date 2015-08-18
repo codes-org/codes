@@ -836,7 +836,7 @@ static void packet_generate( nodes_state * s,
 		nodes_message * msg, 
 		tw_lp * lp )
 {
-    int j, total_event_size;
+    int total_event_size;
     tw_stime ts;
 
     int chunk_id = msg->chunk_id;
@@ -862,7 +862,9 @@ static void packet_generate( nodes_state * s,
     if(msg->packet_ID == TRACE)
 	    printf("\n packet generated %lld at lp %d dest %d final dest %d chunk_id %d num_chunks %d", msg->packet_ID, (int)lp->gid, (int)dst_lp, (int)msg->dest_lp, msg->chunk_id, num_chunks);
        
-    ts = j + tw_rand_exponential(lp->rng, MEAN_INTERVAL/200);
+    ts = codes_local_latency(lp);
+    printf("\n Packet send after %f ", ts);
+
     void *m_data;
     e_h = model_net_method_event_new(lp->gid, ts, lp, TORUS, (void**)&m,
                (void**)&m_data);
@@ -893,6 +895,9 @@ static void packet_generate( nodes_state * s,
      tw_event * e_gen;
      nodes_message * m_gen;
      void * m_gen_data;
+
+     /* Keep the packet generate event a little behind packet send */
+     ts = ts + codes_local_latency(lp);
 
      e_gen = model_net_method_event_new(lp->gid, ts, lp, TORUS, (void**)&m_gen,
 				(void**)&m_gen_data); 
