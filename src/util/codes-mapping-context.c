@@ -27,12 +27,14 @@ struct codes_mctx codes_mctx_set_global_direct(tw_lpid lpid)
     rtn.u.global_direct.lpid = lpid;
     return rtn;
 }
-struct codes_mctx codes_mctx_set_group_modulo(
+
+static struct codes_mctx set_group_modulo_common(
+        enum codes_mctx_type type,
         char const * annotation,
         bool ignore_annotations)
 {
     struct codes_mctx rtn;
-    rtn.type = CODES_MCTX_GROUP_MODULO;
+    rtn.type = type;
     if (ignore_annotations)
         rtn.u.group_modulo.anno.cid = -1;
     else
@@ -40,6 +42,22 @@ struct codes_mctx codes_mctx_set_group_modulo(
             codes_mapping_get_anno_cid_by_name(annotation);
     return rtn;
 }
+struct codes_mctx codes_mctx_set_group_modulo(
+        char const * annotation,
+        bool ignore_annotations)
+{
+    return set_group_modulo_common(CODES_MCTX_GROUP_MODULO, annotation,
+            ignore_annotations);
+}
+
+struct codes_mctx codes_mctx_set_group_modulo_reverse(
+        char const * annotation,
+        bool ignore_annotations)
+{
+    return set_group_modulo_common(CODES_MCTX_GROUP_MODULO_REVERSE, annotation,
+            ignore_annotations);
+}
+
 struct codes_mctx codes_mctx_set_group_direct(
         int offset,
         char const * annotation,
@@ -69,6 +87,7 @@ tw_lpid codes_mctx_to_lpid(
         case CODES_MCTX_GLOBAL_DIRECT:
             return ctx->u.global_direct.lpid;
         case CODES_MCTX_GROUP_MODULO:
+        case CODES_MCTX_GROUP_MODULO_REVERSE:
             anno = &ctx->u.group_modulo.anno;
             break;
         case CODES_MCTX_GROUP_DIRECT:
@@ -92,7 +111,8 @@ tw_lpid codes_mctx_to_lpid(
         anno_str = codes_mapping_get_anno_name_by_cid(anno->cid);
 
     int dest_offset;
-    if (ctx->type == CODES_MCTX_GROUP_MODULO) {
+    if (ctx->type == CODES_MCTX_GROUP_MODULO ||
+            ctx->type == CODES_MCTX_GROUP_MODULO_REVERSE) {
         int num_dest_lps = codes_mapping_get_lp_count(sender_group, 1,
                 dest_lp_name, anno_str, anno->cid == -1);
         if (num_dest_lps == 0)
@@ -104,6 +124,8 @@ tw_lpid codes_mctx_to_lpid(
                     codes_mapping_get_anno_name_by_cid(anno->cid));
 
         dest_offset = offset % num_dest_lps;
+        if (ctx->type == CODES_MCTX_GROUP_MODULO_REVERSE)
+            dest_offset = num_dest_lps - 1 - dest_offset;
     }
     else if (ctx->type == CODES_MCTX_GROUP_DIRECT) {
         dest_offset = ctx->u.group_direct.offset;
@@ -126,6 +148,7 @@ char const * codes_mctx_get_annotation(
         case CODES_MCTX_GLOBAL_DIRECT:
             return codes_mapping_get_annotation_by_lpid(sender_id);
         case CODES_MCTX_GROUP_MODULO:
+        case CODES_MCTX_GROUP_MODULO_REVERSE:
             // if not ignoring the annotation, just return what's in the
             // context
             if (ctx->u.group_modulo.anno.cid >= 0)

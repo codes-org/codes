@@ -29,6 +29,8 @@ enum codes_mctx_type {
     // the number of callees in the group, to provide simple wraparound
     // behaviour
     CODES_MCTX_GROUP_MODULO,
+    // similar to GROUP_MODULO, but maps to offsets in reverse order
+    CODES_MCTX_GROUP_MODULO_REVERSE,
     // instructs those using the context to map into the same group/repetition
     // and directly to a callee offset
     CODES_MCTX_GROUP_DIRECT,
@@ -52,6 +54,7 @@ struct codes_mctx_global_direct {
 struct codes_mctx_group_modulo {
     struct codes_mctx_annotation anno;
 };
+// NOTE: group_modulo_reverse shares the group_modulo representation
 
 struct codes_mctx_group_direct {
     struct codes_mctx_annotation anno;
@@ -71,6 +74,10 @@ struct codes_mctx {
 struct codes_mctx codes_mctx_set_global_direct(tw_lpid lpid);
 
 struct codes_mctx codes_mctx_set_group_modulo(
+        char const * annotation,
+        bool ignore_annotations);
+
+struct codes_mctx codes_mctx_set_group_modulo_reverse(
         char const * annotation,
         bool ignore_annotations);
 
