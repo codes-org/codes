@@ -581,7 +581,7 @@ static void packet_generate_rc(terminal_state * s,
     int i;
     tw_rand_reverse_unif(lp->rng);
 
-    for(i = 0; i < msg->num_chunks; i++)
+    if(bf->c1)
        tw_rand_reverse_unif(lp->rng);
 	 
      mn_stats* stat;
@@ -664,6 +664,7 @@ static void packet_generate(terminal_state * s,
         /* Now schedule another packet generate event */
 	if(chunk_id < num_chunks - 1)
 	{
+	     bf->c1 = 1;
 	     /* Issue another packet generate event */
 	     tw_event * e_gen;
 	     terminal_message * m_gen;
