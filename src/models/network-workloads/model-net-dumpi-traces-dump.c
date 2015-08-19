@@ -134,7 +134,6 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 {
    /* initialize the LP's and load the data */
    char * params;
-   scala_trace_params params_sc;
    dumpi_trace_params params_d;
   
    s->nw_id = lp->gid;

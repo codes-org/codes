@@ -1096,8 +1096,7 @@ static void update_message_time_rc(
 void nw_test_init(nw_state* s, tw_lp* lp)
 {
    /* initialize the LP's and load the data */
-   char * params;
-   scala_trace_params params_sc;
+   char * params = NULL;
    dumpi_trace_params params_d;
   
    codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, lp_type_name, 
@@ -1111,16 +1110,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    if(!num_net_traces) 
 	num_net_traces = num_net_lps;
 
-   if (strcmp(workload_type, "scalatrace") == 0){
-       if (params_sc.offset_file_name[0] == '\0'){
-           tw_error(TW_LOC, "required argument for scalatrace offset_file");
-           return;
-       }
-       strcpy(params_sc.offset_file_name, offset_file);
-       strcpy(params_sc.nw_wrkld_file_name, workload_file);
-       params = (char*)&params_sc;
-   }
-   else if (strcmp(workload_type, "dumpi") == 0){
+   if (strcmp(workload_type, "dumpi") == 0){
        strcpy(params_d.file_name, workload_file);
        params_d.num_net_traces = num_net_traces;
 
