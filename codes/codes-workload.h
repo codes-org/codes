@@ -12,7 +12,9 @@
 #ifndef CODES_WORKLOAD_H
 #define CODES_WORKLOAD_H
 
-#include "ross.h"
+#include <ross.h>
+#include "configuration.h"
+
 #define MAX_NAME_LENGTH_WKLD 512
 
 typedef struct iolang_params iolang_params;
@@ -20,7 +22,6 @@ typedef struct darshan_params darshan_params;
 typedef struct recorder_params recorder_params;
 
 /* struct to hold the actual data from a single MPI event*/
-typedef struct scala_trace_params scala_trace_params;
 typedef struct dumpi_trace_params dumpi_trace_params;
 typedef struct checkpoint_wrkld_params checkpoint_wrkld_params;
 
@@ -45,12 +46,6 @@ struct recorder_params
 {
     char trace_dir_path[MAX_NAME_LENGTH_WKLD];
     int64_t nprocs;
-};
-
-
-struct scala_trace_params {
-   char offset_file_name[MAX_NAME_LENGTH_WKLD];
-   char nw_wrkld_file_name[MAX_NAME_LENGTH_WKLD];
 };
 
 struct dumpi_trace_params {
@@ -203,6 +198,21 @@ struct codes_workload_op
         } wait;
     }u;
 };
+
+/* read workload configuration from a CODES configuration file and return the
+ * workload name and parameters, which can then be passed to
+ * codes_workload_load */
+typedef struct
+{
+    char const * type;
+    void * params;
+} codes_workload_config_return;
+
+codes_workload_config_return codes_workload_read_config(
+        ConfigHandle * handle,
+        char const * section_name);
+
+void codes_workload_free_config_return(codes_workload_config_return *c);
 
 /* load and initialize workload of of type "type" with parameters specified by
  * "params".  The rank is the caller's relative rank within the collection

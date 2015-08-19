@@ -70,6 +70,41 @@ struct rank_queue
 
 static struct rank_queue *ranks = NULL;
 
+codes_workload_config_return codes_workload_read_config(
+        ConfigHandle * handle,
+        char const * section_name)
+{
+    char type[MAX_NAME_LENGTH_WKLD];
+    codes_workload_config_return r;
+    r.type = NULL;
+    r.params = NULL;
+
+    int rc = configuration_get_value(handle, section_name, "type",
+            NULL, type, MAX_NAME_LENGTH_WKLD);
+    if (rc <= 0)
+        return r;
+
+    for (int i = 0; method_array[i] != NULL; i++){
+        struct codes_workload_method const * m = method_array[i];
+        if (strcmp(m->method_name, type) == 0) {
+            r.type = m->method_name;
+            if (m->codes_workload_read_config == NULL)
+                r.params = NULL;
+            else
+                r.params = m->codes_workload_read_config(handle, section_name);
+        }
+    }
+
+    return r;
+}
+
+void codes_workload_free_config_return(codes_workload_config_return *c)
+{
+    free(c->params);
+    c->type = NULL;
+    c->params = NULL;
+}
+
 int codes_workload_load(
         const char* type,
         const char* params,

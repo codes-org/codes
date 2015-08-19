@@ -34,6 +34,7 @@ struct wkload_stream_state* wkload_streams = NULL;
 struct codes_workload_method test_workload_method = 
 {
     .method_name = "test",
+    .codes_workload_read_config = NULL,
     .codes_workload_load = test_workload_load,
     .codes_workload_get_next = test_workload_get_next,
 };

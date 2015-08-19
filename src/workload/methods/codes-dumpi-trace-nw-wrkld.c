@@ -756,6 +756,7 @@ void dumpi_trace_nw_workload_get_next(int app_id, int rank, struct codes_workloa
 struct codes_workload_method dumpi_trace_workload_method =
 {
     .method_name = "dumpi-trace-workload",
+    .codes_workload_read_config = NULL,
     .codes_workload_load = dumpi_trace_nw_workload_load,
     .codes_workload_get_next = dumpi_trace_nw_workload_get_next,
 };

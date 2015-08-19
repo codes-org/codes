@@ -3,6 +3,7 @@
  * See COPYRIGHT notice in top-level directory.
  *
  */
+#include <assert.h>
 #include <ross.h>
 #include "src/iokernellang/CodesIOKernelTypes.h"
 #include "src/iokernellang/CodesIOKernelParser.h"
@@ -20,11 +21,15 @@
 /* This file implements the CODES workload API for the I/O kernel language of
 the BG/P storage model */
 
+static void * iolang_io_workload_read_config(
+        ConfigHandle * handle,
+        char const * section_name);
+
 /* load the workload file */
-int iolang_io_workload_load(const char* params, int app_id, int rank);
+static int iolang_io_workload_load(const char* params, int app_id, int rank);
 
 /* get next operation */
-void iolang_io_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
+static void iolang_io_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
 
 /* mapping from bg/p operation enums to CODES workload operations enum */
 static int convertTypes(int inst);
@@ -39,6 +44,7 @@ int num_ranks = -1;
 struct codes_workload_method iolang_workload_method =
 {
     .method_name = "iolang_workload",
+    .codes_workload_read_config = iolang_io_workload_read_config,
     .codes_workload_load = iolang_io_workload_load,
     .codes_workload_get_next = iolang_io_workload_get_next,
 };
@@ -53,6 +59,29 @@ struct codes_iolang_wrkld_state_per_rank
     struct qhash_head hash_link;
     iolang_workload_info task_info;
 };
+
+
+static void * iolang_io_workload_read_config(
+        ConfigHandle * handle,
+        char const * section_name)
+{
+    iolang_params *p = malloc(sizeof(*p));
+    assert(p);
+    p->num_cns = -1;
+    p->use_relpath = 1;
+    p->io_kernel_meta_path[0] = '\0';
+    p->io_kernel_path[0] = '\0';
+
+    int rc = configuration_get_value_relpath(handle, section_name,
+            "io_kernel_meta_path", NULL, p->io_kernel_meta_path,
+            MAX_NAME_LENGTH_WKLD);
+    assert(rc > 0);
+    rc = configuration_get_value_int(handle, section_name, "num_ranks", NULL,
+            &p->num_cns);
+    if (rc != 0)
+        p->num_cns = -1;
+    return p;
+}
 
 /* loads the workload file for each simulated MPI rank/ compute node LP */
 int iolang_io_workload_load(const char* params, int app_id, int rank)

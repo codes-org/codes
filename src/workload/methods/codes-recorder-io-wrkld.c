@@ -65,6 +65,7 @@ static int hash_file_compare(void *key, struct qhash_head *link);
 struct codes_workload_method recorder_io_workload_method =
 {
     .method_name = "recorder_io_workload",
+    .codes_workload_read_config = NULL,
     .codes_workload_load = recorder_io_workload_load,
     .codes_workload_get_next = recorder_io_workload_get_next,
 };
