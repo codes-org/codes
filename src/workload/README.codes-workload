@@ -45,6 +45,18 @@ This is the implementation of the workload generator API for Darshan workloads.
 Darshan trace events are stored in a file which needs to be passed to the 
 _workload_load function in the params arguments.
 
+src/workload/codes-checkpoint-restart.c
+--------------------
+This is the implementation of the workload generator API for checkpoint
+restarts based on the paper from Daly et al. "A higher order estimate of the
+optimum checkpoint interval for restart dumps". The configuration of the
+generator is based on:
+
+--chkpoint-size => size of total checkpoint, in TiB
+--chkpoint-bw => checkpoint write b/w, in GiB/s
+--chkpoint-runtime => application runtime, in hours
+--chkpoint-mtti => application MTTI, in hours
+
 test program (tests/workload/*):
 ---------------------
 codes-workload-test.c: main routine for a simulator that provides an example
