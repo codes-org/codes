@@ -49,10 +49,14 @@ working from the CODES master branches, use the ROSS master branch.
     breaks libdumpi's function wrappers through const'ifying the MPI
     interface).
 
-    To enable using the darshan I/O generator
-    (http://www.mcs.anl.gov/research/projects/darshan/), use the option
-    --with-darshan=/path/to/darshan with configure
-
+    Use the --with-darshan argument to configure to enable the optional
+    Darshan I/O workload generator
+    (http://www.mcs.anl.gov/research/projects/darshan/).  In order to use
+    this option, you must either have the darshan-util portion
+    of Darshan installed in the default system path, or else add
+    <DARSHAN_PREFIX>/lib/pkgconfig to your PKG_CONFIG_PATH environment
+    variable before calling configure.
+   
 3 - Build and install codes-base
 
     make && make install
