@@ -42,6 +42,7 @@ AM_CPPFLAGS += ${DARSHAN_CFLAGS} -DUSE_DARSHAN=1
 src_libcodes_base_a_SOURCES += src/workload/methods/codes-darshan-io-wrkld.c
 tests_workload_codes_workload_test_LDADD += ${DARSHAN_LIBS}
 tests_workload_codes_workload_mpi_replay_LDADD += ${DARSHAN_LIBS}
+TESTS += tests/workload/darshan-dump.sh
 endif
 
 if USE_RECORDER
