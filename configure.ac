@@ -81,6 +81,9 @@ AC_ARG_WITH([darshan],[AS_HELP_STRING([--with-darshan],
 if test "x${use_darshan}" = xyes ; then
     PKG_CHECK_MODULES_STATIC([DARSHAN], [darshan-util], [],
                       [AC_MSG_ERROR([Could not find working darshan installation via pkg-config])])
+    DARSHAN_VER=`pkg-config --modversion darshan-util`
+    AX_COMPARE_VERSION([$DARSHAN_VER],[ge],[2.3],[],
+        [AC_MSG_ERROR([Found Darshan $DARSHAN_VER but 2.3 or greater is needed])])
 fi
 AM_CONDITIONAL(USE_DARSHAN, [test "x${use_darshan}" = xyes])
 
