@@ -1840,15 +1840,13 @@ void router_setup(router_state * r, tw_lp * lp)
     bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
     router_magic_num = h1 + h2;
 
+    char anno[MAX_NAME_LENGTH];
+    codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
+            &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
     num_routers_per_mgrp = codes_mapping_get_lp_count (lp_group_name, 1, "dragonfly_router",
                                NULL, 0);
     
     int num_grp_reps = codes_mapping_get_group_reps(lp_group_name);
-    
-    char anno[MAX_NAME_LENGTH];
-    codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
-            &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
-
     
     if (anno[0] == '\0'){
         r->anno = NULL;
