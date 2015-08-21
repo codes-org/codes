@@ -180,7 +180,17 @@ static void handle_resource_get(
     if (!qlist_empty(&ns->pending[m->i.tok]) || 
             (ret = resource_get(m->i.req, m->i.tok, &ns->r))){
         /* failed to receive data */
-        assert(ret != 2);
+        if (ret == 2)
+            tw_error(TW_LOC,
+                    "resource LP %lu: invalid token %d passed in "
+                    "(%d tokens created)\n",
+                    lp->gid, m->i.tok, ns->r.num_tokens);
+        else if (ret == -1)
+            tw_error(TW_LOC,
+                    "resource LP %lu: unsatisfiable request: "
+                    "token %d, size %lu\n",
+                    lp->gid, m->i.tok, m->i.req);
+
         if (m->i.block_on_unavail){
             /* queue up operation, save til later */
             b->c0 = 1;
@@ -262,7 +272,7 @@ static void handle_resource_deq(
     pending_op *p = qlist_entry(front, pending_op, ql);
     assert(!resource_get_min_avail(m->i.tok, &m->min_avail_rc, &ns->r));
     int ret = resource_get(p->m.req, p->m.tok, &ns->r);
-    assert(ret != 2);
+    assert(ret != 2 && ret != -1);
     if (!ret){
         b->c1 = 1;
         /* success, dequeue (saving as rc) and send to client */

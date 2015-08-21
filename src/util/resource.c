@@ -29,13 +29,16 @@ void resource_init(uint64_t avail, resource *r){
 
 /* Acquire req units of the resource. 
  * Returns 0 on success, 1 on failure (not enough available), 2 on invalid
- * token. */
+ * token -1 on a request that cannot be satisfied. */
 int resource_get(uint64_t req, resource_token_t tok, resource *r){
     if (tok > r->num_tokens){ 
         return 2;
     }
     else if (req > r->avail[tok]){
         return 1;
+    }
+    else if (req > r->max[tok]) {
+        return -1;
     }
     else{
         r->avail[tok] -= req;
