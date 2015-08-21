@@ -634,7 +634,6 @@ void generate_psx_coll_file_events(
         calc_io_delays(file, open_cycles, ceil((double)total_ind_io_ops / nprocs), total_delay,
                        &first_io_delay, &close_delay, &inter_cycle_delay, &inter_io_delay);
     }
-    assert(extra_opens <= open_cycles);
 
     /* calculate average meta op time (for i/o and opens/closes) */
     meta_op_time = file->fcounters[CP_F_POSIX_META_TIME] / ((2 * file->counters[CP_POSIX_OPENS]) +
@@ -652,10 +651,36 @@ void generate_psx_coll_file_events(
         ind_opens_this_cycle = ceil((double)total_ind_opens / (open_cycles - i));
         coll_opens_this_cycle = total_coll_opens / (open_cycles - i);
 
+        /* assign any extra opens to as many ranks as possible if we are generating events
+         * for a file that was only opened independently (these likely correspond to file
+         * creations)
+         */
+        if(extra_opens && !coll_opens_this_cycle)
+        {
+            if (extra_opens >= nprocs)
+                rank_cnt = nprocs;
+            else
+                rank_cnt = extra_opens;
+
+            cur_time = generate_psx_open_event(file, create_flag, meta_op_time, cur_time,
+                                               io_context, (io_context->my_rank < rank_cnt));
+            create_flag = 0;
+
+            if (!file->counters[CP_COLL_OPENS] && !file->counters[CP_INDEP_OPENS])
+            {
+                cur_time = generate_psx_coll_io_events(file, 1, 0, nprocs, nprocs, 0.0,
+                                                       meta_op_time, cur_time, io_context);
+                extra_io_ops--;
+            }
+
+            cur_time = generate_psx_close_event(file, meta_op_time, cur_time, io_context,
+                                                (io_context->my_rank < rank_cnt));
+            file->counters[CP_POSIX_OPENS] -= rank_cnt;
+        }
         /* assign any extra opens to rank 0 (these may correspond to file creations or
          * header reads/writes)
          */
-        if (extra_opens && !(i % (open_cycles / extra_opens)))
+        else if (extra_opens && !(i % (open_cycles / extra_opens)))
         {
             cur_time = generate_psx_open_event(file, create_flag, meta_op_time, cur_time,
                                                io_context, (io_context->my_rank == 0));
