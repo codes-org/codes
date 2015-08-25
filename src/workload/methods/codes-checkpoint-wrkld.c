@@ -88,19 +88,19 @@ static void * checkpoint_workload_read_config(
     int rc;
 
     rc = configuration_get_value_double(&config, section_name, "checkpoint_sz",
-            NULL, &p->checkpoint_sz);
+            annotation, &p->checkpoint_sz);
     assert(!rc);
 
     rc = configuration_get_value_double(&config, section_name,
-            "checkpoint_wr_bw", NULL, &p->checkpoint_wr_bw);
+            "checkpoint_wr_bw", annotation, &p->checkpoint_wr_bw);
     assert(!rc);
 
     rc = configuration_get_value_double(&config, section_name, "app_run_time",
-            NULL, &p->app_runtime);
+            annotation, &p->app_runtime);
     assert(!rc);
 
-    rc = configuration_get_value_double(&config, section_name, "mtti", NULL,
-	   &p->mtti);
+    rc = configuration_get_value_double(&config, section_name, "mtti",
+            annotation, &p->mtti);
     assert(!rc);
 
     p->nprocs = num_ranks;
