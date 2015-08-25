@@ -45,7 +45,9 @@ struct rank_io_context
 
 static void * darshan_io_workload_read_config(
         ConfigHandle * handle,
-        char const * section_name);
+        char const * section_name,
+        char const * annotation,
+        int num_ranks);
 /* Darshan workload generator's implementation of the CODES workload API */
 static int darshan_io_workload_load(const char *params, int app_id, int rank);
 static void darshan_io_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
@@ -110,7 +112,9 @@ static int rank_tbl_pop = 0;
 
 static void * darshan_io_workload_read_config(
         ConfigHandle * handle,
-        char const * section_name)
+        char const * section_name,
+        char const * annotation,
+        int num_ranks)
 {
     darshan_params *d = malloc(sizeof(*d));
     assert(d);
@@ -118,16 +122,17 @@ static void * darshan_io_workload_read_config(
     d->aggregator_cnt = -1;
 
     int rc = configuration_get_value_relpath(handle, section_name,
-            "darshan_log_file", NULL, d->log_file_path,
+            "darshan_log_file", annotation, d->log_file_path,
             MAX_NAME_LENGTH_WKLD);
     assert(rc > 0);
     int tmp;
     rc = configuration_get_value_int(&config, "workload", 
-            "darshan_aggregator_count", NULL, &tmp);
+            "darshan_aggregator_count", annotation, &tmp);
     assert(rc == 0);
     d->aggregator_cnt = tmp;
     return d;
 }
+
 /* load the workload generator for this rank, given input params */
 static int darshan_io_workload_load(const char *params, int app_id, int rank)
 {

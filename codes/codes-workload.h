@@ -208,9 +208,14 @@ typedef struct
     void * params;
 } codes_workload_config_return;
 
+// NOTE: some workloads (iolang, checkpoint) require information about the
+// total number of ranks to correctly process traces/config files, etc. Other
+// workload generators (darshan) ignore it
 codes_workload_config_return codes_workload_read_config(
         ConfigHandle * handle,
-        char const * section_name);
+        char const * section_name,
+        char const * annotation,
+        int num_ranks);
 
 void codes_workload_free_config_return(codes_workload_config_return *c);
 

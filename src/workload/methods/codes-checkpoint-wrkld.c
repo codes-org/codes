@@ -29,7 +29,9 @@ enum checkpoint_status
 
 static void * checkpoint_workload_read_config(
         ConfigHandle *handle,
-        char const * section_name);
+        char const * section_name,
+        char const * annotation,
+        int num_ranks);
 static int checkpoint_workload_load(const char* params, int app_id, int rank);
 static void checkpoint_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
 
@@ -76,7 +78,9 @@ struct codes_workload_method checkpoint_workload_method =
 
 static void * checkpoint_workload_read_config(
         ConfigHandle *handle,
-        char const * section_name)
+        char const * section_name,
+        char const * annotation,
+        int num_ranks)
 {
     checkpoint_wrkld_params *p = malloc(sizeof(*p));
     assert(p);
@@ -98,6 +102,8 @@ static void * checkpoint_workload_read_config(
     rc = configuration_get_value_double(&config, section_name, "mtti", NULL,
 	   &p->mtti);
     assert(!rc);
+
+    p->nprocs = num_ranks;
 
     return p;
 }

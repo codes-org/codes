@@ -23,7 +23,9 @@ the BG/P storage model */
 
 static void * iolang_io_workload_read_config(
         ConfigHandle * handle,
-        char const * section_name);
+        char const * section_name,
+        char const * annotation,
+        int num_ranks);
 
 /* load the workload file */
 static int iolang_io_workload_load(const char* params, int app_id, int rank);
@@ -63,7 +65,9 @@ struct codes_iolang_wrkld_state_per_rank
 
 static void * iolang_io_workload_read_config(
         ConfigHandle * handle,
-        char const * section_name)
+        char const * section_name,
+        char const * annotation,
+        int num_ranks)
 {
     iolang_params *p = malloc(sizeof(*p));
     assert(p);
@@ -73,13 +77,13 @@ static void * iolang_io_workload_read_config(
     p->io_kernel_path[0] = '\0';
 
     int rc = configuration_get_value_relpath(handle, section_name,
-            "io_kernel_meta_path", NULL, p->io_kernel_meta_path,
+            "io_kernel_meta_path", annotation, p->io_kernel_meta_path,
             MAX_NAME_LENGTH_WKLD);
     assert(rc > 0);
-    rc = configuration_get_value_int(handle, section_name, "num_ranks", NULL,
-            &p->num_cns);
+    rc = configuration_get_value_int(handle, section_name, "num_ranks",
+            annotation, &p->num_cns);
     if (rc != 0)
-        p->num_cns = -1;
+        p->num_cns = num_ranks;
     return p;
 }
 

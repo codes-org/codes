@@ -72,7 +72,9 @@ static struct rank_queue *ranks = NULL;
 
 codes_workload_config_return codes_workload_read_config(
         ConfigHandle * handle,
-        char const * section_name)
+        char const * section_name,
+        char const * annotation,
+        int num_ranks)
 {
     char type[MAX_NAME_LENGTH_WKLD];
     codes_workload_config_return r;
@@ -80,7 +82,7 @@ codes_workload_config_return codes_workload_read_config(
     r.params = NULL;
 
     int rc = configuration_get_value(handle, section_name, "type",
-            NULL, type, MAX_NAME_LENGTH_WKLD);
+            annotation, type, MAX_NAME_LENGTH_WKLD);
     if (rc <= 0)
         return r;
 
@@ -91,7 +93,8 @@ codes_workload_config_return codes_workload_read_config(
             if (m->codes_workload_read_config == NULL)
                 r.params = NULL;
             else
-                r.params = m->codes_workload_read_config(handle, section_name);
+                r.params = m->codes_workload_read_config(handle, section_name,
+                        annotation, num_ranks);
         }
     }
 

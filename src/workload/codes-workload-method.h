@@ -26,7 +26,8 @@ struct codes_workload_method
 {
     char *method_name; /* name of the generator */
     void * (*codes_workload_read_config) (
-            ConfigHandle *handle, char const * section_name);
+            ConfigHandle *handle, char const * section_name,
+            char const * annotation, int num_ranks);
     int (*codes_workload_load)(const char* params, int app_id, int rank);
     void (*codes_workload_get_next)(int app_id, int rank, struct codes_workload_op *op);
     int (*codes_workload_get_rank_cnt)(const char* params, int app_id);
