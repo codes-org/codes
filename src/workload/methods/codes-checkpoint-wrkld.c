@@ -27,6 +27,9 @@ enum checkpoint_status
     CHECKPOINT_INACTIVE,
 };
 
+static void * checkpoint_workload_read_config(
+        ConfigHandle *handle,
+        char const * section_name);
 static int checkpoint_workload_load(const char* params, int app_id, int rank);
 static void checkpoint_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
 
@@ -66,9 +69,38 @@ static int chkpoint_tbl_pop = 0;
 struct codes_workload_method checkpoint_workload_method = 
 {
     .method_name = "checkpoint_io_workload",
+    .codes_workload_read_config = &checkpoint_workload_read_config,
     .codes_workload_load = &checkpoint_workload_load,
     .codes_workload_get_next = &checkpoint_workload_get_next,
 };
+
+static void * checkpoint_workload_read_config(
+        ConfigHandle *handle,
+        char const * section_name)
+{
+    checkpoint_wrkld_params *p = malloc(sizeof(*p));
+    assert(p);
+
+    int rc;
+
+    rc = configuration_get_value_double(&config, section_name, "checkpoint_sz",
+            NULL, &p->checkpoint_sz);
+    assert(!rc);
+
+    rc = configuration_get_value_double(&config, section_name,
+            "checkpoint_wr_bw", NULL, &p->checkpoint_wr_bw);
+    assert(!rc);
+
+    rc = configuration_get_value_double(&config, section_name, "app_run_time",
+            NULL, &p->app_runtime);
+    assert(!rc);
+
+    rc = configuration_get_value_double(&config, section_name, "mtti", NULL,
+	   &p->mtti);
+    assert(!rc);
+
+    return p;
+}
 
 static int checkpoint_workload_load(const char* params, int app_id, int rank)
 {
