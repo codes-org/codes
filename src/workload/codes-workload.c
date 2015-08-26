@@ -81,7 +81,7 @@ codes_workload_config_return codes_workload_read_config(
     r.type = NULL;
     r.params = NULL;
 
-    int rc = configuration_get_value(handle, section_name, "type",
+    int rc = configuration_get_value(handle, section_name, "workload_type",
             annotation, type, MAX_NAME_LENGTH_WKLD);
     if (rc <= 0)
         return r;
