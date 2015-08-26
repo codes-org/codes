@@ -394,6 +394,58 @@ void codes_mapping_get_lp_info(
     tw_error(TW_LOC, "Unable to find LP info given gid %lu", gid);
 }
 
+void codes_mapping_get_lp_info2(
+        tw_lpid gid,
+        char const * * group_name,
+        char const * * lp_type_name,
+        char const * * annotation,
+        int * rep_id,
+        int * offset)
+{
+    // running total of lp's we've seen so far
+    tw_lpid id_total = 0;
+    // for each group
+    for (int g = 0; g < lpconf.lpgroups_count; g++){
+        const config_lpgroup_t *lpg = &lpconf.lpgroups[g];
+        tw_lpid num_id_group, num_id_per_rep = 0;
+        // count up the number of ids in this group
+        for (int l = 0; l < lpg->lptypes_count; l++){
+            num_id_per_rep += lpg->lptypes[l].count;
+        }
+        num_id_group = num_id_per_rep * lpg->repetitions;
+        if (num_id_group+id_total > gid){
+            // we've found the group
+            tw_lpid rem = gid - id_total;
+            if (group_name != NULL)
+                *group_name = lpg->name.ptr;
+            // find repetition within group
+            *rep_id = (int) (rem / num_id_per_rep);
+            rem -=  num_id_per_rep * (tw_lpid)*rep_id;
+            num_id_per_rep = 0;
+            for (int l = 0; l < lpg->lptypes_count; l++){
+                const config_lptype_t *lpt = &lpg->lptypes[l];
+                if (rem < num_id_per_rep + lpt->count){
+                    // found the specific LP
+                    if (lp_type_name != NULL)
+                        *lp_type_name = lpt->name.ptr;
+                    if (annotation != NULL)
+                        *annotation = lpt->anno.ptr;
+                    *offset = (int) (rem - num_id_per_rep);
+                    return; // done
+                }
+                else{
+                    num_id_per_rep += lpg->lptypes[l].count;
+                }
+            }
+        }
+        else{
+            id_total += num_id_group;
+        }
+    }
+    // LP not found
+    tw_error(TW_LOC, "Unable to find LP info given gid %lu", gid);
+}
+
 /* This function assigns local and global LP Ids to LPs */
 static void codes_mapping_init(void)
 {

@@ -142,6 +142,24 @@ void codes_mapping_get_lp_info(
         int   * rep_id,
         int   * offset);
 
+/* same end result as codes_mapping_get_lp_info, except:
+ * - uses pointer-to-const instead of copying to output parameters.
+ *   much less copying
+ * - gets rid of arguments that are largely intended for internal usage
+ * - disambiguates annotation representation - empty string no longer copied
+ *   into annotation argument to indicate no annotation - instead, annotation
+ *   is set to NULL
+ *
+ * This function is preferred for performance and simplicity reasons
+ */
+void codes_mapping_get_lp_info2(
+        tw_lpid gid,
+        char const * * group_name,
+        char const * * lp_type_name,
+        char const * * annotation,
+        int * rep_id,
+        int * offset);
+
 //void codes_mapping_get_lp_info(tw_lpid gid, char* group_name, int* grp_id, int* lp_type_id, char* lp_type_name, int* grp_rep_id, int* offset);
 
 /* Returns the annotation for the given LP.
