@@ -141,6 +141,9 @@ struct terminal_state
 
    const char * anno;
    const dragonfly_param *params;
+
+   /* self suspend mode to the dragonfly */
+   int suspend;
 };
 
 /* terminal event type (1-4) */
@@ -727,7 +730,7 @@ static void packet_generate_send(terminal_state * s,
 	     void * m_gen_data;
 
 	     /* Keep the packet generate event a little behind packet send */
-	     ts = ts + codes_local_latency(lp);
+	     ts = codes_local_latency(lp);
 
 	     e_gen = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY, (void**)&m_gen,(void**)&m_gen_data); 
 
