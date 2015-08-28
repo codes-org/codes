@@ -585,7 +585,7 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw
 
     assert(sender_radix < s->params->radix );
 
-    msg->saved_credit_time = s->next_credit_available_time[sender_radix];
+    msg->saved_available_time = s->next_credit_available_time[sender_radix];
     s->next_credit_available_time[sender_radix] = maxd(tw_now(lp), s->next_credit_available_time[sender_radix]);
     ts = credit_delay + 0.1 + tw_rand_exponential(lp->rng, (double)credit_delay/1000);
 	
