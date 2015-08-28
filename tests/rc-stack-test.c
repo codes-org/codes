@@ -21,6 +21,8 @@ int main(int argc, char *argv[])
     lp.pe = &pe;
     lp.kp = &kp;
 
+    g_tw_synchronization_protocol = OPTIMISTIC;
+
     struct rc_stack *s;
     rc_stack_create(&s);
     assert(s != NULL);

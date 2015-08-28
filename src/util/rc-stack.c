@@ -18,6 +18,7 @@ typedef struct rc_entry_s {
 
 struct rc_stack {
     int count;
+    int is_in_optimistic;
     struct qlist_head head;
 };
 
@@ -27,6 +28,7 @@ void rc_stack_create(struct rc_stack **s){
         INIT_QLIST_HEAD(&ss->head);
         ss->count = 0;
     }
+    ss->is_in_optimistic = (g_tw_synchronization_protocol == OPTIMISTIC);
     *s = ss;
 }
 
@@ -40,13 +42,17 @@ void rc_stack_push(
         void * data,
         void (*free_fn)(void*),
         struct rc_stack *s){
-    rc_entry * ent = (rc_entry*)malloc(sizeof(*ent));
-    assert(ent);
-    ent->time = tw_now(lp);
-    ent->data = data;
-    ent->free_fn = free_fn;
-    qlist_add_tail(&ent->ql, &s->head);
-    s->count++;
+    if (s->is_in_optimistic || free_fn == NULL) {
+        rc_entry * ent = (rc_entry*)malloc(sizeof(*ent));
+        assert(ent);
+        ent->time = tw_now(lp);
+        ent->data = data;
+        ent->free_fn = free_fn;
+        qlist_add_tail(&ent->ql, &s->head);
+        s->count++;
+    }
+    else
+        free_fn(data);
 }
 
 void* rc_stack_pop(struct rc_stack *s){
