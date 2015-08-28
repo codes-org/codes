@@ -9,6 +9,12 @@
 #include "codes/rc-stack.h"
 #include "codes/quicklist.h"
 
+enum rc_stack_mode {
+    RC_NONOPT, // not in optimistic mode
+    RC_OPT, // optimistic mode
+    RC_OPT_DBG // optimistic *debug* mode (requires special handling)
+};
+
 typedef struct rc_entry_s {
     tw_stime time;
     void * data;
@@ -18,7 +24,7 @@ typedef struct rc_entry_s {
 
 struct rc_stack {
     int count;
-    int is_in_optimistic;
+    enum rc_stack_mode mode;
     struct qlist_head head;
 };
 
@@ -28,7 +34,16 @@ void rc_stack_create(struct rc_stack **s){
         INIT_QLIST_HEAD(&ss->head);
         ss->count = 0;
     }
-    ss->is_in_optimistic = (g_tw_synchronization_protocol == OPTIMISTIC);
+    switch (g_tw_synchronization_protocol) {
+        case OPTIMISTIC:
+            ss->mode = RC_OPT;
+            break;
+        case OPTIMISTIC_DEBUG:
+            ss->mode = RC_OPT_DBG;
+            break;
+        default:
+            ss->mode = RC_NONOPT;
+    }
     *s = ss;
 }
 
@@ -42,7 +57,7 @@ void rc_stack_push(
         void * data,
         void (*free_fn)(void*),
         struct rc_stack *s){
-    if (s->is_in_optimistic || free_fn == NULL) {
+    if (s->mode != RC_NONOPT || free_fn == NULL) {
         rc_entry * ent = (rc_entry*)malloc(sizeof(*ent));
         assert(ent);
         ent->time = tw_now(lp);
@@ -72,6 +87,11 @@ void* rc_stack_pop(struct rc_stack *s){
 int rc_stack_count(struct rc_stack const *s) { return s->count; }
 
 void rc_stack_gc(tw_lp const *lp, struct rc_stack *s) {
+    // in optimistic debug mode, we can't gc anything, because we'll be rolling
+    // back to the beginning
+    if (s->mode == RC_OPT_DBG)
+        return;
+
     struct qlist_head *ent = s->head.next;
     while (ent != &s->head) {
         rc_entry *r = qlist_entry(ent, rc_entry, ql);
