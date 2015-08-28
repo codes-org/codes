@@ -141,9 +141,6 @@ struct terminal_state
 
    const char * anno;
    const dragonfly_param *params;
-
-   /* self suspend mode to the dragonfly */
-   int suspend;
 };
 
 /* terminal event type (1-4) */
@@ -594,6 +591,10 @@ static void packet_generate_send_rc(terminal_state * s,
    if (msg->chunk_id == (msg->num_chunks-1)){
      codes_local_latency_reverse(lp);
    }
+
+    if(bf->c1)
+        codes_local_latency_reverse(lp);
+
      struct mn_stats* stat;
      stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
      stat->send_count--;
@@ -625,7 +626,6 @@ static void packet_generate_send(terminal_state * s,
 
 	msg->num_chunks = num_chunks;
 	msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter + tw_rand_integer(lp->rng, 0, lp->gid + g_tw_nlp * s->packet_counter);
-	msg->travel_start_time = tw_now(lp);
 
 	//  Each packet is broken into chunks and then sent over the channel
 	msg->saved_available_time = s->terminal_available_time;
@@ -633,11 +633,14 @@ static void packet_generate_send(terminal_state * s,
 	ts = head_delay + tw_rand_exponential(lp->rng, (double)head_delay/200);
 	s->terminal_available_time = maxd(s->terminal_available_time, tw_now(lp));
 	s->terminal_available_time += ts;
+
+        if(msg->chunk_id == 0)
+            msg->travel_start_time = tw_now(lp);
 	
 	int chan = -1, j;
 	for(j = 0; j < p->num_vcs; j++)
 	 {
-	     if(s->vc_occupancy[j] < p->cn_vc_size * num_chunks)
+	     if(s->vc_occupancy[j] < p->cn_vc_size)
 	      {
 	       chan=j;
 	       break;
@@ -673,7 +676,7 @@ static void packet_generate_send(terminal_state * s,
         m->path_type = -1;
         m->local_event_size_bytes = 0;
         m->local_id = s->terminal_id;
-	
+
 	 if (msg->remote_event_size_bytes){
 		memcpy(m+1, model_net_method_get_edata(DRAGONFLY, msg),
 			msg->remote_event_size_bytes);
@@ -716,7 +719,7 @@ static void packet_generate_send(terminal_state * s,
 	stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
 	stat->send_count++;
 	stat->send_bytes += msg->packet_size;
-	stat->send_time += (1/p->cn_bandwidth) * msg->packet_size;
+	stat->send_time += (s->terminal_available_time - tw_now(lp));
 	if(stat->max_event_size < total_event_size)
 	  stat->max_event_size = total_event_size;
 
@@ -730,8 +733,7 @@ static void packet_generate_send(terminal_state * s,
 	     void * m_gen_data;
 
 	     /* Keep the packet generate event a little behind packet send */
-	     ts = codes_local_latency(lp);
-
+	     ts = s->terminal_available_time - tw_now(lp) + codes_local_latency(lp);
 	     e_gen = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY, (void**)&m_gen,(void**)&m_gen_data); 
 
 	     void *m_gen_data_src = model_net_method_get_edata(DRAGONFLY, msg);
@@ -755,13 +757,6 @@ static void packet_generate_send(terminal_state * s,
   return;
 }
 
-static void packet_send_rc(terminal_state * s, 
-			tw_bf * bf, 
-			terminal_message * msg, 
-			tw_lp * lp)
-{
-
-}
 static void packet_arrive_rc(terminal_state * s, 
 		   tw_bf * bf, 
                    terminal_message * msg, 
@@ -783,7 +778,7 @@ static void packet_arrive_rc(terminal_state * s,
 
    tw_rand_reverse_unif(lp->rng);
    s->next_credit_available_time = msg->saved_credit_time;
-   if(msg->chunk_id == (msg->num_chunks)-1)
+   if(msg->chunk_id == num_chunks-1)
    {
     mn_stats* stat;
     stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
@@ -1249,11 +1244,18 @@ terminal_buf_update(terminal_state * s,
 {
   // Update the buffer space associated with this router LP 
     int msg_indx = msg->vc_index;
-    
     s->vc_occupancy[msg_indx]--;
-    assert(s->vc_occupancy[msg_indx] >= 0);
     s->output_vc_state[msg_indx] = VC_IDLE;
+    
+    if(s->vc_occupancy[msg_indx] < 0)
+    {
+        char buf[64];
+        int written = sprintf(buf,
+                "terminal %d: error vc occupancy \n",
+                lp->gid);
 
+        lp_io_write(lp->gid, "errors", written, buf);
+    }
     return;
 }
 
