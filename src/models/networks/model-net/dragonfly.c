@@ -31,7 +31,7 @@
 #define WINDOW_LENGTH 0
 
 // debugging parameters
-#define TRACK 25
+#define TRACK -1
 #define PRINT_ROUTER_TABLE 1
 #define DEBUG 0
 
@@ -42,7 +42,7 @@
 #define dprintf(_fmt, ...) \
     do {if (CLIENT_DBG) printf(_fmt, __VA_ARGS__);} while (0)
 
-long term_ecount, router_ecount, term_pending_ecount, router_pending_ecount;
+long term_ecount, router_ecount, term_rev_ecount, router_rev_ecount;
 
 static double maxd(double a, double b) { return a < b ? b : a; }
 
@@ -328,7 +328,9 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
 
 
     p->total_terminals = p->total_routers * p->num_cn;
-    printf("\n Total nodes %d routers %d groups %d radix %d num_vc %d ", p->num_cn * p->total_routers,
+    
+    if(!g_tw_mynode)
+    	printf("\n Total nodes %d routers %d groups %d radix %d num_vc %d ", p->num_cn * p->total_routers,
 								p->total_routers,
 								p->num_groups,
 								p->radix,
@@ -396,7 +398,7 @@ static void dragonfly_report_stats()
               printf("\n ADAPTIVE ROUTING STATS: %d packets routed minimally %d packets routed non-minimally completed packets %d ", total_minimal_packets, total_nonmin_packets, total_completed_packets);
  
      printf("\n Max terminal occupancy %d max router occupancy %d ", max_term_occupancy, max_router_occupancy);
-     printf("\n Total terminal events generated %ld router events %ld ", total_term_events, total_router_events);
+     printf("\n Event population: total committed terminal events:%ld router events: %ld ", total_term_events, total_router_events);
   }
    return;
 }
@@ -542,7 +544,6 @@ tw_lpid getRouterFromGroupID(int dest_gid,
 /*When a packet is sent from the current router and a buffer slot becomes available, a credit is sent back to schedule another packet event*/
 void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
-  router_ecount++;
   tw_event * buf_e;
   tw_stime ts;
   terminal_message * buf_msg;
@@ -615,7 +616,9 @@ static void packet_generate_send_rc(terminal_state * s,
 			    terminal_message * msg, 
 			    tw_lp * lp)
 {
-   term_ecount++;
+   term_rev_ecount++;
+   term_ecount--;
+
    tw_rand_reverse_unif(lp->rng);
 	 
    s->terminal_available_time = msg->saved_available_time;
@@ -625,8 +628,8 @@ static void packet_generate_send_rc(terminal_state * s,
    s->packet_counter--;
    s->output_vc_state[vc] = VC_IDLE;
 
-   if(bf->c2)
-     s->max_term_vc_occupancy = msg->saved_occupancy;
+   //if(bf->c2)
+   //  s->max_term_vc_occupancy = msg->saved_occupancy;
 
    if (msg->chunk_id == (msg->num_chunks-1)){
      codes_local_latency_reverse(lp);
@@ -650,6 +653,7 @@ static void packet_generate_send(terminal_state * s,
 {
 	bf->c1 = 0;
 	term_ecount++;
+	term_rev_ecount++;
 
         const dragonfly_param *p = s->params;
 
@@ -666,8 +670,6 @@ static void packet_generate_send(terminal_state * s,
 	if(!num_chunks)
 	   num_chunks = 1;
 
-	msg->num_chunks = num_chunks;
-	
 	if(!msg->packet_ID)
 	    msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter + tw_rand_integer(lp->rng, 0, lp->gid + g_tw_nlp * s->packet_counter);
 
@@ -713,7 +715,8 @@ static void packet_generate_send(terminal_state * s,
             travel_start_time = tw_now(lp);
 	else
 	    travel_start_time = msg->travel_start_time;
-	
+
+	m->num_chunks = num_chunks;	
 	m->magic = router_magic_num;
 	m->origin_router_id = s->router_id;
         m->type = R_FORWARD;
@@ -733,13 +736,13 @@ static void packet_generate_send(terminal_state * s,
    
 	tw_event_send(e);
 
-	if(msg->packet_ID == TRACK && msg->chunk_id == msg->num_chunks - 1)
+	if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks - 1)
 	   printf("\n packet %d generated chunk id %d reach at time %lf ", 
 			msg->packet_ID, 
 			msg->chunk_id, 
 			s->terminal_available_time - tw_now(lp));	
 
-         if(msg->chunk_id == msg->num_chunks - 1) 
+         if(msg->chunk_id == num_chunks - 1) 
 	{
 		// now that message is sent, issue an "idle" event to tell the scheduler
 		// when I'm next available
@@ -767,7 +770,7 @@ static void packet_generate_send(terminal_state * s,
 	if(s->vc_occupancy[chan] > s->max_term_vc_occupancy)
 	 {
 		bf->c2 = 1;
-		msg->saved_occupancy = s->max_term_vc_occupancy;
+		//msg->saved_occupancy = s->max_term_vc_occupancy;
 		s->max_term_vc_occupancy = s->vc_occupancy[chan];
 	 }
 
@@ -825,10 +828,10 @@ static void packet_arrive_rc(terminal_state * s,
                    terminal_message * msg, 
                    tw_lp * lp)
 {
-    term_ecount++; 
+    term_ecount--;
+    term_rev_ecount++;
+ 
     uint64_t num_chunks = msg->num_chunks;
-    if (msg->packet_size % s->params->chunk_size)
-        num_chunks++;
    
     if(msg->chunk_id == num_chunks - 1)
       completed_packets--;
@@ -856,7 +859,7 @@ static void packet_arrive_rc(terminal_state * s,
 	 dragonfly_max_latency = msg->saved_available_time;
    }
     
-   if (msg->chunk_id == (msg->num_chunks)-1 && 
+   if (msg->chunk_id == num_chunks-1 && 
 		msg->remote_event_size_bytes && 
 		msg->is_pull)
     {
@@ -871,10 +874,10 @@ static void packet_arrive(terminal_state * s,
                    terminal_message * msg, 
                    tw_lp * lp)
 {
-    ++term_ecount;
+    term_ecount++;
+    term_rev_ecount++;
+     
     uint64_t num_chunks = msg->num_chunks;
-    if (msg->packet_size % s->params->chunk_size)
-        num_chunks++;
 
    if(msg->chunk_id == num_chunks - 1) 
      completed_packets++;
@@ -1299,7 +1302,9 @@ terminal_buf_update_rc(terminal_state * s,
 		    terminal_message * msg, 
 		    tw_lp * lp)
 {
-    term_ecount++;
+    term_ecount--;
+    term_rev_ecount++;
+
     int msg_indx = msg->vc_index;
     s->vc_occupancy[msg_indx]++;
     if(s->vc_occupancy[msg_indx] == s->params->cn_vc_size)
@@ -1314,6 +1319,8 @@ terminal_buf_update(terminal_state * s,
 		    tw_lp * lp)
 {
      term_ecount++;
+     term_rev_ecount++;
+
   // Update the buffer space associated with this router LP 
     int msg_indx = msg->vc_index;
     s->vc_occupancy[msg_indx]--;
@@ -1624,8 +1631,10 @@ static void router_packet_forward_rc( router_state * s,
 		     	    terminal_message * msg, 
 			    tw_lp * lp)
 {
+        router_rev_ecount++;
+	router_ecount--;
+
        uint64_t num_chunks = msg->num_chunks;
-        router_ecount++;
 	if(msg->chunk_id == num_chunks - 1)
 		total_hops--;
 
@@ -1668,6 +1677,7 @@ static void router_packet_forward( router_state * s,
 			    tw_lp * lp)
 {
    router_ecount++;
+   router_rev_ecount++;
 
    bf->c1 = 0;
    bf->c2 = 0;
@@ -1681,11 +1691,6 @@ static void router_packet_forward( router_state * s,
    float bandwidth = s->params->local_bandwidth;
 
    uint64_t num_chunks = msg->num_chunks;
-   if(msg->packet_size % s->params->chunk_size)
-       num_chunks++;
-
-   if(!num_chunks)
-   	num_chunks = 1;
 	
    if(msg->chunk_id == num_chunks - 1)
 	total_hops++;
@@ -1947,10 +1952,10 @@ void router_buf_update_rc(
 	terminal_message * msg,
 	tw_lp * lp)
 {
-	uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
-	if(msg->packet_size % s->params->chunk_size)
-	    num_chunks++;
-	
+	router_ecount--;
+	router_rev_ecount++;
+
+	uint64_t num_chunks = msg->num_chunks;
 	int msg_indx = msg->vc_index;
 	s->vc_occupancy[msg_indx]++;
 
@@ -1967,6 +1972,9 @@ void router_buf_update_rc(
 /* Update the buffer space associated with this router LP */
 void router_buf_update(router_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
+    router_ecount++;
+    router_rev_ecount++;
+
     int msg_indx = msg->vc_index;
 
     if(TRACK == lp->gid)
@@ -2057,9 +2065,6 @@ void terminal_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_message 
 /* Reverse computation handler for a router event */
 void router_rc_event_handler(router_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
-    uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
-    if(msg->packet_size % s->params->chunk_size)
-        num_chunks++;
   switch(msg->type)
     {
 	    case R_FORWARD:
