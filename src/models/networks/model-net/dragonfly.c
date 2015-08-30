@@ -653,7 +653,7 @@ static void packet_generate_send(terminal_state * s,
 
         const dragonfly_param *p = s->params;
 
-	tw_stime ts;
+	tw_stime ts, travel_start_time;
 	tw_event *e;
         tw_lpid router_id;
 	terminal_message *m;
@@ -710,7 +710,9 @@ static void packet_generate_send(terminal_state * s,
 	memcpy(m, msg, sizeof(terminal_message));
         
 	if(msg->chunk_id == 0)
-            m->travel_start_time = tw_now(lp);
+            travel_start_time = tw_now(lp);
+	else
+	    travel_start_time = msg->travel_start_time;
 	
 	m->magic = router_magic_num;
 	m->origin_router_id = s->router_id;
@@ -719,7 +721,8 @@ static void packet_generate_send(terminal_state * s,
         m->chunk_id = msg->chunk_id;
         m->last_hop = TERMINAL;
         m->intm_group_id = -1;
-        m->path_type = -1;
+        m->travel_start_time = travel_start_time;
+	m->path_type = -1;
         m->local_event_size_bytes = 0;
         m->local_id = s->terminal_id;
 
@@ -800,7 +803,8 @@ static void packet_generate_send(terminal_state * s,
 
 	     m_gen->chunk_id = msg->chunk_id + 1;
              m_gen->type = T_GENERATE;
-
+	     m_gen->travel_start_time = travel_start_time;
+     		
 	      if (msg->remote_event_size_bytes){
 		memcpy(m_gen_data, m_gen_data_src,
 			msg->remote_event_size_bytes);
@@ -885,7 +889,7 @@ static void packet_arrive(terminal_state * s,
 	printf("\n Wrong message path type %d ", msg->path_type);
 
 #if DEBUG == 1
-if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
+if(msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
     {
 	printf( "(%lf) [Terminal %d] packet %lld has arrived  \n",
               tw_now(lp), (int)lp->gid, msg->packet_ID);
