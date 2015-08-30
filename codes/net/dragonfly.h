@@ -43,7 +43,7 @@ struct terminal_message
   short my_N_hop;
   /* Intermediate LP ID from which this message is coming */
   unsigned int intm_lp_id;
-  short old_vc;
+  short new_vc;
   short saved_vc;
   /* last hop of the message, can be a terminal, local router or global router */
   short last_hop;
@@ -57,7 +57,7 @@ struct terminal_message
 
   // For buffer message
    short vc_index;
-   int input_chan;
+   int sender_radix;
    int output_chan;
     int is_pull;
     uint64_t pull_size;
@@ -69,6 +69,7 @@ struct terminal_message
    tw_stime saved_collective_init_time;  
    tw_stime saved_hist_start_time;
    int saved_hist_num;
+   int saved_occupancy;
 
 
    /* for reverse computation of a node's fan in*/
