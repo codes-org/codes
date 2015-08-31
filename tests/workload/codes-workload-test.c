@@ -86,7 +86,7 @@ int main(
     configuration_load(argv[2], MPI_COMM_WORLD, &config);
 
 
-    tw_define_lps(lps_per_proc, 512, 0);
+    tw_define_lps(lps_per_proc, 512);
 
     for(i=0; i<lps_per_proc; i++)
     {

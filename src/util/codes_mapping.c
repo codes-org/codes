@@ -540,7 +540,7 @@ void codes_mapping_setup_with_seed_offset(int offset)
   // last one
   g_tw_nRNG_per_lp++;
 
-  tw_define_lps(codes_mapping_get_lps_for_pe(), message_size, 0);
+  tw_define_lps(codes_mapping_get_lps_for_pe(), message_size);
 
   // use a similar computation to codes_mapping_init to compute the lpids and
   // offsets to use in tw_rand_initial_seed

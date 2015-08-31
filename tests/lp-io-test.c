@@ -110,7 +110,7 @@ int main(
 
     lps_per_proc = (NUM_SERVERS) / nprocs;
 
-    tw_define_lps(lps_per_proc, sizeof(struct svr_msg), 0);
+    tw_define_lps(lps_per_proc, sizeof(struct svr_msg));
 
     for(i=0; i<lps_per_proc; i++)
     {
