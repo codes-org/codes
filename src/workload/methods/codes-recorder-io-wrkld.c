@@ -17,7 +17,6 @@
 
 #include "ross.h"
 #include "codes/codes-workload.h"
-#include "src/workload/codes-workload-method.h"
 #include "codes/quickhash.h"
 #include "codes/jenkins-hash.h"
 

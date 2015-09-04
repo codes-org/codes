@@ -8,7 +8,6 @@
 
 #include "ross.h"
 #include "codes/codes-workload.h"
-#include "codes-workload-method.h"
 
 /* list of available methods.  These are statically compiled for now, but we
  * could make generators optional via autoconf tests etc. if needed
@@ -26,7 +25,7 @@ extern struct codes_workload_method recorder_io_workload_method;
 #endif
 extern struct codes_workload_method checkpoint_workload_method;
 
-static struct codes_workload_method *method_array[] =
+static struct codes_workload_method const * method_array_default[] =
 {
     &test_workload_method,
     &iolang_workload_method,
@@ -40,7 +39,13 @@ static struct codes_workload_method *method_array[] =
     &recorder_io_workload_method,
 #endif
     &checkpoint_workload_method,
-    NULL};
+    NULL
+};
+
+// once initialized, adding a workload generator is an error
+static int is_workloads_init = 0;
+static int num_user_methods = 0;
+static struct codes_workload_method const ** method_array = NULL;
 
 /* This shim layer is responsible for queueing up reversed operations and
  * re-issuing them so that the underlying workload generator method doesn't
@@ -70,12 +75,34 @@ struct rank_queue
 
 static struct rank_queue *ranks = NULL;
 
+// only call this once
+static void init_workload_methods(void)
+{
+    if (is_workloads_init)
+        return;
+    if (method_array == NULL)
+        method_array = method_array_default;
+    else {
+        // note - includes null char
+        int num_default_methods =
+            (sizeof(method_array_default) / sizeof(method_array_default[0]));
+        method_array = realloc(method_array,
+                (num_default_methods + num_user_methods + 1) *
+                sizeof(*method_array));
+        memcpy(method_array+num_user_methods, method_array_default,
+                num_default_methods * sizeof(*method_array_default));
+    }
+    is_workloads_init = 1;
+}
+
 codes_workload_config_return codes_workload_read_config(
         ConfigHandle * handle,
         char const * section_name,
         char const * annotation,
         int num_ranks)
 {
+    init_workload_methods();
+
     char type[MAX_NAME_LENGTH_WKLD];
     codes_workload_config_return r;
     r.type = NULL;
@@ -114,6 +141,8 @@ int codes_workload_load(
         int app_id,
         int rank)
 {
+    init_workload_methods();
+
     int i;
     int ret;
     struct rank_queue *tmp;
@@ -375,6 +404,27 @@ void codes_workload_print_op(
                     "%s:%d: codes_workload_print_op: unrecognized workload type "
                     "(op code %d)\n", __FILE__, __LINE__, op->op_type);
     }
+}
+
+void codes_workload_add_method(struct codes_workload_method const * method)
+{
+    static int method_array_cap = 8;
+    if (is_workloads_init)
+        tw_error(TW_LOC,
+                "adding a workload method after initialization is forbidden");
+    else if (method_array == NULL){
+        method_array = malloc(method_array_cap * sizeof(*method_array));
+        assert(method_array);
+    }
+
+    if (num_user_methods == method_array_cap) {
+        method_array_cap *= 2;
+        method_array = realloc(method_array,
+                method_array_cap * sizeof(*method_array));
+        assert(method_array);
+    }
+
+    method_array[num_user_methods++] = method;
 }
 
 /*

@@ -14,7 +14,6 @@
 #include "dumpi/libundumpi/bindings.h"
 #include "dumpi/libundumpi/libundumpi.h"
 #include "codes/codes-workload.h"
-#include "src/workload/codes-workload-method.h"
 #include "codes/quickhash.h"
 
 #define MAX_LENGTH 512

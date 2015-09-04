@@ -17,6 +17,7 @@
 
 #define MAX_NAME_LENGTH_WKLD 512
 
+/* implementations included with codes */
 typedef struct iolang_params iolang_params;
 typedef struct darshan_params darshan_params;
 typedef struct recorder_params recorder_params;
@@ -199,6 +200,13 @@ struct codes_workload_op
     }u;
 };
 
+// helper macro for implementations - call this if multi-app support not
+// available
+#define APP_ID_UNSUPPORTED(id, name) \
+    if (id != 0) \
+        tw_error(TW_LOC,\
+                "APP IDs not supported for %s generator, 0 required", name);
+
 /* read workload configuration from a CODES configuration file and return the
  * workload name and parameters, which can then be passed to
  * codes_workload_load */
@@ -267,6 +275,22 @@ void codes_workload_print_op(
         struct codes_workload_op *op,
         int app_id,
         int rank);
+
+/* implementation structure */
+struct codes_workload_method
+{
+    char *method_name; /* name of the generator */
+    void * (*codes_workload_read_config) (
+            ConfigHandle *handle, char const * section_name,
+            char const * annotation, int num_ranks);
+    int (*codes_workload_load)(const char* params, int app_id, int rank);
+    void (*codes_workload_get_next)(int app_id, int rank, struct codes_workload_op *op);
+    int (*codes_workload_get_rank_cnt)(const char* params, int app_id);
+};
+
+/* dynamically add to the workload implementation table. Must be done BEFORE
+ * calls to codes_workload_read_config or codes_workload_load */
+void codes_workload_add_method(struct codes_workload_method const * method);
 
 /* NOTE: there is deliberately no finalize function; we don't have any
  * reliable way to tell when a workload is truly done and will not

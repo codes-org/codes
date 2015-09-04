@@ -13,7 +13,6 @@
 
 #include "ross.h"
 #include "codes/codes-workload.h"
-#include "src/workload/codes-workload-method.h"
 
 static int test_workload_load(const char* params, int app_id, int rank);
 static void test_workload_get_next(int app_id, int rank, struct codes_workload_op *op);

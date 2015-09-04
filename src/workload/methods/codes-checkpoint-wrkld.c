@@ -12,7 +12,6 @@
 #include "codes/quickhash.h"
 
 #include "codes/codes-workload.h"
-#include "src/workload/codes-workload-method.h"
 
 #define CHECKPOINT_HASH_TABLE_SIZE 251
 

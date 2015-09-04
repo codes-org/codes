@@ -106,6 +106,9 @@ int main(
        return(-1); 
     }
 
+    struct codes_workload_method dummy_method = {"foo", NULL, NULL, NULL, NULL};
+    codes_workload_add_method(&dummy_method);
+
     workload_set_params();
     tw_run();
 
