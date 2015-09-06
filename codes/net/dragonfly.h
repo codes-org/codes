@@ -16,7 +16,6 @@ struct terminal_message
 {
   /* magic number */
   int magic;
-
   /* flit travel start time*/
   tw_stime travel_start_time;
  /* packet ID of the flit  */
@@ -78,6 +77,9 @@ struct terminal_message
 
   /* LP ID of the sending node, has to be a network node in the dragonfly */
    tw_lpid sender_node;
+
+   /* for reverse computation */
+   struct pending_router_msgs * saved_elem; 
 };
 
 #endif /* end of include guard: DRAGONFLY_H */
