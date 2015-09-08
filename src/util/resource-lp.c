@@ -335,9 +335,9 @@ static void handle_resource_reserve_rc(
      * - we expect reserves to happen strictly at the beginning of the
      *   simulation */
     /* NOTE: this logic will change if the resource_reserve logic changes */
-    int tok = ns->r.num_tokens--;
-    ns->r.max[tok] += m->i.req;
-    ns->r.avail[tok] -= m->i.req;
+    ns->r.num_tokens--;
+    ns->r.max[0] += m->i.req;
+    ns->r.avail[0] += m->i.req;
 
     resource_response_rc(lp);
 }
