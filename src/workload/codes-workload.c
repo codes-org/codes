@@ -24,6 +24,7 @@ extern struct codes_workload_method darshan_io_workload_method;
 extern struct codes_workload_method recorder_io_workload_method;
 #endif
 extern struct codes_workload_method checkpoint_workload_method;
+extern struct codes_workload_method iomock_workload_method;
 
 static struct codes_workload_method const * method_array_default[] =
 {
@@ -39,6 +40,7 @@ static struct codes_workload_method const * method_array_default[] =
     &recorder_io_workload_method,
 #endif
     &checkpoint_workload_method,
+    &iomock_workload_method,
     NULL
 };
 
@@ -256,16 +258,16 @@ int codes_workload_get_rank_cnt(
         int app_id)
 {
     int i;
-    int rank_cnt;
 
     for(i=0; method_array[i] != NULL; i++)
     {
         if(strcmp(method_array[i]->method_name, type) == 0)
         {
-            rank_cnt =
-                method_array[i]->codes_workload_get_rank_cnt(params, app_id);
-            assert(rank_cnt > 0);
-            return(rank_cnt);
+            if (method_array[i]->codes_workload_get_rank_cnt != NULL)
+                return method_array[i]->codes_workload_get_rank_cnt(
+                        params, app_id);
+            else
+                return -1;
         }
     }
 

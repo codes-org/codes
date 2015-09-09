@@ -16,6 +16,7 @@ static iolang_params i_params = {0, 0, "", ""};
 static recorder_params r_params = {"", 0};
 static dumpi_trace_params du_params = {"", 0};
 static checkpoint_wrkld_params c_params = {0, 0, 0, 0, 0};
+static iomock_params im_params = {0, 0, 1, 0, 0, 0};
 static int n = -1;
 static int start_rank = 0;
 
@@ -35,11 +36,16 @@ static struct option long_opts[] =
     {"chkpoint-bw", required_argument, NULL, 'B'},
     {"chkpoint-runtime", required_argument, NULL, 'R'},
     {"chkpoint-mtti", required_argument, NULL, 'M'},
+    {"iomock-request-type", required_argument, NULL, 'Q'},
+    {"iomock-num-requests", required_argument, NULL, 'N'},
+    {"iomock-request-size", required_argument, NULL, 'z'},
+    {"iomock-file-id", required_argument, NULL, 'f'},
+    {"iomock-use-uniq-file-ids", no_argument, NULL, 'u'},
     {NULL, 0, NULL, 0}
 };
 
 void usage(){
-    fprintf(stderr,
+    fputs(
             "Usage: codes-workload-dump --type TYPE --num-ranks N [OPTION...]\n"
             "--type: type of workload (\"darshan_io_workload\", \"iolang_workload\", dumpi-trace-workload\" etc.)\n"
             "--num-ranks: number of ranks to process (if not set, it is set by the workload)\n"
@@ -59,7 +65,14 @@ void usage(){
             "--chkpoint-size: size of aggregate checkpoint to write\n"
             "--chkpoint-bw: checkpointing bandwidth\n"
             "--chkpoint-runtime: desired application runtime\n"
-            "--chkpoint-mtti: mean time to interrupt\n");
+            "--chkpoint-mtti: mean time to interrupt\n"
+            "--iomock-request-type: whether to write or read\n"
+            "--iomock-num-requests: number of writes/reads\n"
+            "--iomock-request-size: size of each request\n"
+            "--iomock-file-id: file id to use for requests\n"
+            "--iomock-use-uniq-file-ids: whether to offset file ids by rank\n",
+            stderr
+            );
 }
 
 int main(int argc, char *argv[])
@@ -104,7 +117,8 @@ int main(int argc, char *argv[])
     int64_t num_testalls = 0;
 
     char ch;
-    while ((ch = getopt_long(argc, argv, "t:n:l:a:m:sp:wr:", long_opts, NULL)) != -1){
+    while ((ch = getopt_long(argc, argv, "t:n:l:a:m:sp:wr:S:B:R:M:Q:N:z:f:u",
+                    long_opts, NULL)) != -1){
         switch (ch){
             case 't':
                 strcpy(type, optarg);
@@ -153,6 +167,21 @@ int main(int argc, char *argv[])
             case 'M':
                 c_params.mtti = atof(optarg);
                 break;
+            case 'Q':
+                im_params.is_write = (strcmp("write", optarg) == 0);
+                break;
+            case 'N':
+                im_params.num_requests = atoi(optarg);
+                break;
+            case 'z':
+                im_params.request_size = atoi(optarg);
+                break;
+            case 'f':
+                im_params.file_id = (uint64_t) atoll(optarg);
+                break;
+            case 'u':
+                im_params.use_uniq_file_ids = 1;
+                break;
         }
     }
 
@@ -164,7 +193,11 @@ int main(int argc, char *argv[])
 
     int i;
     char *wparams;
-    if (strcmp(type, "darshan_io_workload") == 0){
+    if (strcmp(type, "iomock_workload") == 0) {
+        // TODO: more involved input checking
+        wparams = (char*) &im_params;
+    }
+    else if (strcmp(type, "darshan_io_workload") == 0){
         if (d_params.log_file_path[0] == '\0'){
             fprintf(stderr, "Expected \"--d-log\" argument for darshan workload\n");
             usage();

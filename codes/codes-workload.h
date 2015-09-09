@@ -18,6 +18,7 @@
 #define MAX_NAME_LENGTH_WKLD 512
 
 /* implementations included with codes */
+typedef struct iomock_params iomock_params;
 typedef struct iolang_params iolang_params;
 typedef struct darshan_params darshan_params;
 typedef struct recorder_params recorder_params;
@@ -25,6 +26,18 @@ typedef struct recorder_params recorder_params;
 /* struct to hold the actual data from a single MPI event*/
 typedef struct dumpi_trace_params dumpi_trace_params;
 typedef struct checkpoint_wrkld_params checkpoint_wrkld_params;
+
+struct iomock_params
+{
+    uint64_t file_id;
+    int use_uniq_file_ids;
+    int is_write;
+    int num_requests;
+    int request_size;
+    // for optimizing lookup - set higher (>= num ranks) to reduce collisions
+    // and 0 to use the default
+    int rank_table_size;
+};
 
 struct iolang_params
 {

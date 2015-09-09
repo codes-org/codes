@@ -108,6 +108,7 @@ src_libcodes_base_a_SOURCES =  \
     src/workload/methods/codes-iolang-wrkld.c \
     src/workload/methods/codes-checkpoint-wrkld.c \
     src/workload/methods/test-workload-method.c \
+	src/workload/methods/codes-iomock-wrkld.c \
 	codes/rc-stack.h \
 	src/util/rc-stack.c
 
