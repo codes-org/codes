@@ -66,6 +66,7 @@ void usage(){
             "--chkpoint-bw: checkpointing bandwidth\n"
             "--chkpoint-runtime: desired application runtime\n"
             "--chkpoint-mtti: mean time to interrupt\n"
+            "MOCK IO OPTIONS (iomock_workload)\n"
             "--iomock-request-type: whether to write or read\n"
             "--iomock-num-requests: number of writes/reads\n"
             "--iomock-request-size: size of each request\n"
