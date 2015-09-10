@@ -43,7 +43,7 @@ struct model_net_method* method_array[] = {
 #undef X
 
 // counter and offset for the MN_START_SEQ / MN_END_SEQ macros
-int mn_in_seqence = 0;
+int mn_in_sequence = 0;
 tw_stime mn_msg_offset = 0.0;
 
 // message parameters for use via model_net_set_msg_param
@@ -221,7 +221,42 @@ struct mn_stats* model_net_find_stats(char const * category, mn_stats mn_stats_a
     return(&mn_stats_array[i]);
 }
 
-static void model_net_event_impl_base(
+static model_net_event_return model_net_noop_event(
+        tw_lpid final_dest_lp,
+        int is_pull,
+        tw_stime offset,
+        int remote_event_size,
+        void const * remote_event,
+        int self_event_size,
+        void const * self_event,
+        tw_lp *sender)
+{
+    model_net_event_return num_rng_calls = 0;
+    tw_stime poffset = mn_in_sequence ? mn_msg_offset : 0.0;
+
+    if (self_event_size && self_event != NULL) {
+        poffset += codes_local_latency(sender);
+        num_rng_calls++;
+        tw_event *e = tw_event_new(sender->gid, poffset+offset, sender);
+        memcpy(tw_event_data(e), self_event, self_event_size);
+        tw_event_send(e);
+    }
+
+    if (remote_event_size && remote_event != NULL) {
+        poffset += codes_local_latency(sender);
+        num_rng_calls++;
+        tw_event *e = tw_event_new(final_dest_lp, poffset+offset, sender);
+        memcpy(tw_event_data(e), remote_event, remote_event_size);
+        tw_event_send(e);
+    }
+
+    if (mn_in_sequence)
+        mn_msg_offset += poffset;
+
+    return num_rng_calls;
+}
+
+static model_net_event_return model_net_event_impl_base(
         int net_id,
         struct codes_mctx const * send_map_ctx,
         struct codes_mctx const * recv_map_ctx,
@@ -242,7 +277,7 @@ static void model_net_event_impl_base(
                          "%d but ROSS is configured for events of size %zd\n",
                          remote_event_size+self_event_size+sizeof(model_net_wrap_msg),
                          g_tw_msg_sz);
-        return;
+        return -1;
     }
 
     tw_lpid src_mn_lp = model_net_find_local_device_mctx(net_id, send_map_ctx,
@@ -250,13 +285,19 @@ static void model_net_event_impl_base(
     tw_lpid dest_mn_lp = model_net_find_local_device_mctx(net_id, recv_map_ctx,
             final_dest_lp);
 
+    if (src_mn_lp == dest_mn_lp)
+        return model_net_noop_event(final_dest_lp, is_pull, offset,
+                remote_event_size, remote_event, self_event_size, self_event,
+                sender);
+
     tw_stime poffset = codes_local_latency(sender);
-    if (mn_in_seqence){
+    if (mn_in_sequence){
         tw_stime tmp = mn_msg_offset;
         mn_msg_offset += poffset;
         poffset += tmp;
     }
-    tw_event *e = codes_event_new(src_mn_lp, poffset+offset, sender);
+
+    tw_event *e = tw_event_new(src_mn_lp, poffset+offset, sender);
 
     model_net_wrap_msg *m = tw_event_data(e);
     msg_set_header(model_net_base_magic, MN_BASE_NEW_MSG, sender->gid, &m->h);
@@ -276,7 +317,7 @@ static void model_net_event_impl_base(
 
     // this is an outgoing message
     m->msg.m_base.is_from_remote = 0;
-    
+
     // set the msg-specific params
     if (is_msg_params_set[MN_SCHED_PARAM_PRIO])
         m->msg.m_base.sched_params = sched_params;
@@ -297,12 +338,14 @@ static void model_net_event_impl_base(
 
     //print_base(m);
     tw_event_send(e);
+
+    return 1;
 }
 static void model_net_event_impl_base_rc(tw_lp *sender){
     codes_local_latency_reverse(sender);
 }
 
-void model_net_event(
+model_net_event_return model_net_event(
     int net_id,
     char const * category, 
     tw_lpid final_dest_lp, 
@@ -314,49 +357,50 @@ void model_net_event(
     void const * self_event,
     tw_lp *sender)
 {
-    model_net_event_impl_base(net_id, CODES_MCTX_DEFAULT, CODES_MCTX_DEFAULT,
+    return model_net_event_impl_base(net_id, CODES_MCTX_DEFAULT,
+            CODES_MCTX_DEFAULT, category, final_dest_lp, message_size, 0,
+            offset, remote_event_size, remote_event, self_event_size,
+            self_event, sender);
+}
+
+model_net_event_return model_net_event_annotated(
+        int net_id,
+        char const * annotation,
+        char const * category, 
+        tw_lpid final_dest_lp, 
+        uint64_t message_size, 
+        tw_stime offset,
+        int remote_event_size,
+        void const * remote_event,
+        int self_event_size,
+        void const * self_event,
+        tw_lp *sender){
+    struct codes_mctx mc = codes_mctx_set_group_modulo(annotation, true);
+    return model_net_event_impl_base(net_id, &mc, &mc, category, final_dest_lp,
+            message_size, 0, offset, remote_event_size, remote_event,
+            self_event_size, self_event, sender);
+}
+
+model_net_event_return model_net_event_mctx(
+        int net_id,
+        struct codes_mctx const * send_map_ctx,
+        struct codes_mctx const * recv_map_ctx,
+        char const * category, 
+        tw_lpid final_dest_lp, 
+        uint64_t message_size, 
+        tw_stime offset,
+        int remote_event_size,
+        void const * remote_event,
+        int self_event_size,
+        void const * self_event,
+        tw_lp *sender){
+    return model_net_event_impl_base(net_id, send_map_ctx, recv_map_ctx,
             category, final_dest_lp, message_size, 0, offset,
             remote_event_size, remote_event, self_event_size, self_event,
             sender);
 }
 
-void model_net_event_annotated(
-        int net_id,
-        char const * annotation,
-        char const * category, 
-        tw_lpid final_dest_lp, 
-        uint64_t message_size, 
-        tw_stime offset,
-        int remote_event_size,
-        void const * remote_event,
-        int self_event_size,
-        void const * self_event,
-        tw_lp *sender){
-    struct codes_mctx mc = codes_mctx_set_group_modulo(annotation, true);
-    model_net_event_impl_base(net_id, &mc, &mc, category, final_dest_lp,
-            message_size, 0, offset, remote_event_size, remote_event,
-            self_event_size, self_event, sender);
-}
-
-void model_net_event_mctx(
-        int net_id,
-        struct codes_mctx const * send_map_ctx,
-        struct codes_mctx const * recv_map_ctx,
-        char const * category, 
-        tw_lpid final_dest_lp, 
-        uint64_t message_size, 
-        tw_stime offset,
-        int remote_event_size,
-        void const * remote_event,
-        int self_event_size,
-        void const * self_event,
-        tw_lp *sender){
-    model_net_event_impl_base(net_id, send_map_ctx, recv_map_ctx, category,
-            final_dest_lp, message_size, 0, offset, remote_event_size,
-            remote_event, self_event_size, self_event, sender);
-}
-
-void model_net_pull_event(
+model_net_event_return model_net_pull_event(
         int net_id,
         char const *category,
         tw_lpid final_dest_lp,
@@ -367,12 +411,12 @@ void model_net_pull_event(
         tw_lp *sender){
     /* NOTE: for a pull, we are filling the *remote* event - it will be remote
      * from the destination's POV */
-    model_net_event_impl_base(net_id, CODES_MCTX_DEFAULT, CODES_MCTX_DEFAULT,
-            category, final_dest_lp, message_size, 1, offset, self_event_size,
-            self_event, 0, NULL, sender);
+    return model_net_event_impl_base(net_id, CODES_MCTX_DEFAULT,
+            CODES_MCTX_DEFAULT, category, final_dest_lp, message_size, 1,
+            offset, self_event_size, self_event, 0, NULL, sender);
 }
 
-void model_net_pull_event_annotated(
+model_net_event_return model_net_pull_event_annotated(
         int net_id,
         char const * annotation,
         char const *category,
@@ -385,12 +429,12 @@ void model_net_pull_event_annotated(
     /* NOTE: for a pull, we are filling the *remote* event - it will be remote
      * from the destination's POV */
     struct codes_mctx mc = codes_mctx_set_group_modulo(annotation, true);
-    model_net_event_impl_base(net_id, &mc, &mc, category, final_dest_lp,
+    return model_net_event_impl_base(net_id, &mc, &mc, category, final_dest_lp,
             message_size, 1, offset, self_event_size, self_event, 0, NULL,
             sender);
 }
 
-void model_net_pull_event_mctx(
+model_net_event_return model_net_pull_event_mctx(
         int net_id,
         struct codes_mctx const * send_map_ctx,
         struct codes_mctx const * recv_map_ctx,
@@ -403,9 +447,17 @@ void model_net_pull_event_mctx(
         tw_lp *sender){
     /* NOTE: for a pull, we are filling the *remote* event - it will be remote
      * from the destination's POV */
-    model_net_event_impl_base(net_id, send_map_ctx, recv_map_ctx, category,
-            final_dest_lp, message_size, 1, offset, self_event_size,
+    return model_net_event_impl_base(net_id, send_map_ctx, recv_map_ctx,
+            category, final_dest_lp, message_size, 1, offset, self_event_size,
             self_event, 0, NULL, sender);
+}
+
+void model_net_event_rc2(
+        tw_lp *sender,
+        model_net_event_return const * ret)
+{
+    for (int i = 0; i < *ret; i++)
+        codes_local_latency_reverse(sender);
 }
 
 void model_net_event_rc(

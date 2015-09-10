@@ -20,6 +20,13 @@
 #define CATEGORY_NAME_MAX 16
 #define CATEGORY_MAX 12
 
+// simple deprecation attribute hacking
+#if defined(__GNUC__) || defined(__GNUG__) || defined(__clang__)
+#define DEPRECATED(_msg) __attribute__((deprecated(_msg)))
+#else
+#define DEPRECATED(_msg)
+#endif
+
 /* HACK: there is currently no scheduling fidelity across multiple
  * model_net_event calls. Hence, problems arise when some LP sends multiple
  * messages as part of an event and expects FCFS ordering. A proper fix which
@@ -27,14 +34,14 @@
  * feasible for now (would basically have to redesign model-net), so expose
  * explicit start-sequence and stop-sequence markers as a workaround
  */
-extern int mn_in_seqence;
+extern int mn_in_sequence;
 extern tw_stime mn_msg_offset;
 #define MN_START_SEQ() do {\
-    mn_in_seqence = 1; \
+    mn_in_sequence = 1; \
     mn_msg_offset = 0.0; \
 } while (0)
 #define MN_END_SEQ() do {\
-    mn_in_seqence = 0;\
+    mn_in_sequence = 0;\
 } while (0)
 
 
@@ -64,6 +71,11 @@ enum msg_param_type {
     MN_MSG_PARAM_SCHED,
     MAX_MN_MSG_PARAM_TYPES
 };
+
+// return type for model_net_*event calls, to be passed into RC
+// currently is just an int, but in the future may indicate whether lp-io was
+// called etc.
+typedef int model_net_event_return;
 
 // network identifiers (both the config lp names and the model-net internal
 // names)
@@ -175,7 +187,7 @@ void model_net_event_collective_rc(
  * when calculating *both* sender and receiver modelnet LPs
  */
 // first argument becomes the network ID
-void model_net_event(
+model_net_event_return model_net_event(
     int net_id,
     char const * category, 
     tw_lpid final_dest_lp, 
@@ -194,7 +206,7 @@ void model_net_event(
  * annotation is not consulted here. The corresponding CODES map context is
  * CODES_MCTX_GROUP_MODULO with the supplied annotation arguments.
  */
-void model_net_event_annotated(
+model_net_event_return model_net_event_annotated(
         int net_id,
         char const * annotation,
         char const * category, 
@@ -212,7 +224,7 @@ void model_net_event_annotated(
  * This variant uses CODES map contexts to calculate the sender and receiver
  * modelnet LPs
  */
-void model_net_event_mctx(
+model_net_event_return model_net_event_mctx(
         int net_id,
         struct codes_mctx const * send_map_ctx,
         struct codes_mctx const * recv_map_ctx,
@@ -257,11 +269,18 @@ int model_net_get_msg_sz(int net_id);
 /* NOTE: we may end up needing additoinal arguments here to track state for
  * reverse computation; add as needed 
  */
+DEPRECATED("use model_net_event_rc2 instead, invalid RNG rollback can occur otherwise")
 void model_net_event_rc(
     int net_id,
     tw_lp *sender,
     uint64_t message_size);
 
+/* This function replaces model_net_event_rc, and will replace the name later
+ * on. The num_rng_calls argument is the return value of model_net_*event*
+ * calls */
+void model_net_event_rc2(
+        tw_lp *sender,
+        model_net_event_return const * ret);
 
 /* Issue a 'pull' from the memory of the destination LP, without
  * requiring the destination LP to do event processing. This is meant as a
@@ -275,7 +294,7 @@ void model_net_event_rc(
  * - self_event_size, self_event are applied at the requester upon receipt of 
  *   the payload from the dest
  */
-void model_net_pull_event(
+model_net_event_return model_net_pull_event(
         int net_id,
         char const *category,
         tw_lpid final_dest_lp,
@@ -284,7 +303,7 @@ void model_net_pull_event(
         int self_event_size,
         void const *self_event,
         tw_lp *sender);
-void model_net_pull_event_annotated(
+model_net_event_return model_net_pull_event_annotated(
         int net_id,
         char const * annotation,
         char const *category,
@@ -294,7 +313,7 @@ void model_net_pull_event_annotated(
         int self_event_size,
         void const *self_event,
         tw_lp *sender);
-void model_net_pull_event_mctx(
+model_net_event_return model_net_pull_event_mctx(
         int net_id,
         struct codes_mctx const * send_map_ctx,
         struct codes_mctx const * recv_map_ctx,
@@ -305,6 +324,8 @@ void model_net_pull_event_mctx(
         int self_event_size,
         void const *self_event,
         tw_lp *sender);
+
+DEPRECATED("use model_net_event_rc2 instead, invalid RNG rollback can occur otherwise")
 void model_net_pull_event_rc(
         int net_id,
         tw_lp *sender);
