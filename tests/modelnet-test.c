@@ -24,7 +24,7 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 
-#define NUM_REQS 5  /* number of requests sent by each server */
+#define NUM_REQS 2  /* number of requests sent by each server */
 #define PAYLOAD_SZ 4096 /* size of simulated data payload, bytes  */
 
 static int net_id = 0;
@@ -455,7 +455,7 @@ static void handle_ack_event(
     memcpy(m_remote, m_local, sizeof(svr_msg));
     m_remote->svr_event_type = (do_pull) ? ACK : REQ;
 
-    printf("handle_ack_event(), lp %llu.\n", (unsigned long long)lp->gid);
+    //printf("handle_ack_event(), lp %llu.\n", (unsigned long long)lp->gid);
 
     /* safety check that this request got to the right server */
 //    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
@@ -514,7 +514,7 @@ static void handle_req_event(
 
     memcpy(m_remote, m_local, sizeof(svr_msg));
     m_remote->svr_event_type = ACK;
-    printf("handle_req_event(), lp %llu src %llu .\n", (unsigned long long)lp->gid, (unsigned long long) m->src);
+    //printf("handle_req_event(), lp %llu src %llu .\n", (unsigned long long)lp->gid, (unsigned long long) m->src);
 
     /* safety check that this request got to the right server */
 //    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
