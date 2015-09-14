@@ -40,6 +40,9 @@ struct terminal_message
 
   /* number of hops traversed by the packet */
   short my_N_hop;
+  short my_l_hop, my_g_hop;
+  short saved_channel;
+
   /* Intermediate LP ID from which this message is coming */
   unsigned int intm_lp_id;
   short new_vc;
@@ -77,6 +80,7 @@ struct terminal_message
 
   /* LP ID of the sending node, has to be a network node in the dragonfly */
    tw_lpid sender_node;
+   tw_lpid next_stop;
 
    /* for reverse computation */
    struct pending_router_msgs * saved_elem; 

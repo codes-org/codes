@@ -915,7 +915,7 @@ static void packet_generate( nodes_state * s,
         m_gen_data_src = (char*)m_gen_data_src + msg->remote_event_size_bytes;
       }
     if (msg->local_event_size_bytes)
-   	memcpy(m_gen_data, m_gen_data_src, msg->local_event_size_bytes);
+     	memcpy(m_gen_data, m_gen_data_src, msg->local_event_size_bytes);
 
      tw_event_send(e_gen); 
   }
