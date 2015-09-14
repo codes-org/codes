@@ -302,8 +302,9 @@ static void create_prepend_to_terminal_message_list(
     init_terminal_message_list(new_entry, msg);
     if(msg->remote_event_size_bytes) {
         void *m_data = model_net_method_get_edata(DRAGONFLY, msg);
-        new_entry->event_data = (void*)malloc(msg->remote_event_size_bytes);
-        memcpy(new_entry->event_data, m_data, msg->remote_event_size_bytes);
+        size_t s = msg->remote_event_size_bytes + msg->local_event_size_bytes;
+        new_entry->event_data = (void*)malloc(s);
+        memcpy(new_entry->event_data, m_data, s);
     }
     prepend_to_terminal_message_list( thisq, thistail, index, new_entry);
 }
