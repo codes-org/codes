@@ -8,7 +8,7 @@ release (0.4.0), ROSS's latest commit hash was 44b7b9a, so this revision is
 working from the CODES master branches, use the ROSS master branch.
 
     git clone http://github.com/carothersc/ROSS.git
-    # optional: git checkout c04babe
+    # if using 0.4.0 release: git checkout 44b7b9a
     cd ROSS
     mkdir build
     cd build
