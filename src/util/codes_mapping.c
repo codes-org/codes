@@ -359,7 +359,7 @@ void codes_mapping_get_lp_info(
             // we've found the group
             tw_lpid rem = gid - id_total;
             if (group_name != NULL)
-                strncpy(group_name, lpg->name.ptr, MAX_NAME_LENGTH);
+                strcpy(group_name, lpg->name.ptr);
             *group_index = g;
             // find repetition within group
             *rep_id = (int) (rem / num_id_per_rep);
@@ -370,12 +370,12 @@ void codes_mapping_get_lp_info(
                 if (rem < num_id_per_rep + lpt->count){
                     // found the specific LP
                     if (lp_type_name != NULL)
-                        strncpy(lp_type_name, lpt->name.ptr, MAX_NAME_LENGTH);
+                        strcpy(lp_type_name, lpt->name.ptr);
                     if (annotation != NULL) {
                         if (lpt->anno.ptr == NULL)
                             annotation[0] = '\0';
                         else
-                            strncpy(annotation, lpt->anno.ptr, MAX_NAME_LENGTH);
+                            strcpy(annotation, lpt->anno.ptr);
                     }
                     *offset = (int) (rem - num_id_per_rep);
                     *lp_type_index = l;
