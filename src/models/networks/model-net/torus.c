@@ -983,6 +983,7 @@ static void packet_send( nodes_state * s,
 
     if(s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ] < s->params->buffer_size)
     {
+  
        bf->c2 = 1;
        msg->saved_src_dir = tmp_dir;
        msg->saved_src_dim = tmp_dim;
@@ -1070,12 +1071,12 @@ static void packet_arrive( nodes_state * s,
   nodes_message *m;
   mn_stats* stat;
 
-  credit_send( s, bf, lp, msg); 
-  
   msg->my_N_hop++;
   ts = 0.1 + tw_rand_exponential(lp->rng, MEAN_INTERVAL/200);
   if(msg->packet_ID == TRACE)
 	  printf("\n packet arrived at lp %d final dest %d ", (int)lp->gid, (int)msg->dest_lp);
+       
+  credit_send( s, bf, lp, msg); 
   if( lp->gid == msg->dest_lp )
     {   
         uint64_t num_chunks = msg->packet_size/s->params->chunk_size;

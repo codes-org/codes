@@ -922,7 +922,7 @@ void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, 
        num_chunks++;
 
    if(!num_chunks)
-       num_chunks++;
+       num_chunks = 1;
 
    int i;
    for(i = 0; i < num_chunks; i++) {
@@ -959,6 +959,10 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
   int i, total_event_size;
   int num_chunks = msg->packet_size / p->chunk_size;
   if (msg->packet_size % s->params->chunk_size) num_chunks++;
+
+  if(!num_chunks)
+    num_chunks = 1;
+
   msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter; 
   msg->travel_start_time = tw_now(lp);
   msg->my_N_hop = 0;
@@ -1103,6 +1107,9 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   if(cur_entry->msg.packet_size % s->params->chunk_size)
     num_chunks++;
 
+  if(!num_chunks)
+      num_chunks = 1;
+
   if(cur_entry->msg.chunk_id == num_chunks - 1 && 
       (cur_entry->msg.local_event_size_bytes > 0)) {
     bf->c2 = 1;
@@ -1187,6 +1194,8 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   int num_chunks = msg->packet_size / s->params->chunk_size;
   if (msg->packet_size % s->params->chunk_size)
     num_chunks++;
+  if(!num_chunks)
+      num_chunks = 1;
 
   completed_packets++;
 
@@ -1639,7 +1648,7 @@ void dragonfly_router_final(router_state * s,
 		tw_lp * lp)
 {
    free(s->global_channel);
-    char *stats_file = getenv("TRACER_LINK_FILE");
+    /*char *stats_file = getenv("TRACER_LINK_FILE");
     if(stats_file != NULL) {
         FILE *fout = fopen(stats_file, "a");
         const dragonfly_param *p = s->params;
@@ -1653,7 +1662,7 @@ void dragonfly_router_final(router_state * s,
         fprintf(fout, "\n");
         result = flock(fileno(fout), LOCK_UN);
         fclose(fout);
-    }
+    }*/
     int i, j;
     for(i = 0; i < s->params->radix; i++) {
       for(j = 0; j < 3; j++) {
