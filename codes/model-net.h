@@ -22,9 +22,9 @@
 
 // simple deprecation attribute hacking
 #if defined(__GNUC__) || defined(__GNUG__) || defined(__clang__)
-#define DEPRECATED(_msg) __attribute__((deprecated))
+#define DEPRECATED __attribute__((deprecated))
 #else
-#define DEPRECATED(_msg)
+#define DEPRECATED
 #endif
 
 /* HACK: there is currently no scheduling fidelity across multiple
@@ -269,7 +269,7 @@ int model_net_get_msg_sz(int net_id);
 /* NOTE: we may end up needing additoinal arguments here to track state for
  * reverse computation; add as needed 
  */
-DEPRECATED("use model_net_event_rc2 instead, invalid RNG rollback can occur otherwise")
+DEPRECATED
 void model_net_event_rc(
     int net_id,
     tw_lp *sender,
@@ -325,7 +325,7 @@ model_net_event_return model_net_pull_event_mctx(
         void const *self_event,
         tw_lp *sender);
 
-DEPRECATED("use model_net_event_rc2 instead, invalid RNG rollback can occur otherwise")
+DEPRECATED
 void model_net_pull_event_rc(
         int net_id,
         tw_lp *sender);
