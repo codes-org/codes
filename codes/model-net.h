@@ -22,7 +22,7 @@
 
 // simple deprecation attribute hacking
 #if defined(__GNUC__) || defined(__GNUG__) || defined(__clang__)
-#define DEPRECATED(_msg) __attribute__((deprecated(_msg)))
+#define DEPRECATED(_msg) __attribute__((deprecated))
 #else
 #define DEPRECATED(_msg)
 #endif
