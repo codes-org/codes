@@ -476,7 +476,6 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     p->global_delay = bytes_to_ns(p->chunk_size, p->global_bandwidth);
     p->credit_delay = bytes_to_ns(8.0, p->local_bandwidth); //assume 8 bytes packet
 
-    printf("\n CN delay %f local delay %f global delay %f credit delay %f ", p->cn_delay, p->local_delay, p->global_delay, p->credit_delay);
 }
 
 static void dragonfly_configure(){
