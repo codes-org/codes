@@ -32,10 +32,10 @@
 #define WINDOW_LENGTH 0
 
 // debugging parameters
-#define TRACK -1
+#define TRACK 10
 #define PRINT_ROUTER_TABLE 1
 #define DEBUG 0
-#define USE_DIRECT_SCHEME 1
+#define USE_DIRECT_SCHEME 0
 
 #define LP_CONFIG_NM (model_net_lp_config_names[DRAGONFLY])
 #define LP_METHOD_NM (model_net_method_names[DRAGONFLY])
@@ -478,11 +478,12 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
                 p->radix);
     }
     
-    p->cn_delay = (1.0 / p->cn_bandwidth) * p->chunk_size;
-    p->local_delay = (1.0 / p->local_bandwidth) * p->chunk_size;
-    p->global_delay = (1.0 / p->global_bandwidth) * p->chunk_size;
-    p->credit_delay = (1.0 / p->local_bandwidth) * 8; //assume 8 bytes packet
+    p->cn_delay = bytes_to_ns(p->chunk_size, p->cn_bandwidth);
+    p->local_delay = bytes_to_ns(p->chunk_size, p->local_bandwidth);
+    p->global_delay = bytes_to_ns(p->chunk_size, p->global_bandwidth);
+    p->credit_delay = bytes_to_ns(8.0, p->local_bandwidth); //assume 8 bytes packet
 
+    printf("\n CN delay %f local delay %f global delay %f credit delay %f ", p->cn_delay, p->local_delay, p->global_delay, p->credit_delay);
 }
 
 static void dragonfly_configure(){
@@ -521,7 +522,7 @@ static void dragonfly_report_stats()
    /* print statistics */
    if(!g_tw_mynode)
    {	
-      printf(" Average number of hops traversed %f average message latency %lf us maximum message latency %lf us \n", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets*1000), max_time/1000);
+      printf(" Average number of hops traversed %f average message latency %lf us maximum message latency %lf us avg time %lf \n", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets*1000), max_time/1000, avg_time);
      if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
               printf("\n ADAPTIVE ROUTING STATS: %d percent packets routed minimally %d percent packets routed non-minimally completed packets %d ", total_minimal_packets, total_nonmin_packets, total_completed_packets);
  
@@ -773,7 +774,8 @@ static tw_stime dragonfly_packet_event(const char* category,
     uint64_t packet_size, int is_pull, 
     uint64_t pull_size, tw_stime offset, const mn_sched_params *sched_params, 
     int remote_event_size, const void* remote_event, int self_event_size, 
-    const void* self_event, tw_lpid src_lp, tw_lp *sender, int is_last_pckt) {
+    const void* self_event, tw_lpid src_lp, tw_lp *sender, int is_last_pckt) 
+{
     tw_event * e_new;
     tw_stime xfer_to_nic_time;
     terminal_message * msg;
@@ -1195,7 +1197,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   if (msg->packet_size % s->params->chunk_size)
     num_chunks++;
   if(!num_chunks)
-      num_chunks = 1;
+        num_chunks = 1;
 
   completed_packets++;
 
@@ -1736,19 +1738,17 @@ get_next_stop(router_state * s,
 
    dest_group_id = dest_router_id / s->params->num_routers;
 
-  /* If the packet has arrived at the destination router */
-   if(dest_router_id == local_router_id)
-    {
-        dest_lp = msg->dest_terminal_id;
-        return dest_lp;
-    }
    /* Generate inter-mediate destination for non-minimal routing (selecting a random group) */
    if(msg->last_hop == TERMINAL && path == NON_MINIMAL)
     {
-      if(dest_group_id != s->group_id)
-         {
 	    msg->intm_group_id = intm_id;
-          }    
+    }
+  
+   /* If the packet has arrived at the destination router */
+   if(dest_router_id == local_router_id && msg->intm_group_id == -1)
+    {
+        dest_lp = msg->dest_terminal_id;
+        return dest_lp;
     }
    /******************** DECIDE THE DESTINATION GROUP ***********************/
   /* It means that the packet has arrived at the inter-mediate group for non-minimal routing. Reset the group now. */
@@ -1757,8 +1757,7 @@ get_next_stop(router_state * s,
            msg->intm_group_id = -1;//no inter-mediate group
    } 
   /* Intermediate group ID is set. Divert the packet to the intermediate group. */
-  if(path == NON_MINIMAL && msg->intm_group_id >= 0 && 
-      (dest_group_id != s->group_id))
+  if(path == NON_MINIMAL && msg->intm_group_id >= 0)
    {
       dest_group_id = msg->intm_group_id;
    }
@@ -1796,6 +1795,7 @@ get_next_stop(router_state * s,
    }
   codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", s->anno, 0, dest_lp,
           0, &router_dest_id);
+
   return router_dest_id;
 }
 /* gets the output port corresponding to the next stop of the message */
