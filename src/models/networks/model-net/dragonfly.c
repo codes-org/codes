@@ -393,13 +393,6 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
                 p->num_routers);
     }
 
-    /*configuration_get_value_int(&config, "PARAMS", "num_vcs", anno,
-            &p->num_vcs);
-    if(p->num_vcs <= 0) {
-        p->num_vcs = 1;
-        fprintf(stderr, "Number of virtual channels not specified, setting to %d\n", p->num_vcs);
-    }*/
-    
     p->num_vcs = 3;
 
     configuration_get_value_int(&config, "PARAMS", "local_vc_size", anno, &p->local_vc_size);
@@ -422,7 +415,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
 
     configuration_get_value_int(&config, "PARAMS", "chunk_size", anno, &p->chunk_size);
     if(!p->chunk_size) {
-        p->chunk_size = 64;
+        p->chunk_size = 512;
         fprintf(stderr, "Chunk size for packets is specified, setting to %d\n", p->chunk_size);
     }
 
@@ -956,7 +949,7 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
   const dragonfly_param *p = s->params;
 
   ts = g_tw_lookahead + s->params->cn_delay + tw_rand_unif(lp->rng);
-  model_net_method_idle_event(ts, 0, lp);
+  model_net_method_idle_event(codes_local_latency(lp), 0, lp);
 
   int i, total_event_size;
   int num_chunks = msg->packet_size / p->chunk_size;
@@ -1074,6 +1067,7 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
     return;
   }
 
+//  printf("\n Packet %ld sent at time %lf ", cur_entry->msg.packet_ID, tw_now(lp));
   msg->saved_available_time = s->terminal_available_time;
   ts = g_tw_lookahead + s->params->cn_delay + tw_rand_unif(lp->rng);
   s->terminal_available_time = maxd(s->terminal_available_time, tw_now(lp));
