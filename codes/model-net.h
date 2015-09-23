@@ -355,6 +355,7 @@ void model_net_set_msg_param(
 /* returns pointer to LP information for simplenet module */
 const tw_lptype* model_net_get_lp_type(int net_id);
 
+DEPRECATED
 uint64_t model_net_get_packet_size(int net_id);
 
 /* used for reporting overall network statistics for e.g. average latency ,
