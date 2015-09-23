@@ -346,47 +346,56 @@ static int torus_get_msg_sz(void)
 }
 
 /* torus packet event , generates a torus packet on the compute node */
-static tw_stime torus_packet_event(char const * category, tw_lpid final_dest_lp, tw_lpid dest_mn_lp, uint64_t packet_size, int is_pull, uint64_t pull_size, tw_stime offset, const mn_sched_params *sched_params, int remote_event_size, const void* remote_event, int self_event_size, const void* self_event, tw_lpid src_lp, tw_lp *sender, int is_last_pckt)
+static tw_stime torus_packet_event(
+        model_net_request const * req,
+        uint64_t message_offset,
+        uint64_t packet_size,
+        tw_stime offset,
+        mn_sched_params const * sched_params,
+        void const * remote_event,
+        void const * self_event,
+        tw_lp *sender,
+        int is_last_pckt)
 {
     tw_event * e_new;
     tw_stime xfer_to_nic_time;
     nodes_message * msg;
     char* tmp_ptr;
-   
+
     xfer_to_nic_time = g_tw_lookahead + codes_local_latency(sender); /* Throws an error of found last KP time > current event time otherwise */
     //e_new = tw_event_new(local_nic_id, xfer_to_nic_time+offset, sender);
     //msg = tw_event_data(e_new);
     e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
             sender, TORUS, (void**)&msg, (void**)&tmp_ptr);
-    strcpy(msg->category, category);
-    msg->final_dest_gid = final_dest_lp;
-    msg->dest_lp = dest_mn_lp;
-    msg->sender_svr= src_lp;
+    strcpy(msg->category, req->category);
+    msg->final_dest_gid = req->final_dest_lp;
+    msg->dest_lp = req->dest_mn_lp;
+    msg->sender_svr= req->src_lp;
     msg->sender_node = sender->gid;
     msg->packet_size = packet_size;
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
     msg->chunk_id = 0;
     msg->type = GENERATE;
-    msg->is_pull = is_pull;
-    msg->pull_size = pull_size;
-    
+    msg->is_pull = req->is_pull;
+    msg->pull_size = req->pull_size;
+
     if(is_last_pckt) /* Its the last packet so pass in remote event information*/
-     {
-	if(remote_event_size > 0)
-	 {
-	    msg->remote_event_size_bytes = remote_event_size;
-	    memcpy(tmp_ptr, remote_event, remote_event_size);
-	    tmp_ptr += remote_event_size;
-         }
-	if(self_event_size > 0)
-	{
-	   msg->local_event_size_bytes = self_event_size;
-	   memcpy(tmp_ptr, self_event, self_event_size);
-	   tmp_ptr += self_event_size;
-	}
-      // printf("\n torus remote event %d local event %d last packet %d %lf ", msg->remote_event_size_bytes, msg->local_event_size_bytes, is_last_pckt, xfer_to_nic_time);
-     }
+    {
+        if(req->remote_event_size > 0)
+        {
+            msg->remote_event_size_bytes = req->remote_event_size;
+            memcpy(tmp_ptr, remote_event, req->remote_event_size);
+            tmp_ptr += req->remote_event_size;
+        }
+        if(req->self_event_size > 0)
+        {
+            msg->local_event_size_bytes = req->self_event_size;
+            memcpy(tmp_ptr, self_event, req->self_event_size);
+            tmp_ptr += req->self_event_size;
+        }
+        // printf("\n torus remote event %d local event %d last packet %d %lf ", msg->remote_event_size_bytes, msg->local_event_size_bytes, is_last_pckt, xfer_to_nic_time);
+    }
     tw_event_send(e_new);
     return xfer_to_nic_time;
 }

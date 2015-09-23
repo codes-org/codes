@@ -92,21 +92,15 @@ static void sn_configure();
  */
 /* Issues a simplenet packet event call */
 static tw_stime simplenet_packet_event(
-     char const * category, 
-     tw_lpid final_dest_lp, 
-     tw_lpid dest_mn_lp,
-     uint64_t packet_size, 
-     int is_pull,
-     uint64_t pull_size, /* only used when is_pull==1 */
-     tw_stime offset,
-     const mn_sched_params *sched_params,
-     int remote_event_size, 
-     const void* remote_event, 
-     int self_event_size,
-     const void* self_event,
-     tw_lpid src_lp,
-     tw_lp *sender,
-     int is_last_pckt);
+        model_net_request const * req,
+        uint64_t message_offset,
+        uint64_t packet_size,
+        tw_stime offset,
+        mn_sched_params const * sched_params,
+        void const * remote_event,
+        void const * self_event,
+        tw_lp *sender,
+        int is_last_pckt);
 
 static void simplenet_packet_event_rc(tw_lp *sender);
 
@@ -521,21 +515,15 @@ static void handle_msg_start_event(
 /*This method will serve as an intermediate layer between simplenet and modelnet. 
  * It takes the packets from modelnet layer and calls underlying simplenet methods*/
 static tw_stime simplenet_packet_event(
-		char const * category,
-		tw_lpid final_dest_lp,
-                tw_lpid dest_mn_lp,
-		uint64_t packet_size,
-                int is_pull,
-                uint64_t pull_size, /* only used when is_pull == 1 */
-                tw_stime offset,
-                const mn_sched_params *sched_params,
-		int remote_event_size,
-		const void* remote_event,
-		int self_event_size,
-		const void* self_event,
-                tw_lpid src_lp,
-		tw_lp *sender,
-		int is_last_pckt)
+        model_net_request const * req,
+        uint64_t message_offset,
+        uint64_t packet_size,
+        tw_stime offset,
+        mn_sched_params const * sched_params,
+        void const * remote_event,
+        void const * self_event,
+        tw_lp *sender,
+        int is_last_pckt)
 {
      tw_event * e_new;
      tw_stime xfer_to_nic_time;
@@ -546,33 +534,33 @@ static tw_stime simplenet_packet_event(
      // this is a self message
      e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
              sender, SIMPLENET, (void**)&msg, (void**)&tmp_ptr);
-     strcpy(msg->category, category);
-     msg->src_gid = src_lp;
+     strcpy(msg->category, req->category);
+     msg->src_gid = req->src_lp;
      msg->src_mn_lp = sender->gid;
-     msg->final_dest_gid = final_dest_lp;
-     msg->dest_mn_lp = dest_mn_lp;
+     msg->final_dest_gid = req->final_dest_lp;
+     msg->dest_mn_lp = req->dest_mn_lp;
      msg->magic = sn_get_magic();
      msg->net_msg_size_bytes = packet_size;
      msg->event_size_bytes = 0;
      msg->local_event_size_bytes = 0;
      msg->event_type = SN_MSG_START;
-     msg->is_pull = is_pull;
-     msg->pull_size = pull_size;
+     msg->is_pull = req->is_pull;
+     msg->pull_size = req->pull_size;
 
      /*Fill in simplenet information*/     
      if(is_last_pckt) /* Its the last packet so pass in remote event information*/
       {
-       if(remote_event_size)
+       if(req->remote_event_size)
 	 {
-           msg->event_size_bytes = remote_event_size;
-           memcpy(tmp_ptr, remote_event, remote_event_size);
-           tmp_ptr += remote_event_size;
+           msg->event_size_bytes = req->remote_event_size;
+           memcpy(tmp_ptr, remote_event, req->remote_event_size);
+           tmp_ptr += req->remote_event_size;
 	 }
-       if(self_event_size)
+       if(req->self_event_size)
        {
-	   msg->local_event_size_bytes = self_event_size;
-	   memcpy(tmp_ptr, self_event, self_event_size);
-	   tmp_ptr += self_event_size;
+	   msg->local_event_size_bytes = req->self_event_size;
+	   memcpy(tmp_ptr, self_event, req->self_event_size);
+	   tmp_ptr += req->self_event_size;
        }
       }
      tw_event_send(e_new);

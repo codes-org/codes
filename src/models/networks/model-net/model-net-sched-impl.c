@@ -264,12 +264,9 @@ int fcfs_next(
                 "from %lu to %lu at %1.5e (last:%d)\n",
                 lp->gid, psize, q->rem, q->req.src_lp, q->req.final_dest_lp,
                 tw_now(lp), is_last_packet);
-        *poffset = s->method->model_net_method_packet_event(q->req.category,
-                q->req.final_dest_lp, q->req.dest_mn_lp, psize, q->req.is_pull,
-                q->req.pull_size, 0.0, &q->sched_params,
-                q->req.remote_event_size, q->remote_event,
-                q->req.self_event_size, q->local_event, q->req.src_lp, lp,
-                is_last_packet);
+        *poffset = s->method->model_net_method_packet_event(&q->req,
+                q->req.msg_size - q->rem, psize, 0.0, &q->sched_params,
+                q->remote_event, q->local_event, lp, is_last_packet);
     }
 
     // if last packet - remove from list, free, save for rc
@@ -337,11 +334,11 @@ void fcfs_next_rc(
             if (q->rem == 0){ // processed exactly a packet's worth of data
                 q->rem = q->req.packet_size;
             }
-            void * e_dat = rc_event_save;
+            const void * e_dat = rc_event_save;
             if (q->req.remote_event_size > 0){
                 q->remote_event = malloc(q->req.remote_event_size);
                 memcpy(q->remote_event, e_dat, q->req.remote_event_size);
-                e_dat = (char*) e_dat + q->req.remote_event_size;
+                e_dat = (const char*) e_dat + q->req.remote_event_size;
             }
             else { q->remote_event = NULL; }
             if (q->req.self_event_size > 0) {

@@ -124,19 +124,13 @@ static void simple_wan_collective_rc();
 
 /* Issues a simplep2p packet event call */
 static tw_stime simplep2p_packet_event(
-        char const * category,
-        tw_lpid final_dest_lp,
-        tw_lpid dest_mn_lp,
+        model_net_request const * req,
+        uint64_t message_offset,
         uint64_t packet_size,
-        int is_pull,
-        uint64_t pull_size, /* only used when is_pull == 1 */
         tw_stime offset,
-        const mn_sched_params *sched_params,
-        int remote_event_size,
-        const void* remote_event,
-        int self_event_size,
-        const void* self_event,
-        tw_lpid src_lp,
+        mn_sched_params const * sched_params,
+        void const * remote_event,
+        void const * self_event,
         tw_lp *sender,
         int is_last_pckt);
 
@@ -801,19 +795,13 @@ static void handle_msg_start_event(
 /*This method will serve as an intermediate layer between simplep2p and modelnet. 
  * It takes the packets from modelnet layer and calls underlying simplep2p methods*/
 static tw_stime simplep2p_packet_event(
-        char const * category,
-        tw_lpid final_dest_lp,
-        tw_lpid dest_mn_lp,
+        model_net_request const * req,
+        uint64_t message_offset,
         uint64_t packet_size,
-        int is_pull,
-        uint64_t pull_size, /* only used when is_pull == 1 */
         tw_stime offset,
-        const mn_sched_params *sched_params,
-        int remote_event_size,
-        const void* remote_event,
-        int self_event_size,
-        const void* self_event,
-        tw_lpid src_lp,
+        mn_sched_params const * sched_params,
+        void const * remote_event,
+        void const * self_event,
         tw_lp *sender,
         int is_last_pckt)
 {
@@ -826,41 +814,41 @@ static tw_stime simplep2p_packet_event(
 
 #if SIMPLEP2P_DEBUG
     printf("%lu: final %lu packet sz %d remote sz %d self sz %d is_last_pckt %d latency %lf\n",
-            (src_lp - 1) / 2, final_dest_lp, packet_size, 
-            remote_event_size, self_event_size, is_last_pckt,
+            (src_lp - 1) / 2, req->final_dest_lp, packet_size, 
+            req->remote_event_size, req->self_event_size, is_last_pckt,
             xfer_to_nic_time+offset);
 #endif
 
      e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
              sender, SIMPLEP2P, (void**)&msg, (void**)&tmp_ptr);
-     strcpy(msg->category, category);
-     msg->final_dest_gid = final_dest_lp;
-     msg->dest_mn_lp = dest_mn_lp;
-     msg->src_gid = src_lp;
+     strcpy(msg->category, req->category);
+     msg->final_dest_gid = req->final_dest_lp;
+     msg->dest_mn_lp = req->dest_mn_lp;
+     msg->src_gid = req->src_lp;
      msg->src_mn_lp = sender->gid;
      msg->magic = sp_get_magic();
      msg->net_msg_size_bytes = packet_size;
      msg->event_size_bytes = 0;
      msg->local_event_size_bytes = 0;
      msg->event_type = SP_MSG_START;
-     msg->is_pull = is_pull;
-     msg->pull_size = pull_size;
+     msg->is_pull = req->is_pull;
+     msg->pull_size = req->pull_size;
 
     //printf("\n Sending to LP %d msg magic %d ", (int)dest_id, sp_get_magic()); 
      /*Fill in simplep2p information*/     
      if(is_last_pckt) /* Its the last packet so pass in remote event information*/
       {
-       if(remote_event_size)
+       if(req->remote_event_size)
 	 {
-           msg->event_size_bytes = remote_event_size;
-           memcpy(tmp_ptr, remote_event, remote_event_size);
-           tmp_ptr += remote_event_size;
+           msg->event_size_bytes = req->remote_event_size;
+           memcpy(tmp_ptr, remote_event, req->remote_event_size);
+           tmp_ptr += req->remote_event_size;
 	 }
-       if(self_event_size)
+       if(req->self_event_size)
        {
-	   msg->local_event_size_bytes = self_event_size;
-	   memcpy(tmp_ptr, self_event, self_event_size);
-	   tmp_ptr += self_event_size;
+	   msg->local_event_size_bytes = req->self_event_size;
+	   memcpy(tmp_ptr, self_event, req->self_event_size);
+	   tmp_ptr += req->self_event_size;
        }
       // printf("\n Last packet size: %d ", sp_get_msg_sz() + remote_event_size + self_event_size);
       }

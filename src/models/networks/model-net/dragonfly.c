@@ -761,12 +761,16 @@ void router_setup(router_state * r, tw_lp * lp)
 
 
 /* dragonfly packet event , generates a dragonfly packet on the compute node */
-static tw_stime dragonfly_packet_event(const char* category, 
-    tw_lpid final_dest_lp, tw_lpid dest_mn_lp, 
-    uint64_t packet_size, int is_pull, 
-    uint64_t pull_size, tw_stime offset, const mn_sched_params *sched_params, 
-    int remote_event_size, const void* remote_event, int self_event_size, 
-    const void* self_event, tw_lpid src_lp, tw_lp *sender, int is_last_pckt) 
+static tw_stime dragonfly_packet_event(
+        model_net_request const * req,
+        uint64_t message_offset,
+        uint64_t packet_size,
+        tw_stime offset,
+        mn_sched_params const * sched_params,
+        void const * remote_event,
+        void const * self_event,
+        tw_lp *sender,
+        int is_last_pckt)
 {
     tw_event * e_new;
     tw_stime xfer_to_nic_time;
@@ -779,30 +783,30 @@ static tw_stime dragonfly_packet_event(const char* category,
     //msg = tw_event_data(e_new);
     e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
             sender, DRAGONFLY, (void**)&msg, (void**)&tmp_ptr);
-    strcpy(msg->category, category);
-    msg->final_dest_gid = final_dest_lp;
-    msg->sender_lp=src_lp;
+    strcpy(msg->category, req->category);
+    msg->final_dest_gid = req->final_dest_lp;
+    msg->sender_lp=req->src_lp;
     msg->packet_size = packet_size;
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
     msg->type = T_GENERATE;
-    msg->is_pull = is_pull;
-    msg->pull_size = pull_size;
+    msg->is_pull = req->is_pull;
+    msg->pull_size = req->pull_size;
     msg->magic = terminal_magic_num;
 
     if(is_last_pckt) /* Its the last packet so pass in remote and local event information*/
       {
-	if(remote_event_size > 0)
+	if(req->remote_event_size > 0)
 	 {
-		msg->remote_event_size_bytes = remote_event_size;
-		memcpy(tmp_ptr, remote_event, remote_event_size);
-		tmp_ptr += remote_event_size;
+		msg->remote_event_size_bytes = req->remote_event_size;
+		memcpy(tmp_ptr, remote_event, req->remote_event_size);
+		tmp_ptr += req->remote_event_size;
 	}
-	if(self_event_size > 0)
+	if(req->self_event_size > 0)
 	{
-		msg->local_event_size_bytes = self_event_size;
-		memcpy(tmp_ptr, self_event, self_event_size);
-		tmp_ptr += self_event_size;
+		msg->local_event_size_bytes = req->self_event_size;
+		memcpy(tmp_ptr, self_event, req->self_event_size);
+		tmp_ptr += req->self_event_size;
 	}
      }
 	   //printf("\n dragonfly remote event %d local event %d last packet %d %lf ", msg->remote_event_size_bytes, msg->local_event_size_bytes, is_last_pckt, xfer_to_nic_time);
