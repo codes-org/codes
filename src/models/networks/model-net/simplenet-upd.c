@@ -107,6 +107,7 @@ static tw_stime simplenet_packet_event(
      tw_lpid src_lp,
      tw_lp *sender,
      int is_last_pckt);
+
 static void simplenet_packet_event_rc(tw_lp *sender);
 
 static void simplenet_packet_event_rc(tw_lp *sender);

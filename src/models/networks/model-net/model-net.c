@@ -304,14 +304,21 @@ static model_net_event_return model_net_event_impl_base(
 
     // set the request struct 
     model_net_request *r = &m->msg.m_base.req;
-    r->net_id = net_id;
     r->final_dest_lp = final_dest_lp;
     r->dest_mn_lp = dest_mn_lp;
     r->src_lp = sender->gid;
-    r->msg_size = message_size;
+    r->is_pull = is_pull;
+    if (r->is_pull) {
+        r->msg_size = PULL_MSG_SIZE;
+        r->pull_size = message_size;
+    }
+    else {
+        r->msg_size = message_size;
+        r->pull_size = 0;
+    }
+    r->net_id = net_id;
     r->remote_event_size = remote_event_size;
     r->self_event_size = self_event_size;
-    r->is_pull = is_pull;
     strncpy(r->category, category, CATEGORY_NAME_MAX-1);
     r->category[CATEGORY_NAME_MAX-1]='\0';
 

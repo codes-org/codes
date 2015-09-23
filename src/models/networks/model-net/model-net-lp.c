@@ -532,20 +532,23 @@ void model_net_method_send_msg_recv_event(
     else
         model_net_sched_set_default_params(&m->msg.m_base.sched_params);
 
-    m->msg.m_base.req.final_dest_lp = final_dest_lp;
-    m->msg.m_base.req.src_lp = src_lp;
+    model_net_request *r = &m->msg.m_base.req;
+    r->final_dest_lp = final_dest_lp;
+    r->src_lp = src_lp;
     // for "recv" events, set the "dest" to this LP in the case of a pull event
-    m->msg.m_base.req.dest_mn_lp = sender->gid;
-    m->msg.m_base.req.msg_size    = is_pull ? pull_size : msg_size;
-    m->msg.m_base.req.packet_size = m->msg.m_base.req.msg_size;
-    m->msg.m_base.req.net_id = net_id;
-    m->msg.m_base.req.is_pull = is_pull;
-    m->msg.m_base.req.remote_event_size = remote_event_size;
-    m->msg.m_base.req.self_event_size = 0;
+    r->dest_mn_lp = sender->gid;
+    r->pull_size = pull_size;
+    r->msg_size = msg_size;
+    // TODO: document why we're setting packet_size this way
+    r->packet_size = msg_size;
+    r->net_id = net_id;
+    r->is_pull = is_pull;
+    r->remote_event_size = remote_event_size;
+    r->self_event_size = 0;
     m->msg.m_base.is_from_remote = 1;
 
-    strncpy(m->msg.m_base.req.category, category, CATEGORY_NAME_MAX-1);
-    m->msg.m_base.req.category[CATEGORY_NAME_MAX-1] = '\0';
+    strncpy(r->category, category, CATEGORY_NAME_MAX-1);
+    r->category[CATEGORY_NAME_MAX-1] = '\0';
 
     if (remote_event_size > 0){
         void * m_dat = model_net_method_get_edata(net_id, msg);

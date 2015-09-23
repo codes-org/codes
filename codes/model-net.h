@@ -89,6 +89,7 @@ typedef struct model_net_request {
     tw_lpid  dest_mn_lp; // destination modelnet lp
     tw_lpid  src_lp;
     uint64_t msg_size;
+    uint64_t pull_size;
     uint64_t packet_size;
     int      net_id;
     int      is_pull;

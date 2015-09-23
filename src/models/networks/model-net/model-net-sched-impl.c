@@ -14,11 +14,10 @@
 
 #define MN_SCHED_DEBUG_VERBOSE 0
 
-#if MN_SCHED_DEBUG_VERBOSE
-#define dprintf(_fmt, ...) printf(_fmt, ##__VA_ARGS__)
-#else
-#define dprintf(_fmt, ...)
-#endif
+#define dprintf(_fmt, ...) \
+    do { \
+        if (MN_SCHED_DEBUG_VERBOSE) printf(_fmt, ##__VA_ARGS__); \
+    } while(0)
 
 /// scheduler-specific data structures 
 
@@ -62,16 +61,16 @@ static void fcfs_init (
         void                             ** sched);
 static void fcfs_destroy (void *sched);
 static void fcfs_add (
-        model_net_request     * req,
-        const mn_sched_params * sched_params,
-        int                     remote_event_size,
-        void                  * remote_event,
-        int                     local_event_size,
-        void                  * local_event,
-        void                  * sched,
-        model_net_sched_rc    * rc,
-        tw_lp                 * lp);
-static void fcfs_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp);
+        const model_net_request * req,
+        const mn_sched_params   * sched_params,
+        int                       remote_event_size,
+        void                    * remote_event,
+        int                       local_event_size,
+        void                    * local_event,
+        void                    * sched,
+        model_net_sched_rc      * rc,
+        tw_lp                   * lp);
+static void fcfs_add_rc(void *sched, const model_net_sched_rc *rc, tw_lp *lp);
 static int  fcfs_next(
         tw_stime              * poffset,
         void                  * sched,
@@ -79,10 +78,10 @@ static int  fcfs_next(
         model_net_sched_rc    * rc,
         tw_lp                 * lp);
 static void fcfs_next_rc(
-        void               * sched,
-        void               * rc_event_save,
-        model_net_sched_rc * rc,
-        tw_lp              * lp);
+        void                     * sched,
+        const void               * rc_event_save,
+        const model_net_sched_rc * rc,
+        tw_lp                    * lp);
 
 // ROUND-ROBIN
 static void rr_init (
@@ -92,16 +91,16 @@ static void rr_init (
         void                             ** sched);
 static void rr_destroy (void *sched);
 static void rr_add (
-        model_net_request     * req,
-        const mn_sched_params * sched_params,
-        int                     remote_event_size,
-        void                  * remote_event,
-        int                     local_event_size,
-        void                  * local_event,
-        void                  * sched,
-        model_net_sched_rc    * rc,
-        tw_lp                 * lp);
-static void rr_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp);
+        const model_net_request * req,
+        const mn_sched_params   * sched_params,
+        int                       remote_event_size,
+        void                    * remote_event,
+        int                       local_event_size,
+        void                    * local_event,
+        void                    * sched,
+        model_net_sched_rc      * rc,
+        tw_lp                   * lp);
+static void rr_add_rc(void *sched, const model_net_sched_rc *rc, tw_lp *lp);
 static int  rr_next(
         tw_stime              * poffset,
         void                  * sched,
@@ -109,10 +108,10 @@ static int  rr_next(
         model_net_sched_rc    * rc,
         tw_lp                 * lp);
 static void rr_next_rc (
-        void               * sched,
-        void               * rc_event_save,
-        model_net_sched_rc * rc,
-        tw_lp              * lp);
+        void                     * sched,
+        const void               * rc_event_save,
+        const model_net_sched_rc * rc,
+        tw_lp                    * lp);
 static void prio_init (
         const struct model_net_method     * method, 
         const model_net_sched_cfg_params  * params,
@@ -120,16 +119,16 @@ static void prio_init (
         void                             ** sched);
 static void prio_destroy (void *sched);
 static void prio_add (
-        model_net_request     * req,
-        const mn_sched_params * sched_params,
-        int                     remote_event_size,
-        void                  * remote_event,
-        int                     local_event_size,
-        void                  * local_event,
-        void                  * sched,
-        model_net_sched_rc    * rc,
-        tw_lp                 * lp);
-static void prio_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp);
+        const model_net_request * req,
+        const mn_sched_params   * sched_params,
+        int                       remote_event_size,
+        void                    * remote_event,
+        int                       local_event_size,
+        void                    * local_event,
+        void                    * sched,
+        model_net_sched_rc      * rc,
+        tw_lp                   * lp);
+static void prio_add_rc(void *sched, const model_net_sched_rc *rc, tw_lp *lp);
 static int  prio_next(
         tw_stime              * poffset,
         void                  * sched,
@@ -137,10 +136,10 @@ static int  prio_next(
         model_net_sched_rc    * rc,
         tw_lp                 * lp);
 static void prio_next_rc (
-        void               * sched,
-        void               * rc_event_save,
-        model_net_sched_rc * rc,
-        tw_lp              * lp);
+        void                     * sched,
+        const void               * rc_event_save,
+        const model_net_sched_rc * rc,
+        tw_lp                    * lp);
 
 /// function tables (names defined by X macro in model-net-sched.h)
 static const model_net_sched_interface fcfs_tab = 
@@ -176,20 +175,20 @@ void fcfs_destroy(void *sched){
 }
 
 void fcfs_add (
-        model_net_request     * req,
-        const mn_sched_params * sched_params,
-        int                     remote_event_size,
-        void                  * remote_event,
-        int                     local_event_size,
-        void                  * local_event,
-        void                  * sched,
-        model_net_sched_rc    * rc,
-        tw_lp                 * lp){
+        const model_net_request * req,
+        const mn_sched_params   * sched_params,
+        int                       remote_event_size,
+        void                    * remote_event,
+        int                       local_event_size,
+        void                    * local_event,
+        void                    * sched,
+        model_net_sched_rc      * rc,
+        tw_lp                   * lp){
     mn_sched_qitem *q = malloc(sizeof(mn_sched_qitem));
     q->entry_time = tw_now(lp);
     q->req = *req;
     q->sched_params = *sched_params;
-    q->rem = req->is_pull ? PULL_MSG_SIZE : req->msg_size;
+    q->rem = req->msg_size;
     if (remote_event_size > 0){
         q->remote_event = malloc(remote_event_size);
         memcpy(q->remote_event, remote_event, remote_event_size);
@@ -208,7 +207,7 @@ void fcfs_add (
             req->final_dest_lp, req->msg_size, tw_now(lp));
 }
 
-void fcfs_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp){
+void fcfs_add_rc(void *sched, const model_net_sched_rc *rc, tw_lp *lp){
     mn_sched_queue *s = sched;
     s->queue_len--;
     struct qlist_head *ent = qlist_pop_back(&s->reqs);
@@ -235,7 +234,7 @@ int fcfs_next(
         return -1;
     }
     mn_sched_qitem *q = qlist_entry(ent, mn_sched_qitem, ql);
-    
+
     // issue the next packet
     int is_last_packet;
     uint64_t psize;
@@ -257,7 +256,7 @@ int fcfs_next(
         // soruce in the case of a pull
         *poffset = s->method->model_net_method_recv_msg_event(q->req.category,
                 q->req.final_dest_lp, q->req.dest_mn_lp, psize,
-                q->req.is_pull, q->req.msg_size, 0.0, q->req.remote_event_size,
+                q->req.is_pull, q->req.pull_size, 0.0, q->req.remote_event_size,
                 q->remote_event, q->req.src_lp, lp);
     }
     else{
@@ -267,7 +266,7 @@ int fcfs_next(
                 tw_now(lp), is_last_packet);
         *poffset = s->method->model_net_method_packet_event(q->req.category,
                 q->req.final_dest_lp, q->req.dest_mn_lp, psize, q->req.is_pull,
-                q->req.msg_size, 0.0, &q->sched_params,
+                q->req.pull_size, 0.0, &q->sched_params,
                 q->req.remote_event_size, q->remote_event,
                 q->req.self_event_size, q->local_event, q->req.src_lp, lp,
                 is_last_packet);
@@ -278,7 +277,7 @@ int fcfs_next(
         dprintf("last %spkt: %lu (%lu) to %lu, size %lu at %1.5e (pull:%d)\n",
                 s->is_recv_queue ? "recv " : "send ",
                 lp->gid, q->req.src_lp, q->req.final_dest_lp,
-                q->req.is_pull ? PULL_MSG_SIZE : q->req.msg_size, tw_now(lp),
+                q->req.is_pull ? q->req.pull_size : q->req.msg_size, tw_now(lp),
                 q->req.is_pull);
         qlist_pop(&s->reqs);
         s->queue_len--;
@@ -305,10 +304,10 @@ int fcfs_next(
 }
 
 void fcfs_next_rc(
-        void               * sched,
-        void               * rc_event_save,
-        model_net_sched_rc * rc,
-        tw_lp              * lp){
+        void                     * sched,
+        const void               * rc_event_save,
+        const model_net_sched_rc * rc,
+        tw_lp                    * lp){
     mn_sched_queue *s = sched;
     if (rc->rtn == -1){
         // no op
@@ -334,8 +333,7 @@ void fcfs_next_rc(
             assert(q);
             q->req = rc->req;
             q->sched_params = rc->sched_params;
-            q->rem = (q->req.is_pull ? PULL_MSG_SIZE : q->req.msg_size) % 
-                q->req.packet_size;
+            q->rem = q->req.msg_size % q->req.packet_size;
             if (q->rem == 0){ // processed exactly a packet's worth of data
                 q->rem = q->req.packet_size;
             }
@@ -376,20 +374,20 @@ void rr_destroy (void *sched){
 }
 
 void rr_add (
-        model_net_request     * req,
-        const mn_sched_params * sched_params,
-        int                     remote_event_size,
-        void                  * remote_event,
-        int                     local_event_size,
-        void                  * local_event,
-        void                  * sched,
-        model_net_sched_rc    * rc,
-        tw_lp                 * lp){
+        const model_net_request * req,
+        const mn_sched_params   * sched_params,
+        int                       remote_event_size,
+        void                    * remote_event,
+        int                       local_event_size,
+        void                    * local_event,
+        void                    * sched,
+        model_net_sched_rc      * rc,
+        tw_lp                   * lp){
     fcfs_add(req, sched_params, remote_event_size, remote_event,
             local_event_size, local_event, sched, rc, lp);
 }
 
-void rr_add_rc(void *sched, model_net_sched_rc *rc, tw_lp *lp){
+void rr_add_rc(void *sched, const model_net_sched_rc *rc, tw_lp *lp){
     fcfs_add_rc(sched, rc, lp);
 }
 
@@ -413,10 +411,10 @@ int rr_next(
 }
 
 void rr_next_rc (
-        void               * sched,
-        void               * rc_event_save,
-        model_net_sched_rc * rc,
-        tw_lp              * lp){
+        void                     * sched,
+        const void               * rc_event_save,
+        const model_net_sched_rc * rc,
+        tw_lp                    * lp){
     // only time we need to do something apart from fcfs is on a successful
     // rr_next that didn't remove the item from the queue
     if (rc->rtn == 0){
@@ -452,15 +450,15 @@ void prio_destroy (void *sched){
 }
 
 void prio_add (
-        model_net_request     * req,
-        const mn_sched_params * sched_params,
-        int                     remote_event_size,
-        void                  * remote_event,
-        int                     local_event_size,
-        void                  * local_event,
-        void                  * sched,
-        model_net_sched_rc    * rc,
-        tw_lp                 * lp){
+        const model_net_request * req,
+        const mn_sched_params   * sched_params,
+        int                       remote_event_size,
+        void                    * remote_event,
+        int                       local_event_size,
+        void                    * local_event,
+        void                    * sched,
+        model_net_sched_rc      * rc,
+        tw_lp                   * lp){
     // sched_msg_params is simply an int
     mn_sched_prio *ss = sched;
     int prio = sched_params->prio;
@@ -479,7 +477,7 @@ void prio_add (
     rc->prio = prio;
 }
 
-void prio_add_rc(void * sched, model_net_sched_rc *rc, tw_lp *lp){
+void prio_add_rc(void * sched, const model_net_sched_rc *rc, tw_lp *lp){
     // just call the sub scheduler's add_rc
     mn_sched_prio *ss = sched;
     dprintf("%lu (mn): rc adding with prio %d\n", lp->gid, rc->prio);
@@ -508,10 +506,10 @@ int prio_next(
 }
 
 void prio_next_rc (
-        void               * sched,
-        void               * rc_event_save,
-        model_net_sched_rc * rc,
-        tw_lp              * lp){
+        void                     * sched,
+        const void               * rc_event_save,
+        const model_net_sched_rc * rc,
+        tw_lp                    * lp){
     if (rc->prio != -1){
         // we called a next somewhere
         mn_sched_prio *ss = sched;

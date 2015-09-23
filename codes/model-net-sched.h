@@ -88,17 +88,17 @@ typedef struct model_net_sched_interface {
     //                prio (currently the only user): int priority
     //              - NULL arguments should be treated as "use default value" 
     void (*add)(
-            model_net_request     * req,
-            const mn_sched_params * sched_params,
-            int                     remote_event_size,
-            void                  * remote_event,
-            int                     local_event_size,
-            void                  * local_event,
-            void                  * sched,
-            model_net_sched_rc    * rc,
-            tw_lp                 * lp);
+            const model_net_request * req,
+            const mn_sched_params   * sched_params,
+            int                       remote_event_size,
+            void                    * remote_event,
+            int                       local_event_size,
+            void                    * local_event,
+            void                    * sched,
+            model_net_sched_rc      * rc,
+            tw_lp                   * lp);
     // reverse the previous request addition
-    void (*add_rc)(void *sched, model_net_sched_rc *rc, tw_lp *lp);
+    void (*add_rc)(void *sched, const model_net_sched_rc *rc, tw_lp *lp);
     // schedule the next packet for processing by the model
     int  (*next)(
             tw_stime              * poffset,
@@ -109,10 +109,10 @@ typedef struct model_net_sched_interface {
             tw_lp                 * lp);
     // reverse schedule the previous packet
     void (*next_rc)(
-            void               * sched,
-            void               * rc_event_save,
-            model_net_sched_rc * rc,
-            tw_lp              * lp);
+            void                     * sched,
+            const void               * rc_event_save,
+            const model_net_sched_rc * rc,
+            tw_lp                    * lp);
 } model_net_sched_interface;
 
 /// overall scheduler struct - type puns the actual data structure
@@ -166,8 +166,8 @@ int model_net_sched_next(
 
 void model_net_sched_next_rc(
         model_net_sched *sched,
-        void *rc_event_save,
-        model_net_sched_rc *sched_rc,
+        const void *rc_event_save,
+        const model_net_sched_rc *sched_rc,
         tw_lp *lp);
 
 /// enter a new request into the scheduler, storing any info needed for rc in
@@ -175,7 +175,7 @@ void model_net_sched_next_rc(
 /// sched_msg_params is scheduler-specific parameters (currently only used by
 /// prio scheduler)
 void model_net_sched_add(
-        model_net_request *req,
+        const model_net_request *req,
         const mn_sched_params * sched_params,
         int remote_event_size,
         void * remote_event,
@@ -187,7 +187,7 @@ void model_net_sched_add(
 
 void model_net_sched_add_rc(
         model_net_sched *sched,
-        model_net_sched_rc *sched_rc,
+        const model_net_sched_rc *sched_rc,
         tw_lp *lp);
 
 // set default parameters for messages that don't specify any

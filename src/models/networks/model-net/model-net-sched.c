@@ -49,14 +49,14 @@ int model_net_sched_next(
 
 void model_net_sched_next_rc(
         model_net_sched *sched,
-        void *rc_event_save,
-        model_net_sched_rc *sched_rc,
+        const void *rc_event_save,
+        const model_net_sched_rc *sched_rc,
         tw_lp *lp) {
     sched->impl->next_rc(sched->dat, rc_event_save, sched_rc, lp);
 }
 
 void model_net_sched_add(
-        model_net_request *req,
+        const model_net_request *req,
         const mn_sched_params * sched_params,
         int remote_event_size,
         void * remote_event,
@@ -71,7 +71,7 @@ void model_net_sched_add(
 
 void model_net_sched_add_rc(
         model_net_sched *sched,
-        model_net_sched_rc *sched_rc,
+        const model_net_sched_rc *sched_rc,
         tw_lp *lp){
     sched->impl->add_rc(sched->dat, sched_rc, lp);
 }
