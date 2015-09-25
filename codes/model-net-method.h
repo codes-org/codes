@@ -28,7 +28,6 @@ struct model_net_method
     void (*mn_register)(tw_lptype *base_type);
     tw_stime (*model_net_method_packet_event)(
             model_net_request const * req,
-            uint64_t message_id,
             uint64_t message_offset, // offset in the context of the whole message
             uint64_t packet_size, // needed in case message < packet
             tw_stime offset,

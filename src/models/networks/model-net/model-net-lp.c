@@ -39,6 +39,9 @@ typedef struct model_net_base_state {
     int net_id;
     // whether scheduler loop is running
     int in_sched_send_loop, in_sched_recv_loop;
+    // unique message id counter. This doesn't get decremented on RC to prevent
+    // optimistic orderings using "stale" ids
+    uint64_t msg_id;
     // model-net schedulers
     model_net_sched *sched_send, *sched_recv;
     // parameters
@@ -282,6 +285,8 @@ void model_net_base_lp_init(
     codes_mapping_get_lp_info(lp->gid, NULL, &dummy, 
             lp_type_name, &dummy, anno, &dummy, &dummy);
 
+    ns->msg_id = 0;
+
     // get annotation-specific parameters
     for (int i = 0; i < num_params; i++){
         if ((anno[0]=='\0' && annos[i] == NULL) ||
@@ -386,6 +391,7 @@ void handle_new_msg(
     model_net_request *r = &m->msg.m_base.req;
     // don't forget to set packet size, now that we're responsible for it!
     r->packet_size = ns->params->packet_size;
+    r->msg_id = ns->msg_id++;
     void * m_data = m+1;
     void *remote = NULL, *local = NULL;
     if (r->remote_event_size > 0){

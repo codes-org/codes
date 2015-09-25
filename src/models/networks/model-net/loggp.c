@@ -111,7 +111,6 @@ static void loggp_set_params(const char * config_file, loggp_param * params);
 /* Issues a loggp packet event call */
 static tw_stime loggp_packet_event(
         model_net_request const * req,
-        uint64_t message_id,
         uint64_t message_offset,
         uint64_t packet_size,
         tw_stime offset,
@@ -604,7 +603,6 @@ static void handle_msg_start_event(
  * It takes the packets from modelnet layer and calls underlying loggp methods*/
 static tw_stime loggp_packet_event(
         model_net_request const * req,
-        uint64_t message_id,
         uint64_t message_offset,
         uint64_t packet_size,
         tw_stime offset,

@@ -91,6 +91,9 @@ typedef struct model_net_request {
     uint64_t msg_size;
     uint64_t pull_size;
     uint64_t packet_size;
+    // unique message id set, *at the modelnet LP*, for each message the
+    // modelnet LP processes
+    uint64_t msg_id;
     int      net_id;
     int      is_pull;
     int      remote_event_size;
