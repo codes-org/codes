@@ -93,6 +93,7 @@ static void sn_configure();
 /* Issues a simplenet packet event call */
 static tw_stime simplenet_packet_event(
         model_net_request const * req,
+        uint64_t message_id,
         uint64_t message_offset,
         uint64_t packet_size,
         tw_stime offset,
@@ -516,6 +517,7 @@ static void handle_msg_start_event(
  * It takes the packets from modelnet layer and calls underlying simplenet methods*/
 static tw_stime simplenet_packet_event(
         model_net_request const * req,
+        uint64_t message_id,
         uint64_t message_offset,
         uint64_t packet_size,
         tw_stime offset,

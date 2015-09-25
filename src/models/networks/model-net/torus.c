@@ -348,6 +348,7 @@ static int torus_get_msg_sz(void)
 /* torus packet event , generates a torus packet on the compute node */
 static tw_stime torus_packet_event(
         model_net_request const * req,
+        uint64_t message_id,
         uint64_t message_offset,
         uint64_t packet_size,
         tw_stime offset,

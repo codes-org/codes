@@ -125,6 +125,7 @@ static void simple_wan_collective_rc();
 /* Issues a simplep2p packet event call */
 static tw_stime simplep2p_packet_event(
         model_net_request const * req,
+        uint64_t message_id,
         uint64_t message_offset,
         uint64_t packet_size,
         tw_stime offset,
@@ -796,6 +797,7 @@ static void handle_msg_start_event(
  * It takes the packets from modelnet layer and calls underlying simplep2p methods*/
 static tw_stime simplep2p_packet_event(
         model_net_request const * req,
+        uint64_t message_id,
         uint64_t message_offset,
         uint64_t packet_size,
         tw_stime offset,

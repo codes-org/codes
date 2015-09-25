@@ -264,7 +264,9 @@ int fcfs_next(
                 "from %lu to %lu at %1.5e (last:%d)\n",
                 lp->gid, psize, q->rem, q->req.src_lp, q->req.final_dest_lp,
                 tw_now(lp), is_last_packet);
-        *poffset = s->method->model_net_method_packet_event(&q->req,
+
+        /* TODO: Add correct message ID here */
+        *poffset = s->method->model_net_method_packet_event(&q->req, 0, 
                 q->req.msg_size - q->rem, psize, 0.0, &q->sched_params,
                 q->remote_event, q->local_event, lp, is_last_packet);
     }

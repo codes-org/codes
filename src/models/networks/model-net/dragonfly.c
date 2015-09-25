@@ -21,6 +21,7 @@
 
 #define CREDIT_SIZE 8
 #define MEAN_PROCESS 1.0
+#define MAX_GEN_PACKETS 2000000
 
 /* collective specific parameters */
 #define TREE_DEGREE 4
@@ -118,7 +119,7 @@ typedef struct router_state router_state;
 /* dragonfly compute node data structure */
 struct terminal_state
 {
-   unsigned long long packet_counter;
+   uint64_t packet_counter;
 
    // Dragonfly specific parameters
    unsigned int router_id;
@@ -163,6 +164,8 @@ struct terminal_state
 
    const char * anno;
    const dragonfly_param *params;
+
+   //struct qhash_head hash_link;
 };
 
 /* terminal event type (1-4) */
@@ -763,6 +766,7 @@ void router_setup(router_state * r, tw_lp * lp)
 /* dragonfly packet event , generates a dragonfly packet on the compute node */
 static tw_stime dragonfly_packet_event(
         model_net_request const * req,
+        uint64_t message_id,
         uint64_t message_offset,
         uint64_t packet_size,
         tw_stime offset,
@@ -961,7 +965,7 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
   if(!num_chunks)
     num_chunks = 1;
 
-  msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter; 
+  msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
   msg->travel_start_time = tw_now(lp);
   msg->my_N_hop = 0;
   msg->my_l_hop = 0;
@@ -1206,6 +1210,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
 
   if(msg->path_type != MINIMAL && msg->path_type != NON_MINIMAL)
     printf("\n Wrong message path type %d ", msg->path_type);
+
 #if DEBUG == 1
   if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
   {
@@ -1864,6 +1869,13 @@ static int do_adaptive_routing( router_state * s,
   minimal_out_port = get_output_port(s, bf, msg, lp, minimal_next_stop);
   int nonmin_next_stop = get_next_stop(s, bf, msg, lp, NON_MINIMAL, dest_router_id, intm_id);
   nonmin_out_port = get_output_port(s, bf, msg, lp, nonmin_next_stop);
+  int nomin_vc = 0;
+  if(nonmin_out_port < s->params->num_routers) {
+    nomin_vc = msg->my_l_hop;
+  } else if(nonmin_out_port < (s->params->num_routers + 
+        s->params->num_global_channels)) {
+    nomin_vc = msg->my_g_hop;
+  }
   int min_vc = 0;
   if(minimal_out_port < s->params->num_routers) {
     min_vc = msg->my_l_hop;
@@ -1910,7 +1922,9 @@ static int do_adaptive_routing( router_state * s,
   int nonmin_hist_count = s->cur_hist_num[nonmin_out_chan] + 
     (s->prev_hist_num[min_out_chan]/2);
 
-  if(num_min_hops * (min_port_count - min_hist_count) <= (num_nonmin_hops * ((q_avg + 1) - nonmin_hist_count))) {
+  int nonmin_port_count = s->vc_occupancy[nonmin_out_port][nomin_vc];
+  //if(num_min_hops * (min_port_count - min_hist_count) <= (num_nonmin_hops * ((q_avg + 1) - nonmin_hist_count))) {
+    if(min_port_count <= nonmin_port_count) {
     msg->path_type = MINIMAL;
     next_stop = minimal_next_stop;
     msg->intm_group_id = -1;
