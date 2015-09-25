@@ -74,6 +74,7 @@ struct nodes_message
   /* chunk id of the flit (distinguishes flits) */
   int chunk_id;
 
+  model_net_event_return event_rc;
   int is_pull;
   uint64_t pull_size;
 

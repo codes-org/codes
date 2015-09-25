@@ -30,6 +30,7 @@ struct loggp_message
     int event_size_bytes;     /* size of simulator event message that will be tunnelled to destination */
     int local_event_size_bytes;     /* size of simulator event message that delivered locally upon local completion */
     char category[CATEGORY_NAME_MAX]; /* category for communication */
+    model_net_event_return event_rc;
     int is_pull;
     uint64_t pull_size;
 

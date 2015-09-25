@@ -1120,7 +1120,7 @@ static void packet_arrive( nodes_state * s,
                        codes_mctx_set_global_direct(msg->sender_node);
                    struct codes_mctx mc_src =
                        codes_mctx_set_global_direct(lp->gid);
-                   model_net_event_mctx(net_id, &mc_src, &mc_dst,
+                   msg->event_rc = model_net_event_mctx(net_id, &mc_src, &mc_dst,
                            msg->category, msg->sender_svr, msg->pull_size,
                            0.0, msg->remote_event_size_bytes, tmp_ptr, 0,
                            NULL, lp);
@@ -1250,8 +1250,7 @@ static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw
                     if (lp->gid == msg->dest_lp && 
                             msg->chunk_id == num_chunks-1 &&
                             msg->remote_event_size_bytes && msg->is_pull){
-                        int net_id = model_net_get_id(LP_METHOD_NM);
-                        model_net_event_rc(net_id, lp, msg->pull_size);
+                        model_net_event_rc2(lp, &msg->event_rc);
                     }
 		   }
 	break;	

@@ -61,6 +61,7 @@ struct terminal_message
    short vc_index;
    int sender_radix;
    int output_chan;
+   model_net_event_return event_rc;
     int is_pull;
     uint64_t pull_size;
 

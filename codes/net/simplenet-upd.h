@@ -28,6 +28,7 @@ struct sn_message
     int event_size_bytes;     /* size of simulator event message that will be tunnelled to destination */
     int local_event_size_bytes;     /* size of simulator event message that delivered locally upon local completion */
     char category[CATEGORY_NAME_MAX]; /* category for communication */
+    model_net_event_return event_rc;
     int is_pull; /* this message represents a pull request from the destination LP to the source */
     uint64_t pull_size; /* data size to pull from dest LP */
 

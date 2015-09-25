@@ -353,8 +353,7 @@ static void handle_msg_ready_rev_event(
 #endif
 
     if (m->event_size_bytes && m->is_pull){
-        int net_id = model_net_get_id(LP_METHOD_NM);
-        model_net_event_rc(net_id, lp, m->pull_size);
+        model_net_event_rc2(lp, &m->event_rc);
     }
 
     return;
@@ -433,8 +432,8 @@ static void handle_msg_ready_event(
             struct codes_mctx mc_src =
                 codes_mctx_set_global_direct(lp->gid);
             int net_id = model_net_get_id(LP_METHOD_NM);
-            model_net_event_mctx(net_id, &mc_src, &mc_dst, m->category,
-                    m->src_gid, m->pull_size, recv_queue_time,
+            m->event_rc = model_net_event_mctx(net_id, &mc_src, &mc_dst,
+                    m->category, m->src_gid, m->pull_size, recv_queue_time,
                     m->event_size_bytes, tmp_ptr, 0, NULL, lp);
         }
         else{

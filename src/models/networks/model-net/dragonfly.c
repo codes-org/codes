@@ -1174,7 +1174,7 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
         if(bf->c4)
         {
            int net_id = model_net_get_id(LP_METHOD_NM);
-           model_net_event_rc(net_id, lp, msg->pull_size);
+           model_net_event_rc2(lp, &msg->event_rc);
 
         }
       }
@@ -1254,8 +1254,8 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
                 struct codes_mctx mc_src =
                     codes_mctx_set_global_direct(lp->gid);
                 int net_id = model_net_get_id(LP_METHOD_NM);
-                model_net_event_mctx(net_id, &mc_src, &mc_dst, msg->category,
-                        msg->sender_lp, msg->pull_size, ts,
+                msg->event_rc = model_net_event_mctx(net_id, &mc_src, &mc_dst,
+                        msg->category, msg->sender_lp, msg->pull_size, ts,
                         msg->remote_event_size_bytes, tmp_ptr, 0, NULL, lp);
             }
             else{
