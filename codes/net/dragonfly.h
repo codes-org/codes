@@ -53,7 +53,10 @@ struct terminal_message
    int intm_group_id;
    int chunk_id;
    uint64_t packet_size;
-   uint64_t num_chunks;
+   uint64_t message_id;
+   uint64_t total_size;
+
+   int saved_remote_esize;
    int remote_event_size_bytes;
    int local_event_size_bytes;
 
@@ -82,9 +85,6 @@ struct terminal_message
   /* LP ID of the sending node, has to be a network node in the dragonfly */
    tw_lpid sender_node;
    tw_lpid next_stop;
-
-   /* for reverse computation */
-   struct pending_router_msgs * saved_elem; 
 };
 
 #endif /* end of include guard: DRAGONFLY_H */
