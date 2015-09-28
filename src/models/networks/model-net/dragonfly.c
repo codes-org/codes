@@ -36,8 +36,9 @@
 
 // debugging parameters
 #define TRACK 10
+#define TRACK_MSG 0
 #define PRINT_ROUTER_TABLE 1
-#define DEBUG 0
+#define DEBUG 1
 #define USE_DIRECT_SCHEME 0
 
 #define LP_CONFIG_NM (model_net_lp_config_names[DRAGONFLY])
@@ -753,7 +754,7 @@ void router_setup(router_state * r, tw_lp * lp)
     }
 
 #if DEBUG == 1
-   printf("\n LP ID %d VC occupancy radix %d Router %d is connected to ", lp->gid, p->radix, r->router_id);
+//   printf("\n LP ID %d VC occupancy radix %d Router %d is connected to ", lp->gid, p->radix, r->router_id);
 #endif 
    //round the number of global channels to the nearest even number
 #if USE_DIRECT_SCHEME
@@ -833,11 +834,12 @@ static tw_stime dragonfly_packet_event(
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
     msg->type = T_GENERATE;
+    msg->dest_terminal_id = req->dest_mn_lp;
     msg->message_id = req->msg_id;
     msg->is_pull = req->is_pull;
     msg->pull_size = req->pull_size;
-    msg->magic = terminal_magic_num;
-
+    msg->magic = terminal_magic_num; 
+ 
     if(is_last_pckt) /* Its the last packet so pass in remote and local event information*/
       {
 	if(req->remote_event_size > 0)
@@ -988,11 +990,8 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
   term_ecount++;
 
   tw_stime ts;
-  tw_lpid dest_terminal_id;
-  dest_terminal_id = model_net_find_local_device(DRAGONFLY, s->anno, 0,
-      msg->final_dest_gid);
-  msg->dest_terminal_id = dest_terminal_id;
 
+  assert(lp->gid != msg->dest_terminal_id);
   const dragonfly_param *p = s->params;
 
   ts = g_tw_lookahead + s->params->cn_delay + tw_rand_unif(lp->rng);
@@ -1011,6 +1010,9 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
   msg->my_l_hop = 0;
   msg->my_g_hop = 0;
   msg->intm_group_id = -1;
+
+  if(msg->packet_ID == TRACK && msg->message_id == TRACK_MSG)
+      printf("\n Packet generated at terminal %d destination %d ", lp->gid, s->router_id);
 
   for(i = 0; i < num_chunks; i++)
   {
@@ -1314,6 +1316,9 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   bf->c7 = 0;
   bf->c8 = 0;
 
+  /* WE do not allow self messages through dragonfly */
+  assert(lp->gid != msg->src_terminal_id);
+
   int num_chunks = msg->packet_size / s->params->chunk_size;
   uint64_t total_chunks = msg->total_size / s->params->chunk_size;
 
@@ -1343,7 +1348,9 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   msg->saved_remote_esize = 0;
 
 #if DEBUG == 1
-  if( msg->packet_ID == TRACK && msg->chunk_id == num_chunks-1)
+ if( msg->packet_ID == TRACK 
+          && msg->chunk_id == num_chunks-1
+          && msg->message_id == TRACK_MSG)
   {
     printf( "(%lf) [Terminal %d] packet %lld has arrived  \n",
         tw_now(lp), (int)lp->gid, msg->packet_ID);
@@ -1456,7 +1463,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
 
   ts = g_tw_lookahead + s->params->credit_delay + tw_rand_unif(lp->rng);
   
-  if(msg->intm_lp_id == TRACK)
+  if(msg->packet_ID == TRACK && msg->message_id == TRACK_MSG)
 	printf("\n terminal sending credit at chan %d ", msg->saved_vc);
   
   // no method_event here - message going to router
@@ -2112,7 +2119,7 @@ static int do_adaptive_routing( router_state * s,
     next_stop = minimal_next_stop;
     msg->intm_group_id = -1;
 
-    if(msg->packet_ID == TRACK)
+    if(msg->packet_ID == TRACK && msg->message_id == TRACK_MSG)
       printf("\n (%lf) [Router %d] Packet %d routing minimally ", tw_now(lp), (int)lp->gid, (int)msg->packet_ID);
   }
   else
@@ -2121,7 +2128,7 @@ static int do_adaptive_routing( router_state * s,
     next_stop = nonmin_next_stop;
     msg->intm_group_id = intm_id;
 
-    if(msg->packet_ID == TRACK)
+    if(msg->packet_ID == TRACK && msg->message_id == TRACK_MSG)
       printf("\n (%lf) [Router %d] Packet %d routing non-minimally ", tw_now(lp), (int)lp->gid, (int)msg->packet_ID);
 
   }
@@ -2343,6 +2350,9 @@ router_packet_send( router_state * s,
     return;
   }
 
+  if(msg->packet_ID == TRACK && msg->message_id == TRACK_MSG)
+      printf("\n packet sending origin %ld to router %ld at output port %d ", cur_entry->msg.src_terminal_id, cur_entry->msg.next_stop, output_port);
+  
   int to_terminal = 1, global = 0;
   double delay = s->params->cn_delay;
   
@@ -2469,13 +2479,13 @@ void router_buf_update(router_state * s, tw_bf * bf, terminal_message * msg, tw_
   int indx = msg->vc_index;
   int output_chan = msg->output_chan;
   s->vc_occupancy[indx][output_chan] -= s->params->chunk_size;
-  if(TRACK == lp->gid)
+  /*if(TRACK == msg->packet_ID)
   {
     int i;
     printf("\n channel %d occupancy ", output_chan);
     for(i = 0; i < s->params->radix; i++)
       printf(" %d ", s->vc_occupancy[i][output_chan]);
-  }
+  }*/
   if(s->queued_msgs[indx][output_chan] != NULL) {
     bf->c1 = 1;
     terminal_message_list *head = return_head(s->queued_msgs[indx],
