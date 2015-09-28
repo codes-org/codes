@@ -34,7 +34,7 @@ static struct option long_opts[] =
     {"dumpi-log", required_argument, NULL, 'w'},
     {"chkpoint-size", required_argument, NULL, 'S'},
     {"chkpoint-bw", required_argument, NULL, 'B'},
-    {"chkpoint-runtime", required_argument, NULL, 'R'},
+    {"chkpoint-iters", required_argument, NULL, 'i'},
     {"chkpoint-mtti", required_argument, NULL, 'M'},
     {"iomock-request-type", required_argument, NULL, 'Q'},
     {"iomock-num-requests", required_argument, NULL, 'N'},
@@ -64,7 +64,7 @@ void usage(){
             "CHECKPOINT OPTIONS (checkpoint_io_workload)\n"
             "--chkpoint-size: size of aggregate checkpoint to write\n"
             "--chkpoint-bw: checkpointing bandwidth\n"
-            "--chkpoint-runtime: desired application runtime\n"
+            "--chkpoint-iters: iteration count for checkpoint workload\n"
             "--chkpoint-mtti: mean time to interrupt\n"
             "MOCK IO OPTIONS (iomock_workload)\n"
             "--iomock-request-type: whether to write or read\n"
@@ -162,8 +162,8 @@ int main(int argc, char *argv[])
             case 'B':
                 c_params.checkpoint_wr_bw = atof(optarg);
                 break;
-            case 'R':
-                c_params.app_runtime = atof(optarg);
+            case 'i':
+                c_params.total_checkpoints = atoi(optarg);
                 break;
             case 'M':
                 c_params.mtti = atof(optarg);
@@ -272,7 +272,7 @@ int main(int argc, char *argv[])
     else if(strcmp(type, "checkpoint_io_workload") == 0)
     {
         if(c_params.checkpoint_sz == 0 || c_params.checkpoint_wr_bw == 0 ||
-           c_params.app_runtime == 0 || c_params.mtti == 0)
+           c_params.total_checkpoints == 0 || c_params.mtti == 0)
         {
             fprintf(stderr, "All checkpoint workload arguments are required\n");
             usage();

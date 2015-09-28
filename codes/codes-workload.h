@@ -72,7 +72,7 @@ struct checkpoint_wrkld_params
     int nprocs; /* number of workload processes */
     double checkpoint_sz; /* size of checkpoint, in TiB */
     double checkpoint_wr_bw; /* checkpoint write b/w, in GiB/s */
-    double app_runtime; /* app runtime, in hours */
+    int total_checkpoints; /* total number of checkpoint phases */
     double mtti; /* mean time to interrupt, in hours */
 };
 

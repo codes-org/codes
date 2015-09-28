@@ -49,11 +49,11 @@ struct checkpoint_state
     /* how much this rank contributes to checkpoint (bytes) */
     long long io_per_checkpoint;
     /* which checkpointing iteration are we on */
-    int checkpoint_number;
+    int cur_checkpoint;
     /* how much we have checkpointed to file in current iteration (bytes) */
     long long cur_checkpoint_sz;
-    /* how many remaining iterations of compute/checkpoint phases are there */
-    int remaining_iterations;
+    /* the total number of checkpointing iterations (compute+checkpoint) to run */
+    int total_checkpoints;
     struct qhash_head hash_link;
 };
 
@@ -94,8 +94,8 @@ static void * checkpoint_workload_read_config(
             "checkpoint_wr_bw", annotation, &p->checkpoint_wr_bw);
     assert(!rc);
 
-    rc = configuration_get_value_double(&config, section_name, "app_run_time",
-            annotation, &p->app_runtime);
+    rc = configuration_get_value_int(&config, section_name, "total_checkpoints",
+            annotation, &p->total_checkpoints);
     assert(!rc);
 
     rc = configuration_get_value_double(&config, section_name, "mtti",
@@ -112,7 +112,6 @@ static int checkpoint_workload_load(const char* params, int app_id, int rank)
     checkpoint_wrkld_params *c_params = (checkpoint_wrkld_params *)params;
     struct checkpoint_state* new_state;
     double checkpoint_wr_time;
-    double checkpoint_phase_time;
     struct checkpoint_id this_chkpoint_id;
 
     if (!c_params)
@@ -136,7 +135,8 @@ static int checkpoint_workload_load(const char* params, int app_id, int rank)
     new_state->rank = rank;
     new_state->app_id = app_id;
     new_state->status = CHECKPOINT_COMPUTE;
-    new_state->checkpoint_number = 0;
+    new_state->cur_checkpoint = 1;
+    new_state->total_checkpoints = c_params->total_checkpoints;
 
     /* calculate the time (in seconds) taken to write the checkpoint to file */
     checkpoint_wr_time = (c_params->checkpoint_sz * 1024) /* checkpoint size (GiB) */
@@ -153,13 +153,6 @@ static int checkpoint_workload_load(const char* params, int app_id, int rank)
     /* calculate how many bytes each rank contributes to total checkpoint */
     new_state->io_per_checkpoint = (c_params->checkpoint_sz * pow(1024, 4))
         / c_params->nprocs;
-
-    /* calculate how many iterations based on how long the app should run for
-     * and how long it takes to compute + checkpoint the file
-     */
-    checkpoint_phase_time = checkpoint_wr_time + new_state->checkpoint_interval;
-    new_state->remaining_iterations =
-        round(c_params->app_runtime / (checkpoint_phase_time / 60 / 60));
 
     /* add state for this checkpoint to hash table */
     this_chkpoint_id.rank = rank;
@@ -215,7 +208,7 @@ static void checkpoint_workload_get_next(int app_id, int rank, struct codes_work
 
             /* set open parameters */
             op->op_type = CODES_WK_OPEN;
-            op->u.open.file_id = this_state->checkpoint_number;
+            op->u.open.file_id = this_state->cur_checkpoint;
             op->u.open.create_flag = 1;
 
             /* set the next status */
@@ -231,7 +224,7 @@ static void checkpoint_workload_get_next(int app_id, int rank, struct codes_work
 
             /* set write parameters */
             op->op_type = CODES_WK_WRITE;
-            op->u.write.file_id = this_state->checkpoint_number;
+            op->u.write.file_id = this_state->cur_checkpoint;
             op->u.write.offset = this_state->cur_checkpoint_sz;
             if (remaining >= DEFAULT_WR_BUF_SIZE)
                 op->u.write.size = DEFAULT_WR_BUF_SIZE;
@@ -253,15 +246,14 @@ static void checkpoint_workload_get_next(int app_id, int rank, struct codes_work
 
             /* set close parameters */
             op->op_type = CODES_WK_CLOSE;
-            op->u.close.file_id = this_state->checkpoint_number;
+            op->u.close.file_id = this_state->cur_checkpoint;
 
             /* set the next status -- if there are more iterations to
              * be completed, start the next compute/checkpoint phase;
              * otherwise, end the workload
              */
-            this_state->remaining_iterations--;
-            this_state->checkpoint_number++;
-            if (this_state->remaining_iterations == 0)
+            this_state->cur_checkpoint++;
+            if (this_state->cur_checkpoint > this_state->total_checkpoints)
             {
                 this_state->status = CHECKPOINT_INACTIVE;
             }
