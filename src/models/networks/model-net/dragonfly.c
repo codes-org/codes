@@ -1200,7 +1200,6 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
       if(msg->path_type == NON_MINIMAL)
         nonmin_count--;
 
-      uint64_t total_chunks = msg->total_size / s->params->chunk_size;
       struct dfly_hash_key key;
       key.message_id = msg->message_id;
       key.sender_id = msg->sender_lp;
@@ -1223,7 +1222,7 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
             assert(!hash_link);
             void *m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
             struct dfly_qhash_entry * d_entry = malloc(sizeof(struct dfly_qhash_entry));
-            d_entry->num_chunks = total_chunks;
+            d_entry->num_chunks = msg->saved_completed_chunks;
             d_entry->key = key;
             d_entry->remote_event_data = NULL;
             d_entry->remote_event_size = 0;
@@ -1244,6 +1243,7 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
       if(bf->c5)
       {
         /* re-initialize the element */
+        hash_link = qhash_search(s->rank_tbl, &key);
         assert(hash_link);
         qhash_del(hash_link);
         s->rank_tbl_pop--;
@@ -1317,6 +1317,9 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   int num_chunks = msg->packet_size / s->params->chunk_size;
   uint64_t total_chunks = msg->total_size / s->params->chunk_size;
 
+  if(msg->total_size % s->params->chunk_size)
+      total_chunks++;
+
   if(!total_chunks)
       total_chunks = 1;
 
@@ -1367,13 +1370,13 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
    /* If an entry does not exist then create one */
    if(!hash_link)
    {
-       bf->c5 = 1;
        struct dfly_qhash_entry * d_entry = malloc(sizeof(struct dfly_qhash_entry));
        d_entry->num_chunks = 1;
        d_entry->key = key;
        d_entry->remote_event_data = NULL;
        qhash_add(s->rank_tbl, &key, &(d_entry->hash_link));
        s->rank_tbl_pop++;
+       bf->c5 = 1;
    }
    else {
         /* if one exists already then update it*/
@@ -1386,7 +1389,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     hash_link = NULL;
     hash_link = qhash_search(s->rank_tbl, &key);
     tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
-    if(tmp->num_chunks == total_chunks)
+    if(tmp->num_chunks >= total_chunks)
     {
         bf->c7 = 1;
         if(msg->remote_event_size_bytes > 0)
@@ -1398,12 +1401,14 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
         else
         {
            void *m_data = model_net_method_get_edata(DRAGONFLY, msg);
-            assert(tmp->remote_event_size);
+            assert(tmp->remote_event_size > 0);
             send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
             msg->saved_remote_esize = tmp->remote_event_size;
            /* append remote event data to this message */
             memcpy(m_data, tmp->remote_event_data, tmp->remote_event_size);
         }
+        msg->saved_completed_chunks = tmp->num_chunks;
+
         qhash_del(hash_link);
         s->rank_tbl_pop--;
     }
