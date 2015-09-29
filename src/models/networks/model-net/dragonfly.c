@@ -35,11 +35,11 @@
 #define DFLY_HASH_TABLE_SIZE 10000
 
 // debugging parameters
-#define TRACK 10
-#define TRACK_MSG 0
+#define TRACK -1
+#define TRACK_MSG -1
 #define PRINT_ROUTER_TABLE 1
-#define DEBUG 1
-#define USE_DIRECT_SCHEME 0
+#define DEBUG 0
+#define USE_DIRECT_SCHEME 1
 
 #define LP_CONFIG_NM (model_net_lp_config_names[DRAGONFLY])
 #define LP_METHOD_NM (model_net_method_names[DRAGONFLY])
