@@ -404,6 +404,7 @@ static void copy_terminal_list_entry( terminal_message_list *cur_entry,
     msg->pull_size = cur_msg->pull_size;
     msg->intm_group_id = cur_msg->intm_group_id;
     msg->chunk_id = cur_msg->chunk_id;
+    msg->sender_mn_lp = cur_msg->sender_mn_lp;
     msg->total_size = cur_msg->total_size;
     msg->packet_size = cur_msg->packet_size;
     msg->message_id = cur_msg->message_id;
