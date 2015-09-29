@@ -822,7 +822,6 @@ static tw_stime dragonfly_packet_event(
     char* tmp_ptr;
 
     xfer_to_nic_time = codes_local_latency(sender); 
-    printf("\n transfer in time %f %f ", xfer_to_nic_time+offset, tw_now(sender));
     //e_new = tw_event_new(sender->gid, xfer_to_nic_time+offset, sender);
     //msg = tw_event_data(e_new);
     e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
