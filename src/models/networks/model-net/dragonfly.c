@@ -830,6 +830,7 @@ static tw_stime dragonfly_packet_event(
     msg->final_dest_gid = req->final_dest_lp;
     msg->total_size = req->msg_size;
     msg->sender_lp=req->src_lp;
+    msg->sender_mn_lp = sender->gid;
     msg->packet_size = packet_size;
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
