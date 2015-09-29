@@ -822,7 +822,7 @@ static tw_stime dragonfly_packet_event(
     char* tmp_ptr;
 
     xfer_to_nic_time = codes_local_latency(sender); 
-    //printf("\n transfer in time %f %f ", xfer_to_nic_time+offset, tw_now(sender));
+    printf("\n transfer in time %f %f ", xfer_to_nic_time+offset, tw_now(sender));
     //e_new = tw_event_new(sender->gid, xfer_to_nic_time+offset, sender);
     //msg = tw_event_data(e_new);
     e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
@@ -961,7 +961,6 @@ void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, 
    term_rev_ecount++;
    term_ecount--;
 
-   tw_rand_reverse_unif(lp->rng);
 
    int num_chunks = msg->packet_size/s->params->chunk_size;
    if(msg->packet_size % s->params->chunk_size)
@@ -976,7 +975,7 @@ void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, 
           s->terminal_msgs_tail, 0));
    }
     if(bf->c5) {
-        tw_rand_reverse_unif(lp->rng);
+        codes_local_latency_reverse(lp);
         s->in_send_loop = 0;
     }
      struct mn_stats* stat;
@@ -996,12 +995,11 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
   assert(lp->gid != msg->dest_terminal_id);
   const dragonfly_param *p = s->params;
 
-  ts = g_tw_lookahead + s->params->cn_delay + tw_rand_unif(lp->rng);
-  model_net_method_idle_event(codes_local_latency(lp), 0, lp);
 
   int i, total_event_size;
   int num_chunks = msg->packet_size / p->chunk_size;
-  if (msg->packet_size % s->params->chunk_size) num_chunks++;
+  if (msg->packet_size % s->params->chunk_size) 
+      num_chunks++;
 
   if(!num_chunks)
     num_chunks = 1;
@@ -1042,10 +1040,11 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
       0, cur_chunk);
   }
 
+  
   if(s->in_send_loop == 0) {
     bf->c5 = 1;
+    ts = codes_local_latency(lp);
     terminal_message *m;
-    ts = g_tw_lookahead + s->params->cn_delay + tw_rand_unif(lp->rng);
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY, 
       (void**)&m, NULL);
     m->type = T_SEND;
@@ -1095,6 +1094,8 @@ void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * msg,
       if(bf->c4) {
         s->in_send_loop = 1;
       }
+      if(bf->c5)
+          codes_local_latency_reverse(lp);
     return;
 }
 /* sends the packet from the current dragonfly compute node to the attached router */
@@ -1189,6 +1190,11 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   } else {
     bf->c4 = 1;
     s->in_send_loop = 0;
+  }
+  if(cur_entry == NULL && s->vc_occupancy[0] + s->params->chunk_size <= s->params->cn_vc_size)
+  {
+     bf->c5 = 1;
+     model_net_method_idle_event(codes_local_latency(lp), 0, lp);
   }
   return;
 }
@@ -1756,8 +1762,8 @@ void terminal_buf_update_rc(terminal_state * s,
 		    tw_lp * lp)
 {
       s->vc_occupancy[0] += s->params->chunk_size;
+      codes_local_latency_reverse(lp);
       if(bf->c1) {
-        codes_local_latency_reverse(lp);
         s->in_send_loop = 0;
       }
 
@@ -1770,17 +1776,22 @@ terminal_buf_update(terminal_state * s,
 		    terminal_message * msg, 
 		    tw_lp * lp)
 {
+  tw_stime ts = codes_local_latency(lp);
   s->vc_occupancy[0] -= s->params->chunk_size;
   if(s->in_send_loop == 0 && s->terminal_msgs[0] != NULL) {
     terminal_message *m;
     bf->c1 = 1;
-    tw_stime ts = codes_local_latency(lp);
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY, 
         (void**)&m, NULL);
     m->type = T_SEND;
     m->magic = terminal_magic_num;
     s->in_send_loop = 1;
     tw_event_send(e);
+  }
+  else if(s->in_send_loop == 0 && s->terminal_msgs[0] == NULL)
+  {
+     bf->c2 = 1;
+     model_net_method_idle_event(ts, 0, lp);
   }
 
   return;
