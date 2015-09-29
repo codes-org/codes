@@ -67,9 +67,18 @@ enum NETWORKS
 
 // message parameter types
 enum msg_param_type {
-    // currently, scheduler parameters are the only type
+    // parameters for modelnet-scheduler (priorities and such)
     MN_MSG_PARAM_SCHED,
+    // parameter allowing the explicit setting of a messages start time (needed
+    // to allow "pull messages" to propagate the message initiation time across
+    // multiple model-net events)
+    MN_MSG_PARAM_START_TIME,
     MAX_MN_MSG_PARAM_TYPES
+};
+
+// MN_MSG_PARAM_MSG_START_TIME parameter types (only one for the time being)
+enum msg_param_start_time {
+    MN_MSG_PARAM_START_TIME_VAL
 };
 
 // return type for model_net_*event calls, to be passed into RC
@@ -88,6 +97,8 @@ typedef struct model_net_request {
     tw_lpid  final_dest_lp;
     tw_lpid  dest_mn_lp; // destination modelnet lp
     tw_lpid  src_lp;
+    // time the source event was called
+    tw_stime msg_start_time;
     uint64_t msg_size;
     uint64_t pull_size;
     uint64_t packet_size;

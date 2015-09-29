@@ -48,7 +48,8 @@ tw_stime mn_msg_offset = 0.0;
 
 // message parameters for use via model_net_set_msg_param
 static int is_msg_params_set[MAX_MN_MSG_PARAM_TYPES];
-static mn_sched_params sched_params;
+static mn_sched_params sched_params; // MN_MSG_PARAM_SCHED
+static tw_stime start_time_param; // MN_MSG_PARAM_START_TIME
 
 // global listing of lp types found by model_net_register
 // - needs to be held between the register and configure calls
@@ -322,6 +323,11 @@ static model_net_event_return model_net_event_impl_base(
     strncpy(r->category, category, CATEGORY_NAME_MAX-1);
     r->category[CATEGORY_NAME_MAX-1]='\0';
 
+    if (is_msg_params_set[MN_MSG_PARAM_START_TIME])
+        r->msg_start_time = start_time_param;
+    else
+        r->msg_start_time = tw_now(sender);
+
     // this is an outgoing message
     m->msg.m_base.is_from_remote = 0;
 
@@ -494,6 +500,17 @@ void model_net_set_msg_param(
                 default:
                     tw_error(TW_LOC, "unknown or unsupported "
                             "MN_MSG_PARAM_SCHED parameter type");
+            }
+            break;
+        case MN_MSG_PARAM_START_TIME:
+            is_msg_params_set[MN_MSG_PARAM_START_TIME] = 1;
+            switch(sub_type){
+                case MN_MSG_PARAM_START_TIME_VAL:
+                    start_time_param = *(tw_stime*)params;
+                    break;
+                default:
+                    tw_error(TW_LOC, "unknown or unsupported "
+                            "MN_MSG_PARAM_START_TIME parameter type");
             }
             break;
         default:
