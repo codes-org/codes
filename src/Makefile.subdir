@@ -8,7 +8,7 @@ EXTRA_DIST += src/iokernellang/codesparser.y.in \
               src/modelconfig/configparser.y \
               src/modelconfig/configlex.l \
 			  src/modelconfig/README.txt \
-			  src/util/templates/README.txt
+			  src/util/templates/README.txt \
 			  src/util/README.codes-mapping.txt \
 			  src/util/README.lp-io.txt \
 			  src/workload/README.codes-workload \
