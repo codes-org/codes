@@ -69,9 +69,9 @@ enum NETWORKS
 enum msg_param_type {
     // parameters for modelnet-scheduler (priorities and such)
     MN_MSG_PARAM_SCHED,
-    // parameter allowing the explicit setting of a messages start time (needed
-    // to allow "pull messages" to propagate the message initiation time across
-    // multiple model-net events)
+    // parameter allowing the explicit setting of a messages start time (useful
+    // for routing scenarios in which a single message is implemented in terms
+    // of multiple model-net events, such as for model_net_pull_*event's)
     MN_MSG_PARAM_START_TIME,
     MAX_MN_MSG_PARAM_TYPES
 };
