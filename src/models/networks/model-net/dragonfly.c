@@ -22,7 +22,6 @@
 
 #define CREDIT_SIZE 8
 #define MEAN_PROCESS 1.0
-#define MAX_GEN_PACKETS 2000000
 
 /* collective specific parameters */
 #define TREE_DEGREE 4
@@ -185,6 +184,12 @@ struct terminal_state
 
    struct qhash_table *rank_tbl;
    uint64_t rank_tbl_pop;
+
+   tw_stime   total_msg_time;
+   long total_msg_size;
+   long finished_msgs;
+
+   char output_buf[512];
 };
 
 /* terminal event type (1-4) */
@@ -385,6 +390,7 @@ static void copy_terminal_list_entry( terminal_message_list *cur_entry,
     msg->packet_ID = cur_msg->packet_ID;    
     strcpy(msg->category, cur_msg->category);
     msg->final_dest_gid = cur_msg->final_dest_gid;
+    msg->msg_start_time = msg->msg_start_time;
     msg->sender_lp = cur_msg->sender_lp;
     msg->dest_terminal_id = cur_msg->dest_terminal_id;
     msg->src_terminal_id = cur_msg->src_terminal_id;
@@ -652,6 +658,10 @@ terminal_init( terminal_state * s,
    s->router_id=(int)s->terminal_id / (s->params->num_routers/2);
    s->terminal_available_time = 0.0;
    s->packet_counter = 0;
+   
+   s->finished_msgs = 0;
+   s->total_msg_time = 0.0;
+   s->total_msg_size = 0;
 
    s->num_vcs = 1;
    s->vc_occupancy = (int*)malloc(s->num_vcs * sizeof(int));
@@ -832,6 +842,7 @@ static tw_stime dragonfly_packet_event(
     msg->sender_lp=req->src_lp;
     msg->sender_mn_lp = sender->gid;
     msg->packet_size = packet_size;
+    msg->travel_start_time = tw_now(sender);
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
     msg->type = T_GENERATE;
@@ -840,7 +851,8 @@ static tw_stime dragonfly_packet_event(
     msg->is_pull = req->is_pull;
     msg->pull_size = req->pull_size;
     msg->magic = terminal_magic_num; 
- 
+    msg->msg_start_time = req->msg_start_time;
+
     if(is_last_pckt) /* Its the last packet so pass in remote and local event information*/
       {
 	if(req->remote_event_size > 0)
@@ -1004,7 +1016,6 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
     num_chunks = 1;
 
   msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
-  msg->travel_start_time = tw_now(lp);
   msg->my_N_hop = 0;
   msg->my_l_hop = 0;
   msg->my_g_hop = 0;
@@ -1215,19 +1226,37 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
       struct qhash_head * hash_link = NULL;
       hash_link = qhash_search(s->rank_tbl, &key);
       
-      if(bf->c8)
+      if(bf->c1)
       {
-        assert(hash_link);
-        struct dfly_qhash_entry * tmp = NULL; 
-        tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
-        assert(tmp);
-        tmp->remote_event_size = 0;
-        free(tmp->remote_event_data);
+        mn_stats* stat;
+        stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+        stat->recv_count--;
+        stat->recv_bytes -= msg->packet_size;
+        stat->recv_time -= tw_now(lp) - msg->travel_start_time;
+        N_finished_packets--;
+        dragonfly_total_time -= (tw_now(lp) - msg->travel_start_time);
+        total_hops -= msg->my_N_hop;
+        
+        if(bf->c3)
+          dragonfly_max_latency = msg->saved_available_time;
+          
+        if(bf->c8)
+          {
+            assert(hash_link);
+            struct dfly_qhash_entry * tmp = NULL; 
+            tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
+            assert(tmp);
+            tmp->remote_event_size = 0;
+            free(tmp->remote_event_data);
+          }
       }
-
 
         if(bf->c7)
         {
+            s->finished_msgs--;
+            s->total_msg_time -= (tw_now(lp) - msg->msg_start_time);
+            s->total_msg_size -= msg->total_size;
+
             assert(!hash_link);
             void *m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
             struct dfly_qhash_entry * d_entry = malloc(sizeof(struct dfly_qhash_entry));
@@ -1243,6 +1272,8 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
                 d_entry->remote_event_size = msg->saved_remote_esize;
             }
             qhash_add(s->rank_tbl, &key, &(d_entry->hash_link));
+        
+                
             int net_id = model_net_get_id(LP_METHOD_NM);
             
             if(bf->c4)
@@ -1269,19 +1300,6 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
         tmp2->num_chunks--;
       }
 
-      if(bf->c2) {
-        mn_stats* stat;
-        stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
-        stat->recv_count--;
-        stat->recv_bytes -= msg->packet_size;
-        stat->recv_time -= tw_now(lp) - msg->travel_start_time;
-        N_finished_packets--;
-        dragonfly_total_time -= (tw_now(lp) - msg->travel_start_time);
-        total_hops -= msg->my_N_hop;
-        if(bf->c3)
-          dragonfly_max_latency = msg->saved_available_time;
-
-      }
       msg->my_N_hop--;
       tw_rand_reverse_unif(lp->rng);
 
@@ -1299,6 +1317,9 @@ void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp * lp, t
             struct codes_mctx mc_src =
                 codes_mctx_set_global_direct(lp->gid);
             int net_id = model_net_get_id(LP_METHOD_NM);
+
+            model_net_set_msg_param(MN_MSG_PARAM_START_TIME, MN_MSG_PARAM_START_TIME_VAL, &(msg->msg_start_time));
+            
             model_net_event_mctx(net_id, &mc_src, &mc_dst, msg->category,
                     msg->sender_lp, msg->pull_size, ts,
                     remote_event_size, tmp_ptr, 0, NULL, lp);
@@ -1316,6 +1337,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
 
   term_ecount++;
 
+  bf->c1 = 0;
   bf->c2 = 0;
   bf->c4 = 0;
   bf->c5 = 0;
@@ -1384,13 +1406,13 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
    /* If an entry does not exist then create one */
    if(!hash_link)
    {
+       bf->c5 = 1;
        struct dfly_qhash_entry * d_entry = malloc(sizeof(struct dfly_qhash_entry));
        d_entry->num_chunks = 1;
        d_entry->key = key;
        d_entry->remote_event_data = NULL;
        qhash_add(s->rank_tbl, &key, &(d_entry->hash_link));
        s->rank_tbl_pop++;
-       bf->c5 = 1;
    }
    else {
         /* if one exists already then update it*/
@@ -1406,6 +1428,11 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     if(tmp->num_chunks >= total_chunks)
     {
         bf->c7 = 1;
+        
+        s->finished_msgs++;
+        s->total_msg_time += (tw_now(lp) - msg->msg_start_time);
+        s->total_msg_size += msg->total_size; 
+
         if(msg->remote_event_size_bytes > 0)
         {
             char * remote_data = malloc(msg->remote_event_size_bytes);
@@ -1415,8 +1442,8 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
         else
         {
            void *m_data = model_net_method_get_edata(DRAGONFLY, msg);
-            assert(tmp->remote_event_size > 0);
-            send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
+           assert(tmp->remote_event_size > 0);
+           send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
             msg->saved_remote_esize = tmp->remote_event_size;
            /* append remote event data to this message */
             memcpy(m_data, tmp->remote_event_data, tmp->remote_event_size);
@@ -1431,7 +1458,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
    msg->my_N_hop++;
   if(msg->chunk_id == num_chunks-1)
   {
-    bf->c2 = 1;
+    bf->c1 = 1;
     mn_stats* stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
     stat->recv_count++;
     stat->recv_bytes += msg->packet_size;
@@ -1446,7 +1473,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
       msg->saved_available_time = dragonfly_max_latency;
       dragonfly_max_latency = tw_now( lp ) - msg->travel_start_time;
     }
-
+    
     if(!bf->c7 && msg->remote_event_size_bytes > 0)
 	{
            /* Retreive the remote event entry */
@@ -1459,10 +1486,10 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
             assert(tmp);
 
             tmp->remote_event_data = (void*)malloc(msg->remote_event_size_bytes);
+            assert(tmp->remote_event_data);
             tmp->remote_event_size = msg->remote_event_size_bytes; 
             
             memcpy(tmp->remote_event_data, m_data_src, msg->remote_event_size_bytes);
-            assert(tmp->remote_event_data);
     }
   }
     // NIC aggregation - should this be a separate function?
@@ -1845,7 +1872,15 @@ dragonfly_terminal_final( terminal_state * s,
       tw_lp * lp )
 {
 	model_net_print_stats(lp->gid, s->dragonfly_stats_array);
-        
+    
+    int written = 0;
+    if(!s->terminal_id)
+        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Avg Msg Size> <Avg Msg Time> <# Msgs finished>");
+
+    written += sprintf(s->output_buf + written, "%lu %lu %ld %lf %ld\n", lp->gid, s->terminal_id, s->total_msg_size, s->total_msg_time, s->finished_msgs);
+    
+    lp_io_write(lp->gid, "dragonfly-msg-stats", written, s->output_buf); 
+
         if(s->terminal_msgs[0] != NULL) 
         printf("[%lu] leftover terminal messages \n", lp->gid);
 }

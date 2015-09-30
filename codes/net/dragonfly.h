@@ -74,6 +74,8 @@ struct terminal_message
    tw_stime saved_credit_time;
    tw_stime saved_collective_init_time;  
    tw_stime saved_hist_start_time;
+   tw_stime msg_start_time;
+
    short saved_completed_chunks;
    int saved_hist_num;
    int saved_occupancy;
