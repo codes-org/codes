@@ -21,10 +21,12 @@
 #define CATEGORY_MAX 12
 
 // simple deprecation attribute hacking
-#if defined(__GNUC__) || defined(__GNUG__) || defined(__clang__)
-#define DEPRECATED __attribute__((deprecated))
-#else
-#define DEPRECATED
+#if !defined(DEPRECATED)
+#  if defined(__GNUC__) || defined(__GNUG__) || defined(__clang__)
+#    define DEPRECATED __attribute__((deprecated))
+#  else
+#    define DEPRECATED
+#  endif
 #endif
 
 /* HACK: there is currently no scheduling fidelity across multiple
