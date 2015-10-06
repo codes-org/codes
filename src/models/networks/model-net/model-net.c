@@ -246,7 +246,10 @@ static model_net_event_return model_net_noop_event(
     if (remote_event_size && remote_event != NULL) {
         poffset += codes_local_latency(sender);
         num_rng_calls++;
-        tw_event *e = tw_event_new(final_dest_lp, poffset+offset, sender);
+        /* special case - in a "pull" event, the "remote" message is actually
+         * to self */
+        tw_event *e = tw_event_new(is_pull ? sender->gid : final_dest_lp,
+                poffset+offset, sender);
         memcpy(tw_event_data(e), remote_event, remote_event_size);
         tw_event_send(e);
     }
