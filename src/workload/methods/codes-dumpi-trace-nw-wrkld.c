@@ -342,19 +342,19 @@ int handleDUMPIIRecv(const dumpi_irecv *prm, uint16_t thread, const dumpi_time *
 {
 	//printf("\n irecv source %d count %d data type %d", prm->source, prm->count, prm->datatype);
 	rank_mpi_context* myctx = (rank_mpi_context*)userarg;
-        struct codes_workload_op* wrkld_per_rank = malloc(sizeof(struct codes_workload_op));
+        struct codes_workload_op wrkld_per_rank;
 
-        wrkld_per_rank->op_type = CODES_WK_IRECV;
-	wrkld_per_rank->u.recv.data_type = prm->datatype;
-	wrkld_per_rank->u.recv.count = prm->count;
-	wrkld_per_rank->u.recv.tag = prm->tag;
-        wrkld_per_rank->u.recv.num_bytes = prm->count * get_num_bytes(prm->datatype);
-	assert(wrkld_per_rank->u.recv.num_bytes > 0);
-        wrkld_per_rank->u.recv.source_rank = prm->source;
-        wrkld_per_rank->u.recv.dest_rank = -1;
-	wrkld_per_rank->u.recv.req_id = prm->request;
+        wrkld_per_rank.op_type = CODES_WK_IRECV;
+	wrkld_per_rank.u.recv.data_type = prm->datatype;
+	wrkld_per_rank.u.recv.count = prm->count;
+	wrkld_per_rank.u.recv.tag = prm->tag;
+        wrkld_per_rank.u.recv.num_bytes = prm->count * get_num_bytes(prm->datatype);
+	assert(wrkld_per_rank.u.recv.num_bytes > 0);
+        wrkld_per_rank.u.recv.source_rank = prm->source;
+        wrkld_per_rank.u.recv.dest_rank = -1;
+	wrkld_per_rank.u.recv.req_id = prm->request;
 
-        update_times_and_insert(wrkld_per_rank, wall, myctx);
+        update_times_and_insert(&wrkld_per_rank, wall, myctx);
         return 0;
 }
 
@@ -636,8 +636,8 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
         libundumpi_populate_callbacks(&callbacks, callarr);
 
         dumpi_start_stream_read(profile);
-        dumpi_header* trace_header = undumpi_read_header(profile);
-        dumpi_free_header(trace_header);
+        //dumpi_header* trace_header = undumpi_read_header(profile);
+        //dumpi_free_header(trace_header);
 
         int finalize_reached = 0;
         int active = 1;
