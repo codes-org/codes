@@ -46,28 +46,28 @@ enum MPI_NW_EVENTS
 {
 	MPI_OP_GET_NEXT=1,
 	MPI_SEND_ARRIVED,
-        MPI_SEND_ARRIVED_CB, // for tracking message times on sender
+    MPI_SEND_ARRIVED_CB, // for tracking message times on sender
 	MPI_SEND_POSTED,
 };
 
 /* stores pointers of pending MPI operations to be matched with their respective sends/receives. */
 struct mpi_msgs_queue
 {
-	struct codes_workload_op* mpi_op;
-	struct mpi_msgs_queue* next;
+	struct codes_workload_op * mpi_op;
+	struct mpi_msgs_queue * next;
 };
 
 /* stores request IDs of completed MPI operations (Isends or Irecvs) */
 struct completed_requests
 {
 	dumpi_req_id req_id;
-	struct completed_requests* next;
+	struct completed_requests * next;
 };
 
 /* for wait operations, store the pending operation and number of completed waits so far. */
 struct pending_waits
 {
-	struct codes_workload_op* mpi_op;
+	struct codes_workload_op * mpi_op;
 	int num_completed;
 	tw_stime start_time;
 };
@@ -99,30 +99,22 @@ struct nw_state
 	/* time spent by the LP in executing the app trace*/
 	double start_time;
 	double elapsed_time;
-
 	/* time spent in compute operations */
 	double compute_time;
-
 	/* time spent in message send/isend */
 	double send_time;
-
 	/* time spent in message receive */
 	double recv_time;
-	
 	/* time spent in wait operation */
 	double wait_time;
-
 	/* FIFO for isend messages arrived on destination */
-	struct mpi_queue_ptrs* arrival_queue;
-
+	struct mpi_queue_ptrs * arrival_queue;
 	/* FIFO for irecv messages posted but not yet matched with send operations */
-	struct mpi_queue_ptrs* pending_recvs_queue;
-
+	struct mpi_queue_ptrs * pending_recvs_queue;
 	/* list of pending waits (and saved pending wait for reverse computation) */
-	struct pending_waits* pending_waits;
-
+	struct pending_waits * pending_waits;
 	/* List of completed send/receive requests */
-	struct completed_requests* completed_reqs;
+	struct completed_requests * completed_reqs;
 };
 
 /* data for handling reverse computation.
@@ -155,87 +147,90 @@ struct nw_message
      /* required for reverse computation*/
      struct 
       {
-	int found_match;
-	short matched_op;
-	dumpi_req_id saved_matched_req;
-	struct codes_workload_op* ptr_match_op;
-	struct pending_waits* saved_pending_wait;
+        int found_match;
+        short matched_op;
+        dumpi_req_id saved_matched_req;
+        struct codes_workload_op* ptr_match_op;
+        struct pending_waits* saved_pending_wait;
 
-	double saved_send_time;
-	double saved_recv_time;
-	double saved_wait_time;
+        double saved_send_time;
+        double saved_recv_time;
+        double saved_wait_time;
       } rc;
   } u;
 };
 
 /* executes MPI wait operation */
-static void codes_exec_mpi_wait(nw_state* s, tw_bf* bf, nw_message* m, tw_lp* lp);
-
+static void codes_exec_mpi_wait(
+        nw_state* s, tw_lp* lp, nw_message * m, struct codes_workload_op * mpi_op);
 /* reverse of mpi wait function. */
-static void codes_exec_mpi_wait_rc(nw_state* s, tw_bf* bf, nw_message* m, tw_lp* lp);
-
+static void codes_exec_mpi_wait_rc(
+        nw_state* s, tw_bf* bf, nw_message* m, tw_lp* lp);
 /* executes MPI isend and send operations */
-static void codes_exec_mpi_send(nw_state* s, nw_message* m, tw_lp* lp);
-
+static void codes_exec_mpi_send(
+        nw_state* s, tw_lp* lp, struct codes_workload_op * mpi_op);
 /* execute MPI irecv operation */
-static void codes_exec_mpi_recv(nw_state* s, nw_message* m, tw_lp* lp);
-
+static void codes_exec_mpi_recv(
+        nw_state* s, tw_lp* lp, nw_message * m, struct codes_workload_op * mpi_op);
 /* reverse of mpi recv function. */
-static void codes_exec_mpi_recv_rc(nw_state* s, nw_message* m, tw_lp* lp);
-
+static void codes_exec_mpi_recv_rc(
+        nw_state* s, nw_message* m, tw_lp* lp);
 /* execute the computational delay */
-static void codes_exec_comp_delay(nw_state* s, nw_message* m, tw_lp* lp);
-
+static void codes_exec_comp_delay(
+        nw_state* s, tw_lp* lp, struct codes_workload_op * mpi_op);
 /* execute collective operation, currently only skips these operations. */
-static void codes_exec_mpi_col(nw_state* s, nw_message* m, tw_lp* lp);
-
+static void codes_exec_mpi_col(
+        nw_state* s, tw_lp* lp);
 /* gets the next MPI operation from the network-workloads API. */
-static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp);
-
+static void get_next_mpi_operation(
+        nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp);
 /* reverse handler of get next mpi operation. */
-static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp);
-
+static void get_next_mpi_operation_rc(
+        nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp);
 /* Makes a call to get_next_mpi_operation. */
 static void codes_issue_next_event(tw_lp* lp);
 
 ///////////////////// HELPER FUNCTIONS FOR MPI MESSAGE QUEUE HANDLING ///////////////
 /* upon arrival of local completion message, inserts operation in completed send queue */
-static void update_send_completion_queue(nw_state*s, tw_bf* bf, nw_message* m, tw_lp * lp);
-
+static void update_send_completion_queue(
+        nw_state*s, tw_bf* bf, nw_message* m, tw_lp * lp);
 /* reverse of the above function */
-static void update_send_completion_queue_rc(nw_state*s, tw_bf* bf, nw_message* m, tw_lp * lp);
-
+static void update_send_completion_queue_rc(
+        nw_state*s, tw_bf* bf, nw_message* m, tw_lp * lp);
 /* upon arrival of an isend operation, updates the arrival queue of the network */
-static void update_arrival_queue(nw_state*s, tw_bf* bf, nw_message* m, tw_lp * lp);
-
+static void update_arrival_queue(
+        nw_state*s, tw_bf* bf, nw_message* m, tw_lp * lp);
 /* reverse of the above function */
-static void update_arrival_queue_rc(nw_state*s, tw_bf* bf, nw_message* m, tw_lp * lp);
-
+static void update_arrival_queue_rc(
+        nw_state*s, tw_bf* bf, nw_message* m, tw_lp * lp);
 /* callback to a message sender for computing message time */
-static void update_message_time(nw_state*s, tw_bf* bf, nw_message* m, tw_lp * lp);
-static void update_message_time_rc(nw_state*s, tw_bf* bf, nw_message* m, tw_lp * lp);
+static void update_message_time(
+        nw_state*s, tw_bf* bf, nw_message* m, tw_lp * lp);
+/* reverse for computing message time */
+static void update_message_time_rc(
+        nw_state*s, tw_bf* bf, nw_message* m, tw_lp * lp);
 
 /* insert MPI operation in the waiting queue*/
-static void mpi_pending_queue_insert_op(struct mpi_queue_ptrs* mpi_queue, struct codes_workload_op* mpi_op);
-
+static void mpi_pending_queue_insert_op(
+        struct mpi_queue_ptrs* mpi_queue, struct codes_workload_op* mpi_op);
 /* remove completed request IDs from the queue for reuse. Reverse of above function. */
-static void remove_req_id(struct completed_requests** requests, int16_t req_id);
-
+static void remove_req_id(
+        struct completed_requests** requests, int16_t req_id);
 /* remove MPI operation from the waiting queue.*/
-static int mpi_queue_remove_matching_op(nw_state* s, tw_lp* lp, struct mpi_queue_ptrs* mpi_queue, nw_message * m);
-
+static int mpi_queue_remove_matching_op(
+        nw_state* s, tw_lp* lp, nw_message * m, struct mpi_queue_ptrs* mpi_queue, struct codes_workload_op * mpi_op);
 /* remove the tail of the MPI operation from waiting queue */
-static int mpi_queue_remove_tail(tw_lpid lpid, struct mpi_queue_ptrs* mpi_queue);
-
+static int mpi_queue_remove_tail(
+        tw_lpid lpid, struct mpi_queue_ptrs* mpi_queue);
 /* insert completed MPI requests in the queue. */
-static void mpi_completed_queue_insert_op(struct completed_requests** mpi_completed_queue, dumpi_req_id req_id);
-
+static void mpi_completed_queue_insert_op(
+        struct completed_requests** mpi_completed_queue, dumpi_req_id req_id);
 /* notifies the wait operations (if any) about the completed receives and sends requests. */
-static int notify_waits(nw_state* s, tw_bf* bf, tw_lp* lp, nw_message* m, dumpi_req_id req_id);
-
+static int notify_waits(
+        nw_state* s, tw_bf* bf, tw_lp* lp, nw_message* m, dumpi_req_id req_id);
 /* reverse of notify waits function. */
-static void notify_waits_rc(nw_state* s, tw_bf* bf, tw_lp* lp, nw_message* m, dumpi_req_id completed_req);
-
+static void notify_waits_rc(
+        nw_state* s, tw_bf* bf, tw_lp* lp, nw_message* m, dumpi_req_id completed_req);
 /* conversion from seconds to eanaoseconds */
 static tw_stime s_to_ns(tw_stime ns);
 
@@ -260,10 +255,7 @@ static struct mpi_queue_ptrs* queue_init()
 /* helper function: counts number of elements in the queue */
 static int numQueue(struct mpi_queue_ptrs* mpi_queue)
 {
-	struct mpi_msgs_queue* tmp = malloc(sizeof(struct mpi_msgs_queue)); 
-	assert(tmp);
-
-	tmp = mpi_queue->queue_head;
+	struct mpi_msgs_queue* tmp = mpi_queue->queue_head;
 	int count = 0;
 
 	while(tmp)
@@ -272,7 +264,6 @@ static int numQueue(struct mpi_queue_ptrs* mpi_queue)
 		tmp = tmp->next;
 	}
 	return count;
-	free(tmp);
 }
 
 /* prints elements in a send/recv queue */
@@ -370,27 +361,29 @@ static void notify_waits_rc(nw_state* s, tw_bf* bf, tw_lp* lp, nw_message* m, du
 */
   if(lp->gid == TRACE)
 	  printf("\n %lf reverse -- notify waits req id %d ", tw_now(lp), completed_req);
+  
   printCompletedQueue(s, lp);
+  
   if(m->u.rc.matched_op == 1)
 	s->pending_waits->num_completed--;
    /* if a wait-elem exists, it means the request ID has been matched*/
    if(m->u.rc.matched_op == 2) 
     {
-	if(lp->gid == TRACE)
-	{
-		printf("\n %lf matched req id %d ", tw_now(lp), completed_req);
-		printCompletedQueue(s, lp);
-	}
+        if(lp->gid == TRACE)
+        {
+            printf("\n %lf matched req id %d ", tw_now(lp), completed_req);
+            printCompletedQueue(s, lp);
+        }
         struct pending_waits* wait_elem = m->u.rc.saved_pending_wait;
-	s->wait_time = m->u.rc.saved_wait_time;
-	int count = wait_elem->mpi_op->u.waits.count; 
+        s->wait_time = m->u.rc.saved_wait_time;
+        int count = wait_elem->mpi_op->u.waits.count; 
 
-	for( i = 0; i < count; i++ )
-		mpi_completed_queue_insert_op(&s->completed_reqs, wait_elem->mpi_op->u.waits.req_ids[i]);
+        for( i = 0; i < count; i++ )
+            mpi_completed_queue_insert_op(&s->completed_reqs, wait_elem->mpi_op->u.waits.req_ids[i]);
 
-	wait_elem->num_completed--;	
-	s->pending_waits = wait_elem;
-	tw_rand_reverse_unif(lp->rng);
+        wait_elem->num_completed--;	
+        s->pending_waits = wait_elem;
+        tw_rand_reverse_unif(lp->rng);
 
    }
 }
@@ -428,8 +421,7 @@ static int notify_waits(nw_state* s, tw_bf* bf, tw_lp* lp, nw_message* m, dumpi_
 			return 0;
 		 }
 	}
-	else
-	if(op_type == CODES_WK_WAITALL)
+	else if(op_type == CODES_WK_WAITALL)
 	{
 	   int required_count = wait_elem->mpi_op->u.waits.count;
 	  for(i = 0; i < required_count; i++)
@@ -443,23 +435,25 @@ static int notify_waits(nw_state* s, tw_bf* bf, tw_lp* lp, nw_message* m, dumpi_
 		}
 	   }
 	   
-	    if(wait_elem->num_completed == required_count)
-	     {
-		if(lp->gid == TRACE)
-		{
-			printf("\n %lf req %d completed %d", tw_now(lp), completed_req, wait_elem->num_completed);
-			printCompletedQueue(s, lp);
-		}
-		m->u.rc.matched_op = 2;
-		m->u.rc.saved_wait_time = s->wait_time;
-		s->wait_time += (tw_now(lp) - wait_elem->start_time);
-		m->u.rc.saved_pending_wait = wait_elem;
-		s->pending_waits = NULL; 
-		for(i = 0; i < required_count; i++)
-			remove_req_id(&s->completed_reqs, wait_elem->mpi_op->u.waits.req_ids[i]);	
-		codes_issue_next_event(lp); //wait completed
-	    }
-       }
+	  if(wait_elem->num_completed == required_count)
+	   {
+            if(lp->gid == TRACE)
+            {
+                printf("\n %lf req %d completed %d", tw_now(lp), completed_req, wait_elem->num_completed);
+                printCompletedQueue(s, lp);
+            }
+            m->u.rc.matched_op = 2;
+            m->u.rc.saved_wait_time = s->wait_time;
+            s->wait_time += (tw_now(lp) - wait_elem->start_time);
+            m->u.rc.saved_pending_wait = wait_elem;
+            s->pending_waits = NULL; 
+            
+            for(i = 0; i < required_count; i++)
+                remove_req_id(&s->completed_reqs, wait_elem->mpi_op->u.waits.req_ids[i]);	
+            
+            codes_issue_next_event(lp); //wait completed
+          }
+    }
 	return 0;
 }
 
@@ -469,21 +463,21 @@ static void codes_exec_mpi_wait_rc(nw_state* s, tw_bf* bf, nw_message* m, tw_lp*
     if(s->pending_waits)
      {
     	s->pending_waits = NULL;
-	return;
+	    return;
      }
    else
     {
- 	mpi_completed_queue_insert_op(&s->completed_reqs, m->op->u.wait.req_id);	
-	tw_rand_reverse_unif(lp->rng);		
+ 	    mpi_completed_queue_insert_op(&s->completed_reqs, m->op->u.wait.req_id);	
+	    tw_rand_reverse_unif(lp->rng);		
     }
 }
 
 /* execute MPI wait operation */
-static void codes_exec_mpi_wait(nw_state* s, tw_bf* bf, nw_message* m, tw_lp* lp)
+static void codes_exec_mpi_wait(nw_state* s, tw_lp* lp, nw_message * m, struct codes_workload_op * mpi_op)
 {
     /* check in the completed receives queue if the request ID has already been completed.*/
     assert(!s->pending_waits);
-    dumpi_req_id req_id = m->op->u.wait.req_id;
+    dumpi_req_id req_id = mpi_op->u.wait.req_id;
 
     struct completed_requests* current = s->completed_reqs;
     while(current) {
@@ -498,7 +492,7 @@ static void codes_exec_mpi_wait(nw_state* s, tw_bf* bf, nw_message* m, tw_lp* lp
 
     /* If not, add the wait operation in the pending 'waits' list. */
     struct pending_waits* wait_op = malloc(sizeof(struct pending_waits));
-    wait_op->mpi_op = m->op;
+    wait_op->mpi_op = mpi_op;
     wait_op->num_completed = 0;
     wait_op->start_time = tw_now(lp);
     s->pending_waits = wait_op;
@@ -506,38 +500,39 @@ static void codes_exec_mpi_wait(nw_state* s, tw_bf* bf, nw_message* m, tw_lp* lp
 
 static void codes_exec_mpi_wait_all_rc(nw_state* s, tw_bf* bf, nw_message* m, tw_lp* lp)
 {
-   if(lp->gid == TRACE)
-  {
-   printf("\n %lf codes exec mpi waitall reverse %d ", tw_now(lp), m->u.rc.found_match);
-   printCompletedQueue(s, lp); 
-  } 
+  if(lp->gid == TRACE)
+   {
+       printf("\n %lf codes exec mpi waitall reverse %d ", tw_now(lp), m->u.rc.found_match);
+       printCompletedQueue(s, lp); 
+   } 
   if(m->u.rc.found_match)
     {
-   	int i;
-	int count = m->op->u.waits.count;
-	dumpi_req_id req_id[count];
+        int i;
+        int count = m->op->u.waits.count;
+        dumpi_req_id req_id[count];
 
-	for( i = 0; i < count; i++)
-	{
-		req_id[i] = m->op->u.waits.req_ids[i];
-		mpi_completed_queue_insert_op(&s->completed_reqs, req_id[i]);
-	}
-	tw_rand_reverse_unif(lp->rng);
-    }
+        for( i = 0; i < count; i++)
+        {
+            req_id[i] = m->op->u.waits.req_ids[i];
+            mpi_completed_queue_insert_op(&s->completed_reqs, req_id[i]);
+        }
+        tw_rand_reverse_unif(lp->rng);
+   }
     else
     {
-	struct pending_waits* wait_op = s->pending_waits;
-	free(wait_op);
-	s->pending_waits = NULL;
-	assert(!s->pending_waits);
-	if(lp->gid == TRACE)
-		printf("\n %lf Nullifying codes waitall ", tw_now(lp));
-    }
+        struct pending_waits* wait_op = s->pending_waits;
+        free(wait_op);
+        s->pending_waits = NULL;
+        assert(!s->pending_waits);
+        if(lp->gid == TRACE)
+            printf("\n %lf Nullifying codes waitall ", tw_now(lp));
+   }
 }
-static void codes_exec_mpi_wait_all(nw_state* s, tw_bf* bf, nw_message* m, tw_lp* lp)
+static void codes_exec_mpi_wait_all(
+        nw_state* s, tw_lp* lp, nw_message * m, struct codes_workload_op * mpi_op)
 {
   //assert(!s->pending_waits);
-  int count = m->op->u.waits.count;
+  int count = mpi_op->u.waits.count;
   int i, num_completed = 0;
   dumpi_req_id req_id[count];
   struct completed_requests* current = s->completed_reqs;
@@ -545,18 +540,18 @@ static void codes_exec_mpi_wait_all(nw_state* s, tw_bf* bf, nw_message* m, tw_lp
   /* check number of completed irecvs in the completion queue */ 
   if(lp->gid == TRACE)
     {
-  	printf(" \n (%lf) MPI waitall posted %d count", tw_now(lp), m->op->u.waits.count);
+  	printf(" \n (%lf) MPI waitall posted %d count", tw_now(lp), mpi_op->u.waits.count);
 	for(i = 0; i < count; i++)
-		printf(" %d ", (int)m->op->u.waits.req_ids[i]);
+		printf(" %d ", (int)mpi_op->u.waits.req_ids[i]);
    	printCompletedQueue(s, lp);	 
    }
   while(current) 
    {
 	  for(i = 0; i < count; i++)
 	   {
-	     req_id[i] = m->op->u.waits.req_ids[i];
+	     req_id[i] = mpi_op->u.waits.req_ids[i];
 	     if(req_id[i] == current->req_id)
- 		 num_completed++;
+ 		    num_completed++;
    	  }
 	 current = current->next;
    }
@@ -577,7 +572,7 @@ static void codes_exec_mpi_wait_all(nw_state* s, tw_bf* bf, nw_message* m, tw_lp
   {
  	/* If not, add the wait operation in the pending 'waits' list. */
 	  struct pending_waits* wait_op = malloc(sizeof(struct pending_waits));
-	  wait_op->mpi_op = m->op;  
+	  wait_op->mpi_op = mpi_op;  
 	  wait_op->num_completed = num_completed;
 	  wait_op->start_time = tw_now(lp);
 	  s->pending_waits = wait_op;
@@ -585,14 +580,15 @@ static void codes_exec_mpi_wait_all(nw_state* s, tw_bf* bf, nw_message* m, tw_lp
 }
 
 /* request ID is being reused so delete it from the list once the matching is done */
-static void remove_req_id(struct completed_requests** mpi_completed_queue, dumpi_req_id req_id)
+static void remove_req_id(
+        struct completed_requests** mpi_completed_queue, dumpi_req_id req_id)
 {
 	struct completed_requests* current = *mpi_completed_queue;
 
 	if(!current)
 		tw_error(TW_LOC, "\n REQ ID DOES NOT EXIST");
 	
-       if(current->req_id == req_id)
+    if(current->req_id == req_id)
 	{
 		*mpi_completed_queue = current->next;
 		free(current);
@@ -605,17 +601,18 @@ static void remove_req_id(struct completed_requests** mpi_completed_queue, dumpi
 	   elem = current->next;
 	   if(elem->req_id == req_id)	
 	     {
-		current->next = elem->next;
-		free(elem);
-		return;
-	     }
+            current->next = elem->next;
+            free(elem);
+            return;
+         }
 	   current = current->next;	
 	}
 	return;
 }
 
 /* inserts mpi operation in the completed requests queue */
-static void mpi_completed_queue_insert_op(struct completed_requests** mpi_completed_queue, dumpi_req_id req_id)
+static void mpi_completed_queue_insert_op(
+        struct completed_requests** mpi_completed_queue, dumpi_req_id req_id)
 {
 	struct completed_requests* reqs = malloc(sizeof(struct completed_requests));
 	assert(reqs);
@@ -624,9 +621,9 @@ static void mpi_completed_queue_insert_op(struct completed_requests** mpi_comple
 
 	if(!(*mpi_completed_queue))	
 	{
-			reqs->next = NULL;
-			*mpi_completed_queue = reqs;
-			return;
+        reqs->next = NULL;
+        *mpi_completed_queue = reqs;
+        return;
 	}
 	reqs->next = *mpi_completed_queue;
 	*mpi_completed_queue = reqs;
@@ -634,14 +631,15 @@ static void mpi_completed_queue_insert_op(struct completed_requests** mpi_comple
 }
 
 /* insert MPI send or receive operation in the queues starting from tail. Unmatched sends go to arrival queue and unmatched receives go to pending receives queues. */
-static void mpi_pending_queue_insert_op(struct mpi_queue_ptrs* mpi_queue, struct codes_workload_op* mpi_op)
+static void mpi_pending_queue_insert_op(
+        struct mpi_queue_ptrs* mpi_queue, struct codes_workload_op* mpi_op)
 {
 	/* insert mpi operation */
 	struct mpi_msgs_queue* elem = malloc(sizeof(struct mpi_msgs_queue));
 	assert(elem);
 
 	elem->mpi_op = mpi_op;
-     	elem->next = NULL;
+    elem->next = NULL;
 
 	if(!mpi_queue->queue_head)
 	  mpi_queue->queue_head = elem;
@@ -649,14 +647,15 @@ static void mpi_pending_queue_insert_op(struct mpi_queue_ptrs* mpi_queue, struct
 	if(mpi_queue->queue_tail)
 	    mpi_queue->queue_tail->next = elem;
 	
-        mpi_queue->queue_tail = elem;
+    mpi_queue->queue_tail = elem;
 	mpi_queue->num_elems++;
 
 	return;
 }
 
 /* match the send/recv operations */
-static int match_receive(nw_state* s, tw_lp* lp, tw_lpid lpid, struct codes_workload_op* op1, struct codes_workload_op* op2)
+static int match_receive(
+        nw_state* s, tw_lp* lp, tw_lpid lpid, struct codes_workload_op* op1, struct codes_workload_op* op2)
 {
         assert(op1->op_type == CODES_WK_IRECV || op1->op_type == CODES_WK_RECV);
         assert(op2->op_type == CODES_WK_SEND || op2->op_type == CODES_WK_ISEND);
@@ -710,10 +709,8 @@ static int mpi_queue_remove_tail(tw_lpid lpid, struct mpi_queue_ptrs* mpi_queue)
 /* search for a matching mpi operation and remove it from the list. 
  * Record the index in the list from where the element got deleted. 
  * Index is used for inserting the element once again in the queue for reverse computation. */
-static int mpi_queue_remove_matching_op(nw_state* s, tw_lp* lp, struct mpi_queue_ptrs* mpi_queue, nw_message * m)
+static int mpi_queue_remove_matching_op(nw_state* s, tw_lp* lp, nw_message * m, struct mpi_queue_ptrs* mpi_queue, struct codes_workload_op * mpi_op)
 {
-       struct codes_workload_op * mpi_op = m->op;
- 
 	if(mpi_queue->queue_head == NULL)
 		return -1;
 
@@ -736,7 +733,7 @@ static int mpi_queue_remove_matching_op(nw_state* s, tw_lp* lp, struct mpi_queue
 	if(rcv_val >= 0)
 	{
 		/* TODO: fix RC */
-		/*memcpy(&m->u.rc.ptr_match_op, &tmp->mpi_op, sizeof(struct codes_workload_op));*/
+		m->u.rc.ptr_match_op = tmp->mpi_op;
 		if(mpi_queue->queue_head == mpi_queue->queue_tail)
 		   {
 			mpi_queue->queue_tail = NULL;
@@ -762,20 +759,19 @@ static int mpi_queue_remove_matching_op(nw_state* s, tw_lp* lp, struct mpi_queue
 	   
 	    if(mpi_op->op_type == CODES_WK_SEND || mpi_op->op_type == CODES_WK_ISEND)
 	     {
-		rcv_val = match_receive(s, lp, lp->gid, elem->mpi_op, mpi_op);
+		    rcv_val = match_receive(s, lp, lp->gid, elem->mpi_op, mpi_op);
 	     	m->u.rc.saved_matched_req = elem->mpi_op->u.recv.req_id; 
 	     }
 	    else if(mpi_op->op_type == CODES_WK_RECV || mpi_op->op_type == CODES_WK_IRECV)
 	     {
-		rcv_val = match_receive(s, lp, lp->gid, mpi_op, elem->mpi_op);
-		m->u.rc.saved_matched_req = mpi_op->u.recv.req_id;
-	     }
+            rcv_val = match_receive(s, lp, lp->gid, mpi_op, elem->mpi_op);
+            m->u.rc.saved_matched_req = mpi_op->u.recv.req_id;
+         }
    	     if(rcv_val >= 0)
-		{
-		    /* TODO: fix RC */
-		    /*memcpy(&m->u.rc.ptr_match_op, &elem->mpi_op, sizeof(struct codes_workload_op));*/
+		 {
+		    m->u.rc.ptr_match_op = elem->mpi_op;
 		    if(elem == mpi_queue->queue_tail)
-			mpi_queue->queue_tail = tmp;
+			    mpi_queue->queue_tail = tmp;
 		    
 		    tmp->next = elem->next;
 
@@ -783,9 +779,9 @@ static int mpi_queue_remove_matching_op(nw_state* s, tw_lp* lp, struct mpi_queue
 		    mpi_queue->num_elems--;
 		
 		    return indx;
-		}
+		 }
 	   tmp = tmp->next;
-        }
+    }
 	return -1;
 }
 /* Trigger getting next event at LP */
@@ -805,9 +801,9 @@ static void codes_issue_next_event(tw_lp* lp)
 }
 
 /* Simulate delays between MPI operations */
-static void codes_exec_comp_delay(nw_state* s, nw_message* m, tw_lp* lp)
+static void codes_exec_comp_delay(
+        nw_state* s, tw_lp* lp, struct codes_workload_op * mpi_op)
 {
-	struct codes_workload_op* mpi_op = m->op;
 	tw_event* e;
 	tw_stime ts;
 	nw_message* msg;
@@ -850,14 +846,13 @@ static void codes_exec_mpi_recv_rc(nw_state* s, nw_message* m, tw_lp* lp)
 }
 
 /* Execute MPI Irecv operation (non-blocking receive) */ 
-static void codes_exec_mpi_recv(nw_state* s, nw_message* m, tw_lp* lp)
+static void codes_exec_mpi_recv(nw_state* s, tw_lp* lp, nw_message * m, struct codes_workload_op * mpi_op)
 {
 /* Once an irecv is posted, list of completed sends is checked to find a matching isend.
    If no matching isend is found, the receive operation is queued in the pending queue of
    receive operations. */
 
 	m->u.rc.saved_recv_time = s->recv_time;
-	struct codes_workload_op* mpi_op = m->op;
 	mpi_op->sim_start_time = tw_now(lp);
 	num_bytes_recvd += mpi_op->u.recv.num_bytes;
 
@@ -865,7 +860,7 @@ static void codes_exec_mpi_recv(nw_state* s, nw_message* m, tw_lp* lp)
 		printf("\n %lf codes exec mpi recv req id %d", tw_now(lp), (int)mpi_op->u.recv.req_id);
 	
 	dumpi_req_id req_id;
-	int found_matching_sends = mpi_queue_remove_matching_op(s, lp, s->arrival_queue, m);
+	int found_matching_sends = mpi_queue_remove_matching_op(s, lp, m, s->arrival_queue, mpi_op);
 	
 	/* save the req id inserted in the completed queue for reverse computation. */
 	//m->matched_recv = req_id;
@@ -886,20 +881,14 @@ static void codes_exec_mpi_recv(nw_state* s, nw_message* m, tw_lp* lp)
 	  }
 	else
 	  {
-		/*if(lp->gid == TRACE)
-			printf("\n Matched after removing: arrival queue num_elems %d ", s->arrival_queue->num_elems);*/
-		/* update completed requests list */
-		//int count_after = numQueue(s->arrival_queue);
-		//assert(count_before == (count_after+1));
 	   	m->u.rc.found_match = found_matching_sends;
 		codes_issue_next_event(lp); 
 	 }
 }
 
 /* executes MPI send and isend operations */
-static void codes_exec_mpi_send(nw_state* s, nw_message * m, tw_lp* lp)
+static void codes_exec_mpi_send(nw_state* s, tw_lp* lp, struct codes_workload_op * mpi_op)
 {
-        struct codes_workload_op * mpi_op = m->op; 
 	/* model-net event */
 	tw_lpid dest_rank;
 
@@ -924,35 +913,31 @@ static void codes_exec_mpi_send(nw_state* s, nw_message * m, tw_lp* lp)
 
 	num_bytes_sent += mpi_op->u.send.num_bytes;
 
-	nw_message* local_m = malloc(sizeof(nw_message));
-	nw_message* remote_m = malloc(sizeof(nw_message));
-	assert(local_m && remote_m);
+	nw_message local_m;
+	nw_message remote_m;
 
-        local_m->u.msg_info.sim_start_time = tw_now(lp);
-        local_m->u.msg_info.dest_rank = mpi_op->u.send.dest_rank;
-	local_m->u.msg_info.src_rank = mpi_op->u.send.source_rank;
-        local_m->u.msg_info.op_type = mpi_op->op_type; 
-        local_m->msg_type = MPI_SEND_POSTED;
-        local_m->u.msg_info.tag = mpi_op->u.send.tag;
-        local_m->u.msg_info.num_bytes = mpi_op->u.send.num_bytes;
-        local_m->u.msg_info.req_id = mpi_op->u.send.req_id;
+    local_m.u.msg_info.sim_start_time = tw_now(lp);
+    local_m.u.msg_info.dest_rank = mpi_op->u.send.dest_rank;
+    local_m.u.msg_info.src_rank = mpi_op->u.send.source_rank;
+    local_m.u.msg_info.op_type = mpi_op->op_type; 
+    local_m.msg_type = MPI_SEND_POSTED;
+    local_m.u.msg_info.tag = mpi_op->u.send.tag;
+    local_m.u.msg_info.num_bytes = mpi_op->u.send.num_bytes;
+    local_m.u.msg_info.req_id = mpi_op->u.send.req_id;
 
-        memcpy(remote_m, local_m, sizeof(nw_message));
-	remote_m->msg_type = MPI_SEND_ARRIVED;
+    remote_m = local_m;
+	remote_m.msg_type = MPI_SEND_ARRIVED;
 
 	model_net_event(net_id, "test", dest_rank, mpi_op->u.send.num_bytes, 0.0, 
-	    sizeof(nw_message), (const void*)remote_m, sizeof(nw_message), (const void*)local_m, lp);
+	    sizeof(nw_message), (const void*)&remote_m, sizeof(nw_message), (const void*)&local_m, lp);
 
-	/*if(TRACE == lp->gid)	
-		printf("\n !!! %lf send req id %d dest %d nw_message %d ", tw_now(lp), (int)mpi_op->u.send.req_id, (int)dest_rank, sizeof(nw_message));
-	*/
 	/* isend executed, now get next MPI operation from the queue */ 
 	if(mpi_op->op_type == CODES_WK_ISEND)
 	   codes_issue_next_event(lp);
 }
 
 /* MPI collective operations */
-static void codes_exec_mpi_col(nw_state* s, nw_message* m, tw_lp* lp)
+static void codes_exec_mpi_col(nw_state* s, tw_lp* lp)
 {
 	codes_issue_next_event(lp);
 }
@@ -1032,14 +1017,14 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
 
 	m->u.rc.saved_recv_time = s->recv_time;
 
-        // send a callback to the sender to increment times
-        tw_event *e_callback =
-            tw_event_new(rank_to_lpid(m->u.msg_info.src_rank),
-                    codes_local_latency(lp), lp);
-        nw_message *m_callback = tw_event_data(e_callback);
-        m_callback->msg_type = MPI_SEND_ARRIVED_CB;
-        m_callback->u.msg_info.msg_send_time = tw_now(lp) - m->u.msg_info.sim_start_time;
-        tw_event_send(e_callback);
+    // send a callback to the sender to increment times
+    tw_event *e_callback =
+        tw_event_new(rank_to_lpid(m->u.msg_info.src_rank),
+                codes_local_latency(lp), lp);
+    nw_message *m_callback = tw_event_data(e_callback);
+    m_callback->msg_type = MPI_SEND_ARRIVED_CB;
+    m_callback->u.msg_info.msg_send_time = tw_now(lp) - m->u.msg_info.sim_start_time;
+    tw_event_send(e_callback);
 
         /*NOTE: this computes send time with respect to the receiver, not the
          * sender
@@ -1047,30 +1032,29 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
 	dumpi_req_id req_id = -1;
 
         /* Now reconstruct the mpi op */
-        struct codes_workload_op * arrived_op = (struct codes_workload_op *) malloc(sizeof(struct codes_workload_op));
-        arrived_op->sim_start_time = m->u.msg_info.sim_start_time;
-        arrived_op->op_type = m->u.msg_info.op_type;
-        arrived_op->u.send.source_rank = m->u.msg_info.src_rank;
-        arrived_op->u.send.dest_rank = m->u.msg_info.dest_rank;
-        arrived_op->u.send.num_bytes = m->u.msg_info.num_bytes;
-        arrived_op->u.send.tag = m->u.msg_info.tag;
-        arrived_op->u.send.req_id = m->u.msg_info.req_id;
-        m->op = arrived_op;
+    struct codes_workload_op * arrived_op = (struct codes_workload_op *) malloc(sizeof(struct codes_workload_op));
+    arrived_op->sim_start_time = m->u.msg_info.sim_start_time;
+    arrived_op->op_type = m->u.msg_info.op_type;
+    arrived_op->u.send.source_rank = m->u.msg_info.src_rank;
+    arrived_op->u.send.dest_rank = m->u.msg_info.dest_rank;
+    arrived_op->u.send.num_bytes = m->u.msg_info.num_bytes;
+    arrived_op->u.send.tag = m->u.msg_info.tag;
+    arrived_op->u.send.req_id = m->u.msg_info.req_id;
 
-	int found_matching_recv = mpi_queue_remove_matching_op(s, lp, s->pending_recvs_queue, m);
+    int found_matching_recv = mpi_queue_remove_matching_op(s, lp, m, s->pending_recvs_queue, arrived_op);
 
-	if(TRACE == lp->gid)
-		printf("\n %lf update arrival queue req id %d %d", tw_now(lp), arrived_op->u.send.req_id, m->op->u.send.source_rank);
-	if(found_matching_recv < 0)
-	 {
-		m->u.rc.found_match = -1;
-		mpi_pending_queue_insert_op(s->arrival_queue, m->op);
-	}
-	else
-	  {
-		m->u.rc.found_match = found_matching_recv;
-	   	notify_waits(s, bf, lp, m, m->u.rc.saved_matched_req);
-	  }
+    if(TRACE == lp->gid)
+        printf("\n %lf update arrival queue req id %d %d", tw_now(lp), arrived_op->u.send.req_id, m->op->u.send.source_rank);
+    if(found_matching_recv < 0)
+     {
+        m->u.rc.found_match = -1;
+        mpi_pending_queue_insert_op(s->arrival_queue, arrived_op);
+    }
+    else
+      {
+        m->u.rc.found_match = found_matching_recv;
+        notify_waits(s, bf, lp, m, m->u.rc.saved_matched_req);
+      }
 }
 
 static void update_message_time(
@@ -1234,23 +1218,22 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 
 static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-		struct codes_workload_op mpi_op;
-    		codes_workload_get_next(wrkld_id, 0, (int)s->nw_id, &mpi_op);
-		m->op = malloc(sizeof(struct codes_workload_op));
-                memcpy(m->op, &mpi_op, sizeof(struct codes_workload_op));
+		struct codes_workload_op * mpi_op = malloc(sizeof(struct codes_workload_op));
+        codes_workload_get_next(wrkld_id, 0, (int)s->nw_id, mpi_op);
+        m->op = mpi_op;
 
-    		if(mpi_op.op_type == CODES_WK_END)
-    	 	{
-			s->elapsed_time = tw_now(lp) - s->start_time;
-			return;
-     		}
-		switch(mpi_op.op_type)
+        if(mpi_op->op_type == CODES_WK_END)
+        {
+            s->elapsed_time = tw_now(lp) - s->start_time;
+            return;
+        }
+		switch(mpi_op->op_type)
 		{
 			case CODES_WK_SEND:
 			case CODES_WK_ISEND:
 			 {
 				s->num_sends++;
-				codes_exec_mpi_send(s, m, lp);
+				codes_exec_mpi_send(s, lp, mpi_op);
 			 }
 			break;
 	
@@ -1258,14 +1241,14 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			case CODES_WK_IRECV:
 			  {
 				s->num_recvs++;
-				codes_exec_mpi_recv(s, m, lp);
+				codes_exec_mpi_recv(s, lp, m, mpi_op);
 			  }
 			break;
 
 			case CODES_WK_DELAY:
 			  {
 				s->num_delays++;
-				codes_exec_comp_delay(s, m, lp);
+				codes_exec_comp_delay(s, lp, mpi_op);
 			  }
 			break;
 
@@ -1277,28 +1260,29 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			case CODES_WK_REDUCE:
 			case CODES_WK_ALLREDUCE:
 			case CODES_WK_COL:
-                        case CODES_WK_WAITSOME:
-                        case CODES_WK_WAITANY:
+            case CODES_WK_WAITSOME:
+            case CODES_WK_WAITANY:
 			  {
 				s->num_cols++;
-				codes_exec_mpi_col(s, m, lp);
+				codes_exec_mpi_col(s, lp);
 			  }
 			break;
 			case CODES_WK_WAIT:
 			{
 				s->num_wait++;
-				codes_exec_mpi_wait(s, bf, m, lp);	
+				codes_exec_mpi_wait(s, lp, m, mpi_op);	
 			}
 			break;
 			case CODES_WK_WAITALL:
 			{
 				s->num_waitall++;
-				codes_exec_mpi_wait_all(s, bf, m, lp);
+				codes_exec_mpi_wait_all(s, lp, m, mpi_op);
 			}
 			break;
 			default:
-				printf("\n Invalid op type %d ", m->op->op_type);
+				printf("\n Invalid op type %d ", mpi_op->op_type);
 		}
+        return;
 }
 
 void nw_test_finalize(nw_state* s, tw_lp* lp)
