@@ -1385,7 +1385,7 @@ int main( int argc, char** argv )
   int num_nets;
   int* net_ids;
 
-  g_tw_ts_end = s_to_ns(60*60*24*365); /* one year, in nsecs */
+  g_tw_ts_end = s_to_ns(60*5); /* five minutes, in nsecs */
 
   workload_type[0]='\0';
   tw_opt_add(app_opt);
