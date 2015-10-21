@@ -20,6 +20,12 @@ char offset_file[8192];
 static int wrkld_id;
 static int num_net_traces = 0;
 
+/* Doing LP IO*/
+static char lp_io_dir[256] = {'\0'};
+static lp_io_handle io_handle;
+static unsigned int lp_io_use_suffix = 0;
+static int do_lp_io = 0;
+
 typedef struct nw_state nw_state;
 typedef struct nw_message nw_message;
 typedef int16_t dumpi_req_id;
@@ -1355,6 +1361,8 @@ const tw_optdef app_opt [] =
 	TWOPT_CHAR("workload_file", workload_file, "workload file name"),
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
         TWOPT_UINT("disable_compute", disable_delay, "disable compute simulation"),
+    TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
+    TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
 	TWOPT_CHAR("offset_file", offset_file, "offset file name"),
 	TWOPT_END()
 };
@@ -1419,9 +1427,16 @@ int main( int argc, char** argv )
    
    num_nw_lps = codes_mapping_get_lp_count("MODELNET_GRP", 1, 
 			"nw-lp", NULL, 1);	
+    if (lp_io_dir[0]){
+        do_lp_io = 1;
+        /* initialize lp io */
+        int flags = lp_io_use_suffix ? LP_IO_UNIQ_SUFFIX : 0;
+        int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_WORLD);
+        assert(ret == 0 || !"lp_io_prepare failure");
+    }
    tw_run();
 
-    long long total_bytes_sent, total_bytes_recvd;
+    unsigned long long total_bytes_sent, total_bytes_recvd;
     double max_run_time, avg_run_time;
    double max_comm_run_time, avg_comm_run_time;
     double total_avg_send_time, total_max_send_time;
@@ -1442,13 +1457,20 @@ int main( int argc, char** argv )
    MPI_Reduce(&avg_wait_time, &total_avg_wait_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
    MPI_Reduce(&avg_send_time, &total_avg_send_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 
+   assert(num_net_traces);
+
    if(!g_tw_mynode)
-	printf("\n Total bytes sent %lld recvd %lld \n max runtime %lf ns avg runtime %lf \n max comm time %lf avg comm time %lf \n max send time %lf avg send time %lf \n max recv time %lf avg recv time %lf \n max wait time %lf avg wait time %lf \n", total_bytes_sent, total_bytes_recvd, 
+	printf("\n Total bytes sent %llu recvd %llu \n max runtime %lf ns avg runtime %lf \n max comm time %lf avg comm time %lf \n max send time %lf avg send time %lf \n max recv time %lf avg recv time %lf \n max wait time %lf avg wait time %lf \n", total_bytes_sent, total_bytes_recvd, 
 			max_run_time, avg_run_time/num_net_traces,
 			max_comm_run_time, avg_comm_run_time/num_net_traces,
 			total_max_send_time, total_avg_send_time/num_net_traces,
 			total_max_recv_time, total_avg_recv_time/num_net_traces,
 			total_max_wait_time, total_avg_wait_time/num_net_traces);
+    if (do_lp_io){
+        int ret = lp_io_flush(io_handle, MPI_COMM_WORLD);
+        assert(ret == 0 || !"lp_io_flush failure");
+    }
+   model_net_report_stats(net_id); 
    tw_end();
   
   return 0;
