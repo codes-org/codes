@@ -1421,11 +1421,11 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
    if(!hash_link)
    {
        bf->c5 = 1;
-       struct dfly_qhash_entry d_entry;
-       d_entry.num_chunks = 0;
-       d_entry.key = key;
-       d_entry.remote_event_data = NULL;
-       qhash_add(s->rank_tbl, &key, &(d_entry.hash_link));
+       struct dfly_qhash_entry * d_entry = malloc(sizeof (struct dfly_qhash_entry));
+       d_entry->num_chunks = 0;
+       d_entry->key = key;
+       d_entry->remote_event_data = NULL;
+       qhash_add(s->rank_tbl, &key, &(d_entry->hash_link));
        s->rank_tbl_pop++;
    }
     
