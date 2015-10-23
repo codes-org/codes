@@ -11,6 +11,7 @@
 #include "codes/configuration.h"
 #include "codes/codes_mapping.h"
 #include "codes/model-net.h"
+#include "codes/rc-stack.h"
 
 #define TRACE -1
 
@@ -93,6 +94,7 @@ struct nw_state
 	tw_lpid nw_id;
 	short wrkld_end;
 
+    struct rc_stack * st;
 	/* count of sends, receives, collectives and delays */
 	unsigned long num_sends;
 	unsigned long num_recvs;
@@ -390,7 +392,6 @@ static void notify_waits_rc(nw_state* s, tw_bf* bf, tw_lp* lp, nw_message* m, du
         wait_elem->num_completed--;	
         s->pending_waits = wait_elem;
         tw_rand_reverse_unif(lp->rng);
-
    }
 }
 
@@ -422,7 +423,7 @@ static int notify_waits(nw_state* s, tw_bf* bf, tw_lp* lp, nw_message* m, dumpi_
                         remove_req_id(&s->completed_reqs, completed_req);
 	
 			m->u.rc.saved_pending_wait = wait_elem;			
-			s->pending_waits = NULL;
+            s->pending_waits = NULL;
 			codes_issue_next_event(lp);	
 			return 0;
 		 }
@@ -457,8 +458,10 @@ static int notify_waits(nw_state* s, tw_bf* bf, tw_lp* lp, nw_message* m, dumpi_
             for(i = 0; i < required_count; i++)
                 remove_req_id(&s->completed_reqs, wait_elem->mpi_op->u.waits.req_ids[i]);	
             
+            //rc_stack_push(&lp, wait_elem->mpi_op, free, s->st);
+
             codes_issue_next_event(lp); //wait completed
-          }
+       }
     }
 	return 0;
 }
@@ -829,6 +832,8 @@ static void codes_exec_comp_delay(
 	msg->msg_type = MPI_OP_GET_NEXT;
 
 	tw_event_send(e); 
+                
+    rc_stack_push(&lp, mpi_op, free, s->st);
 }
 
 /* reverse computation operation for MPI irecv */
@@ -888,7 +893,8 @@ static void codes_exec_mpi_recv(nw_state* s, tw_lp* lp, nw_message * m, struct c
 	else
 	  {
 	   	m->u.rc.found_match = found_matching_sends;
-		codes_issue_next_event(lp); 
+        rc_stack_push(&lp, mpi_op, free, s->st);
+        codes_issue_next_event(lp); 
 	 }
 }
 
@@ -940,6 +946,8 @@ static void codes_exec_mpi_send(nw_state* s, tw_lp* lp, struct codes_workload_op
 	/* isend executed, now get next MPI operation from the queue */ 
 	if(mpi_op->op_type == CODES_WK_ISEND)
 	   codes_issue_next_event(lp);
+
+    rc_stack_push(&lp, mpi_op, free, s->st);
 }
 
 /* MPI collective operations */
@@ -1059,6 +1067,7 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
     else
       {
         m->u.rc.found_match = found_matching_recv;
+        rc_stack_push(&lp, arrived_op, free, s->st);
         notify_waits(s, bf, lp, m, m->u.rc.saved_matched_req);
       }
 }
@@ -1112,6 +1121,11 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 	//printf("\n network LP not generating events %d ", (int)s->nw_id);
 	return;
      }
+
+   /* Initialize the RC stack */
+   rc_stack_create(&s->st);
+   assert(s->st != NULL);
+
    wrkld_id = codes_workload_load("dumpi-trace-workload", params, 0, (int)s->nw_id);
 
    s->arrival_queue = queue_init(); 
@@ -1127,7 +1141,9 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
 	*(int *)bf = (int)0;
-	switch(m->msg_type)
+    rc_stack_gc(lp, s->st);
+
+    switch(m->msg_type)
 	{
 		case MPI_SEND_POSTED:
 			update_send_completion_queue(s, bf, m, lp);
@@ -1226,6 +1242,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 {
 		struct codes_workload_op * mpi_op = malloc(sizeof(struct codes_workload_op));
         codes_workload_get_next(wrkld_id, 0, (int)s->nw_id, mpi_op);
+
         m->op = mpi_op;
 
         if(mpi_op->op_type == CODES_WK_END)
@@ -1329,7 +1346,8 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 		//printf("\n LP %ld Time spent in communication %llu ", lp->gid, total_time - s->compute_time);
 		free(s->arrival_queue);
 		free(s->pending_recvs_queue);
-	}
+	    rc_stack_destroy(s->st);    
+    }
 }
 
 void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
