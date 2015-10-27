@@ -131,6 +131,9 @@ struct nw_state
 	struct qlist_head pending_recvs_queue;
 	/* List of completed send/receive requests */
 	struct qlist_head completed_reqs;
+
+    /* Pending wait operation */
+    struct pending_waits * wait_op;
 };
 
 /* data for handling reverse computation.
@@ -571,35 +574,46 @@ static void codes_exec_mpi_recv_rc(nw_state* ns, nw_message* m, tw_lp* lp, struc
 {
 	num_bytes_recvd -= mpi_op->u.recv.num_bytes;
 	ns->recv_time = m->u.rc.saved_recv_time;
-	if(m->u.rc.found_match > 0)
+	if(m->u.rc.found_match >= 0)
 	  {
         rc_stack_pop(ns->matched_qitems);
 		ns->recv_time = m->u.rc.saved_recv_time;
+        int queue_count = qlist_count(&ns->arrival_queue); 
         
         mpi_msgs_queue * qi = rc_stack_pop(ns->matched_qitems);	
-        
-        int index = 0;
-        struct qlist_head * ent = NULL;
-        qlist_for_each(ent, &ns->arrival_queue)
+       
+        if(!m->u.rc.found_match)
         {
-           if(index == m->u.rc.found_match)
-           {
-             qlist_add(&qi->ql, &ent);
-             break;
-           }
-           index++; 
+            qlist_add(&qi->ql, &ns->arrival_queue);
         }
-	    
+        else if(m->u.rc.found_match == queue_count)
+        {
+            qlist_add_tail(&qi->ql, &ns->arrival_queue);
+        }
+        else if(m->u.rc.found_match > 0 && m->u.rc.found_match < queue_count) 
+        {
+            int index = 1;
+            struct qlist_head * ent = NULL;
+            qlist_for_each(ent, &ns->arrival_queue)
+            {
+               if(index == m->u.rc.found_match)
+               {
+                 qlist_add(&qi->ql, ent);
+                 break;
+               }
+               index++; 
+            }
+        }
         codes_issue_next_event_rc(lp);
       }
 	else if(m->u.rc.found_match < 0)
 	    {
-	    struct qlist_head * ent = qlist_pop_back(&ns->pending_recvs_queue); 
-        mpi_msgs_queue * qi = qlist_entry(ent, mpi_msgs_queue, ql);
-        free(qi);
-        
-        if(mpi_op->op_type == CODES_WK_IRECV)
-	        codes_issue_next_event_rc(lp);
+            struct qlist_head * ent = qlist_pop_back(&ns->pending_recvs_queue); 
+            mpi_msgs_queue * qi = qlist_entry(ent, mpi_msgs_queue, ql);
+            free(qi);
+            
+            if(mpi_op->op_type == CODES_WK_IRECV)
+                codes_issue_next_event_rc(lp);
 	    }
 }
 
@@ -622,7 +636,6 @@ static void codes_exec_mpi_recv(nw_state* s, tw_lp* lp, nw_message * m, struct c
     recv_op->tag = mpi_op->u.recv.tag;
     recv_op->req_id = mpi_op->u.recv.req_id;
 
-	dumpi_req_id req_id;
 	int found_matching_sends = rm_matching_send(s, lp, recv_op);
 
 	/* save the req id inserted in the completed queue for reverse computation. */
@@ -706,22 +719,34 @@ static void update_arrival_queue_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_
 {
 	s->recv_time = m->u.rc.saved_recv_time;
     codes_local_latency_reverse(lp);
-   
-	if(m->u.rc.found_match > 0)
+  
+    if(m->u.rc.found_match >= 0)
 	{
         rc_stack_pop(s->matched_qitems);
         mpi_msgs_queue * qi = rc_stack_pop(s->matched_qitems);	
-        
-        int index = 0;
-        struct qlist_head * ent = NULL;
-        qlist_for_each(ent, &s->pending_recvs_queue)
+        int queue_count = qlist_count(&s->pending_recvs_queue); 
+
+        if(!m->u.rc.found_match)
         {
-           if(index == m->u.rc.found_match)
-           {
-             qlist_add(&qi->ql, &ent);
-             break;
-           }
-           index++; 
+            qlist_add(&qi->ql, &s->pending_recvs_queue);
+        }
+        else if(m->u.rc.found_match == queue_count)
+        {
+            qlist_add_tail(&qi->ql, &s->pending_recvs_queue);
+        }
+        else if(m->u.rc.found_match > 0 && m->u.rc.found_match < queue_count)
+        {
+            int index = 1;
+            struct qlist_head * ent = NULL;
+            qlist_for_each(ent, &s->pending_recvs_queue)
+            {
+               if(index == m->u.rc.found_match)
+               {
+                 qlist_add(&qi->ql, ent);
+                 break;
+               }
+               index++; 
+            }
         }
     }
 	else if(m->u.rc.found_match < 0)
@@ -735,8 +760,6 @@ static void update_arrival_queue_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_
 /* once an isend operation arrives, the pending receives queue is checked to find out if there is a irecv that has already been posted. If no isend has been posted, */
 static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-	int is_blocking = 0; /* checks if the recv operation was blocking or not */
-
 	m->u.rc.saved_recv_time = s->recv_time;
 
 
