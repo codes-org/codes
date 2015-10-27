@@ -164,8 +164,6 @@ struct nw_message
         int found_match;
         short matched_op;
         dumpi_req_id saved_matched_req;
-        struct codes_workload_op* ptr_match_op;
-        struct pending_waits* saved_pending_wait;
 
         double saved_send_time;
         double saved_recv_time;
@@ -467,21 +465,20 @@ static void codes_exec_mpi_wait_all(
  * Index is used for inserting the element once again in the queue for reverse computation. */
 static int rm_matching_rcv(nw_state * ns, tw_lp * lp, mpi_msgs_queue * qitem)
 {
-    if(!qlist_count(&ns->pending_recvs_queue))
-        return -1;
-    
     int matched = 0;
+    int index = 0;
     struct qlist_head *ent = NULL;
     mpi_msgs_queue * qi = NULL;
     qlist_for_each(ent, &ns->pending_recvs_queue){
         qi = qlist_entry(ent, mpi_msgs_queue, ql);
         if((qi->num_bytes >= qitem->num_bytes)
-                && (qi->tag == qitem->tag || qi->tag == -1)
-                && (qi->source_rank == qitem->source_rank || qi->source_rank == -1))
+                && ((qi->tag == qitem->tag) || qi->tag == -1)
+                && ((qi->source_rank == qitem->source_rank) || qi->source_rank == -1))
         {
             matched = 1;
             break;
         }
+        ++index;
     }
     
     if(matched)
@@ -489,7 +486,7 @@ static int rm_matching_rcv(nw_state * ns, tw_lp * lp, mpi_msgs_queue * qitem)
         ns->recv_time += (tw_now(lp) - qi->req_init_time);
         qlist_del(&qi->ql);
         rc_stack_push(lp, qi, free, ns->matched_qitems);
-        return 1;
+        return index;
     }
     return -1;
 }
@@ -501,9 +498,7 @@ static int rm_matching_send(nw_state * ns, tw_lp * lp, mpi_msgs_queue * qitem)
     struct qlist_head *ent = NULL;
     mpi_msgs_queue * qi = NULL;
 
-    if(!qlist_count(&ns->arrival_queue))
-        return -1;
-
+    int index = 0;
     qlist_for_each(ent, &ns->arrival_queue){
         qi = qlist_entry(ent, mpi_msgs_queue, ql);
         if((qi->num_bytes <= qitem->num_bytes) 
@@ -513,15 +508,15 @@ static int rm_matching_send(nw_state * ns, tw_lp * lp, mpi_msgs_queue * qitem)
             matched = 1;
             break;
         }
+        ++index;
     }
 
     if(matched)
     {
         qlist_del(&qi->ql);
         rc_stack_push(lp, qi, free, ns->matched_qitems);
-        return 1;
+        return index;
     }
-
     return -1;
 }
 static void codes_issue_next_event_rc(tw_lp * lp)
@@ -582,7 +577,18 @@ static void codes_exec_mpi_recv_rc(nw_state* ns, nw_message* m, tw_lp* lp, struc
 		ns->recv_time = m->u.rc.saved_recv_time;
         
         mpi_msgs_queue * qi = rc_stack_pop(ns->matched_qitems);	
-        qlist_add_tail(&qi->ql, &ns->arrival_queue);
+        
+        int index = 0;
+        struct qlist_head * ent = NULL;
+        qlist_for_each(ent, &ns->arrival_queue)
+        {
+           if(index == m->u.rc.found_match)
+           {
+             qlist_add(&qi->ql, &ent);
+             break;
+           }
+           index++; 
+        }
 	    
         codes_issue_next_event_rc(lp);
       }
@@ -623,7 +629,7 @@ static void codes_exec_mpi_recv(nw_state* s, tw_lp* lp, nw_message * m, struct c
 	if(found_matching_sends < 0)
 	  {
 	   	  m->u.rc.found_match = -1;
-          qlist_add(&recv_op->ql, &s->pending_recvs_queue);
+          qlist_add_tail(&recv_op->ql, &s->pending_recvs_queue);
 	
 	       /* for mpi irecvs, this is a non-blocking receive so just post it and move on with the trace read. */
 		if(mpi_op->op_type == CODES_WK_IRECV)
@@ -634,7 +640,7 @@ static void codes_exec_mpi_recv(nw_state* s, tw_lp* lp, nw_message * m, struct c
 	  }
 	else
 	  {
-	   	m->u.rc.found_match = 1;
+	   	m->u.rc.found_match = found_matching_sends;
         rc_stack_push(lp, recv_op, free, s->matched_qitems);
         codes_issue_next_event(lp); 
 	 }
@@ -687,7 +693,6 @@ static void codes_exec_mpi_send(nw_state* s, tw_lp* lp, struct codes_workload_op
 	/* isend executed, now get next MPI operation from the queue */ 
 	if(mpi_op->op_type == CODES_WK_ISEND)
 	   codes_issue_next_event(lp);
-
 }
 
 /* convert seconds to ns */
@@ -706,8 +711,19 @@ static void update_arrival_queue_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_
 	{
         rc_stack_pop(s->matched_qitems);
         mpi_msgs_queue * qi = rc_stack_pop(s->matched_qitems);	
-        qlist_add(&qi->ql, &s->pending_recvs_queue);
-	}
+        
+        int index = 0;
+        struct qlist_head * ent = NULL;
+        qlist_for_each(ent, &s->pending_recvs_queue)
+        {
+           if(index == m->u.rc.found_match)
+           {
+             qlist_add(&qi->ql, &ent);
+             break;
+           }
+           index++; 
+        }
+    }
 	else if(m->u.rc.found_match < 0)
 	{
 	    struct qlist_head * ent = qlist_pop_back(&s->arrival_queue); 
@@ -752,7 +768,7 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
     }
     else
     {
-        m->u.rc.found_match = 1;
+        m->u.rc.found_match = found_matching_recv;
         rc_stack_push(lp, arrived_op, free, s->matched_qitems);
     }
 }
@@ -782,14 +798,13 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    char * params = NULL;
    dumpi_trace_params params_d;
   
-   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, lp_type_name, 
-	&mapping_type_id, annotation, &mapping_rep_id, &mapping_offset);
-  
    memset(s, 0, sizeof(*s));
-   s->nw_id = (mapping_rep_id * num_nw_lps) + mapping_offset;
+   s->nw_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
 
    if(!num_net_traces) 
 	num_net_traces = num_net_lps;
+
+   assert(num_net_traces <= num_net_lps);
 
    if (strcmp(workload_type, "dumpi") == 0){
        strcpy(params_d.file_name, workload_file);
@@ -927,11 +942,11 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 {
 		struct codes_workload_op * mpi_op = malloc(sizeof(struct codes_workload_op));
         codes_workload_get_next(wrkld_id, 0, (int)s->nw_id, mpi_op);
+        rc_stack_push(lp, mpi_op, free, s->processed_ops);
 
         if(mpi_op->op_type == CODES_WK_END)
         {
             s->elapsed_time = tw_now(lp) - s->start_time;
-            rc_stack_push(lp, mpi_op, free, s->processed_ops);
             return;
         }
 		switch(mpi_op->op_type)
@@ -989,7 +1004,6 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			default:
 				printf("\n Invalid op type %d ", mpi_op->op_type);
 		}
-        rc_stack_push(lp, mpi_op, free, s->processed_ops);
         return;
 }
 
