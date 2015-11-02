@@ -2041,7 +2041,7 @@ get_next_stop(router_state * s,
    /* Generate inter-mediate destination for non-minimal routing (selecting a random group) */
    if(msg->last_hop == TERMINAL && path == NON_MINIMAL)
     {
-      if((dest_router_id / s->params->num_routers) != s->group_id)
+      if(dest_group_id != s->group_id)
          {
     	    msg->intm_group_id = intm_id;
           }    
@@ -2053,20 +2053,21 @@ get_next_stop(router_state * s,
            msg->intm_group_id = -1;//no inter-mediate group
    } 
   /* Intermediate group ID is set. Divert the packet to the intermediate group. */
-  if(path == NON_MINIMAL && msg->intm_group_id >= 0)
+  if(path == NON_MINIMAL && msg->intm_group_id >= 0 &&
+          (dest_group_id != s->group_id))
    {
       dest_group_id = msg->intm_group_id;
-   }
-  else /* direct the packet to the destination group */
-   {
-     dest_group_id = dest_router_id / s->params->num_routers;
    }
  
 /********************** DECIDE THE ROUTER IN THE DESTINATION GROUP ***************/ 
   /* It means the packet has arrived at the destination group. Now divert it to the destination router. */
   if(s->group_id == dest_group_id)
    {
+     if(msg->last_hop == TERMINAL && path == NON_MINIMAL) {
+       dest_lp = (s->group_id * s->params->num_routers) + intm_id % s->params->num_routers;
+     } else {
      dest_lp = dest_router_id;
+     }
    }
    else
    {
