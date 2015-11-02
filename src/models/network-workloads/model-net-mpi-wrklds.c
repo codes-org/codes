@@ -14,6 +14,7 @@
 #include "codes/rc-stack.h"
 
 #define TRACE -1
+#define TRACK 0
 
 char workload_type[128];
 char workload_file[8192];
@@ -95,7 +96,10 @@ struct nw_state
 	short wrkld_end;
 
     struct rc_stack * st;
-	/* count of sends, receives, collectives and delays */
+
+    uint64_t num_completed;
+
+    /* count of sends, receives, collectives and delays */
 	unsigned long num_sends;
 	unsigned long num_recvs;
 	unsigned long num_cols;
@@ -1245,6 +1249,12 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 {
 		struct codes_workload_op * mpi_op = malloc(sizeof(struct codes_workload_op));
         codes_workload_get_next(wrkld_id, 0, (int)s->nw_id, mpi_op);
+
+        s->num_completed++;
+
+        if(s->nw_id == TRACK && s->num_completed % 10000 == 0)
+            printf("\n Status: LP %ld completed %ld MPI operations ", 
+                    s->nw_id, s->num_completed);
 
         m->u.rc.saved_op = mpi_op;
         if(mpi_op->op_type == CODES_WK_END)

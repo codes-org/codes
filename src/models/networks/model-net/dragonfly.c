@@ -49,7 +49,7 @@ long term_ecount, router_ecount, term_rev_ecount, router_rev_ecount;
 static double maxd(double a, double b) { return a < b ? b : a; }
 
 /* minimal and non-minimal packet counts for adaptive routing*/
-static unsigned int minimal_count=0, nonmin_count=0, completed_packets = 0;
+static unsigned int minimal_count=0, nonmin_count=0;
 
 typedef struct dragonfly_param dragonfly_param;
 /* annotation-specific parameters (unannotated entry occurs at the 
@@ -275,6 +275,9 @@ static tw_stime         max_collective = 0;
 
 static long long       total_hops = 0;
 static long long       N_finished_packets = 0;
+static long long       total_msg_sz = 0;
+static long long       N_finished_msgs = 0;
+static long long       N_finished_chunks = 0;
 
 static int dragonfly_rank_hash_compare(
         void *key, struct qhash_head *link)
@@ -553,27 +556,30 @@ static void dragonfly_configure(){
 /* report dragonfly statistics like average and maximum packet latency, average number of hops traversed */
 static void dragonfly_report_stats()
 {
-   long long avg_hops, total_finished_packets;
+   long long avg_hops, total_finished_packets, total_finished_chunks;
+   long long total_finished_msgs, final_msg_sz;
    tw_stime avg_time, max_time;
-   int total_minimal_packets, total_nonmin_packets, total_completed_packets;
+   int total_minimal_packets, total_nonmin_packets;
 
    MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
    MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &N_finished_msgs, &total_finished_msgs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &N_finished_chunks, &total_finished_chunks, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &total_msg_sz, &final_msg_sz, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
    MPI_Reduce( &dragonfly_total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
    MPI_Reduce( &dragonfly_max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
    if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
     {
 	MPI_Reduce(&minimal_count, &total_minimal_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
  	MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
- 	MPI_Reduce(&completed_packets, &total_completed_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     }
 
    /* print statistics */
    if(!g_tw_mynode)
    {	
-      printf(" Average number of hops traversed %f average message latency %lf us maximum message latency %lf us avg time %lf \n", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets*1000), max_time/1000, avg_time);
+      printf(" Average number of hops traversed %f average message latency %lf us maximum message latency %lf us avg message size %lf bytes \n", (float)avg_hops/total_finished_chunks, avg_time/(total_finished_packets*1000), max_time/1000, (float)total_msg_sz/N_finished_msgs);
      if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
-              printf("\n ADAPTIVE ROUTING STATS: %d percent packets routed minimally %d percent packets routed non-minimally completed packets %d ", total_minimal_packets, total_nonmin_packets, total_completed_packets);
+              printf("\n ADAPTIVE ROUTING STATS: %d percent chunks routed minimally %d percent chunks routed non-minimally completed packets %d ", total_minimal_packets, total_nonmin_packets, total_finished_chunks);
  
   }
    return;
@@ -1245,7 +1251,6 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
       term_rev_ecount++;
 
       tw_rand_reverse_unif(lp->rng);
-      completed_packets--;
       if(msg->path_type == MINIMAL)
         minimal_count--;
       if(msg->path_type == NON_MINIMAL)
@@ -1254,7 +1259,11 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
       s->next_credit_available_time = msg->saved_credit_time;
       uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
 
-      if(msg->chunk_id == num_chunks - 1)
+      N_finished_chunks--;
+
+      total_hops -= msg->my_N_hop;
+      
+      /*if(msg->chunk_id == num_chunks - 1)
       {
         mn_stats* stat;
         stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
@@ -1262,7 +1271,6 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
         stat->recv_bytes -= msg->packet_size;
         stat->recv_time -= tw_now(lp) - msg->travel_start_time;
 
-        total_hops -= msg->my_N_hop;
 
         N_finished_packets--;
 
@@ -1277,8 +1285,8 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
       {
         int net_id = model_net_get_id(LP_METHOD_NM);
         model_net_event_rc(net_id, lp, msg->pull_size);
-      }
-      /*struct qhash_head * hash_link = NULL;
+      }*/
+      struct qhash_head * hash_link = NULL;
       struct dfly_qhash_entry * tmp = NULL; 
       
       struct dfly_hash_key key;
@@ -1288,17 +1296,16 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
       hash_link = qhash_search(s->rank_tbl, &key);
       tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
       
+      total_hops -= msg->my_N_hop;
+      
+      mn_stats* stat;
+      stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
       if(bf->c1)
       {
-        mn_stats* stat;
-        stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
         stat->recv_count--;
         stat->recv_bytes -= msg->packet_size;
-        stat->recv_time -= tw_now(lp) - msg->travel_start_time;
         N_finished_packets--;
         s->finished_packets--;
-        dragonfly_total_time -= (tw_now(lp) - msg->travel_start_time);
-        total_hops -= msg->my_N_hop;
       }
         
       if(bf->c3)
@@ -1308,8 +1315,13 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
         if(bf->c7)
         {
             s->finished_msgs--;
+            total_msg_sz -= msg->total_size;
+            N_finished_msgs--;
+
+            stat->recv_time -= tw_now(lp) - msg->travel_start_time;
             s->total_msg_time -= (tw_now(lp) - msg->msg_start_time);
             s->total_msg_size -= msg->total_size;
+            dragonfly_total_time -= (tw_now(lp) - msg->travel_start_time);
 
             struct dfly_qhash_entry * d_entry_pop = (struct dfly_qhash_entry*)rc_stack_pop(s->st);
             qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
@@ -1318,15 +1330,13 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
             hash_link = &(d_entry_pop->hash_link);
             tmp = d_entry_pop;
 
-            int net_id = model_net_get_id(LP_METHOD_NM);
-            
             if(bf->c4)
                 model_net_event_rc2(lp, &msg->event_rc);
         }
       
        assert(tmp);
        tmp->num_chunks--;
-      */
+      
        return;
 }
 void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
@@ -1367,9 +1377,6 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
 
   tw_stime ts = g_tw_lookahead + s->params->credit_delay + tw_rand_unif(lp->rng);
   
-  if(msg->packet_ID == TRACK && msg->message_id == TRACK_MSG)
-	printf("\n terminal sending credit at chan %d ", msg->saved_vc);
-  
   // no method_event here - message going to router
   tw_event * buf_e;
   terminal_message * buf_msg;
@@ -1382,17 +1389,15 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   tw_event_send(buf_e);
 
   bf->c1 = 0;
-  bf->c2 = 0;
+  bf->c3 = 0;
   bf->c4 = 0;
-  bf->c5 = 0;
-  bf->c6 = 0;
   bf->c7 = 0;
-  bf->c8 = 0;
+
+  N_finished_chunks++;
 
   /* WE do not allow self messages through dragonfly */
   assert(lp->gid != msg->src_terminal_id);
 
-  int is_last_msg = 0;
   int num_chunks = msg->packet_size / s->params->chunk_size;
   uint64_t total_chunks = msg->total_size / s->params->chunk_size;
 
@@ -1408,8 +1413,6 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   if(!num_chunks)
      num_chunks = 1;
 
-  completed_packets++;
-
   if(msg->path_type == MINIMAL)
     minimal_count++;
 
@@ -1419,6 +1422,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   if(msg->path_type != MINIMAL && msg->path_type != NON_MINIMAL)
     printf("\n Wrong message path type %d ", msg->path_type);
 
+    total_hops += msg->my_N_hop;
 #if DEBUG == 1
  if( msg->packet_ID == TRACK 
           && msg->chunk_id == num_chunks-1
@@ -1434,7 +1438,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   }
 #endif
 
- tw_event * e;
+ /*tw_event * e;
  terminal_message * m;
  if(msg->chunk_id == num_chunks-1)
  {
@@ -1474,13 +1478,12 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
             tw_event_send(e);
         }
     }
- }
+ }*/
    /* Now retreieve the number of chunks completed from the hash and update
     * them */
-   /*void *m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
+   void *m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
    struct qhash_head *hash_link = NULL;
    struct dfly_qhash_entry * tmp = NULL;
-       
    struct dfly_hash_key key;
    key.message_id = msg->message_id; 
    key.sender_id = msg->sender_lp;
@@ -1488,14 +1491,15 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
    hash_link = qhash_search(s->rank_tbl, &key);
    tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
 
-   *//* If an entry does not exist then create one */
-   /*if(!hash_link)
+   /* If an entry does not exist then create one */
+   if(!hash_link)
    {
        bf->c5 = 1;
        struct dfly_qhash_entry * d_entry = malloc(sizeof (struct dfly_qhash_entry));
        d_entry->num_chunks = 0;
        d_entry->key = key;
        d_entry->remote_event_data = NULL;
+       d_entry->remote_event_size = 0;
        qhash_add(s->rank_tbl, &key, &(d_entry->hash_link));
        s->rank_tbl_pop++;
        
@@ -1506,61 +1510,53 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     assert(tmp);
     tmp->num_chunks++;
 
-    if(tmp->num_chunks >= total_chunks)
-        is_last_msg = 1;
+    mn_stats* stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
 
-    *//* if its the last chunk of the packet then handle the remote event data */
-    /*if(msg->chunk_id == num_chunks - 1)
+    /* if its the last chunk of the packet then handle the remote event data */
+    if(msg->chunk_id == num_chunks - 1)
     {
         bf->c1 = 1;
-        mn_stats* stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
         stat->recv_count++;
         stat->recv_bytes += msg->packet_size;
-        stat->recv_time += tw_now(lp) - msg->travel_start_time;
 
         N_finished_packets++;
         s->finished_packets++;
+    }
+    if(msg->remote_event_size_bytes > 0 && !tmp->remote_event_data)
+    {
+        /* Retreive the remote event entry */
+         tmp->remote_event_data = (void*)malloc(msg->remote_event_size_bytes);
+         assert(tmp->remote_event_data);
+         tmp->remote_event_size = msg->remote_event_size_bytes; 
+         memcpy(tmp->remote_event_data, m_data_src, msg->remote_event_size_bytes);
+    }
+    /* If all chunks of a message have arrived then send a remote event to the
+     * callee*/
+    if(tmp->num_chunks >= total_chunks)
+    {
+        bf->c7 = 1;
+
+        N_finished_msgs++;
+        total_msg_sz += msg->total_size;
 
         dragonfly_total_time += tw_now( lp ) - msg->travel_start_time;
-        total_hops += msg->my_N_hop;
-
+        stat->recv_time += tw_now(lp) - msg->travel_start_time;
+        s->finished_msgs++;
+        s->total_msg_time += (tw_now(lp) - msg->msg_start_time);
+        s->total_msg_size += msg->total_size; 
+        
         if (dragonfly_max_latency < tw_now( lp ) - msg->travel_start_time) {
           bf->c3 = 1;
           msg->saved_available_time = dragonfly_max_latency;
           dragonfly_max_latency = tw_now( lp ) - msg->travel_start_time;
         }
-    }
-    if(msg->remote_event_size_bytes > 0 && !tmp->remote_event_data)
-    {
-           *//* Retreive the remote event entry */
-            /*tmp->remote_event_data = (void*)malloc(msg->remote_event_size_bytes);
-            assert(tmp->remote_event_data);
-            tmp->remote_event_size = msg->remote_event_size_bytes; 
-             memcpy(tmp->remote_event_data, m_data_src, msg->remote_event_size_bytes);
-    }*/
-    /* If all chunks of a message have arrived then send a remote event to the
-     * callee*/
-    /*if(is_last_msg)
-    {
-        bf->c7 = 1;
-        s->finished_msgs++;
-        s->total_msg_time += (tw_now(lp) - msg->msg_start_time);
-        s->total_msg_size += msg->total_size; 
-
-        if(msg->remote_event_size_bytes > 0)
-        {
-            send_remote_event(s, msg, lp, bf, m_data_src, msg->remote_event_size_bytes);
-        }
-        else
-        {
-           void *m_data = model_net_method_get_edata(DRAGONFLY, msg);
-           send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
-        }
-        *//* Remove the hash entry */
-        /*qhash_del(hash_link);
+        assert(tmp->remote_event_data && tmp->remote_event_size);
+        send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
+        /* Remove the hash entry */
+        qhash_del(hash_link);
         rc_stack_push(lp, tmp, free_tmp, s->st);
         s->rank_tbl_pop--;
-    }*/
+   }
   return;
 }
 
@@ -2188,8 +2184,8 @@ static int do_adaptive_routing( router_state * s,
   int min_port_count = s->vc_occupancy[minimal_out_port][min_vc];
 
   // Now get the expected number of hops to be traversed for both routes 
-  int num_min_hops = get_num_hops(s->router_id, dest_router_id, 
-      s->params->num_routers, 0, s->params->num_groups);
+  //int num_min_hops = get_num_hops(s->router_id, dest_router_id, 
+  //    s->params->num_routers, 0, s->params->num_groups);
 
   int intm_router_id = getRouterFromGroupID(intm_id, 
       s->router_id / s->params->num_routers, s->params->num_routers, 
@@ -2213,16 +2209,16 @@ static int do_adaptive_routing( router_state * s,
   }
   q_avg = q_avg / (s->params->radix - 1);
 
-  int min_out_chan = minimal_out_port;
-  int nonmin_out_chan = nonmin_out_port;
+  //int min_out_chan = minimal_out_port;
+  //int nonmin_out_chan = nonmin_out_port;
 
   /* Adding history window approach, not taking the queue status at every 
    * simulation time thats why, we are maintaining the current history 
    * window number and an average of the previous history window number. */
-  int min_hist_count = s->cur_hist_num[min_out_chan] + 
-    (s->prev_hist_num[min_out_chan]/2);
-  int nonmin_hist_count = s->cur_hist_num[nonmin_out_chan] + 
-    (s->prev_hist_num[min_out_chan]/2);
+  //int min_hist_count = s->cur_hist_num[min_out_chan] + 
+  //  (s->prev_hist_num[min_out_chan]/2);
+  //int nonmin_hist_count = s->cur_hist_num[nonmin_out_chan] + 
+  //  (s->prev_hist_num[min_out_chan]/2);
 
   int nonmin_port_count = s->vc_occupancy[nonmin_out_port][nomin_vc];
   //if(num_min_hops * (min_port_count - min_hist_count) <= (num_nonmin_hops * ((q_avg + 1) - nonmin_hist_count))) {
