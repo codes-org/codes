@@ -341,8 +341,8 @@ int main(int argc, char *argv[])
                     recv_size += op.u.recv.num_bytes;
                     break;
                 case CODES_WK_ISEND:
-                    num_irecvs++;
-                    irecv_size += op.u.send.num_bytes;
+                    num_isends++;
+                    isend_size += op.u.send.num_bytes;
                     break;
                 case CODES_WK_IRECV:
                     num_irecvs++;

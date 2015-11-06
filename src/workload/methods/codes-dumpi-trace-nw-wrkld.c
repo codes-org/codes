@@ -375,6 +375,7 @@ int handleDUMPISend(const dumpi_send *prm, uint16_t thread,
 	assert(wrkld_per_rank.u.send.num_bytes > 0);
         wrkld_per_rank.u.send.dest_rank = prm->dest;
         wrkld_per_rank.u.send.source_rank = myctx->my_rank;
+         wrkld_per_rank.u.send.req_id = -1;
 
         update_times_and_insert(&wrkld_per_rank, wall, myctx);
         return 0;
