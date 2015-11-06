@@ -270,7 +270,8 @@ int handleDUMPIWaitsome(const dumpi_waitsome *prm, uint16_t thread,
 
         wrkld_per_rank.op_type = CODES_WK_WAITSOME;
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int16_t*)malloc(prm->count * sizeof(int16_t));
+        wrkld_per_rank.u.waits.req_ids =
+            malloc(prm->count * sizeof(*wrkld_per_rank.u.waits.req_ids));
 
         for( i = 0; i < prm->count; i++ )
                 wrkld_per_rank.u.waits.req_ids[i] = (int16_t)prm->requests[i];
@@ -290,7 +291,8 @@ int handleDUMPIWaitany(const dumpi_waitany *prm, uint16_t thread,
 
         wrkld_per_rank.op_type = CODES_WK_WAITANY;
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int16_t*)malloc(prm->count * sizeof(int16_t));
+        wrkld_per_rank.u.waits.req_ids =
+            malloc(prm->count * sizeof(*wrkld_per_rank.u.waits.req_ids));
 
         for( i = 0; i < prm->count; i++ )
                 wrkld_per_rank.u.waits.req_ids[i] = (int16_t)prm->requests[i];
@@ -310,7 +312,8 @@ int handleDUMPIWaitall(const dumpi_waitall *prm, uint16_t thread,
         wrkld_per_rank.op_type = CODES_WK_WAITALL;
 
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int16_t*)malloc(prm->count * sizeof(int16_t));
+        wrkld_per_rank.u.waits.req_ids =
+            malloc(prm->count * sizeof(*wrkld_per_rank.u.waits.req_ids));
         for( i = 0; i < prm->count; i++ )
                 wrkld_per_rank.u.waits.req_ids[i] = prm->requests[i];
 
