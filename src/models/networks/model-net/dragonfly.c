@@ -579,7 +579,7 @@ static void dragonfly_report_stats()
    {	
       printf(" Average number of hops traversed %f average message latency %lf us maximum message latency %lf us avg message size %lf bytes \n", (float)avg_hops/total_finished_chunks, avg_time/(total_finished_packets*1000), max_time/1000, (float)total_msg_sz/N_finished_msgs);
      if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
-              printf("\n ADAPTIVE ROUTING STATS: %d percent chunks routed minimally %d percent chunks routed non-minimally completed packets %d ", total_minimal_packets, total_nonmin_packets, total_finished_chunks);
+              printf("\n ADAPTIVE ROUTING STATS: %d percent chunks routed minimally %d percent chunks routed non-minimally completed packets %lld ", total_minimal_packets, total_nonmin_packets, total_finished_chunks);
  
   }
    return;
@@ -1048,7 +1048,7 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
   msg->intm_group_id = -1;
 
   if(msg->packet_ID == TRACK && msg->message_id == TRACK_MSG)
-      printf("\n Packet generated at terminal %d destination %d ", lp->gid, s->router_id);
+      printf("\n Packet generated at terminal %lu destination %d ", lp->gid, s->router_id);
 
   for(i = 0; i < num_chunks; i++)
   {
@@ -1925,7 +1925,7 @@ dragonfly_terminal_final( terminal_state * s,
     if(!s->terminal_id)
         written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Avg Msg Size> <Avg Msg Time> <# Msgs finished>");
 
-    written += sprintf(s->output_buf + written, "%lu %lu %ld %lf %ld %ld\n", lp->gid, s->terminal_id, s->total_msg_size, s->total_msg_time, s->finished_msgs, s->finished_packets);
+    written += sprintf(s->output_buf + written, "%lu %u %ld %lf %ld %ld\n", lp->gid, s->terminal_id, s->total_msg_size, s->total_msg_time, s->finished_msgs, s->finished_packets);
     lp_io_write(lp->gid, "dragonfly-msg-stats", written, s->output_buf); 
 
     if(s->terminal_msgs[0] != NULL) 
