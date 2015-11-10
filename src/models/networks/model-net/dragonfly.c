@@ -1305,7 +1305,7 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
           dragonfly_max_latency = msg->saved_available_time;
         
 
-        if(!hash_link)
+        if(bf->c7)
         {
             s->finished_msgs--;
             total_msg_sz -= msg->total_size;
