@@ -1311,10 +1311,10 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
             total_msg_sz -= msg->total_size;
             N_finished_msgs--;
 
-            stat->recv_time -= msg->saved_start_time;
-            s->total_msg_time -= msg->saved_start_time;
+            stat->recv_time = msg->saved_start_time;
+            s->total_msg_time = msg->saved_start_time;
             s->total_msg_size -= msg->total_size;
-            dragonfly_total_time -= msg->saved_avg_time;
+            dragonfly_total_time = msg->saved_avg_time;
 
             struct dfly_qhash_entry * d_entry_pop = (struct dfly_qhash_entry*)rc_stack_pop(s->st);
             qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
@@ -1532,13 +1532,16 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
         N_finished_msgs++;
         total_msg_sz += msg->total_size;
 
-        msg->saved_avg_time = tw_now( lp ) - msg->travel_start_time;
-        dragonfly_total_time += msg->saved_avg_time;
-        msg->saved_start_time = (tw_now(lp) - msg->msg_start_time);
-        stat->recv_time += msg->saved_start_time;
-        s->finished_msgs++;
-        s->total_msg_time += msg->saved_start_time;
+        msg->saved_avg_time = dragonfly_total_time;
+        dragonfly_total_time += tw_now( lp ) - msg->travel_start_time;
+
+        msg->saved_start_time = s->total_msg_time;
+        stat->recv_time += (tw_now(lp) - msg->msg_start_time);
+        
+        s->total_msg_time += (tw_now(lp) - msg->msg_start_time);
         s->total_msg_size += msg->total_size; 
+        
+        s->finished_msgs++;
         
         if (dragonfly_max_latency < tw_now( lp ) - msg->travel_start_time) {
           bf->c3 = 1;

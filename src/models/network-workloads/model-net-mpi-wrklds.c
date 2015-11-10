@@ -13,7 +13,7 @@
 #include "codes/model-net.h"
 #include "codes/rc-stack.h"
 
-#define TRACE 0
+#define TRACE -1
 #define TRACK 0
 
 char workload_type[128];
@@ -822,14 +822,8 @@ static void codes_exec_comp_delay(
 	tw_stime ts;
 	nw_message* msg;
 
-        if (disable_delay) {
-            ts = 0.0; // no compute time sim
-        }
-        else {
-            s->compute_time += s_to_ns(mpi_op->u.delay.seconds);
-            ts = s_to_ns(mpi_op->u.delay.seconds);
-        }
-
+    s->compute_time += s_to_ns(mpi_op->u.delay.seconds);
+    ts = s_to_ns(mpi_op->u.delay.seconds);
 	ts += g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
 	
 	e = tw_event_new( lp->gid, ts , lp );
@@ -1200,10 +1194,10 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 		case CODES_WK_DELAY:
 		{
 			s->num_delays--;
-                        if (!disable_delay) {
-                            tw_rand_reverse_unif(lp->rng);
-                            s->compute_time -= s_to_ns(mpi_op->u.delay.seconds);
-                        }
+            tw_rand_reverse_unif(lp->rng);
+                        
+            if (!disable_delay) 
+               s->compute_time -= s_to_ns(mpi_op->u.delay.seconds);
 		}
 		break;
 		case CODES_WK_BCAST:
@@ -1256,9 +1250,8 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
                     s->nw_id, s->num_completed);
 
         m->u.rc.saved_op = mpi_op;
-        if(mpi_op->op_type == CODES_WK_END && s->num_completed == 50000)
+        if(mpi_op->op_type == CODES_WK_END)
         {
-            //rc_stack_push(lp, mpi_op, free, s->st);
             s->elapsed_time = tw_now(lp) - s->start_time;
             return;
         }
@@ -1283,7 +1276,10 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			case CODES_WK_DELAY:
 			  {
 				s->num_delays++;
-				codes_exec_comp_delay(s, lp, mpi_op);
+                if(!disable_delay)
+				    codes_exec_comp_delay(s, lp, mpi_op);
+                else
+                    codes_issue_next_event(lp);
 			  }
 			break;
 
@@ -1295,13 +1291,19 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			case CODES_WK_REDUCE:
 			case CODES_WK_ALLREDUCE:
 			case CODES_WK_COL:
-            case CODES_WK_WAITSOME:
-            case CODES_WK_WAITANY:
 			  {
 				s->num_cols++;
 				codes_exec_mpi_col(s, lp);
 			  }
 			break;
+            
+            case CODES_WK_WAITSOME:
+            case CODES_WK_WAITANY:
+            {
+                s->num_waitsome++;
+                codes_issue_next_event(lp);
+            }
+            break;
 			case CODES_WK_WAIT:
 			{
 				s->num_wait++;
