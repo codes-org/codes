@@ -40,8 +40,7 @@ struct nodes_message
   nodes_event_t	 type;
 
   /* for reverse computation */
-  int saved_src_dim;
-  int saved_src_dir;
+  int saved_channel;
 
   /* coordinates of the destination torus nodes */
   int* dest;
@@ -71,6 +70,9 @@ struct nodes_message
  /* for reverse computation of a node's fan in*/
   int saved_fan_nodes;
 
+  int source_channel;
+
+  int saved_queue;
   /* chunk id of the flit (distinguishes flits) */
   int chunk_id;
 

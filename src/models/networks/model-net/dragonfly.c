@@ -147,7 +147,6 @@ struct terminal_state
    int* vc_occupancy; // NUM_VC
    int num_vcs;
    tw_stime terminal_available_time;
-   tw_stime next_credit_available_time;
    terminal_message_list **terminal_msgs;
    terminal_message_list **terminal_msgs_tail;
    int in_send_loop;
@@ -248,7 +247,6 @@ struct router_state
    int* global_channel; 
    
    tw_stime* next_output_available_time;
-   tw_stime* next_credit_available_time;
    tw_stime* cur_hist_start_time;
    terminal_message_list ***pending_msgs;
    terminal_message_list ***pending_msgs_tail;
@@ -739,7 +737,6 @@ void router_setup(router_state * r, tw_lp * lp)
 
    r->global_channel = (int*)malloc(p->num_global_channels * sizeof(int));
    r->next_output_available_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
-   r->next_credit_available_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
    r->cur_hist_start_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
    r->link_traffic = (int*)malloc(p->radix * sizeof(int));
    r->cur_hist_num = (int*)malloc(p->radix * sizeof(int));
@@ -760,7 +757,6 @@ void router_setup(router_state * r, tw_lp * lp)
     {
        // Set credit & router occupancy
 	r->next_output_available_time[i]=0;
-        r->next_credit_available_time[i]=0;
 	r->cur_hist_start_time[i] = 0;
         r->link_traffic[i]=0;
 	r->cur_hist_num[i] = 0;
@@ -1256,7 +1252,6 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
       if(msg->path_type == NON_MINIMAL)
         nonmin_count--;
 
-      s->next_credit_available_time = msg->saved_credit_time;
       uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
 
       N_finished_chunks--;
@@ -1296,8 +1291,6 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
       hash_link = qhash_search(s->rank_tbl, &key);
       tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
       
-      total_hops -= msg->my_N_hop;
-      
       mn_stats* stat;
       stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
       if(bf->c1)
@@ -1312,16 +1305,16 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
           dragonfly_max_latency = msg->saved_available_time;
         
 
-        if(bf->c7)
+        if(!hash_link)
         {
             s->finished_msgs--;
             total_msg_sz -= msg->total_size;
             N_finished_msgs--;
 
-            stat->recv_time -= tw_now(lp) - msg->travel_start_time;
-            s->total_msg_time -= (tw_now(lp) - msg->msg_start_time);
+            stat->recv_time -= msg->saved_start_time;
+            s->total_msg_time -= msg->saved_start_time;
             s->total_msg_size -= msg->total_size;
-            dragonfly_total_time -= (tw_now(lp) - msg->travel_start_time);
+            dragonfly_total_time -= msg->saved_avg_time;
 
             struct dfly_qhash_entry * d_entry_pop = (struct dfly_qhash_entry*)rc_stack_pop(s->st);
             qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
@@ -1354,7 +1347,7 @@ void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp * lp, t
 
             model_net_set_msg_param(MN_MSG_PARAM_START_TIME, MN_MSG_PARAM_START_TIME_VAL, &(msg->msg_start_time));
             
-            model_net_event_mctx(net_id, &mc_src, &mc_dst, msg->category,
+            msg->event_rc = model_net_event_mctx(net_id, &mc_src, &mc_dst, msg->category,
                     msg->sender_lp, msg->pull_size, ts,
                     remote_event_size, tmp_ptr, 0, NULL, lp);
         }
@@ -1539,10 +1532,12 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
         N_finished_msgs++;
         total_msg_sz += msg->total_size;
 
-        dragonfly_total_time += tw_now( lp ) - msg->travel_start_time;
-        stat->recv_time += tw_now(lp) - msg->travel_start_time;
+        msg->saved_avg_time = tw_now( lp ) - msg->travel_start_time;
+        dragonfly_total_time += msg->saved_avg_time;
+        msg->saved_start_time = (tw_now(lp) - msg->msg_start_time);
+        stat->recv_time += msg->saved_start_time;
         s->finished_msgs++;
-        s->total_msg_time += (tw_now(lp) - msg->msg_start_time);
+        s->total_msg_time += msg->saved_start_time;
         s->total_msg_size += msg->total_size; 
         
         if (dragonfly_max_latency < tw_now( lp ) - msg->travel_start_time) {
@@ -1923,7 +1918,7 @@ dragonfly_terminal_final( terminal_state * s,
     
     int written = 0;
     if(!s->terminal_id)
-        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Avg Msg Size> <Avg Msg Time> <# Msgs finished>");
+        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Msg Size> <Total Msg Time> <# Msgs finished>\n");
 
     written += sprintf(s->output_buf + written, "%lu %lu %ld %lf %ld %ld\n", lp->gid, s->terminal_id, s->total_msg_size, s->total_msg_time, s->finished_msgs, s->finished_packets);
     lp_io_write(lp->gid, "dragonfly-msg-stats", written, s->output_buf); 
@@ -2042,9 +2037,7 @@ get_next_stop(router_state * s,
    if(msg->last_hop == TERMINAL && path == NON_MINIMAL)
     {
       if(dest_group_id != s->group_id)
-         {
     	    msg->intm_group_id = intm_id;
-          }    
     }
    /******************** DECIDE THE DESTINATION GROUP ***********************/
   /* It means that the packet has arrived at the inter-mediate group for non-minimal routing. Reset the group now. */
@@ -2200,7 +2193,7 @@ static int do_adaptive_routing( router_state * s,
   assert(num_nonmin_hops <= 6);
 
   /* average the local queues of the router */
-  unsigned int q_avg = 0;
+  /*unsigned int q_avg = 0;
   int i;
   for( i = 0; i < s->params->radix; i++)
   {
@@ -2209,7 +2202,7 @@ static int do_adaptive_routing( router_state * s,
         s->vc_occupancy[i][2];
   }
   q_avg = q_avg / (s->params->radix - 1);
-
+*/
   //int min_out_chan = minimal_out_port;
   //int nonmin_out_chan = nonmin_out_port;
 
@@ -2311,15 +2304,13 @@ router_packet_receive( router_state * s,
   } else if(msg->last_hop == TERMINAL && routing == ADAPTIVE) {
     next_stop = do_adaptive_routing(s, bf, msg, lp, dest_router_id, intm_id);
   } else {
-    if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
-      assert(msg->path_type == MINIMAL || msg->path_type == NON_MINIMAL);
-
     if(routing == MINIMAL || routing == NON_MINIMAL)	
       msg->path_type = routing; /*defaults to the routing algorithm if we 
                                 don't have adaptive routing here*/
     next_stop = get_next_stop(s, bf, msg, lp, msg->path_type, dest_router_id, 
       intm_id);
   }
+  assert(msg->path_type == MINIMAL || msg->path_type == NON_MINIMAL);
   terminal_message_list * cur_chunk = (terminal_message_list *)malloc( 
       sizeof(terminal_message_list));
   init_terminal_message_list(cur_chunk, msg);

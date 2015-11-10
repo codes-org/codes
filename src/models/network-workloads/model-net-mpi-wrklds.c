@@ -13,7 +13,7 @@
 #include "codes/model-net.h"
 #include "codes/rc-stack.h"
 
-#define TRACE -1
+#define TRACE 0
 #define TRACK 0
 
 char workload_type[128];
@@ -344,7 +344,7 @@ static void mpi_queue_update(struct mpi_queue_ptrs* mpi_queue, struct codes_work
 /* prints the elements of a queue (for debugging purposes). */
 static void printCompletedQueue(nw_state* s, tw_lp* lp)
 {
-	   if(TRACE == lp->gid)
+	   if(TRACE == s->nw_id)
 	   {
 	   	printf("\n %lf contents of completed operations queue ", tw_now(lp));
 	   	struct completed_requests* current = s->completed_reqs;
@@ -370,7 +370,7 @@ static void notify_waits_rc(nw_state* s, tw_bf* bf, tw_lp* lp, nw_message* m, du
 	s->saved_pending_wait = NULL;
     }
 */
-  if(lp->gid == TRACE)
+  if(s->nw_id == TRACE)
 	  printf("\n %lf reverse -- notify waits req id %d ", tw_now(lp), completed_req);
   
   printCompletedQueue(s, lp);
@@ -380,7 +380,7 @@ static void notify_waits_rc(nw_state* s, tw_bf* bf, tw_lp* lp, nw_message* m, du
    /* if a wait-elem exists, it means the request ID has been matched*/
    if(m->u.rc.matched_op == 2) 
     {
-        if(lp->gid == TRACE)
+        if(s->nw_id == TRACE)
         {
             printf("\n %lf matched req id %d ", tw_now(lp), completed_req);
             printCompletedQueue(s, lp);
@@ -409,7 +409,7 @@ static int notify_waits(nw_state* s, tw_bf* bf, tw_lp* lp, nw_message* m, dumpi_
 	struct pending_waits* wait_elem = s->pending_waits;
 	m->u.rc.matched_op = 0;
 	
-	if(lp->gid == TRACE)
+	if(s->nw_id == TRACE)
 		printf("\n %lf notify waits req id %d ", tw_now(lp), completed_req);
 
 	if(!wait_elem)
@@ -438,7 +438,7 @@ static int notify_waits(nw_state* s, tw_bf* bf, tw_lp* lp, nw_message* m, dumpi_
 	   {
 	    if(wait_elem->mpi_op->u.waits.req_ids[i] == completed_req)
 		{
-			if(lp->gid == TRACE)
+			if(s->nw_id == TRACE)
 				printCompletedQueue(s, lp);
 			m->u.rc.matched_op = 1;
 			wait_elem->num_completed++;	
@@ -447,7 +447,7 @@ static int notify_waits(nw_state* s, tw_bf* bf, tw_lp* lp, nw_message* m, dumpi_
 	   
 	  if(wait_elem->num_completed == required_count)
 	   {
-            if(lp->gid == TRACE)
+            if(s->nw_id == TRACE)
             {
                 printf("\n %lf req %d completed %d", tw_now(lp), completed_req, wait_elem->num_completed);
                 printCompletedQueue(s, lp);
@@ -513,7 +513,7 @@ static void codes_exec_mpi_wait(nw_state* s, tw_lp* lp, nw_message * m, struct c
 
 static void codes_exec_mpi_wait_all_rc(nw_state* s, nw_message* m, tw_lp* lp, struct codes_workload_op * mpi_op)
 {
-  if(lp->gid == TRACE)
+  if(s->nw_id == TRACE)
    {
        printf("\n %lf codes exec mpi waitall reverse %d ", tw_now(lp), m->u.rc.found_match);
        printCompletedQueue(s, lp); 
@@ -837,7 +837,6 @@ static void codes_exec_comp_delay(
 	msg->msg_type = MPI_OP_GET_NEXT;
 
 	tw_event_send(e); 
-                
 }
 
 /* reverse computation operation for MPI irecv */
@@ -1257,7 +1256,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
                     s->nw_id, s->num_completed);
 
         m->u.rc.saved_op = mpi_op;
-        if(mpi_op->op_type == CODES_WK_END)
+        if(mpi_op->op_type == CODES_WK_END && s->num_completed == 50000)
         {
             //rc_stack_push(lp, mpi_op, free, s->st);
             s->elapsed_time = tw_now(lp) - s->start_time;

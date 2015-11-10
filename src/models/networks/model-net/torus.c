@@ -16,11 +16,11 @@
 #include "codes/model-net-lp.h"
 #include "codes/net/torus.h"
 
-#define CHUNK_SIZE 32
 #define DEBUG 1
 #define MEAN_INTERVAL 100
 #define TRACE -1
 
+#define STATICQ 0
 /* collective specific parameters */
 #define TREE_DEGREE 4
 #define LEVEL_DELAY 1000
@@ -34,7 +34,32 @@
 
 static double maxd(double a, double b) { return a < b ? b : a; }
 
+enum routing_algo
+{
+    STATIC=0,
+    ADAPTIVE
+};
 /* Torus network model implementation of codes, implements the modelnet API */
+
+typedef struct nodes_message_list nodes_message_list;
+struct nodes_message_list {
+    nodes_message msg;
+    char* event_data;
+    nodes_message_list *next;
+    nodes_message_list *prev;
+};
+
+void init_nodes_message_list(nodes_message_list *this, nodes_message *inmsg) {
+    this->msg = *inmsg;
+    this->event_data = NULL;
+    this->next = NULL;
+    this->prev = NULL;
+}
+
+void delete_nodes_message_list(nodes_message_list *this) {
+    if(this->event_data != NULL) free(this->event_data);
+    free(this);
+}
 
 typedef struct torus_param torus_param;
 struct torus_param
@@ -42,8 +67,8 @@ struct torus_param
     int n_dims; /*Dimension of the torus network, 5-D, 7-D or any other*/
     int* dim_length; /*Length of each torus dimension*/
     double link_bandwidth;/* bandwidth for each torus link */
+    double cn_bandwidth; /* injection bandwidth */
     int buffer_size; /* number of buffer slots for each vc in flits*/
-    //int num_net_traces; /* number of network traces to be mapped on torus */
     int num_vc; /* number of virtual channels for each torus link */
     float mean_process;/* mean process time for each flit  */
     int chunk_size; /* chunk is the smallest unit--default set to 32 */
@@ -57,6 +82,10 @@ struct torus_param
 
     double head_delay;
     double credit_delay;
+    double cn_delay;
+
+    double router_delay;
+    int routing;
 };
 
 /* codes mapping group name, lp type name */
@@ -95,6 +124,22 @@ struct nodes_state
   tw_stime** next_flit_generate_time;
   /* buffer size for each torus virtual channel */
   int** buffer;
+  /* Head and tail of the terminal messages list */
+  nodes_message_list **terminal_msgs;
+  nodes_message_list **terminal_msgs_tail;
+  int all_term_length;
+  int issueIdle;
+  int *terminal_length, *queued_length;
+  /* pending packets to be sent out */
+  nodes_message_list ***pending_msgs;
+  nodes_message_list ***pending_msgs_tail;
+  nodes_message_list ***queued_msgs;
+  nodes_message_list ***queued_msgs_tail;
+  nodes_message_list **other_msgs;
+  nodes_message_list **other_msgs_tail;
+  int *in_send_loop;
+  /* traffic through each torus link */
+  int64_t *link_traffic;
   /* coordinates of the current torus node */
   int* dim_position;
   /* neighbor LP ids for this torus node */
@@ -135,6 +180,111 @@ struct nodes_state
    /* LPs configuration */
    const torus_param * params;
 };
+
+static void append_to_node_message_list(  
+        nodes_state *ns, 
+        nodes_message_list ** thisq,
+        nodes_message_list ** thistail,
+        int index, 
+        nodes_message_list *msg) {
+    if(thisq[index] == NULL) {
+        thisq[index] = msg;
+    } else {
+        thistail[index]->next = msg;
+        msg->prev = thistail[index];
+    } 
+    thistail[index] = msg;
+}
+static void prepend_to_node_message_list(  
+        nodes_state *ns, 
+        nodes_message_list ** thisq,
+        nodes_message_list ** thistail,
+        int index, 
+        nodes_message_list *msg) {
+    if(thisq[index] == NULL) {
+        thistail[index] = msg;
+    } else {
+        thisq[index]->prev = msg;
+        msg->next = thisq[index];
+    } 
+    thisq[index] = msg;
+}
+static void create_prepend_to_node_message_list(
+        nodes_state *ns, 
+        nodes_message_list ** thisq,
+        nodes_message_list ** thistail,
+        int index, 
+        nodes_message *msg) {
+    nodes_message_list* new_entry = (nodes_message_list*)malloc(
+        sizeof(nodes_message_list));
+    init_nodes_message_list(new_entry, msg);
+    if(msg->remote_event_size_bytes) {
+        void *m_data = model_net_method_get_edata(TORUS, msg);
+        new_entry->event_data = (void*)malloc(msg->remote_event_size_bytes);
+        memcpy(new_entry->event_data, m_data, msg->remote_event_size_bytes);
+    }
+    prepend_to_node_message_list(ns, thisq, thistail, index, new_entry);
+}
+
+static nodes_message_list* return_head(
+        nodes_state *ns,
+        nodes_message_list ** thisq,
+        nodes_message_list ** thistail,
+        int index) {
+    nodes_message_list *head = thisq[index];
+    if(head != NULL) {
+        thisq[index] = head->next;
+        if(head->next != NULL) {
+            head->next->prev = NULL;
+            head->next = NULL;
+        } else {
+            thistail[index] = NULL;
+        }
+    }
+    return head;
+}
+
+static nodes_message_list* return_tail(
+        nodes_state *ns,
+        nodes_message_list ** thisq,
+        nodes_message_list ** thistail,
+        int index) {
+    nodes_message_list *tail = thistail[index];
+    if(tail->prev != NULL) {
+        tail->prev->next = NULL;
+        thistail[index] = tail->prev;
+        tail->prev = NULL;
+    } else {
+        thistail[index] = NULL;
+        thisq[index] = NULL;
+    }
+    return tail;
+}
+static void copy_nodes_list_entry( nodes_message_list *cur_entry,
+    nodes_message *msg) {
+    nodes_message *cur_msg = &cur_entry->msg;
+    strcpy(msg->category, cur_msg->category);
+    msg->travel_start_time = cur_msg->travel_start_time;
+    msg->packet_ID = cur_msg->packet_ID;    
+    msg->final_dest_gid = cur_msg->final_dest_gid;
+    msg->dest_lp = cur_msg->dest_lp;
+    msg->sender_svr = cur_msg->sender_svr;
+    msg->sender_node = cur_msg->sender_node;
+    msg->my_N_hop = cur_msg->my_N_hop;
+    msg->next_stop = cur_msg->next_stop;
+    msg->packet_size = cur_msg->packet_size;
+    msg->chunk_id = cur_msg->chunk_id;
+    msg->is_pull = cur_msg->is_pull;
+    msg->pull_size = cur_msg->pull_size;
+    msg->local_event_size_bytes = cur_msg->local_event_size_bytes;
+    msg->remote_event_size_bytes = cur_msg->remote_event_size_bytes;
+
+    if(msg->local_event_size_bytes +  msg->remote_event_size_bytes > 0) {
+        void *m_data = model_net_method_get_edata(TORUS, msg);
+        memcpy(m_data, cur_entry->event_data, 
+            msg->local_event_size_bytes +  msg->remote_event_size_bytes);
+    }
+}
 
 static void torus_read_config(
         const char         * anno,
@@ -204,23 +354,11 @@ static void torus_read_config(
         i++;
         token = strtok(NULL,",");
     }
-    /*int num_nodes = 1;
-
-    for( i = 0; i < p->n_dims; i++)
-	   num_nodes *= p->dim_length[i];
-    
-    configuration_get_value_int(&config, "PARAMS", "num_net_traces", anno, &p->num_net_traces);
-    if(!p->num_net_traces) {
-
-	p->num_net_traces = num_nodes;
-        fprintf(stderr, "Number of network traces not specified, setting to %d",
-                p->num_net_traces);
-    }
-   // Number of network traces should be <= number of torus network nodes `
-   assert(p->num_net_traces <= num_nodes);*/
     // create derived parameters
    
     // factor is an exclusive prefix product
+    p->router_delay = 50;
+    p->routing = STATIC;
     p->factor = malloc(p->n_dims * sizeof(int));
     p->factor[0] = 1;
     for(i = 1; i < p->n_dims; i++)
@@ -373,6 +511,7 @@ static tw_stime torus_packet_event(
     msg->sender_svr= req->src_lp;
     msg->sender_node = sender->gid;
     msg->packet_size = packet_size;
+    msg->travel_start_time = tw_now(sender);
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
     msg->chunk_id = 0;
@@ -400,6 +539,32 @@ static tw_stime torus_packet_event(
     return xfer_to_nic_time;
 }
 
+/*Sends a 8-byte credit back to the torus node LP that sent the message */
+static void credit_send( nodes_state * s, 
+	    tw_bf * bf, 
+	    tw_lp * lp, 
+	    nodes_message * msg,
+            int sq)
+{
+    tw_event * e;
+    nodes_message *m;
+    tw_stime ts;
+
+    ts = g_tw_lookahead + s->params->credit_delay + tw_rand_unif(lp->rng);
+    e = model_net_method_event_new(msg->sender_node, ts, lp, TORUS, 
+        (void**)&m, NULL);
+    if(sq == -1) {
+        m->source_direction = msg->source_direction;
+        m->source_dim = msg->source_dim;
+        m->source_channel = msg->source_channel;
+    } else {
+        m->source_direction = msg->saved_queue % 2;
+        m->source_dim = msg->saved_queue / 2;
+        m->source_channel = msg->saved_channel;
+    }
+    m->type = CREDIT;
+    tw_event_send(e);
+}
 /*Initialize the torus model, this initialization part is borrowed from Ning's torus model */
 static void torus_init( nodes_state * s, 
 	   tw_lp * lp )
@@ -434,6 +599,48 @@ static void torus_init( nodes_state * s,
 
     for(i=0; i < 2*p->n_dims; i++)
     {
+        s->buffer[i] = (int*)malloc(p->num_vc * sizeof(int));
+        s->next_link_available_time[i] =
+                (tw_stime*)malloc(p->num_vc * sizeof(tw_stime));
+        s->next_credit_available_time[i] = 
+                (tw_stime*)malloc(p->num_vc * sizeof(tw_stime));
+        s->next_flit_generate_time[i] = 
+                (tw_stime*)malloc(p->num_vc * sizeof(tw_stime));
+    }
+    s->terminal_length = (int*)malloc(2*p->n_dims*sizeof(int));
+    s->queued_length = (int*)malloc(2*p->n_dims*sizeof(int));
+    s->terminal_msgs = 
+        (nodes_message_list**)malloc(2*p->n_dims*sizeof(nodes_message_list*));
+    s->terminal_msgs_tail = 
+        (nodes_message_list**)malloc(2*p->n_dims*sizeof(nodes_message_list*));
+    s->pending_msgs = 
+        (nodes_message_list***)malloc(2*p->n_dims*sizeof(nodes_message_list**));
+    s->pending_msgs_tail = 
+        (nodes_message_list***)malloc(2*p->n_dims*sizeof(nodes_message_list**));
+    s->queued_msgs = 
+        (nodes_message_list***)malloc(2*p->n_dims*sizeof(nodes_message_list**));
+    s->queued_msgs_tail = 
+        (nodes_message_list***)malloc(2*p->n_dims*sizeof(nodes_message_list**));
+    for(i = 0; i < 2*p->n_dims; i++) {
+        s->pending_msgs[i] = 
+            (nodes_message_list**)malloc(p->num_vc*sizeof(nodes_message_list*));
+        s->pending_msgs_tail[i] = 
+            (nodes_message_list**)malloc(p->num_vc*sizeof(nodes_message_list*));
+        s->queued_msgs[i] = 
+            (nodes_message_list**)malloc(p->num_vc*sizeof(nodes_message_list*));
+        s->queued_msgs_tail[i] = 
+            (nodes_message_list**)malloc(p->num_vc*sizeof(nodes_message_list*));
+    }
+    s->other_msgs = 
+        (nodes_message_list**)malloc(2*p->n_dims*sizeof(nodes_message_list*));
+    s->other_msgs_tail = 
+        (nodes_message_list**)malloc(2*p->n_dims*sizeof(nodes_message_list*));
+    s->in_send_loop = 
+        (int *)malloc(2*p->n_dims*sizeof(int));
+
+    s->link_traffic = (int64_t *)malloc(2*p->n_dims*sizeof(int64_t));
+    for(i=0; i < 2*p->n_dims; i++)
+    {
 	s->buffer[i] = (int*)malloc(p->num_vc * sizeof(int));
 	s->next_link_available_time[i] =
             (tw_stime*)malloc(p->num_vc * sizeof(tw_stime));
@@ -441,6 +648,15 @@ static void torus_init( nodes_state * s,
             (tw_stime*)malloc(p->num_vc * sizeof(tw_stime));
 	s->next_flit_generate_time[i] = 
             (tw_stime*)malloc(p->num_vc * sizeof(tw_stime));
+        s->terminal_msgs[i] = NULL;
+        s->terminal_msgs_tail[i] = NULL;
+        s->other_msgs[i] = NULL;
+        s->other_msgs_tail[i] = NULL;
+        s->in_send_loop[i] = 0;
+        s->terminal_length[i] = 0;
+        s->queued_length[i] = 0;
+        s->all_term_length = 0;
+        s->issueIdle = 0;
     }
 
     // calculate my torus coords
@@ -502,6 +718,10 @@ static void torus_init( nodes_state * s,
        s->buffer[ j ][ i ] = 0; 
        s->next_link_available_time[ j ][ i ] = 0.0;
        s->next_credit_available_time[j][i] = 0.0; 
+       s->pending_msgs[j][i] = NULL;
+       s->pending_msgs_tail[j][i] = NULL;
+       s->queued_msgs[j][i] = NULL;
+       s->queued_msgs_tail[j][i] = NULL;
      }
    }
   // record LP time
@@ -834,6 +1054,99 @@ static void dimension_order_routing( nodes_state * s,
   *dst_lp = codes_mapping_get_lpid_from_relative(dest_id, NULL, LP_CONFIG_NM,
           s->anno, 1);
 }
+static void enqueue_msg( nodes_state * ns, 
+        tw_bf * bf, 
+        nodes_message * msg, 
+        tw_lp * lp,
+        tw_lpid dst_lp,
+        tw_stime nic_ts) {
+    
+    int j, tmp_dir=-1, tmp_dim=-1, queue, total_event_size;
+    tw_stime ts;
+    tw_event * e;
+    nodes_message *m;
+    
+    dimension_order_routing(ns, &dst_lp, &tmp_dim, &tmp_dir);
+    queue = tmp_dir + ( tmp_dim * 2 );
+
+    msg->packet_ID = lp->gid + g_tw_nlp * ns->packet_counter;
+    msg->my_N_hop = 0;
+
+    int num_chunks = msg->packet_size/ns->params->chunk_size;
+    if(msg->packet_size % ns->params->chunk_size)
+        num_chunks++;
+
+    ns->packet_counter++;
+
+    if(msg->packet_ID == TRACE)
+        printf("\n packet generated %lld at lp %d dest %d final dest %d", 
+        msg->packet_ID, (int)lp->gid, (int)dst_lp, (int)msg->dest_lp);
+       
+    msg->source_direction = tmp_dir;
+    msg->source_dim = tmp_dim;
+    msg->next_stop = dst_lp;
+
+    for(j = 0; j < num_chunks; j++) { 
+        nodes_message_list * cur_chunk = (nodes_message_list *)malloc( 
+                sizeof(nodes_message_list));
+
+        init_nodes_message_list(cur_chunk, msg);
+
+        if(msg->remote_event_size_bytes + msg->local_event_size_bytes > 0) {
+            cur_chunk->event_data = (char*)malloc(
+                msg->remote_event_size_bytes + msg->local_event_size_bytes);
+        }
+
+        void *m_data_src = model_net_method_get_edata(TORUS, msg);
+        if (msg->remote_event_size_bytes){
+            memcpy(cur_chunk->event_data, m_data_src, msg->remote_event_size_bytes);
+        }
+        if (msg->local_event_size_bytes){
+            m_data_src = (char*)m_data_src + msg->remote_event_size_bytes;
+            memcpy((char*)cur_chunk->event_data + msg->remote_event_size_bytes, 
+                m_data_src, msg->local_event_size_bytes);
+        }
+        cur_chunk->msg.chunk_id = j;
+
+        append_to_node_message_list(ns, ns->terminal_msgs,
+            ns->terminal_msgs_tail, queue, cur_chunk);
+        ns->terminal_length[queue] += ns->params->chunk_size;
+        ns->all_term_length += ns->params->chunk_size;
+    }
+  
+  if(ns->all_term_length < 2 * ns->params->buffer_size) 
+  {
+    model_net_method_idle_event(nic_ts, 0, lp);
+  } 
+  else 
+  {
+    bf->c11 = 1;
+    ns->issueIdle = 1;
+  }
+
+   if(ns->in_send_loop[queue] == 0) {
+       bf->c8 = 1;
+       ts = g_tw_lookahead + ns->params->cn_delay * msg->packet_size + tw_rand_unif(lp->rng);
+       e = model_net_method_event_new(lp->gid, ts, lp, TORUS, (void**)&m, NULL);
+       m->type = SEND;
+       m->source_direction = tmp_dir;
+       m->source_dim = tmp_dim;
+       ns->in_send_loop[queue] = 1;
+       tw_event_send(e);
+   }
+
+   /* record the statistics of the generated packets */
+   total_event_size = model_net_get_msg_sz(TORUS) + msg->remote_event_size_bytes + msg->local_event_size_bytes;   
+   mn_stats* stat;
+   stat = model_net_find_stats(msg->category, ns->torus_stats_array);
+   stat->send_count++;  
+   stat->send_bytes += msg->packet_size;
+   stat->send_time += (1/ns->params->link_bandwidth) * msg->packet_size;
+   /* record the maximum ROSS event size */
+   if(stat->max_event_size < total_event_size)
+	   stat->max_event_size = total_event_size;
+}
+   /* record the maximum ROSS event size */
 
 /*Generates a packet. If there is a buffer slot available, then the packet is 
 injected in the network. Else, a buffer overflow exception is thrown.
@@ -845,134 +1158,12 @@ static void packet_generate( nodes_state * s,
 		nodes_message * msg, 
 		tw_lp * lp )
 {
-    int total_event_size;
     tw_stime ts;
+    
+    ts = g_tw_lookahead + s->params->cn_delay * msg->packet_size + tw_rand_unif(lp->rng);
 
-    int chunk_id = msg->chunk_id;
-
-//    event triggered when packet head is sent
-    tw_event * e_h;
-    nodes_message *m;
     tw_lpid dst_lp = msg->dest_lp;
-
-    msg->travel_start_time = tw_now(lp);
-    msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
-    msg->my_N_hop = 0;
-
-    uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
-    if(msg->packet_size % s->params->chunk_size)
-        num_chunks++;
-    
-    if(!num_chunks)
-	num_chunks = 1;
-
-    s->packet_counter++;
-
-    /*if(msg->packet_ID == TRACE)
-	    printf("\n packet generated %lld at lp %d dest %d final dest %d chunk_id %d num_chunks %d", msg->packet_ID, (int)lp->gid, (int)dst_lp, (int)msg->dest_lp, msg->chunk_id, num_chunks); */
-       
-    ts = codes_local_latency(lp);
-
-    void *m_data;
-    e_h = model_net_method_event_new(lp->gid, ts, lp, TORUS, (void**)&m,
-               (void**)&m_data);
-
-    void *m_data_src = model_net_method_get_edata(TORUS, msg);
-    memcpy(m, msg, sizeof(nodes_message));
-    if (msg->remote_event_size_bytes)
-    {
-   	memcpy(m_data, m_data_src,
-	   msg->remote_event_size_bytes);
-   	m_data = (char*)m_data + msg->remote_event_size_bytes;
-   	m_data_src = (char*)m_data_src + msg->remote_event_size_bytes;
-    }
-    
-    if (msg->local_event_size_bytes)
-   	memcpy(m_data, m_data_src, msg->local_event_size_bytes);
-	
-    m->next_stop = dst_lp;
-    m->chunk_id = chunk_id;
-
-    // find destination dimensions using destination LP ID 
-    m->type = SEND;
-    tw_event_send(e_h);
-   
-   if(chunk_id < num_chunks - 1)
-   {
-     bf->c1 = 1;
-     /* Issue another packet generate event */
-     tw_event * e_gen;
-     nodes_message * m_gen;
-     void * m_gen_data;
-
-     /* Keep the packet generate event a little behind packet send */
-     ts = ts + codes_local_latency(lp);
-
-     e_gen = model_net_method_event_new(lp->gid, ts, lp, TORUS, (void**)&m_gen,
-				(void**)&m_gen_data); 
-
-     void *m_gen_data_src = model_net_method_get_edata(TORUS, msg);
-     memcpy(m_gen, msg, sizeof(nodes_message));
-
-     m_gen->chunk_id = ++chunk_id;
-     m_gen->type = GENERATE;
-
-      if (msg->remote_event_size_bytes){
-        memcpy(m_gen_data, m_gen_data_src,
-                msg->remote_event_size_bytes);
-        m_gen_data = (char*)m_gen_data + msg->remote_event_size_bytes;
-        m_gen_data_src = (char*)m_gen_data_src + msg->remote_event_size_bytes;
-      }
-    if (msg->local_event_size_bytes)
-     	memcpy(m_gen_data, m_gen_data_src, msg->local_event_size_bytes);
-
-     tw_event_send(e_gen); 
-  }
-
-   total_event_size = model_net_get_msg_sz(TORUS) + msg->remote_event_size_bytes + msg->local_event_size_bytes;   
-   /* record the statistics of the generated packets */
-   mn_stats* stat;
-   stat = model_net_find_stats(msg->category, s->torus_stats_array);
-   stat->send_count++;  
-   stat->send_bytes += msg->packet_size;
-   stat->send_time += (1/s->params->link_bandwidth) * msg->packet_size;
-
-   /* record the maximum ROSS event size */
-   if(stat->max_event_size < total_event_size)
-     stat->max_event_size = total_event_size;
-}
-/*Sends a 8-byte credit back to the torus node LP that sent the message */
-static void credit_send( nodes_state * s, 
-	    tw_bf * bf, 
-	    tw_lp * lp, 
-	    nodes_message * msg)
-{
-#if DEBUG
-    //printf("\n (%lf) sending credit tmp_dir %d tmp_dim %d %lf ", tw_now(lp), msg->source_direction, msg->source_dim, s->params->credit_delay );
-#endif
-    bf->c1 = 0;
-    tw_event * buf_e;
-    nodes_message *m;
-    tw_stime ts;
-    int src_dir = msg->source_direction;
-    int src_dim = msg->source_dim;
-
-    msg->saved_available_time = s->next_credit_available_time[(2 * src_dim) + src_dir][0];
-    s->next_credit_available_time[(2 * src_dim) + src_dir][0] = maxd(s->next_credit_available_time[(2 * src_dim) + src_dir][0], tw_now(lp));
-    ts =  s->params->credit_delay + 
-        tw_rand_exponential(lp->rng, s->params->credit_delay/1000);
-    s->next_credit_available_time[(2 * src_dim) + src_dir][0] += ts;
-
-    //buf_e = tw_event_new( msg->sender_lp, s->next_credit_available_time[(2 * src_dim) + src_dir][0] - tw_now(lp), lp);
-    //m = tw_event_data(buf_e);
-    buf_e = model_net_method_event_new(msg->sender_node,
-            s->next_credit_available_time[(2*src_dim) + src_dir][0] - tw_now(lp),
-            lp, TORUS, (void**)&m, NULL);
-    m->source_direction = msg->source_direction;
-    m->source_dim = msg->source_dim;
-
-    m->type = CREDIT;
-    tw_event_send( buf_e );
+    enqueue_msg( s, bf, msg, lp, dst_lp, ts );
 }
 /* send a packet from one torus node to another torus node
  A packet can be up to 256 bytes on BG/L and BG/P and up to 512 bytes on BG/Q */
@@ -981,88 +1172,155 @@ static void packet_send( nodes_state * s,
 		 nodes_message * msg, 
 		 tw_lp * lp )
 { 
-    bf->c2 = 0;
-    bf->c1 = 0;
     int tmp_dir, tmp_dim;
     tw_stime ts;
     tw_event *e;
     nodes_message *m;
-    tw_lpid dst_lp = msg->dest_lp;
-    dimension_order_routing( s, &dst_lp, &tmp_dim, &tmp_dir );     
+    int isT = 0;
 
-    if(s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ] < s->params->buffer_size)
-    {
-  
-       bf->c2 = 1;
-       msg->saved_src_dir = tmp_dir;
-       msg->saved_src_dim = tmp_dim;
-       ts = tw_rand_exponential( lp->rng, s->params->head_delay/200.0 ) + 
-           s->params->head_delay;
+    tmp_dim = msg->source_dim; 
+    tmp_dir = msg->source_direction;
 
-//    For reverse computation 
-      msg->saved_available_time = s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0];
+    int queue = tmp_dir + ( tmp_dim * 2 );
 
-      s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] = maxd( s->next_link_available_time[ tmp_dir + ( tmp_dim * 2 )][0], tw_now(lp) );
-      s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] += ts;
-    
-      //e = tw_event_new( dst_lp, s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] - tw_now(lp), lp );
-      //m = tw_event_data( e );
-      //memcpy(m, msg, torus_get_msg_sz() + msg->remote_event_size_bytes);
-      void * m_data;
-      e = model_net_method_event_new(dst_lp, 
-              s->next_link_available_time[tmp_dir+(tmp_dim*2)][0] - tw_now(lp),
-              lp, TORUS, (void**)&m, &m_data);
-      memcpy(m, msg, sizeof(nodes_message));
-      if (msg->remote_event_size_bytes){
-        memcpy(m_data, model_net_method_get_edata(TORUS, msg),
-                msg->remote_event_size_bytes);
-      }
-      m->type = ARRIVAL;
-
-      if(msg->packet_ID == TRACE)
-        printf("\n lp %d packet %lld flit id %d being sent to %d after time %lf ", (int) lp->gid, msg->packet_ID, msg->chunk_id, (int)dst_lp, s->next_link_available_time[tmp_dir + ( tmp_dim * 2 )][0] - tw_now(lp)); 
-      //Carry on the message info
-      m->source_dim = tmp_dim;
-      m->source_direction = tmp_dir;
-      m->next_stop = dst_lp;
-      m->sender_node = lp->gid;
-      m->local_event_size_bytes = 0; /* We just deliver the local event here */
-
-      tw_event_send( e );
-
-      s->buffer[ tmp_dir + ( tmp_dim * 2 ) ][ 0 ]++;
-    
-      uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
-
-      if(msg->packet_size % s->params->chunk_size)
-          num_chunks++;
-
-      if(msg->chunk_id == num_chunks - 1)
-      {
+    if(s->pending_msgs[queue][STATICQ] == NULL 
+        && s->terminal_msgs[queue] == NULL) {
         bf->c1 = 1;
-	/* Invoke an event on the sending server */
-	if(msg->local_event_size_bytes > 0)
-	{
-          tw_event* e_new;
-	  nodes_message* m_new;
-	  void* local_event;
-	  ts = (1/s->params->link_bandwidth) * msg->local_event_size_bytes;
-	  e_new = tw_event_new(msg->sender_svr, ts, lp);
-	  m_new = tw_event_data(e_new);
-	  //local_event = (char*)msg;
-	  //local_event += torus_get_msg_sz() + msg->remote_event_size_bytes;
-          local_event = (char*)model_net_method_get_edata(TORUS, msg) +
-              msg->remote_event_size_bytes;
-	  memcpy(m_new, local_event, msg->local_event_size_bytes);
-	  tw_event_send(e_new);
-	}
-     }
-  } // end if
-    else
+        s->in_send_loop[queue] = 0;
+        //printf("[%d] Empty queue; return\n", lp->gid);
+        return;
+    }
+
+    nodes_message_list *cur_entry = s->pending_msgs[queue][STATICQ];
+            
+    if(s->params->routing == STATIC && cur_entry == NULL) {
+                if((s->buffer[queue][STATICQ] + (2 * s->params->chunk_size) <= s->params->buffer_size)) {
+                    bf->c3 = 1;
+                    s->buffer[queue][STATICQ] += s->params->chunk_size;
+                    cur_entry = s->terminal_msgs[queue];
+                    isT = 1;
+                }
+            if (cur_entry == NULL) {
+                bf->c4 = 1;
+                s->in_send_loop[queue] = 0;
+                return;
+            }
+        } else {
+            bf->c5 = 1;
+        }
+
+    int num_chunks = cur_entry->msg.packet_size/s->params->chunk_size;
+    if(cur_entry->msg.packet_size % s->params->chunk_size)
+        num_chunks++;
+
+    double bytetime;
+    if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1)) 
     {
-	    printf("\n buffer overflown ");
-	    MPI_Finalize();
-	    exit(-1);
+        bytetime = s->params->head_delay * (cur_entry->msg.packet_size % s->params->chunk_size);
+    } 
+    else 
+        bytetime = s->params->head_delay * s->params->chunk_size;
+    
+    ts = g_tw_lookahead + tw_rand_unif( lp->rng) + bytetime + s->params->router_delay;
+
+    //For reverse computation 
+    msg->saved_available_time = s->next_link_available_time[queue][0];
+    s->next_link_available_time[queue][0] = maxd( s->next_link_available_time[queue][0], tw_now(lp) );
+    s->next_link_available_time[queue][0] += ts;
+    
+    void * m_data;
+    ts = s->next_link_available_time[queue][0] - tw_now(lp);
+    e = model_net_method_event_new(cur_entry->msg.next_stop, ts,
+            lp, TORUS, (void**)&m, &m_data);
+    memcpy(m, &cur_entry->msg, sizeof(nodes_message));
+    if (m->remote_event_size_bytes){
+        memcpy(m_data, cur_entry->event_data, m->remote_event_size_bytes);
+    }
+
+    m->type = ARRIVAL;
+    m->source_channel = STATICQ;
+
+    if(msg->packet_ID == TRACE)
+        printf("\n lp %d packet %lld flit id %d being sent to %d after time %lf ", 
+            (int) lp->gid, m->packet_ID, m->chunk_id, m->next_stop, 
+            s->next_link_available_time[queue][0] - tw_now(lp)); 
+
+    m->sender_node = lp->gid;
+    m->local_event_size_bytes = 0; /* We just deliver the local event here */
+
+    //printf("[%d] Packet sent: source %d dest %d chunk %d\n", lp->gid, 
+    //    m->sender_svr, m->final_dest_gid, m->chunk_id);
+    tw_event_send( e );
+    if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1)) {
+        bf->c20 = 1;
+        s->link_traffic[queue] += cur_entry->msg.packet_size %
+            s->params->chunk_size;
+    } else {
+        bf->c21 = 1;
+        s->link_traffic[queue] += s->params->chunk_size;
+    }
+    
+    if(cur_entry->msg.chunk_id == num_chunks - 1)
+    {
+        /* Invoke an event on the sending server */
+        if(cur_entry->msg.local_event_size_bytes > 0)
+        {
+            bf->c6 = 1;
+            tw_event* e_new;
+            nodes_message* m_new;
+            void* local_event;
+            double tsT = codes_local_latency(lp);
+            e_new = tw_event_new(cur_entry->msg.sender_svr, tsT, lp);
+            m_new = tw_event_data(e_new);
+            local_event = (char*)cur_entry->event_data + 
+                cur_entry->msg.remote_event_size_bytes;
+            memcpy(m_new, local_event, cur_entry->msg.local_event_size_bytes);
+            tw_event_send(e_new);
+        }
+    }
+
+    if(isT) {
+        cur_entry = return_head(s, s->terminal_msgs, s->terminal_msgs_tail, 
+            queue);
+        s->terminal_length[queue] -= s->params->chunk_size; 
+        s->all_term_length -= s->params->chunk_size;
+    } else {
+        bf->c8 = 1;
+        cur_entry = return_head(s, s->pending_msgs[queue],
+            s->pending_msgs_tail[queue], STATICQ);
+    }
+
+    /* store data for reverse handler */
+    copy_nodes_list_entry(cur_entry, msg);
+    delete_nodes_message_list(cur_entry);
+  
+    if(s->issueIdle && isT) {
+        bf->c22 = 1;
+        s->issueIdle = 0;
+        model_net_method_idle_event(codes_local_latency(lp), 0, lp);
+    }
+
+    if(isT) {
+        cur_entry = s->terminal_msgs[queue];
+    } else {
+        cur_entry = s->pending_msgs[queue][STATICQ];
+            if(cur_entry == NULL) {
+                cur_entry = s->terminal_msgs[queue];
+            }
+    }
+
+    if(cur_entry != NULL) {
+        bf->c9 = 1;
+        ts = ts + tw_rand_unif( lp->rng) * .1;
+        e = model_net_method_event_new(lp->gid, ts, lp, TORUS, (void**)&m, NULL);
+        m->type = SEND;
+        m->source_direction = tmp_dir;
+        m->source_dim = tmp_dim;
+        tw_event_send(e);
+    } else {
+        bf->c10 = 1;
+        s->in_send_loop[queue] = 0;
+        return;
     }
 }
 
@@ -1085,9 +1343,11 @@ static void packet_arrive( nodes_state * s,
   if(msg->packet_ID == TRACE)
 	  printf("\n packet arrived at lp %d final dest %d ", (int)lp->gid, (int)msg->dest_lp);
        
-  credit_send( s, bf, lp, msg); 
   if( lp->gid == msg->dest_lp )
-    {   
+    {
+        bf->c1 = 1;
+        credit_send( s, bf, lp, msg, -1);
+
         uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
         if(msg->packet_size % s->params->chunk_size)
             num_chunks++;
@@ -1136,21 +1396,93 @@ static void packet_arrive( nodes_state * s,
     }
   else
     {
-      //e = tw_event_new(lp->gid, ts , lp);
-      //m = tw_event_data( e );
-      //memcpy(m, msg, torus_get_msg_sz() + msg->remote_event_size_bytes);
-      void *m_data;
-      e = model_net_method_event_new(lp->gid, ts, lp, TORUS, (void**)&m,
-              &m_data);
-      memcpy(m, msg, sizeof(nodes_message));
-      if (msg->remote_event_size_bytes){
-        memcpy(m_data, model_net_method_get_edata(TORUS, msg),
+        bf->c6 = 1;
+        int tmp_dir, tmp_dim, queue;
+        int tmp_dirD, tmp_dimD, queueD;
+        tw_lpid dst_lp = msg->dest_lp;
+        tw_lpid dst_lpD = msg->dest_lp;
+        dimension_order_routing(s, &dst_lp, &tmp_dim, &tmp_dir);
+        
+        queue = tmp_dir + (tmp_dim * 2);
+        queueD =  tmp_dir + ( tmp_dim * 2 );
+            
+        tmp_dimD = tmp_dim;
+        tmp_dirD = tmp_dir;
+        dst_lpD = dst_lp;
+        
+        nodes_message_list * cur_chunk = (nodes_message_list *)malloc( 
+                sizeof(nodes_message_list));
+        init_nodes_message_list(cur_chunk, msg);
+
+        if(msg->remote_event_size_bytes > 0) {
+            void *m_data_src = model_net_method_get_edata(TORUS, msg);
+            cur_chunk->event_data = (char*)malloc(msg->remote_event_size_bytes);
+            memcpy(cur_chunk->event_data, m_data_src, 
                 msg->remote_event_size_bytes);
-      }
-      m->type = SEND;
-      m->next_stop = -1;
-      tw_event_send(e);
-   }
+        }
+        int multfactor = 1;
+        if(msg->source_dim != tmp_dim) {
+            multfactor = 2;
+        }
+        /* Message is traveling in the same dimension*/
+        if(multfactor == 1) {
+            cur_chunk->msg.next_stop = dst_lp;
+            cur_chunk->msg.source_dim = tmp_dim;
+            cur_chunk->msg.source_direction = tmp_dir;
+            msg->saved_queue = queue;
+            msg->saved_channel = STATICQ;
+            if(s->buffer[queue][STATICQ] + multfactor * s->params->chunk_size 
+                > s->params->buffer_size) {
+                cur_chunk->msg.saved_queue =  
+                    msg->source_direction + ( msg->source_dim * 2 );
+                cur_chunk->msg.saved_channel = msg->source_channel;
+                append_to_node_message_list(s, s->queued_msgs[queue], 
+                        s->queued_msgs_tail[queue], STATICQ, cur_chunk);
+                    s->queued_length[queue] += s->params->chunk_size;
+            } else {
+                bf->c9 = 1;
+                s->buffer[queue][STATICQ] += s->params->chunk_size;
+                credit_send( s, bf, lp, msg, -1 ); 
+                append_to_node_message_list(s, s->pending_msgs[queue], 
+                    s->pending_msgs_tail[queue], STATICQ, cur_chunk);
+            }
+        }
+        else
+        {
+            /* Message is travelling in different dimension so two buffer
+             * spaces are required. */
+                if(s->buffer[queue][STATICQ] + 2 * s->params->chunk_size 
+                    <= s->params->buffer_size) {
+                    bf->c11 = 1;
+                    cur_chunk->msg.next_stop = dst_lp;
+                    cur_chunk->msg.source_dim = tmp_dim;
+                    cur_chunk->msg.source_direction = tmp_dir;
+                    msg->saved_queue = queue;
+                    msg->saved_channel = STATICQ;
+                    s->buffer[queue][STATICQ] += s->params->chunk_size;
+                    credit_send( s, bf, lp, msg, -1 ); 
+                    append_to_node_message_list(s, s->pending_msgs[queue], 
+                        s->pending_msgs_tail[queue], STATICQ, cur_chunk);
+                }
+                else
+                {
+                    bf->c8 = 1;
+                    append_to_node_message_list(s, s->other_msgs, 
+                            s->other_msgs_tail, queue, cur_chunk);  
+                }
+        }
+        if(s->in_send_loop[msg->saved_queue] == 0) {
+            bf->c13 = 1;
+            ts = codes_local_latency(lp);
+            e = model_net_method_event_new(lp->gid, ts, lp, TORUS, (void**)&m, 
+                NULL);
+            m->type = SEND;
+            m->source_direction = cur_chunk->msg.source_direction; 
+            m->source_dim = cur_chunk->msg.source_dim;
+            s->in_send_loop[msg->saved_queue] = 1;
+            tw_event_send(e);
+        }
+    }
 }
 
 /* reports torus statistics like average packet latency, maximum packet latency and average
@@ -1174,10 +1506,18 @@ static void torus_report_stats()
 void
 final( nodes_state * s, tw_lp * lp )
 {
-  model_net_print_stats(lp->gid, &s->torus_stats_array[0]); 
+  model_net_print_stats(lp->gid, &s->torus_stats_array); 
   free(s->next_link_available_time);
   free(s->next_credit_available_time);
   free(s->next_flit_generate_time);
+  free(s->link_traffic);
+  free(s->terminal_msgs);
+  free(s->terminal_msgs_tail);
+  free(s->pending_msgs);
+  free(s->pending_msgs_tail);
+  free(s->queued_msgs);
+  free(s->queued_msgs_tail);
+  free(s->other_msgs);
   // since all LPs are sharing params, just let them leak for now
   // TODO: add a post-sim "cleanup" function?
   //free(s->buffer); 
@@ -1187,9 +1527,44 @@ final( nodes_state * s, tw_lp * lp )
 }
 
 /* increments the buffer count after a credit arrives from the remote compute node */
-static void packet_buffer_process( nodes_state * s, tw_bf * bf, nodes_message * msg, tw_lp * lp )
+static void packet_buffer_process( nodes_state * ns, tw_bf * bf, nodes_message * msg, tw_lp * lp )
 {
-   s->buffer[ msg->source_direction + ( msg->source_dim * 2 ) ][  0 ]--;
+    int queue = msg->source_direction + ( msg->source_dim * 2 );
+    ns->buffer[queue][msg->source_channel] -= ns->params->chunk_size;
+        
+    if(ns->queued_msgs[queue][STATICQ] != NULL) {
+            bf->c2 = 1;
+            nodes_message_list *head = return_head(ns, ns->queued_msgs[queue], 
+                ns->queued_msgs_tail[queue], STATICQ);
+            ns->queued_length[queue] -= ns->params->chunk_size;
+            credit_send( ns, bf, lp, &head->msg, 1); 
+            append_to_node_message_list(ns, ns->pending_msgs[queue], 
+                ns->pending_msgs_tail[queue], STATICQ, head);
+            ns->buffer[queue][STATICQ] += ns->params->chunk_size;
+        } else if(ns->buffer[queue][STATICQ] + 2 * ns->params->chunk_size 
+            <= ns->params->buffer_size) {
+            if(ns->other_msgs[queue] != NULL) {
+                bf->c3 = 1;
+                nodes_message_list *head = return_head(ns, ns->other_msgs, 
+                        ns->other_msgs_tail, queue);
+                credit_send( ns, bf, lp, &head->msg, 1); 
+                append_to_node_message_list(ns, ns->pending_msgs[queue], 
+                        ns->pending_msgs_tail[queue], STATICQ, head);
+                ns->buffer[queue][STATIC] += ns->params->chunk_size;
+            }
+           } 
+    if(ns->in_send_loop[queue] == 0) {
+        bf->c5 = 1;
+        tw_stime ts = codes_local_latency(lp);
+        nodes_message *m;
+        tw_event *e = model_net_method_event_new(lp->gid, ts, lp, TORUS, 
+            (void**)&m, NULL);
+        m->type = SEND;
+        m->source_direction = msg->source_direction;
+        m->source_dim = msg->source_dim;
+        ns->in_send_loop[queue] = 1;
+        tw_event_send(e);
+    }
 }
 
 /* reverse handler for torus node */
@@ -1200,7 +1575,6 @@ static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw
        case GENERATE:
 		   {
 		     s->packet_counter--;
-		     int i;//, saved_dim, saved_dir;
 	 	     //saved_dim = msg->saved_src_dim;
 		     //saved_dir = msg->saved_src_dir;
 
@@ -1259,11 +1633,6 @@ static void node_rc_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw
 		 {
 		    if(bf->c2)
 		     {
-                        int next_dim = msg->saved_src_dim;
-			int next_dir = msg->saved_src_dir;
-			s->next_link_available_time[next_dir + ( next_dim * 2 )][0] = msg->saved_available_time;
-			s->buffer[ next_dir + ( next_dim * 2 ) ][ 0 ] --;
-	                tw_rand_reverse_unif(lp->rng);
 		    }
 		 }
 	break;
