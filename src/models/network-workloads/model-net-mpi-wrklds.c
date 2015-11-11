@@ -459,6 +459,8 @@ static void codes_exec_mpi_wait_rc(nw_state* s, nw_message* m, tw_lp* lp, struct
 {
     if(s->pending_waits)
      {
+        struct pending_waits * wait_op = s->pending_waits;
+        free(wait_op);
     	s->pending_waits = NULL;
 	    return;
      }
@@ -520,6 +522,8 @@ static void codes_exec_mpi_wait_all_rc(nw_state* s, nw_message* m, tw_lp* lp, st
    }
     else
     {
+        struct pending_waits* wait_op = s->pending_waits;
+        free(wait_op);
         s->pending_waits = NULL;
         assert(!s->pending_waits);
         if(lp->gid == TRACE)
@@ -573,7 +577,6 @@ static void codes_exec_mpi_wait_all(
 	  wait_op->mpi_op = mpi_op;  
 	  wait_op->num_completed = num_completed;
 	  wait_op->start_time = tw_now(lp);
-      //rc_stack_push(lp, wait_op, free, s->st);
       s->pending_waits = wait_op;
   }
 }
