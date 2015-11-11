@@ -165,6 +165,7 @@ struct nw_message
     short wait_completed;
     dumpi_req_id saved_matched_req;
 
+    struct codes_workload_op * op;
     double saved_send_time;
     double saved_recv_time;
     double saved_wait_time;
@@ -278,16 +279,6 @@ static tw_lpid rank_to_lpid(int rank)
     return codes_mapping_get_lpid_from_relative(rank, NULL, "nw-lp", NULL, 0);
 }
 
-static void notify_posted_wait_rc(
-        nw_state* s, tw_bf * bf,
-        nw_message * m,
-        tw_lp * lp)
-{
-    if(m->wait_completed > 0)
-    {
-           s->wait_op->num_completed--;
-    }
-}
 static int notify_posted_wait(nw_state* s,
         tw_bf * bf, nw_message * m, tw_lp * lp, 
         dumpi_req_id completed_req)
@@ -752,7 +743,10 @@ static tw_stime s_to_ns(tw_stime ns)
 
 static void update_completed_queue_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-    notify_posted_wait_rc(s, bf, m, lp);
+    if(m->wait_completed > 0)
+    {
+           s->wait_op->num_completed--;
+    }
     if(bf->c0)
     {
        struct qlist_head * ent = qlist_pop_back(&s->completed_reqs);
@@ -781,7 +775,6 @@ static void update_completed_queue(nw_state* s,
 
     int waiting = notify_posted_wait(s, bf, m, lp, req_id);
  
-    /* 2 is for completed wait operations */
     if(!waiting)
     {
         bf->c0 = 1;
@@ -990,8 +983,9 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 
 static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-    struct codes_workload_op * mpi_op = (struct codes_workload_op *)rc_stack_pop(s->processed_ops);
-	
+//    struct codes_workload_op * mpi_op = (struct codes_workload_op *)rc_stack_pop(s->processed_ops);
+
+    struct codes_workload_op * mpi_op = m->op;
     codes_workload_get_next_rc(wrkld_id, 0, (int)s->nw_id, mpi_op);
 
 	if(mpi_op->op_type == CODES_WK_END)
@@ -1044,14 +1038,20 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
         }
 		break;
 	
+		case CODES_WK_WAITSOME:
+		case CODES_WK_WAITANY:
+        {
+           s->num_waitsome--;
+           codes_issue_next_event_rc(lp); 
+        }
+        break;
+
 		case CODES_WK_WAIT:
 		{
 			s->num_wait--;
 			codes_exec_mpi_wait_rc(s, lp, mpi_op);
 		}
 		break;
-		case CODES_WK_WAITSOME:
-		case CODES_WK_WAITANY:
 		case CODES_WK_WAITALL:
 		{
 			s->num_waitall--;
@@ -1069,12 +1069,12 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 		struct codes_workload_op * mpi_op = malloc(sizeof(struct codes_workload_op));
         codes_workload_get_next(wrkld_id, 0, (int)s->nw_id, mpi_op);
        
-        //m->op = mpi_op;
+        m->op = mpi_op;
 
         if(mpi_op->op_type == CODES_WK_END)
         {
             s->elapsed_time = tw_now(lp) - s->start_time;
-            rc_stack_push(lp, mpi_op, free, s->processed_ops);
+            //rc_stack_push(lp, mpi_op, free, s->processed_ops);
             return;
         }
 		switch(mpi_op->op_type)
@@ -1104,6 +1104,12 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 
             case CODES_WK_WAITSOME:
             case CODES_WK_WAITANY:
+            {
+                s->num_waitsome++;
+                codes_issue_next_event(lp);
+            }
+            break;
+
 			case CODES_WK_WAITALL:
 			  {
 				s->num_waitall++;
@@ -1132,7 +1138,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			default:
 				printf("\n Invalid op type %d ", mpi_op->op_type);
 		}
-        rc_stack_push(lp, mpi_op, free, s->processed_ops);
+//        rc_stack_push(lp, mpi_op, free, s->processed_ops);
         return;
 }
 

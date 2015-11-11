@@ -1002,6 +1002,7 @@ void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, 
    for(i = 0; i < num_chunks; i++) {
         delete_terminal_message_list(return_tail(s->terminal_msgs, 
           s->terminal_msgs_tail, 0));
+        s->terminal_length -= s->params->chunk_size;
    }
     if(bf->c5) {
         codes_local_latency_reverse(lp);
@@ -1116,8 +1117,8 @@ void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * msg,
         return;
       }
       
-      s->terminal_available_time = msg->saved_available_time;
       tw_rand_reverse_unif(lp->rng);
+      s->terminal_available_time = msg->saved_available_time;
       if(bf->c2) {
         codes_local_latency_reverse(lp);
       }
@@ -1252,8 +1253,6 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
       if(msg->path_type == NON_MINIMAL)
         nonmin_count--;
 
-      uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
-
       N_finished_chunks--;
 
       total_hops -= msg->my_N_hop;
@@ -1313,6 +1312,7 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
 
             stat->recv_time = msg->saved_start_time;
             s->total_msg_time = msg->saved_start_time;
+            
             s->total_msg_size -= msg->total_size;
             dragonfly_total_time = msg->saved_avg_time;
 
@@ -1320,8 +1320,8 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
             qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
             s->rank_tbl_pop++; 
 
-            hash_link = &(d_entry_pop->hash_link);
-            tmp = d_entry_pop;
+            hash_link = qhash_search(s->rank_tbl, &key);
+            tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
 
             if(bf->c4)
                 model_net_event_rc2(lp, &msg->event_rc);
@@ -1531,16 +1531,18 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
 
         N_finished_msgs++;
         total_msg_sz += msg->total_size;
+        s->total_msg_size += msg->total_size;
 
         msg->saved_avg_time = dragonfly_total_time;
         dragonfly_total_time += tw_now( lp ) - msg->travel_start_time;
 
         msg->saved_start_time = s->total_msg_time;
         stat->recv_time += (tw_now(lp) - msg->msg_start_time);
-        
+       
+        /*if(!s->terminal_id)
+            printf("\n Forward message time %lf ", s->total_msg_time);
+        */
         s->total_msg_time += (tw_now(lp) - msg->msg_start_time);
-        s->total_msg_size += msg->total_size; 
-        
         s->finished_msgs++;
         
         if (dragonfly_max_latency < tw_now( lp ) - msg->travel_start_time) {
@@ -2181,8 +2183,8 @@ static int do_adaptive_routing( router_state * s,
   int min_port_count = s->vc_occupancy[minimal_out_port][min_vc];
 
   // Now get the expected number of hops to be traversed for both routes 
-  //int num_min_hops = get_num_hops(s->router_id, dest_router_id, 
-  //    s->params->num_routers, 0, s->params->num_groups);
+  int num_min_hops = get_num_hops(s->router_id, dest_router_id, 
+      s->params->num_routers, 0, s->params->num_groups);
 
   int intm_router_id = getRouterFromGroupID(intm_id, 
       s->router_id / s->params->num_routers, s->params->num_routers, 
@@ -2196,7 +2198,7 @@ static int do_adaptive_routing( router_state * s,
   assert(num_nonmin_hops <= 6);
 
   /* average the local queues of the router */
-  /*unsigned int q_avg = 0;
+  unsigned int q_avg = 0;
   int i;
   for( i = 0; i < s->params->radix; i++)
   {
@@ -2205,21 +2207,21 @@ static int do_adaptive_routing( router_state * s,
         s->vc_occupancy[i][2];
   }
   q_avg = q_avg / (s->params->radix - 1);
-*/
-  //int min_out_chan = minimal_out_port;
-  //int nonmin_out_chan = nonmin_out_port;
+
+  int min_out_chan = minimal_out_port;
+  int nonmin_out_chan = nonmin_out_port;
 
   /* Adding history window approach, not taking the queue status at every 
    * simulation time thats why, we are maintaining the current history 
    * window number and an average of the previous history window number. */
-  //int min_hist_count = s->cur_hist_num[min_out_chan] + 
-  //  (s->prev_hist_num[min_out_chan]/2);
-  //int nonmin_hist_count = s->cur_hist_num[nonmin_out_chan] + 
-  //  (s->prev_hist_num[min_out_chan]/2);
+  int min_hist_count = s->cur_hist_num[min_out_chan] + 
+    (s->prev_hist_num[min_out_chan]/2);
+  int nonmin_hist_count = s->cur_hist_num[nonmin_out_chan] + 
+    (s->prev_hist_num[min_out_chan]/2);
 
   int nonmin_port_count = s->vc_occupancy[nonmin_out_port][nomin_vc];
-  //if(num_min_hops * (min_port_count - min_hist_count) <= (num_nonmin_hops * ((q_avg + 1) - nonmin_hist_count))) {
-    if(min_port_count <= nonmin_port_count) {
+  if(num_min_hops * (min_port_count - min_hist_count) <= (num_nonmin_hops * ((q_avg + 1) - nonmin_hist_count))) {
+    //if(min_port_count <= nonmin_port_count) {
     msg->path_type = MINIMAL;
     next_stop = minimal_next_stop;
     msg->intm_group_id = -1;
@@ -2402,6 +2404,17 @@ void router_packet_send_rc(router_state * s,
     create_prepend_to_terminal_message_list(s->pending_msgs[output_port],
           s->pending_msgs_tail[output_port], output_chan, msg);
       
+    if(routing == PROG_ADAPTIVE)
+	{
+		if(bf->c2)
+		{
+		   s->cur_hist_num[output_port] = s->prev_hist_num[output_port];
+		   s->prev_hist_num[output_port] = msg->saved_hist_num;
+		   s->cur_hist_start_time[output_port] = msg->saved_hist_start_time;	
+		}
+		else
+		  s->cur_hist_num[output_port]--;
+ 	}
     if(bf->c3) {
         tw_rand_reverse_unif(lp->rng);
       }
@@ -2410,17 +2423,6 @@ void router_packet_send_rc(router_state * s,
         s->in_send_loop[output_port] = 1;
       }
 	
-    if(routing == PROG_ADAPTIVE)
-	{
-		if(bf->c2)
-		{
-		   s->cur_hist_num[output_chan] = s->prev_hist_num[output_chan];
-		   s->prev_hist_num[output_chan] = msg->saved_hist_num;
-		   s->cur_hist_start_time[output_chan] = msg->saved_hist_start_time;	
-		}
-		else
-		  s->cur_hist_num[output_chan]--;
- 	}
 }
 /* routes the current packet to the next stop */
 void 
@@ -2508,6 +2510,7 @@ router_packet_send( router_state * s,
   if(routing == PROG_ADAPTIVE)
   {
       if(tw_now(lp) - s->cur_hist_start_time[output_port] >= WINDOW_LENGTH) {
+        bf->c2 = 1;
         s->prev_hist_num[output_port] = s->cur_hist_num[output_port];
         s->cur_hist_start_time[output_port] = tw_now(lp);
         s->cur_hist_num[output_port] = 1;
@@ -2549,9 +2552,7 @@ router_packet_send( router_state * s,
   } else {
     bf->c4 = 1;
     s->in_send_loop[output_port] = 0;
-    //printf("[%d] Router skipping send at end %d\n", lp->gid, output_port);
   }
-  
   return;
 }
 
