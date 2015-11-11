@@ -575,7 +575,7 @@ static void dragonfly_report_stats()
    /* print statistics */
    if(!g_tw_mynode)
    {	
-      printf(" Average number of hops traversed %f average message latency %lf us maximum message latency %lf us avg message size %lf bytes \n", (float)avg_hops/total_finished_chunks, avg_time/(total_finished_packets*1000), max_time/1000, (float)total_msg_sz/N_finished_msgs);
+      printf(" Average number of hops traversed %f average message latency %lf us maximum message latency %lf us avg message size %lf bytes finished messages %ld \n", (float)avg_hops/total_finished_chunks, avg_time/(total_finished_packets*1000), max_time/1000, (float)total_msg_sz/N_finished_msgs, N_finished_msgs);
      if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
               printf("\n ADAPTIVE ROUTING STATS: %d percent chunks routed minimally %d percent chunks routed non-minimally completed packets %lld ", total_minimal_packets, total_nonmin_packets, total_finished_chunks);
  
@@ -1299,11 +1299,6 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
         N_finished_packets--;
         s->finished_packets--;
       }
-        
-      if(bf->c3)
-          dragonfly_max_latency = msg->saved_available_time;
-        
-
         if(bf->c7)
         {
             s->finished_msgs--;
@@ -1322,6 +1317,9 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
 
             hash_link = qhash_search(s->rank_tbl, &key);
             tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
+          
+            if(bf->c3)
+              dragonfly_max_latency = msg->saved_available_time;
 
             if(bf->c4)
                 model_net_event_rc2(lp, &msg->event_rc);
@@ -1329,7 +1327,7 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
       
        assert(tmp);
        tmp->num_chunks--;
-      
+
        return;
 }
 void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
@@ -1496,8 +1494,8 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
        qhash_add(s->rank_tbl, &key, &(d_entry->hash_link));
        s->rank_tbl_pop++;
        
-       hash_link = &(d_entry->hash_link);
-       tmp = d_entry;
+       hash_link = qhash_search(s->rank_tbl, &key);
+       tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
    }
     
     assert(tmp);
