@@ -189,9 +189,10 @@ struct terminal_state
    struct qhash_table *rank_tbl;
    uint64_t rank_tbl_pop;
 
-   tw_stime   total_msg_time;
+   tw_stime   total_time;
    long total_msg_size;
    long finished_msgs;
+   long finished_chunks;
    long finished_packets;
 
    char output_buf[512];
@@ -559,7 +560,6 @@ static void dragonfly_report_stats()
    tw_stime avg_time, max_time;
    int total_minimal_packets, total_nonmin_packets;
 
-   long long total_gen, total_rev_gen, total_arrive, total_rev_arrive;
    MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
    MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
    MPI_Reduce( &N_finished_msgs, &total_finished_msgs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -576,9 +576,7 @@ static void dragonfly_report_stats()
    /* print statistics */
    if(!g_tw_mynode)
    {	
-//      printf("\n Total generate %lld total generate rev %lld total arrive %ld reverse arrive %ld ", total_gen, total_rev_gen,
-//              arrive_count, arrive_rev_count);
-      printf(" Average number of hops traversed %f average message latency %lf us maximum message latency %lf us avg message size %lf bytes finished messages %ld \n", (float)avg_hops/total_finished_chunks, avg_time/(total_finished_packets*1000), max_time/1000, (float)total_msg_sz/N_finished_msgs, N_finished_msgs);
+      printf(" Average number of hops traversed %f average chunk latency %lf us maximum chunk latency %lf us avg message size %lf bytes finished messages %ld \n", (float)avg_hops/total_finished_chunks, avg_time/(total_finished_chunks*1000), max_time/1000, (float)final_msg_sz/total_finished_msgs, total_finished_msgs);
      if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
               printf("\n ADAPTIVE ROUTING STATS: %d percent chunks routed minimally %d percent chunks routed non-minimally completed packets %lld ", total_minimal_packets, total_nonmin_packets, total_finished_chunks);
  
@@ -679,7 +677,9 @@ terminal_init( terminal_state * s,
    s->packet_counter = 0;
    
    s->finished_msgs = 0;
-   s->total_msg_time = 0.0;
+   s->finished_chunks = 0;
+   s->finished_packets = 0;
+   s->total_time = 0.0;
    s->total_msg_size = 0;
 
    rc_stack_create(&s->st);
@@ -1108,9 +1108,6 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
 void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * msg,
         tw_lp * lp)
 {
-      term_ecount--;
-      term_rev_ecount++;
-
       if(bf->c1) {
         s->in_send_loop = 1;
         return;
@@ -1145,7 +1142,6 @@ void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * msg,
 void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, 
   tw_lp * lp) {
   
-  term_ecount++;
   tw_stime ts;
   tw_event *e;
   terminal_message *m;
@@ -1252,8 +1248,11 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
         nonmin_count--;
 
       N_finished_chunks--;
+      s->finished_chunks--;
 
       total_hops -= msg->my_N_hop;
+       dragonfly_total_time -= (tw_now(lp) - msg->travel_start_time);
+       s->total_time = msg->saved_avg_time;
       
       /*if(msg->chunk_id == num_chunks - 1)
       {
@@ -1290,6 +1289,8 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
       
       mn_stats* stat;
       stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+      stat->recv_time -= (tw_now(lp) - msg->travel_start_time);
+
       if(bf->c1)
       {
         stat->recv_count--;
@@ -1297,17 +1298,15 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
         N_finished_packets--;
         s->finished_packets--;
       }
-        if(bf->c7)
+       if(bf->c3)
+          dragonfly_max_latency = msg->saved_available_time;
+       
+       if(bf->c7)
         {
             s->finished_msgs--;
             total_msg_sz -= msg->total_size;
             N_finished_msgs--;
-
-            stat->recv_time = msg->saved_start_time;
-            s->total_msg_time = msg->saved_start_time;
-            
             s->total_msg_size -= msg->total_size;
-            dragonfly_total_time = msg->saved_avg_time;
 
             struct dfly_qhash_entry * d_entry_pop = (struct dfly_qhash_entry*)rc_stack_pop(s->st);
             qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
@@ -1316,8 +1315,6 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
             hash_link = qhash_search(s->rank_tbl, &key);
             tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
           
-            if(bf->c3)
-              dragonfly_max_latency = msg->saved_available_time;
 
             if(bf->c4)
                 model_net_event_rc2(lp, &msg->event_rc);
@@ -1382,6 +1379,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   bf->c7 = 0;
 
   N_finished_chunks++;
+  s->finished_chunks++;
 
   /* WE do not allow self messages through dragonfly */
   assert(lp->gid != msg->src_terminal_id);
@@ -1410,7 +1408,14 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   if(msg->path_type != MINIMAL && msg->path_type != NON_MINIMAL)
     printf("\n Wrong message path type %d ", msg->path_type);
 
+    msg->saved_avg_time = s->total_time;
+    s->total_time += (tw_now(lp) - msg->travel_start_time); 
+    dragonfly_total_time += tw_now( lp ) - msg->travel_start_time;
     total_hops += msg->my_N_hop;
+    
+    mn_stats* stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+    stat->recv_time += (tw_now(lp) - msg->travel_start_time);
+
 #if DEBUG == 1
  if( msg->packet_ID == TRACK 
           && msg->chunk_id == num_chunks-1
@@ -1498,7 +1503,6 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     assert(tmp);
     tmp->num_chunks++;
 
-    mn_stats* stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
 
     /* if its the last chunk of the packet then handle the remote event data */
     if(msg->chunk_id == num_chunks - 1)
@@ -1518,6 +1522,11 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
          tmp->remote_event_size = msg->remote_event_size_bytes; 
          memcpy(tmp->remote_event_data, m_data_src, msg->remote_event_size_bytes);
     }
+        if (dragonfly_max_latency < tw_now( lp ) - msg->travel_start_time) {
+          bf->c3 = 1;
+          msg->saved_available_time = dragonfly_max_latency;
+          dragonfly_max_latency = tw_now( lp ) - msg->travel_start_time;
+        }
     /* If all chunks of a message have arrived then send a remote event to the
      * callee*/
     if(tmp->num_chunks >= total_chunks)
@@ -1527,24 +1536,8 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
         N_finished_msgs++;
         total_msg_sz += msg->total_size;
         s->total_msg_size += msg->total_size;
-
-        msg->saved_avg_time = dragonfly_total_time;
-        dragonfly_total_time += tw_now( lp ) - msg->travel_start_time;
-
-        msg->saved_start_time = s->total_msg_time;
-        stat->recv_time += (tw_now(lp) - msg->msg_start_time);
-       
-        /*if(!s->terminal_id)
-            printf("\n Forward message time %lf ", s->total_msg_time);
-        */
-        s->total_msg_time += (tw_now(lp) - msg->msg_start_time);
         s->finished_msgs++;
         
-        if (dragonfly_max_latency < tw_now( lp ) - msg->travel_start_time) {
-          bf->c3 = 1;
-          msg->saved_available_time = dragonfly_max_latency;
-          dragonfly_max_latency = tw_now( lp ) - msg->travel_start_time;
-        }
         assert(tmp->remote_event_data && tmp->remote_event_size);
         send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
         /* Remove the hash entry */
@@ -1918,9 +1911,9 @@ dragonfly_terminal_final( terminal_state * s,
     
     int written = 0;
     if(!s->terminal_id)
-        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Msg Size> <Total Msg Time> <# Msgs finished>\n");
+        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Total Time Spent> <# Msgs finished> <# Packets finished> <# Chunks finished>\n");
 
-    written += sprintf(s->output_buf + written, "%lu %u %ld %lf %ld %ld\n", lp->gid, s->terminal_id, s->total_msg_size, s->total_msg_time, s->finished_msgs, s->finished_packets);
+    written += sprintf(s->output_buf + written, "%lu %u %ld %lf %ld %ld\n", lp->gid, s->terminal_id, s->total_msg_size, s->total_time, s->finished_msgs, s->finished_packets, s->finished_chunks);
     lp_io_write(lp->gid, "dragonfly-msg-stats", written, s->output_buf); 
 
     if(s->terminal_msgs[0] != NULL) 
@@ -2362,6 +2355,7 @@ router_packet_receive( router_state * s,
       m->type = R_SEND;
       m->magic = router_magic_num;
       m->vc_index = output_port;
+      
       tw_event_send(e);
       s->in_send_loop[output_port] = 1;
     }
