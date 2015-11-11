@@ -191,6 +191,7 @@ struct terminal_state
 
    tw_stime   total_time;
    long total_msg_size;
+   long total_hops;
    long finished_msgs;
    long finished_chunks;
    long finished_packets;
@@ -1251,6 +1252,7 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
       s->finished_chunks--;
 
       total_hops -= msg->my_N_hop;
+       s->total_hops -= msg->my_N_hop;
        dragonfly_total_time -= (tw_now(lp) - msg->travel_start_time);
        s->total_time = msg->saved_avg_time;
       
@@ -1412,7 +1414,8 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     s->total_time += (tw_now(lp) - msg->travel_start_time); 
     dragonfly_total_time += tw_now( lp ) - msg->travel_start_time;
     total_hops += msg->my_N_hop;
-    
+    s->total_hops += msg->my_N_hop;
+
     mn_stats* stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
     stat->recv_time += (tw_now(lp) - msg->travel_start_time);
 
@@ -1911,9 +1914,9 @@ dragonfly_terminal_final( terminal_state * s,
     
     int written = 0;
     if(!s->terminal_id)
-        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Total Time Spent> <# Msgs finished> <# Packets finished> <# Chunks finished>\n");
+        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Total Time Spent> <# Msgs finished> <# Packets finished> <# Chunks finished> <Avg hops>\n");
 
-    written += sprintf(s->output_buf + written, "%lu %u %ld %lf %ld %ld\n", lp->gid, s->terminal_id, s->total_msg_size, s->total_time, s->finished_msgs, s->finished_packets, s->finished_chunks);
+    written += sprintf(s->output_buf + written, "%lu %u %ld %lf %ld %ld %lf\n", lp->gid, s->terminal_id, s->total_msg_size, s->total_time, s->finished_msgs, s->finished_packets, s->finished_chunks, (float)s->total_hops/s->finished_chunks);
     lp_io_write(lp->gid, "dragonfly-msg-stats", written, s->output_buf); 
 
     if(s->terminal_msgs[0] != NULL) 
