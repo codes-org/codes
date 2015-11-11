@@ -559,6 +559,7 @@ static void dragonfly_report_stats()
    tw_stime avg_time, max_time;
    int total_minimal_packets, total_nonmin_packets;
 
+   long long total_gen, total_rev_gen, total_arrive, total_rev_arrive;
    MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
    MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
    MPI_Reduce( &N_finished_msgs, &total_finished_msgs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -575,6 +576,8 @@ static void dragonfly_report_stats()
    /* print statistics */
    if(!g_tw_mynode)
    {	
+//      printf("\n Total generate %lld total generate rev %lld total arrive %ld reverse arrive %ld ", total_gen, total_rev_gen,
+//              arrive_count, arrive_rev_count);
       printf(" Average number of hops traversed %f average message latency %lf us maximum message latency %lf us avg message size %lf bytes finished messages %ld \n", (float)avg_hops/total_finished_chunks, avg_time/(total_finished_packets*1000), max_time/1000, (float)total_msg_sz/N_finished_msgs, N_finished_msgs);
      if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
               printf("\n ADAPTIVE ROUTING STATS: %d percent chunks routed minimally %d percent chunks routed non-minimally completed packets %lld ", total_minimal_packets, total_nonmin_packets, total_finished_chunks);
@@ -986,9 +989,6 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg,
 
 void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
-   term_rev_ecount++;
-   term_ecount--;
-
    tw_rand_reverse_unif(lp->rng);
 
    int num_chunks = msg->packet_size/s->params->chunk_size;
@@ -1021,8 +1021,7 @@ void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, 
 /* generates packet at the current dragonfly compute node */
 void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, 
   tw_lp * lp) {
-  term_ecount++;
-
+  
   tw_stime ts, nic_ts;
 
   assert(lp->gid != msg->dest_terminal_id);
@@ -1123,6 +1122,7 @@ void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * msg,
         codes_local_latency_reverse(lp);
       }
      
+      s->terminal_length += s->params->chunk_size;
       s->packet_counter--;
       s->vc_occupancy[0] -= s->params->chunk_size;
 
@@ -1217,6 +1217,7 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, 0); 
   copy_terminal_list_entry(cur_entry, msg);
   delete_terminal_message_list(cur_entry);
+  s->terminal_length -= s->params->chunk_size;
 
   cur_entry = s->terminal_msgs[0];
   
@@ -1244,9 +1245,6 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
 
 void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
-      term_ecount--;
-      term_rev_ecount++;
-
       tw_rand_reverse_unif(lp->rng);
       if(msg->path_type == MINIMAL)
         minimal_count--;
@@ -1361,7 +1359,6 @@ void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp * lp, t
 void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg, 
   tw_lp * lp) {
 
-  term_ecount++;
 
     // NIC aggregation - should this be a separate function?
     // Trigger an event on receiving server
@@ -2401,7 +2398,7 @@ void router_packet_send_rc(router_state * s,
     s->link_traffic[output_port] -= s->params->chunk_size;
     create_prepend_to_terminal_message_list(s->pending_msgs[output_port],
           s->pending_msgs_tail[output_port], output_chan, msg);
-      
+
     if(routing == PROG_ADAPTIVE)
 	{
 		if(bf->c2)
