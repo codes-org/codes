@@ -131,6 +131,8 @@ enum codes_workload_op_type
     CODES_WK_WAITANY,
     /* Testall operation */
     CODES_WK_TESTALL,
+    /* MPI request free operation*/
+    CODES_WK_REQ_FREE,
 
     /* for workloads that have events not yet handled
      * (eg the workload language) */
@@ -184,7 +186,7 @@ struct codes_workload_op
             int source_rank;/* source rank of MPI send message */
             int dest_rank; /* dest rank of MPI send message */
             int num_bytes; /* number of bytes to be transferred over the network */
-            int data_type; /* MPI data type to be matched with the recv */
+            int16_t data_type; /* MPI data type to be matched with the recv */
             int count; /* number of elements to be received */
             int tag; /* tag of the message */
             int32_t req_id;
@@ -194,7 +196,7 @@ struct codes_workload_op
             int source_rank;/* source rank of MPI recv message */
             int dest_rank;/* dest rank of MPI recv message */
             int num_bytes; /* number of bytes to be transferred over the network */
-            int data_type; /* MPI data type to be matched with the send */
+            int16_t data_type; /* MPI data type to be matched with the send */
             int count; /* number of elements to be sent */
             int tag; /* tag of the message */
             int32_t req_id;
@@ -210,6 +212,11 @@ struct codes_workload_op
         struct {
             int32_t req_id;
         } wait;
+        struct
+        {
+            int32_t req_id;
+        }
+        free;
     }u;
 };
 
@@ -276,6 +283,12 @@ void codes_workload_get_next_rc(
         int rank,
         const struct codes_workload_op *op);
 
+/* Another version of reverse handler. */
+void codes_workload_get_next_rc2(
+                int wkld_id,
+                int app_id,
+                int rank);
+
 /* Retrieve the number of ranks contained in a workload */
 int codes_workload_get_rank_cnt(
         const char* type,
@@ -298,8 +311,10 @@ struct codes_workload_method
             char const * annotation, int num_ranks);
     int (*codes_workload_load)(const char* params, int app_id, int rank);
     void (*codes_workload_get_next)(int app_id, int rank, struct codes_workload_op *op);
+    void (*codes_workload_get_next_rc2)(int app_id, int rank);
     int (*codes_workload_get_rank_cnt)(const char* params, int app_id);
 };
+
 
 /* dynamically add to the workload implementation table. Must be done BEFORE
  * calls to codes_workload_read_config or codes_workload_load */

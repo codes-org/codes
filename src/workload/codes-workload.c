@@ -222,6 +222,7 @@ void codes_workload_get_next(
     /* ask generator for the next operation */
     method_array[wkld_id]->codes_workload_get_next(app_id, rank, op);
 
+    assert(op->op_type);
     return;
 }
 
@@ -250,6 +251,15 @@ void codes_workload_get_next_rc(
     tmp->lifo = tmp_op;
 
     return;
+}
+
+void codes_workload_get_next_rc2(
+                int wkld_id,
+                int app_id,
+                int rank)
+{
+    assert(method_array[wkld_id]->codes_workload_get_next_rc2);
+    method_array[wkld_id]->codes_workload_get_next_rc2(app_id, rank);
 }
 
 int codes_workload_get_rank_cnt(
@@ -352,6 +362,12 @@ void codes_workload_print_op(
                     op->u.recv.num_bytes, op->u.recv.data_type,
                     op->u.recv.count, op->u.recv.tag,
                     op->start_time, op->end_time);
+            break;
+       case CODES_WK_REQ_FREE:
+            fprintf(f, "op: app:%d rank:%d type:req free "
+                    " req:%ld ",
+                    app_id, rank,
+                    op->u.free.req_id);
             break;
 #define PRINT_COL(_type_str) \
             fprintf(f, "op: app:%d rank:%d type:%s" \

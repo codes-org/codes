@@ -88,6 +88,7 @@ int main(int argc, char *argv[])
     int64_t num_writes = 0;
     int64_t write_size = 0;
     int64_t num_sends = 0;
+    int64_t num_frees = 0;
     int64_t send_size = 0;
     int64_t num_recvs = 0;
     int64_t recv_size = 0;
@@ -308,7 +309,7 @@ int main(int argc, char *argv[])
         assert(id != -1);
         do {
             codes_workload_get_next(id, 0, i, &op);
-            codes_workload_print_op(stdout, &op, 0, i);
+//            codes_workload_print_op(stdout, &op, 0, i);
 
             switch(op.op_type)
             {
@@ -336,6 +337,10 @@ int main(int argc, char *argv[])
                     num_sends++;
                     send_size += op.u.send.num_bytes;
                     break;
+                case CODES_WK_REQ_FREE:
+                    num_frees++;
+                    break;
+
                 case CODES_WK_RECV:
                     num_recvs++;
                     recv_size += op.u.recv.num_bytes;
@@ -383,7 +388,16 @@ int main(int argc, char *argv[])
                     collective_size += op.u.collective.num_bytes;
                     break;
                 case CODES_WK_WAITALL:
+                    {
+                        if(i == 0)
+                        {
+                    int j;
+                    printf("\n rank %d wait_all: ", i);
+                    for(j = 0; j < op.u.waits.count; j++)
+                        printf(" %d ", op.u.waits.req_ids[j]);
                     num_waitalls++;
+                        }
+                    }
                     break;
                 case CODES_WK_WAIT:
                     num_waits++;
@@ -421,6 +435,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "NUM_WRITES:      %"PRId64"\n", num_writes);
         fprintf(stderr, "WRITE_SIZE:      %"PRId64"\n", write_size);
         fprintf(stderr, "NUM_SENDS:       %"PRId64"\n", num_sends);
+        fprintf(stderr, "NUM_FREES:       %"PRId64"\n", num_frees);
         fprintf(stderr, "SEND_SIZE:       %"PRId64"\n", send_size);
         fprintf(stderr, "NUM_RECVS:       %"PRId64"\n", num_recvs);
         fprintf(stderr, "RECV_SIZE:       %"PRId64"\n", recv_size);

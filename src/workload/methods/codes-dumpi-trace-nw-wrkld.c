@@ -10,7 +10,6 @@
 #include <mpi.h>
 #include <ross.h>
 #include <assert.h>
-
 #include "dumpi/libundumpi/bindings.h"
 #include "dumpi/libundumpi/libundumpi.h"
 #include "codes/codes-workload.h"
@@ -35,6 +34,8 @@ typedef struct rank_mpi_context
     double init_time;
     void* dumpi_mpi_array;	
     struct qhash_head hash_link;
+    
+    struct rc_stack * completed_ctx;
 } rank_mpi_context;
 
 typedef struct rank_mpi_compare
@@ -157,6 +158,13 @@ static void dumpi_finalize_mpi_op_data(void *mpi_op_array)
 	array->op_arr_ndx = 0;
 }
 
+/* rolls back to previous index */
+static void dumpi_roll_back_prev_op(void * mpi_op_array)
+{
+    dumpi_op_data_array *array = (dumpi_op_data_array*)mpi_op_array;
+    array->op_arr_ndx--;
+    assert(array->op_arr_ndx >= 0);
+}
 /* removes the next operation from the array */
 static void dumpi_remove_next_op(void *mpi_op_array, struct codes_workload_op *mpi_op,
                                       double last_op_time)
@@ -170,15 +178,14 @@ static void dumpi_remove_next_op(void *mpi_op_array, struct codes_workload_op *m
 	else
 	{
 		struct codes_workload_op *tmp = &(array->op_array[array->op_arr_ndx]);
-		//printf("\n tmp end time %f ", tmp->end_time);
 		*mpi_op = *tmp;
-		array->op_arr_ndx++;
+        array->op_arr_ndx++;
 	}
-	if(mpi_op->op_type == CODES_WK_END)
+	/*if(mpi_op->op_type == CODES_WK_END)
 	{
 		free(array->op_array);
 		free(array);
-	}
+	}*/
 }
 
 /* check for initialization and normalize reported time */
@@ -270,14 +277,13 @@ int handleDUMPIWaitsome(const dumpi_waitsome *prm, uint16_t thread,
 
         wrkld_per_rank.op_type = CODES_WK_WAITSOME;
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int16_t*)malloc(prm->count * sizeof(int16_t));
+        wrkld_per_rank.u.waits.req_ids = (int32_t*)malloc(prm->count * sizeof(int32_t));
 
         for( i = 0; i < prm->count; i++ )
-                wrkld_per_rank.u.waits.req_ids[i] = (int16_t)prm->requests[i];
+                wrkld_per_rank.u.waits.req_ids[i] = (int32_t)prm->requests[i];
 
         update_times_and_insert(&wrkld_per_rank, wall, myctx);
         return 0;
-
 }
 
 int handleDUMPIWaitany(const dumpi_waitany *prm, uint16_t thread,
@@ -290,10 +296,10 @@ int handleDUMPIWaitany(const dumpi_waitany *prm, uint16_t thread,
 
         wrkld_per_rank.op_type = CODES_WK_WAITANY;
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int16_t*)malloc(prm->count * sizeof(int16_t));
+        wrkld_per_rank.u.waits.req_ids = (int32_t*)malloc(prm->count * sizeof(int32_t));
 
         for( i = 0; i < prm->count; i++ )
-                wrkld_per_rank.u.waits.req_ids[i] = (int16_t)prm->requests[i];
+                wrkld_per_rank.u.waits.req_ids[i] = (int32_t)prm->requests[i];
 
         update_times_and_insert(&wrkld_per_rank, wall, myctx);
         return 0;
@@ -310,7 +316,7 @@ int handleDUMPIWaitall(const dumpi_waitall *prm, uint16_t thread,
         wrkld_per_rank.op_type = CODES_WK_WAITALL;
 
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int16_t*)malloc(prm->count * sizeof(int16_t));
+        wrkld_per_rank.u.waits.req_ids = (int32_t*)malloc(prm->count * sizeof(int32_t));
         for( i = 0; i < prm->count; i++ )
                 wrkld_per_rank.u.waits.req_ids[i] = prm->requests[i];
 
@@ -349,7 +355,10 @@ int handleDUMPIIRecv(const dumpi_irecv *prm, uint16_t thread, const dumpi_time *
 	wrkld_per_rank.u.recv.count = prm->count;
 	wrkld_per_rank.u.recv.tag = prm->tag;
         wrkld_per_rank.u.recv.num_bytes = prm->count * get_num_bytes(prm->datatype);
-	assert(wrkld_per_rank.u.recv.num_bytes > 0);
+	    
+        if(!wrkld_per_rank.u.recv.num_bytes)
+            printf("\n count %d data type %ld ", prm->count, prm->datatype);
+            //assert(wrkld_per_rank.u.recv.num_bytes > 0);
         wrkld_per_rank.u.recv.source_rank = prm->source;
         wrkld_per_rank.u.recv.dest_rank = -1;
 	wrkld_per_rank.u.recv.req_id = prm->request;
@@ -372,7 +381,7 @@ int handleDUMPISend(const dumpi_send *prm, uint16_t thread,
         wrkld_per_rank.u.send.num_bytes = prm->count * get_num_bytes(prm->datatype);
 	if(wrkld_per_rank.u.send.num_bytes < 0)
 		printf("\n Number of bytes %d count %d data type %d num_bytes %d", prm->count * get_num_bytes(prm->datatype), prm->count, prm->datatype, get_num_bytes(prm->datatype));
-	assert(wrkld_per_rank.u.send.num_bytes > 0);
+	//assert(wrkld_per_rank.u.send.num_bytes > 0);
         wrkld_per_rank.u.send.dest_rank = prm->dest;
         wrkld_per_rank.u.send.source_rank = myctx->my_rank;
          wrkld_per_rank.u.send.req_id = -1;
@@ -390,7 +399,10 @@ int handleDUMPIRecv(const dumpi_recv *prm, uint16_t thread,
 	struct codes_workload_op wrkld_per_rank;
 
 	wrkld_per_rank.op_type = CODES_WK_RECV;
-        wrkld_per_rank.u.recv.num_bytes = prm->count * get_num_bytes(prm->datatype);
+    wrkld_per_rank.u.recv.tag = prm->tag;
+    wrkld_per_rank.u.recv.count = prm->count;
+    wrkld_per_rank.u.recv.data_type = prm->datatype;
+    wrkld_per_rank.u.recv.num_bytes = prm->count * get_num_bytes(prm->datatype);
 	assert(wrkld_per_rank.u.recv.num_bytes > 0);
         wrkld_per_rank.u.recv.source_rank = prm->source;
         wrkld_per_rank.u.recv.dest_rank = -1;
@@ -517,6 +529,18 @@ int handleDUMPIFinalize(const dumpi_finalize *prm, uint16_t thread, const dumpi_
         return 0;
 }
 
+int handleDUMPIReqFree(const dumpi_request_free *prm, uint16_t thread, const dumpi_time *cpu, const dumpi_time *wall, const dumpi_perfinfo *perf, void *userarg)
+{
+    rank_mpi_context* myctx = (rank_mpi_context*)userarg;
+    struct codes_workload_op wrkld_per_rank;
+
+    wrkld_per_rank.op_type = CODES_WK_REQ_FREE;
+    wrkld_per_rank.u.free.req_id = prm->request;
+
+    update_times_and_insert(&wrkld_per_rank, wall, myctx);
+    return 0;
+}
+
 static int hash_rank_compare(void *key, struct qhash_head *link)
 {
     rank_mpi_compare *in = key;
@@ -592,7 +616,7 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	callbacks.on_irsend = (dumpi_irsend_call)handleDUMPIIgnore;
 	callbacks.on_wait = (dumpi_wait_call)handleDUMPIWait;
 	callbacks.on_test = (dumpi_test_call)handleDUMPIIgnore;
-	callbacks.on_request_free = (dumpi_request_free_call)handleDUMPIIgnore;
+	callbacks.on_request_free = (dumpi_request_free_call)handleDUMPIReqFree;
 	callbacks.on_waitany = (dumpi_waitany_call)handleDUMPIWaitany;
 	callbacks.on_testany = (dumpi_testany_call)handleDUMPIIgnore;
 	callbacks.on_waitall = (dumpi_waitall_call)handleDUMPIWaitall;
@@ -666,6 +690,7 @@ int get_num_bytes(dumpi_datatype dt)
    {
 	case DUMPI_DATATYPE_ERROR:
 	case DUMPI_DATATYPE_NULL:
+        printf("\n Error in data type ");
 		return -1; /* error state */
 	break;
 
@@ -717,11 +742,26 @@ int get_num_bytes(dumpi_datatype dt)
    } 
 }
 
+void dumpi_trace_nw_workload_get_next_rc2(int app_id, int rank)
+{
+    rank_mpi_context* temp_data; 
+    struct qhash_head *hash_link = NULL;  
+    rank_mpi_compare cmp;  
+    cmp.rank = rank;
+    cmp.app = app_id;
+
+    hash_link = qhash_search(rank_tbl, &cmp);
+
+    assert(hash_link);
+    temp_data = qhash_entry(hash_link, rank_mpi_context, hash_link); 
+    assert(temp_data);
+
+    dumpi_roll_back_prev_op(temp_data->dumpi_mpi_array);
+}
 void dumpi_trace_nw_workload_get_next(int app_id, int rank, struct codes_workload_op *op)
 {
    rank_mpi_context* temp_data;
    struct qhash_head *hash_link = NULL;
-   struct codes_workload_op mpi_op;
    rank_mpi_compare cmp;
    cmp.rank = rank;
    cmp.app = app_id;
@@ -735,8 +775,10 @@ void dumpi_trace_nw_workload_get_next(int app_id, int rank, struct codes_workloa
   temp_data = qhash_entry(hash_link, rank_mpi_context, hash_link);
   assert(temp_data);
 
-  dumpi_remove_next_op(temp_data->dumpi_mpi_array, &mpi_op, temp_data->last_op_time); 
-  if( mpi_op.op_type == CODES_WK_END)
+  struct codes_workload_op mpi_op;
+  dumpi_remove_next_op(temp_data->dumpi_mpi_array, &mpi_op, temp_data->last_op_time);
+  *op = mpi_op;
+  /*if( mpi_op.op_type == CODES_WK_END)
   {
 	qhash_del(hash_link);
         free(temp_data);
@@ -747,8 +789,7 @@ void dumpi_trace_nw_workload_get_next(int app_id, int rank, struct codes_workloa
             qhash_finalize(rank_tbl);
             rank_tbl = NULL;
         }
-  }
-  *op = mpi_op;
+  }*/
   return;
 }
 
@@ -759,6 +800,7 @@ struct codes_workload_method dumpi_trace_workload_method =
     .codes_workload_read_config = NULL,
     .codes_workload_load = dumpi_trace_nw_workload_load,
     .codes_workload_get_next = dumpi_trace_nw_workload_get_next,
+    .codes_workload_get_next_rc2 = dumpi_trace_nw_workload_get_next_rc2,
 };
 
 /*
