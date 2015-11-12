@@ -1147,7 +1147,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
     struct codes_workload_op * mpi_op = m->saved_op;
         //(struct codes_workload_op *)rc_stack_pop(s->st);
 	
-    codes_workload_get_next_rc(wrkld_id, 0, (int)s->nw_id, mpi_op);
+    codes_workload_get_next_rc2(wrkld_id, 0, (int)s->nw_id);
 
 	if(mpi_op->op_type == CODES_WK_END)
 		return;
