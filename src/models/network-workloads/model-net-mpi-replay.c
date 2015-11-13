@@ -140,6 +140,11 @@ struct nw_state
 
     /* Pending wait operation */
     struct pending_waits * wait_op;
+
+    unsigned long num_bytes_sent;
+    unsigned long num_bytes_recvd;
+
+    char output_buf[512];
 };
 
 /* data for handling reverse computation.
@@ -726,6 +731,7 @@ static void codes_exec_mpi_send(nw_state* s,
 	}
 
 	num_bytes_sent += mpi_op->u.send.num_bytes;
+    s->num_bytes_sent += mpi_op->u.send.num_bytes;
 
 	nw_message local_m;
 	nw_message remote_m;
@@ -831,6 +837,8 @@ static void update_arrival_queue_rc(nw_state* s,
         nw_message * m, tw_lp * lp)
 {
 	s->recv_time = m->rc.saved_recv_time;
+    s->num_bytes_recvd -= m->fwd.num_bytes;
+
     codes_local_latency_reverse(lp);
   
     if(m->fwd.found_match >= 0)
@@ -875,7 +883,7 @@ static void update_arrival_queue_rc(nw_state* s,
 static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
 	m->rc.saved_recv_time = s->recv_time;
-
+    s->num_bytes_recvd += m->fwd.num_bytes;
 
     // send a callback to the sender to increment times
     tw_event *e_callback =
@@ -968,6 +976,8 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    /* clock starts when the first event is processed */
    s->start_time = tw_now(lp);
    codes_issue_next_event(lp);
+   s->num_bytes_sent = 0;
+   s->num_bytes_recvd = 0;
 
    return;
 }
@@ -1023,6 +1033,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 			if(m->op_type == CODES_WK_ISEND)
 				codes_issue_next_event_rc(lp);
 			s->num_sends--;
+            s->num_bytes_sent += saved_num_bytes;
 			num_bytes_sent -= saved_num_bytes;
 		}
 		break;
@@ -1163,12 +1174,19 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 
 void nw_test_finalize(nw_state* s, tw_lp* lp)
 {
+    int written = 0;
+    if(!s->nw_id)
+        written = sprintf(s->output_buf, "# Format <LP ID> <Terminal ID> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time>");
 	if(s->nw_id < num_net_traces)
 	{
 		int count_irecv = qlist_count(&s->pending_recvs_queue);
         int count_isend = qlist_count(&s->arrival_queue);
 		printf("\n LP %ld unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf", 
 			lp->gid, count_irecv, count_isend, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->send_time, s->wait_time);
+
+        written += sprintf(s->output_buf + written, "\n %lu %lu %ld %ld %ld %ld %lf %lf %lf", lp->gid, s->nw_id, s->num_sends, s->num_recvs, s->num_bytes_sent, 
+                s->num_bytes_recvd, s->send_time, s->elapsed_time - s->compute_time, s->compute_time);
+        lp_io_write(lp->gid, "mpi-replay-stats", written, s->output_buf);
 
 		if(s->elapsed_time - s->compute_time > max_comm_time)
 			max_comm_time = s->elapsed_time - s->compute_time;
