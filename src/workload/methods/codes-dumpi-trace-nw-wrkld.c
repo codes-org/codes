@@ -335,7 +335,7 @@ int handleDUMPIISend(const dumpi_isend *prm, uint16_t thread, const dumpi_time *
 	wrkld_per_rank.u.send.count = prm->count;
 	wrkld_per_rank.u.send.data_type = prm->datatype;
         wrkld_per_rank.u.send.num_bytes = prm->count * get_num_bytes(prm->datatype);
-	assert(wrkld_per_rank.u.send.num_bytes > 0);
+	//assert(wrkld_per_rank.u.send.num_bytes > 0);
     	wrkld_per_rank.u.send.req_id = prm->request;
         wrkld_per_rank.u.send.dest_rank = prm->dest;
         wrkld_per_rank.u.send.source_rank = myctx->my_rank;
@@ -403,7 +403,7 @@ int handleDUMPIRecv(const dumpi_recv *prm, uint16_t thread,
     wrkld_per_rank.u.recv.count = prm->count;
     wrkld_per_rank.u.recv.data_type = prm->datatype;
     wrkld_per_rank.u.recv.num_bytes = prm->count * get_num_bytes(prm->datatype);
-	assert(wrkld_per_rank.u.recv.num_bytes > 0);
+	//assert(wrkld_per_rank.u.recv.num_bytes > 0);
         wrkld_per_rank.u.recv.source_rank = prm->source;
         wrkld_per_rank.u.recv.dest_rank = -1;
 
@@ -421,7 +421,7 @@ int handleDUMPIBcast(const dumpi_bcast *prm, uint16_t thread,
 
         wrkld_per_rank.op_type = CODES_WK_BCAST;
         wrkld_per_rank.u.collective.num_bytes = prm->count * get_num_bytes(prm->datatype);
-	assert(wrkld_per_rank.u.collective.num_bytes > 0);
+	//assert(wrkld_per_rank.u.collective.num_bytes > 0);
 
         update_times_and_insert(&wrkld_per_rank, wall, myctx);
         return 0;

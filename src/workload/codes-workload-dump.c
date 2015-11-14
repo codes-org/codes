@@ -309,7 +309,7 @@ int main(int argc, char *argv[])
         assert(id != -1);
         do {
             codes_workload_get_next(id, 0, i, &op);
-//            codes_workload_print_op(stdout, &op, 0, i);
+            codes_workload_print_op(stdout, &op, 0, i);
 
             switch(op.op_type)
             {
