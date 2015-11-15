@@ -985,8 +985,8 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
 	*(int *)bf = (int)0;
-    rc_stack_gc(lp, s->matched_reqs);
-    rc_stack_gc(lp, s->processed_ops);
+    //rc_stack_gc(lp, s->matched_reqs);
+    //rc_stack_gc(lp, s->processed_ops);
 
     switch(m->msg_type)
 	{

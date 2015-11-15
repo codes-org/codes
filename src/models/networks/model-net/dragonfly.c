@@ -293,6 +293,16 @@ static int dragonfly_rank_hash_compare(
 
     return 0;
 }
+static int dragonfly_hash_func(void *k, int table_size)
+{
+	struct dfly_hash_key *tmp = (struct dfly_hash_key *)k;
+	uint64_t key = (~tmp->message_id) + (tmp->message_id << 18);
+	key = key * 21;
+	key = key ^ (tmp->sender_id << 6);
+	key = key * tmp->sender_id;
+	return (int)(key & (uint64_t)(table_size - 1));	
+}
+
 /* convert GiB/s and bytes to ns */
 static tw_stime bytes_to_ns(uint64_t bytes, double GB_p_s)
 {
@@ -692,7 +702,7 @@ terminal_init( terminal_state * s,
       s->vc_occupancy[i]=0;
     }
 
-   s->rank_tbl = qhash_init(dragonfly_rank_hash_compare, quickhash_64bit_hash, DFLY_HASH_TABLE_SIZE);
+   s->rank_tbl = qhash_init(dragonfly_rank_hash_compare, dragonfly_hash_func, DFLY_HASH_TABLE_SIZE);
 
    if(!s->rank_tbl)
        tw_error(TW_LOC, "\n Hash table not initialized! ");
@@ -1541,7 +1551,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
         s->total_msg_size += msg->total_size;
         s->finished_msgs++;
         
-        assert(tmp->remote_event_data && tmp->remote_event_size);
+        //assert(tmp->remote_event_data && tmp->remote_event_size);
         send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
         /* Remove the hash entry */
         qhash_del(hash_link);
@@ -1869,7 +1879,7 @@ terminal_event( terminal_state * s,
   *(int *)bf = (int)0;
   assert(msg->magic == terminal_magic_num);
 
-  rc_stack_gc(lp, s->st);
+  //rc_stack_gc(lp, s->st);
   switch(msg->type)
     {
     case T_GENERATE:
