@@ -1928,7 +1928,7 @@ dragonfly_terminal_final( terminal_state * s,
     if(!s->terminal_id)
         written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Total Time Spent> <# Msgs finished> <# Packets finished> <# Chunks finished> <Avg hops>\n");
 
-    written += sprintf(s->output_buf + written, "%lu %u %ld %lf %ld %ld %ld %ld\n", lp->gid, s->terminal_id, s->total_msg_size, s->total_time, s->finished_msgs, s->finished_packets, s->finished_chunks, (float)s->total_hops/s->finished_chunks);
+    written += sprintf(s->output_buf + written, "%lu %u %ld %lf %ld %ld %ld %lf\n", lp->gid, s->terminal_id, s->total_msg_size, s->total_time, s->finished_msgs, s->finished_packets, s->finished_chunks, (double)s->total_hops/s->finished_chunks);
     lp_io_write(lp->gid, "dragonfly-msg-stats", written, s->output_buf); 
 
     if(s->terminal_msgs[0] != NULL) 
