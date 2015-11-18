@@ -298,7 +298,7 @@ static int dragonfly_hash_func(void *k, int table_size)
 	struct dfly_hash_key *tmp = (struct dfly_hash_key *)k;
 	uint64_t key = (~tmp->message_id) + (tmp->message_id << 18);
 	key = key * 21;
-	key = key ^ (tmp->sender_id << 6);
+	key = ~key ^ (tmp->sender_id >> 4);
 	key = key * tmp->sender_id;
 	return (int)(key & (uint64_t)(table_size - 1));	
 }
@@ -1320,7 +1320,8 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
             N_finished_msgs--;
             s->total_msg_size -= msg->total_size;
 
-            struct dfly_qhash_entry * d_entry_pop = (struct dfly_qhash_entry*)rc_stack_pop(s->st);
+//            struct dfly_qhash_entry * d_entry_pop = (struct dfly_qhash_entry*)rc_stack_pop(s->st);
+	    struct dfly_qhash_entry * d_entry_pop = msg->saved_hash;
             qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
             s->rank_tbl_pop++; 
 
@@ -1555,7 +1556,8 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
         send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
         /* Remove the hash entry */
         qhash_del(hash_link);
-        rc_stack_push(lp, tmp, free_tmp, s->st);
+        msg->saved_hash = tmp;
+	//rc_stack_push(lp, tmp, free_tmp, s->st);
         s->rank_tbl_pop--;
    }
   return;
@@ -2062,11 +2064,11 @@ get_next_stop(router_state * s,
   /* It means the packet has arrived at the destination group. Now divert it to the destination router. */
   if(s->group_id == dest_group_id)
    {
-     if(msg->last_hop == TERMINAL && path == NON_MINIMAL) {
-       dest_lp = (s->group_id * s->params->num_routers) + intm_id % s->params->num_routers;
-     } else {
+     //if(msg->last_hop == TERMINAL && path == NON_MINIMAL) {
+     //  dest_lp = (s->group_id * s->params->num_routers) + intm_id % s->params->num_routers;
+     //} else {
      dest_lp = dest_router_id;
-     }
+     //}
    }
    else
    {

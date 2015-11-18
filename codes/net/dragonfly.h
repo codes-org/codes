@@ -89,6 +89,8 @@ struct terminal_message
   /* LP ID of the sending node, has to be a network node in the dragonfly */
    tw_lpid sender_node;
    tw_lpid next_stop;
+
+    struct dfly_qhash_entry * saved_hash;
 };
 
 #endif /* end of include guard: DRAGONFLY_H */

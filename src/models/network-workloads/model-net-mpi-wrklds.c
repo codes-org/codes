@@ -127,6 +127,11 @@ struct nw_state
 	struct pending_waits * pending_waits;
 	/* List of completed send/receive requests */
 	struct completed_requests * completed_reqs;
+    
+        unsigned long num_bytes_sent;
+        unsigned long num_bytes_recvd;
+
+        char output_buf[512];
 };
 
 /* data for handling reverse computation.
@@ -276,12 +281,12 @@ static void printQueue(tw_lpid lpid, struct mpi_queue_ptrs* mpi_queue, char* msg
 	while(tmp)
 	{
 		if(tmp->mpi_op->op_type == CODES_WK_SEND || tmp->mpi_op->op_type == CODES_WK_ISEND)
-			printf("\n lpid %llu send operation data type %d count %d tag %d source %d", 
-				    lpid, tmp->mpi_op->u.send.data_type, tmp->mpi_op->u.send.count, 
+			printf("\n lpid %llu send operation count %d tag %d source %d", 
+				    lpid, tmp->mpi_op->u.send.num_bytes, 
 				     tmp->mpi_op->u.send.tag, tmp->mpi_op->u.send.source_rank);
 		else if(tmp->mpi_op->op_type == CODES_WK_IRECV || tmp->mpi_op->op_type == CODES_WK_RECV)
-			printf("\n lpid %llu recv operation data type %d count %d tag %d source %d", 
-				   lpid, tmp->mpi_op->u.recv.data_type, tmp->mpi_op->u.recv.count, 
+			printf("\n lpid %llu recv operation count %d num bytes %d tag %d source %d", 
+				   lpid, tmp->mpi_op->u.recv.count, tmp->mpi_op->u.recv.num_bytes, 
 				    tmp->mpi_op->u.recv.tag, tmp->mpi_op->u.recv.source_rank );
 		else
 			printf("\n Invalid data type in the queue %d ", tmp->mpi_op->op_type);
@@ -825,6 +830,7 @@ static void codes_exec_comp_delay(
 static void codes_exec_mpi_recv_rc(nw_state* s, nw_message* m, tw_lp* lp, struct codes_workload_op * mpi_op)
 {
 	num_bytes_recvd -= mpi_op->u.recv.num_bytes;
+        s->num_bytes_recvd -= mpi_op->u.recv.num_bytes; 
 	s->recv_time = m->saved_recv_time;
 	if(m->found_match >= 0)
 	  {
@@ -851,6 +857,7 @@ static void codes_exec_mpi_recv(nw_state* s, tw_lp* lp, nw_message * m, struct c
 	m->saved_recv_time = s->recv_time;
 	mpi_op->sim_start_time = tw_now(lp);
 	num_bytes_recvd += mpi_op->u.recv.num_bytes;
+        s->num_bytes_recvd += mpi_op->u.recv.num_bytes;
 
 	if(lp->gid == TRACE)
 		printf("\n %lf codes exec mpi recv req id %d", tw_now(lp), (int)mpi_op->u.recv.req_id);
@@ -907,7 +914,7 @@ static void codes_exec_mpi_send(nw_state* s, tw_lp* lp, struct codes_workload_op
 	}
 
 	num_bytes_sent += mpi_op->u.send.num_bytes;
-
+        s->num_bytes_sent += mpi_op->u.send.num_bytes;
 	nw_message local_m;
 	nw_message remote_m;
 
@@ -1164,6 +1171,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 				tw_rand_reverse_unif(lp->rng);	
 			s->num_sends--;
 			num_bytes_sent -= mpi_op->u.send.num_bytes;
+                        s->num_bytes_sent -= mpi_op->u.send.num_bytes;
 		}
 		break;
 
@@ -1308,15 +1316,23 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 
 void nw_test_finalize(nw_state* s, tw_lp* lp)
 {
+    int written = 0;
+    if(!s->nw_id)
+        written = sprintf(s->output_buf, "# Format <LP ID> <Terminal ID> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time>");
 	if(s->nw_id < num_net_traces)
 	{
 		printf("\n LP %llu unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf", 
 			lp->gid, s->pending_recvs_queue->num_elems, s->arrival_queue->num_elems, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->send_time, s->wait_time);
-		if(lp->gid == TRACE)
-		{
+		//if(lp->gid == TRACE)
+		//{
 		   printQueue(lp->gid, s->pending_recvs_queue, "irecv ");
 		  printQueue(lp->gid, s->arrival_queue, "isend");
-	        }
+	        //}
+        
+            written += sprintf(s->output_buf + written, "\n %lu %lu %ld %ld %ld %ld %lf %lf %lf", lp->gid, s->nw_id, s->num_sends, s->num_recvs, s->num_bytes_sent, 
+                s->num_bytes_recvd, s->send_time, s->elapsed_time - s->compute_time, s->compute_time);
+            lp_io_write(lp->gid, "mpi-replay-stats", written, s->output_buf);
+
 
 		if(s->elapsed_time - s->compute_time > max_comm_time)
 			max_comm_time = s->elapsed_time - s->compute_time;
