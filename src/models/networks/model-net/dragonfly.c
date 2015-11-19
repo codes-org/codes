@@ -300,7 +300,7 @@ static int dragonfly_hash_func(void *k, int table_size)
 	key = key * 21;
 	key = ~key ^ (tmp->sender_id >> 4);
 	key = key * tmp->sender_id;
-	return (int)(key & (uint64_t)(table_size - 1));	
+	return (int)(key % table_size);	
 }
 
 /* convert GiB/s and bytes to ns */
