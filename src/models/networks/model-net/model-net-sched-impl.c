@@ -331,7 +331,8 @@ void fcfs_next_rc(
             q->req = rc->req;
             q->sched_params = rc->sched_params;
             q->rem = q->req.msg_size % q->req.packet_size;
-            if (q->rem == 0){ // processed exactly a packet's worth of data
+            // processed exactly a packet's worth of data
+            if (q->rem == 0 && q->req.msg_size != 0){
                 q->rem = q->req.packet_size;
             }
             const void * e_dat = rc_event_save;
