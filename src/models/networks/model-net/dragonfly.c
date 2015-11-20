@@ -2255,7 +2255,9 @@ void router_packet_receive_rc(router_state * s,
       
     int output_port = msg->saved_vc;
     int output_chan = msg->saved_channel;
-    tw_rand_reverse_unif(lp->rng);
+
+    if(bf->c1)
+        tw_rand_reverse_unif(lp->rng);
       
     if(bf->c2) {
         tw_rand_reverse_unif(lp->rng);
@@ -2282,6 +2284,7 @@ router_packet_receive( router_state * s,
 {
   router_ecount++;
 
+  bf->c1 = 0;
   bf->c2 = 0;
   bf->c3 = 0;
   bf->c4 = 0;
@@ -2297,31 +2300,37 @@ router_packet_receive( router_state * s,
       s->anno, 0);
   int dest_router_id = (mapping_offset + (mapping_rep_id * num_lps)) / 
     s->params->num_cn;
-  int intm_id = tw_rand_integer(lp->rng, 0, s->params->num_groups - 1);  
+  int intm_id = -1;
   int local_grp_id = s->router_id / s->params->num_routers;
-  if(intm_id == local_grp_id) 
-    intm_id = (local_grp_id + 2) % s->params->num_groups;
-
+  
+  if(routing != MINIMAL)
+  {
+      bf->c1 = 1;
+      intm_id = tw_rand_integer(lp->rng, 0, s->params->num_groups - 1);  
+      if(intm_id == local_grp_id) 
+        intm_id = (local_grp_id + 2) % s->params->num_groups;
+  }
   /* progressive adaptive routing makes a check at every node/router at the 
    * source group to sense congestion. Once it does and decides on taking 
    * non-minimal path, it does not check any longer. */
-  if(routing == PROG_ADAPTIVE
-      && msg->path_type != NON_MINIMAL
-      && local_grp_id == ( msg->origin_router_id / s->params->num_routers)) {
-    next_stop = do_adaptive_routing(s, bf, msg, lp, dest_router_id, intm_id);	
-  } else if(msg->last_hop == TERMINAL && routing == ADAPTIVE) {
-    next_stop = do_adaptive_routing(s, bf, msg, lp, dest_router_id, intm_id);
-  } else {
-    if(routing == MINIMAL || routing == NON_MINIMAL)	
-      msg->path_type = routing; /*defaults to the routing algorithm if we 
-                                don't have adaptive routing here*/
-    next_stop = get_next_stop(s, bf, msg, lp, msg->path_type, dest_router_id, 
-      intm_id);
-  }
-  assert(msg->path_type == MINIMAL || msg->path_type == NON_MINIMAL);
   terminal_message_list * cur_chunk = (terminal_message_list *)malloc( 
       sizeof(terminal_message_list));
   init_terminal_message_list(cur_chunk, msg);
+  
+  if(routing == PROG_ADAPTIVE
+      && msg->path_type != NON_MINIMAL
+      && local_grp_id == ( msg->origin_router_id / s->params->num_routers)) {
+    next_stop = do_adaptive_routing(s, bf, &(cur_chunk->msg), lp, dest_router_id, intm_id);	
+  } else if(msg->last_hop == TERMINAL && routing == ADAPTIVE) {
+    next_stop = do_adaptive_routing(s, bf, &(cur_chunk->msg), lp, dest_router_id, intm_id);
+  } else {
+    if(routing == MINIMAL || routing == NON_MINIMAL)	
+      cur_chunk->msg.path_type = routing; /*defaults to the routing algorithm if we 
+                                don't have adaptive routing here*/
+    next_stop = get_next_stop(s, bf, &(cur_chunk->msg), lp, msg->path_type, dest_router_id, 
+      intm_id);
+  }
+  assert(cur_chunk->msg.path_type == MINIMAL || cur_chunk->msg.path_type == NON_MINIMAL);
   if(msg->remote_event_size_bytes > 0) {
     void *m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
     cur_chunk->event_data = (char*)malloc(msg->remote_event_size_bytes);
