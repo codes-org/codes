@@ -2064,11 +2064,11 @@ get_next_stop(router_state * s,
   /* It means the packet has arrived at the destination group. Now divert it to the destination router. */
   if(s->group_id == dest_group_id)
    {
-     //if(msg->last_hop == TERMINAL && path == NON_MINIMAL) {
-     //  dest_lp = (s->group_id * s->params->num_routers) + intm_id % s->params->num_routers;
-     //} else {
+     if(msg->last_hop == TERMINAL && path == NON_MINIMAL) {
+       dest_lp = (s->group_id * s->params->num_routers) + intm_id % s->params->num_routers;
+     } else {
      dest_lp = dest_router_id;
-     //}
+     }
    }
    else
    {
