@@ -356,8 +356,6 @@ int handleDUMPIIRecv(const dumpi_irecv *prm, uint16_t thread, const dumpi_time *
 	wrkld_per_rank.u.recv.tag = prm->tag;
         wrkld_per_rank.u.recv.num_bytes = prm->count * get_num_bytes(prm->datatype);
 	    
-        if(!wrkld_per_rank.u.recv.num_bytes)
-            printf("\n count %d data type %ld ", prm->count, prm->datatype);
             //assert(wrkld_per_rank.u.recv.num_bytes > 0);
         wrkld_per_rank.u.recv.source_rank = prm->source;
         wrkld_per_rank.u.recv.dest_rank = -1;

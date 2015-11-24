@@ -11,9 +11,16 @@
 #include <ross.h>
 #include <assert.h>
 
-#if 0
-#define codes_event_new tw_event_new
-#else
+// simple deprecation attribute hacking
+#if !defined(DEPRECATED)
+#  if defined(__GNUC__) || defined(__GNUG__) || defined(__clang__)
+#    define DEPRECATED __attribute__((deprecated))
+#  else
+#    define DEPRECATED
+#  endif
+#endif
+
+DEPRECATED
 static inline tw_event * codes_event_new(
     tw_lpid dest_gid, 
     tw_stime offset_ts, 
@@ -24,7 +31,24 @@ static inline tw_event * codes_event_new(
     //printf("codes_event_new() abs_ts: %.9f\n", abs_ts);
     return(tw_event_new(dest_gid, offset_ts, sender));
 }
-#endif
+
+static inline tw_event * tw_event_new_bounded(
+    tw_lpid dest_gid,
+    tw_stime offset_ts,
+    tw_lp * sender)
+{
+    tw_stime ts = offset_ts + tw_now(sender);
+    if (ts >= g_tw_ts_end) {
+        tw_error(TW_LOC,
+                "LP %lu tried to schedule a message for time %0.5e, "
+                "%0.5e past the end time\n",
+                sender->gid, ts, g_tw_ts_end-ts);
+        return NULL;
+    }
+    else
+        return tw_event_new(dest_gid, offset_ts, sender);
+}
+
 
 /* TODO: validate what value we should use here */
 /* Modeled latency for communication between local software components and
