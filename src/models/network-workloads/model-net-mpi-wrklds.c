@@ -281,7 +281,7 @@ static void printQueue(tw_lpid lpid, struct mpi_queue_ptrs* mpi_queue, char* msg
 	while(tmp)
 	{
 		if(tmp->mpi_op->op_type == CODES_WK_SEND || tmp->mpi_op->op_type == CODES_WK_ISEND)
-			printf("\n lpid %llu send operation count %d tag %d source %d", 
+			printf("\n lpid %llu send operation num bytes %d tag %d source %d", 
 				    lpid, tmp->mpi_op->u.send.num_bytes, 
 				     tmp->mpi_op->u.send.tag, tmp->mpi_op->u.send.source_rank);
 		else if(tmp->mpi_op->op_type == CODES_WK_IRECV || tmp->mpi_op->op_type == CODES_WK_RECV)
@@ -667,7 +667,7 @@ static int match_receive(
         assert(op1->op_type == CODES_WK_IRECV || op1->op_type == CODES_WK_RECV);
         assert(op2->op_type == CODES_WK_SEND || op2->op_type == CODES_WK_ISEND);
 
-        if((op1->u.recv.num_bytes >= op2->u.send.num_bytes) &&
+        if((op1->u.recv.num_bytes == op2->u.send.num_bytes) &&
                    ((op1->u.recv.tag == op2->u.send.tag) || op1->u.recv.tag == -1) &&
                    ((op1->u.recv.source_rank == op2->u.send.source_rank) || op1->u.recv.source_rank == -1))
                    {
@@ -1215,7 +1215,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 		{
 			s->num_waitall--;
 			codes_exec_mpi_wait_all_rc(s, m, lp, mpi_op);
-		}
+        }
 		break;
 		case CODES_WK_WAITSOME:
 		case CODES_WK_WAITANY:
@@ -1305,7 +1305,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			{
 				s->num_waitall++;
 				codes_exec_mpi_wait_all(s, lp, m, mpi_op);
-			}
+            }
 			break;
 			default:
 				printf("\n Invalid op type %d ", mpi_op->op_type);
@@ -1323,11 +1323,11 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 	{
 		printf("\n LP %llu unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf", 
 			lp->gid, s->pending_recvs_queue->num_elems, s->arrival_queue->num_elems, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->send_time, s->wait_time);
-		//if(lp->gid == TRACE)
-		//{
+		if(lp->gid == TRACE)
+		{
 		   printQueue(lp->gid, s->pending_recvs_queue, "irecv ");
-		  printQueue(lp->gid, s->arrival_queue, "isend");
-	        //}
+		   printQueue(lp->gid, s->arrival_queue, "isend");
+	    }
         
             written += sprintf(s->output_buf + written, "\n %lu %lu %ld %ld %ld %ld %lf %lf %lf", lp->gid, s->nw_id, s->num_sends, s->num_recvs, s->num_bytes_sent, 
                 s->num_bytes_recvd, s->send_time, s->elapsed_time - s->compute_time, s->compute_time);

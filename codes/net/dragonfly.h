@@ -48,7 +48,7 @@ struct terminal_message
   short new_vc;
   short saved_vc;
   /* last hop of the message, can be a terminal, local router or global router */
-  short last_hop;
+  int last_hop;
    /* For routing */
    int intm_group_id;
    int chunk_id;
@@ -61,7 +61,7 @@ struct terminal_message
    int local_event_size_bytes;
 
   // For buffer message
-   short vc_index;
+   int vc_index;
    int sender_radix;
    int output_chan;
    model_net_event_return event_rc;
@@ -69,15 +69,17 @@ struct terminal_message
     uint64_t pull_size;
 
    /* for reverse computation */   
-   short path_type;
+   int path_type;
    tw_stime saved_available_time;
+   
    tw_stime saved_avg_time;
-   tw_stime saved_start_time;
-   tw_stime saved_collective_init_time;  
+   tw_stime saved_rcv_time;
+   
+   tw_stime saved_busy_time; 
+   tw_stime saved_total_time;
    tw_stime saved_hist_start_time;
    tw_stime msg_start_time;
 
-   short saved_completed_chunks;
    int saved_hist_num;
    int saved_occupancy;
 
