@@ -17,25 +17,23 @@
 #include "codes/lp-type-lookup.h"
 
 #define PAYLOAD_SZ 2048
-#define NUM_MESSAGES 20
 
 static int net_id = 0;
-static int num_routers = 0;
-static int num_servers = 0;
-static int offset = 2;
 static int traffic = 1;
 static double arrival_time = 1000.0;
 
 /* whether to pull instead of push */
-static int do_pull = 0;
-
 static int num_servers_per_rep = 0;
 static int num_routers_per_grp = 0;
 static int num_nodes_per_grp = 0;
-
-static int num_reps = 0;
 static int num_groups = 0;
 static int num_nodes = 0;
+
+static char lp_io_dir[256] = {'\0'};
+static lp_io_handle io_handle;
+static unsigned int lp_io_use_suffix = 0;
+static int do_lp_io = 0;
+static int num_msgs = 20;
 
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
@@ -107,8 +105,11 @@ tw_lptype svr_lp = {
 const tw_optdef app_opt [] =
 {
         TWOPT_GROUP("Model net synthetic traffic " ),
-	TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
-	TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
+    	TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
+    	TWOPT_UINT("num_messages", num_msgs, "Number of messages to be generated per terminal "),
+	    TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
+        TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
+        TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
         TWOPT_END()
 };
 
@@ -147,6 +148,8 @@ static void svr_init(
     svr_state * ns,
     tw_lp * lp)
 {
+    ns->start_ts = 0.0;
+
     issue_event(ns, lp);
     return;
 }
@@ -170,12 +173,15 @@ static void handle_kickoff_event(
 	    svr_msg * m,
 	    tw_lp * lp)
 {
-    if(ns->msg_sent_count > NUM_MESSAGES)
+    if(ns->msg_sent_count >= num_msgs)
     {
         m->incremented_flag = 1;
         return;
     }
-    char* anno;
+
+    m->incremented_flag = 0;
+
+    char anno[MAX_NAME_LENGTH];
     tw_lpid local_dest = -1, global_dest = -1;
    
     svr_msg * m_local = malloc(sizeof(svr_msg));
@@ -337,11 +343,8 @@ int main(
     int *net_ids;
     char* anno;
 
-    lp_io_handle handle;
-
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
-    offset = 1;
 
      g_tw_ts_end = s_to_ns(60*60*24*365); /* one year, in nsecs */
 
@@ -381,19 +384,19 @@ int main(
     num_nodes = num_groups * num_routers_per_grp * (num_routers_per_grp / 2);
     num_nodes_per_grp = num_routers_per_grp * (num_routers_per_grp / 2);
 
-    if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
+    if(lp_io_dir[0])
     {
-        return(-1);
+        do_lp_io = 1;
+        int flags = lp_io_use_suffix ? LP_IO_UNIQ_SUFFIX : 0;
+        int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_WORLD);
+        assert(ret == 0 || !"lp_io_prepare failure");
     }
-
     tw_run();
-    model_net_report_stats(net_id);
-
-    if(lp_io_flush(handle, MPI_COMM_WORLD) < 0)
-    {
-        return(-1);
+    if (do_lp_io){
+        int ret = lp_io_flush(io_handle, MPI_COMM_WORLD);
+        assert(ret == 0 || !"lp_io_flush failure");
     }
-
+    model_net_report_stats(net_id);
     tw_end();
     return 0;
 }
