@@ -16,7 +16,8 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 
-#define PAYLOAD_SZ 512
+#define PAYLOAD_SZ 2048
+#define NUM_MESSAGES 20
 
 static int net_id = 0;
 static int num_routers = 0;
@@ -134,7 +135,7 @@ static void issue_event(
      */
 
     /* skew each kickoff event slightly to help avoid event ties later on */
-    kickoff_time = g_tw_lookahead + arrival_time + tw_rand_exponential(lp->rng, (double)arrival_time/100);
+    kickoff_time = 1.1 * g_tw_lookahead + tw_rand_exponential(lp->rng, arrival_time);
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
@@ -156,8 +157,12 @@ static void handle_kickoff_rev_event(
             svr_msg * m,
             tw_lp * lp)
 {
+    if(m->incremented_flag)
+        return;
+
 	ns->msg_sent_count--;
 	model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+    tw_rand_reverse_unif(lp->rng);
 }	
 static void handle_kickoff_event(
 	    svr_state * ns,
@@ -165,6 +170,11 @@ static void handle_kickoff_event(
 	    svr_msg * m,
 	    tw_lp * lp)
 {
+    if(ns->msg_sent_count > NUM_MESSAGES)
+    {
+        m->incremented_flag = 1;
+        return;
+    }
     char* anno;
     tw_lpid local_dest = -1, global_dest = -1;
    
@@ -182,27 +192,32 @@ static void handle_kickoff_event(
     ns->start_ts = tw_now(lp);
     
    codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
+   
+   int local_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
+
    /* in case of uniform random traffic, send to a random destination. */
    if(traffic == UNIFORM)
    {
    	local_dest = tw_rand_integer(lp->rng, 0, num_nodes - 1);
-//	printf("\n LP %ld sending to %d ", lp->gid, local_dest);
    }
    else if(traffic == NEAREST_GROUP)
    {
-	local_dest = (rep_id * 2 + offset + num_nodes_per_grp) % num_nodes;
-//	printf("\n LP %ld sending to %ld num nodes %d ", rep_id * 2 + offset, local_dest, num_nodes);
+	local_dest = (local_id + num_nodes_per_grp) % num_nodes;
+	//printf("\n LP %ld sending to %ld num nodes %d ", local_id, local_dest, num_nodes);
    }	
    else if(traffic == NEAREST_NEIGHBOR)
    {
-	local_dest =  (rep_id * 2 + offset + 2) % num_nodes;
+	local_dest =  (local_id + 1) % num_nodes;
 //	 printf("\n LP %ld sending to %ld num nodes %d ", rep_id * 2 + offset, local_dest, num_nodes);
    }
    assert(local_dest < num_nodes);
-   codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest / num_servers_per_rep, local_dest % num_servers_per_rep, &global_dest);
-  
+//   codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest / num_servers_per_rep, local_dest % num_servers_per_rep, &global_dest);
+   global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
    ns->msg_sent_count++;
    model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+    
+   ns->msg_sent_count++;
+   
    issue_event(ns, lp);
    return;
 }
@@ -327,6 +342,8 @@ int main(
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
     offset = 1;
+
+     g_tw_ts_end = s_to_ns(60*60*24*365); /* one year, in nsecs */
 
     if(argc < 2)
     {
