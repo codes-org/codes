@@ -31,14 +31,10 @@
 
 #define LP_CONFIG_NM (model_net_lp_config_names[TORUS])
 #define LP_METHOD_NM (model_net_method_names[TORUS])
+#define STATIC 0
 
 static double maxd(double a, double b) { return a < b ? b : a; }
 
-enum routing_algo
-{
-    STATIC=0,
-    ADAPTIVE
-};
 /* Torus network model implementation of codes, implements the modelnet API */
 
 typedef struct nodes_message_list nodes_message_list;

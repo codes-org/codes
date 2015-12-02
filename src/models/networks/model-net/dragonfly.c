@@ -430,48 +430,6 @@ static terminal_message_list* return_tail(
     return tail;
 }
 
-static void copy_terminal_list_entry( terminal_message_list *cur_entry,
-    terminal_message *msg) {
-    terminal_message *cur_msg = &cur_entry->msg;
-    msg->travel_start_time = cur_msg->travel_start_time;
-    msg->packet_ID = cur_msg->packet_ID;    
-    strcpy(msg->category, cur_msg->category);
-    msg->final_dest_gid = cur_msg->final_dest_gid;
-    msg->sender_lp = cur_msg->sender_lp;
-    msg->dest_terminal_id = cur_msg->dest_terminal_id;
-    msg->src_terminal_id = cur_msg->src_terminal_id;
-    msg->local_id = cur_msg->local_id;
-    msg->origin_router_id = cur_msg->origin_router_id;
-    msg->my_N_hop = cur_msg->my_N_hop;
-    msg->my_l_hop = cur_msg->my_l_hop;
-    msg->my_g_hop = cur_msg->my_g_hop;
-    msg->intm_lp_id = cur_msg->intm_lp_id;
-    msg->saved_channel = cur_msg->saved_channel;
-    msg->saved_vc = cur_msg->saved_vc;
-    msg->last_hop = cur_msg->last_hop;
-    msg->path_type = cur_msg->path_type;
-    msg->vc_index = cur_msg->vc_index;
-    msg->output_chan = cur_msg->output_chan;
-    msg->is_pull = cur_msg->is_pull;
-    msg->pull_size = cur_msg->pull_size;
-    msg->intm_group_id = cur_msg->intm_group_id;
-    msg->chunk_id = cur_msg->chunk_id;
-    msg->sender_mn_lp = cur_msg->sender_mn_lp;
-    msg->total_size = cur_msg->total_size;
-    msg->packet_size = cur_msg->packet_size;
-    msg->message_id = cur_msg->message_id;
-    msg->local_event_size_bytes = cur_msg->local_event_size_bytes;
-    msg->remote_event_size_bytes = cur_msg->remote_event_size_bytes;
-    msg->sender_node = cur_msg->sender_node;
-    msg->next_stop = cur_msg->next_stop;
-    msg->magic = cur_msg->magic;
-
-    if(msg->local_event_size_bytes +  msg->remote_event_size_bytes > 0) {
-        void *m_data = model_net_method_get_edata(DRAGONFLY, msg);
-        memcpy(m_data, cur_entry->event_data, 
-            msg->local_event_size_bytes +  msg->remote_event_size_bytes);
-    }
-}
 static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     // shorthand
     dragonfly_param *p = params;
@@ -616,7 +574,7 @@ static void dragonfly_report_stats()
    /* print statistics */
    if(!g_tw_mynode)
    {	
-      printf(" Average number of hops traversed %f average chunk latency %lf us maximum chunk latency %lf us avg message size %lf bytes finished messages %ld \n", (float)avg_hops/total_finished_chunks, avg_time/(total_finished_chunks*1000), max_time/1000, (float)final_msg_sz/total_finished_msgs, total_finished_msgs);
+      printf(" Average number of hops traversed %f average chunk latency %lf us maximum chunk latency %lf us avg message size %lf bytes finished messages %ld finished chunks %ld \n", (float)avg_hops/total_finished_chunks, avg_time/(total_finished_chunks*1000), max_time/1000, (float)final_msg_sz/total_finished_msgs, total_finished_msgs, total_finished_chunks);
      if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
               printf("\n ADAPTIVE ROUTING STATS: %d chunks routed minimally %d chunks routed non-minimally completed packets %lld ", total_minimal_packets, total_nonmin_packets, total_finished_chunks);
  
@@ -1042,8 +1000,6 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg,
 
 void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
-   s->packet_gen--;
-   packet_gen--;
    tw_rand_reverse_unif(lp->rng);
 
    int num_chunks = msg->packet_size/s->params->chunk_size;
@@ -1055,6 +1011,8 @@ void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, 
 
    int i;
    for(i = 0; i < num_chunks; i++) {
+        s->packet_gen--;
+        packet_gen--;
         delete_terminal_message_list(return_tail(s->terminal_msgs, 
           s->terminal_msgs_tail, 0));
         s->terminal_length -= s->params->chunk_size;
@@ -1078,9 +1036,7 @@ void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, 
 void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, 
   tw_lp * lp) {
 
-    s->packet_gen++;
 
-    packet_gen++;
   tw_stime ts, nic_ts;
 
   assert(lp->gid != msg->dest_terminal_id);
@@ -1111,6 +1067,8 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
 
   for(i = 0; i < num_chunks; i++)
   {
+    packet_gen++;
+    s->packet_gen++;
     terminal_message_list *cur_chunk = (terminal_message_list*)malloc(
       sizeof(terminal_message_list));
     msg->origin_router_id = s->router_id;
@@ -1179,7 +1137,6 @@ void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * msg,
       if(bf->c1) {
         s->in_send_loop = 1;
         s->last_buf_full = msg->saved_busy_time;
-        
         return;
       }
       
@@ -1260,7 +1217,6 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   m->magic = router_magic_num;
   m->path_type = -1;
   m->local_event_size_bytes = 0;
-  m->local_id = s->terminal_id;
   tw_event_send(e);
 
   int num_chunks = cur_entry->msg.packet_size/s->params->chunk_size;
@@ -1285,9 +1241,6 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   s->vc_occupancy[0] += s->params->chunk_size;
   cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, 0); 
   rc_stack_push(lp, cur_entry, free, s->st);
-  //copy_terminal_list_entry(cur_entry, msg);
-  
-  //delete_terminal_message_list(cur_entry);
   s->terminal_length -= s->params->chunk_size;
 
   cur_entry = s->terminal_msgs[0];
@@ -2105,7 +2058,7 @@ get_next_stop(router_state * s,
     {
     	    msg->intm_group_id = intm_id;
     }
-   /******************** DECIDE THE DESTINATION GROUP ***********************/
+  /******************** DECIDE THE DESTINATION GROUP ***********************/
   /* It means that the packet has arrived at the inter-mediate group for non-minimal routing. Reset the group now. */
   /* Intermediate group ID is set. Divert the packet to the intermediate group. */
   if(path == NON_MINIMAL && msg->intm_group_id >= 0 &&
@@ -2369,7 +2322,6 @@ router_packet_receive( router_state * s,
     next_stop = get_next_stop(s, bf, &(cur_chunk->msg), lp, cur_chunk->msg.path_type, dest_router_id, intm_id);
   }
   
- 
   if(msg->remote_event_size_bytes > 0) {
     void *m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
     cur_chunk->event_data = (char*)malloc(msg->remote_event_size_bytes);
@@ -2517,13 +2469,9 @@ router_packet_send( router_state * s,
   if(cur_entry == NULL) {
     bf->c1 = 1;
     s->in_send_loop[output_port] = 0;
-    //printf("[%d] Router skipping send at begin %d \n", lp->gid, output_port);
     return;
   }
 
-  //if(msg->packet_ID == TRACK && msg->message_id == TRACK_MSG)
-  //    printf("\n packet sending origin %ld to router %ld at output port %d ", cur_entry->msg.src_terminal_id, cur_entry->msg.next_stop, output_port);
-  
   int to_terminal = 1, global = 0;
   double delay = s->params->cn_delay;
   
@@ -2540,6 +2488,8 @@ router_packet_send( router_state * s,
   int num_chunks = cur_entry->msg.packet_size / s->params->chunk_size;
   if(msg->packet_size % s->params->chunk_size)
       num_chunks++;
+  if(!num_chunks)
+      num_chunks = 1;
 
   double bytetime;
   if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1)) {
@@ -2578,7 +2528,6 @@ router_packet_send( router_state * s,
   else
     m->last_hop = LOCAL;
 
-  m->local_id = s->router_id;
   m->intm_lp_id = lp->gid;
   m->magic = router_magic_num;
 
@@ -2595,8 +2544,10 @@ router_packet_send( router_state * s,
   {
       if(tw_now(lp) - s->cur_hist_start_time[output_port] >= WINDOW_LENGTH) {
         bf->c2 = 1;
+        msg->saved_hist_start_time = s->cur_hist_start_time[output_port];
         s->prev_hist_num[output_port] = s->cur_hist_num[output_port];
         s->cur_hist_start_time[output_port] = tw_now(lp);
+        msg->saved_hist_num = s->cur_hist_num[output_port];
         s->cur_hist_num[output_port] = 1;
       } else {
         s->cur_hist_num[output_port]++;
@@ -2618,8 +2569,6 @@ router_packet_send( router_state * s,
   cur_entry = return_head(s->pending_msgs[output_port], 
     s->pending_msgs_tail[output_port], output_chan);
   rc_stack_push(lp, cur_entry, free, s->st);
-  //copy_terminal_list_entry(cur_entry, msg);
-  //delete_terminal_message_list(cur_entry);
   
   msg->saved_vc = output_port;
   msg->saved_channel = output_chan;
