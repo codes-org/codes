@@ -1061,7 +1061,6 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
   msg->my_g_hop = 0;
   msg->intm_group_id = -1;
 
-
   //if(msg->dest_terminal_id == TRACK)
   if(msg->packet_ID == TRACK_PKT)
     printf("\n Packet %ld generated at terminal %d dest %ld size %d num chunks %d ", 
