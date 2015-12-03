@@ -33,7 +33,11 @@ struct nodes_message
 
   /* message saved collective time */
   tw_stime saved_collective_init_time;
-  
+
+  /* for saving recv and total times*/
+  tw_stime saved_recv_time;
+  tw_stime saved_total_time;
+
   /* packet ID */
   unsigned long long packet_ID;
   /* event type of the message */

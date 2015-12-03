@@ -163,8 +163,8 @@ static void handle_kickoff_rev_event(
     if(m->incremented_flag)
         return;
 
-	ns->msg_sent_count--;
 	model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+	ns->msg_sent_count--;
     tw_rand_reverse_unif(lp->rng);
 }	
 static void handle_kickoff_event(
@@ -222,8 +222,6 @@ static void handle_kickoff_event(
    ns->msg_sent_count++;
    model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
     
-   ns->msg_sent_count++;
-   
    issue_event(ns, lp);
    return;
 }

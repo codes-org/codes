@@ -316,7 +316,7 @@ static int dragonfly_hash_func(void *k, int table_size)
 	struct dfly_hash_key *tmp = (struct dfly_hash_key *)k;
     uint32_t pc = 0, pb = 0;
 	bj_hashlittle2(tmp, sizeof(*tmp), &pc, &pb);
-    return (int)(pc % (table_size - 1));	
+    return (int)(pc % (uint32_t)(table_size - 1));	
 }
 
 /* convert GiB/s and bytes to ns */
@@ -1316,7 +1316,9 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
        
        if(bf->c7)
         {
-            assert(!hash_link);
+            if(hash_link)
+                printf("\n Num chunks %d ", tmp->num_chunks);
+            //assert(!hash_link);
             s->finished_msgs--;
             total_msg_sz -= msg->total_size;
             N_finished_msgs--;
@@ -1405,12 +1407,6 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   int num_chunks = msg->packet_size / s->params->chunk_size;
   int total_chunks = msg->total_size / s->params->chunk_size;
 
-  if(msg->chunk_id == num_chunks - 1)
-  {
-    bf->c31 = 1;
-    s->packet_fin++;
-    packet_fin++;
-  }
   if(msg->total_size % s->params->chunk_size)
       total_chunks++;
 
@@ -1429,6 +1425,12 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   if(msg->path_type == NON_MINIMAL)
     nonmin_count++;
 
+  if(msg->chunk_id == num_chunks - 1)
+  {
+    bf->c31 = 1;
+    s->packet_fin++;
+    packet_fin++;
+  }
   if(msg->path_type != MINIMAL && msg->path_type != NON_MINIMAL)
     printf("\n Wrong message path type %d ", msg->path_type);
 
