@@ -341,7 +341,7 @@ int main(
     int rank;
     int num_nets;
     int *net_ids;
-    char* anno;
+    char anno[MAX_NAME_LENGTH];
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
