@@ -341,7 +341,6 @@ int main(
     int rank;
     int num_nets;
     int *net_ids;
-    char anno[MAX_NAME_LENGTH];
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
@@ -378,7 +377,7 @@ int main(
     }
     num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "server",
             NULL, 1);
-    configuration_get_value_int(&config, "PARAMS", "num_routers", anno, &num_routers_per_grp);
+    configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers_per_grp);
     
     num_groups = (num_routers_per_grp * (num_routers_per_grp/2) + 1);
     num_nodes = num_groups * num_routers_per_grp * (num_routers_per_grp / 2);
