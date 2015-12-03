@@ -384,6 +384,8 @@ int main(
     num_nodes = num_groups * num_routers_per_grp * (num_routers_per_grp / 2);
     num_nodes_per_grp = num_routers_per_grp * (num_routers_per_grp / 2);
 
+    assert(num_nodes);
+
     if(lp_io_dir[0])
     {
         do_lp_io = 1;
