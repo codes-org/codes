@@ -1000,6 +1000,10 @@ void router_credit_send(router_state * s, tw_bf * bf, terminal_message * msg,
 
 void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
+        
+   s->packet_gen--;
+   packet_gen--;
+   
    tw_rand_reverse_unif(lp->rng);
 
    int num_chunks = msg->packet_size/s->params->chunk_size;
@@ -1011,8 +1015,6 @@ void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, 
 
    int i;
    for(i = 0; i < num_chunks; i++) {
-        s->packet_gen--;
-        packet_gen--;
         delete_terminal_message_list(return_tail(s->terminal_msgs, 
           s->terminal_msgs_tail, 0));
         s->terminal_length -= s->params->chunk_size;
@@ -1035,7 +1037,8 @@ void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, 
 /* generates packet at the current dragonfly compute node */
 void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, 
   tw_lp * lp) {
-
+  packet_gen++;
+  s->packet_gen++;
 
   tw_stime ts, nic_ts;
 
@@ -1067,8 +1070,6 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
 
   for(i = 0; i < num_chunks; i++)
   {
-    packet_gen++;
-    s->packet_gen++;
     terminal_message_list *cur_chunk = (terminal_message_list*)malloc(
       sizeof(terminal_message_list));
     msg->origin_router_id = s->router_id;
@@ -1271,9 +1272,11 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
 
 void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
+    if(bf->c31)
+    {
       s->packet_fin--;
       packet_fin--;
-
+    }
       tw_rand_reverse_unif(lp->rng);
       if(msg->path_type == MINIMAL)
         minimal_count--;
@@ -1371,8 +1374,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     // Trigger an event on receiving server
 
     assert(lp->gid == msg->dest_terminal_id);
-    s->packet_fin++;
-    packet_fin++;
+
 //    if(lp->gid == TRACK)
     if(msg->packet_ID == TRACK_PKT)
         printf("\n Packet %ld arrived at lp %ld hops %d", msg->packet_ID, lp->gid, msg->my_N_hop);
@@ -1404,6 +1406,12 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   int num_chunks = msg->packet_size / s->params->chunk_size;
   int total_chunks = msg->total_size / s->params->chunk_size;
 
+  if(msg->chunk_id == num_chunks - 1)
+  {
+    bf->c31 = 1;
+    s->packet_fin++;
+    packet_fin++;
+  }
   if(msg->total_size % s->params->chunk_size)
       total_chunks++;
 
@@ -1973,7 +1981,8 @@ void dragonfly_router_final(router_state * s,
     if(!s->router_id)
         written = sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Busy time (s)>");
 
-    written += sprintf(s->output_buf + written, "\n %d %d ", 
+    written += sprintf(s->output_buf + written, "\n %ld %d %d ", 
+            lp->gid,
             s->router_id / p->num_routers,
             s->router_id % p->num_routers);
     for(int d = 0; d < p->num_routers + p->num_global_channels; d++) 
