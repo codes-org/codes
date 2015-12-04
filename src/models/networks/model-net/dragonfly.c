@@ -207,7 +207,7 @@ struct terminal_state
    tw_stime last_buf_full;
    tw_stime busy_time;
 
-   char output_buf[1024];
+   char output_buf[4096];
 };
 
 /* terminal event type (1-4) */
@@ -281,7 +281,7 @@ struct router_state
    int* prev_hist_num;
    int* cur_hist_num;
    
-   char output_buf[1024];
+   char output_buf[4096];
 };
 
 static short routing = MINIMAL;
@@ -513,7 +513,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     p->num_cn = p->num_routers/2;
     p->num_global_channels = p->num_routers/2;
     p->num_groups = p->num_routers * p->num_cn + 1;
-    p->radix = (p->num_cn + p->num_global_channels + p->num_routers);
+    p->radix = (p->num_global_channels + p->num_routers + p->num_cn);
     p->total_routers = p->num_groups * p->num_routers;
     p->total_terminals = p->total_routers * p->num_cn;
     int rank;
@@ -1923,7 +1923,7 @@ dragonfly_terminal_final( terminal_state * s,
    
     int written = 0;
     if(!s->terminal_id)
-        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Total Time Spent> <# Packets finished> <Avg hops> <Busy Time>\n");
+        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Total Time Spent> <# Packets finished> <Avg hops> <Busy Time>");
 
     written += sprintf(s->output_buf + written, "%lu %u %ld %lf %ld %lf %lf\n",
             lp->gid, s->terminal_id, s->total_msg_size, s->total_time, 
@@ -1980,8 +1980,11 @@ void dragonfly_router_final(router_state * s,
     const dragonfly_param *p = s->params;
     int written = 0;
     if(!s->router_id)
-        written = sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Busy time (s)>");
-
+    {
+        written = sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
+        written += sprintf(s->output_buf + written, "\n # Router ports in the order: %d local channels, %d global channels ", 
+                p->num_routers, p->num_global_channels);
+    }
     written += sprintf(s->output_buf + written, "\n %ld %d %d ", 
             lp->gid,
             s->router_id / p->num_routers,
