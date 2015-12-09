@@ -340,11 +340,6 @@ static int dragonfly_get_msg_sz(void)
 	   return sizeof(terminal_message);
 }
 
-static void free_nothing(void* ptr)
-{
-
-    /* Do nothing */
-}
 static void free_tmp(void * ptr)
 {
     struct dfly_qhash_entry * dfly = ptr; 
@@ -1436,7 +1431,9 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
 
     msg->saved_avg_time = s->total_time;
     s->total_time += (tw_now(lp) - msg->travel_start_time); 
-    
+
+    if(s->terminal_id == TRACK)
+        printf("\n Updating travel time %lf ", s->total_time);
     msg->saved_total_time = dragonfly_total_time;
     dragonfly_total_time += tw_now( lp ) - msg->travel_start_time;
     total_hops += msg->my_N_hop;

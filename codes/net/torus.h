@@ -37,6 +37,7 @@ struct nodes_message
   /* for saving recv and total times*/
   tw_stime saved_recv_time;
   tw_stime saved_total_time;
+  tw_stime saved_busy_time;
 
   /* packet ID */
   unsigned long long packet_ID;
