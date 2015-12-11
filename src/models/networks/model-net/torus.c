@@ -1685,7 +1685,7 @@ static void torus_report_stats()
 
     if(!g_tw_mynode)
      {
-       printf(" Average number of hops traversed %f average message latency %lf us maximum message latency %lf us finished packets %ld finished hops %ld \n", 
+       printf(" Average number of hops traversed %f average message latency %lf us maximum message latency %lf us finished packets %lld finished hops %lld \n", 
                (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets*1000), max_time/1000, total_finished_packets, avg_hops);
      }
 }

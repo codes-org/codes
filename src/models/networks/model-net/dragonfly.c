@@ -207,7 +207,10 @@ struct terminal_state
    tw_stime last_buf_full;
    tw_stime busy_time;
 
+
    char output_buf[4096];
+   /* For LP suspend functionality */
+   int error_ct;
 };
 
 /* terminal event type (1-4) */
@@ -282,6 +285,7 @@ struct router_state
    int* cur_hist_num;
    
    char output_buf[4096];
+   char output_buf2[4096];
 };
 
 static short routing = MINIMAL;
@@ -1319,7 +1323,7 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
             N_finished_msgs--;
             s->total_msg_size -= msg->total_size;
 
-	        struct dfly_qhash_entry * d_entry_pop = msg->saved_hash;
+	        struct dfly_qhash_entry * d_entry_pop = rc_stack_pop(s->st);
             qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
             s->rank_tbl_pop++; 
 
@@ -1432,8 +1436,6 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     msg->saved_avg_time = s->total_time;
     s->total_time += (tw_now(lp) - msg->travel_start_time); 
 
-    if(s->terminal_id == TRACK)
-        printf("\n Updating travel time %lf ", s->total_time);
     msg->saved_total_time = dragonfly_total_time;
     dragonfly_total_time += tw_now( lp ) - msg->travel_start_time;
     total_hops += msg->my_N_hop;
@@ -1531,7 +1533,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
         send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
         /* Remove the hash entry */
         qhash_del(hash_link);
-        msg->saved_hash = tmp;
+        rc_stack_push(lp, tmp, free, s->st);
         s->rank_tbl_pop--;
    }
   return;
@@ -1991,6 +1993,24 @@ void dragonfly_router_final(router_state * s,
 
     sprintf(s->output_buf + written, "\n");
     lp_io_write(lp->gid, "dragonfly-router-stats", written, s->output_buf);
+
+    written = 0;
+    if(!s->router_id)
+    {
+        written = sprintf(s->output_buf2, "# Format <LP ID> <Group ID> <Router ID> <Link traffic per router port(s)>");
+        written += sprintf(s->output_buf2 + written, "\n # Router ports in the order: %d local channels, %d global channels ",
+            p->num_routers, p->num_global_channels);
+    }
+    written += sprintf(s->output_buf2 + written, "\n %ld %d %d",
+        lp->gid,
+        s->router_id / p->num_routers,
+        s->router_id % p->num_routers);
+
+    for(int d = 0; d < p->num_routers + p->num_global_channels; d++) 
+        written += sprintf(s->output_buf2 + written, " %ld", s->link_traffic[d]);
+
+    sprintf(s->output_buf2 + written, "\n");
+    lp_io_write(lp->gid, "dragonfly-router-traffic", written, s->output_buf2);
 }
 
 /* Get the number of hops for this particular path source and destination groups */
