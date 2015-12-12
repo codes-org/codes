@@ -1734,7 +1734,7 @@ final( nodes_state * s, tw_lp * lp )
   }
      written += sprintf(s->output_buf + written, "%lu %u %ld %lf %ld %lf\n",
                           lp->gid, s->node_id, s->total_data_sz, s->total_time, 
-                          s->finished_packets, (double)s->total_hops/s->finished_chunks);
+                          s->finished_packets, (double)s->total_hops/s->finished_packets);
 
      lp_io_write(lp->gid, "torus-msg-stats", written, s->output_buf);
   
