@@ -1318,9 +1318,9 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
             if(hash_link)
                 printf("\n Num chunks %d ", tmp->num_chunks);
             //assert(!hash_link);
+            N_finished_msgs--;
             s->finished_msgs--;
             total_msg_sz -= msg->total_size;
-            N_finished_msgs--;
             s->total_msg_size -= msg->total_size;
 
 	        struct dfly_qhash_entry * d_entry_pop = rc_stack_pop(s->st);
@@ -1373,9 +1373,37 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     // NIC aggregation - should this be a separate function?
     // Trigger an event on receiving server
 
+    struct dfly_hash_key key;
+    key.message_id = msg->message_id; 
+    key.sender_id = msg->sender_lp;
+    
+    struct qhash_head *hash_link = NULL;
+    struct dfly_qhash_entry * tmp = NULL;
+      
+    hash_link = qhash_search(s->rank_tbl, &key);
+    
+    if(hash_link)
+        tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
+
+    int total_chunks = msg->total_size / s->params->chunk_size;
+
+    if(msg->total_size % s->params->chunk_size)
+          total_chunks++;
+
+    if(!total_chunks)
+          total_chunks = 1;
+
+    if(tmp)
+    {
+        if(tmp->num_chunks >= total_chunks)
+        {
+           tw_output(lp, "\n invalid number of chunks %d for LP %ld ", tmp->num_chunks, lp->gid);
+           tw_lp_suspend(lp, 0, 0);
+           return;
+        }
+    }
     assert(lp->gid == msg->dest_terminal_id);
 
-//    if(lp->gid == TRACK)
     if(msg->packet_ID == TRACK_PKT)
         printf("\n Packet %ld arrived at lp %ld hops %d", msg->packet_ID, lp->gid, msg->my_N_hop);
   
@@ -1404,14 +1432,6 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   assert(lp->gid != msg->src_terminal_id);
 
   int num_chunks = msg->packet_size / s->params->chunk_size;
-  int total_chunks = msg->total_size / s->params->chunk_size;
-
-  if(msg->total_size % s->params->chunk_size)
-      total_chunks++;
-
-  if(!total_chunks)
-      total_chunks = 1;
-
   if (msg->packet_size % s->params->chunk_size)
     num_chunks++;
 
@@ -1463,17 +1483,9 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
    /* Now retreieve the number of chunks completed from the hash and update
     * them */
    void *m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
-   struct qhash_head *hash_link = NULL;
-   struct dfly_qhash_entry * tmp = NULL;
-   struct dfly_hash_key key;
-   key.message_id = msg->message_id; 
-   key.sender_id = msg->sender_lp;
-  
-   hash_link = qhash_search(s->rank_tbl, &key);
-   tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
 
    /* If an entry does not exist then create one */
-   if(!hash_link)
+   if(!tmp)
    {
        bf->c5 = 1;
        struct dfly_qhash_entry * d_entry = malloc(sizeof (struct dfly_qhash_entry));
@@ -1484,8 +1496,8 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
        qhash_add(s->rank_tbl, &key, &(d_entry->hash_link));
        s->rank_tbl_pop++;
       
-       hash_link = qhash_search(s->rank_tbl, &key);
-       tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
+       hash_link = &(d_entry->hash_link);
+       tmp = d_entry;
    }
     
     assert(tmp);
@@ -1529,7 +1541,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
         s->total_msg_size += msg->total_size;
         s->finished_msgs++;
         
-        assert(tmp->remote_event_data && tmp->remote_event_size);
+        assert(tmp->remote_event_data && tmp->remote_event_size > 0);
         send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
         /* Remove the hash entry */
         qhash_del(hash_link);
@@ -2213,8 +2225,8 @@ static int do_adaptive_routing( router_state * s,
       + s->queued_count[minimal_out_port];
 
   // Now get the expected number of hops to be traversed for both routes 
-  int num_min_hops = get_num_hops(s->router_id, dest_router_id, 
-      s->params->num_routers, 0, s->params->num_groups);
+  //int num_min_hops = get_num_hops(s->router_id, dest_router_id, 
+  //    s->params->num_routers, 0, s->params->num_groups);
 
   int intm_router_id = getRouterFromGroupID(msg->intm_group_id, 
       s->router_id / s->params->num_routers, s->params->num_routers, 

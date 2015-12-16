@@ -975,6 +975,8 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    codes_issue_next_event(lp);
    s->num_bytes_sent = 0;
    s->num_bytes_recvd = 0;
+   s->compute_time = 0;
+   s->elapsed_time = 0;
 
    return;
 }
