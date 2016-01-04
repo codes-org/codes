@@ -16,15 +16,30 @@ network is determined by N = p ∗ a ∗ g.
 
 Our ROSS dragonfly model uses the configuration a=2p=2h for modeling the
 dragonfly topology. Full-sized network packets (default size: 512 bytes) are
-broken into smaller packet chunks (default size: 32 bytes) for transportation
-over the network.  ROSS dragonfly model supports three different forms of
+broken into smaller flits (default size: 32 bytes) for transportation
+over the network.  ROSS dragonfly model supports four different forms of
 routing: minimal: packet is sent directly from the source group to destination
 group over the single global channel connecting the source and destination
-groups.  non-minimal: packet is first sent to an intermediate group and then to
-the destination group. This type of routing helps to load balance the network
-traffic under some traffic patterns which congest the single global channel
-connecting the two groups.  adaptive routing: a congestion sensing algorithm is
-used to choose the minimal or non-minimal path for the packet.
+groups.  non-minimal: packet is first sent to a randomly selected intermediate
+group and then to the destination group. This type of routing helps to load
+balance the network traffic under some traffic patterns which congest the
+single global channel connecting the two groups.  adaptive routing: a
+congestion sensing algorithm is used to choose the minimal or non-minimal path
+for the packet. progressive adaptive routing: decision to take minimal route is
+re-assessed as long as the packet stays in the source group.
+
+A credit-based flow control system is used to maintain congestion control in
+the dragonfly. In credit-based flow control, the upstream node/routers keep a
+count of free buffer slots in the downstream nodes/routers.  If buffer space is
+not available for the next channel, the flit is placed in a pending queue until
+a credit arrives for that channel. 
+
+When using non-minimal or adaptive routing, each flit is forwarded to a random
+global channel due to which the flits may arrive out-of-order at the receiving
+destination node LP. Therefore, we keep a count of the flits arriving at the
+destination dragonfly node LP and once all flits of a message arrive, an event
+is invoked at the corresponding model-net LP, which notifies the higher level
+MPI simulation layer about message arrival. 
 
 ROSS models are made up of a collection of logical processes (LPs).  Each LP
 models a distinct component of the system. LPs interact with one another
@@ -62,22 +77,22 @@ connections between routers, network nodes and the servers.
 
 Some other dragonfly specific parameters in the PARAMS section are
 
-- num_vcs: number of virtual channels connecting a router-router, node-router (default set to 1)
-- local_vc_size: Number of packet chunks (default: 32 bytes) that can fit in the channel connecting routers
+- local_vc_size: Bytes (default: 8 KiB) that can fit in the channel connecting routers
 within the same group.
-- chunk_size: A full-sized packet of 'packet_size' is divided into smaller packet chunks for transporation
-(default set to 64 bytes).
-- global_vc_size: Number of packet chunks (default: 32 bytes) that can fit in the global channel connecting
+- chunk_size: A full-sized packet of 'packet_size' is divided into smaller
+  flits for transporation (default set to 64 bytes).
+- global_vc_size: Bytes (default: 16 KiB) that can fit in the global channel connecting
 two groups with each other.
-- cn_vc_size: Number of packet chunks (default: 32 bytes) that can fit in the channel connecting the network 
+- cn_vc_size: Bytes (default: 8 KiB) that can fit in the channel connecting the network 
 node with its router.
 - local_bandwidth: bandwidth of the channels in GiB/sec connecting the routers within the same group. 
-- global_bandwidth: bandwidth of the global channels in GiB/sec connecting routers of two different groups. Note than 
-each router has 'h' number of global channels connected to it where a=2p=2h in our configuration.
+- global_bandwidth: bandwidth of the global channels in GiB/sec connecting
+  routers of two different groups. Note that each router has 'h' number of global channels 
+  connected to it where a=2p=2h in our configuration.
 - cn_bandwidth: bandwidth of the channel connecing the compute node with the router.
 ** All the above bandwidth parameters are in Gigabytes/sec.
-- routing: the routing algorithm can be minimal, nonminimal or adaptive.
-
+- routing: the routing algorithm can be minimal, nonminimal, adaptive or
+  prog-adaptive.
 
 3- Running ROSS dragonfly network model
 - To run the dragonfly network model with the model-net test program, the following options are available
@@ -96,4 +111,5 @@ mpirun -np 8 tests/modelnet-test --sync=3 -- tests/conf/modelnet-test-dragonfly.
 
 4- Performance optimization tips for ROSS dragonfly model
 - For large-scale dragonfly runs, the model has significant speedup in optimistic mode than the conservative mode.
-- If 
+- For running large-scale synthetic traffic workloads, see 
+  codes-net/src/models/network-workloads/README_synthetic.txt
