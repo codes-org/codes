@@ -85,7 +85,7 @@ mpirun -np 4 ./tests/modelnet-test --sync=3 -- tests/conf/modelnet-test-torus.co
 
 - Running CODES torus model with AMG 27 rank trace in optimistic mode:
   mpirun -np 4 ./src/models/network-workloads/model-net-mpi-replay --sync=3
-  --batch=2 --workload_type="dumpi" --num_net_traces=27
+  --batch=2 --workload_type="dumpi" --num_net_traces=27 --disable_compute=1 
   --workload_file=../../df_traces/AMG/df_AMG_n27_dumpi/dumpi-2014.03.03.14.55.00-
   -- ../src/models/network-workloads/conf/modelnet-mpi-test-torus.conf
   
@@ -102,14 +102,17 @@ mpirun -np 4 ./tests/modelnet-test --sync=3 -- tests/conf/modelnet-test-torus.co
   of routers in a dragonfly define the network size and the number of
   dimensions, dimension length defines the network nodes in the torus. Due to
   this mismatch, we must ensure that the network nodes in the config file are
-  equal to or greater than the MPI processes to be simulated from the trace.]
+  equal to or greater than the MPI processes to be simulated from the trace.
+  
+  disable_compute is an optional parameter which if set, will make the
+  simulation disregard the compute times from the MPI traces. ]
 
  
 - Running CODES torus model with AMG application trace, 27 ranks in serial
   mode:
 
   ./src/models/network-workloads/model-net-mpi-replay --sync=1
-  --workload_type=dumpi
+  --workload_type=dumpi --disable_compute=1 
   --workload_file=../../df_traces/AMG/df_AMG_n27_dumpi/dumpi-2014.03.03.14.55.00-
   --num_net_traces=27 --
   ../src/models/network-workloads/conf/modelnet-mpi-test-torus.conf 

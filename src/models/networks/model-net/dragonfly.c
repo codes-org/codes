@@ -10,6 +10,7 @@
 
 #include <ross.h>
 
+#define DEBUG_LP 892
 #include "codes/jenkins-hash.h"
 #include "codes/codes_mapping.h"
 #include "codes/codes.h"
@@ -35,8 +36,8 @@
 #define DFLY_HASH_TABLE_SIZE 262144
 
 // debugging parameters
-#define TRACK 2
-#define TRACK_PKT 45543
+#define TRACK -1
+#define TRACK_PKT -1
 #define TRACK_MSG -1
 #define PRINT_ROUTER_TABLE 1
 #define DEBUG 0
@@ -305,7 +306,7 @@ static int dragonfly_rank_hash_compare(
         void *key, struct qhash_head *link)
 {
     struct dfly_hash_key *message_key = (struct dfly_hash_key *)key;
-    struct dfly_qhash_entry *tmp;
+    struct dfly_qhash_entry *tmp = NULL;
 
     tmp = qhash_entry(link, struct dfly_qhash_entry, hash_link);
     
@@ -317,10 +318,14 @@ static int dragonfly_rank_hash_compare(
 }
 static int dragonfly_hash_func(void *k, int table_size)
 {
-	struct dfly_hash_key *tmp = (struct dfly_hash_key *)k;
-    uint32_t pc = 0, pb = 0;
-	bj_hashlittle2(tmp, sizeof(*tmp), &pc, &pb);
-    return (int)(pc % (uint32_t)(table_size - 1));	
+    struct dfly_hash_key *tmp = (struct dfly_hash_key *)k;
+    //uint32_t pc = 0, pb = 0;	
+    //bj_hashlittle2(tmp, sizeof(*tmp), &pc, &pb);
+    uint64_t key = (~tmp->message_id) + (tmp->message_id << 18);
+    key = key * 21;
+    key = ~key ^ (tmp->sender_id >> 4);
+    key = key * tmp->sender_id; 
+    return (int)(key & (table_size - 1));	
 }
 
 /* convert GiB/s and bytes to ns */
@@ -433,9 +438,9 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     // shorthand
     dragonfly_param *p = params;
 
-    configuration_get_value_int(&config, "PARAMS", "num_routers", anno,
+    int rc = configuration_get_value_int(&config, "PARAMS", "num_routers", anno,
             &p->num_routers);
-    if(p->num_routers <= 0) {
+    if(rc) {
         p->num_routers = 4;
         fprintf(stderr, "Number of dimensions not specified, setting to %d\n",
                 p->num_routers);
@@ -443,44 +448,44 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
 
     p->num_vcs = 3;
 
-    configuration_get_value_int(&config, "PARAMS", "local_vc_size", anno, &p->local_vc_size);
-    if(!p->local_vc_size) {
+    rc = configuration_get_value_int(&config, "PARAMS", "local_vc_size", anno, &p->local_vc_size);
+    if(rc) {
         p->local_vc_size = 1024;
         fprintf(stderr, "Buffer size of local channels not specified, setting to %d\n", p->local_vc_size);
     }
 
-    configuration_get_value_int(&config, "PARAMS", "global_vc_size", anno, &p->global_vc_size);
-    if(!p->global_vc_size) {
+    rc = configuration_get_value_int(&config, "PARAMS", "global_vc_size", anno, &p->global_vc_size);
+    if(rc) {
         p->global_vc_size = 2048;
         fprintf(stderr, "Buffer size of global channels not specified, setting to %d\n", p->global_vc_size);
     }
 
-    configuration_get_value_int(&config, "PARAMS", "cn_vc_size", anno, &p->cn_vc_size);
-    if(!p->cn_vc_size) {
+    rc = configuration_get_value_int(&config, "PARAMS", "cn_vc_size", anno, &p->cn_vc_size);
+    if(rc) {
         p->cn_vc_size = 1024;
         fprintf(stderr, "Buffer size of compute node channels not specified, setting to %d\n", p->cn_vc_size);
     }
 
-    configuration_get_value_int(&config, "PARAMS", "chunk_size", anno, &p->chunk_size);
-    if(!p->chunk_size) {
+    rc = configuration_get_value_int(&config, "PARAMS", "chunk_size", anno, &p->chunk_size);
+    if(rc) {
         p->chunk_size = 512;
         fprintf(stderr, "Chunk size for packets is specified, setting to %d\n", p->chunk_size);
     }
 
-    configuration_get_value_double(&config, "PARAMS", "local_bandwidth", anno, &p->local_bandwidth);
-    if(!p->local_bandwidth) {
+    rc = configuration_get_value_double(&config, "PARAMS", "local_bandwidth", anno, &p->local_bandwidth);
+    if(rc) {
         p->local_bandwidth = 5.25;
         fprintf(stderr, "Bandwidth of local channels not specified, setting to %lf\n", p->local_bandwidth);
     }
 
-    configuration_get_value_double(&config, "PARAMS", "global_bandwidth", anno, &p->global_bandwidth);
-    if(!p->global_bandwidth) {
+    rc = configuration_get_value_double(&config, "PARAMS", "global_bandwidth", anno, &p->global_bandwidth);
+    if(rc) {
         p->global_bandwidth = 4.7;
         fprintf(stderr, "Bandwidth of global channels not specified, setting to %lf\n", p->global_bandwidth);
     }
 
-    configuration_get_value_double(&config, "PARAMS", "cn_bandwidth", anno, &p->cn_bandwidth);
-    if(!p->cn_bandwidth) {
+    rc = configuration_get_value_double(&config, "PARAMS", "cn_bandwidth", anno, &p->cn_bandwidth);
+    if(rc) {
         p->cn_bandwidth = 5.25;
         fprintf(stderr, "Bandwidth of compute node channels not specified, setting to %lf\n", p->cn_bandwidth);
     }
@@ -575,9 +580,10 @@ static void dragonfly_report_stats()
    {	
       printf(" Average number of hops traversed %f average chunk latency %lf us maximum chunk latency %lf us avg message size %lf bytes finished messages %ld finished chunks %ld \n", (float)avg_hops/total_finished_chunks, avg_time/(total_finished_chunks*1000), max_time/1000, (float)final_msg_sz/total_finished_msgs, total_finished_msgs, total_finished_chunks);
      if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
-              printf("\n ADAPTIVE ROUTING STATS: %d chunks routed minimally %d chunks routed non-minimally completed packets %lld ", total_minimal_packets, total_nonmin_packets, total_finished_chunks);
+              printf("\n ADAPTIVE ROUTING STATS: %d chunks routed minimally %d chunks routed non-minimally completed packets %lld \n", 
+                      total_minimal_packets, total_nonmin_packets, total_finished_chunks);
  
-  printf("\n Total packets generated %ld finished %ld ", total_gen, total_fin);
+      printf("\n Total packets generated %ld finished %ld \n", total_gen, total_fin);
    }
    return;
 }
@@ -1161,11 +1167,11 @@ void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * msg,
       if(bf->c4) {
         s->in_send_loop = 1;
       }
-      /*if(bf->c5)
+      if(bf->c5)
       {
           codes_local_latency_reverse(lp);
           s->issueIdle = 1;
-      }*/
+      }
       return;
 }
 /* sends the packet from the current dragonfly compute node to the attached router */
@@ -1260,11 +1266,11 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
     bf->c4 = 1;
     s->in_send_loop = 0;
   }
-  /*if(s->issueIdle) {
+  if(s->issueIdle) {
     bf->c5 = 1;
     s->issueIdle = 0;
     model_net_method_idle_event(codes_local_latency(lp), 0, lp);
-  }*/
+  }
   return;
 }
 
@@ -1315,15 +1321,13 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
        
        if(bf->c7)
         {
-            if(hash_link)
-                printf("\n Num chunks %d ", tmp->num_chunks);
-            //assert(!hash_link);
+            assert(!hash_link);
             N_finished_msgs--;
             s->finished_msgs--;
             total_msg_sz -= msg->total_size;
             s->total_msg_size -= msg->total_size;
 
-	        struct dfly_qhash_entry * d_entry_pop = rc_stack_pop(s->st);
+	    struct dfly_qhash_entry * d_entry_pop = rc_stack_pop(s->st);
             qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
             s->rank_tbl_pop++; 
 
@@ -1337,6 +1341,13 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
        assert(tmp);
        tmp->num_chunks--;
 
+       if(bf->c5)
+	{
+	   assert(hash_link);
+	   qhash_del(hash_link);
+	   free(tmp->remote_event_data);
+	   free(tmp);		
+	}
        return;
 }
 void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
@@ -1395,7 +1406,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
 
     if(tmp)
     {
-        if(tmp->num_chunks >= total_chunks)
+        if(tmp->num_chunks >= total_chunks || tmp->num_chunks == 0)
         {
            tw_output(lp, "\n invalid number of chunks %d for LP %ld ", tmp->num_chunks, lp->gid);
            tw_lp_suspend(lp, 0, 0);
@@ -1503,7 +1514,6 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     assert(tmp);
     tmp->num_chunks++;
 
-
     /* if its the last chunk of the packet then handle the remote event data */
     if(msg->chunk_id == num_chunks - 1)
     {
@@ -1530,7 +1540,6 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     /* If all chunks of a message have arrived then send a remote event to the
      * callee*/
     assert(tmp->num_chunks <= total_chunks);
-
 
     if(tmp->num_chunks == total_chunks)
     {

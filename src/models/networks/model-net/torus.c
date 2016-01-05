@@ -282,46 +282,41 @@ static void torus_read_config(
     // shorthand
     torus_param *p = params;
 
-    configuration_get_value_int(&config, "PARAMS", "n_dims", anno, &p->n_dims);
-    if(!p->n_dims) {
+    int rc = configuration_get_value_int(&config, "PARAMS", "n_dims", anno, &p->n_dims);
+    if(rc) {
         p->n_dims = 4; /* a 4-D torus */
         fprintf(stderr, 
                 "Warning: Number of dimensions not specified, setting to %d\n",
                 p->n_dims);
     }
 
-    configuration_get_value_double(&config, "PARAMS", "link_bandwidth", anno,
+   rc = configuration_get_value_double(&config, "PARAMS", "link_bandwidth", anno,
             &p->link_bandwidth);
-    if(!p->link_bandwidth) {
+    if(rc) {
         p->link_bandwidth = 2.0; /*default bg/q configuration */
         fprintf(stderr, "Link bandwidth not specified, setting to %lf\n",
                 p->link_bandwidth);
     }
 
-    configuration_get_value_int(&config, "PARAMS", "buffer_size", anno, &p->buffer_size);
-    if(!p->buffer_size) {
+    rc = configuration_get_value_int(&config, "PARAMS", "buffer_size", anno, &p->buffer_size);
+    if(rc) {
         p->buffer_size = 2048;
         fprintf(stderr, "Buffer size not specified, setting to %d",
                 p->buffer_size);
     }
 
 
-    configuration_get_value_int(&config, "PARAMS", "chunk_size", anno, &p->chunk_size);
-    if(!p->chunk_size) {
-        p->chunk_size = 32;
+    rc = configuration_get_value_int(&config, "PARAMS", "chunk_size", anno, &p->chunk_size);
+    if(rc) {
+        p->chunk_size = 128;
         fprintf(stderr, "Warning: Chunk size not specified, setting to %d\n",
                 p->chunk_size);
     }
-    configuration_get_value_int(&config, "PARAMS", "num_vc", anno, &p->num_vc);
-    if(!p->num_vc) {
         /* by default, we have one for taking packets,
          * another for taking credit*/
         p->num_vc = 1;
-        fprintf(stderr, "Warning: num_vc not specified, setting to %d\n",
-                p->num_vc);
-    }
 
-    int rc = configuration_get_value(&config, "PARAMS", "dim_length", anno,
+    rc = configuration_get_value(&config, "PARAMS", "dim_length", anno,
             dim_length_str, MAX_NAME_LENGTH);
     if (rc == 0){
         tw_error(TW_LOC, "couldn't read PARAMS:dim_length");
