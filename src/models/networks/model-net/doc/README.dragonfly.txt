@@ -47,7 +47,7 @@ through events in the form of timestamped messages.In the dragonfly model, each
 LP represents an individual router or node and each time-stamped message
 represents a packet sent to/from a node/router.
 
-2- Configuring ROSS dragonfly network model
+2- Configuring CODES dragonfly network model
 CODES dragonfly network model can be configured using the dragonfly config file (currently
 located in codes-net/tests/conf). To adjust the network size, configure the MODELNET_GRP
 section of the config file as well as the 'num_routers' parameter in the PARAMS section in

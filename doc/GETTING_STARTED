@@ -124,21 +124,12 @@ performed in:
     ACM SIGSIM conference on Principles of Advanced Discrete Simulations
     (PADS), 2014.
 
-The configuration parameters are as follows:
-* n_dims - the number of torus dimensions.
-* dim_length - the length of each torus dimension. For example, "4,2,2,2" describes a
-  four-dimensional, 4x2x2x2 torus.
-* link_bandwidth - the bandwidth available per torus link (specified in GiB/sec).
-* buffer_size - the buffer size available at each torus node. Buffer size is measured
-in number of flits or chunks (flit/chunk size is configurable using chunk_size parameter).
-* num_vc - number of virtual channels (currently unused - all traffic goes
-  through a single channel).
-* chunk_size - element size per transfer, specified in bytes. Messages/packets are sent in
-  individual chunks. This is typically a small number (e.g., 32 bytes).
+The configuration and model setup can be found at:
+src/models/model-net/doc/README.torus.txt
 
 == Dragonfly
 
-The dragonfly model (model-net LP name: "dragonfly") is an experimental network
+The dragonfly model (model-net LP name: "dragonfly") is a network
 topology that utilizes the concept of virtual routers to produce systems with
 very high virtual radix out of network components with a lower radix. The
 topology itself and the simulation model are both described in

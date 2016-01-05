@@ -195,7 +195,7 @@ static void codes_exec_mpi_recv_rc(
         nw_state* s, tw_bf * bf, nw_message* m, tw_lp* lp);
 /* execute the computational delay */
 static void codes_exec_comp_delay(
-        nw_state* s, tw_lp* lp, struct codes_workload_op * mpi_op);
+        nw_state* s, nw_message * m, tw_lp* lp, struct codes_workload_op * mpi_op);
 /* gets the next MPI operation from the network-workloads API. */
 static void get_next_mpi_operation(
         nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp);
@@ -569,12 +569,13 @@ static void codes_issue_next_event(tw_lp* lp)
 
 /* Simulate delays between MPI operations */
 static void codes_exec_comp_delay(
-        nw_state* s, tw_lp* lp, struct codes_workload_op * mpi_op)
+        nw_state* s, nw_message * m, tw_lp* lp, struct codes_workload_op * mpi_op)
 {
 	tw_event* e;
 	tw_stime ts;
 	nw_message* msg;
 
+    m->rc.saved_delay = s->compute_time;
     s->compute_time += s_to_ns(mpi_op->u.delay.seconds);
     ts = s_to_ns(mpi_op->u.delay.seconds);
 
@@ -583,7 +584,6 @@ static void codes_exec_comp_delay(
 	e = tw_event_new( lp->gid, ts , lp );
 	msg = tw_event_data(e);
 	msg->msg_type = MPI_OP_GET_NEXT;
-    msg->rc.saved_delay = mpi_op->u.delay.seconds;
 	tw_event_send(e); 
                 
 }
@@ -595,9 +595,7 @@ static void codes_exec_mpi_recv_rc(
         nw_message* m, 
         tw_lp* lp)
 {
-    struct codes_workload_op * mpi_op = m->rc.saved_op;
-
-	num_bytes_recvd -= mpi_op->u.recv.num_bytes;
+	num_bytes_recvd -= m->rc.saved_num_bytes;
 	ns->recv_time = m->rc.saved_recv_time;
 	if(m->fwd.found_match >= 0)
 	  {
@@ -658,6 +656,8 @@ static void codes_exec_mpi_recv(
    receive operations. */
 
 	m->rc.saved_recv_time = s->recv_time;
+    m->rc.saved_num_bytes = mpi_op->u.recv.num_bytes;
+
 	num_bytes_recvd += mpi_op->u.recv.num_bytes;
 
     mpi_msgs_queue * recv_op = (mpi_msgs_queue*) malloc(sizeof(mpi_msgs_queue));
@@ -1016,8 +1016,7 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 
 static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-    struct codes_workload_op * mpi_op = m->rc.saved_op;
-    codes_workload_get_next_rc(wrkld_id, 0, (int)s->nw_id, mpi_op);
+    codes_workload_get_next_rc2(wrkld_id, 0, (int)s->nw_id);
 
 	if(m->op_type == CODES_WK_END)
     {
@@ -1050,6 +1049,8 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 		{
 			s->num_delays--;
             tw_rand_reverse_unif(lp->rng);
+            if(!disable_delay)
+                s->compute_time = m->rc.saved_delay;
 		}
 		break;
 		case CODES_WK_BCAST:
@@ -1093,24 +1094,24 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 
 static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-		struct codes_workload_op * mpi_op = malloc(sizeof(struct codes_workload_op));
-        codes_workload_get_next(wrkld_id, 0, (int)s->nw_id, mpi_op);
+		//struct codes_workload_op * mpi_op = malloc(sizeof(struct codes_workload_op));
+        struct codes_workload_op mpi_op;
+        codes_workload_get_next(wrkld_id, 0, (int)s->nw_id, &mpi_op);
       
-        m->op_type = mpi_op->op_type;
-        m->rc.saved_op = mpi_op;
+        m->op_type = mpi_op.op_type;
 
-        if(mpi_op->op_type == CODES_WK_END)
+        if(mpi_op.op_type == CODES_WK_END)
         {
             s->elapsed_time = tw_now(lp) - s->start_time;
             return;
         }
-		switch(mpi_op->op_type)
+		switch(mpi_op.op_type)
 		{
 			case CODES_WK_SEND:
 			case CODES_WK_ISEND:
 			 {
 				s->num_sends++;
-				codes_exec_mpi_send(s, bf, m, lp, mpi_op);
+				codes_exec_mpi_send(s, bf, m, lp, &mpi_op);
 			 }
 			break;
 	
@@ -1118,7 +1119,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			case CODES_WK_IRECV:
 			  {
 				s->num_recvs++;
-				codes_exec_mpi_recv(s, bf, m, lp,  mpi_op);
+				codes_exec_mpi_recv(s, bf, m, lp, &mpi_op);
 			  }
 			break;
 
@@ -1129,7 +1130,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
                 if(disable_delay)
                     codes_issue_next_event(lp);
                 else
-				    codes_exec_comp_delay(s, lp, mpi_op);
+				    codes_exec_comp_delay(s, m, lp, &mpi_op);
 			  }
 			break;
 
@@ -1144,13 +1145,13 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			case CODES_WK_WAITALL:
 			  {
 				s->num_waitall++;
-			    codes_exec_mpi_wait_all(s, bf, m, lp, mpi_op);
+			    codes_exec_mpi_wait_all(s, bf, m, lp, &mpi_op);
               }
 			break;
 			case CODES_WK_WAIT:
 			{
 				s->num_wait++;
-                codes_exec_mpi_wait(s, lp, mpi_op);
+                codes_exec_mpi_wait(s, lp, &mpi_op);
 			}
 			break;
 			case CODES_WK_BCAST:
@@ -1167,7 +1168,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
             }
 			break;
 			default:
-				printf("\n Invalid op type %d ", mpi_op->op_type);
+				printf("\n Invalid op type %d ", mpi_op.op_type);
 		}
         return;
 }
@@ -1287,10 +1288,14 @@ int main( int argc, char** argv )
   tw_opt_add(app_opt);
   tw_init(&argc, &argv);
 
-  if(strlen(workload_file) == 0)
+  if(strlen(workload_file) == 0 || strcmp(workload_type, "dumpi") != 0 || num_net_traces <= 0)
     {
 	if(tw_ismaster())
-		printf("Usage: mpirun -np n ./codes-nw-test --sync=1/2/3 --workload_type=type --workload_file=workload-file-name\n");
+		printf("Usage: mpirun -np n ./modelnet-mpi-replay --sync=1/3"
+                " --workload_type=dumpi --workload_file=prefix-workload-file-name"
+                " --num_net_traces=n -- config-file-name\n"
+                "See model-net/doc/README.dragonfly.txt and model-net/doc/README.torus.txt"
+                " for instructions on how to run the models with network traces ");
 	tw_end();
 	return -1;
     }
