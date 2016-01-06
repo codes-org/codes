@@ -1,0 +1,61 @@
+TEST1  2 (null) a
+TEST1  5 (null) a@foo
+TEST1  0 (null) a@bar
+TEST1  7 (null) a ignore annos
+TEST1  2   GRP1 a
+TEST1  2   GRP1 a@foo
+TEST1  0   GRP1 a@bar
+TEST1  4   GRP1 a ignore annos
+TEST1  0   GRP2 a
+TEST1  3   GRP2 a@foo
+TEST1  0   GRP2 a@bar
+TEST1  3   GRP2 a ignore annos
+TEST1  4 (null) b
+TEST1  3 (null) b@foo
+TEST1  0 (null) b@bar
+TEST1  7 (null) b ignore annos
+TEST1  4   GRP1 b
+TEST1  0   GRP1 b@foo
+TEST1  0   GRP1 b@bar
+TEST1  4   GRP1 b ignore annos
+TEST1  0   GRP2 b
+TEST1  3   GRP2 b@foo
+TEST1  0   GRP2 b@bar
+TEST1  3   GRP2 b ignore annos
+TEST1  8 (null) c
+TEST1  0 (null) c@foo
+TEST1  3 (null) c@bar
+TEST1 11 (null) c ignore annos
+TEST1  2   GRP1 c
+TEST1  0   GRP1 c@foo
+TEST1  0   GRP1 c@bar
+TEST1  2   GRP1 c ignore annos
+TEST1  6   GRP2 c
+TEST1  0   GRP2 c@foo
+TEST1  3   GRP2 c@bar
+TEST1  9   GRP2 c ignore annos
+TEST2  0  0  0  0  0 a
+TEST2  1  0  0  0  0 b
+TEST2  2  1  1  1  1 b
+TEST2  3  1  1  0  0 a@foo
+TEST2  4  0  0  0  0 c
+TEST2  5  2  2  1  1 a
+TEST2  6  2  2  2  2 b
+TEST2  7  3  3  3  3 b
+TEST2  8  3  3  1  1 a@foo
+TEST2  9  1  1  1  1 c
+TEST2 10  2  0  0  0 c@bar
+TEST2 11  4  0  0  0 b@foo
+TEST2 12  3  1  2  0 c
+TEST2 13  4  2  3  1 c
+TEST2 14  4  0  2  0 a@foo
+TEST2 15  5  3  1  1 c@bar
+TEST2 16  5  1  1  1 b@foo
+TEST2 17  6  4  4  2 c
+TEST2 18  7  5  5  3 c
+TEST2 19  5  1  3  1 a@foo
+TEST2 20  8  6  2  2 c@bar
+TEST2 21  6  2  2  2 b@foo
+TEST2 22  9  7  6  4 c
+TEST2 23 10  8  7  5 c
+TEST2 24  6  2  4  2 a@foo

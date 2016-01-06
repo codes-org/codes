@@ -1,0 +1,69 @@
+
+check_PROGRAMS += tests/lp-io-test \
+ tests/workload/codes-workload-test \
+ tests/workload/codes-workload-mpi-replay \
+ tests/mapping_test \
+ tests/lsm-test \
+ tests/resource-test \
+ tests/rc-stack-test \
+ tests/jobmap-test \
+ tests/map-ctx-test
+
+TESTS += tests/lp-io-test.sh \
+ tests/workload/codes-workload-test.sh \
+ tests/mapping_test.sh \
+ tests/lsm-test.sh \
+ tests/rc-stack-test \
+ tests/resource-test.sh \
+ tests/jobmap-test.sh \
+ tests/map-ctx-test.sh
+
+EXTRA_DIST += tests/lp-io-test.sh \
+ tests/workload/codes-workload-test.sh \
+ tests/workload/codes-workload-test.conf \
+ tests/workload/README.txt \
+ tests/mapping_test.sh \
+ tests/lsm-test.sh \
+ tests/resource-test.sh \
+ tests/jobmap-test.sh \
+ tests/map-ctx-test.sh \
+ tests/conf/jobmap-test-list.conf \
+ tests/conf/buffer_test.conf \
+ tests/conf/lsm-test.conf \
+ tests/conf/mapping_test.conf \
+ tests/conf/map-ctx-test.conf \
+ tests/expected/mapping_test.out
+
+testlib = src/libcodes-base.a ${ROSS_LIBS}
+
+tests_lp_io_test_LDADD = $(testlib)
+tests_lp_io_test_SOURCES = tests/lp-io-test.c
+
+tests_mapping_test_LDADD = $(testlib)
+tests_mapping_test_SOURCES = tests/mapping_test.c
+
+tests_resource_test_LDADD = $(testlib)
+tests_resource_test_SOURCES = tests/resource-test.c
+
+tests_lsm_test_LDADD = $(testlib)
+tests_lsm_test_SOURCES = tests/local-storage-model-test.c
+
+tests_rc_stack_test_LDADD = $(testlib)
+tests_rc_stack_test_SOURCES = tests/rc-stack-test.c
+
+tests_jobmap_test_LDADD = $(testlib)
+tests_jobmap_test_SOURCES = tests/jobmap-test.c
+
+tests_map_ctx_test_LDADD = $(testlib)
+tests_map_ctx_test_SOURCES = tests/map-ctx-test.c
+
+tests_workload_codes_workload_test_LDADD = $(testlib)
+tests_workload_codes_workload_test_SOURCES = \
+ tests/workload/codes-workload-test.c \
+ tests/workload/codes-workload-test-svr-lp.c \
+ tests/workload/codes-workload-test-svr-lp.h \
+ tests/workload/codes-workload-test-cn-lp.c \
+ tests/workload/codes-workload-test-cn-lp.h 
+
+tests_workload_codes_workload_mpi_replay_LDADD = $(testlib)
+tests_workload_codes_workload_mpi_replay_SOURCES = tests/workload/codes-workload-mpi-replay.c

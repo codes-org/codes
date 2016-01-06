@@ -1,0 +1,92 @@
+The codes-workload component provides a standardized mechanism to describe
+I/O workloads to be executed in a storage simulation.
+
+codes/codes-workload.h
+----------------------
+This is the API that storage simulations will use to retrieve I/O
+operations to execute within the simulation.  The primary functions are:
+
+- codes_workload_load(): loads the specified workload instance
+- codes_workload_get_next(): retrieves the next I/O operation for a given
+  rank
+- codes_workload_get_next_rc(): reverse version of the above
+
+The operations are described by the codes_workload_op struct.  The end of
+the stream of operations for a given rank is indicated by the CODES_WK_END
+operation.
+
+src/workload/codes-workload.c:
+---------------------
+Implementation of the codes/codes-workload.h API. 
+
+src/workload/codes-workload-method.h:
+---------------------
+This is the API to be implemented by specific workload generator methods
+(a generator that produces operations based on a Darshan log, for example).
+Multiple workload generator methods can be used by the same simulation as
+long as they support the same interface.  This API is similar to the
+top-level codes/codes-workload.h API, except that there is no reverse
+computation function.  Workload generators do not need to handle that case.
+
+src/workload/test-workload-method.c:
+---------------------
+This is an example workload generator that implements the
+codes-workload-method.h interface.  It produces a static workload for
+testing purposes.
+
+src/workload/codes-bgp-io-wrkld.c:
+---------------------
+This is the implementation of the codes-workload.h API for the I/O kernel
+language generator. 
+
+src/workload/codes-darshan-io-wrkld.c:
+---------------------
+This is the implementation of the workload generator API for Darshan workloads.
+Darshan trace events are stored in a file which needs to be passed to the 
+_workload_load function in the params arguments.
+
+src/workload/codes-checkpoint-restart.c
+--------------------
+This is the implementation of the workload generator API for checkpoint
+restarts based on the paper from Daly et al. "A higher order estimate of the
+optimum checkpoint interval for restart dumps". The configuration of the
+generator is based on:
+
+--chkpoint-size => size of total checkpoint, in TiB
+--chkpoint-bw => checkpoint write b/w, in GiB/s
+--chkpoint-runtime => application runtime, in hours
+--chkpoint-mtti => application MTTI, in hours
+
+test program (tests/workload/*):
+---------------------
+codes-workload-test.c: main routine for a simulator that provides an example
+of 48 clients executing a workload described by the test-workload-method on
+16 servers.  Can be executed as follows:
+
+(parallel, optimistic example)
+mpiexec -n 16 tests/workload/codes-workload-test --sync=3
+
+(serial, conservative example)
+tests/workload/codes-workload-test --sync=1
+
+The test code is split up so that the compute node LPs are implemented in
+codes-workload-test-cn-lp.* and the server LPs are implemented in
+codes-workload-test-svr-lp.*.  Note that the timing information is
+completely arbitrary for testing purposes; this is not a true storage
+simulator but just a test harness.  
+
+The compute node LP implements its own barrier and delay operations.  Other
+operations are sent to the server LPs for execution.
+
+The test programs produce output (the simulated completion time of each
+client and server) in a subdirectory called
+codes-workload-test-results-<BIGNUMBERS>/.  This output should be precisely
+consistent regardless of the number of processes used in the simulation and
+whether the simulation is executed in conservative or optimistic mode.
+
+Running "make check" in the build directory will execute a single process
+conservative version of the codes-workload-test simulation.
+
+
+
+

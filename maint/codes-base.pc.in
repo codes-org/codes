@@ -1,0 +1,18 @@
+prefix = @prefix@
+exec_prefix = @exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+ross_cflags=@ROSS_CFLAGS@
+ross_libs=@ROSS_LIBS@
+darshan_libs=@DARSHAN_LIBS@
+darshan_cflags=@DARSHAN_CFLAGS@
+dumpi_cflags=@DUMPI_CFLAGS@
+dumpi_libs=@DUMPI_LIBS@
+
+Name: codes-base
+Description: Base functionality for CODES storage simulation
+Version: @PACKAGE_VERSION@
+URL: http://trac.mcs.anl.gov/projects/CODES
+Requires:
+Libs: -L${libdir} -lcodes-base ${ross_libs} ${darshan_libs} ${dumpi_libs} 
+Cflags: -I${includedir} ${ross_cflags} ${darshan_cflags} ${dumpi_cflags}

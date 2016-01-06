@@ -1,0 +1,14 @@
+This example program shows some features enabled by the new annotation-based
+configuration and mapping APIs in codes-base, as well as support for them in
+codes-net. The example does not exhaustively show all new features added - for
+more details, see configuration.h, codes-mapping.h, and model-net.h in
+codes-net.
+
+Specifically, some features shown are:
+* Use of annotated configuration to initialize three separate network models.
+  Note that they are all the same network model, just with different
+  parameterizations. This includes both the configuration file itself as well as
+  interaction in the code between components with different annotations.
+* Addressing at various levels in both LP type-specific namespaces and
+  model-net namespaces (network id, annotation tuples).
+* The updated registration/configuration sequence in main.

@@ -1,0 +1,161 @@
+lib_LIBRARIES += src/libcodes-base.a 
+
+BUILT_SOURCES += src/modelconfig/configparser.h \
+                 src/modelconfig/configlex.h
+
+EXTRA_DIST += src/iokernellang/codesparser.y.in \
+              src/iokernellang/codeslexer.l \
+              src/modelconfig/configparser.y \
+              src/modelconfig/configlex.l \
+			  src/modelconfig/README.txt \
+			  src/util/templates/README.txt \
+			  src/util/README.codes-mapping.txt \
+			  src/util/README.lp-io.txt \
+			  src/workload/README.codes-workload \
+			  src/workload/TODO.codes-workload
+
+#src/network-workload/README
+#src/network-workload/offsets
+#src/network-workload/scala-trace-data
+
+
+PHONY: maintainer-clean-local
+maintainer-clean-local::
+	-rm -f src/modelconfig/configlex.h
+	-rm -f src/modelconfig/configlex.c
+	-rm -f src/modelconfig/configparser.h
+	-rm -f src/modelconfig/configparser.c
+
+src/modelconfig/configparser.h: src/modelconfig/configparser.y
+src/modelconfig/configlex.h: src/modelconfig/configlex.l
+
+#BUILT_SOURCES += src/iokernellang/codesparser.h \
+#		 src/iokernellang/codesparser.c \
+#                 src/iokernellang/codeslexer.h \
+#                 src/iokernellang/codeslexer.h
+
+
+#src/iokernellang/codesparser.y: src/iokernellang/codesparser.y.in Makefile
+
+#src/iokernellang/codesparser.c src/iokernellang/codesparser.h: src/iokernellang/codesparser.y
+
+#src/iokernellang/codeslexer.h: $(top_srcdir)/src/iokernellang/codeslexer.h
+#mkdir -p codes
+#cp $(top_srcdir)/src/iokernellang/codeslexer.h src/iokernellang/codeslexer.h
+
+nobase_include_HEADERS = \
+    codes/quickhash.h \
+    codes/quicklist.h \
+    codes/codes_mapping.h \
+    codes/lp-type-lookup.h \
+    codes/codes.h \
+    codes/configuration.h \
+    codes/lp-io.h \
+	codes/lp-msg.h \
+    codes/jenkins-hash.h \
+    codes/codes-workload.h \
+	codes/resource.h \
+	codes/resource-lp.h \
+	codes/local-storage-model.h \
+	codes/rc-stack.h \
+	codes/codes-jobmap.h \
+	codes/codes-callback.h \
+	codes/codes-mapping-context.h
+
+#codes/codes-nw-workload.h
+
+src_libcodes_base_a_SOURCES =  \
+    src/iokernellang/codesparser.h \
+    src/iokernellang/codesparser.c \
+    src/iokernellang/codeslexer.h \
+    src/iokernellang/codeslexer.c \
+    src/iokernellang/codesImpl.c \
+    src/iokernellang/CodesIOKernelContext.h \
+    src/iokernellang/CodesIOKernelParser.h \
+    src/iokernellang/CodesIOKernelTypes.h \
+    src/iokernellang/CodesKernelHelpers.h \
+    src/iokernellang/CodesKernelHelpers.c \
+    src/modelconfig/configlex.c \
+    src/modelconfig/configlex.h \
+    src/modelconfig/configparser.c \
+    src/modelconfig/configparser.h \
+    src/modelconfig/configfile.c \
+    src/modelconfig/configglue.h \
+    src/modelconfig/configglue.c \
+    src/modelconfig/configfile.h \
+    src/modelconfig/configstore.h \
+    src/modelconfig/configstore.c \
+    src/modelconfig/configstoreadapter.h \
+    src/modelconfig/configstoreadapter.c \
+    src/modelconfig/txt_configfile.h \
+    src/modelconfig/txt_configfile.c \
+    src/modelconfig/configuration.c \
+    src/util/codes_mapping.c \
+    src/util/lp-type-lookup.c \
+    src/util/lp-io.c \
+	src/util/lp-msg.c \
+    src/util/lookup3.c \
+	src/util/resource.c \
+	src/util/resource-lp.c \
+	src/util/local-storage-model.c \
+	src/util/codes-jobmap-method-impl.h \
+	src/util/codes-jobmap.c \
+	src/util/jobmap-impl/jobmap-dummy.c \
+	src/util/jobmap-impl/jobmap-list.c\
+	src/util/jobmap-impl/jobmap-identity.c\
+	src/util/codes-mapping-context.c \
+    src/workload/codes-workload.c \
+    src/workload/methods/codes-iolang-wrkld.c \
+    src/workload/methods/codes-checkpoint-wrkld.c \
+    src/workload/methods/test-workload-method.c \
+	src/workload/methods/codes-iomock-wrkld.c \
+	codes/rc-stack.h \
+	src/util/rc-stack.c
+
+#codes/codes-nw-workload.h
+#src/network-workload/codes-nw-workload.c
+#src/network-workload/codes-nw-workload-method.h
+
+# stealth testing of the template code (actual test is not run, just compiled as
+# a program - Make error signifies test failure)
+check_PROGRAMS += src/util/templates/lp_template_dummy_main
+src_util_templates_lp_template_dummy_main_LDADD = $(testlib) ${ROSS_LIBS}
+src_util_templates_lp_template_dummy_main_LDFLAGS = ${ROSS_LDFLAGS}
+src_util_templates_lp_template_dummy_main_SOURCES = \
+ src/util/templates/lp_template_dummy_main.c \
+ src/util/templates/lp_template.c \
+ src/util/templates/lp_template.h
+# get rid of annoying unused function in template
+
+bin_PROGRAMS += src/workload/codes-workload-dump
+
+src_workload_codes_workload_dump_SOURCES = \
+ src/workload/codes-workload-dump.c
+src_workload_codes_workload_dump_LDADD = $(testlib) ${ROSS_LIBS}
+src_workload_codes_workload_dump_LDFLAGS =  ${ROSS_LDFLAGS}
+
+if USE_DARSHAN
+src_workload_codes_workload_dump_LDFLAGS +=  ${DARSHAN_LDFLAGS}
+src_workload_codes_workload_dump_LDADD += ${DARSHAN_LIBS}
+endif
+
+# TODO: does recorder need any specific linker flags??
+
+if USE_DUMPI
+src_workload_codes_workload_dump_LDADD += ${DUMPI_LIBS}
+endif
+
+#bin_PROGRAMS += src/network-workload/codes-nw-test
+
+#src_network_workload_codes_nw_test_SOURCES = \
+ #src/network-workload/codes-nw-test.c
+#src_network_workload_codes_nw_test_LDADD = $(testlib) ${ROSS_LIBS} ${DUMPI_LIBS}
+#src_network_workload_codes_nw_test_LDFLAGS =  ${ROSS_LDFLAGS}
+
+#bin_PROGRAMS += src/network-workload/codes-dumpi-wrkld
+
+#src_network_workload_codes_dumpi_wrkld_SOURCES = \
+ src/network-workload/codes-dumpi-wrkld.c
+#src_network_workload_codes_dumpi_wrkld_LDADD = $(testlib) ${ROSS_LIBS} ${DUMPI_LIBS}
+#src_network_workload_codes_dumpi_wrkld_LDFLAGS =  ${ROSS_LDFLAGS}
+

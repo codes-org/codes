@@ -1,0 +1,49 @@
+0.4.0
+
+general:
+==========
+significant source reorganization / refactoring
+refactor some private headers out of the public eye
+dead code removal
+
+documentation:
+==========
+improved example_heterogeneous example program
+added configuration to example_heterogeneous showing two torus networks
+reorganized files to prevent name collisions on OSX. Top-level docs other than
+  copyright now in doc directory
+additions to best practice document
+
+configurator:
+==========
+more stable file format for configurator output
+ignore unrelated parameters passed into filter_configs
+handle empty cfields in configurator
+
+workloads:
+==========
+combined network and IO workload APIs into a single one
+adding dumpi workload support in codes-workload-dump utility
+workload dump utility option cleanup
+renamed "bgp" workload generator to "iolang", significant cleanups
+put network workload ops in workload dump util
+removing one of the dumpi libraries from the build. It was generating some unwanted dumpi files.
+network workload API more fleshed out
+
+utilities:
+==========
+configuration bug fixes for larger LP type counts
+resource LP annotation mapping hooks
+local storage model API switch to use annotations
+better configuration error handling
+hedge against precision loss in codes_local_latency (see codes.h)
+use a different RNG than default for codes_local_latency
+- prevents addition/removal of codes_local_latency calls from poisoning RNG
+  stream of calling model
+added simple GVT-aware stack with garbage collection (see rc-stack.h)
+
+
+0.3.0
+
+Initial "official" release. Against previous repository revisions, this release
+includes more complete documentation.

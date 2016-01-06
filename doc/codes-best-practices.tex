@@ -1,0 +1,571 @@
+
+\documentclass[conference,10pt,compsocconf,onecolumn]{IEEEtran}
+%\documentclass{acm_proc_article-sp}
+%\documentclass{sig-alternate}
+% Add the compsoc option for Computer Society conferences.
+%
+% If IEEEtran.cls has not been installed into the LaTeX system files,
+% manually specify the path to it like:
+% \documentclass[conference]{../sty/IEEEtran}
+
+% *** CITATION PACKAGES ***
+%
+\usepackage{cite}
+% cite.sty was written by Donald Arseneau
+% V1.6 and later of IEEEtran pre-defines the format of the cite.sty package
+% \cite{} output to follow that of IEEE. Loading the cite package will
+% result in citation numbers being automatically sorted and properly
+% "compressed/ranged". e.g., [1], [9], [2], [7], [5], [6] without using
+% cite.sty will become [1], [2], [5]--[7], [9] using cite.sty. cite.sty's
+% \cite will automatically add leading space, if needed. Use cite.sty's
+% noadjust option (cite.sty V3.8 and later) if you want to turn this off.
+% cite.sty is already installed on most LaTeX systems. Be sure and use
+% version 4.0 (2003-05-27) and later if using hyperref.sty. cite.sty does
+% not currently provide for hyperlinked citations.
+% The latest version can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/cite/
+% The documentation is contained in the cite.sty file itself.
+%
+\usepackage{setspace}
+\usepackage{wrapfig}
+\usepackage{color}
+\usepackage{listing}
+\usepackage{listings}
+\usepackage{verbatim}
+
+\lstset{ %
+frame=single,
+language=C,
+captionpos=b,
+columns=fullflexible,
+morekeywords={aesop,pwait,pbranch,pbreak},
+numbers=left,
+basicstyle=\scriptsize\ttfamily,
+breaklines=true,
+framexleftmargin=0em,
+boxpos=c,
+resetmargins=true,
+xleftmargin=6ex
+%basicstyle=\footnotesize
+}
+
+
+\usepackage[pdftex]{graphicx}
+%\usepackage{graphicx}
+% declare the path(s) where your graphic files are
+\graphicspath{{./}{data/beagle/}}
+% and their extensions so you won't have to specify these with
+% every instance of \includegraphics
+\DeclareGraphicsExtensions{.pdf,.jpeg,.png}
+
+% *** GRAPHICS RELATED PACKAGES ***
+%
+\ifCLASSINFOpdf
+ % \usepackage[pdftex]{graphicx}
+ % declare the path(s) where your graphic files are
+ % \graphicspath{{../pdf/}{../jpeg/}}
+ % and their extensions so you won't have to specify these with
+ % every instance of \includegraphics
+ % \DeclareGraphicsExtensions{.pdf,.jpeg,.png}
+\else
+ % or other class option (dvipsone, dvipdf, if not using dvips). graphicx
+ % will default to the driver specified in the system graphics.cfg if no
+ % driver is specified.
+ % \usepackage[dvips]{graphicx}
+ % declare the path(s) where your graphic files are
+ % \graphicspath{{../eps/}}
+ % and their extensions so you won't have to specify these with
+ % every instance of \includegraphics
+ % \DeclareGraphicsExtensions{.eps}
+\fi
+
+% *** ALIGNMENT PACKAGES ***
+%
+%\usepackage{array}
+% Frank Mittelbach's and David Carlisle's array.sty patches and improves
+% the standard LaTeX2e array and tabular environments to provide better
+% appearance and additional user controls. As the default LaTeX2e table
+% generation code is lacking to the point of almost being broken with
+% respect to the quality of the end results, all users are strongly
+% advised to use an enhanced (at the very least that provided by array.sty)
+% set of table tools. array.sty is already installed on most systems. The
+% latest version and documentation can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/required/tools/
+
+%\usepackage{eqparbox}
+% Also of notable interest is Scott Pakin's eqparbox package for creating
+% (automatically sized) equal width boxes - aka "natural width parboxes".
+% Available at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/eqparbox/
+
+\usepackage{algorithm}
+\usepackage[noend]{algorithmic}
+
+% *** SUBFIGURE PACKAGES ***
+\usepackage[tight,footnotesize]{subfigure}
+% \usepackage{subfigure}
+% subfigure.sty was written by Steven Douglas Cochran. This package makes it
+% easy to put subfigures in your figures. e.g., "Figure 1a and 1b". For IEEE
+% work, it is a good idea to load it with the tight package option to reduce
+% the amount of white space around the subfigures. subfigure.sty is already
+% installed on most LaTeX systems. The latest version and documentation can
+% be obtained at:
+% http://www.ctan.org/tex-archive/obsolete/macros/latex/contrib/subfigure/
+% subfigure.sty has been superceeded by subfig.sty.
+
+%\usepackage[caption=false]{caption}
+%\usepackage[font=footnotesize]{subfig}
+% subfig.sty, also written by Steven Douglas Cochran, is the modern
+% replacement for subfigure.sty. However, subfig.sty requires and
+% automatically loads Axel Sommerfeldt's caption.sty which will override
+% IEEEtran.cls handling of captions and this will result in nonIEEE style
+% figure/table captions. To prevent this problem, be sure and preload
+% caption.sty with its "caption=false" package option. This is will preserve
+% IEEEtran.cls handing of captions. Version 1.3 (2005/06/28) and later 
+% (recommended due to many improvements over 1.2) of subfig.sty supports
+% the caption=false option directly:
+%\usepackage[caption=false,font=footnotesize]{subfig}
+%
+% The latest version and documentation can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/subfig/
+% The latest version and documentation of caption.sty can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/caption/
+
+% *** PDF, URL AND HYPERLINK PACKAGES ***
+%
+\usepackage{url}
+% url.sty was written by Donald Arseneau. It provides better support for
+% handling and breaking URLs. url.sty is already installed on most LaTeX
+% systems. The latest version can be obtained at:
+% http://www.ctan.org/tex-archive/macros/latex/contrib/misc/
+% Read the url.sty source comments for usage information. Basically,
+% \url{my_url_here}.
+
+% *** Do not adjust lengths that control margins, column widths, etc. ***
+% *** Do not use packages that alter fonts (such as pslatex).         ***
+% There should be no need to do such things with IEEEtran.cls V1.6 and later.
+% (Unless specifically asked to do so by the journal or conference you plan
+% to submit to, of course. )
+
+% correct bad hyphenation here
+\hyphenation{op-tical net-works semi-conduc-tor}
+
+\newcommand{\codesmapping}[1]{\texttt{codes\_mapping}}
+\newcommand{\codesconfig}[1]{\texttt{codes\_config}}
+\newcommand{\codesmodelnet}[1]{\texttt{model\_net}}
+
+
+\begin{document}
+\title{CODES Best Practices}
+
+%\author{\IEEEauthorblockN{Someone\IEEEauthorrefmark{1}} \\
+%\IEEEauthorblockA{\IEEEauthorrefmark{1}Somewhere}
+%}
+
+%\numberofauthors{6} %  in this sample file, there are a *total*
+
+
+% use for special paper notices
+%\IEEEspecialpapernotice{(Invited Paper)}
+
+% use arabic rather than roman numerals for table references
+\renewcommand{\thetable}{\arabic{table}}
+
+% make the title area
+\maketitle
+
+\begin{abstract}
+This document outlines best practices for developing models in the
+CODES/ROSS framework.  The reader should already be familiar with ROSS
+and discrete event simulation in general; those topics are covered in the primary
+ROSS documentation. Additionally, the GETTING\_STARTED file presents a better
+introduction/overview to CODES - this guide should be consulted after becoming
+familiar with CODES/ROSS.
+%
+The main purpose of this document is to help the reader produce
+CODES models in a consistent, modular style so that components can be more
+easily shared and reused.  It also includes a few tips to help avoid common
+simulation bugs.
+
+For more information, ROSS has a bunch of documentation available in their
+repository/wiki - see \url{https://github.com/carothersc/ROSS}.
+\end{abstract}
+
+\section{CODES: modularizing models}
+
+This section covers some of the basic principles of how to organize model
+components to be more modular and easier to reuse across CODES models.
+
+\subsection{Units of time}
+
+ROSS does not dictate the units to be used in simulation timestamps.
+The \texttt{tw\_stime} type could represent any time unit
+(e.g. days, hours, seconds, nanoseconds, etc.).  When building CODES
+models you should \emph{always treat timestamps as double precision floating
+point numbers representing nanoseconds}, however.
+All components within a model must agree on the time units in order to
+advance simulation time consistently.  Several common utilities in the
+CODES project expect to operate in terms of nanoseconds.
+
+\subsection{Organizing models by LP types}
+
+ROSS allows you to use as many different LP types as you would like to
+construct your models.  Try to take advantage of this as much as possible by
+organizing your simulation so that each component of the system that you are
+modeling is implemented within its own LP type.  For example, a storage
+system model might use different LPs for hard disks, clients, network
+adapters, and servers.  There are multiple reasons for dividing up models
+like this:
+
+\begin{itemize}
+\item General modularity: makes it easier to pull out particular components
+(for example, a disk model) for use in other models.
+\item Simplicity: if each LP type is only handling a limited set of
+events, then the event structure, state structure, and event handler
+functions will all be much smaller and easier to understand.
+\item Reverse computation: it makes it easier to implement reverse
+computation, not only because the code is simpler, but also because you can
+implement and test reverse computation per component rather than having to
+apply it to an entire model all at once before testing.
+\end{itemize}
+
+It is also important to note that you can divide up models not just by
+hardware components, but also by functionality, just as
+you would modularize the implementation of a distributed file system.  For
+example, a storage daemon might include separate LPs for replication, failure
+detection, and reconstruction.  Each of those LPs can share the same network
+card and disk resources for accurate modeling of resource usage.  They key
+reason for splitting them up is to simplify the model and to encourage
+reuse.
+
+One hypothetical downside to splitting up models into multiple LP types is that it likely
+means that your model will generate more events than a monolithic model
+would have.  Remember that \emph{ROSS is really efficient at generating and
+processing events}, though!  It is usually a premature optimization to try to optimize a model by
+replacing events with function calls in cases where you know the necessary
+data is available on the local MPI process.  Also recall that any information
+exchanged via event automatically benefits by shifting burden for
+tracking/retaining event data and event ordering into ROSS rather than your
+model.  This can help simplify reverse computation by breaking complex
+operations into smaller, easier to understand (and reverse) event units with
+deterministic ordering.
+
+\subsection{Sharing message representation}
+
+It is often difficult to debug cases where an LP sends a message to the wrong
+LP, as the event structures can be completely different. Hence, it greatly aids
+debugging to adhere to a common structure in messages. In particular, the
+message header struct \texttt{msg\_header} in lp-msg.h should be placed and
+used at the top of every LP's event structure, enabling inspection of any kind
+of message in the simulation. The ``magic'' number should be unique to each LP
+type to delineate what the expected type of the intended LP recipient. It is a
+similarly good idea to use unique event type IDs.
+
+\subsection{Providing a sane communication API between LPs}
+
+ROSS operates by exchanging events between LPs.  If an LP is sending
+an event to another LP of the same type, then in general it can do so
+by allocating an event structure (e.g. \texttt{tw\_event\_new()}),
+populating the event structure, and transmitting it
+(e.g. \texttt{tw\_event\_send()}).  If an LP is sending an event to
+another LP of a \emph{different} type, however, then it should use an
+explicit API to do so without exposing the other LP's event structure
+definition.  Event structures are not a robust API for exchanging data
+across different LP types.  If one LP type accesses the event (or state)
+structure of another LP type, then it entangles the two components such
+that one LP is dependent upon the internal architecture of another LP.
+This not only makes it difficult to reuse components, but also makes it
+difficult to check for incompatibilities at compile time.  The compiler
+has no way to know which fields in a struct must be set before sending
+an event.
+
+For these reasons we encourage that a) each LP be implemented in a separate
+source file and b) all event structs and state structs
+be defined only within those source files.  They should not be exposed in external
+headers.  If the definitions are placed in a header then it makes it
+possible for those event and state structs to be used as an ad-hoc interface
+between LPs of different types.
+
+\section{Coping with time warp / reverse computation}
+
+Time warp and ROSS's reverse computation mechanism, while vital to providing
+scalable simulation performance, also complicates model development and
+debugging. This section lists some ways of coping with these kinds of errors,
+and with reverse computation in general.
+
+The time warp protocol is susceptible to certain classes of simulation behavior
+by which LPs are asked to perform messages that are potentially outside the
+scope of the behavior the programmer intended to perform (not including logic
+bugs by the programmer). An excellent discussion of this topic is given in the
+paper ``The Dark Side of Risk (What your mother never told you about Time
+Warp)'' by Nicol and Liu
+(\url{http://ieeexplore.ieee.org/xpls/abs_all.jsp?arnumber=594606}).
+
+As a small example, consider two LPs, $A$ and $B$. Say $A$ has sent some
+message to $B$ at some logical time $t$, then at $t+1$, $A$ is rolled back and
+sends an anti-message to $B$. However, before $B$ can process the anti-message,
+it processes the original message sent by $A$ *and* sends a message back to
+$A$. Now, $A$ receives a message that resulted from a state that, in $A$'s
+view, is undefined/unexpected.
+
+Depending on the event dependencies between LPs, issues such as the example can
+easily occur in optimistic simulations. In general, when diagnosing these
+issues it is useful to determine the full flow of events coming into an LP and
+ordering dependencies between those events. For example, protocols for
+performing a distributed storage write may have a number of steps represented
+as events. Knowing the order that these events can arrive in the system, and
+whether multiple events from e.g.\ different writes are possible can go a
+long way in determining the vectors for possible errors.
+
+\subsection{Self-suspend}
+
+Self-suspend is a technique for limiting how far down a path of undefined
+behavior an LP goes when receiving unexpected/undefined combinations of events.
+It is a relatively simple concept that falls into four steps:
+\begin{enumerate}
+    \item Aggressively check events for potential unexpected input, putting the
+        LP into \emph{suspend mode} by setting a suspend counter and returning
+        (keeping the LP state as it was before the offending event was
+        processed). Typically these can intersect with asserts in LP code, but
+        it is often unclear whether a model error is a programmer error or a
+        result of time warp event ordering.
+    \item While the suspend counter is positive, increment upon forward event
+        receipt and decrement upon reverse event receipt. Don't process the
+        received events.
+    \item When the suspend counter returns to zero, start processing forward
+        events again as normal.
+    \item Report whether an LP is in suspend state at the end of the
+        simulation.
+\end{enumerate}
+
+The primary benefit of self-suspend is that it prevents arbitrary changing (or
+destructing) of state based on unexpected messages, leading to a much more
+stable simulation. Additionally, the machinery for self-suspend is easy to
+implement -- steps 2--4 are a few lines of code each. Also, LP-IO can be
+used upon encountering a suspend condition to give error specifics (the reverse
+write would occur in the reverse handler in step 3).
+
+\subsection{Stash data needed for reverse computation within event structures}
+
+Writing discrete-event simulations will necessarily involve ``destructive''
+operations, which, in the view of an optimistic simulation, are operations in
+which the information needed for rollback is no longer available. Destructive
+operations include:
+\begin{enumerate}
+    \item Re-assignment of a variable (losing the original value)
+    \item Most floating point operations. Floating-point math is not
+        associative and rounding errors cause issues such as
+        $a+b-b \neq a$, which need to be considered when making a simulation
+        that involves floating-point math.
+    \item \texttt{free}'ing data.
+\end{enumerate}
+
+One nice property of events is that the data in an event structure will stick
+around until GVT sweeps by and the event is guaranteed to be no longer needed.
+Hence, one strategy for rolling back destructive operations is to stash the
+original values in the event structures causing the destruction, and restoring
+them upon rollback. The primary downside of this is that event structure size
+increases, which increases ROSS-related overheads (manipulating event-related
+data structures and sending events to other processes).
+
+\subsection{Prefer static to dynamic memory in LP state}
+
+In many cases (such as implementing data structures like queues and stacks), an
+LP will want to malloc memory within in an event and free it within another.
+This is discouraged for the time being. Once a piece of data is freed, it
+cannot be recovered upon rollback later on. If your data structures being
+allocated are simple and relatively small, you can put the data to be freed
+directly into the event structure then free the original copy, though it will
+increase the event structure size for the LP accordingly.
+
+In the future, optimistic-mode-aware free lists may be provided by ROSS that
+will mitigate this problem. At the moment, a manual implementation of this is
+provided in codes by codes/rc-stack.h (see tests/rc-stack-test.c for a
+simple demonstration).
+
+\subsection{Handling non-trivial event dependencies: queuing example}
+
+In storage system simulations, it will often be the case that clients, servers,
+or both issue multiple asynchronous (parallel) operations, performing some
+action upon the completion of them. More generally, the problem is: an event
+issuance (an ack to the client) is based on the completion of more than one
+asynchronous/parallel events (local write on primary server, forwarding write to
+replica server). Further complicating the matter for storage simulations, there
+can be any number of outstanding requests, each waiting on multiple events. 
+
+In ROSS's sequential and conservative parallel modes, the necessary state can
+easily be stored in the LP as a queue of statuses for each set of events,
+enqueuing upon asynchronous event issuances and updating/dequeuing upon each
+completion. Each LP can assign unique IDs to each queue item and propagate the
+IDs through the asynchronous events for lookup purposes. However, in optimistic
+mode we may remove an item from the queue and then be forced to re-insert it
+during reverse computation.
+
+Naively, one could simply never remove queue items, but of course memory will
+quickly be consumed.
+
+An elegant solution to this is to \emph{cache the status state in the event
+structure that causes the dequeue}. ROSS's reverse computation semantics ensures
+that this event will be reversed before the completion events of any of the
+other asynchronous events, allowing us to easily recover the state. Furthermore,
+events are garbage-collected as the GVT, reducing memory management complexity.
+However, this strategy has the disadvantage of increasing event size
+accordingly.
+
+\section{CODES/ROSS: general tips and tricks}
+
+\subsection{Initializing the model}
+
+There are two conceptual steps to initializing a CODES model - LP registration
+in ROSS and configuration via consulting the CODES configuration file. In older
+versions of models we wrote, these two steps were together. However, it is
+highly suggested to separate these two steps into different functions, with the
+registration occurring before the call to \texttt{codes\_mapping\_setup}, and
+the configuration occurring after the call. This allows the codes-mapping API
+to be used at configuration time, which is often useful when LPs need to know
+things like LP counts and doing these in the ROSS LP init function would lead
+to unnecessary computation. It is especially useful for configuration schemes
+that require knowledge of LP annotations.
+
+\subsection{LP-IO usage}
+
+LP-IO is a simple and useful optimistic-aware IO utility for optimistic
+simulations. Based on our usage, we have the following recommendations for
+effective usage of it:
+\begin{enumerate}
+    \item Use the command-line to configure turning IO on and off in its
+        entirety, and to specify where the output should be placed. Suggested
+        options:
+        \begin{enumerate}
+            \item \texttt{--lp-io-dir=DIR} -- use DIR as the output directory -
+                absence of the option indicates no LP-IO output.
+            \item \texttt{--lp-io-use-suffix=DUMMY} -- add the PID of the root
+                rank to the directory name to avoid clashes between
+                multiple runs. If not specified, then the DIR option
+                will be exactly used, possibly leading to an error/exit. The
+                dummy argument is due to a ROSS limitation of not allowing
+                ``flag''-style options (options with no arguments).
+        \end{enumerate}
+    \item Use LP-specific options in the CODES configuration file to drive
+        specific options for output within the LP.
+\end{enumerate}
+
+\subsection{Avoiding event timestamp ties}
+
+Event timestamp ties in ROSS occur when two or more events have the same
+timestamp. These have a variety of unintended consequences, most significant of
+which is hampering both reproducability and determinism in simulations. To
+avoid this, use codes\_local\_latency for events with small or zero time deltas
+to add some random noise. codes\_local\_latency must be reversed, so use
+codes\_local\_latency\_reverse in reverse event handlers.
+
+One example of this usage is exchanging events between LPs without really
+consuming significant time (for example, to transfer information from a server
+to its locally attached network card). It is tempting to use a timestamp of 0,
+but this would cause timestamp ties in ROSS. Use of codes\_local\_latency for
+timing of local event transitions in this case can be thought of as bus
+overhead or context switch overhead.
+
+\subsection{Organizing event structures}
+
+Since a single event structure contains data for all of the different types of
+events processed by the LP, use a type enum + unions (otherwise known as a
+``tagged struct'') as an organizational strategy. Keeps the event size down and
+makes it a little clearer what variables are used by which event types.
+
+\subsection{Validating across simulation modes}
+
+During development, you should do test runs with serial, parallel conservative,
+and parallel optimistic runs to make sure that you get consistent results.
+These modes stress different aspects of the model.
+
+\subsection{How to complete a simulation}
+
+Most core ROSS examples are design to intentionally hit
+the end timestamp for the simulation (i.e. they are modeling a continuous,
+steady state system). This isn't necessarily true for other models. Quite
+simply, set g\_tw\_ts\_end to an arbitrary large number when running simulations
+that have a well-defined end-point in terms of events processed. 
+
+Within the LP finalize function, do not call tw\_now. The time returned may not
+be consistent in the case of an optimistic simulation.
+
+\section{Best practices quick reference}
+
+NOTE: these may be integrated with the remaining notes or used as a summary of
+section(s).
+
+\subsection{ROSS simulation development}
+
+\begin{enumerate}
+
+    \item prefer fine-grained, simple LPs to coarse-grained, complex LPs
+    \begin{enumerate}
+        \item can simplify both LP state and reverse computation implementation
+        \item ROSS is very good at event processing, likely small difference in
+            performance
+    \end{enumerate}
+
+    \item consider separating single-source generation of concurrent events with
+        "feedback" events or "continue" events to self
+    \begin{enumerate}
+        \item generating multiple concurrent events makes rollback more difficult
+    \end{enumerate}
+
+    \item use dummy events to work around "event-less" advancement of simulation time 
+
+    \item add a small amount of time "noise" to events to prevent ties
+
+    \item prefer more and smaller events to fewer and larger events
+    \begin{enumerate}
+        \item simplifies individual event processing
+        \item ROSS uses bounded event structure size in communication, so
+            smaller bound $\rightarrow$  less communication overhead
+    \end{enumerate}
+
+    \item prefer placing state in event structure to LP state structure
+    \begin{enumerate}
+        \item simplifies reverse computation -- less persistent state
+        \item NOTE: tradeoff with previous point - consider efficiency vs.\
+            complexity
+    \end{enumerate}
+
+    \item try to implement event processing with only LP-local information
+    \begin{enumerate}
+        \item reverse computation with collective knowledge is difficult
+    \end{enumerate}
+
+    \item separate ROSS registration from LP configuration functionality
+
+    \item use self-suspend liberally
+    \item stash data from destructive operations (floating point computations,
+        freed data, re-assigned variables) in the event structure causing the
+        destruction
+    \item prefer static memory in LP states to dynamic memory
+
+\end{enumerate}
+
+\section{TODO}
+
+\begin{itemize}
+    \item add code examples?
+    \item put a pdf or latex2html version of this document on the codes web page
+        when it's ready
+\end{itemize}
+
+\begin{comment} ==== SCRATCH MATERIAL ====
+\begin{figure}
+\begin{lstlisting}[caption=Example code snippet., label=snippet-example]
+for (i=0; i<n; i++) {
+    for (j=0; j<i; j++) {
+        /* do something */
+    }
+}
+\end{lstlisting}
+\end{figure}
+
+Figure ~\ref{fig:snippet-example} shows an example of how to show a code
+snippet in latex.  We can use this format as needed throughout the document.
+\end{comment}
+
+\end{document}

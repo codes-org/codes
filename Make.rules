@@ -1,0 +1,40 @@
+# flex & bison deps
+#
+%.c %.h: %.l
+	$(AM_V_GEN)$(LEX) --header-file=$(@:.c=.h) -o $(@:.h=.c) $< \
+	   || ( $(RM) $(basename $@).h $(basename $@).c ; exit 1) 
+
+# 
+# specific rule for codesparser generation; we want the header to land in
+# the codes/ directory because it will be installed for use by other repos
+#src/iokernellang/codesparser.c codes/codesparser.h: src/iokernellang/codesparser.y
+#	mkdir -p codes
+#	@test "x$(bison_ok)" != "yes" || echo "*** WARNING *** Bison version might be too old"
+#	$(AM_V_GEN)$(YACC) --defines=codes/codesparser.h -o src/iokernellang/codesparser.c  $< \
+#	   || ( $(RM) $(basename $@).h $(basename $@).c ; exit 1)
+
+
+%.c %.h: %.y
+	@test "x$(bison_ok)" != "yes" || echo "*** WARNING *** Bison version might be too old"
+	$(AM_V_GEN)$(YACC) --defines=$(@:.c=.h) -o $(@:.h=.c)  $< \
+	   || ( $(RM) $(basename $@).h $(basename $@).c ; exit 1)
+
+
+
+# %.y: %.y.in Makefile
+#	$(AM_V_GEN)$(SED) -e 's,[@]CODES_PURE_PARSER_DEFINES[@],$(CODES_PURE_PARSER_DEFINES),g' \
+#	-e 's,[@]CODES_PUSH_PARSER_DEFINES[@],$(CODES_PUSH_PARSER_DEFINES),g' \
+#	< src/common/iokernellang/codesparser.y.in > src/common/iokernellang/codesparser.y
+
+#
+# Output dist version
+#
+.phony: distversion
+distversion:
+	@echo $(VERSION)
+
+#
+# Easy way to build unit tests without running them
+# 
+.phony: tests
+tests: $(check_PROGRAMS)

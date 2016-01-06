@@ -1,0 +1,37 @@
+# automake artifacts
+/Makefile.in
+/aclocal.m4
+/autom4te.cache/
+/codes_base_config.h.in
+/compile
+/config.guess
+/config.sub
+/configure
+/depcomp
+/install-sh
+/missing
+
+# configure artifacts
+/config.log
+/config.status
+/Makefile
+/stamp-h1
+/codes_base_config.h
+/maint/codes-base.pc
+.deps
+
+# make generated artifacts
+.dirstamp
+*.o
+*.a
+/src/modelconfig/configparser.h
+/src/modelconfig/configparser.c
+/src/modelconfig/configlex.h
+/src/modelconfig/configlex.c
+/tests/lp-io-test
+
+# hide backups
+*~
+
+# generated files from test runs
+ross.csv

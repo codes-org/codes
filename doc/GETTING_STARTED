@@ -1,0 +1,377 @@
+This document serves the following purposes:
+* Document project resources (repository links, etc.)
+* Introduce and present an overview of the key components making up the CODES
+  library
+* Walk through the CODES example model, which shows the majority of CODES
+  features currently available.
+
+= CODES/ROSS resources
+
+CODES and ROSS share a mailing list. It is at:
+https://lists.mcs.anl.gov/mailman/listinfo/codes-ross-users
+
+== CODES
+
+* main site: http://www.mcs.anl.gov/projects/codes/ 
+* repositories:
+  * "base" (this repository): git.mcs.anl.gov:radix/codes-base
+  * codes-net (networking component of CODES): git.mcs.anl.gov:radix/codes-net
+* bug tracking: https://trac.mcs.anl.gov/projects/CODES
+
+== ROSS
+
+* main site, repository, etc.: https://github.com/carothersc/ROSS
+  * both the site and repository contain good documentation as well - refer to
+    it for an in-depth introduction and overview of ROSS proper
+
+= Components of CODES 
+
+== Configuration
+
+The configuration of LPs, LP parameterization, and miscellaneous simulation
+parameters are specified by the CODES configuration system, which uses a
+structured configuration file. The configuration format allows categories, and
+optionally subgroups within the category, of key-value pairs for configuration.
+The LPGROUPS category defines the LP configuration. The PARAMS category is
+currently used for networking and ROSS-specific parameters. User-defined
+categories can also be used. 
+
+The configuration system additionally allows LP specialization via the usage of
+"annotations". This allows two otherwise identical LPs to have different
+parameterizations. Annotations have a simple "@" syntax appended to the LP
+fields, and are optional.
+
+CODES currently exposes a small number of ROSS simulation engine options within
+the configuration file. These are "PARAMS:message_size" and
+"PARAMS:pe_mem_factor". The "message_size" parameter indicates the upper bound
+of event sizes that ROSS is expected to handle, while the "pe_mem_factor"
+parameter indicates the multiplier to the number of events allocated per ROSS
+PE (an MPI rank). Both of these exist to support the static allocation scheme
+ROSS uses for efficiency - both LP states and the maximum population of events
+are allocated statically at the beginning of the simulation.
+
+The API is located at codes/configuration.h, which provides various types of
+access into the simulation configuration. Detailed configuration files can be
+found at doc/example/example.conf and doc/example_heterogeneous/example.conf.
+
+== LP mapping
+
+The codes-mapping API maps user LPs to global LP IDs, providing numerous
+options for modulating the namespace under which the mapping is conducted.
+Mapping is performed on a per-group or per-LP-type basis, with numerous further
+filtering options including on an LPs annotation. Finally, the mapping API
+provides LP counts using the aforementioned filtering options.
+
+The API can be found at codes/codes_mapping.h. doc/example/example.c shows a
+simple example of the mapping functionality, while the test program
+tests/mapping_test.c with configuration file tests/conf/mapping_test.conf
+extensively demonstrates the mapping API.
+
+=== LP mapping context
+
+In many cases (the resource and local storage model LPs, and modelnet in
+codes-net), the mapping from caller to callee LPs are implicit. The
+codes-mapping context API (codes/codes-mapping-context.h) provides various
+options for influencing these mappings, as well as providing the capability to
+bypass codes-mapping and send messages directly to an LP. The test file
+tests/map-ctx-test.c, along with the config file tests/conf/map-ctx-test.conf
+provides the best usage examples.
+
+== LP messaging conventions
+
+Models in CODES that have a request-response form of communication resembling
+that of RPCs follow a specific convention, defined in codes/codes-callback.h.
+The header documents the convention. The current best example usage is in the
+CODES sources themselves, i.e. in codes/resource-lp.h, src/util/resource-lp.c,
+codes/local-storage-model.h, and src/util/local-storage-model.c.
+
+== Workload generator(s)
+
+codes-workload is an in-development abstraction layer for feeding I/O / network
+workloads into a simulation. It supports multiple back-ends for generating I/O
+and network events; data could come from a trace file, from Darshan, or from a
+synthetic description.
+
+The workload generator is currently a work in progress, and the API is subject
+to change. The I/O generation component exposes a "POSIX-ish"
+open/close/read/write interface, while the network generation component exposes
+an "MPI-ish" send/recv/barrier/collective interface.
+
+As an additional utility, we provide a simple debug program,
+src/workload/codes-workload-dump, that processes a given workload and prints to
+standard out.
+
+=== IO
+
+We currently have initial support for extrapolating (lossy) Darshan logs
+(https://www.mcs.anl.gov/research/projects/darshan/), a simple synthetic IO
+kernel language, and IO Recorder (https://github.com/babakbehzad/Recorder)
+traces.
+
+==== Synthetic IO language
+
+The synthetic IO language is a simple, interpreted set of IO and basic
+arithmetic commands meant to simplify the specification and running of
+application workloads.
+
+The input for the workload generator consists of an IO kernel metadata file and
+a number of IO kernel files. The former specifies a set of kernel files to run
+and logical client IDs to participate in the workload, while the latter
+describes the IO to be performed.
+
+The format of the metadata file is a set of lines containing:
+  <group ID> <start ID> <end ID inclusive> <kernel file>
+where:
+* <group ID> is the ID of this group (see restrictions)
+* <start ID> and <end ID> form the range of logical client IDs that will 
+  perform the given workload. Note that the end ID is inclusive, so a start,
+  end pair of 0, 3 will include IDs 0, 1, 2, and 3. An <end ID> of -1 indicates
+  to use the remaining number of clients as specified by the user.
+* <kernel file> is the path to the IO kernel workload. It may either be an
+  absolute or relative path.
+
+The IO kernel file contains a set of commands performed on a per-client
+basis. Like the workload generator interface, files are represented by integer
+IDs, and the standard set of "POSIX-ish" operations can be applied (e.g., open,
+close, sync, write, read) and have a similar argument list (file ID, [length],
+[offset] where applicable). pread/pwrite equivalents are given by
+readat/writeat.
+
+More detailed documentation on the language is ongoing, but for now a general
+example can be seen at doc/workload, which shows a simple out-of-core data
+shuffle. Braver souls may wish to visit the implementation at src/iokernellang
+and src/workload/codes-iolang-wrkld.c.
+
+The following restrictions currently apply to the IO language:
+* all user-defined variables must be a single, lower-case letter (the symbol
+  table from the code we inherited is an array of 26 chars)
+* the implementation of "groups" is currently broken. We have gotten around
+  this by hard-coding in the group size and client ID into the parser when a
+  kernel file is loaded (parsing currently occurs on a per-client basis).
+  Hence, getgroupid should be completely ignored and getgrouprank and
+  getgroupsize ignore the group ID parameter passed in.
+
+=== Network
+
+Our primary network workload generator is via the DUMPI tool
+(http://sst.sandia.gov/about_dumpi.html). DUMPI collects and reads events from
+MPI applications. See the DUMPI documentation for how to generate traces. There
+are additionally publically-available traces at
+http://portal.nersc.gov/project/CAL/doe-miniapps.htm.
+
+Note on trace reading - the input file prefix to the dumpi workload generator
+should be everything up to the rank number. E.g., if the dumpi files are of the
+form "dumpi-YYYY.MM.DD.HH.MM.SS-XXXX.bin", then the input should be
+"dumpi-YYYY.MM.DD.HH.MM.SS-"
+
+=== Workload generator helpers
+
+The codes-jobmap API (codes/codes-jobmap.h) specifies mechanisms to initialize
+and run multiple jobs with unique job IDs and linear namespaces, used to allow
+multiple concurrent workloads to be run within the same simulation. Example
+usage can be seen in tests/jobmap-test.c and, for the list allocation method,
+in tests/conf/jobmap-test-list.conf. Note that only the DUMPI trace generator
+has been tested using this interface at this time.
+
+== LP-IO
+
+LP-IO is a set of simple reverse-computation-aware routines for conditionally
+outputting data on a per-LP basis. As the focus is on convenient, small-scale
+data output, data written via LP-IO remains in memory until the end of the
+simulation, or freed upon reverse computation. Large-scale,
+reverse-computation-aware IO is a feature we're thinking about for future
+usage.
+
+The API can be found at codes/lp-io.h and is fairly self-explanatory.
+
+== CODES configurator
+
+The configurator is a set of scripts intended to make the auto-generation of
+multiple CODES configuration files easier, for the purposes of performing
+parameter sweeps of simulations. The configuration file defining the parameters
+in the parameter sweep is defined by a python source file with well-defined
+field names, to maximize flexibility and enable some essential features for
+flexible parameter sweeps (disabling certain combinations of parameters,
+deriving parameters from other parameters in the sweep). The actual replacement
+is driven by token replacement defined by the values in the configuration file.
+
+An exhaustive example can be found at scripts/example. The scripts themselves
+are codes_configurator.py, codes_filter_configs.py, and
+codes_config_get_vals.py, each with detailed usage info. These scripts have
+heavily-overlapping functionality, so in the future these may be merged.
+
+== Miscellaneous utilities
+
+=== Workload display utility
+
+For debugging and experimentation purposes, a plain-text "dump" of an IO
+workload can be seen using the utility src/workload/codes-workload-dump
+(it gets installed into $bindir).
+
+=== LP template (src/util/templates)
+
+As writing ROSS/CODES models currently entail a not-insignificant amount of
+boilerplate for defining LPs and hooking them into ROSS, we have a template
+model for use at src/util/templates/lp_template.* .
+
+=== Generic message header (see best practices)
+
+We recommend the use of codes/lp-msg.h to standardize LP event headers, making it
+easier to identify messages.
+
+= Utility models
+
+== Local storage model
+
+The local storage model (LSM) is fairly simple in design but is sufficient for
+many simulations with reasonable I/O access patterns. It is an
+overhead/latency/bandwidth model that tracks file and offset accesses to
+determine whether to apply seeking penalties to the performance of the access.
+It uses a simple histogram-based approach to parameterization:
+overhead/latency/bandwidth numbers are given relative to different access
+sizes. To gather such parameters, well-known I/O benchmarks such as fio
+(http://git.kernel.dk/?p=fio.git;a=summary) can be used.
+
+The LP name used in configuration is "lsm" and the configuration is expected to
+be in a similarly named standalone group, an example of which is shown below:
+
+lsm
+{
+    # in bytes
+    request_sizes   = ( "4096","8192","16384","32768","65536","131072","262144","524288","1048576","2097152","4194304" );
+    # in MiB/s (2^20 bytes / s)
+    write_rates     = ( "1511.7","1511.7","1511.7","1511.7","1511.7","1511.7","1511.7","1511.7","1511.7","1511.7","1511.7" );
+    read_rates      = ( "1542.1","1542.1","1542.1","1542.1","1542.1","1542.1","1542.1","1542.1","1542.1","1542.1","1542.1" );
+    # in microseconds
+    write_seeks     = ( "499.5","509.0","514.7","525.9","546.4","588.3","663.1","621.8","539.1","3179.5","6108.8" );
+    read_seeks      = ( "3475.6","3470.0","3486.2","3531.2","3608.6","3741.0","3988.9","4530.2","5644.2","7922.0","11700.3" );
+    write_overheads = ( "29.67","29.67","29.67","29.67","29.67","29.67","29.67","29.67","29.67","29.67","29.67" );
+    read_overheads  = ( "23.67","23.67","23.67","23.67","23.67","23.67","23.67","23.67","23.67","23.67","23.67" );
+}
+
+The API can be found at codes/local-storage-model.h and example usage can be
+seen in tests/local-storage-model-test.c and tests/conf/lsm-test.conf. 
+
+The queueing policy of LSM is currently FIFO, and the default mode uses an
+implicit queue, simply incrementing counters and scheduling future events when
+I/O requests come in. Additionally, an explicit queue has been added and
+provides a simple FIFO+priority mechanism. To use, in the "lsm" group set
+"enable_scheduler" to the value "1".
+
+== Resource model
+
+The resource model presents a simple integer counter representing some finite
+resource (e.g., bytes of memory available). LPs request some number of units of
+the resource, receiving a success/failure completion message via a callback
+mechanism. Optional "blocking" can be used to defer the completion message
+until the request is successfully completed.
+
+The configuration LP name is "resource" and the parameters are given in a
+similarly-named group. An example is shown below:
+
+resource
+{
+    available="8192";
+}
+
+The API for the underlying resource data structure can be found in
+codes/resource.h. The user-facing API for communicating with the LP can be
+found in codes/resource-lp.h.
+
+= CODES example model
+
+An example model representing most of the functionality present in CODES is
+available in doc/example. In this scenario, we have a certain number of storage
+servers, identified through indices 0, ... , n-1 where each server has a
+network interface card (NIC) associated with it. The servers exchange messages
+with their neighboring server via their NIC card (i.e., server i pings server
+i+1, rolling over the index if necessary). When the neighboring server receives
+the message, it sends an acknowledgement message to the sending server in
+response. Upon receiving the acknowledgement, the sending server issues another
+message. This process continues until some number of messages have been sent.
+For simplicity, it is assumed that each server has a direct link to its
+neighbor, and no network congestion occurs due to concurrent messages being
+sent.
+
+The model is relatively simple to simulate through the usage of ROSS. There are
+two distinct LP types in the simulation: the server and the NIC. Refer to
+example.c for data structure definitions. The server LPs are in charge of
+issuing/acknowledging the messages, while the NIC LPs (implemented via CODES's
+model-net component, available in the codes-net repository) transmit the data
+and inform their corresponding servers upon completion. This LP decomposition
+strategy is generally preferred for ROSS-based simulations: have
+single-purpose, simple LPs representing logical system components.
+
+In this program, CODES is used in the following four ways: to provide
+configuration utilities for the program (example.conf), to logically separate
+and provide lookup functionality for multiple LP types, to automate LP
+placement on KPs/PEs, and to simplify/modularize the underlying network
+structure. The configuration API is used for the first use-case, the
+mapping API is used for the second and third use-cases, and the
+model-net API is used for the fourth use-case. The following sections
+discuss these while covering necessary ROSS-specific information.
+
+== Configuration and mapping
+
+In the example program, there are one server LP and one
+"modelnet_simplenet" LP type in a group and this combination is
+repeated 16 times (repetitions="16") for a total of 32 LPs. The section
+"server_pings" is server-LP-specific and defines the number of rounds of
+communication and the payload for each round.
+
+We use the simple-net LP provided by model-net as the underlying network
+model. The simple-net parameters are specified by the user in the PARAMS
+section of the example.conf config file.
+
+== Server state and event handlers
+
+The server LP state maintains a count of the number of remote messages it has
+sent and received as well as the number of local completion messages.   
+
+For the server event message, we have four message types: KICKOFF, REQ, ACK and
+LOCAL. With a KICKOFF event, each LP sends a message to itself to begin the
+simulation proper. To avoid event ties, we add a small amount of random noise
+using codes_local_latency. The REQ message is sent by a server to its
+neighboring server and when received, neighboring server sends back a message
+of type ACK. We've shown a hard-coded direct communication method which
+directly computes the LP ID, and a codes-mapping API-based method. 
+
+== Server reverse computation
+
+ROSS has the capability for optimistic parallel simulation, but instead of
+saving the state of each LP, they instead require users to perform reverse
+computation. That is, while the event messages are themselves preserved (until
+the Global Virtual Time (GVT) algorithm renders the messages unneeded), the LP
+state is not preserved. Hence, it is up to the simulation developer to provide
+functionality to reverse the LP state, given the event to be reversed. ROSS
+makes this simpler in that events will always be rolled back in exactly the
+order they were applied. Note that ROSS also has both serial and parallel
+conservative modes, so reverse computation may not be necessary if the
+simulation is not compute- or memory-intensive.
+
+For our example program, recall the "forward" event handlers. They perform the
+following: 
+* Kickoff: send a message to the peer server, and increment sender LP's
+    count of sent messages.
+* Request (received from peer server): increment receiver count of
+    received messages, and send an acknowledgement to the sender.
+* Acknowledgement (received from message receiver): send the next
+    message to the receiver and increment messages sent count. Set a flag
+    indicating whether a message has been sent.  
+* Local model-net callback: increment the local model-net
+    received messages count.
+
+In terms of LP state, the four operations are simply modifying counts. Hence,
+the "reverse" event handlers need to merely roll back those changes: 
+* Kickoff: decrement sender LP's count of sent messages.
+* Request (received from peer server): decrement receiver count of
+    received messages.
+* Acknowledgement (received from message receiver): decrement messages
+    sent count if flag indicating a message has been sent has not been
+    set.
+* Local model-net callback: decrement the local model-net
+    received messages count.
+
+For more complex LP states (such as maintaining queues), reverse event
+processing becomes similarly more complex. Refer to the best practices document
+for strategies of coping with the increase in complexity.

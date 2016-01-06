@@ -1,0 +1,29 @@
+my_bin_scripts = scripts/codes_configurator \
+			   scripts/codes_filter_configs \
+			   scripts/codes_config_get_vals
+
+bin_SCRIPTS += $(my_bin_scripts) 
+EXTRA_DIST += scripts/codes_configurator.py.in \
+			  scripts/codes_filter_configs.py.in \
+			  scripts/codes_config_get_vals.py.in \
+			  scripts/configurator.py
+CLEANFILES += $(my_bin_scripts)
+
+# manual rules for now
+do_subst = sed -e 's![@]libdir[@]!$(libdir)!g'
+
+.PHONY: scriptdir
+# need to ensure that the scripts directory exists before running the sub cmd
+scriptdir:
+	test -d scripts || mkdir scripts
+
+%: %.py.in Makefile scriptdir
+	$(do_subst) < $< > $@
+	chmod +x $@
+
+# install hook for configurator utility lib
+# TODO: actually use the install program, use more of a 'standard' approach
+install-data-local:
+	cp $(top_srcdir)/scripts/configurator.py $(libdir)
+uninstall-local:
+	rm -f $(libdir)/configurator.py
