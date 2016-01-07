@@ -1,0 +1,11 @@
+1- Torus network model:
+
+- Check how to specify the buffer size in the config file (buffer size is in flits)--- Option 1 specify the buffer size in packets and convert it into flits?
+- Check how to specify the number of torus nodes from the config file? Currently they are being calculated from the file... How to integrate this with the mapping thing?
+Option: Specify the torus network and the length of each torus dimension.
+
+2- Tests
+
+- clean up modelnet-test.c and code based on it. The way it calculates lpids is
+  extremely fragile (a bunch of constants + some assumptions that lead to very
+  confusing code)

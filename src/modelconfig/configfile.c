@@ -4,7 +4,7 @@
  *
  */
 
-#include "codes_base_config.h"
+#include "codes_config.h"
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>

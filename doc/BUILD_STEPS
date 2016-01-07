@@ -27,11 +27,11 @@ working from the CODES master branches, use the ROSS master branch.
     If using ccmake to configure, don't forget to set CMAKE_C_COMPILER and
     CMAKE_CXX_COMPILER to mpicc/mpicxx
 
-1 - If you are building codes-base directly from the repository, run
+1 - If you are building codes directly from the repository, run
 
     ./prepare.sh
 
-2 - Configure codes-base. This can be done in the source directory or in a
+2 - Configure codes. This can be done in the source directory or in a
     dedicated build directory if you prefer out-of-tree builds.  The CC
     environment variable must refer to an MPI compiler.
 

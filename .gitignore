@@ -2,7 +2,7 @@
 /Makefile.in
 /aclocal.m4
 /autom4te.cache/
-/codes_base_config.h.in
+/codes_config.h.in
 /compile
 /config.guess
 /config.sub
@@ -16,8 +16,9 @@
 /config.status
 /Makefile
 /stamp-h1
-/codes_base_config.h
-/maint/codes-base.pc
+/codes_config.h
+/maint/codes.pc
+/test-driver
 .deps
 
 # make generated artifacts

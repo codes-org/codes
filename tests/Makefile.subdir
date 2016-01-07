@@ -1,4 +1,3 @@
-
 check_PROGRAMS += tests/lp-io-test \
  tests/workload/codes-workload-test \
  tests/workload/codes-workload-mpi-replay \
@@ -7,7 +6,13 @@ check_PROGRAMS += tests/lp-io-test \
  tests/resource-test \
  tests/rc-stack-test \
  tests/jobmap-test \
- tests/map-ctx-test
+ tests/map-ctx-test \
+ tests/modelnet-test \
+ tests/modelnet-p2p-bw \
+ tests/concurrent-msg-recv tests/modelnet-simplep2p-test \
+ tests/modelnet-test-collective \
+ tests/modelnet-prio-sched-test \
+ tests/modelnet-test-dragonfly
 
 TESTS += tests/lp-io-test.sh \
  tests/workload/codes-workload-test.sh \
@@ -16,7 +21,13 @@ TESTS += tests/lp-io-test.sh \
  tests/rc-stack-test \
  tests/resource-test.sh \
  tests/jobmap-test.sh \
- tests/map-ctx-test.sh
+ tests/map-ctx-test.sh \
+ tests/modelnet-test.sh \
+ tests/modelnet-test-torus.sh \
+ tests/modelnet-test-loggp.sh \
+ tests/modelnet-test-dragonfly.sh \
+ tests/modelnet-p2p-bw-loggp.sh \
+ tests/modelnet-prio-sched-test.sh
 
 EXTRA_DIST += tests/lp-io-test.sh \
  tests/workload/codes-workload-test.sh \
@@ -32,32 +43,42 @@ EXTRA_DIST += tests/lp-io-test.sh \
  tests/conf/lsm-test.conf \
  tests/conf/mapping_test.conf \
  tests/conf/map-ctx-test.conf \
- tests/expected/mapping_test.out
+ tests/expected/mapping_test.out \
+ tests/modelnet-test.sh \
+ tests/modelnet-test-torus.sh \
+ tests/modelnet-test-loggp.sh \
+ tests/modelnet-test-dragonfly.sh \
+ tests/modelnet-p2p-bw-loggp.sh \
+ tests/modelnet-prio-sched-test.sh \
+ tests/conf/concurrent_msg_recv.conf \
+ tests/conf/modelnet-p2p-bw-loggp.conf \
+ tests/conf/modelnet-prio-sched-test.conf \
+ tests/conf/modelnet-test-bw.conf \
+ tests/conf/modelnet-test-bw-tri.conf \
+ tests/conf/modelnet-test.conf \
+ tests/conf/modelnet-test-dragonfly.conf \
+ tests/conf/modelnet-test-loggp.conf \
+ tests/conf/modelnet-test-simplep2p.conf \
+ tests/conf/modelnet-test-latency.conf \
+ tests/conf/modelnet-test-latency-tri.conf \
+ tests/conf/modelnet-test-torus.conf \
+ tests/conf/ng-mpi-tukey.dat \
+ tests/README_MN_TEST.txt
 
-testlib = src/libcodes-base.a ${ROSS_LIBS}
-
-tests_lp_io_test_LDADD = $(testlib)
 tests_lp_io_test_SOURCES = tests/lp-io-test.c
 
-tests_mapping_test_LDADD = $(testlib)
 tests_mapping_test_SOURCES = tests/mapping_test.c
 
-tests_resource_test_LDADD = $(testlib)
 tests_resource_test_SOURCES = tests/resource-test.c
 
-tests_lsm_test_LDADD = $(testlib)
 tests_lsm_test_SOURCES = tests/local-storage-model-test.c
 
-tests_rc_stack_test_LDADD = $(testlib)
 tests_rc_stack_test_SOURCES = tests/rc-stack-test.c
 
-tests_jobmap_test_LDADD = $(testlib)
 tests_jobmap_test_SOURCES = tests/jobmap-test.c
 
-tests_map_ctx_test_LDADD = $(testlib)
 tests_map_ctx_test_SOURCES = tests/map-ctx-test.c
 
-tests_workload_codes_workload_test_LDADD = $(testlib)
 tests_workload_codes_workload_test_SOURCES = \
  tests/workload/codes-workload-test.c \
  tests/workload/codes-workload-test-svr-lp.c \
@@ -65,5 +86,12 @@ tests_workload_codes_workload_test_SOURCES = \
  tests/workload/codes-workload-test-cn-lp.c \
  tests/workload/codes-workload-test-cn-lp.h 
 
-tests_workload_codes_workload_mpi_replay_LDADD = $(testlib)
 tests_workload_codes_workload_mpi_replay_SOURCES = tests/workload/codes-workload-mpi-replay.c
+
+tests_modelnet_test_SOURCES = tests/modelnet-test.c
+tests_modelnet_test_dragonfly_SOURCES = tests/modelnet-test-dragonfly.c
+tests_modelnet_simplep2p_test_SOURCES = tests/modelnet-simplep2p-test.c
+tests_modelnet_p2p_bw_SOURCES = tests/modelnet-p2p-bw.c
+tests_concurrent_msg_recv_SOURCES = tests/concurrent-msg-recv.c
+tests_modelnet_test_collective_SOURCES = tests/modelnet-test-collective.c
+tests_modelnet_prio_sched_test_SOURCES = tests/modelnet-prio-sched-test.c

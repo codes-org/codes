@@ -1,0 +1,7 @@
+== ptrn_loggp-2.4.6.patch
+
+If you are using the most recent version of netgauge at the time of this
+writing, 2.4.6, to gather loggp parameters, then you will likely need this patch
+to get the results you expect. This version replaced the exponential message
+size progression with fixed, linear byte increments of 1K. The patch reverts
+this new behavior.

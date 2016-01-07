@@ -1,0 +1,12 @@
+474c474
+<   unsigned long data_size;
+---
+>   long data_size;
+538,541c538,539
+<   for (data_size = NG_START_PACKET_SIZE;
+< 	     !g_stop_tests && data_size > 0 && data_size <= g_options.max_datasize;
+< 	     //get_next_testparams(&data_size, &test_count, &g_options)) {
+< 	     data_size+=2*512) {
+---
+>   for (data_size = g_options.min_datasize; data_size > 0;
+>           get_next_testparams(&data_size, &test_count, &g_options, module)){

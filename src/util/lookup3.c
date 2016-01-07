@@ -4,7 +4,7 @@
  *
  */
 
-#include "codes_base_config.h"
+#include "codes_config.h"
 #include "codes/jenkins-hash.h"
 
 /* used to prevent address sanitizer from complaining about jenkins hash

@@ -1,5 +1,7 @@
 0.4.0
 
+codes-base
+
 general:
 ==========
 significant source reorganization / refactoring
@@ -42,8 +44,53 @@ use a different RNG than default for codes_local_latency
   stream of calling model
 added simple GVT-aware stack with garbage collection (see rc-stack.h)
 
+codes-net
+
+general:
+==========
+cleanup of much of the code base
+more informative error for failure to find modelnet lps
+removed redundant include directory on install (was 'install/codes/codes/*.h')
+
+documentation:
+==========
+reorganized files to prevent name collisions on OSX. Top-level docs other than
+  copyright now in doc directory
+updated code documentation
+fix linker error in certain cases with codes-base
+tweaked config error handling
+
+
+networks:
+==========
+fix to loggp latency calculation when using "receive queue"
+made torus lps agnostic to groups and aware of annotations
+miscellaneous fixes to dragonfly model
+updates to simplep2p: support for having different latency/bw at sender &
+  receiver end. See src/models/networks/model-net/doc/README.simplep2p.txt
+minor fixes to usage of quickhash in replay tool
+fixed RNG reverse computation bug in loggp
+fixed swapped arguments in round-robin scheduler causing short circuit
+
+workloads:
+==========
+minor changes to dumpi trace config files
+resolving minor bug with reverse computation in dumpi traces
+Updating network trace code to use the combined workload API
+Adding synthetic traffic patterns (currently with dragonfly model)
+Adding network workload test program for debugging
+Updating MPI wait/wait_all code in replay tool
 
 0.3.0
 
+codes-base
+
 Initial "official" release. Against previous repository revisions, this release
 includes more complete documentation.
+
+codes-net
+
+Initial "official" release. Against previous repository revisions, this release
+includes more complete documentation and a rename of the "simplewan" model to
+the "simplep2p" (simple point-to-point) model to more accurately represent
+what it's modeling.

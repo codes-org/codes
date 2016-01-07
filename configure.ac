@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.67])
-AC_INIT([codes-base], [0.4.0], [http://trac.mcs.anl.gov/projects/codes/newticket],[],[http://www.mcs.anl.gov/projects/codes/])
+AC_INIT([codes], [0.4.0], [http://trac.mcs.anl.gov/projects/codes/newticket],[],[http://www.mcs.anl.gov/projects/codes/])
 
 AC_CANONICAL_TARGET
 AC_CANONICAL_SYSTEM
@@ -13,7 +13,7 @@ AM_INIT_AUTOMAKE([foreign subdir-objects -Wall])
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 
 AC_CONFIG_SRCDIR([doc/BUILD_STEPS])
-AC_CONFIG_HEADERS([codes_base_config.h])
+AC_CONFIG_HEADERS([codes_config.h])
 
 AX_PROG_BISON([],[AC_MSG_WARN([Could not find bison])])
 AX_PROG_FLEX([],[AC_MSG_WARN([Could not find flex])])
@@ -126,8 +126,10 @@ AS_IF([test "x$enable_valgrind_clean" = "xyes"], [
 
 
 dnl AC_CONFIG_FILES([src/iokernellang/codesparser.y])
+if test "x$srcdir" != "x."; then
+    AC_CONFIG_LINKS([tests/conf:$srcdir/tests/conf])
+fi
 
 AC_CONFIG_FILES([Makefile])
 
-AC_OUTPUT([maint/codes-base.pc])
-
+AC_OUTPUT([maint/codes.pc])

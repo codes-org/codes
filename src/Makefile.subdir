@@ -119,8 +119,6 @@ src_libcodes_base_a_SOURCES =  \
 # stealth testing of the template code (actual test is not run, just compiled as
 # a program - Make error signifies test failure)
 check_PROGRAMS += src/util/templates/lp_template_dummy_main
-src_util_templates_lp_template_dummy_main_LDADD = $(testlib) ${ROSS_LIBS}
-src_util_templates_lp_template_dummy_main_LDFLAGS = ${ROSS_LDFLAGS}
 src_util_templates_lp_template_dummy_main_SOURCES = \
  src/util/templates/lp_template_dummy_main.c \
  src/util/templates/lp_template.c \
@@ -131,19 +129,6 @@ bin_PROGRAMS += src/workload/codes-workload-dump
 
 src_workload_codes_workload_dump_SOURCES = \
  src/workload/codes-workload-dump.c
-src_workload_codes_workload_dump_LDADD = $(testlib) ${ROSS_LIBS}
-src_workload_codes_workload_dump_LDFLAGS =  ${ROSS_LDFLAGS}
-
-if USE_DARSHAN
-src_workload_codes_workload_dump_LDFLAGS +=  ${DARSHAN_LDFLAGS}
-src_workload_codes_workload_dump_LDADD += ${DARSHAN_LIBS}
-endif
-
-# TODO: does recorder need any specific linker flags??
-
-if USE_DUMPI
-src_workload_codes_workload_dump_LDADD += ${DUMPI_LIBS}
-endif
 
 #bin_PROGRAMS += src/network-workload/codes-nw-test
 
