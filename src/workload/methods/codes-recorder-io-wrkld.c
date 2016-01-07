@@ -341,6 +341,7 @@ static int recorder_io_workload_load(const char *params, int app_id, int rank)
 /* pull the next trace (independent or collective) for this rank from its trace context */
 static void recorder_io_workload_get_next(int app_id, int rank, struct codes_workload_op *op)
 {
+    (void)app_id; // no need for this here
     struct qhash_head *hash_link = NULL;
     struct rank_traces_context *tmp = NULL;
 

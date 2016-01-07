@@ -11,6 +11,9 @@
 #include <ross.h>
 #include <assert.h>
 
+// for printf conversions: shorthand for cast to long long unsigned format (llu)
+#define LLU(x) ((unsigned long long)(x))
+
 // simple deprecation attribute hacking
 #if !defined(DEPRECATED)
 #  if defined(__GNUC__) || defined(__GNUG__) || defined(__clang__)

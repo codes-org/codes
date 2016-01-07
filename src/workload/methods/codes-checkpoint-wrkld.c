@@ -86,19 +86,19 @@ static void * checkpoint_workload_read_config(
 
     int rc;
 
-    rc = configuration_get_value_double(&config, section_name, "checkpoint_sz",
+    rc = configuration_get_value_double(handle, section_name, "checkpoint_sz",
             annotation, &p->checkpoint_sz);
     assert(!rc);
 
-    rc = configuration_get_value_double(&config, section_name,
+    rc = configuration_get_value_double(handle, section_name,
             "checkpoint_wr_bw", annotation, &p->checkpoint_wr_bw);
     assert(!rc);
 
-    rc = configuration_get_value_int(&config, section_name, "total_checkpoints",
+    rc = configuration_get_value_int(handle, section_name, "total_checkpoints",
             annotation, &p->total_checkpoints);
     assert(!rc);
 
-    rc = configuration_get_value_double(&config, section_name, "mtti",
+    rc = configuration_get_value_double(handle, section_name, "mtti",
             annotation, &p->mtti);
     assert(!rc);
 

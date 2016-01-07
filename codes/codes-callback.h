@@ -71,12 +71,12 @@ struct codes_cb_params {
 
 #define SANITY_CHECK_CB(_cb_info_ptr, _ret_type) \
     do { \
-        int _total_size = sizeof(_ret_type) + sizeof(int) + sizeof(msg_header);\
-        int _esize = (_cb_info_ptr)->event_size; \
-        assert(_esize > 0 && \
+        assert((_cb_info_ptr)->event_size > 0 && \
                 (_cb_info_ptr)->header_offset >= 0 && \
                 (_cb_info_ptr)->tag_offset >= 0 && \
                 (_cb_info_ptr)->cb_ret_offset >= 0); \
+        size_t _total_size = sizeof(_ret_type) + sizeof(int) + sizeof(msg_header);\
+        size_t _esize = (_cb_info_ptr)->event_size; \
         assert(_esize >= _total_size); \
         assert(_esize >= (_cb_info_ptr)->header_offset + sizeof(msg_header)); \
         assert(_esize >= (_cb_info_ptr)->tag_offset + sizeof(int)); \

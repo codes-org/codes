@@ -8,7 +8,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#include "codes/lp-io.h"
+#include <codes/lp-io.h>
+#include <codes/codes.h>
 
 struct io_buffer
 {
@@ -116,8 +117,8 @@ int lp_io_write_rev(tw_lpid gid, char* identifier){
         id = id->next;
     }
     if (!id){
-        fprintf(stderr, "Error: identifier %s not found on reverse for LP %lu.",
-                identifier,gid);
+        fprintf(stderr, "Error: identifier %s not found on reverse for LP %llu.",
+                identifier,LLU(gid));
         return(-1);
     }
 
@@ -131,7 +132,7 @@ int lp_io_write_rev(tw_lpid gid, char* identifier){
         buf = buf->next;
     }
     if (!buf){
-        fprintf(stderr, "Error: no lp-io write buffer found for LP %lu (reverse write)\n", gid);
+        fprintf(stderr, "Error: no lp-io write buffer found for LP %llu (reverse write)\n", LLU(gid));
         return(-1);
     }
 

@@ -150,7 +150,7 @@ static void svr_init(
     /* skew each kickoff event slightly to help avoid event ties later on */
     kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng); 
 
-    e = codes_event_new(lp->gid, kickoff_time, lp);
+    e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
     m->event_type = KICKOFF;
     tw_event_send(e);
@@ -199,10 +199,11 @@ static void svr_finalize(
     svr_state * ns,
     tw_lp * lp)
 {
+    (void)ns;
     char buffer[256];
     int ret;
 
-    sprintf(buffer, "LP %ld finalize data\n", (long)lp->gid);
+    sprintf(buffer, "LP %llu finalize data\n", LLU(lp->gid));
 
     /* test having everyone write to same identifier */
     ret = lp_io_write(lp->gid, "node_state_pointers", strlen(buffer)+1, buffer);
@@ -218,7 +219,7 @@ static void svr_finalize(
     /* test having one lp write two buffers to the same id */
     if(lp->gid == 5)
     {
-        sprintf(buffer, "LP %ld finalize data (intentional duplicate)\n", (long)lp->gid);
+        sprintf(buffer, "LP %llu finalize data (intentional duplicate)\n", LLU(lp->gid));
         ret = lp_io_write(lp->gid, "node_state_pointers", strlen(buffer)+1, buffer);
         assert(ret == 0);
     }
@@ -239,6 +240,10 @@ static void handle_kickoff_rev_event(
     tw_lp * lp)
 {
     assert(0);
+    (void)ns;
+    (void)b;
+    (void)m;
+    (void)lp;
 
     return;
 }
@@ -253,6 +258,10 @@ static void handle_kickoff_event(
     //printf("handle_kickoff_event(), lp %llu.\n", (unsigned long long)lp->gid);
 
     /* do nothing */
+    (void)ns;
+    (void)b;
+    (void)m;
+    (void)lp;
 }
 
 /*

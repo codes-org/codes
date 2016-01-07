@@ -8,7 +8,7 @@
 #include <ross.h>
 #include "codes/rc-stack.h"
 
-int main(int argc, char *argv[])
+int main()
 {
     /* mock up a dummy lp for testing */
     tw_lp lp;

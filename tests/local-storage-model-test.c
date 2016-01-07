@@ -184,7 +184,7 @@ static void svr_init(
     /* skew each kickoff event slightly to help avoid event ties later on */
     kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng); 
 
-    e = codes_event_new(lp->gid, kickoff_time, lp);
+    e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
     msg_set_header(magic, KICKOFF, lp->gid, &m->h);
     tw_event_send(e);
@@ -279,6 +279,8 @@ static void handle_kickoff_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    (void)b;
+    (void)m;
     double rate;
     double seek;
 
@@ -318,6 +320,8 @@ static void handle_kickoff_rev_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    (void)b;
+    (void)m;
     lsm_io_event_rc(lp);
     lsm_io_event_rc(lp);
 
@@ -334,6 +338,7 @@ static void handle_ack_rev_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    (void)b;
     if(m->incremented_flag)
     {
         lsm_io_event_rc(lp);
@@ -349,6 +354,7 @@ static void handle_ack_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    (void)b;
     if (LSM_DEBUG)
         printf("handle_ack_event(), lp %llu.\n",
             (unsigned long long)lp->gid);
@@ -384,6 +390,9 @@ static void handle_local_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    (void)ns;
+    (void)b;
+    (void)m;
     if (LSM_DEBUG)
         printf("handle_local_event(), lp %llu.\n",
             (unsigned long long)lp->gid);

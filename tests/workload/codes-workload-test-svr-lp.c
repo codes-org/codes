@@ -155,7 +155,7 @@ void svr_op_start(tw_lp *lp, tw_lpid gid, const struct codes_workload_op *op)
     tw_event *e;
     svr_msg *m;
 
-    e = codes_event_new(gid, codes_local_latency(lp), lp);
+    e = tw_event_new(gid, codes_local_latency(lp), lp);
     m = tw_event_data(e);
     m->event_type = SVR_OP;
     m->op = *op;
@@ -174,7 +174,8 @@ static void handle_svr_op_event(
     svr_msg * m,
     tw_lp * lp)
 {
-    printf("handle_svr_op_event at lp %ld, type %d\n", lp->gid, m->op.op_type);
+    (void)b;
+    printf("handle_svr_op_event at lp %llu, type %d\n", LLU(lp->gid), m->op.op_type);
 
     m->next_idle_rc = ns->next_idle;
 
@@ -202,6 +203,8 @@ static void handle_svr_op_event_rc(
 {
     ns->next_idle = m->next_idle_rc;
     cn_op_complete_rc(lp);
+    (void)b;
+    (void)m;
     return;
 }
 

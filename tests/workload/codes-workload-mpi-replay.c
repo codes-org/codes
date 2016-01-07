@@ -20,9 +20,10 @@
 #include <sys/stat.h>
 #include <mpi.h>
 
-#include "codes/codes-workload.h"
-#include "codes/quickhash.h"
-#include "codes/configuration.h"
+#include <codes/codes-workload.h>
+#include <codes/quickhash.h>
+#include <codes/configuration.h>
+#include <codes/codes.h>
 
 #define DEBUG_PROFILING 0
 
@@ -203,7 +204,6 @@ int main(int argc, char *argv[])
     long long int replay_op_number = 1;
     double load_start, load_end;
     int ret = 0;
-    int i;
 
     /* parse command line args */
     parse_args(argc, argv, &conf_path, &replay_test_path);
@@ -453,10 +453,9 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             return 0;
         case CODES_WK_WRITE:
             if (opt_verbose)
-                fprintf(log_stream, "[Rank %d] Operation %lld : WRITE file %"PRIu64" (sz = %"PRId64
-                       ", off = %"PRId64")\n",
-                       rank, op_number, replay_op.u.write.file_id, replay_op.u.write.size,
-                       replay_op.u.write.offset);
+                fprintf(log_stream, "[Rank %d] Operation %lld : WRITE file %llu (sz = %llu, off = %llu)\n",
+                       rank, op_number, LLU(replay_op.u.write.file_id), LLU(replay_op.u.write.size),
+                       LLU(replay_op.u.write.offset));
 
             if (!opt_noop)
             {
@@ -483,9 +482,9 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             return 0;
         case CODES_WK_READ:
             if (opt_verbose)
-                fprintf(log_stream, "[Rank %d] Operation %lld : READ file %"PRIu64" (sz = %"PRId64
-                        ", off = %"PRId64")\n", rank, op_number, replay_op.u.read.file_id,
-                       replay_op.u.read.size, replay_op.u.read.offset);
+                fprintf(log_stream, "[Rank %d] Operation %lld : READ file %llu (sz = %llu, off = %llu)\n",
+                        rank, op_number, LLU(replay_op.u.read.file_id),
+                        LLU(replay_op.u.read.size), LLU(replay_op.u.read.offset));
 
             if (!opt_noop)
             {

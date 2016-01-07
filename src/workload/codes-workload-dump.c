@@ -7,7 +7,8 @@
 #include <assert.h>
 #include <getopt.h>
 #include <stdio.h>
-#include "codes/codes-workload.h"
+#include <codes/codes-workload.h>
+#include <codes/codes.h>
 #include <inttypes.h>
 
 static char type[128] = {'\0'};

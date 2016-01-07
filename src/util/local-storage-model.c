@@ -192,7 +192,7 @@ static tw_stime transfer_time_table (lsm_state_t *ns,
     double disk_rate;
     double disk_seek;
     double disk_overhead;
-    int i;
+    unsigned int i;
 
     /* find nearest size rounded down. */
     for (i = 0; i < ns->model->bins; i++)
@@ -600,6 +600,7 @@ static void handle_io_request(lsm_state_t *ns,
                               lsm_message_t *m_in,
                               tw_lp *lp)
 {
+    (void)b;
     tw_stime queue_time, t_time;
     tw_event *e;
     lsm_message_t *m_out;
@@ -670,6 +671,8 @@ static void handle_rev_io_request(lsm_state_t *ns,
                                   lsm_message_t *m_in,
                                   tw_lp *lp)
 {
+    (void)b;
+    (void)lp;
     lsm_stats_t *stat;
     
     stat = find_stats(data->category, ns);
@@ -808,7 +811,7 @@ static void read_config(ConfigHandle *ch, char const * anno, disk_model_t *model
     model->request_sizes = (unsigned int*)malloc(sizeof(int)*length);
     assert(model->request_sizes);
     model->bins = length;
-    for (int i = 0; i < length; i++)
+    for (size_t i = 0; i < length; i++)
     {
         model->request_sizes[i] = atoi(values[i]);
     }
@@ -821,7 +824,7 @@ static void read_config(ConfigHandle *ch, char const * anno, disk_model_t *model
     model->write_rates = (double*)malloc(sizeof(double)*length);
     assert(model->write_rates);
     assert(length == model->bins);
-    for (int i = 0; i < length; i++)
+    for (size_t i = 0; i < length; i++)
     {
         model->write_rates[i] = strtod(values[i], NULL);
     }
@@ -834,7 +837,7 @@ static void read_config(ConfigHandle *ch, char const * anno, disk_model_t *model
     model->read_rates = (double*)malloc(sizeof(double)*length);
     assert(model->read_rates);
     assert(model->bins == length);
-    for (int i = 0; i < length; i++)
+    for (size_t i = 0; i < length; i++)
     {
         model->read_rates[i] = strtod(values[i], NULL);
     }
@@ -847,7 +850,7 @@ static void read_config(ConfigHandle *ch, char const * anno, disk_model_t *model
     model->write_overheads = (double*)malloc(sizeof(double)*length);
     assert(model->write_overheads);
     assert(model->bins == length);
-    for (int i = 0; i < length; i++)
+    for (size_t i = 0; i < length; i++)
     {
         model->write_overheads[i] = strtod(values[i], NULL);
     }
@@ -860,7 +863,7 @@ static void read_config(ConfigHandle *ch, char const * anno, disk_model_t *model
     model->read_overheads = (double*)malloc(sizeof(double)*length);
     assert(model->read_overheads);
     assert(model->bins == length);
-    for (int i = 0; i < length; i++)
+    for (size_t i = 0; i < length; i++)
     {
         model->read_overheads[i] = strtod(values[i], NULL);
     }
@@ -873,7 +876,7 @@ static void read_config(ConfigHandle *ch, char const * anno, disk_model_t *model
     model->write_seeks = (double*)malloc(sizeof(double)*length);
     assert(model->write_seeks);
     assert(model->bins == length);
-    for (int i = 0; i < length; i++)
+    for (size_t i = 0; i < length; i++)
     {
         model->write_seeks[i] = strtod(values[i], NULL);
     }
@@ -886,7 +889,7 @@ static void read_config(ConfigHandle *ch, char const * anno, disk_model_t *model
     model->read_seeks = (double*)malloc(sizeof(double)*length);
     assert(model->read_seeks);
     assert(model->bins == length);
-    for (int i = 0; i < length; i++)
+    for (size_t i = 0; i < length; i++)
     {
         model->read_seeks[i] = strtod(values[i], NULL);
     }
@@ -914,7 +917,7 @@ void lsm_configure(void)
         read_config(&config, NULL, &model_unanno);
     }
 
-    for (uint64_t i = 0; i < anno_map->num_annos; i++){
+    for (int i = 0; i < anno_map->num_annos; i++){
         char const * anno = anno_map->annotations[i].ptr;
         read_config(&config, anno, &models_anno[i]);
     }

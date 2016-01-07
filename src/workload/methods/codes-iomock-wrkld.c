@@ -9,6 +9,7 @@
 #include <codes/codes-workload.h>
 #include <codes/quickhash.h>
 #include <codes/quicklist.h>
+#include <codes/codes.h>
 
 #define DEFAULT_HASH_TBL_SIZE 1024
 
@@ -71,6 +72,7 @@ static void * iomock_workload_read_config(
         char const * annotation,
         int num_ranks)
 {
+    (void)num_ranks; // not needed for this workload
     iomock_params *p = malloc(sizeof(*p));
     assert(p);
 

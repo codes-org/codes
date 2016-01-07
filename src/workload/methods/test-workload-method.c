@@ -43,6 +43,8 @@ static int test_workload_load(const char* params, int app_id, int rank)
     /* no params in this case; this example will work with any number of
      * ranks
      */
+    (void)params;
+    (void)app_id;
     struct wkload_stream_state* newv;
 
     newv = (struct wkload_stream_state*)malloc(sizeof(*newv));
@@ -90,6 +92,7 @@ static int test_workload_load(const char* params, int app_id, int rank)
 /* find the next workload operation to issue for this rank */
 static void test_workload_get_next(int app_id, int rank, struct codes_workload_op *op)
 {
+    (void)app_id;
     struct wkload_stream_state* tmp = wkload_streams;
     struct wkload_stream_state* tmp2 = wkload_streams;
 

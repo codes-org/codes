@@ -308,7 +308,7 @@ static void check_add_lp_type_anno(
         int lp_name_offset,
         int anno_offset,
         config_lpgroups_t *lpgroups){
-    uint64_t lpt_anno = 0;
+    int lpt_anno = 0;
     for (; lpt_anno < lpgroups->lpannos_count; lpt_anno++){
         config_anno_map_t *map = &lpgroups->lpannos[lpt_anno];
         if (map->lp_name.offset == lp_name_offset){
@@ -381,7 +381,7 @@ int configuration_get_lpgroups (ConfigHandle *handle,
     SectionEntry subse[10];
     size_t se_count = 10;
     size_t subse_count = 10;
-    int i, j, lpt;
+    size_t i, j, lpt;
     char data[256];
     // buffer mgmt vars
     int num_uniq_group_names = 0;
@@ -591,7 +591,7 @@ int configuration_get_lpgroups (ConfigHandle *handle,
 int configuration_get_annotation_index(const char *              anno,
                                        const config_anno_map_t * anno_map){
     if (anno == NULL) return -1;
-    for (uint64_t i = 0; i < anno_map->num_annos; i++){
+    for (int i = 0; i < anno_map->num_annos; i++){
         if (!strcmp(anno, anno_map->annotations[i].ptr)){
             return (int)i;
         }

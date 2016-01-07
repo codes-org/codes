@@ -56,6 +56,7 @@ static int jobmap_identity_to_global(struct codes_jobmap_id id, void const * ctx
 
 int jobmap_identity_get_num_jobs(void const * ctx)
 {
+    (void)ctx;
     return 1;
 }
 

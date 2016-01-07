@@ -60,18 +60,22 @@ static void template_finalize(
 /* event type handlers */
 static void handle_template_a(
     template_state * ns,
+    tw_bf * b,
     template_msg * m,
     tw_lp * lp);
 static void handle_template_b(
     template_state * ns,
+    tw_bf * b,
     template_msg * m,
     tw_lp * lp);
 static void handle_template_a_rev(
     template_state * ns,
+    tw_bf * b,
     template_msg * m,
     tw_lp * lp);
 static void handle_template_b_rev(
     template_state * ns,
+    tw_bf * b,
     template_msg * m,
     tw_lp * lp);
 
@@ -102,6 +106,8 @@ void template_init(){
 void template_lp_init(
         template_state * ns,
         tw_lp * lp){
+    (void)ns; // avoid warnings...
+    (void)lp;
     /* Fill me in... */
 }
 
@@ -114,10 +120,10 @@ void template_event_handler(
     
     switch (m->event_type){
         case TEMPLATE_A:
-            handle_template_a(ns, m, lp);
+            handle_template_a(ns, b, m, lp);
             break;
         case TEMPLATE_B:
-            handle_template_b(ns, m, lp);
+            handle_template_b(ns, b, m, lp);
             break;
         /* ... */
         default:
@@ -135,10 +141,10 @@ void template_rev_handler(
     
     switch (m->event_type){
         case TEMPLATE_A:
-            handle_template_a_rev(ns, m, lp);
+            handle_template_a_rev(ns, b, m, lp);
             break;
         case TEMPLATE_B:
-            handle_template_b_rev(ns, m, lp);
+            handle_template_b_rev(ns, b, m, lp);
             break;
         /* ... */
         default:
@@ -150,33 +156,55 @@ void template_rev_handler(
 void template_finalize(
         template_state * ns,
         tw_lp * lp){
+    (void)ns; // avoid warnings...
+    (void)lp;
     /* Fill me in... */
 }
 
 /* event type handlers */
 void handle_template_a(
     template_state * ns,
+    tw_bf * b,
     template_msg * m,
     tw_lp * lp){
+    (void)ns; // avoid warnings...
+    (void)b;
+    (void)m;
+    (void)lp;
 
 }
 void handle_template_b(
     template_state * ns,
+    tw_bf * b,
     template_msg * m,
     tw_lp * lp){
 
+    (void)ns; // avoid warnings...
+    (void)b;
+    (void)m;
+    (void)lp;
 }
 void handle_template_a_rev(
     template_state * ns,
+    tw_bf * b,
     template_msg * m,
     tw_lp * lp){
 
+    (void)ns; // avoid warnings...
+    (void)b;
+    (void)m;
+    (void)lp;
 }
 void handle_template_b_rev(
     template_state * ns,
+    tw_bf * b,
     template_msg * m,
     tw_lp * lp){
 
+    (void)ns; // avoid warnings...
+    (void)b;
+    (void)m;
+    (void)lp;
 }
 
 /**** END IMPLEMENTATIONS ****/

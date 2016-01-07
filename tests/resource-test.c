@@ -43,16 +43,18 @@ static void s_init(s_state *ns, tw_lp *lp){
     ns->mem_max = 0;
     INIT_CODES_CB_INFO(&ns->cb, s_msg, h, tag, c);
     ns->id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
-    tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
+    tw_event *e = tw_event_new(lp->gid, codes_local_latency(lp), lp);
     s_msg *m = tw_event_data(e);
     msg_set_header(s_magic, S_KICKOFF, lp->gid, &m->h);
     tw_event_send(e);
 }
 static void s_finalize(s_state *ns, tw_lp *lp){
-    printf("Server %d got %lu memory before failing\n", ns->id, ns->mem_max);
+    (void)lp;
+    printf("Server %d got %llu memory before failing\n", ns->id, LLU(ns->mem_max));
 }
 
 static void s_event(s_state *ns, tw_bf *bf, s_msg *m, tw_lp *lp){
+    (void)bf;
     assert(m->h.magic == s_magic);
     switch(m->h.event_type){
         case S_KICKOFF: ;
@@ -77,7 +79,7 @@ static void s_event(s_state *ns, tw_bf *bf, s_msg *m, tw_lp *lp){
             ns->mem -= bsize;
             if (ns->mem > 0){
                 tw_event *e = 
-                    codes_event_new(lp->gid, codes_local_latency(lp), lp);
+                    tw_event_new(lp->gid, codes_local_latency(lp), lp);
                 s_msg *m = tw_event_data(e);
                 msg_set_header(s_magic, S_FREE, lp->gid, &m->h);
                 tw_event_send(e);
@@ -86,6 +88,7 @@ static void s_event(s_state *ns, tw_bf *bf, s_msg *m, tw_lp *lp){
     }
 }
 static void s_event_rc(s_state *ns, tw_bf * b, s_msg *m, tw_lp *lp){
+    (void)b;
     assert(m->h.magic == s_magic);
     switch(m->h.event_type){
         case S_KICKOFF:

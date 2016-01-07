@@ -162,6 +162,7 @@ static int convertTypes(int inst)
 /* Gets the next operation specified in the workload file for the simulated MPI rank */
 void iolang_io_workload_get_next(int app_id, int rank, struct codes_workload_op *op)
 {
+    (void)app_id;
     /* If the number of simulated compute nodes per LP is initialized only then we get the next operation
 	else we return an error code may be?  */
         codes_iolang_wrkld_state_per_rank* next_wrkld;

@@ -14,8 +14,8 @@
 /* number of LPs assigned to the current PE (abstraction of MPI rank).
  * for lp counts which are not divisible by the number of ranks, keep 
  * modulus around */
-static int lps_per_pe_floor = 0;
-static int lps_leftover = 0;
+static tw_lpid lps_per_pe_floor = 0;
+static tw_lpid lps_leftover = 0;
 
 static int mem_factor = 256;
 
@@ -71,13 +71,13 @@ int codes_mapping_get_lps_for_pe()
 #if CODES_MAPPING_DEBUG
     printf("%d lps for rank %d\n", lps_per_pe_floor+(g_tw_mynode < lps_leftover), rank);
 #endif
-  return lps_per_pe_floor + (g_tw_mynode < lps_leftover);
+  return lps_per_pe_floor + ((tw_lpid)g_tw_mynode < lps_leftover);
 }
 
 /* Takes the global LP ID and returns the rank (PE id) on which the LP is mapped */
 tw_peid codes_mapping( tw_lpid gid)
 {
-    int lps_on_pes_with_leftover = lps_leftover * (lps_per_pe_floor+1);
+    tw_lpid lps_on_pes_with_leftover = lps_leftover * (lps_per_pe_floor+1);
     if (gid < lps_on_pes_with_leftover){
         return gid / (lps_per_pe_floor+1);
     }
@@ -453,7 +453,7 @@ static void codes_mapping_init(void)
      tw_lpid ross_gid, ross_lid; /* ross global and local IDs */
      tw_pe * pe;
      char lp_type_name[MAX_NAME_LENGTH];
-     int nkp_per_pe = g_tw_nkp;
+     tw_lpid nkp_per_pe = g_tw_nkp;
      tw_lpid         lpid, kpid;
      const tw_lptype *lptype;
 
@@ -461,9 +461,9 @@ static void codes_mapping_init(void)
      for(kpid = 0; kpid < nkp_per_pe; kpid++)
 	tw_kp_onpe(kpid, g_tw_pe[0]);
 
-     int lp_start =
+     tw_lpid lp_start =
          g_tw_mynode * lps_per_pe_floor + mini(g_tw_mynode,lps_leftover);
-     int lp_end =
+     tw_lpid lp_end =
          (g_tw_mynode+1) * lps_per_pe_floor + mini(g_tw_mynode+1,lps_leftover);
 
      for (lpid = lp_start; lpid < lp_end; lpid++)
@@ -549,7 +549,7 @@ void codes_mapping_setup_with_seed_offset(int offset)
   // an "offset" < 0 is ignored
   if (offset > 0){
       for (tw_lpid l = 0; l < g_tw_nlp; l++){
-          for (int i = 0; i < g_tw_nRNG_per_lp; i++){
+          for (unsigned int i = 0; i < g_tw_nRNG_per_lp; i++){
               tw_rand_initial_seed(&g_tw_lp[l]->rng[i], (g_tw_lp[l]->gid +
                           global_nlps * offset) * g_tw_nRNG_per_lp + i);
           }
@@ -597,7 +597,7 @@ const char* codes_mapping_get_annotation_by_lpid(tw_lpid gid){
  */
 const config_anno_map_t * 
 codes_mapping_get_lp_anno_map(const char *lp_name){
-    for (uint64_t i = 0; i < lpconf.lpannos_count; i++){
+    for (int i = 0; i < lpconf.lpannos_count; i++){
         if (strcmp(lp_name, lpconf.lpannos[i].lp_name.ptr) == 0){
             return &lpconf.lpannos[i];
         }

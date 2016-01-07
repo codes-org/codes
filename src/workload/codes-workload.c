@@ -6,8 +6,9 @@
 
 #include <assert.h>
 
-#include "ross.h"
-#include "codes/codes-workload.h"
+#include <ross.h>
+#include <codes/codes-workload.h>
+#include <codes/codes.h>
 
 /* list of available methods.  These are statically compiled for now, but we
  * could make generators optional via autoconf tests etc. if needed
@@ -232,6 +233,7 @@ void codes_workload_get_next_rc(
         int rank,
         const struct codes_workload_op *op)
 {
+    (void)wkld_id; // currently unused
     struct rank_queue *tmp;
     struct rc_op *tmp_op;
 
@@ -304,24 +306,24 @@ void codes_workload_print_op(
                     app_id, rank, op->u.barrier.count, op->u.barrier.root);
             break;
         case CODES_WK_OPEN:
-            fprintf(f, "op: app:%d rank:%d type:open file_id:%lu flag:%d\n",
-                    app_id, rank, op->u.open.file_id, op->u.open.create_flag);
+            fprintf(f, "op: app:%d rank:%d type:open file_id:%llu flag:%d\n",
+                    app_id, rank, LLU(op->u.open.file_id), op->u.open.create_flag);
             break;
         case CODES_WK_CLOSE:
-            fprintf(f, "op: app:%d rank:%d type:close file_id:%lu\n",
-                    app_id, rank, op->u.close.file_id);
+            fprintf(f, "op: app:%d rank:%d type:close file_id:%llu\n",
+                    app_id, rank, LLU(op->u.close.file_id));
             break;
         case CODES_WK_WRITE:
             fprintf(f, "op: app:%d rank:%d type:write "
-                       "file_id:%lu off:%lu size:%lu\n",
-                    app_id, rank, op->u.write.file_id, op->u.write.offset,
-                    op->u.write.size);
+                       "file_id:%llu off:%llu size:%llu\n",
+                    app_id, rank, LLU(op->u.write.file_id), LLU(op->u.write.offset),
+                    LLU(op->u.write.size));
             break;
         case CODES_WK_READ:
             fprintf(f, "op: app:%d rank:%d type:read "
-                       "file_id:%lu off:%lu size:%lu\n",
-                    app_id, rank, op->u.read.file_id, op->u.read.offset,
-                    op->u.read.size);
+                       "file_id:%llu off:%llu size:%llu\n",
+                    app_id, rank, LLU(op->u.read.file_id), LLU(op->u.read.offset),
+                    LLU(op->u.read.size));
             break;
         case CODES_WK_SEND:
             fprintf(f, "op: app:%d rank:%d type:send "
@@ -365,7 +367,7 @@ void codes_workload_print_op(
             break;
        case CODES_WK_REQ_FREE:
             fprintf(f, "op: app:%d rank:%d type:req free "
-                    " req:%ld ",
+                    " req:%d ",
                     app_id, rank,
                     op->u.free.req_id);
             break;

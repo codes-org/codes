@@ -237,9 +237,10 @@ static void handle_resource_free(
         tw_bf * b,
         resource_msg * m,
         tw_lp * lp){
+    (void)b;
     assert(!resource_free(m->i.req, m->i.tok, &ns->r));
     /* create an event to pop the next queue item */
-    tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
+    tw_event *e = tw_event_new(lp->gid, codes_local_latency(lp), lp);
     resource_msg *m_deq = (resource_msg*)tw_event_data(e);
     msg_set_header(resource_magic, RESOURCE_DEQ, lp->gid, &m_deq->i.h);
     m_deq->i.tok = m->i.tok; /* only tok is needed, all others grabbed from q */
@@ -250,6 +251,7 @@ static void handle_resource_free_rc(
         tw_bf * b,
         resource_msg * m,
         tw_lp * lp){
+    (void)b;
     assert(!resource_get(m->i.req, m->i.tok, &ns->r));
     codes_local_latency_reverse(lp);
 }
@@ -281,7 +283,7 @@ static void handle_resource_deq(
         resource_response(&p->m.cb, lp, ret, TOKEN_DUMMY);
         free(p);
         /* additionally attempt to dequeue next one down */
-        tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
+        tw_event *e = tw_event_new(lp->gid, codes_local_latency(lp), lp);
         resource_msg *m_deq = (resource_msg*)tw_event_data(e);
         msg_set_header(resource_magic, RESOURCE_DEQ, lp->gid, &m_deq->i.h);
         /* only tok is needed, all others grabbed from q */
@@ -320,6 +322,7 @@ static void handle_resource_reserve(
         tw_bf * b,
         resource_msg * m,
         tw_lp * lp){
+    (void)b;
     resource_token_t tok;
     int ret = resource_reserve(m->i.req, &tok, &ns->r);
     assert(!ret);
@@ -330,6 +333,7 @@ static void handle_resource_reserve_rc(
         tw_bf * b,
         resource_msg * m,
         tw_lp * lp){
+    (void)b;
     /* this reversal method is essentially a hack that relies on each
      * sequential reserve appending to the end of the list 
      * - we expect reserves to happen strictly at the beginning of the
@@ -395,8 +399,8 @@ void resource_finalize(
     struct qlist_head *ent;
     for (int i = 0; i < MAX_RESERVE+1; i++){
         qlist_for_each(ent, &ns->pending[i]){
-            fprintf(stderr, "WARNING: resource LP %lu has a pending allocation\n",
-                    lp->gid);
+            fprintf(stderr, "WARNING: resource LP %llu has a pending allocation\n",
+                    LLU(lp->gid));
         }
     }
 
@@ -408,12 +412,12 @@ void resource_finalize(
                 "# format: <LP> <max used general> <max used token...>\n");
         lp_io_write(lp->gid, RESOURCE_LP_NM, written, out_buf);
     }
-    written = sprintf(out_buf, "%lu", lp->gid);
+    written = sprintf(out_buf, "%llu", LLU(lp->gid));
 
     // compute peak resource usage
     // TODO: wrap this up in the resource interface
-    for (int i = 0; i < ns->r.num_tokens+1; i++){
-        written += sprintf(out_buf+written, " %lu", ns->r.max[i]-ns->r.min_avail[i]);
+    for (unsigned i = 0; i < ns->r.num_tokens+1; i++){
+        written += sprintf(out_buf+written, " %llu", LLU(ns->r.max[i]-ns->r.min_avail[i]));
     }
     written += sprintf(out_buf+written, "\n");
     lp_io_write(lp->gid, RESOURCE_LP_NM, written, out_buf);
@@ -452,7 +456,7 @@ void resource_lp_configure(){
         assert(avail > 0);
         avail_unanno = (uint64_t)avail;
     }
-    for (uint64_t i = 0; i < anno_map->num_annos; i++){
+    for (int i = 0; i < anno_map->num_annos; i++){
         ret = configuration_get_value_longint(&config, RESOURCE_LP_NM,
             "available", anno_map->annotations[i].ptr, &avail);
         if (ret){

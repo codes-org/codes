@@ -119,7 +119,7 @@ static void client_init(
     /* skew each kickoff event slightly to help avoid event ties later on */
     kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng); 
 
-    e = codes_event_new(lp->gid, kickoff_time, lp);
+    e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
     m->event_type = CLIENT_KICKOFF;
     tw_event_send(e);
@@ -202,6 +202,7 @@ static void handle_client_op_barrier_rev_event(
     client_msg * m,
     tw_lp * lp)
 {
+    (void)b;
     int i;
 
     ns->current_barrier_count = m->current_barrier_count_rc;
@@ -220,7 +221,7 @@ static void handle_client_op_loop_rev_event(
     client_msg * m,
     tw_lp * lp)
 {
-
+    (void)b;
     codes_workload_get_next_rc(ns->wkld_id, 0, ns->my_rank, &m->op_rc);
 
     switch(m->op_rc.op_type)
@@ -249,6 +250,7 @@ static void handle_client_op_barrier_event(
     client_msg * m,
     tw_lp * lp)
 {
+    (void)b;
     tw_event *e;
     client_msg *m_out;
     int i;
@@ -273,7 +275,7 @@ static void handle_client_op_barrier_event(
         /* release all clients, including self */
         for(i=0; i<ns->current_barrier_count; i++)
         {
-            e = codes_event_new(lp->gid+i, codes_local_latency(lp), lp);
+            e = tw_event_new(lp->gid+i, codes_local_latency(lp), lp);
             m_out = tw_event_data(e);
             m_out->event_type = CLIENT_OP_COMPLETE;
             tw_event_send(e);
@@ -292,14 +294,15 @@ static void handle_client_op_loop_event(
     client_msg * m,
     tw_lp * lp)
 {
+    (void)b;
     tw_lpid dest_svr_id;
 
-    printf("handle_client_op_loop_event(), lp %llu.\n", (unsigned long long)lp->gid);
+    printf("handle_client_op_loop_event(), lp %llu.\n", LLU(lp->gid));
 
     if(m->event_type == CLIENT_KICKOFF)
     {
         /* first operation; initialize the desired workload generator */
-        printf("codes_workload_load on gid: %ld\n", lp->gid);
+        printf("codes_workload_load on gid: %llu\n", LLU(lp->gid));
 	
 	if(strcmp(workload_type, "test") == 0)
            ns->wkld_id = codes_workload_load("test", NULL, 0, ns->my_rank);
@@ -380,7 +383,7 @@ static void cn_delay(tw_lp *lp, double seconds)
     client_msg *m_out;
 
     /* message to self */
-    e = codes_event_new(lp->gid, seconds, lp);
+    e = tw_event_new(lp->gid, seconds, lp);
     m_out = tw_event_data(e);
     m_out->event_type = CLIENT_OP_COMPLETE;
     tw_event_send(e);
@@ -393,7 +396,7 @@ static void cn_enter_barrier(tw_lp *lp, tw_lpid gid, int count)
     tw_event *e;
     client_msg *m_out;
 
-    e = codes_event_new(gid, codes_local_latency(lp), lp);
+    e = tw_event_new(gid, codes_local_latency(lp), lp);
     m_out = tw_event_data(e);
     m_out->event_type = CLIENT_OP_BARRIER;
     if(count == -1)
@@ -411,7 +414,7 @@ void cn_op_complete(tw_lp *lp, tw_stime svc_time, tw_lpid gid)
     tw_event *e;
     client_msg *m;
 
-    e = codes_event_new(gid, codes_local_latency(lp) + svc_time, lp);
+    e = tw_event_new(gid, codes_local_latency(lp) + svc_time, lp);
     m = tw_event_data(e);
     m->event_type = CLIENT_OP_COMPLETE;
     tw_event_send(e);

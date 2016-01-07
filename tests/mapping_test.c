@@ -26,9 +26,9 @@ static void init(state *ns, tw_lp *lp){
     // annotation check
     if (    (anno == NULL && ns->anno[0] != '\0') ||
             (anno != NULL && strcmp(anno, ns->anno) != 0)){
-        fprintf(stderr, "LP %lu: annotations don't match: "
+        fprintf(stderr, "LP %llu: annotations don't match: "
                 "_get_lp_info:\"%s\", _get_anno_by_lpid:\"%s\"\n",
-                lp->gid, ns->anno, anno);
+                LLU(lp->gid), ns->anno, anno);
     }
 
     ns->id_global = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
@@ -50,37 +50,37 @@ static void init(state *ns, tw_lp *lp){
         codes_mapping_get_lpid_from_relative(ns->id_by_group_anno, ns->group_name,
                 ns->lp_name, anno, 1);
     if (lp->gid != id_from_global_rel){
-        fprintf(stderr, "LP %lu (%s): "
-                "global relative id %d doesn't match (got %lu)\n",
-                lp->gid, ns->lp_name, ns->id_global, id_from_global_rel);
+        fprintf(stderr, "LP %llu (%s): "
+                "global relative id %d doesn't match (got %llu)\n",
+                LLU(lp->gid), ns->lp_name, ns->id_global, LLU(id_from_global_rel));
     }
     if (lp->gid != id_from_group_rel){
-        fprintf(stderr, "LP %lu (%s): "
-                "group %s relative id %d doesn't match (got %lu)\n",
-                lp->gid, ns->lp_name, ns->group_name, ns->id_by_group,
-                id_from_group_rel);
+        fprintf(stderr, "LP %llu (%s): "
+                "group %s relative id %d doesn't match (got %llu)\n",
+                LLU(lp->gid), ns->lp_name, ns->group_name, ns->id_by_group,
+                LLU(id_from_group_rel));
     }
     if (lp->gid != id_from_anno_rel){
-        fprintf(stderr, "LP %lu (%s): "
-                "anno \"%s\" relative id %d doesn't match (got %lu)\n",
-                lp->gid, ns->lp_name, ns->anno, ns->id_by_group,
-                id_from_anno_rel);
+        fprintf(stderr, "LP %llu (%s): "
+                "anno \"%s\" relative id %d doesn't match (got %llu)\n",
+                LLU(lp->gid), ns->lp_name, ns->anno, ns->id_by_group,
+                LLU(id_from_anno_rel));
     }
     if (lp->gid != id_from_group_anno_rel){
-        fprintf(stderr, "LP %lu (%s): "
-                "group %s anno \"%s\" relative id %d doesn't match (got %lu)\n",
-                lp->gid, ns->lp_name, ns->group_name, ns->anno, ns->id_by_group,
-                id_from_group_anno_rel);
+        fprintf(stderr, "LP %llu (%s): "
+                "group %s anno \"%s\" relative id %d doesn't match (got %llu)\n",
+                LLU(lp->gid), ns->lp_name, ns->group_name, ns->anno, ns->id_by_group,
+                LLU(id_from_group_anno_rel));
     }
 
 
     // output-based check - print out IDs, compare against expected
     char tmp[128];
-    if (ns->anno == NULL || ns->anno[0]=='\0')
+    if (ns->anno[0]=='\0')
         tmp[0] = '\0';
     else
         sprintf(tmp, "@%s", ns->anno);
-    printf("TEST2 %2lu %2d %2d %2d %2d %s%s\n", lp->gid, ns->id_global,
+    printf("TEST2 %2llu %2d %2d %2d %2d %s%s\n", LLU(lp->gid), ns->id_global,
             ns->id_by_group, ns->id_by_anno, ns->id_by_group_anno, ns->lp_name,
             tmp);
 }
