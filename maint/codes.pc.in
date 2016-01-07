@@ -14,5 +14,5 @@ Description: Base functionality for CODES storage simulation
 Version: @PACKAGE_VERSION@
 URL: http://trac.mcs.anl.gov/projects/CODES
 Requires:
-Libs: -L${libdir} -lcodes-net -lcodes-base ${ross_libs} ${darshan_libs} ${dumpi_libs} 
+Libs: -L${libdir} -lcodes ${ross_libs} ${darshan_libs} ${dumpi_libs} 
 Cflags: -I${includedir} ${ross_cflags} ${darshan_cflags} ${dumpi_cflags}

@@ -1,4 +1,4 @@
-lib_LIBRARIES += src/libcodes-base.a 
+lib_LIBRARIES += src/libcodes.a
 
 BUILT_SOURCES += src/modelconfig/configparser.h \
                  src/modelconfig/configlex.h
@@ -12,7 +12,20 @@ EXTRA_DIST += src/iokernellang/codesparser.y.in \
 			  src/util/README.codes-mapping.txt \
 			  src/util/README.lp-io.txt \
 			  src/workload/README.codes-workload \
-			  src/workload/TODO.codes-workload
+			  src/workload/TODO.codes-workload \
+			  src/network-workloads/README_synthetic.txt \
+			  src/network-workloads/README_traces.txt \
+			  src/network-workloads/conf/modelnet-mpi-test.conf \
+			  src/network-workloads/conf/modelnet-mpi-test-cry-router.conf \
+			  src/network-workloads/conf/modelnet-mpi-test-dragonfly.conf \
+			  src/network-workloads/conf/modelnet-mpi-test-mini-fe.conf \
+			  src/network-workloads/conf/modelnet-mpi-test-torus.conf \
+			  src/networks/model-net/doc/README \
+			  src/networks/model-net/doc/README.dragonfly.txt \
+			  src/networks/model-net/doc/README.loggp.txt \
+			  src/networks/model-net/doc/README.simplenet.txt \
+			  src/networks/model-net/doc/README.simplep2p.txt \
+			  src/networks/model-net/MN_TODO
 
 #src/network-workload/README
 #src/network-workload/offsets
@@ -60,11 +73,22 @@ nobase_include_HEADERS = \
 	codes/rc-stack.h \
 	codes/codes-jobmap.h \
 	codes/codes-callback.h \
-	codes/codes-mapping-context.h
+	codes/codes-mapping-context.h \
+	codes/model-net.h	\
+	codes/model-net-method.h \
+	codes/model-net-lp.h \
+	codes/model-net-sched.h \
+	codes/model-net-inspect.h \
+	codes/net/dragonfly.h \
+	codes/net/loggp.h \
+	codes/net/simplenet-upd.h \
+	codes/net/simplep2p.h \
+	codes/net/torus.h
+
 
 #codes/codes-nw-workload.h
 
-src_libcodes_base_a_SOURCES =  \
+src_libcodes_a_SOURCES =  \
     src/iokernellang/codesparser.h \
     src/iokernellang/codesparser.c \
     src/iokernellang/codeslexer.h \
@@ -110,7 +134,22 @@ src_libcodes_base_a_SOURCES =  \
     src/workload/methods/test-workload-method.c \
 	src/workload/methods/codes-iomock-wrkld.c \
 	codes/rc-stack.h \
-	src/util/rc-stack.c
+	src/util/rc-stack.c \
+	src/networks/model-net/model-net.c \
+	src/networks/model-net/simplenet-upd.c \
+	src/networks/model-net/torus.c \
+	src/networks/model-net/dragonfly.c \
+	src/networks/model-net/loggp.c \
+	src/networks/model-net/simplep2p.c \
+	src/networks/model-net/model-net-lp.c \
+	src/networks/model-net/model-net-sched.c \
+	src/networks/model-net/model-net-sched-impl.h \
+	src/networks/model-net/model-net-sched-impl.c \
+	src/network-workloads/model-net-mpi-wrklds.c \
+	src/network-workloads/model-net-mpi-replay.c \
+	src/network-workloads/model-net-synthetic.c \
+	src/network-workloads/model-net-dumpi-traces-dump.c
+
 
 #codes/codes-nw-workload.h
 #src/network-workload/codes-nw-workload.c
@@ -126,9 +165,20 @@ src_util_templates_lp_template_dummy_main_SOURCES = \
 # get rid of annoying unused function in template
 
 bin_PROGRAMS += src/workload/codes-workload-dump
+bin_PROGRAMS += src/network-workloads/model-net-mpi-replay
+bin_PROGRAMS += src/network-workloads/model-net-mpi-wrklds
+bin_PROGRAMS += src/network-workloads/model-net-dumpi-traces-dump
+bin_PROGRAMS += src/network-workloads/model-net-synthetic
+
 
 src_workload_codes_workload_dump_SOURCES = \
  src/workload/codes-workload-dump.c
+
+src_network_workloads_model_net_mpi_replay_SOURCES = src/network-workloads/model-net-mpi-replay.c
+
+src_network_workloads_model_net_mpi_wrklds_SOURCES = src/network-workloads/model-net-mpi-wrklds.c
+src_network_workloads_model_net_synthetic_SOURCES = src/network-workloads/model-net-synthetic.c
+src_network_workloads_model_net_dumpi_traces_dump_SOURCES = src/network-workloads/model-net-dumpi-traces-dump.c
 
 #bin_PROGRAMS += src/network-workload/codes-nw-test
 
