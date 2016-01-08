@@ -85,7 +85,7 @@ void node_lp_init(
     ns->is_in_foo = (id_all < num_foo_nodes);
 
     // send a self kickoff event
-    tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
+    tw_event *e = tw_event_new(lp->gid, codes_local_latency(lp), lp);
     node_msg *m = tw_event_data(e);
     msg_set_header(node_magic, NODE_KICKOFF, lp->gid, &m->h);
     tw_event_send(e);
@@ -106,8 +106,8 @@ void node_finalize(
     }
     if (ns->num_processed != num_pings*mult){
         fprintf(stderr,
-                "%s node %d, lp %lu: processed %d (expected %d)\n",
-                ns->is_in_foo ? "foo" : "bar", ns->id_clust, lp->gid,
+                "%s node %d, lp %llu: processed %d (expected %d)\n",
+                ns->is_in_foo ? "foo" : "bar", ns->id_clust, LLU(lp->gid),
                 ns->num_processed, num_pings*mult);
     }
 }
@@ -117,6 +117,7 @@ void handle_node_next(
         node_state * ns,
         node_msg * m,
         tw_lp * lp){
+    (void)m;
     // we must be in cluster foo for this function
     assert(ns->is_in_foo);
 
@@ -194,6 +195,7 @@ void node_event_handler(
         tw_bf * b,
         node_msg * m,
         tw_lp * lp){
+    (void)b;
     assert(m->h.magic == node_magic);
     
     switch (m->h.event_type){
@@ -251,6 +253,8 @@ void forwarder_finalize(
         forwarder_state * ns,
         tw_lp * lp){
     // nothing to see here
+    (void)ns;
+    (void)lp;
 }
 
 void handle_forwarder_fwd(
@@ -330,6 +334,7 @@ void forwarder_event_handler(
         tw_bf * b,
         forwarder_msg * m,
         tw_lp * lp){
+    (void)b;
     assert(m->h.magic == forwarder_magic);
 
     switch(m->h.event_type){

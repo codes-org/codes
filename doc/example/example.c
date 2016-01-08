@@ -72,6 +72,8 @@ struct svr_msg
     enum svr_event svr_event_type;
     tw_lpid src;          /* source of this request or ack */
 
+    model_net_event_return ret; /* model net reverse computation var */
+
     int incremented_flag; /* helper for reverse computation */
 };
 
@@ -291,7 +293,7 @@ static void svr_init(
     kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng); 
 
     /* first create the event (time arg is an offset, not absolute time) */
-    e = codes_event_new(lp->gid, kickoff_time, lp);
+    e = tw_event_new(lp->gid, kickoff_time, lp);
     /* after event is created, grab the allocated message and set msg-specific
      * data */ 
     m = tw_event_data(e);
@@ -420,6 +422,8 @@ static void handle_kickoff_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    (void)b; // unused
+    (void)m; // unused
     int dest_id;
     int use_brute_force_map = 0;
     /* normally, when using ROSS, events are allocated as a result of the event
@@ -453,7 +457,7 @@ static void handle_kickoff_event(
 
     /* model-net needs to know about (1) higher-level destination LP which is a neighboring server in this case
      * (2) struct and size of remote message and (3) struct and size of local message (a local message can be null) */
-    model_net_event(net_id, "test", dest_id, payload_sz, 0.0, sizeof(svr_msg), 
+    m->ret = model_net_event(net_id, "test", dest_id, payload_sz, 0.0, sizeof(svr_msg), 
             (const void*)&m_remote, sizeof(svr_msg), (const void*)&m_local, lp);
     ns->msg_sent_count++;
 }
@@ -466,6 +470,9 @@ static void handle_local_event(
 		svr_msg * m,
 		tw_lp * lp)
 {
+    (void)b;
+    (void)m;
+    (void)lp;
     ns->local_recvd_count++;
 }
 
@@ -479,6 +486,7 @@ static void handle_ack_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    (void)b; // bitflags unused
     /* the ACK actually doesn't come from the NIC on the other server -
      * model-net "hides" the NIC LP from us so we only see the original
      * destination server */
@@ -501,7 +509,7 @@ static void handle_ack_event(
         m_remote.src = lp->gid;
 
         /* send another request */
-	model_net_event(net_id, "test", m->src, payload_sz, 0.0, sizeof(svr_msg), 
+	m->ret = model_net_event(net_id, "test", m->src, payload_sz, 0.0, sizeof(svr_msg), 
                 (const void*)&m_remote, sizeof(svr_msg), (const void*)&m_local, lp);
         ns->msg_sent_count++;
         m->incremented_flag = 1;
@@ -523,6 +531,7 @@ static void handle_req_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    (void)b;
     svr_msg m_local;
     svr_msg m_remote;
 
@@ -542,7 +551,7 @@ static void handle_req_event(
     /* also trigger a local event for completion of payload msg */
     /* remote host will get an ack event */
    
-    model_net_event(net_id, "test", m->src, payload_sz, 0.0, sizeof(svr_msg), 
+    m->ret = model_net_event(net_id, "test", m->src, payload_sz, 0.0, sizeof(svr_msg), 
             (const void*)&m_remote, sizeof(svr_msg), (const void*)&m_local, lp);
     return;
 }
@@ -558,6 +567,9 @@ static void handle_local_rev_event(
 	       svr_msg * m,
 	       tw_lp * lp)
 {
+    (void)b;
+    (void)m;
+    (void)lp;
    ns->local_recvd_count--;
 }
 /* reverse handler for req event */
@@ -567,9 +579,11 @@ static void handle_req_rev_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    (void)b;
+    (void)m;
     ns->msg_recvd_count--;
     /* model-net has its own reverse computation support */ 
-    model_net_event_rc(net_id, lp, payload_sz);
+    model_net_event_rc2(lp, &m->ret);
 
     return;
 }
@@ -582,8 +596,10 @@ static void handle_kickoff_rev_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    (void)b;
+    (void)m;
     ns->msg_sent_count--;
-    model_net_event_rc(net_id, lp, payload_sz);
+    model_net_event_rc2(lp, &m->ret);
 
     return;
 }
@@ -595,9 +611,10 @@ static void handle_ack_rev_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    (void)b;
     if(m->incremented_flag)
     {
-        model_net_event_rc(net_id, lp, payload_sz);
+        model_net_event_rc2(lp, &m->ret);
         ns->msg_sent_count--;
     }
     return;
