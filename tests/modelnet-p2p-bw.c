@@ -200,14 +200,14 @@ static void svr_init(
     tw_stime kickoff_time;
     char grp_name[MAX_NAME_LENGTH];
     char lp_type_name[MAX_NAME_LENGTH];
-    int grp_id, lp_type_id, grp_rep_id, offset;
+    int grp_id, lp_type_id, grp_rep_id, off;
     int i;
     
     memset(ns, 0, sizeof(*ns));
 
     /* find my own server index */
     codes_mapping_get_lp_info(lp->gid, grp_name, &grp_id,
-            lp_type_name, &lp_type_id, NULL, &grp_rep_id, &offset);
+            lp_type_name, &lp_type_id, NULL, &grp_rep_id, &off);
     ns->svr_idx = grp_rep_id;
 
     /* first server sends a dummy event to itself that will kick off the real

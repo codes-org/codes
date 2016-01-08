@@ -1254,9 +1254,8 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   if(cur_entry != NULL &&
     s->vc_occupancy[0] + s->params->chunk_size <= s->params->cn_vc_size) {
     bf->c3 = 1;
-    terminal_message *m;
     ts = g_tw_lookahead + s->params->cn_delay + tw_rand_unif(lp->rng);
-    tw_event* e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY, 
+    e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY, 
       (void**)&m, NULL);
     m->type = T_SEND;
     m->magic = terminal_magic_num;
@@ -2621,9 +2620,8 @@ router_packet_send( router_state * s,
   if(cur_entry == NULL) cur_entry = s->pending_msgs[output_port][0];
   if(cur_entry != NULL) {
     bf->c3 = 1;
-    terminal_message *m;
     ts = g_tw_lookahead + delay + tw_rand_unif(lp->rng);
-    tw_event *e = tw_event_new(lp->gid, ts, lp);
+    e = tw_event_new(lp->gid, ts, lp);
     m = tw_event_data(e);
     m->type = R_SEND;
     m->magic = router_magic_num;

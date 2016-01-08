@@ -56,9 +56,9 @@ static void s_finalize(s_state *ns, tw_lp *lp){
 static void s_event(s_state *ns, tw_bf *bf, s_msg *m, tw_lp *lp){
     (void)bf;
     assert(m->h.magic == s_magic);
+    msg_header h;
     switch(m->h.event_type){
         case S_KICKOFF: ;
-            msg_header h;
             msg_set_header(s_magic, S_ALLOC_ACK, lp->gid, &h);
             resource_lp_get(bsize, 0, lp, CODES_MCTX_DEFAULT, 0, &h, &ns->cb);
             break;
@@ -67,7 +67,6 @@ static void s_event(s_state *ns, tw_bf *bf, s_msg *m, tw_lp *lp){
                 ns->mem += bsize;
                 m->mem_max_prev = ns->mem_max;
                 ns->mem_max = maxu64(ns->mem, ns->mem_max);
-                msg_header h;
                 msg_set_header(s_magic, S_ALLOC_ACK, lp->gid, &h);
                 resource_lp_get(bsize, 0, lp, CODES_MCTX_DEFAULT, 0, &h,
                         &ns->cb);
@@ -80,8 +79,8 @@ static void s_event(s_state *ns, tw_bf *bf, s_msg *m, tw_lp *lp){
             if (ns->mem > 0){
                 tw_event *e = 
                     tw_event_new(lp->gid, codes_local_latency(lp), lp);
-                s_msg *m = tw_event_data(e);
-                msg_set_header(s_magic, S_FREE, lp->gid, &m->h);
+                s_msg *sm = tw_event_data(e);
+                msg_set_header(s_magic, S_FREE, lp->gid, &sm->h);
                 tw_event_send(e);
             }
             break;

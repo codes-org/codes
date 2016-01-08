@@ -39,7 +39,7 @@ static int hash_rank_compare(void *key, struct qhash_head *link);
 typedef struct codes_iolang_wrkld_state_per_rank codes_iolang_wrkld_state_per_rank;
 static struct qhash_table *rank_tbl = NULL;
 static int rank_tbl_pop = 0;
-int num_ranks = -1;
+static int nranks = -1;
 
 /* implements the codes workload method */
 struct codes_workload_method iolang_workload_method =
@@ -97,8 +97,8 @@ int iolang_io_workload_load(const char* params, int app_id, int rank)
     /* we have to get the number of compute nodes/ranks from the bg/p model parameters
      * because the number of ranks are specified in the iolang config file not the
      * workload files */
-    if(num_ranks == -1)
-        num_ranks = i_param->num_cns;
+    if(nranks == -1)
+        nranks = i_param->num_cns;
 
     codes_iolang_wrkld_state_per_rank* wrkld_per_rank = NULL;
     if(!rank_tbl)
@@ -118,7 +118,7 @@ int iolang_io_workload_load(const char* params, int app_id, int rank)
     t = codes_kernel_helper_bootstrap(i_param->io_kernel_path, 
 				      i_param->io_kernel_meta_path,
         			      rank, 
-                          num_ranks,
+                          nranks,
                       i_param->use_relpath,
 				      &(wrkld_per_rank->codes_context), 
 				      &(wrkld_per_rank->codes_pstate), 
@@ -215,7 +215,7 @@ void iolang_io_workload_get_next(int app_id, int rank, struct codes_workload_op 
 	    break;
 	    case CODES_WK_BARRIER:
 	    {
-	       op->u.barrier.count = num_ranks;
+	       op->u.barrier.count = nranks;
 	       op->u.barrier.root = 0;
 	    }
 	    break;

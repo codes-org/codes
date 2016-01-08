@@ -381,7 +381,6 @@ int configuration_get_lpgroups (ConfigHandle *handle,
     SectionEntry subse[10];
     size_t se_count = 10;
     size_t subse_count = 10;
-    size_t i, j, lpt;
     char data[256];
     // buffer mgmt vars
     int num_uniq_group_names = 0;
@@ -433,7 +432,7 @@ int configuration_get_lpgroups (ConfigHandle *handle,
             _val = _rd; \
     }while(0);
 
-    for (i = 0; i < se_count; i++)
+    for (size_t i = 0; i < se_count; i++)
     {
         //printf("section: %s type: %d\n", se[i].name, se[i].type);
         if (se[i].type == SE_SECTION)
@@ -452,7 +451,7 @@ int configuration_get_lpgroups (ConfigHandle *handle,
                 tw_error(TW_LOC,
                         "config error: non-unique group names detected\n");
 
-            for (j = 0, lpt = 0; j < subse_count; j++)
+            for (size_t j = 0, lpt = 0; j < subse_count; j++)
             {
                 if (subse[j].type == SE_KEY)
                 {

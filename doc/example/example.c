@@ -400,16 +400,16 @@ tw_lpid get_next_server(tw_lpid sender_id)
      * lookups */
     char grp_name[MAX_NAME_LENGTH], lp_type_name[MAX_NAME_LENGTH],
          annotation[MAX_NAME_LENGTH];
-    int  lp_type_id, grp_id, grp_rep_id, offset, num_reps;
+    int  lp_type_id, grp_id, grp_rep_id, off, num_reps;
     int dest_rep_id;
     codes_mapping_get_lp_info(sender_id, grp_name, &grp_id, lp_type_name,
-            &lp_type_id, annotation, &grp_rep_id, &offset);
+            &lp_type_id, annotation, &grp_rep_id, &off);
     /* in this example, we assume that, for our group of servers, each 
      * "repetition" consists of a single server/NIC pair. Hence, we grab the 
      * server ID for the next repetition, looping around if necessary */
     num_reps = codes_mapping_get_group_reps(grp_name);
     dest_rep_id = (grp_rep_id+1) % num_reps;
-    /* finally, get the server (exactly 1 server per rep -> offset w/in rep = 0 */
+    /* finally, get the server (exactly 1 server per rep -> off w/in rep = 0 */
     codes_mapping_get_lp_id(grp_name, lp_type_name, NULL, 1, dest_rep_id,
             0, &rtn_id);
     return rtn_id;
