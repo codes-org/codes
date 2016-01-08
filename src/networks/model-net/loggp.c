@@ -155,7 +155,11 @@ struct model_net_method loggp_method =
     .mn_get_msg_sz = loggp_get_msg_sz,
     .mn_report_stats = loggp_report_stats,
     .mn_collective_call = loggp_collective,
-    .mn_collective_call_rc = loggp_collective_rc
+    .mn_collective_call_rc = loggp_collective_rc,
+    .mn_sample_fn = NULL,
+    .mn_sample_rc_fn = NULL,
+    .mn_sample_init_fn = NULL,
+    .mn_sample_fini_fn = NULL
 };
 
 static void loggp_init(

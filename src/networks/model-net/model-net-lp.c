@@ -35,6 +35,9 @@ static int                       num_params = 0;
 static const char              * annos[CONFIGURATION_MAX_ANNOS];
 static model_net_base_params     all_params[CONFIGURATION_MAX_ANNOS];
 
+static tw_stime mn_sample_interval = 0.0;
+static int mn_sample_enabled = 0;
+
 typedef struct model_net_base_state {
     int net_id;
     // whether scheduler loop is running
@@ -111,6 +114,26 @@ tw_lptype model_net_base_lp = {
 /**** END LP, EVENT PROCESSING FUNCTION DECLS ****/
 
 /**** BEGIN IMPLEMENTATIONS ****/
+
+void model_net_enable_sampling(tw_stime interval)
+{
+    mn_sample_interval = interval;
+    mn_sample_enabled = 1;
+}
+
+int model_net_sampling_enabled(void)
+{
+    return mn_sample_enabled;
+}
+
+// schedule sample event - want to be precise, so no noise here
+static void issue_sample_event(tw_lp *lp)
+{
+    tw_event *e = tw_event_new(lp->gid, mn_sample_interval, lp);
+    model_net_wrap_msg *m = tw_event_data(e);
+    msg_set_header(model_net_base_magic, MN_BASE_SAMPLE, lp->gid, &m->h);
+    tw_event_send(e);
+}
 
 void model_net_base_register(int *do_config_nets){
     // here, we initialize ALL lp types to use the base type
@@ -319,6 +342,28 @@ void model_net_base_lp_init(
 
     // initialize the model-net method
     ns->sub_type->init(ns->sub_state, lp);
+
+    // check validity of sampling function
+    event_f  sample  = method_array[ns->net_id]->mn_sample_fn;
+    revent_f rsample = method_array[ns->net_id]->mn_sample_rc_fn;
+    if (model_net_sampling_enabled()) {
+        if (sample == NULL) {
+            tw_error(TW_LOC,
+                    "Sampling requested for a model that doesn't provide it\n");
+        }
+        else if (rsample == NULL &&
+                (g_tw_synchronization_protocol == OPTIMISTIC ||
+                 g_tw_synchronization_protocol == OPTIMISTIC_DEBUG)) {
+            tw_error(TW_LOC,
+                    "Sampling requested for a model that doesn't provide it\n");
+        }
+        else {
+            init_f sinit = method_array[ns->net_id]->mn_sample_init_fn;
+            if (sinit != NULL)
+                sinit(ns->sub_state, lp);
+            issue_sample_event(lp);
+        }
+    }
 }
 
 void model_net_base_event(
@@ -327,7 +372,8 @@ void model_net_base_event(
         model_net_wrap_msg * m,
         tw_lp * lp){
     assert(m->h.magic == model_net_base_magic);
-    
+
+    void * sub_msg;
     switch (m->h.event_type){
         case MN_BASE_NEW_MSG:
             handle_new_msg(ns, b, m, lp);
@@ -335,8 +381,15 @@ void model_net_base_event(
         case MN_BASE_SCHED_NEXT:
             handle_sched_next(ns, b, m, lp);
             break;
+        case MN_BASE_SAMPLE: ;
+            event_f sample = method_array[ns->net_id]->mn_sample_fn;
+            assert(model_net_sampling_enabled() && sample != NULL);
+            sub_msg = ((char*)m)+msg_offsets[ns->net_id];
+            sample(ns->sub_state, b, sub_msg, lp);
+            issue_sample_event(lp);
+            break;
         case MN_BASE_PASS: ;
-            void * sub_msg = ((char*)m)+msg_offsets[ns->net_id];
+            sub_msg = ((char*)m)+msg_offsets[ns->net_id];
             ns->sub_type->event(ns->sub_state, b, sub_msg, lp);
             break;
         /* ... */
@@ -352,7 +405,8 @@ void model_net_base_event_rc(
         model_net_wrap_msg * m,
         tw_lp * lp){
     assert(m->h.magic == model_net_base_magic);
-    
+
+    void * sub_msg;
     switch (m->h.event_type){
         case MN_BASE_NEW_MSG:
             handle_new_msg_rc(ns, b, m, lp);
@@ -360,8 +414,14 @@ void model_net_base_event_rc(
         case MN_BASE_SCHED_NEXT:
             handle_sched_next_rc(ns, b, m, lp);
             break;
+        case MN_BASE_SAMPLE: ;
+            revent_f sample_rc = method_array[ns->net_id]->mn_sample_rc_fn;
+            assert(model_net_sampling_enabled() && sample_rc != NULL);
+            sub_msg = ((char*)m)+msg_offsets[ns->net_id];
+            sample_rc(ns->sub_state, b, sub_msg, lp);
+            break;
         case MN_BASE_PASS: ;
-            void * sub_msg = ((char*)m)+msg_offsets[ns->net_id];
+            sub_msg = ((char*)m)+msg_offsets[ns->net_id];
             ns->sub_type->revent(ns->sub_state, b, sub_msg, lp);
             break;
         /* ... */
@@ -369,13 +429,14 @@ void model_net_base_event_rc(
             assert(!"model_net_base event type not known");
             break;
     }
-
-    *(int*)b = 0;
 }
 
 void model_net_base_finalize(
         model_net_base_state * ns,
         tw_lp * lp){
+    final_f sfini = method_array[ns->net_id]->mn_sample_fini_fn;
+    if (sfini != NULL)
+        sfini(ns->sub_state, lp);
     ns->sub_type->final(ns->sub_state, lp);
     free(ns->sub_state);
 }

@@ -1981,7 +1981,11 @@ struct model_net_method torus_method =
    .mn_get_msg_sz = torus_get_msg_sz,
    .mn_report_stats = torus_report_stats,
    .mn_collective_call = torus_collective,
-   .mn_collective_call_rc = torus_collective_rc
+   .mn_collective_call_rc = torus_collective_rc,
+   .mn_sample_fn = NULL,
+   .mn_sample_rc_fn = NULL,
+   .mn_sample_init_fn = NULL,
+   .mn_sample_fini_fn = NULL
 };
 
 /* user-facing modelnet functions */

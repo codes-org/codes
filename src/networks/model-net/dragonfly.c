@@ -2851,6 +2851,10 @@ struct model_net_method dragonfly_method =
     .mn_get_msg_sz = dragonfly_get_msg_sz,
     .mn_report_stats = dragonfly_report_stats,
     .mn_collective_call = dragonfly_collective,
-    .mn_collective_call_rc = dragonfly_collective_rc   
+    .mn_collective_call_rc = dragonfly_collective_rc,
+    .mn_sample_fn = NULL,
+    .mn_sample_rc_fn = NULL,
+    .mn_sample_init_fn = NULL,
+    .mn_sample_fini_fn = NULL
 };
 

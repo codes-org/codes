@@ -54,7 +54,11 @@ struct model_net_method
     int (*mn_get_msg_sz)();
     void (*mn_report_stats)();
     void (*mn_collective_call)(char const * category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender);
-    void (*mn_collective_call_rc)(int message_size, tw_lp* sender);    
+    void (*mn_collective_call_rc)(int message_size, tw_lp* sender);
+    event_f mn_sample_fn;
+    revent_f mn_sample_rc_fn;
+    init_f mn_sample_init_fn;
+    final_f mn_sample_fini_fn;
 };
 
 extern struct model_net_method * method_array[];

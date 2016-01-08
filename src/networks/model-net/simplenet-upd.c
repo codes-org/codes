@@ -120,8 +120,12 @@ struct model_net_method simplenet_method =
     .mn_get_lp_type = sn_get_lp_type,
     .mn_get_msg_sz = sn_get_msg_sz,
     .mn_report_stats = sn_report_stats,
-    .mn_collective_call = simple_net_collective,	
-    .mn_collective_call_rc = simple_net_collective_rc
+    .mn_collective_call = simple_net_collective,
+    .mn_collective_call_rc = simple_net_collective_rc,
+    .mn_sample_fn = NULL,
+    .mn_sample_rc_fn = NULL,
+    .mn_sample_init_fn = NULL,
+    .mn_sample_fini_fn = NULL
 };
 
 static void sn_init(

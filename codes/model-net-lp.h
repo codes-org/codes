@@ -97,6 +97,8 @@ enum model_net_base_event_type {
     MN_BASE_NEW_MSG,
     // schedule next packet
     MN_BASE_SCHED_NEXT,
+    // gather a sample from the underlying model
+    MN_BASE_SAMPLE,
     // message goes directly down to topology-specific event handler
     MN_BASE_PASS
 };
