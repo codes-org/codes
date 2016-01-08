@@ -51,7 +51,7 @@ struct terminal_message
   int last_hop;
    /* For routing */
    int intm_group_id;
-   int chunk_id;
+   uint64_t chunk_id;
    uint64_t packet_size;
    uint64_t message_id;
    uint64_t total_size;

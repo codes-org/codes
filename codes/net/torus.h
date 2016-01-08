@@ -79,7 +79,7 @@ struct nodes_message
 
   int saved_queue;
   /* chunk id of the flit (distinguishes flits) */
-  int chunk_id;
+  uint64_t chunk_id;
 
   model_net_event_return event_rc;
   int is_pull;

@@ -480,12 +480,15 @@ void model_net_event_rc(
         int net_id,
         tw_lp *sender,
         uint64_t message_size){
+    (void)net_id;
+    (void)message_size;
     model_net_event_impl_base_rc(sender);
 }
 
 void model_net_pull_event_rc(
         int net_id,
         tw_lp *sender) {
+    (void)net_id;
     model_net_event_impl_base_rc(sender);
 }
 
@@ -524,17 +527,18 @@ void model_net_set_msg_param(
 /* returns the message size, can be either simplenet, dragonfly or torus message size*/
 int model_net_get_msg_sz(int net_id)
 {
-   // TODO: Add checks on network name
-   // TODO: Add dragonfly and torus network models
-   return sizeof(model_net_wrap_msg);
+    (void)net_id;
+    // TODO: Add checks on network name
+    // TODO: Add dragonfly and torus network models
+    return sizeof(model_net_wrap_msg);
 #if 0
-   if(net_id < 0 || net_id >= MAX_NETS)
-     {
-      printf("%s Error: Uninitializied modelnet network, call modelnet_init first\n", __FUNCTION__);
-      exit(-1);
-     }
+    if(net_id < 0 || net_id >= MAX_NETS)
+    {
+        printf("%s Error: Uninitializied modelnet network, call modelnet_init first\n", __FUNCTION__);
+        exit(-1);
+    }
 
-       return method_array[net_id]->mn_get_msg_sz();
+    return method_array[net_id]->mn_get_msg_sz();
 #endif
 }
 

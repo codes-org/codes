@@ -63,6 +63,7 @@ struct svr_msg
 {
     enum svr_event svr_event_type;
     tw_lpid src;          /* source of this request or ack */
+    model_net_event_return ret;
     int size;
     int sent_size;        /* for rc */
 };
@@ -100,22 +101,17 @@ static tw_stime ns_to_s(tw_stime ns);
 static tw_stime s_to_ns(tw_stime ns);
 static void handle_pong_event(
     svr_state * ns,
-    tw_bf * b,
     svr_msg * m,
     tw_lp * lp);
 static void handle_ping_event(
     svr_state * ns,
-    tw_bf * b,
     svr_msg * m,
     tw_lp * lp);
 static void handle_pong_rev_event(
     svr_state * ns,
-    tw_bf * b,
     svr_msg * m,
     tw_lp * lp);
 static void handle_ping_rev_event(
-    svr_state * ns,
-    tw_bf * b,
     svr_msg * m,
     tw_lp * lp);
 
@@ -228,7 +224,7 @@ static void svr_init(
         /* skew each kickoff event slightly to help avoid event ties later on */
         kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng); 
 
-        e = codes_event_new(lp->gid, kickoff_time, lp);
+        e = tw_event_new(lp->gid, kickoff_time, lp);
         m = tw_event_data(e);
         m->svr_event_type = PONG;
         tw_event_send(e);
@@ -243,13 +239,14 @@ static void svr_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    (void)b;
    switch (m->svr_event_type)
     {
         case PING:
-            handle_ping_event(ns, b, m, lp);
+            handle_ping_event(ns, m, lp);
             break;
         case PONG:
-            handle_pong_event(ns, b, m, lp);
+            handle_pong_event(ns, m, lp);
             break;
         default:
 	    printf("\n Invalid message type %d ", m->svr_event_type);
@@ -264,13 +261,15 @@ static void svr_rev_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    (void)ns;
+    (void)b;
     switch (m->svr_event_type)
     {
         case PING:
-            handle_ping_rev_event(ns, b, m, lp);
+            handle_ping_rev_event(m, lp);
             break;
         case PONG:
-            handle_pong_rev_event(ns, b, m, lp);
+            handle_pong_rev_event(ns, m, lp);
             break;
         default:
             assert(0);
@@ -284,6 +283,7 @@ static void svr_finalize(
     svr_state * ns,
     tw_lp * lp)
 {
+    (void)lp;
     int i;
     double avg_time_us;
     double rate_b_s;
@@ -324,24 +324,21 @@ static tw_stime s_to_ns(tw_stime ns)
 
 /* reverse handler for ping event */
 static void handle_ping_rev_event(
-    svr_state * ns,
-    tw_bf * b,
     svr_msg * m,
     tw_lp * lp)
 {
-    model_net_event_rc(net_id, lp, m->sent_size);
+    model_net_event_rc2(lp, &m->ret);
     return;
 }
 
 /* reverse handler for pong */
 static void handle_pong_rev_event(
     svr_state * ns,
-    tw_bf * b,
     svr_msg * m,
     tw_lp * lp)
 {
     ns->pingpongs_completed--;
-    model_net_event_rc(net_id, lp, m->sent_size);
+    model_net_event_rc2(lp, &m->ret);
 
     /* NOTE: we do not attempt to reverse timing information stored in
      * stat_array[].  This is will get rewritten with the correct value when
@@ -354,7 +351,6 @@ static void handle_pong_rev_event(
 /* handle recving pong */
 static void handle_pong_event(
     svr_state * ns,
-    tw_bf * b,
     svr_msg * m,
     tw_lp * lp)
 {
@@ -394,7 +390,7 @@ static void handle_pong_event(
 
     /* send next ping */
     m->sent_size = m_remote.size;
-    model_net_event(net_id, "ping", peer_gid, stat_array[msg_sz_idx].msg_sz, 0.0, sizeof(m_remote), &m_remote, 0, NULL, lp);
+    m->ret = model_net_event(net_id, "ping", peer_gid, stat_array[msg_sz_idx].msg_sz, 0.0, sizeof(m_remote), &m_remote, 0, NULL, lp);
 
     return;
 }
@@ -402,7 +398,6 @@ static void handle_pong_event(
 /* handle receiving ping */
 static void handle_ping_event(
     svr_state * ns,
-    tw_bf * b,
     svr_msg * m,
     tw_lp * lp)
 {
@@ -416,7 +411,7 @@ static void handle_ping_event(
 
     /* send pong msg back to sender */
     m->sent_size = m_remote.size;
-    model_net_event(net_id, "pong", m->src, m->size, 0.0, sizeof(m_remote), &m_remote, 0, NULL, lp);
+    m->ret = model_net_event(net_id, "pong", m->src, m->size, 0.0, sizeof(m_remote), &m_remote, 0, NULL, lp);
     return;
 }
 

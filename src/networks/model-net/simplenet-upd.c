@@ -154,22 +154,18 @@ tw_lptype sn_lp = {
 static tw_stime rate_to_ns(uint64_t bytes, double MB_p_s);
 static void handle_msg_ready_rev_event(
     sn_state * ns,
-    tw_bf * b,
     sn_message * m,
     tw_lp * lp);
 static void handle_msg_ready_event(
     sn_state * ns,
-    tw_bf * b,
     sn_message * m,
     tw_lp * lp);
 static void handle_msg_start_rev_event(
     sn_state * ns,
-    tw_bf * b,
     sn_message * m,
     tw_lp * lp);
 static void handle_msg_start_event(
     sn_state * ns,
-    tw_bf * b,
     sn_message * m,
     tw_lp * lp);
 
@@ -238,15 +234,16 @@ static void sn_event(
     sn_message * m,
     tw_lp * lp)
 {
+    (void)b; // bitflags aren't used in simplenet
     assert(m->magic == sn_magic);
 
     switch (m->event_type)
     {
         case SN_MSG_START:
-            handle_msg_start_event(ns, b, m, lp);
+            handle_msg_start_event(ns, m, lp);
             break;
         case SN_MSG_READY:
-            handle_msg_ready_event(ns, b, m, lp);
+            handle_msg_ready_event(ns, m, lp);
             break;
         default:
             assert(0);
@@ -260,15 +257,16 @@ static void sn_rev_event(
     sn_message * m,
     tw_lp * lp)
 {
+    (void)b;
     assert(m->magic == sn_magic);
 
     switch (m->event_type)
     {
         case SN_MSG_START:
-            handle_msg_start_rev_event(ns, b, m, lp);
+            handle_msg_start_rev_event(ns, m, lp);
             break;
         case SN_MSG_READY:
-            handle_msg_ready_rev_event(ns, b, m, lp);
+            handle_msg_ready_rev_event(ns, m, lp);
             break;
         default:
             assert(0);
@@ -309,7 +307,6 @@ static tw_stime rate_to_ns(uint64_t bytes, double MB_p_s)
 /* reverse computation for msg ready event */
 static void handle_msg_ready_rev_event(
     sn_state * ns,
-    tw_bf * b,
     sn_message * m,
     tw_lp * lp)
 {
@@ -334,7 +331,6 @@ static void handle_msg_ready_rev_event(
  */
 static void handle_msg_ready_event(
     sn_state * ns,
-    tw_bf * b,
     sn_message * m,
     tw_lp * lp)
 {
@@ -397,7 +393,6 @@ static void handle_msg_ready_event(
 /* reverse computation for msg start event */
 static void handle_msg_start_rev_event(
     sn_state * ns,
-    tw_bf * b,
     sn_message * m,
     tw_lp * lp)
 {
@@ -424,7 +419,6 @@ static void handle_msg_start_rev_event(
  */
 static void handle_msg_start_event(
     sn_state * ns,
-    tw_bf * b,
     sn_message * m,
     tw_lp * lp)
 {
@@ -524,6 +518,9 @@ static tw_stime simplenet_packet_event(
         tw_lp *sender,
         int is_last_pckt)
 {
+     (void)message_offset; // unused...
+     (void)sched_params; // unused...
+
      tw_event * e_new;
      tw_stime xfer_to_nic_time;
      sn_message * msg;
@@ -572,7 +569,7 @@ static void sn_configure()
     assert(anno_map);
     num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
     all_params = malloc(num_params * sizeof(*all_params));
-    for (uint64_t i = 0; i < anno_map->num_annos; i++){
+    for (int i = 0; i < anno_map->num_annos; i++){
         const char * anno = anno_map->annotations[i].ptr;
         int rc;
         rc = configuration_get_value_double(&config, "PARAMS",

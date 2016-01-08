@@ -463,7 +463,7 @@ void handle_sched_next(
     // For all others, we need to schedule the next packet
     // immediately
     else if (ns->net_id == SIMPLEP2P || ns->net_id == TORUS){
-        tw_event *e = codes_event_new(lp->gid, 
+        tw_event *e = tw_event_new(lp->gid, 
                 poffset+codes_local_latency(lp), lp);
         model_net_wrap_msg *m_wrap = tw_event_data(e);
         msg_set_header(model_net_base_magic, MN_BASE_SCHED_NEXT, lp->gid,

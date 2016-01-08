@@ -8,9 +8,10 @@
 #include <assert.h>
 
 #include "model-net-sched-impl.h"
-#include "codes/model-net-sched.h"
-#include "codes/model-net-method.h"
-#include "codes/quicklist.h"
+#include <codes/model-net-sched.h>
+#include <codes/model-net-method.h>
+#include <codes/quicklist.h>
+#include <codes/codes.h>
 
 #define MN_SCHED_DEBUG_VERBOSE 0
 
@@ -162,6 +163,7 @@ void fcfs_init(
         const model_net_sched_cfg_params  * params,
         int                                 is_recv_queue,
         void                             ** sched){
+    (void)params; // unused for fcfs
     *sched = malloc(sizeof(mn_sched_queue));
     mn_sched_queue *ss = *sched;
     ss->method = method;
@@ -184,6 +186,7 @@ void fcfs_add (
         void                    * sched,
         model_net_sched_rc      * rc,
         tw_lp                   * lp){
+    (void)rc; // unneeded for fcfs
     mn_sched_qitem *q = malloc(sizeof(mn_sched_qitem));
     q->entry_time = tw_now(lp);
     q->req = *req;
@@ -202,19 +205,20 @@ void fcfs_add (
     mn_sched_queue *s = sched;
     s->queue_len++;
     qlist_add_tail(&q->ql, &s->reqs);
-    dprintf("%lu (mn):    adding %srequest from %lu to %lu, size %lu, at %lf\n",
-            lp->gid, req->is_pull ? "pull " : "", req->src_lp,
-            req->final_dest_lp, req->msg_size, tw_now(lp));
+    dprintf("%llu (mn):    adding %srequest from %llu to %llu, size %llu, at %lf\n",
+            LLU(lp->gid), req->is_pull ? "pull " : "", LLU(req->src_lp),
+            LLU(req->final_dest_lp), LLU(req->msg_size), tw_now(lp));
 }
 
 void fcfs_add_rc(void *sched, const model_net_sched_rc *rc, tw_lp *lp){
+    (void)rc;
     mn_sched_queue *s = sched;
     s->queue_len--;
     struct qlist_head *ent = qlist_pop_back(&s->reqs);
     assert(ent != NULL);
     mn_sched_qitem *q = qlist_entry(ent, mn_sched_qitem, ql);
-    dprintf("%lu (mn): rc adding request from %lu to %lu\n", lp->gid,
-            q->req.src_lp, q->req.final_dest_lp);
+    dprintf("%llu (mn): rc adding request from %llu to %llu\n", LLU(lp->gid),
+            LLU(q->req.src_lp), LLU(q->req.final_dest_lp));
     // free'ing NULLs is a no-op 
     free(q->remote_event);
     free(q->local_event);
@@ -248,10 +252,10 @@ int fcfs_next(
     }
 
     if (s->is_recv_queue){
-        dprintf("%lu (mn):    receiving message of size %lu (of %lu) "
-                "from %lu to %lu at %1.5e (last:%d)\n",
-                lp->gid, psize, q->rem, q->req.src_lp, q->req.final_dest_lp,
-                tw_now(lp), is_last_packet);
+        dprintf("%llu (mn):    receiving message of size %llu (of %llu) "
+                "from %llu to %llu at %1.5e (last:%d)\n",
+                LLU(lp->gid), LLU(psize), LLU(q->rem), LLU(q->req.src_lp),
+                LLU(q->req.final_dest_lp), tw_now(lp), is_last_packet);
         // note: we overloaded on the dest_mn_lp field - it's the dest of the
         // soruce in the case of a pull
         *poffset = s->method->model_net_method_recv_msg_event(q->req.category,
@@ -260,10 +264,10 @@ int fcfs_next(
                 q->remote_event, q->req.src_lp, lp);
     }
     else{
-        dprintf("%lu (mn):    issuing packet of size %lu (of %lu) "
-                "from %lu to %lu at %1.5e (last:%d)\n",
-                lp->gid, psize, q->rem, q->req.src_lp, q->req.final_dest_lp,
-                tw_now(lp), is_last_packet);
+        dprintf("%llu (mn):    issuing packet of size %llu (of %llu) "
+                "from %llu to %llu at %1.5e (last:%d)\n",
+                LLU(lp->gid), LLU(psize), q->rem, LLU(q->req.src_lp),
+                LLU(q->req.final_dest_lp), tw_now(lp), is_last_packet);
         *poffset = s->method->model_net_method_packet_event(&q->req,
                 q->req.msg_size - q->rem, psize, 0.0, &q->sched_params,
                 q->remote_event, q->local_event, lp, is_last_packet);
@@ -271,10 +275,10 @@ int fcfs_next(
 
     // if last packet - remove from list, free, save for rc
     if (is_last_packet){
-        dprintf("last %spkt: %lu (%lu) to %lu, size %lu at %1.5e (pull:%d)\n",
+        dprintf("last %spkt: %llu (%llu) to %llu, size %llu at %1.5e (pull:%d)\n",
                 s->is_recv_queue ? "recv " : "send ",
-                lp->gid, q->req.src_lp, q->req.final_dest_lp,
-                q->req.is_pull ? q->req.pull_size : q->req.msg_size, tw_now(lp),
+                LLU(lp->gid), LLU(q->req.src_lp), LLU(q->req.final_dest_lp),
+                LLU(q->req.is_pull ? q->req.pull_size : q->req.msg_size), tw_now(lp),
                 q->req.is_pull);
         qlist_pop(&s->reqs);
         s->queue_len--;
@@ -311,11 +315,11 @@ void fcfs_next_rc(
     }
     else{
         if (s->is_recv_queue){
-            dprintf("%lu (mn): rc receiving message\n", lp->gid);
+            dprintf("%llu (mn): rc receiving message\n", LLU(lp->gid));
             s->method->model_net_method_recv_msg_event_rc(lp);
         }
         else {
-            dprintf("%lu (mn): rc issuing packet\n", lp->gid);
+            dprintf("%llu (mn): rc issuing packet\n", LLU(lp->gid));
             s->method->model_net_method_packet_event_rc(lp);
         }
         if (rc->rtn == 0){
@@ -465,10 +469,10 @@ void prio_add (
         prio = ss->params.num_prios-1;
     }
     else if (prio >= ss->params.num_prios){
-        tw_error(TW_LOC, "sched for lp %lu: invalid prio (%d vs [%d,%d))",
-                lp->gid, prio, 0, ss->params.num_prios);
+        tw_error(TW_LOC, "sched for lp %llu: invalid prio (%d vs [%d,%d))",
+                LLU(lp->gid), prio, 0, ss->params.num_prios);
     }
-    dprintf("%lu (mn):    adding with prio %d\n", lp->gid, prio);
+    dprintf("%llu (mn):    adding with prio %d\n", LLU(lp->gid), prio);
     ss->sub_sched_iface->add(req, sched_params, remote_event_size,
             remote_event, local_event_size, local_event, ss->sub_scheds[prio],
             rc, lp);
@@ -478,7 +482,7 @@ void prio_add (
 void prio_add_rc(void * sched, const model_net_sched_rc *rc, tw_lp *lp){
     // just call the sub scheduler's add_rc
     mn_sched_prio *ss = sched;
-    dprintf("%lu (mn): rc adding with prio %d\n", lp->gid, rc->prio);
+    dprintf("%llu (mn): rc adding with prio %d\n", LLU(lp->gid), rc->prio);
     ss->sub_sched_iface->add_rc(ss->sub_scheds[rc->prio], rc, lp);
 }
 

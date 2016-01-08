@@ -184,22 +184,18 @@ tw_lptype sp_lp = {
 static tw_stime rate_to_ns(uint64_t bytes, double MB_p_s);
 static void handle_msg_ready_rev_event(
     sp_state * ns,
-    tw_bf * b,
     sp_message * m,
     tw_lp * lp);
 static void handle_msg_ready_event(
     sp_state * ns,
-    tw_bf * b,
     sp_message * m,
     tw_lp * lp);
 static void handle_msg_start_rev_event(
     sp_state * ns,
-    tw_bf * b,
     sp_message * m,
     tw_lp * lp);
 static void handle_msg_start_event(
     sp_state * ns,
-    tw_bf * b,
     sp_message * m,
     tw_lp * lp);
 
@@ -316,16 +312,20 @@ static void sp_set_params(
         tw_error(TW_LOC, "simplep2p: unable to open %s", bw_fname);
     fseek(sf, 0, SEEK_END);
     fsize_s = ftell(sf);
+    assert(fsize_s >= 0);
     fseek(sf, 0, SEEK_SET);
     fseek(bf, 0, SEEK_END);
     fsize_b = ftell(bf);
+    assert(fsize_b >= 0);
     fseek(bf, 0, SEEK_SET);
     char *sbuf = malloc(fsize_s+1);
     sbuf[fsize_s] = '\0';
     char *bbuf = malloc(fsize_b+1);
     bbuf[fsize_b] = '\0';
-    assert(fread(sbuf, 1, fsize_s, sf) == fsize_s);
-    assert(fread(bbuf, 1, fsize_b, bf) == fsize_b);
+    size_t ret = fread(sbuf, 1, fsize_s, sf);
+    assert(ret == (size_t)fsize_s);
+    ret = fread(bbuf, 1, fsize_b, bf);
+    assert(ret == (size_t)fsize_b);
     fclose(sf);
     fclose(bf);
 
@@ -413,15 +413,16 @@ static void sp_event(
     sp_message * m,
     tw_lp * lp)
 {
+    (void)b;
     assert(m->magic == sp_magic);
 
     switch (m->event_type)
     {
         case SP_MSG_START:
-            handle_msg_start_event(ns, b, m, lp);
+            handle_msg_start_event(ns, m, lp);
             break;
         case SP_MSG_READY:
-            handle_msg_ready_event(ns, b, m, lp);
+            handle_msg_ready_event(ns, m, lp);
             break;
         default:
             assert(0);
@@ -435,15 +436,16 @@ static void sp_rev_event(
     sp_message * m,
     tw_lp * lp)
 {
+    (void)b;
     assert(m->magic == sp_magic);
 
     switch (m->event_type)
     {
         case SP_MSG_START:
-            handle_msg_start_rev_event(ns, b, m, lp);
+            handle_msg_start_rev_event(ns, m, lp);
             break;
         case SP_MSG_READY:
-            handle_msg_ready_rev_event(ns, b, m, lp);
+            handle_msg_ready_rev_event(ns, m, lp);
             break;
         default:
             assert(0);
@@ -496,7 +498,6 @@ static tw_stime rate_to_ns(uint64_t bytes, double MB_p_s)
 /* reverse computation for msg ready event */
 static void handle_msg_ready_rev_event(
     sp_state * ns,
-    tw_bf * b,
     sp_message * m,
     tw_lp * lp)
 {
@@ -525,7 +526,6 @@ static void handle_msg_ready_rev_event(
  */
 static void handle_msg_ready_event(
     sp_state * ns,
-    tw_bf * b,
     sp_message * m,
     tw_lp * lp)
 {
@@ -542,8 +542,8 @@ static void handle_msg_ready_event(
    // printf("\n LP %d outgoing bandwidth with LP %d is %f ", ns->id, m->src_mn_rel_id, bw);
     if (bw <= 0.0 || latency < 0.0){
         fprintf(stderr, 
-                "Invalid link from Rel. id %d to LP %lu (rel. id %d)\n", 
-                m->src_mn_rel_id, lp->gid, ns->id);
+                "Invalid link from Rel. id %d to LP %llu (rel. id %d)\n", 
+                m->src_mn_rel_id, LLU(lp->gid), ns->id);
         abort();
     }
 
@@ -633,7 +633,6 @@ static void handle_msg_ready_event(
 /* reverse computation for msg start event */
 static void handle_msg_start_rev_event(
     sp_state * ns,
-    tw_bf * b,
     sp_message * m,
     tw_lp * lp)
 {
@@ -662,7 +661,6 @@ static void handle_msg_start_rev_event(
  */
 static void handle_msg_start_event(
     sp_state * ns,
-    tw_bf * b,
     sp_message * m,
     tw_lp * lp)
 {
@@ -689,8 +687,8 @@ static void handle_msg_start_event(
     //printf("\n LP %d incoming bandwidth with LP %d is %f ", ns->id, dest_rel_id, bw);
     if (bw <= 0.0 || latency < 0.0){
         fprintf(stderr, 
-                "Invalid link from LP %lu (rel. id %d) to LP %lu (rel. id %d)\n", 
-                lp->gid, ns->id, m->dest_mn_lp, dest_rel_id);
+                "Invalid link from LP %llu (rel. id %d) to LP %llu (rel. id %d)\n", 
+                LLU(lp->gid), ns->id, LLU(m->dest_mn_lp), dest_rel_id);
         abort();
     }
 
@@ -804,6 +802,8 @@ static tw_stime simplep2p_packet_event(
         tw_lp *sender,
         int is_last_pckt)
 {
+    (void)message_offset;
+    (void)sched_params;
      tw_event * e_new;
      tw_stime xfer_to_nic_time;
      sp_message * msg;
@@ -896,7 +896,7 @@ static void sp_configure(){
     assert(anno_map);
     num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
     all_params = malloc(num_params * sizeof(*all_params));
-    for (uint64_t i = 0; i < anno_map->num_annos; i++){
+    for (int i = 0; i < anno_map->num_annos; i++){
         sp_read_config(anno_map->annotations[i].ptr, &all_params[i]);
     }
     if (anno_map->has_unanno_lp > 0){

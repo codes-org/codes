@@ -19,8 +19,9 @@
 
 #define DEBUG 1
 #define MEAN_INTERVAL 100
-#define TRACE -1
-#define TRACK -1
+// type casts to make compiler happy
+#define TRACE ((unsigned long long)(-1))
+#define TRACK ((tw_lpid)(-1))
 
 #define STATICQ 0
 /* collective specific parameters */
@@ -109,7 +110,7 @@ static long long       total_hops = 0;
 
 /* annotation-specific parameters (unannotated entry occurs at the 
  * last index) */
-static uint64_t                  num_params = 0;
+static int                       num_params = 0;
 static torus_param             * all_params = NULL;
 static const config_anno_map_t * anno_map   = NULL;
 
@@ -210,7 +211,6 @@ struct nodes_state
 };
 
 static void append_to_node_message_list(  
-        nodes_state *ns, 
         nodes_message_list ** thisq,
         nodes_message_list ** thistail,
         int index, 
@@ -224,7 +224,6 @@ static void append_to_node_message_list(
     thistail[index] = msg;
 }
 static void prepend_to_node_message_list(  
-        nodes_state *ns, 
         nodes_message_list ** thisq,
         nodes_message_list ** thistail,
         int index, 
@@ -239,7 +238,6 @@ static void prepend_to_node_message_list(
 }
 
 static nodes_message_list* return_head(
-        nodes_state *ns,
         nodes_message_list ** thisq,
         nodes_message_list ** thistail,
         int index) {
@@ -257,7 +255,6 @@ static nodes_message_list* return_head(
 }
 
 static nodes_message_list* return_tail(
-        nodes_state *ns,
         nodes_message_list ** thisq,
         nodes_message_list ** thistail,
         int index) {
@@ -361,7 +358,7 @@ static void torus_configure(){
     num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
     all_params = malloc(num_params * sizeof(*all_params));
 
-    for (uint64_t i = 0; i < anno_map->num_annos; i++){
+    for (int i = 0; i < anno_map->num_annos; i++){
         const char * anno = anno_map->annotations[i].ptr;
         torus_read_config(anno, &all_params[i]);
     }
@@ -402,8 +399,7 @@ void torus_collective_init(nodes_state * s,
 {
     // TODO: be annotation-aware somehow 
     codes_mapping_get_lp_info(lp->gid, grp_name, &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-    int num_lps = codes_mapping_get_lp_count(grp_name, 1, LP_CONFIG_NM, s->anno, 0);
-    int num_reps = codes_mapping_get_group_reps(grp_name);
+    tw_lpid num_lps = codes_mapping_get_lp_count(grp_name, 0, LP_CONFIG_NM, s->anno, 0);
 
     int i;
    /* handle collective operations by forming a tree of all the LPs */
@@ -430,7 +426,7 @@ void torus_collective_init(nodes_state * s,
    for( i = 0; i < TREE_DEGREE; i++ )
     {
         tw_lpid next_child = (TREE_DEGREE * s->node_id) + i + 1;
-        if(next_child < (num_lps * num_reps))
+        if(next_child < num_lps)
         {
             s->num_children++;
             s->is_leaf = 0;
@@ -476,6 +472,8 @@ static tw_stime torus_packet_event(
         tw_lp *sender,
         int is_last_pckt)
 {
+    (void)message_offset; // not using atm...
+    (void)sched_params; // not using atm...
     tw_event * e_new;
     tw_stime xfer_to_nic_time;
     nodes_message * msg;
@@ -522,7 +520,6 @@ static tw_stime torus_packet_event(
 
 /*Sends a 8-byte credit back to the torus node LP that sent the message */
 static void credit_send( nodes_state * s, 
-	    tw_bf * bf, 
 	    tw_lp * lp, 
 	    nodes_message * msg,
             int sq)
@@ -767,12 +764,12 @@ void torus_collective(char const * category, int message_size, int remote_event_
 /* reverse for collective operation of the dragonfly network */
 void torus_collective_rc(int message_size, tw_lp* sender)
 {
+    (void)message_size; // unneeded
      codes_local_latency_reverse(sender);
      return;
 }
 
 static void send_remote_event(nodes_state * s,
-                        tw_bf * bf,
                         nodes_message * msg,
                         tw_lp * lp)
 {
@@ -793,7 +790,6 @@ static void send_remote_event(nodes_state * s,
 }
 
 static void node_collective_init(nodes_state * s,
-                        tw_bf * bf,
                         nodes_message * msg,
                         tw_lp * lp)
 {
@@ -901,7 +897,7 @@ static void node_collective_fan_in(nodes_state * s,
            bf->c2 = 1;
            msg->saved_fan_nodes = s->num_fan_nodes-1;
            s->num_fan_nodes = 0;
-           send_remote_event(s, bf, msg, lp);
+           send_remote_event(s, msg, lp);
 
            for( i = 0; i < s->num_children; i++ )
            {
@@ -947,7 +943,7 @@ static void node_collective_fan_out(nodes_state * s,
         bf->c1 = 0;
         bf->c2 = 0;
 
-        send_remote_event(s, bf, msg, lp);
+        send_remote_event(s, msg, lp);
 
         if(!s->is_leaf)
         {
@@ -1055,7 +1051,7 @@ static void packet_generate( nodes_state * ns,
         nodes_message * msg, 
         tw_lp * lp)
 {
-    int j, tmp_dir=-1, tmp_dim=-1, queue, total_event_size;
+    int tmp_dir=-1, tmp_dim=-1, queue, total_event_size;
     tw_stime ts;
     tw_event * e;
     nodes_message *m;
@@ -1071,7 +1067,7 @@ static void packet_generate( nodes_state * ns,
         tw_output(lp, "\n packet generated %lld at lp %d dest %d final dest %d", 
         msg->packet_ID, (int)lp->gid, (int)intm_dst, (int)msg->dest_lp);
     
-    int num_chunks = msg->packet_size/ns->params->chunk_size;
+    uint64_t num_chunks = msg->packet_size/ns->params->chunk_size;
     if(msg->packet_size % ns->params->chunk_size)
         num_chunks++;
     if(!num_chunks)
@@ -1084,7 +1080,7 @@ static void packet_generate( nodes_state * ns,
     msg->next_stop = intm_dst;
     msg->saved_queue = -1;
 
-    for(j = 0; j < num_chunks; j++) { 
+    for(uint64_t j = 0; j < num_chunks; j++) { 
         nodes_message_list * cur_chunk = (nodes_message_list *)malloc( 
                 sizeof(nodes_message_list));
 
@@ -1106,7 +1102,7 @@ static void packet_generate( nodes_state * ns,
         }
         cur_chunk->msg.chunk_id = j;
 
-        append_to_node_message_list(ns, ns->terminal_msgs,
+        append_to_node_message_list(ns->terminal_msgs,
             ns->terminal_msgs_tail, queue, cur_chunk);
         ns->terminal_length[queue] += ns->params->chunk_size;
         ns->all_term_length += ns->params->chunk_size;
@@ -1143,7 +1139,6 @@ static void packet_generate_rc( nodes_state * s,
 {
     s->packet_counter--;
 
-    int j;
     int queue = msg->source_direction + (msg->source_dim * 2);
 
     uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
@@ -1153,9 +1148,9 @@ static void packet_generate_rc( nodes_state * s,
      if(!num_chunks)
         num_chunks = 1;
     
-     for(j = 0; j < num_chunks; j++)
+     for(uint64_t j = 0; j < num_chunks; j++)
      {
-       nodes_message_list* cur_entry = return_tail(s,
+       nodes_message_list* cur_entry = return_tail(
               s->terminal_msgs, s->terminal_msgs_tail, queue);
        s->terminal_length[queue] -= s->params->chunk_size;
        s->all_term_length -= s->params->chunk_size;
@@ -1216,7 +1211,7 @@ static void packet_send_rc(nodes_state * s,
 
      if(bf->c31)
      {
-         prepend_to_node_message_list(s, s->terminal_msgs,
+         prepend_to_node_message_list(s->terminal_msgs,
                   s->terminal_msgs_tail, queue, cur_entry); 
         s->terminal_length[queue] += s->params->chunk_size;
         s->all_term_length += s->params->chunk_size;  
@@ -1224,7 +1219,7 @@ static void packet_send_rc(nodes_state * s,
 
      if(bf->c8)
      {
-        prepend_to_node_message_list(s, s->pending_msgs[queue],
+        prepend_to_node_message_list(s->pending_msgs[queue],
                 s->pending_msgs_tail[queue], STATICQ, cur_entry);
      }
 
@@ -1285,7 +1280,7 @@ static void packet_send( nodes_state * s,
             }
         } 
 
-    int num_chunks = cur_entry->msg.packet_size/s->params->chunk_size;
+    uint64_t num_chunks = cur_entry->msg.packet_size/s->params->chunk_size;
     if(cur_entry->msg.packet_size % s->params->chunk_size)
         num_chunks++;
 
@@ -1359,13 +1354,13 @@ static void packet_send( nodes_state * s,
     /* isT=1 means that we can send the newly injected packets */
     if(isT) {
         bf->c31 = 1;
-        cur_entry = return_head(s, s->terminal_msgs, s->terminal_msgs_tail, 
+        cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, 
             queue);
         s->terminal_length[queue] -= s->params->chunk_size; 
         s->all_term_length -= s->params->chunk_size;
     } else {
         bf->c8 = 1;
-        cur_entry = return_head(s, s->pending_msgs[queue],
+        cur_entry = return_head(s->pending_msgs[queue],
             s->pending_msgs_tail[queue], STATICQ);
     }
 
@@ -1441,7 +1436,7 @@ static void packet_arrive_rc(nodes_state * s,
 
        if(bf->c30)
        {
-        cur_entry = return_tail(s, s->queued_msgs[queue],   
+        cur_entry = return_tail(s->queued_msgs[queue],   
                 s->queued_msgs_tail[queue], STATICQ);
         s->queued_length[queue] -= s->params->chunk_size;
         if(bf->c24)
@@ -1452,7 +1447,7 @@ static void packet_arrive_rc(nodes_state * s,
         
        if(bf->c9 || bf->c11)
        {
-        cur_entry = return_tail(s, s->pending_msgs[queue],
+        cur_entry = return_tail(s->pending_msgs[queue],
                 s->pending_msgs_tail[queue], STATICQ); 
         s->buffer[queue][STATICQ] -= s->params->chunk_size;
         tw_rand_reverse_unif(lp->rng); 
@@ -1460,7 +1455,7 @@ static void packet_arrive_rc(nodes_state * s,
 
        if(bf->c8)
        {
-        cur_entry = return_tail(s, s->other_msgs,
+        cur_entry = return_tail(s->other_msgs,
                 s->other_msgs_tail, queue);
         if(bf->c24)
             s->last_buf_full[queue] = msg->saved_busy_time;
@@ -1505,7 +1500,7 @@ static void packet_arrive( nodes_state * s,
         bf->c1 = 1;
         s->total_data_sz += s->params->chunk_size;
 
-        credit_send( s, bf, lp, msg, -1);
+        credit_send( s, lp, msg, -1);
 
         uint64_t num_chunks = msg->packet_size/s->params->chunk_size;
         if(msg->packet_size % s->params->chunk_size)
@@ -1601,7 +1596,7 @@ static void packet_arrive( nodes_state * s,
                 bf->c30 = 1;
                 cur_chunk->msg.saved_queue =  
                     msg->source_direction + ( msg->source_dim * 2 );
-                append_to_node_message_list(s, s->queued_msgs[queue], 
+                append_to_node_message_list(s->queued_msgs[queue], 
                         s->queued_msgs_tail[queue], STATICQ, cur_chunk);
                 s->queued_length[queue] += s->params->chunk_size;
                 
@@ -1618,8 +1613,8 @@ static void packet_arrive( nodes_state * s,
                  * space. */
                 bf->c9 = 1;
                 s->buffer[queue][STATICQ] += s->params->chunk_size;
-                credit_send( s, bf, lp, msg, -1 ); 
-                append_to_node_message_list(s, s->pending_msgs[queue], 
+                credit_send( s, lp, msg, -1 ); 
+                append_to_node_message_list(s->pending_msgs[queue], 
                     s->pending_msgs_tail[queue], STATICQ, cur_chunk);
             }
         }
@@ -1631,8 +1626,8 @@ static void packet_arrive( nodes_state * s,
                     <= s->params->buffer_size) {
                     bf->c11 = 1;
                     s->buffer[queue][STATICQ] += s->params->chunk_size;
-                    credit_send( s, bf, lp, msg, -1 ); 
-                    append_to_node_message_list(s, s->pending_msgs[queue], 
+                    credit_send( s, lp, msg, -1 ); 
+                    append_to_node_message_list(s->pending_msgs[queue], 
                         s->pending_msgs_tail[queue], STATICQ, cur_chunk);
                 }
                 else
@@ -1640,7 +1635,7 @@ static void packet_arrive( nodes_state * s,
                     bf->c8 = 1;
                     cur_chunk->msg.saved_queue =
                         msg->source_direction + ( msg->source_dim * 2 ); 
-                    append_to_node_message_list(s, s->other_msgs, 
+                    append_to_node_message_list(s->other_msgs, 
                             s->other_msgs_tail, queue, cur_chunk);  
                 if(!s->last_buf_full[queue])
                 {
@@ -1694,16 +1689,16 @@ final( nodes_state * s, tw_lp * lp )
   for( j = 0; j < 2 * p->n_dims; j++)
   {
   if(s->pending_msgs[j][STATICQ] != NULL)
-      printf("\n LP %ld leftover pending messages ", lp->gid);
+      printf("\n LP %llu leftover pending messages ", LLU(lp->gid));
 
   if(s->other_msgs[j] != NULL)
-      printf("\n LP %ld leftover other messages ", lp->gid);
+      printf("\n LP %llu leftover other messages ", LLU(lp->gid));
 
   if(s->queued_msgs[j][STATICQ] != NULL)
-      printf("\n LP %ld leftover queued messages ", lp->gid);
+      printf("\n LP %llu leftover queued messages ", LLU(lp->gid));
 
   if(s->terminal_msgs[j] != NULL)
-      printf("\n LP %ld leftover terminal messages ", lp->gid);
+      printf("\n LP %llu leftover terminal messages ", LLU(lp->gid));
   }
   rc_stack_destroy(s->st);
 
@@ -1727,8 +1722,8 @@ final( nodes_state * s, tw_lp * lp )
       written = sprintf(s->output_buf,
               "# Format <LP id> <Node ID> <Total Data Size> <Total Time Spent> <# Packets finished> <Avg hops> \n");
   }
-     written += sprintf(s->output_buf + written, "%lu %u %ld %lf %ld %lf\n",
-                          lp->gid, s->node_id, s->total_data_sz, s->total_time, 
+     written += sprintf(s->output_buf + written, "%llu %llu %ld %lf %ld %lf\n",
+                          LLU(lp->gid), LLU(s->node_id), s->total_data_sz, s->total_time, 
                           s->finished_packets, (double)s->total_hops/s->finished_packets);
 
      lp_io_write(lp->gid, "torus-msg-stats", written, s->output_buf);
@@ -1739,9 +1734,8 @@ final( nodes_state * s, tw_lp * lp )
           written = sprintf(s->output_busy_buf,
                   "# Format <LP id> <Node ID> <Busy time(s) per torus link> \n");
       }
-      written += sprintf(s->output_busy_buf + written, "%ld %ld", lp->gid, s->node_id);
-     int i =0;
-     for(i = 0; i < 2 * p->n_dims; i++) 
+      written += sprintf(s->output_busy_buf + written, "%llu %llu", LLU(lp->gid), LLU(s->node_id));
+     for(int i = 0; i < 2 * p->n_dims; i++) 
      {
        written += sprintf(s->output_busy_buf + written, " %lf ", s->busy_time[i]); 
      }
@@ -1772,10 +1766,10 @@ static void packet_buffer_process_rc(nodes_state * s,
     }
     if(bf->c2)
     {
-        nodes_message_list *tail = return_tail(s,
+        nodes_message_list *tail = return_tail(
                 s->pending_msgs[queue], s->pending_msgs_tail[queue], 
                 STATICQ);
-        prepend_to_node_message_list(s, s->queued_msgs[queue], 
+        prepend_to_node_message_list(s->queued_msgs[queue], 
                 s->queued_msgs_tail[queue], STATICQ, tail);
         s->queued_length[queue] += s->params->chunk_size;
         tw_rand_reverse_unif(lp->rng);
@@ -1784,10 +1778,10 @@ static void packet_buffer_process_rc(nodes_state * s,
 
     if(bf->c3)
     {
-        nodes_message_list *tail = return_tail(s, 
+        nodes_message_list *tail = return_tail(
                 s->pending_msgs[queue], s->pending_msgs_tail[queue], 
                 STATICQ);    
-        prepend_to_node_message_list(s, s->other_msgs, 
+        prepend_to_node_message_list(s->other_msgs, 
                 s->other_msgs_tail, queue, tail);
         tw_rand_reverse_unif(lp->rng); 
         s->buffer[queue][STATICQ] -= s->params->chunk_size;
@@ -1824,21 +1818,21 @@ static void packet_buffer_process( nodes_state * ns, tw_bf * bf, nodes_message *
      * control */
     if(ns->queued_msgs[queue][STATICQ] != NULL) {
             bf->c2 = 1;
-            nodes_message_list *head = return_head(ns, ns->queued_msgs[queue], 
+            nodes_message_list *head = return_head(ns->queued_msgs[queue], 
                 ns->queued_msgs_tail[queue], STATICQ);
             ns->queued_length[queue] -= ns->params->chunk_size;
-            credit_send( ns, bf, lp, &head->msg, 1); 
-            append_to_node_message_list(ns, ns->pending_msgs[queue], 
+            credit_send( ns, lp, &head->msg, 1); 
+            append_to_node_message_list(ns->pending_msgs[queue], 
                 ns->pending_msgs_tail[queue], STATICQ, head);
             ns->buffer[queue][STATICQ] += ns->params->chunk_size;
         } else if(ns->buffer[queue][STATICQ] + 2 * ns->params->chunk_size 
             <= ns->params->buffer_size) {
             if(ns->other_msgs[queue] != NULL) {
                 bf->c3 = 1;
-                nodes_message_list *head = return_head(ns, ns->other_msgs, 
+                nodes_message_list *head = return_head(ns->other_msgs, 
                         ns->other_msgs_tail, queue);
-                credit_send( ns, bf, lp, &head->msg, 1); 
-                append_to_node_message_list(ns, ns->pending_msgs[queue], 
+                credit_send( ns, lp, &head->msg, 1); 
+                append_to_node_message_list(ns->pending_msgs[queue], 
                         ns->pending_msgs_tail[queue], STATICQ, head);
                 ns->buffer[queue][STATICQ] += ns->params->chunk_size;
             }
@@ -1940,7 +1934,7 @@ static void event_handler(nodes_state * s, tw_bf * bf, nodes_message * msg, tw_l
    break;
 
   case T_COLLECTIVE_INIT:
-    node_collective_init(s, bf, msg, lp);
+    node_collective_init(s, msg, lp);
   break;
 
   case T_COLLECTIVE_FAN_IN:
@@ -1998,14 +1992,13 @@ void model_net_torus_get_dims(
         int const        ** dims)
 {
     torus_param const * p = NULL;
-    int i;
 
     if (ignore_annotations)
         p = &all_params[0];
     else if (anno_map->has_unanno_lp > 0 && anno == NULL)
         p = &all_params[anno_map->num_annos];
     else {
-        for (i = 0; i < num_params; i++) {
+        for (int i = 0; i < num_params; i++) {
             if (strcmp(anno, anno_map->annotations[i].ptr) == 0) {
                 p = &all_params[i];
                 break;

@@ -56,6 +56,7 @@ struct testsvr_msg {
     int idx_src;
     tw_lpid lp_src;
     int req_num;
+    model_net_event_return ret[NUM_REQS];
 #if TEST_DEBUG
     /* event count that produced this message in the first place */
     int src_event_ctr;
@@ -95,24 +96,20 @@ static void handle_testsvr_req(
     tw_lp * lp);
 static void handle_testsvr_ack(
     testsvr_state * ns,
-    testsvr_msg * m,
-    tw_lp * lp);
+    testsvr_msg * m);
 static void handle_testsvr_local(
     testsvr_state * ns,
     testsvr_msg * m,
     tw_lp * lp);
 static void handle_testsvr_kickoff_rev(
-    testsvr_state * ns,
     testsvr_msg * m,
     tw_lp * lp);
 static void handle_testsvr_req_rev(
     testsvr_state * ns,
-    testsvr_msg * m,
     tw_lp * lp);
 static void handle_testsvr_ack_rev(
     testsvr_state * ns,
-    testsvr_msg * m,
-    tw_lp * lp);
+    testsvr_msg * m);
 static void handle_testsvr_local_rev(
     testsvr_state * ns,
     testsvr_msg * m,
@@ -158,7 +155,7 @@ void testsvr_lp_init(
     memset(ns->req_stat, 0x0, NUM_REQS*sizeof(int));
     /* create kickoff event only if we're a request server */
     if (ns->idx == 0 || ns->idx == 2){
-        tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
+        tw_event *e = tw_event_new(lp->gid, codes_local_latency(lp), lp);
         testsvr_msg *m_local = tw_event_data(e);
         m_local->magic = testsvr_magic;
         m_local->event_type = KICKOFF;
@@ -170,7 +167,7 @@ void testsvr_lp_init(
     }
 #if TEST_DEBUG
     char name[32];
-    sprintf(name, "testsvr.%d.%lu", ns->idx, lp->gid);
+    sprintf(name, "testsvr.%d.%llu", ns->idx, LLU(lp->gid));
     ns->fdebug = fopen(name, "w");
     setvbuf(ns->fdebug, NULL, _IONBF, 0);
     assert(ns->fdebug != NULL);
@@ -205,8 +202,9 @@ void testsvr_event_handler(
         tw_bf * b,
         testsvr_msg * m,
         tw_lp * lp){
+    (void)b;
     assert(m->magic == testsvr_magic);
-    
+
     switch (m->event_type){
         case KICKOFF:
             DUMP_PRE(lp,ns,m,"== pre kickoff ==\n");
@@ -220,7 +218,7 @@ void testsvr_event_handler(
             break;
         case ACK:
             DUMP_PRE(lp,ns,m,"== pre ack ==\n");
-            handle_testsvr_ack(ns, m, lp);
+            handle_testsvr_ack(ns, m);
             DUMP_POST(lp,ns,"== post ack ==\n");
             break;
         case LOCAL:
@@ -240,22 +238,23 @@ void testsvr_rev_handler(
         tw_bf * b,
         testsvr_msg * m,
         tw_lp * lp){
+    (void)b;
     assert(m->magic == testsvr_magic);
-    
+
     switch (m->event_type){
         case KICKOFF:
             DUMP_PRE(lp,ns,m,"== pre kickoff rev == ");
-            handle_testsvr_kickoff_rev(ns, m, lp);
+            handle_testsvr_kickoff_rev(m, lp);
             DUMP_POST(lp,ns,"== post kickoff rev ==\n");
             break;
         case REQ:
             DUMP_PRE(lp,ns,m,"== pre req rev ==\n");
-            handle_testsvr_req_rev(ns, m, lp);
+            handle_testsvr_req_rev(ns, lp);
             DUMP_POST(lp,ns,"== post req rev ==\n");
             break;
         case ACK:
             DUMP_PRE(lp,ns,m,"== pre ack rev ==\n");
-            handle_testsvr_ack_rev(ns, m, lp);
+            handle_testsvr_ack_rev(ns, m);
             DUMP_POST(lp,ns,"== post ack rev ==\n");
             break;
         case LOCAL:
@@ -271,8 +270,9 @@ void testsvr_rev_handler(
 }
 
 void testsvr_finalize(
-        testsvr_state * ns,
-        tw_lp * lp){
+    testsvr_state * ns,
+    tw_lp * lp) {
+    (void)lp;
     /* ensure that all requests are accounted for */
     int req_expected = (ns->idx == 1) ? 2 : 1;
     int req;
@@ -287,8 +287,7 @@ void handle_testsvr_kickoff(
     tw_lp * lp){
 
     assert(ns->idx == 0 || ns->idx == 2);
-    int req;
-    for (req = 0; req < NUM_REQS; req++){
+    for (int req = 0; req < NUM_REQS; req++){
         tw_lpid dest_lp = (1) * 2; /* send to server 1 */
         testsvr_msg m_net;
         m_net.magic = testsvr_magic;
@@ -299,7 +298,7 @@ void handle_testsvr_kickoff(
         m_net.src_event_ctr = ns->event_ctr++;
 #endif
         m_net.req_num = req;
-        model_net_event(net_id, "req", dest_lp, 1, 0.0, sizeof(m_net), &m_net, 0, NULL, lp);
+        m->ret[req] = model_net_event(net_id, "req", dest_lp, 1, 0.0, sizeof(m_net), &m_net, 0, NULL, lp);
     }
 #if TEST_DEBUG
     ns->event_ctr++;
@@ -314,7 +313,7 @@ void handle_testsvr_req(
     /* only server 1 processes requests */
     assert(ns->idx == 1);
     /* add a random amount of time to it */
-    tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
+    tw_event *e = tw_event_new(lp->gid, codes_local_latency(lp), lp);
     testsvr_msg *m_local = tw_event_data(e);
     *m_local = *m;
     m_local->event_type = LOCAL;
@@ -331,8 +330,7 @@ void handle_testsvr_req(
 
 void handle_testsvr_ack(
     testsvr_state * ns,
-    testsvr_msg * m,
-    tw_lp * lp){
+    testsvr_msg * m){
 
     /* only servers 0 and 2 handle acks */
     assert(ns->idx == 0 || ns->idx == 2);
@@ -362,7 +360,7 @@ void handle_testsvr_local(
 #if TEST_DEBUG
     m_net.src_event_ctr = ns->event_ctr;
 #endif
-    model_net_event(net_id, "ack", dest_lp,
+    m->ret[0] = model_net_event(net_id, "ack", dest_lp,
             1, 0.0, sizeof(m_net), &m_net, 0, NULL, lp);
     ns->req_stat[m->req_num]++;
     /* we are handling exactly two reqs per slot */
@@ -374,18 +372,16 @@ void handle_testsvr_local(
 }
 
 void handle_testsvr_kickoff_rev(
-    testsvr_state * ns,
     testsvr_msg * m,
     tw_lp * lp){
     int req;
     for (req = 0; req < NUM_REQS; req++){
-        model_net_event_rc(net_id, lp, 1);
+        model_net_event_rc2(lp, &m->ret[req]);
     }
 }
 
 void handle_testsvr_req_rev(
     testsvr_state * ns,
-    testsvr_msg * m,
     tw_lp * lp){
 
     assert(ns->idx == 1);
@@ -395,8 +391,7 @@ void handle_testsvr_req_rev(
 
 void handle_testsvr_ack_rev(
     testsvr_state * ns,
-    testsvr_msg * m,
-    tw_lp * lp){
+    testsvr_msg * m){
 
     assert(ns->idx == 0 || ns->idx == 2);
 
@@ -414,19 +409,19 @@ void handle_testsvr_local_rev(
     ns->req_stat[m->req_num]--;
     assert(ns->req_stat[m->req_num] >= 0);
 
-    model_net_event_rc(net_id, lp, 1);
+    model_net_event_rc2(lp, &m->ret[0]);
 }
 
 /* for debugging: print messages */
 void dump_msg(testsvr_msg *m, tw_lp *lp, FILE *f){
-    fprintf(f,"event: magic:%10d, src:%1d (LP:%lu), req:%1d, src_event_cnt:%2d, ts:%.5le\n",
-            m->magic, m->idx_src, m->lp_src, m->req_num, m->src_event_ctr, tw_now(lp));
+    fprintf(f,"event: magic:%10d, src:%1d (LP:%llu), req:%1d, src_event_cnt:%2d, ts:%.5le\n",
+            m->magic, m->idx_src, LLU(m->lp_src), m->req_num, m->src_event_ctr, tw_now(lp));
 }
 
 void dump_state(tw_lp *lp, testsvr_state *ns, FILE *f){
     char *buf = malloc(2048);
-    int written = sprintf(buf, "idx:%d LP:%lu, event_cnt:%d, [%d", 
-            ns->idx, lp->gid, ns->event_ctr, ns->req_stat[0]);
+    int written = sprintf(buf, "idx:%d LP:%llu, event_cnt:%d, [%d", 
+            ns->idx, LLU(lp->gid), ns->event_ctr, ns->req_stat[0]);
     int req;
     for (req = 1; req < NUM_REQS; req++){
         written += sprintf(buf+written, ",%d",ns->req_stat[req]);

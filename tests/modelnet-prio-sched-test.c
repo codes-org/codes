@@ -50,6 +50,7 @@ struct svr_msg
 {
     msg_header h;
     int src_svr_idx;
+    model_net_event_return ret[NUM_PRIOS];
     int msg_prio; // to check against message receipt order
 };
 
@@ -84,24 +85,18 @@ static void svr_add_lp_type();
 static tw_stime s_to_ns(tw_stime ns);
 static void handle_kickoff_event(
     svr_state * ns,
-    tw_bf * b,
     svr_msg * m,
     tw_lp * lp);
 static void handle_recv_event(
     svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
+    svr_msg * m);
 static void handle_kickoff_rev_event(
     svr_state * ns,
-    tw_bf * b,
     svr_msg * m,
     tw_lp * lp);
 static void handle_recv_rev_event(
     svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
+    svr_msg * m);
 
 const tw_optdef app_opt [] =
 {
@@ -174,7 +169,7 @@ static void svr_init(
                 }
             }
         }
-        tw_event *e = codes_event_new(lp->gid, codes_local_latency(lp), lp);
+        tw_event *e = tw_event_new(lp->gid, codes_local_latency(lp), lp);
         svr_msg * m = tw_event_data(e);
         msg_set_header(666, KICKOFF, lp->gid, &m->h);
         tw_event_send(e);
@@ -190,13 +185,14 @@ static void svr_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    (void)b;
    switch (m->h.event_type)
     {
         case KICKOFF:
-            handle_kickoff_event(ns, b, m, lp);
+            handle_kickoff_event(ns, m, lp);
             break;
         case RECV:
-            handle_recv_event(ns, b, m, lp);
+            handle_recv_event(ns, m);
             break;
         default:
 	    printf("\n Invalid message type %d ", m->h.event_type);
@@ -211,13 +207,14 @@ static void svr_rev_event(
     svr_msg * m,
     tw_lp * lp)
 {
+    (void)b;
     switch (m->h.event_type)
     {
         case KICKOFF:
-            handle_kickoff_rev_event(ns, b, m, lp);
+            handle_kickoff_rev_event(ns, m, lp);
             break;
         case RECV:
-            handle_recv_rev_event(ns, b, m, lp);
+            handle_recv_rev_event(ns, m);
             break;
         default:
             assert(0);
@@ -231,6 +228,7 @@ static void svr_finalize(
     svr_state * ns,
     tw_lp * lp)
 {
+    (void)lp;
     if (ns->server_idx != NUM_SERVERS-1)
         return;
 
@@ -266,7 +264,6 @@ static tw_stime s_to_ns(tw_stime ns)
 /* handle initial event */
 static void handle_kickoff_event(
     svr_state * ns,
-    tw_bf * b,
     svr_msg * m,
     tw_lp * lp)
 {
@@ -287,7 +284,7 @@ static void handle_kickoff_event(
                 //m_remote.msg_prio, dest);
         model_net_set_msg_param(MN_MSG_PARAM_SCHED, MN_SCHED_PARAM_PRIO,
                 (void*) &m_remote.msg_prio);
-        model_net_event(net_id, "test", dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg),
+        m->ret[i] = model_net_event(net_id, "test", dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg),
                 &m_remote, 0, NULL, lp);
     }
     MN_END_SEQ();
@@ -295,20 +292,17 @@ static void handle_kickoff_event(
 
 static void handle_kickoff_rev_event(
         svr_state *ns,
-        tw_bf *b,
         svr_msg *m,
         tw_lp *lp){
     assert(ns->server_idx < NUM_SERVERS-1);
     for (int i = 0; i < NUM_PRIOS; i++){
-        model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+        model_net_event_rc2(lp, &m->ret[i]);
     }
 }
 
 static void handle_recv_event(
 		svr_state * ns,
-		tw_bf * b,
-		svr_msg * m,
-		tw_lp * lp)
+		svr_msg * m)
 {
     assert(ns->server_idx == NUM_SERVERS-1);
     //printf("%lu received msg prio %d from %d (lp %lu)\n",
@@ -320,9 +314,7 @@ static void handle_recv_event(
 
 static void handle_recv_rev_event(
 	       svr_state * ns,
-	       tw_bf * b,
-	       svr_msg * m,
-	       tw_lp * lp)
+	       svr_msg * m)
 {
     ns->num_recv[m->src_svr_idx]--;
 }

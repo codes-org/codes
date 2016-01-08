@@ -13,6 +13,7 @@
 
 // for printf conversions: shorthand for cast to long long unsigned format (llu)
 #define LLU(x) ((unsigned long long)(x))
+#define LLD(x) ((long long)(x))
 
 // simple deprecation attribute hacking
 #if !defined(DEPRECATED)

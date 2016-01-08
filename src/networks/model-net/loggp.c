@@ -187,22 +187,18 @@ tw_lptype loggp_lp = {
 
 static void handle_msg_ready_rev_event(
     loggp_state * ns,
-    tw_bf * b,
     loggp_message * m,
     tw_lp * lp);
 static void handle_msg_ready_event(
     loggp_state * ns,
-    tw_bf * b,
     loggp_message * m,
     tw_lp * lp);
 static void handle_msg_start_rev_event(
     loggp_state * ns,
-    tw_bf * b,
     loggp_message * m,
     tw_lp * lp);
 static void handle_msg_start_event(
     loggp_state * ns,
-    tw_bf * b,
     loggp_message * m,
     tw_lp * lp);
 
@@ -272,15 +268,16 @@ static void loggp_event(
     loggp_message * m,
     tw_lp * lp)
 {
+    (void)b; // not using bitfields
     assert(m->magic == loggp_magic);
 
     switch (m->event_type)
     {
         case LG_MSG_START:
-            handle_msg_start_event(ns, b, m, lp);
+            handle_msg_start_event(ns, m, lp);
             break;
         case LG_MSG_READY:
-            handle_msg_ready_event(ns, b, m, lp);
+            handle_msg_ready_event(ns, m, lp);
             break;
         default:
             assert(0);
@@ -294,15 +291,16 @@ static void loggp_rev_event(
     loggp_message * m,
     tw_lp * lp)
 {
+    (void)b; // not using bitfields
     assert(m->magic == loggp_magic);
 
     switch (m->event_type)
     {
         case LG_MSG_START:
-            handle_msg_start_rev_event(ns, b, m, lp);
+            handle_msg_start_rev_event(ns, m, lp);
             break;
         case LG_MSG_READY:
-            handle_msg_ready_rev_event(ns, b, m, lp);
+            handle_msg_ready_rev_event(ns, m, lp);
             break;
         default:
             assert(0);
@@ -328,7 +326,6 @@ int loggp_get_magic()
 /* reverse computation for msg ready event */
 static void handle_msg_ready_rev_event(
     loggp_state * ns,
-    tw_bf * b,
     loggp_message * m,
     tw_lp * lp)
 {
@@ -364,7 +361,6 @@ static void handle_msg_ready_rev_event(
  */
 static void handle_msg_ready_event(
     loggp_state * ns,
-    tw_bf * b,
     loggp_message * m,
     tw_lp * lp)
 {
@@ -450,7 +446,6 @@ static void handle_msg_ready_event(
 /* reverse computation for msg start event */
 static void handle_msg_start_rev_event(
     loggp_state * ns,
-    tw_bf * b,
     loggp_message * m,
     tw_lp * lp)
 {
@@ -488,7 +483,6 @@ static void handle_msg_start_rev_event(
  */
 static void handle_msg_start_event(
     loggp_state * ns,
-    tw_bf * b,
     loggp_message * m,
     tw_lp * lp)
 {
@@ -611,6 +605,7 @@ static tw_stime loggp_packet_event(
         tw_lp *sender,
         int is_last_pckt)
 {
+    (void)message_offset;
      tw_event * e_new;
      tw_stime xfer_to_nic_time;
      loggp_message * msg;
@@ -718,7 +713,7 @@ static void loggp_configure(){
     num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
     all_params = malloc(num_params * sizeof(*all_params));
 
-    for (uint64_t i = 0; i < anno_map->num_annos; i++){
+    for (int i = 0; i < anno_map->num_annos; i++){
         const char * anno = anno_map->annotations[i].ptr;
         int rc = configuration_get_value_relpath(&config, "PARAMS",
                 "net_config_file", anno, config_file, MAX_NAME_LENGTH);
