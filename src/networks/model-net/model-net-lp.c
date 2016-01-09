@@ -228,7 +228,7 @@ static void base_read_config(const char * anno, model_net_base_params *p){
               p->sched_params.u.prio.sub_stype != MN_SCHED_FCFS_FULL))){
         packet_size = 512;
         fprintf(stderr, "WARNING, no packet size specified, setting packet "
-                "size to %llu\n", packet_size);
+                "size to %llu\n", LLU(packet_size));
     }
 
 

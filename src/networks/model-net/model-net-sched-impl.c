@@ -266,7 +266,7 @@ int fcfs_next(
     else{
         dprintf("%llu (mn):    issuing packet of size %llu (of %llu) "
                 "from %llu to %llu at %1.5e (last:%d)\n",
-                LLU(lp->gid), LLU(psize), q->rem, LLU(q->req.src_lp),
+                LLU(lp->gid), LLU(psize), LLU(q->rem), LLU(q->req.src_lp),
                 LLU(q->req.final_dest_lp), tw_now(lp), is_last_packet);
         *poffset = s->method->model_net_method_packet_event(&q->req,
                 q->req.msg_size - q->rem, psize, 0.0, &q->sched_params,

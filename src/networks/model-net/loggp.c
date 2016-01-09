@@ -4,6 +4,7 @@
  *
  */
 
+#include <inttypes.h>
 #include <string.h>
 #include <assert.h>
 #include <ross.h>
@@ -757,7 +758,7 @@ void loggp_set_params(const char * config_file, loggp_param * params){
         line_nr++;
         if(buffer[0] == '#')
             continue;
-        ret = sscanf(buffer, "%llu %d %lf %lf %lf %lf %lf %lf %lf %lf %lf", 
+        ret = sscanf(buffer, "%"PRIu64" %d %lf %lf %lf %lf %lf %lf %lf %lf %lf",
             &params->table[params->table_size].size,
             &params->table[params->table_size].n,
             &params->table[params->table_size].PRTT_10s,

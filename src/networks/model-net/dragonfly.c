@@ -2206,6 +2206,8 @@ static int do_adaptive_routing( router_state * s,
   tw_lpid nonmin_next_stop = get_next_stop(s, msg, NON_MINIMAL, dest_router_id, intm_id);
   nonmin_out_port = get_output_port(s, msg, nonmin_next_stop);
   
+#if 0
+    NOTE: VCs are set but not used... disabling for now
   int nomin_vc = 0;
   if(nonmin_out_port < s->params->num_routers) {
     nomin_vc = msg->my_l_hop;
@@ -2220,6 +2222,7 @@ static int do_adaptive_routing( router_state * s,
         s->params->num_global_channels)) {
     min_vc = msg->my_g_hop;
   }
+#endif
   int min_port_count = s->vc_occupancy[minimal_out_port][0] + 
       s->vc_occupancy[minimal_out_port][1] + s->vc_occupancy[minimal_out_port][2]
       + s->queued_count[minimal_out_port];
