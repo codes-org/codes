@@ -1237,12 +1237,12 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   if(cur_entry != NULL &&
     s->vc_occupancy[0] + s->params->chunk_size <= s->params->cn_vc_size) {
     bf->c3 = 1;
-    terminal_message *m;
+    terminal_message *m_new;
     ts = g_tw_lookahead + s->params->cn_delay + tw_rand_unif(lp->rng);
-    tw_event* e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY, 
-      (void**)&m, NULL);
-    m->type = T_SEND;
-    m->magic = terminal_magic_num;
+    e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY, 
+      (void**)&m_new, NULL);
+    m_new->type = T_SEND;
+    m_new->magic = terminal_magic_num;
     tw_event_send(e);
   } else {
       /* If not then the LP will wait for another credit or packet generation */
@@ -1795,7 +1795,6 @@ static void node_collective_fan_out(terminal_state * s,
 			        memcpy(m_data, model_net_method_get_edata(DRAGONFLY, msg),
 			                msg->remote_event_size_bytes);
       			}
-
 
                         msg_new->type = D_COLLECTIVE_FAN_OUT;
                         msg_new->sender_node = s->node_id;
@@ -2612,13 +2611,13 @@ router_packet_send( router_state * s,
   if(cur_entry == NULL) cur_entry = s->pending_msgs[output_port][0];
   if(cur_entry != NULL) {
     bf->c3 = 1;
-    terminal_message *m;
+    terminal_message *m_new;
     ts = g_tw_lookahead + delay + tw_rand_unif(lp->rng);
-    tw_event *e = tw_event_new(lp->gid, ts, lp);
-    m = tw_event_data(e);
-    m->type = R_SEND;
-    m->magic = router_magic_num;
-    m->vc_index = output_port;
+    e = tw_event_new(lp->gid, ts, lp);
+    m_new = tw_event_data(e);
+    m_new->type = R_SEND;
+    m_new->magic = router_magic_num;
+    m_new->vc_index = output_port;
     tw_event_send(e);
   } else {
     bf->c4 = 1;
