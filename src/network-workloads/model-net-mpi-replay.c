@@ -234,12 +234,13 @@ static void update_message_time_rc(
 /* conversion from seconds to eanaoseconds */
 static tw_stime s_to_ns(tw_stime ns);
 
+/* Debugging functions, may generate unused function warning */
 static void print_waiting_reqs(int32_t * reqs, int count)
 {
     printf("\n Waiting reqs: ");
     int i;
     for(i = 0; i < count; i++ )
-        printf(" %ld ", reqs[i]);
+        printf(" %d ", reqs[i]);
 }
 static void print_completed_queue(struct qlist_head * head)
 {
@@ -249,7 +250,7 @@ static void print_completed_queue(struct qlist_head * head)
       qlist_for_each(ent, head)
        {
             current = qlist_entry(ent, completed_requests, ql);
-            printf(" %ld ", current->req_id);
+            printf(" %d ", current->req_id);
        }
 }
 static int clear_completed_reqs(nw_state * s,
@@ -321,7 +322,7 @@ static int notify_posted_wait(nw_state* s,
             {
                 wait_elem->num_completed++;
                 if(wait_elem->num_completed > wait_elem->count)
-                    printf("\n Num completed %ld count %ld LP %llu ",
+                    printf("\n Num completed %d count %d LP %llu ",
                             wait_elem->num_completed,
                             wait_elem->count,
                             lp->gid);
@@ -897,7 +898,7 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
     arrived_op->tag = m->fwd.tag;
 
     if(s->nw_id == TRACK_LP)
-        printf("\n Send op arrived source rank %ld num bytes %d ", arrived_op->source_rank,
+        printf("\n Send op arrived source rank %d num bytes %d ", arrived_op->source_rank,
                 arrived_op->num_bytes);
 
     int found_matching_recv = rm_matching_rcv(s, bf, m, lp, arrived_op);
@@ -1182,10 +1183,10 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 	{
 		int count_irecv = qlist_count(&s->pending_recvs_queue);
         int count_isend = qlist_count(&s->arrival_queue);
-		printf("\n LP %ld unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf", 
+		printf("\n LP %llu unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf", 
 			lp->gid, count_irecv, count_isend, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->send_time, s->wait_time);
 
-        written += sprintf(s->output_buf + written, "\n %lu %lu %ld %ld %ld %ld %lf %lf %lf", lp->gid, s->nw_id, s->num_sends, s->num_recvs, s->num_bytes_sent, 
+        written += sprintf(s->output_buf + written, "\n %llu %llu %ld %ld %ld %ld %lf %lf %lf", lp->gid, s->nw_id, s->num_sends, s->num_recvs, s->num_bytes_sent, 
                 s->num_bytes_recvd, s->send_time, s->elapsed_time - s->compute_time, s->compute_time);
         lp_io_write(lp->gid, "mpi-replay-stats", written, s->output_buf);
 
