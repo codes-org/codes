@@ -143,7 +143,7 @@ int* model_net_configure(int *id_count);
 /* Sets up a sampling loop for model net events. The sampling data provided by
  * each modelnet lp is model-defined. This is a PE-wide setting. Data is sent
  * to LP-IO with the category modelnet-samples */
-void model_net_enable_sampling(tw_stime interval);
+void model_net_enable_sampling(tw_stime interval, tw_stime end);
 
 /* Returns 1 if modelnet is performing sampling, 0 otherwise */
 int model_net_sampling_enabled(void);
