@@ -37,6 +37,7 @@ static model_net_base_params     all_params[CONFIGURATION_MAX_ANNOS];
 
 static tw_stime mn_sample_interval = 0.0;
 static int mn_sample_enabled = 0;
+static tw_stime mn_sample_end = 0.0;
 
 typedef struct model_net_base_state {
     int net_id;
@@ -115,9 +116,10 @@ tw_lptype model_net_base_lp = {
 
 /**** BEGIN IMPLEMENTATIONS ****/
 
-void model_net_enable_sampling(tw_stime interval)
+void model_net_enable_sampling(tw_stime interval, tw_stime end)
 {
     mn_sample_interval = interval;
+    mn_sample_end = end;
     mn_sample_enabled = 1;
 }
 
@@ -129,10 +131,12 @@ int model_net_sampling_enabled(void)
 // schedule sample event - want to be precise, so no noise here
 static void issue_sample_event(tw_lp *lp)
 {
-    tw_event *e = tw_event_new(lp->gid, mn_sample_interval, lp);
-    model_net_wrap_msg *m = tw_event_data(e);
-    msg_set_header(model_net_base_magic, MN_BASE_SAMPLE, lp->gid, &m->h);
-    tw_event_send(e);
+    if (tw_now(lp) + mn_sample_interval < mn_sample_end + 0.0001) {
+        tw_event *e = tw_event_new(lp->gid, mn_sample_interval, lp);
+        model_net_wrap_msg *m = tw_event_data(e);
+        msg_set_header(model_net_base_magic, MN_BASE_SAMPLE, lp->gid, &m->h);
+        tw_event_send(e);
+    }
 }
 
 void model_net_base_register(int *do_config_nets){
