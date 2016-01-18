@@ -971,8 +971,8 @@ void router_credit_send(router_state * s, terminal_message * msg,
       (void**)&buf_msg, NULL);
     buf_msg->magic = terminal_magic_num;
   } else {
-    buf_e = tw_event_new(dest, ts , lp);
-    buf_msg = tw_event_data(buf_e);
+    buf_e = model_net_method_event_new(dest, ts, lp, DRAGONFLY_ROUTER,
+            (void**)&buf_msg, NULL);
     buf_msg->magic = router_magic_num;
   }
  
@@ -1190,15 +1190,15 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   //TODO: be annotation-aware
   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
       &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-  codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", NULL, 1,
+  codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 1,
       s->router_id, 0, &router_id);
   // we are sending an event to the router, so no method_event here
-  e = tw_event_new(router_id, s->terminal_available_time - tw_now(lp), lp);
-  m = tw_event_data(e);
+  void * remote_event;
+  e = model_net_method_event_new(router_id, s->terminal_available_time - tw_now(lp), lp,
+          DRAGONFLY_ROUTER, (void**)&m, &remote_event);
   memcpy(m, &cur_entry->msg, sizeof(terminal_message));
   if (m->remote_event_size_bytes){
-    memcpy(model_net_method_get_edata(DRAGONFLY, m), cur_entry->event_data,
-        m->remote_event_size_bytes);
+    memcpy(remote_event, cur_entry->event_data, m->remote_event_size_bytes);
   }
 
   m->type = R_ARRIVE;
@@ -1223,7 +1223,7 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
     bf->c2 = 1;
     ts = codes_local_latency(lp); 
     tw_event *e_new = tw_event_new(cur_entry->msg.sender_lp, ts, lp);
-    terminal_message* m_new = tw_event_data(e_new);
+    void * m_new = tw_event_data(e_new);
     void *local_event = (char*)cur_entry->event_data + 
       cur_entry->msg.remote_event_size_bytes;
     memcpy(m_new, local_event, cur_entry->msg.local_event_size_bytes);
@@ -1410,8 +1410,8 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   // no method_event here - message going to router
   tw_event * buf_e;
   terminal_message * buf_msg;
-  buf_e = tw_event_new(msg->intm_lp_id, ts, lp);
-  buf_msg = tw_event_data(buf_e);
+  buf_e = model_net_method_event_new(msg->intm_lp_id, ts, lp,
+          DRAGONFLY_ROUTER, (void**)&buf_msg, NULL);
   buf_msg->magic = router_magic_num;
   buf_msg->vc_index = msg->vc_index;
   buf_msg->output_chan = msg->output_chan;
@@ -2083,7 +2083,7 @@ get_next_stop(router_state * s,
     }
    if(s->group_id == dest_group_id)
    {
-       codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", s->anno, 0, dest_router_id,
+       codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_router_id,
           0, &router_dest_id);
        return router_dest_id;
    }
@@ -2124,7 +2124,7 @@ get_next_stop(router_state * s,
           }
 #endif
       }
-  codes_mapping_get_lp_id(lp_group_name, "dragonfly_router", s->anno, 0, dest_lp,
+  codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_lp,
           0, &router_dest_id);
 
   return router_dest_id;
@@ -2356,7 +2356,7 @@ router_packet_receive( router_state * s,
   }
   
   if(msg->remote_event_size_bytes > 0) {
-    void *m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
+    void *m_data_src = model_net_method_get_edata(DRAGONFLY_ROUTER, msg);
     cur_chunk->event_data = (char*)malloc(msg->remote_event_size_bytes);
     memcpy(cur_chunk->event_data, m_data_src, msg->remote_event_size_bytes);
   }
@@ -2401,8 +2401,8 @@ router_packet_receive( router_state * s,
       bf->c3 = 1;
       terminal_message *m;
       ts = codes_local_latency(lp); 
-      tw_event *e = tw_event_new(lp->gid, ts, lp);
-      m = tw_event_data(e);
+      tw_event *e = model_net_method_event_new(lp->gid, ts, lp,
+              DRAGONFLY_ROUTER, (void**)&m, NULL);
       m->type = R_SEND;
       m->magic = router_magic_num;
       m->vc_index = output_port;
@@ -2546,10 +2546,9 @@ router_packet_send( router_state * s,
         s->next_output_available_time[output_port] - tw_now(lp), lp,
         DRAGONFLY, (void**)&m, &m_data);
   } else {
-    e = tw_event_new(cur_entry->msg.next_stop, 
-      s->next_output_available_time[output_port] - tw_now(lp), lp);
-    m = tw_event_data(e);
-    m_data = model_net_method_get_edata(DRAGONFLY, m);
+    e = model_net_method_event_new(cur_entry->msg.next_stop,
+            s->next_output_available_time[output_port] - tw_now(lp), lp,
+            DRAGONFLY_ROUTER, (void**)&m, &m_data);
   }
   memcpy(m, &cur_entry->msg, sizeof(terminal_message));
   if (m->remote_event_size_bytes){
@@ -2613,8 +2612,8 @@ router_packet_send( router_state * s,
     bf->c3 = 1;
     terminal_message *m_new;
     ts = g_tw_lookahead + delay + tw_rand_unif(lp->rng);
-    e = tw_event_new(lp->gid, ts, lp);
-    m_new = tw_event_data(e);
+    e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_ROUTER,
+            (void**)&m_new, NULL);
     m_new->type = R_SEND;
     m_new->magic = router_magic_num;
     m_new->vc_index = output_port;
@@ -2682,8 +2681,8 @@ void router_buf_update(router_state * s, tw_bf * bf, terminal_message * msg, tw_
     bf->c2 = 1;
     terminal_message *m;
     tw_stime ts = codes_local_latency(lp);
-    tw_event *e = tw_event_new(lp->gid, ts, lp);
-    m = tw_event_data(e);
+    tw_event *e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_ROUTER,
+            (void**)&m, NULL);
     m->type = R_SEND;
     m->vc_index = indx;
     m->magic = router_magic_num;
@@ -2829,7 +2828,6 @@ static const tw_lptype* router_get_lp_type(void)
 
 static void dragonfly_register(tw_lptype *base_type) {
     lp_type_register(LP_CONFIG_NM_TERM, base_type);
-    lp_type_register("dragonfly_router", &dragonfly_lps[1]);
 }
 
 static void router_register(tw_lptype *base_type) {
@@ -2849,7 +2847,11 @@ struct model_net_method dragonfly_method =
     .mn_get_msg_sz = dragonfly_get_msg_sz,
     .mn_report_stats = dragonfly_report_stats,
     .mn_collective_call = dragonfly_collective,
-    .mn_collective_call_rc = dragonfly_collective_rc
+    .mn_collective_call_rc = dragonfly_collective_rc,
+    .mn_sample_fn = NULL,
+    .mn_sample_rc_fn = NULL,
+    .mn_sample_init_fn = NULL,
+    .mn_sample_fini_fn = NULL
 };
 
 struct model_net_method dragonfly_router_method =
@@ -2864,5 +2866,9 @@ struct model_net_method dragonfly_router_method =
     .mn_get_msg_sz = dragonfly_get_msg_sz,
     .mn_report_stats = NULL, // not yet supported
     .mn_collective_call = NULL,
-    .mn_collective_call_rc = NULL
+    .mn_collective_call_rc = NULL,
+    .mn_sample_fn = NULL,
+    .mn_sample_rc_fn = NULL,
+    .mn_sample_init_fn = NULL,
+    .mn_sample_fini_fn = NULL
 };

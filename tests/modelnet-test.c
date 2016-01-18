@@ -168,7 +168,7 @@ int main(
     codes_mapping_setup();
     
     net_ids = model_net_configure(&num_nets);
-    assert(num_nets==1);
+    assert(num_nets>=1);
     net_id = *net_ids;
     free(net_ids);
 
@@ -177,7 +177,7 @@ int main(
     if(net_id == DRAGONFLY)
     {
 	  num_routers = codes_mapping_get_lp_count("MODELNET_GRP", 0,
-                  "dragonfly_router", NULL, 1); 
+                  "modelnet_dragonfly_router", NULL, 1); 
 	  offset = 1;
     }
 
@@ -335,7 +335,7 @@ static void handle_kickoff_event(
     num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1,
             "server", NULL, 1);
     num_routers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1,
-            "dragonfly_router", NULL, 1);
+            "modelnet_dragonfly_router", NULL, 1);
 
     lps_per_rep = num_servers_per_rep * 2 + num_routers_per_rep;
 

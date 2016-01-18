@@ -84,7 +84,10 @@ int* model_net_configure(int *id_count){
     *id_count = 0;
     for (int i = 0; i < MAX_NETS; i++) {
         if (do_config_nets[i]){
-            method_array[i]->mn_configure();
+            // some don't need configuration (dragonfly router is covered by
+            // dragonfly)
+            if (method_array[i]->mn_configure != NULL)
+                method_array[i]->mn_configure();
             (*id_count)++;
         }
     }
