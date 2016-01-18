@@ -1035,8 +1035,8 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
   assert(lp->gid != msg->dest_terminal_id);
   const dragonfly_param *p = s->params;
 
-  int i, total_event_size;
-  int num_chunks = msg->packet_size / p->chunk_size;
+  int total_event_size;
+  uint64_t num_chunks = msg->packet_size / p->chunk_size;
   if (msg->packet_size % s->params->chunk_size) 
       num_chunks++;
 
@@ -1053,11 +1053,11 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
 
   //if(msg->dest_terminal_id == TRACK)
   if(msg->packet_ID == LLU(TRACK_PKT))
-    printf("\n Packet %llu generated at terminal %d dest %llu size %llu num chunks %d ", 
-            msg->packet_ID, s->terminal_id, msg->dest_terminal_id,
-            msg->packet_size, num_chunks);
+    printf("\n Packet %llu generated at terminal %d dest %llu size %llu num chunks %llu ", 
+            msg->packet_ID, s->terminal_id, LLU(msg->dest_terminal_id),
+            LLU(msg->packet_size), LLU(num_chunks));
 
-  for(i = 0; i < num_chunks; i++)
+  for(uint64_t i = 0; i < num_chunks; i++)
   {
     terminal_message_list *cur_chunk = (terminal_message_list*)malloc(
       sizeof(terminal_message_list));
@@ -1401,7 +1401,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     assert(lp->gid == msg->dest_terminal_id);
 
     if(msg->packet_ID == LLU(TRACK_PKT))
-        printf("\n Packet %llu arrived at lp %llu hops %d", msg->packet_ID, lp->gid, msg->my_N_hop);
+        printf("\n Packet %llu arrived at lp %llu hops %d", msg->packet_ID, LLU(lp->gid), msg->my_N_hop);
   
   tw_stime ts = g_tw_lookahead + s->params->credit_delay + tw_rand_unif(lp->rng);
 
@@ -1930,7 +1930,7 @@ dragonfly_terminal_final( terminal_state * s,
         written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Total Time Spent> <# Packets finished> <Avg hops> <Busy Time>\n");
 
     written += sprintf(s->output_buf + written, "%llu %u %ld %lf %ld %lf %lf\n",
-            lp->gid, s->terminal_id, s->total_msg_size, s->total_time, 
+            LLU(lp->gid), s->terminal_id, s->total_msg_size, s->total_time, 
             s->finished_packets, (double)s->total_hops/s->finished_chunks,
             s->busy_time);
 
@@ -1948,7 +1948,7 @@ dragonfly_terminal_final( terminal_state * s,
     fclose(dragonfly_log);
     */
     if(s->terminal_msgs[0] != NULL) 
-      printf("[%llu] leftover terminal messages \n", lp->gid);
+      printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
 
 
     //if(s->packet_gen != s->packet_fin)
@@ -1970,11 +1970,11 @@ void dragonfly_router_final(router_state * s,
     for(i = 0; i < s->params->radix; i++) {
       for(j = 0; j < 3; j++) {
         if(s->queued_msgs[i][j] != NULL) {
-          printf("[%llu] leftover queued messages %d %d %d\n", lp->gid, i, j,
+          printf("[%llu] leftover queued messages %d %d %d\n", LLU(lp->gid), i, j,
           s->vc_occupancy[i][j]);
         }
         if(s->pending_msgs[i][j] != NULL) {
-          printf("[%llu] lefover pending messages %d %d\n", lp->gid, i, j);
+          printf("[%llu] lefover pending messages %d %d\n", LLU(lp->gid), i, j);
         }
       }
     }
@@ -1990,7 +1990,7 @@ void dragonfly_router_final(router_state * s,
                 p->num_routers, p->num_global_channels);
     }
     written += sprintf(s->output_buf + written, "\n %llu %d %d ", 
-            lp->gid,
+            LLU(lp->gid),
             s->router_id / p->num_routers,
             s->router_id % p->num_routers);
     for(int d = 0; d < p->num_routers + p->num_global_channels; d++) 
@@ -2007,12 +2007,12 @@ void dragonfly_router_final(router_state * s,
             p->num_routers, p->num_global_channels);
     }
     written += sprintf(s->output_buf2 + written, "\n %llu %d %d",
-        lp->gid,
+        LLU(lp->gid),
         s->router_id / p->num_routers,
         s->router_id % p->num_routers);
 
     for(int d = 0; d < p->num_routers + p->num_global_channels; d++) 
-        written += sprintf(s->output_buf2 + written, " %lld", s->link_traffic[d]);
+        written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
 
     sprintf(s->output_buf2 + written, "\n");
     lp_io_write(lp->gid, "dragonfly-router-traffic", written, s->output_buf2);
@@ -2192,6 +2192,8 @@ static int do_adaptive_routing( router_state * s,
   int nonmin_next_stop = get_next_stop(s, msg, NON_MINIMAL, dest_router_id, intm_id);
   nonmin_out_port = get_output_port(s, msg, nonmin_next_stop);
   
+#if 0
+TODO: do we need this code? nomin_vc and min_vc not used anywhere...
   int nomin_vc = 0;
   if(nonmin_out_port < s->params->num_routers) {
     nomin_vc = msg->my_l_hop;
@@ -2206,6 +2208,7 @@ static int do_adaptive_routing( router_state * s,
         s->params->num_global_channels)) {
     min_vc = msg->my_g_hop;
   }
+#endif
   int min_port_count = s->vc_occupancy[minimal_out_port][0] + 
       s->vc_occupancy[minimal_out_port][1] + s->vc_occupancy[minimal_out_port][2]
       + s->queued_count[minimal_out_port];
@@ -2364,7 +2367,7 @@ router_packet_receive( router_state * s,
   cur_chunk->msg.next_stop = next_stop;
 
   if(msg->packet_ID == LLU(TRACK_PKT))
-      printf("\n Router packet %llu arrived lp id %llu final dest %llu output port %d ", msg->packet_ID, lp->gid, msg->dest_terminal_id, output_port);
+      printf("\n Router packet %llu arrived lp id %llu final dest %llu output port %d ", msg->packet_ID, LLU(lp->gid), LLU(msg->dest_terminal_id), output_port);
   
   if(output_port < s->params->num_routers) {
     output_chan = msg->my_l_hop;
