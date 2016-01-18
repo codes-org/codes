@@ -43,8 +43,10 @@
 #define DEBUG 0
 #define USE_DIRECT_SCHEME 1
 
-#define LP_CONFIG_NM (model_net_lp_config_names[DRAGONFLY])
-#define LP_METHOD_NM (model_net_method_names[DRAGONFLY])
+#define LP_CONFIG_NM_TERM (model_net_lp_config_names[DRAGONFLY])
+#define LP_METHOD_NM_TERM (model_net_method_names[DRAGONFLY])
+#define LP_CONFIG_NM_ROUT (model_net_lp_config_names[DRAGONFLY_ROUTER])
+#define LP_METHOD_NM_ROUT (model_net_method_names[DRAGONFLY_ROUTER])
 
 long term_ecount, router_ecount, term_rev_ecount, router_rev_ecount;
 long packet_gen = 0, packet_fin = 0;
@@ -519,7 +521,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
 }
 
 static void dragonfly_configure(){
-    anno_map = codes_mapping_get_lp_anno_map(LP_CONFIG_NM);
+    anno_map = codes_mapping_get_lp_anno_map(LP_CONFIG_NM_TERM);
     assert(anno_map);
     num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
     all_params = malloc(num_params * sizeof(*all_params));
@@ -577,7 +579,7 @@ void dragonfly_collective_init(terminal_state * s,
     // TODO: be annotation-aware
     codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
             &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
+    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
             NULL, 1);
     int num_reps = codes_mapping_get_group_reps(lp_group_name);
     s->node_id = (mapping_rep_id * num_lps) + mapping_offset;
@@ -638,7 +640,7 @@ terminal_init( terminal_state * s,
     s->packet_fin = 0;
 
     uint32_t h1 = 0, h2 = 0; 
-    bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
+    bj_hashlittle2(LP_METHOD_NM_TERM, strlen(LP_METHOD_NM_TERM), &h1, &h2);
     terminal_magic_num = h1 + h2;
     
     int i;
@@ -658,7 +660,7 @@ terminal_init( terminal_state * s,
         s->params = &all_params[id];
     }
 
-   int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
+   int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
            s->anno, 0);
 
    s->terminal_id = (mapping_rep_id * num_lps) + mapping_offset;  
@@ -709,7 +711,7 @@ terminal_init( terminal_state * s,
 void router_setup(router_state * r, tw_lp * lp)
 {
     uint32_t h1 = 0, h2 = 0; 
-    bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
+    bj_hashlittle2(LP_METHOD_NM_ROUT, strlen(LP_METHOD_NM_ROUT), &h1, &h2);
     router_magic_num = h1 + h2;
     
     char anno[MAX_NAME_LENGTH];
@@ -1346,7 +1348,7 @@ void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp * lp, t
                 codes_mctx_set_global_direct(msg->sender_mn_lp);
             struct codes_mctx mc_src =
                 codes_mctx_set_global_direct(lp->gid);
-            int net_id = model_net_get_id(LP_METHOD_NM);
+            int net_id = model_net_get_id(LP_METHOD_NM_TERM);
 
             model_net_set_msg_param(MN_MSG_PARAM_START_TIME, MN_MSG_PARAM_START_TIME_VAL, &(msg->msg_start_time));
             
@@ -1556,7 +1558,7 @@ void dragonfly_collective(char const * category, int message_size, int remote_ev
 
     codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id,
             NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_TERM, NULL, 1,
             mapping_rep_id, mapping_offset, &local_nic_id);
 
     xfer_to_nic_time = codes_local_latency(sender);
@@ -1631,9 +1633,9 @@ static void node_collective_init(terminal_state * s,
             codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id,
                     NULL, &mapping_type_id, NULL, &mapping_rep_id,
                     &mapping_offset);
-            num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
+            num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
                     s->anno, 0);
-            codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, s->anno, 0,
+            codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_TERM, s->anno, 0,
                     s->parent_node_id/num_lps, (s->parent_node_id % num_lps),
                     &parent_nic_id);
 
@@ -1668,7 +1670,7 @@ static void node_collective_fan_in(terminal_state * s,
 
         codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id,
                 NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-        int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
+        int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
                 s->anno, 0);
 
         tw_event* e_new;
@@ -1688,7 +1690,7 @@ static void node_collective_fan_in(terminal_state * s,
             xfer_to_nic_time = g_tw_lookahead + LEVEL_DELAY;
 
             /* get the global LP ID of the parent node */
-            codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, s->anno, 0,
+            codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_TERM, s->anno, 0,
                     s->parent_node_id/num_lps, (s->parent_node_id % num_lps),
                     &parent_nic_id);
 
@@ -1727,7 +1729,7 @@ static void node_collective_fan_in(terminal_state * s,
                 xfer_to_nic_time = g_tw_lookahead + COLLECTIVE_COMPUTATION_DELAY + LEVEL_DELAY + tw_rand_exponential(lp->rng, (double)LEVEL_DELAY/50);
 
                 /* get global LP ID of the child node */
-                codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
+                codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_TERM, NULL, 1,
                         s->children[i]/num_lps, (s->children[i] % num_lps),
                         &child_nic_id);
                 //e_new = tw_event_new(child_nic_id, xfer_to_nic_time, lp);
@@ -1758,7 +1760,7 @@ static void node_collective_fan_out(terminal_state * s,
                         tw_lp * lp)
 {
         int i;
-        int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
+        int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
                 NULL, 1);
         bf->c1 = 0;
         bf->c2 = 0;
@@ -1781,7 +1783,7 @@ static void node_collective_fan_out(terminal_state * s,
                         tw_lpid child_nic_id;
 
                         /* get global LP ID of the child node */
-                        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM,
+                        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_TERM,
                                 s->anno, 0, s->children[i]/num_lps,
                                 (s->children[i] % num_lps), &child_nic_id);
                         //e_new = tw_event_new(child_nic_id, xfer_to_nic_time, lp);
@@ -2137,7 +2139,7 @@ get_output_port( router_state * s,
   codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name,
           &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id,
           &mapping_offset);
-  int num_lps = codes_mapping_get_lp_count(lp_group_name,1,LP_CONFIG_NM,s->anno,0);
+  int num_lps = codes_mapping_get_lp_count(lp_group_name,1,LP_CONFIG_NM_TERM,s->anno,0);
   terminal_id = (mapping_rep_id * num_lps) + mapping_offset;
 
   if((tw_lpid)next_stop == msg->dest_terminal_id)
@@ -2324,7 +2326,7 @@ router_packet_receive( router_state * s,
   codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name,
       &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id,
       &mapping_offset); 
-  int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
+  int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
       s->anno, 0);
   int dest_router_id = (mapping_offset + (mapping_rep_id * num_lps)) / 
     s->params->num_cn;
@@ -2820,10 +2822,18 @@ static const tw_lptype* dragonfly_get_cn_lp_type(void)
 {
 	   return(&dragonfly_lps[0]);
 }
+static const tw_lptype* router_get_lp_type(void)
+{
+    return (&dragonfly_lps[1]);
+}
 
 static void dragonfly_register(tw_lptype *base_type) {
-    lp_type_register(LP_CONFIG_NM, base_type);
+    lp_type_register(LP_CONFIG_NM_TERM, base_type);
     lp_type_register("dragonfly_router", &dragonfly_lps[1]);
+}
+
+static void router_register(tw_lptype *base_type) {
+    lp_type_register(LP_CONFIG_NM_ROUT, base_type);
 }
 
 /* data structure for dragonfly statistics */
@@ -2842,3 +2852,17 @@ struct model_net_method dragonfly_method =
     .mn_collective_call_rc = dragonfly_collective_rc
 };
 
+struct model_net_method dragonfly_router_method =
+{
+    .mn_configure = NULL, // handled by dragonfly_configure
+    .mn_register  = router_register,
+    .model_net_method_packet_event = NULL,
+    .model_net_method_packet_event_rc = NULL,
+    .model_net_method_recv_msg_event = NULL,
+    .model_net_method_recv_msg_event_rc = NULL,
+    .mn_get_lp_type = router_get_lp_type,
+    .mn_get_msg_sz = dragonfly_get_msg_sz,
+    .mn_report_stats = NULL, // not yet supported
+    .mn_collective_call = NULL,
+    .mn_collective_call_rc = NULL
+};
