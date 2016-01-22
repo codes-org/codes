@@ -7,6 +7,10 @@
 #ifndef __CONFIGURATION_H__
 #define __CONFIGURATION_H__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stddef.h>
 #include <inttypes.h>
 #include <mpi.h>
@@ -248,6 +252,10 @@ int configuration_get_annotation_index(const char *              anno,
 extern ConfigHandle config;
 
 extern config_lpgroups_t lpconf;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 

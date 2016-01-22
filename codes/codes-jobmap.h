@@ -20,6 +20,10 @@
 #ifndef CODES_JOBMAP_H
 #define CODES_JOBMAP_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** type markers and parameter defs for jobmaps **/
 
 enum codes_jobmap_type {
@@ -79,6 +83,10 @@ int codes_jobmap_to_global_id(
 int codes_jobmap_get_num_jobs(struct codes_jobmap_ctx const * c);
 
 int codes_jobmap_get_num_ranks(int job_id, struct codes_jobmap_ctx const * c);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 

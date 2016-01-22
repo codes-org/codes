@@ -7,6 +7,10 @@
 #ifndef MODELNET_H
 #define MODELNET_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <ross.h>
 #include <codes/lp-type-lookup.h>
 #include <codes/configuration.h>
@@ -396,6 +400,11 @@ void model_net_print_stats(tw_lpid lpid, mn_stats mn_stats_array[]);
 
 /* find model-net statistics */
 mn_stats* model_net_find_stats(char const * category, mn_stats mn_stats_array[]);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif /* MODELNET_H */
 
 /*

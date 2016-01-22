@@ -7,6 +7,10 @@
 #ifndef DRAGONFLY_H
 #define DRAGONFLY_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <ross.h>
 
 typedef struct terminal_message terminal_message;
@@ -91,6 +95,10 @@ struct terminal_message
    tw_lpid sender_node;
    tw_lpid next_stop;
 };
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* end of include guard: DRAGONFLY_H */
 

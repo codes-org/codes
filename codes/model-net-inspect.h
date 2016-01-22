@@ -10,6 +10,10 @@
 #ifndef MODEL_NET_INSPECT_H
 #define MODEL_NET_INSPECT_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* ALL FUNCTIONS
  * anno is the annotation specified in the configuration (NULL -> no
  * annotation), while ignore_annotations is a flag controlling whether
@@ -36,6 +40,10 @@ int model_net_torus_get_flat_id(
         int         ndims,
         const int * dim_lens,
         const int * dim_ids);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* end of include guard: MODEL_NET_INSPECT_H */
 

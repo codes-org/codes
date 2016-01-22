@@ -11,6 +11,10 @@
 #ifndef RESOURCE_LP_H
 #define RESOURCE_LP_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <ross.h>
 #include <stdint.h>
 
@@ -88,6 +92,10 @@ void resource_lp_free_rc(tw_lp *sender);
 void resource_lp_reserve_rc(tw_lp *sender);
 void resource_lp_get_reserved_rc(tw_lp *sender);
 void resource_lp_free_reserved_rc(tw_lp *sender);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* end of include guard: RESOURCE_LP_H */
 

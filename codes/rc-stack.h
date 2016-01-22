@@ -7,6 +7,10 @@
 #ifndef RC_STACK_H
 #define RC_STACK_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <ross.h>
 
 /* A simple stack data structure that is GVT-aware for cleanup purposes. It's
@@ -48,6 +52,10 @@ int rc_stack_count(struct rc_stack const *s);
 /* remove entries from the stack with generation time < GVT (lp->pe->GVT).
  * a NULL lp causes a delete-all */
 void rc_stack_gc(tw_lp const *lp, struct rc_stack *s);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* end of include guard: RC-STACK_H */
 

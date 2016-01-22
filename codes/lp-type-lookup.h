@@ -8,6 +8,10 @@
 #ifndef LP_TYPE_LOOKUP_H
 #define LP_TYPE_LOOKUP_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "ross.h"
 
 /* look up the lp type registered through lp_type_register. Mostly used
@@ -16,6 +20,10 @@ const tw_lptype* lp_type_lookup(const char* name);
 
 /* register an LP with CODES/ROSS */
 void lp_type_register(const char* name, const tw_lptype* type);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* LP_TYPE_LOOKUP_H */
 

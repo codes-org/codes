@@ -7,6 +7,14 @@
 /* SUMMARY:
  * CODES custom mapping file for ROSS
  */
+
+#ifndef CODES_MAPPING_H
+#define CODES_MAPPING_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "configuration.h"
 #include "codes.h"
 #include "lp-type-lookup.h"
@@ -219,6 +227,12 @@ char const * codes_mapping_get_lp_name_by_cid(int cid);
 int codes_mapping_get_anno_cid_by_name(char const * annotation);
 int codes_mapping_get_anno_cid_by_lpid(tw_lpid id);
 char const * codes_mapping_get_anno_name_by_cid(int cid);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
 
 /*
  * Local variables:

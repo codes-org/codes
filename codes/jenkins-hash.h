@@ -7,6 +7,10 @@
 #ifndef __JENKINS_HASH__
 #define __JENKINS_HASH__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <sys/types.h>
 #include <stdint.h>
 
@@ -38,6 +42,10 @@ void bj_hashlittle2(
 /* bj_hashmask(n) gives a mask reasonable for returning a hash between 0 and the hashtable size.
  */
 #define bj_hashmask(n) (bj_hashsize(n)-1)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 

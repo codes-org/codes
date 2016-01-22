@@ -8,6 +8,10 @@
 #ifndef CODES_H
 #define CODES_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <ross.h>
 #include <assert.h>
 
@@ -89,6 +93,10 @@ static inline void codes_local_latency_reverse(tw_lp *lp)
     tw_rand_reverse_unif(&lp->rng[r]);
     return;
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* CODES_H */
 

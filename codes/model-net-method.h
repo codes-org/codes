@@ -7,6 +7,10 @@
 #ifndef MODELNET_METHOD_H
 #define MODELNET_METHOD_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <ross.h>
 
 // forward decl of model_net_method since we currently have a circular include
@@ -62,6 +66,10 @@ struct model_net_method
 };
 
 extern struct model_net_method * method_array[];
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* MODELNET_METHOD_H */
 
