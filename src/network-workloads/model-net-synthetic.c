@@ -361,7 +361,7 @@ int main(
     codes_mapping_setup();
 
     net_ids = model_net_configure(&num_nets);
-    assert(num_nets==1);
+    //assert(num_nets==1);
     net_id = *net_ids;
     free(net_ids);
 

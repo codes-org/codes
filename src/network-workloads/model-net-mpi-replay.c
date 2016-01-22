@@ -713,8 +713,8 @@ static void codes_exec_mpi_send(nw_state* s,
 	if(net_id == DRAGONFLY) /* special handling for the dragonfly case */
 	{
 		int num_routers, lps_per_rep, factor;
-		num_routers = codes_mapping_get_lp_count("MODELNET_GRP", 1,
-                  "dragonfly_router", NULL, 1);
+		num_routers = codes_mapping_get_lp_count(lp_group_name, 1,
+                  "modelnet_dragonfly_router", NULL, 1);
 	 	lps_per_rep = (2 * num_nw_lps) + num_routers;	
 		factor = mpi_op->u.send.dest_rank / num_nw_lps;
 		dest_rank = (lps_per_rep * factor) + (mpi_op->u.send.dest_rank % num_nw_lps);	
@@ -939,7 +939,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    /* initialize the LP's and load the data */
    char * params = NULL;
    dumpi_trace_params params_d;
-  
+ 
    memset(s, 0, sizeof(*s));
    s->nw_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
 
@@ -1310,11 +1310,11 @@ int main( int argc, char** argv )
    model_net_register();
 
    net_ids = model_net_configure(&num_nets);
-   assert(num_nets == 1);
+//   assert(num_nets == 1);
    net_id = *net_ids;
    free(net_ids);
 
-   //model_net_enable_sampling(5000000, g_tw_ts_end);
+   model_net_enable_sampling(5000000, 8000000);
 
    codes_mapping_setup();
 

@@ -254,6 +254,9 @@ void model_net_base_configure(){
         offsetof(model_net_wrap_msg, msg.m_torus);
     msg_offsets[DRAGONFLY] =
         offsetof(model_net_wrap_msg, msg.m_dfly);
+    // note: dragonfly router uses the same event struct
+    msg_offsets[DRAGONFLY_ROUTER] =
+        offsetof(model_net_wrap_msg, msg.m_dfly);
     msg_offsets[LOGGP] =
         offsetof(model_net_wrap_msg, msg.m_loggp);
 
