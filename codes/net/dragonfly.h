@@ -65,19 +65,18 @@ struct terminal_message
    int sender_radix;
    int output_chan;
    model_net_event_return event_rc;
-    int is_pull;
-    uint64_t pull_size;
+   int is_pull;
+   uint64_t pull_size;
 
    /* for reverse computation */   
    int path_type;
    tw_stime saved_available_time;
-   
    tw_stime saved_avg_time;
    tw_stime saved_rcv_time;
-   
    tw_stime saved_busy_time; 
    tw_stime saved_total_time;
    tw_stime saved_hist_start_time;
+   tw_stime saved_sample_time;
    tw_stime msg_start_time;
 
    int saved_hist_num;
@@ -91,8 +90,6 @@ struct terminal_message
   /* LP ID of the sending node, has to be a network node in the dragonfly */
    tw_lpid sender_node;
    tw_lpid next_stop;
-
-    struct dfly_qhash_entry * saved_hash;
 };
 
 #endif /* end of include guard: DRAGONFLY_H */

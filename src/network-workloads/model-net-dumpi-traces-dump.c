@@ -157,7 +157,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        params = (char*)&params_d;
    }
   /* In this case, the LP will not generate any workload related events*/
-   if(s->nw_id >= params_d.num_net_traces)
+   if(s->nw_id >= (tw_lpid)params_d.num_net_traces)
      {
 	//printf("\n network LP not generating events %d ", (int)s->nw_id);
 	return;

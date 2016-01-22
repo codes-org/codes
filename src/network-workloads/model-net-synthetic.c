@@ -343,8 +343,6 @@ int main(
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
 
-     g_tw_ts_end = s_to_ns(60*60*24*365); /* one year, in nsecs */
-
     if(argc < 2)
     {
             printf("\n Usage: mpirun <args> --sync=2/3 mapping_file_name.conf (optional --nkp) ");
@@ -366,6 +364,10 @@ int main(
     assert(num_nets==1);
     net_id = *net_ids;
     free(net_ids);
+
+    /* 5 days of simulation time */
+    g_tw_ts_end = s_to_ns(5 * 24 * 60 * 60);
+    //model_net_enable_sampling(8000, 10000);
 
     if(net_id != DRAGONFLY)
     {

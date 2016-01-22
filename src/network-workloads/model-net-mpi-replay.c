@@ -1179,7 +1179,7 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
     int written = 0;
     if(!s->nw_id)
         written = sprintf(s->output_buf, "# Format <LP ID> <Terminal ID> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time>");
-	if(s->nw_id < num_net_traces)
+	if(s->nw_id < (tw_lpid)num_net_traces)
 	{
 		int count_irecv = qlist_count(&s->pending_recvs_queue);
         int count_isend = qlist_count(&s->arrival_queue);
@@ -1314,6 +1314,7 @@ int main( int argc, char** argv )
    net_id = *net_ids;
    free(net_ids);
 
+   //model_net_enable_sampling(5000000, g_tw_ts_end);
 
    codes_mapping_setup();
 
