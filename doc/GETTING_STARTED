@@ -153,6 +153,14 @@ The following restrictions currently apply to the IO language:
   Hence, getgroupid should be completely ignored and getgrouprank and
   getgroupsize ignore the group ID parameter passed in.
 
+===== Limitations
+
+The IO language is frozen and no future development will be happening with it,
+so keep the following limitations in mind when using it.
+
+* There is currently no way to specify a "create" flag to open.
+* Variables are expected to be a single lowercase character.
+
 === Network
 
 Our primary network workload generator is via the DUMPI tool

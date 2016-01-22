@@ -345,6 +345,9 @@ implement -- steps 2--4 are a few lines of code each. Also, LP-IO can be
 used upon encountering a suspend condition to give error specifics (the reverse
 write would occur in the reverse handler in step 3).
 
+Note that ROSS now has a self-suspend API -- the hand-implementation may still
+be used, but it is preferable to use the ROSS version.
+
 \subsection{Stash data needed for reverse computation within event structures}
 
 Writing discrete-event simulations will necessarily involve ``destructive''
