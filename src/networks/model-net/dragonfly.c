@@ -1892,6 +1892,9 @@ void dragonfly_rsample_init(router_state * s,
     s->rsamples[i].busy_time = malloc(sizeof(tw_stime) * p->radix); 
     s->rsamples[i].link_traffic = malloc(sizeof(int64_t) * p->radix);
    }
+   printf("\n Total size of router sample %ld array sizes %ld", 
+           sizeof(struct dfly_router_sample),
+           sizeof(s->rsamples[i].busy_time));
 }
 void dragonfly_rsample_rc_fn(router_state * s,
         tw_bf * bf,
@@ -1985,14 +1988,23 @@ void dragonfly_rsample_fin(router_state * s,
     }
     char file_name[64];
     sprintf(file_name, "dragonfly-router-sampling-%ld.bin", g_tw_mynode); 
-    
-    int size_sample = sizeof(struct dfly_router_sample) + p->radix * (sizeof(int64_t) + sizeof(tw_stime));
+    int i = 0;
+    int j = 0;
+
+    int size_sample = sizeof(tw_lpid) + p->radix * (sizeof(int64_t) + sizeof(tw_stime)) + sizeof(tw_stime);
     FILE * fp = fopen(file_name, "a");
     fseek(fp, sample_rtr_bytes_written, SEEK_SET);
-    fwrite(s->rsamples, size_sample, s->op_arr_size, fp);
+
+    for(; i < s->op_arr_size; i++)
+    {
+        fwrite((void*)&(s->rsamples[i].router_id), sizeof(tw_lpid), 1, fp);
+        fwrite(s->rsamples[i].busy_time, sizeof(tw_stime), p->radix, fp);
+        fwrite(s->rsamples[i].link_traffic, sizeof(int64_t), p->radix, fp);
+        fwrite((void*)&(s->rsamples[i].end_time), sizeof(tw_stime), 1, fp);
+    }
+    sample_rtr_bytes_written += (s->op_arr_size * size_sample);
     fclose(fp);
 
-    sample_rtr_bytes_written += (s->op_arr_size * size_sample);
 }
 void dragonfly_sample_init(terminal_state * s,
         tw_lp * lp)

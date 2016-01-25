@@ -4,6 +4,7 @@ n is the number of input bgp-log files */
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <mpi.h>
+#define RADIX 8
 
 struct dfly_samples
 {
@@ -19,8 +20,8 @@ struct dfly_samples
 struct dfly_rtr_sample
 {
     uint64_t router_id;
-    double * busy_time;
-    int64_t * link_traffic;
+    double busy_time[RADIX];
+    int64_t link_traffic[RADIX];
     double end_time;
 };
 
@@ -32,21 +33,22 @@ int main( int argc, char** argv )
    int my_rank;
    int size;
    int i = 0, j = 0;
-   int radix = atoi(argv[1]);
+   /*int radix = atoi(argv[1]);
    if(!radix)
    {
         printf("\n Router radix should be specified ");
         MPI_Finalize();
         return -1;
-   }
+   }*/
 
-   printf("\n Router radix %d ", radix );
+   printf("\n Router radix %d ", RADIX );
    MPI_Init(&argc, &argv);
    MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
    MPI_Comm_size(MPI_COMM_WORLD, &size);
 
    FILE* pFile;
    FILE* writeFile;
+   FILE* writeRouterFile;
 
    char buffer_read[64];
    char buffer_write[64];
@@ -97,16 +99,11 @@ int main( int argc, char** argv )
 
     r_event_array = malloc(in_sz_rt);
 
-    int sample_size = sizeof(struct dfly_rtr_sample) + radix * (sizeof(int64_t) + sizeof(double));
-    for(i = 0; i < in_sz_rt / sample_size; i++)
-    {
-        r_event_array[i].busy_time = malloc(sizeof(double) * radix);
-        r_event_array[i].link_traffic = malloc(sizeof(int64_t) * radix);
-    }
+    int sample_size = sizeof(struct dfly_rtr_sample);
     sprintf(buffer_rtr_write, "dragonfly-rtr-write-log.%d", my_rank);
-    writeFile = fopen(buffer_rtr_write, "w+");
+    writeRouterFile = fopen(buffer_rtr_write, "w+");
 
-    if(writeFile == NULL || pFile == NULL)
+    if(writeRouterFile == NULL || pFile == NULL)
     {
         fputs("\n File error ", stderr);
         MPI_Finalize();
@@ -114,24 +111,25 @@ int main( int argc, char** argv )
     }
     fseek(pFile, 0L, SEEK_SET);
     fread(r_event_array, sample_size, in_sz_rt / sample_size, pFile); 
-    fprintf(writeFile, "\n Router ID \t Busy time per channel \t Link traffic per channel \t Sample end time ");
+    fprintf(writeRouterFile, "\n Router ID \t Busy time per channel \t Link traffic per channel \t Sample end time ");
+    printf("\n Sample size %d in_sz_rt %ld ", in_sz_rt / sample_size, in_sz_rt);
     for(i = 0; i < in_sz_rt / sample_size; i++)
     {
-        printf("\n %ld ", r_event_array[i].router_id);
-        fprintf(writeFile, "\n %ld ", r_event_array[i].router_id);
+        //printf("\n %ld ", r_event_array[i].router_id);
+        fprintf(writeRouterFile, "\n %ld ", r_event_array[i].router_id);
         
-        for(j = 0; j < radix; j++ )
+        for(j = 0; j < RADIX; j++ )
         {
-            printf("\n %lf ", r_event_array[i].busy_time[j]);
-            fprintf(writeFile, " %lf ", r_event_array[i].busy_time[j]);
+            //printf("\n %lf ", r_event_array[i].busy_time[j]);
+            fprintf(writeRouterFile, " %lf ", r_event_array[i].busy_time[j]);
         }
         
-        for(j = 0; j < radix; j++ )
-            fprintf(writeFile, " %ld ", r_event_array[i].link_traffic[j]);
+        for(j = 0; j < RADIX; j++ )
+            fprintf(writeRouterFile, " %ld ", r_event_array[i].link_traffic[j]);
         
-        fprintf(writeFile, "\n %lf ", r_event_array[i].end_time);
+        fprintf(writeRouterFile, "\n %lf ", r_event_array[i].end_time);
     }
     fclose(pFile);
-    fclose(writeFile);
+    fclose(writeRouterFile);
     MPI_Finalize();
 }
