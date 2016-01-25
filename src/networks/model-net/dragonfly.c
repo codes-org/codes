@@ -1892,9 +1892,6 @@ void dragonfly_rsample_init(router_state * s,
     s->rsamples[i].busy_time = malloc(sizeof(tw_stime) * p->radix); 
     s->rsamples[i].link_traffic = malloc(sizeof(int64_t) * p->radix);
    }
-   printf("\n Total size of router sample %ld array sizes %ld", 
-           sizeof(struct dfly_router_sample),
-           sizeof(s->rsamples[i].busy_time));
 }
 void dragonfly_rsample_rc_fn(router_state * s,
         tw_bf * bf,
