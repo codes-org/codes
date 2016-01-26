@@ -163,7 +163,10 @@ static void handle_kickoff_rev_event(
     if(m->incremented_flag)
         return;
 
-	model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+    if(b->c1)
+        tw_rand_reverse_unif(lp->rng);
+	
+    model_net_event_rc(net_id, lp, PAYLOAD_SZ);
 	ns->msg_sent_count--;
     tw_rand_reverse_unif(lp->rng);
 }	
@@ -194,16 +197,14 @@ static void handle_kickoff_event(
     m_remote->svr_event_type = REMOTE;
 
     assert(net_id == DRAGONFLY); /* only supported for dragonfly model right now. */
-
     ns->start_ts = tw_now(lp);
-    
-   codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
-   
-   int local_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
+    codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
+    int local_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
 
    /* in case of uniform random traffic, send to a random destination. */
    if(traffic == UNIFORM)
    {
+    b->c1 = 1;
    	local_dest = tw_rand_integer(lp->rng, 0, num_nodes - 1);
    }
    else if(traffic == NEAREST_GROUP)
@@ -367,7 +368,7 @@ int main(
 
     /* 5 days of simulation time */
     g_tw_ts_end = s_to_ns(5 * 24 * 60 * 60);
-    //model_net_enable_sampling(8000, 10000);
+    model_net_enable_sampling(8000, 16000);
 
     if(net_id != DRAGONFLY)
     {

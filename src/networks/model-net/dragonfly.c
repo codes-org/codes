@@ -80,6 +80,9 @@ FILE * dragonfly_log = NULL;
 int sample_bytes_written = 0;
 int sample_rtr_bytes_written = 0;
 
+char cn_sample_file[MAX_NAME_LENGTH];
+char router_sample_file[MAX_NAME_LENGTH];
+
 typedef struct terminal_message_list terminal_message_list;
 struct terminal_message_list {
     terminal_message msg;
@@ -521,6 +524,11 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     configuration_get_value_double(&config, "PARAMS", "router_delay", anno,
             &p->router_delay);
 
+    configuration_get_value(&config, "PARAMS", "cn_sample_file", anno, cn_sample_file,
+            MAX_NAME_LENGTH);
+    configuration_get_value(&config, "PARAMS", "rt_sample_file", anno, router_sample_file,
+            MAX_NAME_LENGTH);
+    
     char routing_str[MAX_NAME_LENGTH];
     configuration_get_value(&config, "PARAMS", "routing", anno, routing_str,
             MAX_NAME_LENGTH);
@@ -1983,13 +1991,17 @@ void dragonfly_rsample_fin(router_state * s,
                 p->radix, p->radix);
         fclose(fp);
     }
-    char file_name[64];
-    sprintf(file_name, "dragonfly-router-sampling-%ld.bin", g_tw_mynode); 
+    char cn_fn[MAX_NAME_LENGTH];
+    if(strcmp(router_sample_file, "") == 0)
+        sprintf(cn_fn, "dragonfly-router-sampling-%ld.bin", g_tw_mynode); 
+    else
+        sprintf(cn_fn, "%s-%ld.bin", router_sample_file, g_tw_mynode);
+    
     int i = 0;
     int j = 0;
 
     int size_sample = sizeof(tw_lpid) + p->radix * (sizeof(int64_t) + sizeof(tw_stime)) + sizeof(tw_stime);
-    FILE * fp = fopen(file_name, "a");
+    FILE * fp = fopen(cn_fn, "wa");
     fseek(fp, sample_rtr_bytes_written, SEEK_SET);
 
     for(; i < s->op_arr_size; i++)
@@ -2132,16 +2144,18 @@ void dragonfly_sample_fin(terminal_state * s,
                 "data size per sample \t finished hops \t time to finish chunks \t busy time \t sample end time");
         fclose(fp);
     }
-    char file_name[64];
-    sprintf(file_name, "dragonfly-cn-sampling-%ld.bin", g_tw_mynode);
+    char rt_fn[MAX_NAME_LENGTH];
+    if(strncmp(router_sample_file, "", 10) == 0)
+        sprintf(rt_fn, "dragonfly-cn-sampling-%ld.bin", g_tw_mynode); 
+    else
+        sprintf(rt_fn, "%s-%ld.bin", cn_sample_file, g_tw_mynode);
 
-    FILE * fp = fopen(file_name, "a");
+    FILE * fp = fopen(rt_fn, "wa");
     fseek(fp, sample_bytes_written, SEEK_SET);
     fwrite(s->sample_stat, sizeof(struct dfly_cn_sample), s->op_arr_size, fp);
     fclose(fp);
 
     sample_bytes_written += (s->op_arr_size * sizeof(struct dfly_cn_sample));
-    //printf("\n Bytes written %ld ", sample_bytes_written);
 }
 
 void terminal_buf_update_rc(terminal_state * s,
