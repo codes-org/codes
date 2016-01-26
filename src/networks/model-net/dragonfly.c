@@ -2001,7 +2001,7 @@ void dragonfly_rsample_fin(router_state * s,
     int j = 0;
 
     int size_sample = sizeof(tw_lpid) + p->radix * (sizeof(int64_t) + sizeof(tw_stime)) + sizeof(tw_stime);
-    FILE * fp = fopen(cn_fn, "wa");
+    FILE * fp = fopen(cn_fn, "a");
     fseek(fp, sample_rtr_bytes_written, SEEK_SET);
 
     for(; i < s->op_arr_size; i++)
@@ -2145,12 +2145,12 @@ void dragonfly_sample_fin(terminal_state * s,
         fclose(fp);
     }
     char rt_fn[MAX_NAME_LENGTH];
-    if(strncmp(router_sample_file, "", 10) == 0)
+    if(strncmp(cn_sample_file, "", 10) == 0)
         sprintf(rt_fn, "dragonfly-cn-sampling-%ld.bin", g_tw_mynode); 
     else
         sprintf(rt_fn, "%s-%ld.bin", cn_sample_file, g_tw_mynode);
 
-    FILE * fp = fopen(rt_fn, "wa");
+    FILE * fp = fopen(rt_fn, "a");
     fseek(fp, sample_bytes_written, SEEK_SET);
     fwrite(s->sample_stat, sizeof(struct dfly_cn_sample), s->op_arr_size, fp);
     fclose(fp);

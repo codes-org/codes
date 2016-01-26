@@ -53,7 +53,7 @@ int main( int argc, char** argv )
    char buffer_read[64];
    char buffer_write[64];
 
-   sprintf(buffer_read, "dragonfly-cn-sampling-%d.bin", my_rank);
+   sprintf(buffer_read, "dragonfly-sample-ur-%d.bin", my_rank);
    pFile = fopen(buffer_read, "r+");
 
    struct stat st;
@@ -90,7 +90,7 @@ int main( int argc, char** argv )
     char buffer_rtr_read[64];
     char buffer_rtr_write[64];
 
-    sprintf(buffer_rtr_read, "dragonfly-router-sampling-%d.bin", my_rank);
+    sprintf(buffer_rtr_read, "dragonfly-router-ur-%d.bin", my_rank);
     pFile = fopen(buffer_rtr_read, "r+");
 
     struct stat st2;
