@@ -9,6 +9,10 @@
 #ifndef MODEL_NET_SCHED_H
 #define MODEL_NET_SCHED_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <ross.h>
 #include "model-net.h"
 
@@ -194,6 +198,10 @@ void model_net_sched_add_rc(
 void model_net_sched_set_default_params(mn_sched_params *sched_params);
 
 extern char * sched_names[];
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* end of include guard: MODEL_NET_SCHED_H */
 

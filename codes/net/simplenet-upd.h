@@ -7,6 +7,10 @@
 #ifndef SIMPLENET_UPD_H
 #define SIMPLENET_UPD_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct sn_message sn_message;
 
 /* types of events that will constitute triton requests */
@@ -38,6 +42,10 @@ struct sn_message
     tw_stime send_time_saved;
     tw_stime recv_time_saved;
 };
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* end of include guard: SIMPLENET_UPD_H */
 /*

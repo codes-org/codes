@@ -13,6 +13,10 @@
 #ifndef CODES_MAPPING_CONTEXT_H
 #define CODES_MAPPING_CONTEXT_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdbool.h>
 #include <ross.h>
 
@@ -100,6 +104,10 @@ char const * codes_mctx_get_annotation(
         struct codes_mctx const *ctx,
         char const * dest_lp_name,
         tw_lpid sender_id);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* end of include guard: CODES_MAPPING_CONTEXT_H */
 

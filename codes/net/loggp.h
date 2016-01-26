@@ -7,6 +7,10 @@
 #ifndef LOGGP_H
 #define LOGGP_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "../model-net-sched.h"
 
 /* types of events that will constitute triton requests */
@@ -44,6 +48,10 @@ struct loggp_message
     tw_stime xmit_time_saved;
     tw_stime recv_time_saved;
 };
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* end of include guard: LOGGP_H */
 

@@ -153,6 +153,38 @@ The following restrictions currently apply to the IO language:
   Hence, getgroupid should be completely ignored and getgrouprank and
   getgroupsize ignore the group ID parameter passed in.
 
+===== Limitations
+
+The IO language is frozen and no future development will be happening with it,
+so keep the following limitations in mind when using it.
+
+* There is currently no way to specify a "create" flag to open.
+* Variables are expected to be a single lowercase character.
+
+==== "Mock" IO workload
+
+The mock IO workload generator creates a sequential workload of N requests of
+size M. The generated file ID is either an optional input or 0 - there's also
+an option to add a (simulated) processes rank to the file IDs, giving in effect
+a unique file per rank. Relevant configuration parameters are:
+* mock_num_requests - the number of requests
+* mock_request_size - the size of each request
+* mock_request_type - the type of request ("read" or "write")
+* mock_file_id (optional) - the file ID to use, default 0
+* mock_use_unique_file_ids (optional) - if non-zero, add the workload
+  processor's rank to the file ID. Default is 0.
+* mock_rank_table_size (optional) - the hash table size to store the ranks in.
+  For minimal collisions, choose a value larger than the expected workload
+  number of ranks.
+
+==== Recorder IO workload
+
+TODO...
+
+==== Checkpoint IO workload
+
+TODO...
+
 === Network
 
 Our primary network workload generator is via the DUMPI tool

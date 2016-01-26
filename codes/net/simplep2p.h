@@ -7,6 +7,10 @@
 #ifndef SIMPLEP2P_H
 #define SIMPLEP2P_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct sp_message sp_message;
 
 enum sp_event_type 
@@ -46,6 +50,10 @@ struct sp_message
     tw_stime recv_next_idle_all_saved;
     tw_stime recv_prev_idle_all_saved;
 };
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* end of include guard: SIMPLEP2P_H */
 

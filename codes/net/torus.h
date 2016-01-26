@@ -7,6 +7,10 @@
 #ifndef TORUS_H
 #define TORUS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum nodes_event_t nodes_event_t;
 typedef struct nodes_message nodes_message;
 
@@ -89,6 +93,10 @@ struct nodes_message
   int local_event_size_bytes;
   int remote_event_size_bytes;
 };
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* end of include guard: TORUS_H */
 

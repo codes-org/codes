@@ -7,6 +7,10 @@
 #ifndef LP_MSG_H
 #define LP_MSG_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "ross.h"
 
 /* It is good practice to always include the src LPID, a unique message
@@ -23,6 +27,10 @@ typedef struct msg_header_s {
 
 /* data structure utilities */
 void msg_set_header(int magic, int event_type, tw_lpid src, msg_header *h);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* end of include guard: LP_MSG_H */
 

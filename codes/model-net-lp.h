@@ -13,6 +13,10 @@
 #ifndef MODEL_NET_LP_H  
 #define MODEL_NET_LP_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <ross.h>
 #include "codes/lp-msg.h"
 #include "model-net.h"
@@ -125,6 +129,10 @@ typedef struct model_net_wrap_msg {
         // add new ones here
     } msg;
 } model_net_wrap_msg;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* end of include guard: MODEL_NET_LP_H */
 
