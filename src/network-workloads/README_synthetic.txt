@@ -14,11 +14,17 @@ SAMPLING:
       an end time. Over this end time, dragonfly model will collect compute
       node and router samples after every "t" simulated nanoseconds. The
       sampling output files can be specified in the config file using
-      cn_sample_file and rt_sample_file arguments. An example utility that
-      reads the binary files and translates it into text can be found at
+      cn_sample_file and rt_sample_file arguments. By default the compute node
+      and router outputs will be sent to dragonfly-cn-sampling-%d.bin and
+      dragonfly-router-sampling-%d.bin. Corresponding metadata files for also
+      generated that gives information on the file format, dragonfly
+      configuration being used, router radix etc. 
+      
+      An example utility that reads the binary files and translates it into
+      text format can be found at
       src/networks/model-net/read-dragonfly-sample.c (Note that the router
-      radix aka RADIX needs to be tuned with the dragonfly configuration 
-      in the utility to enable continguous array allocation).
+      radix aka RADIX needs to be tuned with the dragonfly configuration in the
+      utility to enable continguous array allocation).
 
 HOW TO RUN:
 

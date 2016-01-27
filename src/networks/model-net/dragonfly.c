@@ -1986,8 +1986,8 @@ void dragonfly_rsample_fin(router_state * s,
         sprintf(meta_fname, "dragonfly-router-sampling.meta");
 
         FILE * fp = fopen(meta_fname, "w");
-        fprintf(fp, "\n Router sample format: router_id \t busy time for each of the %d links \t"
-                "link traffic for each of the %d links \t sample end time ",
+        fprintf(fp, "Router sample struct format: router_id (tw_lpid) \t busy time for each of the %d links (double) \t"
+                "link traffic for each of the %d links (int64_t) \t sample end time (double)",
                 p->radix, p->radix);
         fclose(fp);
     }
@@ -2140,8 +2140,9 @@ void dragonfly_sample_fin(terminal_state * s,
         sprintf(meta_fname, "dragonfly-cn-sampling.meta");
 
         FILE * fp = fopen(meta_fname, "w");
-        fprintf(fp, "\n Compute node sample format: terminal_id \t finished chunks \t"
-                "data size per sample \t finished hops \t time to finish chunks \t busy time \t sample end time");
+        fprintf(fp, "Compute node sample format: terminal_id (tw_lpid) \t finished chunks (long) \t"
+                "data size per sample (long) \t finished hops (double) \t time to finish chunks (double) \t "
+                "busy time (double)\t sample end time(double)");
         fclose(fp);
     }
     char rt_fn[MAX_NAME_LENGTH];
