@@ -1314,7 +1314,7 @@ int main( int argc, char** argv )
    net_id = *net_ids;
    free(net_ids);
 
-   model_net_enable_sampling(5000000, 8000000);
+//   model_net_enable_sampling(5000000, 3000000000);
 
    codes_mapping_setup();
 

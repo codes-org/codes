@@ -53,7 +53,7 @@ int main( int argc, char** argv )
    char buffer_read[64];
    char buffer_write[64];
 
-   sprintf(buffer_read, "dragonfly-sample-ur-%d.bin", my_rank);
+   sprintf(buffer_read, "dragonfly-cn-sampling-%d.bin", my_rank);
    pFile = fopen(buffer_read, "r+");
 
    struct stat st;
@@ -62,7 +62,7 @@ int main( int argc, char** argv )
    event_array = malloc(in_sz);
 
    sprintf(buffer_write, "dragonfly-write-log.%d", my_rank);
-   writeFile = fopen(buffer_write, "w+");
+   writeFile = fopen(buffer_write, "w");
 
    if(pFile == NULL || writeFile == NULL)
    {
@@ -74,6 +74,7 @@ int main( int argc, char** argv )
    fprintf(writeFile, " Rank ID \t Finished chunks \t Data size \t Finished hops \t Time spent \t Busy time \t  Sample end time");
    for(i = 0; i < in_sz / sizeof(struct dfly_samples); i++)
    {
+    printf("\n Terminal id %ld ", event_array[i].terminal_id);
     fprintf(writeFile, "\n %ld \t %ld \t %ld \t %lf \t %lf \t %lf \t %lf ", event_array[i].terminal_id,
                                                                event_array[i].fin_chunks_sample,
                                                                event_array[i].data_size_sample,
@@ -90,7 +91,7 @@ int main( int argc, char** argv )
     char buffer_rtr_read[64];
     char buffer_rtr_write[64];
 
-    sprintf(buffer_rtr_read, "dragonfly-router-ur-%d.bin", my_rank);
+    sprintf(buffer_rtr_read, "dragonfly-router-sampling-%d.bin", my_rank);
     pFile = fopen(buffer_rtr_read, "r+");
 
     struct stat st2;
@@ -101,7 +102,7 @@ int main( int argc, char** argv )
 
     int sample_size = sizeof(struct dfly_rtr_sample);
     sprintf(buffer_rtr_write, "dragonfly-rtr-write-log.%d", my_rank);
-    writeRouterFile = fopen(buffer_rtr_write, "w+");
+    writeRouterFile = fopen(buffer_rtr_write, "w");
 
     if(writeRouterFile == NULL || pFile == NULL)
     {
@@ -112,7 +113,7 @@ int main( int argc, char** argv )
     fseek(pFile, 0L, SEEK_SET);
     fread(r_event_array, sample_size, in_sz_rt / sample_size, pFile); 
     fprintf(writeRouterFile, "\n Router ID \t Busy time per channel \t Link traffic per channel \t Sample end time ");
-    printf("\n Sample size %d in_sz_rt %ld ", in_sz_rt / sample_size, in_sz_rt);
+    //printf("\n Sample size %d in_sz_rt %ld ", in_sz_rt / sample_size, in_sz_rt);
     for(i = 0; i < in_sz_rt / sample_size; i++)
     {
         //printf("\n %ld ", r_event_array[i].router_id);
@@ -125,8 +126,10 @@ int main( int argc, char** argv )
         }
         
         for(j = 0; j < RADIX; j++ )
+        {
+            //printf("\n link traffic %ld ", r_event_array[i].link_traffic[j]);
             fprintf(writeRouterFile, " %ld ", r_event_array[i].link_traffic[j]);
-        
+        }
         fprintf(writeRouterFile, "\n %lf ", r_event_array[i].end_time);
     }
     fclose(pFile);

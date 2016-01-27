@@ -1991,17 +1991,17 @@ void dragonfly_rsample_fin(router_state * s,
                 p->radix, p->radix);
         fclose(fp);
     }
-    char cn_fn[MAX_NAME_LENGTH];
+    char rt_fn[MAX_NAME_LENGTH];
     if(strcmp(router_sample_file, "") == 0)
-        sprintf(cn_fn, "dragonfly-router-sampling-%ld.bin", g_tw_mynode); 
+        sprintf(rt_fn, "dragonfly-router-sampling-%ld.bin", g_tw_mynode); 
     else
-        sprintf(cn_fn, "%s-%ld.bin", router_sample_file, g_tw_mynode);
+        sprintf(rt_fn, "%s-%ld.bin", router_sample_file, g_tw_mynode);
     
     int i = 0;
     int j = 0;
 
     int size_sample = sizeof(tw_lpid) + p->radix * (sizeof(int64_t) + sizeof(tw_stime)) + sizeof(tw_stime);
-    FILE * fp = fopen(cn_fn, "a");
+    FILE * fp = fopen(rt_fn, "a");
     fseek(fp, sample_rtr_bytes_written, SEEK_SET);
 
     for(; i < s->op_arr_size; i++)
@@ -3012,6 +3012,7 @@ void router_buf_update(router_state * s, tw_bf * bf, terminal_message * msg, tw_
     msg->saved_busy_time = s->last_buf_full[indx];
     msg->saved_sample_time = s->busy_time_sample[indx];
     s->busy_time[indx] += (tw_now(lp) - s->last_buf_full[indx]);
+    s->busy_time_sample[indx] += (tw_now(lp) - s->last_buf_full[indx]);
     s->last_buf_full[indx] = 0.0;
   }
   if(s->queued_msgs[indx][output_chan] != NULL) {
