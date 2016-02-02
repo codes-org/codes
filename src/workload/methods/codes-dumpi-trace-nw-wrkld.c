@@ -229,6 +229,11 @@ static int handleDUMPIInit(
     return 0;
 }
 
+int handleDUMPIError(const void* prm, uint16_t thread, const dumpi_time *cpu, const dumpi_time *wall, const dumpi_perfinfo *perf, void *uarg)
+{
+    tw_error(TW_LOC, "\n MPI operation not supported by the MPI-Sim Layer ");
+}
+
 int handleDUMPIIgnore(const void* prm, uint16_t thread, const dumpi_time *cpu, const dumpi_time *wall, const dumpi_perfinfo *perf, void *uarg)
 {
 	rank_mpi_context* myctx = (rank_mpi_context*)uarg;
@@ -652,7 +657,8 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
         callbacks.on_comm_size = (dumpi_comm_size_call)handleDUMPIIgnore;
         callbacks.on_comm_rank = (dumpi_comm_rank_call)handleDUMPIIgnore;
         callbacks.on_comm_get_attr = (dumpi_comm_get_attr_call)handleDUMPIIgnore;
-        callbacks.on_comm_create = (dumpi_comm_create_call)handleDUMPIIgnore;
+        callbacks.on_comm_dup = (dumpi_comm_dup_call)handleDUMPIError;
+        callbacks.on_comm_create = (dumpi_comm_create_call)handleDUMPIError;
         callbacks.on_wtime = (dumpi_wtime_call)handleDUMPIIgnore;
         callbacks.on_finalize = (dumpi_finalize_call)handleDUMPIFinalize;
 
