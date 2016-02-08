@@ -13,6 +13,7 @@
 #include "codes/model-net.h"
 #include "codes/rc-stack.h"
 #include "codes/quicklist.h"
+#include "codes/codes-jobmap.h"
 
 /* turning on track lp will generate a lot of output messages */
 #define TRACK_LP -1
@@ -30,6 +31,17 @@ static char lp_io_dir[256] = {'\0'};
 static lp_io_handle io_handle;
 static unsigned int lp_io_use_suffix = 0;
 static int do_lp_io = 0;
+
+/* variables for loading multiple applications */
+/* Xu's additions start */
+char workloads_conf_file[8192];
+char alloc_file[8192];
+int num_traces_of_job[5];
+char file_name_of_job[5][8192];
+
+struct codes_jobmap_ctx *jobmap_ctx;
+struct codes_jobmap_params_list jobmap_p;
+/* Xu's additions end */
 
 typedef struct nw_state nw_state;
 typedef struct nw_message nw_message;
@@ -108,6 +120,8 @@ struct nw_state
 	long num_events_per_lp;
 	tw_lpid nw_id;
 	short wrkld_end;
+    int app_id;
+    int local_rank;
 
     struct rc_stack * processed_ops;
     struct rc_stack * matched_reqs;
@@ -286,6 +300,25 @@ static void add_completed_reqs(nw_state * s,
        qlist_add(&req->ql, &s->completed_reqs); 
     }
 }
+void find_glp_for_msg( struct codes_workload_op * mpi_op , struct codes_jobmap_id *jp_id)
+{
+    jp_id->rank = mpi_op->u.send.dest_rank;
+    int global_dest_rank = codes_jobmap_to_global_id(*jp_id, jobmap_ctx);
+    
+    if(jp_id->rank != global_dest_rank)
+    {
+        mpi_op->u.send.dest_rank = global_dest_rank;
+        mpi_op->u.recv.dest_rank = global_dest_rank;
+    }
+    jp_id->rank = mpi_op->u.send.source_rank;
+    int global_src_rank = codes_jobmap_to_global_id(*jp_id, jobmap_ctx);
+    if(jp_id->rank != global_src_rank)
+    {
+        mpi_op->u.send.source_rank = global_src_rank;
+        mpi_op->u.recv.source_rank = global_src_rank;
+    }
+}
+
 /* helper function - maps an MPI rank to an LP id */
 static tw_lpid rank_to_lpid(int rank)
 {
@@ -704,6 +737,17 @@ static void codes_exec_mpi_send(nw_state* s,
         tw_lp* lp, 
         struct codes_workload_op * mpi_op)
 {
+    struct codes_jobmap_id jid;
+    jid = codes_jobmap_to_local_id(s->nw_id, jobmap_ctx);
+
+    if(jid.job == -1)
+    {
+        printf("network LP nw id %d not generating events, lp gid is %ld \n", (int)s->nw_id, lp->gid);
+        s->app_id = -1;
+        s->local_rank = -1;
+        return;
+    }
+
     m->rc.saved_num_bytes = mpi_op->u.send.num_bytes;
 	/* model-net event */
 	tw_lpid dest_rank;
@@ -948,12 +992,28 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 
    assert(num_net_traces <= num_net_lps);
 
-   if (strcmp(workload_type, "dumpi") == 0){
-       strcpy(params_d.file_name, workload_file);
-       params_d.num_net_traces = num_net_traces;
+   struct codes_jobmap_id lid; 
+   lid = codes_jobmap_to_local_id(s->nw_id, jobmap_ctx); 
 
-       params = (char*)&params_d;
+   if(lid.job == -1)
+   {
+       printf("network LP nw id %d not generating events, lp gid is %ld \n", (int)s->nw_id, lp->gid); 
+       s->app_id = -1;
+       s->local_rank = -1;
+       return;
    }
+   if (strcmp(workload_type, "dumpi") == 0){
+       strcpy(params_d.file_name, file_name_of_job[lid.job]);
+       params_d.num_net_traces = num_traces_of_job[lid.job];
+       params = (char*)&params_d;
+       s->app_id = lid.job;
+       s->local_rank = lid.rank; 
+       printf("lp global id: %llu, file name: %s, num traces: %d, app id: %d, local id: %d\n", 
+               s->nw_id, params_d.file_name, params_d.num_net_traces, s->app_id, s->local_rank);
+   }
+
+   wrkld_id = codes_workload_load("dumpi-trace-workload", params, s->app_id, s->local_rank);
+
   /* In this case, the LP will not generate any workload related events*/
    if(s->nw_id >= params_d.num_net_traces)
 	    return;
@@ -1289,7 +1349,7 @@ int main( int argc, char** argv )
   tw_opt_add(app_opt);
   tw_init(&argc, &argv);
 
-  if(strlen(workload_file) == 0 || strcmp(workload_type, "dumpi") != 0 || num_net_traces <= 0)
+  if(strlen(workloads_conf_file) == 0 || strcmp(workload_type, "dumpi") != 0 || num_net_traces <= 0)
     {
 	if(tw_ismaster())
 		printf("Usage: mpirun -np n ./modelnet-mpi-replay --sync=1/3"
@@ -1300,6 +1360,38 @@ int main( int argc, char** argv )
 	tw_end();
 	return -1;
     }
+
+    FILE *name_file = fopen(workloads_conf_file, "r");
+    if(!name_file)
+        tw_error(TW_LOC, "\n Could not open file %s ", workloads_conf_file);
+
+    int i = 0;
+    char ref = '\n';
+    while(!feof(name_file)) 
+    {
+        ref = fscanf(name_file, "%d %s", &num_traces_of_job[i], file_name_of_job[i]); 
+        if(ref!=EOF)
+        {
+           printf("\n%d traces of app %s \n", num_traces_of_job[i], file_name_of_job[i]);
+           num_net_traces += num_traces_of_job[i]; 
+           i++;
+        }
+    }
+    fclose(name_file);
+
+    if(strlen(alloc_file) == 0)
+    {
+        if(tw_ismaster()) 
+        {
+            printf("\n Usage: mpirun -np n ./codes-nw-test --sync=1/2/3"
+                    "--workload_type=type --workloads_conf_file = workloads.conf"
+                    "--alloc_file=alloc.conf");
+            tw_end();
+            return -1;
+        }
+    }
+    jobmap_p.alloc_file = alloc_file;
+    jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_LIST, &jobmap_p); 
 
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
@@ -1366,6 +1458,8 @@ int main( int argc, char** argv )
         assert(ret == 0 || !"lp_io_flush failure");
     }
    model_net_report_stats(net_id); 
+   codes_jobmap_destroy(jobmap_ctx);
+
    tw_end();
   
   return 0;

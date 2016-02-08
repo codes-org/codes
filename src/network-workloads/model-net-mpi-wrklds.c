@@ -12,10 +12,16 @@
 #include "codes/codes_mapping.h"
 #include "codes/model-net.h"
 #include "codes/rc-stack.h"
+#include "codes/codes-jobmap.h"
 
 #define TRACE -1
 #define TRACK 0
 
+/*global variable for loading multiple jobs' traces*/
+char workloads_conf_file[8192];//the file in which the path and name of each job's traces are
+char alloc_file[8192];// the file in which the preassgined LP lists for the jobs
+int num_traces_of_job[5];//the number_of_traces of each job
+char file_name_of_job[5][8192];//the name of each job
 char workload_type[128];
 char workload_file[8192];
 char offset_file[8192];
@@ -44,6 +50,8 @@ double avg_time = 0, avg_comm_time = 0, avg_wait_time = 0, avg_send_time = 0, av
 static char lp_group_name[MAX_NAME_LENGTH], lp_type_name[MAX_NAME_LENGTH], annotation[MAX_NAME_LENGTH];
 static int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
 
+struct codes_jobmap_ctx *jobmap_ctx;
+struct codes_jobmap_params_list jobmap_p;
 /* runtime option for disabling computation time simulation */
 static int disable_delay = 0;
 
@@ -99,6 +107,8 @@ struct nw_state
 
     uint64_t num_completed;
 
+    int app_id;
+    int local_rank;
     /* count of sends, receives, collectives and delays */
 	unsigned long num_sends;
 	unsigned long num_recvs;
@@ -163,6 +173,8 @@ struct nw_message
     double saved_wait_time;
 };
 
+/*find the global LP id of source and destination lps of each message*/
+void find_glp_for_msg( struct codes_workload_op * mpi_op , struct codes_jobmap_id *jp_id);
 /* executes MPI wait operation */
 static void codes_exec_mpi_wait(
         nw_state* s, tw_lp* lp, nw_message * m, struct codes_workload_op * mpi_op);
@@ -853,6 +865,9 @@ static void codes_exec_mpi_recv(nw_state* s, tw_lp* lp, nw_message * m, struct c
 /* Once an irecv is posted, list of completed sends is checked to find a matching isend.
    If no matching isend is found, the receive operation is queued in the pending queue of
    receive operations. */
+        struct codes_jobmap_id lid;
+        lid.job = s->app_id;
+        find_glp_for_msg(mpi_op, &lid);
 
 	m->saved_recv_time = s->recv_time;
 	mpi_op->sim_start_time = tw_now(lp);
@@ -888,9 +903,31 @@ static void codes_exec_mpi_recv(nw_state* s, tw_lp* lp, nw_message * m, struct c
 	 }
 }
 
+void find_glp_for_msg( struct codes_workload_op * mpi_op , struct codes_jobmap_id *jp_id)
+{
+    jp_id->rank = mpi_op->u.send.dest_rank;
+    int global_dest_rank = codes_jobmap_to_global_id(*jp_id, jobmap_ctx);
+    if(jp_id->rank != global_dest_rank)
+    {
+        mpi_op->u.send.dest_rank = global_dest_rank;
+        mpi_op->u.recv.dest_rank = global_dest_rank;
+    } 
+    jp_id->rank = mpi_op->u.send.source_rank;
+    int global_src_rank = codes_jobmap_to_global_id(*jp_id, jobmap_ctx);
+    if(jp_id->rank != global_src_rank)
+    {
+        mpi_op->u.send.source_rank = global_src_rank;
+        mpi_op->u.recv.source_rank = global_src_rank;
+    }
+
+}
+
 /* executes MPI send and isend operations */
 static void codes_exec_mpi_send(nw_state* s, tw_lp* lp, struct codes_workload_op * mpi_op)
 {
+        struct codes_jobmap_id lid;
+        lid.job = s->app_id;
+        find_glp_for_msg(mpi_op, &lid);
 	/* model-net event */
 	tw_lpid dest_rank;
 
@@ -1092,27 +1129,33 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->completed_reqs = NULL;
 
    s->pending_waits = NULL;
-   if(!num_net_traces) 
-	num_net_traces = num_net_lps;
+   struct codes_jobmap_id lid;
+   lid = codes_jobmap_to_local_id(s->nw_id, jobmap_ctx);
 
-   if (strcmp(workload_type, "dumpi") == 0){
-       strcpy(params_d.file_name, workload_file);
-       params_d.num_net_traces = num_net_traces;
+    if(lid.job == -1)
+    {
+        printf("network LP nw id %d not generating events, lp gid is %ld \n", (int)s->nw_id, lp->gid);
+        s->app_id = -1;
+        s->local_rank = -1;
+        return ;
+    }
 
-       params = (char*)&params_d;
-   }
-  /* In this case, the LP will not generate any workload related events*/
-   if(s->nw_id >= params_d.num_net_traces)
-     {
-	//printf("\n network LP not generating events %d ", (int)s->nw_id);
-	return;
-     }
+    if(strcmp(workload_type, "dumpi") == 0)
+    {
+        strcpy(params_d.file_name, file_name_of_job[lid.job]);
+        params_d.num_net_traces = num_traces_of_job[lid.job];
+        params = (char*)&params_d;
+        s->app_id = lid.job;
+        s->local_rank = lid.rank;
+        printf("lp global id: %llu, file name: %s, num traces: %d, app id: %d, local id: %d\n", s->nw_id, params_d.file_name, params_d.num_net_traces, s->app_id, s->local_rank);
+    
+    }
+    
+    wrkld_id = codes_workload_load("dumpi-trace-workload", params, s->app_id, s->local_rank);
 
    /* Initialize the RC stack */
    rc_stack_create(&s->st);
    assert(s->st != NULL);
-
-   wrkld_id = codes_workload_load("dumpi-trace-workload", params, 0, (int)s->nw_id);
 
    s->arrival_queue = queue_init(); 
    s->pending_recvs_queue = queue_init();
@@ -1154,7 +1197,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
     struct codes_workload_op * mpi_op = m->saved_op;
         //(struct codes_workload_op *)rc_stack_pop(s->st);
 	
-    codes_workload_get_next_rc2(wrkld_id, 0, (int)s->nw_id);
+    codes_workload_get_next_rc2(wrkld_id, s->app_id, s->local_rank);
 
 	if(mpi_op->op_type == CODES_WK_END)
 		return;
@@ -1232,7 +1275,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
 		struct codes_workload_op * mpi_op = malloc(sizeof(struct codes_workload_op));
-        codes_workload_get_next(wrkld_id, 0, (int)s->nw_id, mpi_op);
+        codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, mpi_op);
 
         s->num_completed++;
 
@@ -1390,6 +1433,8 @@ const tw_optdef app_opt [] =
     	TWOPT_CHAR("workload_type", workload_type, "workload type (either \"scalatrace\" or \"dumpi\")"),
 	TWOPT_CHAR("workload_file", workload_file, "workload file name"),
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
+        TWOPT_CHAR("workloads_conf_file", workloads_conf_file, "workload file name"),
+        TWOPT_CHAR("alloc_file", alloc_file, "allocation file name"),
         TWOPT_UINT("disable_compute", disable_delay, "disable compute simulation"),
     TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
     TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
@@ -1429,13 +1474,45 @@ int main( int argc, char** argv )
   tw_opt_add(app_opt);
   tw_init(&argc, &argv);
 
-  if(strlen(workload_file) == 0)
+if(strlen(workloads_conf_file) == 0){
+    if(tw_ismaster())
+        printf("\n Usage: mpirun -np n ./model-net-dumpi-traces-dump --sync=1/2/3 --workload_type=type"
+                " --workloads_conf_file = workloads.conf --alloc_file=alloc.conf");
+    tw_end();
+    return -1;
+}
+
+ FILE *name_file = fopen(workloads_conf_file, "r");
+ if (!name_file){
+    printf("Could not open file %s \n", workloads_conf_file);
+    exit(1);
+ }
+ else{
+    int i=0;
+    char ref = '\n';
+    while(!feof(name_file))
     {
-	if(tw_ismaster())
-		printf("Usage: mpirun -np n ./codes-nw-test --sync=1/2/3 --workload_type=type --workload_file=workload-file-name\n");
-	tw_end();
-	return -1;
+        ref = fscanf(name_file, "%d %s", &num_traces_of_job[i], file_name_of_job[i]);
+        if(ref!=EOF){
+            printf("\n%d traces of app %s \n", num_traces_of_job[i], file_name_of_job[i]);
+            num_net_traces += num_traces_of_job[i];
+            i++;
+        }
+    
     }
+    fclose(name_file);
+ }
+
+if(strlen(alloc_file) == 0){
+    if(tw_ismaster())
+        printf("\n Usage: mpirun -np n ./codes-nw-test --sync=1/2/3 --workload_type=type --workloads_conf_file = workloads.conf --alloc_file=alloc.conf");
+    tw_end();
+    return -1;
+}
+
+    jobmap_p.alloc_file = alloc_file;
+    jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_LIST, &jobmap_p);
+
 
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
@@ -1501,6 +1578,7 @@ int main( int argc, char** argv )
         assert(ret == 0 || !"lp_io_flush failure");
     }
    model_net_report_stats(net_id); 
+    codes_jobmap_destroy(jobmap_ctx);
    tw_end();
   
   return 0;

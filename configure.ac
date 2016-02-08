@@ -116,6 +116,18 @@ else
 	AM_CONDITIONAL(USE_DUMPI, false)
 fi
 
+if test "x${with_profiling}" != "x" ; then
+        AC_CHECK_FILE([${with_dumpi}/lib/libundumpi.la],
+        AM_CONDITIONAL(USE_PROFILE, true),
+        AC_MSG_ERROR(Could not find libdumpi.la))
+        DUMPI_CFLAGS="-I${with_dumpi}/include"
+        DUMPI_LIBS="-L${with_dumpi}/lib/ -lundumpi"
+        AC_SUBST(DUMPI_LIBS)
+        AC_SUBST(DUMPI_CFLAGS)
+else
+    AM_CONDITIONAL(USE_PROFILE, false)
+fi
+
 dnl ======================================================================
 dnl  Try harder to be valgrind safe
 dnl ======================================================================

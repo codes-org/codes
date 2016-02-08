@@ -1386,14 +1386,14 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
        assert(tmp);
        tmp->num_chunks--;
 
-       if(bf->c5)
+       /*if(bf->c5)
 	{
 	   assert(hash_link);
 	   qhash_del(hash_link);
 	   free(tmp->remote_event_data);
 	   free(tmp);	
        s->rank_tbl_pop--;
-	}
+	}*/
        return;
 }
 void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
