@@ -60,6 +60,7 @@ typedef struct mn_stats mn_stats;
     X(SIMPLENET, "modelnet_simplenet", "simplenet", &simplenet_method)\
     X(SIMPLEP2P, "modelnet_simplep2p", "simplep2p", &simplep2p_method)\
     X(TORUS,     "modelnet_torus",     "torus",     &torus_method)\
+    X(SLIMFLY,   "modelnet_slimfly",   "slimfly",   &slimfly_method)\
     X(DRAGONFLY, "modelnet_dragonfly", "dragonfly", &dragonfly_method)\
     X(DRAGONFLY_ROUTER, "modelnet_dragonfly_router", "dragonfly_router", &dragonfly_router_method)\
     X(LOGGP,     "modelnet_loggp",     "loggp",     &loggp_method)\

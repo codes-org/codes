@@ -80,6 +80,7 @@ nobase_include_HEADERS = \
 	codes/model-net-sched.h \
 	codes/model-net-inspect.h \
 	codes/net/dragonfly.h \
+	codes/net/slimfly.h \
 	codes/net/loggp.h \
 	codes/net/simplenet-upd.h \
 	codes/net/simplep2p.h \
@@ -139,6 +140,7 @@ src_libcodes_a_SOURCES =  \
 	src/networks/model-net/simplenet-upd.c \
 	src/networks/model-net/torus.c \
 	src/networks/model-net/dragonfly.c \
+	src/networks/model-net/slimfly.c \
 	src/networks/model-net/loggp.c \
 	src/networks/model-net/simplep2p.c \
 	src/networks/model-net/model-net-lp.c \
@@ -148,6 +150,7 @@ src_libcodes_a_SOURCES =  \
 	src/network-workloads/model-net-mpi-wrklds.c \
 	src/network-workloads/model-net-mpi-replay.c \
 	src/network-workloads/model-net-synthetic.c \
+	src/network-workloads/model-net-synthetic-slimfly.c \
 	src/network-workloads/model-net-dumpi-traces-dump.c
 
 
@@ -178,6 +181,7 @@ src_network_workloads_model_net_mpi_replay_SOURCES = src/network-workloads/model
 
 src_network_workloads_model_net_mpi_wrklds_SOURCES = src/network-workloads/model-net-mpi-wrklds.c
 src_network_workloads_model_net_synthetic_SOURCES = src/network-workloads/model-net-synthetic.c
+src_network_workloads_model_net_synthetic_slimfly_SOURCES = src/network-workloads/model-net-synthetic-slimfly.c
 src_network_workloads_model_net_dumpi_traces_dump_SOURCES = src/network-workloads/model-net-dumpi-traces-dump.c
 
 #bin_PROGRAMS += src/network-workload/codes-nw-test
