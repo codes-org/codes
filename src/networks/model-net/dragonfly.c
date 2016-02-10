@@ -365,14 +365,14 @@ static int dragonfly_rank_hash_compare(
 static int dragonfly_hash_func(void *k, int table_size)
 {
     struct dfly_hash_key *tmp = (struct dfly_hash_key *)k;
-    uint32_t pc = 0, pb = 0;	
-    bj_hashlittle2(tmp, sizeof(*tmp), &pc, &pb);
-    /*uint64_t key = (~tmp->message_id) + (tmp->message_id << 18);
+    //uint32_t pc = 0, pb = 0;	
+    //bj_hashlittle2(tmp, sizeof(*tmp), &pc, &pb);
+    uint64_t key = (~tmp->message_id) + (tmp->message_id << 18);
     key = key * 21;
     key = ~key ^ (tmp->sender_id >> 4);
     key = key * tmp->sender_id; 
-    return (int)(key & (table_size - 1));*/
-    return (int)(pc % (table_size - 1));
+    return (int)(key & (table_size - 1));
+    //return (int)(pc % (table_size - 1));
 }
 
 /* convert GiB/s and bytes to ns */
@@ -1366,7 +1366,7 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
        
        if(bf->c7)
         {
-            assert(!hash_link);
+            //assert(!hash_link);
             N_finished_msgs--;
             s->finished_msgs--;
             total_msg_sz -= msg->total_size;
@@ -1386,14 +1386,14 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
        assert(tmp);
        tmp->num_chunks--;
 
-       if(bf->c5)
+       /*if(bf->c5)
 	{
 	   assert(hash_link);
 	   qhash_del(hash_link);
 	   free(tmp->remote_event_data);
 	   free(tmp);	
        s->rank_tbl_pop--;
-	}
+	}*/
        return;
 }
 void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
@@ -1450,15 +1450,15 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     if(!total_chunks)
           total_chunks = 1;
 
-    if(tmp)
+    /*if(tmp)
     {
-        if(tmp->num_chunks >= total_chunks || tmp->num_chunks == 0)
+        if(tmp->num_chunks >= total_chunks || tmp->num_chunks < 0)
         {
-           tw_output(lp, "\n invalid number of chunks %d for LP %ld ", tmp->num_chunks, lp->gid);
+           //tw_output(lp, "\n invalid number of chunks %d for LP %ld ", tmp->num_chunks, lp->gid);
            tw_lp_suspend(lp, 0, 0);
            return;
         }
-    }
+    }*/
     assert(lp->gid == msg->dest_terminal_id);
 
     if(msg->packet_ID == LLU(TRACK_PKT))
@@ -1571,7 +1571,6 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     assert(tmp);
     tmp->num_chunks++;
 
-    /* if its the last chunk of the packet then handle the remote event data */
     if(msg->chunk_id == num_chunks - 1)
     {
         bf->c1 = 1;
@@ -1581,6 +1580,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
         N_finished_packets++;
         s->finished_packets++;
     }
+    /* if its the last chunk of the packet then handle the remote event data */
     if(msg->remote_event_size_bytes > 0 && !tmp->remote_event_data)
     {
         /* Retreive the remote event entry */
