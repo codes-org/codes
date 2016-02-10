@@ -148,7 +148,6 @@ src_libcodes_a_SOURCES =  \
 	src/network-workloads/model-net-mpi-wrklds.c \
 	src/network-workloads/model-net-mpi-replay.c \
 	src/network-workloads/model-net-synthetic.c \
-	src/network-workloads/read-dumpi-traces.c \
 	src/network-workloads/model-net-dumpi-traces-dump.c
 
 
@@ -170,7 +169,6 @@ bin_PROGRAMS += src/network-workloads/model-net-mpi-replay
 bin_PROGRAMS += src/network-workloads/model-net-mpi-wrklds
 bin_PROGRAMS += src/network-workloads/model-net-dumpi-traces-dump
 bin_PROGRAMS += src/network-workloads/model-net-synthetic
-bin_PROGRAMS += src/network-workloads/read-dumpi-traces
 
 
 src_workload_codes_workload_dump_SOURCES = \
@@ -181,7 +179,6 @@ src_network_workloads_model_net_mpi_replay_SOURCES = src/network-workloads/model
 src_network_workloads_model_net_mpi_wrklds_SOURCES = src/network-workloads/model-net-mpi-wrklds.c
 src_network_workloads_model_net_synthetic_SOURCES = src/network-workloads/model-net-synthetic.c
 src_network_workloads_model_net_dumpi_traces_dump_SOURCES = src/network-workloads/model-net-dumpi-traces-dump.c
-src_network_workloads_read_dumpi_traces_SOURCES = src/network-workloads/read-dumpi-traces.c
 
 #bin_PROGRAMS += src/network-workload/codes-nw-test
 
