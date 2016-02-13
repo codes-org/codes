@@ -130,7 +130,7 @@ int main( int argc, char** argv )
             //printf("\n link traffic %ld ", r_event_array[i].link_traffic[j]);
             fprintf(writeRouterFile, " %ld ", r_event_array[i].link_traffic[j]);
         }
-        fprintf(writeRouterFile, "\n %lf ", r_event_array[i].end_time);
+        fprintf(writeRouterFile, " %lf \n", r_event_array[i].end_time);
     }
     fclose(pFile);
     fclose(writeRouterFile);
