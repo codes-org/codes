@@ -172,6 +172,7 @@ bin_PROGRAMS += src/network-workloads/model-net-mpi-replay
 bin_PROGRAMS += src/network-workloads/model-net-mpi-wrklds
 bin_PROGRAMS += src/network-workloads/model-net-dumpi-traces-dump
 bin_PROGRAMS += src/network-workloads/model-net-synthetic
+bin_PROGRAMS += src/network-workloads/model-net-synthetic-slimfly
 
 
 src_workload_codes_workload_dump_SOURCES = \
