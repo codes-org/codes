@@ -140,8 +140,10 @@ struct dfly_router_sample
 {
     tw_lpid router_id;
     tw_stime* busy_time;
-    int64_t* link_traffic;
+    int64_t* link_traffic_sample;
     tw_stime end_time;
+    long fwd_events;
+    long rev_events;
 };
 
 struct dfly_cn_sample
@@ -153,6 +155,8 @@ struct dfly_cn_sample
    tw_stime fin_chunks_time;
    tw_stime busy_time_sample;
    tw_stime end_time;
+   long fwd_events;
+   long rev_events;
 };
 
 struct dfly_qhash_entry
@@ -251,6 +255,10 @@ struct terminal_state
    struct dfly_cn_sample * sample_stat;
    int op_arr_size;
    int max_arr_size;
+   
+   /* for logging forward and reverse events */
+   long fwd_events;
+   long rev_events;
 };
 
 /* terminal event type (1-4) */
@@ -333,6 +341,9 @@ struct router_state
    char output_buf2[4096];
 
    struct dfly_router_sample * rsamples;
+   
+   long fwd_events;
+   long rev_events;
 };
 
 static short routing = MINIMAL;
@@ -552,7 +563,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     p->num_cn = p->num_routers/2;
     p->num_global_channels = p->num_routers/2;
     p->num_groups = p->num_routers * p->num_cn + 1;
-    p->radix = (p->num_global_channels + p->num_routers + p->num_cn);
+    p->radix = (p->num_routers + p->num_global_channels + p->num_cn);
     p->total_routers = p->num_groups * p->num_routers;
     p->total_terminals = p->total_routers * p->num_cn;
     int rank;
@@ -729,6 +740,9 @@ terminal_init( terminal_state * s,
    s->last_buf_full = 0.0;
    s->busy_time = 0.0;
 
+   s->fwd_events = 0;
+   s->rev_events = 0;
+
    rc_stack_create(&s->st);
    s->num_vcs = 1;
    s->vc_occupancy = (int*)malloc(s->num_vcs * sizeof(int));
@@ -784,6 +798,9 @@ void router_setup(router_state * r, tw_lp * lp)
 
    r->router_id=mapping_rep_id + mapping_offset;
    r->group_id=r->router_id/p->num_routers;
+
+   r->fwd_events = 0;
+   r->rev_events = 0;
 
    r->global_channel = (int*)malloc(p->num_global_channels * sizeof(int));
    r->next_output_available_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
@@ -1048,7 +1065,6 @@ void router_credit_send(router_state * s, terminal_message * msg,
 
 void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
-        
    s->packet_gen--;
    packet_gen--;
    
@@ -1898,7 +1914,7 @@ void dragonfly_rsample_init(router_state * s,
    for(; i < s->max_arr_size; i++)
    {
     s->rsamples[i].busy_time = malloc(sizeof(tw_stime) * p->radix); 
-    s->rsamples[i].link_traffic = malloc(sizeof(int64_t) * p->radix);
+    s->rsamples[i].link_traffic_sample = malloc(sizeof(int64_t) * p->radix);
    }
 }
 void dragonfly_rsample_rc_fn(router_state * s,
@@ -1920,14 +1936,16 @@ void dragonfly_rsample_rc_fn(router_state * s,
     for(; i < p->radix; i++)
     {
         s->busy_time_sample[i] = stat.busy_time[i];
-        s->link_traffic_sample[i] = stat.link_traffic[i];
+        s->link_traffic_sample[i] = stat.link_traffic_sample[i];
     }
 
     for( i = 0; i < p->radix; i++)
     {
         stat.busy_time[i] = 0;
-        stat.link_traffic[i] = 0;
+        stat.link_traffic_sample[i] = 0;
     }
+    s->fwd_events = stat.fwd_events;
+    s->rev_events = stat.rev_events;
 }
 
 void dragonfly_rsample_fn(router_state * s,
@@ -1955,16 +1973,20 @@ void dragonfly_rsample_fn(router_state * s,
 
   s->rsamples[cur_indx].router_id = s->router_id;
   s->rsamples[cur_indx].end_time = tw_now(lp);
+  s->rsamples[cur_indx].fwd_events = s->fwd_events;
+  s->rsamples[cur_indx].rev_events = s->rev_events;
 
   for(; i < p->radix; i++)
   {
     s->rsamples[cur_indx].busy_time[i] = s->busy_time_sample[i]; 
-    s->rsamples[cur_indx].link_traffic[i] = s->link_traffic_sample[i]; 
+    s->rsamples[cur_indx].link_traffic_sample[i] = s->link_traffic_sample[i]; 
   }
 
   s->op_arr_size++;
 
   /* clear up the current router stats */
+  s->fwd_events = 0;
+  s->rev_events = 0;
 
   for( i = 0; i < p->radix; i++)
   {
@@ -1987,8 +2009,10 @@ void dragonfly_rsample_fin(router_state * s,
 
         FILE * fp = fopen(meta_fname, "w");
         fprintf(fp, "Router sample struct format: router_id (tw_lpid) \t busy time for each of the %d links (double) \t"
-                "link traffic for each of the %d links (int64_t) \t sample end time (double)",
+                "link traffic for each of the %d links (int64_t) \t sample end time (double) forward events per sample \t reverse events per sample ",
                 p->radix, p->radix);
+        fprintf(fp, "Ordering of links %d local (router-router same group) channels, %d global (router-router remote group)"
+                " channels and %d terminal channels", p->radix/2, p->radix/4, p->radix/4);
         fclose(fp);
     }
     char rt_fn[MAX_NAME_LENGTH];
@@ -2000,7 +2024,7 @@ void dragonfly_rsample_fin(router_state * s,
     int i = 0;
     int j = 0;
 
-    int size_sample = sizeof(tw_lpid) + p->radix * (sizeof(int64_t) + sizeof(tw_stime)) + sizeof(tw_stime);
+    int size_sample = sizeof(tw_lpid) + p->radix * (sizeof(int64_t) + sizeof(tw_stime)) + sizeof(tw_stime) + 2 * sizeof(long);
     FILE * fp = fopen(rt_fn, "a");
     fseek(fp, sample_rtr_bytes_written, SEEK_SET);
 
@@ -2008,12 +2032,13 @@ void dragonfly_rsample_fin(router_state * s,
     {
         fwrite((void*)&(s->rsamples[i].router_id), sizeof(tw_lpid), 1, fp);
         fwrite(s->rsamples[i].busy_time, sizeof(tw_stime), p->radix, fp);
-        fwrite(s->rsamples[i].link_traffic, sizeof(int64_t), p->radix, fp);
+        fwrite(s->rsamples[i].link_traffic_sample, sizeof(int64_t), p->radix, fp);
         fwrite((void*)&(s->rsamples[i].end_time), sizeof(tw_stime), 1, fp);
+        fwrite((void*)&(s->rsamples[i].fwd_events), sizeof(long), 1, fp);
+        fwrite((void*)&(s->rsamples[i].rev_events), sizeof(long), 1, fp);
     }
     sample_rtr_bytes_written += (s->op_arr_size * size_sample);
     fclose(fp);
-
 }
 void dragonfly_sample_init(terminal_state * s,
         tw_lp * lp)
@@ -2055,6 +2080,8 @@ void dragonfly_sample_rc_fn(terminal_state * s,
     s->fin_hops_sample = stat.fin_hops_sample;
     s->data_size_sample = stat.data_size_sample;
     s->fin_chunks_sample = stat.fin_chunks_sample;
+    s->fwd_events = stat.fwd_events;
+    s->rev_events = stat.rev_events;
 
     stat.busy_time_sample = 0;
     stat.fin_chunks_time = 0;
@@ -2063,6 +2090,8 @@ void dragonfly_sample_rc_fn(terminal_state * s,
     stat.fin_chunks_sample = 0;
     stat.end_time = 0;
     stat.terminal_id = 0;
+    stat.fwd_events = 0;
+    stat.rev_events = 0;
 }
 
 void dragonfly_sample_fn(terminal_state * s,
@@ -2111,11 +2140,15 @@ void dragonfly_sample_fn(terminal_state * s,
     s->sample_stat[cur_indx].fin_chunks_time = s->fin_chunks_time;
     s->sample_stat[cur_indx].busy_time_sample = s->busy_time_sample;
     s->sample_stat[cur_indx].end_time = tw_now(lp);
-        
+    s->sample_stat[cur_indx].fwd_events = s->fwd_events;
+    s->sample_stat[cur_indx].rev_events = s->rev_events;
+
     s->op_arr_size++;
     s->fin_chunks_sample = 0;
     s->data_size_sample = 0;
     s->fin_hops_sample = 0;
+    s->fwd_events = 0;
+    s->rev_events = 0;
     s->fin_chunks_time = 0;
     s->busy_time_sample = 0;
 }
@@ -2142,7 +2175,7 @@ void dragonfly_sample_fin(terminal_state * s,
         FILE * fp = fopen(meta_fname, "w");
         fprintf(fp, "Compute node sample format: terminal_id (tw_lpid) \t finished chunks (long) \t"
                 "data size per sample (long) \t finished hops (double) \t time to finish chunks (double) \t "
-                "busy time (double)\t sample end time(double)");
+                "busy time (double)\t sample end time(double) \t forward events (long) \t reverse events (long)");
         fclose(fp);
     }
     char rt_fn[MAX_NAME_LENGTH];
@@ -2229,6 +2262,7 @@ terminal_event( terminal_state * s,
 		terminal_message * msg, 
 		tw_lp * lp )
 {
+  s->fwd_events++;
   //*(int *)bf = (int)0;
   assert(msg->magic == terminal_magic_num);
 
@@ -2596,7 +2630,10 @@ TODO: do we need this code? nomin_vc and min_vc not used anywhere...
   int nonmin_port_count = s->vc_occupancy[nonmin_out_port][0] +
       s->vc_occupancy[nonmin_out_port][1] + s->vc_occupancy[nonmin_out_port][2]
       + s->queued_count[nonmin_out_port];
-  //if(num_min_hops * (min_port_count - min_hist_count) <= (num_nonmin_hops * ((q_avg + 1) - nonmin_hist_count))) {
+  // VARIATION 1:
+  // if(num_min_hops * min_port_count <= num_nonmin_hops * nonmin_port_count) {
+  // VARIATION 2:
+  //if(num_min_hops * min_port_count <= (num_nonmin_hops * (q_avg + 1))) {
     if(min_port_count <= nonmin_port_count) {
     msg->path_type = MINIMAL;
     next_stop = minimal_next_stop;
@@ -2793,8 +2830,6 @@ void router_packet_send_rc(router_state * s,
 
     terminal_message_list * cur_entry = rc_stack_pop(s->st);
     assert(cur_entry);
-//    create_prepend_to_terminal_message_list(s->pending_msgs[output_port],
-//          s->pending_msgs_tail[output_port], output_chan, msg);
 
     prepend_to_terminal_message_list(s->pending_msgs[output_port],
             s->pending_msgs_tail[output_port], output_chan, cur_entry);
@@ -3044,7 +3079,10 @@ void router_buf_update(router_state * s, tw_bf * bf, terminal_message * msg, tw_
 
 void router_event(router_state * s, tw_bf * bf, terminal_message * msg, 
     tw_lp * lp) {
+
+  s->fwd_events++;
   rc_stack_gc(lp, s->st);
+  
   assert(msg->magic == router_magic_num);
   switch(msg->type)
   {
@@ -3073,6 +3111,7 @@ void router_event(router_state * s, tw_bf * bf, terminal_message * msg,
 void terminal_rc_event_handler(terminal_state * s, tw_bf * bf, 
     terminal_message * msg, tw_lp * lp) {
 
+   s->rev_events++;
    switch(msg->type)
    {
     case T_GENERATE:
@@ -3126,7 +3165,9 @@ void terminal_rc_event_handler(terminal_state * s, tw_bf * bf,
 /* Reverse computation handler for a router event */
 void router_rc_event_handler(router_state * s, tw_bf * bf, 
   terminal_message * msg, tw_lp * lp) {
-  switch(msg->type) {
+    s->rev_events++;
+
+    switch(msg->type) {
     case R_SEND: 
         router_packet_send_rc(s, bf, msg, lp);
     break;
