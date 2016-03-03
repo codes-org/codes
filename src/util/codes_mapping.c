@@ -160,6 +160,8 @@ void codes_mapping_get_lp_id(
         }
         // does group name match?
         if (strcmp(lpg->name.ptr, group_name) == 0){
+            // sanity check rep_id
+            if (rep_id >= lpg->repetitions) goto ERROR;
             tw_lpid local_lp_count = 0;
             // for each lp type
             for (int l = 0; l < lpg->lptypes_count; l++){
