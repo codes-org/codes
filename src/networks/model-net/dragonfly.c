@@ -57,6 +57,7 @@ static double maxd(double a, double b) { return a < b ? b : a; }
 
 /* minimal and non-minimal packet counts for adaptive routing*/
 static int minimal_count=0, nonmin_count=0;
+static int num_routers_per_mgrp = 0;
 
 typedef struct dragonfly_param dragonfly_param;
 /* annotation-specific parameters (unannotated entry occurs at the 
@@ -795,6 +796,14 @@ void router_setup(router_state * r, tw_lp * lp)
 
     // shorthand
     const dragonfly_param *p = r->params;
+
+    num_routers_per_mgrp = codes_mapping_get_lp_count (lp_group_name, 1, "modelnet_dragonfly_router",
+            NULL, 0);
+    int num_grp_reps = codes_mapping_get_group_reps(lp_group_name);
+    if(p->total_routers != num_grp_reps * num_routers_per_mgrp)
+        tw_error(TW_LOC, "\n Config error: num_routers specified %d total routers computed in the network %d "
+                "does not match with repetitions * dragonfly_router %d  ",
+                p->num_routers, p->total_routers, num_grp_reps * num_routers_per_mgrp);
 
    r->router_id=mapping_rep_id + mapping_offset;
    r->group_id=r->router_id/p->num_routers;
