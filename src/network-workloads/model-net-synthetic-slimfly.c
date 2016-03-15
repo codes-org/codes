@@ -198,14 +198,14 @@ static void issue_event(
      */
 
     const char * anno;
-    configuration_get_value_int(&config, "PARAMS", "packet_size", anno, &this_packet_size);
+    configuration_get_value_int(&config, "PARAMS", "packet_size", NULL, &this_packet_size);
     if(!this_packet_size) {
         this_packet_size = 0;
         fprintf(stderr, "Packet size not specified, setting to %d\n", this_packet_size);
         exit(0);
     }
 
-    configuration_get_value_double(&config, "PARAMS", "global_bandwidth", anno, &this_global_bandwidth);
+    configuration_get_value_double(&config, "PARAMS", "global_bandwidth", NULL, &this_global_bandwidth);
     if(!this_global_bandwidth) {
         this_global_bandwidth = 4.7;
         fprintf(stderr, "Bandwidth of global channels not specified, setting to %lf\n", this_global_bandwidth);
@@ -258,7 +258,7 @@ static void handle_kickoff_event(
 	    svr_msg * m,
 	    tw_lp * lp)
 {
-    char* anno;
+    char anno[MAX_NAME_LENGTH];
     tw_lpid local_dest = -1, global_dest = -1;
    
     svr_msg * m_local = malloc(sizeof(svr_msg));
@@ -270,11 +270,9 @@ static void handle_kickoff_event(
     memcpy(m_remote, m_local, sizeof(svr_msg));
     m_remote->svr_event_type = REMOTE;
 
-//slimfly change
-//    assert(net_id == DRAGONFLY); /* only supported for dragonfly model right now. */
-
+    assert(net_id == SLIMFLY); /* only supported for dragonfly model right now. */
     ns->start_ts = tw_now(lp);
-    
+//   codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
    codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
    /* in case of uniform random traffic, send to a random destination. */
    if(traffic == UNIFORM)
@@ -471,8 +469,8 @@ int main(
     }
 */
     num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "server", NULL, 1);
-    configuration_get_value_int(&config, "PARAMS", "num_terminals", anno, &num_terminals);
-    configuration_get_value_int(&config, "PARAMS", "num_routers", anno, &num_routers_per_grp);
+    configuration_get_value_int(&config, "PARAMS", "num_terminals", NULL, &num_terminals);
+    configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers_per_grp);
     num_groups = (num_routers_per_grp * 2);
     num_nodes = num_groups * num_routers_per_grp * num_servers_per_rep;
     num_nodes_per_grp = num_routers_per_grp * num_servers_per_rep;

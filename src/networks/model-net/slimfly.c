@@ -25,13 +25,6 @@
 #define MEAN_PROCESS 1.0
 
 /* collective specific parameters */
-#define TREE_DEGREE 4
-#define LEVEL_DELAY 1000
-#define SLIMFLY_COLLECTIVE_DEBUG 0
-#define NUM_COLLECTIVES  1
-#define COLLECTIVE_COMPUTATION_DELAY 5700
-#define SLIMFLY_FAN_OUT_DELAY 20.0
-#define WINDOW_LENGTH 0
 #define DFLY_HASH_TABLE_SIZE 65536
 
 // debugging parameters
@@ -39,10 +32,10 @@
 //#define TRACK 100001
 #define TRACK_MSG 0
 #define TRACK_OUTPUT 1
-#define PRINT_ROUTER_TABLE 1
 #define DEBUG 1
 #define DEBUG_ROUTING 0
 #define USE_DIRECT_SCHEME 1
+#define LOAD_FROM_FILE 1
 
 #define LP_CONFIG_NM (model_net_lp_config_names[SLIMFLY])
 #define LP_METHOD_NM (model_net_method_names[SLIMFLY])
@@ -61,12 +54,12 @@
 #define TEMP_RADIX 10
 #define TEMP_NUM_VC 4
 //MMS19
-//#define TEMP_NUM_GROUPS 26
-//#define TEMP_NUM_ROUTERS 338
-//#define TEMP_NUM_TERMINALS 3042
-//#define TEMP_RADIX 28
-//#define TEMP_NUM_VC 4
-//MMS43
+/*#define TEMP_NUM_GROUPS 26
+#define TEMP_NUM_ROUTERS 338
+#define TEMP_NUM_TERMINALS 3042
+#define TEMP_RADIX 28
+#define TEMP_NUM_VC 4
+*///MMS43
 //#define TEMP_NUM_GROUPS 58
 //#define TEMP_NUM_ROUTERS 1682
 //#define TEMP_NUM_TERMINALS 18502
@@ -112,9 +105,8 @@ FILE * MMS_input_file=NULL;
 int csf_ratio = 1;						//Constant selected to balance the ratio between minimal and indirect routes
 int num_indirect_routes = 4;			//Number of indirect (Valiant) routes to use in Adaptive routing methods
 float adaptive_threshold = 0.1;
-float throughput_total;
-float temp_t = 0.0;
-float temp_t2 = 0.0;
+float pe_throughput_percent = 0.0;
+float pe_throughput = 0.0;
 // MMS7 q=5 Slimfly basic configuration parameters
 static int X[] = {1,4};					//   : Subgraph 0 generator set
 static int X_prime[] = {2,3};			//   : Subgraph 1 generator set
@@ -144,8 +136,6 @@ static int X_prime[] = {2,3};			//   : Subgraph 1 generator set
 //int X_prime[] = {32,5,67,148,125,45,114,28,147,79,48,89,19,59,106,149,8,42,139,37,72,52,110,7,159,142,12,63,127,137,108,78,2,92,157,50,18,13,109,124,131,158,96,15,38,118,49,135,16,84,115,74,144,104,57,14,155,121,24,126,91,111,53,156,4,21,151,100,36,26,55,85,161,71,6,113,145,150,54,39,1,162};
 
 /*End Noah Misc*/
-
-long term_ecount, router_ecount, term_rev_ecount, router_rev_ecount;
 
 static double maxd(double a, double b) { return a < b ? b : a; }
 
@@ -215,7 +205,7 @@ struct slimfly_param
     double credit_delay;
 	//slimfly added
 	double router_delay;	/*Router processing delay moving packet from input port to output port*/
-	double link_delay;		/*Network link latency*/
+	double link_delay;		/*Network link latency. Currently encorporated into the arrival time*/
 	int num_local_channels;
 };
 
@@ -258,35 +248,11 @@ struct terminal_state
 // Terminal generate, sends and arrival T_SEND, T_ARRIVAL, T_GENERATE
 // Router-Router Intra-group sends and receives RR_LSEND, RR_LARRIVE
 // Router-Router Inter-group sends and receives RR_GSEND, RR_GARRIVE
-   struct mn_stats slimfly_stats_array[CATEGORY_MAX];
-  /* collective init time */
-  tw_stime collective_init_time;
-
-  /* node ID in the tree */ 
-   tw_lpid node_id;
-
-   /* messages sent & received in collectives may get interchanged several times so we have to save the 
-     origin server information in the node's state */
-   tw_lpid origin_svr; 
-  
-  /* parent node ID of the current node */
-   tw_lpid parent_node_id;
-   /* array of children to be allocated in slim_terminal_init*/
-   tw_lpid* children;
-
-   /* children of a node can be less than or equal to the tree degree */
-   int num_children;
-
-   short is_root;
-   short is_leaf;
+   struct mn_stats slimfly_stats_array[CATEGORY_MAX]; 
 
    struct rc_stack * st;
    int issueIdle;
    int terminal_length;
-
-   /* to maintain a count of child nodes that have fanned in at the parent during the collective
-      fan-in phase*/
-   int num_fan_nodes;
 
    const char * anno;
    const slimfly_param *params;
@@ -313,10 +279,7 @@ enum event_t
   T_BUFFER,
   R_SEND,
   R_ARRIVE,
-  R_BUFFER,
-  D_COLLECTIVE_INIT,
-  D_COLLECTIVE_FAN_IN,
-  D_COLLECTIVE_FAN_OUT
+  R_BUFFER
 };
 /* status of a virtual channel can be idle, active, allocated or wait for credit */
 enum vc_status
@@ -342,8 +305,7 @@ enum ROUTING_ALGO
 {
     MINIMAL = 0,
     NON_MINIMAL,
-    ADAPTIVE,
-    PROG_ADAPTIVE
+    ADAPTIVE
 };
 
 struct router_state
@@ -355,7 +317,6 @@ struct router_state
    int* local_channel;
    
    tw_stime* next_output_available_time;
-   tw_stime* cur_hist_start_time;
    slim_terminal_message_list ***pending_msgs;
    slim_terminal_message_list ***pending_msgs_tail;
    slim_terminal_message_list ***queued_msgs;
@@ -363,21 +324,19 @@ struct router_state
    int *in_send_loop;
    
    int** vc_occupancy;
-   int* link_traffic;
+   int* link_traffic;	//Aren't used
 
    const char * anno;
    const slimfly_param *params;
 
-   int* prev_hist_num;
-   int* cur_hist_num;
+   int* prev_hist_num;	//Aren't used
+   int* cur_hist_num;	//Aren't used
 };
 
 static short routing = MINIMAL;
 
 static tw_stime         slimfly_total_time = 0;
 static tw_stime         slimfly_max_latency = 0;
-static tw_stime         max_collective = 0;
-
 
 static long long       total_hops = 0;
 static long long       N_finished_packets = 0;
@@ -436,6 +395,7 @@ static void free_tmp(void * ptr)
     free(sfly->remote_event_data);
     free(sfly);
 }
+
 static void append_to_terminal_message_list(  
         slim_terminal_message_list ** thisq,
         slim_terminal_message_list ** thistail,
@@ -636,11 +596,13 @@ static void slimfly_read_config(const char * anno, slimfly_param *params){
         fprintf(stderr, "Number of terminals not specified, setting to %d\n", p->num_cn);
     }
 
-    p->router_delay = 50;
-    configuration_get_value_double(&config, "PARAMS", "router_delay", anno,
-            &p->router_delay);
+	p->router_delay = -1;
+    configuration_get_value_double(&config, "PARAMS", "router_delay", anno, &p->router_delay);
+    if(p->router_delay < 0) {
+        p->router_delay = 0;
+        fprintf(stderr, "Router delay not specified, setting to %lf\n", p->router_delay);
+    }
 
-//printf("num_global_channels:%d\n",p->num_global_channels);
     char routing_str[MAX_NAME_LENGTH];
     configuration_get_value(&config, "PARAMS", "routing", anno, routing_str,
             MAX_NAME_LENGTH);
@@ -651,8 +613,6 @@ static void slimfly_read_config(const char * anno, slimfly_param *params){
         routing = NON_MINIMAL;
     else if (strcmp(routing_str, "adaptive") == 0)
         routing = ADAPTIVE;
-    else if (strcmp(routing_str, "prog-adaptive") == 0)
-	routing = PROG_ADAPTIVE;
     else
     {
         fprintf(stderr, 
@@ -706,6 +666,8 @@ static void slimfly_report_stats()
    int total_minimal_packets, total_nonmin_packets;
    float throughput_avg = 0.0;
    float throughput_avg2 = 0.0;
+   int i,j,k,t;
+   char log[300];
 
    MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
    MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -715,39 +677,32 @@ static void slimfly_report_stats()
    MPI_Reduce( &slimfly_total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
    MPI_Reduce( &slimfly_max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 
-   MPI_Reduce(&temp_t, &throughput_avg, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce(&temp_t2, &throughput_avg2, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
-//   if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
-    {
-	MPI_Reduce(&minimal_count, &total_minimal_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
- 	MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
-    }
+   MPI_Reduce(&pe_throughput_percent, &throughput_avg, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce(&pe_throughput, &throughput_avg2, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+
+   MPI_Reduce(&minimal_count, &total_minimal_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 
    /* print statistics */
    if(!g_tw_mynode)
    {	
       printf(" Average number of hops traversed %f average chunk latency %lf us maximum chunk latency %lf us avg message size %lf bytes finished messages %lld \n", (float)avg_hops/total_finished_chunks, avg_time/(total_finished_chunks*1000), max_time/1000, (float)final_msg_sz/total_finished_msgs, total_finished_msgs);
-     if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
-              printf("\n ADAPTIVE ROUTING STATS: %d percent chunks routed minimally %d percent chunks routed non-minimally completed packets %lld ", total_minimal_packets, total_nonmin_packets, total_finished_chunks);
- 
+
 #if PARAMS_LOG
     throughput_avg = throughput_avg / (float)slim_total_terminals_noah;
     throughput_avg2 = throughput_avg2 / (float)slim_total_terminals_noah;
-//	printf("\n\n\n#########################throughput_avg:%f##########################\n\n\n",throughput_avg);
+
 	//Open file to append simulation results
-	char log[200];
 	sprintf( log, "slimfly-results-log.txt");
 	slimfly_results_log=fopen(log, "a");
 	if(slimfly_results_log == NULL)
 		tw_error(TW_LOC, "\n Failed to open slimfly results log file \n");
 	printf("Printing Simulation Parameters/Results Log File\n");
-	fprintf(slimfly_results_log,"%10.3lf, %15.3lf, %11.3lf, %13.3d, %16.3d, %25.5f, %14.5f, ", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets),max_time,total_minimal_packets,total_nonmin_packets,throughput_avg*100,throughput_avg2);
+	fprintf(slimfly_results_log,"%10.3lf, %15.3lf, %11.3lf, %13.3d, %16.3d, %16.3d, %25.5f, %14.5f, ", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets),max_time,total_minimal_packets,total_nonmin_packets,total_finished_chunks,throughput_avg*100,throughput_avg2);
 	fclose(slimfly_results_log);
 #endif 
   }
 
-		int i,j,k,t;
-       char log[300];
 #if ROUTER_OCCUPANCY_LOG
 	if(tw_ismaster())
 	{
@@ -865,64 +820,6 @@ static void slimfly_report_stats()
    return;
 }
 
-void slimfly_collective_init(terminal_state * s,
-           		   tw_lp * lp)
-{
-    // TODO: be annotation-aware
-    codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
-            &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
-            NULL, 1);
-    int num_reps = codes_mapping_get_group_reps(lp_group_name);
-    s->node_id = (mapping_rep_id * num_lps) + mapping_offset;
-
-    int i;
-   /* handle collective operations by forming a tree of all the LPs */
-   /* special condition for root of the tree */
-   if( s->node_id == 0)
-    {
-        s->parent_node_id = -1;
-        s->is_root = 1;
-   }
-   else
-   {
-       s->parent_node_id = (s->node_id - ((s->node_id - 1) % TREE_DEGREE)) / TREE_DEGREE;
-       s->is_root = 0;
-   }
-   s->children = (tw_lpid*)malloc(TREE_DEGREE * sizeof(tw_lpid));
-
-   /* set the isleaf to zero by default */
-   s->is_leaf = 1;
-   s->num_children = 0;
-
-   /* calculate the children of the current node. If its a leaf, no need to set children,
-      only set isleaf and break the loop*/
-
-   for( i = 0; i < TREE_DEGREE; i++ )
-    {
-        tw_lpid next_child = (TREE_DEGREE * s->node_id) + i + 1;
-        if(next_child < (num_lps * num_reps))
-        {
-            s->num_children++;
-            s->is_leaf = 0;
-            s->children[i] = next_child;
-        }
-        else
-           s->children[i] = -1;
-    }
-
-#if SLIMFLY_COLLECTIVE_DEBUG == 1
-   printf("\n LP %ld parent node id ", s->node_id);
-
-   for( i = 0; i < TREE_DEGREE; i++ )
-        printf(" child node ID %ld ", s->children[i]);
-   printf("\n");
-
-   if(s->is_leaf)
-        printf("\n LP %ld is leaf ", s->node_id);
-#endif
-}
-
 /* initialize a slimfly compute node terminal */
 void 
 slim_terminal_init( terminal_state * s, 
@@ -989,7 +886,6 @@ slim_terminal_init( terminal_state * s,
    s->in_send_loop = 0;
    s->issueIdle = 0;
 
-   slimfly_collective_init(s, lp);
    return;
 }
 
@@ -1024,7 +920,6 @@ void slim_router_setup(router_state * r, tw_lp * lp)
    r->global_channel = (int*)malloc(p->num_global_channels * sizeof(int));
    r->local_channel = (int*)malloc(p->num_local_channels * sizeof(int));
    r->next_output_available_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
-   r->cur_hist_start_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
    r->link_traffic = (int*)malloc(p->radix * sizeof(int));
    r->cur_hist_num = (int*)malloc(p->radix * sizeof(int));
    r->prev_hist_num = (int*)malloc(p->radix * sizeof(int));
@@ -1044,7 +939,6 @@ void slim_router_setup(router_state * r, tw_lp * lp)
     {
        // Set credit & router occupancy
 	r->next_output_available_time[i]=0;
-	r->cur_hist_start_time[i] = 0;
         r->link_traffic[i]=0;
 	r->cur_hist_num[i] = 0;
 	r->prev_hist_num[i] = 0;
@@ -1068,8 +962,9 @@ void slim_router_setup(router_state * r, tw_lp * lp)
         }
     }
 
-//slimfly added
-    //Load input MMS router and node layout/connection graph
+#if LOAD_FROM_FILE
+	//slimfly added
+    //Load input MMS router and node layout/connection graph from file
 	char log[500];
     sprintf( log, "simulation-input-files/MMS.%d/MMS.%d.%d.bsconf", p->num_global_channels+p->num_local_channels, p->num_global_channels+p->num_local_channels, p->num_cn);
     MMS_input_file = fopen( log, "r");
@@ -1114,6 +1009,127 @@ void slim_router_setup(router_state * r, tw_lp * lp)
 //#endif
 	}
 	fclose(MMS_input_file);
+
+#else
+    //Compute MMS router layout/connection graph
+	int rid_s = (int)r->router_id;	// ID for source router
+	int rid_d;						// ID for dest. router
+	int s_s,s_d;					// subgraph location for source and destination routers
+	int i_s,i_d;					// x or m coordinates for source and destination routers
+	int j_s,j_d; 					// y or c coordinates for source and destination routers
+	int k;
+	int local_idx = 0;
+	int global_idx = 0;
+	int generator_size = sizeof(X)/sizeof(int);
+printf("generator size:%d\n",generator_size);
+
+	for(rid_d=0;rid_d<r->params->slim_total_routers;rid_d++)
+	{
+		// Decompose source and destination Router IDs into 3D subgraph coordinates (subgraph,i,j)
+		if(rid_d >= r->params->slim_total_routers/2)
+		{
+			s_d = 1;
+			i_d = (rid_d - r->params->slim_total_routers/2) /  r->params->num_global_channels;
+			j_d = (rid_d - r->params->slim_total_routers/2) %  r->params->num_global_channels;
+		}
+		else
+		{
+			s_d = 0;
+			i_d = rid_d /  r->params->num_global_channels;
+			j_d = rid_d %  r->params->num_global_channels;
+		}
+		if(rid_s >= r->params->slim_total_routers/2)
+		{
+			s_s = 1;
+			i_s = (rid_s - r->params->slim_total_routers/2) /  r->params->num_global_channels;
+			j_s = (rid_s - r->params->slim_total_routers/2) %  r->params->num_global_channels;
+		}
+		else
+		{
+			s_s = 0;
+			i_s = rid_s /  r->params->num_global_channels;
+			j_s = rid_s %  r->params->num_global_channels;
+		}		
+		// Check for subgraph 0 local connections
+		if(s_s==0 && s_d==0)
+		{
+			if(i_s==i_d)							// equation (2) y-y' is in X'
+			{
+				for(k=0;k<generator_size;k++)
+				{
+					if(abs(j_s-j_d)==X[k])
+					{
+						r->local_channel[local_idx++] = rid_d;
+						printf("router%d,router%d\n",rid_s,rid_d);
+					}
+				}
+			}
+		}
+		// Check if global connections
+		if(s_s==0 && s_d==1)
+		{
+			if(j_s == (i_d*i_s + j_d) % r->params->num_routers)							// equation (3) y=mx+c
+			{
+				r->global_channel[global_idx++] = rid_d;
+				printf("router%d,router%d\n",rid_s,rid_d);
+			}
+		}
+	}
+
+	// Loop over second subgraph source routers
+	for(rid_d==r->params->slim_total_routers-1;rid_d>=0;rid_d--)
+	{
+		// Decompose source and destination Router IDs into 3D subgraph coordinates (subgraph,i,j)
+		if(rid_d >= r->params->slim_total_routers/2)
+		{
+			s_d = 1;
+			i_d = (rid_d -  r->params->slim_total_routers/2) /  r->params->num_global_channels;
+			j_d = (rid_d -  r->params->slim_total_routers/2) %  r->params->num_global_channels;
+		}
+		else
+		{
+			s_d = 0;
+			i_d = rid_d /  r->params->num_global_channels;
+			j_d = rid_d %  r->params->num_global_channels;
+		}
+		if(rid_s >= r->params->slim_total_routers/2)
+		{
+			s_s = 1;
+			i_s = (rid_s -  r->params->slim_total_routers/2) /  r->params->num_global_channels;
+			j_s = (rid_s -  r->params->slim_total_routers/2) %  r->params->num_global_channels;
+		}
+		else
+		{
+			s_s = 0;
+			i_s = rid_s /  r->params->num_global_channels;
+			j_s = rid_s %  r->params->num_global_channels;
+		}	
+		// Check for subgraph 1 local connections
+		if(s_s==1 && s_d==1)
+		{
+			if(i_s==i_d)							// equation (2) c-c' is in X'
+			{
+				for(k=0;k<generator_size;k++)
+				{
+					if(abs(j_s-j_d)==X_prime[k])
+					{
+						r->local_channel[local_idx++] = rid_d;
+						printf("router%d,router%d\n",rid_s,rid_d);
+					}
+				}
+			}
+		}
+		// Check if global connections
+		if(s_s==1 && s_d==0)
+		{
+			if(j_d == (i_s*i_d + j_s) %  r->params->num_routers)							// equation (3) y=mx+c
+			{
+				r->global_channel[global_idx++] = rid_d;
+				printf("router%d,router%d\n",rid_s,rid_d);
+			}
+		}
+	}
+#endif
 
 #if DEBUG 
 //   printf("\n LP ID %d VC occupancy radix %d Router %d group ID %d is connected to ", (int)lp->gid, p->radix, r->router_id, r->group_id);
@@ -1926,274 +1942,6 @@ void slim_packet_arrive(terminal_state * s, tw_bf * bf, slim_terminal_message * 
   return;
 }
 
-/* collective operation for the torus network */
-void slimfly_collective(char const * category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender)
-{
-    tw_event * e_new;
-    tw_stime xfer_to_nic_time;
-    slim_terminal_message * msg;
-    tw_lpid local_nic_id;
-    char* tmp_ptr;
-
-    codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id,
-            NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
-            mapping_rep_id, mapping_offset, &local_nic_id);
-
-    xfer_to_nic_time = codes_local_latency(sender);
-    e_new = model_net_method_event_new(local_nic_id, xfer_to_nic_time,
-            sender, SLIMFLY, (void**)&msg, (void**)&tmp_ptr);
-
-    msg->remote_event_size_bytes = message_size;
-    strcpy(msg->category, category);
-    msg->sender_svr=sender->gid;
-    msg->type = D_COLLECTIVE_INIT;
-
-    tmp_ptr = (char*)msg;
-    tmp_ptr += slimfly_get_msg_sz();
-    if(remote_event_size > 0)
-     {
-            msg->remote_event_size_bytes = remote_event_size;
-            memcpy(tmp_ptr, remote_event, remote_event_size);
-            tmp_ptr += remote_event_size;
-     }
-
-    tw_event_send(e_new);
-    return;
-}
-
-/* reverse for collective operation of the slimfly network */
-void slimfly_collective_rc(int message_size, tw_lp* sender)
-{
-     codes_local_latency_reverse(sender);
-     return;
-}
-
-static void send_collective_remote_event(terminal_state * s,
-                        tw_bf * bf,
-                        slim_terminal_message * msg,
-                        tw_lp * lp)
-{
-    // Trigger an event on receiving server
-    if(msg->remote_event_size_bytes)
-     {
-            tw_event* e;
-            tw_stime ts;
-            slim_terminal_message * m;
-            ts = (1/s->params->cn_bandwidth) * msg->remote_event_size_bytes;
-            e = codes_event_new(s->origin_svr, ts, lp);
-            m = tw_event_data(e);
-            char* tmp_ptr = (char*)msg;
-            tmp_ptr += slimfly_get_msg_sz();
-            memcpy(m, tmp_ptr, msg->remote_event_size_bytes);
-            tw_event_send(e);
-     }
-}
-
-static void node_collective_init(terminal_state * s,
-                        tw_bf * bf,
-                        slim_terminal_message * msg,
-                        tw_lp * lp)
-{
-        tw_event * e_new;
-        tw_lpid parent_nic_id;
-        tw_stime xfer_to_nic_time;
-        slim_terminal_message * msg_new;
-        int num_lps;
-
-        msg->saved_collective_init_time = s->collective_init_time;
-        s->collective_init_time = tw_now(lp);
-	s->origin_svr = msg->sender_svr;
-	
-        if(s->is_leaf)
-        {
-            //printf("\n LP %ld sending message to parent %ld ", s->node_id, s->parent_node_id);
-            /* get the global LP ID of the parent node */
-            // TODO: be annotation-aware
-            codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id,
-                    NULL, &mapping_type_id, NULL, &mapping_rep_id,
-                    &mapping_offset);
-            num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
-                    s->anno, 0);
-            codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, s->anno, 0,
-                    s->parent_node_id/num_lps, (s->parent_node_id % num_lps),
-                    &parent_nic_id);
-
-           /* send a message to the parent that the LP has entered the collective operation */
-            xfer_to_nic_time = g_tw_lookahead + LEVEL_DELAY;
-            //e_new = codes_event_new(parent_nic_id, xfer_to_nic_time, lp);
-	    void* m_data;
-	    e_new = model_net_method_event_new(parent_nic_id, xfer_to_nic_time,
-            	lp, SLIMFLY, (void**)&msg_new, (void**)&m_data);
-	    	
-            memcpy(msg_new, msg, sizeof(slim_terminal_message));
-	    if (msg->remote_event_size_bytes){
-        	memcpy(m_data, model_net_method_get_edata(SLIMFLY, msg),
-                	msg->remote_event_size_bytes);
-      	    }
-	    
-            msg_new->type = D_COLLECTIVE_FAN_IN;
-            msg_new->sender_node = s->node_id;
-
-            tw_event_send(e_new);
-        }
-        return;
-}
-
-static void node_collective_fan_in(terminal_state * s,
-                        tw_bf * bf,
-                        slim_terminal_message * msg,
-                        tw_lp * lp)
-{
-        int i;
-        s->num_fan_nodes++;
-
-        codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id,
-                NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-        int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
-                s->anno, 0);
-
-        tw_event* e_new;
-        slim_terminal_message * msg_new;
-        tw_stime xfer_to_nic_time;
-
-        bf->c1 = 0;
-        bf->c2 = 0;
-
-        /* if the number of fanned in nodes have completed at the current node then signal the parent */
-        if((s->num_fan_nodes == s->num_children) && !s->is_root)
-        {
-            bf->c1 = 1;
-            msg->saved_fan_nodes = s->num_fan_nodes-1;
-            s->num_fan_nodes = 0;
-            tw_lpid parent_nic_id;
-            xfer_to_nic_time = g_tw_lookahead + LEVEL_DELAY;
-
-            /* get the global LP ID of the parent node */
-            codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, s->anno, 0,
-                    s->parent_node_id/num_lps, (s->parent_node_id % num_lps),
-                    &parent_nic_id);
-
-           /* send a message to the parent that the LP has entered the collective operation */
-            //e_new = codes_event_new(parent_nic_id, xfer_to_nic_time, lp);
-            //msg_new = tw_event_data(e_new);
-	    void * m_data;
-      	    e_new = model_net_method_event_new(parent_nic_id,
-              xfer_to_nic_time,
-              lp, SLIMFLY, (void**)&msg_new, &m_data);
-	    
-            memcpy(msg_new, msg, sizeof(slim_terminal_message));
-            msg_new->type = D_COLLECTIVE_FAN_IN;
-            msg_new->sender_node = s->node_id;
-
-            if (msg->remote_event_size_bytes){
-	        memcpy(m_data, model_net_method_get_edata(SLIMFLY, msg),
-        	        msg->remote_event_size_bytes);
-      	   }
-	    
-            tw_event_send(e_new);
-      }
-
-      /* root node starts off with the fan-out phase */
-      if(s->is_root && (s->num_fan_nodes == s->num_children))
-      {
-           bf->c2 = 1;
-           msg->saved_fan_nodes = s->num_fan_nodes-1;
-           s->num_fan_nodes = 0;
-           send_collective_remote_event(s, bf, msg, lp);
-
-           for( i = 0; i < s->num_children; i++ )
-           {
-                tw_lpid child_nic_id;
-                /* Do some computation and fan out immediate child nodes from the collective */
-                xfer_to_nic_time = g_tw_lookahead + COLLECTIVE_COMPUTATION_DELAY + LEVEL_DELAY + tw_rand_exponential(lp->rng, (double)LEVEL_DELAY/50);
-
-                /* get global LP ID of the child node */
-                codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM, NULL, 1,
-                        s->children[i]/num_lps, (s->children[i] % num_lps),
-                        &child_nic_id);
-                //e_new = codes_event_new(child_nic_id, xfer_to_nic_time, lp);
-
-                //msg_new = tw_event_data(e_new);
-                void * m_data;
-	        e_new = model_net_method_event_new(child_nic_id,
-                xfer_to_nic_time,
-		lp, SLIMFLY, (void**)&msg_new, &m_data);
-
-		memcpy(msg_new, msg, sizeof(slim_terminal_message));
-	        if (msg->remote_event_size_bytes){
-	                memcpy(m_data, model_net_method_get_edata(SLIMFLY, msg),
-        	               msg->remote_event_size_bytes);
-      		}
-		
-                msg_new->type = D_COLLECTIVE_FAN_OUT;
-                msg_new->sender_node = s->node_id;
-
-                tw_event_send(e_new);
-           }
-      }
-}
-
-static void node_collective_fan_out(terminal_state * s,
-                        tw_bf * bf,
-                        slim_terminal_message * msg,
-                        tw_lp * lp)
-{
-        int i;
-        int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
-                NULL, 1);
-        bf->c1 = 0;
-        bf->c2 = 0;
-
-        send_collective_remote_event(s, bf, msg, lp);
-
-        if(!s->is_leaf)
-        {
-            bf->c1 = 1;
-            tw_event* e_new;
-            nodes_message * msg_new;
-            tw_stime xfer_to_nic_time;
-
-           for( i = 0; i < s->num_children; i++ )
-           {
-                xfer_to_nic_time = g_tw_lookahead + SLIMFLY_FAN_OUT_DELAY + tw_rand_exponential(lp->rng, (double)SLIMFLY_FAN_OUT_DELAY/10);
-
-                if(s->children[i] > 0)
-                {
-                        tw_lpid child_nic_id;
-
-                        /* get global LP ID of the child node */
-                        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM,
-                                s->anno, 0, s->children[i]/num_lps,
-                                (s->children[i] % num_lps), &child_nic_id);
-                        //e_new = codes_event_new(child_nic_id, xfer_to_nic_time, lp);
-                        //msg_new = tw_event_data(e_new);
-                        //memcpy(msg_new, msg, sizeof(nodes_message) + msg->remote_event_size_bytes);
-			void* m_data;
-			e_new = model_net_method_event_new(child_nic_id,
-							xfer_to_nic_time,
-					                lp, SLIMFLY, (void**)&msg_new, &m_data);
-		        memcpy(msg_new, msg, sizeof(nodes_message));
-		        if (msg->remote_event_size_bytes){
-			        memcpy(m_data, model_net_method_get_edata(SLIMFLY, msg),
-			                msg->remote_event_size_bytes);
-      			}
-
-
-                        msg_new->type = D_COLLECTIVE_FAN_OUT;
-                        msg_new->sender_node = s->node_id;
-                        tw_event_send(e_new);
-                }
-           }
-         }
-	//printf("\n Fan out phase completed %ld ", lp->gid);
-        if(max_collective < tw_now(lp) - s->collective_init_time )
-          {
-              bf->c2 = 1;
-              max_collective = tw_now(lp) - s->collective_init_time;
-          }
-}
-
 void slim_terminal_buf_update_rc(terminal_state * s,
 		    tw_bf * bf, 
 		    slim_terminal_message * msg, 
@@ -2268,18 +2016,6 @@ slim_terminal_event( terminal_state * s,
        slim_terminal_buf_update(s, bf, msg, lp);
      break;
     
-    case D_COLLECTIVE_INIT:
-      node_collective_init(s, bf, msg, lp);
-    break;
-
-    case D_COLLECTIVE_FAN_IN:
-      node_collective_fan_in(s, bf, msg, lp);
-    break;
-
-    case D_COLLECTIVE_FAN_OUT:
-      node_collective_fan_out(s, bf, msg, lp);
-    break;
-    
     default:
        printf("\n LP %d Terminal message type not supported %d ", (int)lp->gid, msg->type);
        tw_error(TW_LOC, "Msg type not supported");
@@ -2298,13 +2034,9 @@ slimfly_terminal_final( terminal_state * s,
 	tw_stime bandwidth;
 	tw_stime interval;
 	bandwidth = s->total_msg_size / (1024.0 *1024.0 *1024.0);
-//printf("bandwidth:%f\n", bandwidth);
-//printf("Second:%f g_tw_ts_end:%f\n", bandwidth, g_tw_ts_end);
 	interval = ((1000000000.0)/g_tw_ts_end);
 	bandwidth = bandwidth * interval;
-//printf("bandwidth:%f interval:%f\n",bandwidth, interval);
 	link_throughput = bandwidth;
-//	link_throughput = (float)(bandwidth) / (float)s->params->slim_total_terminals;
 	if(s->params->num_cn == 9 || s->params->num_cn == 3)
 	{
 		throughput_percentage = link_throughput / (0.71 * 12.5);
@@ -2315,20 +2047,11 @@ slimfly_terminal_final( terminal_state * s,
 	}
 	else
 	{
-		throughput_percentage = 0.0;
+		throughput_percentage = link_throughput / (0.71 * 12.5);
 	}
-//	printf("\t%-50s %11.2f\n", "Overall Average Bandwidth (Gb/s)",bandwidth);
-//	printf("\t%-50s %11.2f\n", "Average Link Throughput (Gb/s)",link_throughput);
-	if(s->params->num_cn == 9 || s->params->num_cn == 3)
-//		printf("\t%-50s %11.2f\x1b[0m\n", "Percentage of Max Throughput(max=71Gb/s)",throughput_percentage*100.0);
-	if(s->params->num_cn == 10 || s->params->num_cn == 11)
-//		printf("\t%-50s %11.2f\x1b[0m\n", "Percentage of Max Throughput(max=67Gb/s)",throughput_percentage*100.0);
-//	printf("\n");
 
-	throughput_total = 10.0;
-	temp_t = temp_t + throughput_percentage;
-	temp_t2 = temp_t2 + link_throughput;
-//printf("temp_t:%f,throughput_total:%f,throughput_percentage:%f, ",temp_t,throughput_total,throughput_percentage);
+	pe_throughput_percent = pe_throughput_percent + throughput_percentage;
+	pe_throughput = pe_throughput + link_throughput;
 
 #endif
 
@@ -2351,18 +2074,16 @@ slimfly_terminal_final( terminal_state * s,
 	}
 
     written += sprintf(s->output_buf + written, "%lu %u %ld %lf %ld %ld %ld %lf\n", lp->gid, s->terminal_id, s->total_msg_size, s->total_time, s->finished_msgs, s->finished_packets, s->finished_chunks, (double)s->total_hops/s->finished_chunks);
-//    lp_io_write(lp->gid, "slimfly-msg-stats", written, s->output_buf); 
+    lp_io_write(lp->gid, "slimfly-msg-stats", written, s->output_buf); 
 
     if(s->terminal_msgs[0] != NULL) 
 //      printf("[%lu] leftover terminal messages \n", lp->gid);
-
 
     qhash_finalize(s->rank_tbl);
     rc_stack_destroy(s->st);
     free(s->vc_occupancy);
     free(s->terminal_msgs);
     free(s->terminal_msgs_tail);
-    free(s->children);
 }
 
 void slimfly_router_final(router_state * s,
@@ -2966,32 +2687,29 @@ slim_get_next_stop(router_state * s,
 		      int dest_router_id,
 		      int intm_id)
 {
-   int dest_lp;
-   tw_lpid router_dest_id = -1;
-   int dest_group_id;
+	int dest_lp;
+	tw_lpid router_dest_id = -1;
 
-   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
-           &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-   int local_router_id = (mapping_offset + mapping_rep_id);
+	codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
+	&mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+	int local_router_id = (mapping_offset + mapping_rep_id);
 
-   dest_group_id = dest_router_id / s->params->num_routers;
-
-  /* If the packet has arrived at the destination router */
-   if(dest_router_id == local_router_id)
-    {
-        dest_lp = msg->dest_terminal_id;
+	/* If the packet has arrived at the destination router */
+	if(dest_router_id == local_router_id)
+	{
+		dest_lp = msg->dest_terminal_id;
 #if TRACK_OUTPUT
 		if( msg->packet_ID == TRACK )
 		{
 			printf( "\x1b[32m-->Finishing Routing at current router:%d (gid:%d) to dest_terminal(globalID):%d through randm intm router:%d next stop:%d (globalid:%d)\x1b[0m\n",s->router_id,(int)lp->gid,(int)msg->dest_terminal_id,msg->intm_router_id,dest_lp,(int)router_dest_id);
 		}
 #endif
-        return dest_lp;
-    }
-   /* Assign inter-mediate destination for non-minimal routing (selecting a random router) */
-   if(msg->last_hop == TERMINAL && path == NON_MINIMAL)
-    {
-    	msg->intm_router_id = intm_id;
+		return dest_lp;
+	}
+	/* Assign inter-mediate destination for non-minimal routing (selecting a random router) */
+	if(msg->last_hop == TERMINAL && path == NON_MINIMAL)
+	{
+		msg->intm_router_id = intm_id;
 		dest_lp=getMinimalRouterFromEquations(msg, msg->intm_router_id, s);
 		codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, dest_lp, 0, &router_dest_id);
 #if TRACK_OUTPUT
@@ -3001,22 +2719,21 @@ slim_get_next_stop(router_state * s,
 		}
 #endif
 		return router_dest_id;
-    }
-  /* If the packet has arrived at the inter-mediate router for non-minimal routing. Reset the intm router now. */
-   if(path == NON_MINIMAL && msg->intm_router_id == s->router_id)
-   {  
+	}
+	/* If the packet has arrived at the inter-mediate router for non-minimal routing. Reset the intm router now. */
+	if(path == NON_MINIMAL && msg->intm_router_id == s->router_id)
+	{  
 #if TRACK_OUTPUT
 		if( msg->packet_ID == TRACK )
 		{
 			printf( "\x1b[32m-->Arrived at NonMinimal intm_router %d s->router_id:%d local_router_id:%d (gid:%d) dest_router:%d next stop:%d (globalid:%d)\x1b[0m\n",msg->intm_router_id,s->router_id,local_router_id,(int)lp->gid,dest_router_id,dest_lp,(int)router_dest_id);
 		}
 #endif
-        msg->intm_router_id = -1;//no inter-mediate router
-   } 
-  /* If intermediate router is set, route minimally to intermediate router*/
-  if(path == NON_MINIMAL && msg->intm_router_id >= 0 &&
-          (msg->intm_router_id != local_router_id))
-   {
+		msg->intm_router_id = -1;//no inter-mediate router
+	} 
+	/* If intermediate router is set, route minimally to intermediate router*/
+	if(path == NON_MINIMAL && msg->intm_router_id >= 0 && (msg->intm_router_id != local_router_id))
+	{
 		dest_lp=getMinimalRouterFromEquations(msg, msg->intm_router_id, s);
 		codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, dest_lp, 0, &router_dest_id);
 #if TRACK_OUTPUT
@@ -3026,11 +2743,11 @@ slim_get_next_stop(router_state * s,
 		}
 #endif
 		return router_dest_id;
-   }
-  /* No intermediate router set, then route to destination*/
-  if(path == NON_MINIMAL && msg->intm_router_id < 0)
-   {
-      dest_lp=getMinimalRouterFromEquations(msg, dest_router_id, s);
+	}
+	/* No intermediate router set, then route to destination*/
+	if(path == NON_MINIMAL && msg->intm_router_id < 0)
+	{
+		dest_lp=getMinimalRouterFromEquations(msg, dest_router_id, s);
 		codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, dest_lp, 0, &router_dest_id);
 #if TRACK_OUTPUT
 		if( msg->packet_ID == TRACK )
@@ -3039,67 +2756,26 @@ slim_get_next_stop(router_state * s,
 		}
 #endif
 		return router_dest_id;
-   }
- 
-/********************** DECIDE THE ROUTER IN THE DESTINATION GROUP ***************/ 
-  // It means the packet has arrived at the destination group. Now divert it to the destination router. //
-/*  if(s->group_id == dest_group_id)
-   {
-     if(msg->last_hop == TERMINAL && path == NON_MINIMAL) {
-       dest_lp = (s->group_id * s->params->num_routers) + intm_id % s->params->num_routers;
-     } else {
-     dest_lp = dest_router_id;
-     }
-   }
-   else
-   {
-      // Packet is at the source or intermediate group. Find a router that has a path to the destination group. //
-      dest_lp=slim_getRouterFromGroupID(dest_group_id, 
-        s->router_id/s->params->num_routers, s->params->num_routers, 
-        s->params->num_groups);
-  
-      if(dest_lp == local_router_id)
-      {
-#if USE_DIRECT_SCHEME
-       //   printf("[%d] tg %d orig \n", lp->gid, target_grp, dest_group_id);
-          int my_pos = s->group_id % s->params->num_routers;
-          if(s->group_id == s->params->num_groups - 1) {
-              my_pos = dest_group_id % s->params->num_routers;
-          }
-          dest_lp = dest_group_id * s->params->num_routers + my_pos;
-#else
-        for(int i=0; i < s->params->num_global_channels; i++)
-           {
-            if(s->global_channel[i] / s->params->num_routers == dest_group_id)
-                dest_lp=s->global_channel[i];
-          }
-#endif
-      }
-   }
-*/
-//printf("path:%d\n",path);
-
+	}
 	if(path == MINIMAL)
 	{
 		dest_lp=getMinimalRouterFromEquations(msg, dest_router_id, s);
-
 	}
 
-  codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, dest_lp,
-          0, &router_dest_id);
+	codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, dest_lp, 0, &router_dest_id);
 
 #if TRACK_OUTPUT
-		if( msg->packet_ID == TRACK && msg->last_hop == TERMINAL)
-		{
-			printf( "\x1b[32m-->Starting Minimal Routing from current router:%d (gid:%d) to dest_router:%d next stop:%d (globalid:%d)\x1b[0m\n",s->router_id,(int)lp->gid,dest_router_id,dest_lp,(int)router_dest_id);
-		}
-		if( msg->packet_ID == TRACK && msg->last_hop != TERMINAL)
-		{
-			printf( "\x1b[32m-->Continuing Minimal Routing from current router:%d (gid:%d) to dest_router:%d \x1b[0m\n",s->router_id,(int)lp->gid,dest_router_id);
-		}
+	if( msg->packet_ID == TRACK && msg->last_hop == TERMINAL)
+	{
+		printf( "\x1b[32m-->Starting Minimal Routing from current router:%d (gid:%d) to dest_router:%d next stop:%d (globalid:%d)\x1b[0m\n",s->router_id,(int)lp->gid,dest_router_id,dest_lp,(int)router_dest_id);
+	}
+	if( msg->packet_ID == TRACK && msg->last_hop != TERMINAL)
+	{
+		printf( "\x1b[32m-->Continuing Minimal Routing from current router:%d (gid:%d) to dest_router:%d \x1b[0m\n",s->router_id,(int)lp->gid,dest_router_id);
+	}
 #endif
 
-  return router_dest_id;
+	return router_dest_id;
 }
 /* gets the output port corresponding to the next stop of the message */
 int 
@@ -3198,43 +2874,27 @@ static int do_adaptive_routing( router_state * s,
   int minimal_out_port = -1;
   float *cost_nonminimal = (float *)(int *)malloc(num_indirect_routes * sizeof(float));
   float cost_minimal; 
-  // decide which routing to take
-  // get the queue occupancy of both the minimal and non-minimal output ports 
   tw_lpid *nonmin_next_stop = (tw_lpid *)malloc(num_indirect_routes * sizeof(tw_lpid));
   tw_lpid minimal_next_stop;
-  int temp_minimal_next_stop = getMinimalRouterFromEquations(msg, dest_router_id, s);
-codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, temp_minimal_next_stop, 0, &minimal_next_stop);
-//  int minimal_next_stop = slim_get_next_stop(s, bf, msg, lp, MINIMAL, dest_router_id, -1);
-//printf("trying to get min output port for current router:%d to next stop:%d\n",s->router_id,(int)minimal_next_stop);
-  minimal_out_port = slim_get_output_port(s, bf, msg, lp, minimal_next_stop);
-//printf("received min output port %d\n",minimal_out_port);
 
+  //Compute the next stop on the minimal path and get port number
+  int temp_minimal_next_stop = getMinimalRouterFromEquations(msg, dest_router_id, s);
+  codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, temp_minimal_next_stop, 0, &minimal_next_stop);
+  minimal_out_port = slim_get_output_port(s, bf, msg, lp, minimal_next_stop);
+
+  //Compute the next stop on the non-minimal paths and get port number
   int temp_nonmin_next_stop;
   for(i=0;i<num_indirect_routes;i++)
   {
     temp_nonmin_next_stop = getMinimalRouterFromEquations(msg, intm_id[i], s);
 	codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, temp_nonmin_next_stop, 0, &nonmin_next_stop[i]);
-//    nonmin_next_stop[i] = slim_get_next_stop(s, bf, msg, lp, NON_MINIMAL, dest_router_id, intm_id[i]);
-//printf("trying to get nonmin output port\n");
     nonmin_out_port[i] = slim_get_output_port(s, bf, msg, lp, nonmin_next_stop[i]);
-//printf("received nonmin output port %d\n",(int)nonmin_next_stop[i]);
   }
+
   //Only computed on first hop so vc will always be 0 for both min and nonmin
   int nomin_vc = 0;
-/*  if(nonmin_out_port < s->params->num_routers) {
-    nomin_vc = msg->my_l_hop;
-  } else if(nonmin_out_port < (s->params->num_routers + 
-        s->params->num_global_channels)) {
-    nomin_vc = msg->my_g_hop;
-  }
-*/  int min_vc = 0;
-/*  if(minimal_out_port < s->params->num_routers) {
-    min_vc = msg->my_l_hop;
-  } else if(minimal_out_port < (s->params->num_routers + 
-        s->params->num_global_channels)) {
-    min_vc = msg->my_g_hop;
-  }
-*/
+  int min_vc = 0;
+
   //Calculate number of hops in random indirect routes above
   for(i=0;i<num_indirect_routes;i++)
   {
@@ -3246,41 +2906,14 @@ codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, temp_minima
   //Calculate number of hops in minimal path
   int num_min_hops = get_path_length_local(s, dest_router_id);
 
-  // Now get the expected number of hops to be traversed for both routes 
-//  int num_min_hops = slim_get_num_hops(s->router_id, dest_router_id, s->params->num_routers, 0, s->params->num_groups);
-//  intm_router_id[i] = slim_getRouterFromGroupID(intm_id[i], s->router_id / s->params->num_routers, s->params->num_routers, s->params->num_groups);
-//  num_nonmin_hops[i] = slim_get_num_hops(s->router_id, intm_router_id[i], s->params->num_routers, 1, s->params->num_groups) + slim_get_num_hops(intm_router_id, dest_router_id, s->params->num_routers, 1, s->params->num_groups);
-
-//  assert(num_nonmin_hops <= 6);
-
-  /* average the local queues of the router */
-/*  unsigned int q_avg = 0;
-  for( i = 0; i < s->params->radix; i++)
-  {
-    if( i != minimal_out_port)
-      q_avg += s->vc_occupancy[i][0] + s->vc_occupancy[i][1] +
-        s->vc_occupancy[i][2];
-  }
-  q_avg = q_avg / (s->params->radix - 1);
-
-  int min_out_chan = minimal_out_port;
-  int nonmin_out_chan = nonmin_out_port;
-*/
-  /* Adding history window approach, not taking the queue status at every 
-   * simulation time thats why, we are maintaining the current history 
-   * window number and an average of the previous history window number. */
-/*  int min_hist_count = s->cur_hist_num[min_out_chan] + 
-    (s->prev_hist_num[min_out_chan]/2);
-  int nonmin_hist_count = s->cur_hist_num[nonmin_out_chan] + 
-    (s->prev_hist_num[min_out_chan]/2);
-*/
+  //Determine port occupancy for all minimal and nonminimal paths
   int min_port_count = s->vc_occupancy[minimal_out_port][min_vc];
   for(i=0;i<num_indirect_routes;i++)
   {
     nonmin_port_count[i] = s->vc_occupancy[nonmin_out_port[i]][nomin_vc];
   }
 
-//Calculate cost of all paths/routes
+  //Calculate cost of all paths/routes
   cost_minimal = min_port_count;
   for(i=0;i<num_indirect_routes;i++)
   {
@@ -3327,10 +2960,7 @@ void slim_router_packet_receive_rc(router_state * s,
         tw_bf * bf,
         slim_terminal_message * msg,
         tw_lp * lp)
-{
-    router_rev_ecount++;
-	router_ecount--;
-      
+{      
     int output_port = msg->saved_vc;
     int output_chan = msg->saved_channel;
 
@@ -3360,8 +2990,6 @@ slim_router_packet_receive( router_state * s,
 			slim_terminal_message * msg, 
 			tw_lp * lp )
 {
-  router_ecount++;
-
   bf->c1 = 0;
   bf->c2 = 0;
   bf->c3 = 0;
@@ -3424,12 +3052,7 @@ slim_router_packet_receive( router_state * s,
       sizeof(slim_terminal_message_list));
   slim_init_terminal_message_list(cur_chunk, msg);
   
-  if(routing == PROG_ADAPTIVE && msg->path_type != NON_MINIMAL && local_grp_id == ( msg->origin_router_id / s->params->num_routers)) 
-  {
-//    next_stop = do_adaptive_routing(s, bf, &(cur_chunk->msg), lp, dest_router_id, intm_id);	
-    next_stop = do_adaptive_routing(s, bf, &(cur_chunk->msg), lp, dest_router_id, intm_router);	
-  } 
-  else if(msg->last_hop == TERMINAL && routing == ADAPTIVE) 
+  if(msg->last_hop == TERMINAL && routing == ADAPTIVE) 
   {
     next_stop = do_adaptive_routing(s, bf, &(cur_chunk->msg), lp, dest_router_id, intm_router);
   } 
@@ -3468,23 +3091,17 @@ codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
 
   if(output_port < s->params->num_local_channels) 
   {
-//    output_chan = msg->my_l_hop;
-//    if(msg->my_g_hop == 1) output_chan = 1;
-//    if(msg->my_g_hop == 2) output_chan = 2;
     max_vc_size = s->params->local_vc_size;
     output_chan = msg->my_N_hop;
 	if(msg->my_N_hop >3)
 		output_chan = 3;
-//    cur_chunk->msg.my_l_hop++;
   } 
   else if(output_port < (s->params->num_local_channels + s->params->num_global_channels)) 
   {
-//    output_chan = msg->my_g_hop;
     max_vc_size = s->params->global_vc_size;
     output_chan = msg->my_N_hop;
 	if(msg->my_N_hop >3)
 		output_chan = 3;
-//    cur_chunk->msg.my_g_hop++;
   } 
     
 #if TRACK_OUTPUT
@@ -3559,10 +3176,7 @@ int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
 void slim_router_packet_send_rc(router_state * s, 
 		    tw_bf * bf, 
 		     slim_terminal_message * msg, tw_lp * lp)
-{
-    router_ecount--;
-    router_rev_ecount++;
-    
+{    
     int output_port = msg->vc_index;
     int output_chan = msg->output_chan;
     if(bf->c1) {
@@ -3577,17 +3191,6 @@ void slim_router_packet_send_rc(router_state * s,
     create_prepend_to_terminal_message_list(s->pending_msgs[output_port],
           s->pending_msgs_tail[output_port], output_chan, msg);
 
-    if(routing == PROG_ADAPTIVE)
-	{
-		if(bf->c2)
-		{
-		   s->cur_hist_num[output_port] = s->prev_hist_num[output_port];
-		   s->prev_hist_num[output_port] = msg->saved_hist_num;
-		   s->cur_hist_start_time[output_port] = msg->saved_hist_start_time;	
-		}
-		else
-		  s->cur_hist_num[output_port]--;
- 	}
     if(bf->c3) {
         tw_rand_reverse_unif(lp->rng);
       }
@@ -3603,8 +3206,6 @@ slim_router_packet_send( router_state * s,
 		    tw_bf * bf, 
 		     slim_terminal_message * msg, tw_lp * lp)
 {
-  router_ecount++;
-
   tw_stime ts;
   tw_event *e;
   slim_terminal_message *m;
@@ -3624,25 +3225,13 @@ slim_router_packet_send( router_state * s,
       }
     }
   }  
-/*  slim_terminal_message_list *cur_entry = s->pending_msgs[output_port][2];
-  if(cur_entry == NULL) {
-    cur_entry = s->pending_msgs[output_port][1];
-    output_chan = 1;
-    if(cur_entry == NULL) {
-      cur_entry = s->pending_msgs[output_port][0];
-      output_chan = 0;
-    }
-  }
-*/
+
   if(cur_entry == NULL) {
     bf->c1 = 1;
     s->in_send_loop[output_port] = 0;
     //printf("[%d] Router skipping send at begin %d \n", lp->gid, output_port);
     return;
   }
-
-//  if(msg->packet_ID == TRACK /*&& msg->message_id == TRACK_MSG*/)
-//      printf("\n router_packet_send origin %ld to router %ld at output port %d ", cur_entry->msg.src_terminal_id, cur_entry->msg.next_stop, output_port);
 
   int to_terminal = 1, global = 0;
   double delay = s->params->cn_delay;
@@ -3693,17 +3282,6 @@ slim_router_packet_send( router_state * s,
 
   s->link_traffic[output_port] += s->params->chunk_size;
 
-  if(routing == PROG_ADAPTIVE)
-  {
-      if(tw_now(lp) - s->cur_hist_start_time[output_port] >= WINDOW_LENGTH) {
-        bf->c2 = 1;
-        s->prev_hist_num[output_port] = s->cur_hist_num[output_port];
-        s->cur_hist_start_time[output_port] = tw_now(lp);
-        s->cur_hist_num[output_port] = 1;
-      } else {
-        s->cur_hist_num[output_port]++;
-      }
-  }
   /* Determine the event type. If the packet has arrived at the final 
    * destination router then it should arrive at the destination terminal 
    * next.*/
@@ -3786,15 +3364,7 @@ int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
 #if ROUTER_OCCUPANCY_LOG
 	vc_occupancy_storage_router[s->router_id][indx][output_chan][index] = s->vc_occupancy[indx][output_chan]/s->params->chunk_size;
 #endif
-/*  if(TRACK == msg->packet_ID)
-  {
-    int i;
-    printf("\n channel %d occupancy ", output_chan);
-    for(i = 0; i < s->params->radix; i++)
-      printf(" %d ", s->vc_occupancy[i][output_chan]);
-printf("\n");
-  }
-*/  if(s->queued_msgs[indx][output_chan] != NULL) {
+  if(s->queued_msgs[indx][output_chan] != NULL) {
     bf->c1 = 1;
     slim_terminal_message_list *head = return_head(s->queued_msgs[indx],
         s->queued_msgs_tail[indx], output_chan);
@@ -3869,36 +3439,6 @@ void slim_terminal_rc_event_handler(terminal_state * s, tw_bf * bf,
     case T_BUFFER:
         slim_terminal_buf_update_rc(s, bf, msg, lp); 
         break;
-
-    case D_COLLECTIVE_INIT:
-            {
-                s->collective_init_time = msg->saved_collective_init_time;
-            }
-      break;
-    case D_COLLECTIVE_FAN_IN: {
-        int i;
-        s->num_fan_nodes--;
-        if(bf->c1)
-        {
-          s->num_fan_nodes = msg->saved_fan_nodes;
-        }
-        if(bf->c2)
-        {
-          s->num_fan_nodes = msg->saved_fan_nodes;
-          for( i = 0; i < s->num_children; i++ )
-            tw_rand_reverse_unif(lp->rng);
-        }
-      }
-      break;
-
-    case D_COLLECTIVE_FAN_OUT: {
-        int i;
-        if(bf->c1)
-        {
-          for( i = 0; i < s->num_children; i++ )
-            tw_rand_reverse_unif(lp->rng);
-        }
-      }	 
   }
 }
 
@@ -3966,8 +3506,5 @@ struct model_net_method slimfly_method =
     .model_net_method_recv_msg_event_rc = NULL,
     .mn_get_lp_type = slimfly_get_cn_lp_type,
     .mn_get_msg_sz = slimfly_get_msg_sz,
-    .mn_report_stats = slimfly_report_stats,
-    .mn_collective_call = slimfly_collective,
-    .mn_collective_call_rc = slimfly_collective_rc   
+    .mn_report_stats = slimfly_report_stats 
 };
-
