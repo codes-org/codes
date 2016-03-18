@@ -47,52 +47,22 @@
 #define ROUTER_OCCUPANCY_LOG 0
 #define PARAMS_LOG 1
 #define N_COLLECT_POINTS 100
-//MMS7
-#define TEMP_NUM_ROUTERS 50
-#define TEMP_NUM_TERMINALS 150
-#define TEMP_RADIX 10
-#define TEMP_NUM_VC 4
-//MMS19
-/*#define TEMP_NUM_ROUTERS 338
-#define TEMP_NUM_TERMINALS 3042
-#define TEMP_RADIX 28
-#define TEMP_NUM_VC 4
-*///MMS43
-//#define TEMP_NUM_ROUTERS 1682
-//#define TEMP_NUM_TERMINALS 18502
-//#define TEMP_RADIX 43
-//#define TEMP_NUM_VC 4
-//MMS55
-//#define TEMP_NUM_ROUTERS 2738
-//#define TEMP_NUM_TERMINALS 73926
-//#define TEMP_RADIX 82
-//#define TEMP_NUM_VC 4
-//MMS245
-//#define TEMP_NUM_ROUTERS 53138
-//#define TEMP_NUM_TERMINALS 1009622
-//#define TEMP_RADIX 263
-//#define TEMP_NUM_VC 4
-unsigned long terminal_sends[TEMP_NUM_TERMINALS][N_COLLECT_POINTS];
+
+/*unsigned long terminal_sends[TEMP_NUM_TERMINALS][N_COLLECT_POINTS];
 unsigned long terminal_recvs[TEMP_NUM_TERMINALS][N_COLLECT_POINTS];
 unsigned long router_sends[TEMP_NUM_ROUTERS][N_COLLECT_POINTS];
 unsigned long router_recvs[TEMP_NUM_ROUTERS][N_COLLECT_POINTS];
 int vc_occupancy_storage_router[TEMP_NUM_ROUTERS][TEMP_RADIX][TEMP_NUM_VC][N_COLLECT_POINTS];
 int vc_occupancy_storage_terminal[TEMP_NUM_TERMINALS][TEMP_NUM_VC][N_COLLECT_POINTS];
-FILE * slimfly_terminal_sends_recvs_log = NULL;
+*/FILE * slimfly_terminal_sends_recvs_log = NULL;
 FILE * slimfly_router_sends_recvs_log = NULL;
 FILE * slimfly_router_occupancy_log=NULL;
 FILE * slimfly_terminal_occupancy_log=NULL;
 FILE * slimfly_results_log=NULL;
-int slim_total_routers_noah=50;
-int slim_total_terminals_noah=150;
-//int slim_total_routers_noah=338;
-//int slim_total_terminals_noah=3042;
-//int slim_total_routers_noah=1682;
-//int slim_total_terminals_noah=18502;
-//int slim_total_routers_noah=2738;
-//int slim_total_terminals_noah=73926;
-//int slim_total_routers_noah=53138;
-//int slim_total_terminals_noah=1009622;
+int TEMP_RADIX;
+int TEMP_NUM_VC;
+int slim_total_routers_noah;
+int slim_total_terminals_noah;
 /* End Noah Visualization Piece */
 
 /*Begin Noah Misc*/
@@ -102,36 +72,10 @@ int num_indirect_routes = 4;			//Number of indirect (Valiant) routes to use in A
 float adaptive_threshold = 0.1;
 float pe_throughput_percent = 0.0;
 float pe_throughput = 0.0;
-// MMS7 q=5 Slimfly basic configuration parameters
-//static int X[] = {1,4};					//   : Subgraph 0 generator set
-//static int X_prime[] = {2,3};			//   : Subgraph 1 generator set
-//#define GLOBAL_CHANNELS 13					//(h): Number of global channels per router
-//#define LOCAL_CHANNELS 6        			//   : Number of local channels per router
-//#define NUM_ROUTER 13						//(a): Number of routers in each group
-//#define NUM_TERMINALS 9					//(p): Number of terminal connections per router
 
-// MMS19 q=13 Slimfly basic configuration parameters
-//#define GLOBAL_CHANNELS 13					//(h): Number of global channels per router
-//#define LOCAL_CHANNELS 6        			//   : Number of local channels per router
-//#define NUM_ROUTER 13						//(a): Number of routers in each group
-//#define NUM_TERMINALS 9					//(p): Number of terminal connections per router
-//static int X[] = {1,10,9,12,3,4};			//   : Subgraph 0 generator set
-//static int X_prime[] = {6,8,2,7,5,11};		//   : Subgraph 1 generator set
 int *X;
 int *X_prime;
-
-// MMS43 q=29 Slimfly basic configuration parameters
-//static int X[] 		= {1,6,7,13,20,4,24,28,23,22,16,9,25,5};
-//static int X_prime[] 	= {8,19,27,17,15,3,18,21,10,2,12,14,26,11};
-
-// MMS55 q=37 Slimfly basic configuration parameters
-//static int X[]		= {1,25,33,11,16,30,10,28,34,36,12,4,26,21,7,27,9,3};
-//static int X_prime[] 	= {32,23,20,19,31,35,24,8,15,5,14,17,18,6,2,13,29,22};
-
-// MMS245 q=163 Slimfly basic configuration parameters
-//int X[] = {1,46,160,25,9,88,136,62,81,140,83,69,77,119,95,132,41,93,40,47,43,22,34,97,61,35,143,58,60,152,146,33,51,64,10,134,133,87,90,65,56,117,3,138,154,75,27,101,82,23,80,94,86,44,68,31,122,70,123,116,120,141,129,66,102,128,20,105,103,11,17,130,112,99,153,29,30,76,73,98,107,162};
-//int X_prime[] = {32,5,67,148,125,45,114,28,147,79,48,89,19,59,106,149,8,42,139,37,72,52,110,7,159,142,12,63,127,137,108,78,2,92,157,50,18,13,109,124,131,158,96,15,38,118,49,135,16,84,115,74,144,104,57,14,155,121,24,126,91,111,53,156,4,21,151,100,36,26,55,85,161,71,6,113,145,150,54,39,1,162};
-
+int X_size;
 /*End Noah Misc*/
 
 static double maxd(double a, double b) { return a < b ? b : a; }
@@ -612,7 +556,7 @@ static void slimfly_read_config(const char * anno, slimfly_param *params){
     for (size_t i = 0; i < length; i++)
     {
         X[i] = atoi(values[i]);
-		printf("X[%d]:%d\n",i,X[i]);
+//		printf("X[%d]:%d\n",i,X[i]);
     }
     free(values);
 
@@ -622,11 +566,12 @@ static void slimfly_read_config(const char * anno, slimfly_param *params){
 	if (length < 2)
 		fprintf(stderr, "generator set  X_prime less than 2 elements\n");
 
+	X_size = length;
     X_prime = (int*)malloc(sizeof(int)*length);
     for (size_t i = 0; i < length; i++)
     {
         X_prime[i] = atoi(values[i]);
-		printf("X_prime[%d]:%d\n",i,X_prime[i]);
+//		printf("X_prime[%d]:%d\n",i,X_prime[i]);
     }
     free(values);
 
@@ -647,6 +592,9 @@ static void slimfly_read_config(const char * anno, slimfly_param *params){
         routing = -1;
     }
 
+	TEMP_RADIX = p->num_local_channels + p->num_global_channels + p->num_cn;
+	TEMP_NUM_VC = p->num_vcs;
+
     // set the derived parameters
 //    p->num_cn = p->num_routers/2;
 //    p->num_global_channels = p->num_routers/2;
@@ -654,6 +602,8 @@ static void slimfly_read_config(const char * anno, slimfly_param *params){
     p->radix = (p->num_cn + p->num_global_channels + p->num_local_channels);
     p->slim_total_routers = p->num_groups * p->num_routers;
     p->slim_total_terminals = p->slim_total_routers * p->num_cn;
+	slim_total_routers_noah = p->num_groups * p->num_routers;
+	slim_total_terminals_noah = p->slim_total_routers * p->num_cn;
     int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     if(!rank) {
@@ -1047,7 +997,8 @@ void slim_router_setup(router_state * r, tw_lp * lp)
 	int k;
 	int local_idx = 0;
 	int global_idx = 0;
-	int generator_size = sizeof(X)/sizeof(int);
+	int generator_size = X_size;
+//printf("generator_size:%d\n",generator_size);
 //printf("generator size:%d\n",generator_size);
 
 	for(rid_d=0;rid_d<r->params->slim_total_routers;rid_d++)
@@ -2208,7 +2159,7 @@ int get_path_length_global(int src, int dest, router_state * r)
 		if(s_s == 0)
 		{
 			//Case 1a local connection same subgroup 0
-	        for(j=0;j<sizeof(X)/sizeof(X[0]);j++)
+	        for(j=0;j<X_size;j++)
             {
                 if(abs(j_s-j_d) == X[j])
                 {
@@ -2220,7 +2171,7 @@ int get_path_length_global(int src, int dest, router_state * r)
 		else
 		{
 			//Case 1b local connection same subgroup 1
-	        for(j=0;j<sizeof(X_prime)/sizeof(X_prime[0]);j++)
+	        for(j=0;j<X_size;j++)
             {
                 if(abs(j_s-j_d) == X_prime[j])
                 {
@@ -2421,7 +2372,7 @@ tw_lpid getMinimalRouterFromEquations(slim_terminal_message * msg, int rid, rout
 //		                        printf("possible case:3a\n");
 		                    }
 	#endif
-		                    for(j=0;j<sizeof(X)/sizeof(X[0]);j++)
+		                    for(j=0;j<X_size;j++)
 		                    {
 		                        if(abs(j_m-j_d) == X[j])
 		                        {
@@ -2455,7 +2406,7 @@ tw_lpid getMinimalRouterFromEquations(slim_terminal_message * msg, int rid, rout
 //		                        printf("possible case:3b\n");
 		                    }
 	#endif
-		                    for(j=0;j<sizeof(X_prime)/sizeof(X_prime[0]);j++)
+		                    for(j=0;j<X_size;j++)
 		                    {
 		                        if(abs(j_m-j_d) == X_prime[j])
 		                        {
@@ -2619,7 +2570,7 @@ tw_lpid getMinimalRouterFromEquations(slim_terminal_message * msg, int rid, rout
 //		                        printf("possible case:2b\n");
 		                    }
 	#endif
-		                    for(j=0;j<sizeof(X_prime)/sizeof(X_prime[0]);j++)
+		                    for(j=0;j<X_size;j++)
 		                    {
 		                        if(abs(j_d-j_m) == X_prime[j])
 		                        {
@@ -2652,7 +2603,7 @@ tw_lpid getMinimalRouterFromEquations(slim_terminal_message * msg, int rid, rout
 //		                        printf("possible case:2d\n");
 		                    }
 	#endif
-		                    for(j=0;j<sizeof(X)/sizeof(X[0]);j++)
+		                    for(j=0;j<X_size;j++)
 		                    {
 		                        if(abs(j_m-j_d) == X[j])
 		                        {
