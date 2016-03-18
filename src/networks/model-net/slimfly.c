@@ -35,7 +35,7 @@
 #define DEBUG 1
 #define DEBUG_ROUTING 0
 #define USE_DIRECT_SCHEME 1
-#define LOAD_FROM_FILE 1
+#define LOAD_FROM_FILE 0
 
 #define LP_CONFIG_NM (model_net_lp_config_names[SLIMFLY])
 #define LP_METHOD_NM (model_net_method_names[SLIMFLY])
@@ -48,31 +48,26 @@
 #define PARAMS_LOG 1
 #define N_COLLECT_POINTS 100
 //MMS7
-#define TEMP_NUM_GROUPS 10
 #define TEMP_NUM_ROUTERS 50
 #define TEMP_NUM_TERMINALS 150
 #define TEMP_RADIX 10
 #define TEMP_NUM_VC 4
 //MMS19
-/*#define TEMP_NUM_GROUPS 26
-#define TEMP_NUM_ROUTERS 338
+/*#define TEMP_NUM_ROUTERS 338
 #define TEMP_NUM_TERMINALS 3042
 #define TEMP_RADIX 28
 #define TEMP_NUM_VC 4
 *///MMS43
-//#define TEMP_NUM_GROUPS 58
 //#define TEMP_NUM_ROUTERS 1682
 //#define TEMP_NUM_TERMINALS 18502
 //#define TEMP_RADIX 43
 //#define TEMP_NUM_VC 4
 //MMS55
-//#define TEMP_NUM_GROUPS 37
 //#define TEMP_NUM_ROUTERS 2738
 //#define TEMP_NUM_TERMINALS 73926
 //#define TEMP_RADIX 82
 //#define TEMP_NUM_VC 4
 //MMS245
-//#define TEMP_NUM_GROUPS 326
 //#define TEMP_NUM_ROUTERS 53138
 //#define TEMP_NUM_TERMINALS 1009622
 //#define TEMP_RADIX 263
@@ -108,8 +103,8 @@ float adaptive_threshold = 0.1;
 float pe_throughput_percent = 0.0;
 float pe_throughput = 0.0;
 // MMS7 q=5 Slimfly basic configuration parameters
-static int X[] = {1,4};					//   : Subgraph 0 generator set
-static int X_prime[] = {2,3};			//   : Subgraph 1 generator set
+//static int X[] = {1,4};					//   : Subgraph 0 generator set
+//static int X_prime[] = {2,3};			//   : Subgraph 1 generator set
 //#define GLOBAL_CHANNELS 13					//(h): Number of global channels per router
 //#define LOCAL_CHANNELS 6        			//   : Number of local channels per router
 //#define NUM_ROUTER 13						//(a): Number of routers in each group
@@ -122,6 +117,8 @@ static int X_prime[] = {2,3};			//   : Subgraph 1 generator set
 //#define NUM_TERMINALS 9					//(p): Number of terminal connections per router
 //static int X[] = {1,10,9,12,3,4};			//   : Subgraph 0 generator set
 //static int X_prime[] = {6,8,2,7,5,11};		//   : Subgraph 1 generator set
+int *X;
+int *X_prime;
 
 // MMS43 q=29 Slimfly basic configuration parameters
 //static int X[] 		= {1,6,7,13,20,4,24,28,23,22,16,9,25,5};
@@ -603,6 +600,36 @@ static void slimfly_read_config(const char * anno, slimfly_param *params){
         fprintf(stderr, "Router delay not specified, setting to %lf\n", p->router_delay);
     }
 
+	char       **values;
+    size_t       length; 
+	int ret = configuration_get_multivalue(&config, "PARAMS", "generator_set_X", anno, &values, &length);
+    if (ret != 1)
+        tw_error(TW_LOC, "unable to read PARAMS:generator_set_X\n");
+	if (length < 2)
+		fprintf(stderr, "generator set X less than 2 elements\n");
+
+    X = (int*)malloc(sizeof(int)*length);
+    for (size_t i = 0; i < length; i++)
+    {
+        X[i] = atoi(values[i]);
+		printf("X[%d]:%d\n",i,X[i]);
+    }
+    free(values);
+
+	ret = configuration_get_multivalue(&config, "PARAMS", "generator_set_X_prime", anno, &values, &length);
+    if (ret != 1)
+        tw_error(TW_LOC, "unable to read PARAMS:generator_set_X_prime\n");
+	if (length < 2)
+		fprintf(stderr, "generator set  X_prime less than 2 elements\n");
+
+    X_prime = (int*)malloc(sizeof(int)*length);
+    for (size_t i = 0; i < length; i++)
+    {
+        X_prime[i] = atoi(values[i]);
+		printf("X_prime[%d]:%d\n",i,X_prime[i]);
+    }
+    free(values);
+
     char routing_str[MAX_NAME_LENGTH];
     configuration_get_value(&config, "PARAMS", "routing", anno, routing_str,
             MAX_NAME_LENGTH);
@@ -1021,7 +1048,7 @@ void slim_router_setup(router_state * r, tw_lp * lp)
 	int local_idx = 0;
 	int global_idx = 0;
 	int generator_size = sizeof(X)/sizeof(int);
-printf("generator size:%d\n",generator_size);
+//printf("generator size:%d\n",generator_size);
 
 	for(rid_d=0;rid_d<r->params->slim_total_routers;rid_d++)
 	{
@@ -1060,7 +1087,7 @@ printf("generator size:%d\n",generator_size);
 					if(abs(j_s-j_d)==X[k])
 					{
 						r->local_channel[local_idx++] = rid_d;
-						printf("router%d,router%d\n",rid_s,rid_d);
+//						printf("router%d,router%d\n",rid_s,rid_d);
 					}
 				}
 			}
@@ -1071,7 +1098,7 @@ printf("generator size:%d\n",generator_size);
 			if(j_s == (i_d*i_s + j_d) % r->params->num_routers)							// equation (3) y=mx+c
 			{
 				r->global_channel[global_idx++] = rid_d;
-				printf("router%d,router%d\n",rid_s,rid_d);
+//				printf("router%d,router%d\n",rid_s,rid_d);
 			}
 		}
 	}
@@ -1114,7 +1141,7 @@ printf("generator size:%d\n",generator_size);
 					if(abs(j_s-j_d)==X_prime[k])
 					{
 						r->local_channel[local_idx++] = rid_d;
-						printf("router%d,router%d\n",rid_s,rid_d);
+//						printf("router%d,router%d\n",rid_s,rid_d);
 					}
 				}
 			}
@@ -1125,7 +1152,7 @@ printf("generator size:%d\n",generator_size);
 			if(j_d == (i_s*i_d + j_s) %  r->params->num_routers)							// equation (3) y=mx+c
 			{
 				r->global_channel[global_idx++] = rid_d;
-				printf("router%d,router%d\n",rid_s,rid_d);
+//				printf("router%d,router%d\n",rid_s,rid_d);
 			}
 		}
 	}
