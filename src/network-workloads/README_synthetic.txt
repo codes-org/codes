@@ -4,10 +4,12 @@
       node. This traffic pattern is uniformly distributed throughout the
       network and gives a better performance with minimal routing as compared
       to non-minimal or adaptive routing.
-	- Nearest group traffic: with minimal routing, it sends traffic to the single global channel connecting two groups (it congests the network when using minimal routing).
-    This pattern performs better with non-minimal and adaptive routing
-    algorithms.
-	- Nearest neighbor traffic: it sends traffic to the next node, potentially connected to the same router. 
+    - Nearest group traffic: with minimal routing, it sends traffic to the
+      single global channel connecting two groups (it congests the network when
+      using minimal routing).  This pattern performs better with non-minimal
+      and adaptive routing algorithms.
+    - Nearest neighbor traffic: it sends traffic to the next node, potentially
+      connected to the same router. 
 
 SAMPLING:
     - The modelnet_enable_sampling function takes a sampling interval "t" and
@@ -48,7 +50,8 @@ cause congestion in the network).
 num_msgs: number of messages generated per terminal. Each message has a size of
 2048 bytes. By default, 20 messages per terminal are generated. 
 
-traffic: 1 for uniform random traffic, 2 for nearest group traffic and 3 for nearest neighbor traffic.
+traffic: 1 for uniform random traffic, 2 for nearest group traffic and 3 for
+nearest neighbor traffic.
 
 lp-io-dir: generates network traffic information on dragonfly terminals and
 routers. Here is information on individual files:
