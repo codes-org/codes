@@ -368,7 +368,7 @@ int main(
 
     /* 5 days of simulation time */
     g_tw_ts_end = s_to_ns(5 * 24 * 60 * 60);
-    model_net_enable_sampling(8000, 16000);
+//    model_net_enable_sampling(800000, 1600000);
 
     if(net_id != DRAGONFLY)
     {

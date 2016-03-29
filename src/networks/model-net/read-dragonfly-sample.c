@@ -15,6 +15,8 @@ struct dfly_samples
    double fin_chunks_time;
    double busy_time_sample;
    double end_time;
+   long fwd_events;
+   long rev_events;
 };
 
 struct dfly_rtr_sample
@@ -23,6 +25,8 @@ struct dfly_rtr_sample
     double busy_time[RADIX];
     int64_t link_traffic[RADIX];
     double end_time;
+    long fwd_events;
+    long rev_events;
 };
 
 static struct dfly_samples * event_array = NULL;
@@ -71,11 +75,11 @@ int main( int argc, char** argv )
    }
    fseek(pFile, 0L, SEEK_SET);
    fread(event_array, sizeof(struct dfly_samples), in_sz / sizeof(struct dfly_samples), pFile);
-   fprintf(writeFile, " Rank ID \t Finished chunks \t Data size \t Finished hops \t Time spent \t Busy time \t  Sample end time");
+   fprintf(writeFile, " Rank ID Finished chunks Data size Finished hops Time spent Busy time Sample end time");
    for(i = 0; i < in_sz / sizeof(struct dfly_samples); i++)
    {
     printf("\n Terminal id %ld ", event_array[i].terminal_id);
-    fprintf(writeFile, "\n %ld \t %ld \t %ld \t %lf \t %lf \t %lf \t %lf ", event_array[i].terminal_id,
+    fprintf(writeFile, "\n %ld %ld %ld %lf %lf %lf %lf ", event_array[i].terminal_id,
                                                                event_array[i].fin_chunks_sample,
                                                                event_array[i].data_size_sample,
                                                                event_array[i].fin_hops_sample, 
@@ -112,7 +116,7 @@ int main( int argc, char** argv )
     }
     fseek(pFile, 0L, SEEK_SET);
     fread(r_event_array, sample_size, in_sz_rt / sample_size, pFile); 
-    fprintf(writeRouterFile, "\n Router ID \t Busy time per channel \t Link traffic per channel \t Sample end time ");
+    fprintf(writeRouterFile, "\n Router ID Busy time per channel Link traffic per channel Sample end time ");
     //printf("\n Sample size %d in_sz_rt %ld ", in_sz_rt / sample_size, in_sz_rt);
     for(i = 0; i < in_sz_rt / sample_size; i++)
     {

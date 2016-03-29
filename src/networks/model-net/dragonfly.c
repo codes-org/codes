@@ -2017,11 +2017,11 @@ void dragonfly_rsample_fin(router_state * s,
         sprintf(meta_fname, "dragonfly-router-sampling.meta");
 
         FILE * fp = fopen(meta_fname, "w");
-        fprintf(fp, "Router sample struct format: router_id (tw_lpid) \t busy time for each of the %d links (double) \t"
-                "link traffic for each of the %d links (int64_t) \t sample end time (double) forward events per sample \t reverse events per sample ",
+        fprintf(fp, "Router sample struct format: \n router_id (tw_lpid) \n busy time for each of the %d links (double) \n"
+                "link traffic for each of the %d links (int64_t) \n sample end time (double) forward events per sample \n reverse events per sample ",
                 p->radix, p->radix);
-        fprintf(fp, "Ordering of links %d local (router-router same group) channels, %d global (router-router remote group)"
-                " channels and %d terminal channels", p->radix/2, p->radix/4, p->radix/4);
+        fprintf(fp, "Ordering of links \n %d local (router-router same group) channels \n %d global (router-router remote group)"
+                " channels \n %d terminal channels", p->radix/2, p->radix/4, p->radix/4);
         fclose(fp);
     }
     char rt_fn[MAX_NAME_LENGTH];
@@ -2368,10 +2368,10 @@ void dragonfly_router_final(router_state * s,
     if(!s->router_id)
     {
         written = sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
-        written += sprintf(s->output_buf + written, "\n # Router ports in the order: %d local channels, %d global channels ", 
+        written += sprintf(s->output_buf + written, "# Router ports in the order: %d local channels, %d global channels \n", 
                 p->num_routers, p->num_global_channels);
     }
-    written += sprintf(s->output_buf + written, "\n %llu %d %d ", 
+    written += sprintf(s->output_buf + written, "%llu %d %d", 
             LLU(lp->gid),
             s->router_id / p->num_routers,
             s->router_id % p->num_routers);
@@ -2385,10 +2385,10 @@ void dragonfly_router_final(router_state * s,
     if(!s->router_id)
     {
         written = sprintf(s->output_buf2, "# Format <LP ID> <Group ID> <Router ID> <Link traffic per router port(s)>");
-        written += sprintf(s->output_buf2 + written, "\n # Router ports in the order: %d local channels, %d global channels ",
+        written += sprintf(s->output_buf2 + written, "# Router ports in the order: %d local channels, %d global channels \n",
             p->num_routers, p->num_global_channels);
     }
-    written += sprintf(s->output_buf2 + written, "\n %llu %d %d",
+    written += sprintf(s->output_buf2 + written, "%llu %d %d",
         LLU(lp->gid),
         s->router_id / p->num_routers,
         s->router_id % p->num_routers);

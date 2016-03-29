@@ -28,6 +28,10 @@ struct terminal_message
   short  type;
   /* category: comes from codes */
   char category[CATEGORY_NAME_MAX];
+
+  /* store category hash in the event */
+  uint32_t category_hash;
+
   /* final destination LP ID, this comes from codes can be a server or any other LP type*/
   tw_lpid final_dest_gid;
   /*sending LP ID from CODES, can be a server or any other LP type */
