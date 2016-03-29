@@ -2017,11 +2017,11 @@ void dragonfly_rsample_fin(router_state * s,
         sprintf(meta_fname, "dragonfly-router-sampling.meta");
 
         FILE * fp = fopen(meta_fname, "w");
-        fprintf(fp, "Router sample struct format: \n router_id (tw_lpid) \n busy time for each of the %d links (double) \n"
-                "link traffic for each of the %d links (int64_t) \n sample end time (double) forward events per sample \n reverse events per sample ",
+        fprintf(fp, "Router sample struct format: \nrouter_id (tw_lpid) \nbusy time for each of the %d links (double) \n"
+                "link traffic for each of the %d links (int64_t) \nsample end time (double) forward events per sample \nreverse events per sample ",
                 p->radix, p->radix);
-        fprintf(fp, "Ordering of links \n %d local (router-router same group) channels \n %d global (router-router remote group)"
-                " channels \n %d terminal channels", p->radix/2, p->radix/4, p->radix/4);
+        fprintf(fp, "\n\nOrdering of links \n%d local (router-router same group) channels \n%d global (router-router remote group)"
+                " channels \n%d terminal channels", p->radix/2, p->radix/4, p->radix/4);
         fclose(fp);
     }
     char rt_fn[MAX_NAME_LENGTH];
@@ -2182,9 +2182,9 @@ void dragonfly_sample_fin(terminal_state * s,
         sprintf(meta_fname, "dragonfly-cn-sampling.meta");
 
         FILE * fp = fopen(meta_fname, "w");
-        fprintf(fp, "Compute node sample format: terminal_id (tw_lpid) \t finished chunks (long) \t"
-                "data size per sample (long) \t finished hops (double) \t time to finish chunks (double) \t "
-                "busy time (double)\t sample end time(double) \t forward events (long) \t reverse events (long)");
+        fprintf(fp, "Compute node sample format\nterminal_id (tw_lpid) \nfinished chunks (long)"
+                "\ndata size per sample (long) \nfinished hops (double) \ntime to finish chunks (double)"
+                "\nbusy time (double)\nsample end time(double) \nforward events (long) \nreverse events (long)");
         fclose(fp);
     }
     char rt_fn[MAX_NAME_LENGTH];
