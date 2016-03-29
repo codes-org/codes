@@ -53,6 +53,12 @@ num_msgs: number of messages generated per terminal. Each message has a size of
 traffic: 1 for uniform random traffic, 2 for nearest group traffic and 3 for
 nearest neighbor traffic.
 
+sampling-interval: if time-stepped series sampling is turned on, this parameter
+can be used to configure the sampling interval.
+
+sampling-end-time: if time-stepped series sampling is turned on, this parameter
+can be used to configure end time.
+
 lp-io-dir: generates network traffic information on dragonfly terminals and
 routers. Here is information on individual files:
 
