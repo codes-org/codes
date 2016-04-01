@@ -1107,8 +1107,6 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 
         if(mpi_op.op_type == CODES_WK_END)
         {
-            printf("\n END OPERATION %d ", CODES_WK_END);
-            s->elapsed_time = tw_now(lp) - s->start_time;
             return;
         }
 		switch(mpi_op.op_type)
@@ -1186,7 +1184,9 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
         written = sprintf(s->output_buf, "# Format <LP ID> <Terminal ID> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time>");
 	if(s->nw_id < (tw_lpid)num_net_traces)
 	{
-		int count_irecv = qlist_count(&s->pending_recvs_queue);
+        s->elapsed_time = tw_now(lp) - s->start_time;
+		
+        int count_irecv = qlist_count(&s->pending_recvs_queue);
         int count_isend = qlist_count(&s->arrival_queue);
 # if DBG_MPI_SIM == 1
 		printf("\n LP %llu unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf", 
