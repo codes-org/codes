@@ -56,6 +56,9 @@ static int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
 
 /* runtime option for disabling computation time simulation */
 static int disable_delay = 0;
+static int enable_sampling = 0;
+static double sampling_interval = 5000000;
+static double sampling_end_time = 3000000000;
 
 /* MPI_OP_GET_NEXT is for getting next MPI operation when the previous operation completes.
 * MPI_SEND_ARRIVED is issued when a MPI message arrives at its destination (the message is transported by model-net and an event is invoked when it arrives. 
@@ -1104,6 +1107,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 
         if(mpi_op.op_type == CODES_WK_END)
         {
+            printf("\n END OPERATION %d ", CODES_WK_END);
             s->elapsed_time = tw_now(lp) - s->start_time;
             return;
         }
@@ -1249,10 +1253,13 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
 const tw_optdef app_opt [] =
 {
 	TWOPT_GROUP("Network workload test"),
-    	TWOPT_CHAR("workload_type", workload_type, "workload type (either \"scalatrace\" or \"dumpi\")"),
+    TWOPT_CHAR("workload_type", workload_type, "workload type (either \"scalatrace\" or \"dumpi\")"),
 	TWOPT_CHAR("workload_file", workload_file, "workload file name"),
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
-        TWOPT_UINT("disable_compute", disable_delay, "disable compute simulation"),
+	TWOPT_UINT("disable_compute", disable_delay, "disable the computation time"),
+	TWOPT_UINT("enable_sampling", enable_sampling, "turns on sampling"),
+	TWOPT_STIME("sampling_interval", sampling_interval, "sampling interval"),
+    TWOPT_STIME("sampling_end_time", sampling_end_time, "sampling_end_time"),
     TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
     TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
 	TWOPT_CHAR("offset_file", offset_file, "offset file name"),
@@ -1316,7 +1323,8 @@ int main( int argc, char** argv )
    net_id = *net_ids;
    free(net_ids);
 
-//   model_net_enable_sampling(5000000, 3000000000);
+   if(enable_sampling)
+       model_net_enable_sampling(sampling_interval, sampling_end_time);
 
    codes_mapping_setup();
 
