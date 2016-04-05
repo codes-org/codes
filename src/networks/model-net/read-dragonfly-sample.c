@@ -4,7 +4,7 @@ n is the number of input bgp-log files */
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <mpi.h>
-#define RADIX 8
+#define RADIX 16
 
 struct dfly_samples
 {
@@ -37,15 +37,14 @@ int main( int argc, char** argv )
    int my_rank;
    int size;
    int i = 0, j = 0;
-   /*int radix = atoi(argv[1]);
-   if(!radix)
+   /*int RADIX = atoi(argv[1]);
+   if(!RADIX)
    {
-        printf("\n Router radix should be specified ");
+        printf("\n Router RADIX should be specified ");
         MPI_Finalize();
         return -1;
    }*/
 
-   printf("\n Router radix %d ", RADIX );
    MPI_Init(&argc, &argv);
    MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
    MPI_Comm_size(MPI_COMM_WORLD, &size);
@@ -75,16 +74,18 @@ int main( int argc, char** argv )
    }
    fseek(pFile, 0L, SEEK_SET);
    fread(event_array, sizeof(struct dfly_samples), in_sz / sizeof(struct dfly_samples), pFile);
-   fprintf(writeFile, " Rank ID Finished chunks Data size Finished hops Time spent Busy time Sample end time");
+   fprintf(writeFile, " Rank_ID Finished_chunks Data_size Finished_hops Time_spent busy_time fwd_events rev_events sample_end_time");
    for(i = 0; i < in_sz / sizeof(struct dfly_samples); i++)
    {
     printf("\n Terminal id %ld ", event_array[i].terminal_id);
-    fprintf(writeFile, "\n %ld %ld %ld %lf %lf %lf %lf ", event_array[i].terminal_id,
+    fprintf(writeFile, "\n %ld %ld %ld %lf %lf %lf %ld %ld %lf ", event_array[i].terminal_id,
                                                                event_array[i].fin_chunks_sample,
                                                                event_array[i].data_size_sample,
                                                                event_array[i].fin_hops_sample, 
                                                                event_array[i].fin_chunks_time, 
                                                                event_array[i].busy_time_sample, 
+                                                               event_array[i].fwd_events,
+                                                               event_array[i].rev_events,
                                                                event_array[i].end_time);
    }
     fclose(pFile);
@@ -116,7 +117,7 @@ int main( int argc, char** argv )
     }
     fseek(pFile, 0L, SEEK_SET);
     fread(r_event_array, sample_size, in_sz_rt / sample_size, pFile); 
-    fprintf(writeRouterFile, "\n Router ID Busy time per channel Link traffic per channel Sample end time ");
+    fprintf(writeRouterFile, "\n Router_ID Busy_time_per_channel Link_traffic_per_channel Sample_end_time fwd_events reverse_events");
     //printf("\n Sample size %d in_sz_rt %ld ", in_sz_rt / sample_size, in_sz_rt);
     for(i = 0; i < in_sz_rt / sample_size; i++)
     {
@@ -135,6 +136,8 @@ int main( int argc, char** argv )
             fprintf(writeRouterFile, " %ld ", r_event_array[i].link_traffic[j]);
         }
         fprintf(writeRouterFile, " %lf \n", r_event_array[i].end_time);
+        fprintf(writeRouterFile, " %ld ", r_event_array[i].fwd_events);
+        fprintf(writeRouterFile, " %ld \n", r_event_array[i].rev_events);
     }
     fclose(pFile);
     fclose(writeRouterFile);
