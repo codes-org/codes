@@ -4,6 +4,7 @@ n is the number of input bgp-log files */
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <mpi.h>
+#include <assert.h>
 #define RADIX 16
 
 struct dfly_samples
@@ -29,8 +30,17 @@ struct dfly_rtr_sample
     long rev_events;
 };
 
+struct mpi_workload_sample
+{
+    int nw_id;
+    unsigned long num_sends_sample;
+    unsigned long num_bytes_sample;
+    unsigned long num_waits_sample;
+    double sample_end_time;
+};
 static struct dfly_samples * event_array = NULL;
 static struct dfly_rtr_sample * r_event_array = NULL;
+static struct mpi_workload_sample * mpi_event_array = NULL;
 
 int main( int argc, char** argv )
 {
@@ -141,5 +151,31 @@ int main( int argc, char** argv )
     }
     fclose(pFile);
     fclose(writeRouterFile);
+    
+    sprintf(buffer_rtr_read, "mpi-aggregate-logs-%d.bin", my_rank);
+    pFile = fopen(buffer_rtr_read, "r+");
+    assert(pFile);
+
+    struct stat st3;
+    stat(buffer_rtr_read, &st3);
+    long in_sz_mpi = st3.st_size;
+
+    mpi_event_array = malloc(in_sz_mpi);
+    int mpi_sample_sz = sizeof(struct mpi_workload_sample);
+    sprintf(buffer_rtr_write, "dragonfly-mpi-write-logs-%d", my_rank);
+    writeFile = fopen(buffer_rtr_write, "w+");
+    assert(writeFile);
+
+    fread(mpi_event_array, mpi_sample_sz, in_sz_mpi / mpi_sample_sz, pFile);
+    for(i = 0; i < in_sz_mpi / mpi_sample_sz; i++)
+    {
+        fprintf(writeFile, "\n %ld %ld %ld %lf ", mpi_event_array[i].num_sends_sample,
+                mpi_event_array[i].num_bytes_sample,
+                mpi_event_array[i].num_waits_sample,
+                mpi_event_array[i].sample_end_time);
+    }
+    fclose(pFile);
+    fclose(writeFile);
+
     MPI_Finalize();
 }

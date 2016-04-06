@@ -579,7 +579,6 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     p->local_delay = bytes_to_ns(p->chunk_size, p->local_bandwidth);
     p->global_delay = bytes_to_ns(p->chunk_size, p->global_bandwidth);
     p->credit_delay = bytes_to_ns(8.0, p->local_bandwidth); //assume 8 bytes packet
-
 }
 
 static void dragonfly_configure(){
@@ -771,7 +770,6 @@ terminal_init( terminal_state * s,
    dragonfly_collective_init(s, lp);
    return;
 }
-
 
 /* sets up the router virtual channels, global channels, 
  * local channels, compute node channels */
