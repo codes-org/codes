@@ -91,9 +91,11 @@ mpirun -np 4 ./src/network-workloads//model-net-mpi-replay --sync=3
 Runtime options can be used to enable time-stepped series data of simulation
 with multiple workloads:
 
---enable_sampling = 1 [Turns on sampling after a specific simulated interval.
+--enable_sampling = 1 [Enables sampling of network & workload statistics after a specific simulated interval.
 Default sampling interval is 5 millisec and default sampling end time is 3
-secs.]
+secs. These values can be adjusted at runtime using --sampling_interval and
+--sampling_end_time options.]
+
 
 --lp-io-dir-dir-name [Turns on end of simulation statistics for dragonfly network model]
 

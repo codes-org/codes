@@ -33,6 +33,7 @@ struct dfly_rtr_sample
 struct mpi_workload_sample
 {
     int nw_id;
+    int app_id;
     unsigned long num_sends_sample;
     unsigned long num_bytes_sample;
     unsigned long num_waits_sample;
@@ -169,7 +170,10 @@ int main( int argc, char** argv )
     fread(mpi_event_array, mpi_sample_sz, in_sz_mpi / mpi_sample_sz, pFile);
     for(i = 0; i < in_sz_mpi / mpi_sample_sz; i++)
     {
-        fprintf(writeFile, "\n %ld %ld %ld %lf ", mpi_event_array[i].num_sends_sample,
+        fprintf(writeFile, "\n %d %d %lu %lu %lu %lf ",
+                mpi_event_array[i].nw_id,
+                mpi_event_array[i].app_id,
+                mpi_event_array[i].num_sends_sample,
                 mpi_event_array[i].num_bytes_sample,
                 mpi_event_array[i].num_waits_sample,
                 mpi_event_array[i].sample_end_time);
