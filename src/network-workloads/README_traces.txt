@@ -74,7 +74,7 @@ src/network-workloads/conf/allocation-rand.conf, allocation-cont.conf.
 12- Run the simulation with multiple job allocations
 
 ./src/network-workloads//model-net-mpi-replay --sync=1
---workload_conf_file=workloads.conf
+--workload_conf_file=../src/network-workloads/workloads.conf
 --alloc_file=../src/network-workloads/conf/allocation-rand.conf
 --workload_type="dumpi" --
 ../src/network-workloads/conf/modelnet-mpi-test-dfly-amg-216.conf 
@@ -82,7 +82,7 @@ src/network-workloads/conf/allocation-rand.conf, allocation-cont.conf.
 To run in optimistic mode:
 
 mpirun -np 4 ./src/network-workloads//model-net-mpi-replay --sync=3
---workload_conf_file=workloads.conf --alloc_file=allocation.conf
+--workload_conf_file=../src/network-workloads/workloads.conf --alloc_file=allocation.conf
 --workload_type="dumpi" --
 ../src/network-workloads/conf/modelnet-mpi-test-dfly-amg-216.conf
 
