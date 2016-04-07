@@ -1,0 +1,13 @@
+[Notes from Xu Yang]
+
+To generate the allocation file:
+
+python listgen.py config_alloc.conf
+
+There are three lines in the config_alloc.conf file. 
+1st line: allocation policy, you can use CONT, rand, stripe etc.
+2nd line: the total terminal number of nodes in the system, if you use 8-router
+dragonfly, this number would be 1056
+3rd line: the number of ranks of each application. 
+
+

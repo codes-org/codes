@@ -23,7 +23,6 @@
 #define lprintf(_fmt, ...) \
         do {if (CS_LP_DBG) printf(_fmt, __VA_ARGS__);} while (0)
 #define MAX_STATS 65536
-//#define WORKLOAD_LOG 1
 
 char workload_type[128];
 char workload_file[8192];
@@ -78,6 +77,7 @@ static int disable_delay = 0;
 static int enable_sampling = 0;
 static double sampling_interval = 5000000;
 static double sampling_end_time = 3000000000;
+static int enable_debug = 1;
 
 /* MPI_OP_GET_NEXT is for getting next MPI operation when the previous operation completes.
 * MPI_SEND_ARRIVED is issued when a MPI message arrives at its destination (the message is transported by model-net and an event is invoked when it arrives. 
@@ -94,6 +94,7 @@ struct mpi_workload_sample
 {
     /* Sampling data */
     int nw_id;
+    int app_id;
     unsigned long num_sends_sample;
     unsigned long num_bytes_sample;
     unsigned long num_waits_sample;
@@ -211,6 +212,7 @@ struct nw_message
        double msg_send_time;
        int16_t req_id;   
        int tag;
+       int app_id;
        int found_match;
        short wait_completed;
    } fwd;
@@ -371,9 +373,8 @@ static int notify_posted_wait(nw_state* s,
                 assert(wait_elem->num_completed <= wait_elem->count);
                 if(wait_elem->num_completed == wait_elem->count)
                 {
-                 #if WORKLOAD_LOG == 1
-                    fprintf(workload_log, "\n(%lf) MPI WAITALL COMPLETED AT %ld ", tw_now(lp), s->nw_id);
-                #endif
+                    if(enable_debug)
+                        fprintf(workload_log, "\n(%lf) APP ID %d MPI WAITALL COMPLETED AT %ld ", s->app_id, tw_now(lp), s->nw_id);
                     wait_completed = 1;
                 }
            
@@ -471,9 +472,9 @@ static void codes_exec_mpi_wait_all(
         tw_lp* lp, 
         struct codes_workload_op * mpi_op)
 {
-#if WORKLOAD_LOG == 1
-  fprintf(workload_log, "\n MPI WAITALL POSTED AT %ld ", s->nw_id);
-#endif
+  if(enable_debug)
+    fprintf(workload_log, "\n MPI WAITALL POSTED AT %ld ", s->nw_id);
+  
   if(enable_sampling)
   {
     bf->c1 = 1;
@@ -482,13 +483,14 @@ static void codes_exec_mpi_wait_all(
         bf->c2 = 1;
         int indx = s->sampling_indx;
         s->mpi_wkld_samples[indx].nw_id = s->nw_id;
+        s->mpi_wkld_samples[indx].app_id = s->app_id;
         s->mpi_wkld_samples[indx].sample_end_time = s->cur_interval_end;
         s->cur_interval_end += sampling_interval;
         s->sampling_indx++;
     }
     if(s->sampling_indx >= MAX_STATS)
     {
-        struct mpi_workload_sample * tmp = malloc((MAX_STATS + s->max_arr_size) * sizeof(struct mpi_workload_sample));
+        struct mpi_workload_sample * tmp = calloc((MAX_STATS + s->max_arr_size), sizeof(struct mpi_workload_sample));
         memcpy(tmp, s->mpi_wkld_samples, s->sampling_indx);
         free(s->mpi_wkld_samples);
         s->mpi_wkld_samples = tmp;
@@ -836,13 +838,14 @@ static void codes_exec_mpi_send(nw_state* s,
             bf->c1 = 1;
             int indx = s->sampling_indx;
             s->mpi_wkld_samples[indx].nw_id = s->nw_id;
+            s->mpi_wkld_samples[indx].app_id = s->app_id;
             s->mpi_wkld_samples[indx].sample_end_time = s->cur_interval_end;
             s->sampling_indx++;
             s->cur_interval_end += sampling_interval; 
         }
         if(s->sampling_indx >= MAX_STATS)
         {
-            struct mpi_workload_sample * tmp = malloc((MAX_STATS + s->max_arr_size) * sizeof(struct mpi_workload_sample));
+            struct mpi_workload_sample * tmp = calloc((MAX_STATS + s->max_arr_size), sizeof(struct mpi_workload_sample));
             memcpy(tmp, s->mpi_wkld_samples, s->sampling_indx);
             free(s->mpi_wkld_samples);
             s->mpi_wkld_samples = tmp;
@@ -863,6 +866,7 @@ static void codes_exec_mpi_send(nw_state* s,
     local_m.fwd.tag = mpi_op->u.send.tag;
     local_m.fwd.num_bytes = mpi_op->u.send.num_bytes;
     local_m.fwd.req_id = mpi_op->u.send.req_id;
+    local_m.fwd.app_id = s->app_id;
 
     remote_m = local_m;
 	remote_m.msg_type = MPI_SEND_ARRIVED;
@@ -870,15 +874,17 @@ static void codes_exec_mpi_send(nw_state* s,
 	model_net_event(net_id, "test", dest_rank, mpi_op->u.send.num_bytes, 0.0, 
 	    sizeof(nw_message), (const void*)&remote_m, sizeof(nw_message), (const void*)&local_m, lp);
 
-#if WORKLOAD_LOG == 1
-    if(mpi_op->op_type == CODES_WK_ISEND)
-        fprintf(workload_log, "\n (%lf) MPI ISEND SOURCE %ld DEST %ld BYTES %ld ", 
-                tw_now(lp), s->nw_id, mpi_op->u.send.dest_rank, mpi_op->u.send.num_bytes);
-    else
-        fprintf(workload_log, "\n (%lf) MPI SEND SOURCE %ld DEST %ld BYTES %ld ", 
-                tw_now(lp), s->nw_id, mpi_op->u.send.dest_rank, mpi_op->u.send.num_bytes);
-#endif
-
+    if(enable_debug)
+    {
+        if(mpi_op->op_type == CODES_WK_ISEND)
+        {
+            fprintf(workload_log, "\n (%lf) APP %d MPI ISEND SOURCE %ld DEST %ld BYTES %ld ", 
+                    tw_now(lp), s->app_id, s->nw_id, mpi_op->u.send.dest_rank, mpi_op->u.send.num_bytes);
+        }
+        else
+            fprintf(workload_log, "\n (%lf) APP ID %d MPI SEND SOURCE %ld DEST %ld BYTES %ld ", 
+                    tw_now(lp), s->app_id, s->nw_id, mpi_op->u.send.dest_rank, mpi_op->u.send.num_bytes);
+        }
 	/* isend executed, now get next MPI operation from the queue */ 
 	if(mpi_op->op_type == CODES_WK_ISEND)
 	   codes_issue_next_event(lp);
@@ -1008,12 +1014,23 @@ static void update_arrival_queue_rc(nw_state* s,
 /* once an isend operation arrives, the pending receives queue is checked to find out if there is a irecv that has already been posted. If no isend has been posted, */
 static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
+    if(s->app_id != m->fwd.app_id)
+        printf("\n Received message for app %d my id %d my rank %d ", 
+                m->fwd.app_id, s->app_id, s->nw_id);
+    assert(s->app_id == m->fwd.app_id);
+
 	m->rc.saved_recv_time = s->recv_time;
     s->num_bytes_recvd += m->fwd.num_bytes;
 
     // send a callback to the sender to increment times
+    // find the global id of the source
+    int global_src_id = m->fwd.src_rank;
+    if(alloc_spec)
+    {
+        global_src_id = get_global_id_of_job_rank(m->fwd.src_rank, s->app_id);
+    }
     tw_event *e_callback =
-        tw_event_new(rank_to_lpid(m->fwd.src_rank),
+        tw_event_new(rank_to_lpid(global_src_id),
                 codes_local_latency(lp), lp);
     nw_message *m_callback = tw_event_data(e_callback);
     m_callback->msg_type = MPI_SEND_ARRIVED_CB;
@@ -1074,16 +1091,14 @@ void nw_test_init(nw_state* s, tw_lp* lp)
  
    memset(s, 0, sizeof(*s));
    s->nw_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
-   s->mpi_wkld_samples = malloc(MAX_STATS * sizeof(struct mpi_workload_sample)); 
+   s->mpi_wkld_samples = calloc(MAX_STATS, sizeof(struct mpi_workload_sample)); 
    s->sampling_indx = 0;
 
    if(!num_net_traces) 
 	num_net_traces = num_net_lps;
-   /* In this case, the LP will not generate any workload related events*/
-   if(s->nw_id >= num_net_traces)
-	    return;
+  
    assert(num_net_traces <= num_net_lps);
-   
+  
    struct codes_jobmap_id lid; 
 
    if(alloc_spec)
@@ -1092,7 +1107,6 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 
         if(lid.job == -1)
         {
-            printf("network LP nw id %d not generating events, lp gid is %ld \n", (int)s->nw_id, lp->gid); 
             s->app_id = -1;
             s->local_rank = -1;
             return;
@@ -1104,19 +1118,26 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        lid.job = 0;
        lid.rank = s->nw_id;
        s->app_id = 0;
+        
+       if(s->nw_id >= num_net_traces)
+	        return;
    }
+   
+   
    if (strcmp(workload_type, "dumpi") == 0){
        strcpy(params_d.file_name, file_name_of_job[lid.job]);
        params_d.num_net_traces = num_traces_of_job[lid.job];
        params = (char*)&params_d;
        s->app_id = lid.job;
        s->local_rank = lid.rank; 
-       //printf("lp global id: %llu, file name: %s, num traces: %d, app id: %d, local id: %d\n", 
-       //        s->nw_id, params_d.file_name, params_d.num_net_traces, s->app_id, s->local_rank);
+//       printf("network LP nw id %d app id %d generating events, lp gid is %ld \n", s->nw_id, s->app_id, lp->gid); 
    }
 
    wrkld_id = codes_workload_load("dumpi-trace-workload", params, s->app_id, s->local_rank);
 
+   INIT_QLIST_HEAD(&s->arrival_queue);
+   INIT_QLIST_HEAD(&s->pending_recvs_queue);
+   INIT_QLIST_HEAD(&s->completed_reqs);
 
    /* Initialize the RC stack */
    rc_stack_create(&s->processed_ops);
@@ -1125,9 +1146,6 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    assert(s->processed_ops != NULL);
    assert(s->matched_reqs != NULL);
 
-   INIT_QLIST_HEAD(&s->arrival_queue);
-   INIT_QLIST_HEAD(&s->pending_recvs_queue);
-   INIT_QLIST_HEAD(&s->completed_reqs);
 
    /* clock starts ticking when the first event is processed */
    s->start_time = tw_now(lp);
@@ -1143,7 +1161,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        s->cur_interval_end = sampling_interval;
        if(!g_tw_mynode && !s->nw_id)
        {
-           fprintf(workload_meta_log, "\n mpi_proc_id num_waits "
+           fprintf(workload_meta_log, "\n mpi_proc_id app_id num_waits "
                    " num_sends num_bytes_sent sample_end_time");
        }
    }
@@ -1152,7 +1170,12 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 
 void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-	*(int *)bf = (int)0;
+	if(s->app_id < 0)
+        printf("\n msg type %d ", m->msg_type);
+
+    assert(s->app_id >= 0 && s->local_rank >= 0);
+
+    *(int *)bf = (int)0;
     rc_stack_gc(lp, s->matched_reqs);
     rc_stack_gc(lp, s->processed_ops);
 
@@ -1185,7 +1208,7 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 
 static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-    codes_workload_get_next_rc2(wrkld_id, 0, (int)s->nw_id);
+    codes_workload_get_next_rc2(wrkld_id, s->app_id, s->local_rank);
 
 	if(m->op_type == CODES_WK_END)
     {
@@ -1278,8 +1301,8 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 {
 		//struct codes_workload_op * mpi_op = malloc(sizeof(struct codes_workload_op));
         struct codes_workload_op mpi_op;
-        codes_workload_get_next(wrkld_id, 0, (int)s->nw_id, &mpi_op);
-      
+        codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, &mpi_op);
+
         m->op_type = mpi_op.op_type;
 
         if(mpi_op.op_type == CODES_WK_END)
@@ -1360,8 +1383,20 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
     int written = 0;
     if(!s->nw_id)
         written = sprintf(s->output_buf, "# Format <LP ID> <Terminal ID> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time>");
-	if(s->nw_id < (tw_lpid)num_net_traces)
-	{
+
+    if(alloc_spec == 1)
+    {
+        struct codes_jobmap_id lid;
+        lid = codes_jobmap_to_local_id(s->nw_id, jobmap_ctx);
+     
+        if(lid.job < 0)
+            return;
+    }
+    else
+    {
+        if(s->nw_id >= num_net_traces)
+            return;
+    }
 		int count_irecv = qlist_count(&s->pending_recvs_queue);
         int count_isend = qlist_count(&s->arrival_queue);
 		printf("\n LP %llu unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf", 
@@ -1401,7 +1436,6 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 		//printf("\n LP %ld Time spent in communication %llu ", lp->gid, total_time - s->compute_time);
 	    rc_stack_destroy(s->matched_reqs);    
 	    rc_stack_destroy(s->processed_ops);    
-    }
 }
 
 void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
@@ -1436,8 +1470,11 @@ const tw_optdef app_opt [] =
 	TWOPT_GROUP("Network workload test"),
     TWOPT_CHAR("workload_type", workload_type, "workload type (either \"scalatrace\" or \"dumpi\")"),
 	TWOPT_CHAR("workload_file", workload_file, "workload file name"),
+	TWOPT_CHAR("alloc_file", alloc_file, "allocation file name"),
+	TWOPT_CHAR("workload_conf_file", workloads_conf_file, "workload config file name"),
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
     TWOPT_UINT("disable_compute", disable_delay, "disable compute simulation"),
+    TWOPT_UINT("enable_mpi_debug", enable_debug, "enable debugging of MPI sim layer (works with sync=1 only)"),
     TWOPT_UINT("sampling_interval", sampling_interval, "sampling interval for MPI operations"),
 	TWOPT_UINT("enable_sampling", enable_sampling, "enable sampling"),
     TWOPT_STIME("sampling_end_time", sampling_end_time, "sampling_end_time"),
@@ -1504,7 +1541,9 @@ int main( int argc, char** argv )
             ref = fscanf(name_file, "%d %s", &num_traces_of_job[i], file_name_of_job[i]); 
             if(ref!=EOF)
             {
-                printf("\n%d traces of app %s \n", num_traces_of_job[i], file_name_of_job[i]);
+                if(enable_debug)
+                    printf("\n%d traces of app %s \n", num_traces_of_job[i], file_name_of_job[i]);
+    
                 num_net_traces += num_traces_of_job[i]; 
                 i++;
             }
@@ -1517,7 +1556,7 @@ int main( int argc, char** argv )
     }
     else
     {
-        assert(num_net_traces > 0);
+        assert(num_net_traces > 0 && strlen(workload_file));
         strcpy(file_name_of_job[0], workload_file);
         num_traces_of_job[0] = num_net_traces;
         alloc_spec = 0;
@@ -1535,16 +1574,17 @@ int main( int argc, char** argv )
    net_id = *net_ids;
    free(net_ids);
 
-#if WORKLOAD_LOG == 1
-   workload_log = fopen("mpi-op-logs", "w+");
-
-   if(!workload_log)
+   if(enable_debug)
    {
-       printf("\n Error logging MPI operations... quitting ");
-       MPI_Finalize();
-       return -1;
+       workload_log = fopen("mpi-op-logs", "w+");
+
+       if(!workload_log)
+       {
+           printf("\n Error logging MPI operations... quitting ");
+           MPI_Finalize();
+           return -1;
+       }
    }
-#endif
    char agg_log_name[512];
    sprintf(agg_log_name, "mpi-aggregate-logs-%d.bin", rank);
    workload_agg_log = fopen(agg_log_name, "w+");
@@ -1575,9 +1615,9 @@ int main( int argc, char** argv )
 
     fclose(workload_agg_log);
     fclose(workload_meta_log);
-#if WORKLOAD_LOG == 1
-   fclose(workload_log);
-#endif
+    
+    if(enable_debug)
+        fclose(workload_log);
 
     long long total_bytes_sent, total_bytes_recvd;
     double max_run_time, avg_run_time;
