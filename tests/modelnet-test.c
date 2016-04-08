@@ -42,6 +42,8 @@ static int lps_per_rep = 0;
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
 
+char router_name[MAX_NAME_LENGTH];
+
 /* types of events that will constitute triton requests */
 enum svr_event
 {
@@ -174,10 +176,21 @@ int main(
 
     num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "server",
             NULL, 1);
+    
     if(net_id == DRAGONFLY)
     {
+      strcpy(router_name, "modelnet_dragonfly_router");
+    }
+    
+    if(net_id == SLIMFLY)
+    {
+      strcpy(router_name, "modelnet_slimfly_router");
+    }
+
+    if(net_id == SLIMFLY || net_id == DRAGONFLY)
+    {
 	  num_routers = codes_mapping_get_lp_count("MODELNET_GRP", 0,
-                  "modelnet_dragonfly_router", NULL, 1); 
+                  router_name, NULL, 1); 
 	  offset = 1;
     }
 
@@ -335,7 +348,7 @@ static void handle_kickoff_event(
     num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1,
             "server", NULL, 1);
     num_routers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1,
-            "modelnet_dragonfly_router", NULL, 1);
+            router_name, NULL, 1);
 
     lps_per_rep = num_servers_per_rep * 2 + num_routers_per_rep;
 
