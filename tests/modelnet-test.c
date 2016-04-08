@@ -355,6 +355,7 @@ static void handle_kickoff_event(
     int opt_offset = 0;
     int total_lps = num_servers * 2 + num_routers;
 
+    /* TODO: Noah, we need slimfly specific mapping here! */
     if(net_id == DRAGONFLY && (lp->gid % lps_per_rep == num_servers_per_rep - 1))
           opt_offset = num_servers_per_rep + num_routers_per_rep; /* optional offset due to dragonfly mapping */
     
@@ -447,6 +448,7 @@ static void handle_ack_event(
 //    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
     int opt_offset = 0;
     
+    /* TODO: Noah, we need slimfly specific mapping here! */
    if(net_id == DRAGONFLY && (lp->gid % lps_per_rep == num_servers_per_rep - 1))
       opt_offset = num_servers_per_rep + num_routers_per_rep; /* optional offset due to dragonfly mapping */    	
 
@@ -504,6 +506,7 @@ static void handle_req_event(
     /* safety check that this request got to the right server */
 //    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
     int opt_offset = 0;
+    /* TODO: Noah, we need slimfly specific mapping here! */
     if(net_id == DRAGONFLY && (m->src % lps_per_rep == num_servers_per_rep - 1))
           opt_offset = num_servers_per_rep + num_routers_per_rep; /* optional offset due to dragonfly mapping */       
  
