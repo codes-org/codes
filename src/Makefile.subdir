@@ -150,10 +150,6 @@ src_libcodes_a_SOURCES =  \
 	src/networks/model-net/model-net-sched.c \
 	src/networks/model-net/model-net-sched-impl.h \
 	src/networks/model-net/model-net-sched-impl.c \
-	src/network-workloads/model-net-mpi-wrklds.c \
-	src/network-workloads/model-net-mpi-replay.c \
-	src/network-workloads/model-net-synthetic.c \
-	src/network-workloads/model-net-dumpi-traces-dump.c \
 	src/cortex/dragonfly-cortex-impl.c \
 	src/cortex/dfly_bcast.cpp
 

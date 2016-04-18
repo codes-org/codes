@@ -15,6 +15,7 @@
 
 #define TRACE -1
 #define DEBUG 0
+#define MSG_SIZE 1024
 
 char workload_type[128] = {'\0'};
 char workload_file[8192] = {'\0'};
@@ -29,7 +30,7 @@ typedef struct nw_message nw_message;
 static int net_id = 0;
 static float noise = 5.0;
 static int num_net_lps, num_mn_mock_lps;
-static int alloc_spec = 1;
+static int alloc_spec = 0;
 
 long long bytes_sent=0;
 long long bytes_recvd=0;
@@ -178,26 +179,34 @@ void mn_mock_test_init(nw_state* s, tw_lp* lp)
        assert(workload_file);
        strcpy(params_d.file_name, workload_file);
        params_d.num_net_traces = num_net_lps;
-
        params = (char*)&params_d;
+
+       s->app_id = 0;
+       s->local_rank = s->nw_id;
    }
    else if(strcmp(workload_type, "cortex-workload") == 0)
    {
        params_c.nprocs = cortex_dfly_get_job_ranks(0);
        params_c.algo_type = DFLY_BCAST_LLF;
+    
+       s->local_rank = lid.rank;
+       s->app_id = lid.job;
+
        params_c.root = 0;
-       params_c.size = 128;
+       params_c.size = MSG_SIZE;
+       params = (char*)&params_c;
    }
    else
        tw_error(TW_LOC, "workload type not known %s ", workload_type);
 
   /* In this case, the LP will not generate any workload related events*/
-   if(s->nw_id >= (tw_lpid)params_d.num_net_traces)
+   if(s->nw_id >= (tw_lpid)params_d.num_net_traces && !alloc_spec)
      {
 	    //printf("\n network LP not generating events %d ", (int)s->nw_id);
 	    return;
      }
-   wrkld_id = codes_workload_load(workload_type, params, s->app_id, (int)s->nw_id);
+   //printf("\n Rank %ld loading workload ", s->nw_id);
+   wrkld_id = codes_workload_load(workload_type, params, s->app_id, s->local_rank);
 
    /* clock starts ticking */
    s->elapsed_time = tw_now(lp);
@@ -222,7 +231,7 @@ void mn_mock_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp *
 
 void mn_mock_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-        codes_workload_get_next_rc(wrkld_id, 0, (int)s->nw_id, &m->op);
+        codes_workload_get_next_rc(wrkld_id, s->app_id, s->local_rank, &m->op);
         if(m->op.op_type == CODES_WK_END)
                 return;
 
@@ -308,14 +317,13 @@ void mn_mock_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
 		struct codes_workload_op mpi_op;
-    		codes_workload_get_next(wrkld_id, 0, (int)s->nw_id, &mpi_op);
-		memcpy(&m->op, &mpi_op, sizeof(struct codes_workload_op));
-
-    		if(mpi_op.op_type == CODES_WK_END)
-    	 	{
+        codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, &mpi_op);
+	
+        if(mpi_op.op_type == CODES_WK_END)
+    	 {
 			//printf("\n workload ending!!! ");
 			return;
-     		}
+     	}
 		
 		s->total_time += (mpi_op.end_time - mpi_op.start_time);
 		
@@ -326,7 +334,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			 {
 				s->num_sends++;
 				s->send_time += (mpi_op.end_time - mpi_op.start_time);
-				bytes_sent += mpi_op.u.send.num_bytes; 
+                bytes_sent += mpi_op.u.send.num_bytes; 
 			 }
 			break;
 	
@@ -450,17 +458,9 @@ int main( int argc, char** argv )
 
   g_tw_ts_end = s_to_ns(60*60*24*365); /* one year, in nsecs */
 
-  workload_type[0]='\0';
   tw_opt_add(app_opt_test);
   tw_init(&argc, &argv);
 
-  if(strlen(workload_file) == 0)
-    {
-	if(tw_ismaster())
-		printf("\n Usage: mpirun -np n ./codes-nw-test --sync=1/2/3 --workload_type=type --config-file=config-file-name [--workload_file=workload-file-name --alloc_file=alloc-file-name]");
-	tw_end();
-	return -1;
-    }
 
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
@@ -468,8 +468,16 @@ int main( int argc, char** argv )
     configuration_load(config_file, MPI_COMM_WORLD, &config);
     mn_mock_test_add_lp_type();
 
-    cortex_dfly_set_jobmap(alloc_file);
     codes_mapping_setup();
+
+  if((strcmp(workload_type, "dumpi-trace-workload") == 0 && strlen(workload_file) == 0)
+          || (strcmp(workload_type, "cortex-workload") == 0 && strlen(alloc_file) == 0))
+    {
+        if(tw_ismaster())
+           printf("\n Usage: mpirun -np n ./model-net-dumpi-traces-dump --sync=1/2/3 --workload_type=type --config-file=config-file-name [--workload_file=workload-file-name --alloc_file=alloc-file-name]\n");
+        tw_end();
+        return -1;
+    }
 
     if(strcmp(workload_type, "cortex-workload") == 0 )
     {
@@ -483,14 +491,14 @@ int main( int argc, char** argv )
     tw_run();
 
     long long total_bytes_sent, total_bytes_recvd;
-    double avg_run_time;
-    double avg_comm_run_time;
-    double avg_col_run_time;
-    double total_avg_send_time;
-    double total_avg_wait_time;
-    double total_avg_recv_time;
-    double total_avg_col_time;
-    double total_avg_comp_time;
+    double avg_run_time = 0;
+    double avg_comm_run_time = 0;
+    double avg_col_run_time = 0;
+    double total_avg_send_time = 0;
+    double total_avg_wait_time = 0;
+    double total_avg_recv_time = 0;
+    double total_avg_col_time = 0;
+    double total_avg_comp_time = 0;
     long overall_sends, overall_recvs, overall_waits, overall_cols;
 	
     MPI_Reduce(&bytes_sent, &total_bytes_sent, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);

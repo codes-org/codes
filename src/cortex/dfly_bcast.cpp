@@ -34,7 +34,7 @@ typedef std::pair<rank_t, rank_t> couple_t;
  * the ranks array. The root of the broadcast is ranks[0].
  * input ranks : array of ranks participating in the broadcast.
  */
-static int dfly_bcast_tree(job_id_t jid, const std::vector<rank_t>& ranks, const comm_handler* comm, void* uarg) {
+static int dfly_bcast_tree(job_id_t jid, const std::vector<rank_t>& ranks, int size, const comm_handler* comm, void* uarg) {
 	for(int i=0; i<ranks.size(); i++) {
 		int mask = 0x1;
 		while(mask < ranks.size()) {
@@ -45,9 +45,9 @@ static int dfly_bcast_tree(job_id_t jid, const std::vector<rank_t>& ranks, const
 		while(mask > 0) {
 			if(i + mask < ranks.size()) {
 				if(comm->my_rank == ranks[i]) {
-					comm->do_send(jid,comm->my_rank,1,ranks[i+mask],0,uarg);
+					comm->do_send(jid,comm->my_rank, size ,ranks[i+mask],0,uarg);
 				} else if(comm->my_rank == ranks[i+mask]) {
-					comm->do_recv(jid,comm->my_rank,1,ranks[i],0,uarg);
+					comm->do_recv(jid,comm->my_rank, size ,ranks[i],0,uarg);
 				}
 			}
 			mask = mask >> 1;
@@ -201,7 +201,7 @@ static int dfly_build_couples(std::vector<couple_t>& couples,
 	return 0;
 }
 
-static int dfly_bcast_llf(job_id_t job_id, std::vector<rank_t> ranks_vec, const comm_handler* comm, void* uarg) {
+static int dfly_bcast_llf(job_id_t job_id, std::vector<rank_t> ranks_vec, int size, const comm_handler* comm, void* uarg) {
 	rank_t root_rank = ranks_vec[0];
 	// get the placement of the root process
 	placement_info 	root;
@@ -242,15 +242,15 @@ static int dfly_bcast_llf(job_id_t job_id, std::vector<rank_t> ranks_vec, const 
 	// do a broadcast in the team of the root group
 	std::vector<rank_t>& root_team = teams[root.group];
 	// make sure to put the 
-	dfly_bcast_tree(job_id, root_team, comm, uarg);
+	dfly_bcast_tree(job_id, root_team, size, comm, uarg);
 
 	// send in couples
 	for(i=0; i<couples.size(); i++) {
 		couple_t& c = couples[i];
 		if(c.first == comm->my_rank) {
-			comm->do_send(job_id, comm->my_rank, 1, c.second, 0, uarg);
+			comm->do_send(job_id, comm->my_rank, size, c.second, 0, uarg);
 		} else if(c.second == comm->my_rank) {
-			comm->do_recv(job_id, comm->my_rank, 1, c.first, 0, uarg);
+			comm->do_recv(job_id, comm->my_rank, size, c.first, 0, uarg);
 		}
 	}
 
@@ -276,7 +276,7 @@ static int dfly_bcast_llf(job_id_t job_id, std::vector<rank_t> ranks_vec, const 
 			team[0] = c.second;
 		}
 		// do the actual broadcast
-		dfly_bcast_tree(job_id,team,comm,uarg);
+		dfly_bcast_tree(job_id,team,size,comm,uarg);
 	}
 	
 	// do a broadcast in each router
@@ -301,14 +301,14 @@ static int dfly_bcast_llf(job_id_t job_id, std::vector<rank_t> ranks_vec, const 
 				processes[0] = root.rank;
 			}
 			// do a broadcast
-			dfly_bcast_tree(job_id,processes,comm,uarg);
+			dfly_bcast_tree(job_id,processes,size,comm,uarg);
 		}
 	}
 
 	return 0;
 }
 
-static int dfly_bcast_glf(job_id_t job_id, std::vector<rank_t> ranks_vec, const comm_handler* comm, void* uarg) {
+static int dfly_bcast_glf(job_id_t job_id, std::vector<rank_t> ranks_vec, int size, const comm_handler* comm, void* uarg) {
 	rank_t root_rank = ranks_vec[0];
 	// get the placement of the root process
 	placement_info  root;
@@ -334,7 +334,7 @@ static int dfly_bcast_glf(job_id_t job_id, std::vector<rank_t> ranks_vec, const 
 		if(g->first == root.group) continue;
 		group_ranks.push_back(g->second.begin()->second[0]);
 	}
-	dfly_bcast_tree(job_id,group_ranks,comm,uarg);
+	dfly_bcast_tree(job_id,group_ranks,size,comm,uarg);
 
 	// within each group, do a broadcast across routers
 	for(group_map_t::iterator g = topo.begin(); g != topo.end(); g++) {
@@ -346,7 +346,7 @@ static int dfly_bcast_glf(job_id_t job_id, std::vector<rank_t> ranks_vec, const 
 			if(r->first == root.router) continue;
 			router_ranks.push_back(r->second[0]);
 		}
-		dfly_bcast_tree(job_id,router_ranks,comm,uarg);
+		dfly_bcast_tree(job_id,router_ranks,size,comm,uarg);
 	}
 
 	// within each router, do a broadcast across terminals
@@ -360,7 +360,7 @@ static int dfly_bcast_glf(job_id_t job_id, std::vector<rank_t> ranks_vec, const 
 			if(*t == root.rank) continue;
 			terminal_ranks.push_back(*t);
 		}
-		dfly_bcast_tree(job_id,terminal_ranks,comm,uarg);
+		dfly_bcast_tree(job_id,terminal_ranks,size,comm,uarg);
 	}
 	}
 
@@ -376,13 +376,13 @@ extern "C" void dfly_bcast(bcast_type type, int app_id, int root, int nprocs, in
 
 	switch(type) {
 	case DFLY_BCAST_TREE:
-		dfly_bcast_tree(app_id, ranks, comm, uarg);
+		dfly_bcast_tree(app_id, ranks, size, comm, uarg);
 		break;
 	case DFLY_BCAST_LLF:
-		dfly_bcast_llf(app_id, ranks, comm, uarg);
+		dfly_bcast_llf(app_id, ranks, size, comm, uarg);
 		break;
 	case DFLY_BCAST_GLF:
-		dfly_bcast_glf(app_id, ranks, comm, uarg);
+		dfly_bcast_glf(app_id, ranks, size, comm, uarg);
 		break;
 	}
 }

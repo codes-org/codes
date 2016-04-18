@@ -17,8 +17,7 @@
 
 #define MAX_LENGTH 512
 #define MAX_OPERATIONS 32768
-#define cortex_IGNORE_DELAY 100
-#define RANK_HASH_TABLE_SIZE 400
+#define RANK_HASH_TABLE_SIZE 110000
 
 static struct qhash_table *rank_tbl = NULL;
 static int rank_tbl_pop = 0;
@@ -77,7 +76,7 @@ static void* cortex_init_op_data()
 	assert(tmp);
 	tmp->op_array = malloc(MAX_OPERATIONS * sizeof(struct codes_workload_op));
 	assert(tmp->op_array);
-        tmp->op_arr_ndx = 0;
+    tmp->op_arr_ndx = 0;
 	tmp->op_arr_cnt = MAX_OPERATIONS;
 
 	return (void *)tmp;	
@@ -86,6 +85,7 @@ static void* cortex_init_op_data()
 /* inserts next operation in the array */
 static void cortex_insert_next_op(void *mpi_op_array, struct codes_workload_op *mpi_op)
 {
+    assert(mpi_op->op_type != 0);
 	cortex_op_data_array *array = (cortex_op_data_array*)mpi_op_array;
 	struct codes_workload_op *tmp;
 
@@ -96,15 +96,14 @@ static void cortex_insert_next_op(void *mpi_op_array, struct codes_workload_op *
 		assert(tmp);
 		memcpy(tmp, array->op_array, array->op_arr_cnt * sizeof(struct codes_workload_op));
 		free(array->op_array);
-	        array->op_array = tmp;
-	        array->op_arr_cnt += MAX_OPERATIONS;
+	    array->op_array = tmp;
+	    array->op_arr_cnt += MAX_OPERATIONS;
 	}
 
 	/* add the MPI operation to the op array */
 	array->op_array[array->op_arr_ndx] = *mpi_op;
-	//printf("\n insert time %f end time %f ", array->op_array[array->op_arr_ndx].start_time, array->op_array[array->op_arr_ndx].end_time);
 	array->op_arr_ndx++;
-	return;
+    return;
 }
 
 /* resets the counters after file is fully loaded */
@@ -127,16 +126,15 @@ static void cortex_roll_back_prev_op(void * mpi_op_array)
 static void cortex_remove_next_op(void *mpi_op_array, struct codes_workload_op *mpi_op)
 {
 	cortex_op_data_array *array = (cortex_op_data_array*)mpi_op_array;
-	//printf("\n op array index %d array count %d ", array->op_arr_ndx, array->op_arr_cnt);
-	if (array->op_arr_ndx == array->op_arr_cnt)
+	if (array->op_arr_ndx == array->op_arr_cnt || array->op_arr_ndx == 0)
 	 {
 		mpi_op->op_type = CODES_WK_END;
 	 }
 	else
 	{
+        array->op_arr_ndx--;
 		struct codes_workload_op *tmp = &(array->op_array[array->op_arr_ndx]);
 		*mpi_op = *tmp;
-        array->op_arr_ndx++;
 	}
 }
 
@@ -144,6 +142,7 @@ static void cortex_remove_next_op(void *mpi_op_array, struct codes_workload_op *
 int handleCortexSend(int app_id, int rank, int size, int dest, int tag, void* uarg)
 {
 	rank_mpi_context* myctx = (rank_mpi_context*)uarg;
+    assert(myctx->my_rank == rank);
 
 	struct codes_workload_op wrkld_per_rank;
 
@@ -153,6 +152,7 @@ int handleCortexSend(int app_id, int rank, int size, int dest, int tag, void* ua
     wrkld_per_rank.u.send.dest_rank = dest;
     wrkld_per_rank.u.send.source_rank = rank;
 
+    //printf("\n op send added rank %d dest %d ", rank, dest);
     cortex_insert_next_op(myctx->cortex_mpi_array, &wrkld_per_rank);
 	return 0;
 }
@@ -160,6 +160,8 @@ int handleCortexSend(int app_id, int rank, int size, int dest, int tag, void* ua
 int handleCortexRecv(int app_id, int rank, int size, int src,  int tag, void* uarg)
 {
 	rank_mpi_context* myctx = (rank_mpi_context*)uarg;
+    assert(myctx->my_rank == rank);
+
     struct codes_workload_op wrkld_per_rank;
 
     wrkld_per_rank.op_type = CODES_WK_RECV;
@@ -168,6 +170,7 @@ int handleCortexRecv(int app_id, int rank, int size, int src,  int tag, void* ua
     wrkld_per_rank.u.recv.source_rank = src;
     wrkld_per_rank.u.recv.dest_rank = -1;
    
+    //printf("\n op recv added rank %d src %d", rank, src);
     cortex_insert_next_op(myctx->cortex_mpi_array, &wrkld_per_rank);
     return 0;
 }
@@ -205,8 +208,8 @@ int cortex_trace_nw_workload_load(const char* params, int app_id, int rank)
     }
 	/* add this rank context to hash table */	
     rank_mpi_compare cmp;
-    cmp.app = my_ctx->my_app_id;
-    cmp.rank = my_ctx->my_rank;
+    cmp.app = app_id;
+    cmp.rank = rank;
 	qhash_add(rank_tbl, &cmp, &(my_ctx->hash_link));
 	rank_tbl_pop++;
 

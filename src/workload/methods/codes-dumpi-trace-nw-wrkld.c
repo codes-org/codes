@@ -179,7 +179,7 @@ static void dumpi_remove_next_op(void *mpi_op_array, struct codes_workload_op *m
 	{
 		struct codes_workload_op *tmp = &(array->op_array[array->op_arr_ndx]);
 		*mpi_op = *tmp;
-        array->op_arr_ndx++;
+        array->op_arr_ndx--;
 	}
 	/*if(mpi_op->op_type == CODES_WK_END)
 	{
@@ -563,9 +563,6 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	dumpi_profile* profile;
 	dumpi_trace_params* dumpi_params = (dumpi_trace_params*)params;
 	char file_name[MAX_LENGTH];
-
-	if(rank >= dumpi_params->num_net_traces)
-		return -1;
 
 	if(!rank_tbl)
     	{

@@ -1,0 +1,4 @@
+./src/network-workloads/model-net-dumpi-traces-dump --sync=1
+--workload_type="cortex-workload"
+--config_file=../src/network-workloads/cortex-conf/test-workload.conf
+--alloc_file=allocation.conf
