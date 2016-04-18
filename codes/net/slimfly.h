@@ -7,6 +7,10 @@
 #ifndef SLIMFLY_H
 #define SLIMFLY_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <ross.h>
 
 typedef struct slim_terminal_message slim_terminal_message;
@@ -93,6 +97,9 @@ struct  slim_terminal_message
 
    struct sfly_qhash_entry * saved_hash;
 };
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* end of include guard: DRAGONFLY_H */
 
