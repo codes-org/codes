@@ -257,6 +257,8 @@ void model_net_base_configure(){
     // note: dragonfly router uses the same event struct
     msg_offsets[DRAGONFLY_ROUTER] =
         offsetof(model_net_wrap_msg, msg.m_dfly);
+    msg_offsets[SLIMFLY] =
+        offsetof(model_net_wrap_msg, msg.m_slim);
     msg_offsets[LOGGP] =
         offsetof(model_net_wrap_msg, msg.m_loggp);
 
@@ -355,16 +357,14 @@ void model_net_base_lp_init(
     revent_f rsample = method_array[ns->net_id]->mn_sample_rc_fn;
     if (model_net_sampling_enabled()) {
         if (sample == NULL) {
-            /* MM: Commented out temporarily--- */
-            //tw_error(TW_LOC,
-            //        "Sampling requested for a model that doesn't provide it\n");
+            tw_error(TW_LOC,
+                    "Sampling requested for a model that doesn't provide it\n");
         }
         else if (rsample == NULL &&
                 (g_tw_synchronization_protocol == OPTIMISTIC ||
                  g_tw_synchronization_protocol == OPTIMISTIC_DEBUG)) {
-            /* MM: Commented out temporarily--- */
-            //tw_error(TW_LOC,
-            //        "Sampling requested for a model that doesn't provide it\n");
+            tw_error(TW_LOC,
+                    "Sampling requested for a model that doesn't provide it\n");
         }
         else {
             init_f sinit = method_array[ns->net_id]->mn_sample_init_fn;

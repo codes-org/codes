@@ -18,6 +18,7 @@ static recorder_params r_params = {"", 0};
 static dumpi_trace_params du_params = {"", 0};
 static checkpoint_wrkld_params c_params = {0, 0, 0, 0, 0};
 static iomock_params im_params = {0, 0, 1, 0, 0, 0};
+static cortex_wrkld_params cw_params = {0, 0, 0, 0};
 static int n = -1;
 static int start_rank = 0;
 
@@ -33,6 +34,9 @@ static struct option long_opts[] =
     {"r-trace-dir", required_argument, NULL, 'd'},
     {"r-nprocs", required_argument, NULL, 'x'},
     {"dumpi-log", required_argument, NULL, 'w'},
+    {"root", required_argument, NULL, 'R'},
+    {"data-size", required_argument, NULL, 'P'},
+    {"algo-type", required_argument, NULL, 'A'},
     {"chkpoint-size", required_argument, NULL, 'S'},
     {"chkpoint-bw", required_argument, NULL, 'B'},
     {"chkpoint-iters", required_argument, NULL, 'i'},
@@ -62,6 +66,10 @@ void usage(){
             "--r-nprocs: number of ranks in original recorder workload\n"
             "DUMPI TRACE OPTIONS (dumpi-trace-workload) \n"
             "--dumpi-log: dumpi log file \n"
+            "CORTEX OPTIONS (cortex-workload) \n"
+            "--num-ranks: number of ranks participating in collective \n"
+            "--root: root rank of collective \n"
+            "--data-size: size in bytes for collective transfer \n"
             "CHECKPOINT OPTIONS (checkpoint_io_workload)\n"
             "--chkpoint-size: size of aggregate checkpoint to write\n"
             "--chkpoint-bw: checkpointing bandwidth\n"
@@ -185,6 +193,15 @@ int main(int argc, char *argv[])
             case 'u':
                 im_params.use_uniq_file_ids = 1;
                 break;
+            case 'R':
+                cw_params.root = atoi(optarg);
+                break;
+            case 'P':
+                cw_params.size = atoi(optarg);
+                break;
+            case 'A':
+                cw_params.algo_type = atoi(optarg);
+                break;
         }
     }
 
@@ -213,6 +230,31 @@ int main(int argc, char *argv[])
         }
         else{
             wparams = (char*)&d_params;
+        }
+    }
+    else if(strcmp(type, "cortex-workload") == 0){
+        if(n <= 0)
+        {
+            cw_params.nprocs = n;
+            fprintf(stderr, "Expected \"--nprocs\" argument for cortex workload");
+            usage();
+            return 1;
+        }
+        else if(cw_params.size <= 0)
+        {
+            fprintf(stderr, "Expected \"--data-size\" argument for cortex workload");
+            usage();
+            return 1;
+        }
+        else if(cw_params.root <= 0)
+        {
+            cw_params.root = 0;
+        }
+        else if(cw_params.algo_type < 0)
+        {
+            fprintf(stderr, "Expected \"--algo-type\" argument for cortex workload");
+            usage();
+            return 1;
         }
     }
     else if (strcmp(type, "iolang_workload") == 0){

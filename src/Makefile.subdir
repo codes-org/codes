@@ -80,10 +80,13 @@ nobase_include_HEADERS = \
 	codes/model-net-sched.h \
 	codes/model-net-inspect.h \
 	codes/net/dragonfly.h \
+	codes/net/slimfly.h \
 	codes/net/loggp.h \
 	codes/net/simplenet-upd.h \
 	codes/net/simplep2p.h \
-	codes/net/torus.h
+	codes/net/torus.h \
+	codes/cortex/dragonfly-cortex-api.h \
+	codes/cortex/dfly_bcast.h
 
 
 #codes/codes-nw-workload.h
@@ -133,12 +136,14 @@ src_libcodes_a_SOURCES =  \
     src/workload/methods/codes-checkpoint-wrkld.c \
     src/workload/methods/test-workload-method.c \
 	src/workload/methods/codes-iomock-wrkld.c \
+	src/workload/methods/codes-cortex-workload.c \
 	codes/rc-stack.h \
 	src/util/rc-stack.c \
 	src/networks/model-net/model-net.c \
 	src/networks/model-net/simplenet-upd.c \
 	src/networks/model-net/torus.c \
 	src/networks/model-net/dragonfly.c \
+	src/networks/model-net/slimfly.c \
 	src/networks/model-net/loggp.c \
 	src/networks/model-net/simplep2p.c \
 	src/networks/model-net/model-net-lp.c \
@@ -148,7 +153,9 @@ src_libcodes_a_SOURCES =  \
 	src/network-workloads/model-net-mpi-wrklds.c \
 	src/network-workloads/model-net-mpi-replay.c \
 	src/network-workloads/model-net-synthetic.c \
-	src/network-workloads/model-net-dumpi-traces-dump.c
+	src/network-workloads/model-net-dumpi-traces-dump.c \
+	src/cortex/dragonfly-cortex-impl.c \
+	src/cortex/dfly_bcast.cpp
 
 
 #codes/codes-nw-workload.h
@@ -166,17 +173,18 @@ src_util_templates_lp_template_dummy_main_SOURCES = \
 
 bin_PROGRAMS += src/workload/codes-workload-dump
 bin_PROGRAMS += src/network-workloads/model-net-mpi-replay
-bin_PROGRAMS += src/network-workloads/model-net-mpi-wrklds
+#bin_PROGRAMS += src/network-workloads/model-net-mpi-wrklds
 bin_PROGRAMS += src/network-workloads/model-net-dumpi-traces-dump
 bin_PROGRAMS += src/network-workloads/model-net-synthetic
+bin_PROGRAMS += src/cortex/dragonfly-cortex-test
 
 
 src_workload_codes_workload_dump_SOURCES = \
  src/workload/codes-workload-dump.c
 
 src_network_workloads_model_net_mpi_replay_SOURCES = src/network-workloads/model-net-mpi-replay.c
-
-src_network_workloads_model_net_mpi_wrklds_SOURCES = src/network-workloads/model-net-mpi-wrklds.c
+src_cortex_dragonfly_cortex_test_SOURCES = src/cortex/dragonfly-cortex-test.c
+#src_network_workloads_model_net_mpi_wrklds_SOURCES = src/network-workloads/model-net-mpi-wrklds.c
 src_network_workloads_model_net_synthetic_SOURCES = src/network-workloads/model-net-synthetic.c
 src_network_workloads_model_net_dumpi_traces_dump_SOURCES = src/network-workloads/model-net-dumpi-traces-dump.c
 

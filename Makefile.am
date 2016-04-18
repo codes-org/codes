@@ -26,6 +26,8 @@ EXTRA_DIST += \
 
 AM_CPPFLAGS = -I$(top_srcdir)/src ${ROSS_CFLAGS}
 
+CCLD = $(CXX)
+
 AM_CFLAGS =
 
 AM_CXXFLAGS = $(AM_CFLAGS)

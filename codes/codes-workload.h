@@ -30,6 +30,7 @@ typedef struct recorder_params recorder_params;
 /* struct to hold the actual data from a single MPI event*/
 typedef struct dumpi_trace_params dumpi_trace_params;
 typedef struct checkpoint_wrkld_params checkpoint_wrkld_params;
+typedef struct cortex_wrkld_params cortex_wrkld_params;
 
 struct iomock_params
 {
@@ -78,6 +79,14 @@ struct checkpoint_wrkld_params
     double checkpoint_wr_bw; /* checkpoint write b/w, in GiB/s */
     int total_checkpoints; /* total number of checkpoint phases */
     double mtti; /* mean time to interrupt, in hours */
+};
+
+struct cortex_wrkld_params
+{
+    int nprocs; /* number of processes involved */
+    int algo_type; /* type of the algorithm could be TREE, GLF and LLF */
+    int root; /* root process */
+    int size; /* size of the data transfer*/
 };
 
 /* supported I/O operations */

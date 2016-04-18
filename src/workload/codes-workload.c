@@ -26,6 +26,7 @@ extern struct codes_workload_method recorder_io_workload_method;
 #endif
 extern struct codes_workload_method checkpoint_workload_method;
 extern struct codes_workload_method iomock_workload_method;
+extern struct codes_workload_method cortex_workload_method;
 
 static struct codes_workload_method const * method_array_default[] =
 {
@@ -42,6 +43,7 @@ static struct codes_workload_method const * method_array_default[] =
 #endif
     &checkpoint_workload_method,
     &iomock_workload_method,
+    &cortex_workload_method,
     NULL
 };
 
