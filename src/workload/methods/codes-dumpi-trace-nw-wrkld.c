@@ -179,9 +179,10 @@ static void dumpi_remove_next_op(void *mpi_op_array, struct codes_workload_op *m
 	{
 		struct codes_workload_op *tmp = &(array->op_array[array->op_arr_ndx]);
 		*mpi_op = *tmp;
-        array->op_arr_ndx++;
 	}
-	/*if(mpi_op->op_type == CODES_WK_END)
+    array->op_arr_ndx++;
+	
+    /*if(mpi_op->op_type == CODES_WK_END)
 	{
 		free(array->op_array);
 		free(array);
