@@ -367,19 +367,22 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 				s->col_time += (mpi_op.end_time - mpi_op.start_time);
 			  }
 			break;
-			case CODES_WK_WAIT:
+			
+            case CODES_WK_WAIT:
 			{
 				s->num_wait++;
 				s->wait_time += (mpi_op.end_time - mpi_op.start_time);
 			}
 			break;
-			case CODES_WK_WAITALL:
+			
+            case CODES_WK_WAITALL:
 			{
 				s->num_waitall++;
 				s->wait_time += (mpi_op.end_time - mpi_op.start_time);	
 			}
 			break;
-			case CODES_WK_WAITSOME:
+			
+            case CODES_WK_WAITSOME:
 			{
 				s->num_waitsome++;
 				s->wait_time += (mpi_op.end_time - mpi_op.start_time);
@@ -392,7 +395,8 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			   s->wait_time += (mpi_op.end_time - mpi_op.start_time);
 			}
 			break;
-			default:
+			
+            default:
 			{
 				printf("\n Invalid op type %d ", m->op.op_type);
 				return;

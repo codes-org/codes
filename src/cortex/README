@@ -1,3 +1,39 @@
+-------------- Running actual workload -------------
+
+* Serial simulation
+
+./src/network-workloads/model-net-mpi-replay --sync=1 --algo_type=1
+--alloc_file=../src/network-workloads/cortex-conf/allocation.conf
+--workload_type="cortex-workload" --lp-io-dir=col-test --lp-io-use-suffix=1 --
+../src/network-workloads/cortex-conf/modelnet-mpi-test-dragonfly-5K.conf
+
+* Parallel simulation (optimistic)
+
+mpirun -np 4 ./src/network-workloads/model-net-mpi-replay --sync=3 --algo_type=1
+--alloc_file=../src/network-workloads/cortex-conf/allocation.conf
+--workload_type="cortex-workload" --lp-io-dir=col-test --lp-io-use-suffix=1 --
+../src/network-workloads/cortex-conf/modelnet-mpi-test-dragonfly-5K.conf
+
+* runtime options to turn on the statistics
+
+--lp-io-dir = output-dir-name
+--lp-io-use-suffix = 1
+
+* algo_type
+
+0 for TREE
+1 for LLF
+2 for GLF
+
+* 16K config and job allocation file
+
+network-workloads/cortex-conf/modelnet-mpi-test-dragonfly-16K.conf
+
+and
+
+network-workloads/cortex-conf/allocation-12K-job.conf
+
+-------------- Example test program -----------------
 ./src/network-workloads/model-net-dumpi-traces-dump --sync=1
 --workload_type="cortex-workload"
 --config_file=../src/network-workloads/cortex-conf/test-workload.conf

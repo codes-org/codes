@@ -14,11 +14,13 @@
 #include "codes/rc-stack.h"
 #include "codes/quicklist.h"
 #include "codes/codes-jobmap.h"
+#include "codes/cortex/dfly_bcast.h"
 
 /* turning on track lp will generate a lot of output messages */
 #define TRACK_LP -1
 #define TRACE -1
 #define MAX_WAIT_REQS 512
+#define COL_MSG_SIZE 1024
 #define CS_LP_DBG 0
 #define lprintf(_fmt, ...) \
         do {if (CS_LP_DBG) printf(_fmt, __VA_ARGS__);} while (0)
@@ -30,6 +32,7 @@ char offset_file[8192];
 static int wrkld_id;
 static int num_net_traces = 0;
 static int alloc_spec = 0;
+static int algo_type = 0;
 
 /* Doing LP IO*/
 static char lp_io_dir[256] = {'\0'};
@@ -1088,7 +1091,8 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    /* initialize the LP's and load the data */
    char * params = NULL;
    dumpi_trace_params params_d;
- 
+   cortex_wrkld_params params_c;
+
    memset(s, 0, sizeof(*s));
    s->nw_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
    s->mpi_wkld_samples = calloc(MAX_STATS, sizeof(struct mpi_workload_sample)); 
@@ -1114,7 +1118,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    }
    else
    {
-       /* Only one job running */
+       /* Assume contiguous allocation with one job  */
        lid.job = 0;
        lid.rank = s->nw_id;
        s->app_id = 0;
@@ -1124,17 +1128,35 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    }
    
    
+   s->app_id = lid.job;
+   s->local_rank = lid.rank; 
+   
    if (strcmp(workload_type, "dumpi") == 0){
        strcpy(params_d.file_name, file_name_of_job[lid.job]);
        params_d.num_net_traces = num_traces_of_job[lid.job];
        params = (char*)&params_d;
-       s->app_id = lid.job;
-       s->local_rank = lid.rank; 
 //       printf("network LP nw id %d app id %d generating events, lp gid is %ld \n", s->nw_id, s->app_id, lp->gid); 
+       wrkld_id = codes_workload_load("dumpi-trace-workload", params, s->app_id, s->local_rank);
    }
+   else
+   {
+       params_c.nprocs = cortex_dfly_get_job_ranks(0);
 
-   wrkld_id = codes_workload_load("dumpi-trace-workload", params, s->app_id, s->local_rank);
+       if(algo_type == 0)
+           params_c.algo_type = DFLY_BCAST_TREE;
+        else if(algo_type == 1)
+            params_c.algo_type = DFLY_BCAST_LLF;
+       else if(algo_type == 2)
+           params_c.algo_type = DFLY_BCAST_GLF;
+       else
+           tw_error(TW_LOC, "\n Unknown collective algo type %d must be 0-2 ", algo_type);
 
+       params_c.root = 0;
+       params_c.size = COL_MSG_SIZE;
+       params = (char*)&params_c;
+       
+       wrkld_id = codes_workload_load("cortex-workload", params, s->app_id, s->local_rank);
+   }
    INIT_QLIST_HEAD(&s->arrival_queue);
    INIT_QLIST_HEAD(&s->pending_recvs_queue);
    INIT_QLIST_HEAD(&s->completed_reqs);
@@ -1399,7 +1421,7 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
     }
 		int count_irecv = qlist_count(&s->pending_recvs_queue);
         int count_isend = qlist_count(&s->arrival_queue);
-		printf("\n LP %llu unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf", 
+		lprintf("\n LP %llu unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf", 
 			lp->gid, count_irecv, count_isend, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->send_time, s->wait_time);
 
         written += sprintf(s->output_buf + written, "\n %llu %llu %ld %ld %ld %ld %lf %lf %lf", lp->gid, s->nw_id, s->num_sends, s->num_recvs, s->num_bytes_sent, 
@@ -1473,6 +1495,7 @@ const tw_optdef app_opt [] =
 	TWOPT_CHAR("alloc_file", alloc_file, "allocation file name"),
 	TWOPT_CHAR("workload_conf_file", workloads_conf_file, "workload config file name"),
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
+	TWOPT_UINT("algo_type", algo_type, "collective algorithm type 0 : TREE, 1: LLF, 2: GLF"),
     TWOPT_UINT("disable_compute", disable_delay, "disable compute simulation"),
     TWOPT_UINT("enable_mpi_debug", enable_debug, "enable debugging of MPI sim layer (works with sync=1 only)"),
     TWOPT_UINT("sampling_interval", sampling_interval, "sampling interval for MPI operations"),
@@ -1516,18 +1539,21 @@ int main( int argc, char** argv )
   tw_opt_add(app_opt);
   tw_init(&argc, &argv);
 
-  if(strcmp(workload_type, "dumpi") != 0)
+  if(strcmp(workload_type, "dumpi") != 0 && strcmp(workload_type, "cortex-workload") != 0)
     {
 	if(tw_ismaster())
 		printf("Usage: mpirun -np n ./modelnet-mpi-replay --sync=1/3"
-                " --workload_type=dumpi --workload_conf_file=prefix-workload-file-name"
-                " --alloc_file=alloc-file-name -- config-file-name\n"
-                "See model-net/doc/README.dragonfly.txt and model-net/doc/README.torus.txt"
+                " --workload_type=dumpi/cortex-workload "
+                "--workload_conf_file=prefix-workload-file-name [optional]"
+                " --alloc_file=alloc-file-name [optional] -- config-file-name\n"
+                "See model-net/doc/README_traces.txt"
                 " for instructions on how to run the models with network traces ");
 	tw_end();
 	return -1;
     }
 
+  if(strcmp(workload_type, "dumpi") == 0)
+  {
     if(strlen(workloads_conf_file) > 0)
     {
         FILE *name_file = fopen(workloads_conf_file, "r");
@@ -1550,17 +1576,21 @@ int main( int argc, char** argv )
         }
         fclose(name_file);
         assert(strlen(alloc_file) != 0);
-        alloc_spec = 1;
-        jobmap_p.alloc_file = alloc_file;
-        jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_LIST, &jobmap_p); 
     }
     else
     {
-        assert(num_net_traces > 0 && strlen(workload_file));
+        assert(num_net_traces > 0 && strlen(workload_file) > 0);
         strcpy(file_name_of_job[0], workload_file);
         num_traces_of_job[0] = num_net_traces;
         alloc_spec = 0;
     }
+  }
+  if(strlen(alloc_file) > 0)
+  {
+        alloc_spec = 1;
+        jobmap_p.alloc_file = alloc_file;
+        jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_LIST, &jobmap_p); 
+  }
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
