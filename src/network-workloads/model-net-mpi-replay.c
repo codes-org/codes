@@ -468,6 +468,7 @@ static void codes_exec_mpi_wait_all_rc(
   }
   return;
 }
+
 static void codes_exec_mpi_wait_all(
         nw_state* s, 
         tw_bf * bf,
@@ -591,7 +592,9 @@ static int rm_matching_rcv(nw_state * ns,
         
         if(qi->op_type == CODES_WK_IRECV)
             update_completed_queue(ns, bf, m, lp, qi->req_id);
-        
+        else if(qi->op_type == CODES_WK_RECV)
+            codes_issue_next_event(lp);
+
         qlist_del(&qi->ql);
         
         rc_stack_push(lp, qi, free, ns->processed_ops);
@@ -1018,8 +1021,8 @@ static void update_arrival_queue_rc(nw_state* s,
 static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
     if(s->app_id != m->fwd.app_id)
-        printf("\n Received message for app %d my id %d my rank %d ", 
-                m->fwd.app_id, s->app_id, s->nw_id);
+        printf("\n Received message for app %d my id %d my rank %d my local rank %d", 
+                m->fwd.app_id, s->app_id, s->nw_id, s->local_rank);
     assert(s->app_id == m->fwd.app_id);
 
 	m->rc.saved_recv_time = s->recv_time;
@@ -1064,6 +1067,7 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
     {
         m->fwd.found_match = found_matching_recv;
         free(arrived_op);
+
     }
 }
 static void update_message_time(
@@ -1098,7 +1102,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->mpi_wkld_samples = calloc(MAX_STATS, sizeof(struct mpi_workload_sample)); 
    s->sampling_indx = 0;
 
-   if(!num_net_traces) 
+   if(!num_net_traces && !alloc_spec) 
 	num_net_traces = num_net_lps;
   
    assert(num_net_traces <= num_net_lps);
@@ -1138,9 +1142,11 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 //       printf("network LP nw id %d app id %d generating events, lp gid is %ld \n", s->nw_id, s->app_id, lp->gid); 
        wrkld_id = codes_workload_load("dumpi-trace-workload", params, s->app_id, s->local_rank);
    }
-   else
+   else if(strcmp(workload_type, "cortex-workload") == 0)
    {
        params_c.nprocs = cortex_dfly_get_job_ranks(0);
+
+       num_net_traces = params_c.nprocs;
 
        if(algo_type == 0)
            params_c.algo_type = DFLY_BCAST_TREE;
@@ -1157,6 +1163,9 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        
        wrkld_id = codes_workload_load("cortex-workload", params, s->app_id, s->local_rank);
    }
+   else 
+       tw_error(TW_LOC, "\n Incorrect workload type specified ");
+   
    INIT_QLIST_HEAD(&s->arrival_queue);
    INIT_QLIST_HEAD(&s->pending_recvs_queue);
    INIT_QLIST_HEAD(&s->completed_reqs);
@@ -1330,6 +1339,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
         if(mpi_op.op_type == CODES_WK_END)
         {
             s->elapsed_time = tw_now(lp) - s->start_time;
+//            printf("\n Elapsed time %lf NW ID %d ", s->elapsed_time, s->nw_id);
             return;
         }
 		switch(mpi_op.op_type)
@@ -1673,7 +1683,7 @@ int main( int argc, char** argv )
    assert(num_net_traces);
 
    if(!g_tw_mynode)
-	printf("\n Total bytes sent %llu recvd %llu \n max runtime %lf ns avg runtime %lf \n max comm time %lf avg comm time %lf \n max send time %lf avg send time %lf \n max recv time %lf avg recv time %lf \n max wait time %lf avg wait time %lf \n", total_bytes_sent, total_bytes_recvd, 
+	printf("\n Total bytes sent %llu recvd %llu \n max runtime (ns) %lf ns avg runtime (ns) %lf \n max comm time (ns) %lf avg comm time(ns) %lf \n max send time(ns) %lf avg send time(ns) %lf \n max recv time(ns) %lf avg recv time(ns) %lf \n max wait time(ns) %lf avg wait time(ns) %lf \n", total_bytes_sent, total_bytes_recvd, 
 			max_run_time, avg_run_time/num_net_traces,
 			max_comm_run_time, avg_comm_run_time/num_net_traces,
 			total_max_send_time, total_avg_send_time/num_net_traces,

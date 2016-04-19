@@ -90,7 +90,7 @@ static void cortex_insert_next_op(void *mpi_op_array, struct codes_workload_op *
 	struct codes_workload_op *tmp;
 
 	/*check if array is full.*/
-	if (array->op_arr_ndx == array->op_arr_cnt)
+	if (array->op_arr_ndx >= array->op_arr_cnt)
 	{
 		tmp = malloc((array->op_arr_cnt + MAX_OPERATIONS) * sizeof(struct codes_workload_op));
 		assert(tmp);
@@ -126,18 +126,17 @@ static void cortex_roll_back_prev_op(void * mpi_op_array)
 static void cortex_remove_next_op(void *mpi_op_array, struct codes_workload_op *mpi_op)
 {
 	cortex_op_data_array *array = (cortex_op_data_array*)mpi_op_array;
-	if (array->op_arr_ndx == array->op_arr_cnt || array->op_arr_ndx == 0)
+    if (array->op_arr_ndx >= array->op_arr_cnt)
 	 {
 		mpi_op->op_type = CODES_WK_END;
 	 }
 	else
 	{
-        array->op_arr_ndx--;
 		struct codes_workload_op *tmp = &(array->op_array[array->op_arr_ndx]);
 		*mpi_op = *tmp;
+        array->op_arr_ndx++;
 	}
 }
-
 
 int handleCortexSend(int app_id, int rank, int size, int dest, int tag, void* uarg)
 {
@@ -226,7 +225,10 @@ int cortex_trace_nw_workload_load(const char* params, int app_id, int rank)
      };
     /* now execute the collective algorithm */
     dfly_bcast(algo_type, app_id, root, nprocs, size, &comm, (void*)my_ctx);
-	return 0;
+
+    cortex_finalize_mpi_op_data(my_ctx->cortex_mpi_array);
+    
+    return 0;
 }
 
 int cortex_get_num_ranks(const char* params, int app_id)
