@@ -723,7 +723,7 @@ static void codes_exec_mpi_recv_rc(
         {
             update_completed_queue_rc(ns, bf, m, lp);
         }
-        codes_issue_next_event_rc(lp);
+            codes_issue_next_event_rc(lp);
       }
 	else if(m->fwd.found_match < 0)
 	    {
@@ -1008,6 +1008,9 @@ static void update_arrival_queue_rc(nw_state* s,
         }
         if(qi->op_type == CODES_WK_IRECV)
             update_completed_queue_rc(s, bf, m, lp);
+        else if(qi->op_type == CODES_WK_RECV)
+			codes_issue_next_event_rc(lp);	
+
     }
 	else if(m->fwd.found_match < 0)
 	{
@@ -1067,7 +1070,6 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
     {
         m->fwd.found_match = found_matching_recv;
         free(arrived_op);
-
     }
 }
 static void update_message_time(

@@ -120,7 +120,6 @@ static void cortex_roll_back_prev_op(void * mpi_op_array)
 {
     cortex_op_data_array *array = (cortex_op_data_array*)mpi_op_array;
     array->op_arr_ndx--;
-    assert(array->op_arr_ndx >= 0);
 }
 /* removes the next operation from the array */
 static void cortex_remove_next_op(void *mpi_op_array, struct codes_workload_op *mpi_op)
@@ -134,8 +133,9 @@ static void cortex_remove_next_op(void *mpi_op_array, struct codes_workload_op *
 	{
 		struct codes_workload_op *tmp = &(array->op_array[array->op_arr_ndx]);
 		*mpi_op = *tmp;
-        array->op_arr_ndx++;
 	}
+    
+    array->op_arr_ndx++;
 }
 
 int handleCortexSend(int app_id, int rank, int size, int dest, int tag, void* uarg)
