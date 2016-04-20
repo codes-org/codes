@@ -4,16 +4,19 @@
 
 ./src/network-workloads/model-net-mpi-replay --sync=1 --algo_type=1
 --alloc_file=../src/network-workloads/cortex-conf/allocation.conf
---workload_type="cortex-workload" --lp-io-dir=col-test --lp-io-use-suffix=1 --
+--workload_type="cortex-workload" --workload_conf_file=workload-cortex.conf
+--lp-io-dir=col-test --lp-io-use-suffix=1 --
 ../src/network-workloads/cortex-conf/modelnet-mpi-test-dragonfly-5K.conf
 
 * Parallel simulation (optimistic)
 
-mpirun -np 4 ./src/network-workloads/model-net-mpi-replay --sync=3 --algo_type=1
---alloc_file=../src/network-workloads/cortex-conf/allocation.conf
---workload_type="cortex-workload" --lp-io-dir=col-test --lp-io-use-suffix=1 --
+mpirun -np 4 ./src/network-workloads/model-net-mpi-replay --sync=3
+--algo_type=1 --alloc_file=../src/network-workloads/cortex-conf/allocation.conf
+--workload_type="cortex-workload" --workload_conf_file=workload-cortex.conf
+--lp-io-dir=col-test --lp-io-use-suffix=1 --
 ../src/network-workloads/cortex-conf/modelnet-mpi-test-dragonfly-5K.conf
 
+[See cortex-conf/workload-cortex.conf]
 * runtime options to turn on the statistics
 
 --lp-io-dir = output-dir-name
@@ -43,6 +46,11 @@ network-workloads/cortex-conf/allocation-12K-job.conf
   hpcg miniapp data provided by NERSC. Each rank generates 11 MB of data per
   second. We are currently simulating 2.5 MB of data
   transfer in 0.25 seconds of simulated time.
+
+* ROSS Simulation performance tuning
+   --batch = 2 (or 4, 6, 8)
+   --gvt-interval = 64 (or 128, 256, 512)
+
 -------------- Example test program -----------------
 ./src/network-workloads/model-net-dumpi-traces-dump --sync=1
 --workload_type="cortex-workload"

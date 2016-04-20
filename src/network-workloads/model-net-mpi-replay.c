@@ -37,7 +37,6 @@ static int wrkld_id;
 static int num_net_traces = 0;
 static int alloc_spec = 0;
 static int algo_type = 0;
-static int gen_synthetic = 0;
 
 /* Doing LP IO*/
 static char lp_io_dir[256] = {'\0'};
@@ -88,7 +87,7 @@ static int disable_delay = 0;
 static int enable_sampling = 0;
 static double sampling_interval = 5000000;
 static double sampling_end_time = 3000000000;
-static int enable_debug = 1;
+static int enable_debug = 0;
 
 /* MPI_OP_GET_NEXT is for getting next MPI operation when the previous operation completes.
 * MPI_SEND_ARRIVED is issued when a MPI message arrives at its destination (the message is transported by model-net and an event is invoked when it arrives. 
@@ -1201,7 +1200,6 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    assert(s->processed_ops != NULL);
    assert(s->matched_reqs != NULL);
 
-
    /* clock starts ticking when the first event is processed */
    s->start_time = tw_now(lp);
    s->num_bytes_sent = 0;
@@ -1221,9 +1219,6 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    {
         /* MM: TODO remove the condition later on once the workloads are
          * configurable */
-        if(strcmp(workload_type, "cortex-workload") == 0)
-            num_net_traces = cortex_dfly_get_job_ranks(0);
-
         lid = codes_jobmap_to_local_id(s->nw_id, jobmap_ctx); 
 
         if(lid.job == -1)
@@ -1258,7 +1253,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    }
    else if(strcmp(workload_type, "cortex-workload") == 0)
    {
-       if(s->app_id > 0 && gen_synthetic)
+       if(strcmp(file_name_of_job[lid.job], "synthetic-tr") == 0)
        {
             tw_event * e;
             nw_message * m_new;
@@ -1268,7 +1263,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
             m_new->msg_type = CLI_BCKGND_GEN;
             tw_event_send(e);
        }
-       else if(s->app_id == 0)
+       else if(strcmp(file_name_of_job[lid.job], "collective") == 0)
        {
            params_c.nprocs = cortex_dfly_get_job_ranks(0);
 
@@ -1290,6 +1285,8 @@ void nw_test_init(nw_state* s, tw_lp* lp)
            wrkld_id = codes_workload_load("cortex-workload", params, s->app_id, s->local_rank);
            codes_issue_next_event(lp);
        }
+       else
+           tw_error(TW_LOC, "\n Incorrect type specified in workload file: must be either collective or synthetic-tr");
    }
    else 
        tw_error(TW_LOC, "\n Incorrect workload type specified ");
@@ -1646,7 +1643,6 @@ const tw_optdef app_opt [] =
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
 	TWOPT_UINT("algo_type", algo_type, "collective algorithm type 0 : TREE, 1: LLF, 2: GLF"),
     TWOPT_UINT("disable_compute", disable_delay, "disable compute simulation"),
-    TWOPT_UINT("generate_synthetic", gen_synthetic, "enable synthetic traffic generation"),
     TWOPT_UINT("enable_mpi_debug", enable_debug, "enable debugging of MPI sim layer (works with sync=1 only)"),
     TWOPT_UINT("sampling_interval", sampling_interval, "sampling interval for MPI operations"),
 	TWOPT_UINT("enable_sampling", enable_sampling, "enable sampling"),
@@ -1702,8 +1698,9 @@ int main( int argc, char** argv )
 	return -1;
     }
 
-  if(strcmp(workload_type, "dumpi") == 0)
-  {
+    if(strcmp(workload_type, "cortex-workload") == 0)
+        assert(strlen(workloads_conf_file) > 0);
+
     if(strlen(workloads_conf_file) > 0)
     {
         FILE *name_file = fopen(workloads_conf_file, "r");
@@ -1733,8 +1730,7 @@ int main( int argc, char** argv )
         strcpy(file_name_of_job[0], workload_file);
         num_traces_of_job[0] = num_net_traces;
         alloc_spec = 0;
-    }
-  }
+    } 
   if(strlen(alloc_file) > 0)
   {
         alloc_spec = 1;
@@ -1839,12 +1835,9 @@ int main( int argc, char** argv )
 			total_max_recv_time, total_avg_recv_time/num_net_traces,
 			total_max_wait_time, total_avg_wait_time/num_net_traces);
 
-    if(gen_synthetic)
-    {
         printf("\n *** Synthetic traffic statistics *** \n "
                 "Total bytes sent %lld Received %lld ",
                 total_syn_bytes_sent, total_syn_bytes_recvd);
-    }
    }
     if (do_lp_io){
         int ret = lp_io_flush(io_handle, MPI_COMM_WORLD);
