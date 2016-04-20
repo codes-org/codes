@@ -1219,6 +1219,11 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 
    if(alloc_spec)
    {
+        /* MM: TODO remove the condition later on once the workloads are
+         * configurable */
+        if(strcmp(workload_type, "cortex-workload") == 0)
+            num_net_traces = cortex_dfly_get_job_ranks(0);
+
         lid = codes_jobmap_to_local_id(s->nw_id, jobmap_ctx); 
 
         if(lid.job == -1)
