@@ -1680,6 +1680,7 @@ int main( int argc, char** argv )
   int* net_ids;
 
   g_tw_ts_end = s_to_ns(60*5); /* five minutes, in nsecs */
+  g_tw_lookahead = 10.0;
 
   workload_type[0]='\0';
   tw_opt_add(app_opt);

@@ -38,7 +38,6 @@ network-workloads/cortex-conf/allocation-12K-job.conf
 
 * Turning on synthetic traffic
 
-- Use runtime option --generate_synthetic = 1
 - The allocation file must have a second job with ranks that are not
   participating in the collective operation. The synthetic traffic pattern will
   run on those remainder ranks.
