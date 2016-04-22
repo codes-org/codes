@@ -2365,7 +2365,7 @@ void dragonfly_router_final(router_state * s,
     int written = 0;
     if(!s->router_id)
     {
-        written = sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
+        written = sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>\n");
         written += sprintf(s->output_buf + written, "# Router ports in the order: %d local channels, %d global channels \n", 
                 p->num_routers, p->num_global_channels);
     }
@@ -2382,7 +2382,7 @@ void dragonfly_router_final(router_state * s,
     written = 0;
     if(!s->router_id)
     {
-        written = sprintf(s->output_buf2, "# Format <LP ID> <Group ID> <Router ID> <Link traffic per router port(s)>");
+        written = sprintf(s->output_buf2, "# Format <LP ID> <Group ID> <Router ID> <Link traffic per router port(s)>\n");
         written += sprintf(s->output_buf2 + written, "# Router ports in the order: %d local channels, %d global channels \n",
             p->num_routers, p->num_global_channels);
     }
