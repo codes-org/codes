@@ -122,10 +122,10 @@ tw_lptype svr_lp = {
 const tw_optdef app_opt [] =
 {
         TWOPT_GROUP("Model net synthetic traffic " ),
-	TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
-	TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
+        TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
+        TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
         TWOPT_STIME("load", load, "percentage of packet inter-arrival rate to simulate"),
-        TWOPT_END()
+        TWOPT_END(),
 };
 
 const tw_lptype* svr_get_lp_type()
@@ -156,7 +156,7 @@ static tw_stime bytes_to_ns(uint64_t bytes, double GB_p_s)
 /** Latest implementation of function to return an array mapping each router with it's corresponding worst-case router pair
  *  @param[in/out] 	*worst_dest   		Router ID to send all messages to
  */
-void init_worst_case_mapping(int *worst_dest)
+void init_worst_case_mapping()
 {
 	int i,j,k;
 	int r1,r2;		//Routers to be paired
@@ -197,7 +197,6 @@ static void issue_event(
      * simulation
      */
 
-    const char * anno;
     configuration_get_value_int(&config, "PARAMS", "packet_size", NULL, &this_packet_size);
     if(!this_packet_size) {
         this_packet_size = 0;
@@ -306,7 +305,7 @@ static void handle_kickoff_event(
 //	 printf("\n LP %ld sending to %ld num nodes %d ", rep_id * 2 + offset, local_dest, num_nodes);
    }
 //printf("1local_dest:%d global_dest:%d num_nodes:%d\n", local_dest, global_dest, num_nodes);
-   assert(local_dest < num_nodes);
+   assert(local_dest < (tw_lpid)num_nodes);
    codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest / num_servers_per_rep, local_dest % num_servers_per_rep, &global_dest);
   
 //printf("2local_dest:%d global_dest:%d num_nodes:%d\n", local_dest, global_dest, num_nodes);
@@ -485,7 +484,7 @@ int main(
    if(traffic == WORST_CASE)
    {
         worst_dest = (int*)calloc(total_routers,sizeof(int));
-        init_worst_case_mapping(worst_dest);
+        init_worst_case_mapping();
 #if PRINT_WORST_CASE_MATCH
         int l;
         for(l=0; l<total_routers; l++)

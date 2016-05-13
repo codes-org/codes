@@ -621,7 +621,7 @@ static void slimfly_configure(){
     num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
     all_params = malloc(num_params * sizeof(*all_params));
 
-    for (uint64_t i = 0; i < anno_map->num_annos; i++){
+    for (uint64_t i = 0; i < (uint64_t)anno_map->num_annos; i++){
         const char * anno = anno_map->annotations[i].ptr;
         slimfly_read_config(anno, &all_params[i]);
     }
@@ -671,7 +671,7 @@ static void slimfly_report_stats()
 	if(slimfly_results_log == NULL)
 		tw_error(TW_LOC, "\n Failed to open slimfly results log file \n");
 	printf("Printing Simulation Parameters/Results Log File\n");
-	fprintf(slimfly_results_log,"%10.3lf, %15.3lf, %11.3lf, %13.3d, %16.3d, %16.3d, %25.5f, %14.5f, ", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets),max_time,total_minimal_packets,total_nonmin_packets,total_finished_chunks,throughput_avg*100,throughput_avg2);
+	fprintf(slimfly_results_log,"%10.3lf, %15.3lf, %11.3lf, %13.3d, %16.3d, %16.3lld, %25.5f, %14.5f, ", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets),max_time,total_minimal_packets,total_nonmin_packets,total_finished_chunks,throughput_avg*100,throughput_avg2);
 	fclose(slimfly_results_log);
 #endif 
   }
@@ -1037,7 +1037,7 @@ void slim_router_setup(router_state * r, tw_lp * lp)
 	}
 
 	// Loop over second subgraph source routers
-	for(rid_d==r->params->slim_total_routers-1;rid_d>=0;rid_d--)
+	for(rid_d=r->params->slim_total_routers-1;rid_d>=0;rid_d--)
 	{
 		// Decompose source and destination Router IDs into 3D subgraph coordinates (subgraph,i,j)
 		if(rid_d >= r->params->slim_total_routers/2)
@@ -1513,12 +1513,12 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
 	if(cur_entry != NULL && s->vc_occupancy[0] + s->params->chunk_size <= s->params->cn_vc_size) 
 	{
 		bf->c3 = 1;
-		slim_terminal_message *m;
+		slim_terminal_message *m_new;
 		ts = g_tw_lookahead + s->params->cn_delay + tw_rand_unif(lp->rng);
 		tw_event* e = model_net_method_event_new(lp->gid, ts, lp, SLIMFLY, 
-		(void**)&m, NULL);
-		m->type = T_SEND;
-		m->magic = slim_terminal_magic_num;
+		(void**)&m_new, NULL);
+		m_new->type = T_SEND;
+		m_new->magic = slim_terminal_magic_num;
 		tw_event_send(e);
 	} 
 	else 
