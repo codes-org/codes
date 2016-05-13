@@ -12,7 +12,7 @@ check_PROGRAMS += tests/lp-io-test \
  tests/concurrent-msg-recv tests/modelnet-simplep2p-test \
  tests/modelnet-test-collective \
  tests/modelnet-prio-sched-test \
- tests/modelnet-test-dragonfly
+ tests/modelnet-test-dragonfly 
 
 TESTS += tests/lp-io-test.sh \
  tests/workload/codes-workload-test.sh \
@@ -26,6 +26,7 @@ TESTS += tests/lp-io-test.sh \
  tests/modelnet-test-torus.sh \
  tests/modelnet-test-loggp.sh \
  tests/modelnet-test-dragonfly.sh \
+ tests/modelnet-test-slimfly.sh \
  tests/modelnet-p2p-bw-loggp.sh \
  tests/modelnet-prio-sched-test.sh
 
@@ -48,6 +49,7 @@ EXTRA_DIST += tests/lp-io-test.sh \
  tests/modelnet-test-torus.sh \
  tests/modelnet-test-loggp.sh \
  tests/modelnet-test-dragonfly.sh \
+ tests/modelnet-test-slimfly.sh \
  tests/modelnet-p2p-bw-loggp.sh \
  tests/modelnet-prio-sched-test.sh \
  tests/conf/concurrent_msg_recv.conf \
@@ -57,6 +59,7 @@ EXTRA_DIST += tests/lp-io-test.sh \
  tests/conf/modelnet-test-bw-tri.conf \
  tests/conf/modelnet-test.conf \
  tests/conf/modelnet-test-dragonfly.conf \
+ tests/conf/modelnet-test-slimfly.conf \
  tests/conf/modelnet-test-loggp.conf \
  tests/conf/modelnet-test-simplep2p.conf \
  tests/conf/modelnet-test-latency.conf \
