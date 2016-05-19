@@ -2005,6 +2005,7 @@ void dragonfly_rsample_fn(router_state * s,
 void dragonfly_rsample_fin(router_state * s,
         tw_lp * lp)
 {
+    (void)lp;
     const dragonfly_param * p = s->params;
 
     if(!g_tw_mynode)
@@ -2029,7 +2030,6 @@ void dragonfly_rsample_fin(router_state * s,
         sprintf(rt_fn, "%s-%ld.bin", router_sample_file, g_tw_mynode);
     
     int i = 0;
-    int j = 0;
 
     int size_sample = sizeof(tw_lpid) + p->radix * (sizeof(int64_t) + sizeof(tw_stime)) + sizeof(tw_stime) + 2 * sizeof(long);
     FILE * fp = fopen(rt_fn, "a");
