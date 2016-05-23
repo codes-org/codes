@@ -15,6 +15,7 @@ EXTRA_DIST += src/iokernellang/codesparser.y.in \
 			  src/network-workloads/README_synthetic.txt \
 			  src/network-workloads/README_traces.txt \
 			  src/network-workloads/workloads.conf \
+			  src/network-workloads/README_synthetic_slimfly.txt \
 			  src/network-workloads/conf/modelnet-mpi-test.conf \
 			  src/network-workloads/conf/modelnet-mpi-test-cry-router.conf \
 			  src/network-workloads/conf/modelnet-mpi-test-dragonfly.conf \
@@ -29,7 +30,9 @@ EXTRA_DIST += src/iokernellang/codesparser.y.in \
 			  src/networks/model-net/doc/README.loggp.txt \
 			  src/networks/model-net/doc/README.simplenet.txt \
 			  src/networks/model-net/doc/README.simplep2p.txt \
-			  src/networks/model-net/doc/README.torus.txt
+			  src/networks/model-net/doc/README.torus.txt \
+			  src/networks/model-net/doc/README.slimfly.txt
+
 
 #src/network-workload/README
 #src/network-workload/offsets
