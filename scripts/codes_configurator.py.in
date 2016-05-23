@@ -21,7 +21,7 @@ def import_from(fname):
     fmod, fname, data = imp.find_module(name, [path])
     return imp.load_module(name,fmod,fname,data)
 
-conf = import_from("@libdir@/configurator.py")
+conf = import_from("@bindir@/_configurator.py")
 
 def main():
     args = parse_args()
