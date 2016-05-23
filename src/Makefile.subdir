@@ -12,7 +12,6 @@ EXTRA_DIST += src/iokernellang/codesparser.y.in \
 			  src/util/README.codes-mapping.txt \
 			  src/util/README.lp-io.txt \
 			  src/workload/README.codes-workload \
-			  src/workload/TODO.codes-workload \
 			  src/network-workloads/README_synthetic.txt \
 			  src/network-workloads/README_traces.txt \
 			  src/network-workloads/workloads.conf \
@@ -30,8 +29,7 @@ EXTRA_DIST += src/iokernellang/codesparser.y.in \
 			  src/networks/model-net/doc/README.loggp.txt \
 			  src/networks/model-net/doc/README.simplenet.txt \
 			  src/networks/model-net/doc/README.simplep2p.txt \
-			  src/networks/model-net/doc/README.torus.txt \
-			  src/networks/model-net/MN_TODO
+			  src/networks/model-net/doc/README.torus.txt
 
 #src/network-workload/README
 #src/network-workload/offsets

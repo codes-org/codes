@@ -1,9 +1,0 @@
-- Generalize the notation used to identify entities in the application (they
-  are referred to by ranks right now).  See email from Dries 9/18/2013.
-
-- Implement some "real" workload generator method examples.
-
-- Plug workload API into storage simulations.
-
-- Implement a trace replay tool as an MPI program that uses the same API so
-  that we can replay workloads on real systems in addition to simulation.
