@@ -15,12 +15,17 @@ networks:
 
 addition of the SlimFly network topology, corresponding to the Wolfe et al.
   paper "Modeling a Million-node Slim Fly Network using Parallel Discrete-event
-  Simulation", to appear at SIGSIM-PADS'16. See README.slimfly.txt 
+  Simulation", at SIGSIM-PADS'16. See README.slimfly.txt 
   (src/networks/model-net/doc).
 
 modelnet now supports sampling at regular intervals. Dragonfly LPs can
   currently make use of this - others can be added based on demand. See
   (src/network-workloads/README_synthetic.txt).
+
+dragonfly and torus network models credit-based flow control has been updated.
+    Dragonfly model's adaptive routing algorithms have been updated. For details,
+    see paper "Enabling Parallel Simulation of Large-Scale HPC Network Systems",
+    M.Mubarak et al., at IEEE Trans. on Parallel and Distributed Systems (TPDS). 
 
 allow 0-byte messages in model-net.
 
