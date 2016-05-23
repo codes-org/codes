@@ -17,7 +17,8 @@ extern "C" {
 /* ALL FUNCTIONS
  * anno is the annotation specified in the configuration (NULL -> no
  * annotation), while ignore_annotations is a flag controlling whether
- * annotations are checked for or not - if not, then */
+ * annotations are checked for or not - if not, then the first matching LP type
+ * found is used irrespective of annotation. */
 
 /** TORUS FUNCTIONS **/
 
