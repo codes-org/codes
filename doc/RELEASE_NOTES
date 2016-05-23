@@ -6,7 +6,7 @@ general:
 codes-base and codes-net have been combined into a single project (now at
 https://xgitlab.cels.anl.gov/codes/codes).
 
-updated to ROSS revision ___
+updated to ROSS revision d9cef53.
 
 fixed a large number of warnings across the codebase.
 
