@@ -13,7 +13,7 @@ EXTRA_DIST += \
  doc/algorithm.sty \
  doc/algorithmic.sty \
  doc/codes-best-practices.tex \
- doc/Makefile.best-practice \
+ doc/Makefile \
  doc/example/example.conf \
  doc/example_heterogeneous/example.conf \
  doc/example_heterogeneous/example_torus.conf \

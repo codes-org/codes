@@ -6,7 +6,13 @@ bin_SCRIPTS += $(my_bin_scripts)
 EXTRA_DIST += scripts/codes_configurator.py.in \
 			  scripts/codes_filter_configs.py.in \
 			  scripts/codes_config_get_vals.py.in \
-			  scripts/configurator.py
+			  scripts/configurator.py \
+			  scripts/example/example.template \
+			  scripts/example/params.py \
+			  scripts/allocation_gen/allocation.conf \
+			  scripts/allocation_gen/config_alloc.conf \
+			  scripts/allocation_gen/listgen.py \
+			  scripts/allocation_gen/README
 CLEANFILES += $(my_bin_scripts)
 
 # manual rules for now

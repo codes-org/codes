@@ -5,4 +5,4 @@ Nikhil Jain (UIUC)
 
 Xu Yang (IIT)
     - Added support for running multiple application workloads with CODES MPI
-      Simulation layer.
+      Simulation layer, along with supporting scripts and utilities.
