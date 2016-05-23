@@ -15,11 +15,12 @@ networks:
 
 addition of the SlimFly network topology, corresponding to the Wolfe et al.
   paper "Modeling a Million-node Slim Fly Network using Parallel Discrete-event
-  Simulation", to appear at SIGSIM-PADS'16. See ___
+  Simulation", to appear at SIGSIM-PADS'16. See README.slimfly.txt 
+  (src/networks/model-net/doc).
 
 modelnet now supports sampling at regular intervals. Dragonfly LPs can
   currently make use of this - others can be added based on demand. See
-  ___.
+  (src/network-workloads/README_synthetic.txt).
 
 allow 0-byte messages in model-net.
 
@@ -50,7 +51,8 @@ removed scalatrace workload generator, which never made it to a usable state.
 
 a new checkpoint IO workload generator has been added, based on the Daly paper
   "A higher order estimate of the optimum checkpoint interval for restart
-  dumps" at Future Generation Computing Systems 2004. See ___.
+  dumps" at Future Generation Computing Systems 2004. See README.codes-workload
+  (src/workload).
 
 utilities:
 ==========
