@@ -1465,7 +1465,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     if(hash_link)
         tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
 
-    int total_chunks = msg->total_size / s->params->chunk_size;
+    unsigned int total_chunks = msg->total_size / s->params->chunk_size;
 
     if(msg->total_size % s->params->chunk_size)
           total_chunks++;
