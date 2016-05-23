@@ -1,84 +1,211 @@
+0.5.0
+
+general:
+==========
+
+codes-base and codes-net have been combined into a single project (now at
+https://xgitlab.cels.anl.gov/codes/codes).
+
+updated to ROSS revision ___
+
+fixed a large number of warnings across the codebase.
+
+networks:
+==========
+
+addition of the SlimFly network topology, corresponding to the Wolfe et al.
+  paper "Modeling a Million-node Slim Fly Network using Parallel Discrete-event
+  Simulation", to appear at SIGSIM-PADS'16. See ___
+
+modelnet now supports sampling at regular intervals. Dragonfly LPs can
+  currently make use of this - others can be added based on demand. See
+  ___.
+
+allow 0-byte messages in model-net.
+
+enable "local" model-net messages (for LPs sharing the same model-net endpoint -
+  approximates a zero-copy ownership pass of the payload)
+
+the model_net_event family of functions now return a token value which must
+  be passed to model_net_event_rc2.
+
+workloads:
+==========
+
+concurrent workload support added to workload generators and the MPI
+  simulation layer. See codes-jobmap.h and the modified codes-workload.h.
+  Thanks to Xu Yang for the partial contributions. Not all workload generators
+  support concurrent workloads at this time.
+
+scripts for generating job allocations specific to the torus and dragonfly
+  topologies. See scripts/allocation_gen. Thanks to Xu Yang for the
+  contributions.
+
+multiple fixes to the MPI simulation layer and DUMPI workload generator.
+
+concurrent workload support and more flexible rank mappings in the MPI
+  simulation layer. Thanks to Xu Yang for the initial code.
+
+removed scalatrace workload generator, which never made it to a usable state.
+
+a new checkpoint IO workload generator has been added, based on the Daly paper
+  "A higher order estimate of the optimum checkpoint interval for restart
+  dumps" at Future Generation Computing Systems 2004. See ___.
+
+utilities:
+==========
+
+fixes to rc-stack - memory no longer leaks in sequential mode, and optimistic
+  debug mode is now supported.
+
+added a more performance-sensitive function, codes_mapping_get_lp_info2, to
+  codes-mapping (passes const pointers around instead of copying strings)
+
+added a "mapping context" API for better controlling implicit LP-LP mappings,
+  including modelnet, local storage model, and resource. See
+  codes/codes-mapping-context.h and added functions in the mentioned LPs for
+  details.
+
+formalized a callback mechanism for CODES, replacing previous ad-hoc
+  methods of passing control from LPs to arbitrary other LPs. The request and
+  local storage model LP APIs have been changed to use this mechanism, and
+  model-net has additional APIs to use user-provided mapping contexts. See
+  codes/codes-callback.h for the API and tests/resource-test.c for advanced
+  usage.
+
+deprecations:
+==========
+
+model_net_event_rc (use model_net_event_rc2, which will eventually be renamed
+  to model_net_event_rc)
+
+codes_event_new (define your own bounds-checking macro if need be)
+
+
 0.4.0
 
 codes-base
 
 general:
 ==========
+
 significant source reorganization / refactoring
+
 refactor some private headers out of the public eye
+
 dead code removal
 
 documentation:
 ==========
+
 improved example_heterogeneous example program
+
 added configuration to example_heterogeneous showing two torus networks
+
 reorganized files to prevent name collisions on OSX. Top-level docs other than
   copyright now in doc directory
+
 additions to best practice document
 
 configurator:
 ==========
+
 more stable file format for configurator output
+
 ignore unrelated parameters passed into filter_configs
+
 handle empty cfields in configurator
 
 workloads:
 ==========
+
 combined network and IO workload APIs into a single one
+
 adding dumpi workload support in codes-workload-dump utility
+
 workload dump utility option cleanup
+
 renamed "bgp" workload generator to "iolang", significant cleanups
+
 put network workload ops in workload dump util
+
 removing one of the dumpi libraries from the build. It was generating some unwanted dumpi files.
+
 network workload API more fleshed out
 
 utilities:
 ==========
+
 configuration bug fixes for larger LP type counts
+
 resource LP annotation mapping hooks
+
 local storage model API switch to use annotations
+
 better configuration error handling
+
 hedge against precision loss in codes_local_latency (see codes.h)
+
 use a different RNG than default for codes_local_latency
 - prevents addition/removal of codes_local_latency calls from poisoning RNG
   stream of calling model
+
 added simple GVT-aware stack with garbage collection (see rc-stack.h)
 
 codes-net
 
 general:
 ==========
+
 cleanup of much of the code base
+
 more informative error for failure to find modelnet lps
+
 removed redundant include directory on install (was 'install/codes/codes/*.h')
 
 documentation:
 ==========
+
 reorganized files to prevent name collisions on OSX. Top-level docs other than
   copyright now in doc directory
+
 updated code documentation
+
 fix linker error in certain cases with codes-base
+
 tweaked config error handling
 
 
 networks:
 ==========
 fix to loggp latency calculation when using "receive queue"
+
 made torus lps agnostic to groups and aware of annotations
+
 miscellaneous fixes to dragonfly model
+
 updates to simplep2p: support for having different latency/bw at sender &
   receiver end. See src/models/networks/model-net/doc/README.simplep2p.txt
+
 minor fixes to usage of quickhash in replay tool
+
 fixed RNG reverse computation bug in loggp
+
 fixed swapped arguments in round-robin scheduler causing short circuit
 
 workloads:
 ==========
+
 minor changes to dumpi trace config files
+
 resolving minor bug with reverse computation in dumpi traces
+
 Updating network trace code to use the combined workload API
+
 Adding synthetic traffic patterns (currently with dragonfly model)
+
 Adding network workload test program for debugging
+
 Updating MPI wait/wait_all code in replay tool
 
 0.3.0
