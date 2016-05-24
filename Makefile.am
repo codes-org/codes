@@ -21,7 +21,8 @@ $(pkgconfig_DATA): config.status
 
 EXTRA_DIST += \
   prepare.sh COPYRIGHT configure.ac uc-codes.cfg reformat.sh \
-  misc/README misc/ptrn_loggp-2.4.6.patch CONTRIBUTORS.md
+  misc/README misc/ptrn_loggp-2.4.6.patch CONTRIBUTORS.md \
+  README.md
 
 AM_CPPFLAGS = -I$(top_srcdir)/src ${ROSS_CFLAGS}
 
