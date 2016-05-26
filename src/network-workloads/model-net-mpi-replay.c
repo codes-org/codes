@@ -25,10 +25,7 @@
 #define lprintf(_fmt, ...) \
         do {if (CS_LP_DBG) printf(_fmt, __VA_ARGS__);} while (0)
 #define MAX_STATS 65536
-
-#define MAX_DATA 2758850.000000
 #define PAYLOAD_SZ 1024
-#define MEAN_INTERVAL 100000
 
 char workload_type[128];
 char workload_file[8192];
@@ -43,6 +40,8 @@ static char lp_io_dir[256] = {'\0'};
 static lp_io_handle io_handle;
 static unsigned int lp_io_use_suffix = 0;
 static int do_lp_io = 0;
+static tw_stime max_data = 2758850.000000;
+static tw_stime mean_interval = 100000;
 
 /* variables for loading multiple applications */
 /* Xu's additions start */
@@ -292,7 +291,7 @@ static void update_message_time_rc(
 /* generate synthetic traffic */
 static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-    if(s->gen_data >= MAX_DATA)
+    if(s->gen_data >= max_data)
     {
         bf->c0 = 1;
         return;
@@ -336,7 +335,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
     num_syn_bytes_sent += PAYLOAD_SZ; 
 
     /* New event after MEAN_INTERVAL */  
-    tw_stime ts = MEAN_INTERVAL  + tw_rand_exponential(lp->rng, MEAN_INTERVAL/1000); 
+    tw_stime ts = mean_interval  + tw_rand_exponential(lp->rng, mean_interval/1000); 
     tw_event * e;
     nw_message * m_new;
     e = tw_event_new(lp->gid, ts, lp);
@@ -1257,7 +1256,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        {
             tw_event * e;
             nw_message * m_new;
-            tw_stime ts = tw_rand_exponential(lp->rng, MEAN_INTERVAL/1000);
+            tw_stime ts = tw_rand_exponential(lp->rng, mean_interval/1000);
             e = tw_event_new(lp->gid, ts, lp);
             m_new = tw_event_data(e);
             m_new->msg_type = CLI_BCKGND_GEN;
@@ -1647,6 +1646,8 @@ const tw_optdef app_opt [] =
     TWOPT_UINT("sampling_interval", sampling_interval, "sampling interval for MPI operations"),
 	TWOPT_UINT("enable_sampling", enable_sampling, "enable sampling"),
     TWOPT_STIME("sampling_end_time", sampling_end_time, "sampling_end_time"),
+    TWOPT_STIME("max_data", max_data, "max_data"),
+    TWOPT_STIME("mean_interval", mean_interval, "mean_interval"),
     TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
     TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
 	TWOPT_CHAR("offset_file", offset_file, "offset file name"),
