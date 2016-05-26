@@ -233,7 +233,7 @@ struct terminal_state
    uint64_t rank_tbl_pop;
 
    tw_stime   total_time;
-   long total_msg_size;
+   uint64_t total_msg_size;
    double total_hops;
    long finished_msgs;
    long finished_chunks;
@@ -1467,6 +1467,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
 
     unsigned int total_chunks = msg->total_size / s->params->chunk_size;
 
+    printf("\n Msg total size %ld total chunks %lu ", msg->total_size, total_chunks);
     if(msg->total_size % s->params->chunk_size)
           total_chunks++;
 
