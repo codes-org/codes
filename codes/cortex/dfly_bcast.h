@@ -8,7 +8,8 @@ extern "C" {
 typedef enum {
 	DFLY_BCAST_TREE = 0,
 	DFLY_BCAST_LLF,
-	DFLY_BCAST_GLF
+	DFLY_BCAST_GLF,
+        DFLY_BCAST_FOREST
 } bcast_type;
 
 typedef void (*send_handler)(int app_id, int rank, int size, int dest, int tag, void* uarg);
