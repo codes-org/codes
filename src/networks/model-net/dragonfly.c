@@ -1124,7 +1124,7 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
   if(!num_chunks)
     num_chunks = 1;
 
-  nic_ts = g_tw_lookahead + s->params->cn_delay + tw_rand_unif(lp->rng);
+  nic_ts = g_tw_lookahead + (num_chunks * s->params->cn_delay) + tw_rand_unif(lp->rng);
   
   msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
   msg->my_N_hop = 0;
@@ -1467,7 +1467,6 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
 
     uint64_t total_chunks = msg->total_size / s->params->chunk_size;
 
-    printf("\n Msg total size %ld total chunks %lu ", msg->total_size, total_chunks);
     if(msg->total_size % s->params->chunk_size)
           total_chunks++;
 
