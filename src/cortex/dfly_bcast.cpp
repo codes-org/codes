@@ -201,7 +201,9 @@ static int dfly_build_couples(std::vector<couple_t>& couples,
 	return 0;
 }
 
-static int dfly_bcast_llf(job_id_t job_id, std::vector<rank_t> ranks_vec, int size, const comm_handler* comm, void* uarg) {
+static int dfly_bcast_llf(job_id_t job_id, std::vector<rank_t> ranks_vec, int size, 
+	bool parallel_trees,
+	const comm_handler* comm, void* uarg) {
 	rank_t root_rank = ranks_vec[0];
 	// get the placement of the root process
 	placement_info 	root;
@@ -244,6 +246,26 @@ static int dfly_bcast_llf(job_id_t job_id, std::vector<rank_t> ranks_vec, int si
 	// make sure to put the 
 	dfly_bcast_tree(job_id, root_team, size, comm, uarg);
 
+	if(parallel_trees)
+        {
+        // build the trees
+        std::map<rank_t,std::vector<rank_t> > couple_trees;
+        for(i=0; i<couples.size(); i++) {
+                couple_t& c = couples[i];
+                if(couple_trees.count(c.first) == 0) {
+                        couple_trees[c.first].push_back(c.first);
+                }
+                couple_trees[c.first].push_back(c.second);
+        }
+        std::map<rank_t,std::vector<rank_t> >::iterator it = couple_trees.begin();
+        for(; it != couple_trees.end(); it++) {
+                std::vector<rank_t>& ranks = it->second;
+                dfly_bcast_tree(job_id, ranks, size, comm, uarg);
+        }
+        }
+	else
+	{
+
 	// send in couples
 	for(i=0; i<couples.size(); i++) {
 		couple_t& c = couples[i];
@@ -252,6 +274,7 @@ static int dfly_bcast_llf(job_id_t job_id, std::vector<rank_t> ranks_vec, int si
 		} else if(c.second == comm->my_rank) {
 			comm->do_recv(job_id, comm->my_rank, size, c.first, 0, uarg);
 		}
+	}
 	}
 
 	// do a broadcast in the non-root teams
@@ -379,10 +402,12 @@ extern "C" void dfly_bcast(bcast_type type, int app_id, int root, int nprocs, in
 		dfly_bcast_tree(app_id, ranks, size, comm, uarg);
 		break;
 	case DFLY_BCAST_LLF:
-		dfly_bcast_llf(app_id, ranks, size, comm, uarg);
+		dfly_bcast_llf(app_id, ranks, size, false, comm, uarg);
 		break;
 	case DFLY_BCAST_GLF:
 		dfly_bcast_glf(app_id, ranks, size, comm, uarg);
 		break;
+	case DFLY_BCAST_FOREST:
+		dfly_bcast_llf(app_id, ranks, size, true, comm, uarg);
 	}
 }
