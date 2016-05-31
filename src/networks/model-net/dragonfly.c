@@ -233,7 +233,7 @@ struct terminal_state
    uint64_t rank_tbl_pop;
 
    tw_stime   total_time;
-   long total_msg_size;
+   uint64_t total_msg_size;
    double total_hops;
    long finished_msgs;
    long finished_chunks;
@@ -394,7 +394,7 @@ static tw_stime bytes_to_ns(uint64_t bytes, double GB_p_s)
 
     /* bytes to GB */
     time = ((double)bytes)/(1024.0*1024.0*1024.0);
-    /* MB to s */
+    /* GiB to s */
     time = time / GB_p_s;
     /* s to ns */
     time = time * 1000.0 * 1000.0 * 1000.0;
@@ -1124,7 +1124,7 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
   if(!num_chunks)
     num_chunks = 1;
 
-  nic_ts = g_tw_lookahead + s->params->cn_delay * msg->packet_size + tw_rand_unif(lp->rng);
+  nic_ts = g_tw_lookahead + (num_chunks * s->params->cn_delay) + tw_rand_unif(lp->rng);
   
   msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
   msg->my_N_hop = 0;
@@ -1465,7 +1465,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     if(hash_link)
         tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
 
-    int total_chunks = msg->total_size / s->params->chunk_size;
+    uint64_t total_chunks = msg->total_size / s->params->chunk_size;
 
     if(msg->total_size % s->params->chunk_size)
           total_chunks++;
@@ -1630,7 +1630,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
         s->total_msg_size += msg->total_size;
         s->finished_msgs++;
         
-        assert(tmp->remote_event_data && tmp->remote_event_size > 0);
+        //assert(tmp->remote_event_data && tmp->remote_event_size > 0);
         send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
         /* Remove the hash entry */
         qhash_del(hash_link);
@@ -2005,6 +2005,7 @@ void dragonfly_rsample_fn(router_state * s,
 void dragonfly_rsample_fin(router_state * s,
         tw_lp * lp)
 {
+    (void)lp;
     const dragonfly_param * p = s->params;
 
     if(!g_tw_mynode)
@@ -2029,7 +2030,6 @@ void dragonfly_rsample_fin(router_state * s,
         sprintf(rt_fn, "%s-%ld.bin", router_sample_file, g_tw_mynode);
     
     int i = 0;
-    int j = 0;
 
     int size_sample = sizeof(tw_lpid) + p->radix * (sizeof(int64_t) + sizeof(tw_stime)) + sizeof(tw_stime) + 2 * sizeof(long);
     FILE * fp = fopen(rt_fn, "a");
@@ -2365,7 +2365,7 @@ void dragonfly_router_final(router_state * s,
     int written = 0;
     if(!s->router_id)
     {
-        written = sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>\n");
+        written = sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
         written += sprintf(s->output_buf + written, "# Router ports in the order: %d local channels, %d global channels \n", 
                 p->num_routers, p->num_global_channels);
     }
@@ -2382,7 +2382,7 @@ void dragonfly_router_final(router_state * s,
     written = 0;
     if(!s->router_id)
     {
-        written = sprintf(s->output_buf2, "# Format <LP ID> <Group ID> <Router ID> <Link traffic per router port(s)>\n");
+        written = sprintf(s->output_buf2, "# Format <LP ID> <Group ID> <Router ID> <Link traffic per router port(s)>");
         written += sprintf(s->output_buf2 + written, "# Router ports in the order: %d local channels, %d global channels \n",
             p->num_routers, p->num_global_channels);
     }
@@ -2909,12 +2909,7 @@ router_packet_send( router_state * s,
   if(!num_chunks)
       num_chunks = 1;
 
-  double bytetime;
-  if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1)) {
-      bytetime = delay * (cur_entry->msg.packet_size % s->params->chunk_size);
-  } else {
-    bytetime = delay * s->params->chunk_size;
-  }
+  double bytetime = delay;
   ts = g_tw_lookahead + tw_rand_unif( lp->rng) + bytetime + s->params->router_delay;
 
   msg->saved_available_time = s->next_output_available_time[output_port];
