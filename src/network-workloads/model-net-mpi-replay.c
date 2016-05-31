@@ -22,7 +22,6 @@
 #define TRACE -1
 #define MAX_WAIT_REQS 512
 #define CHK_LP_NM "nw-lp"
-#define COL_MSG_SIZE 1024
 #define CS_LP_DBG 0
 #define lprintf(_fmt, ...) \
         do {if (CS_LP_DBG) printf(_fmt, __VA_ARGS__);} while (0)
@@ -43,6 +42,7 @@ static lp_io_handle io_handle;
 static unsigned int lp_io_use_suffix = 0;
 static int do_lp_io = 0;
 static tw_stime mean_interval = 100000;
+static unsigned int bcast_size = 0;
 
 /* variables for loading multiple applications */
 /* Xu's additions start */
@@ -1432,7 +1432,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
                tw_error(TW_LOC, "\n Unknown collective algo type %d must be 0-2 ", algo_type);
 
            params_c.root = 0;
-           params_c.size = COL_MSG_SIZE;
+           params_c.size = bcast_size;
            params = (char*)&params_c;
           
            wrkld_id = codes_workload_load("cortex-workload", params, s->app_id, s->local_rank);
@@ -1831,6 +1831,7 @@ const tw_optdef app_opt [] =
 	TWOPT_CHAR("alloc_file", alloc_file, "allocation file name"),
 	TWOPT_CHAR("workload_conf_file", workloads_conf_file, "workload config file name"),
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
+	TWOPT_UINT("bcast_size", bcast_size, "size of the broadcast"),
 	TWOPT_UINT("algo_type", algo_type, "collective algorithm type 0 : TREE, 1: LLF, 2: GLF"),
     TWOPT_UINT("disable_compute", disable_delay, "disable compute simulation"),
     TWOPT_UINT("enable_mpi_debug", enable_debug, "enable debugging of MPI sim layer (works with sync=1 only)"),
