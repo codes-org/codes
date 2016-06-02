@@ -1630,7 +1630,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
         s->total_msg_size += msg->total_size;
         s->finished_msgs++;
         
-        assert(tmp->remote_event_data && tmp->remote_event_size > 0);
+        //assert(tmp->remote_event_data && tmp->remote_event_size > 0);
         send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
         /* Remove the hash entry */
         qhash_del(hash_link);
@@ -2369,14 +2369,13 @@ void dragonfly_router_final(router_state * s,
         written += sprintf(s->output_buf + written, "# Router ports in the order: %d local channels, %d global channels \n", 
                 p->num_routers, p->num_global_channels);
     }
-    written += sprintf(s->output_buf + written, "%llu %d %d", 
+    written += sprintf(s->output_buf + written, "\n %llu %d %d", 
             LLU(lp->gid),
             s->router_id / p->num_routers,
             s->router_id % p->num_routers);
     for(int d = 0; d < p->num_routers + p->num_global_channels; d++) 
         written += sprintf(s->output_buf + written, " %lf", s->busy_time[d]);
 
-    sprintf(s->output_buf + written, "\n");
     lp_io_write(lp->gid, "dragonfly-router-stats", written, s->output_buf);
 
     written = 0;
@@ -2386,7 +2385,7 @@ void dragonfly_router_final(router_state * s,
         written += sprintf(s->output_buf2 + written, "# Router ports in the order: %d local channels, %d global channels \n",
             p->num_routers, p->num_global_channels);
     }
-    written += sprintf(s->output_buf2 + written, "%llu %d %d",
+    written += sprintf(s->output_buf2 + written, "\n %llu %d %d",
         LLU(lp->gid),
         s->router_id / p->num_routers,
         s->router_id % p->num_routers);
@@ -2394,7 +2393,6 @@ void dragonfly_router_final(router_state * s,
     for(int d = 0; d < p->num_routers + p->num_global_channels; d++) 
         written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
 
-    sprintf(s->output_buf2 + written, "\n");
     lp_io_write(lp->gid, "dragonfly-router-traffic", written, s->output_buf2);
 }
 
