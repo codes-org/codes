@@ -270,6 +270,21 @@ static nodes_message_list* return_tail(
     return tail;
 }
 
+/* convert GiB/s and bytes to ns */
+static tw_stime bytes_to_ns(uint64_t bytes, double GB_p_s)
+{
+    tw_stime time;
+
+    /* bytes to GB */
+    time = ((double)bytes)/(1024.0*1024.0*1024.0);
+    /* GiB to s */
+    time = time / GB_p_s;
+    /* s to ns */
+    time = time * 1000.0 * 1000.0 * 1000.0;
+
+    return(time);
+}
+
 static void torus_read_config(
         const char         * anno,
         torus_param        * params){
@@ -348,8 +363,8 @@ static void torus_read_config(
         p->half_length[i] = p->dim_length[i] / 2;
 
     // some latency numbers
-    p->head_delay = (1.0 / p->link_bandwidth) * p->chunk_size;
-    p->credit_delay = (1.0 / p->link_bandwidth) * p->chunk_size;
+    p->head_delay = bytes_to_ns(p->chunk_size, p->link_bandwidth);
+    p->credit_delay = bytes_to_ns(8, p->link_bandwidth);
 }
 
 static void torus_configure(){
@@ -1288,13 +1303,15 @@ static void packet_send( nodes_state * s,
         num_chunks = 1;
 
     double bytetime;
-    if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1)) 
+/*    if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1)) 
     {
         bytetime = s->params->head_delay * (cur_entry->msg.packet_size % s->params->chunk_size);
     } 
     else 
         bytetime = s->params->head_delay * s->params->chunk_size;
-    
+*/ 
+    bytetime = s->params->head_delay;
+
     ts = codes_local_latency(lp) + bytetime + s->params->router_delay;
 
     //For reverse computation 
