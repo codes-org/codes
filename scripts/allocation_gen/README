@@ -10,4 +10,11 @@ There are three lines in the config_alloc.conf file.
 dragonfly, this number would be 1056
 3rd line: the number of ranks of each application. 
 
+To generate multiple random allocations with the same network configuration,
+listgen-upd.py can be used (Works only for random allocations right now). The
+configuration file (Example in config_alloc-upd) will then look like: 
 
+1st line: allocation policy, must be rand
+2nd line: the total terminal number of nodes in the system
+3rd line: the number of random allocations to generate
+4th line: number of ranks for each application.
