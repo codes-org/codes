@@ -1,4 +1,20 @@
-0.5.0
+0.5.1 (June 09, 2016)
+
+network:
+==========
+
+corrected link latency calculation in dragonfly model
+
+printf argument mismatch in dragonfly model
+
+refactors to the torus bandwidth calculation to mirror that of the other
+  networks (no functional change)
+
+more robust type conversions in dragonfly (int sizes -> uint64_t)
+
+----------
+
+0.5.0 (May 24, 2016)
 
 general:
 ==========
@@ -25,7 +41,7 @@ modelnet now supports sampling at regular intervals. Dragonfly LPs can
 dragonfly and torus network models credit-based flow control has been updated.
     Dragonfly model's adaptive routing algorithms have been updated. For details,
     see paper "Enabling Parallel Simulation of Large-Scale HPC Network Systems",
-    M.Mubarak et al., at IEEE Trans. on Parallel and Distributed Systems (TPDS). 
+    M.Mubarak et al., at IEEE Trans. on Parallel and Distributed Systems (TPDS).
 
 allow 0-byte messages in model-net.
 
@@ -88,8 +104,18 @@ model_net_event_rc (use model_net_event_rc2, which will eventually be renamed
 
 codes_event_new (define your own bounds-checking macro if need be)
 
+----------
 
-0.4.0
+0.4.1 (September 30, 2015)
+
+general:
+==========
+
+fix compatibility with recent ROSS releases
+
+----------
+
+0.4.0 (May 6, 2015)
 
 codes-base
 
@@ -215,7 +241,9 @@ Adding network workload test program for debugging
 
 Updating MPI wait/wait_all code in replay tool
 
-0.3.0
+----------
+
+0.3.0 (November 7, 2014)
 
 codes-base
 
