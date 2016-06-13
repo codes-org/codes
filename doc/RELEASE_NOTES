@@ -12,6 +12,9 @@ refactors to the torus bandwidth calculation to mirror that of the other
 
 more robust type conversions in dragonfly (int sizes -> uint64_t)
 
+removed the redundant and obsolete MPI replay simulator
+  (modelnet-mpi-wrklds.c). The proper version to use is modelnet-mpi-replay.c
+
 ----------
 
 0.5.0 (May 24, 2016)
