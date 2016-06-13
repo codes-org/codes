@@ -29,6 +29,10 @@ AC_PROG_RANLIB
 
 PKG_PROG_PKG_CONFIG
 
+if test -z "$PKG_CONFIG" ; then
+    AC_MSG_ERROR([pkg-config is required. Please install the pkg-config program on your PATH or set the PKG_CONFIG environment variable to the appropriate package.])
+fi
+
 # Check for C99
 AC_PROG_CC_C99
 
