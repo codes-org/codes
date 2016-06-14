@@ -91,7 +91,8 @@ nobase_include_HEADERS = \
 	codes/net/loggp.h \
 	codes/net/simplenet-upd.h \
 	codes/net/simplep2p.h \
-	codes/net/torus.h
+	codes/net/torus.h \
+	codes/configfile.h
 
 
 #codes/codes-nw-workload.h
@@ -114,7 +115,6 @@ src_libcodes_a_SOURCES =  \
     src/modelconfig/configfile.c \
     src/modelconfig/configglue.h \
     src/modelconfig/configglue.c \
-    src/modelconfig/configfile.h \
     src/modelconfig/configstore.h \
     src/modelconfig/configstore.c \
     src/modelconfig/configstoreadapter.h \

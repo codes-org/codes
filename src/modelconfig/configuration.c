@@ -13,7 +13,7 @@
 #include "codes/configuration.h"
 #include <ross.h>
 
-#include "configfile.h"
+#include <codes/configfile.h>
 #include "txt_configfile.h"
 
 /*

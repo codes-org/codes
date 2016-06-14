@@ -15,7 +15,7 @@
 #include <stdlib.h>
 #endif
 
-#include "configfile.h"
+#include <codes/configfile.h>
 #include "txt_configfile.h"
 
 static int cf_equal_helper (struct ConfigVTable * h1, SectionHandle s1, struct ConfigVTable * h2, 
