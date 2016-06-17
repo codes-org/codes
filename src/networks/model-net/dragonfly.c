@@ -1389,13 +1389,12 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
        
        if(bf->c7)
         {
-            //assert(!hash_link);
             N_finished_msgs--;
             s->finished_msgs--;
             total_msg_sz -= msg->total_size;
             s->total_msg_size -= msg->total_size;
 
-	    struct dfly_qhash_entry * d_entry_pop = rc_stack_pop(s->st);
+	        struct dfly_qhash_entry * d_entry_pop = rc_stack_pop(s->st);
             qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
             s->rank_tbl_pop++; 
 
@@ -1457,14 +1456,6 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     key.message_id = msg->message_id; 
     key.sender_id = msg->sender_lp;
     
-    struct qhash_head *hash_link = NULL;
-    struct dfly_qhash_entry * tmp = NULL;
-      
-    hash_link = qhash_search(s->rank_tbl, &key);
-    
-    if(hash_link)
-        tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
-
     uint64_t total_chunks = msg->total_size / s->params->chunk_size;
 
     if(msg->total_size % s->params->chunk_size)
@@ -1473,15 +1464,6 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     if(!total_chunks)
           total_chunks = 1;
 
-    /*if(tmp)
-    {
-        if(tmp->num_chunks >= total_chunks || tmp->num_chunks < 0)
-        {
-           //tw_output(lp, "\n invalid number of chunks %d for LP %ld ", tmp->num_chunks, lp->gid);
-           tw_lp_suspend(lp, 0, 0);
-           return;
-        }
-    }*/
     assert(lp->gid == msg->dest_terminal_id);
 
     if(msg->packet_ID == LLU(TRACK_PKT))
@@ -1574,9 +1556,14 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
    /* Now retreieve the number of chunks completed from the hash and update
     * them */
    void *m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
-
+    
+   struct qhash_head *hash_link = NULL;
+   struct dfly_qhash_entry * tmp = NULL;
+      
+   hash_link = qhash_search(s->rank_tbl, &key);
+    
    /* If an entry does not exist then create one */
-   if(!tmp)
+   if(!hash_link)
    {
        bf->c5 = 1;
        struct dfly_qhash_entry * d_entry = malloc(sizeof (struct dfly_qhash_entry));
@@ -1588,9 +1575,11 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
        s->rank_tbl_pop++;
       
        hash_link = &(d_entry->hash_link);
-       tmp = d_entry;
    }
     
+    if(hash_link)
+        tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
+
     assert(tmp);
     tmp->num_chunks++;
 
@@ -1612,16 +1601,22 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
          tmp->remote_event_size = msg->remote_event_size_bytes; 
          memcpy(tmp->remote_event_data, m_data_src, msg->remote_event_size_bytes);
     }
-        if (dragonfly_max_latency < tw_now( lp ) - msg->travel_start_time) {
+        if (dragonfly_max_latency < tw_now( lp ) - msg->travel_start_time) 
+        {
           bf->c3 = 1;
           msg->saved_available_time = dragonfly_max_latency;
           dragonfly_max_latency = tw_now( lp ) - msg->travel_start_time;
         }
     /* If all chunks of a message have arrived then send a remote event to the
      * callee*/
-    assert(tmp->num_chunks <= total_chunks);
+    /*if(tmp->num_chunks >= total_chunks || tmp->num_chunks < 0)
+        {
+           //tw_output(lp, "\n invalid number of chunks %d for LP %ld ", tmp->num_chunks, lp->gid);
+           tw_lp_suspend(lp, 0, 0);
+           return;
+        }*/
 
-    if(tmp->num_chunks == total_chunks)
+    if(tmp->num_chunks >= total_chunks)
     {
         bf->c7 = 1;
 
