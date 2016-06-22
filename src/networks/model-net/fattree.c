@@ -766,11 +766,32 @@ void switch_init(switch_state * r, tw_lp * lp)
 static void fattree_report_stats() { }
 
 /* fattree packet event */
-static tw_stime fattree_packet_event(model_net_request* req, char* category, 
-    tw_lpid final_dest_lp, uint64_t packet_size, int is_pull, 
-    uint64_t pull_size, tw_stime offset, const mn_sched_params *sched_params, 
-    int remote_event_size, const void* remote_event, int self_event_size, 
-    const void* self_event, tw_lpid src_lp, tw_lp *sender, int is_last_pckt) {
+static tw_stime fattree_packet_event(
+        model_net_request const * req,
+        uint64_t message_offset,
+        uint64_t packet_size,
+        tw_stime offset,
+        mn_sched_params const * sched_params,
+        void const * remote_event,
+        void const * self_event,
+        tw_lp *sender,
+        int is_last_pckt)
+/*	model_net_request* req, 
+	char* category, 
+    tw_lpid final_dest_lp, 
+	uint64_t packet_size, 
+	int is_pull, 
+    uint64_t pull_size, 
+	tw_stime offset, 
+	const mn_sched_params *sched_params, 
+    int remote_event_size, 
+	const void* remote_event, 
+	int self_event_size, 
+    const void* self_event, 
+	tw_lpid src_lp, 
+	tw_lp *sender, 
+	int is_last_pckt) 
+*/{
 
   tw_event * e_new;
   tw_stime xfer_to_nic_time;
@@ -780,16 +801,22 @@ static tw_stime fattree_packet_event(model_net_request* req, char* category,
   xfer_to_nic_time = codes_local_latency(sender);
   e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time + offset,
       sender, FATTREE, (void**)&msg, (void**)&tmp_ptr);
-  strcpy(msg->category, category);
-  msg->final_dest_gid = final_dest_lp;
-  msg->sender_lp = src_lp;
+  strcpy(msg->category, req->category);
+  msg->final_dest_gid = req->final_dest_lp;
+  msg->total_size = req->msg_size;
+  msg->sender_lp = req->src_lp;
+  msg->sender_mn_lp = sender->gid;
   msg->packet_size = packet_size;
-  msg->msg_size = req->msg_size;
-  msg->src_nic = req->src_nic;
-  msg->uniq_id = req->uniq_id;
+  msg->travel_start_time = tw_now(sender);
   msg->remote_event_size_bytes = 0;
   msg->local_event_size_bytes = 0;
   msg->type = T_GENERATE;
+  msg->dest_terminal_id = req->dest_mn_lp;
+  msg->message_id = req->msg_id;
+  msg->is_pull = req->is_pull;
+  msg->pull_size = req->pull_size;
+  msg->magic = terminal_magic_num; 
+  msg->msg_start_time = req->msg_start_time;
 
   /* Its the last packet so pass in remote and local event information*/
   if(is_last_pckt) 
