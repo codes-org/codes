@@ -35,19 +35,28 @@ struct fattree_message
   int last_hop;
   int intm_id; //to find which port I connect to sender with
 
+  /* number of hops traversed by the packet */
+  short my_N_hop;
+
   // For buffer message
   short vc_index;
   short vc_off;
-   int is_pull;
-   uint64_t pull_size;
+  int is_pull;
+  uint64_t pull_size;
 
-  /* for reverse computation */   
+  /* for reverse computation */    
+  int path_type; 
   tw_stime saved_available_time;
   tw_stime saved_credit_time;
   uint64_t packet_size;
   tw_stime msg_start_time;
+  tw_stime saved_sample_time;
+  tw_stime saved_avg_time;
+  tw_stime saved_rcv_time;
+  tw_stime saved_total_time;
 
   /* For routing */
+  uint64_t chunk_id;
   uint64_t total_size;
   uint64_t message_id;
    
