@@ -25,6 +25,7 @@ EXTRA_DIST += src/iokernellang/codesparser.y.in \
 			  src/network-workloads/conf/allocation-random.conf \
 			  src/network-workloads/conf/modelnet-synthetic-dragonfly.conf \
 			  src/network-workloads/conf/modelnet-synthetic-slimfly-min.conf \
+			  src/network-workloads/conf/modelnet-synthetic-fattree.conf \
 			  src/networks/model-net/doc/README \
 			  src/networks/model-net/doc/README.dragonfly.txt \
 			  src/networks/model-net/doc/README.loggp.txt \
@@ -88,6 +89,7 @@ nobase_include_HEADERS = \
 	codes/model-net-inspect.h \
 	codes/net/dragonfly.h \
 	codes/net/slimfly.h \
+	codes/net/fattree.h \
 	codes/net/loggp.h \
 	codes/net/simplenet-upd.h \
 	codes/net/simplep2p.h \
@@ -148,6 +150,7 @@ src_libcodes_a_SOURCES =  \
 	src/networks/model-net/torus.c \
 	src/networks/model-net/dragonfly.c \
 	src/networks/model-net/slimfly.c \
+	src/networks/model-net/fattree.c \
 	src/networks/model-net/loggp.c \
 	src/networks/model-net/simplep2p.c \
 	src/networks/model-net/model-net-lp.c \
