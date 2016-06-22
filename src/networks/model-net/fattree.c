@@ -38,6 +38,9 @@ static char def_group_name[MAX_NAME_LENGTH];
 static int def_gname_set = 0;
 static int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
 
+/* terminal magic number */
+int terminal_magic_num = 0;
+
 typedef struct fattree_message_list fattree_message_list;
 struct fattree_message_list {
     fattree_message msg;
@@ -449,6 +452,10 @@ static void fattree_configure(){
 /* initialize a fattree compute node terminal */
 void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
 {
+    uint32_t h1 = 0, h2 = 0; 
+    bj_hashlittle2(LP_METHOD_NM_TERM, strlen(LP_METHOD_NM_TERM), &h1, &h2);
+    terminal_magic_num = h1 + h2;
+
     int i;
     char anno[MAX_NAME_LENGTH];
 
@@ -932,6 +939,7 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, FATTREE, 
       (void**)&m, NULL);
     m->type = T_SEND;
+	m->magic = terminal_magic_num;
     s->in_send_loop = 1;
     tw_event_send(e);
     //printf("[%d] send loop triggered with ts %lf band %lf\n", 
@@ -1015,6 +1023,7 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, FATTREE, 
       (void**)&m, NULL);
     m->type = T_SEND;
+	m->magic = terminal_magic_num;
     tw_event_send(e);
   } else {
     bf->c4 = 1;
@@ -1233,6 +1242,7 @@ void switch_credit_send(switch_state * s, tw_bf * bf, fattree_message * msg,
   if (is_terminal) {
     buf_e = model_net_method_event_new(dest, ts, lp, FATTREE, 
       (void**)&buf_msg, NULL);
+	buf_msg->magic = terminal_magic_num;
   } else {
     buf_e = tw_event_new(dest, ts , lp);
     buf_msg = tw_event_data(buf_e);
@@ -1262,6 +1272,7 @@ void ft_terminal_buf_update(ft_terminal_state * s, tw_bf * bf,
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, FATTREE, 
         (void**)&m, NULL);
     m->type = T_SEND;
+	m->type = terminal_magic_num;
     s->in_send_loop = 1;
     //printf("[%d] term buf Send to %d\n", lp->gid, lp->gid);
     tw_event_send(e);
@@ -1428,6 +1439,7 @@ int get_base_port(switch_state *s, int from_term, int index) {
 void ft_terminal_event( ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
 		tw_lp * lp ) {
 
+  assert(msg->magic == terminal_magic_num);
   *(int *)bf = (int)0;
   switch(msg->type) {
 
