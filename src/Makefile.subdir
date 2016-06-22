@@ -160,6 +160,7 @@ src_libcodes_a_SOURCES =  \
 	src/network-workloads/model-net-mpi-replay.c \
 	src/network-workloads/model-net-synthetic.c \
 	src/network-workloads/model-net-synthetic-slimfly.c \
+	src/network-workloads/model-net-synthetic-fattree.c \
 	src/network-workloads/model-net-dumpi-traces-dump.c
 
 
@@ -181,7 +182,7 @@ bin_PROGRAMS += src/network-workloads/model-net-mpi-replay
 bin_PROGRAMS += src/network-workloads/model-net-dumpi-traces-dump
 bin_PROGRAMS += src/network-workloads/model-net-synthetic
 bin_PROGRAMS += src/network-workloads/model-net-synthetic-slimfly
-
+bin_PROGRAMS += src/network-workloads/model-net-synthetic-fattree
 
 src_workload_codes_workload_dump_SOURCES = \
  src/workload/codes-workload-dump.c
