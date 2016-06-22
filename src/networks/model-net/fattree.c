@@ -243,7 +243,7 @@ static void copy_fattree_list_entry( fattree_message_list *cur_entry,
     strcpy(msg->category, cur_msg->category);
     msg->final_dest_gid = cur_msg->final_dest_gid;
     msg->sender_lp = cur_msg->sender_lp;
-    msg->dest_num = cur_msg->dest_num;
+    msg->dest_terminal_id = cur_msg->dest_terminal_id;
     msg->src_terminal_id = cur_msg->src_terminal_id;
     msg->intm_lp_id = cur_msg->intm_lp_id;
     msg->saved_vc = cur_msg->saved_vc;
@@ -857,11 +857,11 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
 
   codes_mapping_get_lp_info(msg->final_dest_gid, lp_group_name, &mapping_grp_id,
       NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-  msg->dest_num = (mapping_rep_id * (p->switch_radix[0] / 2)) +
+  msg->dest_terminal_id = (mapping_rep_id * (p->switch_radix[0] / 2)) +
       (mapping_offset % (p->switch_radix[0]/2));
   
   //message for process on the same terminal
-  if(msg->dest_num == s->terminal_id) {
+  if(msg->dest_terminal_id == s->terminal_id) {
     bf->c1 = 1;
     model_net_method_idle_event(nic_ts - s->params->cn_delay * msg->packet_size, 0, lp);
     // Trigger an event on receiving server
@@ -1360,8 +1360,8 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
 
   if(s->switch_level == 0) {
     //message for a terminal node
-    if(msg->dest_num >= s->start_lneigh && msg->dest_num < s->end_lneigh) {
-      outport = msg->dest_num - s->start_lneigh;
+    if(msg->dest_terminal_id >= s->start_lneigh && msg->dest_terminal_id < s->end_lneigh) {
+      outport = msg->dest_terminal_id - s->start_lneigh;
       *out_off = 0;
       return outport;
     } else { //go up the least congested path
@@ -1369,7 +1369,7 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
       end_port = s->num_cons;
     }
   } else if(s->switch_level == 1) {
-    int dest_switch_id = msg->dest_num / (p->switch_radix[0] / 2);
+    int dest_switch_id = msg->dest_terminal_id / (p->switch_radix[0] / 2);
     //if only two level or packet going down, send to the right switch
     if(p->num_levels == 2 || (dest_switch_id >= s->start_lneigh && 
       dest_switch_id < s->end_lneigh)) {
@@ -1380,7 +1380,7 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
       end_port = s->num_cons;
     }
   } else { //switch level 2
-    int dest_l1_group = msg->dest_num / p->l1_term_size;
+    int dest_l1_group = msg->dest_terminal_id / p->l1_term_size;
     if(s->params->ft_type == 0) {
       start_port = dest_l1_group * (p->l1_set_size/2) * s->con_per_lneigh;
       end_port = start_port + ((p->l1_set_size/2) * s->con_per_lneigh);
@@ -1501,7 +1501,7 @@ void switch_event(switch_state * s, tw_bf * bf, fattree_message * msg,
     default:
       printf("\n (%lf) [Switch %d] Switch Message type not supported %d " 
         "dest terminal id %d packet ID %d ", tw_now(lp), (int)lp->gid, 
-        msg->type, (int)msg->dest_num, (int)msg->packet_ID);
+        msg->type, (int)msg->dest_terminal_id, (int)msg->packet_ID);
       tw_error(TW_LOC, "Msg type not supported in switch");
       break;
   }	   
