@@ -45,6 +45,7 @@ struct fattree_message
   tw_stime saved_available_time;
   tw_stime saved_credit_time;
   uint64_t packet_size;
+  tw_stime msg_start_time;
 
   /* For routing */
   uint64_t total_size;

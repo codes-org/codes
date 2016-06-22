@@ -39,7 +39,7 @@ static int def_gname_set = 0;
 static int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
 
 /* terminal magic number */
-int terminal_magic_num = 0;
+int fattree_terminal_magic_num = 0;
 
 typedef struct fattree_message_list fattree_message_list;
 struct fattree_message_list {
@@ -453,8 +453,8 @@ static void fattree_configure(){
 void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
 {
     uint32_t h1 = 0, h2 = 0; 
-    bj_hashlittle2(LP_METHOD_NM_TERM, strlen(LP_METHOD_NM_TERM), &h1, &h2);
-    terminal_magic_num = h1 + h2;
+    bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
+    fattree_terminal_magic_num = h1 + h2;
 
     int i;
     char anno[MAX_NAME_LENGTH];
@@ -822,23 +822,23 @@ static tw_stime fattree_packet_event(
   msg->message_id = req->msg_id;
   msg->is_pull = req->is_pull;
   msg->pull_size = req->pull_size;
-  msg->magic = terminal_magic_num; 
+  msg->magic = fattree_terminal_magic_num; 
   msg->msg_start_time = req->msg_start_time;
 
   /* Its the last packet so pass in remote and local event information*/
   if(is_last_pckt) 
   {
-    if(remote_event_size > 0)
+    if(req->remote_event_size > 0)
     {
-      msg->remote_event_size_bytes = remote_event_size;
-      memcpy(tmp_ptr, remote_event, remote_event_size);
-      tmp_ptr += remote_event_size;
+      msg->remote_event_size_bytes = req->remote_event_size;
+      memcpy(tmp_ptr, remote_event, req->remote_event_size);
+      tmp_ptr += req->remote_event_size;
     }
-    if(self_event_size > 0)
+    if(req->self_event_size > 0)
     {
-      msg->local_event_size_bytes = self_event_size;
-      memcpy(tmp_ptr, self_event, self_event_size);
-      tmp_ptr += self_event_size;
+      msg->local_event_size_bytes = req->self_event_size;
+      memcpy(tmp_ptr, self_event, req->self_event_size);
+      tmp_ptr += req->self_event_size;
     }
   }
   //printf("[%d] Send to %d\n", sender->gid, sender->gid);
@@ -939,7 +939,7 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, FATTREE, 
       (void**)&m, NULL);
     m->type = T_SEND;
-	m->magic = terminal_magic_num;
+	m->magic = fattree_terminal_magic_num;
     s->in_send_loop = 1;
     tw_event_send(e);
     //printf("[%d] send loop triggered with ts %lf band %lf\n", 
@@ -1023,7 +1023,7 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, FATTREE, 
       (void**)&m, NULL);
     m->type = T_SEND;
-	m->magic = terminal_magic_num;
+	m->magic = fattree_terminal_magic_num;
     tw_event_send(e);
   } else {
     bf->c4 = 1;
@@ -1242,7 +1242,7 @@ void switch_credit_send(switch_state * s, tw_bf * bf, fattree_message * msg,
   if (is_terminal) {
     buf_e = model_net_method_event_new(dest, ts, lp, FATTREE, 
       (void**)&buf_msg, NULL);
-	buf_msg->magic = terminal_magic_num;
+	buf_msg->magic = fattree_terminal_magic_num;
   } else {
     buf_e = tw_event_new(dest, ts , lp);
     buf_msg = tw_event_data(buf_e);
@@ -1272,7 +1272,7 @@ void ft_terminal_buf_update(ft_terminal_state * s, tw_bf * bf,
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, FATTREE, 
         (void**)&m, NULL);
     m->type = T_SEND;
-	m->type = terminal_magic_num;
+	m->type = fattree_terminal_magic_num;
     s->in_send_loop = 1;
     //printf("[%d] term buf Send to %d\n", lp->gid, lp->gid);
     tw_event_send(e);
@@ -1439,7 +1439,7 @@ int get_base_port(switch_state *s, int from_term, int index) {
 void ft_terminal_event( ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
 		tw_lp * lp ) {
 
-  assert(msg->magic == terminal_magic_num);
+  assert(msg->magic == fattree_terminal_magic_num);
   *(int *)bf = (int)0;
   switch(msg->type) {
 
