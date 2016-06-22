@@ -8,6 +8,10 @@ typedef struct fattree_message fattree_message;
 /* this message is used for both dragonfly compute nodes and routers */
 struct fattree_message
 {
+  /* magic number */
+  int magic;
+  /* flit travel start time*/
+  tw_stime travel_start_time;
  /* packet ID of the flit  */
   unsigned long long packet_ID;
   /* event type of the flit */
@@ -18,8 +22,10 @@ struct fattree_message
   tw_lpid final_dest_gid;
   /*sending LP ID from CODES, can be a server or any other LP type */
   tw_lpid sender_lp;
+  tw_lpid sender_mn_lp; // source modelnet id
  /* destination terminal ID of the message */
-  int dest_num;
+//  int dest_num; replaced with dest_terminal_id
+  tw_lpid dest_terminal_id;
   /* source terminal ID of the fattree */
   unsigned int src_terminal_id;
   /* Intermediate LP ID from which this message is coming */
@@ -32,11 +38,17 @@ struct fattree_message
   // For buffer message
   short vc_index;
   short vc_off;
+   int is_pull;
+   uint64_t pull_size;
 
   /* for reverse computation */   
   tw_stime saved_available_time;
   tw_stime saved_credit_time;
   uint64_t packet_size;
+
+  /* For routing */
+  uint64_t total_size;
+  uint64_t message_id;
    
   /* meta data to aggregate packets into a message at receiver */
   uint64_t msg_size;
