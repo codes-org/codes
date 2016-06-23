@@ -180,7 +180,7 @@ static void handle_kickoff_event(
 //    assert(net_id == FATTREE); /* only supported for fat tree model right now. */
 
     ns->start_ts = tw_now(lp);
-    printf("Kicking off events\n");
+
    codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
    /* in case of uniform random traffic, send to a random destination. */
    if(traffic == UNIFORM)
@@ -198,9 +198,11 @@ static void handle_kickoff_event(
 	local_dest =  (rep_id * 2 + offset + 2) % num_nodes;
 //	 printf("\n LP %ld sending to %ld num nodes %d ", rep_id * 2 + offset, local_dest, num_nodes);
    }
-*/   assert(local_dest < num_nodes);
-   codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest / num_servers_per_rep, local_dest % num_servers_per_rep, &global_dest);
-  
+*///   assert(local_dest < num_nodes);
+//   codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest / num_servers_per_rep, local_dest % num_servers_per_rep, &global_dest);
+
+global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
+printf("global_dest:%d local_dest:%d\n",(int)global_dest,(int)local_dest);  
    ns->msg_sent_count++;
    model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
    issue_event(ns, lp);
@@ -316,7 +318,7 @@ int main(
     int argc,
     char **argv)
 {
-printf("program start\n");
+
     int nprocs;
     int rank;
     int num_nets;
@@ -326,9 +328,9 @@ printf("program start\n");
     lp_io_handle handle;
 
     tw_opt_add(app_opt);
-printf("Pre timewarp init\n");
+
     tw_init(&argc, &argv);
-printf("Post timewarp init\n");
+
     offset = 1;
 
     if(argc < 2)
@@ -342,13 +344,13 @@ printf("Post timewarp init\n");
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
     configuration_load(argv[2], MPI_COMM_WORLD, &config);
-printf("loaded configuration\n");
+
     model_net_register();
-printf("Registered model-net\n");
+
     svr_add_lp_type();
-printf("Added LP types\n");
+
     codes_mapping_setup();
-printf("Setup Codes mapping\n");
+
 
     net_ids = model_net_configure(&num_nets);
     assert(num_nets==1);
@@ -368,6 +370,10 @@ printf("Setup Codes mapping\n");
     num_groups = (num_routers_per_grp * (num_routers_per_grp/2) + 1);
     num_nodes = num_groups * num_routers_per_grp * (num_routers_per_grp / 2);
     num_nodes_per_grp = num_routers_per_grp * (num_routers_per_grp / 2);
+
+    num_nodes = codes_mapping_get_lp_count("MODELNET_GRP", 0, "server", NULL, 1);
+
+
 
     if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
     {
