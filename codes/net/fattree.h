@@ -5,7 +5,7 @@
 
 typedef struct fattree_message fattree_message;
 
-/* this message is used for both dragonfly compute nodes and routers */
+/* this message is used for both fattree compute nodes and routers */
 struct fattree_message
 {
   /* magic number */
