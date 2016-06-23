@@ -6,7 +6,7 @@
 
 /*
 * The test program generates some synthetic traffic patterns for the model-net network models.
-* currently it only support the dragonfly network model uniform random and nearest neighbor traffic patterns.
+* currently it only support the fat tree network model uniform random and nearest neighbor traffic patterns.
 */
 
 #include "codes/model-net.h"
@@ -177,10 +177,10 @@ static void handle_kickoff_event(
     memcpy(m_remote, m_local, sizeof(svr_msg));
     m_remote->svr_event_type = REMOTE;
 
-//    assert(net_id == DRAGONFLY); /* only supported for dragonfly model right now. */
+//    assert(net_id == FATTREE); /* only supported for fat tree model right now. */
 
     ns->start_ts = tw_now(lp);
-    
+    printf("Kicking off events\n");
    codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
    /* in case of uniform random traffic, send to a random destination. */
    if(traffic == UNIFORM)
@@ -316,6 +316,7 @@ int main(
     int argc,
     char **argv)
 {
+printf("program start\n");
     int nprocs;
     int rank;
     int num_nets;
@@ -325,7 +326,9 @@ int main(
     lp_io_handle handle;
 
     tw_opt_add(app_opt);
+printf("Pre timewarp init\n");
     tw_init(&argc, &argv);
+printf("Post timewarp init\n");
     offset = 1;
 
     if(argc < 2)
@@ -339,20 +342,22 @@ int main(
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
     configuration_load(argv[2], MPI_COMM_WORLD, &config);
-
+printf("loaded configuration\n");
     model_net_register();
+printf("Registered model-net\n");
     svr_add_lp_type();
-
+printf("Added LP types\n");
     codes_mapping_setup();
+printf("Setup Codes mapping\n");
 
     net_ids = model_net_configure(&num_nets);
     assert(num_nets==1);
     net_id = *net_ids;
     free(net_ids);
 
-    if(net_id != DRAGONFLY)
+    if(net_id != FATTREE)
     {
-	printf("\n The test works with dragonfly model configuration only! ");
+	printf("\n The test works with fat tree model configuration only! ");
         MPI_Finalize();
         return 0;
     }
