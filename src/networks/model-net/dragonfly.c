@@ -1619,9 +1619,9 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
         }
     /* If all chunks of a message have arrived then send a remote event to the
      * callee*/
-    assert(tmp->num_chunks <= total_chunks);
+    //assert(tmp->num_chunks <= total_chunks);
 
-    if(tmp->num_chunks == total_chunks)
+    if(tmp->num_chunks >= total_chunks)
     {
         bf->c7 = 1;
 
