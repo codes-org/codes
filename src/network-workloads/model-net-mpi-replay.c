@@ -1384,6 +1384,11 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
     if(!s->nw_id)
         written = sprintf(s->output_buf, "# Format <LP ID> <Terminal ID> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time>");
 
+    if(s->wait_op)
+    {
+        printf("\n Incomplete wait operation Rank %ld ", s->nw_id);
+        print_waiting_reqs(s->wait_op->req_ids, s->wait_op->count);
+    }
     if(alloc_spec == 1)
     {
         struct codes_jobmap_id lid;

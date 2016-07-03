@@ -1430,7 +1430,8 @@ static void packet_arrive_rc(nodes_state * s,
             N_finished_packets--;
             s->finished_packets--;
 
-            total_time = msg->saved_total_time;
+            //total_time = msg->saved_total_time;
+            total_time -= (tw_now(lp) - msg->travel_start_time);
             total_hops -= msg->my_N_hop;
             s->total_hops -= msg->my_N_hop;
         
