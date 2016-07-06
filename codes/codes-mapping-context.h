@@ -29,6 +29,13 @@ enum codes_mctx_type {
     // instructs those using the context to map directly to an LP
     CODES_MCTX_GLOBAL_DIRECT,
     // instructs those using the context to map into the same group/repetition
+    // and compute the callee offset taking into account the ratio of source LP
+    // type count and destination LP type count. Currently doesn't respect
+    // annotations from the source LP.
+    CODES_MCTX_GROUP_RATIO,
+    // similar to GROUP_RATIO, but maps to offsets in reverse order
+    CODES_MCTX_GROUP_RATIO_REVERSE,
+    // instructs those using the context to map into the same group/repetition
     // and compute the callee offset as the modulus of the caller offset and
     // the number of callees in the group, to provide simple wraparound
     // behaviour
@@ -55,6 +62,10 @@ struct codes_mctx_global_direct {
     tw_lpid lpid;
 };
 
+struct codes_mctx_group_ratio {
+    struct codes_mctx_annotation anno;
+};
+
 struct codes_mctx_group_modulo {
     struct codes_mctx_annotation anno;
 };
@@ -69,6 +80,7 @@ struct codes_mctx {
     enum codes_mctx_type type;
     union {
         struct codes_mctx_global_direct global_direct;
+        struct codes_mctx_group_ratio    group_ratio;
         struct codes_mctx_group_modulo  group_modulo;
         struct codes_mctx_group_direct  group_direct;
     } u;
@@ -76,6 +88,14 @@ struct codes_mctx {
 
 /* simple setter functions */
 struct codes_mctx codes_mctx_set_global_direct(tw_lpid lpid);
+
+struct codes_mctx codes_mctx_set_group_ratio(
+        char const * annotation,
+        bool ignore_annotations);
+
+struct codes_mctx codes_mctx_set_group_ratio_reverse(
+        char const * annotation,
+        bool ignore_annotations);
 
 struct codes_mctx codes_mctx_set_group_modulo(
         char const * annotation,

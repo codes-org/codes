@@ -25,10 +25,13 @@ int main(int argc, char *argv[])
     if (rc != 0)
         ERR("unable to load configuration file %s", argv[1]);
 
-    struct codes_mctx direct, group_modulo, group_rmodulo, group_direct,
-                      group_modulo_anno, group_rmodulo_anno, group_direct_anno;
+    struct codes_mctx direct, group_ratio, group_rratio, group_modulo,
+                      group_rmodulo, group_direct, group_modulo_anno,
+                      group_rmodulo_anno, group_direct_anno;
 
     direct              = codes_mctx_set_global_direct(12ul);
+    group_ratio         = codes_mctx_set_group_ratio(NULL, true);
+    group_rratio        = codes_mctx_set_group_ratio_reverse(NULL, true);
     group_modulo        = codes_mctx_set_group_modulo(NULL, true);
     group_rmodulo       = codes_mctx_set_group_modulo_reverse(NULL, true);
     group_direct        = codes_mctx_set_group_direct(1, NULL, true);
@@ -36,92 +39,127 @@ int main(int argc, char *argv[])
     group_rmodulo_anno  = codes_mctx_set_group_modulo_reverse("baz", false);
     group_direct_anno   = codes_mctx_set_group_direct(1, "baz", false);
 
-    tw_lpid in;
+    tw_lpid in, out;
     tw_lpid rtn_id;
+    char const * out_anno;
     char const * rtn_anno;
 
+#define CHECK(_type_str) \
+    do { \
+        if (rtn_id != out) { \
+            ERR("%s mapping failed: in:%llu, expected:%llu, out:%llu", \
+                    _type_str, LLU(in), LLU(rtn_id), LLU(out)); \
+        } \
+    } while(0)
+
+#define CHECK_ANNO(_type_str) \
+    do { \
+        if (!((out_anno && rtn_anno && strcmp(out_anno, rtn_anno) == 0) || \
+                (!out_anno && !rtn_anno))) { \
+            ERR("%s anno mapping failed: in:%llu, expected:%s, out:%s", \
+                    _type_str, LLU(in), rtn_anno, out_anno); \
+        } \
+    } while (0)
+
+
+    in  = 0ul;
+    out = 12ul;
+    out_anno = NULL;
     rtn_id = codes_mctx_to_lpid(&direct, NULL, 0);
-    if (12ul != rtn_id)
-        ERR("global_direct mapping: expected %llu, got %llu",
-                12ull, LLU(rtn_id));
     rtn_anno = codes_mctx_get_annotation(&direct, NULL, 0);
-    if (rtn_anno)
-        ERR("global_direct mapping: expected NULL anno, got %s", rtn_anno);
+    CHECK("global_direct");
+    CHECK_ANNO("global_direct");
+
+    /* test BAZ group (evenly divide foo, bar) */
+    in = 47ul;
+    out = 50ul;
+    out_anno = NULL;
+    rtn_id = codes_mctx_to_lpid(&group_ratio, "bar", in);
+    rtn_anno = codes_mctx_get_annotation(&group_ratio, "bar", in);
+    CHECK("global_ratio");
+    CHECK_ANNO("global_ratio");
+
+    out = 49ul;
+    rtn_id = codes_mctx_to_lpid(&group_rratio, "bar", in);
+    rtn_anno = codes_mctx_get_annotation(&group_rratio, "bar", in);
+    CHECK("global_rratio");
+    CHECK_ANNO("global_rratio");
+
+    /* test BAT group (non-even foo/bar division) */
+    in = 79ul;
+    out = 82ul;
+    out_anno = NULL;
+    rtn_id = codes_mctx_to_lpid(&group_ratio, "bar", in);
+    rtn_anno = codes_mctx_get_annotation(&group_ratio, "bar", in);
+    CHECK("global_ratio");
+    CHECK_ANNO("global_ratio");
+
+    out = 80ul;
+    rtn_id = codes_mctx_to_lpid(&group_rratio, "bar", in);
+    rtn_anno = codes_mctx_get_annotation(&group_rratio, "bar", in);
+    CHECK("global_ratio");
+    CHECK_ANNO("global_ratio");
 
     in = 8ul;
+    out = 9ul;
+    out_anno = NULL;
     rtn_id = codes_mctx_to_lpid(&group_modulo, "bar", in);
-    if (rtn_id != 9ul)
-        ERR("group_modulo mapping: expected %llu, got %llu",
-                9ull, LLU(rtn_id));
     rtn_anno = codes_mctx_get_annotation(&group_modulo, "bar", in);
-    if (rtn_anno)
-        ERR("group_modulo mapping: expected NULL anno, got %s", rtn_anno);
+    CHECK("group_modulo");
+    CHECK_ANNO("group_modulo");
 
     rtn_id = codes_mctx_to_lpid(&group_rmodulo, "bar", in);
-    if (rtn_id != 9ul)
-        ERR("group_rmodulo mapping: expected %llu, got %llu",
-                9ull, LLU(rtn_id));
     rtn_anno = codes_mctx_get_annotation(&group_rmodulo, "bar", in);
-    if (rtn_anno)
-        ERR("group_rmodulo mapping: expected NULL anno, got %s", rtn_anno);
+    CHECK("group_rmodulo");
+    CHECK_ANNO("group_rmodulo");
 
     in = 12ul;
+    out = 13ul;
+    out_anno = NULL;
     rtn_id = codes_mctx_to_lpid(&group_modulo, "bar", in);
-    if (rtn_id != 13ul)
-        ERR("group_modulo mapping: expected %llu, got %llu",
-                13ull, LLU(rtn_id));
     rtn_anno = codes_mctx_get_annotation(&group_modulo, "bar", in);
-    if (rtn_anno)
-        ERR("group_modulo mapping: expected NULL anno, got %s", rtn_anno);
+    CHECK("group_modulo");
+    CHECK_ANNO("group_modulo");
 
+    out = 14ul;
     rtn_id = codes_mctx_to_lpid(&group_rmodulo, "bar", in);
-    if (rtn_id != 14ul)
-        ERR("group_rmodulo mapping: expected %llu, got %llu",
-                14ull, LLU(rtn_id));
     rtn_anno = codes_mctx_get_annotation(&group_rmodulo, "bar", in);
-    if (rtn_anno)
-        ERR("group_rmodulo mapping: expected NULL anno, got %s", rtn_anno);
+    CHECK("group_rmodulo");
+    CHECK_ANNO("group_rmodulo");
 
+    out = 13ul;
     rtn_id = codes_mctx_to_lpid(CODES_MCTX_DEFAULT, "bar", in);
-    if (rtn_id != 13ul)
-        ERR("group_modulo mapping (default): expected %llu, got %llu",
-                13ull, LLU(rtn_id));
     rtn_anno = codes_mctx_get_annotation(CODES_MCTX_DEFAULT, "bar", in);
-    if (rtn_anno)
-        ERR("group_modulo mapping: expected NULL anno, got %s", rtn_anno);
+    CHECK("CODES_MCTX_DEFAULT");
+    CHECK_ANNO("CODES_MCTX_DEFAULT");
 
+    out = 15ul;
+    out_anno = "baz";
     rtn_id = codes_mctx_to_lpid(&group_modulo_anno, "bar", in);
-    if (rtn_id != 15ul)
-        ERR("group_modulo annotated mapping: expected %llu, got %llu",
-                15ull, LLU(rtn_id));
     rtn_anno = codes_mctx_get_annotation(&group_modulo_anno, "bar", in);
-    if (strcmp(rtn_anno,"baz") != 0)
-        ERR("group_modulo mapping: expected anno \"baz\", got %s", rtn_anno);
+    CHECK("group_modulo_anno");
+    CHECK_ANNO("group_modulo_anno");
 
+    out = 16ul;
     rtn_id = codes_mctx_to_lpid(&group_rmodulo_anno, "bar", in);
-    if (rtn_id != 16ul)
-        ERR("group_rmodulo annotated mapping: expected %llu, got %llu",
-                16ull, LLU(rtn_id));
     rtn_anno = codes_mctx_get_annotation(&group_rmodulo_anno, "bar", in);
-    if (strcmp(rtn_anno,"baz") != 0)
-        ERR("group_rmodulo mapping: expected anno \"baz\", got %s", rtn_anno);
+    CHECK("group_rmodulo_anno");
+    CHECK_ANNO("group_rmodulo_anno");
 
     in = 10ul;
+    out = 14ul;
+    out_anno = NULL;
     rtn_id = codes_mctx_to_lpid(&group_direct, "bar", in);
-    if (rtn_id != 14ul)
-        ERR("group_direct mapping (default): expected %llu, got %llu",
-                14ull, LLU(rtn_id));
     rtn_anno = codes_mctx_get_annotation(&group_direct, "bar", in);
-    if (rtn_anno)
-        ERR("group_modulo mapping: expected NULL anno, got %s", rtn_anno);
+    CHECK("group_direct");
+    CHECK_ANNO("group_direct");
 
+    out = 16ul;
+    out_anno = "baz";
     rtn_id = codes_mctx_to_lpid(&group_direct_anno, "bar", in);
-    if (rtn_id != 16ul)
-        ERR("group_direct mapping (default): expected %llu, got %llu",
-                16ull, LLU(rtn_id));
     rtn_anno = codes_mctx_get_annotation(&group_direct_anno, "bar", in);
-    if (strcmp(rtn_anno,"baz") != 0)
-        ERR("group_modulo mapping: expected anno \"baz\", got %s", rtn_anno);
+    CHECK("group_direct_anno");
+    CHECK("group_direct_anno");
 
     return 0;
 }

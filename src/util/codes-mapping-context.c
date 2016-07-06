@@ -42,6 +42,7 @@ static struct codes_mctx set_group_modulo_common(
             codes_mapping_get_anno_cid_by_name(annotation);
     return rtn;
 }
+
 struct codes_mctx codes_mctx_set_group_modulo(
         char const * annotation,
         bool ignore_annotations)
@@ -55,6 +56,37 @@ struct codes_mctx codes_mctx_set_group_modulo_reverse(
         bool ignore_annotations)
 {
     return set_group_modulo_common(CODES_MCTX_GROUP_MODULO_REVERSE, annotation,
+            ignore_annotations);
+}
+
+static struct codes_mctx set_group_ratio_common(
+        enum codes_mctx_type type,
+        char const * annotation,
+        bool ignore_annotations)
+{
+    struct codes_mctx rtn;
+    rtn.type = type;
+    if (ignore_annotations)
+        rtn.u.group_ratio.anno.cid = -1;
+    else
+        rtn.u.group_ratio.anno.cid =
+            codes_mapping_get_anno_cid_by_name(annotation);
+    return rtn;
+}
+
+struct codes_mctx codes_mctx_set_group_ratio(
+        char const * annotation,
+        bool ignore_annotations)
+{
+    return set_group_ratio_common(CODES_MCTX_GROUP_RATIO, annotation,
+            ignore_annotations);
+}
+
+struct codes_mctx codes_mctx_set_group_ratio_reverse(
+        char const * annotation,
+        bool ignore_annotations)
+{
+    return set_group_ratio_common(CODES_MCTX_GROUP_RATIO_REVERSE, annotation,
             ignore_annotations);
 }
 
@@ -86,6 +118,10 @@ tw_lpid codes_mctx_to_lpid(
     switch (ctx->type) {
         case CODES_MCTX_GLOBAL_DIRECT:
             return ctx->u.global_direct.lpid;
+        case CODES_MCTX_GROUP_RATIO:
+        case CODES_MCTX_GROUP_RATIO_REVERSE:
+            anno = &ctx->u.group_ratio.anno;
+            break;
         case CODES_MCTX_GROUP_MODULO:
         case CODES_MCTX_GROUP_MODULO_REVERSE:
             anno = &ctx->u.group_modulo.anno;
@@ -97,12 +133,13 @@ tw_lpid codes_mctx_to_lpid(
             assert(0);
     }
 
-    char sender_group[MAX_NAME_LENGTH];
-    int unused, rep_id, offset;
+    char const *sender_group;
+    char const *sender_lpname;
+    int rep_id, offset;
 
     // get sender info
-    codes_mapping_get_lp_info(sender_gid, sender_group, &unused, NULL, &unused,
-            NULL, &rep_id, &offset);
+    codes_mapping_get_lp_info2(sender_gid, &sender_group, &sender_lpname, NULL,
+            &rep_id, &offset);
 
     char const * anno_str;
     if (anno->cid < 0)
@@ -111,8 +148,14 @@ tw_lpid codes_mctx_to_lpid(
         anno_str = codes_mapping_get_anno_name_by_cid(anno->cid);
 
     int dest_offset;
-    if (ctx->type == CODES_MCTX_GROUP_MODULO ||
-            ctx->type == CODES_MCTX_GROUP_MODULO_REVERSE) {
+    int is_group_modulo = (ctx->type == CODES_MCTX_GROUP_MODULO ||
+            ctx->type == CODES_MCTX_GROUP_MODULO_REVERSE);
+    int is_group_ratio = (ctx->type == CODES_MCTX_GROUP_RATIO ||
+            ctx->type == CODES_MCTX_GROUP_RATIO_REVERSE);
+    int is_group_reverse = (ctx->type == CODES_MCTX_GROUP_MODULO_REVERSE ||
+            ctx->type == CODES_MCTX_GROUP_RATIO_REVERSE);
+
+    if (is_group_modulo || is_group_ratio) {
         int num_dest_lps = codes_mapping_get_lp_count(sender_group, 1,
                 dest_lp_name, anno_str, anno->cid == -1);
         if (num_dest_lps == 0)
@@ -123,8 +166,20 @@ tw_lpid codes_mctx_to_lpid(
                     anno->cid == -1 ? "ignored" :
                     codes_mapping_get_anno_name_by_cid(anno->cid));
 
-        dest_offset = offset % num_dest_lps;
-        if (ctx->type == CODES_MCTX_GROUP_MODULO_REVERSE)
+        if (is_group_modulo)
+            dest_offset = offset % num_dest_lps;
+        else {
+            int num_src_lps = codes_mapping_get_lp_count(sender_group, 1,
+                    sender_lpname, NULL, 1);
+            if (num_src_lps <= num_dest_lps)
+                dest_offset = offset;
+            else {
+                dest_offset = offset * num_dest_lps / num_src_lps;
+                if (dest_offset >= num_dest_lps)
+                    dest_offset = num_dest_lps-1;
+            }
+        }
+        if (is_group_reverse)
             dest_offset = num_dest_lps - 1 - dest_offset;
     }
     else if (ctx->type == CODES_MCTX_GROUP_DIRECT) {
@@ -147,6 +202,14 @@ char const * codes_mctx_get_annotation(
     switch(ctx->type) {
         case CODES_MCTX_GLOBAL_DIRECT:
             return codes_mapping_get_annotation_by_lpid(sender_id);
+        case CODES_MCTX_GROUP_RATIO:
+        case CODES_MCTX_GROUP_RATIO_REVERSE:
+            // if not ignoring the annotation, just return what's in the
+            // context
+            if (ctx->u.group_modulo.anno.cid >= 0)
+                return codes_mapping_get_anno_name_by_cid(
+                        ctx->u.group_modulo.anno.cid);
+            break;
         case CODES_MCTX_GROUP_MODULO:
         case CODES_MCTX_GROUP_MODULO_REVERSE:
             // if not ignoring the annotation, just return what's in the
