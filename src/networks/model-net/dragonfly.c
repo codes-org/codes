@@ -1455,21 +1455,8 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     struct dfly_hash_key key;
     key.message_id = msg->message_id;
     key.sender_id = msg->sender_lp;
-<<<<<<< HEAD
 
     uint64_t total_chunks = msg->total_size / s->params->chunk_size;
-=======
-
-    struct qhash_head *hash_link = NULL;
-    struct dfly_qhash_entry * tmp = NULL;
-
-    hash_link = qhash_search(s->rank_tbl, &key);
-
-    if(hash_link)
-        tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
-
-    int total_chunks = msg->total_size / s->params->chunk_size;
->>>>>>> commit_f
 
     if(msg->total_size % s->params->chunk_size)
           total_chunks++;
@@ -1589,12 +1576,9 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
 
        hash_link = &(d_entry->hash_link);
    }
-<<<<<<< HEAD
 
     if(hash_link)
         tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
-=======
->>>>>>> commit_f
 
     assert(tmp);
     tmp->num_chunks++;
@@ -1640,13 +1624,8 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
         total_msg_sz += msg->total_size;
         s->total_msg_size += msg->total_size;
         s->finished_msgs++;
-<<<<<<< HEAD
 
         //assert(tmp->remote_event_data && tmp->remote_event_size > 0);
-=======
-
-        assert(tmp->remote_event_data && tmp->remote_event_size > 0);
->>>>>>> commit_f
         send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
         /* Remove the hash entry */
         qhash_del(hash_link);
@@ -2385,11 +2364,7 @@ void dragonfly_router_final(router_state * s,
         written += sprintf(s->output_buf + written, "# Router ports in the order: %d local channels, %d global channels \n",
                 p->num_routers, p->num_global_channels);
     }
-<<<<<<< HEAD
     written += sprintf(s->output_buf + written, "\n %llu %d %d",
-=======
-    written += sprintf(s->output_buf + written, "%llu %d %d",
->>>>>>> commit_f
             LLU(lp->gid),
             s->router_id / p->num_routers,
             s->router_id % p->num_routers);
