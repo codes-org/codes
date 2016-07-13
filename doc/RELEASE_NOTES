@@ -1,3 +1,9 @@
+0.5.2 (July 13, 2016)
+
+Summer of CODES was another huge success!
+This update adds the commit function to the CODES models, representing an
+update to the latest version of ROSS (d3bdc07)
+
 0.5.1 (June 09, 2016)
 
 network:
@@ -34,7 +40,7 @@ networks:
 
 addition of the SlimFly network topology, corresponding to the Wolfe et al.
   paper "Modeling a Million-node Slim Fly Network using Parallel Discrete-event
-  Simulation", at SIGSIM-PADS'16. See README.slimfly.txt 
+  Simulation", at SIGSIM-PADS'16. See README.slimfly.txt
   (src/networks/model-net/doc).
 
 modelnet now supports sampling at regular intervals. Dragonfly LPs can
