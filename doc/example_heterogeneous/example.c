@@ -15,7 +15,7 @@
 /**** BEGIN SIMULATION DATA STRUCTURES ****/
 
 /* 'magic' numbers used as sanity check on events */
-static int node_magic; 
+static int node_magic;
 static int forwarder_magic;
 
 /* counts of the various types of nodes in the example system */
@@ -55,8 +55,8 @@ enum forwarder_event
 };
 
 typedef struct forwarder_state_s {
-    int id; // index w.r.t. forwarders in my group 
-    int is_in_foo;    
+    int id; // index w.r.t. forwarders in my group
+    int is_in_foo;
     int fwd_node_count;
     int fwd_forwarder_count;
 } forwarder_state;
@@ -98,7 +98,7 @@ void node_finalize(
     // messages
     int mult;
     if (ns->is_in_foo){
-        mult = 1; 
+        mult = 1;
     }
     else{
         mult = (num_foo_nodes / num_bar_nodes) +
@@ -197,7 +197,7 @@ void node_event_handler(
         tw_lp * lp){
     (void)b;
     assert(m->h.magic == node_magic);
-    
+
     switch (m->h.event_type){
         case NODE_KICKOFF:
             // nodes from foo ping to nodes in bar
@@ -223,7 +223,8 @@ static tw_lptype node_lp = {
     (pre_run_f) NULL,
     (event_f) node_event_handler,
     (revent_f) NULL,
-    (final_f)  node_finalize, 
+    (commit_f) NULL,
+    (final_f)  node_finalize,
     (map_f) codes_mapping,
     sizeof(node_state),
 };
@@ -243,7 +244,7 @@ void node_register(){
 void forwarder_lp_init(
         forwarder_state * ns,
         tw_lp * lp){
-    // like nodes, forwarders in this example are addressed logically 
+    // like nodes, forwarders in this example are addressed logically
     ns->id = codes_mapping_get_lp_relative_id(lp->gid, 1, 0);
     int id_all = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
     ns->is_in_foo = (id_all < num_foo_forwarders);
@@ -261,7 +262,7 @@ void handle_forwarder_fwd(
         forwarder_state * ns,
         forwarder_msg * m,
         tw_lp * lp){
-    // compute the forwarder lpid to forward to 
+    // compute the forwarder lpid to forward to
     int mod;
     const char * dest_group;
     char * category;
@@ -295,13 +296,13 @@ void handle_forwarder_recv(
         forwarder_state * ns,
         forwarder_msg * m,
         tw_lp * lp) {
-    // compute the node to relay the message to 
+    // compute the node to relay the message to
     const char * dest_group;
     const char * annotation;
     char * category;
     int net_id;
     if (ns->is_in_foo){
-        dest_group = "FOO_CLUSTER";    
+        dest_group = "FOO_CLUSTER";
         annotation = "foo";
         category = "pong";
         net_id = net_id_foo;
@@ -354,7 +355,8 @@ static tw_lptype forwarder_lp = {
     (pre_run_f) NULL,
     (event_f) forwarder_event_handler,
     (revent_f) NULL,
-    (final_f)  forwarder_finalize, 
+    (commit_f) NULL,
+    (final_f)  forwarder_finalize,
     (map_f) codes_mapping,
     sizeof(forwarder_state),
 };
@@ -395,16 +397,16 @@ int main(int argc, char *argv[])
     /* ROSS initialization function calls */
     tw_opt_add(app_opt); /* add user-defined args */
     /* initialize ROSS and parse args. NOTE: tw_init calls MPI_Init */
-    tw_init(&argc, &argv); 
+    tw_init(&argc, &argv);
 
     if (!conf_file_name[0]) {
-        tw_error(TW_LOC, 
+        tw_error(TW_LOC,
                 "Expected \"codes-config\" option, please see --help.\n");
         return 1;
     }
 
     /* loading the config file into the codes-mapping utility, giving us the
-     * parsed config object in return. 
+     * parsed config object in return.
      * "config" is a global var defined by codes-mapping */
     if (configuration_load(conf_file_name, MPI_COMM_WORLD, &config)){
         tw_error(TW_LOC, "Error loading config file %s.\n", conf_file_name);
@@ -470,7 +472,7 @@ int main(int argc, char *argv[])
     }
     free(net_ids);
 
-    /* begin simulation */ 
+    /* begin simulation */
     tw_run();
 
     tw_end();

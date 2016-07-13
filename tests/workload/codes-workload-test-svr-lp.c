@@ -61,7 +61,8 @@ tw_lptype svr_lp = {
     (pre_run_f) NULL,
     (event_f) svr_event,
     (revent_f) svr_rev_event,
-    (final_f) svr_finalize, 
+    (commit_f) NULL,
+    (final_f) svr_finalize,
     (map_f) node_mapping,
     sizeof(svr_state),
 };

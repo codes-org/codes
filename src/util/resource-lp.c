@@ -44,10 +44,10 @@ enum resource_event
 
 struct resource_state {
     resource r;
-    /* pending operations - if OOM and we are using the 'blocking' method, 
+    /* pending operations - if OOM and we are using the 'blocking' method,
      * then need to stash parameters.
      * Index 0 is the general pool, index 1.. are the reservation-specific
-     * pools. We take advantage of resource_token_t's status as a simple 
+     * pools. We take advantage of resource_token_t's status as a simple
      * array index to do the proper indexing */
     struct qlist_head pending[MAX_RESERVE+1];
 };
@@ -60,7 +60,7 @@ struct resource_msg_internal{
     uint64_t req;
     resource_token_t tok; /* only for reserved calls */
     /* behavior when sending response to caller
-     * 0 - send the callback immediately if resource unavailable. 
+     * 0 - send the callback immediately if resource unavailable.
      * 1 - send the callback when memory is available (danger - deadlock
      * possible) */
     int block_on_unavail;
@@ -84,7 +84,7 @@ struct pending_op {
 
 /**** BEGIN LP, EVENT PROCESSING FUNCTION DECLS ****/
 
-/* ROSS LP processing functions */  
+/* ROSS LP processing functions */
 static void resource_lp_ind_init(
         resource_state * ns,
         tw_lp * lp);
@@ -108,7 +108,8 @@ static tw_lptype resource_lp = {
     (pre_run_f) NULL,
     (event_f) resource_event_handler,
     (revent_f) resource_rev_handler,
-    (final_f)  resource_finalize, 
+    (commit_f) NULL,
+    (final_f)  resource_finalize,
     (map_f) codes_mapping,
     sizeof(resource_state),
 };
@@ -165,8 +166,8 @@ static void resource_response_rc(tw_lp *lp){
 }
 
 /* bitfield usage:
- * c0 - enqueued a message 
- * c1 - sent an ack 
+ * c0 - enqueued a message
+ * c1 - sent an ack
  * c2 - successfully got the resource */
 static void handle_resource_get(
         resource_state * ns,
@@ -177,7 +178,7 @@ static void handle_resource_get(
     int send_ack = 1;
     // save the previous minimum for RC
     assert(!resource_get_min_avail(m->i.tok, &m->min_avail_rc, &ns->r));
-    if (!qlist_empty(&ns->pending[m->i.tok]) || 
+    if (!qlist_empty(&ns->pending[m->i.tok]) ||
             (ret = resource_get(m->i.req, m->i.tok, &ns->r))){
         /* failed to receive data */
         if (ret == 2)
@@ -209,8 +210,8 @@ static void handle_resource_get(
 }
 
 /* bitfield usage:
- * c0 - enqueued a message 
- * c1 - sent an ack 
+ * c0 - enqueued a message
+ * c1 - sent an ack
  * c2 - successfully got the resource */
 static void handle_resource_get_rc(
         resource_state * ns,
@@ -258,7 +259,7 @@ static void handle_resource_free_rc(
 
 /* bitfield usage:
  * c0 - queue was empty to begin with
- * c1 - assuming !c0, alloc succeeded */ 
+ * c1 - assuming !c0, alloc succeeded */
 static void handle_resource_deq(
         resource_state * ns,
         tw_bf * b,
@@ -287,14 +288,14 @@ static void handle_resource_deq(
         resource_msg *m_deq = (resource_msg*)tw_event_data(e);
         msg_set_header(resource_magic, RESOURCE_DEQ, lp->gid, &m_deq->i.h);
         /* only tok is needed, all others grabbed from q */
-        m_deq->i.tok = m->i.tok; 
+        m_deq->i.tok = m->i.tok;
         tw_event_send(e);
     }
     /* else do nothing */
 }
 
 /* bitfield usage:
- * c0 - dequeue+alloc success */ 
+ * c0 - dequeue+alloc success */
 static void handle_resource_deq_rc(
         resource_state * ns,
         tw_bf * b,
@@ -310,7 +311,7 @@ static void handle_resource_deq_rc(
         op->m = m->i_rc;
         qlist_add(&op->ql, &ns->pending[m->i.tok]);
         resource_response_rc(lp);
-        assert(!resource_restore_min_avail(m->i.tok, m->min_avail_rc, &ns->r)); 
+        assert(!resource_restore_min_avail(m->i.tok, m->min_avail_rc, &ns->r));
         assert(!resource_free(op->m.req, op->m.tok, &ns->r));
         /* reverse "deq next" op */
         codes_local_latency_reverse(lp);
@@ -335,7 +336,7 @@ static void handle_resource_reserve_rc(
         tw_lp * lp){
     (void)b;
     /* this reversal method is essentially a hack that relies on each
-     * sequential reserve appending to the end of the list 
+     * sequential reserve appending to the end of the list
      * - we expect reserves to happen strictly at the beginning of the
      *   simulation */
     /* NOTE: this logic will change if the resource_reserve logic changes */
@@ -408,7 +409,7 @@ void resource_finalize(
     int written;
     // see if I'm the "first" resource (currently doing it globally)
     if (codes_mapping_get_lp_relative_id(lp->gid, 0, 0) == 0){
-        written = sprintf(out_buf, 
+        written = sprintf(out_buf,
                 "# format: <LP> <max used general> <max used token...>\n");
         lp_io_write(lp->gid, RESOURCE_LP_NM, written, out_buf);
     }
@@ -562,7 +563,7 @@ void resource_lp_free_reserved(
             sender, map_ctx, 0, NULL, NULL);
 }
 
-/* rc functions - thankfully, they only use codes-local-latency, so no need 
+/* rc functions - thankfully, they only use codes-local-latency, so no need
  * to pass in any arguments */
 
 static void resource_lp_issue_event_base_rc(tw_lp *sender){

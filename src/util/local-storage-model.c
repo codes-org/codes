@@ -175,6 +175,7 @@ tw_lptype lsm_lp =
     (pre_run_f) NULL,
     (event_f) lsm_event,
     (revent_f) lsm_rev_event,
+    (commit_f) NULL,
     (final_f) lsm_finalize,
     (map_f) codes_mapping,
     sizeof(lsm_state_t)
@@ -219,11 +220,11 @@ static tw_stime transfer_time_table (lsm_state_t *ns,
         disk_overhead = ns->model->write_overheads[i];
 
     }
-    
+
     /* transfer time */
     mb = ((double)size) / (1024.0 * 1024.0);
     time += (mb / disk_rate) * 1000.0 * 1000.0 * 1000.0;
-    
+
     /* request overhead */
     time += (disk_overhead * 1000.0);
 
@@ -390,7 +391,7 @@ static void lsm_lp_init (lsm_state_t *ns, tw_lp *lp)
  *   - event handler callback
  *   - dispatches the events to the appropriate handlers
  *   - handles initializtion of node state
- */ 
+ */
 static void lsm_event (lsm_state_t *ns, tw_bf *b, lsm_message_t *m, tw_lp *lp)
 {
     assert(m->magic == lsm_magic);
@@ -470,10 +471,10 @@ static void lsm_rev_event(lsm_state_t *ns,
 
     return;
 }
-  
+
 /*
  * lsm_finalize
- *   - callback to release model resources 
+ *   - callback to release model resources
  */
 static void lsm_finalize(lsm_state_t *ns,
                          tw_lp *lp)
@@ -636,7 +637,7 @@ static void handle_io_request(lsm_state_t *ns,
                            data->offset,
                            data->size);
     queue_time += t_time;
-    ns->next_idle = queue_time + tw_now(lp); 
+    ns->next_idle = queue_time + tw_now(lp);
     ns->current_offset = data->offset + data->size;
     ns->current_object = data->object;
 
@@ -674,7 +675,7 @@ static void handle_rev_io_request(lsm_state_t *ns,
     (void)b;
     (void)lp;
     lsm_stats_t *stat;
-    
+
     stat = find_stats(data->category, ns);
 
     ns->next_idle = m_in->prev_idle;
@@ -769,7 +770,7 @@ static void write_stats(tw_lp* lp, lsm_stats_t* stat)
     char data[1024];
 
     sprintf(id, "lsm-category-%s", stat->category);
-    sprintf(data, "lp:%ld\twrite_count:%ld\twrite_bytes:%ld\twrite_seeks:%ld\twrite_time:%f\t" 
+    sprintf(data, "lp:%ld\twrite_count:%ld\twrite_bytes:%ld\twrite_seeks:%ld\twrite_time:%f\t"
         "read_count:%ld\tread_bytes:%ld\tread_seeks:%ld\tread_time:%f\n",
         (long)lp->gid,
         stat->write_count,
@@ -802,7 +803,7 @@ void lsm_register(void)
 static void read_config(ConfigHandle *ch, char const * anno, disk_model_t *model)
 {
     char       **values;
-    size_t       length; 
+    size_t       length;
     int          rc;
     // request sizes
     rc = configuration_get_multivalue(ch, LSM_NAME, "request_sizes", anno,
@@ -912,7 +913,7 @@ void lsm_configure(void)
     assert(anno_map);
     models_anno = (disk_model_t*)malloc(anno_map->num_annos * sizeof(*models_anno));
 
-    // read the configuration for unannotated entries 
+    // read the configuration for unannotated entries
     if (anno_map->has_unanno_lp > 0){
         read_config(&config, NULL, &model_unanno);
     }

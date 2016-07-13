@@ -19,7 +19,7 @@
 
 #define PAYLOAD_SZ 8192 /* size of simulated data payload, bytes  */
 #define NUM_PRIOS 10
-#define NUM_SERVERS 2 
+#define NUM_SERVERS 2
 
 static int net_id = 0;
 static int prog_rtn = 0;
@@ -76,7 +76,8 @@ tw_lptype svr_lp = {
     (pre_run_f) NULL,
     (event_f) svr_event,
     (revent_f) svr_rev_event,
-    (final_f)  svr_finalize, 
+    (commit_f) NULL,
+    (final_f)  svr_finalize,
     (map_f) codes_mapping,
     sizeof(svr_state),
 };
@@ -126,9 +127,9 @@ int main(
 
     model_net_register();
     svr_add_lp_type();
-    
+
     codes_mapping_setup();
-    
+
     net_ids = model_net_configure(&num_nets);
     assert(num_nets==1);
     net_id = *net_ids;

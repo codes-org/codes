@@ -95,7 +95,8 @@ tw_lptype client_lp = {
     (pre_run_f) NULL,
     (event_f) client_event,
     (revent_f) client_rev_event,
-    (final_f) client_finalize, 
+    (commit_f) NULL,
+    (final_f) client_finalize,
     (map_f) node_mapping,
     sizeof(client_state),
 };
@@ -110,14 +111,14 @@ static void client_init(
     tw_event *e;
     client_msg *m;
     tw_stime kickoff_time;
-    
+
     memset(ns, 0, sizeof(*ns));
     ns->my_rank = lp->gid;
 
     /* each client sends a dummy event to itself */
 
     /* skew each kickoff event slightly to help avoid event ties later on */
-    kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng); 
+    kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng);
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
@@ -303,10 +304,10 @@ static void handle_client_op_loop_event(
     {
         /* first operation; initialize the desired workload generator */
         printf("codes_workload_load on gid: %llu\n", LLU(lp->gid));
-	
+
 	if(strcmp(workload_type, "test") == 0)
            ns->wkld_id = codes_workload_load("test", NULL, 0, ns->my_rank);
-	else 
+	else
 	    if(strcmp(workload_type, "iolang_workload") == 0)
 	    {
 	        ns->wkld_id = codes_workload_load("iolang_workload", (char*)&ioparams, 0, ns->my_rank);
@@ -329,8 +330,8 @@ static void handle_client_op_loop_event(
     switch(m->op_rc.op_type)
     {
       /* this first set of operation types are handled exclusively by the
-       * client 
-       */ 
+       * client
+       */
        case CODES_WK_END:
            ns->completion_time = tw_now(lp);
            printf("Client rank %d completed workload.\n", ns->my_rank);
@@ -346,7 +347,7 @@ static void handle_client_op_loop_event(
 	    printf("Client rank %d initiate write operation size %d offset %d .\n", ns->my_rank, (int)m->op_rc.u.write.size, (int)m->op_rc.u.write.offset);
 	    break;*/
         case CODES_WK_DELAY:
-            printf("Client rank %d will delay for %f seconds.\n", ns->my_rank, 
+            printf("Client rank %d will delay for %f seconds.\n", ns->my_rank,
             m->op_rc.u.delay.seconds);
             cn_delay(lp, m->op_rc.u.delay.seconds);
 	    return;
@@ -366,7 +367,7 @@ static void handle_client_op_loop_event(
 	 return;
          break;
 	}
-       
+
     svr_op_start(lp, dest_svr_id, &m->op_rc);
     return;
 }

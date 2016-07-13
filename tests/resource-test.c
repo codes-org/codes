@@ -22,7 +22,7 @@ static uint64_t maxu64(uint64_t a, uint64_t b) { return a < b ? b : a; }
 enum s_type {
     S_KICKOFF,
     S_ALLOC_ACK,
-    S_FREE, 
+    S_FREE,
 };
 
 typedef struct {
@@ -72,12 +72,12 @@ static void s_event(s_state *ns, tw_bf *bf, s_msg *m, tw_lp *lp){
                         &ns->cb);
                 break;
             }
-            /* else fall into the free stmt */ 
+            /* else fall into the free stmt */
         case S_FREE:
             resource_lp_free(bsize, lp, CODES_MCTX_DEFAULT);
             ns->mem -= bsize;
             if (ns->mem > 0){
-                tw_event *e = 
+                tw_event *e =
                     tw_event_new(lp->gid, codes_local_latency(lp), lp);
                 s_msg *sm = tw_event_data(e);
                 msg_set_header(s_magic, S_FREE, lp->gid, &sm->h);
@@ -116,7 +116,8 @@ static tw_lptype s_lp = {
     (pre_run_f) NULL,
     (event_f) s_event,
     (revent_f) s_event_rc,
-    (final_f) s_finalize, 
+    (commit_f) NULL,
+    (final_f) s_finalize,
     (map_f) codes_mapping,
     sizeof(s_state),
 };

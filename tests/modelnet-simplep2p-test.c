@@ -53,7 +53,7 @@ struct svr_state
 struct svr_msg
 {
     enum svr_event svr_event_type;
-//    enum net_event net_event_type; 
+//    enum net_event net_event_type;
     tw_lpid src;          /* source of this request or ack */
 
     model_net_event_return ret;
@@ -83,7 +83,8 @@ tw_lptype svr_lp = {
     (pre_run_f) NULL,
     (event_f) svr_event,
     (revent_f) svr_rev_event,
-    (final_f)  svr_finalize, 
+    (commit_f) NULL,
+    (final_f)  svr_finalize,
     (map_f) codes_mapping,
     sizeof(svr_state),
 };
@@ -147,18 +148,18 @@ int main(
     }
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
-  
+
     configuration_load(argv[2], MPI_COMM_WORLD, &config);
     svr_add_lp_type();
     model_net_register();
-    
+
     codes_mapping_setup();
 
     net_ids = model_net_configure(&num_nets);
     assert(num_nets==1);
     net_id = *net_ids;
     free(net_ids);
-    
+
     num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "server",
             NULL, 1);
     assert(num_servers == 3);
@@ -197,7 +198,7 @@ static void svr_init(
     tw_event *e;
     svr_msg *m;
     tw_stime kickoff_time;
-    
+
     memset(ns, 0, sizeof(*ns));
 
     /* each server sends a dummy event to itself that will kick off the real
@@ -206,7 +207,7 @@ static void svr_init(
 
     //printf("\n Initializing servers %d ", (int)lp->gid);
     /* skew each kickoff event slightly to help avoid event ties later on */
-    kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng); 
+    kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng);
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
@@ -278,7 +279,7 @@ static void svr_finalize(
     tw_lp * lp)
 {
     double t = ns_to_s(tw_now(lp) - ns->start_ts);
-    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, t, 
+    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, t,
         ((double)(PAYLOAD_SZ*NUM_REQS)/(double)(1024*1024)/t), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
     return;
 }
@@ -319,7 +320,7 @@ static void handle_kickoff_event(
     switch (lp->gid / 2){
         case 0: dest_id = 4; break;
         case 1: dest_id = 4; break;
-        case 2: return; /* LP 4 doesn't send messages */ 
+        case 2: return; /* LP 4 doesn't send messages */
     }
     m->ret = model_net_event(net_id, "test", dest_id, PAYLOAD_SZ, 0.0, sizeof(svr_msg), &m_remote, sizeof(svr_msg), &m_local, lp);
     ns->msg_sent_count++;
@@ -419,7 +420,7 @@ static void handle_req_event(
 
     ns->msg_recvd_count++;
 
-   // mm Q: What should be the size of an ack message? may be a few bytes? or larger..? 
+   // mm Q: What should be the size of an ack message? may be a few bytes? or larger..?
     m->ret = model_net_event(net_id, "test", m->src, PAYLOAD_SZ, 0.0, sizeof(svr_msg), &m_remote, sizeof(svr_msg), &m_local, lp);
 }
 

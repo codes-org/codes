@@ -32,8 +32,8 @@ static int num_routers = 0;
 static int num_servers = 0;
 static int offset = 2;
 
-/* whether to pull instead of push */ 
-static int do_pull = 0; 
+/* whether to pull instead of push */
+static int do_pull = 0;
 
 static int num_routers_per_rep = 0;
 static int num_servers_per_rep = 0;
@@ -63,7 +63,7 @@ struct svr_state
 struct svr_msg
 {
     enum svr_event svr_event_type;
-//    enum net_event net_event_type; 
+//    enum net_event net_event_type;
     tw_lpid src;          /* source of this request or ack */
 
     model_net_event_return ret;
@@ -93,7 +93,8 @@ tw_lptype svr_lp = {
     (pre_run_f) NULL,
     (event_f) svr_event,
     (revent_f) svr_rev_event,
-    (final_f)  svr_finalize, 
+    (commit_f) NULL,
+    (final_f)  svr_finalize,
     (map_f) codes_mapping,
     sizeof(svr_state),
 };
@@ -149,23 +150,23 @@ int main(
     }
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
-  
+
     configuration_load(argv[2], MPI_COMM_WORLD, &config);
     svr_add_lp_type();
-    
+
     codes_mapping_setup();
 
     net_ids = model_net_configure(&num_nets);
     assert(num_nets==1);
     net_id = *net_ids;
     free(net_ids);
-    
+
     num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "server",
             NULL, 1);
     if(net_id == DRAGONFLY)
     {
 	  num_routers = codes_mapping_get_lp_count("MODELNET_GRP", 0,
-                  "dragonfly_router", NULL, 1); 
+                  "dragonfly_router", NULL, 1);
 	  offset = 1;
     }
 
@@ -203,7 +204,7 @@ static void svr_init(
     tw_event *e;
     svr_msg *m;
     tw_stime kickoff_time;
-    
+
     memset(ns, 0, sizeof(*ns));
 
     /* each server sends a dummy event to itself that will kick off the real
@@ -213,7 +214,7 @@ static void svr_init(
 
     //printf("\n Initializing servers %d ", (int)lp->gid);
     /* skew each kickoff event slightly to help avoid event ties later on */
-    kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng); 
+    kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng);
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
@@ -239,7 +240,7 @@ static void svr_event(
             handle_kickoff_event(ns, m, lp);
             break;
 	case LOCAL:
-	   handle_local_event(ns); 
+	   handle_local_event(ns);
 	 break;
         default:
 	    printf("\n Invalid message type %d ", m->svr_event_type);
@@ -264,7 +265,7 @@ static void svr_rev_event(
             handle_kickoff_rev_event(ns, m, lp);
             break;
 	case LOCAL:
-	    handle_local_rev_event(ns);    
+	    handle_local_rev_event(ns);
 	    break;
         default:
             assert(0);
@@ -278,7 +279,7 @@ static void svr_finalize(
     svr_state * ns,
     tw_lp * lp)
 {
-    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s(ns->end_ts-ns->start_ts), 
+    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s(ns->end_ts-ns->start_ts),
         ((double)(PAYLOAD_SZ*NUM_REQS)/(double)(1024*1024)/ns_to_s(ns->end_ts-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
     return;
 }
@@ -327,7 +328,7 @@ static void handle_kickoff_event(
 
     if(net_id == DRAGONFLY && (lp->gid % lps_per_rep == num_servers_per_rep - 1))
           opt_offset = num_servers_per_rep + num_routers_per_rep; /* optional offset due to dragonfly mapping */
-    
+
     /* each server sends a request to the next highest server */
     int dest_id = (lp->gid + offset + opt_offset)%total_lps;
     if (do_pull){
@@ -360,7 +361,7 @@ static void handle_req_rev_event(
    if(m->incremented_flag)
    {
        ns->msg_sent_count--;
-       model_net_event_collective_rc(net_id, PAYLOAD_SZ, lp); 
+       model_net_event_collective_rc(net_id, PAYLOAD_SZ, lp);
     }
 
     return;
@@ -379,7 +380,7 @@ static void handle_kickoff_rev_event(
     return;
 }
 
-/* handle receiving request 
+/* handle receiving request
  * (note: this should never be called when doing the "pulling" version of
  * the program) */
 static void handle_req_event(
@@ -407,8 +408,8 @@ static void handle_req_event(
     /* simulated payload of 1 MiB */
     /* also trigger a local event for completion of payload msg */
     /* remote host will get an ack event */
-   
-   // mm Q: What should be the size of an ack message? may be a few bytes? or larger..? 
+
+   // mm Q: What should be the size of an ack message? may be a few bytes? or larger..?
    if(ns->msg_sent_count < NUM_REQS)
      {
         ns->msg_sent_count++;

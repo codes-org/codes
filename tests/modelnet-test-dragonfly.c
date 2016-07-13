@@ -34,7 +34,7 @@ static int num_servers = 0;
 static int offset = 2;
 static int num_reps = 0;
 
-/* whether to pull instead of push */ 
+/* whether to pull instead of push */
 static int do_pull = 0;
 
 static int num_routers_per_rep = 0;
@@ -75,7 +75,7 @@ struct svr_state
 struct svr_msg
 {
     enum svr_event svr_event_type;
-//    enum net_event net_event_type; 
+//    enum net_event net_event_type;
     tw_lpid src;          /* source of this request or ack */
 
     model_net_event_return ret;
@@ -105,7 +105,8 @@ tw_lptype svr_lp = {
     (pre_run_f) NULL,
     (event_f) svr_event,
     (revent_f) svr_rev_event,
-    (final_f)  svr_finalize, 
+    (commit_f) NULL,
+    (final_f)  svr_finalize,
     (map_f) codes_mapping,
     sizeof(svr_state),
 };
@@ -170,14 +171,14 @@ int main(
     }
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
-  
+
     configuration_load(argv[2], MPI_COMM_WORLD, &config);
 
     model_net_register();
     svr_add_lp_type();
-    
+
     codes_mapping_setup();
-    
+
     net_ids = model_net_configure(&num_nets);
     assert(num_nets==1);
     net_id = *net_ids;
@@ -187,7 +188,7 @@ int main(
     num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "server",
             NULL, 1);
     num_routers = codes_mapping_get_lp_count("MODELNET_GRP", 0,
-                  "dragonfly_router", NULL, 1); 
+                  "dragonfly_router", NULL, 1);
     offset = 1;
 
     if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
@@ -224,7 +225,7 @@ static void svr_init(
     tw_event *e;
     svr_msg *m;
     tw_stime kickoff_time;
-    
+
     memset(ns, 0, sizeof(*ns));
 
     /* each server sends a dummy event to itself that will kick off the real
@@ -233,7 +234,7 @@ static void svr_init(
 
     //printf("\n Initializing servers %d ", (int)lp->gid);
     /* skew each kickoff event slightly to help avoid event ties later on */
-    kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng); 
+    kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng);
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
@@ -262,7 +263,7 @@ static void svr_event(
             handle_kickoff_event(ns, m, lp);
             break;
 	case LOCAL:
-	   handle_local_event(ns); 
+	   handle_local_event(ns);
 	 break;
         default:
 	    printf("\n Invalid message type %d ", m->svr_event_type);
@@ -304,7 +305,7 @@ static void svr_finalize(
     svr_state * ns,
     tw_lp * lp)
 {
-    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s(ns->end_ts-ns->start_ts), 
+    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s(ns->end_ts-ns->start_ts),
         ((double)(PAYLOAD_SZ*NUM_REQS)/(double)(1024*1024)/ns_to_s(ns->end_ts-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
     return;
 }
@@ -347,19 +348,19 @@ static void handle_kickoff_event(
             "dragonfly_router", NULL, 1);
 
     num_reps = codes_mapping_get_group_reps("MODELNET_GRP");
-    
+
     lps_per_rep = num_servers_per_rep * 2 + num_routers_per_rep;
-    
+
      codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
 
     int dest_svr;
-    if(TRAFFIC == UNIFORM_RANDOM) 
+    if(TRAFFIC == UNIFORM_RANDOM)
 	dest_svr = tw_rand_integer(lp->rng, 0, num_servers - 1);
     else
 	{
 	dest_svr = ((rep_id * num_servers_per_rep) + (num_servers_per_rep * 2)) % (num_reps * num_servers_per_rep);
 	}
-    dest_svr = dest_svr + ((dest_svr / num_servers_per_rep) * (num_routers_per_rep + num_servers_per_rep)); 
+    dest_svr = dest_svr + ((dest_svr / num_servers_per_rep) * (num_routers_per_rep + num_servers_per_rep));
 
     if (do_pull){
         m->ret = model_net_pull_event(net_id, "test", dest_svr, PAYLOAD_SZ, 0.0,
@@ -421,7 +422,7 @@ static void handle_ack_rev_event(
         model_net_event_rc2(lp, &m->ret);
         ns->msg_sent_count--;
     }
-    // don't worry about resetting end_ts - just let the ack 
+    // don't worry about resetting end_ts - just let the ack
     // event bulldoze it
     return;
 }
@@ -441,7 +442,7 @@ static void handle_ack_event(
 
     memcpy(m_remote, m_local, sizeof(svr_msg));
     m_remote->svr_event_type = (do_pull) ? ACK : REQ;
-     
+
     codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
 
 //    printf("handle_ack_event(), lp %llu.\n", (unsigned long long)lp->gid);
@@ -450,14 +451,14 @@ static void handle_ack_event(
 //    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
 
     int dest_svr = tw_rand_integer(lp->rng, 0, num_servers - 1);
-    if(TRAFFIC == UNIFORM_RANDOM) 
+    if(TRAFFIC == UNIFORM_RANDOM)
 	dest_svr = tw_rand_integer(lp->rng, 0, num_servers - 1);
     else
 	{
 	dest_svr = ((rep_id * num_servers_per_rep) + (num_servers_per_rep * 2)) % (num_reps * num_servers_per_rep);
 	}
 
-    dest_svr = dest_svr + ((dest_svr / num_servers_per_rep) * (num_routers_per_rep + num_servers_per_rep)); 
+    dest_svr = dest_svr + ((dest_svr / num_servers_per_rep) * (num_routers_per_rep + num_servers_per_rep));
 
     if(ns->msg_sent_count < NUM_REQS)
     {
@@ -481,7 +482,7 @@ static void handle_ack_event(
     return;
 }
 
-/* handle receiving request 
+/* handle receiving request
  * (note: this should never be called when doing the "pulling" version of
  * the program) */
 static void handle_req_event(
@@ -507,7 +508,7 @@ static void handle_req_event(
     /* simulated payload of 1 MiB */
     /* also trigger a local event for completion of payload msg */
     /* remote host will get an ack event */
-  
+
     m->ret = model_net_event(net_id, "test", m->src, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
 //    printf("\n Sending ack to LP %d %d ", m->src, m_remote->src);
     return;

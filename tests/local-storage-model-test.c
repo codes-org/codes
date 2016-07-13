@@ -84,7 +84,8 @@ tw_lptype svr_lp = {
     (pre_run_f) NULL,
     (event_f) svr_event,
     (revent_f) svr_rev_event,
-    (final_f) svr_finalize, 
+    (commit_f) NULL,
+    (final_f) svr_finalize,
     (map_f) svr_node_mapping,
     sizeof(svr_state),
 };
@@ -130,10 +131,10 @@ int main(
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
- 
+
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
-   
+
     /* read in configuration file */
     ret = configuration_load(conf_file_name, MPI_COMM_WORLD, &config);
     if (ret)
@@ -152,7 +153,7 @@ int main(
     ret = lp_io_prepare("lsm-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD);
     if(ret < 0)
     {
-       return(-1); 
+       return(-1);
     }
 
     INIT_CODES_CB_INFO(&cb_info, svr_msg, h, tag, ret);
@@ -174,7 +175,7 @@ static void svr_init(
     tw_event *e;
     svr_msg *m;
     tw_stime kickoff_time;
-    
+
     memset(ns, 0, sizeof(*ns));
 
     /* each server sends a dummy event to itself that will kick off the real
@@ -182,7 +183,7 @@ static void svr_init(
      */
 
     /* skew each kickoff event slightly to help avoid event ties later on */
-    kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng); 
+    kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng);
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);

@@ -55,7 +55,7 @@ enum svr_event
 
 struct svr_state
 {
-    int pingpongs_completed; 
+    int pingpongs_completed;
     int svr_idx;
 };
 
@@ -90,7 +90,8 @@ tw_lptype svr_lp = {
     (pre_run_f) NULL,
     (event_f) svr_event,
     (revent_f) svr_rev_event,
-    (final_f)  svr_finalize, 
+    (commit_f) NULL,
+    (final_f)  svr_finalize,
     (map_f) codes_mapping,
     sizeof(svr_state),
 };
@@ -143,13 +144,13 @@ int main(
     }
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
-  
+
     configuration_load(argv[2], MPI_COMM_WORLD, &config);
     svr_add_lp_type();
     model_net_register();
-   
+
     codes_mapping_setup();
-    
+
     net_ids = model_net_configure(&num_nets);
     assert(num_nets==1);
     net_id = *net_ids;
@@ -160,7 +161,7 @@ int main(
     if(net_id == DRAGONFLY)
     {
 	  num_routers = codes_mapping_get_lp_count("MODELNET_GRP", 0,
-                  "dragonfly_router", NULL, 1); 
+                  "dragonfly_router", NULL, 1);
 	  offset = 1;
     }
 
@@ -202,7 +203,7 @@ static void svr_init(
     char lp_type_name[MAX_NAME_LENGTH];
     int grp_id, lp_type_id, grp_rep_id, off;
     int i;
-    
+
     memset(ns, 0, sizeof(*ns));
 
     /* find my own server index */
@@ -222,7 +223,7 @@ static void svr_init(
             stat_array[i].msg_sz = stat_array[i-1].msg_sz * 2;
 
         /* skew each kickoff event slightly to help avoid event ties later on */
-        kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng); 
+        kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng);
 
         e = tw_event_new(lp->gid, kickoff_time, lp);
         m = tw_event_data(e);
@@ -420,6 +421,6 @@ static void handle_ping_event(
  *  c-indent-level: 4
  *  c-basic-offset: 4
  * End:
- 
+
  * vim: ft=c ts=8 sts=4 sw=4 expandtab
  */

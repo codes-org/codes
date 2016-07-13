@@ -29,7 +29,7 @@ typedef struct model_net_base_params_s {
     int use_recv_queue;
 } model_net_base_params;
 
-/* annotation-specific parameters (unannotated entry occurs at the 
+/* annotation-specific parameters (unannotated entry occurs at the
  * last index) */
 static int                       num_params = 0;
 static const char              * annos[CONFIGURATION_MAX_ANNOS];
@@ -61,7 +61,7 @@ typedef struct model_net_base_state {
 
 /**** BEGIN LP, EVENT PROCESSING FUNCTION DECLS ****/
 
-/* ROSS LP processing functions */  
+/* ROSS LP processing functions */
 static void model_net_base_lp_init(
         model_net_base_state * ns,
         tw_lp * lp);
@@ -107,7 +107,8 @@ tw_lptype model_net_base_lp = {
     (pre_run_f) NULL,
     (event_f) model_net_base_event,
     (revent_f) model_net_base_event_rc,
-    (final_f)  model_net_base_finalize, 
+    (commit_f) NULL,
+    (final_f)  model_net_base_finalize,
     (map_f) codes_mapping,
     sizeof(model_net_base_state),
 };
@@ -176,7 +177,7 @@ static void base_read_config(const char * anno, model_net_base_params *p){
         }
         if (i == MAX_SCHEDS){
             tw_error(TW_LOC,"Unknown value for PARAMS:modelnet-scheduler : "
-                    "%s", sched); 
+                    "%s", sched);
         }
     }
     else{
@@ -186,7 +187,7 @@ static void base_read_config(const char * anno, model_net_base_params *p){
 
     // get scheduler-specific parameters
     if (p->sched_params.type == MN_SCHED_PRIO){
-        // prio scheduler uses default parameters 
+        // prio scheduler uses default parameters
         int             * num_prios = &p->sched_params.u.prio.num_prios;
         enum sched_type * sub_stype = &p->sched_params.u.prio.sub_stype;
         // number of priorities to allocate
@@ -314,7 +315,7 @@ void model_net_base_lp_init(
     char lp_type_name[MAX_NAME_LENGTH], anno[MAX_NAME_LENGTH];
     int dummy;
 
-    codes_mapping_get_lp_info(lp->gid, NULL, &dummy, 
+    codes_mapping_get_lp_info(lp->gid, NULL, &dummy,
             lp_type_name, &dummy, anno, &dummy, &dummy);
 
     ns->msg_id = 0;
@@ -338,7 +339,7 @@ void model_net_base_lp_init(
 
     ns->sched_send = malloc(sizeof(model_net_sched));
     ns->sched_recv = malloc(sizeof(model_net_sched));
-    // init both the sender queue and the 'receiver' queue 
+    // init both the sender queue and the 'receiver' queue
     model_net_sched_init(&ns->params->sched_params, 0, method_array[ns->net_id],
             ns->sched_send);
     model_net_sched_init(&ns->params->sched_params, 1, method_array[ns->net_id],
@@ -473,15 +474,15 @@ void handle_new_msg(
     if (r->self_event_size > 0){
         local = m_data;
     }
-    
+
     // set message-specific params
     int is_from_remote = m->msg.m_base.is_from_remote;
     model_net_sched *ss = is_from_remote ? ns->sched_recv : ns->sched_send;
-    int *in_sched_loop = is_from_remote  ? 
+    int *in_sched_loop = is_from_remote  ?
         &ns->in_sched_recv_loop : &ns->in_sched_send_loop;
     model_net_sched_add(r, &m->msg.m_base.sched_params, r->remote_event_size,
             remote, r->self_event_size, local, ss, &m->msg.m_base.rc, lp);
-    
+
     if (*in_sched_loop == 0){
         b->c31 = 1;
         /* No need to issue an extra sched-next event if we're currently idle */
@@ -501,7 +502,7 @@ void handle_new_msg_rc(
         tw_lp *lp){
     int is_from_remote = m->msg.m_base.is_from_remote;
     model_net_sched *ss = is_from_remote ? ns->sched_recv : ns->sched_send;
-    int *in_sched_loop = is_from_remote  ? 
+    int *in_sched_loop = is_from_remote  ?
         &ns->in_sched_recv_loop : &ns->in_sched_send_loop;
 
     if (b->c31) {
@@ -535,7 +536,7 @@ void handle_sched_next(
     // For all others, we need to schedule the next packet
     // immediately
     else if (ns->net_id == SIMPLEP2P || ns->net_id == TORUS){
-        tw_event *e = tw_event_new(lp->gid, 
+        tw_event *e = tw_event_new(lp->gid,
                 poffset+codes_local_latency(lp), lp);
         model_net_wrap_msg *m_wrap = tw_event_data(e);
         msg_set_header(model_net_base_magic, MN_BASE_SCHED_NEXT, lp->gid,
@@ -600,7 +601,7 @@ void model_net_method_send_msg_recv_event(
         void * msg,
         tw_stime offset,
         tw_lp *sender){
-    tw_event *e = 
+    tw_event *e =
         tw_event_new(dest_mn_lp, offset+codes_local_latency(sender), sender);
     model_net_wrap_msg *m = tw_event_data(e);
     msg_set_header(model_net_base_magic, MN_BASE_NEW_MSG, sender->gid, &m->h);

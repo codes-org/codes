@@ -90,6 +90,7 @@ tw_lptype a_lp = {
     (pre_run_f) NULL,
     (event_f) NULL,
     (revent_f) NULL,
+    (commit_f) NULL,
     (final_f)  NULL,
     (map_f) codes_mapping,
     sizeof(state),
@@ -99,6 +100,7 @@ tw_lptype b_lp = {
     (pre_run_f) NULL,
     (event_f) NULL,
     (revent_f) NULL,
+    (commit_f) NULL,
     (final_f) NULL,
     (map_f) codes_mapping,
     sizeof(state),
@@ -108,6 +110,7 @@ tw_lptype c_lp = {
     (pre_run_f) NULL,
     (event_f) NULL,
     (revent_f) NULL,
+    (commit_f) NULL,
     (final_f) NULL,
     (map_f) codes_mapping,
     sizeof(state),
@@ -230,7 +233,7 @@ int main(int argc, char *argv[])
 
     printf("# test 2 format:\n"
            "# <lp> rel id <global <group-wise> <anno.-wise> <both> <lp name>\n");
-            
+
     const char * lps[]    = {"a", "b", "c"};
     const char * groups[] = {NULL, "GRP1", "GRP2"};
     const char * annos[]  = {NULL, "foo", "bar"};
