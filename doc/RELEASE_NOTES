@@ -1,8 +1,38 @@
 0.5.2 (July 13, 2016)
 
-Summer of CODES was another huge success!
-This update adds the commit function to the CODES models, representing an
-update to the latest version of ROSS (d3bdc07)
+Summer of CODES was another huge success! This release was created during the
+  workshop.
+
+general:
+==========
+
+the ROSS "commit" function was added to the CODES models from the latest
+  version of ROSS (d3bdc07)
+
+the pkg-config program is properly checked for, resulting in an error if it
+  is not found.
+
+the "configfile" API has been promoted to a public API, allowing more flexible
+  management of configuration entities. It is currently undocumented.
+
+
+networks:
+==========
+
+remove overly-restrictive assert from dragonfly
+
+workloads:
+==========
+
+enabled max wait time stat in MPI replay
+
+print an error message if pending waits never processed in MPI replay
+
+utilities:
+==========
+
+the mapping context API gained a new mapping method, which uses the ratio of
+  mapped-from to mapped-to entities to map contiguous mapped-from IDs.
 
 0.5.1 (June 09, 2016)
 
