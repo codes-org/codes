@@ -64,14 +64,14 @@ struct sp_state
 
     /* Each simplep2p "NIC" actually has N connections, so we need to track
      * idle times across all of them to correctly do stats.
-     * Additionally need to track different idle times across different 
+     * Additionally need to track different idle times across different
      * categories */
     category_idles idle_times_cat[CATEGORY_MAX];
 
     struct mn_stats sp_stats_array[CATEGORY_MAX];
 };
 
-/* annotation-specific parameters (unannotated entry occurs at the 
+/* annotation-specific parameters (unannotated entry occurs at the
  * last index) */
 static uint64_t                  num_params = 0;
 static simplep2p_param         * all_params = NULL;
@@ -85,7 +85,7 @@ static const tw_lptype* sp_get_lp_type(void);
 /* set model parameters:
  * - latency_fname - path containing triangular matrix of net latencies, in ns
  * - bw_fname      - path containing triangular matrix of bandwidths in MB/s.
- * note that this merely stores the files, they will be parsed later 
+ * note that this merely stores the files, they will be parsed later
  */
 static void sp_set_params(
         const char      * latency_fname,
@@ -106,7 +106,7 @@ static int sp_get_magic();
 /* given two simplep2p logical ids, do matrix lookups to get the point-to-point
  * latency/bandwidth */
 static double sp_get_table_ent(
-        int      from_id, 
+        int      from_id,
         int      to_id,
 	int	 is_outgoing,
         int      num_lps,
@@ -180,6 +180,7 @@ tw_lptype sp_lp = {
     (pre_run_f) NULL,
     (event_f) sp_event,
     (revent_f) sp_rev_event,
+    (commit_f) NULL,
     (final_f) sp_finalize,
     (map_f) codes_mapping,
     sizeof(sp_state),
@@ -238,7 +239,7 @@ static double * parse_mat(char * buf, int *nvals_first, int *nvals_total, int is
     *nvals_total = 0;
 
     //printf("\n parsing the matrix ");
-    /* parse the files by line */ 
+    /* parse the files by line */
     int line_ct, line_ct_prev = 0;
     char * line_save;
     char * line = strtok_r(buf, "\r\n", &line_save);
@@ -335,7 +336,7 @@ static void sp_set_params(
 
     int nvals_first_s, nvals_first_b, nvals_total_s, nvals_total_b;
 
-    double *latency_tmp = parse_mat(sbuf, &nvals_first_s, 
+    double *latency_tmp = parse_mat(sbuf, &nvals_first_s,
             &nvals_total_s, is_tri_mat);
     double *bw_tmp = parse_mat(bbuf, &nvals_first_b, &nvals_total_b, is_tri_mat);
 
@@ -343,9 +344,9 @@ static void sp_set_params(
     assert(nvals_first_s == nvals_first_b);
     params->mat_len = nvals_first_s + ((is_tri_mat) ? 1 : 0);
     if (is_tri_mat){
-        params->net_latency_ns_table = 
+        params->net_latency_ns_table =
             malloc(2*params->mat_len*params->mat_len*sizeof(double));
-	params->net_bw_mbps_table = 
+	params->net_bw_mbps_table =
             malloc(2*params->mat_len*params->mat_len*sizeof(double));
 
 	fill_tri_mat(params->mat_len, params->net_latency_ns_table, latency_tmp);
@@ -389,9 +390,9 @@ static void sp_init(
     ns->id = codes_mapping_get_lp_relative_id(lp->gid, 0, 1);
 
     /* all devices are idle to begin with */
-    ns->send_next_idle = malloc(ns->params->num_lps * 
+    ns->send_next_idle = malloc(ns->params->num_lps *
             sizeof(ns->send_next_idle));
-    ns->recv_next_idle = malloc(ns->params->num_lps * 
+    ns->recv_next_idle = malloc(ns->params->num_lps *
             sizeof(ns->recv_next_idle));
     tw_stime st = tw_now(lp);
     int i;
@@ -463,11 +464,11 @@ static void sp_finalize(
     sp_state * ns,
     tw_lp * lp)
 {
-    /* first need to add last known active-range times (they aren't added 
-     * until afterwards) */ 
+    /* first need to add last known active-range times (they aren't added
+     * until afterwards) */
     int i;
-    for (i = 0; 
-            i < CATEGORY_MAX && strlen(ns->idle_times_cat[i].category) > 0; 
+    for (i = 0;
+            i < CATEGORY_MAX && strlen(ns->idle_times_cat[i].category) > 0;
             i++){
         category_idles *id = ns->idle_times_cat + i;
         mn_stats       *st = ns->sp_stats_array + i;
@@ -542,11 +543,11 @@ static void handle_msg_ready_event(
             1, ns->params->num_lps, ns->params->net_bw_mbps_table);
     double latency = sp_get_table_ent(m->src_mn_rel_id, ns->id,
             1, ns->params->num_lps, ns->params->net_latency_ns_table);
-    
+
    // printf("\n LP %d outgoing bandwidth with LP %d is %f ", ns->id, m->src_mn_rel_id, bw);
     if (bw <= 0.0 || latency < 0.0){
-        fprintf(stderr, 
-                "Invalid link from Rel. id %d to LP %llu (rel. id %d)\n", 
+        fprintf(stderr,
+                "Invalid link from Rel. id %d to LP %llu (rel. id %d)\n",
                 m->src_mn_rel_id, LLU(lp->gid), ns->id);
         abort();
     }
@@ -554,7 +555,7 @@ static void handle_msg_ready_event(
     /* are we available to recv the msg? */
     /* were we available when the transmission was started? */
     if(ns->recv_next_idle[m->src_mn_rel_id] > tw_now(lp))
-        recv_queue_time += 
+        recv_queue_time +=
             ns->recv_next_idle[m->src_mn_rel_id] - tw_now(lp);
 
     /* calculate transfer time based on msg size and bandwidth */
@@ -566,7 +567,7 @@ static void handle_msg_ready_event(
 
     /* get stats, save state (TODO: smarter save state than param dump?)  */
     stat = model_net_find_stats(m->category, ns->sp_stats_array);
-    category_idles *idles = 
+    category_idles *idles =
         sp_get_category_idles(m->category, ns->idle_times_cat);
     stat->recv_count++;
     stat->recv_bytes += m->net_msg_size_bytes;
@@ -586,9 +587,9 @@ static void handle_msg_ready_event(
     /* update global idles, recv time */
     if (tw_now(lp) > idles->recv_next_idle_all){
         /* there was an idle period between last idle and now */
-        stat->recv_time += 
+        stat->recv_time +=
             idles->recv_next_idle_all - idles->recv_prev_idle_all;
-        idles->recv_prev_idle_all = tw_now(lp); 
+        idles->recv_prev_idle_all = tw_now(lp);
     }
     if (ns->recv_next_idle[m->src_mn_rel_id] > idles->recv_next_idle_all){
         /* extend the active period (active until at least this request) */
@@ -651,7 +652,7 @@ static void handle_msg_start_rev_event(
     stat->send_bytes -= m->net_msg_size_bytes;
     stat->send_time = m->send_time_saved;
 
-    category_idles *idles = 
+    category_idles *idles =
         sp_get_category_idles(m->category, ns->idle_times_cat);
     ns->send_next_idle[m->dest_mn_rel_id] = m->send_next_idle_saved;
     idles->send_next_idle_all = m->send_next_idle_all_saved;
@@ -687,11 +688,11 @@ static void handle_msg_start_event(
             0, ns->params->num_lps, ns->params->net_bw_mbps_table);
     latency = sp_get_table_ent(ns->id, dest_rel_id,
             0, ns->params->num_lps, ns->params->net_latency_ns_table);
-    
+
     //printf("\n LP %d incoming bandwidth with LP %d is %f ", ns->id, dest_rel_id, bw);
     if (bw <= 0.0 || latency < 0.0){
-        fprintf(stderr, 
-                "Invalid link from LP %llu (rel. id %d) to LP %llu (rel. id %d)\n", 
+        fprintf(stderr,
+                "Invalid link from LP %llu (rel. id %d) to LP %llu (rel. id %d)\n",
                 LLU(lp->gid), ns->id, LLU(m->dest_mn_lp), dest_rel_id);
         abort();
     }
@@ -703,15 +704,15 @@ static void handle_msg_start_event(
         send_queue_time += ns->send_next_idle[dest_rel_id] - tw_now(lp);
 
     /* move the next idle time ahead to after this transmission is
-     * _complete_ from the sender's perspective 
-     */ 
+     * _complete_ from the sender's perspective
+     */
     m->send_next_idle_saved = ns->send_next_idle[dest_rel_id];
     ns->send_next_idle[dest_rel_id] = send_queue_time + tw_now(lp) +
         rate_to_ns(m->net_msg_size_bytes, bw);
 
     /* get stats, save state (TODO: smarter save state than param dump?)  */
     stat = model_net_find_stats(m->category, ns->sp_stats_array);
-    category_idles *idles = 
+    category_idles *idles =
         sp_get_category_idles(m->category, ns->idle_times_cat);
     stat->send_count++;
     stat->send_bytes += m->net_msg_size_bytes;
@@ -733,7 +734,7 @@ static void handle_msg_start_event(
     if (tw_now(lp) > idles->send_next_idle_all){
         /* there was an idle period between last idle and now */
         stat->send_time += idles->send_next_idle_all - idles->send_prev_idle_all;
-        idles->send_prev_idle_all = tw_now(lp); 
+        idles->send_prev_idle_all = tw_now(lp);
     }
     if (ns->send_next_idle[dest_rel_id] > idles->send_next_idle_all){
         /* extend the active period (active until at least this request) */
@@ -783,7 +784,7 @@ static void handle_msg_start_event(
         void * m_loc = (char*) model_net_method_get_edata(SIMPLEP2P, m) +
             m->event_size_bytes;
          //local_event = (char*)m;
-         //local_event += sp_get_msg_sz() + m->event_size_bytes;         	 
+         //local_event += sp_get_msg_sz() + m->event_size_bytes;
         /* copy just the local event data over */
         memcpy(m_new, m_loc, m->local_event_size_bytes);
         tw_event_send(e_new);
@@ -793,7 +794,7 @@ static void handle_msg_start_event(
 
 /* Model-net function calls */
 
-/*This method will serve as an intermediate layer between simplep2p and modelnet. 
+/*This method will serve as an intermediate layer between simplep2p and modelnet.
  * It takes the packets from modelnet layer and calls underlying simplep2p methods*/
 static tw_stime simplep2p_packet_event(
         model_net_request const * req,
@@ -817,7 +818,7 @@ static tw_stime simplep2p_packet_event(
 
 #if SIMPLEP2P_DEBUG
     printf("%lu: final %lu packet sz %d remote sz %d self sz %d is_last_pckt %d latency %lf\n",
-            (src_lp - 1) / 2, req->final_dest_lp, packet_size, 
+            (src_lp - 1) / 2, req->final_dest_lp, packet_size,
             req->remote_event_size, req->self_event_size, is_last_pckt,
             xfer_to_nic_time+offset);
 #endif
@@ -837,8 +838,8 @@ static tw_stime simplep2p_packet_event(
      msg->is_pull = req->is_pull;
      msg->pull_size = req->pull_size;
 
-    //printf("\n Sending to LP %d msg magic %d ", (int)dest_id, sp_get_magic()); 
-     /*Fill in simplep2p information*/     
+    //printf("\n Sending to LP %d msg magic %d ", (int)dest_id, sp_get_magic());
+     /*Fill in simplep2p information*/
      if(is_last_pckt) /* Its the last packet so pass in remote event information*/
       {
        if(req->remote_event_size)
@@ -863,7 +864,7 @@ static void sp_read_config(const char * anno, simplep2p_param *p){
     char latency_file[MAX_NAME_LENGTH];
     char bw_file[MAX_NAME_LENGTH];
     int rc;
-    rc = configuration_get_value_relpath(&config, "PARAMS", 
+    rc = configuration_get_value_relpath(&config, "PARAMS",
             "net_latency_ns_file", anno, latency_file, MAX_NAME_LENGTH);
     if (rc <= 0){
         if (anno == NULL)
@@ -915,13 +916,13 @@ static void simplep2p_packet_event_rc(tw_lp *sender)
 }
 
 static double sp_get_table_ent(
-        int      from_id, 
+        int      from_id,
         int      to_id,
 	int 	 is_incoming, /* chooses between incoming and outgoing bandwidths */
         int      num_lps,
         double * table){
     // TODO: if a tri-matrix, then change the addressing
-    return table[2 * from_id * num_lps + 2 * to_id + is_incoming]; 
+    return table[2 * from_id * num_lps + 2 * to_id + is_incoming];
 }
 
 /* category lookup (more or less copied from model_net_find_stats) */

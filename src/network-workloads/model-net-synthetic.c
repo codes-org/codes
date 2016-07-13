@@ -99,6 +99,7 @@ tw_lptype svr_lp = {
     (pre_run_f) NULL,
     (event_f) svr_event,
     (revent_f) svr_rev_event,
+    (commit_f) NULL,
     (final_f)  svr_finalize,
     (map_f) codes_mapping,
     sizeof(svr_state),
@@ -169,11 +170,11 @@ static void handle_kickoff_rev_event(
 
     if(b->c1)
         tw_rand_reverse_unif(lp->rng);
-	
+
     model_net_event_rc(net_id, lp, PAYLOAD_SZ);
 	ns->msg_sent_count--;
     tw_rand_reverse_unif(lp->rng);
-}	
+}
 static void handle_kickoff_event(
 	    svr_state * ns,
 	    tw_bf * b,
@@ -190,7 +191,7 @@ static void handle_kickoff_event(
 
     char anno[MAX_NAME_LENGTH];
     tw_lpid local_dest = -1, global_dest = -1;
-   
+
     svr_msg * m_local = malloc(sizeof(svr_msg));
     svr_msg * m_remote = malloc(sizeof(svr_msg));
 
@@ -215,7 +216,7 @@ static void handle_kickoff_event(
    {
 	local_dest = (local_id + num_nodes_per_grp) % num_nodes;
 	//printf("\n LP %ld sending to %ld num nodes %d ", local_id, local_dest, num_nodes);
-   }	
+   }
    else if(traffic == NEAREST_NEIGHBOR)
    {
 	local_dest =  (local_id + 1) % num_nodes;
@@ -226,13 +227,13 @@ static void handle_kickoff_event(
    global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
    ns->msg_sent_count++;
    model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
-    
+
    issue_event(ns, lp);
    return;
 }
 
 static void handle_remote_rev_event(
-            svr_state * ns,     
+            svr_state * ns,
             tw_bf * b,
             svr_msg * m,
             tw_lp * lp)
@@ -383,7 +384,7 @@ int main(
     num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "server",
             NULL, 1);
     configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers_per_grp);
-    
+
     num_groups = (num_routers_per_grp * (num_routers_per_grp/2) + 1);
     num_nodes = num_groups * num_routers_per_grp * (num_routers_per_grp / 2);
     num_nodes_per_grp = num_routers_per_grp * (num_routers_per_grp / 2);

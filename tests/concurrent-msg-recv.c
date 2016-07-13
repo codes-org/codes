@@ -4,7 +4,7 @@
  *
  */
 
-/* This is meant to be a template file to use when developing new LPs. 
+/* This is meant to be a template file to use when developing new LPs.
  * Roughly follows the format of the existing LPs in the CODES repos */
 
 #include "codes/codes_mapping.h"
@@ -46,7 +46,7 @@ struct testsvr_state {
     FILE *fdebug;
     /* count the number of forward events processed so we know EXACTLY which
      * invocations of events cause events in other LPs */
-    int event_ctr; 
+    int event_ctr;
 #endif
 };
 
@@ -67,7 +67,7 @@ struct testsvr_msg {
 
 /**** BEGIN LP, EVENT PROCESSING FUNCTION DECLS ****/
 
-/* ROSS LP processing functions */  
+/* ROSS LP processing functions */
 static void testsvr_lp_init(
     testsvr_state * ns,
     tw_lp * lp);
@@ -121,7 +121,8 @@ tw_lptype testsvr_lp = {
     (pre_run_f) NULL,
     (event_f) testsvr_event_handler,
     (revent_f) testsvr_rev_handler,
-    (final_f)  testsvr_finalize, 
+    (commit_f) NULL,
+    (final_f)  testsvr_finalize,
     (map_f) codes_mapping,
     sizeof(testsvr_state),
 };
@@ -148,7 +149,7 @@ void testsvr_lp_init(
         tw_lp * lp){
     /* for test, just use dummy way (assume 1 svr / 1 modelnet) */
     ns->idx = lp->gid / 2;
-    
+
     /* expect exactly three servers */
     assert(ns->idx <= 2);
 
@@ -176,7 +177,7 @@ void testsvr_lp_init(
 }
 
 /* test boilerplate helpers */
-#if TEST_DEBUG 
+#if TEST_DEBUG
 #define DUMP_PRE(lp, ns, m, type) \
     do{ \
         fprintf(ns->fdebug, type); \
@@ -349,7 +350,7 @@ void handle_testsvr_local(
     tw_lp * lp){
 
     assert(ns->idx == 1);
-    
+
     testsvr_msg m_net;
     m_net.magic = testsvr_magic;
     m_net.event_type = ACK;
@@ -420,7 +421,7 @@ void dump_msg(testsvr_msg *m, tw_lp *lp, FILE *f){
 
 void dump_state(tw_lp *lp, testsvr_state *ns, FILE *f){
     char *buf = malloc(2048);
-    int written = sprintf(buf, "idx:%d LP:%llu, event_cnt:%d, [%d", 
+    int written = sprintf(buf, "idx:%d LP:%llu, event_cnt:%d, [%d",
             ns->idx, LLU(lp->gid), ns->event_ctr, ns->req_stat[0]);
     int req;
     for (req = 1; req < NUM_REQS; req++){
@@ -463,7 +464,7 @@ int main(int argc, char *argv[])
     }
 
     /* loading the config file into the codes-mapping utility, giving us the
-     * parsed config object in return. 
+     * parsed config object in return.
      * "config" is a global var defined by codes-mapping */
     if (configuration_load(conf_file_name, MPI_COMM_WORLD, &config)){
         fprintf(stderr, "Error loading config file %s.\n", conf_file_name);

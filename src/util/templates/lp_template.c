@@ -4,7 +4,7 @@
  *
  */
 
-/* This is meant to be a template file to use when developing new LPs. 
+/* This is meant to be a template file to use when developing new LPs.
  * Roughly follows the format of the existing LPs in the CODES repos */
 
 #include "lp_template.h"
@@ -39,7 +39,7 @@ struct template_msg {
 
 /**** BEGIN LP, EVENT PROCESSING FUNCTION DECLS ****/
 
-/* ROSS LP processing functions */  
+/* ROSS LP processing functions */
 static void template_lp_init(
     template_state * ns,
     tw_lp * lp);
@@ -85,7 +85,8 @@ tw_lptype template_lp = {
     (pre_run_f) NULL,
     (event_f) template_event_handler,
     (revent_f) template_rev_handler,
-    (final_f)  template_finalize, 
+    (commit_f) NULL,
+    (final_f)  template_finalize,
     (map_f) codes_mapping,
     sizeof(template_state),
 };
@@ -117,7 +118,7 @@ void template_event_handler(
         template_msg * m,
         tw_lp * lp){
     assert(m->magic == template_magic);
-    
+
     switch (m->event_type){
         case TEMPLATE_A:
             handle_template_a(ns, b, m, lp);
@@ -138,7 +139,7 @@ void template_rev_handler(
         template_msg * m,
         tw_lp * lp){
     assert(m->magic == template_magic);
-    
+
     switch (m->event_type){
         case TEMPLATE_A:
             handle_template_a_rev(ns, b, m, lp);

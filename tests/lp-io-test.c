@@ -6,7 +6,7 @@
 
 /* SUMMARY:
  *
- * This is a test harness for the lp-io API.  It sets up a number of LPs and 
+ * This is a test harness for the lp-io API.  It sets up a number of LPs and
  * has each of them write some portion of various data  sets.
  *
  */
@@ -67,7 +67,8 @@ tw_lptype svr_lp = {
     (pre_run_f) NULL,
     (event_f) svr_event,
     (revent_f) svr_rev_event,
-    (final_f) svr_finalize, 
+    (commit_f) NULL,
+    (final_f) svr_finalize,
     (map_f) svr_node_mapping,
     sizeof(svr_state),
 };
@@ -98,10 +99,10 @@ int main(
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
- 
+
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
-  
+
     if((NUM_SERVERS) % nprocs)
     {
         fprintf(stderr, "Error: number of server LPs (%d total) is not evenly divisible by the number of MPI processes (%d)\n", NUM_SERVERS, nprocs);
@@ -122,7 +123,7 @@ int main(
     ret = lp_io_prepare("lp-io-test-results", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD);
     if(ret < 0)
     {
-       return(-1); 
+       return(-1);
     }
 
     tw_run();
@@ -142,13 +143,13 @@ static void svr_init(
     tw_event *e;
     svr_msg *m;
     tw_stime kickoff_time;
-    
+
     memset(ns, 0, sizeof(*ns));
 
     /* each server sends a dummy event to itself */
 
     /* skew each kickoff event slightly to help avoid event ties later on */
-    kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng); 
+    kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng);
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);

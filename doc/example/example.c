@@ -53,7 +53,7 @@ enum svr_event
     LOCAL      /* local event */
 };
 
-/* this struct serves as the ***persistent*** state of the LP representing the 
+/* this struct serves as the ***persistent*** state of the LP representing the
  * server in question. This struct is setup when the LP initialization function
  * ptr is called */
 struct svr_state
@@ -107,7 +107,8 @@ tw_lptype svr_lp = {
     (pre_run_f) NULL,
     (event_f) svr_event,
     (revent_f) svr_rev_event,
-    (final_f)  svr_finalize, 
+    (commit_f) NULL,
+    (final_f)  svr_finalize,
     (map_f) codes_mapping,
     sizeof(svr_state),
 };
@@ -193,9 +194,9 @@ int main(
     /* ROSS initialization function calls */
     tw_opt_add(app_opt); /* add user-defined args */
     /* initialize ROSS and parse args. NOTE: tw_init calls MPI_Init */
-    tw_init(&argc, &argv); 
+    tw_init(&argc, &argv);
 
-    if (!conf_file_name[0]) 
+    if (!conf_file_name[0])
     {
         fprintf(stderr, "Expected \"codes-config\" option, please see --help.\n");
         MPI_Finalize();
@@ -204,9 +205,9 @@ int main(
 
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
-  
+
     /* loading the config file into the codes-mapping utility, giving us the
-     * parsed config object in return. 
+     * parsed config object in return.
      * "config" is a global var defined by codes-mapping */
     if (configuration_load(conf_file_name, MPI_COMM_WORLD, &config)){
         fprintf(stderr, "Error loading config file %s.\n", conf_file_name);
@@ -222,7 +223,7 @@ int main(
 
     /* Setup takes the global config object, the registered LPs, and
      * generates/places the LPs as specified in the configuration file.
-     * This should only be called after ALL LP types have been registered in 
+     * This should only be called after ALL LP types have been registered in
      * codes */
     codes_mapping_setup();
 
@@ -233,7 +234,7 @@ int main(
     assert(num_nets==1);
     net_id = *net_ids;
     free(net_ids);
-    /* in this example, we are using simplenet, which simulates point to point 
+    /* in this example, we are using simplenet, which simulates point to point
      * communication between any two entities (other networks are trickier to
      * setup). Hence: */
     if(net_id != SIMPLENET)
@@ -242,7 +243,7 @@ int main(
 	    MPI_Finalize();
 	    return 0;
     }
-    
+
     /* calculate the number of servers in this simulation,
      * ignoring annotations */
     num_servers = codes_mapping_get_lp_count(group_name, 0, "server", NULL, 1);
@@ -253,7 +254,7 @@ int main(
     configuration_get_value_int(&config, param_group_nm, num_reqs_key, NULL, &num_reqs);
     configuration_get_value_int(&config, param_group_nm, payload_sz_key, NULL, &payload_sz);
 
-    /* begin simulation */ 
+    /* begin simulation */
     tw_run();
 
     /* model-net has the capability of outputting network transmission stats */
@@ -270,7 +271,7 @@ const tw_lptype* svr_get_lp_type()
 
 static void svr_add_lp_type()
 {
-    /* lp_type_register should be called exactly once per process per 
+    /* lp_type_register should be called exactly once per process per
      * LP type */
     lp_type_register("server", svr_get_lp_type());
 }
@@ -282,7 +283,7 @@ static void svr_init(
     tw_event *e;
     svr_msg *m;
     tw_stime kickoff_time;
-    
+
     memset(ns, 0, sizeof(*ns));
 
     /* each server sends a dummy event to itself that will kick off the real
@@ -290,12 +291,12 @@ static void svr_init(
      */
 
     /* skew each kickoff event slightly to help avoid event ties later on */
-    kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng); 
+    kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng);
 
     /* first create the event (time arg is an offset, not absolute time) */
     e = tw_event_new(lp->gid, kickoff_time, lp);
     /* after event is created, grab the allocated message and set msg-specific
-     * data */ 
+     * data */
     m = tw_event_data(e);
     m->svr_event_type = KICKOFF;
     /* event is ready to be processed, send it off */
@@ -324,7 +325,7 @@ static void svr_event(
             handle_kickoff_event(ns, b, m, lp);
             break;
 	case LOCAL:
-	   handle_local_event(ns, b, m, lp); 
+	   handle_local_event(ns, b, m, lp);
 	 break;
         default:
 	    printf("\n Invalid message type %d ", m->svr_event_type);
@@ -353,7 +354,7 @@ static void svr_rev_event(
             handle_kickoff_rev_event(ns, b, m, lp);
             break;
 	case LOCAL:
-	    handle_local_rev_event(ns, b, m, lp);    
+	    handle_local_rev_event(ns, b, m, lp);
 	    break;
         default:
             assert(0);
@@ -368,7 +369,7 @@ static void svr_finalize(
     svr_state * ns,
     tw_lp * lp)
 {
-    printf("server %llu recvd %d bytes in %lf seconds, %lf MiB/s sent_count %d recvd_count %d local_count %d \n", 
+    printf("server %llu recvd %d bytes in %lf seconds, %lf MiB/s sent_count %d recvd_count %d local_count %d \n",
             (unsigned long long)(lp->gid/2),
             payload_sz*ns->msg_recvd_count,
             ns_to_s(ns->end_ts-ns->start_ts),
@@ -395,7 +396,7 @@ static tw_stime s_to_ns(tw_stime ns)
 tw_lpid get_next_server(tw_lpid sender_id)
 {
     tw_lpid rtn_id;
-    /* first, get callers LP and group info from codes-mapping. Caching this 
+    /* first, get callers LP and group info from codes-mapping. Caching this
      * info in the LP struct isn't a bad idea for preventing a huge number of
      * lookups */
     char grp_name[MAX_NAME_LENGTH], lp_type_name[MAX_NAME_LENGTH],
@@ -404,8 +405,8 @@ tw_lpid get_next_server(tw_lpid sender_id)
     int dest_rep_id;
     codes_mapping_get_lp_info(sender_id, grp_name, &grp_id, lp_type_name,
             &lp_type_id, annotation, &grp_rep_id, &off);
-    /* in this example, we assume that, for our group of servers, each 
-     * "repetition" consists of a single server/NIC pair. Hence, we grab the 
+    /* in this example, we assume that, for our group of servers, each
+     * "repetition" consists of a single server/NIC pair. Hence, we grab the
      * server ID for the next repetition, looping around if necessary */
     num_reps = codes_mapping_get_group_reps(grp_name);
     dest_rep_id = (grp_rep_id+1) % num_reps;
@@ -429,7 +430,7 @@ static void handle_kickoff_event(
     /* normally, when using ROSS, events are allocated as a result of the event
      * creation process. However, since we are now asking model-net to
      * communicate with an entity on our behalf, we need to generate both the
-     * message to the recipient and an optional callback message 
+     * message to the recipient and an optional callback message
      * - thankfully, memory need not persist past the model_net_event call - it
      *   copies the messages */
     svr_msg m_local;
@@ -443,9 +444,9 @@ static void handle_kickoff_event(
     /* record when transfers started on this server */
     ns->start_ts = tw_now(lp);
 
-    /* each server sends a request to the next highest server 
+    /* each server sends a request to the next highest server
      * In this simulation, LP determination is simple: LPs are assigned
-     * round robin as in serv_1, net_1, serv_2, net_2, etc. 
+     * round robin as in serv_1, net_1, serv_2, net_2, etc.
      * However, that may not always be the case, so we also show a more
      * complicated way to map through codes_mapping */
     if (use_brute_force_map)
@@ -457,13 +458,13 @@ static void handle_kickoff_event(
 
     /* model-net needs to know about (1) higher-level destination LP which is a neighboring server in this case
      * (2) struct and size of remote message and (3) struct and size of local message (a local message can be null) */
-    m->ret = model_net_event(net_id, "test", dest_id, payload_sz, 0.0, sizeof(svr_msg), 
+    m->ret = model_net_event(net_id, "test", dest_id, payload_sz, 0.0, sizeof(svr_msg),
             (const void*)&m_remote, sizeof(svr_msg), (const void*)&m_local, lp);
     ns->msg_sent_count++;
 }
 
 /* at the moment, no need for local callbacks from model-net, so we maintain a
- * count for debugging purposes */ 
+ * count for debugging purposes */
 static void handle_local_event(
 		svr_state * ns,
 		tw_bf * b,
@@ -492,7 +493,7 @@ static void handle_ack_event(
      * destination server */
 
     /* safety check that this request got to the right server, both with our
-     * brute-force lp calculation and our more generic codes-mapping 
+     * brute-force lp calculation and our more generic codes-mapping
      * calculation */
     assert(m->src == (lp->gid + offset)%(num_servers*2) &&
            m->src == get_next_server(lp->gid));
@@ -509,11 +510,11 @@ static void handle_ack_event(
         m_remote.src = lp->gid;
 
         /* send another request */
-	m->ret = model_net_event(net_id, "test", m->src, payload_sz, 0.0, sizeof(svr_msg), 
+	m->ret = model_net_event(net_id, "test", m->src, payload_sz, 0.0, sizeof(svr_msg),
                 (const void*)&m_remote, sizeof(svr_msg), (const void*)&m_local, lp);
         ns->msg_sent_count++;
         m->incremented_flag = 1;
-        
+
     }
     else
     {
@@ -541,7 +542,7 @@ static void handle_req_event(
     m_remote.src = lp->gid;
 
     /* safety check that this request got to the right server */
-    
+
     assert(lp->gid == (m->src + offset)%(num_servers*2) &&
            lp->gid == get_next_server(m->src));
     ns->msg_recvd_count++;
@@ -550,8 +551,8 @@ static void handle_req_event(
     /* simulated payload of 1 MiB */
     /* also trigger a local event for completion of payload msg */
     /* remote host will get an ack event */
-   
-    m->ret = model_net_event(net_id, "test", m->src, payload_sz, 0.0, sizeof(svr_msg), 
+
+    m->ret = model_net_event(net_id, "test", m->src, payload_sz, 0.0, sizeof(svr_msg),
             (const void*)&m_remote, sizeof(svr_msg), (const void*)&m_local, lp);
     return;
 }
@@ -582,7 +583,7 @@ static void handle_req_rev_event(
     (void)b;
     (void)m;
     ns->msg_recvd_count--;
-    /* model-net has its own reverse computation support */ 
+    /* model-net has its own reverse computation support */
     model_net_event_rc2(lp, &m->ret);
 
     return;

@@ -3,12 +3,12 @@ machines.
 
 0 - Checkout, build, and install the trunk version of ROSS
 (https://github.com/carothersc/ROSS). At the time of
-release (0.5.0), ROSS's latest commit hash was d9cef53, so this revision is
+release (0.5.2), ROSS's latest commit hash was d3bdc07, so this revision is
 "safe" in the unlikely case incompatible changes come along in the future. If
 working from the CODES master branches, use the ROSS master branch.
 
     git clone http://github.com/carothersc/ROSS.git
-    # if using 0.5.0 release: git checkout d9cef53
+    # if using 0.5.2 release: git checkout d3bdc07
     cd ROSS
     mkdir build
     cd build
@@ -18,7 +18,7 @@ working from the CODES master branches, use the ROSS master branch.
     make -j 3
     make install
 
-    <the result should be that the latest version of ROSS is installed in the 
+    <the result should be that the latest version of ROSS is installed in the
     ROSS/install/ directory>
 
     For more details on installing ROSS, go to
@@ -60,7 +60,7 @@ working from the CODES master branches, use the ROSS master branch.
     of Darshan installed in the default system path, or else add
     <DARSHAN_PREFIX>/lib/pkgconfig to your PKG_CONFIG_PATH environment
     variable before calling configure.
-   
+
 4 - Build and install CODES
 
     make && make install

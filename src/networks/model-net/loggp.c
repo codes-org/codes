@@ -77,7 +77,7 @@ struct loggp_state
     struct mn_stats loggp_stats_array[CATEGORY_MAX];
 };
 
-/* annotation-specific parameters (unannotated entry occurs at the 
+/* annotation-specific parameters (unannotated entry occurs at the
  * last index) */
 static uint64_t                  num_params = 0;
 static loggp_param             * all_params = NULL;
@@ -185,6 +185,7 @@ tw_lptype loggp_lp = {
     (pre_run_f) NULL,
     (event_f) loggp_event,
     (revent_f) loggp_rev_event,
+    (commit_f) NULL,
     (final_f) loggp_finalize,
     (map_f) codes_mapping,
     sizeof(loggp_state),
@@ -344,7 +345,7 @@ static void handle_msg_ready_rev_event(
     struct mn_stats* stat;
 
     ns->net_recv_next_idle = m->net_recv_next_idle_saved;
-    
+
     stat = model_net_find_stats(m->category, ns->loggp_stats_array);
     stat->recv_count--;
     stat->recv_bytes -= m->net_msg_size_bytes;
@@ -421,7 +422,7 @@ static void handle_msg_ready_event(
     if(m->event_size_bytes)
     {
       /* schedule event to final destination for when the recv is complete */
-//      printf("\n Remote message to LP %d ", m->final_dest_gid); 
+//      printf("\n Remote message to LP %d ", m->final_dest_gid);
 
         void *tmp_ptr = model_net_method_get_edata(LOGGP, m);
         //char* tmp_ptr = (char*)m;
@@ -524,15 +525,15 @@ static void handle_msg_start_event(
         stat->max_event_size = total_event_size;
 
     /* calculate send time stamp */
-    send_queue_time = (param->L)*1000.0; 
+    send_queue_time = (param->L)*1000.0;
     /* bump up time if the NIC send queue isn't idle right now */
     if(ns->net_send_next_idle > tw_now(lp))
         send_queue_time += ns->net_send_next_idle - tw_now(lp);
 
     /* move the next idle time ahead to after this transmission is
      * _complete_ from the sender's perspective, include gap paramater (g)
-     * at this point. 
-     */ 
+     * at this point.
+     */
     m->net_send_next_idle_saved = ns->net_send_next_idle;
     if(ns->net_send_next_idle < tw_now(lp))
         ns->net_send_next_idle = tw_now(lp);
@@ -551,7 +552,7 @@ static void handle_msg_start_event(
             m->src_gid, m->net_msg_size_bytes, m->is_pull, m->pull_size,
             m->event_size_bytes, &m->sched_params, m->category, LOGGP, m,
             send_queue_time, lp);
-#else 
+#else
     void *m_data;
     e_new = model_net_method_event_new(m->dest_mn_lp, send_queue_time, lp, LOGGP,
             (void**)&m_new, &m_data);
@@ -565,7 +566,7 @@ static void handle_msg_start_event(
     }
 
     m_new->event_type = LG_MSG_READY;
-    
+
     tw_event_send(e_new);
 #endif
 
@@ -587,7 +588,7 @@ static void handle_msg_start_event(
         void * m_loc = (char*) model_net_method_get_edata(LOGGP, m) +
             m->event_size_bytes;
          //local_event = (char*)m;
-         //local_event += loggp_get_msg_sz() + m->event_size_bytes;         	 
+         //local_event += loggp_get_msg_sz() + m->event_size_bytes;
         /* copy just the local event data over */
         memcpy(m_new, m_loc, m->local_event_size_bytes);
         tw_event_send(e_new);
@@ -597,7 +598,7 @@ static void handle_msg_start_event(
 
 /* Model-net function calls */
 
-/*This method will serve as an intermediate layer between loggp and modelnet. 
+/*This method will serve as an intermediate layer between loggp and modelnet.
  * It takes the packets from modelnet layer and calls underlying loggp methods*/
 static tw_stime loggp_packet_event(
         model_net_request const * req,
@@ -637,9 +638,9 @@ static tw_stime loggp_packet_event(
 
      //tmp_ptr = (char*)msg;
      //tmp_ptr += loggp_get_msg_sz();
-      
-    //printf("\n Sending to LP %d msg magic %d ", (int)dest_id, loggp_get_magic()); 
-     /*Fill in loggp information*/     
+
+    //printf("\n Sending to LP %d msg magic %d ", (int)dest_id, loggp_get_magic());
+     /*Fill in loggp information*/
      if(is_last_pckt) /* Its the last packet so pass in remote event information*/
       {
        if(req->remote_event_size)
@@ -772,7 +773,7 @@ void loggp_set_params(const char * config_file, loggp_param * params){
             &params->table[params->table_size].lsqu_gG);
         if(ret != 11)
         {
-            fprintf(stderr, "Error: malformed line %d in %s\n", line_nr, 
+            fprintf(stderr, "Error: malformed line %d in %s\n", line_nr,
                 config_file);
             assert(0);
         }
@@ -782,7 +783,7 @@ void loggp_set_params(const char * config_file, loggp_param * params){
     printf("Parsed %d loggp table entries.\n", params->table_size);
 
     fclose(conf);
- 
+
     return;
 }
 

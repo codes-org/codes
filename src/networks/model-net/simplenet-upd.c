@@ -44,7 +44,7 @@ struct sn_state
     struct mn_stats sn_stats_array[CATEGORY_MAX];
 };
 
-/* annotation-specific parameters (unannotated entry occurs at the 
+/* annotation-specific parameters (unannotated entry occurs at the
  * last index) */
 static uint64_t                  num_params = 0;
 static simplenet_param         * all_params = NULL;
@@ -150,6 +150,7 @@ tw_lptype sn_lp = {
     (pre_run_f) NULL,
     (event_f) sn_event,
     (revent_f) sn_rev_event,
+    (commit_f) NULL,
     (final_f) sn_finalize,
     (map_f) codes_mapping,
     sizeof(sn_state),
@@ -317,7 +318,7 @@ static void handle_msg_ready_rev_event(
     struct mn_stats* stat;
 
     ns->net_recv_next_idle = m->net_recv_next_idle_saved;
-    
+
     stat = model_net_find_stats(m->category, ns->sn_stats_array);
     stat->recv_count--;
     stat->recv_bytes -= m->net_msg_size_bytes;
@@ -370,7 +371,7 @@ static void handle_msg_ready_event(
         //tmp_ptr += sn_get_msg_sz();
         void *tmp_ptr = model_net_method_get_edata(SIMPLENET, m);
       /* schedule event to final destination for when the recv is complete */
-//      printf("\n Remote message to LP %d ", m->final_dest_gid); 
+//      printf("\n Remote message to LP %d ", m->final_dest_gid);
         if (m->is_pull){
             /* call the model-net event, using direct contexts for mapping (we
              * know all involved LPs */
@@ -453,8 +454,8 @@ static void handle_msg_start_event(
         send_queue_time += ns->net_send_next_idle - tw_now(lp);
 
     /* move the next idle time ahead to after this transmission is
-     * _complete_ from the sender's perspective 
-     */ 
+     * _complete_ from the sender's perspective
+     */
     m->net_send_next_idle_saved = ns->net_send_next_idle;
     ns->net_send_next_idle = send_queue_time + tw_now(lp) +
         rate_to_ns(m->net_msg_size_bytes, ns->params.net_bw_mbps);
@@ -472,9 +473,9 @@ static void handle_msg_start_event(
         memcpy(m_data, model_net_method_get_edata(SIMPLENET, m),
                 m->event_size_bytes);
     }
-    
+
     m_new->event_type = SN_MSG_READY;
-    
+
     //print_base_from(SIMPLENET, m_new);
     //print_msg(m_new);
     tw_event_send(e_new);
@@ -498,7 +499,7 @@ static void handle_msg_start_event(
             m->event_size_bytes;
 
          //local_event = (char*)m;
-         //local_event += model_net_get_msg_sz(SIMPLENET) + m->event_size_bytes;         	 
+         //local_event += model_net_get_msg_sz(SIMPLENET) + m->event_size_bytes;
         /* copy just the local event data over (which is past the remote event
          * in memory) */
         memcpy(m_new, m_loc, m->local_event_size_bytes);
@@ -509,7 +510,7 @@ static void handle_msg_start_event(
 
 /* Model-net function calls */
 
-/*This method will serve as an intermediate layer between simplenet and modelnet. 
+/*This method will serve as an intermediate layer between simplenet and modelnet.
  * It takes the packets from modelnet layer and calls underlying simplenet methods*/
 static tw_stime simplenet_packet_event(
         model_net_request const * req,
@@ -547,7 +548,7 @@ static tw_stime simplenet_packet_event(
      msg->is_pull = req->is_pull;
      msg->pull_size = req->pull_size;
 
-     /*Fill in simplenet information*/     
+     /*Fill in simplenet information*/
      if(is_last_pckt) /* Its the last packet so pass in remote event information*/
       {
        if(req->remote_event_size)
