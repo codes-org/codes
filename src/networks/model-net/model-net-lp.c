@@ -259,6 +259,8 @@ void model_net_base_configure(){
         offsetof(model_net_wrap_msg, msg.m_dfly);
     msg_offsets[SLIMFLY] =
         offsetof(model_net_wrap_msg, msg.m_slim);
+    msg_offsets[FATTREE] =
+	offsetof(model_net_wrap_msg, msg.m_fat);
     msg_offsets[LOGGP] =
         offsetof(model_net_wrap_msg, msg.m_loggp);
 

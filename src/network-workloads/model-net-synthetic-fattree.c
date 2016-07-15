@@ -134,7 +134,7 @@ static void issue_event(
      */
 
     /* skew each kickoff event slightly to help avoid event ties later on */
-    kickoff_time = g_tw_lookahead + arrival_time + tw_rand_exponential(lp->rng, (double)arrival_time/100);
+    kickoff_time = 1.1 * g_tw_lookahead + tw_rand_exponential(lp->rng, arrival_time);
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
@@ -146,6 +146,8 @@ static void svr_init(
     svr_state * ns,
     tw_lp * lp)
 {
+    ns->start_ts = 0.0;
+
     issue_event(ns, lp);
     return;
 }
@@ -165,7 +167,8 @@ static void handle_kickoff_event(
 	    svr_msg * m,
 	    tw_lp * lp)
 {
-    char* anno;
+//    char* anno;
+    char anno[MAX_NAME_LENGTH];
     tw_lpid local_dest = -1, global_dest = -1;
    
     svr_msg * m_local = malloc(sizeof(svr_msg));
@@ -198,14 +201,18 @@ static void handle_kickoff_event(
 	local_dest =  (rep_id * 2 + offset + 2) % num_nodes;
 //	 printf("\n LP %ld sending to %ld num nodes %d ", rep_id * 2 + offset, local_dest, num_nodes);
    }
-*///   assert(local_dest < num_nodes);
+*/
+   assert(local_dest < num_nodes);
 //   codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest / num_servers_per_rep, local_dest % num_servers_per_rep, &global_dest);
 
 global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
-printf("global_dest:%d local_dest:%d\n",(int)global_dest,(int)local_dest);  
+//printf("localGID:%d global_dest:%d local_dest:%d\n",(int)lp->gid,(int)global_dest,(int)local_dest);  
+//printf("global_src,%d, local_src, %d, global_dest,%d, local_dest,%d,\n",(int)lp->gid,floor((int)lp->gid/11)*4 + (int)lp->gid % 11, (int)global_dest,(int)local_dest);
    ns->msg_sent_count++;
    model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+//printf("LP:%d localID:%d Here\n",(int)lp->gid, (int)local_dest);
    issue_event(ns, lp);
+//printf("Just Checking net_id:%d\n",net_id);
    return;
 }
 
@@ -308,7 +315,7 @@ static void svr_event(
 	    handle_kickoff_event(ns, b, m, lp);
 	    break;
         default:
-            printf("\n Invalid message type %d ", m->svr_event_type);
+            printf("\n LP: %d has received invalid message from src lpID: %d of message type:%d", (int)lp->gid, (int)m->src, m->svr_event_type);
             assert(0);
         break;
     }
@@ -323,7 +330,6 @@ int main(
     int rank;
     int num_nets;
     int *net_ids;
-    char* anno;
 
     lp_io_handle handle;
 
@@ -353,7 +359,7 @@ int main(
 
 
     net_ids = model_net_configure(&num_nets);
-    assert(num_nets==1);
+    //assert(num_nets==1);
     net_id = *net_ids;
     free(net_ids);
 
@@ -365,7 +371,7 @@ int main(
     }
     num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "server",
             NULL, 1);
-    configuration_get_value_int(&config, "PARAMS", "num_routers", anno, &num_routers_per_grp);
+    configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers_per_grp);
     
     num_groups = (num_routers_per_grp * (num_routers_per_grp/2) + 1);
     num_nodes = num_groups * num_routers_per_grp * (num_routers_per_grp / 2);
@@ -373,7 +379,7 @@ int main(
 
     num_nodes = codes_mapping_get_lp_count("MODELNET_GRP", 0, "server", NULL, 1);
 
-
+    printf("num_nodes:%d \n",num_nodes);
 
     if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
     {
