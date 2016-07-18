@@ -40,6 +40,11 @@ int *worst_dest;						//Array mapping worst case destination for each router
 int num_terminals;
 int total_routers;
 
+static char lp_io_dir[356] = {'\0'};
+static lp_io_handle io_handle;
+static unsigned int lp_io_use_suffix = 0;
+static int do_lp_io = 0;
+
 /* whether to pull instead of push */
 static int do_pull = 0;
 
@@ -125,8 +130,10 @@ const tw_optdef app_opt [] =
         TWOPT_GROUP("Model net synthetic traffic " ),
         TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
         TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
-        TWOPT_STIME("load", load, "percentage of packet inter-arrival rate to simulate"),
-        TWOPT_END(),
+        TWOPT_STIME("load", load, "percentage of packet inter-arrival rate to simulate"), 
+        TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
+        TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
+	TWOPT_END(),
 };
 
 const tw_lptype* svr_get_lp_type()
@@ -432,14 +439,9 @@ int main(
     int rank;
     int num_nets;
     int *net_ids;
-    char* anno;
-
-    lp_io_handle handle;
-
+ 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
-    offset = 1;
-
 
     if(argc < 2)
     {
@@ -456,18 +458,10 @@ int main(
     svr_add_lp_type();
     codes_mapping_setup();
     net_ids = model_net_configure(&num_nets);
-    assert(num_nets==1);
+//    assert(num_nets==1);
     net_id = *net_ids;
     free(net_ids);
 
-//slimfly 
-/*    if(net_id != DRAGONFLY)
-    {
-	printf("\n The test works with dragonfly model configuration only! ");
-        MPI_Finalize();
-        return 0;
-    }
-*/
     num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "server", NULL, 1);
     configuration_get_value_int(&config, "PARAMS", "num_terminals", NULL, &num_terminals);
     configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers_per_grp);
@@ -475,12 +469,21 @@ int main(
     num_nodes = num_groups * num_routers_per_grp * num_servers_per_rep;
     num_nodes_per_grp = num_routers_per_grp * num_servers_per_rep;
     total_routers = num_routers_per_grp * num_routers_per_grp * 2;
-printf("before lpio\n");
-    if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
+
+/*    if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
     {
         return(-1);
     }
-printf("after lpio\n");
+*/
+
+    if(lp_io_dir[0])
+    {
+        do_lp_io = 1;
+        int flags = lp_io_use_suffix ? LP_IO_UNIQ_SUFFIX : 0;
+        int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_WORLD);
+        assert(ret == 0 || !"lp_io_prepare failure");
+    }
+
     //WORST_CASE Initialization array
    if(traffic == WORST_CASE)
    {
@@ -495,8 +498,15 @@ printf("after lpio\n");
 #endif
    }
 
-    tw_run();
-    model_net_report_stats(net_id);
+   tw_run();
+
+ 
+   if (do_lp_io){
+       int ret = lp_io_flush(io_handle, MPI_COMM_WORLD);
+       assert(ret == 0 || !"lp_io_flush failure");
+   }
+
+   model_net_report_stats(net_id);
 
     if(rank == 0)
     {
@@ -512,11 +522,12 @@ printf("after lpio\n");
 #endif
     }
 
-    if(lp_io_flush(handle, MPI_COMM_WORLD) < 0)
+/*    if(lp_io_flush(handle, MPI_COMM_WORLD) < 0)
     {
+        assert(ret == 0 || !"lp_io_flush failure");
         return(-1);
     }
-
+*/
     tw_end();
 
     if(rank == 0)

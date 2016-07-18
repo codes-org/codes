@@ -19,12 +19,14 @@ HOW TO RUN:
 
 ROSS optimistic mode:
 mpirun -n 4 src/network-workloads/model-net-synthetic-slimfly --sync=3 --traffic=1 
+--lp-io-dir=mn_synthetic --lp-io-use-suffix=1
 --load=0.95 -- ../../jenkins/codes/src/network-workloads/conf/modelnet-synthetic-slimfly-min.conf
 
 ROSS serial mode:
 
 ./src/network-workloads/model-net-synthetic-slimfly --sync=1 --traffic=1 
---load=0.95 -- ../../jenkins/codes/src/network-workloads/conf/modelnet-synthetic-slimfly-min.conf
+--lp-io-dir=mn_synthetic --lp-io-use-suffix=1
+--load=0.95 -- ../src/network-workloads/conf/modelnet-synthetic-slimfly-min.conf
 
 options:
 
