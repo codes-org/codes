@@ -114,6 +114,7 @@ tw_lptype svr_lp = {
     (pre_run_f) NULL,
     (event_f) svr_event,
     (revent_f) svr_rev_event,
+    (commit_f) NULL,
     (final_f)  svr_finalize,
     (map_f) codes_mapping,
     sizeof(svr_state),
@@ -474,12 +475,12 @@ int main(
     num_nodes = num_groups * num_routers_per_grp * num_servers_per_rep;
     num_nodes_per_grp = num_routers_per_grp * num_servers_per_rep;
     total_routers = num_routers_per_grp * num_routers_per_grp * 2;
-
+printf("before lpio\n");
     if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
     {
         return(-1);
     }
-
+printf("after lpio\n");
     //WORST_CASE Initialization array
    if(traffic == WORST_CASE)
    {
