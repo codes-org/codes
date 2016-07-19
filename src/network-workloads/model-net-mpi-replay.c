@@ -879,11 +879,11 @@ static void codes_exec_mpi_send(nw_state* s,
         if(mpi_op->op_type == CODES_WK_ISEND)
         {
             fprintf(workload_log, "\n (%lf) APP %d MPI ISEND SOURCE %ld DEST %ld BYTES %ld ",
-                    tw_now(lp), s->app_id, s->nw_id, mpi_op->u.send.dest_rank, mpi_op->u.send.num_bytes);
+                    tw_now(lp), s->app_id, s->nw_id, global_dest_rank, mpi_op->u.send.num_bytes);
         }
         else
             fprintf(workload_log, "\n (%lf) APP ID %d MPI SEND SOURCE %ld DEST %ld BYTES %ld ",
-                    tw_now(lp), s->app_id, s->nw_id, mpi_op->u.send.dest_rank, mpi_op->u.send.num_bytes);
+                    tw_now(lp), s->app_id, s->nw_id, global_dest_rank, mpi_op->u.send.num_bytes);
         }
 	/* isend executed, now get next MPI operation from the queue */
 	if(mpi_op->op_type == CODES_WK_ISEND)
