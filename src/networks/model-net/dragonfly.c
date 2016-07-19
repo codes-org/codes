@@ -3022,7 +3022,7 @@ void router_buf_update_rc(router_state * s,
         prepend_to_terminal_message_list(s->queued_msgs[indx],
             s->queued_msgs_tail[indx], output_chan, head);
         s->vc_occupancy[indx][output_chan] -= s->params->chunk_size;
-        s->queued_count[indx] -= s->params->chunk_size;
+        s->queued_count[indx] += s->params->chunk_size;
       }
       if(bf->c2) {
         codes_local_latency_reverse(lp);
@@ -3054,7 +3054,7 @@ void router_buf_update(router_state * s, tw_bf * bf, terminal_message * msg, tw_
     append_to_terminal_message_list(s->pending_msgs[indx],
       s->pending_msgs_tail[indx], output_chan, head);
     s->vc_occupancy[indx][output_chan] += s->params->chunk_size;
-    s->queued_count[indx] += s->params->chunk_size;
+    s->queued_count[indx] -= s->params->chunk_size;
   }
   if(s->in_send_loop[indx] == 0 && s->pending_msgs[indx][output_chan] != NULL) {
     bf->c2 = 1;
