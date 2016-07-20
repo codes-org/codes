@@ -16,7 +16,8 @@
 #define FTREE_HASH_TABLE_SIZE 262144
 
 // debugging parameters
-#define TRACK_PKT 2820
+#define TRACK_PKT -1
+//#define TRACK_PKT 2820
 #define FATTREE_HELLO 0
 #define FATTREE_DEBUG 0
 #define FATTREE_CONNECTIONS 0
@@ -24,21 +25,6 @@
 
 #define LP_CONFIG_NM (model_net_lp_config_names[FATTREE])
 #define LP_METHOD_NM (model_net_method_names[FATTREE])
-
-//Delete the following enum and struct after getting fattree up and running
-enum svr_tmp_event
-{
-    KICKOFF,	   /* kickoff event */
-    REMOTE,        /* remote event */
-    LOCAL      /* local event */
-};
-typedef struct tmp_svr tmp_svr;
-struct tmp_svr
-{
-    enum svr_tmp_event svr_event_type;
-    tw_lpid src;          /* source of this request or ack */
-    int incremented_flag; /* helper for reverse computation */
-};
 
 long fattree_packet_gen = 0, fattree_packet_fin = 0;
 
@@ -237,6 +223,8 @@ struct switch_state
   int* vc_occupancy;
   int64_t* link_traffic;
   tw_lpid *port_connections;
+
+  struct rc_stack * st;
 
   char * anno;
   fattree_param *params;
@@ -633,6 +621,9 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
    printf("I am terminal %d (%ld), connected to switch %d\n", s->terminal_id,
        lp->gid, s->switch_id);
 #endif
+
+   rc_stack_create(&s->st);
+
    s->vc_occupancy = 0;
    s->terminal_msgs[0] = NULL;
    s->terminal_msgs_tail[0] = NULL;
@@ -715,6 +706,8 @@ void switch_init(switch_state * r, tw_lp * lp)
   r->queued_msgs_tail = 
     (fattree_message_list**)malloc(r->radix * sizeof(fattree_message_list*));
   r->queued_length = (int*)malloc(r->radix * sizeof(int));
+
+  rc_stack_create(&r->st);
 
   for(int i = 0; i < r->radix; i++)
   {
@@ -1258,11 +1251,6 @@ if(msg->packet_ID == LLU(TRACK_PKT))
   {
        void *m_data_src = model_net_method_get_edata(FATTREE, msg);
 
-       tmp_svr my_temp_svr;
-       memcpy(&my_temp_svr,m_data_src,msg->remote_event_size_bytes);
-       if((int)my_temp_svr.src == 0 && (int)lp->gid == 136)
-	     printf("3--Handling Remote Event Data---  msg->packet_id:%llu LP-GID:%d event_type:%d event_src:%d event_flag:%d msg->final_dest_gid:%d\n",msg->packet_ID,(int)lp->gid,(int)my_temp_svr.svr_event_type, (int)my_temp_svr.src, my_temp_svr.incremented_flag,msg->final_dest_gid);
-
        cur_chunk->event_data = (char*)malloc(msg->remote_event_size_bytes);
        memcpy(cur_chunk->event_data, m_data_src, 
         msg->remote_event_size_bytes);
@@ -1512,19 +1500,6 @@ void ft_send_remote_event(ft_terminal_state * s, fattree_message * msg, tw_lp * 
 {
         void * tmp_ptr = model_net_method_get_edata(FATTREE, msg);
 
- 	 tmp_svr my_temp_svr;
- 	 memcpy(&my_temp_svr,event_data,remote_event_size);
-//	 printf("rm_event_size:%d\n",msg->remote_event_size_bytes);
-//	 printf("size of tmp_svr:%d\n",sizeof(tmp_svr)); 
-//	memcpy(my_temp_svr,event_data,sizeof(msg->remote_event_size_bytes));
-
-//	 if((int)my_temp_svr.src == 0 && (int)lp->gid == 136 )
-//	 if(msg->packet_ID == LLU(TRACK_PKT))
-	 if((int)lp->gid == 136)
-	 {
-	     printf("2--Handling Remote Event Data---  msg->packet_id:%llu LP-GID:%d event_type:%d event_src:%d event_flag:%d msg->final_dest_gid:%d\n",msg->packet_ID,(int)lp->gid,(int)my_temp_svr.svr_event_type, (int)my_temp_svr.src, my_temp_svr.incremented_flag,msg->final_dest_gid);
-	 }
-        
         tw_stime ts = g_tw_lookahead + bytes_to_ns(msg->remote_event_size_bytes, (1/s->params->cn_bandwidth));
 
         if (msg->is_pull){
@@ -1735,20 +1710,6 @@ if(msg->packet_ID == LLU(TRACK_PKT))
          assert(tmp->remote_event_data);
          tmp->remote_event_size = msg->remote_event_size_bytes; 
          memcpy(tmp->remote_event_data, m_data_src, msg->remote_event_size_bytes);
-
- 	 tmp_svr my_temp_svr;
- 	 memcpy(&my_temp_svr,tmp->remote_event_data,msg->remote_event_size_bytes);
-//	 printf("rm_event_size:%d\n",msg->remote_event_size_bytes);
-//	 printf("size of tmp_svr:%d\n",sizeof(tmp_svr)); 
-//	memcpy(my_temp_svr,event_data,sizeof(msg->remote_event_size_bytes));
-
-//	 if((int)my_temp_svr.src == 0 && (int)lp->gid == 136 )
-//	 if(msg->packet_ID == LLU(TRACK_PKT))
-         if((int)lp->gid == 136)
-	 {
-	     printf("1--Handling Remote Event Data---  msg->packet_id:%llu LP-GID:%d event_type:%d event_src:%d event_flag:%d msg->final_dest_gid:%d",msg->packet_ID,(int)lp->gid,(int)my_temp_svr.svr_event_type, (int)my_temp_svr.src, my_temp_svr.incremented_flag,msg->final_dest_gid);
-	     printf(" tmp->num_chunks:%d\n",tmp->num_chunks);
-	 }
     }
     if (fattree_max_latency < tw_now( lp ) - msg->travel_start_time) 
     {
@@ -1765,10 +1726,6 @@ if(msg->packet_ID == LLU(TRACK_PKT))
            return;
         }*/
 
-    if((int)lp->gid == 136)
-    {
-	printf("tmp->num_chunks:%d total_chunks:%d \n",tmp->num_chunks,total_chunks);
-    }
     if(tmp->num_chunks >= total_chunks)
     {
         bf->c7 = 1;
@@ -1910,7 +1867,7 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
     
     qhash_finalize(s->rank_tbl);
     rc_stack_destroy(s->st);
-    free(s->vc_occupancy);
+//    free(s->vc_occupancy);
     free(s->terminal_msgs);
     free(s->terminal_msgs_tail);
 //    free(s->children); 
@@ -1918,6 +1875,9 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
 
 void fattree_switch_final(switch_state * s, tw_lp * lp) {
   if(s->unused) return;
+
+  rc_stack_destroy(s->st);
+
   char *stats_file = getenv("TRACER_LINK_FILE");
   if(stats_file != NULL) {
     int rank;
