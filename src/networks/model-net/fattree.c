@@ -16,7 +16,7 @@
 #define FTREE_HASH_TABLE_SIZE 262144
 
 // debugging parameters
-#define TRACK_PKT 5
+#define TRACK_PKT 2820
 #define FATTREE_HELLO 0
 #define FATTREE_DEBUG 0
 #define FATTREE_CONNECTIONS 0
@@ -24,6 +24,21 @@
 
 #define LP_CONFIG_NM (model_net_lp_config_names[FATTREE])
 #define LP_METHOD_NM (model_net_method_names[FATTREE])
+
+//Delete the following enum and struct after getting fattree up and running
+enum svr_tmp_event
+{
+    KICKOFF,	   /* kickoff event */
+    REMOTE,        /* remote event */
+    LOCAL      /* local event */
+};
+typedef struct tmp_svr tmp_svr;
+struct tmp_svr
+{
+    enum svr_tmp_event svr_event_type;
+    tw_lpid src;          /* source of this request or ack */
+    int incremented_flag; /* helper for reverse computation */
+};
 
 long fattree_packet_gen = 0, fattree_packet_fin = 0;
 
@@ -518,6 +533,12 @@ static void fattree_read_config(char * anno, fattree_param *p){
     fprintf(stderr, "Buffer size of compute node channels not specified, " 
         "setting to %d\n", p->cn_vc_size);
   }
+
+  rc = configuration_get_value_int(&config, "PARAMS", "chunk_size", anno, &p->chunk_size);
+    if(rc) {
+        p->chunk_size = 512;
+        fprintf(stderr, "Chunk size for packets is specified, setting to %d\n", p->chunk_size);
+    }
 
   configuration_get_value_double(&config, "PARAMS", "link_bandwidth", anno, 
       &p->link_bandwidth);
@@ -1233,10 +1254,17 @@ if(msg->packet_ID == LLU(TRACK_PKT))
   fattree_message_list * cur_chunk = (fattree_message_list *)malloc( 
       sizeof(fattree_message_list));
   init_fattree_message_list(cur_chunk, msg);
-  if(msg->remote_event_size_bytes > 0) {
-    void *m_data_src = model_net_method_get_edata(FATTREE, msg);
-    cur_chunk->event_data = (char*)malloc(msg->remote_event_size_bytes);
-    memcpy(cur_chunk->event_data, m_data_src, 
+  if(msg->remote_event_size_bytes > 0) 
+  {
+       void *m_data_src = model_net_method_get_edata(FATTREE, msg);
+
+       tmp_svr my_temp_svr;
+       memcpy(&my_temp_svr,m_data_src,msg->remote_event_size_bytes);
+       if((int)my_temp_svr.src == 0 && (int)lp->gid == 136)
+	     printf("3--Handling Remote Event Data---  msg->packet_id:%llu LP-GID:%d event_type:%d event_src:%d event_flag:%d msg->final_dest_gid:%d\n",msg->packet_ID,(int)lp->gid,(int)my_temp_svr.svr_event_type, (int)my_temp_svr.src, my_temp_svr.incremented_flag,msg->final_dest_gid);
+
+       cur_chunk->event_data = (char*)malloc(msg->remote_event_size_bytes);
+       memcpy(cur_chunk->event_data, m_data_src, 
         msg->remote_event_size_bytes);
   }
 
@@ -1483,6 +1511,20 @@ void switch_buf_update(switch_state * s, tw_bf * bf, fattree_message * msg,
 void ft_send_remote_event(ft_terminal_state * s, fattree_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
 {
         void * tmp_ptr = model_net_method_get_edata(FATTREE, msg);
+
+ 	 tmp_svr my_temp_svr;
+ 	 memcpy(&my_temp_svr,event_data,remote_event_size);
+//	 printf("rm_event_size:%d\n",msg->remote_event_size_bytes);
+//	 printf("size of tmp_svr:%d\n",sizeof(tmp_svr)); 
+//	memcpy(my_temp_svr,event_data,sizeof(msg->remote_event_size_bytes));
+
+//	 if((int)my_temp_svr.src == 0 && (int)lp->gid == 136 )
+//	 if(msg->packet_ID == LLU(TRACK_PKT))
+	 if((int)lp->gid == 136)
+	 {
+	     printf("2--Handling Remote Event Data---  msg->packet_id:%llu LP-GID:%d event_type:%d event_src:%d event_flag:%d msg->final_dest_gid:%d\n",msg->packet_ID,(int)lp->gid,(int)my_temp_svr.svr_event_type, (int)my_temp_svr.src, my_temp_svr.incremented_flag,msg->final_dest_gid);
+	 }
+        
         tw_stime ts = g_tw_lookahead + bytes_to_ns(msg->remote_event_size_bytes, (1/s->params->cn_bandwidth));
 
         if (msg->is_pull){
@@ -1675,6 +1717,7 @@ if(msg->packet_ID == LLU(TRACK_PKT))
     assert(tmp);
     tmp->num_chunks++;
 
+    // If it's the last chunk of the packet then collect statistics 
     if(msg->chunk_id == num_chunks - 1)
     {
         bf->c1 = 1;
@@ -1684,7 +1727,7 @@ if(msg->packet_ID == LLU(TRACK_PKT))
         N_finished_packets++;
         s->finished_packets++;
     }
-    /* if its the last chunk of the packet then handle the remote event data */
+    // If it's the main chunk of the packet then handle the remote event data
     if(msg->remote_event_size_bytes > 0 && !tmp->remote_event_data)
     {
         /* Retreive the remote event entry */
@@ -1692,13 +1735,27 @@ if(msg->packet_ID == LLU(TRACK_PKT))
          assert(tmp->remote_event_data);
          tmp->remote_event_size = msg->remote_event_size_bytes; 
          memcpy(tmp->remote_event_data, m_data_src, msg->remote_event_size_bytes);
+
+ 	 tmp_svr my_temp_svr;
+ 	 memcpy(&my_temp_svr,tmp->remote_event_data,msg->remote_event_size_bytes);
+//	 printf("rm_event_size:%d\n",msg->remote_event_size_bytes);
+//	 printf("size of tmp_svr:%d\n",sizeof(tmp_svr)); 
+//	memcpy(my_temp_svr,event_data,sizeof(msg->remote_event_size_bytes));
+
+//	 if((int)my_temp_svr.src == 0 && (int)lp->gid == 136 )
+//	 if(msg->packet_ID == LLU(TRACK_PKT))
+         if((int)lp->gid == 136)
+	 {
+	     printf("1--Handling Remote Event Data---  msg->packet_id:%llu LP-GID:%d event_type:%d event_src:%d event_flag:%d msg->final_dest_gid:%d",msg->packet_ID,(int)lp->gid,(int)my_temp_svr.svr_event_type, (int)my_temp_svr.src, my_temp_svr.incremented_flag,msg->final_dest_gid);
+	     printf(" tmp->num_chunks:%d\n",tmp->num_chunks);
+	 }
     }
-        if (fattree_max_latency < tw_now( lp ) - msg->travel_start_time) 
-        {
-          bf->c3 = 1;
-          msg->saved_available_time = fattree_max_latency;
-          fattree_max_latency = tw_now( lp ) - msg->travel_start_time;
-        }
+    if (fattree_max_latency < tw_now( lp ) - msg->travel_start_time) 
+    {
+         bf->c3 = 1;
+         msg->saved_available_time = fattree_max_latency;
+         fattree_max_latency = tw_now( lp ) - msg->travel_start_time;
+    }
     /* If all chunks of a message have arrived then send a remote event to the
      * callee*/
     /*if(tmp->num_chunks >= total_chunks || tmp->num_chunks < 0)
@@ -1708,6 +1765,10 @@ if(msg->packet_ID == LLU(TRACK_PKT))
            return;
         }*/
 
+    if((int)lp->gid == 136)
+    {
+	printf("tmp->num_chunks:%d total_chunks:%d \n",tmp->num_chunks,total_chunks);
+    }
     if(tmp->num_chunks >= total_chunks)
     {
         bf->c7 = 1;
@@ -1717,7 +1778,8 @@ if(msg->packet_ID == LLU(TRACK_PKT))
         s->total_msg_size += msg->total_size;
         s->finished_msgs++;
        
-        if(msg->packet_ID == LLU(TRACK_PKT))
+        
+	if(msg->packet_ID == LLU(TRACK_PKT))
             printf("\n Packet %llu has been sent from lp %llu\n", msg->packet_ID, LLU(lp->gid));
  
         //assert(tmp->remote_event_data && tmp->remote_event_size > 0);
