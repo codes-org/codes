@@ -308,7 +308,6 @@ static void svr_event(
    switch (m->svr_event_type)
     {
         case REMOTE:
-	    printf("\n LP: %d has received remote message from src lpID: %d\n",(int)lp->gid, (int)m->src);
             handle_remote_event(ns, b, m, lp);
             break;
         case LOCAL:
