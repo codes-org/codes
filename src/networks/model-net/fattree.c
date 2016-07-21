@@ -16,8 +16,8 @@
 #define FTREE_HASH_TABLE_SIZE 262144
 
 // debugging parameters
-#define TRACK_PKT -1
-//#define TRACK_PKT 2820
+//#define TRACK_PKT -1
+#define TRACK_PKT 2820
 #define FATTREE_HELLO 0
 #define FATTREE_DEBUG 0
 #define FATTREE_CONNECTIONS 0
@@ -303,22 +303,6 @@ static void prepend_to_fattree_message_list(
     thisq[index] = msg;
 }
 
-static void create_prepend_to_fattree_message_list(
-        fattree_message_list ** thisq,
-        fattree_message_list ** thistail,
-        int index, 
-        fattree_message *msg) {
-    fattree_message_list* new_entry = (fattree_message_list*)malloc(
-        sizeof(fattree_message_list));
-    init_fattree_message_list(new_entry, msg);
-    if(msg->remote_event_size_bytes) {
-        void *m_data = model_net_method_get_edata(FATTREE, msg);
-        new_entry->event_data = (void*)malloc(msg->remote_event_size_bytes);
-        memcpy(new_entry->event_data, m_data, msg->remote_event_size_bytes);
-    }
-    prepend_to_fattree_message_list( thisq, thistail, index, new_entry);
-}
-
 static fattree_message_list* return_head(
         fattree_message_list ** thisq,
         fattree_message_list ** thistail,
@@ -350,37 +334,6 @@ static fattree_message_list* return_tail(
         thisq[index] = NULL;
     }
     return tail;
-}
-
-static void copy_fattree_list_entry( fattree_message_list *cur_entry,
-    fattree_message *msg) {
-    fattree_message *cur_msg = &cur_entry->msg;
-    msg->packet_ID = cur_msg->packet_ID;    
-    strcpy(msg->category, cur_msg->category);
-    msg->final_dest_gid = cur_msg->final_dest_gid;
-    msg->sender_lp = cur_msg->sender_lp;
-    msg->dest_terminal_id = cur_msg->dest_terminal_id;
-    msg->src_terminal_id = cur_msg->src_terminal_id;
-    msg->intm_lp_id = cur_msg->intm_lp_id;
-    msg->saved_vc = cur_msg->saved_vc;
-    msg->saved_off = cur_msg->saved_off;
-    msg->last_hop = cur_msg->last_hop;
-    msg->intm_id = cur_msg->intm_id;
-    msg->vc_index = cur_msg->vc_index;
-    msg->vc_off = cur_msg->vc_off;
-    msg->packet_size = cur_msg->packet_size;
-    msg->msg_size = cur_msg->msg_size;
-    msg->src_nic = cur_msg->src_nic;
-    msg->uniq_id = cur_msg->uniq_id;
-    msg->saved_size = cur_msg->saved_size;
-    msg->local_event_size_bytes = cur_msg->local_event_size_bytes;
-    msg->remote_event_size_bytes = cur_msg->remote_event_size_bytes;
-
-    if(msg->local_event_size_bytes +  msg->remote_event_size_bytes > 0) {
-        void *m_data = model_net_method_get_edata(FATTREE, msg);
-        memcpy(m_data, cur_entry->event_data, 
-            msg->local_event_size_bytes +  msg->remote_event_size_bytes);
-    }
 }
 
 //decl
@@ -1092,8 +1045,6 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
     ts = codes_local_latency(lp);
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, FATTREE, 
       (void**)&m, NULL);
-    if((int)lp->gid == 48 && (int)lp->gid == 90)
-      printf("Found the Culprit msg->packet_ID:%llu\n",msg->packet_ID);
     m->type = T_SEND;
     m->magic = fattree_terminal_magic_num;
     s->in_send_loop = 1;
@@ -1142,9 +1093,6 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   // we are sending an event to the switch, so no method_event here
   ts = s->terminal_available_time - tw_now(lp);
 
-  if((int)lp->gid == 48 && (int)s->switch_lp == 90)
-    printf("Found the Culprit msg->packet_ID:%llu\n",msg->packet_ID);
-
   e = tw_event_new(s->switch_lp, ts, lp);
   m = tw_event_data(e);
   memcpy(m, &cur_entry->msg, sizeof(fattree_message));
@@ -1168,8 +1116,6 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   {
     bf->c2 = 1;
     double tsT = codes_local_latency(lp); 
-     if((int)lp->gid == 48 && (int)cur_entry->msg.sender_lp == 90)
-       printf("Found the Culprit msg->packet_ID:%llu\n",msg->packet_ID);
     tw_event *e_new = tw_event_new(cur_entry->msg.sender_lp, tsT, lp);
     fattree_message *m_new = tw_event_data(e_new);
     void *local_event = (char*)cur_entry->event_data + 
@@ -1181,8 +1127,7 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   s->packet_counter++;
   s->vc_occupancy += s->params->packet_size;
   cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, 0); 
-  copy_fattree_list_entry(cur_entry, msg);
-  delete_fattree_message_list(cur_entry);
+  //delete_fattree_message_list(cur_entry);
   s->terminal_length -= s->params->packet_size;
 
   cur_entry = s->terminal_msgs[0];
@@ -1194,8 +1139,6 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     ts = ts + g_tw_lookahead * tw_rand_unif(lp->rng);
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, FATTREE, 
       (void**)&m, NULL);
-    if((int)lp->gid == 48 && (int)lp->gid == 90)
-    	printf("Found the Culprit msg->packet_ID:%llu\n",msg->packet_ID);
     m->type = T_SEND;
 	m->magic = fattree_terminal_magic_num;
     tw_event_send(e);
@@ -1360,9 +1303,9 @@ void switch_packet_send( switch_state * s, tw_bf * bf, fattree_message * msg,
   
   cur_entry = return_head(s->pending_msgs, s->pending_msgs_tail, 
     output_port);
-  copy_fattree_list_entry(cur_entry, msg);
-  delete_fattree_message_list(cur_entry);
-    
+  //delete_fattree_message_list(cur_entry);
+  rc_stack_push(lp, cur_entry, free, s->st);    
+
   if(bytetime > s->params->router_delay) {
     s->next_output_available_time[output_port] -= s->params->router_delay;
     ts -= s->params->router_delay;
@@ -1454,8 +1397,6 @@ void ft_terminal_buf_update(ft_terminal_state * s, tw_bf * bf,
     tw_stime ts = codes_local_latency(lp);
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, FATTREE, 
         (void**)&m, NULL);
-    if((int)lp->gid == 48 && (int)lp->gid == 90)
-      printf("Found the Culprit msg->packet_ID:%llu\n",msg->packet_ID);
     m->type = T_SEND;
 	m->type = fattree_terminal_magic_num;
     s->in_send_loop = 1;
@@ -1743,7 +1684,7 @@ if(msg->packet_ID == LLU(TRACK_PKT))
         ft_send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
         /* Remove the hash entry */
         qhash_del(hash_link);
-        //rc_stack_push(lp, tmp, free_tmp, s->st);
+        rc_stack_push(lp, tmp, free_tmp, s->st);
         s->rank_tbl_pop--;
    }
 
@@ -1969,8 +1910,11 @@ void ft_terminal_rc_event_handler(ft_terminal_state * s, tw_bf * bf,
         }
         s->packet_counter--;
         s->vc_occupancy -= s->params->packet_size;
-        create_prepend_to_fattree_message_list(s->terminal_msgs,
-            s->terminal_msgs_tail, 0, msg);
+        
+	fattree_message_list* cur_entry = rc_stack_pop(s->st);	
+
+        prepend_to_fattree_message_list(s->terminal_msgs,
+            s->terminal_msgs_tail, 0, cur_entry);
         s->terminal_length += s->params->packet_size;
         if(bf->c3) {
           tw_rand_reverse_unif(lp->rng);
@@ -2000,6 +1944,35 @@ void ft_terminal_rc_event_handler(ft_terminal_state * s, tw_bf * bf,
           if(bf->c1) unset = 1;
 //          decreaseMsgInfo(msg->src_nic, msg->uniq_id, 
 //              msg->packet_size, unset);
+        }
+
+
+        struct qhash_head * hash_link = NULL;
+        struct ftree_qhash_entry * tmp = NULL; 
+      
+        struct ftree_hash_key key;
+        key.message_id = msg->message_id;
+        key.sender_id = msg->sender_lp;
+	
+        hash_link = qhash_search(s->rank_tbl, &key);
+        tmp = qhash_entry(hash_link, struct ftree_qhash_entry, hash_link);
+
+        if(bf->c7)
+        {
+            N_finished_msgs--;
+            s->finished_msgs--;
+            total_msg_sz -= msg->total_size;
+            s->total_msg_size -= msg->total_size;
+
+            struct ftree_qhash_entry * d_entry_pop = rc_stack_pop(s->st);
+            qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
+            s->rank_tbl_pop++; 
+
+            hash_link = &(d_entry_pop->hash_link);
+            tmp = d_entry_pop; 
+
+            if(bf->c4)
+                model_net_event_rc2(lp, &msg->event_rc);
         }
         tw_rand_reverse_unif(lp->rng);
       }
@@ -2033,8 +2006,12 @@ void switch_rc_event_handler(switch_state * s, tw_bf * bf,
         s->next_output_available_time[output_port] = 
           msg->saved_available_time;
         s->link_traffic[output_port] -= msg->packet_size;
-        create_prepend_to_fattree_message_list(s->pending_msgs,
-            s->pending_msgs_tail, output_port, msg);
+
+	fattree_message_list * cur_entry = rc_stack_pop(s->st);
+	assert(cur_entry);
+
+        prepend_to_fattree_message_list(s->pending_msgs,
+            s->pending_msgs_tail, output_port, cur_entry);
         if(bf->c3) {
           tw_rand_reverse_unif(lp->rng);
         }
