@@ -1128,6 +1128,7 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   s->vc_occupancy += s->params->packet_size;
   cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, 0); 
   //delete_fattree_message_list(cur_entry);
+  rc_stack_push(lp, cur_entry, free, s->st);
   s->terminal_length -= s->params->packet_size;
 
   cur_entry = s->terminal_msgs[0];
