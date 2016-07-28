@@ -54,7 +54,7 @@ long fattree_packet_gen = 0, fattree_packet_fin = 0;
 static double maxd(double a, double b) { return a < b ? b : a; }
 
 // arrival rate
-static double MEAN_INTERVAL=200.0;
+//static double MEAN_INTERVAL=200.0;
 
 typedef struct fattree_param fattree_param;
 /* annotation-specific parameters (unannotated entry occurs at the 
@@ -262,7 +262,7 @@ struct switch_state
 
 static tw_stime         fattree_total_time = 0;
 static tw_stime         fattree_max_latency = 0;
-static tw_stime         max_collective = 0;
+//static tw_stime         max_collective = 0;
 
 
 static long long       total_hops = 0;
@@ -375,7 +375,7 @@ int get_base_port(switch_state *s, int from_term, int index);
 
 
 /* returns the fattree switch lp type for lp registration */
-static const tw_lptype* fattree_get_switch_lp_type(void);
+//static const tw_lptype* fattree_get_switch_lp_type(void);
 
 /* returns the fattree message size */
 static int fattree_get_msg_sz(void)
@@ -1114,7 +1114,7 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
 //  msg->dest_terminal_id = msg->final_dest_gid;
   if(msg->packet_ID == LLU(TRACK_PKT))
     printf("\n Packet %llu generated at terminal %d terminal_gid %llu dest_terminal_id %llu final_dest_gid %llu size %llu num chunks %llu \n",
-       msg->packet_ID, s->terminal_id, lp->gid, LLU(msg->dest_terminal_id), LLU(msg->final_dest_gid),
+       msg->packet_ID, s->terminal_id, LLU(lp->gid), LLU(msg->dest_terminal_id), LLU(msg->final_dest_gid),
        LLU(msg->packet_size), LLU(num_chunks));
 
   for(uint64_t i = 0; i < num_chunks; i++)
@@ -1261,12 +1261,12 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   if(cur_entry != NULL &&
     s->vc_occupancy + s->params->packet_size <= s->params->cn_vc_size) {
     bf->c3 = 1;
-    fattree_message *m;
+    fattree_message *m_new;
     ts = ts + g_tw_lookahead * tw_rand_unif(lp->rng);
-    tw_event* e = model_net_method_event_new(lp->gid, ts, lp, FATTREE, 
-      (void**)&m, NULL);
-    m->type = T_SEND;
-	m->magic = fattree_terminal_magic_num;
+    e = model_net_method_event_new(lp->gid, ts, lp, FATTREE, 
+      (void**)&m_new, NULL);
+    m_new->type = T_SEND;
+    m_new->magic = fattree_terminal_magic_num;
     tw_event_send(e);
   } else {
     bf->c4 = 1;
@@ -1291,8 +1291,8 @@ void switch_packet_receive( switch_state * s, tw_bf * bf,
   bf->c2 = 0;
   bf->c3 = 0;
 
-  tw_event *e;
-  fattree_message *m;
+//  tw_event *e;
+//  fattree_message *m;
   tw_stime ts;
 
   //printf("[%d] Switch %d recv packet %d\n", lp->gid, msg->vc_index);
@@ -1314,7 +1314,7 @@ void switch_packet_receive( switch_state * s, tw_bf * bf,
 
 if(msg->packet_ID == LLU(TRACK_PKT))
     printf("\n Packet %llu arrived at switch %d switch_gid %llu dest_terminal_id %llu dest_term_local_id %llu final_dest_gid %llu output_port %d to_terminal %d\n",
-       msg->packet_ID, s->switch_id, lp->gid, LLU(msg->dest_terminal_id), LLU(dest_term_local_id), LLU(msg->final_dest_gid),
+       msg->packet_ID, s->switch_id, LLU(lp->gid), LLU(msg->dest_terminal_id), LLU(dest_term_local_id), LLU(msg->final_dest_gid),
        output_port, to_terminal);
  
   fattree_message_list * cur_chunk = (fattree_message_list *)malloc( 
@@ -1453,12 +1453,12 @@ void switch_packet_send( switch_state * s, tw_bf * bf, fattree_message * msg,
   cur_entry = s->pending_msgs[output_port];
   if(cur_entry != NULL) {
     bf->c3 = 1;
-    fattree_message *m;
+    fattree_message *m_new;
     ts = ts + g_tw_lookahead * tw_rand_unif(lp->rng);
-    tw_event *e = tw_event_new(lp->gid, ts, lp);
-    m = tw_event_data(e);
-    m->type = S_SEND;
-    m->vc_index = output_port;
+    e = tw_event_new(lp->gid, ts, lp);
+    m_new = tw_event_data(e);
+    m_new->type = S_SEND;
+    m_new->vc_index = output_port;
     //printf("[%d] switch send loop Send to %d\n", lp->gid, lp->gid);
     tw_event_send(e);
   } else {
@@ -1473,7 +1473,7 @@ void switch_packet_send( switch_state * s, tw_bf * bf, fattree_message * msg,
  * event */
 void switch_credit_send(switch_state * s, tw_bf * bf, fattree_message * msg,
     tw_lp * lp, int sq) {
-
+  (void)bf;
   tw_event * buf_e;
   tw_stime ts;
   fattree_message * buf_msg;
@@ -1481,7 +1481,7 @@ void switch_credit_send(switch_state * s, tw_bf * bf, fattree_message * msg,
   int dest = 0, type = S_BUFFER;
   int is_terminal = 0;
 
-  fattree_param *p = s->params;
+//  fattree_param *p = s->params;
   // Notify sender terminal about available buffer space
   if(msg->last_hop == TERMINAL) {
     dest = msg->src_terminal_id;
@@ -1671,8 +1671,8 @@ if(msg->packet_ID == LLU(TRACK_PKT))
 
   // Packet arrives and accumulate # queued
   // Find a queue with an empty buffer slot
-  tw_event * e, * buf_e;
-  fattree_message * m, * buf_msg;
+  tw_event * buf_e;
+  fattree_message * buf_msg;
   tw_stime ts;
 
   // NIC aggregation - should this be a separate function?
@@ -1843,7 +1843,7 @@ if(msg->packet_ID == LLU(TRACK_PKT))
            return;
         }*/
 
-    if(tmp->num_chunks >= total_chunks)
+    if(tmp->num_chunks >= (int)total_chunks)
     {
         bf->c7 = 1;
 
@@ -1871,7 +1871,8 @@ if(msg->packet_ID == LLU(TRACK_PKT))
 /* expects dest_terminal_id to be a local ID not global ID */
 int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
     tw_lp * lp, int *out_off) {
-
+  (void)bf;
+  (void)lp;
   int outport = -1;
   int start_port, end_port;
   fattree_param *p = s->params;
@@ -1936,7 +1937,7 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
 int get_base_port(switch_state *s, int from_term, int index) {
   int return_port;
   if(s->switch_level == 2) {
-  } else if(from_term || index < s->switch_id) {
+  } else if(from_term || index < (int)s->switch_id) {
     return_port = ((index - s->start_lneigh) * s->con_per_lneigh);
   } else {
     return_port = s->num_lcons;
@@ -2004,7 +2005,7 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
 
 void fattree_switch_final(switch_state * s, tw_lp * lp) {
   if(s->unused) return;
-
+  (void)lp;
   rc_stack_destroy(s->st);
 
   char *stats_file = getenv("TRACER_LINK_FILE");
@@ -2014,11 +2015,11 @@ void fattree_switch_final(switch_state * s, tw_lp * lp) {
     char file_name[512];
     sprintf(file_name, "%s.%d", stats_file, rank);
     FILE *fout = fopen(file_name, "a");
-    fattree_param *p = s->params;
+//    fattree_param *p = s->params;
     //int result = flock(fileno(fout), LOCK_EX);
     fprintf(fout, "%d %d ", s->switch_id, s->switch_level);
     for(int d = 0; d < s->num_cons; d++) {
-      fprintf(fout, "%lld ", s->link_traffic[d]);
+      fprintf(fout, "%llu ", LLU(s->link_traffic[d]));
     }
     fprintf(fout, "\n");
     //result = flock(fileno(fout), LOCK_UN);
@@ -2232,6 +2233,8 @@ void ft_terminal_rc_event_handler(ft_terminal_state * s, tw_bf * bf,
 //                model_net_event_rc2(lp, &msg->event_rc);
         }
 //        tw_rand_reverse_unif(lp->rng);
+	assert(tmp);
+	tmp->num_chunks--;
       }
       break;
 
@@ -2380,10 +2383,10 @@ static const tw_lptype* fattree_get_cn_lp_type(void)
 {
   return(&fattree_lps[0]);
 }
-static const tw_lptype* fattree_get_switch_lp_type(void)
+/*static const tw_lptype* fattree_get_switch_lp_type(void)
 {
   return(&fattree_lps[1]);
-}          
+} */         
 
 static void fattree_register(tw_lptype *base_type) {
     lp_type_register(LP_CONFIG_NM, base_type);
