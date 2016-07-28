@@ -1,5 +1,6 @@
 #include <ross.h>
 
+#include "codes/jenkins-hash.h"
 #include "codes/codes_mapping.h"
 #include "codes/codes.h"
 #include "codes/model-net.h"
@@ -8,6 +9,7 @@
 #include "codes/net/fattree.h"
 #include "sys/file.h"
 #include "codes/quickhash.h"
+#include "codes/rc-stack.h"
 //#include "codes/map_messages.h"
 
 #define CREDIT_SIZE 8
@@ -22,7 +24,7 @@
 #define FATTREE_DEBUG 0
 #define FATTREE_CONNECTIONS 0
 #define FATTREE_MSG 0
-#define DEBUG_RC 0
+#define DEBUG_RC 1
 
 #define LP_CONFIG_NM (model_net_lp_config_names[FATTREE])
 #define LP_METHOD_NM (model_net_method_names[FATTREE])
@@ -59,7 +61,7 @@ typedef struct fattree_param fattree_param;
  * last index) */
 static uint64_t                  num_params = 0;
 static fattree_param           * all_params = NULL;
-static config_anno_map_t * anno_map   = NULL;
+static const config_anno_map_t * anno_map   = NULL;
 
 /* global variables for codes mapping */
 static char lp_group_name[MAX_NAME_LENGTH];
@@ -381,7 +383,7 @@ static int fattree_get_msg_sz(void)
   return sizeof(fattree_message);
 }
 
-static void fattree_read_config(char * anno, fattree_param *p){
+static void fattree_read_config(const char * anno, fattree_param *p){
   int i;
 
   p->ft_type = 0;
@@ -540,8 +542,8 @@ static void fattree_configure(){
   num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
   all_params = malloc(num_params * sizeof(*all_params));
 
-  for (uint64_t i = 0; i < anno_map->num_annos; i++){
-    char * anno = anno_map->annotations[i].ptr;
+  for (int i = 0; i < anno_map->num_annos; i++){
+    const char * anno = anno_map->annotations[i].ptr;
     fattree_read_config(anno, &all_params[i]);
   }
   if (anno_map->has_unanno_lp > 0){
@@ -558,7 +560,6 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
     bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
     fattree_terminal_magic_num = h1 + h2;
 
-    int i;
     char anno[MAX_NAME_LENGTH];
 
     if(def_gname_set == 0) {
@@ -628,7 +629,7 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
 void switch_init(switch_state * r, tw_lp * lp)
 {
   char anno[MAX_NAME_LENGTH];
-  int num_terminals = -1, num_lps;
+  int num_terminals = -1;
 
   if(def_gname_set == 0) {
     def_gname_set = 1;
@@ -636,8 +637,8 @@ void switch_init(switch_state * r, tw_lp * lp)
         &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
     num_terminals = codes_mapping_get_lp_count(def_group_name, 0, 
       LP_CONFIG_NM, anno, 0);
-    num_lps = codes_mapping_get_lp_count(def_group_name, 1, LP_CONFIG_NM,
-           anno, 0);
+//    num_lps = codes_mapping_get_lp_count(def_group_name, 1, LP_CONFIG_NM,
+//           anno, 0);
   }
 
   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
@@ -802,7 +803,7 @@ void switch_init(switch_state * r, tw_lp * lp)
         /* not true anymore */
         r->start_uneigh = p->num_switches[0] + l2_base;
         r->con_per_uneigh = 1;
-        if((r->switch_id - p->num_switches[0]) % p->l1_set_size >=
+        if(((int)r->switch_id - p->num_switches[0]) % p->l1_set_size >=
             p->l1_set_size/2) {
           l2_base += (p->num_switches[2]/2);
         }
@@ -845,7 +846,7 @@ void switch_init(switch_state * r, tw_lp * lp)
       r->start_lneigh = p->num_switches[0];
       r->end_lneigh = r->start_lneigh + p->num_switches[1];
       int l1 = 0;
-      if(r->switch_id - p->num_switches[0] - p->num_switches[1] >=
+      if((int)r->switch_id - p->num_switches[0] - p->num_switches[1] >=
           (p->num_switches[2]/2)) {
         l1 += (p->l1_set_size/2);
       }
@@ -991,6 +992,8 @@ static tw_stime fattree_packet_event(
   packet_event_f++;
 #endif
 
+  (void)message_offset;
+  (void)sched_params;
   tw_event * e_new;
   tw_stime xfer_to_nic_time;
   fattree_message * msg;
