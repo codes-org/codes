@@ -1571,11 +1571,15 @@ void switch_buf_update(switch_state * s, tw_bf * bf, fattree_message * msg,
   int indx = msg->vc_index;
   s->vc_occupancy[indx] -= s->params->packet_size;
 
-  if(bf->c3)
+  if(s->last_buf_full[indx])
   {
-    s->busy_time[indx] = msg->saved_rcv_time;
-    s->busy_time_sample[indx] = msg->saved_sample_time;
-    s->last_buf_full[indx] = msg->saved_busy_time;
+    bf->c3 = 1;
+    msg->saved_rcv_time = s->busy_time[indx];
+    msg->saved_busy_time = s->last_buf_full[indx];
+    msg->saved_sample_time = s->busy_time_sample[indx];
+    s->busy_time[indx] += (tw_now(lp) - s->last_buf_full[indx]);
+    s->busy_time_sample[indx] += (tw_now(lp) - s->last_buf_full[indx]);
+    s->last_buf_full[indx] = 0.0;
   }
 
   if(s->queued_msgs[indx] != NULL) {
