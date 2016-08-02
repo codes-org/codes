@@ -1050,6 +1050,45 @@ static void fattree_packet_event_rc(tw_lp *sender)
   return;
 }
 
+void ft_packet_generate_rc(ft_terminal_state * s, tw_bf * bf, fattree_message * msg, tw_lp * lp)
+{
+#if DEBUG_RC
+    t_generate_r++;
+#endif
+    fattree_packet_gen--;
+    s->packet_gen--;
+
+    tw_rand_reverse_unif(lp->rng);
+
+    int num_chunks = msg->packet_size/s->params->chunk_size;
+    if(msg->packet_size % s->params->chunk_size)
+	num_chunks++;
+
+    if(!num_chunks)
+	num_chunks = 1;
+
+    int i;
+    for(i = 0; i < num_chunks; i++) {
+	delete_fattree_message_list(return_tail(s->terminal_msgs, 
+	    s->terminal_msgs_tail, 0));
+	s->terminal_length -= s->params->chunk_size;
+    }
+    if(bf->c11) {
+	s->issueIdle = 0;
+	s->last_buf_full = msg->saved_busy_time;
+    }
+    if(bf->c5) {
+	codes_local_latency_reverse(lp);
+	s->in_send_loop = 0;
+    }
+    
+    struct mn_stats* stat;
+    stat = model_net_find_stats(msg->category, s->fattree_stats_array);
+    stat->send_count--;
+    stat->send_bytes -= msg->packet_size;
+    stat->send_time -= (1/s->params->cn_bandwidth) * msg->packet_size;
+}
+
 /* generates packet at the current fattree compute node */
 void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     tw_lp * lp) {
@@ -1145,6 +1184,44 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
   return;
 }
 
+void ft_packet_send_rc(ft_terminal_state * s, tw_bf *bf, fattree_message * msg, tw_lp * lp)
+{
+#if DEBUG_RC
+    t_send_r++;
+#endif
+    if(bf->c1) {
+      s->in_send_loop = 1;
+      s->last_buf_full = msg->saved_busy_time;
+      return;
+    }
+
+    tw_rand_reverse_unif(lp->rng);
+    s->terminal_available_time = msg->saved_available_time;
+    if(bf->c2) {
+      codes_local_latency_reverse(lp);
+    }
+    s->packet_counter--;
+    s->vc_occupancy -= s->params->packet_size;
+    
+    fattree_message_list* cur_entry = rc_stack_pop(s->st);	
+
+    prepend_to_fattree_message_list(s->terminal_msgs,
+	s->terminal_msgs_tail, 0, cur_entry);
+    s->terminal_length += s->params->packet_size;
+    if(s->terminal_id == 0)	
+       printf("time:%lf terminal_length:%d \n",tw_now(lp),s->terminal_length);
+
+    if(bf->c3) {
+      tw_rand_reverse_unif(lp->rng);
+    }
+    if(bf->c4) {
+      s->in_send_loop = 1;
+    }
+    /*if(bf->c5) {
+      codes_local_latency_reverse(lp);
+      s->issueIdle = 1;
+    }*/
+}
 /* sends the packet from the compute node to the attached switch */
 void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     tw_lp * lp) {
@@ -1489,6 +1566,23 @@ void switch_credit_send(switch_state * s, tw_bf * bf, fattree_message * msg,
   return;
 }
 
+void ft_terminal_buf_update_rc(ft_terminal_state * s, tw_bf * bf, fattree_message * msg, tw_lp * lp)
+{
+#if DEBUG_RC
+    t_buffer_r++;
+#endif
+    s->vc_occupancy += s->params->packet_size;
+    codes_local_latency_reverse(lp);
+    if(bf->c3)
+    {
+      s->busy_time = msg->saved_total_time;
+      s->last_buf_full = msg->saved_busy_time;
+      s->busy_time_sample = msg->saved_sample_time;
+    }
+    if(bf->c1) {
+      s->in_send_loop = 0;
+    }
+}
 /* update the compute node-switch channel buffer */
 void ft_terminal_buf_update(ft_terminal_state * s, tw_bf * bf,
     fattree_message * msg, tw_lp * lp) {
@@ -1609,6 +1703,80 @@ void ft_send_remote_event(ft_terminal_state * s, fattree_message * msg, tw_lp * 
     return;
 }
 
+void ft_packet_arrive_rc(ft_terminal_state * s, tw_bf * bf, fattree_message * msg, tw_lp * lp)
+{
+#if DEBUG_RC
+    t_arrive_r++;
+#endif
+    tw_rand_reverse_unif(lp->rng);
+
+    N_finished_chunks--;
+    s->finished_chunks--;
+    s->fin_chunks_sample--;
+
+    s->data_size_sample -= msg->total_size;
+
+    if(bf->c31)
+    {
+	s->packet_fin--;
+	fattree_packet_fin--;
+    }
+
+    s->fin_chunks_time = msg->saved_sample_time;
+    s->total_time = msg->saved_avg_time;
+    fattree_total_time = msg->saved_total_time;
+    total_hops -= msg->my_N_hop;
+    s->total_hops -= msg->my_N_hop;
+    s->fin_hops_sample -= msg->my_N_hop;	
+
+    struct qhash_head * hash_link = NULL;
+    struct ftree_qhash_entry * tmp = NULL; 
+  
+    struct ftree_hash_key key;
+    key.message_id = msg->message_id;
+    key.sender_id = msg->sender_lp;
+    
+    hash_link = qhash_search(s->rank_tbl, &key);
+    tmp = qhash_entry(hash_link, struct ftree_qhash_entry, hash_link);
+
+    mn_stats* stat;
+    stat = model_net_find_stats(msg->category, s->fattree_stats_array);
+    stat->recv_time = msg->saved_rcv_time;
+
+    if(bf->c1)
+    {
+	N_finished_packets--;
+	s->finished_packets--;
+	stat->recv_count--;
+	stat->recv_bytes -= msg->packet_size;
+    }
+
+    if(bf->c3)
+    {
+	fattree_max_latency = msg->saved_available_time;
+    }
+
+    if(bf->c7)
+    {
+	N_finished_msgs--;
+	s->finished_msgs--;
+	total_msg_sz -= msg->total_size;
+	s->total_msg_size -= msg->total_size;
+
+	struct ftree_qhash_entry * d_entry_pop = rc_stack_pop(s->st);
+	qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
+	s->rank_tbl_pop++; 
+
+	hash_link = &(d_entry_pop->hash_link);
+	tmp = d_entry_pop; 
+
+//            if(bf->c4)
+//                model_net_event_rc2(lp, &msg->event_rc);
+    }
+//        tw_rand_reverse_unif(lp->rng);
+    assert(tmp);
+    tmp->num_chunks--;
+}
 
 /* packet arrives at the destination terminal */
 void ft_packet_arrive(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
@@ -2037,194 +2205,20 @@ void ft_terminal_rc_event_handler(ft_terminal_state * s, tw_bf * bf,
   switch(msg->type) {
 
     case T_GENERATE:
-      {
-#if DEBUG_RC
-	t_generate_r++;
-#endif
-        fattree_packet_gen--;
-	s->packet_gen--;
-
-	tw_rand_reverse_unif(lp->rng);
-
-   	int num_chunks = msg->packet_size/s->params->chunk_size;
-   	if(msg->packet_size % s->params->chunk_size)
-            num_chunks++;
-
-   	if(!num_chunks)
-            num_chunks = 1;
-
-   	int i;
-   	for(i = 0; i < num_chunks; i++) {
-            delete_fattree_message_list(return_tail(s->terminal_msgs, 
-                s->terminal_msgs_tail, 0));
-            s->terminal_length -= s->params->chunk_size;
-   	}
-        if(bf->c11) {
-            s->issueIdle = 0;
-	    s->last_buf_full = msg->saved_busy_time;
-        }
-        if(bf->c5) {
-   	    codes_local_latency_reverse(lp);
-            s->in_send_loop = 0;
-        }
-	
-     	struct mn_stats* stat;
-     	stat = model_net_find_stats(msg->category, s->fattree_stats_array);
-     	stat->send_count--;
-     	stat->send_bytes -= msg->packet_size;
-     	stat->send_time -= (1/s->params->cn_bandwidth) * msg->packet_size;
-      }
-      break;
+	ft_packet_generate_rc(s, bf, msg, lp);
+	break;
 
     case T_SEND:
-      {
-#if DEBUG_RC
-        t_send_r++;
-#endif
-        if(bf->c1) {
-          s->in_send_loop = 1;
-          s->last_buf_full = msg->saved_busy_time;
-          break;
-        }
-
-        tw_rand_reverse_unif(lp->rng);
-        s->terminal_available_time = msg->saved_available_time;
-        if(bf->c2) {
-          codes_local_latency_reverse(lp);
-        }
-        s->packet_counter--;
-        s->vc_occupancy -= s->params->packet_size;
-        
-	fattree_message_list* cur_entry = rc_stack_pop(s->st);	
-
-        prepend_to_fattree_message_list(s->terminal_msgs,
-            s->terminal_msgs_tail, 0, cur_entry);
-        s->terminal_length += s->params->packet_size;
- 	if(s->terminal_id == 0)	
-	   printf("time:%lf terminal_length:%d \n",tw_now(lp),s->terminal_length);
-
-        if(bf->c3) {
-          tw_rand_reverse_unif(lp->rng);
-        }
-        if(bf->c4) {
-          s->in_send_loop = 1;
-        }
-        /*if(bf->c5) {
-          codes_local_latency_reverse(lp);
-          s->issueIdle = 1;
-        }*/
-      }
-      break;
+        ft_packet_send_rc(s, bf, msg, lp);
+	break;
 
     case T_ARRIVE:
-      {
-#if DEBUG_RC
- 	t_arrive_r++;
-#endif
-/*        if(bf->c2) {
-          tw_rand_reverse_unif(lp->rng);
-          void *tmp_ptr = model_net_method_get_edata(FATTREE, msg);
-          if(msg->saved_size -  msg->packet_size) {
-//            addMsgInfo(msg->src_nic, msg->uniq_id, 
-//                msg->saved_size -  msg->packet_size, 
-//                msg->remote_event_size_bytes, tmp_ptr);
-          }
-        } else {
-          int unset = 0;
-          if(bf->c1) unset = 1;
-//          decreaseMsgInfo(msg->src_nic, msg->uniq_id, 
-//              msg->packet_size, unset);
-        }
-*/
-	tw_rand_reverse_unif(lp->rng);
-
-      	N_finished_chunks--;
-      	s->finished_chunks--;
-      	s->fin_chunks_sample--;
-
-	s->data_size_sample -= msg->total_size;
-
-    	if(bf->c31)
-    	{
-      	    s->packet_fin--;
-      	    fattree_packet_fin--;
-    	}
-
-	s->fin_chunks_time = msg->saved_sample_time;
-	s->total_time = msg->saved_avg_time;
-	fattree_total_time = msg->saved_total_time;
-	total_hops -= msg->my_N_hop;
-	s->total_hops -= msg->my_N_hop;
-	s->fin_hops_sample -= msg->my_N_hop;	
-
-        struct qhash_head * hash_link = NULL;
-        struct ftree_qhash_entry * tmp = NULL; 
-      
-        struct ftree_hash_key key;
-        key.message_id = msg->message_id;
-        key.sender_id = msg->sender_lp;
-	
-        hash_link = qhash_search(s->rank_tbl, &key);
-        tmp = qhash_entry(hash_link, struct ftree_qhash_entry, hash_link);
-
-      	mn_stats* stat;
-      	stat = model_net_find_stats(msg->category, s->fattree_stats_array);
-      	stat->recv_time = msg->saved_rcv_time;
-
-	if(bf->c1)
-	{
-	    N_finished_packets--;
-	    s->finished_packets--;
-            stat->recv_count--;
-            stat->recv_bytes -= msg->packet_size;
-	}
-
-	if(bf->c3)
-	{
-	    fattree_max_latency = msg->saved_available_time;
-	}
-
-        if(bf->c7)
-        {
-            N_finished_msgs--;
-            s->finished_msgs--;
-            total_msg_sz -= msg->total_size;
-            s->total_msg_size -= msg->total_size;
-
-            struct ftree_qhash_entry * d_entry_pop = rc_stack_pop(s->st);
-            qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
-            s->rank_tbl_pop++; 
-
-            hash_link = &(d_entry_pop->hash_link);
-            tmp = d_entry_pop; 
-
-//            if(bf->c4)
-//                model_net_event_rc2(lp, &msg->event_rc);
-        }
-//        tw_rand_reverse_unif(lp->rng);
-	assert(tmp);
-	tmp->num_chunks--;
-      }
-      break;
+        ft_packet_arrive_rc(s, bf, msg, lp);
+	break;
 
     case T_BUFFER:
-      {
-#if DEBUG_RC
-        t_buffer_r++;
-#endif
-        s->vc_occupancy += s->params->packet_size;
-        codes_local_latency_reverse(lp);
-        if(bf->c3)
-        {
-          s->busy_time = msg->saved_total_time;
-          s->last_buf_full = msg->saved_busy_time;
-          s->busy_time_sample = msg->saved_sample_time;
-        }
-        if(bf->c1) {
-          s->in_send_loop = 0;
-        }
-      }  
-      break;
+        ft_terminal_buf_update_rc(s, bf, msg,lp);
+	break;
   }
 }
 
