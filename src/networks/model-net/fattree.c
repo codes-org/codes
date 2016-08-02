@@ -1071,45 +1071,6 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
  
   nic_ts = g_tw_lookahead + (num_chunks * s->params->cn_delay) + tw_rand_unif(lp->rng);
 
-//  codes_mapping_get_lp_info(msg->final_dest_gid, lp_group_name, &mapping_grp_id,
-//      NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-//  msg->dest_terminal_id = (mapping_rep_id * (p->switch_radix[0] / 2)) +
-//      (mapping_offset % (p->switch_radix[0]/2));
- 
-/*  //message for process on the same terminal
-  if(msg->dest_terminal_id == s->terminal_id) {
-    bf->c1 = 1;
-    model_net_method_idle_event(nic_ts - s->params->cn_delay * msg->packet_size, 0, lp);
-    // Trigger an event on receiving server
-    if(msg->remote_event_size_bytes)
-    {
-      void *tmp_ptr = model_net_method_get_edata(FATTREE, msg);
-      bf->c2 = 1;
-      ts = codes_local_latency(lp);
-      tw_event *e = tw_event_new(msg->final_dest_gid, ts, lp);
-      fattree_message* m = tw_event_data(e);
-      memcpy(m, tmp_ptr, msg->remote_event_size_bytes);
-      //printf("[%d] pack gen Send to %d\n", lp->gid, msg->final_dest_gid);
-      tw_event_send(e);
-    }
-    if(msg->local_event_size_bytes > 0)
-    {
-      tw_event* e_new;
-      fattree_message* m_new;
-      void* local_event;
-      bf->c3 = 1;
-      ts = codes_local_latency(lp); 
-      e_new = tw_event_new(msg->sender_lp, ts, lp);
-      m_new = tw_event_data(e_new);
-      local_event = (char*)model_net_method_get_edata(FATTREE, msg) +
-        msg->remote_event_size_bytes;
-      memcpy(m_new, local_event, msg->local_event_size_bytes);
-      tw_event_send(e_new);
-    }
-    return;
-  }
-*/
-
   msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
 //  msg->dest_terminal_id = msg->final_dest_gid;
   if(msg->packet_ID == LLU(TRACK_PKT))
@@ -1145,6 +1106,8 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
       0, cur_chunk);
     s->terminal_length += s->params->chunk_size;
   }
+//  if(s->terminal_id == 1)	
+//    printf("gene time:%5.6lf lp_id:%3llu terminal_length:%5d \n",tw_now(lp),LLU(lp->gid),s->terminal_length);
 
   if(s->terminal_length < 2 * s->params->cn_vc_size) {
     model_net_method_idle_event(nic_ts, 0, lp);
@@ -1254,7 +1217,10 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, 0); 
   //delete_fattree_message_list(cur_entry);
   rc_stack_push(lp, cur_entry, free, s->st);
-  s->terminal_length -= s->params->packet_size;
+  s->terminal_length -= s->params->chunk_size;
+ 
+//  if(s->terminal_id == 1) 
+//    printf("send time:%5.6lf lp_id:%3llu terminal_length:%5d \n",tw_now(lp),LLU(lp->gid),s->terminal_length);
 
   cur_entry = s->terminal_msgs[0];
 
@@ -2134,16 +2100,19 @@ void ft_terminal_rc_event_handler(ft_terminal_state * s, tw_bf * bf,
         prepend_to_fattree_message_list(s->terminal_msgs,
             s->terminal_msgs_tail, 0, cur_entry);
         s->terminal_length += s->params->packet_size;
+ 	if(s->terminal_id == 0)	
+	   printf("time:%lf terminal_length:%d \n",tw_now(lp),s->terminal_length);
+
         if(bf->c3) {
           tw_rand_reverse_unif(lp->rng);
         }
         if(bf->c4) {
           s->in_send_loop = 1;
         }
-        if(bf->c5) {
+        /*if(bf->c5) {
           codes_local_latency_reverse(lp);
           s->issueIdle = 1;
-        }
+        }*/
       }
       break;
 
@@ -2284,6 +2253,7 @@ void switch_rc_event_handler(switch_state * s, tw_bf * bf,
 
         prepend_to_fattree_message_list(s->pending_msgs,
             s->pending_msgs_tail, output_port, cur_entry);
+
         if(bf->c3) {
           tw_rand_reverse_unif(lp->rng);
         }
