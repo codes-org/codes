@@ -196,6 +196,7 @@ struct ft_terminal_state
 
   tw_stime last_buf_full;
   tw_stime busy_time;
+  char output_buf[4096];
 
   /* For sampling */
   long fin_chunks_sample;
@@ -554,6 +555,7 @@ static void fattree_configure(){
 /* initialize a fattree compute node terminal */
 void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
 {
+    s->packet_gen = 0;
     s->packet_fin = 0;
 
     uint32_t h1 = 0, h2 = 0; 
@@ -959,6 +961,30 @@ static void fattree_report_stats()
 	printf("s_buffer_net:%llu\n",ts_buffer_f-ts_buffer_r);
    }
 #endif
+
+   long long avg_hops, total_finished_packets, total_finished_chunks;
+   long long total_finished_msgs, final_msg_sz;
+   tw_stime avg_time, max_time;
+   long total_gen, total_fin;
+
+   MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &N_finished_msgs, &total_finished_msgs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &N_finished_chunks, &total_finished_chunks, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &total_msg_sz, &final_msg_sz, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &fattree_total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &fattree_max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+   
+   MPI_Reduce( &fattree_packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &fattree_packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+
+   /* print statistics */
+   if(!g_tw_mynode)
+   {	
+      printf(" Average number of hops traversed %f average chunk latency %lf us maximum chunk latency %lf us avg message size %lf bytes finished messages %lld finished chunks %lld \n", 
+              (float)avg_hops/total_finished_chunks, avg_time/(total_finished_chunks*1000), max_time/1000, (float)final_msg_sz/total_finished_msgs, total_finished_msgs, total_finished_chunks);
+      printf(" Total packets generated %ld finished %ld \n", total_gen, total_fin);
+   }
 }
 
 /* fattree packet event */
@@ -1109,6 +1135,8 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
     num_chunks = 1;
  
   nic_ts = g_tw_lookahead + (num_chunks * s->params->cn_delay) + tw_rand_unif(lp->rng);
+
+  msg->my_N_hop = 0;
 
   msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
 //  msg->dest_terminal_id = msg->final_dest_gid;
@@ -1374,6 +1402,7 @@ if(msg->packet_ID == LLU(TRACK_PKT))
 
   cur_chunk->msg.vc_index = output_port;
   cur_chunk->msg.vc_off = out_off;
+  cur_chunk->msg.my_N_hop++;
 
   if(s->vc_occupancy[output_port] + s->params->packet_size <= max_vc_size) {
     bf->c1 = 1;
@@ -2126,6 +2155,19 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
 { 
     model_net_print_stats(lp->gid, s->fattree_stats_array);
    
+    int written = 0;
+    if(!s->terminal_id)
+        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>\n");
+
+    written += sprintf(s->output_buf + written, "%llu %u %ld %lf %ld %lf %lf\n",
+            LLU(lp->gid), s->terminal_id, s->total_msg_size, s->total_time, 
+            s->finished_packets, (double)s->total_hops/s->finished_chunks,
+            s->busy_time);
+
+    lp_io_write(lp->gid, "fattree-msg-stats", written, s->output_buf); 
+    
+    if(s->terminal_msgs[0] != NULL) 
+      printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
     //if(s->packet_gen != s->packet_fin)
     //    printf("\n generated %d finished %d ", s->packet_gen, s->packet_fin);
     
