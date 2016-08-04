@@ -255,6 +255,9 @@ struct switch_state
   int64_t* link_traffic;
   tw_lpid *port_connections;
 
+  char output_buf[4096];
+  char output_buf2[4096];
+
   struct rc_stack * st;
 
   char * anno;
@@ -2179,17 +2182,60 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
 //    free(s->children); 
 }
 
-void fattree_switch_final(switch_state * s, tw_lp * lp) {
-  if(s->unused) return;
-  (void)lp;
-  rc_stack_destroy(s->st);
+void fattree_switch_final(switch_state * s, tw_lp * lp) 
+{
+    if(s->unused) return;
 
-  char *stats_file = getenv("TRACER_LINK_FILE");
-  if(stats_file != NULL) {
+    (void)lp;
+    int i;
+    for(i = 0; i < s->radix; i++) {
+        if(s->queued_msgs[i] != NULL) {
+          printf("[%llu] leftover queued messages %d %d\n", LLU(lp->gid), i,s->vc_occupancy[i]);
+        }
+        if(s->pending_msgs[i] != NULL) {
+          printf("[%llu] lefover pending messages %d\n", LLU(lp->gid), i);
+        }
+      }
+
+    rc_stack_destroy(s->st);
+
+//    const fattree_param *p = s->params;
+    int written = 0;
+    if(!s->switch_id)
+    {
+        written = sprintf(s->output_buf, "# Format <LP ID> <Level ID> <Switch ID> <Busy time per switch port(s)>");
+        written += sprintf(s->output_buf + written, "# Switch ports: %d\n", 
+                s->radix);
+    }
+    written += sprintf(s->output_buf + written, "\n %llu %d %d", 
+            LLU(lp->gid),s->switch_level,s->switch_id);
+    for(int d = 0; d < s->radix; d++) 
+        written += sprintf(s->output_buf + written, " %lf", s->busy_time[d]);
+
+    lp_io_write(lp->gid, "fattree-switch-stats", written, s->output_buf);
+
+    written = 0;
+    if(!s->switch_id)
+    {
+        written = sprintf(s->output_buf2, "# Format <LP ID> <Level ID> <Switch ID> <Link traffic per switch port(s)>");
+        written += sprintf(s->output_buf2 + written, "# Switch ports: %d\n",
+            s->radix);
+    }
+    written += sprintf(s->output_buf2 + written, "\n %llu %d %d",
+        LLU(lp->gid),s->switch_level,s->switch_id);
+
+    for(int d = 0; d < s->radix; d++) 
+        written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
+
+    lp_io_write(lp->gid, "fattree-router-traffic", written, s->output_buf2);
+  
+    //Original Output with Tracer
+//    char *stats_file = getenv("TRACER_LINK_FILE");
+//  if(stats_file != NULL) {
     int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     char file_name[512];
-    sprintf(file_name, "%s.%d", stats_file, rank);
+    sprintf(file_name, "%s.%d", "tracer_stats_file", rank);
     FILE *fout = fopen(file_name, "a");
 //    fattree_param *p = s->params;
     //int result = flock(fileno(fout), LOCK_EX);
@@ -2200,7 +2246,7 @@ void fattree_switch_final(switch_state * s, tw_lp * lp) {
     fprintf(fout, "\n");
     //result = flock(fileno(fout), LOCK_UN);
     fclose(fout);
-  }
+//  }
 }
 
 /* Update the buffer space associated with this switch LP */
