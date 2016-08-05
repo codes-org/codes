@@ -22,21 +22,17 @@
 #define PARAMS_LOG 1
 
 static int net_id = 0;
-static int num_routers = 0;
-static int num_servers = 0;
 static int offset = 2;
 static int traffic = 1;
 static double arrival_time = 1000.0;
 static double load = 0.0;	//Percent utilization of terminal uplink
 static double MEAN_INTERVAL = 0.0;
 /* whether to pull instead of push */
-static int do_pull = 0;
 
 static int num_servers_per_rep = 0;
 static int num_routers_per_grp = 0;
 static int num_nodes_per_grp = 0;
 
-static int num_reps = 0;
 static int num_groups = 0;
 static int num_nodes = 0;
 
@@ -145,6 +141,7 @@ static void issue_event(
     svr_state * ns,
     tw_lp * lp)
 {
+    (void)ns;
     tw_event *e;
     svr_msg *m;
     tw_stime kickoff_time;
@@ -204,6 +201,8 @@ static void handle_kickoff_rev_event(
             svr_msg * m,
             tw_lp * lp)
 {
+    (void)b;
+    (void)m;
 	ns->msg_sent_count--;
 	model_net_event_rc(net_id, lp, PAYLOAD_SZ);
     tw_rand_reverse_unif(lp->rng);
@@ -214,6 +213,8 @@ static void handle_kickoff_event(
 	    svr_msg * m,
 	    tw_lp * lp)
 {
+    (void)b;
+    (void)m;
 //    char* anno;
     char anno[MAX_NAME_LENGTH];
     tw_lpid local_dest = -1, global_dest = -1;
@@ -236,7 +237,7 @@ static void handle_kickoff_event(
    	local_dest = tw_rand_integer(lp->rng, 0, num_nodes - 1);
    }
 
-   assert(local_dest < num_nodes);
+   assert(local_dest < LLU(num_nodes));
 
    global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
 
@@ -271,6 +272,9 @@ static void handle_remote_rev_event(
             svr_msg * m,
             tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
         ns->msg_recvd_count--;
 }
 
@@ -280,6 +284,9 @@ static void handle_remote_event(
 	    svr_msg * m,
 	    tw_lp * lp)
 {
+    (void)b;
+    (void)m;
+    (void)lp;
 	ns->msg_recvd_count++;
 }
 
@@ -289,6 +296,9 @@ static void handle_local_rev_event(
                 svr_msg * m,
                 tw_lp * lp)
 {
+    (void)b;
+    (void)m;
+    (void)lp;
 	ns->local_recvd_count--;
 }
 
@@ -298,18 +308,10 @@ static void handle_local_event(
                 svr_msg * m,
                 tw_lp * lp)
 {
+    (void)b;
+    (void)m;
+    (void)lp;
     ns->local_recvd_count++;
-}
-/* convert ns to seconds */
-static tw_stime ns_to_s(tw_stime ns)
-{
-    return(ns / (1000.0 * 1000.0 * 1000.0));
-}
-
-/* convert seconds to ns */
-static tw_stime s_to_ns(tw_stime ns)
-{
-    return(ns * (1000.0 * 1000.0 * 1000.0));
 }
 
 static void svr_finalize(
@@ -446,7 +448,6 @@ int main(
     {
 	char temp_filename[1024];
 	char temp_filename_header[1024];
-	int temp_num_switches = 0;
 	sprintf(temp_filename,"%s/sim_log.txt",modelnet_stats_dir);
 	sprintf(temp_filename_header,"%s/sim_log_header.txt",modelnet_stats_dir);
 	FILE *fattree_results_log=fopen(temp_filename, "a");
@@ -475,7 +476,6 @@ int main(
     {
 	char temp_filename[1024];
 	char temp_filename_header[1024];
-	int temp_num_switches = 0;
 	sprintf(temp_filename,"%s/sim_log.txt",modelnet_stats_dir);
 	sprintf(temp_filename_header,"%s/sim_log_header.txt",modelnet_stats_dir);
 	FILE *fattree_results_log=fopen(temp_filename, "a");
