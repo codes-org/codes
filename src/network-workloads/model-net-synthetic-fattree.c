@@ -27,7 +27,8 @@ static int num_servers = 0;
 static int offset = 2;
 static int traffic = 1;
 static double arrival_time = 1000.0;
-
+static double load = 0.0;	//Percent utilization of terminal uplink
+static double MEAN_INTERVAL = 0.0;
 /* whether to pull instead of push */
 static int do_pull = 0;
 
@@ -46,6 +47,21 @@ typedef struct svr_state svr_state;
 static char group_name[MAX_NAME_LENGTH];
 static char lp_type_name[MAX_NAME_LENGTH];
 static int group_index, lp_type_index, rep_id, offset;
+
+/* convert GiB/s and bytes to ns */
+ static tw_stime bytes_to_ns(uint64_t bytes, double GB_p_s)
+ {
+     tw_stime time;
+ 
+     /* bytes to GB */
+     time = ((double)bytes)/(1024.0*1024.0*1024.0);
+     /* GiB to s */
+     time = time / GB_p_s;
+     /* s to ns */
+     time = time * 1000.0 * 1000.0 * 1000.0;
+ 
+     return(time);
+ }
 
 /* type of events */
 enum svr_event
@@ -111,6 +127,7 @@ const tw_optdef app_opt [] =
         TWOPT_GROUP("Model net synthetic traffic " ),
 	TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
 	TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
+        TWOPT_STIME("load", load, "percentage of terminal link bandiwdth to inject packets"),
         TWOPT_END()
 };
 
@@ -136,8 +153,34 @@ static void issue_event(
      * simulation
      */
 
+    int this_packet_size = 0;
+    double this_link_bandwidth = 0.0;
+
+    configuration_get_value_int(&config, "PARAMS", "packet_size", NULL, &this_packet_size);
+    if(!this_packet_size) {
+        this_packet_size = 0;
+        fprintf(stderr, "Packet size not specified, setting to %d\n", this_packet_size);
+        exit(0);
+    }
+
+    configuration_get_value_double(&config, "PARAMS", "link_bandwidth", NULL, &this_link_bandwidth);
+    if(!this_link_bandwidth) {
+        this_link_bandwidth = 4.7;
+        fprintf(stderr, "Bandwidth of channels not specified, setting to %lf\n", this_link_bandwidth);
+    }
+
+    if(arrival_time!=0)
+    {
+        MEAN_INTERVAL = arrival_time;
+    }
+    if(load != 0)
+    {
+        MEAN_INTERVAL = bytes_to_ns(this_packet_size, load*this_link_bandwidth);
+    }
+
     /* skew each kickoff event slightly to help avoid event ties later on */
-    kickoff_time = 1.1 * g_tw_lookahead + tw_rand_exponential(lp->rng, arrival_time);
+//    kickoff_time = 1.1 * g_tw_lookahead + tw_rand_exponential(lp->rng, arrival_time);
+    kickoff_time = g_tw_lookahead + tw_rand_exponential(lp->rng, MEAN_INTERVAL);
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
@@ -412,8 +455,8 @@ int main(
 	if(fattree_results_log_header == NULL)
 		printf("\n Failed to open results log header file %s in synthetic-fattree\n",temp_filename_header);
 	printf("Printing Simulation Parameters/Results Log File\n");
-	fprintf(fattree_results_log_header,", <Workload>, ");
-	fprintf(fattree_results_log,"%16.3d, ",traffic);
+	fprintf(fattree_results_log_header,", <Workload>, <Load>, <Mean Interval>, ");
+	fprintf(fattree_results_log,"%11.3d, %5.2f, %15.2f, ",traffic, load, MEAN_INTERVAL);
 	fclose(fattree_results_log_header);
 	fclose(fattree_results_log);
     }
@@ -489,7 +532,7 @@ int main(
 		idx++;
 	}
 	fprintf(fattree_results_log_header,"<Total Events>, <Rollbacks>, <GVT Computations>, <Net Events>, <Running Time>, <Efficiency>, <Event Rate>");
-	fprintf(fattree_results_log,"%12llu, %10llu, %16d, %10llu, %17.4f, %10.2f, %22.2f\n",total_events,rollbacks,gvt_computations,net_events,running_time,efficiency,event_rate);
+	fprintf(fattree_results_log,"%14llu, %11llu, %18d, %12llu, %14.4f, %12.2f, %12.2f\n",total_events,rollbacks,gvt_computations,net_events,running_time,efficiency,event_rate);
 	fclose(fattree_results_log);
 	fclose(fattree_results_log_header);
 	fclose(fattree_ross_csv_log);
