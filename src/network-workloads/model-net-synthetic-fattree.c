@@ -206,6 +206,7 @@ static void handle_kickoff_rev_event(
 {
 	ns->msg_sent_count--;
 	model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+    tw_rand_reverse_unif(lp->rng);
 }	
 static void handle_kickoff_event(
 	    svr_state * ns,
