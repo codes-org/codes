@@ -26,6 +26,9 @@
 #define FATTREE_MSG 0
 #define DEBUG_RC 1
 
+//Data Collection Output Files
+#define PARAMS_LOG 1
+
 #define LP_CONFIG_NM (model_net_lp_config_names[FATTREE])
 #define LP_METHOD_NM (model_net_method_names[FATTREE])
 
@@ -197,6 +200,7 @@ struct ft_terminal_state
   tw_stime last_buf_full;
   tw_stime busy_time;
   char output_buf[4096];
+  char output_buf3[4096];
 
   /* For sampling */
   long fin_chunks_sample;
@@ -988,6 +992,33 @@ static void fattree_report_stats()
               (float)avg_hops/total_finished_chunks, avg_time/(total_finished_chunks*1000), max_time/1000, (float)final_msg_sz/total_finished_msgs, total_finished_msgs, total_finished_chunks);
       printf(" Total packets generated %ld finished %ld \n", total_gen, total_fin);
    }
+
+   if(!g_tw_mynode)
+   {	
+      printf(" Average number of hops traversed %f average chunk latency %lf us maximum chunk latency %lf us avg message size %lf bytes finished messages %lld \n", (float)avg_hops/total_finished_chunks, avg_time/(total_finished_chunks*1000), max_time/1000, (float)final_msg_sz/total_finished_msgs, total_finished_msgs);
+
+#if PARAMS_LOG
+//    throughput_avg = throughput_avg / (float)slim_total_terminals_noah;
+//    throughput_avg2 = throughput_avg2 / (float)slim_total_terminals_noah;
+
+	//Open file to append simulation results
+	char temp_filename[1024];
+	char temp_filename_header[1024];
+	sprintf(temp_filename,"%s/sim_log.txt",modelnet_stats_dir);
+	sprintf(temp_filename_header,"%s/sim_log_header.txt",modelnet_stats_dir);
+	FILE *fattree_results_log=fopen(temp_filename, "a");
+	FILE *fattree_results_log_header=fopen(temp_filename_header, "a");
+	if(fattree_results_log == NULL)
+		printf("\n Failed to open results log file %s \n",temp_filename);
+	if(fattree_results_log_header == NULL)
+		printf("\n Failed to open results log header file %s \n",temp_filename_header);
+	printf("Printing Simulation Parameters/Results Log File\n");
+	fprintf(fattree_results_log_header,"<Avg Hops/Total Packets>, <Avg Time/Total Packets>, <Max Latency>, <Total Finished Chunks>");
+	fprintf(fattree_results_log,"%10.3lf, %15.3lf, %11.3lf, %16.3lld, ", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets),max_time,total_finished_chunks);
+	fclose(fattree_results_log_header);
+	fclose(fattree_results_log);
+#endif 
+  }
 }
 
 /* fattree packet event */
@@ -2174,6 +2205,46 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
     //if(s->packet_gen != s->packet_fin)
     //    printf("\n generated %d finished %d ", s->packet_gen, s->packet_fin);
     
+    if(!s->terminal_id)
+	{
+#if PARAMS_LOG
+//    throughput_avg = throughput_avg / (float)slim_total_terminals_noah;
+//    throughput_avg2 = throughput_avg2 / (float)slim_total_terminals_noah;
+
+	//Open file to append simulation results
+		char temp_filename[1024];
+		char temp_filename_header[1024];
+		int temp_num_switches = 0;
+		sprintf(temp_filename,"%s/sim_log.txt",modelnet_stats_dir);
+		sprintf(temp_filename_header,"%s/sim_log_header.txt",modelnet_stats_dir);
+		FILE *fattree_results_log=fopen(temp_filename, "a");
+		FILE *fattree_results_log_header=fopen(temp_filename_header, "a");
+		if(fattree_results_log == NULL)
+			printf("\n Failed to open results log file %s in terminal_final\n",temp_filename);
+		if(fattree_results_log_header == NULL)
+			printf("\n Failed to open results log header file %s in terminal_final\n",temp_filename_header);
+		printf("Printing Simulation Parameters/Results Log File\n");
+		fprintf(fattree_results_log_header," <Num Levels>,");
+		fprintf(fattree_results_log," %3d,",s->params->num_levels);
+		for(int j=0; j<s->params->num_levels; j++)
+		{
+			fprintf(fattree_results_log_header," <L%d Switch Radix>,",j);
+			fprintf(fattree_results_log," %9d,",s->params->switch_radix[j]);
+		}
+		for(int j=0; j<s->params->num_levels; j++)
+		{
+			fprintf(fattree_results_log_header," <L%d Num Switches>,",j);
+			fprintf(fattree_results_log," %9d,",s->params->num_switches[j]);
+			temp_num_switches += s->params->num_switches[j];
+		}
+
+		fprintf(fattree_results_log_header,"<Num Terminals>, <Num Switches>, <Synch>, <Num LPs>, <Sim End Time>, <Batch Size>, <GVT Interval>, <Num KP>, ");
+		fprintf(fattree_results_log,"%10.3d, %9d, %9.3d, %11.3d, %5.3d, %12.3d, %10.3d, %8.3d, ", (s->params->switch_radix[0]/2)*s->params->num_switches[0],temp_num_switches, g_tw_synchronization_protocol, tw_nnodes(),(int)g_tw_ts_end,(int)g_tw_mblock,(int)g_tw_gvt_interval, (int)g_tw_nkp);
+		fclose(fattree_results_log_header);
+		fclose(fattree_results_log);
+#endif
+	} 
+
     qhash_finalize(s->rank_tbl);
     rc_stack_destroy(s->st);
 //    free(s->vc_occupancy);
@@ -2227,7 +2298,7 @@ void fattree_switch_final(switch_state * s, tw_lp * lp)
     for(int d = 0; d < s->radix; d++) 
         written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
 
-    lp_io_write(lp->gid, "fattree-router-traffic", written, s->output_buf2);
+    lp_io_write(lp->gid, "fattree-switch-traffic", written, s->output_buf2);
   
     //Original Output with Tracer
 //    char *stats_file = getenv("TRACER_LINK_FILE");
