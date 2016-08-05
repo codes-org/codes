@@ -1014,7 +1014,7 @@ static void fattree_report_stats()
 		printf("\n Failed to open results log header file %s \n",temp_filename_header);
 	printf("Printing Simulation Parameters/Results Log File\n");
 	fprintf(fattree_results_log_header,"<Avg Hops/Total Packets>, <Avg Time/Total Packets>, <Max Latency>, <Total Finished Chunks>");
-	fprintf(fattree_results_log,"%10.3lf, %15.3lf, %11.3lf, %16.3lld, ", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets),max_time,total_finished_chunks);
+	fprintf(fattree_results_log,"%24.3lf, %24.3lf, %13.3lf, %23.3lld, ", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets),max_time,total_finished_chunks);
 	fclose(fattree_results_log_header);
 	fclose(fattree_results_log);
 #endif 
@@ -2224,22 +2224,22 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
 		if(fattree_results_log_header == NULL)
 			printf("\n Failed to open results log header file %s in terminal_final\n",temp_filename_header);
 		printf("Printing Simulation Parameters/Results Log File\n");
-		fprintf(fattree_results_log_header," <Num Levels>,");
-		fprintf(fattree_results_log," %3d,",s->params->num_levels);
+		fprintf(fattree_results_log_header,"<Num Levels>,");
+		fprintf(fattree_results_log," %11d,",s->params->num_levels);
 		for(int j=0; j<s->params->num_levels; j++)
 		{
 			fprintf(fattree_results_log_header," <L%d Switch Radix>,",j);
-			fprintf(fattree_results_log," %9d,",s->params->switch_radix[j]);
+			fprintf(fattree_results_log," %17d,",s->params->switch_radix[j]);
 		}
 		for(int j=0; j<s->params->num_levels; j++)
 		{
 			fprintf(fattree_results_log_header," <L%d Num Switches>,",j);
-			fprintf(fattree_results_log," %9d,",s->params->num_switches[j]);
+			fprintf(fattree_results_log," %17d,",s->params->num_switches[j]);
 			temp_num_switches += s->params->num_switches[j];
 		}
 
 		fprintf(fattree_results_log_header,"<Num Terminals>, <Num Switches>, <Synch>, <Num LPs>, <Sim End Time>, <Batch Size>, <GVT Interval>, <Num KP>, ");
-		fprintf(fattree_results_log,"%10.3d, %9d, %9.3d, %11.3d, %5.3d, %12.3d, %10.3d, %8.3d, ", (s->params->switch_radix[0]/2)*s->params->num_switches[0],temp_num_switches, g_tw_synchronization_protocol, tw_nnodes(),(int)g_tw_ts_end,(int)g_tw_mblock,(int)g_tw_gvt_interval, (int)g_tw_nkp);
+		fprintf(fattree_results_log,"%15.3d, %14d, %7.3d, %9.3d, %14.3d, %12.3d, %14.3d, %8.3d, ", (s->params->switch_radix[0]/2)*s->params->num_switches[0],temp_num_switches, g_tw_synchronization_protocol, tw_nnodes(),(int)g_tw_ts_end,(int)g_tw_mblock,(int)g_tw_gvt_interval, (int)g_tw_nkp);
 		fclose(fattree_results_log_header);
 		fclose(fattree_results_log);
 #endif
