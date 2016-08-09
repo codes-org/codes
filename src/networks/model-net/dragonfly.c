@@ -1116,15 +1116,22 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
   assert(lp->gid != msg->dest_terminal_id);
   const dragonfly_param *p = s->params;
 
+  double delay = p->cn_delay;
+
   int total_event_size;
   uint64_t num_chunks = msg->packet_size / p->chunk_size;
+  
   if (msg->packet_size % s->params->chunk_size)
+  {
+      delay = bytes_to_ns(msg->packet_size % p->chunk_size, p->cn_bandwidth);
       num_chunks++;
+  }
 
   if(!num_chunks)
     num_chunks = 1;
 
-  nic_ts = g_tw_lookahead + (num_chunks * s->params->cn_delay) + tw_rand_unif(lp->rng);
+  
+  nic_ts = g_tw_lookahead + ((num_chunks - 1)* p->cn_delay) + delay + tw_rand_unif(lp->rng);
 
   msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
   msg->my_N_hop = 0;
@@ -1259,8 +1266,20 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
     return;
   }
 
+  uint64_t num_chunks = cur_entry->msg.packet_size / s->params->chunk_size;
+  if(msg->packet_size % s->params->chunk_size)
+      num_chunks++;
+
+  if(!num_chunks)
+    num_chunks = 1;
+
+  double delay = s->params->cn_delay;
+  if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1)) 
+      delay = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, s->params->cn_bandwidth);
+  
   msg->saved_available_time = s->terminal_available_time;
-  ts = g_tw_lookahead + s->params->cn_delay + tw_rand_unif(lp->rng);
+  ts = g_tw_lookahead + delay + tw_rand_unif(lp->rng);
+
   s->terminal_available_time = maxd(s->terminal_available_time, tw_now(lp));
   s->terminal_available_time += ts;
 
@@ -1288,13 +1307,6 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   m->local_event_size_bytes = 0;
   tw_event_send(e);
 
-  uint64_t num_chunks = cur_entry->msg.packet_size/s->params->chunk_size;
-  if(cur_entry->msg.packet_size % s->params->chunk_size)
-    num_chunks++;
-
-  if(!num_chunks)
-      num_chunks = 1;
-
   if(cur_entry->msg.chunk_id == num_chunks - 1 &&
       (cur_entry->msg.local_event_size_bytes > 0)) {
     bf->c2 = 1;
@@ -1311,7 +1323,6 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, 0);
   rc_stack_push(lp, cur_entry, free, s->st);
   s->terminal_length -= s->params->chunk_size;
-
   cur_entry = s->terminal_msgs[0];
 
   /* if there is another packet inline then schedule another send event */
@@ -1555,6 +1566,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
 
    /* Now retreieve the number of chunks completed from the hash and update
     * them */
+   
    void *m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
 
    struct qhash_head *hash_link = NULL;
@@ -2884,15 +2896,18 @@ router_packet_send( router_state * s,
   }
 
   int to_terminal = 1, global = 0;
+  double bandwidth = s->params->cn_bandwidth;
   double delay = s->params->cn_delay;
 
   if(output_port < s->params->num_routers) {
     to_terminal = 0;
+    bandwidth = s->params->local_bandwidth;
     delay = s->params->local_delay;
   } else if(output_port < s->params->num_routers +
     s->params->num_global_channels) {
     to_terminal = 0;
     global = 1;
+    bandwidth = s->params->global_bandwidth;
     delay = s->params->global_delay;
   }
 
@@ -2903,6 +2918,10 @@ router_packet_send( router_state * s,
       num_chunks = 1;
 
   double bytetime = delay;
+  
+  if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
+      bytetime = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, bandwidth); 
+
   ts = g_tw_lookahead + tw_rand_unif( lp->rng) + bytetime + s->params->router_delay;
 
   msg->saved_available_time = s->next_output_available_time[output_port];
