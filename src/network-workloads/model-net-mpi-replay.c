@@ -1850,6 +1850,7 @@ tw_lptype nw_lp = {
     (pre_run_f) NULL,
     (event_f) nw_test_event_handler,
     (revent_f) nw_test_event_handler_rc,
+    (commit_f) NULL,
     (final_f) nw_test_finalize,
     (map_f) codes_mapping,
     sizeof(nw_state)

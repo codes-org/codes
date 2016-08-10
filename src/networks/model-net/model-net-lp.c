@@ -107,6 +107,7 @@ tw_lptype model_net_base_lp = {
     (pre_run_f) NULL,
     (event_f) model_net_base_event,
     (revent_f) model_net_base_event_rc,
+    (commit_f) NULL,
     (final_f)  model_net_base_finalize, 
     (map_f) codes_mapping,
     sizeof(model_net_base_state),

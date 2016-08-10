@@ -3192,6 +3192,7 @@ tw_lptype dragonfly_lps[] =
     (pre_run_f) NULL,
     (event_f) terminal_event,
     (revent_f) terminal_rc_event_handler,
+    (commit_f) NULL,
     (final_f) dragonfly_terminal_final,
     (map_f) codes_mapping,
     sizeof(terminal_state)
@@ -3201,6 +3202,7 @@ tw_lptype dragonfly_lps[] =
      (pre_run_f) NULL,
      (event_f) router_event,
      (revent_f) router_rc_event_handler,
+     (commit_f) NULL,
      (final_f) dragonfly_router_final,
      (map_f) codes_mapping,
      sizeof(router_state),
