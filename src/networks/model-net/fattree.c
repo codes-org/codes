@@ -1751,7 +1751,7 @@ void switch_buf_update(switch_state * s, tw_bf * bf, fattree_message * msg,
     bf->c1 = 1;
     fattree_message_list *head = return_head( s->queued_msgs,
         s->queued_msgs_tail, indx);
-    s->queued_length[indx] -= s->params->chunk_size;
+    s->queued_length[indx] += s->params->chunk_size;
     switch_credit_send( s, bf,  &head->msg, lp, 1);
     append_to_fattree_message_list( s->pending_msgs, s->pending_msgs_tail,
       indx, head);
@@ -2512,7 +2512,7 @@ void switch_rc_event_handler(switch_state * s, tw_bf * bf,
           prepend_to_fattree_message_list(s->queued_msgs,
             s->queued_msgs_tail, indx, head);
           s->vc_occupancy[indx] -= s->params->chunk_size;
-          s->queued_length[indx] += s->params->chunk_size;
+          s->queued_length[indx] -= s->params->chunk_size;
         }
         if(bf->c2) {
           codes_local_latency_reverse(lp);
