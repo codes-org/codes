@@ -1405,6 +1405,36 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   return;
 }
 
+void switch_packet_receive_rc(switch_state * s,
+        tw_bf * bf,
+        fattree_message * msg,
+        tw_lp * lp)
+{
+#if DEBUG_RC
+	s_arrive_r++;
+#endif
+    int output_port = msg->saved_vc;
+    if(bf->c1)
+    {
+        tw_rand_reverse_unif(lp->rng);
+        delete_fattree_message_list(return_tail(s->pending_msgs,
+        s->pending_msgs_tail, output_port));
+        s->vc_occupancy[output_port] -= s->params->chunk_size;
+        if(bf->c2)
+        {
+            codes_local_latency_reverse(lp);
+            s->in_send_loop[output_port] = 0;
+        }
+    }
+    if(bf->c3) 
+    {
+        delete_fattree_message_list(return_tail(s->queued_msgs,
+        s->queued_msgs_tail, output_port));
+        s->queued_length[output_port] -= s->params->chunk_size;
+        s->last_buf_full[output_port] = msg->saved_busy_time;
+    }
+}
+
 /* Packet arrives at the switch and a credit is sent back to the sending
  * terminal/switch */
 void switch_packet_receive( switch_state * s, tw_bf * bf,
@@ -1491,6 +1521,46 @@ if(msg->packet_ID == LLU(TRACK_PKT))
   return;
 }
 
+void switch_packet_send_rc(switch_state * s, 
+		    tw_bf * bf, 
+            fattree_message * msg, tw_lp * lp)
+{
+#if DEBUG_RC
+	s_send_r++;
+#endif
+    int output_port = msg->saved_vc;
+    if(bf->c1) 
+    {
+        s->in_send_loop[output_port] = 1;
+        return;
+    }
+    tw_rand_reverse_unif(lp->rng);
+    s->next_output_available_time[output_port] =
+      msg->saved_available_time;
+    if(bf->c11)
+    {
+        s->link_traffic[output_port] -= msg->packet_size % s->params->chunk_size;
+    }
+    if(bf->c12)
+    {
+        s->link_traffic[output_port] -= s->params->chunk_size;
+    }
+
+    fattree_message_list * cur_entry = rc_stack_pop(s->st);
+    assert(cur_entry);
+
+    prepend_to_fattree_message_list(s->pending_msgs,
+        s->pending_msgs_tail, output_port, cur_entry);
+
+    if(bf->c3) 
+    {
+      tw_rand_reverse_unif(lp->rng);
+    }
+    if(bf->c4) 
+    {
+      s->in_send_loop[output_port] = 1;
+    }
+}
 /* routes the current packet to the next stop */
 void switch_packet_send( switch_state * s, tw_bf * bf, fattree_message * msg,
     tw_lp * lp) {
@@ -1724,6 +1794,40 @@ void ft_terminal_buf_update(ft_terminal_state * s, tw_bf * bf,
      model_net_method_idle_event(ts, 0, lp);
   }
   return;
+}
+
+void switch_buf_update_rc(switch_state * s,
+        tw_bf * bf,
+        fattree_message * msg,
+        tw_lp * lp)
+{
+#if DEBUG_RC
+	s_buffer_r++;
+#endif
+    int indx = msg->vc_index;
+    s->vc_occupancy[indx] += s->params->chunk_size;
+
+    if(bf->c3)
+    {
+        s->busy_time[indx] = msg->saved_rcv_time;
+        s->busy_time_sample[indx] = msg->saved_sample_time;
+        s->last_buf_full[indx] = msg->saved_busy_time;
+    }
+    if(bf->c1) 
+    {
+        fattree_message_list* head = return_tail(s->pending_msgs,
+        s->pending_msgs_tail, indx);
+        tw_rand_reverse_unif(lp->rng);
+        prepend_to_fattree_message_list(s->queued_msgs,
+        s->queued_msgs_tail, indx, head);
+        s->vc_occupancy[indx] -= s->params->chunk_size;
+        s->queued_length[indx] -= s->params->chunk_size;
+    }
+    if(bf->c2) 
+    {
+        codes_local_latency_reverse(lp);
+        s->in_send_loop[indx] = 0;
+    }
 }
 
 void switch_buf_update(switch_state * s, tw_bf * bf, fattree_message * msg,
@@ -2428,98 +2532,16 @@ void switch_rc_event_handler(switch_state * s, tw_bf * bf,
 
   switch(msg->type) {
     case S_SEND:
-      {
-#if DEBUG_RC
-	s_send_r++;
-#endif
-    int output_port = msg->saved_vc;
-        if(bf->c1) {
-          s->in_send_loop[output_port] = 1;
-          break;
-        }
-        tw_rand_reverse_unif(lp->rng);
-        s->next_output_available_time[output_port] =
-          msg->saved_available_time;
-        if(bf->c11)
-        {
-            s->link_traffic[output_port] -= msg->packet_size % s->params->chunk_size;
-        }
-        if(bf->c12)
-        {
-            s->link_traffic[output_port] -= s->params->chunk_size;
-        }
-
-	fattree_message_list * cur_entry = rc_stack_pop(s->st);
-	assert(cur_entry);
-
-        prepend_to_fattree_message_list(s->pending_msgs,
-            s->pending_msgs_tail, output_port, cur_entry);
-
-        if(bf->c3) {
-          tw_rand_reverse_unif(lp->rng);
-        }
-        if(bf->c4) {
-          s->in_send_loop[output_port] = 1;
-        }
-      }
-      break;
+        switch_packet_send_rc(s, bf, msg, lp);
+        break;
 
     case S_ARRIVE:
-      {
-#if DEBUG_RC
-	s_arrive_r++;
-#endif
-        int output_port = msg->saved_vc;
-        if(bf->c1) {
-          tw_rand_reverse_unif(lp->rng);
-          delete_fattree_message_list(return_tail(s->pending_msgs,
-                s->pending_msgs_tail, output_port));
-          s->vc_occupancy[output_port] -= s->params->chunk_size;
-          if(bf->c2) {
-            codes_local_latency_reverse(lp);
-            s->in_send_loop[output_port] = 0;
-          }
-        }
-        if(bf->c3) {
-          delete_fattree_message_list(return_tail(s->queued_msgs,
-                s->queued_msgs_tail, output_port));
-          s->queued_length[output_port] -= s->params->chunk_size;
-	  s->last_buf_full[output_port] = msg->saved_busy_time;
-        }
-
-      }
-      break;
+        switch_packet_receive_rc(s, bf, msg, lp);
+        break;
 
     case S_BUFFER:
-      {
-#if DEBUG_RC
-	s_buffer_r++;
-#endif
-        int indx = msg->vc_index;
-        s->vc_occupancy[indx] += s->params->chunk_size;
-
-      	if(bf->c3)
-      	{
-          s->busy_time[indx] = msg->saved_rcv_time;
-          s->busy_time_sample[indx] = msg->saved_sample_time;
-          s->last_buf_full[indx] = msg->saved_busy_time;
-      	}
-
-	if(bf->c1) {
-          fattree_message_list* head = return_tail(s->pending_msgs,
-            s->pending_msgs_tail, indx);
-          tw_rand_reverse_unif(lp->rng);
-          prepend_to_fattree_message_list(s->queued_msgs,
-            s->queued_msgs_tail, indx, head);
-          s->vc_occupancy[indx] -= s->params->chunk_size;
-          s->queued_length[indx] -= s->params->chunk_size;
-        }
-        if(bf->c2) {
-          codes_local_latency_reverse(lp);
-          s->in_send_loop[indx] = 0;
-        }
-      }
-      break;
+        switch_buf_update_rc(s, bf, msg, lp);
+        break;
 
   }
 }
