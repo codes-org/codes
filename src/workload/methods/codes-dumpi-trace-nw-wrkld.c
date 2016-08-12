@@ -92,7 +92,7 @@ static int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank
 static void dumpi_trace_nw_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
 
 /* get number of bytes from the workload data type and count */
-static int get_num_bytes(dumpi_datatype dt);
+static int64_t get_num_bytes(dumpi_datatype dt);
 
 /* computes the delay between MPI operations */
 static void update_compute_time(const dumpi_time* time, rank_mpi_context* my_ctx);
@@ -339,8 +339,8 @@ int handleDUMPIISend(const dumpi_isend *prm, uint16_t thread, const dumpi_time *
 	wrkld_per_rank.u.send.tag = prm->tag;
 	wrkld_per_rank.u.send.count = prm->count;
 	wrkld_per_rank.u.send.data_type = prm->datatype;
-        wrkld_per_rank.u.send.num_bytes = prm->count * get_num_bytes(prm->datatype);
-	//assert(wrkld_per_rank.u.send.num_bytes > 0);
+    wrkld_per_rank.u.send.num_bytes = prm->count * get_num_bytes(prm->datatype);
+	assert(wrkld_per_rank.u.send.num_bytes >= 0);
     	wrkld_per_rank.u.send.req_id = prm->request;
         wrkld_per_rank.u.send.dest_rank = prm->dest;
         wrkld_per_rank.u.send.source_rank = myctx->my_rank;
@@ -361,7 +361,7 @@ int handleDUMPIIRecv(const dumpi_irecv *prm, uint16_t thread, const dumpi_time *
 	wrkld_per_rank.u.recv.tag = prm->tag;
         wrkld_per_rank.u.recv.num_bytes = prm->count * get_num_bytes(prm->datatype);
 	    
-            //assert(wrkld_per_rank.u.recv.num_bytes > 0);
+        assert(wrkld_per_rank.u.recv.num_bytes >= 0);
         wrkld_per_rank.u.recv.source_rank = prm->source;
         wrkld_per_rank.u.recv.dest_rank = -1;
 	wrkld_per_rank.u.recv.req_id = prm->request;
@@ -378,13 +378,11 @@ int handleDUMPISend(const dumpi_send *prm, uint16_t thread,
         struct codes_workload_op wrkld_per_rank;
 
         wrkld_per_rank.op_type = CODES_WK_SEND;
-	wrkld_per_rank.u.send.tag = prm->tag;
+	    wrkld_per_rank.u.send.tag = prm->tag;
         wrkld_per_rank.u.send.count = prm->count;
         wrkld_per_rank.u.send.data_type = prm->datatype;
         wrkld_per_rank.u.send.num_bytes = prm->count * get_num_bytes(prm->datatype);
-	if(wrkld_per_rank.u.send.num_bytes < 0)
-		printf("\n Number of bytes %d count %d data type %d num_bytes %d", prm->count * get_num_bytes(prm->datatype), prm->count, prm->datatype, get_num_bytes(prm->datatype));
-	//assert(wrkld_per_rank.u.send.num_bytes > 0);
+	    assert(wrkld_per_rank.u.send.num_bytes >= 0);
         wrkld_per_rank.u.send.dest_rank = prm->dest;
         wrkld_per_rank.u.send.source_rank = myctx->my_rank;
          wrkld_per_rank.u.send.req_id = -1;
@@ -406,7 +404,7 @@ int handleDUMPIRecv(const dumpi_recv *prm, uint16_t thread,
     wrkld_per_rank.u.recv.count = prm->count;
     wrkld_per_rank.u.recv.data_type = prm->datatype;
     wrkld_per_rank.u.recv.num_bytes = prm->count * get_num_bytes(prm->datatype);
-	//assert(wrkld_per_rank.u.recv.num_bytes > 0);
+	assert(wrkld_per_rank.u.recv.num_bytes >= 0);
         wrkld_per_rank.u.recv.source_rank = prm->source;
         wrkld_per_rank.u.recv.dest_rank = -1;
 
@@ -424,7 +422,7 @@ int handleDUMPIBcast(const dumpi_bcast *prm, uint16_t thread,
 
         wrkld_per_rank.op_type = CODES_WK_BCAST;
         wrkld_per_rank.u.collective.num_bytes = prm->count * get_num_bytes(prm->datatype);
-	//assert(wrkld_per_rank.u.collective.num_bytes > 0);
+	assert(wrkld_per_rank.u.collective.num_bytes >= 0);
 
         update_times_and_insert(&wrkld_per_rank, wall, myctx);
         return 0;
@@ -688,14 +686,13 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	return 0;
 }
 
-int get_num_bytes(dumpi_datatype dt)
+static int64_t get_num_bytes(dumpi_datatype dt)
 {
    switch(dt)
    {
 	case DUMPI_DATATYPE_ERROR:
 	case DUMPI_DATATYPE_NULL:
-        printf("\n Error in data type ");
-		return -1; /* error state */
+		tw_error(TW_LOC, "\n data type error");
 	break;
 
 	case DUMPI_CHAR:
@@ -740,7 +737,7 @@ int get_num_bytes(dumpi_datatype dt)
 	
 	default:
 	  {
-		printf("\n Undefined data type ");
+        tw_error(TW_LOC, "\n undefined data type");
 		return 0;	
 	  }	
    } 

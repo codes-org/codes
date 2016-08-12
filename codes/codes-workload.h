@@ -189,7 +189,7 @@ struct codes_workload_op
             /* TODO: not sure why source rank is here */
             int source_rank;/* source rank of MPI send message */
             int dest_rank; /* dest rank of MPI send message */
-            int num_bytes; /* number of bytes to be transferred over the network */
+            int64_t num_bytes; /* number of bytes to be transferred over the network */
             int16_t data_type; /* MPI data type to be matched with the recv */
             int count; /* number of elements to be received */
             int tag; /* tag of the message */
