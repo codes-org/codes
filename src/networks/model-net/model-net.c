@@ -396,7 +396,7 @@ model_net_event_return model_net_event_annotated(
         int self_event_size,
         void const * self_event,
         tw_lp *sender){
-    struct codes_mctx mc = codes_mctx_set_group_modulo(annotation, true);
+    struct codes_mctx mc = codes_mctx_set_group_modulo(annotation, false);
     return model_net_event_impl_base(net_id, &mc, &mc, category, final_dest_lp,
             message_size, 0, offset, remote_event_size, remote_event,
             self_event_size, self_event, sender);
@@ -449,7 +449,7 @@ model_net_event_return model_net_pull_event_annotated(
         tw_lp *sender){
     /* NOTE: for a pull, we are filling the *remote* event - it will be remote
      * from the destination's POV */
-    struct codes_mctx mc = codes_mctx_set_group_modulo(annotation, true);
+    struct codes_mctx mc = codes_mctx_set_group_modulo(annotation, false);
     return model_net_event_impl_base(net_id, &mc, &mc, category, final_dest_lp,
             message_size, 1, offset, self_event_size, self_event, 0, NULL,
             sender);
