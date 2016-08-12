@@ -16,6 +16,8 @@
 #include "codes/codes-jobmap.h"
 
 /* turning on track lp will generate a lot of output messages */
+#define MN_LP_NM "modelnet_dragonfly"
+
 #define TRACK_LP -1
 #define TRACE -1
 #define MAX_WAIT_REQS 512
@@ -30,6 +32,7 @@ char offset_file[8192];
 static int wrkld_id;
 static int num_net_traces = 0;
 static int alloc_spec = 0;
+static double self_overhead = 10.0;
 
 /* Doing LP IO*/
 static char lp_io_dir[256] = {'\0'};
@@ -54,7 +57,7 @@ typedef int32_t dumpi_req_id;
 
 static int net_id = 0;
 static float noise = 5.0;
-static int num_net_lps, num_nw_lps;
+static int num_net_lps = 0, num_mpi_lps = 0;
 
 FILE * workload_log = NULL;
 FILE * workload_agg_log = NULL;
@@ -78,6 +81,9 @@ static int enable_sampling = 0;
 static double sampling_interval = 5000000;
 static double sampling_end_time = 3000000000;
 static int enable_debug = 1;
+
+/* set group context */
+struct codes_mctx group_ratio;
 
 /* MPI_OP_GET_NEXT is for getting next MPI operation when the previous operation completes.
 * MPI_SEND_ARRIVED is issued when a MPI message arrives at its destination (the message is transported by model-net and an event is invoked when it arrives.
@@ -199,11 +205,12 @@ struct nw_message
    // forward message handler
    int msg_type;
    int op_type;
+   model_net_event_return event_rc;
 
    struct
    {
        tw_lpid src_rank;
-       tw_lpid dest_rank;
+       int dest_rank;
        int64_t num_bytes;
        int num_matched;
        int data_type;
@@ -825,27 +832,12 @@ static void codes_exec_mpi_send(nw_state* s,
         global_dest_rank = get_global_id_of_job_rank(mpi_op->u.send.dest_rank, s->app_id);
     }
 
+    //printf("\n Sender rank %d global dest rank %d ", s->nw_id, global_dest_rank);
     m->rc.saved_num_bytes = mpi_op->u.send.num_bytes;
 	/* model-net event */
-	tw_lpid dest_rank;
-    dest_rank = codes_mapping_get_lpid_from_relative(global_dest_rank, NULL, "nw-lp", NULL, 0);
-//	if(net_id == DRAGONFLY) /* special handling for the dragonfly case */
-/*	{
-		int num_routers, lps_per_rep, factor;
-		num_routers = codes_mapping_get_lp_count(lp_group_name, 1,
-                  "modelnet_dragonfly_router", NULL, 1);
-	 	lps_per_rep = (2 * num_nw_lps) + num_routers;
-		factor = global_dest_rank / num_nw_lps;
-		dest_rank = (lps_per_rep * factor) + (global_dest_rank % num_nw_lps);
-	}
-	else
-	{
-*/		/* other cases like torus/simplenet/loggp etc. */
-/*		codes_mapping_get_lp_id(lp_group_name, lp_type_name, NULL, 1,
-	    	  global_dest_rank, mapping_offset, &dest_rank);
-	}
-*/
-	num_bytes_sent += mpi_op->u.send.num_bytes;
+	tw_lpid dest_rank = codes_mapping_get_lpid_from_relative(global_dest_rank, NULL, "nw-lp", NULL, 0);
+	
+    num_bytes_sent += mpi_op->u.send.num_bytes;
     s->num_bytes_sent += mpi_op->u.send.num_bytes;
 
     if(enable_sampling)
@@ -888,7 +880,8 @@ static void codes_exec_mpi_send(nw_state* s,
     remote_m = local_m;
 	remote_m.msg_type = MPI_SEND_ARRIVED;
 
-	model_net_event(net_id, "test", dest_rank, mpi_op->u.send.num_bytes, 0.0,
+	m->event_rc = model_net_event_mctx(net_id, &group_ratio, &group_ratio, 
+            "test", dest_rank, mpi_op->u.send.num_bytes, self_overhead,
 	    sizeof(nw_message), (const void*)&remote_m, sizeof(nw_message), (const void*)&local_m, lp);
 
     if(enable_debug)
@@ -1038,6 +1031,8 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
                 m->fwd.app_id, s->app_id, s->nw_id);
     assert(s->app_id == m->fwd.app_id);
 
+    //if(s->local_rank != m->fwd.dest_rank)
+    //    printf("\n Dest rank %d local rank %d ", m->fwd.dest_rank, s->local_rank);
 	m->rc.saved_recv_time = s->recv_time;
     s->num_bytes_recvd += m->fwd.num_bytes;
 
@@ -1114,9 +1109,9 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->sampling_indx = 0;
 
    if(!num_net_traces)
-	num_net_traces = num_net_lps;
+	num_net_traces = num_mpi_lps;
 
-   assert(num_net_traces <= num_net_lps);
+   assert(num_net_traces <= num_mpi_lps);
 
    struct codes_jobmap_id lid;
 
@@ -1133,7 +1128,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    }
    else
    {
-       /* Only one job running */
+       /* Only one job running with contiguous mapping */
        lid.job = 0;
        lid.rank = s->nw_id;
        s->app_id = 0;
@@ -1148,10 +1143,17 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        params = (char*)&params_d;
        s->app_id = lid.job;
        s->local_rank = lid.rank;
-//       printf("network LP nw id %d app id %d generating events, lp gid is %ld \n", s->nw_id, s->app_id, lp->gid);
+//       printf("network LP nw id %d app id %d local rank %d generating events, lp gid is %ld \n", s->nw_id, 
+//               s->app_id, s->local_rank, lp->gid);
    }
 
    wrkld_id = codes_workload_load("dumpi-trace-workload", params, s->app_id, s->local_rank);
+
+   double overhead;
+   int rc = configuration_get_value_double(&config, "PARAMS", "self_msg_overhead", NULL, &overhead);
+
+   if(overhead)
+       self_overhead = overhead;
 
    INIT_QLIST_HEAD(&s->arrival_queue);
    INIT_QLIST_HEAD(&s->pending_recvs_queue);
@@ -1250,7 +1252,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
                    s->cur_interval_end -= sampling_interval;
                }
             }
-			model_net_event_rc(net_id, lp, m->rc.saved_num_bytes);
+            model_net_event_rc2(lp, &m->event_rc);
 			if(m->op_type == CODES_WK_ISEND)
 				codes_issue_next_event_rc(lp);
 			s->num_sends--;
@@ -1622,6 +1624,9 @@ int main( int argc, char** argv )
    sprintf(agg_log_name, "mpi-aggregate-logs-%d.bin", rank);
    workload_agg_log = fopen(agg_log_name, "w+");
    workload_meta_log = fopen("mpi-workload-meta-log", "w+");
+   
+   group_ratio = codes_mctx_set_group_ratio(NULL, true);
+
    if(!workload_agg_log || !workload_meta_log)
    {
        printf("\n Error logging MPI operations... quitting ");
@@ -1633,10 +1638,9 @@ int main( int argc, char** argv )
 
    codes_mapping_setup();
 
-   num_net_lps = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp", NULL, 0);
-
-   num_nw_lps = codes_mapping_get_lp_count("MODELNET_GRP", 1,
-			"nw-lp", NULL, 1);
+   num_mpi_lps = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp", NULL, 0);
+   num_net_lps = codes_mapping_get_lp_count("MODELNET_GRP", 1, MN_LP_NM, NULL, 0);
+   printf("\n num net lps %d ", num_net_lps);
     if (lp_io_dir[0]){
         do_lp_io = 1;
         /* initialize lp io */

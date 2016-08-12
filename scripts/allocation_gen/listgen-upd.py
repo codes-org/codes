@@ -2,7 +2,7 @@ import sys
 import random
 alloc_file = 'testrest.conf'
 
-def contiguous_alloc(job_ranks, total_nodes):
+def contiguous_alloc(job_ranks, total_nodes, cores_per_node):
     f = open(alloc_file,'w')
     start=0
     for num_rank in range(len(job_ranks)):
@@ -12,7 +12,7 @@ def contiguous_alloc(job_ranks, total_nodes):
         start += job_ranks[num_rank]
     f.closed
 
-def cube_alloc(job_ranks, total_nodes):
+def cube_alloc(job_ranks, total_nodes, cores_per_node):
     job_dim = [6,6,6]
     sys_dim_x = 16
     sys_dim_y =16
@@ -47,7 +47,7 @@ def cube_alloc(job_ranks, total_nodes):
 
 
 
-def permeate_alloc(job_ranks, total_nodes):
+def permeate_alloc(job_ranks, total_nodes, cores_per_node):
     f = open(alloc_file,'w')
     start=0
     node_list = range(0, int(total_nodes))
@@ -63,7 +63,7 @@ def permeate_alloc(job_ranks, total_nodes):
         f.write("\n")
     f.closed
 
-def random_alloc(job_rank, total_nodes, num_seed ):
+def random_alloc(job_rank, total_nodes, num_seed, cores_per_node):
     filename_substr='allocation-'+str(total_nodes)+'-'
     for jobsize in job_rank:
         filename_substr += str(jobsize)+'_'
@@ -75,17 +75,28 @@ def random_alloc(job_rank, total_nodes, num_seed ):
         f = open(filename_substr+'.conf', 'w')
         node_list = range(0, int(total_nodes))
         random.seed(seed)
+        
         for rankid in range(len(job_rank)):
-            alloc_list = random.sample(node_list, job_rank[rankid])
+            rem = job_rank[rankid]/cores_per_node
+            if(job_rank[rankid] % cores_per_node):
+                rem=rem+1
+
+            alloc_list = random.sample(node_list, rem)
             node_list = [i for i in node_list if (i not in alloc_list)]
             #print "length of alloc list", len(alloc_list), "\n", alloc_list,"\n"
+            count = 0
             for idx in range(len(alloc_list)):
-                f.write("%s " % alloc_list[idx])
+                for coreid in range(cores_per_node):
+                    if(count == job_rank[rankid]):
+                        break
+                    f.write("%s " % ((alloc_list[idx] * cores_per_node) + coreid))
+                    count=count+1
+
             f.write("\n")
         f.closed
         filename_substr=filename_substr[:-2]
 
-def hybrid_alloc(job_rank, total_nodes):
+def hybrid_alloc(job_rank, total_nodes, cores_per_node):
     #1st job get contiguous allocation , the other job get random allocation
     f = open(alloc_file, 'w')
     node_list = range(0, int(total_nodes))
@@ -107,7 +118,7 @@ def hybrid_alloc(job_rank, total_nodes):
         f.write("\n")
     f.closed
 
-def hybrid_alloc_2 (job_rank, total_nodes):
+def hybrid_alloc_2 (job_rank, total_nodes, cores_per_node):
     #1st and 2nd job get contiguous allocation , 3rd job get random allocation
     f = open(alloc_file, 'w')
     node_list = range(0, int(total_nodes))
@@ -132,7 +143,7 @@ def hybrid_alloc_2 (job_rank, total_nodes):
 
 
 
-def stripe_alloc(job_ranks, total_nodes):
+def stripe_alloc(job_ranks, total_nodes, cores_per_node):
     #print "the num of nodes of each Job", job_ranks
     f = open(alloc_file,'w')
     node_list = range(0, int(total_nodes))
@@ -163,28 +174,28 @@ def stripe_alloc(job_ranks, total_nodes):
         f.write("\n")
     f.closed
 
-def policy_select(plcy, job_ranks, total_nodes, num_seed):
+def policy_select(plcy, job_ranks, total_nodes, num_seed, cores_per_node):
     if plcy == "CONT":
         print "contiguous alloction!"
-        contiguous_alloc(job_ranks,  total_nodes)
+        contiguous_alloc(job_ranks,  total_nodes, cores_per_node)
     elif plcy == "rand":
         print "random allocation!"
-        random_alloc(job_ranks, total_nodes, num_seed)
+        random_alloc(job_ranks, total_nodes, num_seed, cores_per_node)
     elif plcy == "STRIPE":
         print "stripe allcation!"
-        stripe_alloc(job_ranks, total_nodes)
+        stripe_alloc(job_ranks, total_nodes, cores_per_node)
     elif plcy == "PERMEATE":
         print "permeate allocation!"
-        permeate_alloc(job_ranks, total_nodes)
+        permeate_alloc(job_ranks, total_nodes, cores_per_node)
     elif plcy == "CUBE":
         print "cube allocation!"
-        cube_alloc(job_ranks, total_nodes)
+        cube_alloc(job_ranks, total_nodes, cores_per_node)
     elif plcy == "hybrid":
         print "hybrid allocation!"
-        hybrid_alloc(job_ranks, total_nodes)
+        hybrid_alloc(job_ranks, total_nodes, cores_per_node)
     elif plcy == "hybrid-2":
         print "hybrid 2 allocation!"
-        hybrid_alloc_2(job_ranks, total_nodes)
+        hybrid_alloc_2(job_ranks, total_nodes, cores_per_node)
     else:
         print "NOT Supported yet!"
 
@@ -201,9 +212,11 @@ if __name__ == "__main__":
     alloc_plcy = array.pop(0)
     total_nodes = array.pop(0)
     num_seed = int(array.pop(0))
+    cores_per_node = int(array.pop(0))
     print alloc_plcy
+    print cores_per_node
     array = map(int, array)
     #print array
     #print num_seed, type(num_seed)
-    policy_select(alloc_plcy, array, total_nodes, num_seed)
+    policy_select(alloc_plcy, array, total_nodes, num_seed, cores_per_node)
 
