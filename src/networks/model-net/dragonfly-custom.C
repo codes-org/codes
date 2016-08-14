@@ -20,6 +20,29 @@
 #include <vector>
 #include <map>
 
+#define GREEN 0
+#define BLACK 1
+#define BLUE 2
+
+using namespace std;
+struct Link {
+  int offset, type;
+};
+struct bLink {
+  int offset, dest;
+};
+vector< map< int, vector<Link> > > intraGroupLinks;
+vector< map< int, vector<bLink> > > interGroupLinks;
+vector< vector< vector<int> > > connectionList;
+
+struct IntraGroupLink {
+  int src, dest, type;
+};
+
+struct InterGroupLink {
+  int src, dest;
+};
+
 #define CREDIT_SIZE 8
 #define MEAN_PROCESS 1.0
 
@@ -477,6 +500,8 @@ static terminal_message_list* return_tail(
 static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     // shorthand
     dragonfly_param *p = params;
+    int myRank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
 
     int rc = configuration_get_value_int(&config, "PARAMS", "num_routers", anno,
             &p->num_routers);
@@ -550,7 +575,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     else if (strcmp(routing_str, "adaptive") == 0)
         routing = ADAPTIVE;
     else if (strcmp(routing_str, "prog-adaptive") == 0)
-	routing = PROG_ADAPTIVE;
+	      routing = PROG_ADAPTIVE;
     else
     {
         fprintf(stderr, 
@@ -558,21 +583,146 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
         routing = -1;
     }
 
-    // set the derived parameters
-    p->num_cn = p->num_routers/2;
-    p->num_global_channels = p->num_routers/2;
-    p->num_groups = p->num_routers * p->num_cn + 1;
-    p->radix = (p->num_routers + p->num_global_channels + p->num_cn);
+    rc = configuration_get_value_int(&config, "PARAMS", "num_groups", anno, &p->num_groups);
+    if(rc) {
+      printf("Number of groups not specified. Aborting");
+      MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+    rc = configuration_get_value_int(&config, "PARAMS", "router_radix", anno, &p->radix);
+    if(rc) {
+      printf("Router radix not specified. Aborting");
+      MPI_Abort(MPI_COMM_WORLD, 1);
+    }
     p->total_routers = p->num_groups * p->num_routers;
     p->total_terminals = p->total_routers * p->num_cn;
-    int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    if(!rank) {
+    // should this be a input param too?
+    p->num_cn = p->num_routers/2;
+    //comes after reading files
+    p->num_global_channels = p->num_routers/2;
+    
+    // read intra group connections, store from a router's perspective
+    // all links to the same router form a vector
+    char intraFile[MAX_NAME_LENGTH];
+    rc = configuration_get_value(&config, "PARAMS", "intra-group-connections", 
+        anno, intraFile, MAX_NAME_LENGTH);
+    if(rc) {
+      printf("Intra group connections file not specified. Aborting");
+      MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+    FILE *groupFile = fopen(intraFile, "rb");
+    if(!myRank)
+      printf("Reading intra-group connectivity file: %s\n", intraFile);
+
+    {
+      vector< int > offsets;
+      offsets.resize(p->num_routers, 0);
+      intraGroupLinks.resize(p->num_routers);
+      IntraGroupLink newLink;
+
+      while(fread(&newLink, sizeof(IntraGroupLink), 1, groupFile) != 0) {
+        Link tmpLink;
+        tmpLink.type = newLink.type;
+        tmpLink.offset = offsets[newLink.src]++;
+        intraGroupLinks[newLink.src][newLink.dest].push_back(tmpLink);
+      }
+    }
+
+    fclose(groupFile);
+
+    // read inter group connections, store from a router's perspective
+    // also create a group level table that tells all the connecting routers
+    char interFile[MAX_NAME_LENGTH];
+    rc = configuration_get_value(&config, "PARAMS", "inter-group-connections", 
+        anno, interFile, MAX_NAME_LENGTH);
+    if(rc) {
+      printf("Inter group connections file not specified. Aborting");
+      MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+    FILE *systemFile = fopen(interFile, "rb");
+    if(!myRank)
+      printf("Reading inter-group connectivity file: %s\n", interFile);
+
+    {
+      vector< int > offsets;
+      offsets.resize(p->total_routers, 0);
+      interGroupLinks.resize(p->total_routers);
+      connectionList.resize(p->num_groups);
+      for(int g = 0; g < connectionList.size(); g++) {
+        connectionList[g].resize(p->num_groups);
+      }
+      InterGroupLink newLink;
+
+      while(fread(&newLink, sizeof(InterGroupLink), 1, systemFile) != 0) {
+        bLink tmpLink;
+        tmpLink.dest = newLink.dest;
+        int srcG = newLink.src / p->num_routers;
+        int destG = newLink.dest / p->num_routers;
+        tmpLink.offset = offsets[newLink.src]++;
+        interGroupLinks[newLink.src][destG].push_back(tmpLink);
+        int r;
+        for(r = 0; r < connectionList[srcG][destG].size(); r++) {
+          if(connectionList[srcG][destG][r] == newLink.src) break;
+        }
+        if(r == connectionList[srcG][destG].size()) {
+          connectionList[srcG][destG].push_back(newLink.src);
+        }
+      }
+    }
+
+    fclose(systemFile);
+
+#if DUMP_CONNECTIONS
+    printf("Dumping intra-group connections\n");
+    for(int a = 0; a < intraGroupLinks.size(); a++) {
+      printf("Connections for router %d\n", a);
+      map< int, vector<Link> >  &curMap = intraGroupLinks[a];
+      map< int, vector<Link> >::iterator it = curMap.begin();
+      for(; it != curMap.end(); it++) {
+        printf(" ( %d - ", it->first);
+        for(int l = 0; l < it->second.size(); l++) {
+          printf("%d,%d ", it->second[l].offset, it->second[l].type);
+        }
+        printf(")");
+      }
+      printf("\n");
+    }
+#endif
+#if DUMP_CONNECTIONS
+    printf("Dumping inter-group connections\n");
+    for(int a = 0; a < interGroupLinks.size(); a++) {
+      printf("Connections for router %d\n", a);
+      map< int, vector<Link> >  &curMap = interGroupLinks[a];
+      map< int, vector<Link> >::iterator it = curMap.begin();
+      for(; it != curMap.end(); it++) {
+        printf(" ( %d - ", it->first);
+        for(int l = 0; l < it->second.size(); l++) {
+          printf("%d,%d ", it->second[l].offset, it->second[l].dest);
+        }
+        printf(")");
+      }
+      printf("\n");
+    }
+#endif
+
+#if DUMP_CONNECTIONS
+    printf("Dumping source aries for global connections\n");
+    for(int g = 0; g < p->num_groups; g++) {
+      for(int g1 = 0; g1 < p->num_groups; g1++) {
+        printf(" ( ");
+        for(int l = 0; l < connectionList[g][g1].size(); l++) {
+          printf("%d ", connectionList[g][g1][l]);
+        }
+        printf(")");
+      }
+      printf("\n");
+    }
+#endif
+    if(!myRank) {
         printf("\n Total nodes %d routers %d groups %d radix %d \n",
                 p->num_cn * p->total_routers, p->total_routers, p->num_groups,
                 p->radix);
     }
-    
+
     p->cn_delay = bytes_to_ns(p->chunk_size, p->cn_bandwidth);
     p->local_delay = bytes_to_ns(p->chunk_size, p->local_bandwidth);
     p->global_delay = bytes_to_ns(p->chunk_size, p->global_bandwidth);
