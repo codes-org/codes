@@ -21,9 +21,10 @@ extern struct model_net_method simplenet_method;
 extern struct model_net_method simplep2p_method;
 extern struct model_net_method torus_method;
 extern struct model_net_method dragonfly_method;
-extern struct model_net_method dragonfly-custom_method;
+extern struct model_net_method dragonfly_custom_method;
 extern struct model_net_method slimfly_method;
 extern struct model_net_method dragonfly_router_method;
+extern struct model_net_method dragonfly_custom_router_method;
 extern struct model_net_method loggp_method;
 
 #define X(a,b,c,d) b,
