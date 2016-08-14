@@ -4,10 +4,6 @@
  *
  */
 
-// Local router ID: 0 --- total_router-1
-// Router LP ID 
-// Terminal LP ID
-
 #include <ross.h>
 
 #define DEBUG_LP 892
@@ -44,14 +40,14 @@
 #define USE_DIRECT_SCHEME 1
 #define MAX_STATS 65536
 
-#define LP_CONFIG_NM_TERM (model_net_lp_config_names[DRAGONFLY])
-#define LP_METHOD_NM_TERM (model_net_method_names[DRAGONFLY])
-#define LP_CONFIG_NM_ROUT (model_net_lp_config_names[DRAGONFLY_ROUTER])
-#define LP_METHOD_NM_ROUT (model_net_method_names[DRAGONFLY_ROUTER])
+#define LP_CONFIG_NM_TERM (model_net_lp_config_names[DRAGONFLY_CUSTOM])
+#define LP_METHOD_NM_TERM (model_net_method_names[DRAGONFLY_CUSTOM])
+#define LP_CONFIG_NM_ROUT (model_net_lp_config_names[DRAGONFLY_CUSTOM_ROUTER])
+#define LP_METHOD_NM_ROUT (model_net_method_names[DRAGONFLY_CUSTOM_ROUTER])
 
-int debug_slot_count = 0;
-long term_ecount, router_ecount, term_rev_ecount, router_rev_ecount;
-long packet_gen = 0, packet_fin = 0;
+static int debug_slot_count = 0;
+static long term_ecount, router_ecount, term_rev_ecount, router_rev_ecount;
+static long packet_gen = 0, packet_fin = 0;
 
 static double maxd(double a, double b) { return a < b ? b : a; }
 
@@ -71,18 +67,18 @@ static char lp_group_name[MAX_NAME_LENGTH];
 static int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
 
 /* router magic number */
-int router_magic_num = 0;
+static int router_magic_num = 0;
 
 /* terminal magic number */
-int terminal_magic_num = 0;
+static int terminal_magic_num = 0;
 
-FILE * dragonfly_log = NULL;
+static FILE * dragonfly_log = NULL;
 
-int sample_bytes_written = 0;
-int sample_rtr_bytes_written = 0;
+static int sample_bytes_written = 0;
+static int sample_rtr_bytes_written = 0;
 
-char cn_sample_file[MAX_NAME_LENGTH];
-char router_sample_file[MAX_NAME_LENGTH];
+static char cn_sample_file[MAX_NAME_LENGTH];
+static char router_sample_file[MAX_NAME_LENGTH];
 
 typedef struct terminal_message_list terminal_message_list;
 struct terminal_message_list {
@@ -635,7 +631,7 @@ static void dragonfly_report_stats()
    return;
 }
 
-void dragonfly_collective_init(terminal_state * s,
+static void dragonfly_collective_init(terminal_state * s,
            		   tw_lp * lp)
 {
     // TODO: be annotation-aware
@@ -695,7 +691,7 @@ void dragonfly_collective_init(terminal_state * s,
 
 /* initialize a dragonfly compute node terminal */
 void 
-terminal_init( terminal_state * s, 
+terminal_custom_init( terminal_state * s, 
 	       tw_lp * lp )
 {
     s->packet_gen = 0;
@@ -773,7 +769,7 @@ terminal_init( terminal_state * s,
 
 /* sets up the router virtual channels, global channels, 
  * local channels, compute node channels */
-void router_setup(router_state * r, tw_lp * lp)
+void router_custom_setup(router_state * r, tw_lp * lp)
 {
     uint32_t h1 = 0, h2 = 0; 
     bj_hashlittle2(LP_METHOD_NM_ROUT, strlen(LP_METHOD_NM_ROUT), &h1, &h2);
@@ -916,7 +912,7 @@ void router_setup(router_state * r, tw_lp * lp)
 
 
 /* dragonfly packet event , generates a dragonfly packet on the compute node */
-static tw_stime dragonfly_packet_event(
+static tw_stime dragonfly_custom_packet_event(
         model_net_request const * req,
         uint64_t message_offset,
         uint64_t packet_size,
@@ -977,14 +973,14 @@ static tw_stime dragonfly_packet_event(
 }
 
 /* dragonfly packet event reverse handler */
-static void dragonfly_packet_event_rc(tw_lp *sender)
+static void dragonfly_custom_packet_event_rc(tw_lp *sender)
 {
 	  codes_local_latency_reverse(sender);
 	    return;
 }
 
 /* given two group IDs, find the router of the src_gid that connects to the dest_gid*/
-tw_lpid getRouterFromGroupID(int dest_gid, 
+static tw_lpid getRouterFromGroupID(int dest_gid, 
 		    int src_gid,
 		    int num_routers,
             int total_groups)
@@ -1021,7 +1017,7 @@ tw_lpid getRouterFromGroupID(int dest_gid,
 }	
 
 /*When a packet is sent from the current router and a buffer slot becomes available, a credit is sent back to schedule another packet event*/
-void router_credit_send(router_state * s, terminal_message * msg, 
+static void router_credit_send(router_state * s, terminal_message * msg, 
   tw_lp * lp, int sq) {
   tw_event * buf_e;
   tw_stime ts;
@@ -1070,7 +1066,7 @@ void router_credit_send(router_state * s, terminal_message * msg,
   return;
 }
 
-void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
+static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
    s->packet_gen--;
    packet_gen--;
@@ -1106,7 +1102,7 @@ void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, 
 }
 
 /* generates packet at the current dragonfly compute node */
-void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, 
+static void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, 
   tw_lp * lp) {
   packet_gen++;
   s->packet_gen++;
@@ -1202,7 +1198,7 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
   return;
 }
 
-void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * msg,
+static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * msg,
         tw_lp * lp)
 {
       if(bf->c1) {
@@ -1239,7 +1235,7 @@ void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * msg,
       return;
 }
 /* sends the packet from the current dragonfly compute node to the attached router */
-void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, 
+static void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, 
   tw_lp * lp) {
   
   tw_stime ts;
@@ -1343,7 +1339,7 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   return;
 }
 
-void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
+static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
     if(bf->c31)
     {
@@ -1425,7 +1421,7 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
 	}*/
        return;
 }
-void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
+static void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
 {
         void * tmp_ptr = model_net_method_get_edata(DRAGONFLY, msg);
         //tw_stime ts = g_tw_lookahead + bytes_to_ns(msg->remote_event_size_bytes, (1/s->params->cn_bandwidth));
@@ -1453,7 +1449,7 @@ void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp * lp, t
     return;
 }
 /* packet arrives at the destination terminal */
-void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg, 
+static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg, 
   tw_lp * lp) {
 
     // NIC aggregation - should this be a separate function?
@@ -1647,7 +1643,7 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
 }
 
 /* collective operation for the torus network */
-void dragonfly_collective(char const * category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender)
+void dragonfly_custom_collective(char const * category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender)
 {
     tw_event * e_new;
     tw_stime xfer_to_nic_time;
@@ -1683,7 +1679,7 @@ void dragonfly_collective(char const * category, int message_size, int remote_ev
 }
 
 /* reverse for collective operation of the dragonfly network */
-void dragonfly_collective_rc(int message_size, tw_lp* sender)
+void dragonfly_custom_collective_rc(int message_size, tw_lp* sender)
 {
     (void)message_size;
      codes_local_latency_reverse(sender);
@@ -1913,7 +1909,7 @@ static void node_collective_fan_out(terminal_state * s,
           }
 }
 
-void dragonfly_rsample_init(router_state * s,
+void dragonfly_custom_rsample_init(router_state * s,
         tw_lp * lp)
 {
    (void)lp;
@@ -1930,7 +1926,7 @@ void dragonfly_rsample_init(router_state * s,
     s->rsamples[i].link_traffic_sample = malloc(sizeof(int64_t) * p->radix);
    }
 }
-void dragonfly_rsample_rc_fn(router_state * s,
+void dragonfly_custom_rsample_rc_fn(router_state * s,
         tw_bf * bf,
         terminal_message * msg, 
         tw_lp * lp)
@@ -1961,7 +1957,7 @@ void dragonfly_rsample_rc_fn(router_state * s,
     s->rev_events = stat.rev_events;
 }
 
-void dragonfly_rsample_fn(router_state * s,
+void dragonfly_custom_rsample_fn(router_state * s,
         tw_bf * bf,
         terminal_message * msg, 
         tw_lp * lp)
@@ -2008,7 +2004,7 @@ void dragonfly_rsample_fn(router_state * s,
   }
 }
 
-void dragonfly_rsample_fin(router_state * s,
+void dragonfly_custom_rsample_fin(router_state * s,
         tw_lp * lp)
 {
     (void)lp;
@@ -2053,7 +2049,7 @@ void dragonfly_rsample_fin(router_state * s,
     sample_rtr_bytes_written += (s->op_arr_size * size_sample);
     fclose(fp);
 }
-void dragonfly_sample_init(terminal_state * s,
+void dragonfly_custom_sample_init(terminal_state * s,
         tw_lp * lp)
 {
     (void)lp;
@@ -2076,7 +2072,7 @@ void dragonfly_sample_init(terminal_state * s,
         lp_io_write(lp->gid, "dragonfly-sampling-stats", written, buf);
     }*/
 }
-void dragonfly_sample_rc_fn(terminal_state * s,
+void dragonfly_custom_sample_rc_fn(terminal_state * s,
         tw_bf * bf,
         terminal_message * msg, 
         tw_lp * lp)
@@ -2107,7 +2103,7 @@ void dragonfly_sample_rc_fn(terminal_state * s,
     stat.rev_events = 0;
 }
 
-void dragonfly_sample_fn(terminal_state * s,
+void dragonfly_custom_sample_fn(terminal_state * s,
         tw_bf * bf,
         terminal_message * msg,
         tw_lp * lp)
@@ -2166,7 +2162,7 @@ void dragonfly_sample_fn(terminal_state * s,
     s->busy_time_sample = 0;
 }
 
-void dragonfly_sample_fin(terminal_state * s,
+void dragonfly_custom_sample_fin(terminal_state * s,
         tw_lp * lp)
 {
     (void)lp;
@@ -2205,7 +2201,7 @@ void dragonfly_sample_fin(terminal_state * s,
     sample_bytes_written += (s->op_arr_size * sizeof(struct dfly_cn_sample));
 }
 
-void terminal_buf_update_rc(terminal_state * s,
+static void terminal_buf_update_rc(terminal_state * s,
 		    tw_bf * bf, 
 		    terminal_message * msg, 
 		    tw_lp * lp)
@@ -2225,7 +2221,7 @@ void terminal_buf_update_rc(terminal_state * s,
       return;
 }
 /* update the compute node-router channel buffer */
-void 
+static void 
 terminal_buf_update(terminal_state * s, 
 		    tw_bf * bf, 
 		    terminal_message * msg, 
@@ -2269,7 +2265,7 @@ terminal_buf_update(terminal_state * s,
   return;
 }
 
-void 
+static void 
 terminal_event( terminal_state * s, 
 		tw_bf * bf, 
 		terminal_message * msg, 
@@ -2316,7 +2312,7 @@ terminal_event( terminal_state * s,
     }
 }
 
-void 
+static void 
 dragonfly_terminal_final( terminal_state * s, 
       tw_lp * lp )
 {
@@ -2348,7 +2344,7 @@ dragonfly_terminal_final( terminal_state * s,
     free(s->children);
 }
 
-void dragonfly_router_final(router_state * s,
+void dragonfly_custom_router_final(router_state * s,
 		tw_lp * lp)
 {
    free(s->global_channel);
@@ -2405,7 +2401,7 @@ void dragonfly_router_final(router_state * s,
 }
 
 /* Get the number of hops for this particular path source and destination groups */
-int get_num_hops(int local_router_id,
+static int get_num_hops(int local_router_id,
 		 int dest_router_id,
 		 int num_routers,
                  int total_groups)
@@ -2443,7 +2439,7 @@ int get_num_hops(int local_router_id,
 /* get the next stop for the current packet
  * determines if it is a router within a group, a router in another group
  * or the destination terminal */
-tw_lpid 
+static tw_lpid 
 get_next_stop(router_state * s, 
 		      terminal_message * msg, 
 		      int path,
@@ -2514,7 +2510,7 @@ get_next_stop(router_state * s,
   return router_dest_id;
 }
 /* gets the output port corresponding to the next stop of the message */
-int 
+static int 
 get_output_port( router_state * s, 
 		terminal_message * msg, 
 		int next_stop )
@@ -2660,7 +2656,7 @@ TODO: do we need this code? nomin_vc and min_vc not used anywhere...
   return next_stop;
 }
 
-void router_packet_receive_rc(router_state * s,
+static void router_packet_receive_rc(router_state * s,
         tw_bf * bf,
         terminal_message * msg,
         tw_lp * lp)
@@ -2692,7 +2688,7 @@ void router_packet_receive_rc(router_state * s,
 }
 
 /* Packet arrives at the router and a credit is sent back to the sending terminal/router */
-void 
+static void 
 router_packet_receive( router_state * s, 
 			tw_bf * bf, 
 			terminal_message * msg, 
@@ -2813,7 +2809,7 @@ router_packet_receive( router_state * s,
   return;
 }
 
-void router_packet_send_rc(router_state * s, 
+static void router_packet_send_rc(router_state * s, 
 		    tw_bf * bf, 
 		     terminal_message * msg, tw_lp * lp)
 {
@@ -2867,7 +2863,7 @@ void router_packet_send_rc(router_state * s,
       }
 }
 /* routes the current packet to the next stop */
-void 
+static void 
 router_packet_send( router_state * s, 
 		    tw_bf * bf, 
 		     terminal_message * msg, tw_lp * lp)
@@ -3021,7 +3017,7 @@ router_packet_send( router_state * s,
   return;
 }
 
-void router_buf_update_rc(router_state * s,
+static void router_buf_update_rc(router_state * s,
         tw_bf * bf,
         terminal_message * msg,
         tw_lp * lp)
@@ -3050,7 +3046,7 @@ void router_buf_update_rc(router_state * s,
       }
 }
 /* Update the buffer space associated with this router LP */
-void router_buf_update(router_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
+static void router_buf_update(router_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
   int indx = msg->vc_index;
   int output_chan = msg->output_chan;
@@ -3092,7 +3088,7 @@ void router_buf_update(router_state * s, tw_bf * bf, terminal_message * msg, tw_
   return;
 }
 
-void router_event(router_state * s, tw_bf * bf, terminal_message * msg, 
+void router_custom_event(router_state * s, tw_bf * bf, terminal_message * msg, 
     tw_lp * lp) {
 
   s->fwd_events++;
@@ -3123,7 +3119,7 @@ void router_event(router_state * s, tw_bf * bf, terminal_message * msg,
 }
 
 /* Reverse computation handler for a terminal event */
-void terminal_rc_event_handler(terminal_state * s, tw_bf * bf, 
+void terminal_custom_rc_event_handler(terminal_state * s, tw_bf * bf, 
     terminal_message * msg, tw_lp * lp) {
 
    s->rev_events++;
@@ -3178,7 +3174,7 @@ void terminal_rc_event_handler(terminal_state * s, tw_bf * bf,
 }
 
 /* Reverse computation handler for a router event */
-void router_rc_event_handler(router_state * s, tw_bf * bf, 
+void router_custom_rc_event_handler(router_state * s, tw_bf * bf, 
   terminal_message * msg, tw_lp * lp) {
     s->rev_events++;
 
@@ -3197,85 +3193,85 @@ void router_rc_event_handler(router_state * s, tw_bf * bf,
 }
 
 /* dragonfly compute node and router LP types */
-tw_lptype dragonfly_lps[] =
+tw_lptype dragonfly_custom_lps[] =
 {
    // Terminal handling functions
    {
-    (init_f)terminal_init,
+    (init_f)terminal_custom_init,
     (pre_run_f) NULL,
-    (event_f) terminal_event,
-    (revent_f) terminal_rc_event_handler,
+    (event_f) terminal_custom_event,
+    (revent_f) terminal_custom_rc_event_handler,
     (commit_f) NULL,
-    (final_f) dragonfly_terminal_final,
+    (final_f) dragonfly_terminal_custom_final,
     (map_f) codes_mapping,
-    sizeof(terminal_state)
+    sizeof(terminal_custom_state)
     },
    {
-     (init_f) router_setup,
+     (init_f) router_custom_setup,
      (pre_run_f) NULL,
-     (event_f) router_event,
-     (revent_f) router_rc_event_handler,
+     (event_f) router_custom_event,
+     (revent_f) router_custom_rc_event_handler,
      (commit_f) NULL,
-     (final_f) dragonfly_router_final,
+     (final_f) dragonfly_custom_router_final,
      (map_f) codes_mapping,
-     sizeof(router_state),
+     sizeof(router_custom_state),
    },
    {NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0},
 };
 
 /* returns the dragonfly lp type for lp registration */
-static const tw_lptype* dragonfly_get_cn_lp_type(void)
+static const tw_lptype* dragonfly_custom_get_cn_lp_type(void)
 {
-	   return(&dragonfly_lps[0]);
+	   return(&dragonfly_custom_lps[0]);
 }
-static const tw_lptype* router_get_lp_type(void)
+static const tw_lptype* router_custom_get_lp_type(void)
 {
-    return (&dragonfly_lps[1]);
+    return (&dragonfly_custom_lps[1]);
 }
 
-static void dragonfly_register(tw_lptype *base_type) {
+static void dragonfly_custom_register(tw_lptype *base_type) {
     lp_type_register(LP_CONFIG_NM_TERM, base_type);
 }
 
-static void router_register(tw_lptype *base_type) {
+static void router_custom_register(tw_lptype *base_type) {
     lp_type_register(LP_CONFIG_NM_ROUT, base_type);
 }
 
 /* data structure for dragonfly statistics */
 struct model_net_method dragonfly_method =
 {
-    .mn_configure = dragonfly_configure,
-    .mn_register = dragonfly_register,
-    .model_net_method_packet_event = dragonfly_packet_event,
-    .model_net_method_packet_event_rc = dragonfly_packet_event_rc,
+    .mn_configure = dragonfly_custom_configure,
+    .mn_register = dragonfly_custom_register,
+    .model_net_method_packet_event = dragonfly_custom_packet_event,
+    .model_net_method_packet_event_rc = dragonfly_custom_packet_event_rc,
     .model_net_method_recv_msg_event = NULL,
     .model_net_method_recv_msg_event_rc = NULL,
-    .mn_get_lp_type = dragonfly_get_cn_lp_type,
-    .mn_get_msg_sz = dragonfly_get_msg_sz,
-    .mn_report_stats = dragonfly_report_stats,
-    .mn_collective_call = dragonfly_collective,
-    .mn_collective_call_rc = dragonfly_collective_rc,   
-    .mn_sample_fn = (void*)dragonfly_sample_fn,    
-    .mn_sample_rc_fn = (void*)dragonfly_sample_rc_fn,
-    .mn_sample_init_fn = (void*)dragonfly_sample_init,
-    .mn_sample_fini_fn = (void*)dragonfly_sample_fin
+    .mn_get_lp_type = dragonfly_custom_get_cn_lp_type,
+    .mn_get_msg_sz = dragonfly_custom_get_msg_sz,
+    .mn_report_stats = dragonfly_custom_report_stats,
+    .mn_collective_call = dragonfly_custom_collective,
+    .mn_collective_call_rc = dragonfly_custom_collective_rc,   
+    .mn_sample_fn = (void*)dragonfly_custom_sample_fn,    
+    .mn_sample_rc_fn = (void*)dragonfly_custom_sample_rc_fn,
+    .mn_sample_init_fn = (void*)dragonfly_custom_sample_init,
+    .mn_sample_fini_fn = (void*)dragonfly_custom_sample_fin
 };
 
-struct model_net_method dragonfly_router_method =
+struct model_net_method dragonfly_custom_router_method =
 {
     .mn_configure = NULL, // handled by dragonfly_configure
-    .mn_register  = router_register,
+    .mn_register  = router_custom_register,
     .model_net_method_packet_event = NULL,
     .model_net_method_packet_event_rc = NULL,
     .model_net_method_recv_msg_event = NULL,
     .model_net_method_recv_msg_event_rc = NULL,
-    .mn_get_lp_type = router_get_lp_type,
-    .mn_get_msg_sz = dragonfly_get_msg_sz,
+    .mn_get_lp_type = router_custom_get_lp_type,
+    .mn_get_msg_sz = dragonfly_custom_get_msg_sz,
     .mn_report_stats = NULL, // not yet supported
     .mn_collective_call = NULL,
     .mn_collective_call_rc = NULL,
-    .mn_sample_fn = (void*)dragonfly_rsample_fn,
-    .mn_sample_rc_fn = (void*)dragonfly_rsample_rc_fn,
-    .mn_sample_init_fn = (void*)dragonfly_rsample_init,
-    .mn_sample_fini_fn = (void*)dragonfly_rsample_fin
+    .mn_sample_fn = (void*)dragonfly_custom_rsample_fn,
+    .mn_sample_rc_fn = (void*)dragonfly_custom_rsample_rc_fn,
+    .mn_sample_init_fn = (void*)dragonfly_custom_rsample_init,
+    .mn_sample_fini_fn = (void*)dragonfly_custom_rsample_fin
 };
