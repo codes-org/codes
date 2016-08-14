@@ -875,7 +875,7 @@ terminal_custom_init( terminal_state * s,
 
    s->terminal_id = (mapping_rep_id * num_lps) + mapping_offset;  
    
-   s->router_id=(int)s->terminal_id / (s->params->num_routers/2);
+   s->router_id=(int)s->terminal_id / (s->params->num_cn);
    s->terminal_available_time = 0.0;
    s->packet_counter = 0;
    
