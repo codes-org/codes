@@ -147,6 +147,7 @@ src_libcodes_a_SOURCES =  \
 	src/networks/model-net/simplenet-upd.c \
 	src/networks/model-net/torus.c \
 	src/networks/model-net/dragonfly.c \
+	src/networks/model-net/dragonfly-custom.C \
 	src/networks/model-net/slimfly.c \
 	src/networks/model-net/loggp.c \
 	src/networks/model-net/simplep2p.c \
