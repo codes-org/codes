@@ -91,6 +91,10 @@ mpirun -np 4 ./src/network-workloads//model-net-mpi-replay --sync=3
 model-net LP. See example config file in:
 ../src/network-workloads/conf/modelnet-mpi-test-dfly-mul-cores.conf
 
+The overhead to send a message to the same node can be configured through the 
+self_msg_overhead parameter in the config file (units are nanosecs). 
+Its default value is 10 ns.
+
 14- If running multiple MPI ranks per node with random allocations, the
 allocation files must also be generated with multiple cores per node. See
 scripts/allocation_gen/README for how to generate allocation files that use
