@@ -86,6 +86,16 @@ mpirun -np 4 ./src/network-workloads//model-net-mpi-replay --sync=3
 --workload_type="dumpi" --
 ../src/network-workloads/conf/modelnet-mpi-test-dfly-amg-216.conf
 
+-------- Running multiple MPI ranks (or cores) mapped to a compute node -------
+13- Update the config file to have multiple core/proc LPs mapped on to a
+model-net LP. See example config file in:
+../src/network-workloads/conf/modelnet-mpi-test-dfly-mul-cores.conf
+
+14- If running multiple MPI ranks per node with random allocations, the
+allocation files must also be generated with multiple cores per node. See
+scripts/allocation_gen/README for how to generate allocation files that use
+multiple cores per node.
+
 ----- sampling and debugging options for MPI Simulation Layer ---- 
 
 Runtime options can be used to enable time-stepped series data of simulation
