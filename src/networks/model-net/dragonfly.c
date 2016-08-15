@@ -2324,9 +2324,9 @@ dragonfly_terminal_final( terminal_state * s,
    
     int written = 0;
     if(!s->terminal_id)
-        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>\n");
+        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>");
 
-    written += sprintf(s->output_buf + written, "%llu %u %ld %lf %ld %lf %lf\n",
+    written += sprintf(s->output_buf + written, "\n %llu %u %ld %lf %ld %lf %lf",
             LLU(lp->gid), s->terminal_id, s->total_msg_size, s->total_time, 
             s->finished_packets, (double)s->total_hops/s->finished_chunks,
             s->busy_time);
@@ -2372,27 +2372,26 @@ void dragonfly_router_final(router_state * s,
     if(!s->router_id)
     {
         written = sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
-        written += sprintf(s->output_buf + written, "# Router ports in the order: %d local channels, %d global channels \n", 
+        written += sprintf(s->output_buf + written, "# Router ports in the order: %d local channels, %d global channels", 
                 p->num_routers, p->num_global_channels);
     }
-    written += sprintf(s->output_buf + written, "%llu %d %d", 
+    written += sprintf(s->output_buf + written, "\n %llu %d %d", 
             LLU(lp->gid),
             s->router_id / p->num_routers,
             s->router_id % p->num_routers);
     for(int d = 0; d < p->num_routers + p->num_global_channels; d++) 
         written += sprintf(s->output_buf + written, " %lf", s->busy_time[d]);
 
-    sprintf(s->output_buf + written, "\n");
     lp_io_write(lp->gid, "dragonfly-router-stats", written, s->output_buf);
 
     written = 0;
     if(!s->router_id)
     {
         written = sprintf(s->output_buf2, "# Format <LP ID> <Group ID> <Router ID> <Link traffic per router port(s)>");
-        written += sprintf(s->output_buf2 + written, "# Router ports in the order: %d local channels, %d global channels \n",
+        written += sprintf(s->output_buf2 + written, "# Router ports in the order: %d local channels, %d global channels",
             p->num_routers, p->num_global_channels);
     }
-    written += sprintf(s->output_buf2 + written, "%llu %d %d",
+    written += sprintf(s->output_buf2 + written, "\n %llu %d %d",
         LLU(lp->gid),
         s->router_id / p->num_routers,
         s->router_id % p->num_routers);
@@ -2400,7 +2399,6 @@ void dragonfly_router_final(router_state * s,
     for(int d = 0; d < p->num_routers + p->num_global_channels; d++) 
         written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
 
-    sprintf(s->output_buf2 + written, "\n");
     lp_io_write(lp->gid, "dragonfly-router-traffic", written, s->output_buf2);
 }
 
