@@ -725,9 +725,9 @@ terminal_init( terminal_state * s,
    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
            s->anno, 0);
 
-   s->terminal_id = (mapping_rep_id * num_lps) + mapping_offset;  
+   s->terminal_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);  
    
-   s->router_id=(int)s->terminal_id / (s->params->num_routers/2);
+   s->router_id=(int)s->terminal_id / s->params->num_cn;
    s->terminal_available_time = 0.0;
    s->packet_counter = 0;
    
