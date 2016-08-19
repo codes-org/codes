@@ -23,6 +23,7 @@
 #define GREEN 0
 #define BLACK 1
 #define BLUE 2
+#define DUMP_CONNECTIONS 1
 
 using namespace std;
 struct Link {
@@ -31,8 +32,16 @@ struct Link {
 struct bLink {
   int offset, dest;
 };
+/* Each entry in the vector is for a router id
+ * against each router id, there is a map of links (key of the map is the dest
+ * router id)
+ * link has information on type (green or black) and offset (number of links
+ * between that particular source and dest router ID)*/
 vector< map< int, vector<Link> > > intraGroupLinks;
+/* contains mapping between source router and destination group via link (link
+ * has dest ID)*/
 vector< map< int, vector<bLink> > > interGroupLinks;
+/*MM: Maintains a connection between the source and destination groups */
 vector< vector< vector<int> > > connectionList;
 
 struct IntraGroupLink {
@@ -191,7 +200,6 @@ struct dfly_qhash_entry
 };
 
 /* handles terminal and router events like packet generate/send/receive/buffer */
-typedef enum event_t event_t;
 typedef struct terminal_state terminal_state;
 typedef struct router_state router_state;
 
@@ -284,7 +292,7 @@ struct terminal_state
 };
 
 /* terminal event type (1-4) */
-enum event_t
+typedef enum event_t
 {
   T_GENERATE=1,
   T_ARRIVE,
@@ -296,7 +304,7 @@ enum event_t
   D_COLLECTIVE_INIT,
   D_COLLECTIVE_FAN_IN,
   D_COLLECTIVE_FAN_OUT
-};
+} event_t;
 /* status of a virtual channel can be idle, active, allocated or wait for credit */
 enum vc_status
 {
@@ -588,26 +596,27 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
       printf("Number of groups not specified. Aborting");
       MPI_Abort(MPI_COMM_WORLD, 1);
     }
-    rc = configuration_get_value_int(&config, "PARAMS", "router_radix", anno, &p->radix);
+    rc = configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", anno, &p->num_cn);
     if(rc) {
-      printf("Router radix not specified. Aborting");
-      MPI_Abort(MPI_COMM_WORLD, 1);
+        printf("\n Number of cns per router not specified, setting to %d ", p->num_routers/2);
+        p->num_cn = p->num_routers/2;
     }
+    rc = configuration_get_value_int(&config, "PARAMS", "num_global_channels", anno, &p->num_global_channels);
+    if(rc) {
+        printf("\n Number of global channels per router not specified, setting to %d ", p->num_routers/2);
+        p->num_global_channels = p->num_routers/2;
+    }
+    p->radix = p->num_cn + p->num_routers + p->num_global_channels;
     p->total_routers = p->num_groups * p->num_routers;
     p->total_terminals = p->total_routers * p->num_cn;
-    // should this be a input param too?
-    p->num_cn = p->num_routers/2;
-    //comes after reading files
-    p->num_global_channels = p->num_routers/2;
     
     // read intra group connections, store from a router's perspective
     // all links to the same router form a vector
     char intraFile[MAX_NAME_LENGTH];
-    rc = configuration_get_value(&config, "PARAMS", "intra-group-connections", 
+    configuration_get_value(&config, "PARAMS", "intra-group-connections", 
         anno, intraFile, MAX_NAME_LENGTH);
-    if(rc) {
-      printf("Intra group connections file not specified. Aborting");
-      MPI_Abort(MPI_COMM_WORLD, 1);
+    if(strlen(intraFile) <= 0) {
+      tw_error(TW_LOC, "Intra group connections file not specified. Aborting");
     }
     FILE *groupFile = fopen(intraFile, "rb");
     if(!myRank)
@@ -632,11 +641,10 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     // read inter group connections, store from a router's perspective
     // also create a group level table that tells all the connecting routers
     char interFile[MAX_NAME_LENGTH];
-    rc = configuration_get_value(&config, "PARAMS", "inter-group-connections", 
+    configuration_get_value(&config, "PARAMS", "inter-group-connections", 
         anno, interFile, MAX_NAME_LENGTH);
-    if(rc) {
-      printf("Inter group connections file not specified. Aborting");
-      MPI_Abort(MPI_COMM_WORLD, 1);
+    if(strlen(interFile) <= 0) {
+      tw_error(TW_LOC, "Inter group connections file not specified. Aborting");
     }
     FILE *systemFile = fopen(interFile, "rb");
     if(!myRank)
@@ -671,7 +679,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
 
     fclose(systemFile);
 
-#if DUMP_CONNECTIONS
+#if DUMP_CONNECTIONS == 1
     printf("Dumping intra-group connections\n");
     for(int a = 0; a < intraGroupLinks.size(); a++) {
       printf("Connections for router %d\n", a);
@@ -687,12 +695,12 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
       printf("\n");
     }
 #endif
-#if DUMP_CONNECTIONS
+#if DUMP_CONNECTIONS == 1
     printf("Dumping inter-group connections\n");
     for(int a = 0; a < interGroupLinks.size(); a++) {
       printf("Connections for router %d\n", a);
-      map< int, vector<Link> >  &curMap = interGroupLinks[a];
-      map< int, vector<Link> >::iterator it = curMap.begin();
+      map< int, vector<bLink> >  &curMap = interGroupLinks[a];
+      map< int, vector<bLink> >::iterator it = curMap.begin();
       for(; it != curMap.end(); it++) {
         printf(" ( %d - ", it->first);
         for(int l = 0; l < it->second.size(); l++) {
@@ -704,7 +712,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     }
 #endif
 
-#if DUMP_CONNECTIONS
+#if DUMP_CONNECTIONS == 1
     printf("Dumping source aries for global connections\n");
     for(int g = 0; g < p->num_groups; g++) {
       for(int g1 = 0; g1 < p->num_groups; g1++) {
@@ -873,8 +881,7 @@ terminal_custom_init( terminal_state * s,
    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
            s->anno, 0);
 
-   s->terminal_id = (mapping_rep_id * num_lps) + mapping_offset;  
-   
+   s->terminal_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
    s->router_id=(int)s->terminal_id / (s->params->num_cn);
    s->terminal_available_time = 0.0;
    s->packet_counter = 0;
@@ -943,7 +950,7 @@ void router_custom_setup(router_state * r, tw_lp * lp)
     // shorthand
     const dragonfly_param *p = r->params;
 
-    num_routers_per_mgrp = codes_mapping_get_lp_count (lp_group_name, 1, "modelnet_dragonfly_router",
+    num_routers_per_mgrp = codes_mapping_get_lp_count (lp_group_name, 1, "modelnet_dragonfly_custom_router",
             NULL, 0);
     int num_grp_reps = codes_mapping_get_group_reps(lp_group_name);
     if(p->total_routers != num_grp_reps * num_routers_per_mgrp)

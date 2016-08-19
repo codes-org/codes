@@ -38,7 +38,7 @@ int main(int argc, char **argv) {
             fwrite(&router, sizeof(int), 1, intra);
             fwrite(&dest, sizeof(int), 1, intra);
             fwrite(&green, sizeof(int), 1, intra);
-            //printf("INTRA %d %d %d\n", router, dest, green);
+            printf("INTRA %d %d %d\n", router, dest, green);
           }
         }
       }

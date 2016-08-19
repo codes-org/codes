@@ -11,11 +11,10 @@
 extern "C" {
 #endif
 
-typedef enum nodes_event_t nodes_event_t;
 typedef struct nodes_message nodes_message;
 
 /* event type of each torus message, can be packet generate, flit arrival, flit send or credit */
-enum nodes_event_t
+typedef enum nodes_event_t
 {
   GENERATE = 1,
   ARRIVAL, 
@@ -24,7 +23,7 @@ enum nodes_event_t
   T_COLLECTIVE_INIT,
   T_COLLECTIVE_FAN_IN,
   T_COLLECTIVE_FAN_OUT  
-};
+} nodes_event_t;
 
 struct nodes_message
 {
