@@ -11,6 +11,7 @@
 
 #include "codes/model-net.h"
 #include "codes/lp-io.h"
+#include "codes/net/fattree.h"
 #include "codes/codes.h"
 #include "codes/codes_mapping.h"
 #include "codes/configuration.h"
@@ -18,21 +19,20 @@
 
 #define PAYLOAD_SZ 512
 
+#define PARAMS_LOG 1
+
 static int net_id = 0;
-static int num_routers = 0;
-static int num_servers = 0;
 static int offset = 2;
 static int traffic = 1;
 static double arrival_time = 1000.0;
-
+static double load = 0.0;	//Percent utilization of terminal uplink
+static double MEAN_INTERVAL = 0.0;
 /* whether to pull instead of push */
-static int do_pull = 0;
 
 static int num_servers_per_rep = 0;
 static int num_routers_per_grp = 0;
 static int num_nodes_per_grp = 0;
 
-static int num_reps = 0;
 static int num_groups = 0;
 static int num_nodes = 0;
 
@@ -43,6 +43,21 @@ typedef struct svr_state svr_state;
 static char group_name[MAX_NAME_LENGTH];
 static char lp_type_name[MAX_NAME_LENGTH];
 static int group_index, lp_type_index, rep_id, offset;
+
+/* convert GiB/s and bytes to ns */
+ static tw_stime bytes_to_ns(uint64_t bytes, double GB_p_s)
+ {
+     tw_stime time;
+ 
+     /* bytes to GB */
+     time = ((double)bytes)/(1024.0*1024.0*1024.0);
+     /* GiB to s */
+     time = time / GB_p_s;
+     /* s to ns */
+     time = time * 1000.0 * 1000.0 * 1000.0;
+ 
+     return(time);
+ }
 
 /* type of events */
 enum svr_event
@@ -108,6 +123,7 @@ const tw_optdef app_opt [] =
         TWOPT_GROUP("Model net synthetic traffic " ),
 	TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
 	TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
+        TWOPT_STIME("load", load, "percentage of terminal link bandiwdth to inject packets"),
         TWOPT_END()
 };
 
@@ -125,6 +141,7 @@ static void issue_event(
     svr_state * ns,
     tw_lp * lp)
 {
+    (void)ns;
     tw_event *e;
     svr_msg *m;
     tw_stime kickoff_time;
@@ -133,8 +150,34 @@ static void issue_event(
      * simulation
      */
 
+    int this_packet_size = 0;
+    double this_link_bandwidth = 0.0;
+
+    configuration_get_value_int(&config, "PARAMS", "packet_size", NULL, &this_packet_size);
+    if(!this_packet_size) {
+        this_packet_size = 0;
+        fprintf(stderr, "Packet size not specified, setting to %d\n", this_packet_size);
+        exit(0);
+    }
+
+    configuration_get_value_double(&config, "PARAMS", "link_bandwidth", NULL, &this_link_bandwidth);
+    if(!this_link_bandwidth) {
+        this_link_bandwidth = 4.7;
+        fprintf(stderr, "Bandwidth of channels not specified, setting to %lf\n", this_link_bandwidth);
+    }
+
+    if(arrival_time!=0)
+    {
+        MEAN_INTERVAL = arrival_time;
+    }
+    if(load != 0)
+    {
+        MEAN_INTERVAL = bytes_to_ns(this_packet_size, load*this_link_bandwidth);
+    }
+
     /* skew each kickoff event slightly to help avoid event ties later on */
-    kickoff_time = 1.1 * g_tw_lookahead + tw_rand_exponential(lp->rng, arrival_time);
+//    kickoff_time = 1.1 * g_tw_lookahead + tw_rand_exponential(lp->rng, arrival_time);
+    kickoff_time = g_tw_lookahead + tw_rand_exponential(lp->rng, MEAN_INTERVAL);
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
@@ -158,8 +201,11 @@ static void handle_kickoff_rev_event(
             svr_msg * m,
             tw_lp * lp)
 {
+    (void)b;
+    (void)m;
 	ns->msg_sent_count--;
 	model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+    tw_rand_reverse_unif(lp->rng);
 }	
 static void handle_kickoff_event(
 	    svr_state * ns,
@@ -167,6 +213,8 @@ static void handle_kickoff_event(
 	    svr_msg * m,
 	    tw_lp * lp)
 {
+    (void)b;
+    (void)m;
 //    char* anno;
     char anno[MAX_NAME_LENGTH];
     tw_lpid local_dest = -1, global_dest = -1;
@@ -189,7 +237,7 @@ static void handle_kickoff_event(
    	local_dest = tw_rand_integer(lp->rng, 0, num_nodes - 1);
    }
 
-   assert(local_dest < num_nodes);
+   assert(local_dest < LLU(num_nodes));
 
    global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
 
@@ -224,6 +272,9 @@ static void handle_remote_rev_event(
             svr_msg * m,
             tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
         ns->msg_recvd_count--;
 }
 
@@ -233,6 +284,9 @@ static void handle_remote_event(
 	    svr_msg * m,
 	    tw_lp * lp)
 {
+    (void)b;
+    (void)m;
+    (void)lp;
 	ns->msg_recvd_count++;
 }
 
@@ -242,6 +296,9 @@ static void handle_local_rev_event(
                 svr_msg * m,
                 tw_lp * lp)
 {
+    (void)b;
+    (void)m;
+    (void)lp;
 	ns->local_recvd_count--;
 }
 
@@ -251,18 +308,10 @@ static void handle_local_event(
                 svr_msg * m,
                 tw_lp * lp)
 {
+    (void)b;
+    (void)m;
+    (void)lp;
     ns->local_recvd_count++;
-}
-/* convert ns to seconds */
-static tw_stime ns_to_s(tw_stime ns)
-{
-    return(ns / (1000.0 * 1000.0 * 1000.0));
-}
-
-/* convert seconds to ns */
-static tw_stime s_to_ns(tw_stime ns)
-{
-    return(ns * (1000.0 * 1000.0 * 1000.0));
 }
 
 static void svr_finalize(
@@ -271,8 +320,8 @@ static void svr_finalize(
 {
     ns->end_ts = tw_now(lp);
 
-    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s(ns->end_ts-ns->start_ts),
-        ((double)(PAYLOAD_SZ*ns->msg_sent_count)/(double)(1024*1024)/ns_to_s(ns->end_ts-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
+//    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s(ns->end_ts-ns->start_ts),
+//        ((double)(PAYLOAD_SZ*ns->msg_sent_count)/(double)(1024*1024)/ns_to_s(ns->end_ts-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
     return;
 }
 
@@ -387,9 +436,33 @@ int main(
     {
         return(-1);
     }
+    modelnet_stats_dir = lp_io_handle_to_dir(handle);
 
     tw_run();
+
     model_net_report_stats(net_id);
+
+
+#if PARAMS_LOG
+    if(!g_tw_mynode)
+    {
+	char temp_filename[1024];
+	char temp_filename_header[1024];
+	sprintf(temp_filename,"%s/sim_log.txt",modelnet_stats_dir);
+	sprintf(temp_filename_header,"%s/sim_log_header.txt",modelnet_stats_dir);
+	FILE *fattree_results_log=fopen(temp_filename, "a");
+	FILE *fattree_results_log_header=fopen(temp_filename_header, "a");
+	if(fattree_results_log == NULL)
+		printf("\n Failed to open results log file %s in synthetic-fattree\n",temp_filename);
+	if(fattree_results_log_header == NULL)
+		printf("\n Failed to open results log header file %s in synthetic-fattree\n",temp_filename_header);
+	printf("Printing Simulation Parameters/Results Log File\n");
+	fprintf(fattree_results_log_header,", <Workload>, <Load>, <Mean Interval>, ");
+	fprintf(fattree_results_log,"%11.3d, %5.2f, %15.2f, ",traffic, load, MEAN_INTERVAL);
+	fclose(fattree_results_log_header);
+	fclose(fattree_results_log);
+    }
+#endif
 
     if(lp_io_flush(handle, MPI_COMM_WORLD) < 0)
     {
@@ -397,6 +470,76 @@ int main(
     }
 
     tw_end();
+
+#if PARAMS_LOG
+    if(!g_tw_mynode)
+    {
+	char temp_filename[1024];
+	char temp_filename_header[1024];
+	sprintf(temp_filename,"%s/sim_log.txt",modelnet_stats_dir);
+	sprintf(temp_filename_header,"%s/sim_log_header.txt",modelnet_stats_dir);
+	FILE *fattree_results_log=fopen(temp_filename, "a");
+	FILE *fattree_results_log_header=fopen(temp_filename_header, "a");
+	FILE *fattree_ross_csv_log=fopen("ross.csv", "r");
+	if(fattree_results_log == NULL)
+		printf("\n Failed to open results log file %s in synthetic-fattree\n",temp_filename);
+	if(fattree_results_log_header == NULL)
+		printf("\n Failed to open results log header file %s in synthetic-fattree\n",temp_filename_header);
+	if(fattree_ross_csv_log == NULL)
+		tw_error(TW_LOC, "\n Failed to open ross.csv log file \n");
+	printf("Reading ROSS specific data from ross.csv and Printing to Fat Tree Log File\n");
+	
+	char * line = NULL;
+	size_t len = 0;
+	ssize_t read = getline(&line, &len, fattree_ross_csv_log);
+	while (read != -1) 
+	{
+		read = getline(&line, &len, fattree_ross_csv_log);
+	}
+
+	char * pch;
+	pch = strtok (line,",");
+	int idx = 0;
+        int gvt_computations;
+	long long total_events, rollbacks, net_events;
+        float running_time, efficiency, event_rate;
+	while (pch != NULL)
+	{
+		pch = strtok (NULL, ",");
+		switch(idx)
+		{
+			case 4:
+				total_events = atoll(pch);
+				break;
+			case 13:
+				rollbacks = atoll(pch);
+				break;
+			case 17:
+				gvt_computations = atoi(pch);
+				break;
+			case 18:
+				net_events = atoll(pch);
+				break;
+			case 3:
+				running_time = atof(pch);
+				break;
+			case 8:
+				efficiency = atof(pch);
+				break;
+			case 19:
+				event_rate = atof(pch);
+				break;
+		}
+		idx++;
+	}
+	fprintf(fattree_results_log_header,"<Total Events>, <Rollbacks>, <GVT Computations>, <Net Events>, <Running Time>, <Efficiency>, <Event Rate>");
+	fprintf(fattree_results_log,"%14llu, %11llu, %18d, %12llu, %14.4f, %12.2f, %12.2f\n",total_events,rollbacks,gvt_computations,net_events,running_time,efficiency,event_rate);
+	fclose(fattree_results_log);
+	fclose(fattree_results_log_header);
+	fclose(fattree_ross_csv_log);
+    }
+#endif
+
     return 0;
 }
 
