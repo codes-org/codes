@@ -1194,10 +1194,12 @@ void ft_packet_send_rc(ft_terminal_state * s, tw_bf *bf, fattree_message * msg, 
     fattree_message_list* cur_entry = rc_stack_pop(s->st);
 
     prepend_to_fattree_message_list(s->terminal_msgs,
-	s->terminal_msgs_tail, 0, cur_entry);
+        s->terminal_msgs_tail, 0, cur_entry);
     s->terminal_length += s->params->chunk_size;
+#if DEBUG_RC
     if(s->terminal_id == 0)
        printf("time:%lf terminal_length:%d \n",tw_now(lp),s->terminal_length);
+#endif
 
     if(bf->c3) {
       tw_rand_reverse_unif(lp->rng);
@@ -1913,14 +1915,12 @@ void ft_packet_arrive(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   //If no chunks (sending msgs as whole) then set to 1
   if(!total_chunks)
           total_chunks = 1;
-// printf("packet:%llu arrived at destination terminal lp->gid:%d msg->dest_terminal_id:%d\n",msg->packet_ID, (int)lp->gid, (int)msg->dest_terminal_id);
   assert(lp->gid == msg->dest_terminal_id);
 
-if(msg->packet_ID == LLU(TRACK_PKT))
-        printf("\n Packet %llu arrived at lp %llu\n", msg->packet_ID, LLU(lp->gid));
-
-//  if(msg->packet_ID == LLU(TRACK_PKT))
-//        printf("\n Packet %llu arrived at lp %llu hops %d", msg->packet_ID, LLU(lp->gid), msg->my_N_hop);
+#if DEBUG_RC
+  if(msg->packet_ID == LLU(TRACK_PKT))
+    printf("\n Packet %llu arrived at lp %llu\n", msg->packet_ID, LLU(lp->gid));
+#endif
 
   // Packet arrives and accumulate # queued
   // Find a queue with an empty buffer slot
