@@ -26,7 +26,7 @@
 #define DEBUG_RC 0
 
 //Data Collection Output Files
-#define PARAMS_LOG 1
+#define PARAMS_LOG 0
 
 #define LP_CONFIG_NM (model_net_lp_config_names[FATTREE])
 #define LP_METHOD_NM (model_net_method_names[FATTREE])
@@ -1237,11 +1237,23 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     s->last_buf_full = tw_now(lp);
     return;
   }
+  
+  uint64_t num_chunks = cur_entry->msg.packet_size/s->params->chunk_size;
+  if(cur_entry->msg.packet_size % s->params->chunk_size)
+    num_chunks++;
 
-  //  Each packet is broken into chunks and then sent over the channel
+  if(!num_chunks)
+      num_chunks = 1;
+
+  ts = g_tw_lookahead + + g_tw_lookahead * tw_rand_unif(lp->rng);
+  if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1)) {
+    ts += s->params->cn_delay * (cur_entry->msg.packet_size % s->params->chunk_size);
+  } else {
+    bf->c12 = 1;
+    ts += s->params->cn_delay * s->params->chunk_size;
+  }
+
   msg->saved_available_time = s->terminal_available_time;
-  ts = g_tw_lookahead + s->params->cn_delay * cur_entry->msg.packet_size
-    + g_tw_lookahead * tw_rand_unif(lp->rng);
   s->terminal_available_time = maxd(s->terminal_available_time, tw_now(lp));
   s->terminal_available_time += ts;
 
@@ -1266,13 +1278,6 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   m->magic = switch_magic_num;
   //printf("[%d] pack send Send to %d\n", lp->gid, s->switch_lp);
   tw_event_send(e);
-
-  uint64_t num_chunks = cur_entry->msg.packet_size/s->params->chunk_size;
-  if(cur_entry->msg.packet_size % s->params->chunk_size)
-    num_chunks++;
-
-  if(!num_chunks)
-      num_chunks = 1;
 
   /* local completion message */
   if(cur_entry->msg.chunk_id == num_chunks - 1 && (cur_entry->msg.local_event_size_bytes > 0))
@@ -1513,7 +1518,13 @@ void switch_packet_send( switch_state * s, tw_bf * bf, fattree_message * msg,
   if(!num_chunks)
       num_chunks = 1;
 
-  double bytetime = delay;
+  double bytetime;
+  if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1)) {
+    bytetime = delay * (cur_entry->msg.packet_size % s->params->chunk_size);
+  } else {
+    bf->c12 = 1;
+    bytetime = delay * s->params->chunk_size;
+  }
   ts = g_tw_lookahead + g_tw_lookahead * tw_rand_unif( lp->rng) + bytetime + s->params->router_delay;
 
   msg->saved_available_time = s->next_output_available_time[output_port];
