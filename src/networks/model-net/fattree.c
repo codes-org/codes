@@ -607,8 +607,8 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
    s->busy_time = 0;
 
 #if FATTREE_HELLO
-   printf("I am terminal %d (%ld), connected to switch %d\n", s->terminal_id,
-       lp->gid, s->switch_id);
+   printf("I am terminal %d (%llu), connected to switch %d\n", s->terminal_id,
+       LLU(lp->gid), s->switch_id);
 #endif
 
    rc_stack_create(&s->st);
@@ -723,12 +723,15 @@ void switch_init(switch_state * r, tw_lp * lp)
     r->queued_length[i] = 0;
   }
 
+	int written = 0;
+    int written_2 = 0;
+
   //set lps connected to each port
   r->num_cons = 0;
   r->num_lcons = 0;
 #if FATTREE_HELLO
-  printf("I am switch %d (%d), level %d, radix %d\n", r->switch_id,
-    lp->gid, r->switch_level, r->radix);
+  printf("I am switch %d (%llu), level %d, radix %d\n", r->switch_id,
+    LLU(lp->gid), r->switch_level, r->radix);
 #endif
   //if at level 0, first half ports go to terminals
   if(r->switch_level == 0) {
@@ -736,15 +739,18 @@ void switch_init(switch_state * r, tw_lp * lp)
     int end_terminal = start_terminal + (p->switch_radix[0] / 2);
     for(int term = start_terminal; term < end_terminal; term++) {
       tw_lpid nextTerm;
+      tw_lpid next_switch_lid;
       int rep = term / (p->switch_radix[0] / 2);
       int off = term % (p->switch_radix[0] / 2);
       codes_mapping_get_lp_id(def_group_name, LP_CONFIG_NM, NULL, 1,
           rep, off, &nextTerm);
       r->port_connections[r->num_cons++] = nextTerm;
+	  written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+64,LLU(codes_mapping_get_lp_relative_id(nextTerm,0,0)));
+//	  written += sprintf(r->output_buf + written, "%llu, %llu, ", LLU(lp->gid),nextTerm);
       r->num_lcons++;
 #if FATTREE_DEBUG
-      printf("I am switch %d, connect to terminal %d (%d) at port %d\n",
-          r->switch_id, term, nextTerm, r->num_cons - 1);
+      printf("I am switch %d, connect to terminal %d (%llu) at port %d yes collecting\n",
+          r->switch_id, term, LLU(nextTerm), r->num_cons - 1);
 #endif
     }
     r->start_lneigh = start_terminal;
@@ -762,13 +768,19 @@ void switch_init(switch_state * r, tw_lp * lp)
     r->con_per_uneigh = 1;
     for(int l1 = 0; l1 < p->l1_set_size; l1++) {
       tw_lpid nextTerm;
+      tw_lpid next_switch_lid;
       codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
           l1_base, 1, &nextTerm);
       for(int con = 0; con < r->con_per_uneigh; con++) {
         r->port_connections[r->num_cons++] = nextTerm;
+        codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
+            &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
+        next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
+	    written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+64,next_switch_lid+64);
+//	    written += sprintf(r->output_buf + written, "%llu, %llu, ", LLU(lp->gid),nextTerm);
 #if FATTREE_DEBUG
-      printf("I am switch %d, connect to upper switch %d L1 (%d) at port %d\n",
-          r->switch_id, l1_base, nextTerm, r->num_cons - 1);
+      printf("I am switch %d, connect to upper switch %d L1 (%llu) rel_id:%llu at port %d yes collecting\n",
+          r->switch_id, l1_base, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
 #endif
       }
       l1_base++;
@@ -790,41 +802,120 @@ void switch_init(switch_state * r, tw_lp * lp)
     r->con_per_lneigh = 1;
     for(int l0 = 0; l0 < l0_set_size; l0++) {
       tw_lpid nextTerm;
+      tw_lpid next_switch_lid;
       codes_mapping_get_lp_id(def_group_name, "fattree_switch", NULL, 1,
           l0_base, 0, &nextTerm);
       for(int con = 0; con < r->con_per_lneigh; con++) {
         r->port_connections[r->num_cons++] = nextTerm;
+        codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
+            &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
+        next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
+	    written_2 += sprintf(r->output_buf2 + written_2, "%u, %llu, ", r->switch_id+64,next_switch_lid+64);
+//	    written_2 += sprintf(r->output_buf2 + written_2, "%u, %llu, ", r->switch_id+64,64+LLU(codes_mapping_get_lp_relative_id(nextTerm,0,0)));
+//	    written_2 += sprintf(r->output_buf2 + written_2, "%llu, %llu, ", LLU(lp->gid),nextTerm);
         r->num_lcons++;
 #if FATTREE_DEBUG
-        printf("I am switch %d, connect to switch %d L0 (%d) at port %d\n",
-            r->switch_id, l0_base, nextTerm, r->num_cons - 1);
+        printf("I am switch %d, connect to switch %d L0 (%llu) at port %d not collecting\n",
+            r->switch_id, l0_base, LLU(nextTerm), r->num_cons - 1);
 #endif
       }
       l0_base++;
     }
     if(p->num_levels == 3) {
       int l2_base = 0;
-      if(p->ft_type == 1) {
+      if(p->ft_type == 0) {
+//        int l2_base = 0;
+        /* not true anymore */
+        r->start_uneigh = p->num_switches[0] + l2_base;
+        r->con_per_uneigh = 1;
+        if(((int)r->switch_id - p->num_switches[0]) % p->l1_set_size >=
+            p->l1_set_size/2) {
+          l2_base += (p->num_switches[2]/2);
+        }
+        for(int l2 = 0; l2 < p->num_switches[2]/2; l2++) {
+          tw_lpid nextTerm;
+          tw_lpid next_switch_lid;
+          codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
+              l2_base, 2, &nextTerm);
+          for(int con = 0; con < r->con_per_uneigh; con++) {
+            r->port_connections[r->num_cons++] = nextTerm;
+            codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
+                &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
+            next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
+	        written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+64,next_switch_lid+64);
+//	        written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+64,64+LLU(codes_mapping_get_lp_relative_id(nextTerm,0,0)));
+//	        written += sprintf(r->output_buf + written, "%llu, %llu, ", LLU(lp->gid),nextTerm);
+#if FATTREE_DEBUG
+            printf("I am switch %d, connect to upper switch %d L2 (%llu) at port %d yes collecting\n",
+                r->switch_id, l2_base, LLU(nextTerm), r->num_cons - 1);
+#endif
+          }
+          l2_base++;
+        }
+      } else {
         int l2 = ((r->switch_id - p->num_switches[0]) % p->l1_set_size);
         /* not true anymore */
         r->start_uneigh = p->num_switches[0] + l2;
         r->con_per_uneigh = 2;
         for(; l2 < p->num_switches[2]; l2 += p->l1_set_size) {
           tw_lpid nextTerm;
+          tw_lpid next_switch_lid;
           codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
               l2, 2, &nextTerm);
           for(int con = 0; con < r->con_per_uneigh; con++) {
             r->port_connections[r->num_cons++] = nextTerm;
+            codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
+                &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
+            next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
+	        written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+64,next_switch_lid+64);
+//	        written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+64,64+LLU(codes_mapping_get_lp_relative_id(nextTerm,0,0)));
+//	        written += sprintf(r->output_buf + written, "%llu, %llu, ", LLU(lp->gid),nextTerm);
 #if FATTREE_DEBUG
-            printf("I am switch %d, connect to upper switch %d L2 (%d) at port %d\n",
-                r->switch_id, l2, nextTerm, r->num_cons - 1);
+            printf("I am switch %d, connect to upper switch %d L2 (%llu) at port %d yes collecting\n",
+                r->switch_id, l2, LLU(nextTerm), r->num_cons - 1);
 #endif
           }
         }
       }
     }
   } else {
-    if(p->ft_type == 1) {
+    if(p->ft_type == 0) {
+      r->con_per_lneigh = 1;
+      /* not true anymore */
+      r->start_lneigh = p->num_switches[0];
+      r->end_lneigh = r->start_lneigh + p->num_switches[1];
+      int l1 = 0;
+      if((int)r->switch_id - p->num_switches[0] - p->num_switches[1] >=
+          (p->num_switches[2]/2)) {
+        l1 += (p->l1_set_size/2);
+      }
+      int count = 0;
+      for(; l1 < p->num_switches[1]; l1++) {
+        tw_lpid nextTerm;
+        tw_lpid next_switch_lid;
+        codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
+            l1, 1, &nextTerm);
+        for(int con = 0; con < r->con_per_lneigh; con++) {
+          r->port_connections[r->num_cons++] = nextTerm;
+          codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
+              &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
+          next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
+	      written_2 += sprintf(r->output_buf2 + written_2, "%u, %llu, ", r->switch_id+64,next_switch_lid+64);
+//	      written_2 += sprintf(r->output_buf2 + written_2, "%u, %llu, ", r->switch_id+64,64+LLU(codes_mapping_get_lp_relative_id(nextTerm,0,0)));
+//	      written_2 += sprintf(r->output_buf2 + written_2, "%llu, %llu, ", LLU(lp->gid),nextTerm);
+          r->num_lcons++;
+#if FATTREE_DEBUG
+          printf("I am switch %d, connect to  switch %d L1 (%llu) at port %d not collecting\n",
+              r->switch_id, l1, LLU(nextTerm), r->num_cons - 1);
+#endif
+        }
+        count++;
+        if(count == (p->l1_set_size/2)) {
+          l1 += (p->l1_set_size/2);
+          count = 0;
+        }
+      }
+    } else {
       r->con_per_lneigh = 2;
       /* not true anymore */
       r->start_lneigh = p->num_switches[0];
@@ -832,19 +923,28 @@ void switch_init(switch_state * r, tw_lp * lp)
       int l1 = (r->switch_id - p->num_switches[0] - p->num_switches[1]) % p->l1_set_size;
       for(; l1 < p->num_switches[1]; l1 += p->l1_set_size) {
         tw_lpid nextTerm;
+        tw_lpid next_switch_lid;
         codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
             l1, 1, &nextTerm);
         for(int con = 0; con < r->con_per_lneigh; con++) {
           r->port_connections[r->num_cons++] = nextTerm;
+          codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
+              &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
+          next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
+	      written_2 += sprintf(r->output_buf2 + written_2, "%u, %llu, ", r->switch_id+64,next_switch_lid+64);
+//	      written_2 += sprintf(r->output_buf2 + written_2, "%u, %llu, ", r->switch_id+64,64+LLU(codes_mapping_get_lp_relative_id(nextTerm,0,0)));
+//	      written_2 += sprintf(r->output_buf2 + written_2, "%llu, %llu, ", LLU(lp->gid),nextTerm);
           r->num_lcons++;
 #if FATTREE_DEBUG
-          printf("I am switch %d, connect to  switch %d L1 (%d) at port %d\n",
-              r->switch_id, l1, nextTerm, r->num_cons - 1);
+          printf("I am switch %d, connect to  switch %d L1 (%llu) at port %d not collecting\n",
+              r->switch_id, l1, LLU(nextTerm), r->num_cons - 1);
 #endif
         }
       }
     }
   }
+  lp_io_write(lp->gid, "fattree-config-up-connections", written, r->output_buf);
+  lp_io_write(lp->gid, "fattree-config-down-connections", written_2, r->output_buf2);
   return;
 }
 
