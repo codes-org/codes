@@ -2080,8 +2080,9 @@ void ft_packet_arrive(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
 	if(msg->packet_ID == LLU(TRACK_PKT))
             printf("\n Packet %llu has been sent from lp %llu\n", msg->packet_ID, LLU(lp->gid));
 
-        //assert(tmp->remote_event_data && tmp->remote_event_size > 0);
-        ft_send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
+        if(tmp->remote_event_data && tmp->remote_event_size > 0) {
+          ft_send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
+        }
         /* Remove the hash entry */
         qhash_del(hash_link);
         rc_stack_push(lp, tmp, free_tmp, s->st);
