@@ -1099,7 +1099,7 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
   if(!num_chunks)
     num_chunks = 1;
 
-  nic_ts = g_tw_lookahead + (num_chunks * s->params->cn_delay) + tw_rand_unif(lp->rng);
+  nic_ts = g_tw_lookahead + (msg->packet_size * s->params->cn_delay) + tw_rand_unif(lp->rng);
 
   msg->my_N_hop = 0;
 
@@ -1205,10 +1205,10 @@ void ft_packet_send_rc(ft_terminal_state * s, tw_bf *bf, fattree_message * msg, 
     if(bf->c4) {
       s->in_send_loop = 1;
     }
-    /*if(bf->c5) {
+    if(bf->c5) {
       codes_local_latency_reverse(lp);
       s->issueIdle = 1;
-    }*/
+    }
 }
 /* sends the packet from the compute node to the attached switch */
 void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
@@ -1311,12 +1311,12 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     s->in_send_loop = 0;
   }
 
-/*  if(s->issueIdle) {
+  if(s->issueIdle) {
     bf->c5 = 1;
     s->issueIdle = 0;
     model_net_method_idle_event(codes_local_latency(lp), 0, lp);
   }
-*/
+
   return;
 }
 
@@ -1699,11 +1699,6 @@ void ft_terminal_buf_update(ft_terminal_state * s, tw_bf * bf,
     s->in_send_loop = 1;
     //printf("[%d] term buf Send to %d\n", lp->gid, lp->gid);
     tw_event_send(e);
-  }
-  else if(s->in_send_loop == 0 && s->terminal_msgs[0] == NULL)
-  {
-     bf->c2 = 1;
-     model_net_method_idle_event(ts, 0, lp);
   }
   return;
 }
