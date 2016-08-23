@@ -1890,6 +1890,11 @@ void ft_packet_arrive_rc(ft_terminal_state * s, tw_bf * bf, fattree_message * ms
     //        tw_rand_reverse_unif(lp->rng);
     assert(tmp);
     tmp->num_chunks--;
+    if(tmp->num_chunks == 0) {
+      qhash_del(hash_link);
+      s->rank_tbl_pop--;
+      free_tmp(tmp);
+    }
 }
 
 /* packet arrives at the destination terminal */
@@ -2169,6 +2174,7 @@ void ft_terminal_event( ft_terminal_state * s, tw_bf * bf, fattree_message * msg
 		tw_lp * lp ) {
 
   assert(msg->magic == fattree_terminal_magic_num);
+  rc_stack_gc(lp, s->st);
   *(int *)bf = (int)0;
   switch(msg->type) {
 
@@ -2348,6 +2354,7 @@ void switch_event(switch_state * s, tw_bf * bf, fattree_message * msg,
 
   *(int *)bf = (int)0;
   assert(msg->magic == switch_magic_num);
+  rc_stack_gc(lp, s->st);
   switch(msg->type) {
 
     case S_SEND:
