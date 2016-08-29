@@ -450,10 +450,15 @@ static void fattree_read_config(const char * anno, fattree_param *p){
   if(p->num_levels == 2) {
     p->num_switches[1] = p->num_switches[0]/2;
     p->switch_radix[1] = p->switch_radix[0];
+    p->l1_set_size = p->switch_radix[0]/4;
+    p->l1_term_size = (p->l1_set_size * p->switch_radix[0]);
+
   } else {
     p->num_switches[1] = p->num_switches[0];
     p->num_switches[2] = p->num_switches[0]/2;
     p->switch_radix[1] = p->switch_radix[2] = p->switch_radix[0];
+    p->l1_set_size = p->switch_radix[0]/2;
+    p->l1_term_size = (p->l1_set_size * (p->switch_radix[0] / 2));
   }
 
   i = 1;
@@ -523,10 +528,6 @@ static void fattree_read_config(const char * anno, fattree_param *p){
     fprintf(stderr, "Bandwidth of compute node channels not specified, "
         "setting to %lf\n", p->cn_bandwidth);
   }
-
-  p->l1_set_size = p->switch_radix[0]/2;
-
-  p->l1_term_size = (p->l1_set_size * (p->switch_radix[0] / 2));
 
   p->cn_delay = (1.0 / p->cn_bandwidth);
   p->head_delay = (1.0 / p->link_bandwidth);
@@ -754,12 +755,13 @@ void switch_init(switch_state * r, tw_lp * lp)
     int l1_set;
     if(p->num_levels == 2) {
       l1_set = 0;
+      r->con_per_uneigh = 2;
     } else {
       l1_set = r->switch_id / p->l1_set_size;
+      r->con_per_uneigh = 1;
     }
     int l1_base = l1_set * p->l1_set_size;
     r->start_uneigh = p->num_switches[0] + l1_base;
-    r->con_per_uneigh = 1;
     for(int l1 = 0; l1 < p->l1_set_size; l1++) {
       tw_lpid nextTerm;
       codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
@@ -780,14 +782,15 @@ void switch_init(switch_state * r, tw_lp * lp)
       l0_base = 0;
       r->start_lneigh = 0;
       r->end_lneigh = p->num_switches[0];
+      r->con_per_lneigh = 2;
     } else {
       l0_set_size = p->l1_set_size;
       l0_base = ((r->switch_id - p->num_switches[0]) / p->l1_set_size) *
         l0_set_size;
       r->start_lneigh = l0_base;
       r->end_lneigh = l0_base + l0_set_size;
+      r->con_per_lneigh = 1;
     }
-    r->con_per_lneigh = 1;
     for(int l0 = 0; l0 < l0_set_size; l0++) {
       tw_lpid nextTerm;
       codes_mapping_get_lp_id(def_group_name, "fattree_switch", NULL, 1,
