@@ -33,6 +33,7 @@ static void * checkpoint_workload_read_config(
         int num_ranks);
 static int checkpoint_workload_load(const char* params, int app_id, int rank);
 static void checkpoint_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
+static void checkpoint_workload_get_next_rc2(int app_id, int rank);
 
 static int checkpoint_state_compare(void *key, struct qhash_head *link);
 
@@ -52,6 +53,9 @@ struct checkpoint_state
     int cur_checkpoint;
     /* how much we have checkpointed to file in current iteration (bytes) */
     long long cur_checkpoint_sz;
+    /* for reverse computation */
+    long long saved_cur_checkpoint_sz;
+    long long saved_prev_checkpoint_sz;
     /* the total number of checkpointing iterations (compute+checkpoint) to run */
     int total_checkpoints;
     struct qhash_head hash_link;
@@ -73,6 +77,7 @@ struct codes_workload_method checkpoint_workload_method =
     .codes_workload_read_config = &checkpoint_workload_read_config,
     .codes_workload_load = &checkpoint_workload_load,
     .codes_workload_get_next = &checkpoint_workload_get_next,
+    .codes_workload_get_next_rc2 = &checkpoint_workload_get_next_rc2,
 };
 
 static void * checkpoint_workload_read_config(
@@ -163,6 +168,60 @@ static int checkpoint_workload_load(const char* params, int app_id, int rank)
     return(0);
 }
 
+static void checkpoint_workload_get_next_rc2(int app_id, int rank)
+{
+    struct qhash_head *hash_link = NULL;
+    struct checkpoint_state *this_state = NULL;
+    struct checkpoint_id tmp;
+
+    /* find the checkpoint state for this rank/app_id combo */
+    tmp.rank = rank;
+    tmp.app_id = app_id;
+    
+    hash_link = qhash_search(chkpoint_state_tbl, &tmp);
+    if (!hash_link)
+    {
+        fprintf(stderr, "No checkpoint context found for rank %d (app_id = %d)\n",
+            rank, app_id);
+        return;
+    }
+    this_state = qhash_entry(hash_link, struct checkpoint_state, hash_link);
+    assert(this_state);
+
+    switch(this_state->status)
+    {
+        case CHECKPOINT_COMPUTE:
+            /* rollback the status back to compute*/
+            this_state->status = CHECKPOINT_COMPUTE;
+            break;
+
+        case CHECKPOINT_OPEN_FILE:
+            /* rollback the status to checkpoint open file */
+            this_state->status = CHECKPOINT_OPEN_FILE;
+            this_state->cur_checkpoint_sz = this_state->saved_prev_checkpoint_sz;
+            break;
+
+        case CHECKPOINT_WRITE:
+            this_state->status = CHECKPOINT_WRITE;
+            this_state->cur_checkpoint_sz = this_state->saved_cur_checkpoint_sz;
+            break;
+
+        case CHECKPOINT_CLOSE_FILE:
+            this_state->cur_checkpoint--;
+            this_state->status = CHECKPOINT_CLOSE_FILE;
+            break;
+
+        case CHECKPOINT_INACTIVE:
+            this_state->status = CHECKPOINT_INACTIVE;
+            break;
+        
+        default:
+            fprintf(stderr, "Invalid checkpoint workload status for "
+                "rank %d (app_id = %d)\n", rank, app_id);
+            return;
+    }
+}
+
 /* find the next workload operation to issue for this rank */
 static void checkpoint_workload_get_next(int app_id, int rank, struct codes_workload_op *op)
 {
@@ -212,6 +271,7 @@ static void checkpoint_workload_get_next(int app_id, int rank, struct codes_work
             op->u.open.create_flag = 1;
 
             /* set the next status */
+            this_state->saved_prev_checkpoint_sz = this_state->cur_checkpoint_sz;
             this_state->cur_checkpoint_sz = 0;
             this_state->status = CHECKPOINT_WRITE;
             break;
@@ -235,6 +295,7 @@ static void checkpoint_workload_get_next(int app_id, int rank, struct codes_work
              * file close if we have completed the checkpoint
              * writing phase
              */
+            this_state->saved_cur_checkpoint_sz = this_state->cur_checkpoint_sz;
             this_state->cur_checkpoint_sz += op->u.write.size;
             if (this_state->cur_checkpoint_sz == this_state->io_per_checkpoint)
                 this_state->status = CHECKPOINT_CLOSE_FILE;
@@ -269,15 +330,15 @@ static void checkpoint_workload_get_next(int app_id, int rank, struct codes_work
             op->op_type = CODES_WK_END;
 
             /* remove hash entry */
-            qhash_del(hash_link);
+            /*qhash_del(hash_link);
             free(this_state);
             chkpoint_tbl_pop--;
             if (!chkpoint_tbl_pop)
             {
                 qhash_finalize(chkpoint_state_tbl);
                 chkpoint_state_tbl = NULL;
-            }
-            break;
+            }*/
+            break; 
         default:
             fprintf(stderr, "Invalid checkpoint workload status for "
                 "rank %d (app_id = %d)\n", rank, app_id);
