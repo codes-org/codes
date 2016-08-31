@@ -20,7 +20,7 @@
 //#define TRACK_PKT -1
 #define TRACK_PKT 2820
 #define FATTREE_HELLO 0
-#define FATTREE_DEBUG 0
+#define FATTREE_DEBUG 1
 #define FATTREE_CONNECTIONS 1
 #define FATTREE_MSG 0
 #define DEBUG_RC 0
@@ -104,7 +104,6 @@ struct fattree_param
   // configuration parameters
   int num_levels;
   int link_repetitions;
-  int requested_terminals; //Number of terminals to shoot for if possible
   int Ns; // number of switches per pod
   int Np; //Number of pods
   int *num_switches; //switches at various levels
@@ -407,9 +406,6 @@ static void fattree_read_config(const char * anno, fattree_param *p){
     tw_error(TW_LOC, "Too many num_levels, only upto 3 supported Aborting\n");
   }
 
-  configuration_get_value_int(&config, "PARAMS", "requested_terminals", anno,
-          &p->requested_terminals);
-
   p->num_switches = (int *) malloc (p->num_levels * sizeof(int));
   p->switch_radix = (int*) malloc (p->num_levels * sizeof(int));
 
@@ -455,18 +451,19 @@ static void fattree_read_config(const char * anno, fattree_param *p){
   }
 
   p->Ns = p->switch_radix[0]/2;
+  int num_terminals = p->num_switches[0]*p->switch_radix[0]/2;
 
   if(p->num_levels == 2) {
     p->num_switches[1] = p->num_switches[0]/2;
     p->switch_radix[1] = p->switch_radix[0];
   } else {
     if(p->ft_type == 0){
-      p->Np = ceil((double)p->requested_terminals/(double)(p->Ns*p->Ns));
+      p->Np = ceil((num_terminals)/(double)(p->Ns*p->Ns));
       p->num_switches[1] = p->num_switches[0];
       p->num_switches[2] = ceil((p->Ns*p->Ns) / floor(p->switch_radix[0]/p->Np));
       p->switch_radix[1] = p->switch_radix[2] = p->switch_radix[0];
       p->link_repetitions = floor(p->switch_radix[2] / p->Np);
-      printf("Np:%d Ns:%d requested_terminals:%d\n",p->Np,p->Ns,p->requested_terminals);
+      printf("Np:%d Ns:%d\n",p->Np,p->Ns);
     }else{
       p->num_switches[1] = p->num_switches[0];
       p->num_switches[2] = p->num_switches[0]/2;
@@ -474,17 +471,7 @@ static void fattree_read_config(const char * anno, fattree_param *p){
     }
   }
 
-  if(p->num_levels == 2){
-    if(p->requested_terminals > 2*(p->switch_radix[0]/2)*(p->switch_radix[0]/2)){
-      tw_error(TW_LOC, "too many terminals requested. Can't maintain full bisection bandwidth for given radix.");
-    }
-  }else{
-    if(p->requested_terminals > 2*(p->switch_radix[0]/2)*(p->switch_radix[0]/2)*(p->switch_radix[0]/2)){
-      tw_error(TW_LOC, "too many terminals requested. Can't maintain full bisection bandwidth for given radix.");
-    }
-  }
-
-#if FATTREE_DEBUG
+#if FATTREE_CONNECTIONS
   for(int jj=0;jj<3;jj++)
   {
     printf("num_switches[%d]=%d\n",jj,p->num_switches[jj]);
@@ -891,33 +878,6 @@ void switch_init(switch_state * r, tw_lp * lp)
               }
             }
         }
-//        int l2_base = 0;
-        /* not true anymore */
-/*        r->start_uneigh = p->num_switches[0] + l2_base;
-        r->con_per_uneigh = 1;
-        if(((int)r->switch_id - p->num_switches[0]) % p->l1_set_size >=
-            p->l1_set_size/2) {
-          l2_base += (p->num_switches[2]/2);
-        }
-        for(int l2 = 0; l2 < p->num_switches[2]/2; l2++) {
-          tw_lpid nextTerm;
-          codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
-              l2_base, 2, &nextTerm);
-          for(int con = 0; con < r->con_per_uneigh; con++) {
-            r->port_connections[r->num_cons++] = nextTerm;
-#if FATTREE_CONNECTIONS
-            codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
-                &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
-            next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
-	        written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
-#endif
-#if FATTREE_DEBUG
-            printf("I am switch %d, connect to upper switch %d L2 (%llu) at port %d yes collecting\n",
-                r->switch_id, l2_base, LLU(nextTerm), r->num_cons - 1);
-#endif
-          }
-          l2_base++;
- */ 
       } else {
         int l2 = ((r->switch_id - p->num_switches[0]) % p->l1_set_size);
         /* not true anymore */
@@ -950,17 +910,12 @@ void switch_init(switch_state * r, tw_lp * lp)
     }
   } else {
     if(p->ft_type == 0) {
-      r->con_per_lneigh = 1;
+      r->con_per_lneigh = p->link_repetitions;
       /* not true anymore */
       r->start_lneigh = p->num_switches[0];
       r->end_lneigh = r->start_lneigh + p->num_switches[1];
-      int l1 = 0;
-      if((int)r->switch_id - p->num_switches[0] - p->num_switches[1] >=
-          (p->num_switches[2]/2)) {
-        l1 += (p->l1_set_size/2);
-      }
-      int count = 0;
-      for(; l1 < p->num_switches[1]; l1++) {
+      int l1 = (r->switch_id - p->num_switches[0] - p->num_switches[1]) % p->l1_set_size;
+      for(; l1 < p->num_switches[1]; l1 += p->l1_set_size) {
         tw_lpid nextTerm;
         codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
             l1, 1, &nextTerm);
@@ -977,11 +932,6 @@ void switch_init(switch_state * r, tw_lp * lp)
           printf("I am switch %d, connect to  switch %d L1 (%llu) at port %d not collecting\n",
               r->switch_id, l1, LLU(nextTerm), r->num_cons - 1);
 #endif
-        }
-        count++;
-        if(count == (p->l1_set_size/2)) {
-          l1 += (p->l1_set_size/2);
-          count = 0;
         }
       }
     } else {
