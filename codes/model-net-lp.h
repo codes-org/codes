@@ -23,6 +23,7 @@ extern "C" {
 #include "model-net-sched.h"
 #include "net/dragonfly.h"
 #include "net/slimfly.h"
+#include "net/fattree.h"
 #include "net/loggp.h"
 #include "net/simplenet-upd.h"
 #include "net/simplep2p.h"
@@ -123,7 +124,8 @@ typedef struct model_net_wrap_msg {
     union {
         model_net_base_msg      m_base;  // base lp
         terminal_message        m_dfly;  // dragonfly
-        slim_terminal_message   m_slim; // slimfly
+        slim_terminal_message   m_slim;  // slimfly
+	fattree_message		m_fat;   // fattree
         loggp_message           m_loggp; // loggp
         sn_message              m_snet;  // simplenet
         sp_message              m_sp2p;  // simplep2p
