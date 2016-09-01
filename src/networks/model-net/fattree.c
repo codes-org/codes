@@ -483,15 +483,15 @@ static void fattree_read_config(const char * anno, fattree_param *p){
   for(i = 1; i < p->num_levels - 1; i++) {
     if(p->num_switches[i - 1] * p->switch_radix[i - 1] >
        p->num_switches[i] * p->switch_radix[i]) {
-//      tw_error(TW_LOC, "Not enough switches/radix at level %d for full "
-//          "bisection bandwidth\n", i);
+      tw_error(TW_LOC, "Not enough switches/radix at level %d for full "
+          "bisection bandwidth\n", i);
     }
   }
 
   if(p->num_switches[i - 1] * p->switch_radix[i - 1] > 2 * p->num_switches[i] *
       p->switch_radix[i]) {
-//    tw_error(TW_LOC, "Not enough switches/radix at level %d (top) for full "
-//        "bisection bandwidth\n", i);
+    tw_error(TW_LOC, "Not enough switches/radix at level %d (top) for full "
+        "bisection bandwidth\n", i);
   }
 
   configuration_get_value_int(&config, "PARAMS", "packet_size", anno,
@@ -779,7 +779,7 @@ void switch_init(switch_state * r, tw_lp * lp)
 #endif
       r->num_lcons++;
 #if FATTREE_DEBUG
-      printf("I am switch %d, connect to terminal %d (%llu) at port %d yes collecting\n",
+      printf("L0->term I am switch %d, connect to terminal %d (%llu) at port %d yes collecting\n",
           r->switch_id, term, LLU(nextTerm), r->num_cons - 1);
 #endif
     }
@@ -809,7 +809,7 @@ void switch_init(switch_state * r, tw_lp * lp)
 	    written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
 #endif
 #if FATTREE_DEBUG
-      printf("I am switch %d, connect to upper switch %d L1 (%llu) rel_id:%llu at port %d yes collecting\n",
+    printf("L0->L1 I am switch %d, connect to upper switch %d L1 (%llu) rel_id:%llu at port %d yes collecting\n",
           r->switch_id, l1_base, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
 #endif
       }
@@ -844,8 +844,8 @@ void switch_init(switch_state * r, tw_lp * lp)
 #endif
         r->num_lcons++;
 #if FATTREE_DEBUG
-        printf("I am switch %d, connect to switch %d L0 (%llu) at port %d not collecting\n",
-            r->switch_id, l0_base, LLU(nextTerm), r->num_cons - 1);
+        printf("L1->L0 I am switch %d, connect to switch %d L0 (%llu) rel_id:%llu at port %d not collecting\n",
+            r->switch_id, l0_base, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
 #endif
       }
       l0_base++;
@@ -853,12 +853,13 @@ void switch_init(switch_state * r, tw_lp * lp)
     if(p->num_levels == 3) {
       int l2_base = 0;
       if(p->ft_type == 0) {
-        for(int rep=0;rep<p->link_repetitions;rep++){
+        /*for(int rep=0;rep<p->link_repetitions;rep++)*/{
+            int rep = 0;
             int l2 = ((r->switch_id - p->num_switches[0]) % p->l1_set_size + rep*p->l1_set_size);
-            printf("link_repetitions:%d\n",p->link_repetitions);
             /* not true anymore */
             r->start_uneigh = p->num_switches[0] + l2;
             r->con_per_uneigh = p->link_repetitions;
+            printf("link_repetitions:%d rep:%d l2:%d\n",p->link_repetitions,rep,l2);
             for(; l2 < p->num_switches[2]; l2 += p->l1_set_size) {
               tw_lpid nextTerm;
               codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
@@ -872,8 +873,8 @@ void switch_init(switch_state * r, tw_lp * lp)
                 written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
 #endif
 #if FATTREE_DEBUG
-                printf("I am switch %d, connect to upper switch %d L2 (%llu) at port %d yes collecting\n",
-                    r->switch_id, l2+rep*p->l1_set_size, LLU(nextTerm), r->num_cons - 1);
+                printf("L1->L2:t=0 I am switch %d, connect to upper switch %d L2 (%llu) rel_id:%llu at port %d yes collecting\n",
+                    r->switch_id, l2+rep*p->l1_set_size, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
 #endif
               }
             }
@@ -901,8 +902,8 @@ void switch_init(switch_state * r, tw_lp * lp)
             written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
 #endif
 #if FATTREE_DEBUG
-            printf("I am switch %d, connect to upper switch %d L2 (%llu) at port %d yes collecting\n",
-                r->switch_id, l2, LLU(nextTerm), r->num_cons - 1);
+            printf("L1->L2:t!=0 I am switch %d, connect to upper switch %d L2 (%llu) rel_id:%llu at port %d yes collecting\n",
+                r->switch_id, l2, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
 #endif
           }
         }
@@ -929,8 +930,8 @@ void switch_init(switch_state * r, tw_lp * lp)
 #endif
           r->num_lcons++;
 #if FATTREE_DEBUG
-          printf("I am switch %d, connect to  switch %d L1 (%llu) at port %d not collecting\n",
-              r->switch_id, l1, LLU(nextTerm), r->num_cons - 1);
+          printf("L2->L1:t=0 I am switch %d, connect to  switch %d L1 (%llu) rel_id:%llu at port %d not collecting\n",
+                  r->switch_id, l1, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
 #endif
         }
       }
@@ -954,8 +955,8 @@ void switch_init(switch_state * r, tw_lp * lp)
 #endif
           r->num_lcons++;
 #if FATTREE_DEBUG
-          printf("I am switch %d, connect to  switch %d L1 (%llu) at port %d not collecting\n",
-              r->switch_id, l1, LLU(nextTerm), r->num_cons - 1);
+          printf("L2->L1:t!=0 I am switch %d, connect to  switch %d L1 (%llu) rel_id:%llu at port %d not collecting\n",
+              r->switch_id, l1, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
 #endif
         }
       }
