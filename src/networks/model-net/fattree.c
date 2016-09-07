@@ -17,11 +17,10 @@
 #define FTREE_HASH_TABLE_SIZE 262144
 
 // debugging parameters
-//#define TRACK_PKT -1
-#define TRACK_PKT 2820
+#define TRACK_PKT -1
 #define FATTREE_HELLO 0
-#define FATTREE_DEBUG 1
-#define FATTREE_CONNECTIONS 1
+#define FATTREE_DEBUG 0
+#define FATTREE_CONNECTIONS 0
 #define FATTREE_MSG 0
 #define DEBUG_RC 0
 
@@ -750,10 +749,10 @@ void switch_init(switch_state * r, tw_lp * lp)
     r->queued_length[i] = 0;
   }
 
-#if FATTREE_CONNECTIONS
+#if FATTREE_CONNECTIONS || FATTREE_DEBUG
+    tw_lpid next_switch_lid;
 	int written = 0;
     int written_2 = 0;
-    tw_lpid next_switch_lid;
 #endif
 
   //set lps connected to each port
@@ -802,7 +801,7 @@ void switch_init(switch_state * r, tw_lp * lp)
           l1_base, 1, &nextTerm);
       for(int con = 0; con < r->con_per_uneigh; con++) {
         r->port_connections[r->num_cons++] = nextTerm;
-#if FATTREE_CONNECTIONS
+#if FATTREE_CONNECTIONS || FATTREE_DEBUG
         codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
             &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
         next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
@@ -836,7 +835,7 @@ void switch_init(switch_state * r, tw_lp * lp)
           l0_base, 0, &nextTerm);
       for(int con = 0; con < r->con_per_lneigh; con++) {
         r->port_connections[r->num_cons++] = nextTerm;
-#if FATTREE_CONNECTIONS
+#if FATTREE_CONNECTIONS || FATTREE_DEBUG
         codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
             &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
         next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
@@ -866,7 +865,7 @@ void switch_init(switch_state * r, tw_lp * lp)
                       l2, 2, &nextTerm);
               for(int con = 0; con < r->con_per_uneigh; con++) {
                 r->port_connections[r->num_cons++] = nextTerm;
-#if FATTREE_CONNECTIONS
+#if FATTREE_CONNECTIONS || FATTREE_DEBUG
                 codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
                     &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
                 next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
@@ -895,7 +894,7 @@ void switch_init(switch_state * r, tw_lp * lp)
               l2, 2, &nextTerm);
           for(int con = 0; con < r->con_per_uneigh; con++) {
             r->port_connections[r->num_cons++] = nextTerm;
-#if FATTREE_CONNECTIONS
+#if FATTREE_CONNECTIONS || FATTREE_DEBUG
             codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
                 &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
             next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
@@ -922,7 +921,7 @@ void switch_init(switch_state * r, tw_lp * lp)
             l1, 1, &nextTerm);
         for(int con = 0; con < r->con_per_lneigh; con++) {
           r->port_connections[r->num_cons++] = nextTerm;
-#if FATTREE_CONNECTIONS
+#if FATTREE_CONNECTIONS || FATTREE_DEBUG
           codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
               &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
           next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
@@ -947,7 +946,7 @@ void switch_init(switch_state * r, tw_lp * lp)
             l1, 1, &nextTerm);
         for(int con = 0; con < r->con_per_lneigh; con++) {
           r->port_connections[r->num_cons++] = nextTerm;
-#if FATTREE_CONNECTIONS
+#if FATTREE_CONNECTIONS || FATTREE_DEBUG
           codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
               &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
           next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
@@ -1080,8 +1079,8 @@ static void fattree_report_stats()
 	if(fattree_results_log_header == NULL)
 		printf("\n Failed to open results log header file %s \n",temp_filename_header);
 	printf("Printing Simulation Parameters/Results Log File\n");
-	fprintf(fattree_results_log_header,"<Avg Hops/Total Packets>, <Avg Time/Total Packets>, <Max Latency>, <Total Finished Chunks>");
-	fprintf(fattree_results_log,"%24.3lf, %24.3lf, %13.3lf, %23.3lld, ", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets),max_time,total_finished_chunks);
+    fprintf(fattree_results_log_header,"<Avg Hops/Total Packets>, <Avg Time/Total Packets>, <Max Latency>, <Total Finished Packets>, <Total Finished Chunks>");
+	fprintf(fattree_results_log,"%24.3lf, %24.3lf, %13.3lf, %24.3lld, %23.3lld, ", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets),max_time,total_finished_packets,total_finished_chunks);
 	fclose(fattree_results_log_header);
 	fclose(fattree_results_log);
 #endif
@@ -1507,8 +1506,8 @@ void switch_packet_receive( switch_state * s, tw_bf * bf,
   int dest_term_local_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0);
 
   if(msg->packet_ID == LLU(TRACK_PKT))
-    printf("\n Packet %llu arrived at switch %d switch_gid %llu dest_terminal_id %llu dest_term_local_id %llu final_dest_gid %llu output_port %d to_terminal %d\n",
-        msg->packet_ID, s->switch_id, LLU(lp->gid), LLU(msg->dest_terminal_id), LLU(dest_term_local_id), LLU(msg->final_dest_gid),
+    printf("\n Packet %llu chunk %llu arrived at switch %d switch_gid %llu dest_terminal_id %llu dest_term_local_id %llu final_dest_gid %llu output_port %d to_terminal %d\n",
+        msg->packet_ID, LLU(msg->chunk_id), s->switch_id, LLU(lp->gid), LLU(msg->dest_terminal_id), LLU(dest_term_local_id), LLU(msg->final_dest_gid),
         output_port, to_terminal);
 
   fattree_message_list * cur_chunk = (fattree_message_list *)malloc(
@@ -2260,8 +2259,8 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
   } else { //switch level 2
     int dest_l1_group = dest_term_local_id / p->l1_term_size;
     if(s->params->ft_type == 0) {
-      start_port = dest_l1_group * (p->l1_set_size/2) * s->con_per_lneigh;
-      end_port = start_port + ((p->l1_set_size/2) * s->con_per_lneigh);
+      start_port = dest_l1_group * /* (p->l1_set_size/2) **/ s->con_per_lneigh;
+      end_port = start_port +(/*(p->l1_set_size/2) **/ s->con_per_lneigh);
     } else {
       start_port = dest_l1_group * s->con_per_lneigh;
       end_port = start_port + s->con_per_lneigh;
