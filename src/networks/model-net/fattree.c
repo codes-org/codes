@@ -10,10 +10,13 @@
 #include "sys/file.h"
 #include "codes/quickhash.h"
 #include "codes/rc-stack.h"
+#include <ctype.h>
+#include <search.h>
 
 #define CREDIT_SIZE 8
 #define MEAN_PROCESS 1.0
 
+#define TERMINAL_GUID_PREFIX ((uint64_t)(64) << 32)
 #define FTREE_HASH_TABLE_SIZE 262144
 
 // debugging parameters
@@ -52,6 +55,7 @@
 #endif
 
 long fattree_packet_gen = 0, fattree_packet_fin = 0;
+int dump_topo = 0;
 
 static double maxd(double a, double b) { return a < b ? b : a; }
 
@@ -71,11 +75,22 @@ static char def_group_name[MAX_NAME_LENGTH];
 static int def_gname_set = 0;
 static int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
 
+enum ROUTING_ALGO
+{
+    STATIC=0,
+    ADAPTIVE,
+};
+static char routing_folder[MAX_NAME_LENGTH];
+static char dot_file_p[MAX_NAME_LENGTH];
+
 /* switch magic number */
 int switch_magic_num = 0;
 
 /* terminal magic number */
 int fattree_terminal_magic_num = 0;
+
+/* global variables for DOT file generation */
+static FILE *dot_file = NULL;
 
 typedef struct fattree_message_list fattree_message_list;
 struct fattree_message_list {
@@ -120,6 +135,7 @@ struct fattree_param
   double credit_delay;
   double router_delay;
   double soft_delay;
+  int routing;
 };
 
 struct ftree_hash_key
@@ -206,7 +222,8 @@ struct ft_terminal_state
   long data_size_sample;
   double fin_hops_sample;
   tw_stime fin_chunks_time;
- tw_stime busy_time_sample;
+  tw_stime busy_time_sample;
+
 };
 
 /* terminal event type (1-4) */
@@ -265,6 +282,8 @@ struct switch_state
 
   char * anno;
   fattree_param *params;
+  /* array to store linear forwaring tables in case we use static routing */
+  int *lft;
 };
 
 static tw_stime         fattree_total_time = 0;
@@ -387,6 +406,267 @@ static int fattree_get_msg_sz(void)
   return sizeof(fattree_message);
 }
 
+static inline uint64_t get_term_guid(ft_terminal_state *t)
+{
+  return TERMINAL_GUID_PREFIX + t->terminal_id;
+}
+
+static inline uint64_t get_switch_guid(switch_state *s)
+{
+  return (((uint64_t)(s->switch_level + 1)) << 32) + s->switch_id;
+}
+
+typedef struct {
+  uint64_t guid;
+  uint64_t port;
+} guid_port_combi_t;
+
+static int cmp_guids(const void *g1, const void *g2)
+{
+  uint64_t guid1 = *((uint64_t *) g1);
+  uint64_t guid2 = ((guid_port_combi_t *) g2)->guid;
+  if (guid1 == guid2)
+    return 0;
+  else
+    return 1;
+}
+
+/* parse external file with give forwarding tables
+ * file name: 0x<switch guid>.lft
+ * content: '0x<terminal guid> <egress port>' per line, e.g.:
+ * `head 0x0000000100000000.lf`
+ *    0x0000000100000000 0
+ *    0x00000040000000ff 22
+ *    0x0000000100000001 19
+ */
+static int read_static_lft(switch_state *s, tw_lp *lp)
+{
+  if (!s || !lp)
+    return -1;
+
+  char dir_name[512];
+  char file_name[512];
+
+  char *io_dir = routing_folder;
+  sprintf(dir_name, "%s", io_dir);
+
+  sprintf(file_name, "%s/0x%016"PRIx64".lft", dir_name, get_switch_guid(s));
+  FILE *file = NULL;
+  if (!(file = fopen(file_name, "r")))
+    return -1;
+
+  char line[UINT8_MAX];
+  char *p = NULL, *e = NULL;
+  uint64_t dest_guid = 0, port = 0;
+
+  int num_added = 0;
+  guid_port_combi_t *tmpLFT = calloc(s->params->num_terminals,
+        sizeof(guid_port_combi_t));
+  s->lft = malloc(s->params->num_terminals * sizeof(int));
+  /* init all with -1 so that we find missing routing entries */
+  for (int i = 0; i < s->params->num_terminals; i++) s->lft[i] = -1;
+
+  while (fgets(line, sizeof(line), file)) {
+    p = line;
+    while (isspace(*p))
+      p++;
+
+    if (*p == '\0' || *p == '\n' || *p == '#')
+      continue;
+
+    dest_guid = strtoull(p, &e, 16);
+    if (e == p || (!isspace(*e) && *e != '#' && *e != '\0')) {
+      errno = EINVAL;
+      return -1;
+    }
+
+    p = e;
+    while (isspace(*p))
+      p++;
+
+    port = strtoull(p, &e, 0);
+    if (e == p || (!isspace(*e) && *e != '#' && *e != '\0')) {
+      errno = EINVAL;
+      return -1;
+    }
+
+    if (dest_guid < TERMINAL_GUID_PREFIX){
+      // we don't need switches
+    } else {
+      tmpLFT[num_added].guid = dest_guid;
+      tmpLFT[num_added].port = port;
+      num_added++;
+    }
+  }
+
+  /* we want a real LFT with terminal_id as lookup index, so have to
+   * convert the read lft, which might contain entries for switches
+   * or is permutated, into the correct format
+   */
+  ft_terminal_state tmpTerm;
+  for (int dest_num = 0; dest_num < s->params->num_terminals; dest_num++) {
+    tmpTerm.terminal_id = dest_num;
+    uint64_t key = get_term_guid(&tmpTerm);
+    size_t size = s->params->num_terminals;
+    guid_port_combi_t *elem = lfind(&key, tmpLFT, &size,
+          sizeof(guid_port_combi_t), cmp_guids);
+    assert(elem);
+    // opensm uses ports=1...n, so convert back here
+    //if(NULL != getenv("OSM_ROUTING"))
+       s->lft[dest_num] = elem->port - 1;
+    //else
+    //   s->lft[dest_num] = elem->port;
+  }
+
+#if FATTREE_DEBUG
+  printf("I am switch %d (guid=%016"PRIx64") and my LFT is:\n",
+        s->switch_id, get_switch_guid(s));
+  for (int dest_num = 0; dest_num < s->params->num_terminals; dest_num++)
+     printf("\tdest %d -> egress port %d\n", dest_num, s->lft[dest_num]);
+#endif
+
+  free(tmpLFT);
+  fclose(file);
+  return 0;
+}
+
+static void dot_write_open_file(FILE **fout)
+{
+  if(!fout || *fout) return;
+  if(!dump_topo) return;
+
+  char dir_name[512];
+  char file_name[512];
+
+  char *io_dir = routing_folder;
+  sprintf(dir_name, "%s", io_dir);
+
+  char *dot_file_prefix = dot_file_p;
+  int rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  sprintf(file_name, "%s/%s.dot.%d", dir_name, dot_file_prefix, rank);
+  *fout = fopen(file_name, "w+");
+  if(*fout == NULL) {
+    tw_error(TW_LOC, "Error opening dot file for writing");
+  }
+}
+
+static void dot_write_close_file(FILE **fout)
+{
+  if(!fout || !(*fout)) return;
+  if(!dump_topo) return;
+  fclose(*fout);
+  *fout = NULL;
+}
+
+/* sw IDs aren't unique, but level+ID info is */
+static void dot_write_switch_info(switch_state *s, int sw_gid, FILE *fout)
+{
+  if(!s || s->unused || !(s->params) || !fout) return;
+  if(!dump_topo) return;
+
+  const char *root_attr = ",root_switch", *empty_attr = "";
+  uint64_t switch_guid = get_switch_guid(s);
+  fattree_param *p = s->params;
+
+  fprintf(fout, "\t\"S_%d_%d\" [comment=\"0x%016"PRIx64",radix=%d%s\"];\n",
+      s->switch_level, sw_gid, switch_guid, s->radix,
+      (p->num_levels == s->switch_level + 1) ? root_attr : empty_attr);
+}
+
+/* terminal IDs are unique in this model */
+static void dot_write_term_info(ft_terminal_state *t, FILE *fout)
+{
+  uint64_t term_guid = t->terminal_id;
+  if(!dump_topo) return;
+
+  if(!t || !fout) return;
+  /* need to shift the term guid, because opensm doesn't like guid=0...0 */
+  //if(NULL != getenv("OSM_ROUTING"))
+     term_guid = get_term_guid(t);
+  fprintf(fout, "\t\"H_%d\" [comment=\"0x%016"PRIx64"\"];\n",
+        t->terminal_id, term_guid);
+}
+
+static void dot_write_sw2sw_link(int lsw_lvl, int lsw_id, int lsw_port,
+                                 int rsw_lvl, int rsw_id, int rsw_port,
+                                 FILE *fout)
+{
+  int tmp_lsw_port = 0, tmp_rsw_port = 0;
+
+  if(!fout) return;
+  if(!dump_topo) return;
+
+  /* add +1 to ports, since ibsim/opensm start with physical port number 1
+   * (port 0 is internal sw port)
+   */
+  //if(NULL != getenv("OSM_ROUTING")) {
+     tmp_lsw_port = lsw_port + 1;
+     tmp_rsw_port = rsw_port + 1;
+  //} else {
+  //   tmp_lsw_port = lsw_port;
+  //   tmp_rsw_port = rsw_port;
+  //}
+
+  /* if original right hand side is unknown we write '?' instead
+   * and must fix it later ... nice topology definition ... :-(
+   */
+  if(-1 == rsw_port)
+     fprintf(fout, "\t\"S_%d_%d\" -> \"S_%d_%d\" [comment=\"P%d->P?\"];\n",
+           lsw_lvl, lsw_id, rsw_lvl, rsw_id, tmp_lsw_port);
+  else
+     fprintf(fout, "\t\"S_%d_%d\" -> \"S_%d_%d\" [comment=\"P%d->P%d\"];\n",
+           lsw_lvl, lsw_id, rsw_lvl, rsw_id, tmp_lsw_port, tmp_rsw_port);
+}
+
+static void dot_write_sw2term_link(int lsw_lvl, int lsw_id, int lsw_port,
+                                   int term_id, int dump_reverse, FILE *fout)
+{
+  if(!fout) return;
+  if(!dump_topo) return;
+
+  /* add +1 to ports, since ibsim/opensm start with physical port number 1
+   * (port 0 is internal sw port)
+   */
+  //if(NULL != getenv("OSM_ROUTING"))
+     lsw_port++;
+
+  fprintf(fout, "\t\"S_%d_%d\" -> \"H_%d\" [comment=\"P%d->P1\"];\n",
+        lsw_lvl, lsw_id, term_id, lsw_port);
+  if(dump_reverse)
+     fprintf(fout, "\t\"H_%d\" -> \"S_%d_%d\" [comment=\"P1->P%d\"];\n",
+           term_id, lsw_lvl, lsw_id, lsw_port);
+}
+
+static void dot_write_term2sw_link(int term_id, int rsw_lvl, int rsw_id,
+                                   int rsw_port, FILE *fout)
+{
+  if(!fout) return;
+  if(!dump_topo) return;
+
+  /* add +1 to ports, since ibsim/opensm start with physical port number 1
+   * (port 0 is internal sw port)
+   */
+  //if(NULL != getenv("OSM_ROUTING"))
+     rsw_port++;
+
+  fprintf(fout, "\t\"H_%d\" -> \"S_%d_%d\" [comment=\"P1->P%d\"];\n",
+        term_id, rsw_lvl, rsw_id, rsw_port);
+}
+
+void post_switch_init(switch_state *s, tw_lp *lp)
+{
+  /* read any LFTs which might have been generated by an external routing
+   * algorithm, e.g., through the use of opensm\
+   */
+  if(s->params->routing == STATIC && !dump_topo) {
+   if(0 != read_static_lft(s, lp)) {
+     tw_error(TW_LOC, "Error while reading the routing table");
+   }
+  }
+}
+
+
 static void fattree_read_config(const char * anno, fattree_param *p){
   int i;
 
@@ -506,13 +786,50 @@ static void fattree_read_config(const char * anno, fattree_param *p){
     fprintf(stderr, "Buffer size of compute node channels not specified, "
         "setting to %d\n", p->cn_vc_size);
   }
-
+  
   rc = configuration_get_value_int(&config, "PARAMS", "chunk_size", anno, &p->chunk_size);
-    if(rc) {
-        p->chunk_size = 512;
-        fprintf(stderr, "Chunk size for packets is specified, setting to %d\n", p->chunk_size);
-    }
+  if(rc) {
+    p->chunk_size = 512;
+    fprintf(stderr, "Chunk size for packets is specified, setting to %d\n", p->chunk_size);
+  }
+    
+  char routing_str[MAX_NAME_LENGTH];
+  configuration_get_value(&config, "PARAMS", "routing", anno, routing_str,
+      MAX_NAME_LENGTH);
+  if(strcmp(routing_str, "static") == 0)
+    p->routing = STATIC;
+  else if(strcmp(routing_str, "adaptive")==0)
+    p->routing = ADAPTIVE;
+  else
+  {
+    fprintf(stderr, 
+        "No routing protocol specified, setting to adaptive routing\n");
+    p->routing = ADAPTIVE;
+  }
+  
+  configuration_get_value_int(&config, "PARAMS", "dump_topo", anno,
+      &dump_topo);
 
+  routing_folder[0] = '\0';
+  rc = configuration_get_value(&config, "PARAMS", "routing_folder", anno, routing_folder,
+      MAX_NAME_LENGTH);
+
+  if(routing_folder[0] == '\0') {
+    if(dump_topo || p->routing == STATIC) {
+      tw_error(TW_LOC, "routing_folder has to be provided with dump_topo || static routing");
+    }
+  }
+ 
+  dot_file_p[0] = '\0'; 
+  rc = configuration_get_value(&config, "PARAMS", "dot_file", anno, dot_file_p,
+      MAX_NAME_LENGTH);
+  
+  if(dot_file_p[0] == '\0') {
+    if(dump_topo) {
+      tw_error(TW_LOC, "dot_file has to be provided with dump_topo");
+    }
+  }
+  
   configuration_get_value_double(&config, "PARAMS", "link_bandwidth", anno,
       &p->link_bandwidth);
   if(!p->link_bandwidth) {
@@ -627,6 +944,18 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
 
    s->params->num_terminals = codes_mapping_get_lp_count(lp_group_name, 0,
       LP_CONFIG_NM, s->anno, 0);
+   /* dump partial topology into DOT format
+    * skip term2sw link part, because we are missing the remote switch port
+    * in this stage of the code
+    */
+   if(!dot_file)
+     dot_write_open_file(&dot_file);
+   dot_write_term_info(s, dot_file);
+
+   /* ensure the DOT file is out before reading it with external tools */
+   if(dot_file)
+     fflush(dot_file);
+
    return;
 }
 
@@ -698,7 +1027,7 @@ void switch_init(switch_state * r, tw_lp * lp)
   r->queued_msgs_tail =
     (fattree_message_list**)malloc(r->radix * sizeof(fattree_message_list*));
   r->queued_length = (int*)malloc(r->radix * sizeof(int));
-
+  r->lft = NULL;
 
   r->last_buf_full = (tw_stime*)malloc(r->radix * sizeof(tw_stime));
   r->busy_time = (tw_stime*)malloc(r->radix * sizeof(tw_stime));
@@ -724,6 +1053,11 @@ void switch_init(switch_state * r, tw_lp * lp)
     r->queued_length[i] = 0;
   }
 
+  /* dump partial topology info into DOT format (switch radix, guid, ...) */
+  if(!dot_file)
+    dot_write_open_file(&dot_file);
+  dot_write_switch_info(r, lp->gid, dot_file);
+
   //set lps connected to each port
   r->num_cons = 0;
   r->num_lcons = 0;
@@ -747,6 +1081,8 @@ void switch_init(switch_state * r, tw_lp * lp)
       printf("I am switch %d, connect to terminal %d (%d) at port %d\n",
           r->switch_id, term, nextTerm, r->num_cons - 1);
 #endif
+      /* write sw2term links and (reverse link, too) into DOT file */
+      dot_write_sw2term_link(r->switch_level, lp->gid, r->num_cons - 1, term, 1, dot_file);
     }
     r->start_lneigh = start_terminal;
     r->end_lneigh = end_terminal;
@@ -772,6 +1108,9 @@ void switch_init(switch_state * r, tw_lp * lp)
       printf("I am switch %d, connect to upper switch %d L1 (%d) at port %d\n",
           r->switch_id, l1_base, nextTerm, r->num_cons - 1);
 #endif
+        /* write all inter switch links to DOT file (initialized before) */
+        dot_write_sw2sw_link(r->switch_level, lp->gid, r->num_cons - 1,
+              r->switch_level + 1, nextTerm, -1, dot_file);
       }
       l1_base++;
     }
@@ -802,6 +1141,9 @@ void switch_init(switch_state * r, tw_lp * lp)
         printf("I am switch %d, connect to switch %d L0 (%d) at port %d\n",
             r->switch_id, l0_base, nextTerm, r->num_cons - 1);
 #endif
+        /* write all inter switch links to DOT file (initialized before) */
+        dot_write_sw2sw_link(r->switch_level, lp->gid, r->num_cons - 1,
+              r->switch_level - 1, nextTerm, -1, dot_file);
       }
       l0_base++;
     }
@@ -822,6 +1164,9 @@ void switch_init(switch_state * r, tw_lp * lp)
             printf("I am switch %d, connect to upper switch %d L2 (%d) at port %d\n",
                 r->switch_id, l2, nextTerm, r->num_cons - 1);
 #endif
+            /* write all inter switch links to DOT file (initialized before) */
+            dot_write_sw2sw_link(r->switch_level, lp->gid, r->num_cons - 1,
+                  r->switch_level + 1, nextTerm, -1, dot_file);
           }
         }
       }
@@ -844,16 +1189,25 @@ void switch_init(switch_state * r, tw_lp * lp)
           printf("I am switch %d, connect to  switch %d L1 (%d) at port %d\n",
               r->switch_id, l1, nextTerm, r->num_cons - 1);
 #endif
+          /* write all inter switch links to DOT file (initialized before) */
+          dot_write_sw2sw_link(r->switch_level, lp->gid, r->num_cons - 1,
+                r->switch_level - 1, nextTerm, -1, dot_file);
         }
       }
     }
   }
+
+  /* ensure the DOT file is out before reading it with external tools */
+  if(dot_file)
+    fflush(dot_file);
+
   return;
 }
 
 /* empty for now.. */
 static void fattree_report_stats()
 {
+  if(dump_topo) return;
 #if DEBUG_RC
 	long long t_packet_event_f = 0;
 	long long t_packet_event_r = 0;
@@ -2117,6 +2471,17 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
   fattree_param *p = s->params;
 
   int dest_term_local_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0);
+  /* either do static oblivious routing, if set up properly via LFTs */
+  if(s->params->routing == STATIC) {
+    assert(dest_term_local_id >= 0 && dest_term_local_id < p->num_terminals);
+
+    outport = s->lft[dest_term_local_id];
+
+    /* assert should only fail if read LFT is incomplete -> broken routing */
+    assert(outport >= 0);
+    return outport;
+  }
+  /* or we just do some adaptive routing instead */
 
   if(s->switch_level == 0) {
     //message for a terminal node
@@ -2230,6 +2595,7 @@ void ft_terminal_event( ft_terminal_state * s, tw_bf * bf, fattree_message * msg
 
 void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
 {
+    if(dump_topo) return;
     model_net_print_stats(lp->gid, s->fattree_stats_array);
 
     int written = 0;
@@ -2299,6 +2665,7 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
 void fattree_switch_final(switch_state * s, tw_lp * lp)
 {
     if(s->unused) return;
+    if(dump_topo) return;
 
     (void)lp;
     int i;
@@ -2461,7 +2828,7 @@ tw_lptype fattree_lps[] =
   },
   {
     (init_f) switch_init,
-    (pre_run_f) NULL,
+    (pre_run_f) post_switch_init,
     (event_f) switch_event,
     (revent_f) switch_rc_event_handler,
     (commit_f) NULL,
