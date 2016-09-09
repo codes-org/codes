@@ -123,6 +123,7 @@ struct fattree_param
   int Np; //Number of pods
   int *num_switches; //switches at various levels
   int *switch_radix; //radix of switches are various levels
+  int terminal_radix; //radix of terminals. >1 means multi-rail network
   double link_bandwidth;/* bandwidth of a wire connecting switches */
   double cn_bandwidth;/* bandwidth of the compute node channels
                         connected to switch */
@@ -185,9 +186,9 @@ struct ft_terminal_state
   // Fattree specific parameters
   unsigned int terminal_id;
   unsigned int switch_id;
-  tw_lpid switch_lp;
+  tw_lpid* switch_lp;
 
-  // Each terminal will have an input and output channel with the switch
+  // Each terminal will have an input and output channel with a switch in each rail
   int vc_occupancy; // NUM_VC
   tw_stime terminal_available_time;
   tw_stime next_credit_available_time;
@@ -710,6 +711,10 @@ static void fattree_read_config(const char * anno, fattree_param *p){
     token = strtok(NULL,",");
   }
 
+  p->terminal_radix = 1;
+  configuration_get_value_int(&config, "PARAMS", "terminal_radix", anno,
+    &p->terminal_radix);
+
   char switch_radix_str[MAX_NAME_LENGTH];
   rc = configuration_get_value(&config, "PARAMS", "switch_radix", anno,
       switch_radix_str, MAX_NAME_LENGTH);
@@ -923,6 +928,8 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
         s->params = &all_params[id];
     }
 
+   s->switch_lp = (tw_lpid*) malloc (s->params->terminal_radix * sizeof(tw_lpid));
+
    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
            s->anno, 0);
 
@@ -934,7 +941,15 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
    s->terminal_id = (mapping_rep_id * num_lps) + mapping_offset;
    s->switch_id = s->terminal_id / (s->params->switch_radix[0] / 2);
    codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
-           s->switch_id, 0, &s->switch_lp);
+      s->switch_id, 0, &s->switch_lp[0]);
+   char rail_group_name[40];
+   for(int i=1;i<s->params->terminal_radix;i++)
+    {
+        sprintf(rail_group_name,"RAIL_%d",i);
+   printf("terminal_radix:%d RAIL_group_name:%s\n",s->params->terminal_radix,rail_group_name);
+        codes_mapping_get_lp_id(rail_group_name, "fattree_switch", NULL, 1,
+           s->switch_id, 0, &s->switch_lp[i]);
+    }
    s->terminal_available_time = 0.0;
    s->packet_counter = 0;
    s->terminal_msgs =
@@ -952,8 +967,9 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
    s->busy_time = 0;
 
 #if FATTREE_HELLO
-   printf("I am terminal %d (%llu), connected to switch %d\n", s->terminal_id,
-       LLU(lp->gid), s->switch_id);
+   for(int i=0;i<s->params->terminal_radix;i++)
+     printf("I am terminal %d (%llu), connected to switch %d (%llu)\n", s->terminal_id,
+             LLU(lp->gid), s->switch_id,LLU(s->switch_lp[i]));
 #endif
 
    rc_stack_create(&s->st);
@@ -1739,7 +1755,7 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   // we are sending an event to the switch, so no method_event here
   ts = s->terminal_available_time - tw_now(lp);
 
-  e = tw_event_new(s->switch_lp, ts, lp);
+  e = tw_event_new(s->switch_lp[0], ts, lp);
   m = tw_event_data(e);
   memcpy(m, &cur_entry->msg, sizeof(fattree_message));
   if (m->remote_event_size_bytes){
@@ -2421,7 +2437,7 @@ void ft_packet_arrive(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   ts = g_tw_lookahead + s->params->credit_delay + g_tw_lookahead * tw_rand_unif(lp->rng);
 
   // no method_event here - message going to switch
-  buf_e = tw_event_new(s->switch_lp, ts, lp);
+  buf_e = tw_event_new(s->switch_lp[0], ts, lp);
   buf_msg = tw_event_data(buf_e);
   buf_msg->magic = switch_magic_num;
   buf_msg->vc_index = msg->vc_index;
