@@ -1095,8 +1095,8 @@ void switch_init(switch_state * r, tw_lp * lp)
   r->num_cons = 0;
   r->num_lcons = 0;
 #if FATTREE_HELLO
-  printf("I am switch %d (%llu), level %d, radix %d\n", r->switch_id,
-    LLU(lp->gid), r->switch_level, r->radix);
+  printf("I am switch %d (%llu), Def_Group %s, LP_Group %s, level %d, radix %d\n", r->switch_id, LLU(lp->gid),
+    def_group_name, lp_group_name, r->switch_level, r->radix);
 #endif
   //if at level 0, first half ports go to terminals
   if(r->switch_level == 0) {
@@ -1174,7 +1174,7 @@ void switch_init(switch_state * r, tw_lp * lp)
     }
     for(int l0 = 0; l0 < l0_set_size; l0++) {
       tw_lpid nextTerm;
-      codes_mapping_get_lp_id(def_group_name, "fattree_switch", NULL, 1,
+      codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
           l0_base, 0, &nextTerm);
       for(int con = 0; con < r->con_per_lneigh; con++) {
         r->port_connections[r->num_cons++] = nextTerm;
