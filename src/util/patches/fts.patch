@@ -1,0 +1,767 @@
+diff -Nur scripts.orig/createIBNet.py scripts/createIBNet.py
+--- scripts.orig/createIBNet.py	2016-08-17 14:02:05.108470000 -0700
++++ scripts/createIBNet.py	2016-08-16 10:34:30.536970000 -0700
+@@ -1,12 +1,13 @@
+ #!/usr/bin/env python
+ 
+-import os, re, sys, math, random, copy, subprocess, colorsys
++import os, re, sys, math, random, md5, copy, subprocess, colorsys
+ from math import sqrt, ceil
+ from operator import itemgetter
++#import cProfile
+ 
+ class IBNet(object):
+    # predefs
+-   topologies = ['FatTree', 'k-ary-n-Tree', '2D-Mesh', '3D-Mesh', '2D-Torus', '3D-Torus', 'Kautz', 'XGFT', 'Random', 'Dragonfly', 'Cascade', 'Tofu', 'Taurus', 'MMS', 'load']
++   topologies = ['FatTree', 'k-ary-n-Tree', '2D-Mesh', '3D-Mesh', '2D-Torus', '3D-Torus', 'Kautz', 'XGFT', 'Random', 'Dragonfly', 'Cascade', 'Tofu', 'Taurus1', 'Taurus2', 'Taurus3', 'Tsubame3HP', 'MMS', 'DOT', 'load']
+    # general stuff
+    inputFile   = ''
+    rguidFile   = ''
+@@ -17,6 +18,7 @@
+    numSwitches          = -1
+    numPortPerSwitch     = -1
+    graph = {}
++   ca_guids             = {}
+    root_switches        = {}
+    non_root_switches    = {}
+    dor_switches         = {}
+@@ -26,6 +28,7 @@
+    linkWidth   = 4
+    speed       = {'SDR':1, 'DDR':2, 'QDR':4, 'FDR10':8, 'FDR':16, 'EDR':32}   # > FDR10 not really supported by ibsim
+    linkSpeed   = 'SDR'
++   enhancedSP0 = False
+    abnormalLinks = {}
+    # dimensions
+    d1 = -1
+@@ -33,7 +36,8 @@
+    d3 = -1
+    multiLinkEnabled = False
+    # special topos
+-   KaryN    = [-1, -1]
++   KaryN       = [-1, -1]
++   prunedKaryN = False
+    KautzBN  = [-1, -1]
+    xgftHMW  = ['-1', '-1', '-1']
+    dragAPHG = [-1, -1, -1, -1]
+@@ -88,10 +92,18 @@
+          self.createCascade()
+       elif self.topology == 'Tofu':
+          self.createTofu()
+-      elif self.topology == 'Taurus':
+-         self.createTaurus()
++      elif self.topology == 'Taurus1':
++         self.createTaurus1()
++      elif self.topology == 'Taurus2':
++         self.createTaurus2()
++      elif self.topology == 'Taurus3':
++         self.createTaurus3()
++      elif self.topology == 'Tsubame3HP':
++         self.createTsubame3HP()
+       elif self.topology == 'MMS':
+          self.createMMS()
++      elif self.topology == 'DOT':
++         self.read_existingDOT(self.inputFile)
+       elif self.topology == 'load':
+          self.read_existingTopology(self.inputFile, self.rguidFile)
+ 
+@@ -129,8 +141,25 @@
+ 
+       if self.addRoutingInfo:
+          self.buildRoutingTables(self.dgraph, self.killedSwitches, self.killedLinks)
+-   
+-   
++
++
++   def atoi(self, text):
++      return int(text) if text.isdigit() else text
++
++
++   def sort_natural_keys(self, text):
++      '''
++      alist.sort(key=natural_keys) sorts in human order
++      http://stackoverflow.com/questions/5967500/how-to-correctly-sort-a-string-with-a-number-inside
++      '''
++      return [ self.atoi(c) for c in re.split('(\d+)', text) ]
++
++
++   def sort_graph_nodes(self, graph_node):
++      localid, adj = graph_node
++      return self.sort_natural_keys(localid)
++
++
+    def create2DTorus(self, topology, d1, d2):
+       numSwitches, numPortPerSwitch, numEndpoints, numPortPerEndpoint = self.getComponentConfig()
+       # calc dimension
+@@ -323,6 +352,8 @@
+          for n in xrange(ndim):
+             for o in xrange(odim):
+                switch = 'S%s_%s_%s' % (str(m), str(n), str(o))
++               if m==1 and n==1 and o==1: self.root_switches[switch] = swGUID
++               else:                      self.non_root_switches[switch] = swGUID   
+                self.graph[ switch ] = []
+                ports[ switch ] = self.numPortPerSwitch
+                self.dor_switches[switch] = {'guid':swGUID, 'dimList':[]}
+@@ -612,6 +643,22 @@
+                   self.graph[ switch1 ].append( switch2 )
+                   ports[ switch1 ] -= 1
+                   ports[ switch2 ] -= 1
++
++      # for real networks we use 1/2 switches in the top layer, otherwise we waste ports
++      if self.prunedKaryN:
++         topLayer = []
++         for sw in self.graph.keys():
++            if sw.find(',0>') > -1:
++               topLayer.append(sw)
++         if n==2:   topLayer.sort(key=lambda x: int(x.replace('S<','').split(',')[0]))
++         elif n==3: topLayer.sort(key=lambda x: (int(x.replace('S<','').split(',')[0]), int(x.replace('S<','').split(',')[1])))
++         elif n==4: topLayer.sort(key=lambda x: (int(x.replace('S<','').split(',')[0]), int(x.replace('S<','').split(',')[1]), int(x.replace('S<','').split(',')[2])))
++         else: sys.exit('ERROR: sorting for >4 level trees not yet implemented')
++         # take links from 2. half and add them to first half
++         for index in xrange(0,len(topLayer)/2):
++            self.graph[topLayer[index]] += self.graph[topLayer[index+len(topLayer)/2]]
++            del self.graph[topLayer[index+len(topLayer)/2]]
++            del ports[topLayer[index+len(topLayer)/2]]
+       
+       # connect hca
+       setHca = 0
+@@ -651,16 +698,22 @@
+ 
+       # generate list with root/core switches
+       swGUID = math.pow(2,33)
+-      for w in nTuples:
+-          switch = 'S<%s,0>' % (','.join([str(x) for x in w]))
+-          self.root_switches[switch] = swGUID
+-          swGUID += 26
++      if not self.prunedKaryN:
++         for w in nTuples:
++            switch = 'S<%s,0>' % (','.join([str(x) for x in w]))
++            self.root_switches[switch] = swGUID
++            swGUID += 26
++      else:
++         for switch in self.graph.iterkeys():
++            if switch.find(',0>') > -1:
++               self.root_switches[switch] = swGUID
++               swGUID += 26
+       swGUID = math.pow(2,33) - 26
+       for l in xrange(1,n):
+-          for w in nTuples:
+-              switch = 'S<%s,%s>' % (','.join([str(x) for x in w]), str(l))
+-              self.non_root_switches[switch] = swGUID
+-              swGUID -= 26
++         for w in nTuples:
++            switch = 'S<%s,%s>' % (','.join([str(x) for x in w]), str(l))
++            self.non_root_switches[switch] = swGUID
++            swGUID -= 26
+ 
+ 
+    def createKautz(self):
+@@ -698,10 +751,14 @@
+             pass
+       
+       # generate all switches S<Kautz string>
++      swGUID = math.pow(2,33)
+       for z in KautzSpace:
+          switch = 'S<%s>' % (','.join([str(x) for x in z]))
+          self.graph[ switch ] = []
+          ports[      switch ] = self.numPortPerSwitch
++         if KautzSpace.index(z)==0: self.root_switches[switch] = swGUID
++         else:                      self.non_root_switches[switch] = swGUID
++         swGUID -= 26
+       
+       # connect hca
+       setHca = 0
+@@ -762,8 +819,12 @@
+          self.conn_links = self.numSwitches * self.numPortPerSwitch
+       
+       # add all switches
++      swGUID = math.pow(2,33)
+       for x in xrange(self.numSwitches):
+          switch = 'S%i' % (x)
++         if x==0: self.root_switches[switch] = swGUID
++         else:    self.non_root_switches[switch] = swGUID
++         swGUID -= 26
+          self.graph[ switch ] = []
+          ports[      switch ] = self.numPortPerSwitch
+          # create a switch chain -> no disjunct network is possible
+@@ -1054,11 +1115,15 @@
+          print 'Warning: not enough end points, should be at least 1 per router; increased to max. of %i' % (self.numEndpoints)
+       self.numSwitches = a * g
+ 
++      swGUID = math.pow(2,33)
+       for groupid in xrange(g):
+          for swid in xrange(a):
+             switch = 'S<%s,%s>' % (groupid,swid)
+             self.graph[ switch ] = []
+             ports[      switch ] = self.numPortPerSwitch
++            if groupid==0 and swid==0: self.root_switches[switch] = swGUID
++            else:                      self.non_root_switches[switch] = swGUID
++            swGUID -= 26
+ 
+       # connect Hca to switches, round robin to set the Hca
+       try:
+@@ -1170,16 +1235,20 @@
+          for src_swidx in xrange(a/6):
+             for src_swidy in xrange(a/16):
+                switch1 = 'S<%s,%s,%s>' % (groupid,src_swidx,src_swidy)
++               # green cables (1x per pair)
+                for dest_swidx in xrange(src_swidx+1,a/6):
+                   switch2 = 'S<%s,%s,%s>' % (groupid,dest_swidx,src_swidy)
+                   self.graph[ switch1 ].append( switch2 )
+                   ports[ switch1 ] -= 1
+                   ports[ switch2 ] -= 1
++               # black cables (3x per pair)
+                for dest_swidy in xrange(src_swidy+1,a/16):
+                   switch2 = 'S<%s,%s,%s>' % (groupid,src_swidx,dest_swidy)
+                   self.graph[ switch1 ].append( switch2 )
+-                  ports[ switch1 ] -= 1
+-                  ports[ switch2 ] -= 1
++                  self.graph[ switch1 ].append( switch2 )
++                  self.graph[ switch1 ].append( switch2 )
++                  ports[ switch1 ] -= 3
++                  ports[ switch2 ] -= 3
+ 
+       # connect groups with each other (inter-group connection); completely connected (N-to-N)
+       for groupid in xrange(g):
+@@ -1233,6 +1302,8 @@
+             for swidz in xrange(dim3):
+                for internalid in xrange(a): # internal id within a group of 12 sw
+                   switch = 'S<%s,%s,%s,%s>' % (swidx,swidy,swidz,internalid)
++                  if swidx==0 and swidy==0 and swidz==0: self.root_switches[switch] = swGUID
++                  else:                                  self.non_root_switches[switch] = swGUID
+                   self.graph[ switch ] = []
+                   ports[      switch ] = self.numPortPerSwitch
+                   self.dor_switches[switch] = {'guid':swGUID, 'dimList':[]}
+@@ -1387,14 +1458,140 @@
+          self.torus2qos_switches['seed'][switch]['y_dateline'] = -1*swidy
+          self.torus2qos_switches['seed'][switch]['z_dateline'] = -1*swidz
+ 
+-   def createTaurus(self):
++
++   def createTaurus1(self):
++      print "ATTENTION: confidential (original design idea w/ 4 islands) !!!"
++
++
++   def createTaurus2(self):
++      print "ATTENTION: confidential (Bull's idea for the design w/ 6 islands) !!!"
++
++
++   def createTaurus3(self):
++      print "ATTENTION: confidential (Jens' idea for the design w/ 4 islands of equal size) !!!"
++
++
++   def createTsubame3HP(self):
+       print 'ATTENTION: confidential !!!'
+-      
+-      
++
++
+    def createMMS(self):
+       print 'ATTENTION: confidential !!!'
+ 
+ 
++   def read_existingDOT(self, inputName=''):
++      if not os.path.exists(inputName):
++         print "Error: %s not found" % inputName
++         print ""
++         self.printHelp()
++
++      ports = {}
++      portMap = {}
++      post_mortem_port_matching = False
++      # if '[comment=' exists, then the node guid MUST be the first after '='
++      node_re = re.compile('^\s+"{0,1}(\w+)"{0,1}\s*(\[?\s*comment="([\w;,>=\-]*)"\s*\]|([#/;]+.*|$))')
++      link_re = re.compile('^\s+"{0,1}(\w+)"{0,1}\s*[>\-]{2}\s*"{0,1}(\w+)"{0,1}\s*(\[?\s*comment="([\w;,>=\-\?]*)"\s*\]|([#/;]+.*|$))')
++
++      dotFile = open(inputName, 'r')
++      for line in dotFile:
++         if re.compile('^\s*graph\s*{').match(line):
++            sys.exit('Error: currently only digraphs in DOT format supportet')
++         if node_re.match(line):
++            m = node_re.match(line)
++            node = m.group(1)
++            node_comment = m.group(3)
++            try:
++               node_guid = int(node_comment.split(',')[0].split(';')[0], 16)
++            except:
++               node_guid = int(md5.new(node).hexdigest(), 16)
++            if node.find('H') == 0:
++               #node = 'Hca<%016x>' % node_guid
++               self.ca_guids[node] = node_guid
++               ports[node] = 1
++            elif node.find('S') == 0:
++               #node = 'S<%016x>' % node_guid
++               if 'root_switch' in node_comment:
++                  self.root_switches[node] = node_guid
++               else:
++                  self.non_root_switches[node] = node_guid
++               if 'radix' in node_comment:
++                  ports[node] = int(re.compile('.*,\s*radix\s*=\s*(\d+)').match(node_comment).group(1))
++                  if ports[node] > self.numPortPerSwitch:
++                     self.numPortPerSwitch = ports[node]
++               else:
++                  ports[node] = self.numPortPerSwitch
++            else:
++               sys.exit("Error: incompatible DOT format (node names must start with 'H' for terminals, or 'S' for switches)")
++            if self.graph.has_key(node):
++               sys.exit('Error: node definition (for %s) in DOT found after edge definition' % node)
++            self.graph[node] = []
++            continue
++ 
++         if link_re.match(line):
++            m = link_re.match(line)
++            lnode = m.group(1)
++            rnode = m.group(2)
++            link_comment = m.group(4)
++            if not self.graph.has_key(lnode):
++               self.graph[lnode] = []
++            if not self.graph.has_key(rnode):
++               self.graph[rnode] = []
++            ports_re = re.compile('P(\d+)\s*->\s*P([\?\d]+)')
++            if ports_re.match(link_comment):
++               m = ports_re.match(link_comment)
++               try:
++                  lport, rport = int(m.group(1)), int(m.group(2))
++               except:
++                  lport, rport = int(m.group(1)), -1
++                  post_mortem_port_matching = True
++            ports[lnode] -= 1
++            ports[rnode] -= 1
++            if portMap.has_key(lnode):
++               portMap[lnode].append([lport, rnode, rport])
++            else:
++               portMap[lnode] = [[lport, rnode, rport]]
++            continue
++
++      # sometimes... ok, lets do the port matching here if the devs are too lazy
++      if post_mortem_port_matching:
++         # find two pairs and repair the portMap
++         for localid, values in portMap.iteritems():
++            tmpValues = [link for link in values if -1 == link[2]]
++            for remoteid in list(set([link[1] for link in tmpValues])):
++               localPorts = sorted([link[0] for link in tmpValues if remoteid == link[1]])
++               remotePorts = sorted([link[0] for link in portMap[remoteid] if localid == link[1] and (-1 == link[2] or link[2] in localPorts)])
++               if len(localPorts) != len(remotePorts):
++                  sys.exit('Error: invalid config, port numbering is off, please check DOT file')
++               for i in xrange(len(localPorts)):
++                  localPort = localPorts[i]
++                  remotePort = remotePorts[i]
++                  # now overwrite the bad ports
++                  for j in xrange(len(portMap[localid])):
++                     if portMap[localid][j][0] == localPort: lindex = j
++                  for j in xrange(len(portMap[remoteid])):
++                     if portMap[remoteid][j][0] == remotePort: rindex = j
++                  portMap[localid][lindex][2] = remotePort
++                  portMap[remoteid][rindex][2] = localPort
++
++      # and now we have to config the links into our self.graph
++      for localid, values in portMap.iteritems():
++         for localPort, remoteid, remotePort in values:
++            if -1 == remotePort:
++               sys.exit('Error: invalid config, apparently could not fix all unknown ports')
++            self.graph[localid].append(remoteid)
++
++      # is the network valid?
++      if len(self.graph) < 1:
++         sys.exit('Invalid config; No nodes/edges found in the DOT file.')
++      for switch in self.graph.iterkeys():
++         if 'S<' in switch:
++            if ports[ switch ] < 0:
++               sys.exit('Invalid config, configured radix or provided radix in DOT files do not support this much neighbors.')
++
++      dotFile.close()
++      self.portMap = portMap
++
++
+    def read_existingTopology(self, inputName='', rootName=''):
+       if not os.path.exists(inputName):
+          print "Error: %s not found" % inputName
+@@ -1439,6 +1636,7 @@
+                portMap[switch] = []
+ 
+          p = re.compile('^\[(\d+)\]\s+"(\w)-(\w+)"\[(\d+)\].*#\s+"(.*)"\s+lid\s+(\d+)\s+(\d+)x(\w+)\s*.*$')
++         r = re.compile('^\[(\d+)\]\s+"(\w)-(\w+)"\[(\d+)\].*#\s+"(.*)"\s+lid\s+(\d+)\s*.*$')
+          if guid != 0 and p.match(line):
+             # ibnetdiscover OR ibnetdiscover -s
+             m = p.match(line)
+@@ -1449,7 +1647,15 @@
+             elif rlinkfreq == "FDR10": rlinkspeed = 10.3125     # 64b/66b encoding
+             elif rlinkfreq == "FDR":   rlinkspeed = 14.0625     # 64b/66b encoding
+             elif rlinkfreq == "EDR":   rlinkspeed = 25.78125    # 64b/66b encoding
++         elif guid != 0 and r.match(line):
++            # old ibnetdiscover of deimos
++            m = r.match(line)
++            lport, rtype, rguid, rport, rname, rlid = int(m.group(1)), m.group(2), int(m.group(3), 16), int(m.group(4)), m.group(5), int(m.group(6))
++            rlinkwidth = 4
++            rlinkfreq = "DDR"
++            rlinkspeed = 5.0
+ 
++         if guid != 0 and (p.match(line) or r.match(line)):
+             if rtype == "H":
+                 rthing = "Hca<%016x>" % rguid
+                 if self.graph.has_key(rthing):
+@@ -1481,7 +1687,7 @@
+    #           2, if graph is partitioned into multiple subnets
+    def checkConnectivity(self, graph):
+       if self.ignoreDisconnects:
+-          return 0
++         return 0
+       # duplicate links for easier DFS
+       dgraph = copy.deepcopy(graph)
+       for u in dgraph.keys():
+@@ -1492,31 +1698,31 @@
+       self.graphNodes = graph.keys()
+       self.graphNodes.sort()
+       # use DFS to find connected subnets
+-      not_visited = dgraph.keys()
+-      not_visited.sort()        # new
+-      not_visited.reverse()     # new
+-      v = not_visited.pop(0)
++      not_visited, v = {}, None
++      for node in dgraph.keys():
++          not_visited[node] = True
++          if not v and node.find("S") == 0: v = node
++      not_visited[v] = False
+       stack = dgraph[v][:]
+       while len(stack) > 0:
+          w = stack.pop(0)
+-         if not_visited.count(w) > 0:
+-            not_visited.remove(w)
++         not_visited[w] = False
+          for u in dgraph[w]:
+-            if not_visited.count(u) > 0:
+-               not_visited.remove(u)
++            if not_visited[u]:
++               not_visited[u] = False
+                stack.append(u)
+       # safe not_visited list for later (e.g. remove lonely HCAs)
+-      self.disconnectedComponents = not_visited[:]
++      self.disconnectedComponents = [node for node in not_visited if not_visited[node]]
+       # check for not visited nodes and their type
+-      if len(not_visited) == 0:
++      if len(self.disconnectedComponents) == 0:
+          return 0
+       else:
+          c = 0
+-         for v in not_visited:
++         for v in self.disconnectedComponents:
+             if v.find("S") == 0: c = c + 1
+          if c == 0:  return 1
+          else:       return 2
+- 
++
+ 
+    def cleanupAfterFault(self):
+       # this could happen if a sw was killed
+@@ -1952,9 +2158,13 @@
+          for localid in graph.iterkeys():
+             portMap[localid] = [] # localport, destName, remoteport
+ 
+-         for localid, values in graph.iteritems():
++         #for localid, values in graph.iteritems():
++         # sort by localid, i.e., sw/hca names
++         for localid, values in sorted(graph.items(), key=self.sort_graph_nodes):
+             localport = len(portMap[localid])+1
+-            for remoteid in values:
++            #for remoteid in values:
++            # sort by sw/hca names
++            for remoteid in sorted(values, key=self.sort_natural_keys):
+                #print localid, localport, remoteid, len(portMap[remoteid])+1
+                portMap[localid].append( [localport, remoteid, len(portMap[remoteid])+1] )
+                portMap[remoteid].append( [len(portMap[remoteid])+1, localid, localport] )
+@@ -1962,12 +2172,14 @@
+ 
+       out = open( self.outputFile, 'w')
+       # write Switche (first, else calcEBB has problems)
+-      for localid, values in portMap.iteritems():
++      #for localid, values in portMap.iteritems():
++      # sort by localid, i.e., sw/hca names
++      for localid, values in sorted(portMap.items(), key=self.sort_graph_nodes):
+          # write the type Hca/Switch
+          string = ''
+-         if localid.find('Hca') != -1:
++         if localid.find('H') == 0:
+             continue
+-         elif localid.find('S') != -1:
++         elif localid.find('S') == 0:
+             if self.root_switches.has_key(localid):
+                 string += 'switchguid=0x%016x\n' % self.root_switches[localid]
+             elif self.non_root_switches.has_key(localid):
+@@ -1975,12 +2187,16 @@
+             elif self.dor_switches.has_key(localid):
+                 string += 'switchguid=0x%016x\n' % self.dor_switches[localid]['guid']
+             string += '%s%d%s%s%s' % ('Switch   ', self.numPortPerSwitch, ' "', localid, '"')
++            if self.enhancedSP0:
++                string += ' enhanced port 0'
+          else:
+             sys.exit('Something with the find for "Hca" or "S" in writeInputForIBSIM() is wrong.')
+          out.write( string+'\n' )
+          # write the connections for this type
+          string = ''
+-         for remotelink in values:
++         #for remotelink in values:
++         # sort by port number (are int -> already natural order)
++         for remotelink in sorted(values):
+             if len(self.abnormalLinks) == 0:
+                string = '[%d]    "%s"[%d]  %sx%s s=%s w=%s' % (remotelink[0], remotelink[1], remotelink[2], self.linkWidth, self.linkSpeed, self.speed[self.linkSpeed], self.width[self.linkWidth])
+             elif not self.abnormalLinks.has_key('%s<->%s' % (localid, remotelink[1])) and not self.abnormalLinks.has_key('%s<->%s' % (remotelink[1], localid)):
+@@ -1994,12 +2210,15 @@
+             out.write( string+'\n' )
+          out.write( '\n' )
+       # write Hca
+-      for localid, values in portMap.iteritems():
++      #for localid, values in portMap.iteritems():
++      for localid, values in sorted(portMap.items()):
+          # write the type Hca/Switch
+          string = ''
+-         if localid.find('Hca') != -1:
+-            string = '%s%d%s%s%s' % ('Hca      ', self.numPortPerEndpoint, ' "', localid, '"')
+-         elif localid.find('S') != -1:
++         if localid.find('H') == 0:
++            if self.ca_guids.has_key(localid):
++               string += 'caguid=0x%016x\n' % self.ca_guids[localid]
++            string += '%s%d%s%s%s' % ('Hca      ', self.numPortPerEndpoint, ' "', localid, '"')
++         elif localid.find('S') == 0:
+             continue
+             #string = '%s%d%s%s%s' % ('Switch   ', self.numPortPerSwitch, ' "', localid, '"')
+          else:
+@@ -2007,7 +2226,8 @@
+          out.write( string+'\n' )
+          # write the connections for this type
+          string = ''
+-         for remotelink in values:
++         #for remotelink in values:
++         for remotelink in sorted(values):
+             if len(self.abnormalLinks) == 0:
+                string = '[%d]    "%s"[%d]  %sx%s s=%s w=%s' % (remotelink[0], remotelink[1], remotelink[2], self.linkWidth, self.linkSpeed, self.speed[self.linkSpeed], self.width[self.linkWidth])
+             elif not self.abnormalLinks.has_key('%s<->%s' % (localid, remotelink[1])) and not self.abnormalLinks.has_key('%s<->%s' % (remotelink[1], localid)):
+@@ -2647,7 +2867,14 @@
+             sys.exit('Your -tn is invalid!  Try `createIBNet --help`')
+       else:
+          self.KaryN[1] = -1
+-      
++
++      try:      i = sys.argv.index('-tp')
++      except:   i = -1
++      if i != -1:
++         self.prunedKaryN = True
++      else:
++         self.prunedKaryN = False
++
+       # args nach kb durchsuchen
+       try:
+          i = sys.argv.index('-kb')
+@@ -2908,6 +3135,14 @@
+       else:
+          self.taurusIslands = -1
+ 
++      # search in args for tsubame3hp config
++      try:      i = sys.argv.index('-t4t4')
++      except:   i = -1
++      if i != -1:
++         self.use4to4mapping = True
++      else:
++         self.use4to4mapping = False
++
+       # search in args for MMS config
+       try:      i = sys.argv.index('-mms')
+       except:   i = -1
+@@ -2937,6 +3172,13 @@
+       else:
+          self.linkSpeed = 'SDR'
+ 
++      try:      i = sys.argv.index('-esp0')
++      except:   i = -1
++      if i != -1:
++          self.enhancedSP0 = True
++      else:
++          self.enhancedSP0 = False
++
+       print 'Selected configuration:'
+       print '  Output: ', self.outputFile
+       print '  Topology: ', self.topology
+@@ -2973,12 +3215,13 @@
+       print '              [-f[a|p|h] <a,p,h for Dragonfly> ]'
+       print ''
+       print '     -o    name of the output file'
+-      print '     -i    name of existing topology file to load and modify'
++      print '     -i    name of existing DOT/topology file to load and modify'
+       print '     -rid  name of existing rootguid file for existing topology'
+       print '     -t    the topology (default = 2D-Mesh) of the InfiniBand Network'
+       print '                 [ FatTree | k-ary-n-Tree | 2D-Mesh | 3D-Mesh |'
+       print '                   2D-Torus | 3D-Torus | Kautz | XGFT | Random |'
+-      print '                   Dragonfly | Cascade | Tofu | Taurus | MMS | load]'
++      print '                   Dragonfly | Cascade | Tofu | Taurus[1|2|3] | '
++      print '                   Tsubame3HP | MMS | DOT | load]'
+       print '     -n    number of endpoints (Hca) in the network (default = 8)'
+       print '     -np   number of ports for each endpoint (default = 1) [ 1 | 2 ]'
+       print '     -s    number of switches (default = 4)'
+@@ -2989,6 +3232,7 @@
+       print '     -ml   enable multi-link configuration between switches for Mesh/Torus/Kautz/MMS'
+       print '     -tk   k (k-ary-n-Tree) is half the number of ports for each switch'
+       print '     -tn   n (k-ary-n-Tree) is the number of levels in the tree'
++      print '     -tp   pruned k-ary-n-Tree, i.e., 1/2 number of core switches'
+       print '     -kb   b for Kautz K(b,n) is the base of the Kautz string'
+       print '     -kn   n for Kautz K(b,n) is the length of the Kautz string'
+       print '     -xh   h for XGFT(h,m,w) is the height of the tree'
+@@ -3010,10 +3254,12 @@
+       print '     -idc  network faults: ignore if network is disconnected'
+       print '     -am   gather additional metrics, like diameter, bisection bandwidth,...'
+       print '     -ari  add routing information; outputs a suggested routing; supported topologies: Tofu'
+-      print '     -tau  specifiy a single or multiple islands for the taurus config (1: 1.island; 2: 2.; 4: 3.; 8: 4.service; 6: 2.+3.; ...)'
++      print '     -tau  specifiy a single or multiple islands for the taurus1 config (1: 1.island; 2: 2.; 4: 3.; 8: 4.service; 6: 2.+3.; ...)'
++      print '     -t4t4 use a 4 Hca to 4 switches mapping for Tsubame3HP (default is 4-to-1 mapping)'
+       print '     -mms  specifiy the MMS graph size (possible: 7 11 17 19 25 29 35 43 47 55 79)'
+       print '     -wid  define the link width for the network (1X, 4X, 8X, 12X); just number w/o X'
+       print '     -spe  define the link speed (possible: SDR, DDR, QDR, FDR10, FDR, EDR)'
++      print '     -esp0 switches should be configured to have an enhanced switch port 0'
+       print ''
+       print 'Examples:'
+       print '  createIBNet -t 2D-Mesh -d1 3 -d2 2 -s 6 -sp 16 -n 12 -np 2'
+@@ -3021,5 +3267,7 @@
+    
+ if __name__ == "__main__":
+    app = IBNet()
+-   sys.exit('\nFinish!')
++   #app = cProfile.run('IBNet()')
++   #sys.exit('\nFinish!')
++   sys.exit(0)
+ 
+diff -Nur scripts.orig/simulate.py scripts/simulate.py
+--- scripts.orig/simulate.py	2016-08-17 14:02:19.306717000 -0700
++++ scripts/simulate.py	2016-08-17 13:10:45.369042000 -0700
+@@ -724,21 +724,23 @@
+         os.system("sed -i -e 's#\"/usr/bin\":##g' %s/bin/ibdiagnet" % ofeddir)
+         os.chdir(instdir)
+ 
+-        print "Step 7..."
+-        os.chdir(os.path.join(instdir, 'omnet'))
+-        os.environ['PATH'] = '%s:%s' % (os.path.join(instdir, 'omnet', 'bin'), os.getenv('PATH'))
+-        os.environ['LD_LIBRARY_PATH'] = '%s:%s' % (os.path.join(instdir, 'omnet', 'lib'), os.getenv('LD_LIBRARY_PATH'))
+-        os.system('./configure NO_TCL=1 >configure.log 2>&1')
+-        os.system('make >make.log 2>&1')
+-        os.system('make install >install.log 2>&1')
+-        os.chdir(instdir)
+-
+-        print "Step 8..."
+-        os.chdir(os.path.join(instdir, 'ibmodel'))
+-        os.environ['PATH'] = '%s:%s' % (os.path.join(instdir, 'omnet', 'bin'), os.getenv('PATH'))
+-        os.environ['LD_LIBRARY_PATH'] = '%s:%s' % (os.path.join(instdir, 'omnet', 'lib'), os.getenv('LD_LIBRARY_PATH'))
+-        os.system('opp_makemake -f --deep -O out')
+-        os.system('make MODE=release')
++        print '...... skipping omnet install .....'
++        if 0:
++           print "Step 7..."
++           os.chdir(os.path.join(instdir, 'omnet'))
++           os.environ['PATH'] = '%s:%s' % (os.path.join(instdir, 'omnet', 'bin'), os.getenv('PATH'))
++           os.environ['LD_LIBRARY_PATH'] = '%s:%s' % (os.path.join(instdir, 'omnet', 'lib'), os.getenv('LD_LIBRARY_PATH'))
++           os.system('./configure NO_TCL=1 >configure.log 2>&1')
++           os.system('make >make.log 2>&1')
++           os.system('make install >install.log 2>&1')
++           os.chdir(instdir)
++
++           print "Step 8..."
++           os.chdir(os.path.join(instdir, 'ibmodel'))
++           os.environ['PATH'] = '%s:%s' % (os.path.join(instdir, 'omnet', 'bin'), os.getenv('PATH'))
++           os.environ['LD_LIBRARY_PATH'] = '%s:%s' % (os.path.join(instdir, 'omnet', 'lib'), os.getenv('LD_LIBRARY_PATH'))
++           os.system('opp_makemake -f --deep -O out')
++           os.system('make MODE=release')
+ 
+         print "Step 9..."
+         os.system('cp %s/*.py %s/' % (currdir, scriptdir))
+@@ -925,39 +927,40 @@
+             log.close()
+             return
+ 
+-        print "Transform fabric into omnet++ format..."
+-        omnetfiles = os.path.join(testdir, 'omnet')
+-        translog = os.path.join(testdir, 'ibsim2omnet.log')
+-        if pattern.find('rndAll') != -1:
+-            cmd = '%s %s %s rndAll dstRandom >%s 2>&1 &' % (os.path.join(scriptdir, 'ibsim2omnet.py' ), ofedoutdir, omnetfiles, translog)
+-        elif pattern.find('shift') != -1:
+-            cmd = '%s %s %s allShift dstSeqOnce >%s 2>&1 &' % (os.path.join(scriptdir, 'ibsim2omnet.py' ), ofedoutdir, omnetfiles, translog)
+-        elif pattern.find('exchange') != -1:
+-            cmd = '%s %s %s allExchange dstSeqOnce >%s 2>&1 &' % (os.path.join(scriptdir, 'ibsim2omnet.py' ), ofedoutdir, omnetfiles, translog)
+-        else:
+-            sys.exit('Error: Unknown pattern: %s' % pattern)
+-        log.write('%s %s\n' % (time.asctime(), cmd))
+-        os.system(cmd)
+-        while True:
+-            if os.path.exists(translog):
+-                break
+-            time.sleep(1)
+-        trans_log = open(translog, 'r')
+-        gstr = ''
+-        while True:
+-            str = trans_log.read()
+-            gstr = gstr + str
+-            if gstr.find('Finish') != -1 or gstr.find('Usage') != -1 or gstr.find('Error') != -1:
+-                break
+-            time.sleep(1)
+-        trans_log.close()
+-
+-        print "Run omnet++ to simulate the network..."
+-        os.chdir(testdir)
+-        omnetlog = os.path.join(testdir, 'omnet.log')
+-        cmd = '%s -u Cmdenv -f %s >%s 2>&1' % (os.path.join(ibmodeldir, 'ibmodel'), 'omnet.ini', omnetlog)
+-        log.write('%s %s\n' % (time.asctime(), cmd))
+-        os.system(cmd)
++        if 0:
++           print "Transform fabric into omnet++ format..."
++           omnetfiles = os.path.join(testdir, 'omnet')
++           translog = os.path.join(testdir, 'ibsim2omnet.log')
++           if pattern.find('rndAll') != -1:
++               cmd = '%s %s %s rndAll dstRandom >%s 2>&1 &' % (os.path.join(scriptdir, 'ibsim2omnet.py' ), ofedoutdir, omnetfiles, translog)
++           elif pattern.find('shift') != -1:
++               cmd = '%s %s %s allShift dstSeqOnce >%s 2>&1 &' % (os.path.join(scriptdir, 'ibsim2omnet.py' ), ofedoutdir, omnetfiles, translog)
++           elif pattern.find('exchange') != -1:
++               cmd = '%s %s %s allExchange dstSeqOnce >%s 2>&1 &' % (os.path.join(scriptdir, 'ibsim2omnet.py' ), ofedoutdir, omnetfiles, translog)
++           else:
++               sys.exit('Error: Unknown pattern: %s' % pattern)
++           log.write('%s %s\n' % (time.asctime(), cmd))
++           os.system(cmd)
++           while True:
++               if os.path.exists(translog):
++                   break
++               time.sleep(1)
++           trans_log = open(translog, 'r')
++           gstr = ''
++           while True:
++               str = trans_log.read()
++               gstr = gstr + str
++               if gstr.find('Finish') != -1 or gstr.find('Usage') != -1 or gstr.find('Error') != -1:
++                   break
++               time.sleep(1)
++           trans_log.close()
++
++           print "Run omnet++ to simulate the network..."
++           os.chdir(testdir)
++           omnetlog = os.path.join(testdir, 'omnet.log')
++           cmd = '%s -u Cmdenv -f %s >%s 2>&1' % (os.path.join(ibmodeldir, 'ibmodel'), 'omnet.ini', omnetlog)
++           log.write('%s %s\n' % (time.asctime(), cmd))
++           os.system(cmd)
+ 
+         log.write('\nFinished!\n')
+         log.close()
+@@ -1138,5 +1141,6 @@
+     else:
+         parser.print_help()
+ 
+-    sys.exit('\nFinish!')
++    #sys.exit('\nFinish!')
++    sys.exit(0)
+ 
+diff -Nur scripts.orig/startOpenSM.sh scripts/startOpenSM.sh
+--- scripts.orig/startOpenSM.sh	2016-08-17 14:02:30.943729000 -0700
++++ scripts/startOpenSM.sh	2016-08-17 13:59:43.760997000 -0700
+@@ -39,7 +39,10 @@
+ 
+ DEBUG=""
+ if [ -n $2 ]; then
+-	DEBUG="-D ${2}" 
++	DEBUG="-D ${2} -d2" 
++fi
++if [ -f ${4}/../batch_jobs.conf ]; then
++	DEBUG="${DEBUG} --batch_job_file ${4}/../batch_jobs.conf" 
+ fi
+ 
+ CDIR=`pwd`
