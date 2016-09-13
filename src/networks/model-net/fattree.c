@@ -118,6 +118,9 @@ struct fattree_param
   int ft_type;
   // configuration parameters
   int num_levels;
+  int link_repetitions;
+  int Ns; // number of switches per pod
+  int Np; //Number of pods
   int *num_switches; //switches at various levels
   int *switch_radix; //radix of switches are various levels
   double link_bandwidth;/* bandwidth of a wire connecting switches */
@@ -727,6 +730,9 @@ static void fattree_read_config(const char * anno, fattree_param *p){
     token = strtok(NULL,",");
   }
 
+  p->Ns = p->switch_radix[0]/2;
+  int num_terminals = p->num_switches[0]*p->switch_radix[0]/2;
+
   if(p->num_levels == 2) {
     p->num_switches[1] = p->num_switches[0]/2;
     p->switch_radix[1] = p->switch_radix[0];
@@ -734,12 +740,29 @@ static void fattree_read_config(const char * anno, fattree_param *p){
     p->l1_term_size = (p->l1_set_size * p->switch_radix[0]);
 
   } else {
-    p->num_switches[1] = p->num_switches[0];
-    p->num_switches[2] = p->num_switches[0]/2;
-    p->switch_radix[1] = p->switch_radix[2] = p->switch_radix[0];
-    p->l1_set_size = p->switch_radix[0]/2;
+	if(p->ft_type == 0){
+      p->Np = ceil((num_terminals)/(double)(p->Ns*p->Ns));
+      p->num_switches[1] = p->num_switches[0];
+      p->num_switches[2] = ceil((p->Ns*p->Ns) / floor(p->switch_radix[0]/p->Np));
+      p->switch_radix[1] = p->switch_radix[2] = p->switch_radix[0];
+      p->link_repetitions = floor(p->switch_radix[2] / p->Np);
+      printf("Np:%d Ns:%d\n",p->Np,p->Ns);
+	}else{
+	  p->num_switches[1] = p->num_switches[0];
+      p->num_switches[2] = p->num_switches[0]/2;
+      p->switch_radix[1] = p->switch_radix[2] = p->switch_radix[0];
+	}
+	p->l1_set_size = p->switch_radix[0]/2;
     p->l1_term_size = (p->l1_set_size * (p->switch_radix[0] / 2));
   }
+
+#if FATTREE_CONNECTIONS
+  for(int jj=0;jj<3;jj++)
+  {
+    printf("num_switches[%d]=%d\n",jj,p->num_switches[jj]);
+    printf("switch_radix[%d]=%d\n",jj,p->switch_radix[jj]);
+  }
+#endif
 
   i = 1;
   for(i = 1; i < p->num_levels - 1; i++) {
@@ -786,13 +809,13 @@ static void fattree_read_config(const char * anno, fattree_param *p){
     fprintf(stderr, "Buffer size of compute node channels not specified, "
         "setting to %d\n", p->cn_vc_size);
   }
-  
+
   rc = configuration_get_value_int(&config, "PARAMS", "chunk_size", anno, &p->chunk_size);
-  if(rc) {
-    p->chunk_size = 512;
-    fprintf(stderr, "Chunk size for packets is specified, setting to %d\n", p->chunk_size);
-  }
-    
+    if(rc) {
+        p->chunk_size = 512;
+        fprintf(stderr, "Chunk size for packets is specified, setting to %d\n", p->chunk_size);
+    }
+
   char routing_str[MAX_NAME_LENGTH];
   configuration_get_value(&config, "PARAMS", "routing", anno, routing_str,
       MAX_NAME_LENGTH);
@@ -845,6 +868,10 @@ static void fattree_read_config(const char * anno, fattree_param *p){
     fprintf(stderr, "Bandwidth of compute node channels not specified, "
         "setting to %lf\n", p->cn_bandwidth);
   }
+
+#if FATTREE_DEBUG
+  printf("l1_set_size:%d l1_term_size:%d\n",p->l1_set_size,p->l1_term_size);
+#endif
 
   p->cn_delay = (1.0 / p->cn_bandwidth);
   p->head_delay = (1.0 / p->link_bandwidth);
@@ -925,8 +952,8 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
    s->busy_time = 0;
 
 #if FATTREE_HELLO
-   printf("I am terminal %d (%ld), connected to switch %d\n", s->terminal_id,
-       lp->gid, s->switch_id);
+   printf("I am terminal %d (%llu), connected to switch %d\n", s->terminal_id,
+       LLU(lp->gid), s->switch_id);
 #endif
 
    rc_stack_create(&s->st);
@@ -1058,12 +1085,18 @@ void switch_init(switch_state * r, tw_lp * lp)
     dot_write_open_file(&dot_file);
   dot_write_switch_info(r, lp->gid, dot_file);
 
+#if FATTREE_CONNECTIONS || FATTREE_DEBUG
+    tw_lpid next_switch_lid;
+	int written = 0;
+    int written_2 = 0;
+#endif
+
   //set lps connected to each port
   r->num_cons = 0;
   r->num_lcons = 0;
 #if FATTREE_HELLO
-  printf("I am switch %d (%d), level %d, radix %d\n", r->switch_id,
-    lp->gid, r->switch_level, r->radix);
+  printf("I am switch %d (%llu), level %d, radix %d\n", r->switch_id,
+    LLU(lp->gid), r->switch_level, r->radix);
 #endif
   //if at level 0, first half ports go to terminals
   if(r->switch_level == 0) {
@@ -1076,10 +1109,13 @@ void switch_init(switch_state * r, tw_lp * lp)
       codes_mapping_get_lp_id(def_group_name, LP_CONFIG_NM, NULL, 1,
           rep, off, &nextTerm);
       r->port_connections[r->num_cons++] = nextTerm;
+#if FATTREE_CONNECTIONS
+	  written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(codes_mapping_get_lp_relative_id(nextTerm,0,0)));
+#endif
       r->num_lcons++;
 #if FATTREE_DEBUG
-      printf("I am switch %d, connect to terminal %d (%d) at port %d\n",
-          r->switch_id, term, nextTerm, r->num_cons - 1);
+      printf("L0->term I am switch %d, connect to terminal %d (%llu) at port %d yes collecting\n",
+          r->switch_id, term, LLU(nextTerm), r->num_cons - 1);
 #endif
       /* write sw2term links and (reverse link, too) into DOT file */
       dot_write_sw2term_link(r->switch_level, lp->gid, r->num_cons - 1, term, 1, dot_file);
@@ -1104,9 +1140,15 @@ void switch_init(switch_state * r, tw_lp * lp)
           l1_base, 1, &nextTerm);
       for(int con = 0; con < r->con_per_uneigh; con++) {
         r->port_connections[r->num_cons++] = nextTerm;
+#if FATTREE_CONNECTIONS || FATTREE_DEBUG
+        codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
+            &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
+        next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
+	    written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
+#endif
 #if FATTREE_DEBUG
-      printf("I am switch %d, connect to upper switch %d L1 (%d) at port %d\n",
-          r->switch_id, l1_base, nextTerm, r->num_cons - 1);
+    printf("L0->L1 I am switch %d, connect to upper switch %d L1 (%llu) rel_id:%llu at port %d yes collecting\n",
+          r->switch_id, l1_base, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
 #endif
         /* write all inter switch links to DOT file (initialized before) */
         dot_write_sw2sw_link(r->switch_level, lp->gid, r->num_cons - 1,
@@ -1136,10 +1178,16 @@ void switch_init(switch_state * r, tw_lp * lp)
           l0_base, 0, &nextTerm);
       for(int con = 0; con < r->con_per_lneigh; con++) {
         r->port_connections[r->num_cons++] = nextTerm;
+#if FATTREE_CONNECTIONS || FATTREE_DEBUG
+        codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
+            &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
+        next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
+        written_2 += sprintf(r->output_buf2 + written_2, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
+#endif
         r->num_lcons++;
 #if FATTREE_DEBUG
-        printf("I am switch %d, connect to switch %d L0 (%d) at port %d\n",
-            r->switch_id, l0_base, nextTerm, r->num_cons - 1);
+        printf("L1->L0 I am switch %d, connect to switch %d L0 (%llu) rel_id:%llu at port %d not collecting\n",
+            r->switch_id, l0_base, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
 #endif
         /* write all inter switch links to DOT file (initialized before) */
         dot_write_sw2sw_link(r->switch_level, lp->gid, r->num_cons - 1,
@@ -1149,7 +1197,37 @@ void switch_init(switch_state * r, tw_lp * lp)
     }
     if(p->num_levels == 3) {
       int l2_base = 0;
-      if(p->ft_type == 1) {
+      if(p->ft_type == 0) {
+        /*for(int rep=0;rep<p->link_repetitions;rep++)*/{
+            int rep = 0;
+            int l2 = ((r->switch_id - p->num_switches[0]) % p->l1_set_size + rep*p->l1_set_size);
+            /* not true anymore */
+            r->start_uneigh = p->num_switches[0] + l2;
+            r->con_per_uneigh = p->link_repetitions;
+            printf("link_repetitions:%d rep:%d l2:%d\n",p->link_repetitions,rep,l2);
+            for(; l2 < p->num_switches[2]; l2 += p->l1_set_size) {
+              tw_lpid nextTerm;
+              codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
+                      l2, 2, &nextTerm);
+              for(int con = 0; con < r->con_per_uneigh; con++) {
+                r->port_connections[r->num_cons++] = nextTerm;
+#if FATTREE_CONNECTIONS || FATTREE_DEBUG
+                codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
+                    &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
+                next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
+                written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
+#endif
+#if FATTREE_DEBUG
+                printf("L1->L2:t=0 I am switch %d, connect to upper switch %d L2 (%llu) rel_id:%llu at port %d yes collecting\n",
+                    r->switch_id, l2+rep*p->l1_set_size, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
+#endif
+				/* write all inter switch links to DOT file (initialized before) */
+            	dot_write_sw2sw_link(r->switch_level, lp->gid, r->num_cons - 1,
+                  r->switch_level + 1, nextTerm, -1, dot_file);
+              }
+            }
+        }
+      } else {
         int l2 = ((r->switch_id - p->num_switches[0]) % p->l1_set_size);
         /* not true anymore */
         r->start_uneigh = p->num_switches[0] + l2;
@@ -1160,9 +1238,15 @@ void switch_init(switch_state * r, tw_lp * lp)
               l2, 2, &nextTerm);
           for(int con = 0; con < r->con_per_uneigh; con++) {
             r->port_connections[r->num_cons++] = nextTerm;
+#if FATTREE_CONNECTIONS || FATTREE_DEBUG
+            codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
+                &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
+            next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
+            written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
+#endif
 #if FATTREE_DEBUG
-            printf("I am switch %d, connect to upper switch %d L2 (%d) at port %d\n",
-                r->switch_id, l2, nextTerm, r->num_cons - 1);
+            printf("L1->L2:t!=0 I am switch %d, connect to upper switch %d L2 (%llu) rel_id:%llu at port %d yes collecting\n",
+                r->switch_id, l2, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
 #endif
             /* write all inter switch links to DOT file (initialized before) */
             dot_write_sw2sw_link(r->switch_level, lp->gid, r->num_cons - 1,
@@ -1172,7 +1256,35 @@ void switch_init(switch_state * r, tw_lp * lp)
       }
     }
   } else {
-    if(p->ft_type == 1) {
+    if(p->ft_type == 0) {
+      r->con_per_lneigh = p->link_repetitions;
+      /* not true anymore */
+      r->start_lneigh = p->num_switches[0];
+      r->end_lneigh = r->start_lneigh + p->num_switches[1];
+      int l1 = (r->switch_id - p->num_switches[0] - p->num_switches[1]) % p->l1_set_size;
+      for(; l1 < p->num_switches[1]; l1 += p->l1_set_size) {
+        tw_lpid nextTerm;
+        codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
+            l1, 1, &nextTerm);
+        for(int con = 0; con < r->con_per_lneigh; con++) {
+          r->port_connections[r->num_cons++] = nextTerm;
+#if FATTREE_CONNECTIONS || FATTREE_DEBUG
+          codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
+              &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
+          next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
+	      written_2 += sprintf(r->output_buf2 + written_2, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
+#endif
+          r->num_lcons++;
+#if FATTREE_DEBUG
+          printf("L2->L1:t=0 I am switch %d, connect to  switch %d L1 (%llu) rel_id:%llu at port %d not collecting\n",
+                  r->switch_id, l1, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
+#endif
+          /* write all inter switch links to DOT file (initialized before) */
+          dot_write_sw2sw_link(r->switch_level, lp->gid, r->num_cons - 1,
+                r->switch_level - 1, nextTerm, -1, dot_file);
+        }
+      }
+    } else {
       r->con_per_lneigh = 2;
       /* not true anymore */
       r->start_lneigh = p->num_switches[0];
@@ -1184,10 +1296,16 @@ void switch_init(switch_state * r, tw_lp * lp)
             l1, 1, &nextTerm);
         for(int con = 0; con < r->con_per_lneigh; con++) {
           r->port_connections[r->num_cons++] = nextTerm;
+#if FATTREE_CONNECTIONS || FATTREE_DEBUG
+          codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
+              &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
+          next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
+	      written_2 += sprintf(r->output_buf2 + written_2, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
+#endif
           r->num_lcons++;
 #if FATTREE_DEBUG
-          printf("I am switch %d, connect to  switch %d L1 (%d) at port %d\n",
-              r->switch_id, l1, nextTerm, r->num_cons - 1);
+          printf("L2->L1:t!=0 I am switch %d, connect to  switch %d L1 (%llu) rel_id:%llu at port %d not collecting\n",
+              r->switch_id, l1, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
 #endif
           /* write all inter switch links to DOT file (initialized before) */
           dot_write_sw2sw_link(r->switch_level, lp->gid, r->num_cons - 1,
@@ -1201,6 +1319,10 @@ void switch_init(switch_state * r, tw_lp * lp)
   if(dot_file)
     fflush(dot_file);
 
+#if FATTREE_CONNECTIONS
+  lp_io_write(lp->gid, "fattree-config-up-connections", written, r->output_buf);
+  lp_io_write(lp->gid, "fattree-config-down-connections", written_2, r->output_buf2);
+#endif
   return;
 }
 
@@ -1316,8 +1438,8 @@ static void fattree_report_stats()
 	if(fattree_results_log_header == NULL)
 		printf("\n Failed to open results log header file %s \n",temp_filename_header);
 	printf("Printing Simulation Parameters/Results Log File\n");
-	fprintf(fattree_results_log_header,"<Avg Hops/Total Packets>, <Avg Time/Total Packets>, <Max Latency>, <Total Finished Chunks>");
-	fprintf(fattree_results_log,"%24.3lf, %24.3lf, %13.3lf, %23.3lld, ", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets),max_time,total_finished_chunks);
+    fprintf(fattree_results_log_header,"<Avg Hops/Total Packets>, <Avg Time/Total Packets>, <Max Latency>, <Total Finished Packets>, <Total Finished Chunks>");
+	fprintf(fattree_results_log,"%24.3lf, %24.3lf, %13.3lf, %24.3lld, %23.3lld, ", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets),max_time,total_finished_packets,total_finished_chunks);
 	fclose(fattree_results_log_header);
 	fclose(fattree_results_log);
 #endif
@@ -1743,8 +1865,8 @@ void switch_packet_receive( switch_state * s, tw_bf * bf,
   int dest_term_local_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0);
 
   if(msg->packet_ID == LLU(TRACK_PKT))
-    printf("\n Packet %llu arrived at switch %d switch_gid %llu dest_terminal_id %llu dest_term_local_id %llu final_dest_gid %llu output_port %d to_terminal %d\n",
-        msg->packet_ID, s->switch_id, LLU(lp->gid), LLU(msg->dest_terminal_id), LLU(dest_term_local_id), LLU(msg->final_dest_gid),
+    printf("\n Packet %llu chunk %llu arrived at switch %d switch_gid %llu dest_terminal_id %llu dest_term_local_id %llu final_dest_gid %llu output_port %d to_terminal %d\n",
+        msg->packet_ID, LLU(msg->chunk_id), s->switch_id, LLU(lp->gid), LLU(msg->dest_terminal_id), LLU(dest_term_local_id), LLU(msg->final_dest_gid),
         output_port, to_terminal);
 
   fattree_message_list * cur_chunk = (fattree_message_list *)malloc(
@@ -2507,8 +2629,8 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
   } else { //switch level 2
     int dest_l1_group = dest_term_local_id / p->l1_term_size;
     if(s->params->ft_type == 0) {
-      start_port = dest_l1_group * (p->l1_set_size/2) * s->con_per_lneigh;
-      end_port = start_port + ((p->l1_set_size/2) * s->con_per_lneigh);
+      start_port = dest_l1_group * /* (p->l1_set_size/2) **/ s->con_per_lneigh;
+      end_port = start_port +(/*(p->l1_set_size/2) **/ s->con_per_lneigh);
     } else {
       start_port = dest_l1_group * s->con_per_lneigh;
       end_port = start_port + s->con_per_lneigh;
