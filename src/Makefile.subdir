@@ -87,6 +87,7 @@ nobase_include_HEADERS = \
 	codes/model-net-lp.h \
 	codes/model-net-sched.h \
 	codes/model-net-inspect.h \
+	codes/net/common-net.h \
 	codes/net/dragonfly.h \
 	codes/net/dragonfly-custom.h \
 	codes/net/slimfly.h \
@@ -94,6 +95,7 @@ nobase_include_HEADERS = \
 	codes/net/loggp.h \
 	codes/net/simplenet-upd.h \
 	codes/net/simplep2p.h \
+	codes/net/express-mesh.h \
 	codes/net/torus.h \
   codes/codes-mpi-replay.h \
 	codes/configfile.h
@@ -149,8 +151,10 @@ src_libcodes_la_SOURCES =  \
 	codes/rc-stack.h \
 	src/util/rc-stack.c \
 	src/networks/model-net/model-net.c \
+	src/networks/model-net/common-net.c \
 	src/networks/model-net/simplenet-upd.c \
 	src/networks/model-net/torus.c \
+	src/networks/model-net/express-mesh.C \
 	src/networks/model-net/dragonfly.c \
 	src/networks/model-net/dragonfly-custom.C \
 	src/networks/model-net/slimfly.c \

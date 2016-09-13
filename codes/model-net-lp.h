@@ -29,6 +29,7 @@ extern "C" {
 #include "net/simplenet-upd.h"
 #include "net/simplep2p.h"
 #include "net/torus.h"
+#include "net/express-mesh.h"
 
 extern int model_net_base_magic;
 
@@ -132,6 +133,7 @@ typedef struct model_net_wrap_msg {
         sn_message              m_snet;  // simplenet
         sp_message              m_sp2p;  // simplep2p
         nodes_message           m_torus; // torus
+        em_message              m_em; // express-mesh
         // add new ones here
     } msg;
 } model_net_wrap_msg;

@@ -1767,7 +1767,7 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   s->packet_counter++;
   s->vc_occupancy += s->params->chunk_size;
   cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, 0);
-  rc_stack_push(lp, cur_entry, free, s->st);
+  rc_stack_push(lp, cur_entry, delete_fattree_message_list, s->st);
   s->terminal_length -= s->params->chunk_size;
 
 //  if(s->terminal_id == 1)
@@ -2049,7 +2049,7 @@ void switch_packet_send( switch_state * s, tw_bf * bf, fattree_message * msg,
 
   cur_entry = return_head(s->pending_msgs, s->pending_msgs_tail,
     output_port);
-  rc_stack_push(lp, cur_entry, free, s->st);
+  rc_stack_push(lp, cur_entry, delete_fattree_message_list, s->st);
 
   s->next_output_available_time[output_port] -= s->params->router_delay;
   ts -= s->params->router_delay;
@@ -2834,25 +2834,6 @@ void fattree_switch_final(switch_state * s, tw_lp * lp)
 
     assert(written < 4096);
     lp_io_write(lp->gid, "fattree-switch-traffic", written, s->output_buf2);
-
-    //Original Output with Tracer
-//    char *stats_file = getenv("TRACER_LINK_FILE");
-//  if(stats_file != NULL) {
-    int rank;
-    MPI_Comm_rank(MPI_COMM_CODES, &rank);
-    char file_name[512];
-    sprintf(file_name, "%s.%d", "tracer_stats_file", rank);
-    FILE *fout = fopen(file_name, "a");
-//    fattree_param *p = s->params;
-    //int result = flock(fileno(fout), LOCK_EX);
-    fprintf(fout, "%d %d ", s->switch_id, s->switch_level);
-    for(int d = 0; d < s->num_cons; d++) {
-      fprintf(fout, "%llu ", LLU(s->link_traffic[d]));
-    }
-    fprintf(fout, "\n");
-    //result = flock(fileno(fout), LOCK_UN);
-    fclose(fout);
-//  }
 }
 
 /* Update the buffer space associated with this switch LP */
