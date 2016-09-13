@@ -1,10 +1,50 @@
 *** README file for fattree network model ***
 
-Each repetition represents a leaf level switch, nodes connected to it, and
-higher level switches that may be needed to construct the fat-tree.
+1- Configuring CODES dragonfly network model
+CODES dragonfly network model can be configured using the fattee config file (currently
+located in codes/src/network-workloads/conf). Below is an example config file:
+
+MODELNET_GRP
+{
+	repetitions="12";
+	server="4";
+	modelnet_fattree="4";
+	fattree_switch="3";
+} 
+PARAMS
+{
+	....
+	ft_type="0";
+    num_levels="3";
+    switch_count="12";
+    switch_radix="8";
+	....
+}
+
+The first section, MODELNET_GRP specifies the LP types, number of LPs per type and their
+configuration. In the above case, there are 12 repetitions of 4 server LPs, 4 fat tree
+network node/terminal LPs and 3 fat tree switch LPs. Each repetition represents a leaf
+level switch, nodes connected to it, and higher level switches that may be needed to 
+construct the fat-tree. The 'fattree_switch' parameter indicates there are 3 levels 
+to this fat tree and each repitition will have one switch from each level. This 
+configuration will create a total of (fattree_switch)*repetitions=12*3=36 switch LPs,
+with 'fattree_switch' many switch LPs per level.
 
 modelnet_fattree = radix of switch/2
 fattree_switch = number of levels in the fattree (2 or 3)
+
+ft_type:
+0: Custom- ("Pruned" Fat Tree)
+1: Standard Full Fat Tree
+
+The Custom- ft_type is simply a pruned standard full fat tree. This layout type starts
+with the standard full fat tree and then removes pods and adjusts L1-L2 switch connections
+as needed to drop the total node/terminal count in the system. This approach still maintains
+full bisection bandwidth. Knowing a full standard fat tree uses k pods of k/2 switches per
+pod (k/2 L1 switches and k/2 L0 switches) and each switch in L0 connects to k/2 terminals,
+then each pod connects to (k/2)*(k/2) terminals. Therefore, the number of pods needed to get
+N-many terminals using the Custom- ft_type is Np = ceil(N/[(k/2)*(k/2)]). So the config file
+should have "repetitions" = "switch_count" = Np*(k/2).
 
 Supported PARAMS:
 
@@ -20,6 +60,7 @@ cn_vc_size : size of VC between NIC and switch in bytes
 link_bandwidth, cn_bandwidth : in GB/s
 routing : {adaptive, static}
 
+2- Static Routing
 If static routing is chosen, two more PARAMS must be provided:
 routing_folder :  folder that contain lft files generated using method described below.
 dot_file : name used for dotfile generation in the method described below.
