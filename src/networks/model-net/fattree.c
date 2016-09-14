@@ -186,12 +186,12 @@ struct ft_terminal_state
   // Fattree specific parameters
   unsigned int terminal_id;
   unsigned int switch_id;
-  tw_lpid* switch_lp;
+  tw_lpid* switch_lp;   // List of global ids for switch connection within each rail
 
   // Each terminal will have an input and output channel with a switch in each rail
-  int vc_occupancy; // NUM_VC
-  tw_stime terminal_available_time;
-  tw_stime next_credit_available_time;
+  int* vc_occupancy; // NUM_VC
+  tw_stime* terminal_available_time;
+  tw_stime* next_credit_available_time;
 
   struct mn_stats fattree_stats_array[CATEGORY_MAX];
 
@@ -199,7 +199,8 @@ struct ft_terminal_state
   fattree_message_list **terminal_msgs_tail;
   int terminal_length;
   int in_send_loop;
-  int issueIdle;
+  int* issueIdle;
+  int64_t* link_traffic;
 
    struct rc_stack * st;
 
@@ -929,6 +930,20 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
     }
 
    s->switch_lp = (tw_lpid*) malloc (s->params->terminal_radix * sizeof(tw_lpid));
+   s->terminal_available_time = (tw_stime*) malloc (s->params->terminal_radix * sizeof(tw_stime));
+   s->next_credit_available_time = (tw_stime*) malloc (s->params->terminal_radix * sizeof(tw_stime));
+   s->vc_occupancy = (int*) malloc (s->params->terminal_radix * sizeof(int));
+   s->in_send_loop = (int*) malloc (s->params->terminal_radix * sizeof(int));
+   s->link_traffic = (int64_t*) malloc (s->params->terminal_radix * sizeof(int64_t));
+   s->pending_msgs = (fattree_message_list**)malloc(s->terminal_radix * sizeof(fattree_message_list*));
+   s->pending_msgs_tail = (fattree_message_list**)malloc(s->terminal_radix * sizeof(fattree_message_list*));
+   s->queued_msgs = (fattree_message_list**)malloc(s->terminal_radix * sizeof(fattree_message_list*));
+   s->queued_msgs_tail = (fattree_message_list**)malloc(s->terminal_radix * sizeof(fattree_message_list*));
+   s->queued_length = (int*)malloc(s->terminal_radix * sizeof(int));
+   s->last_buf_full = (tw_stime*)malloc(s->terminal_radix * sizeof(tw_stime));
+   s->busy_time = (tw_stime*)malloc(s->terminal_radix * sizeof(tw_stime));
+   s->busy_time_sample = (tw_stime*)malloc(s->terminal_radix * sizeof(tw_stime));
+   s->issueIdle = (int*) malloc(s->params->terminal_radix * sizeof(int));
 
    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
            s->anno, 0);
@@ -949,8 +964,22 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
    printf("terminal_radix:%d RAIL_group_name:%s\n",s->params->terminal_radix,rail_group_name);
         codes_mapping_get_lp_id(rail_group_name, "fattree_switch", NULL, 1,
            s->switch_id, 0, &s->switch_lp[i]);
+
+        s->last_buf_full[i] = 0.0;
+        s->busy_time[i] = 0.0;
+        s->busy_time_sample[i] = 0.0;
+        s->terminal_available_time[i] = 0;
+        s->next_credit_available_time[i] = 0;
+        s->vc_occupancy[i] = 0;
+        s->in_send_loop[i] = 0;
+        s->link_traffic[i] = 0;
+        s->pending_msgs[i] = NULL;
+        s->pending_msgs_tail[i] = NULL;
+        s->queued_msgs[i] = NULL;
+        s->queued_msgs_tail[i] = NULL;
+        s->queued_length[i] = 0;
+        s->issueIdle[i] = 0;
     }
-   s->terminal_available_time = 0.0;
    s->packet_counter = 0;
    s->terminal_msgs =
      (fattree_message_list**)malloc(1*sizeof(fattree_message_list*));
@@ -963,9 +992,6 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
    s->total_time = 0.0;
    s->total_msg_size = 0;
 
-   s->last_buf_full = 0;
-   s->busy_time = 0;
-
 #if FATTREE_HELLO
    for(int i=0;i<s->params->terminal_radix;i++)
      printf("I am terminal %d (%llu), connected to switch %d (%llu)\n", s->terminal_id,
@@ -974,12 +1000,9 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
 
    rc_stack_create(&s->st);
 
-   s->vc_occupancy = 0;
    s->terminal_msgs[0] = NULL;
    s->terminal_msgs_tail[0] = NULL;
    s->terminal_length = 0;
-   s->in_send_loop = 0;
-   s->issueIdle = 0;
 
    s->rank_tbl = qhash_init(fattree_rank_hash_compare, fattree_hash_func, FTREE_HASH_TABLE_SIZE);
    if(!s->rank_tbl)
