@@ -22,8 +22,8 @@
 // debugging parameters
 //#define TRACK_PKT -1
 #define TRACK_PKT 2820
-#define FATTREE_HELLO 0
-#define FATTREE_DEBUG 0
+#define FATTREE_HELLO 1
+#define FATTREE_DEBUG 1
 #define FATTREE_CONNECTIONS 0
 #define FATTREE_MSG 0
 #define DEBUG_RC 0
@@ -197,8 +197,14 @@ struct ft_terminal_state
 
   fattree_message_list **terminal_msgs;
   fattree_message_list **terminal_msgs_tail;
-  int terminal_length;
-  int in_send_loop;
+  fattree_message_list **pending_msgs;
+  fattree_message_list **pending_msgs_tail;
+  fattree_message_list **queued_msgs;
+  fattree_message_list **queued_msgs_tail;
+
+  int* queued_length;
+  int* terminal_length;
+  int* in_send_loop;
   int* issueIdle;
   int64_t* link_traffic;
 
@@ -217,8 +223,8 @@ struct ft_terminal_state
   long finished_chunks;
   long finished_packets;
 
-  tw_stime last_buf_full;
-  tw_stime busy_time;
+  tw_stime* last_buf_full;
+  tw_stime* busy_time;
   char output_buf[4096];
   char output_buf3[4096];
 
@@ -227,7 +233,7 @@ struct ft_terminal_state
   long data_size_sample;
   double fin_hops_sample;
   tw_stime fin_chunks_time;
-  tw_stime busy_time_sample;
+  tw_stime* busy_time_sample;
 
 };
 
@@ -284,6 +290,8 @@ struct switch_state
   char output_buf2[4096];
 
   struct rc_stack * st;
+
+  int rail;
 
   char * anno;
   fattree_param *params;
@@ -397,6 +405,8 @@ static fattree_message_list* return_tail(
 //decl
 void switch_credit_send(switch_state * s, tw_bf * bf, fattree_message * msg,
     tw_lp * lp, int sq);
+int ft_get_output_rail(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
+    tw_lp * lp);
 int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
     tw_lp * lp, int *out_off );
 int get_base_port(switch_state *s, int from_term, int index);
@@ -935,15 +945,16 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
    s->vc_occupancy = (int*) malloc (s->params->terminal_radix * sizeof(int));
    s->in_send_loop = (int*) malloc (s->params->terminal_radix * sizeof(int));
    s->link_traffic = (int64_t*) malloc (s->params->terminal_radix * sizeof(int64_t));
-   s->pending_msgs = (fattree_message_list**)malloc(s->terminal_radix * sizeof(fattree_message_list*));
-   s->pending_msgs_tail = (fattree_message_list**)malloc(s->terminal_radix * sizeof(fattree_message_list*));
-   s->queued_msgs = (fattree_message_list**)malloc(s->terminal_radix * sizeof(fattree_message_list*));
-   s->queued_msgs_tail = (fattree_message_list**)malloc(s->terminal_radix * sizeof(fattree_message_list*));
-   s->queued_length = (int*)malloc(s->terminal_radix * sizeof(int));
-   s->last_buf_full = (tw_stime*)malloc(s->terminal_radix * sizeof(tw_stime));
-   s->busy_time = (tw_stime*)malloc(s->terminal_radix * sizeof(tw_stime));
-   s->busy_time_sample = (tw_stime*)malloc(s->terminal_radix * sizeof(tw_stime));
+   s->pending_msgs = (fattree_message_list**)malloc(s->params->terminal_radix * sizeof(fattree_message_list*));
+   s->pending_msgs_tail = (fattree_message_list**)malloc(s->params->terminal_radix * sizeof(fattree_message_list*));
+   s->queued_msgs = (fattree_message_list**)malloc(s->params->terminal_radix * sizeof(fattree_message_list*));
+   s->queued_msgs_tail = (fattree_message_list**)malloc(s->params->terminal_radix * sizeof(fattree_message_list*));
+   s->queued_length = (int*)malloc(s->params->terminal_radix * sizeof(int));
+   s->last_buf_full = (tw_stime*)malloc(s->params->terminal_radix * sizeof(tw_stime));
+   s->busy_time = (tw_stime*)malloc(s->params->terminal_radix * sizeof(tw_stime));
+   s->busy_time_sample = (tw_stime*)malloc(s->params->terminal_radix * sizeof(tw_stime));
    s->issueIdle = (int*) malloc(s->params->terminal_radix * sizeof(int));
+   s->terminal_length = (int*) malloc(s->params->terminal_radix * sizeof(int));
 
    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
            s->anno, 0);
@@ -979,6 +990,7 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
         s->queued_msgs_tail[i] = NULL;
         s->queued_length[i] = 0;
         s->issueIdle[i] = 0;
+        s->terminal_length[i] = 0;
     }
    s->packet_counter = 0;
    s->terminal_msgs =
@@ -1002,7 +1014,6 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
 
    s->terminal_msgs[0] = NULL;
    s->terminal_msgs_tail[0] = NULL;
-   s->terminal_length = 0;
 
    s->rank_tbl = qhash_init(fattree_rank_hash_compare, fattree_hash_func, FTREE_HASH_TABLE_SIZE);
    if(!s->rank_tbl)
@@ -1075,6 +1086,7 @@ void switch_init(switch_state * r, tw_lp * lp)
   r->switch_level = mapping_offset;
 
   r->radix = p->switch_radix[r->switch_level];
+  r->rail = mapping_grp_id;
 
   r->next_output_available_time = (tw_stime*) malloc (r->radix *
       sizeof(tw_stime));
@@ -1580,15 +1592,15 @@ void ft_packet_generate_rc(ft_terminal_state * s, tw_bf * bf, fattree_message * 
     for(i = 0; i < num_chunks; i++) {
 	delete_fattree_message_list(return_tail(s->terminal_msgs,
 	    s->terminal_msgs_tail, 0));
-	s->terminal_length -= s->params->chunk_size;
+    s->terminal_length[msg->rail] -= s->params->chunk_size;
     }
     if(bf->c11) {
-	s->issueIdle = 0;
-	s->last_buf_full = msg->saved_busy_time;
+	s->issueIdle[msg->rail] = 0;
+    s->last_buf_full[msg->rail] = msg->saved_busy_time;
     }
     if(bf->c5) {
 	codes_local_latency_reverse(lp);
-	s->in_send_loop = 0;
+	s->in_send_loop[msg->rail] = 0;
     }
 
     struct mn_stats* stat;
@@ -1610,6 +1622,8 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
   fattree_param *p = s->params;
   tw_stime ts, nic_ts;
 
+  int output_rail = ft_get_output_rail(s, bf, msg, lp);
+
   int total_event_size;
   uint64_t num_chunks = msg->packet_size / p->chunk_size;
   if(msg->packet_size % s->params->chunk_size)
@@ -1623,8 +1637,8 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
 
   msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
   if(msg->packet_ID == LLU(TRACK_PKT))
-    printf("\n Packet %llu generated at terminal %d terminal_gid %llu dest_terminal_id %llu final_dest_gid %llu size %llu num chunks %llu \n",
-       msg->packet_ID, s->terminal_id, LLU(lp->gid), LLU(msg->dest_terminal_id), LLU(msg->final_dest_gid),
+    printf("\n Packet %llu generated at terminal %d terminal_gid %llu on rail %d dest_terminal_id %llu final_dest_gid %llu size %llu num chunks %llu \n",
+       msg->packet_ID, s->terminal_id, LLU(lp->gid), output_rail,  LLU(msg->dest_terminal_id), LLU(msg->final_dest_gid),
        LLU(msg->packet_size), LLU(num_chunks));
 
   for(uint64_t i = 0; i < num_chunks; i++)
@@ -1632,6 +1646,7 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
     fattree_message_list * cur_chunk = (fattree_message_list *)malloc(
       sizeof(fattree_message_list));
     msg->origin_switch_id = s->switch_id;
+    msg->rail = output_rail;
     init_fattree_message_list(cur_chunk, msg);
 
     if(msg->remote_event_size_bytes + msg->local_event_size_bytes > 0) {
@@ -1653,19 +1668,19 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
     cur_chunk->msg.origin_switch_id = s->switch_id;
     append_to_fattree_message_list(s->terminal_msgs, s->terminal_msgs_tail,
       0, cur_chunk);
-    s->terminal_length += s->params->chunk_size;
+    s->terminal_length[msg->rail] += s->params->chunk_size;
   }
 
-  if(s->terminal_length < 2 * s->params->cn_vc_size) {
+  if(s->terminal_length[msg->rail] < 2 * s->params->cn_vc_size) {
     model_net_method_idle_event(nic_ts, 0, lp);
   } else {
     bf->c11 = 1;
-    s->issueIdle = 1;
-    msg->saved_busy_time = s->last_buf_full;
-    s->last_buf_full = tw_now(lp);
+    s->issueIdle[msg->rail] = 1;
+    msg->saved_busy_time = s->last_buf_full[msg->rail];
+    s->last_buf_full[msg->rail] = tw_now(lp);
   }
 
-  if(s->in_send_loop == 0) {
+  if(s->in_send_loop[msg->rail] == 0) {
     fattree_message *m;
     bf->c5 = 1;
     ts = codes_local_latency(lp);
@@ -1673,7 +1688,7 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
       (void**)&m, NULL);
     m->type = T_SEND;
     m->magic = fattree_terminal_magic_num;
-    s->in_send_loop = 1;
+    s->in_send_loop[msg->rail]= 1;
     tw_event_send(e);
   }
 
@@ -1695,14 +1710,8 @@ void ft_packet_send_rc(ft_terminal_state * s, tw_bf *bf, fattree_message * msg, 
 #if DEBUG_RC
     t_send_r++;
 #endif
-    if(bf->c1) {
-      s->in_send_loop = 1;
-      s->last_buf_full = msg->saved_busy_time;
-      return;
-    }
-
     tw_rand_reverse_unif(lp->rng);
-    s->terminal_available_time = msg->saved_available_time;
+    s->terminal_available_time[msg->rail] = msg->saved_available_time;
     if(bf->c2) {
       codes_local_latency_reverse(lp);
     }
@@ -1713,21 +1722,27 @@ void ft_packet_send_rc(ft_terminal_state * s, tw_bf *bf, fattree_message * msg, 
 
     prepend_to_fattree_message_list(s->terminal_msgs,
         s->terminal_msgs_tail, 0, cur_entry);
-    s->terminal_length += s->params->chunk_size;
+    s->terminal_length[msg->rail] += s->params->chunk_size;
 #if DEBUG_RC
     if(s->terminal_id == 0)
-       printf("time:%lf terminal_length:%d \n",tw_now(lp),s->terminal_length);
+        printf("time:%lf terminal_length[%d]:%d \n",tw_now(lp),saved_rail, s->terminal_length[msg->rail]);
 #endif
+
+    if(bf->c1) {
+      s->in_send_loop[msg->rail] = 1;
+      s->last_buf_full[msg->rail] = msg->saved_busy_time;
+      return;
+    }
 
     if(bf->c3) {
       tw_rand_reverse_unif(lp->rng);
     }
     if(bf->c4) {
-      s->in_send_loop = 1;
+      s->in_send_loop[msg->rail] = 1;
     }
     if(bf->c5) {
       codes_local_latency_reverse(lp);
-      s->issueIdle = 1;
+      s->issueIdle[msg->rail] = 1;
     }
 }
 /* sends the packet from the compute node to the attached switch */
@@ -1746,13 +1761,13 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
 
   fattree_message_list* cur_entry = s->terminal_msgs[0];
 
-  if(s->vc_occupancy + s->params->chunk_size > s->params->cn_vc_size ||
+  if(s->vc_occupancy[msg->rail] + s->params->chunk_size > s->params->cn_vc_size ||
     cur_entry == NULL) {
     bf->c1 = 1;
-    s->in_send_loop = 0;
+    s->in_send_loop[msg->rail] = 0;
 
-    msg->saved_busy_time = s->last_buf_full;
-    s->last_buf_full = tw_now(lp);
+    msg->saved_busy_time = s->last_buf_full[msg->rail];
+    s->last_buf_full[msg->rail] = tw_now(lp);
     return;
   }
   
@@ -1771,12 +1786,12 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     ts += s->params->cn_delay * s->params->chunk_size;
   }
 
-  msg->saved_available_time = s->terminal_available_time;
-  s->terminal_available_time = maxd(s->terminal_available_time, tw_now(lp));
-  s->terminal_available_time += ts;
+  msg->saved_available_time = s->terminal_available_time[msg->rail];
+  s->terminal_available_time[msg->rail] = maxd(s->terminal_available_time[msg->rail], tw_now(lp));
+  s->terminal_available_time[msg->rail] += ts;
 
   // we are sending an event to the switch, so no method_event here
-  ts = s->terminal_available_time - tw_now(lp);
+  ts = s->terminal_available_time[msg->rail] - tw_now(lp);
 
   e = tw_event_new(s->switch_lp[0], ts, lp);
   m = tw_event_data(e);
@@ -1811,10 +1826,10 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   }
 
   s->packet_counter++;
-  s->vc_occupancy += s->params->chunk_size;
+  s->vc_occupancy[msg->rail] += s->params->chunk_size;
   cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, 0);
   rc_stack_push(lp, cur_entry, free, s->st);
-  s->terminal_length -= s->params->chunk_size;
+  s->terminal_length[msg->rail] -= s->params->chunk_size;
 
 //  if(s->terminal_id == 1)
 //    printf("send time:%5.6lf lp_id:%3llu terminal_length:%5d \n",tw_now(lp),LLU(lp->gid),s->terminal_length);
@@ -1822,7 +1837,7 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   cur_entry = s->terminal_msgs[0];
 
   if(cur_entry != NULL &&
-    s->vc_occupancy + s->params->chunk_size <= s->params->cn_vc_size) {
+    s->vc_occupancy[msg->rail] + s->params->chunk_size <= s->params->cn_vc_size) {
     bf->c3 = 1;
     fattree_message *m_new;
     ts = ts + g_tw_lookahead * tw_rand_unif(lp->rng);
@@ -1833,12 +1848,12 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     tw_event_send(e);
   } else {
     bf->c4 = 1;
-    s->in_send_loop = 0;
+    s->in_send_loop[msg->rail] = 0;
   }
 
-  if(s->issueIdle) {
+  if(s->issueIdle[msg->rail]) {
     bf->c5 = 1;
-    s->issueIdle = 0;
+    s->issueIdle[msg->rail] = 0;
     model_net_method_idle_event(codes_local_latency(lp), 0, lp);
   }
 
@@ -2186,16 +2201,16 @@ void ft_terminal_buf_update_rc(ft_terminal_state * s, tw_bf * bf, fattree_messag
 #if DEBUG_RC
     t_buffer_r++;
 #endif
-    s->vc_occupancy += s->params->chunk_size;
+    s->vc_occupancy[msg->rail] += s->params->chunk_size;
     codes_local_latency_reverse(lp);
     if(bf->c3)
     {
-      s->busy_time = msg->saved_total_time;
-      s->last_buf_full = msg->saved_busy_time;
-      s->busy_time_sample = msg->saved_sample_time;
+      s->busy_time[msg->rail] = msg->saved_total_time;
+      s->last_buf_full[msg->rail] = msg->saved_busy_time;
+      s->busy_time_sample[msg->rail] = msg->saved_sample_time;
     }
     if(bf->c1) {
-      s->in_send_loop = 0;
+      s->in_send_loop[msg->rail] = 0;
     }
 }
 /* update the compute node-switch channel buffer */
@@ -2205,29 +2220,29 @@ void ft_terminal_buf_update(ft_terminal_state * s, tw_bf * bf,
   bf->c1 = 0;
 
   tw_stime ts = codes_local_latency(lp);
-  s->vc_occupancy -= s->params->chunk_size;
+  s->vc_occupancy[msg->rail] -= s->params->chunk_size;
 
   /* Update the terminal buffer time */
-  if(s->last_buf_full > 0)
+  if(s->last_buf_full[msg->rail]> 0)
   {
     bf->c3 = 1;
-    msg->saved_total_time = s->busy_time;
-    msg->saved_busy_time = s->last_buf_full;
-    msg->saved_sample_time = s->busy_time_sample;
+    msg->saved_total_time = s->busy_time[msg->rail];
+    msg->saved_busy_time = s->last_buf_full[msg->rail];
+    msg->saved_sample_time = s->busy_time_sample[msg->rail];
 
-    s->busy_time += (tw_now(lp) - s->last_buf_full);
-    s->busy_time_sample += (tw_now(lp) - s->last_buf_full);
-    s->last_buf_full = 0.0;
+    s->busy_time[msg->rail] += (tw_now(lp) - s->last_buf_full[msg->rail]);
+    s->busy_time_sample[msg->rail] += (tw_now(lp) - s->last_buf_full[msg->rail]);
+    s->last_buf_full[msg->rail] = 0.0;
   }
 
-  if(s->in_send_loop == 0 && s->terminal_msgs[0] != NULL) {
+  if(s->in_send_loop[msg->rail] == 0 && s->terminal_msgs[0] != NULL) {
     fattree_message *m;
     bf->c1 = 1;
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, FATTREE,
         (void**)&m, NULL);
     m->type = T_SEND;
     m->magic = fattree_terminal_magic_num;
-    s->in_send_loop = 1;
+    s->in_send_loop[msg->rail] = 1;
     //printf("[%d] term buf Send to %d\n", lp->gid, lp->gid);
     tw_event_send(e);
   }
@@ -2621,6 +2636,17 @@ void ft_packet_arrive(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   return;
 }
 
+/* gets the output port corresponding to the correct network rail/plane for the message */
+int ft_get_output_rail(ft_terminal_state * s, tw_bf * bf, fattree_message * msg, tw_lp * lp){
+    (void)s;
+    (void)bf;
+    (void)msg;
+    (void)lp;
+    /* Insert multi-rail routing algorithm here*/
+    int output_rail = 0;
+    return output_rail;
+}
+
 /* gets the output port corresponding to the next stop of the message */
 /* expects dest_terminal_id to be a local ID not global ID */
 int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
@@ -2761,12 +2787,15 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
 
     int written = 0;
     if(!s->terminal_id)
+    {
         written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>\n");
 
+    }
+    int rail = 0;
     written += sprintf(s->output_buf + written, "%llu %u %ld %lf %ld %lf %lf\n",
             LLU(lp->gid), s->terminal_id, s->total_msg_size, s->total_time,
             s->finished_packets, (double)s->total_hops/s->finished_chunks,
-            s->busy_time);
+            s->busy_time[rail]);
 
     lp_io_write(lp->gid, "fattree-msg-stats", written, s->output_buf);
 
@@ -2843,8 +2872,9 @@ void fattree_switch_final(switch_state * s, tw_lp * lp)
 
 //    const fattree_param *p = s->params;
     int written = 0;
-    if(!s->switch_id)
+    if(!s->switch_id && !s->rail)
     {
+    printf("writing fattree-switch-stats header\n");
         written = sprintf(s->output_buf, "# Format <LP ID> <Level ID> <Switch ID> <Busy time per switch port(s)>");
         written += sprintf(s->output_buf + written, "# Switch ports: %d\n",
                 s->radix);
@@ -2857,7 +2887,7 @@ void fattree_switch_final(switch_state * s, tw_lp * lp)
     lp_io_write(lp->gid, "fattree-switch-stats", written, s->output_buf);
 
     written = 0;
-    if(!s->switch_id)
+    if(!s->switch_id && !s->rail)
     {
         written = sprintf(s->output_buf2, "# Format <LP ID> <Level ID> <Switch ID> <Link traffic per switch port(s)>");
         written += sprintf(s->output_buf2 + written, "# Switch ports: %d\n",

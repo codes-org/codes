@@ -41,6 +41,9 @@ struct fattree_message
   /* message originating router id */
   unsigned int origin_switch_id;
 
+  /* Multi-Rail support params */
+  int rail;         // rail id which the message is traversing
+
   /* number of hops traversed by the packet */
   short my_N_hop;
 
