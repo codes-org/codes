@@ -2044,7 +2044,7 @@ void dragonfly_rsample_fin(router_state * s,
     (void)lp;
     const dragonfly_param * p = s->params;
 
-    if(!g_tw_mynode)
+    if(s->router_id == 0)
     {
     
         /* write metadata file */
@@ -2329,8 +2329,18 @@ dragonfly_terminal_final( terminal_state * s,
 {
 	model_net_print_stats(lp->gid, s->dragonfly_stats_array);
   
-    //rc_stack_gc(lp, s->st);
+    if(s->terminal_id == 0)
+    {
+        /* write metadata file */
+        char meta_fname[64];
+        sprintf(meta_fname, "dragonfly-msg-stats.meta");
 
+        FILE * fp = fopen(meta_fname, "w");
+        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>");
+
+        fclose(fp);
+    }
+    
     int written = 0;
     if(!s->terminal_id)
         written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>");
@@ -2379,11 +2389,17 @@ void dragonfly_router_final(router_state * s,
     
     const dragonfly_param *p = s->params;
     int written = 0;
-    if(!s->router_id)
+    if(s->router_id == 0)
     {
-        written = sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
-        written += sprintf(s->output_buf + written, "# Router ports in the order: %d local channels, %d global channels", 
+        /* write metadata file */
+        char meta_fname[64];
+        sprintf(meta_fname, "dragonfly-msg-stats.meta");
+
+        FILE * fp = fopen(meta_fname, "w");
+        fprintf(fp, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
+        fprintf(fp, "# Router ports in the order: %d local channels, %d global channels", 
                 p->num_routers, p->num_global_channels);
+        fclose(fp);
     }
     written += sprintf(s->output_buf + written, "\n %llu %d %d", 
             LLU(lp->gid),
