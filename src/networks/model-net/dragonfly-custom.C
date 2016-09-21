@@ -390,6 +390,7 @@ static void free_tmp(void * ptr)
     free(dfly->remote_event_data);
     free(dfly);
 }
+
 static void append_to_terminal_message_list(  
         terminal_message_list ** thisq,
         terminal_message_list ** thistail,
@@ -2145,7 +2146,9 @@ get_next_stop(router_state * s,
    }
 
    /* If the packet is at the source router then select a global channel among
-    * the many global channels available */
+    * the many global channels available (unless one already specified by
+    * adaptive routing). do_chan_selection is turned on in case prog-adaptive
+    * routing has just decided to take a non-minimal route. */
   if(msg->last_hop == TERMINAL 
           || s->router_id == msg->intm_rtr_id
           || (routing == PROG_ADAPTIVE && do_chan_selection))
@@ -2193,8 +2196,7 @@ get_next_stop(router_state * s,
       assert(dest_lp != -1);
        
        /* If there is a direct connection */
-      /* Handling cases where last hop is terminal OR global OR a non-minimal route just
-       * completed */
+      /* Handling cases where one hop can be skipped. */
       if((msg->last_hop != LOCAL || s->router_id == msg->intm_rtr_id)
               && dest_lp == msg->saved_src_dest)
           msg->my_l_hop++;
@@ -2241,6 +2243,11 @@ get_output_port( router_state * s,
          {
              if(interGroupLinks[src_router][intm_grp_id].size() > 2)
                  tw_error(TW_LOC, "\n Model currently functional for two global links from a router to the same group ");
+             
+             /* Note: we are not using ROSS random number generator here for
+              * channel selection 
+              * because it will be hard to handle this with reverse handlers
+              * for adaptive/prog-adaptive routings. */
              if((src_router + intm_grp_id) % 2)
                  rand_offset = 1;
              else
@@ -2363,7 +2370,7 @@ static int do_global_adaptive_routing( router_state * s,
     min_port_b = get_output_port(s, msg, lp, bf, min_rtr_b_id);
   }
 
-  /* For nonminimal routes */
+  /* two possible nonminimal routes */
   nonmin_chan_a = tw_rand_integer(lp->rng, 0, num_nonmin_chans - 1);
   nonmin_chan_b = tw_rand_integer(lp->rng, 0, num_nonmin_chans - 1);
 
@@ -2557,11 +2564,13 @@ router_packet_receive( router_state * s,
   if(routing == MINIMAL || 
      routing == NON_MINIMAL)	
    cur_chunk->msg.path_type = routing; /*defaults to the routing algorithm if we 
-                                don't have adaptive routing here*/
+                                don't have adaptive or progressive adaptive routing here*/
 
+  /* Set the default route as minimal for prog-adaptive */
   if(routing == PROG_ADAPTIVE && cur_chunk->msg.last_hop == TERMINAL)
       cur_chunk->msg.path_type = MINIMAL;
 
+  /* for prog-adaptive routing, record the current route of packet */
   prev_path_type = cur_chunk->msg.path_type;
 
   /* Here we check for local or global adaptive routing. If destination router
@@ -2572,7 +2581,7 @@ router_packet_receive( router_state * s,
   else
       intm_router_id = (src_grp_id * s->params->num_routers) + tw_rand_integer(lp->rng, 0, s->params->num_routers - 1);
 
-  /* For global adaptive routing, we make sure that a random intermediate group
+  /* For global adaptive routing, we make sure that a different group
    * is selected. For local adaptive routing, if the same router as self is
    * selected then we choose the neighboring router. */
   if(src_grp_id != dest_grp_id 
@@ -2581,8 +2590,8 @@ router_packet_receive( router_state * s,
   else if(intm_router_id == s->router_id)
       intm_router_id = (src_grp_id * s->params->num_routers) + (s->router_id + 1) % s->params->num_routers;
  
-  /* progressive adaptive routing is triggered when packet has to traverse a
-   * global channel */
+  /* progressive adaptive routing is only triggered when packet has to traverse a
+   * global channel. It doesn't make sense to use it within a group */
   if(dest_grp_id != src_grp_id && 
           ((cur_chunk->msg.last_hop == TERMINAL 
               && routing == ADAPTIVE) 
@@ -2605,10 +2614,11 @@ router_packet_receive( router_state * s,
   next_path_type = cur_chunk->msg.path_type;
 
   if(cur_chunk->msg.path_type != MINIMAL && cur_chunk->msg.path_type != NON_MINIMAL)
-      printf("\n packet src %d dest %d intm %d src grp %d dest grp %d", s->router_id, dest_router_id, intm_router_id, src_grp_id, dest_grp_id);
+      tw_error(TW_LOC, "\n packet src %d dest %d intm %d src grp %d dest grp %d", s->router_id, dest_router_id, intm_router_id, src_grp_id, dest_grp_id);
 
   assert(cur_chunk->msg.path_type == MINIMAL || cur_chunk->msg.path_type == NON_MINIMAL);
-  
+ 
+  /* If non-minimal, set the random destination */
   if(cur_chunk->msg.last_hop == TERMINAL && cur_chunk->msg.path_type == NON_MINIMAL)
   {
     cur_chunk->msg.intm_rtr_id = intm_router_id;
@@ -2617,6 +2627,8 @@ router_packet_receive( router_state * s,
 
   if(cur_chunk->msg.path_type == NON_MINIMAL)
   {
+     /* If non-minimal route has completed, mark the packet.
+      * If not, set the non-minimal destination.*/
     if(s->router_id == cur_chunk->msg.intm_rtr_id)
     {
         cur_chunk->msg.nonmin_done = 1;
@@ -2626,18 +2638,15 @@ router_packet_receive( router_state * s,
        dest_router_id = cur_chunk->msg.intm_rtr_id;
     }
   }
- 
+
+  /* If the packet route has just changed to non-minimal with prog-adaptive
+   * routing, we have to compute the next stop based on that */
   int do_chan_selection = 0;
   if(routing == PROG_ADAPTIVE && prev_path_type != next_path_type)
       do_chan_selection = 1;
 
   next_stop = get_next_stop(s, lp, bf, &(cur_chunk->msg), dest_router_id, adap_chan, do_chan_selection);
 
-  if(msg->remote_event_size_bytes > 0) {
-    void *m_data_src = model_net_method_get_edata(DRAGONFLY_ROUTER, msg);
-    cur_chunk->event_data = (char*)malloc(msg->remote_event_size_bytes);
-    memcpy(cur_chunk->event_data, m_data_src, msg->remote_event_size_bytes);
-  }
   output_port = get_output_port(s, &(cur_chunk->msg), lp, bf, next_stop); 
   assert(output_port >= 0);
   int max_vc_size = s->params->cn_vc_size;
@@ -2660,13 +2669,19 @@ router_packet_receive( router_state * s,
   cur_chunk->msg.output_chan = output_chan;
   cur_chunk->msg.my_N_hop++;
 
+  if(output_port >= s->params->radix)
+      tw_error(TW_LOC, "\n Output port greater than router radix");
+  
   if(output_chan >= s->params->num_vcs || output_chan < 0)
       printf("\n Output chan %d output port %d my rid %d dest rid %d path %d my gid %d dest gid %d", output_chan, output_port, s->router_id, dest_router_id, cur_chunk->msg.path_type, src_grp_id, dest_grp_id);
 
   assert(output_chan < s->params->num_vcs && output_chan >= 0);
 
-  if(output_port >= s->params->radix)
-      tw_error(TW_LOC, "\n Output port greater than router radix");
+  if(msg->remote_event_size_bytes > 0) {
+    void *m_data_src = model_net_method_get_edata(DRAGONFLY_ROUTER, msg);
+    cur_chunk->event_data = (char*)malloc(msg->remote_event_size_bytes);
+    memcpy(cur_chunk->event_data, m_data_src, msg->remote_event_size_bytes);
+  }
 
   if(s->vc_occupancy[output_port][output_chan] + s->params->chunk_size 
       <= max_vc_size) {
