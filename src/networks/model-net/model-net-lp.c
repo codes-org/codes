@@ -387,6 +387,10 @@ void model_net_base_event(
         tw_bf * b,
         model_net_wrap_msg * m,
         tw_lp * lp){
+
+    if(m->h.magic != model_net_base_magic)
+        printf("\n LP ID mismatched %d ", lp->gid);
+
     assert(m->h.magic == model_net_base_magic);
 
     void * sub_msg;

@@ -23,16 +23,6 @@
 #include "codes/rc-stack.h"
 
 #define CREDIT_SIZE 8
-#define MEAN_PROCESS 1.0
-
-/* collective specific parameters */
-#define TREE_DEGREE 4
-#define LEVEL_DELAY 1000
-#define DRAGONFLY_COLLECTIVE_DEBUG 0
-#define NUM_COLLECTIVES  1
-#define COLLECTIVE_COMPUTATION_DELAY 5700
-#define DRAGONFLY_FAN_OUT_DELAY 20.0
-#define WINDOW_LENGTH 0
 #define DFLY_HASH_TABLE_SIZE 262144
 
 // debugging parameters
@@ -197,26 +187,6 @@ struct terminal_state
 // Router-Router Intra-group sends and receives RR_LSEND, RR_LARRIVE
 // Router-Router Inter-group sends and receives RR_GSEND, RR_GARRIVE
    struct mn_stats dragonfly_stats_array[CATEGORY_MAX];
-  /* collective init time */
-  tw_stime collective_init_time;
-
-  /* node ID in the tree */ 
-   tw_lpid node_id;
-
-   /* messages sent & received in collectives may get interchanged several times so we have to save the 
-     origin server information in the node's state */
-   tw_lpid origin_svr; 
-  
-  /* parent node ID of the current node */
-   tw_lpid parent_node_id;
-   /* array of children to be allocated in terminal_init*/
-   tw_lpid* children;
-
-   /* children of a node can be less than or equal to the tree degree */
-   int num_children;
-
-   short is_root;
-   short is_leaf;
 
    struct rc_stack * st;
    int issueIdle;
@@ -271,10 +241,7 @@ enum event_t
   T_BUFFER,
   R_SEND,
   R_ARRIVE,
-  R_BUFFER,
-  D_COLLECTIVE_INIT,
-  D_COLLECTIVE_FAN_IN,
-  D_COLLECTIVE_FAN_OUT
+  R_BUFFER
 };
 /* status of a virtual channel can be idle, active, allocated or wait for credit */
 enum vc_status
@@ -351,7 +318,6 @@ static short routing = MINIMAL;
 
 static tw_stime         dragonfly_total_time = 0;
 static tw_stime         dragonfly_max_latency = 0;
-static tw_stime         max_collective = 0;
 
 
 static long long       total_hops = 0;
@@ -488,7 +454,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
                 p->num_routers);
     }
 
-    p->num_vcs = 3;
+    p->num_vcs = 8;
 
     rc = configuration_get_value_int(&config, "PARAMS", "local_vc_size", anno, &p->local_vc_size);
     if(rc) {
@@ -635,64 +601,6 @@ static void dragonfly_report_stats()
    return;
 }
 
-void dragonfly_collective_init(terminal_state * s,
-           		   tw_lp * lp)
-{
-    // TODO: be annotation-aware
-    codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
-            &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
-            NULL, 1);
-    int num_reps = codes_mapping_get_group_reps(lp_group_name);
-    s->node_id = (mapping_rep_id * num_lps) + mapping_offset;
-
-    int i;
-   /* handle collective operations by forming a tree of all the LPs */
-   /* special condition for root of the tree */
-   if( s->node_id == 0)
-    {
-        s->parent_node_id = -1;
-        s->is_root = 1;
-   }
-   else
-   {
-       s->parent_node_id = (s->node_id - ((s->node_id - 1) % TREE_DEGREE)) / TREE_DEGREE;
-       s->is_root = 0;
-   }
-   s->children = (tw_lpid*)malloc(TREE_DEGREE * sizeof(tw_lpid));
-
-   /* set the isleaf to zero by default */
-   s->is_leaf = 1;
-   s->num_children = 0;
-
-   /* calculate the children of the current node. If its a leaf, no need to set children,
-      only set isleaf and break the loop*/
-
-   for( i = 0; i < TREE_DEGREE; i++ )
-    {
-        tw_lpid next_child = (TREE_DEGREE * s->node_id) + i + 1;
-        if(next_child < ((tw_lpid)num_lps * (tw_lpid)num_reps))
-        {
-            s->num_children++;
-            s->is_leaf = 0;
-            s->children[i] = next_child;
-        }
-        else
-           s->children[i] = -1;
-    }
-
-#if DRAGONFLY_COLLECTIVE_DEBUG == 1
-   printf("\n LP %ld parent node id ", s->node_id);
-
-   for( i = 0; i < TREE_DEGREE; i++ )
-        printf(" child node ID %ld ", s->children[i]);
-   printf("\n");
-
-   if(s->is_leaf)
-        printf("\n LP %ld is leaf ", s->node_id);
-#endif
-}
-
 /* initialize a dragonfly compute node terminal */
 void 
 terminal_init( terminal_state * s, 
@@ -766,7 +674,6 @@ terminal_init( terminal_state * s,
    s->in_send_loop = 0;
    s->issueIdle = 0;
 
-   dragonfly_collective_init(s, lp);
    return;
 }
 
@@ -1645,273 +1552,6 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   return;
 }
 
-/* collective operation for the torus network */
-void dragonfly_collective(char const * category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender)
-{
-    tw_event * e_new;
-    tw_stime xfer_to_nic_time;
-    terminal_message * msg;
-    tw_lpid local_nic_id;
-    char* tmp_ptr;
-
-    codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id,
-            NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_TERM, NULL, 1,
-            mapping_rep_id, mapping_offset, &local_nic_id);
-
-    xfer_to_nic_time = codes_local_latency(sender);
-    e_new = model_net_method_event_new(local_nic_id, xfer_to_nic_time,
-            sender, DRAGONFLY, (void**)&msg, (void**)&tmp_ptr);
-
-    msg->remote_event_size_bytes = message_size;
-    strcpy(msg->category, category);
-    msg->sender_svr=sender->gid;
-    msg->type = D_COLLECTIVE_INIT;
-
-    tmp_ptr = (char*)msg;
-    tmp_ptr += dragonfly_get_msg_sz();
-    if(remote_event_size > 0)
-     {
-            msg->remote_event_size_bytes = remote_event_size;
-            memcpy(tmp_ptr, remote_event, remote_event_size);
-            tmp_ptr += remote_event_size;
-     }
-
-    tw_event_send(e_new);
-    return;
-}
-
-/* reverse for collective operation of the dragonfly network */
-void dragonfly_collective_rc(int message_size, tw_lp* sender)
-{
-    (void)message_size;
-     codes_local_latency_reverse(sender);
-     return;
-}
-
-static void send_collective_remote_event(terminal_state * s,
-                        terminal_message * msg,
-                        tw_lp * lp)
-{
-    // Trigger an event on receiving server
-    if(msg->remote_event_size_bytes)
-     {
-            tw_event* e;
-            tw_stime ts;
-            terminal_message * m;
-            ts = (1/s->params->cn_bandwidth) * msg->remote_event_size_bytes;
-            e = tw_event_new(s->origin_svr, ts, lp);
-            m = tw_event_data(e);
-            char* tmp_ptr = (char*)msg;
-            tmp_ptr += dragonfly_get_msg_sz();
-            memcpy(m, tmp_ptr, msg->remote_event_size_bytes);
-            tw_event_send(e);
-     }
-}
-
-static void node_collective_init(terminal_state * s,
-                        terminal_message * msg,
-                        tw_lp * lp)
-{
-        tw_event * e_new;
-        tw_lpid parent_nic_id;
-        tw_stime xfer_to_nic_time;
-        terminal_message * msg_new;
-        int num_lps;
-
-        msg->saved_busy_time = s->collective_init_time;
-        s->collective_init_time = tw_now(lp);
-	s->origin_svr = msg->sender_svr;
-	
-        if(s->is_leaf)
-        {
-            //printf("\n LP %ld sending message to parent %ld ", s->node_id, s->parent_node_id);
-            /* get the global LP ID of the parent node */
-            // TODO: be annotation-aware
-            codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id,
-                    NULL, &mapping_type_id, NULL, &mapping_rep_id,
-                    &mapping_offset);
-            num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
-                    s->anno, 0);
-            codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_TERM, s->anno, 0,
-                    s->parent_node_id/num_lps, (s->parent_node_id % num_lps),
-                    &parent_nic_id);
-
-           /* send a message to the parent that the LP has entered the collective operation */
-            xfer_to_nic_time = g_tw_lookahead + LEVEL_DELAY;
-            //e_new = tw_event_new(parent_nic_id, xfer_to_nic_time, lp);
-	    void* m_data;
-	    e_new = model_net_method_event_new(parent_nic_id, xfer_to_nic_time,
-            	lp, DRAGONFLY, (void**)&msg_new, (void**)&m_data);
-	    	
-            memcpy(msg_new, msg, sizeof(terminal_message));
-	    if (msg->remote_event_size_bytes){
-        	memcpy(m_data, model_net_method_get_edata(DRAGONFLY, msg),
-                	msg->remote_event_size_bytes);
-      	    }
-	    
-            msg_new->type = D_COLLECTIVE_FAN_IN;
-            msg_new->sender_node = s->node_id;
-
-            tw_event_send(e_new);
-        }
-        return;
-}
-
-static void node_collective_fan_in(terminal_state * s,
-                        tw_bf * bf,
-                        terminal_message * msg,
-                        tw_lp * lp)
-{
-        int i;
-        s->num_fan_nodes++;
-
-        codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id,
-                NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-        int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
-                s->anno, 0);
-
-        tw_event* e_new;
-        terminal_message * msg_new;
-        tw_stime xfer_to_nic_time;
-
-        bf->c1 = 0;
-        bf->c2 = 0;
-
-        /* if the number of fanned in nodes have completed at the current node then signal the parent */
-        if((s->num_fan_nodes == s->num_children) && !s->is_root)
-        {
-            bf->c1 = 1;
-            msg->saved_fan_nodes = s->num_fan_nodes-1;
-            s->num_fan_nodes = 0;
-            tw_lpid parent_nic_id;
-            xfer_to_nic_time = g_tw_lookahead + LEVEL_DELAY;
-
-            /* get the global LP ID of the parent node */
-            codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_TERM, s->anno, 0,
-                    s->parent_node_id/num_lps, (s->parent_node_id % num_lps),
-                    &parent_nic_id);
-
-           /* send a message to the parent that the LP has entered the collective operation */
-            //e_new = tw_event_new(parent_nic_id, xfer_to_nic_time, lp);
-            //msg_new = tw_event_data(e_new);
-	    void * m_data;
-      	    e_new = model_net_method_event_new(parent_nic_id,
-              xfer_to_nic_time,
-              lp, DRAGONFLY, (void**)&msg_new, &m_data);
-	    
-            memcpy(msg_new, msg, sizeof(terminal_message));
-            msg_new->type = D_COLLECTIVE_FAN_IN;
-            msg_new->sender_node = s->node_id;
-
-            if (msg->remote_event_size_bytes){
-	        memcpy(m_data, model_net_method_get_edata(DRAGONFLY, msg),
-        	        msg->remote_event_size_bytes);
-      	   }
-	    
-            tw_event_send(e_new);
-      }
-
-      /* root node starts off with the fan-out phase */
-      if(s->is_root && (s->num_fan_nodes == s->num_children))
-      {
-           bf->c2 = 1;
-           msg->saved_fan_nodes = s->num_fan_nodes-1;
-           s->num_fan_nodes = 0;
-           send_collective_remote_event(s, msg, lp);
-
-           for( i = 0; i < s->num_children; i++ )
-           {
-                tw_lpid child_nic_id;
-                /* Do some computation and fan out immediate child nodes from the collective */
-                xfer_to_nic_time = g_tw_lookahead + COLLECTIVE_COMPUTATION_DELAY + LEVEL_DELAY + tw_rand_exponential(lp->rng, (double)LEVEL_DELAY/50);
-
-                /* get global LP ID of the child node */
-                codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_TERM, NULL, 1,
-                        s->children[i]/num_lps, (s->children[i] % num_lps),
-                        &child_nic_id);
-                //e_new = tw_event_new(child_nic_id, xfer_to_nic_time, lp);
-
-                //msg_new = tw_event_data(e_new);
-                void * m_data;
-	        e_new = model_net_method_event_new(child_nic_id,
-                xfer_to_nic_time,
-		lp, DRAGONFLY, (void**)&msg_new, &m_data);
-
-		memcpy(msg_new, msg, sizeof(terminal_message));
-	        if (msg->remote_event_size_bytes){
-	                memcpy(m_data, model_net_method_get_edata(DRAGONFLY, msg),
-        	               msg->remote_event_size_bytes);
-      		}
-		
-                msg_new->type = D_COLLECTIVE_FAN_OUT;
-                msg_new->sender_node = s->node_id;
-
-                tw_event_send(e_new);
-           }
-      }
-}
-
-static void node_collective_fan_out(terminal_state * s,
-                        tw_bf * bf,
-                        terminal_message * msg,
-                        tw_lp * lp)
-{
-        int i;
-        int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
-                NULL, 1);
-        bf->c1 = 0;
-        bf->c2 = 0;
-
-        send_collective_remote_event(s, msg, lp);
-
-        if(!s->is_leaf)
-        {
-            bf->c1 = 1;
-            tw_event* e_new;
-            nodes_message * msg_new;
-            tw_stime xfer_to_nic_time;
-
-           for( i = 0; i < s->num_children; i++ )
-           {
-                xfer_to_nic_time = g_tw_lookahead + DRAGONFLY_FAN_OUT_DELAY + tw_rand_exponential(lp->rng, (double)DRAGONFLY_FAN_OUT_DELAY/10);
-
-                if(s->children[i] > 0)
-                {
-                        tw_lpid child_nic_id;
-
-                        /* get global LP ID of the child node */
-                        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_TERM,
-                                s->anno, 0, s->children[i]/num_lps,
-                                (s->children[i] % num_lps), &child_nic_id);
-                        //e_new = tw_event_new(child_nic_id, xfer_to_nic_time, lp);
-                        //msg_new = tw_event_data(e_new);
-                        //memcpy(msg_new, msg, sizeof(nodes_message) + msg->remote_event_size_bytes);
-			void* m_data;
-			e_new = model_net_method_event_new(child_nic_id,
-							xfer_to_nic_time,
-					                lp, DRAGONFLY, (void**)&msg_new, &m_data);
-		        memcpy(msg_new, msg, sizeof(nodes_message));
-		        if (msg->remote_event_size_bytes){
-			        memcpy(m_data, model_net_method_get_edata(DRAGONFLY, msg),
-			                msg->remote_event_size_bytes);
-      			}
-
-                        //TODO: this is probably incorrect - need to fix
-                        msg_new->type = (nodes_event_t) D_COLLECTIVE_FAN_OUT;
-                        msg_new->sender_node = s->node_id;
-                        tw_event_send(e_new);
-                }
-           }
-         }
-	//printf("\n Fan out phase completed %ld ", lp->gid);
-        if(max_collective < tw_now(lp) - s->collective_init_time )
-          {
-              bf->c2 = 1;
-              max_collective = tw_now(lp) - s->collective_init_time;
-          }
-}
-
 void dragonfly_rsample_init(router_state * s,
         tw_lp * lp)
 {
@@ -2297,18 +1937,6 @@ terminal_event( terminal_state * s,
        terminal_buf_update(s, bf, msg, lp);
      break;
     
-    case D_COLLECTIVE_INIT:
-      node_collective_init(s, msg, lp);
-    break;
-
-    case D_COLLECTIVE_FAN_IN:
-      node_collective_fan_in(s, bf, msg, lp);
-    break;
-
-    case D_COLLECTIVE_FAN_OUT:
-      node_collective_fan_out(s, bf, msg, lp);
-    break;
-    
     default:
        printf("\n LP %d Terminal message type not supported %d ", (int)lp->gid, msg->type);
        tw_error(TW_LOC, "Msg type not supported");
@@ -2344,7 +1972,6 @@ dragonfly_terminal_final( terminal_state * s,
     free(s->vc_occupancy);
     free(s->terminal_msgs);
     free(s->terminal_msgs_tail);
-    free(s->children);
 }
 
 void dragonfly_router_final(router_state * s,
@@ -2846,7 +2473,7 @@ void router_packet_send_rc(router_state * s,
     prepend_to_terminal_message_list(s->pending_msgs[output_port],
             s->pending_msgs_tail[output_port], output_chan, cur_entry);
 
-    if(routing == PROG_ADAPTIVE)
+    /*if(routing == PROG_ADAPTIVE)
 	{
 		if(bf->c2)
 		{
@@ -2856,7 +2483,7 @@ void router_packet_send_rc(router_state * s,
 		}
 		else
 		  s->cur_hist_num[output_port]--;
- 	}
+ 	}*/
     if(bf->c3) {
         tw_rand_reverse_unif(lp->rng);
       }
@@ -2967,7 +2594,7 @@ router_packet_send( router_state * s,
     s->link_traffic_sample[output_port] += s->params->chunk_size;
   }
 
-  if(routing == PROG_ADAPTIVE)
+  /*if(routing == PROG_ADAPTIVE)
   {
       if(tw_now(lp) - s->cur_hist_start_time[output_port] >= WINDOW_LENGTH) {
         bf->c2 = 1;
@@ -2979,7 +2606,7 @@ router_packet_send( router_state * s,
       } else {
         s->cur_hist_num[output_port]++;
       }
-  }
+  }*/
   /* Determine the event type. If the packet has arrived at the final 
    * destination router then it should arrive at the destination terminal 
    * next.*/
@@ -3143,36 +2770,9 @@ void terminal_rc_event_handler(terminal_state * s, tw_bf * bf,
     case T_BUFFER:
         terminal_buf_update_rc(s, bf, msg, lp); 
         break;
-
-    case D_COLLECTIVE_INIT:
-            {
-                s->collective_init_time = msg->saved_busy_time;
-            }
-      break;
-    case D_COLLECTIVE_FAN_IN: {
-        int i;
-        s->num_fan_nodes--;
-        if(bf->c1)
-        {
-          s->num_fan_nodes = msg->saved_fan_nodes;
-        }
-        if(bf->c2)
-        {
-          s->num_fan_nodes = msg->saved_fan_nodes;
-          for( i = 0; i < s->num_children; i++ )
-            tw_rand_reverse_unif(lp->rng);
-        }
-      }
-      break;
-
-    case D_COLLECTIVE_FAN_OUT: {
-        int i;
-        if(bf->c1)
-        {
-          for( i = 0; i < s->num_children; i++ )
-            tw_rand_reverse_unif(lp->rng);
-        }
-      }	 
+    default:
+        tw_error(TW_LOC, "\n Terminal %d message type %d not supported",
+                lp->gid, msg->type);
   }
 }
 
@@ -3252,8 +2852,8 @@ struct model_net_method dragonfly_method =
     .mn_get_lp_type = dragonfly_get_cn_lp_type,
     .mn_get_msg_sz = dragonfly_get_msg_sz,
     .mn_report_stats = dragonfly_report_stats,
-    .mn_collective_call = dragonfly_collective,
-    .mn_collective_call_rc = dragonfly_collective_rc,   
+    .mn_collective_call = NULL,
+    .mn_collective_call_rc = NULL,   
     .mn_sample_fn = (void*)dragonfly_sample_fn,    
     .mn_sample_rc_fn = (void*)dragonfly_sample_rc_fn,
     .mn_sample_init_fn = (void*)dragonfly_sample_init,

@@ -56,7 +56,6 @@ struct terminal_message
   short last_hop;
    /* For routing */
   int intm_rtr_id;
-  int intm_group_id;
   int saved_src_dest;
   int saved_src_chan;
 
@@ -69,11 +68,11 @@ struct terminal_message
    int local_event_size_bytes;
 
   // For buffer message
-   int vc_index;
+   short vc_index;
    int output_chan;
    model_net_event_return event_rc;
    int is_pull;
-   uint64_t pull_size;
+   uint32_t pull_size;
 
    /* for reverse computation */   
    int path_type;
@@ -84,9 +83,6 @@ struct terminal_message
    tw_stime saved_total_time;
    tw_stime saved_sample_time;
    tw_stime msg_start_time;
-   int saved_occupancy;
-
-   tw_lpid next_stop;
 };
 
 #ifdef __cplusplus

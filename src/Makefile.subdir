@@ -87,6 +87,7 @@ nobase_include_HEADERS = \
 	codes/model-net-sched.h \
 	codes/model-net-inspect.h \
 	codes/net/dragonfly.h \
+	codes/net/dragonfly-custom.h \
 	codes/net/slimfly.h \
 	codes/net/loggp.h \
 	codes/net/simplenet-upd.h \

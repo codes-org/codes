@@ -16,7 +16,7 @@
 #include "codes/codes-jobmap.h"
 
 /* turning on track lp will generate a lot of output messages */
-#define MN_LP_NM "modelnet_dragonfly"
+#define MN_LP_NM "modelnet_dragonfly_custom"
 
 #define TRACK_LP -1
 #define TRACE -1
@@ -229,7 +229,7 @@ struct nw_message
        double saved_recv_time;
        double saved_wait_time;
        double saved_delay;
-       int64_t saved_num_bytes;
+       int16_t saved_num_bytes;
        struct codes_workload_op * saved_op;
    } rc;
 };
