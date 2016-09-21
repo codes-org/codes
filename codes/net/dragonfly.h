@@ -55,6 +55,8 @@ struct terminal_message
   unsigned int intm_lp_id;
   short new_vc;
   short saved_vc;
+  
+  int saved_src_dest;
   /* last hop of the message, can be a terminal, local router or global router */
   int last_hop;
    /* For routing */

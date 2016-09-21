@@ -53,6 +53,12 @@ working from the CODES master branches, use the ROSS master branch.
     breaks libdumpi's function wrappers through const'ifying the MPI
     interface).
 
+    For building DUMPI with mpich3 versions and higher, use the following build
+    options:
+
+    CFLAGS="-DMPICH_SUPPRESS_PROTOTYPES=1 -DHAVE_PRAGMA_HP_SEC_DEF=1"
+    ./configure --enable-libdumpi --prefix=$INSTALL_PATH
+
     Use the --with-darshan argument to configure to enable the optional
     Darshan I/O workload generator
     (http://www.mcs.anl.gov/research/projects/darshan/).  In order to use
