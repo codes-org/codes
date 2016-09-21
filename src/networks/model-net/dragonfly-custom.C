@@ -20,10 +20,21 @@
 #include <vector>
 #include <map>
 
-#define GREEN 0
-#define BLACK 1
-#define BLUE 2
 #define DUMP_CONNECTIONS 0
+#define CREDIT_SIZE 8
+#define DFLY_HASH_TABLE_SIZE 262144
+
+// debugging parameters
+#define TRACK -1
+#define TRACK_PKT -1
+#define TRACK_MSG -1
+#define DEBUG 0
+#define MAX_STATS 65536
+
+#define LP_CONFIG_NM_TERM (model_net_lp_config_names[DRAGONFLY_CUSTOM])
+#define LP_METHOD_NM_TERM (model_net_method_names[DRAGONFLY_CUSTOM])
+#define LP_CONFIG_NM_ROUT (model_net_lp_config_names[DRAGONFLY_CUSTOM_ROUTER])
+#define LP_METHOD_NM_ROUT (model_net_method_names[DRAGONFLY_CUSTOM_ROUTER])
 
 using namespace std;
 struct Link {
@@ -52,25 +63,6 @@ struct InterGroupLink {
   int src, dest;
 };
 
-#define CREDIT_SIZE 8
-#define MEAN_PROCESS 1.0
-
-#define WINDOW_LENGTH 0
-#define DFLY_HASH_TABLE_SIZE 262144
-
-// debugging parameters
-#define TRACK -1
-#define TRACK_PKT -1
-#define TRACK_MSG -1
-#define PRINT_ROUTER_TABLE 1
-#define DEBUG 0
-#define USE_DIRECT_SCHEME 1
-#define MAX_STATS 65536
-
-#define LP_CONFIG_NM_TERM (model_net_lp_config_names[DRAGONFLY_CUSTOM])
-#define LP_METHOD_NM_TERM (model_net_method_names[DRAGONFLY_CUSTOM])
-#define LP_CONFIG_NM_ROUT (model_net_lp_config_names[DRAGONFLY_CUSTOM_ROUTER])
-#define LP_METHOD_NM_ROUT (model_net_method_names[DRAGONFLY_CUSTOM_ROUTER])
 
 static int debug_slot_count = 0;
 static long term_ecount, router_ecount, term_rev_ecount, router_rev_ecount;
@@ -939,53 +931,6 @@ void router_custom_setup(router_state * r, tw_lp * lp)
             r->queued_msgs_tail[i][j] = NULL;
         }
     }
-
-#if DEBUG == 1
-//   printf("\n LP ID %d VC occupancy radix %d Router %d is connected to ", lp->gid, p->radix, r->router_id);
-#endif 
-   //round the number of global channels to the nearest even number
-#if USE_DIRECT_SCHEME
-       int first = r->router_id % p->num_routers;
-       for(int i=0; i < p->num_global_channels; i++)
-        {
-            int target_grp = first;
-            if(target_grp == r->group_id) {
-                target_grp = p->num_groups - 1;
-            }
-            int my_pos = r->group_id % p->num_routers;
-            if(r->group_id == p->num_groups - 1) {
-                my_pos = target_grp % p->num_routers;
-            }
-            r->global_channel[i] = target_grp * p->num_routers + my_pos;
-            first += p->num_routers;
-        }
-#else
-   int router_offset = (r->router_id % p->num_routers) * 
-    (p->num_global_channels / 2) + 1;
-   for(int i=0; i < p->num_global_channels; i++)
-    {
-      if(i % 2 != 0)
-          {
-             r->global_channel[i]=(r->router_id + (router_offset * p->num_routers))%p->total_routers;
-             router_offset++;
-          }
-          else
-           {
-             r->global_channel[i]=r->router_id - ((router_offset) * p->num_routers);
-           }
-        if(r->global_channel[i]<0)
-         {
-           r->global_channel[i]=p->total_routers+r->global_channel[i]; 
-	 }
-#if DEBUG == 1
-    printf("\n channel %d ", r->global_channel[i]);
-#endif 
-    }
-#endif
-
-#if DEBUG == 1
-   printf("\n");
-#endif
    return;
 }	
 
@@ -1057,43 +1002,6 @@ static void dragonfly_custom_packet_event_rc(tw_lp *sender)
 	  codes_local_latency_reverse(sender);
 	    return;
 }
-
-/* given two group IDs, find the router of the src_gid that connects to the dest_gid*/
-static tw_lpid getRouterFromGroupID(int dest_gid, 
-		    int src_gid,
-		    int num_routers,
-            int total_groups)
-{
-#if USE_DIRECT_SCHEME
-  int dest = dest_gid;
-  if(dest == total_groups - 1) {
-      dest = src_gid;
-  }
-  return src_gid * num_routers + (dest % num_routers);
-#else
-  int group_begin = src_gid * num_routers;
-  int group_end = (src_gid * num_routers) + num_routers-1;
-  int offset = (dest_gid * num_routers - group_begin) / num_routers;
-  
-  if((dest_gid * num_routers) < group_begin)
-    offset = (group_begin - dest_gid * num_routers) / num_routers; // take absolute value
-  
-  int half_channel = num_routers / 4;
-  int index = (offset - 1)/(half_channel * num_routers);
-  
-  offset=(offset - 1) % (half_channel * num_routers);
-
-  // If the destination router is in the same group
-  tw_lpid router_id;
-
-  if(index % 2 != 0)
-    router_id = group_end - (offset / half_channel); // start from the end
-  else
-    router_id = group_begin + (offset / half_channel);
-
-  return router_id;
-#endif
-}	
 
 /*When a packet is sent from the current router and a buffer slot becomes available, a credit is sent back to schedule another packet event*/
 static void router_credit_send(router_state * s, terminal_message * msg, 
@@ -1875,13 +1783,6 @@ void dragonfly_custom_sample_init(terminal_state * s,
 
     s->sample_stat = (dfly_cn_sample *)malloc(MAX_STATS * sizeof(struct dfly_cn_sample));
     
-    /*char buf[1024];
-    int written = 0;
-    if(!s->terminal_id)
-    {
-       written = sprintf(buf, "# Format <LP ID> <Terminal ID> <Data size> <Avg packet latency> <#flits/packets finished> <Avg hops> <Busy Time>"); 
-        lp_io_write(lp->gid, "dragonfly-sampling-stats", written, buf);
-    }*/
 }
 void dragonfly_custom_sample_rc_fn(terminal_state * s,
         tw_bf * bf,
@@ -1923,23 +1824,6 @@ void dragonfly_custom_sample_fn(terminal_state * s,
     (void)msg;
     (void)bf;
     
-    //int i = 0, free_slots = 0;
-
-    /* checkout which samples are past the GVT, write them to the file */
-    /*for(i = 0; i < s->op_arr_size; i++)
-    {
-        if(s->sample_stat[i].end_time == 0 || s->sample_stat[i].end_time >= lp->pe->GVT)
-            break;
-
-        free_slots++;
-    }
-    if(free_slots > 0)
-    {
-        fwrite(s->sample_stat, sizeof(struct dfly_sample_stats), free_slots, fp);
-        s->op_arr_size -= free_slots;
-        memmove(s->sample_stat, &(s->sample_stat[free_slots]), sizeof(struct dfly_sample_stats) * s->op_arr_size);
-    }*/
-
     if(s->op_arr_size >= s->max_arr_size)
     {
         /* In the worst case, copy array to a new memory location, its very
@@ -1979,12 +1863,6 @@ void dragonfly_custom_sample_fin(terminal_state * s,
     (void)lp;
  
 
-    /* int i = 0;
-     * for(; i < s->op_arr_size; i++)
-    {
-        printf("\n Terminal id %ld data size sample %ld fin chunks %ld end time %lf ",
-                s->terminal_id, s->sample_stat[i].data_size_sample, s->sample_stat[i].fin_chunks_sample, s->sample_stat[i].end_time);
-    }*/
     if(!g_tw_mynode)
     {
     
@@ -2191,42 +2069,6 @@ void dragonfly_custom_router_final(router_state * s,
 
     sprintf(s->output_buf2 + written, "\n");
     lp_io_write(lp->gid, "dragonfly-router-traffic", written, s->output_buf2);
-}
-
-/* Get the number of hops for this particular path source and destination groups */
-static int get_num_hops(int local_router_id,
-		 int dest_router_id,
-		 int num_routers,
-                 int total_groups)
-{
-   int local_grp_id = local_router_id / num_routers;
-   int dest_group_id = dest_router_id / num_routers;
-   int num_hops = 4;
-
-   /* Already at the destination router */
-   if(local_router_id == dest_router_id)
-    {
-	return 1; /* already at the destination, traverse one hop only*/
-    }
-   else if(local_grp_id == dest_group_id)
-    {
-		return 2; /* in the same group, each router is connected so 2 additional hops to traverse (source and dest routers). */		
-    }	
-
-     /* if the router in the source group has direct connection to the destination group */
-     int src_connecting_router = getRouterFromGroupID(dest_group_id, 
-        local_grp_id, num_routers, total_groups);
-
-     if(src_connecting_router == local_router_id)		
-		num_hops--;
-
-     int dest_connecting_router = getRouterFromGroupID(local_grp_id, 
-        dest_group_id, num_routers, total_groups);	
-
-     if(dest_connecting_router == dest_router_id)	
-			num_hops--;
-
-     return num_hops;
 }
 
 static int get_intra_router(int src_router_id, int dest_router_id, int num_rtrs_per_grp)
