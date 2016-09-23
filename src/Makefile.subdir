@@ -153,11 +153,7 @@ src_libcodes_a_SOURCES =  \
 	src/networks/model-net/model-net-lp.c \
 	src/networks/model-net/model-net-sched.c \
 	src/networks/model-net/model-net-sched-impl.h \
-	src/networks/model-net/model-net-sched-impl.c \
-	src/network-workloads/model-net-mpi-replay.c \
-	src/network-workloads/model-net-synthetic.c \
-	src/network-workloads/model-net-synthetic-slimfly.c \
-	src/network-workloads/model-net-dumpi-traces-dump.c
+	src/networks/model-net/model-net-sched-impl.c 
 
 
 #codes/codes-nw-workload.h
