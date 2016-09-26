@@ -2958,7 +2958,7 @@ tw_lptype fattree_lps[] =
     (map_f) codes_mapping,
     sizeof(switch_state),
   },
-  {0},
+  {NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0},
 };
 
 /* returns the fattree lp type for lp registration */
