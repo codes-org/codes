@@ -80,7 +80,7 @@ static int disable_delay = 0;
 static int enable_sampling = 0;
 static double sampling_interval = 5000000;
 static double sampling_end_time = 3000000000;
-static int enable_debug = 1;
+static int enable_debug = 0;
 
 /* set group context */
 struct codes_mctx group_ratio;
