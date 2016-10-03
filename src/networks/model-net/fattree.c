@@ -1487,21 +1487,13 @@ static void fattree_report_stats()
 //    throughput_avg2 = throughput_avg2 / (float)slim_total_terminals_noah;
 
 	//Open file to append simulation results
-	char temp_filename[1024];
-	char temp_filename_header[1024];
-	sprintf(temp_filename,"%s/sim_log.txt",modelnet_stats_dir);
-	sprintf(temp_filename_header,"%s/sim_log_header.txt",modelnet_stats_dir);
-	FILE *fattree_results_log=fopen(temp_filename, "a");
-	FILE *fattree_results_log_header=fopen(temp_filename_header, "a");
-	if(fattree_results_log == NULL)
-		printf("\n Failed to open results log file %s \n",temp_filename);
-	if(fattree_results_log_header == NULL)
-		printf("\n Failed to open results log header file %s \n",temp_filename_header);
-	printf("Printing Simulation Parameters/Results Log File\n");
-    fprintf(fattree_results_log_header,"<Avg Hops/Total Packets>, <Avg Time/Total Packets>, <Max Latency>, <Total Finished Packets>, <Total Finished Chunks>");
-	fprintf(fattree_results_log,"%24.3lf, %24.3lf, %13.3lf, %24.3lld, %23.3lld, ", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets),max_time,total_finished_packets,total_finished_chunks);
-	fclose(fattree_results_log_header);
-	fclose(fattree_results_log);
+//	printf("Printing Simulation Parameters/Results Log File\n");
+//    int written = 0;
+//    int written2 = 0;
+//    written += sprintf(s->output_buf + written, "<Avg Hops/Total Packets>, <Avg Time/Total Packets>, <Max Latency>, <Total Finished Packets>, <Total Finished Chunks>");
+//    written2 += sprintf(s->output_buf2 + written2, "%24.3lf, %24.3lf, %13.3lf, %24.3lld, %23.3lld, ", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets),max_time,total_finished_packets,total_finished_chunks);
+//    lp_io_write(lp->gid, "sim_log_header.txt", written, s->output_buf);
+//    lp_io_write(lp->gid, "sim_log.txt", written2, s->output_buf2);
 #endif
   }
 }
@@ -2811,6 +2803,7 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
     model_net_print_stats(lp->gid, s->fattree_stats_array);
 
     int written = 0;
+    int written2 = 0;
     if(!s->terminal_id)
     {
         written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Rail> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>\n");
@@ -2827,48 +2820,39 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
     lp_io_write(lp->gid, "fattree-msg-stats", written, s->output_buf);
 
     // TODO: loop over all rails to print out data for all rails
-    if(s->terminal_msgs[rail] != NULL)
-      printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
-    //if(s->packet_gen != s->packet_fin)
-    //    printf("\n generated %d finished %d ", s->packet_gen, s->packet_fin);
+    for(rail=0; rail<s->params->terminal_radix; rail++){
+        if(s->terminal_msgs[rail] != NULL)
+            printf("[%llu] rail:%d leftover terminal messages \n", rail, LLU(lp->gid));
+    }
+    if(s->packet_gen != s->packet_fin)
+        printf("\n generated %d finished %d ", s->packet_gen, s->packet_fin);
 
     if(!s->terminal_id)
 	{
 #if PARAMS_LOG
 //    throughput_avg = throughput_avg / (float)slim_total_terminals_noah;
 //    throughput_avg2 = throughput_avg2 / (float)slim_total_terminals_noah;
-
-	//Open file to append simulation results
-		char temp_filename[1024];
-		char temp_filename_header[1024];
+        written = 0;
+        written2 = 0;
+        written += sprintf(s->output_buf + written, "<Num Levels>,");
+        written2 += sprintf(s->output_buf3 + written2, " %11d,", s->params->num_levels);
 		int temp_num_switches = 0;
-		sprintf(temp_filename,"%s/sim_log.txt",modelnet_stats_dir);
-		sprintf(temp_filename_header,"%s/sim_log_header.txt",modelnet_stats_dir);
-		FILE *fattree_results_log=fopen(temp_filename, "a");
-		FILE *fattree_results_log_header=fopen(temp_filename_header, "a");
-		if(fattree_results_log == NULL)
-			printf("\n Failed to open results log file %s in terminal_final\n",temp_filename);
-		if(fattree_results_log_header == NULL)
-			printf("\n Failed to open results log header file %s in terminal_final\n",temp_filename_header);
-		printf("Printing Simulation Parameters/Results Log File\n");
-		fprintf(fattree_results_log_header,"<Num Levels>,");
-		fprintf(fattree_results_log," %11d,",s->params->num_levels);
 		for(int j=0; j<s->params->num_levels; j++)
 		{
-			fprintf(fattree_results_log_header," <L%d Switch Radix>,",j);
-			fprintf(fattree_results_log," %17d,",s->params->switch_radix[j]);
+            written += sprintf(s->output_buf + written, " <L%d Switch Radix>,",j);
+            written2 += sprintf(s->output_buf3 + written2, " %17d,",s->params->switch_radix[j]);
 		}
 		for(int j=0; j<s->params->num_levels; j++)
 		{
-			fprintf(fattree_results_log_header," <L%d Num Switches>,",j);
-			fprintf(fattree_results_log," %17d,",s->params->num_switches[j]);
+            written += sprintf(s->output_buf + written, " <L%d Num Switches>,",j);
+            written2 += sprintf(s->output_buf3 + written2, " %17d,",s->params->num_switches[j]);
 			temp_num_switches += s->params->num_switches[j];
 		}
-
-		fprintf(fattree_results_log_header,"<Num Terminals>, <Num Switches>, <Synch>, <Num LPs>, <Sim End Time>, <Batch Size>, <GVT Interval>, <Num KP>, ");
-		fprintf(fattree_results_log,"%15.3d, %14d, %7.3d, %9.3d, %14.3d, %12.3d, %14.3d, %8.3d, ", (s->params->switch_radix[0]/2)*s->params->num_switches[0],temp_num_switches, g_tw_synchronization_protocol, tw_nnodes(),(int)g_tw_ts_end,(int)g_tw_mblock,(int)g_tw_gvt_interval, (int)g_tw_nkp);
-		fclose(fattree_results_log_header);
-		fclose(fattree_results_log);
+        written += sprintf(s->output_buf + written, "<Num Terminals>, <Num Switches>, <Synch>, <Num LPs>, <Sim End Time>, <Batch Size>, <GVT Interval>, <Num KP>, ");
+        written2 += sprintf(s->output_buf3 + written2, "%15.3d, %14d, %7.3d, %9.3d, %14.3d, %12.3d, %14.3d, %8.3d, ", (s->params->switch_radix[0]/2)*s->params->num_switches[0],temp_num_switches, g_tw_synchronization_protocol, tw_nnodes(),(int)g_tw_ts_end,(int)g_tw_mblock,(int)g_tw_gvt_interval, (int)g_tw_nkp);
+        lp_io_write(lp->gid, "sim_log_header.txt", written, s->output_buf);
+        printf("here0\n");
+        lp_io_write(lp->gid, "sim_log.txt", written2, s->output_buf3);
 #endif
 	}
 
@@ -2900,6 +2884,8 @@ void fattree_switch_final(switch_state * s, tw_lp * lp)
 
 //    const fattree_param *p = s->params;
     int written = 0;
+    char filename[50];
+    sprintf(filename,"fattree-switch-stats%d",s->rail);
     if(!s->switch_id && !s->rail)
     {
     printf("writing fattree-switch-stats header\n");
@@ -2912,8 +2898,9 @@ void fattree_switch_final(switch_state * s, tw_lp * lp)
     for(int d = 0; d < s->radix; d++)
         written += sprintf(s->output_buf + written, " %lf", s->busy_time[d]);
 
-    lp_io_write(lp->gid, "fattree-switch-stats", written, s->output_buf);
+    lp_io_write(lp->gid, filename, written, s->output_buf);
 
+    sprintf(filename, "fattree-switch-traffic%d",s->rail);
     written = 0;
     if(!s->switch_id && !s->rail)
     {
@@ -2927,7 +2914,7 @@ void fattree_switch_final(switch_state * s, tw_lp * lp)
     for(int d = 0; d < s->radix; d++)
         written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
 
-    lp_io_write(lp->gid, "fattree-switch-traffic", written, s->output_buf2);
+    lp_io_write(lp->gid, filename, written, s->output_buf2);
 
     //Original Output with Tracer
 //    char *stats_file = getenv("TRACER_LINK_FILE");
