@@ -4,8 +4,8 @@
  *
  */
 
-#ifndef DRAGONFLY_H
-#define DRAGONFLY_H
+#ifndef DRAGONFLY_CUSTOM_H
+#define DRAGONFLY_CUSTOM_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,10 +13,10 @@ extern "C" {
 
 #include <ross.h>
 
-typedef struct terminal_message terminal_message;
+typedef struct terminal_custom_message terminal_custom_message;
 
 /* this message is used for both dragonfly compute nodes and routers */
-struct terminal_message
+struct terminal_custom_message
 {
   /* magic number */
   int magic;
@@ -48,6 +48,8 @@ struct terminal_message
   short my_l_hop, my_g_hop;
   short saved_channel;
   short saved_vc;
+
+  int next_stop;
 
   short nonmin_done;
   /* Intermediate LP ID from which this message is coming */

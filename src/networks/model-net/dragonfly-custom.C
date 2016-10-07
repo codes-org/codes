@@ -99,23 +99,23 @@ static int sample_rtr_bytes_written = 0;
 static char cn_sample_file[MAX_NAME_LENGTH];
 static char router_sample_file[MAX_NAME_LENGTH];
 
-typedef struct terminal_message_list terminal_message_list;
-struct terminal_message_list {
-    terminal_message msg;
+typedef struct terminal_custom_message_list terminal_custom_message_list;
+struct terminal_custom_message_list {
+    terminal_custom_message msg;
     char* event_data;
-    terminal_message_list *next;
-    terminal_message_list *prev;
+    terminal_custom_message_list *next;
+    terminal_custom_message_list *prev;
 };
 
-void init_terminal_message_list(terminal_message_list *thisO, 
-    terminal_message *inmsg) {
+void init_terminal_custom_message_list(terminal_custom_message_list *thisO, 
+    terminal_custom_message *inmsg) {
     thisO->msg = *inmsg;
     thisO->event_data = NULL;
     thisO->next = NULL;
     thisO->prev = NULL;
 }
 
-void delete_terminal_message_list(terminal_message_list *thisO) {
+void delete_terminal_custom_message_list(terminal_custom_message_list *thisO) {
     if(thisO->event_data != NULL) free(thisO->event_data);
     free(thisO);
 }
@@ -204,8 +204,8 @@ struct terminal_state
    int* vc_occupancy; // NUM_VC
    int num_vcs;
    tw_stime terminal_available_time;
-   terminal_message_list **terminal_msgs;
-   terminal_message_list **terminal_msgs_tail;
+   terminal_custom_message_list **terminal_msgs;
+   terminal_custom_message_list **terminal_msgs_tail;
    int in_send_loop;
    struct mn_stats dragonfly_stats_array[CATEGORY_MAX];
 
@@ -297,10 +297,10 @@ struct router_state
    tw_stime* busy_time;
    tw_stime* busy_time_sample;
 
-   terminal_message_list ***pending_msgs;
-   terminal_message_list ***pending_msgs_tail;
-   terminal_message_list ***queued_msgs;
-   terminal_message_list ***queued_msgs_tail;
+   terminal_custom_message_list ***pending_msgs;
+   terminal_custom_message_list ***pending_msgs_tail;
+   terminal_custom_message_list ***queued_msgs;
+   terminal_custom_message_list ***queued_msgs_tail;
    int *in_send_loop;
    int *queued_count;
    struct rc_stack * st;
@@ -381,7 +381,7 @@ static tw_stime bytes_to_ns(uint64_t bytes, double GB_p_s)
 /* returns the dragonfly message size */
 int dragonfly_custom_get_msg_sz(void)
 {
-	   return sizeof(terminal_message);
+	   return sizeof(terminal_custom_message);
 }
 
 static void free_tmp(void * ptr)
@@ -391,11 +391,11 @@ static void free_tmp(void * ptr)
     free(dfly);
 }
 
-static void append_to_terminal_message_list(  
-        terminal_message_list ** thisq,
-        terminal_message_list ** thistail,
+static void append_to_terminal_custom_message_list(  
+        terminal_custom_message_list ** thisq,
+        terminal_custom_message_list ** thistail,
         int index, 
-        terminal_message_list *msg) {
+        terminal_custom_message_list *msg) {
     if(thisq[index] == NULL) {
         thisq[index] = msg;
     } else {
@@ -405,11 +405,11 @@ static void append_to_terminal_message_list(
     thistail[index] = msg;
 }
 
-static void prepend_to_terminal_message_list(  
-        terminal_message_list ** thisq,
-        terminal_message_list ** thistail,
+static void prepend_to_terminal_custom_message_list(  
+        terminal_custom_message_list ** thisq,
+        terminal_custom_message_list ** thistail,
         int index, 
-        terminal_message_list *msg) {
+        terminal_custom_message_list *msg) {
     if(thisq[index] == NULL) {
         thistail[index] = msg;
     } else {
@@ -419,11 +419,11 @@ static void prepend_to_terminal_message_list(
     thisq[index] = msg;
 }
 
-static terminal_message_list* return_head(
-        terminal_message_list ** thisq,
-        terminal_message_list ** thistail,
+static terminal_custom_message_list* return_head(
+        terminal_custom_message_list ** thisq,
+        terminal_custom_message_list ** thistail,
         int index) {
-    terminal_message_list *head = thisq[index];
+    terminal_custom_message_list *head = thisq[index];
     if(head != NULL) {
         thisq[index] = head->next;
         if(head->next != NULL) {
@@ -436,11 +436,11 @@ static terminal_message_list* return_head(
     return head;
 }
 
-static terminal_message_list* return_tail(
-        terminal_message_list ** thisq,
-        terminal_message_list ** thistail,
+static terminal_custom_message_list* return_tail(
+        terminal_custom_message_list ** thisq,
+        terminal_custom_message_list ** thistail,
         int index) {
-    terminal_message_list *tail = thistail[index];
+    terminal_custom_message_list *tail = thistail[index];
     assert(tail);
     if(tail->prev != NULL) {
         tail->prev->next = NULL;
@@ -816,9 +816,9 @@ terminal_custom_init( terminal_state * s,
        tw_error(TW_LOC, "\n Hash table not initialized! ");
 
    s->terminal_msgs = 
-       (terminal_message_list**)malloc(s->num_vcs*sizeof(terminal_message_list*));
+       (terminal_custom_message_list**)malloc(s->num_vcs*sizeof(terminal_custom_message_list*));
    s->terminal_msgs_tail = 
-       (terminal_message_list**)malloc(s->num_vcs*sizeof(terminal_message_list*));
+       (terminal_custom_message_list**)malloc(s->num_vcs*sizeof(terminal_custom_message_list*));
    s->terminal_msgs[0] = NULL;
    s->terminal_msgs_tail[0] = NULL;
    s->terminal_length = 0;
@@ -888,13 +888,13 @@ void router_custom_setup(router_state * r, tw_lp * lp)
    r->vc_occupancy = (int**)malloc(p->radix * sizeof(int*));
    r->in_send_loop = (int*)malloc(p->radix * sizeof(int));
    r->pending_msgs = 
-    (terminal_message_list***)malloc(p->radix * sizeof(terminal_message_list**));
+    (terminal_custom_message_list***)malloc(p->radix * sizeof(terminal_custom_message_list**));
    r->pending_msgs_tail = 
-    (terminal_message_list***)malloc(p->radix * sizeof(terminal_message_list**));
+    (terminal_custom_message_list***)malloc(p->radix * sizeof(terminal_custom_message_list**));
    r->queued_msgs = 
-    (terminal_message_list***)malloc(p->radix * sizeof(terminal_message_list**));
+    (terminal_custom_message_list***)malloc(p->radix * sizeof(terminal_custom_message_list**));
    r->queued_msgs_tail = 
-    (terminal_message_list***)malloc(p->radix * sizeof(terminal_message_list**));
+    (terminal_custom_message_list***)malloc(p->radix * sizeof(terminal_custom_message_list**));
    r->queued_count = (int*)malloc(p->radix * sizeof(int));
    r->last_buf_full = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
    r->busy_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
@@ -916,14 +916,14 @@ void router_custom_setup(router_state * r, tw_lp * lp)
     r->queued_count[i] = 0;    
     r->in_send_loop[i] = 0;
     r->vc_occupancy[i] = (int*)malloc(p->num_vcs * sizeof(int));
-    r->pending_msgs[i] = (terminal_message_list**)malloc(p->num_vcs * 
-        sizeof(terminal_message_list*));
-    r->pending_msgs_tail[i] = (terminal_message_list**)malloc(p->num_vcs * 
-        sizeof(terminal_message_list*));
-    r->queued_msgs[i] = (terminal_message_list**)malloc(p->num_vcs * 
-        sizeof(terminal_message_list*));
-    r->queued_msgs_tail[i] = (terminal_message_list**)malloc(p->num_vcs * 
-        sizeof(terminal_message_list*));
+    r->pending_msgs[i] = (terminal_custom_message_list**)malloc(p->num_vcs * 
+        sizeof(terminal_custom_message_list*));
+    r->pending_msgs_tail[i] = (terminal_custom_message_list**)malloc(p->num_vcs * 
+        sizeof(terminal_custom_message_list*));
+    r->queued_msgs[i] = (terminal_custom_message_list**)malloc(p->num_vcs * 
+        sizeof(terminal_custom_message_list*));
+    r->queued_msgs_tail[i] = (terminal_custom_message_list**)malloc(p->num_vcs * 
+        sizeof(terminal_custom_message_list*));
         for(int j = 0; j < p->num_vcs; j++) {
             r->vc_occupancy[i][j] = 0;
             r->pending_msgs[i][j] = NULL;
@@ -952,7 +952,7 @@ static tw_stime dragonfly_custom_packet_event(
     (void)sched_params;
     tw_event * e_new;
     tw_stime xfer_to_nic_time;
-    terminal_message * msg;
+    terminal_custom_message * msg;
     char* tmp_ptr;
 
     xfer_to_nic_time = codes_local_latency(sender); 
@@ -1005,11 +1005,11 @@ static void dragonfly_custom_packet_event_rc(tw_lp *sender)
 }
 
 /*When a packet is sent from the current router and a buffer slot becomes available, a credit is sent back to schedule another packet event*/
-static void router_credit_send(router_state * s, terminal_message * msg, 
+static void router_credit_send(router_state * s, terminal_custom_message * msg, 
   tw_lp * lp, int sq) {
   tw_event * buf_e;
   tw_stime ts;
-  terminal_message * buf_msg;
+  terminal_custom_message * buf_msg;
 
   int dest = 0,  type = R_BUFFER;
   int is_terminal = 0;
@@ -1055,7 +1055,7 @@ static void router_credit_send(router_state * s, terminal_message * msg,
   return;
 }
 
-static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
+static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_custom_message * msg, tw_lp * lp)
 {
    s->packet_gen--;
    packet_gen--;
@@ -1071,7 +1071,7 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message 
 
    int i;
    for(i = 0; i < num_chunks; i++) {
-        delete_terminal_message_list(return_tail(s->terminal_msgs, 
+        delete_terminal_custom_message_list(return_tail(s->terminal_msgs, 
           s->terminal_msgs_tail, 0));
         s->terminal_length -= s->params->chunk_size;
    }
@@ -1091,7 +1091,7 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message 
 }
 
 /* generates packet at the current dragonfly compute node */
-static void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, 
+static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_message * msg, 
   tw_lp * lp) {
   packet_gen++;
   s->packet_gen++;
@@ -1124,10 +1124,10 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * m
 
   for(uint64_t i = 0; i < num_chunks; i++)
   {
-    terminal_message_list *cur_chunk = (terminal_message_list*)malloc(
-      sizeof(terminal_message_list));
+    terminal_custom_message_list *cur_chunk = (terminal_custom_message_list*)malloc(
+      sizeof(terminal_custom_message_list));
     msg->origin_router_id = s->router_id;
-    init_terminal_message_list(cur_chunk, msg);
+    init_terminal_custom_message_list(cur_chunk, msg);
   
 
     if(msg->remote_event_size_bytes + msg->local_event_size_bytes > 0) {
@@ -1147,7 +1147,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * m
 
     cur_chunk->msg.chunk_id = i;
     cur_chunk->msg.origin_router_id = s->router_id;
-    append_to_terminal_message_list(s->terminal_msgs, s->terminal_msgs_tail,
+    append_to_terminal_custom_message_list(s->terminal_msgs, s->terminal_msgs_tail,
       0, cur_chunk);
     s->terminal_length += s->params->chunk_size;
   }
@@ -1164,7 +1164,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * m
   if(s->in_send_loop == 0) {
     bf->c5 = 1;
     ts = codes_local_latency(lp);
-    terminal_message *m;
+    terminal_custom_message *m;
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY, 
       (void**)&m, NULL);
     m->type = T_SEND;
@@ -1186,7 +1186,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * m
   return;
 }
 
-static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * msg,
+static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_custom_message * msg,
         tw_lp * lp)
 {
       if(bf->c1) {
@@ -1205,9 +1205,9 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * ms
       s->packet_counter--;
       s->vc_occupancy[0] -= s->params->chunk_size;
 
-      terminal_message_list* cur_entry = (terminal_message_list *)rc_stack_pop(s->st);
+      terminal_custom_message_list* cur_entry = (terminal_custom_message_list *)rc_stack_pop(s->st);
 
-      prepend_to_terminal_message_list(s->terminal_msgs, 
+      prepend_to_terminal_custom_message_list(s->terminal_msgs, 
               s->terminal_msgs_tail, 0, cur_entry);
       if(bf->c3) {
         tw_rand_reverse_unif(lp->rng);
@@ -1223,15 +1223,15 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * ms
       return;
 }
 /* sends the packet from the current dragonfly compute node to the attached router */
-static void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, 
+static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message * msg, 
   tw_lp * lp) {
   
   tw_stime ts;
   tw_event *e;
-  terminal_message *m;
+  terminal_custom_message *m;
   tw_lpid router_id;
 
-  terminal_message_list* cur_entry = s->terminal_msgs[0];
+  terminal_custom_message_list* cur_entry = s->terminal_msgs[0];
 
   if(s->vc_occupancy[0] + s->params->chunk_size > s->params->cn_vc_size 
       || cur_entry == NULL) {
@@ -1268,7 +1268,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   void * remote_event;
   e = model_net_method_event_new(router_id, s->terminal_available_time - tw_now(lp), lp,
           DRAGONFLY_ROUTER, (void**)&m, &remote_event);
-  memcpy(m, &cur_entry->msg, sizeof(terminal_message));
+  memcpy(m, &cur_entry->msg, sizeof(terminal_custom_message));
   if (m->remote_event_size_bytes){
     memcpy(remote_event, cur_entry->event_data, m->remote_event_size_bytes);
   }
@@ -1306,7 +1306,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   if(cur_entry != NULL &&
     s->vc_occupancy[0] + s->params->chunk_size <= s->params->cn_vc_size) {
     bf->c3 = 1;
-    terminal_message *m_new;
+    terminal_custom_message *m_new;
     ts = g_tw_lookahead + s->params->cn_delay + tw_rand_unif(lp->rng);
     e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY, 
       (void**)&m_new, NULL);
@@ -1326,7 +1326,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   return;
 }
 
-static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
+static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_custom_message * msg, tw_lp * lp)
 {
     if(bf->c31)
     {
@@ -1408,7 +1408,7 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * 
 	}*/
        return;
 }
-static void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
+static void send_remote_event(terminal_state * s, terminal_custom_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
 {
         void * tmp_ptr = model_net_method_get_edata(DRAGONFLY, msg);
         //tw_stime ts = g_tw_lookahead + bytes_to_ns(msg->remote_event_size_bytes, (1/s->params->cn_bandwidth));
@@ -1436,7 +1436,7 @@ static void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp 
     return;
 }
 /* packet arrives at the destination terminal */
-static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg, 
+static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_message * msg, 
   tw_lp * lp) {
 
     // NIC aggregation - should this be a separate function?
@@ -1480,7 +1480,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg
 
   // no method_event here - message going to router
   tw_event * buf_e;
-  terminal_message * buf_msg;
+  terminal_custom_message * buf_msg;
   buf_e = model_net_method_event_new(msg->intm_lp_id, ts, lp,
           DRAGONFLY_ROUTER, (void**)&buf_msg, NULL);
   buf_msg->magic = router_magic_num;
@@ -1648,7 +1648,7 @@ void dragonfly_custom_rsample_init(router_state * s,
 }
 void dragonfly_custom_rsample_rc_fn(router_state * s,
         tw_bf * bf,
-        terminal_message * msg, 
+        terminal_custom_message * msg, 
         tw_lp * lp)
 {
     (void)bf;
@@ -1679,7 +1679,7 @@ void dragonfly_custom_rsample_rc_fn(router_state * s,
 
 void dragonfly_custom_rsample_fn(router_state * s,
         tw_bf * bf,
-        terminal_message * msg, 
+        terminal_custom_message * msg, 
         tw_lp * lp)
 {
   (void)bf;
@@ -1787,7 +1787,7 @@ void dragonfly_custom_sample_init(terminal_state * s,
 }
 void dragonfly_custom_sample_rc_fn(terminal_state * s,
         tw_bf * bf,
-        terminal_message * msg, 
+        terminal_custom_message * msg, 
         tw_lp * lp)
 {
     (void)lp;
@@ -1818,7 +1818,7 @@ void dragonfly_custom_sample_rc_fn(terminal_state * s,
 
 void dragonfly_custom_sample_fn(terminal_state * s,
         tw_bf * bf,
-        terminal_message * msg,
+        terminal_custom_message * msg,
         tw_lp * lp)
 {
     (void)lp;
@@ -1893,7 +1893,7 @@ void dragonfly_custom_sample_fin(terminal_state * s,
 
 static void terminal_buf_update_rc(terminal_state * s,
 		    tw_bf * bf, 
-		    terminal_message * msg, 
+		    terminal_custom_message * msg, 
 		    tw_lp * lp)
 {
       s->vc_occupancy[0] += s->params->chunk_size;
@@ -1914,7 +1914,7 @@ static void terminal_buf_update_rc(terminal_state * s,
 static void 
 terminal_buf_update(terminal_state * s, 
 		    tw_bf * bf, 
-		    terminal_message * msg, 
+		    terminal_custom_message * msg, 
 		    tw_lp * lp)
 {
   bf->c1 = 0;
@@ -1938,7 +1938,7 @@ terminal_buf_update(terminal_state * s,
   }
 
   if(s->in_send_loop == 0 && s->terminal_msgs[0] != NULL) {
-    terminal_message *m;
+    terminal_custom_message *m;
     bf->c1 = 1;
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY, 
         (void**)&m, NULL);
@@ -1953,7 +1953,7 @@ terminal_buf_update(terminal_state * s,
 void 
 terminal_custom_event( terminal_state * s, 
 		tw_bf * bf, 
-		terminal_message * msg, 
+		terminal_custom_message * msg, 
 		tw_lp * lp )
 {
   s->fwd_events++;
@@ -2110,7 +2110,7 @@ static tw_lpid
 get_next_stop(router_state * s, 
               tw_lp * lp,
               tw_bf * bf,
-		      terminal_message * msg, 
+		      terminal_custom_message * msg, 
 		      int dest_router_id,
               int adap_chan,
               int do_chan_selection)
@@ -2209,7 +2209,7 @@ get_next_stop(router_state * s,
 /* gets the output port corresponding to the next stop of the message */
 static int 
 get_output_port( router_state * s, 
-		terminal_message * msg, 
+		terminal_custom_message * msg, 
         tw_lp * lp, 
         tw_bf * bf,
 		int next_stop)
@@ -2271,7 +2271,7 @@ get_output_port( router_state * s,
 
 static void do_local_adaptive_routing(router_state * s,
         tw_lp * lp,
-        terminal_message * msg,
+        terminal_custom_message * msg,
         tw_bf * bf,
         int dest_router_id,
         int intm_router_id)
@@ -2322,7 +2322,7 @@ static void do_local_adaptive_routing(router_state * s,
 }
 static int do_global_adaptive_routing( router_state * s,
                  tw_lp * lp,
-				 terminal_message * msg,
+				 terminal_custom_message * msg,
                  tw_bf * bf,
 				 int dest_router_id,
                  int intm_id) {
@@ -2489,7 +2489,7 @@ static int do_global_adaptive_routing( router_state * s,
 
 static void router_packet_receive_rc(router_state * s,
         tw_bf * bf,
-        terminal_message * msg,
+        terminal_custom_message * msg,
         tw_lp * lp)
 {
     router_rev_ecount++;
@@ -2515,8 +2515,8 @@ static void router_packet_receive_rc(router_state * s,
 
     if(bf->c2) {
         tw_rand_reverse_unif(lp->rng);
-        terminal_message_list * tail = return_tail(s->pending_msgs[output_port], s->pending_msgs_tail[output_port], output_chan);
-        delete_terminal_message_list(tail);
+        terminal_custom_message_list * tail = return_tail(s->pending_msgs[output_port], s->pending_msgs_tail[output_port], output_chan);
+        delete_terminal_custom_message_list(tail);
         s->vc_occupancy[output_port][output_chan] -= s->params->chunk_size;
         if(bf->c3) {
           codes_local_latency_reverse(lp);
@@ -2525,7 +2525,7 @@ static void router_packet_receive_rc(router_state * s,
       }
       if(bf->c4) {
       s->last_buf_full[output_port] = msg->saved_busy_time;
-      delete_terminal_message_list(return_tail(s->queued_msgs[output_port], 
+      delete_terminal_custom_message_list(return_tail(s->queued_msgs[output_port], 
           s->queued_msgs_tail[output_port], output_chan));
       s->queued_count[output_port] -= s->params->chunk_size; 
       }
@@ -2535,7 +2535,7 @@ static void router_packet_receive_rc(router_state * s,
 static void 
 router_packet_receive( router_state * s, 
 			tw_bf * bf, 
-			terminal_message * msg, 
+			terminal_custom_message * msg, 
 			tw_lp * lp )
 {
   router_ecount++;
@@ -2558,8 +2558,8 @@ router_packet_receive( router_state * s,
   int intm_router_id;
   short prev_path_type = 0, next_path_type = 0;
 
-  terminal_message_list * cur_chunk = (terminal_message_list*)malloc(sizeof(terminal_message_list));
-  init_terminal_message_list(cur_chunk, msg);
+  terminal_custom_message_list * cur_chunk = (terminal_custom_message_list*)malloc(sizeof(terminal_custom_message_list));
+  init_terminal_custom_message_list(cur_chunk, msg);
   
   if(routing == MINIMAL || 
      routing == NON_MINIMAL)	
@@ -2687,12 +2687,12 @@ router_packet_receive( router_state * s,
       <= max_vc_size) {
     bf->c2 = 1;
     router_credit_send(s, msg, lp, -1);
-    append_to_terminal_message_list( s->pending_msgs[output_port], 
+    append_to_terminal_custom_message_list( s->pending_msgs[output_port], 
       s->pending_msgs_tail[output_port], output_chan, cur_chunk);
     s->vc_occupancy[output_port][output_chan] += s->params->chunk_size;
     if(s->in_send_loop[output_port] == 0) {
       bf->c3 = 1;
-      terminal_message *m;
+      terminal_custom_message *m;
       ts = codes_local_latency(lp); 
       tw_event *e = model_net_method_event_new(lp->gid, ts, lp,
               DRAGONFLY_ROUTER, (void**)&m, NULL);
@@ -2707,7 +2707,7 @@ router_packet_receive( router_state * s,
     bf->c4 = 1;
     cur_chunk->msg.saved_vc = msg->vc_index;
     cur_chunk->msg.saved_channel = msg->output_chan;
-    append_to_terminal_message_list( s->queued_msgs[output_port], 
+    append_to_terminal_custom_message_list( s->queued_msgs[output_port], 
       s->queued_msgs_tail[output_port], output_chan, cur_chunk);
     s->queued_count[output_port] += s->params->chunk_size;
     msg->saved_busy_time = s->last_buf_full[output_port];
@@ -2721,7 +2721,7 @@ router_packet_receive( router_state * s,
 
 static void router_packet_send_rc(router_state * s, 
 		    tw_bf * bf, 
-		     terminal_message * msg, tw_lp * lp)
+		     terminal_custom_message * msg, tw_lp * lp)
 {
     router_ecount--;
     router_rev_ecount++;
@@ -2747,10 +2747,10 @@ static void router_packet_send_rc(router_state * s,
     }
     s->next_output_available_time[output_port] = msg->saved_available_time;
 
-    terminal_message_list * cur_entry = (terminal_message_list *)rc_stack_pop(s->st);
+    terminal_custom_message_list * cur_entry = (terminal_custom_message_list *)rc_stack_pop(s->st);
     assert(cur_entry);
 
-    prepend_to_terminal_message_list(s->pending_msgs[output_port],
+    prepend_to_terminal_custom_message_list(s->pending_msgs[output_port],
             s->pending_msgs_tail[output_port], output_chan, cur_entry);
 
     if(bf->c3) {
@@ -2765,16 +2765,16 @@ static void router_packet_send_rc(router_state * s,
 static void 
 router_packet_send( router_state * s, 
 		    tw_bf * bf, 
-		     terminal_message * msg, tw_lp * lp)
+		     terminal_custom_message * msg, tw_lp * lp)
 {
   router_ecount++;
 
   tw_stime ts;
   tw_event *e;
-  terminal_message *m;
+  terminal_custom_message *m;
   int output_port = msg->vc_index;
 
-  terminal_message_list *cur_entry = NULL;
+  terminal_custom_message_list *cur_entry = NULL;
 
   int output_chan = s->params->num_vcs - 1;
   for(int k = s->params->num_vcs - 1; k >= 0; k--)
@@ -2840,7 +2840,7 @@ router_packet_send( router_state * s,
             s->next_output_available_time[output_port] - tw_now(lp), lp,
             DRAGONFLY_ROUTER, (void**)&m, &m_data);
   }
-  memcpy(m, &cur_entry->msg, sizeof(terminal_message));
+  memcpy(m, &cur_entry->msg, sizeof(terminal_custom_message));
   if (m->remote_event_size_bytes){
     memcpy(m_data, cur_entry->event_data, m->remote_event_size_bytes);
   }
@@ -2894,7 +2894,7 @@ router_packet_send( router_state * s,
   }
   if(cur_entry != NULL) {
     bf->c3 = 1;
-    terminal_message *m_new;
+    terminal_custom_message *m_new;
     ts = g_tw_lookahead + bytetime + tw_rand_unif(lp->rng);
     e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_ROUTER,
             (void**)&m_new, NULL);
@@ -2911,7 +2911,7 @@ router_packet_send( router_state * s,
 
 static void router_buf_update_rc(router_state * s,
         tw_bf * bf,
-        terminal_message * msg,
+        terminal_custom_message * msg,
         tw_lp * lp)
 {
       int indx = msg->vc_index;
@@ -2924,10 +2924,10 @@ static void router_buf_update_rc(router_state * s,
         s->last_buf_full[indx] = msg->saved_busy_time;
       }
       if(bf->c1) {
-        terminal_message_list* head = return_tail(s->pending_msgs[indx],
+        terminal_custom_message_list* head = return_tail(s->pending_msgs[indx],
             s->pending_msgs_tail[indx], output_chan);
         tw_rand_reverse_unif(lp->rng);
-        prepend_to_terminal_message_list(s->queued_msgs[indx], 
+        prepend_to_terminal_custom_message_list(s->queued_msgs[indx], 
             s->queued_msgs_tail[indx], output_chan, head);
         s->vc_occupancy[indx][output_chan] -= s->params->chunk_size;
         s->queued_count[indx] += s->params->chunk_size;
@@ -2938,7 +2938,7 @@ static void router_buf_update_rc(router_state * s,
       }
 }
 /* Update the buffer space associated with this router LP */
-static void router_buf_update(router_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
+static void router_buf_update(router_state * s, tw_bf * bf, terminal_custom_message * msg, tw_lp * lp)
 {
   int indx = msg->vc_index;
   int output_chan = msg->output_chan;
@@ -2956,17 +2956,17 @@ static void router_buf_update(router_state * s, tw_bf * bf, terminal_message * m
   }
   if(s->queued_msgs[indx][output_chan] != NULL) {
     bf->c1 = 1;
-    terminal_message_list *head = return_head(s->queued_msgs[indx],
+    terminal_custom_message_list *head = return_head(s->queued_msgs[indx],
         s->queued_msgs_tail[indx], output_chan);
     router_credit_send(s, &head->msg, lp, 1); 
-    append_to_terminal_message_list(s->pending_msgs[indx], 
+    append_to_terminal_custom_message_list(s->pending_msgs[indx], 
       s->pending_msgs_tail[indx], output_chan, head);
     s->vc_occupancy[indx][output_chan] += s->params->chunk_size;
     s->queued_count[indx] -= s->params->chunk_size; 
   }
   if(s->in_send_loop[indx] == 0 && s->pending_msgs[indx][output_chan] != NULL) {
     bf->c2 = 1;
-    terminal_message *m;
+    terminal_custom_message *m;
     tw_stime ts = codes_local_latency(lp);
     tw_event *e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_ROUTER,
             (void**)&m, NULL);
@@ -2979,7 +2979,7 @@ static void router_buf_update(router_state * s, tw_bf * bf, terminal_message * m
   return;
 }
 
-void router_custom_event(router_state * s, tw_bf * bf, terminal_message * msg, 
+void router_custom_event(router_state * s, tw_bf * bf, terminal_custom_message * msg, 
     tw_lp * lp) {
 
   s->fwd_events++;
@@ -3011,7 +3011,7 @@ void router_custom_event(router_state * s, tw_bf * bf, terminal_message * msg,
 
 /* Reverse computation handler for a terminal event */
 void terminal_custom_rc_event_handler(terminal_state * s, tw_bf * bf, 
-    terminal_message * msg, tw_lp * lp) {
+    terminal_custom_message * msg, tw_lp * lp) {
 
    s->rev_events++;
    switch(msg->type)
@@ -3039,7 +3039,7 @@ void terminal_custom_rc_event_handler(terminal_state * s, tw_bf * bf,
 
 /* Reverse computation handler for a router event */
 void router_custom_rc_event_handler(router_state * s, tw_bf * bf, 
-  terminal_message * msg, tw_lp * lp) {
+  terminal_custom_message * msg, tw_lp * lp) {
     s->rev_events++;
 
     switch(msg->type) {

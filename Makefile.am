@@ -5,7 +5,7 @@ bin_PROGRAMS =
 bin_SCRIPTS =
 noinst_LIBRARIES =
 noinst_PROGRAMS =
-lib_LIBRARIES =
+lib_LTLIBRARIES =
 noinst_HEADERS =
 TESTS =
 check_PROGRAMS =
@@ -30,7 +30,7 @@ AM_CFLAGS =
 
 AM_CXXFLAGS = $(AM_CFLAGS)
 
-LDADD = $(lib_LIBRARIES) $(ROSS_LIBS)
+LDADD = $(lib_LTLIBRARIES) $(ROSS_LIBS)
 
 include Make.rules
 
@@ -41,18 +41,18 @@ include $(top_srcdir)/doc/Makefile.subdir
 
 if USE_DARSHAN
 AM_CPPFLAGS += ${DARSHAN_CFLAGS} -DUSE_DARSHAN=1
-src_libcodes_a_SOURCES += src/workload/methods/codes-darshan-io-wrkld.c
+src_libcodes_la_SOURCES += src/workload/methods/codes-darshan-io-wrkld.c
 LDADD += ${DARSHAN_LIBS}
 TESTS += tests/workload/darshan-dump.sh
 endif
 
 if USE_RECORDER
 AM_CPPFLAGS += ${RECORDER_CPPFLAGS}
-src_libcodes_a_SOURCES += src/workload/methods/codes-recorder-io-wrkld.c
+src_libcodes_la_SOURCES += src/workload/methods/codes-recorder-io-wrkld.c
 endif
 
 if USE_DUMPI
 AM_CPPFLAGS += ${DUMPI_CFLAGS} -DUSE_DUMPI=1
-src_libcodes_a_SOURCES += src/workload/methods/codes-dumpi-trace-nw-wrkld.c
+src_libcodes_la_SOURCES += src/workload/methods/codes-dumpi-trace-nw-wrkld.c
 LDADD += ${DUMPI_LIBS}
 endif
