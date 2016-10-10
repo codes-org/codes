@@ -20,8 +20,8 @@
 #define FTREE_HASH_TABLE_SIZE 262144
 
 // debugging parameters
-//#define TRACK_PKT -1
-#define TRACK_PKT 2820
+#define TRACK_PKT -1
+//#define TRACK_PKT 2820
 #define FATTREE_HELLO 0
 #define FATTREE_DEBUG 0
 #define FATTREE_CONNECTIONS 0
@@ -1583,10 +1583,6 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
   msg->my_N_hop = 0;
 
   msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
-  if(msg->packet_ID == LLU(TRACK_PKT))
-    printf("\n Packet %llu generated at terminal %d terminal_gid %llu dest_terminal_id %llu final_dest_gid %llu size %llu num chunks %llu \n",
-       msg->packet_ID, s->terminal_id, LLU(lp->gid), LLU(msg->dest_terminal_id), LLU(msg->final_dest_gid),
-       LLU(msg->packet_size), LLU(num_chunks));
 
   for(uint64_t i = 0; i < num_chunks; i++)
   {
@@ -1936,17 +1932,17 @@ void switch_packet_send_rc(switch_state * s,
     tw_rand_reverse_unif(lp->rng);
     s->next_output_available_time[output_port] =
       msg->saved_available_time;
+    fattree_message_list * cur_entry = rc_stack_pop(s->st);
+    assert(cur_entry);
+
     if(bf->c11)
     {
-        s->link_traffic[output_port] -= msg->packet_size % s->params->chunk_size;
+        s->link_traffic[output_port] -= (cur_entry->msg.packet_size % s->params->chunk_size);
     }
     if(bf->c12)
     {
         s->link_traffic[output_port] -= s->params->chunk_size;
     }
-
-    fattree_message_list * cur_entry = rc_stack_pop(s->st);
-    assert(cur_entry);
 
     prepend_to_fattree_message_list(s->pending_msgs,
         s->pending_msgs_tail, output_port, cur_entry);
@@ -1974,6 +1970,7 @@ void switch_packet_send( switch_state * s, tw_bf * bf, fattree_message * msg,
 
   int output_port = msg->vc_index;
   fattree_message_list *cur_entry = s->pending_msgs[output_port];
+  msg->saved_vc = output_port;
 
   if(cur_entry == NULL) {
     bf->c1 = 1;
@@ -2001,7 +1998,6 @@ void switch_packet_send( switch_state * s, tw_bf * bf, fattree_message * msg,
   if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1)) {
     bytetime = delay * (cur_entry->msg.packet_size % s->params->chunk_size);
   } else {
-    bf->c12 = 1;
     bytetime = delay * s->params->chunk_size;
   }
   ts = g_tw_lookahead + g_tw_lookahead * tw_rand_unif( lp->rng) + bytetime + s->params->router_delay;
@@ -2057,15 +2053,8 @@ void switch_packet_send( switch_state * s, tw_bf * bf, fattree_message * msg,
     output_port);
   rc_stack_push(lp, cur_entry, free, s->st);
 
-  msg->saved_vc = output_port;
-
-  if(bytetime > s->params->router_delay) {
-    s->next_output_available_time[output_port] -= s->params->router_delay;
-    ts -= s->params->router_delay;
-  } else {
-    s->next_output_available_time[output_port] -= bytetime;
-    ts -= bytetime;
-  }
+  s->next_output_available_time[output_port] -= s->params->router_delay;
+  ts -= s->params->router_delay;
 
   cur_entry = s->pending_msgs[output_port];
   if(cur_entry != NULL) {
@@ -2281,7 +2270,8 @@ void ft_send_remote_event(ft_terminal_state * s, fattree_message * msg, tw_lp * 
 {
         void * tmp_ptr = model_net_method_get_edata(FATTREE, msg);
 
-        tw_stime ts = g_tw_lookahead + bytes_to_ns(msg->remote_event_size_bytes, (1/s->params->cn_bandwidth));
+        //tw_stime ts = g_tw_lookahead + bytes_to_ns(msg->remote_event_size_bytes, (1/s->params->cn_bandwidth));
+        tw_stime ts = g_tw_lookahead + tw_rand_unif(lp->rng);
 
         if (msg->is_pull){
             bf->c4 = 1;
@@ -2299,9 +2289,6 @@ void ft_send_remote_event(ft_terminal_state * s, fattree_message * msg, tw_lp * 
         }
         else{
             tw_event * e = tw_event_new(msg->final_dest_gid, ts, lp);
-            if(msg->packet_ID == LLU(TRACK_PKT))
-//                printf("\n Packet %llu arrived at lp %llu\n", msg->packet_ID, LLU(lp->gid));
-                printf("lp:%d sending pscket %llu remote event to model-net final_dest_gid:%d\n",(int)lp->gid, msg->packet_ID, (int)msg->final_dest_gid);
             void * m_remote = tw_event_data(e);
             memcpy(m_remote, event_data, remote_event_size);
             tw_event_send(e);
@@ -2364,6 +2351,8 @@ void ft_packet_arrive_rc(ft_terminal_state * s, tw_bf * bf, fattree_message * ms
 
     if(bf->c7)
     {
+      if(bf->c8) 
+        tw_rand_reverse_unif(lp->rng);
       N_finished_msgs--;
       s->finished_msgs--;
       total_msg_sz -= msg->total_size;
@@ -2379,7 +2368,6 @@ void ft_packet_arrive_rc(ft_terminal_state * s, tw_bf * bf, fattree_message * ms
       //            if(bf->c4)
       //                model_net_event_rc2(lp, &msg->event_rc);
     }
-    //        tw_rand_reverse_unif(lp->rng);
     assert(tmp);
     tmp->num_chunks--;
     if(tmp->num_chunks == 0) {
@@ -2571,6 +2559,7 @@ void ft_packet_arrive(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
             printf("\n Packet %llu has been sent from lp %llu\n", msg->packet_ID, LLU(lp->gid));
 
         if(tmp->remote_event_data && tmp->remote_event_size > 0) {
+          bf->c8 = 1;
           ft_send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
         }
         /* Remove the hash entry */
@@ -2821,7 +2810,7 @@ void fattree_switch_final(switch_state * s, tw_lp * lp)
     if(!s->switch_id)
     {
         written = sprintf(s->output_buf2, "# Format <LP ID> <Level ID> <Switch ID> <Link traffic per switch port(s)>");
-        written += sprintf(s->output_buf2 + written, "# Switch ports: %d\n",
+        written += sprintf(s->output_buf2 + written, "# Switch ports: %d",
             s->radix);
     }
     written += sprintf(s->output_buf2 + written, "\n %llu %d %d",
@@ -2830,6 +2819,7 @@ void fattree_switch_final(switch_state * s, tw_lp * lp)
     for(int d = 0; d < s->radix; d++)
         written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
 
+    assert(written < 4096);
     lp_io_write(lp->gid, "fattree-switch-traffic", written, s->output_buf2);
 
     //Original Output with Tracer

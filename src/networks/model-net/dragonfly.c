@@ -2430,6 +2430,7 @@ static void dragonfly_router_final(router_state * s,
     for(int d = 0; d < p->num_routers + p->num_global_channels; d++) 
         written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
 
+    assert(written < 4096);
     lp_io_write(lp->gid, "dragonfly-router-traffic", written, s->output_buf2);
 }
 
@@ -2858,10 +2859,13 @@ static void router_packet_send_rc(router_state * s,
       
     tw_rand_reverse_unif(lp->rng);
       
+    terminal_message_list * cur_entry = rc_stack_pop(s->st);
+    assert(cur_entry);
+
     if(bf->c11)
     {
-        s->link_traffic[output_port] -= msg->packet_size % s->params->chunk_size;
-        s->link_traffic_sample[output_port] -= msg->packet_size % s->params->chunk_size; 
+        s->link_traffic[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size;
+        s->link_traffic_sample[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size; 
     }
     if(bf->c12)
     {
@@ -2869,9 +2873,6 @@ static void router_packet_send_rc(router_state * s,
         s->link_traffic_sample[output_port] -= s->params->chunk_size;
     }
     s->next_output_available_time[output_port] = msg->saved_available_time;
-
-    terminal_message_list * cur_entry = rc_stack_pop(s->st);
-    assert(cur_entry);
 
     prepend_to_terminal_message_list(s->pending_msgs[output_port],
             s->pending_msgs_tail[output_port], output_chan, cur_entry);
@@ -2918,6 +2919,8 @@ router_packet_send( router_state * s,
       output_chan = 0;
     }
   }
+  msg->saved_vc = output_port;
+  msg->saved_channel = output_chan;
 
   if(cur_entry == NULL) {
     bf->c1 = 1;
@@ -3027,16 +3030,17 @@ router_packet_send( router_state * s,
     s->pending_msgs_tail[output_port], output_chan);
   rc_stack_push(lp, cur_entry, delete_terminal_message_list, s->st);
   
-  msg->saved_vc = output_port;
-  msg->saved_channel = output_chan;
   cur_entry = s->pending_msgs[output_port][2];
-  
+ 
+  s->next_output_available_time[output_port] -= s->params->router_delay;
+  ts -= s->params->router_delay;
+
   if(cur_entry == NULL) cur_entry = s->pending_msgs[output_port][1];
   if(cur_entry == NULL) cur_entry = s->pending_msgs[output_port][0];
   if(cur_entry != NULL) {
     bf->c3 = 1;
     terminal_message *m_new;
-    ts = g_tw_lookahead + bytetime + tw_rand_unif(lp->rng);
+    ts = ts + g_tw_lookahead * tw_rand_unif(lp->rng);
     e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_ROUTER,
             (void**)&m_new, NULL);
     m_new->type = R_SEND;
