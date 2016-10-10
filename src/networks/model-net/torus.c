@@ -1206,9 +1206,12 @@ static void packet_send_rc(nodes_state * s,
      codes_local_latency_reverse(lp);
      s->next_link_available_time[queue][0] = msg->saved_available_time;
 
+     nodes_message_list * cur_entry = rc_stack_pop(s->st);
+     assert(cur_entry);
+
      if(bf->c20)
      {
-        s->link_traffic[queue] -= msg->packet_size % s->params->chunk_size;
+        s->link_traffic[queue] -= cur_entry->msg.packet_size % s->params->chunk_size;
      }
 
      if(bf->c21)
@@ -1221,8 +1224,6 @@ static void packet_send_rc(nodes_state * s,
         codes_local_latency_reverse(lp);
      }
 
-     nodes_message_list * cur_entry = rc_stack_pop(s->st);
-     assert(cur_entry);
 
      if(bf->c31)
      {
