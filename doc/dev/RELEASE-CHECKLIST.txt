@@ -1,0 +1,60 @@
+Notes on how to release a new version of CODES
+2016-10
+-----------------------
+
+0. Determine what to release
+- check CODES GitLab to see if there are any pending tickets that should be
+  resolved for this release
+  (https://xgitlab.cels.anl.gov/codes/issues)
+- if there are WIP pieces of code (say, a network or workload model...), make
+  sure to note them as such in the release notes
+
+1. Document
+- Ensure public headers are sufficiently documented
+- Update release notes at doc/RELEASE_NOTES
+  - A useful heuristic is to go through the git commit log, then cull down and
+    categorize the updates. Example:
+    'git log --topo-order --format="** %h %s <%an>%+b" 0.5.2..master > release-log.out'
+    (replace the release tag as appropriate)
+    See 'man git-log' for other options.
+- Update doc/BUILD_STEPS (if necessary) and doc/GETTING_STARTED
+  - GETTING_STARTED is more of a feature and usage overview now, so new
+    features should be documented at a high level there.
+  - Update the ROSS commit hash used to build codes in BUILD_STEPS
+- Point to misc. documentation. We have scattered documents around, make sure
+  people can find them.
+- Update version number in configure.ac
+
+2. Generate/test release tarball
+- Run 'make dist' to generate a distribution tarball
+- Extract the tarball in another directory, configure, run 'make check'
+- Verify that non-source files to distribute (docs, test conf files, etc.) have
+  been added to EXTRA_DIST in Makefile.am and the various Makefile.subdir's and
+  are present in the tarball. To get a list of files to check, run:
+  'git diff --name-only --diff-filter=A 0.5.2..master'
+  (replace the release tag as appropriate)
+
+3. Tag release
+- Create an annotated tag containing just the version number as the name. E.g.,
+  'git tag -a 0.5.3 -m "CODES 0.5.3 Release"'
+  (replace the release tag as appropriate)
+- Push the tag ('git push origin 0.5.3')
+  (replace the release tag as appropriate)
+
+4. Upload the release tarball
+- Our release directory is at ftp.mcs.anl.gov/pub/CODES/releases . There's no
+  web interface, so you have to get onto an MCS workstation and copy the
+  release in that way.
+
+5. Update website
+- Project wordpress: http://www.mcs.anl.gov/projects/codes/ (you need
+  permission to modify)
+-- Add an entry to the Downloads page
+-- Make a announcement blog entry. For an example, see
+   http://www.mcs.anl.gov/projects/codes/2016/07/15/codes-0-5-2-released/
+
+6. Announce to mailing lists
+- codes-ross-users@lists.mcs.anl.gov
+- codes-core@lists.mcs.anl.gov
+
+7. Go on break
