@@ -44,7 +44,7 @@ Notes on how to release a new version of CODES
 4. Upload the release tarball
 - Our release directory is at ftp.mcs.anl.gov/pub/CODES/releases . There's no
   web interface, so you have to get onto an MCS workstation and copy the
-  release in that way.
+  release in that way (the ftp server is mounted at /homes/ftp).
 
 5. Update website
 - Project wordpress: http://www.mcs.anl.gov/projects/codes/ (you need
