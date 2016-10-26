@@ -161,6 +161,8 @@ static void issue_event(
         exit(0);
     }
 
+    PAYLOAD_SZ = this_packet_size;
+
     configuration_get_value_double(&config, "PARAMS", "link_bandwidth", NULL, &this_link_bandwidth);
     if(!this_link_bandwidth) {
         this_link_bandwidth = 4.7;
