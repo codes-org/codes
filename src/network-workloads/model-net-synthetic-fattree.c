@@ -30,11 +30,18 @@ static double MEAN_INTERVAL = 0.0;
 /* whether to pull instead of push */
 
 static int num_servers_per_rep = 0;
-static int num_routers_per_grp = 0;
-static int num_nodes_per_grp = 0;
 
-static int num_groups = 0;
 static int num_nodes = 0;
+static int switch_radix = 0;
+static int num_pods = 0;
+static int num_levels = 0;
+static int reps_per_pod = 0;
+static int lps_per_rep = 0;
+
+static char lp_io_dir[256] = {'\0'};
+static lp_io_handle io_handle;
+static unsigned int lp_io_use_suffix = 0;
+static int do_lp_io = 0;
 
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
@@ -425,13 +432,13 @@ int main(
     }
     num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "server",
             NULL, 1);
-    configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers_per_grp);
     
-    num_groups = (num_routers_per_grp * (num_routers_per_grp/2) + 1);
-    num_nodes = num_groups * num_routers_per_grp * (num_routers_per_grp / 2);
-    num_nodes_per_grp = num_routers_per_grp * (num_routers_per_grp / 2);
-
+    configuration_get_value_int(&config, "PARAMS", "switch_radix", NULL, &switch_radix);
+    configuration_get_value_int(&config, "PARAMS", "num_levels", NULL, &num_levels);
+    num_pods  = codes_mapping_get_group_reps("MODELNET_GRP") / (switch_radix/2);
     num_nodes = codes_mapping_get_lp_count("MODELNET_GRP", 0, "server", NULL, 1);
+    reps_per_pod = switch_radix / 2;
+    lps_per_rep = switch_radix + num_levels;
 
     printf("num_nodes:%d \n",num_nodes);
 
