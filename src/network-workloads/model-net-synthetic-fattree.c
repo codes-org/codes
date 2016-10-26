@@ -78,8 +78,8 @@ enum svr_event
 enum TRAFFIC
 {
 	UNIFORM = 1, /* sends message to a randomly selected node */
-	NEAREST_GROUP = 2, /* sends message to the node connected to the neighboring router */
-	NEAREST_NEIGHBOR = 3 /* sends message to the next node (potentially connected to the same router) */
+	NEAREST_POD = 2, /* sends message to the similar offset node connected to the next pod */
+        ONE_TO_ONE = 3, /* sends message in one-to-one mapping of nodes */
 };
 
 struct svr_state
@@ -129,7 +129,7 @@ tw_lptype svr_lp = {
 const tw_optdef app_opt [] =
 {
         TWOPT_GROUP("Model net synthetic traffic " ),
-	TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
+	TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST POD=2 , ONE TO ONE=3"),
 	TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
         TWOPT_STIME("load", load, "percentage of terminal link bandiwdth to inject packets"),
         TWOPT_END()
@@ -213,10 +213,18 @@ static void handle_kickoff_rev_event(
 {
     (void)b;
     (void)m;
-	ns->msg_sent_count--;
-	model_net_event_rc(net_id, lp, PAYLOAD_SZ);
-    tw_rand_reverse_unif(lp->rng);
-}	
+
+//    if(traffic == ONE_TO_ONE)
+//        return;
+
+    ns->msg_sent_count--;
+    model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+
+    if(traffic == UNIFORM)
+    {
+        tw_rand_reverse_unif(lp->rng);
+    }
+}
 static void handle_kickoff_event(
 	    svr_state * ns,
 	    tw_bf * b,
@@ -241,10 +249,22 @@ static void handle_kickoff_event(
     ns->start_ts = tw_now(lp);
 
    codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
+   tw_lpid src_lid = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
    /* in case of uniform random traffic, send to a random destination. */
    if(traffic == UNIFORM)
    {
    	local_dest = tw_rand_integer(lp->rng, 0, num_nodes - 1);
+   }
+   if(traffic == NEAREST_POD)
+   {
+      local_dest = (src_lid + reps_per_pod * lps_per_rep) % num_nodes;
+   }
+   if(traffic == ONE_TO_ONE)
+   {
+//      if(src_lid >= num_nodes/2)
+//          return;
+
+      local_dest = num_nodes - src_lid - 1;
    }
 
    assert(local_dest < LLU(num_nodes));
