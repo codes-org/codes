@@ -81,6 +81,8 @@ enum ROUTING_ALGO
 {
     STATIC=0,
     ADAPTIVE,
+    RANDOM,
+    RR,
 };
 static char routing_folder[MAX_NAME_LENGTH];
 static char dot_file_p[MAX_NAME_LENGTH];
@@ -142,6 +144,7 @@ struct fattree_param
   double router_delay;
   double soft_delay;
   int routing;
+  int rail_routing;
 };
 
 struct ftree_hash_key
@@ -209,6 +212,8 @@ struct ft_terminal_state
   int* in_send_loop;
   int* issueIdle;
   int64_t* link_traffic;
+
+  int last_rail;
 
    struct rc_stack * st;
 
@@ -847,7 +852,23 @@ static void fattree_read_config(const char * anno, fattree_param *p){
         "No routing protocol specified, setting to adaptive routing\n");
     p->routing = ADAPTIVE;
   }
-  
+
+  char rail_routing_str[MAX_NAME_LENGTH];
+  configuration_get_value(&config, "PARAMS", "rail_routing", anno, rail_routing_str,
+      MAX_NAME_LENGTH);
+  if(strcmp(rail_routing_str, "random") == 0)
+    p->rail_routing = RANDOM;
+  else if(strcmp(rail_routing_str, "round-robin")==0)
+    p->rail_routing = RR;
+  else if(strcmp(rail_routing_str, "adaptive")==0)
+    p->rail_routing = ADAPTIVE;
+  else
+  {
+    fprintf(stderr, 
+        "No rail routing protocol specified, setting to adaptive routing\n");
+    p->rail_routing = ADAPTIVE;
+  }
+
   configuration_get_value_int(&config, "PARAMS", "dump_topo", anno,
       &dump_topo);
 
@@ -1013,6 +1034,7 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
         s->terminal_msgs_tail[i] = NULL;
     }
    s->packet_counter = 0;
+   s->last_rail = 0;
 
 #if FATTREE_HELLO
    for(int i=0;i<s->params->terminal_radix;i++)
@@ -1581,6 +1603,17 @@ void ft_packet_generate_rc(ft_terminal_state * s, tw_bf * bf, fattree_message * 
     s->packet_gen--;
 
     tw_rand_reverse_unif(lp->rng);
+
+    if(s->params->rail_routing == RANDOM)
+        tw_rand_reverse_unif(lp->rng);
+
+    if(s->params->rail_routing == RR){
+        if(s->last_rail == 0){
+            s->last_rail = s->params->terminal_radix-1;
+        }else{
+            s->last_rail--;
+        }
+    }
 
     int num_chunks = msg->packet_size/s->params->chunk_size;
     if(msg->packet_size % s->params->chunk_size)
@@ -2659,8 +2692,26 @@ int ft_get_output_rail(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     (void)bf;
     (void)msg;
 
+    int output_rail;
     /* Insert multi-rail routing algorithm here*/
-    int output_rail = tw_rand_integer(lp->rng, 0, s->params->terminal_radix-1);
+    if(s->params->rail_routing == RANDOM){
+        output_rail = tw_rand_integer(lp->rng, 0, s->params->terminal_radix-1);
+    }
+
+    if(s->params->rail_routing == ADAPTIVE){
+        output_rail = 0;
+        int min_occupancy = s->vc_occupancy[0];
+        for(int i=1; i<s->params->terminal_radix; i++){
+            if(s->vc_occupancy[i] < min_occupancy){
+                min_occupancy = s->vc_occupancy[i];
+                output_rail = i;
+            }
+        }
+    }
+
+    if(s->params->rail_routing == RR){
+        output_rail = s->last_rail++ % s->params->terminal_radix;
+    }
     return output_rail;
 }
 
