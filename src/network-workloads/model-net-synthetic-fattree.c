@@ -188,7 +188,6 @@ static void issue_event(
     }
 
     /* skew each kickoff event slightly to help avoid event ties later on */
-//    kickoff_time = 1.1 * g_tw_lookahead + tw_rand_exponential(lp->rng, arrival_time);
     kickoff_time = g_tw_lookahead + tw_rand_exponential(lp->rng, MEAN_INTERVAL);
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
@@ -216,9 +215,6 @@ static void handle_kickoff_rev_event(
     (void)b;
     (void)m;
 
-//    if(traffic == ONE_TO_ONE)
-//        return;
-
     ns->msg_sent_count--;
     model_net_event_rc(net_id, lp, PAYLOAD_SZ);
 
@@ -235,7 +231,7 @@ static void handle_kickoff_event(
 {
     (void)b;
     (void)m;
-//    char* anno;
+
     char anno[MAX_NAME_LENGTH];
     tw_lpid local_dest = -1, global_dest = -1;
    
@@ -263,9 +259,6 @@ static void handle_kickoff_event(
    }
    if(traffic == ONE_TO_ONE)
    {
-//      if(src_lid >= num_nodes/2)
-//          return;
-
       local_dest = num_nodes - src_lid - 1;
    }
 
@@ -280,21 +273,11 @@ static void handle_kickoff_event(
        global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
    }
 
-   int div1 = floor((int)lp->gid/11);
-   int mult1 = div1 * 4;
-   int mod1 = (int)lp->gid % 11;
-   int sum1 = mult1 + mod1;
-//   if((int)lp->gid == 3)
-   if((int)global_dest == (int)lp->gid)
-       printf("global_src:%d, local_src:%d, global_dest:%d, local_dest:%d\n",(int)lp->gid, sum1, (int)global_dest,(int)local_dest);
-
    ns->msg_sent_count++;
 
    model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
 
-   //printf("LP:%d localID:%d Here\n",(int)lp->gid, (int)local_dest);
    issue_event(ns, lp);
-   //printf("Just Checking net_id:%d\n",net_id);
    return;
 }
 
@@ -352,8 +335,6 @@ static void svr_finalize(
 {
     ns->end_ts = tw_now(lp);
 
-//    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s(ns->end_ts-ns->start_ts),
-//        ((double)(PAYLOAD_SZ*ns->msg_sent_count)/(double)(1024*1024)/ns_to_s(ns->end_ts-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
     return;
 }
 
@@ -445,7 +426,7 @@ int main(
 
     if(net_id != FATTREE)
     {
-	printf("\n The test works with fat tree model configuration only! ");
+	    printf("\n The test works with fat tree model configuration only! ");
         MPI_Finalize();
         return 0;
     }
@@ -460,6 +441,10 @@ int main(
     lps_per_rep = switch_radix + num_levels;
 
     printf("num_nodes:%d \n",num_nodes);
+    printf("num_pods:%d \n",num_pods);
+    printf("reps_per_pod:%d \n",reps_per_pod);
+    printf("lps_per_rep:%d \n",lps_per_rep);
+
     if(lp_io_dir[0])
     {
         do_lp_io = 1;
