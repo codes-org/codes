@@ -1626,12 +1626,14 @@ void ft_packet_generate_rc(ft_terminal_state * s, tw_bf * bf, fattree_message * 
     int i;
     for(i = 0; i < num_chunks; i++) {
 	delete_fattree_message_list(return_tail(s->terminal_msgs,
-	    s->terminal_msgs_tail, 0));
+	    s->terminal_msgs_tail, msg->rail));
     s->terminal_length[msg->rail] -= s->params->chunk_size;
     }
     if(bf->c11) {
-	s->issueIdle[msg->rail] = 0;
-    s->last_buf_full[msg->rail] = msg->saved_busy_time;
+        for(i=0;i<s->params->terminal_radix;i++){
+            s->issueIdle[i] = 0;
+            s->last_buf_full[i] = msg->saved_busy_time;
+        }
     }
     if(bf->c5) {
 	codes_local_latency_reverse(lp);
@@ -1707,6 +1709,7 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
     append_to_fattree_message_list(s->terminal_msgs, s->terminal_msgs_tail,
       cur_chunk->msg.rail , cur_chunk);
     s->terminal_length[cur_chunk->msg.rail] += s->params->chunk_size;
+    msg->rail = cur_chunk->msg.rail;
   }
 
   for(int rail=0;rail<s->params->terminal_radix;rail++){
@@ -1718,20 +1721,19 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
       msg->saved_busy_time = s->last_buf_full[rail];
       s->last_buf_full[rail] = tw_now(lp);
     }
-
-    if(s->in_send_loop[rail] == 0) {
+  }
+    if(s->in_send_loop[msg->rail] == 0) {
       fattree_message *m;
       bf->c5 = 1;
       ts = codes_local_latency(lp);
       tw_event* e = model_net_method_event_new(lp->gid, ts, lp, FATTREE,
         (void**)&m, NULL);
       m->type = T_SEND;
-      m->rail = rail;
+      m->rail = msg->rail;
       m->magic = fattree_terminal_magic_num;
-      s->in_send_loop[rail]= 1;
+      s->in_send_loop[msg->rail]= 1;
       tw_event_send(e);
     }
-  }
 
   total_event_size = model_net_get_msg_sz(FATTREE) +
     msg->remote_event_size_bytes+ msg->local_event_size_bytes;
@@ -1881,7 +1883,6 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
 
   cur_entry = s->terminal_msgs[msg->rail];
 
-  int flag_issueIdle = 0;
   if(cur_entry != NULL && s->vc_occupancy[msg->rail] + s->params->chunk_size <= s->params->cn_vc_size) {
       bf->c3 = 1;
       fattree_message *m_new;
@@ -1892,7 +1893,6 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
       m_new->rail = cur_entry->msg.rail;
       m_new->magic = fattree_terminal_magic_num;
       tw_event_send(e);
-      flag_issueIdle = 1;
     } else {
       bf->c4 = 1;
       s->in_send_loop[msg->rail] = 0;
@@ -1902,6 +1902,18 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     bf->c5 = 1;
     s->issueIdle[msg->rail] = 0;
     model_net_method_idle_event(codes_local_latency(lp), 0, lp);
+   
+    if(s->last_buf_full[msg->rail] > 0.0)
+    {
+        bf->c6 = 1;
+        msg->saved_total_time = s->busy_time[msg->rail];
+        msg->saved_busy_time = s->last_buf_full[msg->rail];
+        msg->saved_sample_time = s->busy_time_sample[msg->rail];
+
+        s->busy_time[msg->rail] += (tw_now(lp) - s->last_buf_full[msg->rail]);
+        s->busy_time_sample[msg->rail] += (tw_now(lp) - s->last_buf_full[msg->rail]);
+        s->last_buf_full[msg->rail] = 0.0;
+    }
   }
 
   return;
