@@ -132,6 +132,8 @@ const tw_optdef app_opt [] =
 	TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST POD=2 , ONE TO ONE=3"),
 	TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
         TWOPT_STIME("load", load, "percentage of terminal link bandiwdth to inject packets"),
+        TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
+        TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
         TWOPT_END()
 };
 
@@ -412,8 +414,6 @@ int main(
     int num_nets;
     int *net_ids;
 
-    lp_io_handle handle;
-
     tw_opt_add(app_opt);
 
     tw_init(&argc, &argv);
@@ -438,7 +438,6 @@ int main(
 
     codes_mapping_setup();
 
-
     net_ids = model_net_configure(&num_nets);
     //assert(num_nets==1);
     net_id = *net_ids;
@@ -461,25 +460,31 @@ int main(
     lps_per_rep = switch_radix + num_levels;
 
     printf("num_nodes:%d \n",num_nodes);
-
-    if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
+    if(lp_io_dir[0])
     {
-        return(-1);
+        do_lp_io = 1;
+        int flags = lp_io_use_suffix ? LP_IO_UNIQ_SUFFIX : 0;
+        int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_WORLD);
+        assert(ret == 0 || !"lp_io_prepare failure");
     }
-    modelnet_stats_dir = lp_io_handle_to_dir(handle);
 
+    g_lp_io_dir = lp_io_handle_to_dir(io_handle);
     tw_run();
 
-    model_net_report_stats(net_id);
+    if (do_lp_io){
+        int ret = lp_io_flush(io_handle, MPI_COMM_WORLD);
+        assert(ret == 0 || !"lp_io_flush failure");
+    }
 
+    model_net_report_stats(net_id);
 
 #if PARAMS_LOG
     if(!g_tw_mynode)
     {
 	char temp_filename[1024];
 	char temp_filename_header[1024];
-	sprintf(temp_filename,"%s/sim_log.txt",modelnet_stats_dir);
-	sprintf(temp_filename_header,"%s/sim_log_header.txt",modelnet_stats_dir);
+	sprintf(temp_filename,"%s/sim_log",g_lp_io_dir);
+	sprintf(temp_filename_header,"%s/sim_log_header",g_lp_io_dir);
 	FILE *fattree_results_log=fopen(temp_filename, "a");
 	FILE *fattree_results_log_header=fopen(temp_filename_header, "a");
 	if(fattree_results_log == NULL)
@@ -487,18 +492,12 @@ int main(
 	if(fattree_results_log_header == NULL)
 		printf("\n Failed to open results log header file %s in synthetic-fattree\n",temp_filename_header);
 	printf("Printing Simulation Parameters/Results Log File\n");
-	fprintf(fattree_results_log_header,", <Workload>, <Load>, <Mean Interval>, ");
+	fprintf(fattree_results_log_header,"<Workload>, <Load>, <Mean Interval>, ");
 	fprintf(fattree_results_log,"%11.3d, %5.2f, %15.2f, ",traffic, load, MEAN_INTERVAL);
 	fclose(fattree_results_log_header);
 	fclose(fattree_results_log);
     }
 #endif
-
-    if(lp_io_flush(handle, MPI_COMM_WORLD) < 0)
-    {
-        return(-1);
-    }
-
     tw_end();
 
 #if PARAMS_LOG
@@ -506,8 +505,8 @@ int main(
     {
 	char temp_filename[1024];
 	char temp_filename_header[1024];
-	sprintf(temp_filename,"%s/sim_log.txt",modelnet_stats_dir);
-	sprintf(temp_filename_header,"%s/sim_log_header.txt",modelnet_stats_dir);
+	sprintf(temp_filename,"%s/sim_log",g_lp_io_dir);
+	sprintf(temp_filename_header,"%s/sim_log_header",g_lp_io_dir);
 	FILE *fattree_results_log=fopen(temp_filename, "a");
 	FILE *fattree_results_log_header=fopen(temp_filename_header, "a");
 	FILE *fattree_ross_csv_log=fopen("ross.csv", "r");
@@ -518,7 +517,6 @@ int main(
 	if(fattree_ross_csv_log == NULL)
 		tw_error(TW_LOC, "\n Failed to open ross.csv log file \n");
 	printf("Reading ROSS specific data from ross.csv and Printing to Fat Tree Log File\n");
-	
 	char * line = NULL;
 	size_t len = 0;
 	ssize_t read = getline(&line, &len, fattree_ross_csv_log);
@@ -562,8 +560,8 @@ int main(
 		}
 		idx++;
 	}
-	fprintf(fattree_results_log_header,"<Total Events>, <Rollbacks>, <GVT Computations>, <Net Events>, <Running Time>, <Efficiency>, <Event Rate>");
-	fprintf(fattree_results_log,"%14llu, %11llu, %18d, %12llu, %14.4f, %12.2f, %12.2f\n",total_events,rollbacks,gvt_computations,net_events,running_time,efficiency,event_rate);
+	fprintf(fattree_results_log_header,"<Total Events>, <Rollbacks>, <GVT Computations>, <Net Events>, <Running Time>, <Efficiency>, <Event Rate>, ");
+	fprintf(fattree_results_log,"%14llu, %11llu, %18d, %12llu, %14.4f, %12.2f, %12.2f, ",total_events,rollbacks,gvt_computations,net_events,running_time,efficiency,event_rate);
 	fclose(fattree_results_log);
 	fclose(fattree_results_log_header);
 	fclose(fattree_ross_csv_log);
