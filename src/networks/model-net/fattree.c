@@ -912,9 +912,10 @@ static void fattree_read_config(const char * anno, fattree_param *p){
   printf("l1_set_size:%d l1_term_size:%d\n",p->l1_set_size,p->l1_term_size);
 #endif
 
-  p->cn_delay = (1.0 / p->cn_bandwidth);
-  p->head_delay = (1.0 / p->link_bandwidth);
-  p->credit_delay = (1.0 / p->link_bandwidth) * 8; //assume 8 bytes packet
+  double temp = (1000.0 * 1000.0 * 1000.0) / (1024.0 * 1024.0 * 1024.0);
+  p->cn_delay = (temp / p->cn_bandwidth);
+  p->head_delay = (temp / p->link_bandwidth);
+  p->credit_delay = (temp / p->link_bandwidth) * 8; //assume 8 bytes packet
 }
 
 static void fattree_configure(){
