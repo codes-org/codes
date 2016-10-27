@@ -233,6 +233,7 @@ struct ft_terminal_state
   tw_stime* last_buf_full;
   tw_stime* busy_time;
   char output_buf[4096];
+  char output_buf2[4096];
   char output_buf3[4096];
 
   /* For sampling */
@@ -896,7 +897,7 @@ static void fattree_read_config(const char * anno, fattree_param *p){
       &p->link_bandwidth);
   if(!p->link_bandwidth) {
     p->link_bandwidth = 5;
-    fprintf(stderr, "Bandwidth of links is specified, setting to %lf\n",
+    fprintf(stderr, "Bandwidth of links is not specified, setting to %lf\n",
         p->link_bandwidth);
   }
 
@@ -1506,17 +1507,20 @@ static void fattree_report_stats()
       printf(" Average number of hops traversed %f average chunk latency %lf us maximum chunk latency %lf us avg message size %lf bytes finished messages %lld \n", (float)avg_hops/total_finished_chunks, avg_time/(total_finished_chunks*1000), max_time/1000, (float)final_msg_sz/total_finished_msgs, total_finished_msgs);
 
 #if PARAMS_LOG
-//    throughput_avg = throughput_avg / (float)slim_total_terminals_noah;
-//    throughput_avg2 = throughput_avg2 / (float)slim_total_terminals_noah;
-
-	//Open file to append simulation results
-//	printf("Printing Simulation Parameters/Results Log File\n");
-//    int written = 0;
-//    int written2 = 0;
-//    written += sprintf(s->output_buf + written, "<Avg Hops/Total Packets>, <Avg Time/Total Packets>, <Max Latency>, <Total Finished Packets>, <Total Finished Chunks>");
-//    written2 += sprintf(s->output_buf2 + written2, "%24.3lf, %24.3lf, %13.3lf, %24.3lld, %23.3lld, ", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets),max_time,total_finished_packets,total_finished_chunks);
-//    lp_io_write(lp->gid, "sim_log_header.txt", written, s->output_buf);
-//    lp_io_write(lp->gid, "sim_log.txt", written2, s->output_buf2);
+	//Open file to append simulation results used for verification
+/*	char temp_filename[1024];
+	char temp_filename_header[1024];
+	sprintf(temp_filename,"%s/sim_log",g_lp_io_dir);
+	sprintf(temp_filename_header,"%s/sim_log_header",g_lp_io_dir);
+	FILE *fattree_results_log=fopen(temp_filename, "a");
+	FILE *fattree_results_log_header=fopen(temp_filename_header, "a");
+	if(fattree_results_log == NULL)
+		printf("\n Failed to open results log file %s in synthetic-fattree\n",temp_filename);
+	if(fattree_results_log_header == NULL)
+		printf("\n Failed to open results log header file %s in synthetic-fattree\n",temp_filename_header);
+    fprintf(fattree_results_log_header,"<Avg Hops/Total Packets>, <Avg Time/Total Packets>, <Max Latency>, <Total Finished Packets>, <Total Finished Chunks>");
+    fprintf(fattree_results_log,"%24.3lf, %24.3lf, %13.3lf, %24.3lld, %23.3lld, ", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets),max_time,total_finished_packets,total_finished_chunks);
+*/
 #endif
   }
 }
@@ -1653,7 +1657,6 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
   bf->c11 = 0;
   bf->c5 = 0;
 
-//printf("--->lp->gid:%llu packet_generate start\n",LLU(lp->gid));
   fattree_packet_gen++;
   s->packet_gen++;
 
@@ -1774,8 +1777,8 @@ void ft_packet_send_rc(ft_terminal_state * s, tw_bf *bf, fattree_message * msg, 
     prepend_to_fattree_message_list(s->terminal_msgs,
         s->terminal_msgs_tail, cur_entry->msg.rail, cur_entry);
 #if DEBUG_RC
-    if(s->terminal_id == 0)
-        printf("time:%lf terminal_length[%d]:%d \n",tw_now(lp),msg->rail, s->terminal_length[msg->rail]);
+//    if(s->terminal_id == 0)
+//        printf("time:%lf terminal_length[%d]:%d \n",tw_now(lp),msg->rail, s->terminal_length[msg->rail]);
 #endif
 
     if(bf->c3) {
@@ -1820,7 +1823,7 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     s->last_buf_full[msg->rail] = tw_now(lp);
     return;
   }
-  
+
   uint64_t num_chunks = cur_entry->msg.packet_size/s->params->chunk_size;
   if(cur_entry->msg.packet_size % s->params->chunk_size)
     num_chunks++;
@@ -1836,14 +1839,12 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     ts += s->params->cn_delay * s->params->chunk_size;
   }
 
- // printf("here0.5\n");
   msg->saved_available_time = s->terminal_available_time[cur_entry->msg.rail];
   s->terminal_available_time[cur_entry->msg.rail] = maxd(s->terminal_available_time[cur_entry->msg.rail], tw_now(lp));
   s->terminal_available_time[cur_entry->msg.rail] += ts;
 
   // we are sending an event to the switch, so no method_event here
   ts = s->terminal_available_time[cur_entry->msg.rail] - tw_now(lp);
-
   e = tw_event_new(s->switch_lp[cur_entry->msg.rail], ts, lp);
   m = tw_event_data(e);
   memcpy(m, &cur_entry->msg, sizeof(fattree_message));
@@ -2870,6 +2871,7 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
 
     int written = 0;
     int written2 = 0;
+    int written3 = 0;
     if(!s->terminal_id)
     {
         written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Rail> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>\n");
@@ -2885,40 +2887,37 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
     }
     lp_io_write(lp->gid, "fattree-msg-stats", written, s->output_buf);
 
-    // TODO: loop over all rails to print out data for all rails
     for(rail=0; rail<s->params->terminal_radix; rail++){
         if(s->terminal_msgs[rail] != NULL)
             printf("[%llu] rail:%d leftover terminal messages \n", rail, LLU(lp->gid));
     }
     if(s->packet_gen != s->packet_fin)
-        printf("\n generated %d finished %d ", s->packet_gen, s->packet_fin);
-
+        printf("\n generated %d finished %d \n", s->packet_gen, s->packet_fin);
     if(!s->terminal_id)
 	{
 #if PARAMS_LOG
 //    throughput_avg = throughput_avg / (float)slim_total_terminals_noah;
 //    throughput_avg2 = throughput_avg2 / (float)slim_total_terminals_noah;
-        written = 0;
         written2 = 0;
-        written += sprintf(s->output_buf + written, "<Num Levels>,");
-        written2 += sprintf(s->output_buf3 + written2, " %11d,", s->params->num_levels);
+        written3 = 0;
+        written2 += sprintf(s->output_buf2 + written2, "<Num Levels>,");
+        written3 += sprintf(s->output_buf3 + written3, " %11d,", s->params->num_levels);
 		int temp_num_switches = 0;
 		for(int j=0; j<s->params->num_levels; j++)
 		{
-            written += sprintf(s->output_buf + written, " <L%d Switch Radix>,",j);
-            written2 += sprintf(s->output_buf3 + written2, " %17d,",s->params->switch_radix[j]);
+            written2 += sprintf(s->output_buf2 + written2, " <L%d Switch Radix>,",j);
+            written3 += sprintf(s->output_buf3 + written3, " %17d,",s->params->switch_radix[j]);
 		}
 		for(int j=0; j<s->params->num_levels; j++)
 		{
-            written += sprintf(s->output_buf + written, " <L%d Num Switches>,",j);
-            written2 += sprintf(s->output_buf3 + written2, " %17d,",s->params->num_switches[j]);
+            written2 += sprintf(s->output_buf2 + written2, " <L%d Num Switches>,",j);
+            written3 += sprintf(s->output_buf3 + written3, " %17d,",s->params->num_switches[j]);
 			temp_num_switches += s->params->num_switches[j];
 		}
-        written += sprintf(s->output_buf + written, "<Num Terminals>, <Num Switches>, <Synch>, <Num LPs>, <Sim End Time>, <Batch Size>, <GVT Interval>, <Num KP>, ");
-        written2 += sprintf(s->output_buf3 + written2, "%15.3d, %14d, %7.3d, %9.3d, %14.3d, %12.3d, %14.3d, %8.3d, ", (s->params->switch_radix[0]/2)*s->params->num_switches[0],temp_num_switches, g_tw_synchronization_protocol, tw_nnodes(),(int)g_tw_ts_end,(int)g_tw_mblock,(int)g_tw_gvt_interval, (int)g_tw_nkp);
-        lp_io_write(lp->gid, "sim_log_header.txt", written, s->output_buf);
-        printf("here0\n");
-        lp_io_write(lp->gid, "sim_log.txt", written2, s->output_buf3);
+        written2 += sprintf(s->output_buf2 + written2, "<Num Terminals>, <Num Switches>, <Synch>, <Num LPs>, <Sim End Time>, <Batch Size>, <GVT Interval>, <Num KP>, <link_bandwidth>, <cn_bandwidth>, ");
+        written3 += sprintf(s->output_buf3 + written3, "%15.3d, %14d, %7.3d, %9.3d, %14.3d, %12.3d, %14.3d, %8.3d, %16.3f, %14.3f, ", (s->params->switch_radix[0]/2)*s->params->num_switches[0],temp_num_switches, g_tw_synchronization_protocol, tw_nnodes(),(int)g_tw_ts_end,(int)g_tw_mblock,(int)g_tw_gvt_interval, (int)g_tw_nkp, s->params->link_bandwidth, s->params->cn_bandwidth);
+        lp_io_write(lp->gid, "sim_log_header", written2, s->output_buf2);
+        lp_io_write(lp->gid, "sim_log", written3, s->output_buf3);
 #endif
 	}
 
@@ -2954,7 +2953,6 @@ void fattree_switch_final(switch_state * s, tw_lp * lp)
     sprintf(filename,"fattree-switch-stats%d",s->rail);
     if(!s->switch_id && !s->rail)
     {
-    printf("writing fattree-switch-stats header\n");
         written = sprintf(s->output_buf, "# Format <LP ID> <Level ID> <Switch ID> <Busy time per switch port(s)>");
         written += sprintf(s->output_buf + written, "# Switch ports: %d\n",
                 s->radix);
