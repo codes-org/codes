@@ -26,6 +26,7 @@ static double arrival_time = 1000.0;
 static int num_servers_per_rep = 0;
 static int num_routers_per_grp = 0;
 static int num_nodes_per_grp = 0;
+static int num_nodes_per_cn = 0;
 static int num_groups = 0;
 static int num_nodes = 0;
 
@@ -201,7 +202,7 @@ static void handle_kickoff_event(
     memcpy(m_remote, m_local, sizeof(svr_msg));
     m_remote->svr_event_type = REMOTE;
 
-    assert(net_id == DRAGONFLY); /* only supported for dragonfly model right now. */
+    assert(net_id == DRAGONFLY || net_id == DRAGONFLY_CUSTOM); /* only supported for dragonfly model right now. */
     ns->start_ts = tw_now(lp);
     codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
     int local_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
@@ -375,19 +376,20 @@ int main(
     g_tw_ts_end = s_to_ns(5 * 24 * 60 * 60);
     model_net_enable_sampling(sampling_interval, sampling_end_time);
 
-    if(net_id != DRAGONFLY)
+    if(net_id != DRAGONFLY && net_id != DRAGONFLY_CUSTOM)
     {
-	printf("\n The test works with dragonfly model configuration only! ");
+	printf("\n The test works with dragonfly model configuration only! %d %d ", DRAGONFLY_CUSTOM, net_id);
         MPI_Finalize();
         return 0;
     }
     num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "server",
             NULL, 1);
     configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers_per_grp);
+    configuration_get_value_int(&config, "PARAMS", "num_groups", NULL, &num_groups);
+    configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", NULL, &num_nodes_per_cn);
 
-    num_groups = (num_routers_per_grp * (num_routers_per_grp/2) + 1);
-    num_nodes = num_groups * num_routers_per_grp * (num_routers_per_grp / 2);
-    num_nodes_per_grp = num_routers_per_grp * (num_routers_per_grp / 2);
+    num_nodes = num_groups * num_routers_per_grp * num_nodes_per_cn;
+    num_nodes_per_grp = num_routers_per_grp * num_nodes_per_cn;
 
     assert(num_nodes);
 

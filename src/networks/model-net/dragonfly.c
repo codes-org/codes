@@ -31,7 +31,6 @@
 #define TRACK_MSG -1
 #define PRINT_ROUTER_TABLE 1
 #define DEBUG 0
-#define USE_DIRECT_SCHEME 1
 #define MAX_STATS 65536
 
 #define LP_CONFIG_NM_TERM (model_net_lp_config_names[DRAGONFLY])
@@ -775,7 +774,6 @@ void router_setup(router_state * r, tw_lp * lp)
 //   printf("\n LP ID %d VC occupancy radix %d Router %d is connected to ", lp->gid, p->radix, r->router_id);
 #endif 
    //round the number of global channels to the nearest even number
-#if USE_DIRECT_SCHEME
        int first = r->router_id % p->num_routers;
        for(int i=0; i < p->num_global_channels; i++)
         {
@@ -790,29 +788,6 @@ void router_setup(router_state * r, tw_lp * lp)
             r->global_channel[i] = target_grp * p->num_routers + my_pos;
             first += p->num_routers;
         }
-#else
-   int router_offset = (r->router_id % p->num_routers) * 
-    (p->num_global_channels / 2) + 1;
-   for(int i=0; i < p->num_global_channels; i++)
-    {
-      if(i % 2 != 0)
-          {
-             r->global_channel[i]=(r->router_id + (router_offset * p->num_routers))%p->total_routers;
-             router_offset++;
-          }
-          else
-           {
-             r->global_channel[i]=r->router_id - ((router_offset) * p->num_routers);
-           }
-        if(r->global_channel[i]<0)
-         {
-           r->global_channel[i]=p->total_routers+r->global_channel[i]; 
-	 }
-#if DEBUG == 1
-    printf("\n channel %d ", r->global_channel[i]);
-#endif 
-    }
-#endif
 
 #if DEBUG == 1
    printf("\n");
@@ -895,35 +870,11 @@ tw_lpid getRouterFromGroupID(int dest_gid,
 		    int num_routers,
             int total_groups)
 {
-#if USE_DIRECT_SCHEME
   int dest = dest_gid;
   if(dest == total_groups - 1) {
       dest = src_gid;
   }
   return src_gid * num_routers + (dest % num_routers);
-#else
-  int group_begin = src_gid * num_routers;
-  int group_end = (src_gid * num_routers) + num_routers-1;
-  int offset = (dest_gid * num_routers - group_begin) / num_routers;
-  
-  if((dest_gid * num_routers) < group_begin)
-    offset = (group_begin - dest_gid * num_routers) / num_routers; // take absolute value
-  
-  int half_channel = num_routers / 4;
-  int index = (offset - 1)/(half_channel * num_routers);
-  
-  offset=(offset - 1) % (half_channel * num_routers);
-
-  // If the destination router is in the same group
-  tw_lpid router_id;
-
-  if(index % 2 != 0)
-    router_id = group_end - (offset / half_channel); // start from the end
-  else
-    router_id = group_begin + (offset / half_channel);
-
-  return router_id;
-#endif
 }	
 
 /*When a packet is sent from the current router and a buffer slot becomes available, a credit is sent back to schedule another packet event*/
@@ -2120,19 +2071,11 @@ get_next_stop(router_state * s,
 
       if(dest_lp == local_router_id)
       {
-#if USE_DIRECT_SCHEME
           int my_pos = s->group_id % s->params->num_routers;
           if(s->group_id == s->params->num_groups - 1) {
               my_pos = dest_group_id % s->params->num_routers;
           }
           dest_lp = dest_group_id * s->params->num_routers + my_pos;
-#else
-        for(int i=0; i < s->params->num_global_channels; i++)
-           {
-            if(s->global_channel[i] / s->params->num_routers == dest_group_id)
-                dest_lp=s->global_channel[i];
-          }
-#endif
       }
   codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_lp,
           0, &router_dest_id);
@@ -2166,20 +2109,12 @@ get_output_port( router_state * s,
 
      if(intm_grp_id != s->group_id)
       {
-#if USE_DIRECT_SCHEME
           int target_grp = intm_grp_id;
           if(target_grp == s->params->num_groups - 1) {
               target_grp = s->group_id;
           }
           output_port = s->params->num_routers + (target_grp) / 
                 s->params->num_routers;
-#else
-        for(int i=0; i < s->params->num_global_channels; i++)
-         {
-           if(s->global_channel[i] == local_router_id)
-             output_port = s->params->num_routers + i;
-          }
-#endif
       }
       else
        {

@@ -21,16 +21,16 @@
 
 int main(int argc, char **argv) {
   if(argc < 3) {
-    printf("Corret usage: %s <num_g> <intra_file> <inter_file>", argv[0]);
+    printf("Correct usage: %s <num_g> <num_rows> <num_cols> <intra_file> <inter_file>", argv[0]);
     exit(0);
   }
 
   int g = atoi(argv[1]);
-  int r = 6;
-  int c = 16;
+  int r = atoi(argv[2]);
+  int c = atoi(argv[3]);
 
-  FILE *intra = fopen(argv[2], "wb");
-  FILE *inter = fopen(argv[3], "wb");
+  FILE *intra = fopen(argv[4], "wb");
+  FILE *inter = fopen(argv[5], "wb");
 
   int router = 0;
   int green = 0, black = 1;
