@@ -304,7 +304,7 @@ static void print_msgs_queue(struct qlist_head * head, int is_send)
     qlist_for_each(ent, head)
        {
             current = qlist_entry(ent, mpi_msgs_queue, ql);
-            printf(" \n Source %d Dest %d bytes %d tag %d ", current->source_rank, current->dest_rank, current->num_bytes, current->tag);
+            printf(" \n Source %d Dest %d bytes %llu tag %d ", current->source_rank, current->dest_rank, current->num_bytes, current->tag);
        }
 }
 static void print_completed_queue(struct qlist_head * head)
@@ -398,7 +398,7 @@ static int notify_posted_wait(nw_state* s,
                 if(wait_elem->num_completed == wait_elem->count)
                 {
                     if(enable_debug)
-                        fprintf(workload_log, "\n(%lf) APP ID %d MPI WAITALL COMPLETED AT %ld ", s->app_id, tw_now(lp), s->nw_id);
+                        fprintf(workload_log, "\n(%lf) APP ID %d MPI WAITALL COMPLETED AT %llu ", tw_now(lp), s->app_id, s->nw_id);
                     wait_completed = 1;
                 }
 
@@ -497,7 +497,7 @@ static void codes_exec_mpi_wait_all(
         struct codes_workload_op * mpi_op)
 {
   if(enable_debug)
-    fprintf(workload_log, "\n MPI WAITALL POSTED AT %ld ", s->nw_id);
+    fprintf(workload_log, "\n MPI WAITALL POSTED AT %llu ", s->nw_id);
 
   if(enable_sampling)
   {
@@ -782,8 +782,8 @@ static void codes_exec_mpi_recv(
     recv_op->tag = mpi_op->u.recv.tag;
     recv_op->req_id = mpi_op->u.recv.req_id;
 
-    if(s->nw_id == TRACK_LP)
-        printf("\n Receive op posted num bytes %d source %d ", recv_op->num_bytes,
+    if(s->nw_id == (tw_lpid)TRACK_LP)
+        printf("\n Receive op posted num bytes %llu source %d ", recv_op->num_bytes,
                 recv_op->source_rank);
 
 	int found_matching_sends = rm_matching_send(s, bf, m, lp, recv_op);
@@ -888,11 +888,11 @@ static void codes_exec_mpi_send(nw_state* s,
     {
         if(mpi_op->op_type == CODES_WK_ISEND)
         {
-            fprintf(workload_log, "\n (%lf) APP %d MPI ISEND SOURCE %ld DEST %ld TAG %d BYTES %ld ",
+            fprintf(workload_log, "\n (%lf) APP %d MPI ISEND SOURCE %llu DEST %d TAG %d BYTES %llu ",
                     tw_now(lp), s->app_id, s->nw_id, global_dest_rank, mpi_op->u.send.tag, mpi_op->u.send.num_bytes);
         }
         else
-            fprintf(workload_log, "\n (%lf) APP ID %d MPI SEND SOURCE %ld DEST %ld TAG %d BYTES %ld ",
+            fprintf(workload_log, "\n (%lf) APP ID %d MPI SEND SOURCE %llu DEST %d TAG %d BYTES %llu ",
                     tw_now(lp), s->app_id, s->nw_id, global_dest_rank, mpi_op->u.send.tag, mpi_op->u.send.num_bytes);
     }
 	/* isend executed, now get next MPI operation from the queue */
@@ -1027,7 +1027,7 @@ static void update_arrival_queue_rc(nw_state* s,
 static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
     if(s->app_id != m->fwd.app_id)
-        printf("\n Received message for app %d my id %d my rank %d ",
+        printf("\n Received message for app %d my id %d my rank %llu ",
                 m->fwd.app_id, s->app_id, s->nw_id);
     assert(s->app_id == m->fwd.app_id);
 
@@ -1060,8 +1060,8 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
     arrived_op->num_bytes = m->fwd.num_bytes;
     arrived_op->tag = m->fwd.tag;
 
-    if(s->nw_id == TRACK_LP)
-        printf("\n Send op arrived source rank %d num bytes %d ", arrived_op->source_rank,
+    if(s->nw_id == (tw_lpid)TRACK_LP)
+        printf("\n Send op arrived source rank %d num bytes %llu ", arrived_op->source_rank,
                 arrived_op->num_bytes);
 
     int found_matching_recv = rm_matching_rcv(s, bf, m, lp, arrived_op);
@@ -1133,7 +1133,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        lid.rank = s->nw_id;
        s->app_id = 0;
 
-       if(s->nw_id >= num_net_traces)
+       if((int)s->nw_id >= num_net_traces)
 	        return;
    }
 
@@ -1422,7 +1422,7 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
     }
     else
     {
-        if(s->nw_id >= num_net_traces)
+        if(s->nw_id >= (tw_lpid)num_net_traces)
             return;
     }
 		int count_irecv = qlist_count(&s->pending_recvs_queue);

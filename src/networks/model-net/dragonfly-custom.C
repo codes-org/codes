@@ -20,7 +20,7 @@
 #include <vector>
 #include <map>
 
-#define DUMP_CONNECTIONS 1
+#define DUMP_CONNECTIONS 0
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 262144
 
