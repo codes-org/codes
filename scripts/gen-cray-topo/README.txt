@@ -1,10 +1,12 @@
 ** Generating inter and intra group files for Edison and Theta Interconnects **:
 
 - Edison network config files:
-    python gen-network-config.py link-edison.txt intra-edison inter-edison
-
-- Theta network config files:
-    python gen-network-config.py theta intra-theta inter-theta
+    python edison.py link-edison.txt intra-edison inter-edison
+    
+    [intra-edison and inter-edison are the intra-group and inter-group network
+    configuration files required by the simulation. The python script
+    translates Edison's network configuration into a file format that can be fed
+    into the simulation.]
 
  ** Generating customizable dragonfly interconnects **:
 

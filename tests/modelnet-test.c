@@ -24,16 +24,18 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 
-#define SVR_LP_NM "server"
 #define NUM_REQS 2  /* number of requests sent by each server */
 #define PAYLOAD_SZ 4096 /* size of simulated data payload, bytes  */
 
 static int net_id = 0;
+static int num_routers = 0;
 static int num_servers = 0;
+static int offset = 2;
 
 /* whether to pull instead of push */
 static int do_pull = 0;
 
+static int num_routers_per_rep = 0;
 static int num_servers_per_rep = 0;
 static int lps_per_rep = 0;
 
@@ -58,7 +60,6 @@ struct svr_state
     int local_recvd_count; /* number of local messages received */
     tw_stime start_ts;    /* time that we started sending requests */
     tw_stime end_ts;      /* time that we ended sending requests */
-    tw_lpid svr_rel_id; /* relative ID of the server */
 };
 
 struct svr_msg
@@ -174,8 +175,25 @@ int main(
     net_id = *net_ids;
     free(net_ids);
 
-    num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, SVR_LP_NM,
+    num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "server",
             NULL, 1);
+
+    if(net_id == DRAGONFLY)
+    {
+      strcpy(router_name, "modelnet_dragonfly_router");
+    }
+
+    if(net_id == SLIMFLY)
+    {
+      strcpy(router_name, "slimfly_router");
+    }
+
+    if(net_id == SLIMFLY || net_id == DRAGONFLY)
+    {
+	  num_routers = codes_mapping_get_lp_count("MODELNET_GRP", 0,
+                  router_name, NULL, 1);
+	  offset = 1;
+    }
 
     if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
     {
@@ -214,11 +232,11 @@ static void svr_init(
 
     memset(ns, 0, sizeof(*ns));
 
-    ns->svr_rel_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
     /* each server sends a dummy event to itself that will kick off the real
      * simulation
      */
 
+    //printf("\n Initializing servers %d ", (int)lp->gid);
     /* skew each kickoff event slightly to help avoid event ties later on */
     kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng);
 
@@ -328,9 +346,24 @@ static void handle_kickoff_event(
     /* record when transfers started on this server */
     ns->start_ts = tw_now(lp);
 
-    int dest_id = (ns->svr_rel_id + 1) % num_servers;
-    
+    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1,
+            "server", NULL, 1);
+    num_routers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1,
+            router_name, NULL, 1);
+
+    lps_per_rep = num_servers_per_rep * 2 + num_routers_per_rep;
+
+    int opt_offset = 0;
+    int total_lps = num_servers * 2 + num_routers;
+
+    if(net_id == DRAGONFLY && (lp->gid % lps_per_rep == num_servers_per_rep - 1))
+          opt_offset = num_servers_per_rep + num_routers_per_rep; /* optional offset due to dragonfly mapping */
+
+    if(net_id == SLIMFLY && (lp->gid % lps_per_rep == num_servers_per_rep -1))
+          opt_offset = num_servers_per_rep + num_routers_per_rep;
+
     /* each server sends a request to the next highest server */
+    int dest_id = (lp->gid + offset + opt_offset)%total_lps;
     if (do_pull){
         m->ret = model_net_pull_event(net_id, "test", dest_id, PAYLOAD_SZ, 0.0,
                 sizeof(svr_msg), (const void*)m_remote, lp);
@@ -416,7 +449,15 @@ static void handle_ack_event(
 
     /* safety check that this request got to the right server */
 //    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
-    tw_lpid dest_id = codes_mapping_get_lpid_from_relative(m->src, NULL, SVR_LP_NM, NULL, 0);
+    int opt_offset = 0;
+
+   if(net_id == DRAGONFLY && (lp->gid % lps_per_rep == num_servers_per_rep - 1))
+      opt_offset = num_servers_per_rep + num_routers_per_rep; /* optional offset due to dragonfly mapping */
+
+    if(net_id == SLIMFLY && (lp->gid % lps_per_rep == num_servers_per_rep -1))
+        opt_offset = num_servers_per_rep + num_routers_per_rep;
+
+    tw_lpid dest_id = (lp->gid + offset + opt_offset)%(num_servers*2 + num_routers);
 
     /* in the "pull" case, src should actually be self */
     if (do_pull){
@@ -469,6 +510,15 @@ static void handle_req_event(
 
     /* safety check that this request got to the right server */
 //    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
+    int opt_offset = 0;
+
+    if(net_id == DRAGONFLY && (m->src % lps_per_rep == num_servers_per_rep - 1))
+          opt_offset = num_servers_per_rep + num_routers_per_rep; /* optional offset due to dragonfly mapping */
+
+    if(net_id == SLIMFLY && (m->src % lps_per_rep == num_servers_per_rep -1))
+          opt_offset = num_servers_per_rep + num_routers_per_rep;
+
+    assert(lp->gid == (m->src + offset + opt_offset)%(num_servers*2 + num_routers));
     ns->msg_recvd_count++;
 
     /* send ack back */
