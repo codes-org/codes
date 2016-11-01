@@ -3117,39 +3117,41 @@ extern "C" {
 /* data structure for dragonfly statistics */
 struct model_net_method dragonfly_custom_method =
 {
-    .mn_configure = dragonfly_custom_configure,
-    .mn_register = dragonfly_custom_register,
-    .model_net_method_packet_event = dragonfly_custom_packet_event,
-    .model_net_method_packet_event_rc = dragonfly_custom_packet_event_rc,
-    .model_net_method_recv_msg_event = NULL,
-    .model_net_method_recv_msg_event_rc = NULL,
-    .mn_get_lp_type = dragonfly_custom_get_cn_lp_type,
-    .mn_get_msg_sz = dragonfly_custom_get_msg_sz,
-    .mn_report_stats = dragonfly_custom_report_stats,
-    .mn_collective_call = NULL,
-    .mn_collective_call_rc = NULL,   
-    .mn_sample_fn = (event_f)dragonfly_custom_sample_fn,    
-    .mn_sample_rc_fn = (revent_f)dragonfly_custom_sample_rc_fn,
-    .mn_sample_init_fn = (init_f)dragonfly_custom_sample_init,
-    .mn_sample_fini_fn = (final_f)dragonfly_custom_sample_fin
+    0,
+    dragonfly_custom_configure,
+    dragonfly_custom_register,
+    dragonfly_custom_packet_event,
+    dragonfly_custom_packet_event_rc,
+    NULL,
+    NULL,
+    dragonfly_custom_get_cn_lp_type,
+    dragonfly_custom_get_msg_sz,
+    dragonfly_custom_report_stats,
+    NULL,
+    NULL,   
+    (event_f)dragonfly_custom_sample_fn,    
+    (revent_f)dragonfly_custom_sample_rc_fn,
+    (init_f)dragonfly_custom_sample_init,
+    (final_f)dragonfly_custom_sample_fin
 };
 
 struct model_net_method dragonfly_custom_router_method =
 {
-    .mn_configure = NULL, // handled by dragonfly_configure
-    .mn_register  = router_custom_register,
-    .model_net_method_packet_event = NULL,
-    .model_net_method_packet_event_rc = NULL,
-    .model_net_method_recv_msg_event = NULL,
-    .model_net_method_recv_msg_event_rc = NULL,
-    .mn_get_lp_type = router_custom_get_lp_type,
-    .mn_get_msg_sz = dragonfly_custom_get_msg_sz,
-    .mn_report_stats = NULL, // not yet supported
-    .mn_collective_call = NULL,
-    .mn_collective_call_rc = NULL,
-    .mn_sample_fn = (event_f)dragonfly_custom_rsample_fn,
-    .mn_sample_rc_fn = (revent_f)dragonfly_custom_rsample_rc_fn,
-    .mn_sample_init_fn = (init_f)dragonfly_custom_rsample_init,
-    .mn_sample_fini_fn = (final_f)dragonfly_custom_rsample_fin
+    0,
+    NULL, // handled by dragonfly_configure
+    router_custom_register,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    router_custom_get_lp_type,
+    dragonfly_custom_get_msg_sz,
+    NULL, // not yet supported
+    NULL,
+    NULL,
+    (event_f)dragonfly_custom_rsample_fn,
+    (revent_f)dragonfly_custom_rsample_rc_fn,
+    (init_f)dragonfly_custom_rsample_init,
+    (final_f)dragonfly_custom_rsample_fin
 };
 }
