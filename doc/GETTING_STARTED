@@ -453,7 +453,9 @@ represents a physical router. At least one "dragonfly_router" LP must be
 present in every LP group with a "modelnet_dragonfly" LP. 
 
 Further configuration and model setup can be found at
-src/model-net/doc/README.dragonfly-custom.txt.
+src/model-net/doc/README.dragonfly.txt.
+A newer version of dragonfly model that supports a Cray style network is also
+available. Instructions can be found at src/model-net/doc/README.dragonfly-custom.txt.
 
 = CODES example model
 

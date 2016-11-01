@@ -59,20 +59,30 @@
   [With custom dragonfly network having 6,400 network nodes, 1600 routers and
   20 groups. Each group has 80 routers arranged in a 20x4 matrix]
 
-  ./bin/model-net-synthetic-custom-dfly --sync=1 -- ../src/network-workloads/conf/modelnet-synthetic-custom.conf 
+  ./bin/model-net-synthetic-custom-dfly --sync=1 --
+  ../src/network-workloads/conf/dragonfly-custom/modelnet-synthetic-custom.conf 
 
   [With edison dragonfly network have 5,702 network nodes, 1440 routers and 15
   groups. Each group has 96 routers arranged in 6x16 matrix.]
-  mpirun -np 4 ./bin/model-net-synthetic-custom-dfly --sync=3 -- ../src/network-workloads/conf/modelnet-synthetic-edison.conf 
+  mpirun -np 4 ./bin/model-net-synthetic-custom-dfly --sync=3 --
+  ../src/network-workloads/conf/dragonfly-custom/modelnet-synthetic-edison.conf 
 
 - Design Forward Network traces:
 
-   [With Multigrid network trace having 125 ranks]
+   [With Edison style dragonfly having 5,760 network nodes and small-scale Multigrid network trace having 125 ranks]
 
   ./bin/model-net-mpi-replay --sync=1 --disable_compute=1
   --workload_type="dumpi"
   --workload_file=../../../df_traces/Multigrid/MultiGrid_C_n125_dumpi/dumpi-2014.03.06.23.48.13-
   --num_net_traces=125 --
+  ../src/network-workloads/conf/dragonfly-custom/modelnet-test-dragonfly-edison.conf
+
+  [With Edison style dragonfly and AMG 1,728 application trace]
+
+  ./bin/model-net-mpi-replay --sync=1 --disable_compute=1
+  --workload_type="dumpi"
+  --workload_file=../../../df_traces/AMG/df_AMG_n1728_dumpi/dumpi-2014.03.03.14.55.50-
+  --num_net_traces=1728 --
   ../src/network-workloads/conf/modelnet-test-dragonfly-edison.conf
 
 --------- Debugging Tips ------------
