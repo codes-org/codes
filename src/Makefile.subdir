@@ -184,8 +184,6 @@ src_workload_codes_workload_dump_SOURCES = \
 src_network_workloads_model_net_mpi_replay_SOURCES = src/network-workloads/model-net-mpi-replay.c 
 src_network_workloads_model_net_synthetic_SOURCES = src/network-workloads/model-net-synthetic.c 
 src_network_workloads_model_net_synthetic_custom_dfly_SOURCES = src/network-workloads/model-net-synthetic-custom-dfly.c 
-src_network_workloads_model_net_synthetic_slimfly_SOURCES = src/network-workloads/model-net-synthetic-slimfly.c src/network-workloads/dummy.C 
-src_network_workloads_model_net_dumpi_traces_dump_SOURCES = src/network-workloads/model-net-dumpi-traces-dump.c src/network-workloads/dummy.C
 
 
 #bin_PROGRAMS += src/network-workload/codes-nw-test
