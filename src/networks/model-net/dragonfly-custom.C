@@ -1990,7 +1990,7 @@ dragonfly_custom_terminal_final( terminal_state * s,
             s->finished_packets, (double)s->total_hops/s->finished_chunks,
             s->busy_time);
 
-    lp_io_write(lp->gid, "dragonfly-msg-stats", written, s->output_buf); 
+    lp_io_write(lp->gid, (char*)"dragonfly-msg-stats", written, s->output_buf); 
     
     if(s->terminal_msgs[0] != NULL) 
       printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
@@ -2041,7 +2041,7 @@ void dragonfly_custom_router_final(router_state * s,
         written += sprintf(s->output_buf + written, " %lf", s->busy_time[d]);
 
     sprintf(s->output_buf + written, "\n");
-    lp_io_write(lp->gid, "dragonfly-router-stats", written, s->output_buf);
+    lp_io_write(lp->gid, (char*)"dragonfly-router-stats", written, s->output_buf);
 
     written = 0;
     if(!s->router_id)
@@ -2059,7 +2059,7 @@ void dragonfly_custom_router_final(router_state * s,
         written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
 
     sprintf(s->output_buf2 + written, "\n");
-    lp_io_write(lp->gid, "dragonfly-router-traffic", written, s->output_buf2);
+    lp_io_write(lp->gid, (char*)"dragonfly-router-traffic", written, s->output_buf2);
 }
 
 static int get_intra_router(int src_router_id, int dest_router_id, int num_rtrs_per_grp)
@@ -2641,7 +2641,7 @@ router_packet_receive( router_state * s,
   }
 
   if(cur_chunk->msg.packet_ID == LLU(TRACK_PKT))
-    printf("\n Packet %llu arrived at router %ld next stop %ld final stop %ld local hops %d", cur_chunk->msg.packet_ID, s->router_id, next_stop, dest_router_id, cur_chunk->msg.my_l_hop);
+    printf("\n Packet %llu arrived at router %u next stop %d final stop %d local hops %d", cur_chunk->msg.packet_ID, s->router_id, next_stop, dest_router_id, cur_chunk->msg.my_l_hop);
   /* If the packet route has just changed to non-minimal with prog-adaptive
    * routing, we have to compute the next stop based on that */
   int do_chan_selection = 0;
