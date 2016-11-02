@@ -327,7 +327,7 @@ void codes_workload_print_op(
             break;
         case CODES_WK_SEND:
             fprintf(f, "op: app:%d rank:%d type:send "
-                    "src:%d dst:%d bytes:%d type:%d count:%d tag:%d "
+                    "src:%d dst:%d bytes:%ld type:%d count:%d tag:%d "
                     "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.send.source_rank, op->u.send.dest_rank,
@@ -347,7 +347,7 @@ void codes_workload_print_op(
             break;
         case CODES_WK_ISEND:
             fprintf(f, "op: app:%d rank:%d type:isend "
-                    "src:%d dst:%d bytes:%d type:%d count:%d tag:%d "
+                    "src:%d dst:%d bytes:%ld type:%d count:%d tag:%d "
                     "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.send.source_rank, op->u.send.dest_rank,
