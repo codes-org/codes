@@ -28,8 +28,10 @@ struct terminal_message
   short  type;
   /* category: comes from codes */
   char category[CATEGORY_NAME_MAX];
+
   /* store category hash in the event */
   uint32_t category_hash;
+
   /* final destination LP ID, this comes from codes can be a server or any other LP type*/
   tw_lpid final_dest_gid;
   /*sending LP ID from CODES, can be a server or any other LP type */
@@ -39,37 +41,38 @@ struct terminal_message
   tw_lpid dest_terminal_id;
   /* source terminal ID of the dragonfly */
   unsigned int src_terminal_id;
-  /* message originating router id. MM: Can we calculate it through
-   * sender_mn_lp??*/
+  /* local LP ID to calculate the radix of the sender node/router */
+  unsigned int local_id;
+  /* message originating router id */
   unsigned int origin_router_id;
 
   /* number of hops traversed by the packet */
   short my_N_hop;
   short my_l_hop, my_g_hop;
   short saved_channel;
-  short saved_vc;
 
-  short nonmin_done;
   /* Intermediate LP ID from which this message is coming */
   unsigned int intm_lp_id;
-  /* last hop of the message, can be a terminal, local router or global router */
-  short last_hop;
-   /* For routing */
-  int intm_rtr_id;
-  int intm_group_id;
+  short new_vc;
+  short saved_vc;
+  
   int saved_src_dest;
-  int saved_src_chan;
+  /* last hop of the message, can be a terminal, local router or global router */
+  int last_hop;
+   /* For routing */
+   int intm_group_id;
+   uint64_t chunk_id;
+   uint64_t packet_size;
+   uint64_t message_id;
+   uint64_t total_size;
 
-   uint32_t chunk_id;
-   uint32_t packet_size;
-   uint32_t message_id;
-   uint32_t total_size;
-
+   int saved_remote_esize;
    int remote_event_size_bytes;
    int local_event_size_bytes;
 
   // For buffer message
    int vc_index;
+   int sender_radix;
    int output_chan;
    model_net_event_return event_rc;
    int is_pull;
@@ -82,10 +85,20 @@ struct terminal_message
    tw_stime saved_rcv_time;
    tw_stime saved_busy_time; 
    tw_stime saved_total_time;
+   tw_stime saved_hist_start_time;
    tw_stime saved_sample_time;
    tw_stime msg_start_time;
+
+   int saved_hist_num;
    int saved_occupancy;
 
+
+   /* for reverse computation of a node's fan in*/
+   int saved_fan_nodes;
+   tw_lpid sender_svr;
+
+  /* LP ID of the sending node, has to be a network node in the dragonfly */
+   tw_lpid sender_node;
    tw_lpid next_stop;
 };
 

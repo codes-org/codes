@@ -22,7 +22,17 @@
 #include "codes/quickhash.h"
 #include "codes/rc-stack.h"
 
-#define CREDIT_SIZE 8
+#define CREDIT_SZ 8
+#define MEAN_PROCESS 1.0
+
+/* collective specific parameters */
+#define TREE_DEGREE 4
+#define LEVEL_DELAY 1000
+#define DRAGONFLY_COLLECTIVE_DEBUG 0
+#define NUM_COLLECTIVES  1
+#define COLLECTIVE_COMPUTATION_DELAY 5700
+#define DRAGONFLY_FAN_OUT_DELAY 20.0
+#define WINDOW_LENGTH 0
 #define DFLY_HASH_TABLE_SIZE 262144
 
 // debugging parameters
@@ -109,6 +119,7 @@ struct dragonfly_param
     // derived parameters
     int num_cn;
     int num_groups;
+    int num_real_groups;
     int radix;
     int total_routers;
     int total_terminals;
@@ -186,6 +197,26 @@ struct terminal_state
 // Router-Router Intra-group sends and receives RR_LSEND, RR_LARRIVE
 // Router-Router Inter-group sends and receives RR_GSEND, RR_GARRIVE
    struct mn_stats dragonfly_stats_array[CATEGORY_MAX];
+  /* collective init time */
+  tw_stime collective_init_time;
+
+  /* node ID in the tree */ 
+   tw_lpid node_id;
+
+   /* messages sent & received in collectives may get interchanged several times so we have to save the 
+     origin server information in the node's state */
+   tw_lpid origin_svr; 
+  
+  /* parent node ID of the current node */
+   tw_lpid parent_node_id;
+   /* array of children to be allocated in terminal_init*/
+   tw_lpid* children;
+
+   /* children of a node can be less than or equal to the tree degree */
+   int num_children;
+
+   short is_root;
+   short is_leaf;
 
    struct rc_stack * st;
    int issueIdle;
@@ -240,7 +271,10 @@ enum event_t
   T_BUFFER,
   R_SEND,
   R_ARRIVE,
-  R_BUFFER
+  R_BUFFER,
+  D_COLLECTIVE_INIT,
+  D_COLLECTIVE_FAN_IN,
+  D_COLLECTIVE_FAN_OUT
 };
 /* status of a virtual channel can be idle, active, allocated or wait for credit */
 enum vc_status
@@ -317,6 +351,7 @@ static short routing = MINIMAL;
 
 static tw_stime         dragonfly_total_time = 0;
 static tw_stime         dragonfly_max_latency = 0;
+static tw_stime         max_collective = 0;
 
 
 static long long       total_hops = 0;
@@ -376,8 +411,12 @@ static int dragonfly_get_msg_sz(void)
 static void free_tmp(void * ptr)
 {
     struct dfly_qhash_entry * dfly = ptr; 
-    free(dfly->remote_event_data);
-    free(dfly);
+    
+    if(dfly->remote_event_data)
+        free(dfly->remote_event_data);
+   
+    if(dfly)
+        free(dfly);
 }
 static void append_to_terminal_message_list(  
         terminal_message_list ** thisq,
@@ -453,7 +492,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
                 p->num_routers);
     }
 
-    p->num_vcs = 8;
+    p->num_vcs = 3;
 
     rc = configuration_get_value_int(&config, "PARAMS", "local_vc_size", anno, &p->local_vc_size);
     if(rc) {
@@ -543,7 +582,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     p->cn_delay = bytes_to_ns(p->chunk_size, p->cn_bandwidth);
     p->local_delay = bytes_to_ns(p->chunk_size, p->local_bandwidth);
     p->global_delay = bytes_to_ns(p->chunk_size, p->global_bandwidth);
-    p->credit_delay = bytes_to_ns(8.0, p->local_bandwidth); //assume 8 bytes packet
+    p->credit_delay = bytes_to_ns(CREDIT_SZ, p->local_bandwidth); //assume 8 bytes packet
 }
 
 static void dragonfly_configure(){
@@ -600,6 +639,64 @@ static void dragonfly_report_stats()
    return;
 }
 
+static void dragonfly_collective_init(terminal_state * s,
+           		   tw_lp * lp)
+{
+    // TODO: be annotation-aware
+    codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
+            &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
+            NULL, 1);
+    int num_reps = codes_mapping_get_group_reps(lp_group_name);
+    s->node_id = (mapping_rep_id * num_lps) + mapping_offset;
+
+    int i;
+   /* handle collective operations by forming a tree of all the LPs */
+   /* special condition for root of the tree */
+   if( s->node_id == 0)
+    {
+        s->parent_node_id = -1;
+        s->is_root = 1;
+   }
+   else
+   {
+       s->parent_node_id = (s->node_id - ((s->node_id - 1) % TREE_DEGREE)) / TREE_DEGREE;
+       s->is_root = 0;
+   }
+   s->children = (tw_lpid*)malloc(TREE_DEGREE * sizeof(tw_lpid));
+
+   /* set the isleaf to zero by default */
+   s->is_leaf = 1;
+   s->num_children = 0;
+
+   /* calculate the children of the current node. If its a leaf, no need to set children,
+      only set isleaf and break the loop*/
+
+   for( i = 0; i < TREE_DEGREE; i++ )
+    {
+        tw_lpid next_child = (TREE_DEGREE * s->node_id) + i + 1;
+        if(next_child < ((tw_lpid)num_lps * (tw_lpid)num_reps))
+        {
+            s->num_children++;
+            s->is_leaf = 0;
+            s->children[i] = next_child;
+        }
+        else
+           s->children[i] = -1;
+    }
+
+#if DRAGONFLY_COLLECTIVE_DEBUG == 1
+   printf("\n LP %ld parent node id ", s->node_id);
+
+   for( i = 0; i < TREE_DEGREE; i++ )
+        printf(" child node ID %ld ", s->children[i]);
+   printf("\n");
+
+   if(s->is_leaf)
+        printf("\n LP %ld is leaf ", s->node_id);
+#endif
+}
+
 /* initialize a dragonfly compute node terminal */
 void 
 terminal_init( terminal_state * s, 
@@ -632,7 +729,8 @@ terminal_init( terminal_state * s,
    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
            s->anno, 0);
 
-   s->terminal_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
+   s->terminal_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);  
+   
    s->router_id=(int)s->terminal_id / s->params->num_cn;
    s->terminal_available_time = 0.0;
    s->packet_counter = 0;
@@ -673,6 +771,7 @@ terminal_init( terminal_state * s,
    s->in_send_loop = 0;
    s->issueIdle = 0;
 
+   dragonfly_collective_init(s, lp);
    return;
 }
 
@@ -697,17 +796,25 @@ void router_setup(router_state * r, tw_lp * lp)
         r->params = &all_params[id];
     }
 
-    // shorthand
-    const dragonfly_param *p = r->params;
-
-    num_routers_per_mgrp = codes_mapping_get_lp_count (lp_group_name, 1, "modelnet_dragonfly_router",
+    dragonfly_param *p = r->params;
+    p->num_real_groups = codes_mapping_get_lp_count(lp_group_name, 0, LP_CONFIG_NM_ROUT, NULL, 1);
+    assert(p->num_real_groups > 0);
+    if(p->num_real_groups % p->num_routers)
+    {
+        tw_error(TW_LOC, "\n Config error: num_routers specified %d "
+                "does not divide num_router per group %d  ",
+                p->num_real_groups , p->num_routers);
+    }
+    p->num_real_groups = p->num_real_groups/p->num_routers;
+    
+    num_routers_per_mgrp = codes_mapping_get_lp_count (lp_group_name, 1, LP_METHOD_NM_ROUT,
             NULL, 0);
-    int num_grp_reps = codes_mapping_get_group_reps(lp_group_name);
+    /*int num_grp_reps = codes_mapping_get_group_reps(lp_group_name);
     if(p->total_routers != num_grp_reps * num_routers_per_mgrp)
         tw_error(TW_LOC, "\n Config error: num_routers specified %d total routers computed in the network %d "
                 "does not match with repetitions * dragonfly_router %d  ",
                 p->num_routers, p->total_routers, num_grp_reps * num_routers_per_mgrp);
-
+    */
    r->router_id=mapping_rep_id + mapping_offset;
    r->group_id=r->router_id/p->num_routers;
 
@@ -927,7 +1034,7 @@ void router_credit_send(router_state * s, terminal_message * msg,
   return;
 }
 
-void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
+static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
    s->packet_gen--;
    packet_gen--;
@@ -963,7 +1070,7 @@ void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, 
 }
 
 /* generates packet at the current dragonfly compute node */
-void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, 
+static void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg, 
   tw_lp * lp) {
   packet_gen++;
   s->packet_gen++;
@@ -1059,7 +1166,7 @@ void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * msg,
   return;
 }
 
-void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * msg,
+static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * msg,
         tw_lp * lp)
 {
       if(bf->c1) {
@@ -1088,15 +1195,21 @@ void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * msg,
       if(bf->c4) {
         s->in_send_loop = 1;
       }
-      /*if(bf->c5)
+      if(bf->c5)
       {
-          codes_local_latency_reverse(lp);
+          tw_rand_reverse_unif(lp->rng);
           s->issueIdle = 1;
-      }*/
+          if(bf->c6)
+          {
+            s->busy_time = msg->saved_total_time;
+            s->last_buf_full = msg->saved_busy_time;
+            s->busy_time_sample = msg->saved_sample_time;
+          }
+      }
       return;
 }
 /* sends the packet from the current dragonfly compute node to the attached router */
-void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, 
+static void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg, 
   tw_lp * lp) {
   
   tw_stime ts;
@@ -1132,6 +1245,7 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   s->terminal_available_time = maxd(s->terminal_available_time, tw_now(lp));
   s->terminal_available_time += ts;
 
+  ts = s->terminal_available_time - tw_now(lp);
   //TODO: be annotation-aware
   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
       &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
@@ -1139,7 +1253,7 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
       s->router_id, 0, &router_id);
   // we are sending an event to the router, so no method_event here
   void * remote_event;
-  e = model_net_method_event_new(router_id, s->terminal_available_time - tw_now(lp), lp,
+  e = model_net_method_event_new(router_id, ts, lp,
           DRAGONFLY_ROUTER, (void**)&m, &remote_event);
   memcpy(m, &cur_entry->msg, sizeof(terminal_message));
   if (m->remote_event_size_bytes){
@@ -1160,8 +1274,8 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   if(cur_entry->msg.chunk_id == num_chunks - 1 && 
       (cur_entry->msg.local_event_size_bytes > 0)) {
     bf->c2 = 1;
-    ts = codes_local_latency(lp); 
-    tw_event *e_new = tw_event_new(cur_entry->msg.sender_lp, ts, lp);
+    tw_stime local_ts = codes_local_latency(lp);
+    tw_event *e_new = tw_event_new(cur_entry->msg.sender_lp, local_ts, lp);
     void * m_new = tw_event_data(e_new);
     void *local_event = (char*)cur_entry->event_data + 
       cur_entry->msg.remote_event_size_bytes;
@@ -1171,7 +1285,7 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   s->packet_counter++;
   s->vc_occupancy[0] += s->params->chunk_size;
   cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, 0); 
-  rc_stack_push(lp, cur_entry, free, s->st);
+  rc_stack_push(lp, cur_entry, delete_terminal_message_list, s->st);
   s->terminal_length -= s->params->chunk_size;
 
   cur_entry = s->terminal_msgs[0];
@@ -1181,7 +1295,7 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
     s->vc_occupancy[0] + s->params->chunk_size <= s->params->cn_vc_size) {
     bf->c3 = 1;
     terminal_message *m_new;
-    ts = g_tw_lookahead + s->params->cn_delay + tw_rand_unif(lp->rng);
+    ts += tw_rand_unif(lp->rng);
     e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY, 
       (void**)&m_new, NULL);
     m_new->type = T_SEND;
@@ -1192,15 +1306,28 @@ void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
     bf->c4 = 1;
     s->in_send_loop = 0;
   }
-/*  if(s->issueIdle) {
+  if(s->issueIdle) {
     bf->c5 = 1;
     s->issueIdle = 0;
-    model_net_method_idle_event(codes_local_latency(lp), 0, lp);
-  }*/
+    ts += tw_rand_unif(lp->rng);
+    model_net_method_idle_event(ts, 0, lp);
+   
+    if(s->last_buf_full > 0.0)
+    {
+        bf->c6 = 1;
+        msg->saved_total_time = s->busy_time;
+        msg->saved_busy_time = s->last_buf_full;
+        msg->saved_sample_time = s->busy_time_sample;
+
+        s->busy_time += (tw_now(lp) - s->last_buf_full);
+        s->busy_time_sample += (tw_now(lp) - s->last_buf_full);
+        s->last_buf_full = 0.0;
+    }
+  }
   return;
 }
 
-void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
+static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw_lp * lp)
 {
     if(bf->c31)
     {
@@ -1238,7 +1365,6 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
       stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
       stat->recv_time = msg->saved_rcv_time;
 
-      s->data_size_sample -= msg->total_size;
       if(bf->c1)
       {
         stat->recv_count--;
@@ -1257,6 +1383,7 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
             s->finished_msgs--;
             total_msg_sz -= msg->total_size;
             s->total_msg_size -= msg->total_size;
+            s->data_size_sample -= msg->total_size;
 
 	        struct dfly_qhash_entry * d_entry_pop = rc_stack_pop(s->st);
             qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
@@ -1272,17 +1399,15 @@ void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * msg, tw
        assert(tmp);
        tmp->num_chunks--;
 
-       /*if(bf->c5)
+   if(bf->c5)
 	{
-	   assert(hash_link);
 	   qhash_del(hash_link);
-	   free(tmp->remote_event_data);
-	   free(tmp);	
+	   free_tmp(tmp);	
        s->rank_tbl_pop--;
-	}*/
+	}
        return;
 }
-void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
+static void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
 {
         void * tmp_ptr = model_net_method_get_edata(DRAGONFLY, msg);
         //tw_stime ts = g_tw_lookahead + bytes_to_ns(msg->remote_event_size_bytes, (1/s->params->cn_bandwidth));
@@ -1310,7 +1435,7 @@ void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp * lp, t
     return;
 }
 /* packet arrives at the destination terminal */
-void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg, 
+static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg, 
   tw_lp * lp) {
 
     // NIC aggregation - should this be a separate function?
@@ -1375,7 +1500,6 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
   /* Finished chunks per sample */
   s->fin_chunks_sample++;
 
-   s->data_size_sample += msg->total_size;
   /* WE do not allow self messages through dragonfly */
   assert(lp->gid != msg->src_terminal_id);
 
@@ -1488,19 +1612,287 @@ void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg,
     {
         bf->c7 = 1;
 
+        s->data_size_sample += msg->total_size;
         N_finished_msgs++;
         total_msg_sz += msg->total_size;
         s->total_msg_size += msg->total_size;
         s->finished_msgs++;
         
-        //assert(tmp->remote_event_data && tmp->remote_event_size > 0);
         send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
+        
         /* Remove the hash entry */
         qhash_del(hash_link);
         rc_stack_push(lp, tmp, free_tmp, s->st);
         s->rank_tbl_pop--;
    }
   return;
+}
+
+/* collective operation for the torus network */
+void dragonfly_collective(char const * category, int message_size, int remote_event_size, const void* remote_event, tw_lp* sender)
+{
+    tw_event * e_new;
+    tw_stime xfer_to_nic_time;
+    terminal_message * msg;
+    tw_lpid local_nic_id;
+    char* tmp_ptr;
+
+    codes_mapping_get_lp_info(sender->gid, lp_group_name, &mapping_grp_id,
+            NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_TERM, NULL, 1,
+            mapping_rep_id, mapping_offset, &local_nic_id);
+
+    xfer_to_nic_time = codes_local_latency(sender);
+    e_new = model_net_method_event_new(local_nic_id, xfer_to_nic_time,
+            sender, DRAGONFLY, (void**)&msg, (void**)&tmp_ptr);
+
+    msg->remote_event_size_bytes = message_size;
+    strcpy(msg->category, category);
+    msg->sender_svr=sender->gid;
+    msg->type = D_COLLECTIVE_INIT;
+
+    tmp_ptr = (char*)msg;
+    tmp_ptr += dragonfly_get_msg_sz();
+    if(remote_event_size > 0)
+     {
+            msg->remote_event_size_bytes = remote_event_size;
+            memcpy(tmp_ptr, remote_event, remote_event_size);
+            tmp_ptr += remote_event_size;
+     }
+
+    tw_event_send(e_new);
+    return;
+}
+
+/* reverse for collective operation of the dragonfly network */
+void dragonfly_collective_rc(int message_size, tw_lp* sender)
+{
+    (void)message_size;
+     codes_local_latency_reverse(sender);
+     return;
+}
+
+void send_collective_remote_event(terminal_state * s,
+                        terminal_message * msg,
+                        tw_lp * lp)
+{
+    // Trigger an event on receiving server
+    if(msg->remote_event_size_bytes)
+     {
+            tw_event* e;
+            tw_stime ts;
+            terminal_message * m;
+            ts = (1/s->params->cn_bandwidth) * msg->remote_event_size_bytes;
+            e = tw_event_new(s->origin_svr, ts, lp);
+            m = tw_event_data(e);
+            char* tmp_ptr = (char*)msg;
+            tmp_ptr += dragonfly_get_msg_sz();
+            memcpy(m, tmp_ptr, msg->remote_event_size_bytes);
+            tw_event_send(e);
+     }
+}
+
+void node_collective_init(terminal_state * s,
+                        terminal_message * msg,
+                        tw_lp * lp)
+{
+        tw_event * e_new;
+        tw_lpid parent_nic_id;
+        tw_stime xfer_to_nic_time;
+        terminal_message * msg_new;
+        int num_lps;
+
+        msg->saved_busy_time = s->collective_init_time;
+        s->collective_init_time = tw_now(lp);
+	s->origin_svr = msg->sender_svr;
+	
+        if(s->is_leaf)
+        {
+            //printf("\n LP %ld sending message to parent %ld ", s->node_id, s->parent_node_id);
+            /* get the global LP ID of the parent node */
+            // TODO: be annotation-aware
+            codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id,
+                    NULL, &mapping_type_id, NULL, &mapping_rep_id,
+                    &mapping_offset);
+            num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
+                    s->anno, 0);
+            codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_TERM, s->anno, 0,
+                    s->parent_node_id/num_lps, (s->parent_node_id % num_lps),
+                    &parent_nic_id);
+
+           /* send a message to the parent that the LP has entered the collective operation */
+            xfer_to_nic_time = g_tw_lookahead + LEVEL_DELAY;
+            //e_new = tw_event_new(parent_nic_id, xfer_to_nic_time, lp);
+	    void* m_data;
+	    e_new = model_net_method_event_new(parent_nic_id, xfer_to_nic_time,
+            	lp, DRAGONFLY, (void**)&msg_new, (void**)&m_data);
+	    	
+            memcpy(msg_new, msg, sizeof(terminal_message));
+	    if (msg->remote_event_size_bytes){
+        	memcpy(m_data, model_net_method_get_edata(DRAGONFLY, msg),
+                	msg->remote_event_size_bytes);
+      	    }
+	    
+            msg_new->type = D_COLLECTIVE_FAN_IN;
+            msg_new->sender_node = s->node_id;
+
+            tw_event_send(e_new);
+        }
+        return;
+}
+
+void node_collective_fan_in(terminal_state * s,
+                        tw_bf * bf,
+                        terminal_message * msg,
+                        tw_lp * lp)
+{
+        int i;
+        s->num_fan_nodes++;
+
+        codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id,
+                NULL, &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+        int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
+                s->anno, 0);
+
+        tw_event* e_new;
+        terminal_message * msg_new;
+        tw_stime xfer_to_nic_time;
+
+        bf->c1 = 0;
+        bf->c2 = 0;
+
+        /* if the number of fanned in nodes have completed at the current node then signal the parent */
+        if((s->num_fan_nodes == s->num_children) && !s->is_root)
+        {
+            bf->c1 = 1;
+            msg->saved_fan_nodes = s->num_fan_nodes-1;
+            s->num_fan_nodes = 0;
+            tw_lpid parent_nic_id;
+            xfer_to_nic_time = g_tw_lookahead + LEVEL_DELAY;
+
+            /* get the global LP ID of the parent node */
+            codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_TERM, s->anno, 0,
+                    s->parent_node_id/num_lps, (s->parent_node_id % num_lps),
+                    &parent_nic_id);
+
+           /* send a message to the parent that the LP has entered the collective operation */
+            //e_new = tw_event_new(parent_nic_id, xfer_to_nic_time, lp);
+            //msg_new = tw_event_data(e_new);
+	    void * m_data;
+      	    e_new = model_net_method_event_new(parent_nic_id,
+              xfer_to_nic_time,
+              lp, DRAGONFLY, (void**)&msg_new, &m_data);
+	    
+            memcpy(msg_new, msg, sizeof(terminal_message));
+            msg_new->type = D_COLLECTIVE_FAN_IN;
+            msg_new->sender_node = s->node_id;
+
+            if (msg->remote_event_size_bytes){
+	        memcpy(m_data, model_net_method_get_edata(DRAGONFLY, msg),
+        	        msg->remote_event_size_bytes);
+      	   }
+	    
+            tw_event_send(e_new);
+      }
+
+      /* root node starts off with the fan-out phase */
+      if(s->is_root && (s->num_fan_nodes == s->num_children))
+      {
+           bf->c2 = 1;
+           msg->saved_fan_nodes = s->num_fan_nodes-1;
+           s->num_fan_nodes = 0;
+           send_collective_remote_event(s, msg, lp);
+
+           for( i = 0; i < s->num_children; i++ )
+           {
+                tw_lpid child_nic_id;
+                /* Do some computation and fan out immediate child nodes from the collective */
+                xfer_to_nic_time = g_tw_lookahead + COLLECTIVE_COMPUTATION_DELAY + LEVEL_DELAY + tw_rand_exponential(lp->rng, (double)LEVEL_DELAY/50);
+
+                /* get global LP ID of the child node */
+                codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_TERM, NULL, 1,
+                        s->children[i]/num_lps, (s->children[i] % num_lps),
+                        &child_nic_id);
+                //e_new = tw_event_new(child_nic_id, xfer_to_nic_time, lp);
+
+                //msg_new = tw_event_data(e_new);
+                void * m_data;
+	        e_new = model_net_method_event_new(child_nic_id,
+                xfer_to_nic_time,
+		lp, DRAGONFLY, (void**)&msg_new, &m_data);
+
+		memcpy(msg_new, msg, sizeof(terminal_message));
+	        if (msg->remote_event_size_bytes){
+	                memcpy(m_data, model_net_method_get_edata(DRAGONFLY, msg),
+        	               msg->remote_event_size_bytes);
+      		}
+		
+                msg_new->type = D_COLLECTIVE_FAN_OUT;
+                msg_new->sender_node = s->node_id;
+
+                tw_event_send(e_new);
+           }
+      }
+}
+
+void node_collective_fan_out(terminal_state * s,
+                        tw_bf * bf,
+                        terminal_message * msg,
+                        tw_lp * lp)
+{
+        int i;
+        int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
+                NULL, 1);
+        bf->c1 = 0;
+        bf->c2 = 0;
+
+        send_collective_remote_event(s, msg, lp);
+
+        if(!s->is_leaf)
+        {
+            bf->c1 = 1;
+            tw_event* e_new;
+            nodes_message * msg_new;
+            tw_stime xfer_to_nic_time;
+
+           for( i = 0; i < s->num_children; i++ )
+           {
+                xfer_to_nic_time = g_tw_lookahead + DRAGONFLY_FAN_OUT_DELAY + tw_rand_exponential(lp->rng, (double)DRAGONFLY_FAN_OUT_DELAY/10);
+
+                if(s->children[i] > 0)
+                {
+                        tw_lpid child_nic_id;
+
+                        /* get global LP ID of the child node */
+                        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_TERM,
+                                s->anno, 0, s->children[i]/num_lps,
+                                (s->children[i] % num_lps), &child_nic_id);
+                        //e_new = tw_event_new(child_nic_id, xfer_to_nic_time, lp);
+                        //msg_new = tw_event_data(e_new);
+                        //memcpy(msg_new, msg, sizeof(nodes_message) + msg->remote_event_size_bytes);
+			void* m_data;
+			e_new = model_net_method_event_new(child_nic_id,
+							xfer_to_nic_time,
+					                lp, DRAGONFLY, (void**)&msg_new, &m_data);
+		        memcpy(msg_new, msg, sizeof(nodes_message));
+		        if (msg->remote_event_size_bytes){
+			        memcpy(m_data, model_net_method_get_edata(DRAGONFLY, msg),
+			                msg->remote_event_size_bytes);
+      			}
+
+                        //TODO: this is probably incorrect - need to fix
+                        msg_new->type = (nodes_event_t) D_COLLECTIVE_FAN_OUT;
+                        msg_new->sender_node = s->node_id;
+                        tw_event_send(e_new);
+                }
+           }
+         }
+	//printf("\n Fan out phase completed %ld ", lp->gid);
+        if(max_collective < tw_now(lp) - s->collective_init_time )
+          {
+              bf->c2 = 1;
+              max_collective = tw_now(lp) - s->collective_init_time;
+          }
 }
 
 void dragonfly_rsample_init(router_state * s,
@@ -1513,11 +1905,11 @@ void dragonfly_rsample_init(router_state * s,
    assert(p->radix);
 
    s->max_arr_size = MAX_STATS;
-   s->rsamples = malloc(MAX_STATS * sizeof(struct dfly_router_sample)); 
+   s->rsamples = (struct dfly_router_sample*)malloc(MAX_STATS * sizeof(struct dfly_router_sample)); 
    for(; i < s->max_arr_size; i++)
    {
-    s->rsamples[i].busy_time = malloc(sizeof(tw_stime) * p->radix); 
-    s->rsamples[i].link_traffic_sample = malloc(sizeof(int64_t) * p->radix);
+    s->rsamples[i].busy_time = (tw_stime*)malloc(sizeof(tw_stime) * p->radix); 
+    s->rsamples[i].link_traffic_sample = (int64_t*)malloc(sizeof(int64_t) * p->radix);
    }
 }
 void dragonfly_rsample_rc_fn(router_state * s,
@@ -1564,7 +1956,7 @@ void dragonfly_rsample_fn(router_state * s,
 
   if(s->op_arr_size >= s->max_arr_size) 
   {
-    struct dfly_router_sample * tmp = malloc((MAX_STATS + s->max_arr_size) * sizeof(struct dfly_router_sample));
+    struct dfly_router_sample * tmp = (struct dfly_router_sample*)malloc((MAX_STATS + s->max_arr_size) * sizeof(struct dfly_router_sample));
     memcpy(tmp, s->rsamples, s->op_arr_size * sizeof(struct dfly_router_sample));
     free(s->rsamples);
     s->rsamples = tmp;
@@ -1604,7 +1996,7 @@ void dragonfly_rsample_fin(router_state * s,
     (void)lp;
     const dragonfly_param * p = s->params;
 
-    if(!g_tw_mynode)
+    if(s->router_id == 0)
     {
     
         /* write metadata file */
@@ -1656,7 +2048,7 @@ void dragonfly_sample_init(terminal_state * s,
     s->op_arr_size = 0;
     s->max_arr_size = MAX_STATS;
 
-    s->sample_stat = malloc(MAX_STATS * sizeof(struct dfly_cn_sample));
+    s->sample_stat = (struct dfly_cn_sample*)malloc(MAX_STATS * sizeof(struct dfly_cn_sample));
     
     /*char buf[1024];
     int written = 0;
@@ -1696,8 +2088,7 @@ void dragonfly_sample_rc_fn(terminal_state * s,
     stat.fwd_events = 0;
     stat.rev_events = 0;
 }
-
-void dragonfly_sample_fn(terminal_state * s,
+ void dragonfly_sample_fn(terminal_state * s,
         tw_bf * bf,
         terminal_message * msg,
         tw_lp * lp)
@@ -1727,7 +2118,7 @@ void dragonfly_sample_fn(terminal_state * s,
     {
         /* In the worst case, copy array to a new memory location, its very
          * expensive operation though */
-        struct dfly_cn_sample * tmp = malloc((MAX_STATS + s->max_arr_size) * sizeof(struct dfly_cn_sample));
+        struct dfly_cn_sample * tmp = (struct dfly_cn_sample*)malloc((MAX_STATS + s->max_arr_size) * sizeof(struct dfly_cn_sample));
         memcpy(tmp, s->sample_stat, s->op_arr_size * sizeof(struct dfly_cn_sample));
         free(s->sample_stat);
         s->sample_stat = tmp;
@@ -1755,7 +2146,6 @@ void dragonfly_sample_fn(terminal_state * s,
     s->fin_chunks_time = 0;
     s->busy_time_sample = 0;
 }
-
 void dragonfly_sample_fin(terminal_state * s,
         tw_lp * lp)
 {
@@ -1802,12 +2192,6 @@ void terminal_buf_update_rc(terminal_state * s,
 {
       s->vc_occupancy[0] += s->params->chunk_size;
       codes_local_latency_reverse(lp);
-      if(bf->c3)
-      {
-        s->busy_time = msg->saved_total_time;
-        s->last_buf_full = msg->saved_busy_time;
-        s->busy_time_sample = msg->saved_sample_time;
-      }
       if(bf->c1) {
         s->in_send_loop = 0;
       }
@@ -1828,18 +2212,6 @@ terminal_buf_update(terminal_state * s,
   tw_stime ts = codes_local_latency(lp);
   s->vc_occupancy[0] -= s->params->chunk_size;
   
-  /* Update the terminal buffer time */
-  if(s->last_buf_full > 0)
-  {
-    bf->c3 = 1;
-    msg->saved_total_time = s->busy_time;
-    msg->saved_busy_time = s->last_buf_full;
-    msg->saved_sample_time = s->busy_time_sample;
-
-    s->busy_time += (tw_now(lp) - s->last_buf_full);
-    s->busy_time_sample += (tw_now(lp) - s->last_buf_full);
-    s->last_buf_full = 0.0;
-  }
 
   if(s->in_send_loop == 0 && s->terminal_msgs[0] != NULL) {
     terminal_message *m;
@@ -1850,11 +2222,6 @@ terminal_buf_update(terminal_state * s,
     m->magic = terminal_magic_num;
     s->in_send_loop = 1;
     tw_event_send(e);
-  }
-  else if(s->in_send_loop == 0 && s->terminal_msgs[0] == NULL)
-  {
-     bf->c2 = 1;
-     model_net_method_idle_event(ts, 0, lp);
   }
   return;
 }
@@ -1888,6 +2255,18 @@ terminal_event( terminal_state * s,
        terminal_buf_update(s, bf, msg, lp);
      break;
     
+    case D_COLLECTIVE_INIT:
+      node_collective_init(s, msg, lp);
+    break;
+
+    case D_COLLECTIVE_FAN_IN:
+      node_collective_fan_in(s, bf, msg, lp);
+    break;
+
+    case D_COLLECTIVE_FAN_OUT:
+      node_collective_fan_out(s, bf, msg, lp);
+    break;
+    
     default:
        printf("\n LP %d Terminal message type not supported %d ", (int)lp->gid, msg->type);
        tw_error(TW_LOC, "Msg type not supported");
@@ -1899,12 +2278,24 @@ dragonfly_terminal_final( terminal_state * s,
       tw_lp * lp )
 {
 	model_net_print_stats(lp->gid, s->dragonfly_stats_array);
-   
+  
+    if(s->terminal_id == 0)
+    {
+        /* write metadata file */
+        char meta_fname[64];
+        sprintf(meta_fname, "dragonfly-msg-stats.meta");
+
+        FILE * fp = fopen(meta_fname, "w");
+        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>");
+
+        fclose(fp);
+    }
+    
     int written = 0;
     if(!s->terminal_id)
-        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>\n");
+        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>");
 
-    written += sprintf(s->output_buf + written, "%llu %u %ld %lf %ld %lf %lf\n",
+    written += sprintf(s->output_buf + written, "\n %llu %u %ld %lf %ld %lf %lf",
             LLU(lp->gid), s->terminal_id, s->total_msg_size, s->total_time, 
             s->finished_packets, (double)s->total_hops/s->finished_chunks,
             s->busy_time);
@@ -1923,11 +2314,13 @@ dragonfly_terminal_final( terminal_state * s,
     free(s->vc_occupancy);
     free(s->terminal_msgs);
     free(s->terminal_msgs_tail);
+    free(s->children);
 }
 
 void dragonfly_router_final(router_state * s,
 		tw_lp * lp)
 {
+   //rc_stack_gc(lp, s->st);
    free(s->global_channel);
     int i, j;
     for(i = 0; i < s->params->radix; i++) {
@@ -1946,30 +2339,35 @@ void dragonfly_router_final(router_state * s,
     
     const dragonfly_param *p = s->params;
     int written = 0;
-    if(!s->router_id)
+    if(s->router_id == 0)
     {
-        written = sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
-        written += sprintf(s->output_buf + written, "# Router ports in the order: %d local channels, %d global channels \n", 
+        /* write metadata file */
+        char meta_fname[64];
+        sprintf(meta_fname, "dragonfly-msg-stats.meta");
+
+        FILE * fp = fopen(meta_fname, "w");
+        fprintf(fp, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
+        fprintf(fp, "# Router ports in the order: %d local channels, %d global channels", 
                 p->num_routers, p->num_global_channels);
+        fclose(fp);
     }
-    written += sprintf(s->output_buf + written, "%llu %d %d", 
+    written += sprintf(s->output_buf + written, "\n %llu %d %d", 
             LLU(lp->gid),
             s->router_id / p->num_routers,
             s->router_id % p->num_routers);
     for(int d = 0; d < p->num_routers + p->num_global_channels; d++) 
         written += sprintf(s->output_buf + written, " %lf", s->busy_time[d]);
 
-    sprintf(s->output_buf + written, "\n");
     lp_io_write(lp->gid, "dragonfly-router-stats", written, s->output_buf);
 
     written = 0;
     if(!s->router_id)
     {
         written = sprintf(s->output_buf2, "# Format <LP ID> <Group ID> <Router ID> <Link traffic per router port(s)>");
-        written += sprintf(s->output_buf2 + written, "# Router ports in the order: %d local channels, %d global channels \n",
+        written += sprintf(s->output_buf2 + written, "# Router ports in the order: %d local channels, %d global channels",
             p->num_routers, p->num_global_channels);
     }
-    written += sprintf(s->output_buf2 + written, "%llu %d %d",
+    written += sprintf(s->output_buf2 + written, "\n %llu %d %d",
         LLU(lp->gid),
         s->router_id / p->num_routers,
         s->router_id % p->num_routers);
@@ -1977,7 +2375,7 @@ void dragonfly_router_final(router_state * s,
     for(int d = 0; d < p->num_routers + p->num_global_channels; d++) 
         written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
 
-    sprintf(s->output_buf2 + written, "\n");
+    assert(written < 4096);
     lp_io_write(lp->gid, "dragonfly-router-traffic", written, s->output_buf2);
 }
 
@@ -2280,9 +2678,9 @@ router_packet_receive( router_state * s,
     s->params->num_cn;
   int local_grp_id = s->router_id / s->params->num_routers;
 
-  int intm_id = tw_rand_integer(lp->rng, 0, s->params->num_groups - 1); 
-  if(intm_id == s->group_id)
-       intm_id = (s->group_id + 2) % s->params->num_groups;
+  int intm_id = tw_rand_integer(lp->rng, 1, s->params->num_real_groups - 1); 
+  intm_id = (local_grp_id + intm_id) % s->params->num_real_groups;
+
   /* progressive adaptive routing makes a check at every node/router at the 
    * source group to sense congestion. Once it does and decides on taking 
    * non-minimal path, it does not check any longer. */
@@ -2390,10 +2788,13 @@ void router_packet_send_rc(router_state * s,
       
     tw_rand_reverse_unif(lp->rng);
       
+    terminal_message_list * cur_entry = rc_stack_pop(s->st);
+    assert(cur_entry);
+
     if(bf->c11)
     {
-        s->link_traffic[output_port] -= msg->packet_size % s->params->chunk_size;
-        s->link_traffic_sample[output_port] -= msg->packet_size % s->params->chunk_size; 
+        s->link_traffic[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size;
+        s->link_traffic_sample[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size; 
     }
     if(bf->c12)
     {
@@ -2402,13 +2803,10 @@ void router_packet_send_rc(router_state * s,
     }
     s->next_output_available_time[output_port] = msg->saved_available_time;
 
-    terminal_message_list * cur_entry = rc_stack_pop(s->st);
-    assert(cur_entry);
-
     prepend_to_terminal_message_list(s->pending_msgs[output_port],
             s->pending_msgs_tail[output_port], output_chan, cur_entry);
 
-    /*if(routing == PROG_ADAPTIVE)
+    if(routing == PROG_ADAPTIVE)
 	{
 		if(bf->c2)
 		{
@@ -2418,7 +2816,7 @@ void router_packet_send_rc(router_state * s,
 		}
 		else
 		  s->cur_hist_num[output_port]--;
- 	}*/
+ 	}
     if(bf->c3) {
         tw_rand_reverse_unif(lp->rng);
       }
@@ -2450,6 +2848,8 @@ router_packet_send( router_state * s,
       output_chan = 0;
     }
   }
+  msg->saved_vc = output_port;
+  msg->saved_channel = output_chan;
 
   if(cur_entry == NULL) {
     bf->c1 = 1;
@@ -2529,7 +2929,7 @@ router_packet_send( router_state * s,
     s->link_traffic_sample[output_port] += s->params->chunk_size;
   }
 
-  /*if(routing == PROG_ADAPTIVE)
+  if(routing == PROG_ADAPTIVE)
   {
       if(tw_now(lp) - s->cur_hist_start_time[output_port] >= WINDOW_LENGTH) {
         bf->c2 = 1;
@@ -2541,7 +2941,7 @@ router_packet_send( router_state * s,
       } else {
         s->cur_hist_num[output_port]++;
       }
-  }*/
+  }
   /* Determine the event type. If the packet has arrived at the final 
    * destination router then it should arrive at the destination terminal 
    * next.*/
@@ -2557,18 +2957,19 @@ router_packet_send( router_state * s,
   
   cur_entry = return_head(s->pending_msgs[output_port], 
     s->pending_msgs_tail[output_port], output_chan);
-  rc_stack_push(lp, cur_entry, free, s->st);
+  rc_stack_push(lp, cur_entry, delete_terminal_message_list, s->st);
   
-  msg->saved_vc = output_port;
-  msg->saved_channel = output_chan;
   cur_entry = s->pending_msgs[output_port][2];
-  
+ 
+  s->next_output_available_time[output_port] -= s->params->router_delay;
+  ts -= s->params->router_delay;
+
   if(cur_entry == NULL) cur_entry = s->pending_msgs[output_port][1];
   if(cur_entry == NULL) cur_entry = s->pending_msgs[output_port][0];
   if(cur_entry != NULL) {
     bf->c3 = 1;
     terminal_message *m_new;
-    ts = g_tw_lookahead + bytetime + tw_rand_unif(lp->rng);
+    ts = ts + g_tw_lookahead * tw_rand_unif(lp->rng);
     e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_ROUTER,
             (void**)&m_new, NULL);
     m_new->type = R_SEND;
@@ -2705,9 +3106,36 @@ void terminal_rc_event_handler(terminal_state * s, tw_bf * bf,
     case T_BUFFER:
         terminal_buf_update_rc(s, bf, msg, lp); 
         break;
-    default:
-        tw_error(TW_LOC, "\n Terminal %d message type %d not supported",
-                lp->gid, msg->type);
+
+    case D_COLLECTIVE_INIT:
+            {
+                s->collective_init_time = msg->saved_busy_time;
+            }
+      break;
+    case D_COLLECTIVE_FAN_IN: {
+        int i;
+        s->num_fan_nodes--;
+        if(bf->c1)
+        {
+          s->num_fan_nodes = msg->saved_fan_nodes;
+        }
+        if(bf->c2)
+        {
+          s->num_fan_nodes = msg->saved_fan_nodes;
+          for( i = 0; i < s->num_children; i++ )
+            tw_rand_reverse_unif(lp->rng);
+        }
+      }
+      break;
+
+    case D_COLLECTIVE_FAN_OUT: {
+        int i;
+        if(bf->c1)
+        {
+          for( i = 0; i < s->num_children; i++ )
+            tw_rand_reverse_unif(lp->rng);
+        }
+      }	 
   }
 }
 
@@ -2787,8 +3215,8 @@ struct model_net_method dragonfly_method =
     .mn_get_lp_type = dragonfly_get_cn_lp_type,
     .mn_get_msg_sz = dragonfly_get_msg_sz,
     .mn_report_stats = dragonfly_report_stats,
-    .mn_collective_call = NULL,
-    .mn_collective_call_rc = NULL,   
+    .mn_collective_call = dragonfly_collective,
+    .mn_collective_call_rc = dragonfly_collective_rc,   
     .mn_sample_fn = (void*)dragonfly_sample_fn,    
     .mn_sample_rc_fn = (void*)dragonfly_sample_rc_fn,
     .mn_sample_init_fn = (void*)dragonfly_sample_init,

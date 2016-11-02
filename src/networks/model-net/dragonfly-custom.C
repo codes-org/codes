@@ -107,7 +107,7 @@ struct terminal_custom_message_list {
     terminal_custom_message_list *prev;
 };
 
-void init_terminal_custom_message_list(terminal_custom_message_list *thisO, 
+static void init_terminal_custom_message_list(terminal_custom_message_list *thisO, 
     terminal_custom_message *inmsg) {
     thisO->msg = *inmsg;
     thisO->event_data = NULL;
@@ -115,9 +115,10 @@ void init_terminal_custom_message_list(terminal_custom_message_list *thisO,
     thisO->prev = NULL;
 }
 
-void delete_terminal_custom_message_list(terminal_custom_message_list *thisO) {
-    if(thisO->event_data != NULL) free(thisO->event_data);
-    free(thisO);
+static void delete_terminal_custom_message_list(void *thisO) {
+    terminal_custom_message_list* toDel = (terminal_custom_message_list*)thisO;
+    if(toDel->event_data != NULL) free(toDel->event_data);
+    free(toDel);
 }
 
 struct dragonfly_param
@@ -387,8 +388,11 @@ int dragonfly_custom_get_msg_sz(void)
 static void free_tmp(void * ptr)
 {
     struct dfly_qhash_entry * dfly = (dfly_qhash_entry *)ptr; 
-    free(dfly->remote_event_data);
-    free(dfly);
+    if(dfly->remote_event_data)
+        free(dfly->remote_event_data);
+   
+    if(dfly)
+        free(dfly);
 }
 
 static void append_to_terminal_custom_message_list(  
@@ -1207,8 +1211,14 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_custom_messa
       }
       if(bf->c5)
       {
-          codes_local_latency_reverse(lp);
+          tw_rand_reverse_unif(lp->rng);
           s->issueIdle = 1;
+          if(bf->c6)
+          {
+            s->busy_time = msg->saved_total_time;
+            s->last_buf_full = msg->saved_busy_time;
+            s->busy_time_sample = msg->saved_sample_time;
+          }
       }
       return;
 }
@@ -1249,6 +1259,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
   s->terminal_available_time = maxd(s->terminal_available_time, tw_now(lp));
   s->terminal_available_time += ts;
 
+  ts = s->terminal_available_time - tw_now(lp);
   //TODO: be annotation-aware
   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
       &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
@@ -1256,7 +1267,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
       s->router_id, 0, &router_id);
   // we are sending an event to the router, so no method_event here
   void * remote_event;
-  e = model_net_method_event_new(router_id, s->terminal_available_time - tw_now(lp), lp,
+  e = model_net_method_event_new(router_id, ts, lp,
           DRAGONFLY_ROUTER, (void**)&m, &remote_event);
   memcpy(m, &cur_entry->msg, sizeof(terminal_custom_message));
   if (m->remote_event_size_bytes){
@@ -1276,8 +1287,8 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
   if(cur_entry->msg.chunk_id == num_chunks - 1 && 
       (cur_entry->msg.local_event_size_bytes > 0)) {
     bf->c2 = 1;
-    ts = codes_local_latency(lp); 
-    tw_event *e_new = tw_event_new(cur_entry->msg.sender_lp, ts, lp);
+    tw_stime local_ts = codes_local_latency(lp); 
+    tw_event *e_new = tw_event_new(cur_entry->msg.sender_lp, local_ts, lp);
     void * m_new = tw_event_data(e_new);
     void *local_event = (char*)cur_entry->event_data + 
       cur_entry->msg.remote_event_size_bytes;
@@ -1287,7 +1298,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
   s->packet_counter++;
   s->vc_occupancy[0] += s->params->chunk_size;
   cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, 0); 
-  rc_stack_push(lp, cur_entry, free, s->st);
+  rc_stack_push(lp, cur_entry, delete_terminal_custom_message_list, s->st);
   s->terminal_length -= s->params->chunk_size;
 
   cur_entry = s->terminal_msgs[0];
@@ -1297,7 +1308,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
     s->vc_occupancy[0] + s->params->chunk_size <= s->params->cn_vc_size) {
     bf->c3 = 1;
     terminal_custom_message *m_new;
-    ts = g_tw_lookahead + s->params->cn_delay + tw_rand_unif(lp->rng);
+    ts += tw_rand_unif(lp->rng);
     e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY, 
       (void**)&m_new, NULL);
     m_new->type = T_SEND;
@@ -1311,7 +1322,20 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
   if(s->issueIdle) {
     bf->c5 = 1;
     s->issueIdle = 0;
-    model_net_method_idle_event(codes_local_latency(lp), 0, lp);
+    ts += tw_rand_unif(lp->rng);
+    model_net_method_idle_event(ts, 0, lp);
+   
+    if(s->last_buf_full > 0.0)
+    {
+        bf->c6 = 1;
+        msg->saved_total_time = s->busy_time;
+        msg->saved_busy_time = s->last_buf_full;
+        msg->saved_sample_time = s->busy_time_sample;
+
+        s->busy_time += (tw_now(lp) - s->last_buf_full);
+        s->busy_time_sample += (tw_now(lp) - s->last_buf_full);
+        s->last_buf_full = 0.0;
+    }
   }
   return;
 }
@@ -1354,7 +1378,6 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_custom_mes
       stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
       stat->recv_time = msg->saved_rcv_time;
 
-      s->data_size_sample -= msg->total_size;
       if(bf->c1)
       {
         stat->recv_count--;
@@ -1373,6 +1396,7 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_custom_mes
             s->finished_msgs--;
             total_msg_sz -= msg->total_size;
             s->total_msg_size -= msg->total_size;
+            s->data_size_sample -= msg->total_size;
 
 	        struct dfly_qhash_entry * d_entry_pop = (dfly_qhash_entry *)rc_stack_pop(s->st);
             qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
@@ -1388,14 +1412,12 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_custom_mes
        assert(tmp);
        tmp->num_chunks--;
 
-       /*if(bf->c5)
-	{
-	   assert(hash_link);
-	   qhash_del(hash_link);
-	   free(tmp->remote_event_data);
-	   free(tmp);	
-       s->rank_tbl_pop--;
-	}*/
+       if(bf->c5)
+	   {
+	        qhash_del(hash_link);
+	        free_tmp(tmp);	
+            s->rank_tbl_pop--;
+	    }
        return;
 }
 static void send_remote_event(terminal_state * s, terminal_custom_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
@@ -1491,7 +1513,6 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
   /* Finished chunks per sample */
   s->fin_chunks_sample++;
 
-   s->data_size_sample += msg->total_size;
   /* WE do not allow self messages through dragonfly */
   assert(lp->gid != msg->src_terminal_id);
 
@@ -1604,6 +1625,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
     {
         bf->c7 = 1;
 
+        s->data_size_sample += msg->total_size;
         N_finished_msgs++;
         total_msg_sz += msg->total_size;
         s->total_msg_size += msg->total_size;
@@ -1720,7 +1742,7 @@ void dragonfly_custom_rsample_fin(router_state * s,
     (void)lp;
     const dragonfly_param * p = s->params;
 
-    if(!g_tw_mynode)
+    if(s->router_id == 0)
     {
     
         /* write metadata file */
@@ -1888,12 +1910,6 @@ static void terminal_buf_update_rc(terminal_state * s,
 {
       s->vc_occupancy[0] += s->params->chunk_size;
       codes_local_latency_reverse(lp);
-      if(bf->c3)
-      {
-        s->busy_time = msg->saved_total_time;
-        s->last_buf_full = msg->saved_busy_time;
-        s->busy_time_sample = msg->saved_sample_time;
-      }
       if(bf->c1) {
         s->in_send_loop = 0;
       }
@@ -1914,19 +1930,6 @@ terminal_buf_update(terminal_state * s,
   tw_stime ts = codes_local_latency(lp);
   s->vc_occupancy[0] -= s->params->chunk_size;
   
-  /* Update the terminal buffer time */
-  if(s->last_buf_full > 0)
-  {
-    bf->c3 = 1;
-    msg->saved_total_time = s->busy_time;
-    msg->saved_busy_time = s->last_buf_full;
-    msg->saved_sample_time = s->busy_time_sample;
-
-    s->busy_time += (tw_now(lp) - s->last_buf_full);
-    s->busy_time_sample += (tw_now(lp) - s->last_buf_full);
-    s->last_buf_full = 0.0;
-  }
-
   if(s->in_send_loop == 0 && s->terminal_msgs[0] != NULL) {
     terminal_custom_message *m;
     bf->c1 = 1;
@@ -2033,7 +2036,7 @@ void dragonfly_custom_router_final(router_state * s,
         written += sprintf(s->output_buf + written, "# Router ports in the order: %d local channels, %d global channels \n", 
                 p->num_routers, p->num_global_channels);
     }
-    written += sprintf(s->output_buf + written, "%llu %d %d", 
+    written += sprintf(s->output_buf + written, "\n %llu %d %d", 
             LLU(lp->gid),
             s->router_id / p->num_routers,
             s->router_id % p->num_routers);
@@ -2050,7 +2053,7 @@ void dragonfly_custom_router_final(router_state * s,
         written += sprintf(s->output_buf2 + written, "# Router ports in the order: %d local channels, %d global channels \n",
             p->num_routers, p->num_global_channels);
     }
-    written += sprintf(s->output_buf2 + written, "%llu %d %d",
+    written += sprintf(s->output_buf2 + written, "\n %llu %d %d",
         LLU(lp->gid),
         s->router_id / p->num_routers,
         s->router_id % p->num_routers);
@@ -2058,7 +2061,6 @@ void dragonfly_custom_router_final(router_state * s,
     for(int d = 0; d < p->num_routers + p->num_global_channels; d++) 
         written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
 
-    sprintf(s->output_buf2 + written, "\n");
     lp_io_write(lp->gid, (char*)"dragonfly-router-traffic", written, s->output_buf2);
 }
 
@@ -2889,7 +2891,7 @@ router_packet_send( router_state * s,
   
   cur_entry = return_head(s->pending_msgs[output_port], 
     s->pending_msgs_tail[output_port], output_chan);
-  rc_stack_push(lp, cur_entry, free, s->st);
+  rc_stack_push(lp, cur_entry, delete_terminal_custom_message_list, s->st);
  
   s->next_output_available_time[output_port] -= s->params->router_delay;
   ts -= s->params->router_delay;
