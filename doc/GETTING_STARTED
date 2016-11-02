@@ -319,7 +319,7 @@ transparent message passing support between LPs, allowing the underlying
 network LPs to do the work of routing while user LPs model their applications.
 It consists of a number of both simple and complex network models as well as
 configuration utilities and communication APIs. A somewhat stale overview is
-also given at src/models/networks/model-net/doc/README.
+also given at src/networks/model-net/doc/README.
 
 = Components of model-net
 
@@ -407,8 +407,8 @@ for the latency and bandwidth costs: "net_latency_ns_file" and
 "net_bw_mbps_file".
 
 More details about the models can be found at
-src/models/networks/model-net/doc/README.simplenet.txt and
-src/models/networks/model-net/doc/README.simplep2p.txt, respectively.
+src/networks/model-net/doc/README.simplenet.txt and
+src/networks/model-net/doc/README.simplep2p.txt, respectively.
 
 == LogGP
 
@@ -422,7 +422,7 @@ The only configuration entry the LogGP model requires is
 configuration file.
 
 For more details on gathering parameters for the LogGP model, as well as it's
-usage and caveats, see the document src/models/model-net/doc/README.loggp.txt. 
+usage and caveats, see the document src/model-net/doc/README.loggp.txt. 
 
 == Torus
 
@@ -435,7 +435,7 @@ performed in:
     (PADS), 2014.
 
 The configuration and model setup can be found at:
-src/models/model-net/doc/README.torus.txt
+src/model-net/doc/README.torus.txt
 
 == Dragonfly
 
@@ -443,7 +443,7 @@ The dragonfly model (model-net LP name: "dragonfly") is a network
 topology that utilizes the concept of virtual routers to produce systems with
 very high virtual radix out of network components with a lower radix. The
 topology itself and the simulation model are both described in
-src/models/networks/model-net/doc/README.dragonfly.txt.
+src/networks/model-net/doc/README.dragonfly.txt.
 cite).
 
 The configuration parameters are a little trickier here, as additional LPs
@@ -453,7 +453,9 @@ represents a physical router. At least one "dragonfly_router" LP must be
 present in every LP group with a "modelnet_dragonfly" LP. 
 
 Further configuration and model setup can be found at
-src/models/model-net/doc/README.dragonfly.txt.
+src/model-net/doc/README.dragonfly.txt.
+A newer version of dragonfly model that supports a Cray style network is also
+available. Instructions can be found at src/model-net/doc/README.dragonfly-custom.txt.
 
 = CODES example model
 

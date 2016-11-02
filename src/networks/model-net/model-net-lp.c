@@ -258,6 +258,10 @@ void model_net_base_configure(){
     // note: dragonfly router uses the same event struct
     msg_offsets[DRAGONFLY_ROUTER] =
         offsetof(model_net_wrap_msg, msg.m_dfly);
+    msg_offsets[DRAGONFLY_CUSTOM] =
+        offsetof(model_net_wrap_msg, msg.m_dfly);
+    msg_offsets[DRAGONFLY_CUSTOM_ROUTER] =
+        offsetof(model_net_wrap_msg, msg.m_dfly);
     msg_offsets[SLIMFLY] =
         offsetof(model_net_wrap_msg, msg.m_slim);
     msg_offsets[FATTREE] =
@@ -385,6 +389,10 @@ void model_net_base_event(
         tw_bf * b,
         model_net_wrap_msg * m,
         tw_lp * lp){
+
+    if(m->h.magic != model_net_base_magic)
+        printf("\n LP ID mismatched %d ", lp->gid);
+
     assert(m->h.magic == model_net_base_magic);
 
     void * sub_msg;

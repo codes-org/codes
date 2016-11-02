@@ -27,6 +27,7 @@ static int traffic = 1;
 static double arrival_time = 1000.0;
 static double load = 0.0;	//Percent utilization of terminal uplink
 static double MEAN_INTERVAL = 0.0;
+char * modelnet_stats_dir;
 /* whether to pull instead of push */
 
 static int num_servers_per_rep = 0;

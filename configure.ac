@@ -3,6 +3,7 @@
 
 AC_PREREQ([2.67])
 AC_INIT([codes], [0.5.2], [http://trac.mcs.anl.gov/projects/codes/newticket],[],[http://www.mcs.anl.gov/projects/codes/])
+LT_INIT
 
 AC_CANONICAL_TARGET
 AC_CANONICAL_SYSTEM

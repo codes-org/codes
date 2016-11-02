@@ -4,7 +4,7 @@
 #include <ross.h>
 
 /* Global variable for modelnet output directory name */
-char *modelnet_stats_dir;
+extern char *modelnet_stats_dir;
 
 typedef struct fattree_message fattree_message;
 
