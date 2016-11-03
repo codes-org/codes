@@ -20,7 +20,7 @@
 #include <vector>
 #include <map>
 
-#define DUMP_CONNECTIONS 0
+#define DUMP_CONNECTIONS 1
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 262144
 
@@ -282,6 +282,11 @@ enum ROUTING_ALGO
     PROG_ADAPTIVE
 };
 
+enum LINK_TYPE
+{
+    GREEN,
+    BLACK,
+};
 struct router_state
 {
    unsigned int router_id;
@@ -690,9 +695,9 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     }
 #endif
     if(!myRank) {
-        printf("\n Total nodes %d routers %d groups %d radix %d \n",
+        printf("\n Total nodes %d routers %d groups %d routers per group %d\n",
                 p->num_cn * p->total_routers, p->total_routers, p->num_groups,
-                p->radix);
+                p->num_routers);
     }
 
     p->cn_delay = bytes_to_ns(p->chunk_size, p->cn_bandwidth);

@@ -1640,7 +1640,6 @@ int main( int argc, char** argv )
 
    num_mpi_lps = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp", NULL, 0);
    num_net_lps = codes_mapping_get_lp_count("MODELNET_GRP", 1, MN_LP_NM, NULL, 0);
-   printf("\n num net lps %d ", num_net_lps);
     if (lp_io_dir[0]){
         do_lp_io = 1;
         /* initialize lp io */

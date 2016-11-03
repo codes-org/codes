@@ -60,12 +60,19 @@
   20 groups. Each group has 80 routers arranged in a 20x4 matrix]
 
   ./bin/model-net-synthetic-custom-dfly --sync=1 --
-  ../src/network-workloads/conf/dragonfly-custom/modelnet-synthetic-custom.conf 
+  ../src/network-workloads/conf/dragonfly-custom/modelnet-test-dragonfly-custom.conf 
 
-  [With edison dragonfly network have 5,702 network nodes, 1440 routers and 15
-  groups. Each group has 96 routers arranged in 6x16 matrix.]
+  [With theta dragonfly network having 3,456 compute nodes, 864 routers and 9
+  groups. Each group has 96 routers arranged in a 6x16 matrix]
+  
   mpirun -np 4 ./bin/model-net-synthetic-custom-dfly --sync=3 --
-  ../src/network-workloads/conf/dragonfly-custom/modelnet-synthetic-edison.conf 
+  ../src/network-workloads/conf/dragonfly-custom/modelnet-test-dragonfly-theta.conf
+
+  [With edison dragonfly network having 5,702 network nodes, 1440 routers and 15
+  groups. Each group has 96 routers arranged in 6x16 matrix.]
+
+  mpirun -np 4 ./bin/model-net-synthetic-custom-dfly --sync=3 --
+  ../src/network-workloads/conf/dragonfly-custom/modelnet-test-dragonfly-edison.conf
 
 - Design Forward Network traces:
 
@@ -79,12 +86,19 @@
 
   [With Edison style dragonfly and AMG 1,728 application trace]
 
-  ./bin/model-net-mpi-replay --sync=1 --disable_compute=1
+  mpirun -np 4 ./bin/model-net-mpi-replay --sync=3 --disable_compute=1
   --workload_type="dumpi"
   --workload_file=../../../df_traces/AMG/df_AMG_n1728_dumpi/dumpi-2014.03.03.14.55.50-
   --num_net_traces=1728 --
-  ../src/network-workloads/conf/modelnet-test-dragonfly-edison.conf
+  ../src/network-workloads/dragonfly-custom/conf/modelnet-test-dragonfly-edison.conf
 
+  [With theta style dragonfly and AMG 1,728 application trace]
+
+  mpirun -np 4 ./bin/model-net-mpi-replay --sync=3 --disable_compute=1
+  --workload_type="dumpi"
+  --workload_file=../../../df_traces/AMG/df_AMG_n1728_dumpi/dumpi-2014.03.03.14.55.50-
+  --num_net_traces=1728 --
+  ../src/network-workloads/conf/dragonfly-custom/modelnet-test-dragonfly-
 --------- Debugging Tips ------------
 - Set DUMP_CONNECTIONS debugging option to see the detailed local and global
   channel connectivity of routers in src/networks/model-net/dragonfly-custom.C

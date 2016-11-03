@@ -8,6 +8,13 @@
     translates Edison's network configuration into a file format that can be fed
     into the simulation.]
 
+- Theta network config files:
+
+   python theta.py theta.interconnect intra-theta inter-theta
+
+   [intra-theta and inter-theta are the intra and inter-group config files for
+   dragonfly. ]
+
  ** Generating customizable dragonfly interconnects **:
 
 mpicc connections_general.c -o connections_general

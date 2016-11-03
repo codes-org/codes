@@ -126,7 +126,7 @@ const tw_lptype* svr_get_lp_type()
 
 static void svr_add_lp_type()
 {
-  lp_type_register("server", svr_get_lp_type());
+  lp_type_register("nw-lp", svr_get_lp_type());
 }
 
 static void issue_event(
@@ -382,7 +382,7 @@ int main(
         MPI_Finalize();
         return 0;
     }
-    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "server",
+    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "nw-lp",
             NULL, 1);
     configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers_per_grp);
     configuration_get_value_int(&config, "PARAMS", "num_groups", NULL, &num_groups);
