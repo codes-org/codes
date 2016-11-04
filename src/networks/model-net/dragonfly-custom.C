@@ -20,7 +20,7 @@
 #include <vector>
 #include <map>
 
-#define DUMP_CONNECTIONS 1
+#define DUMP_CONNECTIONS 0
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 262144
 
@@ -135,6 +135,10 @@ struct dragonfly_param
     int chunk_size; /* full-sized packets are broken into smaller chunks.*/
     // derived parameters
     int num_cn;
+    int intra_grp_radix;
+    int num_col_chans;
+    int num_router_rows;
+    int num_router_cols;
     int num_groups;
     int radix;
     int total_routers;
@@ -310,7 +314,8 @@ struct router_state
    int *in_send_loop;
    int *queued_count;
    struct rc_stack * st;
-   
+
+   int* last_sent_chan;
    int** vc_occupancy;
    int64_t* link_traffic;
    int64_t * link_traffic_sample;
@@ -468,15 +473,6 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     int myRank;
     MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
 
-    int rc = configuration_get_value_int(&config, "PARAMS", "num_routers", anno,
-            &p->num_routers);
-    if(rc) {
-        p->num_routers = 4;
-        fprintf(stderr, "Number of dimensions not specified, setting to %d\n",
-                p->num_routers);
-    }
-
-
     rc = configuration_get_value_int(&config, "PARAMS", "local_vc_size", anno, &p->local_vc_size);
     if(rc) {
         p->local_vc_size = 1024;
@@ -557,17 +553,36 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
       printf("Number of groups not specified. Aborting");
       MPI_Abort(MPI_COMM_WORLD, 1);
     }
+    rc = configuration_get_value_int(&config, "PARAMS", "num_col_chans", anno, &p->num_col_chans);
+    if(rc) {
+//        printf("\n Number of links connecting chassis not specified, setting to default value 3 ");
+        p->num_col_chans = 3;
+    }
+    rc = configuration_get_value_int(&config, "PARAMS", "num_router_rows", anno, &p->num_router_rows);
+    if(rc) {
+        printf("\n Number of router rows not specified, setting to 6 ");
+        p->num_router_rows = 6;
+    }
+    rc = configuration_get_value_int(&config, "PARAMS", "num_router_cols", anno, &p->num_router_cols);
+    if(rc) {
+        printf("\n Number of router columns not specified, setting to 16 ");
+        p->num_router_cols = 16;
+    }
+    p->intra_grp_radix = p->num_router_cols + (p->num_router_rows * p->num_col_chans);
+    p->num_routers = p->num_router_rows * p->num_router_cols;
+    
     rc = configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", anno, &p->num_cn);
     if(rc) {
         printf("\n Number of cns per router not specified, setting to %d ", p->num_routers/2);
         p->num_cn = p->num_routers/2;
     }
+
     rc = configuration_get_value_int(&config, "PARAMS", "num_global_channels", anno, &p->num_global_channels);
     if(rc) {
-        printf("\n Number of global channels per router not specified, setting to %d ", p->num_routers/2);
-        p->num_global_channels = p->num_routers/2;
+        printf("\n Number of global channels per router not specified, setting to 10 ");
+        p->num_global_channels = 10;
     }
-    p->radix = p->num_routers + p->num_global_channels + p->num_cn;
+    p->radix = p->num_router_cols + (p->num_col_chans * p->num_router_rows) + p->num_global_channels + p->num_cn;
     p->total_routers = p->num_groups * p->num_routers;
     p->total_terminals = p->total_routers * p->num_cn;
     
@@ -695,9 +710,9 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     }
 #endif
     if(!myRank) {
-        printf("\n Total nodes %d routers %d groups %d routers per group %d\n",
+        printf("\n Total nodes %d routers %d groups %d routers per group %d radix %d\n",
                 p->num_cn * p->total_routers, p->total_routers, p->num_groups,
-                p->num_routers);
+                p->num_routers, p->radix);
     }
 
     p->cn_delay = bytes_to_ns(p->chunk_size, p->cn_bandwidth);
@@ -883,7 +898,8 @@ void router_custom_setup(router_state * r, tw_lp * lp)
    r->link_traffic_sample = (int64_t*)malloc(p->radix * sizeof(int64_t));
    r->cur_hist_num = (int*)malloc(p->radix * sizeof(int));
    r->prev_hist_num = (int*)malloc(p->radix * sizeof(int));
-   
+  
+   r->last_sent_chan = (int*) malloc(p->num_router_rows * sizeof(int));
    r->vc_occupancy = (int**)malloc(p->radix * sizeof(int*));
    r->in_send_loop = (int*)malloc(p->radix * sizeof(int));
    r->pending_msgs = 
@@ -900,6 +916,10 @@ void router_custom_setup(router_state * r, tw_lp * lp)
    r->busy_time_sample = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
 
    rc_stack_create(&r->st);
+
+   for(int i = 0; i < p->num_router_rows; i++)
+       r->last_sent_chan[i] = 0;
+
    for(int i=0; i < p->radix; i++)
     {
        // Set credit & router occupancy
@@ -2212,16 +2232,16 @@ get_output_port( router_state * s,
 {
   int output_port = -1;
   int terminal_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0);
+  const dragonfly_param *p = s->params;
 
   if((tw_lpid)next_stop == msg->dest_terminal_id)
    {
-      output_port = s->params->num_routers + s->params->num_global_channels +
-          ( terminal_id % s->params->num_cn);
+      output_port = p->intra_grp_radix + p->num_global_channels + ( terminal_id % p->num_cn);
     }
     else
     {
      int local_router_id = codes_mapping_get_lp_relative_id(next_stop, 0, 0);
-     int intm_grp_id = local_router_id / s->params->num_routers;
+     int intm_grp_id = local_router_id / p->num_routers;
 
      if(intm_grp_id != s->group_id)
       {
@@ -2255,11 +2275,38 @@ get_output_port( router_state * s,
          bLink bl = interGroupLinks[src_router][intm_grp_id][rand_offset];
          int channel_id = bl.offset;
 
-         output_port = s->params->num_routers + channel_id;
+         output_port = p->intra_grp_radix + channel_id;
       }
       else
        {
-        output_port = local_router_id % s->params->num_routers;
+        int intra_rtr_id = (local_router_id % p->num_routers);
+        int intragrp_rtr_id = s->router_id % p->num_routers;
+
+        int src_col = intragrp_rtr_id % p->num_router_cols;
+        int src_row = intragrp_rtr_id / p->num_router_cols;
+
+        int dest_col = intra_rtr_id % p->num_router_cols;
+        int dest_row = intra_rtr_id / p->num_router_cols;
+
+        if(src_col == dest_col)
+        {
+            int last_port = s->last_sent_chan[dest_row];
+            output_port = p->num_router_cols + (dest_row * p->num_col_chans) + last_port; 
+            s->last_sent_chan[dest_row] =( s->last_sent_chan[dest_row] + 1) % s->params->num_col_chans; 
+            assert(output_port < p->intra_grp_radix);
+        }
+        else
+            if(src_row == dest_row)
+        {
+            output_port = dest_col;   
+            assert(output_port < s->params->num_router_cols);
+        }
+            else
+            {
+                tw_error(TW_LOC, "\n Invalid dragonfly connectivity src row %d dest row %d src col %d dest col %d",
+                        src_row, dest_row, src_col, dest_col);
+            }
+
        }
     }
     return output_port;
@@ -2666,11 +2713,11 @@ router_packet_receive( router_state * s,
   cur_chunk->msg.next_stop = next_stop;
 
   output_chan = 0;
-  if(output_port < s->params->num_routers) {
+  if(output_port < s->params->intra_grp_radix) {
     output_chan = cur_chunk->msg.my_l_hop;
     max_vc_size = s->params->local_vc_size;
     cur_chunk->msg.my_l_hop++;
-  } else if(output_port < (s->params->num_routers + 
+  } else if(output_port < (s->params->intra_grp_radix + 
         s->params->num_global_channels)) {
     output_chan = cur_chunk->msg.my_g_hop;
     max_vc_size = s->params->global_vc_size;
@@ -2813,11 +2860,11 @@ router_packet_send( router_state * s,
   double delay = s->params->cn_delay;
   double bandwidth = s->params->cn_bandwidth;
 
-  if(output_port < s->params->num_routers) {
+  if(output_port < s->params->intra_grp_radix) {
     to_terminal = 0;
     delay = s->params->local_delay;
     bandwidth = s->params->local_bandwidth;
-  } else if(output_port < s->params->num_routers + 
+  } else if(output_port < s->params->intra_grp_radix + 
     s->params->num_global_channels) {
     to_terminal = 0;
     global = 1;

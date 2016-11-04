@@ -346,6 +346,7 @@ int main(
     int rank;
     int num_nets;
     int *net_ids;
+    int num_router_rows, num_router_cols;
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
@@ -384,9 +385,12 @@ int main(
     }
     num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "nw-lp",
             NULL, 1);
-    configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers_per_grp);
+    configuration_get_value_int(&config, "PARAMS", "num_router_rows", NULL, &num_router_rows);
+    configuration_get_value_int(&config, "PARAMS", "num_router_cols", NULL, &num_router_cols);
     configuration_get_value_int(&config, "PARAMS", "num_groups", NULL, &num_groups);
     configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", NULL, &num_nodes_per_cn);
+
+    num_routers_per_grp = num_router_rows * num_router_cols;
 
     num_nodes = num_groups * num_routers_per_grp * num_nodes_per_cn;
     num_nodes_per_grp = num_routers_per_grp * num_nodes_per_cn;
