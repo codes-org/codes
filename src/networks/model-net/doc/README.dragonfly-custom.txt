@@ -62,7 +62,8 @@
   ./bin/model-net-synthetic-custom-dfly --sync=1 --
   ../src/network-workloads/conf/dragonfly-custom/modelnet-test-dragonfly-custom.conf 
 
-  [With theta dragonfly network having 3,456 compute nodes, 864 routers and 9
+  [With theta dragonfly network having 3,456 nodes (3240 compute nodes and 256
+  service nodes), 864 routers and 9
   groups. Each group has 96 routers arranged in a 6x16 matrix]
   
   mpirun -np 4 ./bin/model-net-synthetic-custom-dfly --sync=3 --
