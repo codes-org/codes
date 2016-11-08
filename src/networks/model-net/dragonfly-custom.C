@@ -473,7 +473,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     int myRank;
     MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
 
-    rc = configuration_get_value_int(&config, "PARAMS", "local_vc_size", anno, &p->local_vc_size);
+    int rc = configuration_get_value_int(&config, "PARAMS", "local_vc_size", anno, &p->local_vc_size);
     if(rc) {
         p->local_vc_size = 1024;
         fprintf(stderr, "Buffer size of local channels not specified, setting to %d\n", p->local_vc_size);
