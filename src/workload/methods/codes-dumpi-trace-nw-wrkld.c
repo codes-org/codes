@@ -15,6 +15,20 @@
 #include "codes/codes-workload.h"
 #include "codes/quickhash.h"
 
+#if ENABLE_CORTEX
+#include <cortex/cortex.h>
+#include <cortex/cortex-python.h>
+#define PROFILE_TYPE cortex_dumpi_profile*
+#define UNDUMPI_OPEN cortex_undumpi_open
+#define DUMPI_START_STREAM_READ cortex_dumpi_start_stream_read
+#define UNDUMPI_CLOSE cortex_undumpi_close
+#else
+#define PROFILE_TYPE dumpi_profile*
+#define UNDUMPI_OPEN undumpi_open
+#define DUMPI_START_STREAM_READ dumpi_start_stream_read
+#define UNDUMPI_CLOSE undumpi_close
+#endif
+
 #define MAX_LENGTH 512
 #define MAX_OPERATIONS 32768
 #define DUMPI_IGNORE_DELAY 100
@@ -550,7 +564,6 @@ static int hash_rank_compare(void *key, struct qhash_head *link)
     tmp = qhash_entry(link, rank_mpi_context, hash_link);
     if (tmp->my_rank == in->rank && tmp->my_app_id == in->app)
         return 1;
-
     return 0;
 }
 
@@ -558,7 +571,10 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 {
 	libundumpi_callbacks callbacks;
 	libundumpi_cbpair callarr[DUMPI_END_OF_STREAM];
-	dumpi_profile* profile;
+#ifdef ENABLE_CORTEX
+	libundumpi_cbpair transarr[DUMPI_END_OF_STREAM];
+#endif
+	PROFILE_TYPE profile;
 	dumpi_trace_params* dumpi_params = (dumpi_trace_params*)params;
 	char file_name[MAX_LENGTH];
 
@@ -589,7 +605,11 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
              sprintf(file_name, "%s0%d.bin", dumpi_params->file_name, rank);
              else
               sprintf(file_name, "%s%d.bin", dumpi_params->file_name, rank);
+#ifdef ENABLE_CORTEX
+	profile = cortex_undumpi_open(file_name, app_id, dumpi_params->num_net_traces, rank);
+#else
 	profile =  undumpi_open(file_name);
+#endif
         if(NULL == profile) {
                 printf("Error: unable to open DUMPI trace: %s", file_name);
                 exit(-1);
@@ -597,6 +617,9 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	
 	memset(&callbacks, 0, sizeof(libundumpi_callbacks));
         memset(&callarr, 0, sizeof(libundumpi_cbpair) * DUMPI_END_OF_STREAM);
+#ifdef ENABLE_CORTEX
+	memset(&transarr, 0, sizeof(libundumpi_cbpair) * DUMPI_END_OF_STREAM);
+#endif
 
 	/* handle MPI function calls */	        
         callbacks.on_init = handleDUMPIInit;
@@ -662,9 +685,17 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 
         libundumpi_populate_callbacks(&callbacks, callarr);
 
-        dumpi_start_stream_read(profile);
+#ifdef ENABLE_CORTEX
+	libundumpi_populate_callbacks(CORTEX_PYTHON_TRANSLATION, transarr);
+#endif
+
+        DUMPI_START_STREAM_READ(profile);
         //dumpi_header* trace_header = undumpi_read_header(profile);
         //dumpi_free_header(trace_header);
+
+#ifdef ENABLE_CORTEX
+	cortex_python_set_module(dumpi_params->cortex_script,dumpi_params->cortex_class);
+#endif
 
         int finalize_reached = 0;
         int active = 1;
@@ -672,9 +703,13 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
         while(active && !finalize_reached)
         {
            num_calls++;
+#ifdef ENABLE_CORTEX
+	   active = cortex_undumpi_read_single_call(profile, callarr, transarr, (void*)my_ctx, &finalize_reached);
+#else
            active = undumpi_read_single_call(profile, callarr, (void*)my_ctx, &finalize_reached);
+#endif
         }
-	undumpi_close(profile);
+	UNDUMPI_CLOSE(profile);
 	dumpi_finalize_mpi_op_data(my_ctx->dumpi_mpi_array);
 	/* add this rank context to hash table */	
         rank_mpi_compare cmp;

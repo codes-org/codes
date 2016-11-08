@@ -121,6 +121,51 @@ else
 	AM_CONDITIONAL(USE_DUMPI, false)
 fi
 
+# check for Cortex
+AC_ARG_WITH([cortex],[AS_HELP_STRING([--with-cortex@<:@=DIR@:>@],
+			[location of Cortex installation])])
+if test "x${with_cortex}" != "x" ; then
+	 AC_CHECK_FILES([${with_cortex}/lib/libcortex.a ${with_cortex}/lib/libcortex-python.a],
+		AM_CONDITIONAL(USE_CORTEX, true),
+		AC_MSG_ERROR(Could not find Cortex libraries libcortex.a and/or libcortex-python.a))
+	CORTEX_CFLAGS="-I${with_cortex}/include"
+	CORTEX_LIBS="-L${with_cortex}/lib/ -lcortex-python -lcortex -lstdc++"
+	AC_SUBST(CORTEX_LIBS)
+	AC_SUBST(CORTEX_CFLAGS)
+else
+	AM_CONDITIONAL(USE_CORTEX, false)
+fi
+
+# check for Python
+AC_ARG_WITH([python],[AS_HELP_STRING([--with-python@<:@=DIR@:>@],
+			[location of Python 2.7 installation])])
+if test "x${with_python}" != "x" ; then
+	AC_CHECK_FILE([${with_python}/lib/libpython2.7.a],
+		AM_CONDITIONAL(USE_PYTHON, true),
+		AC_MSG_ERROR(Could not find Python library))
+	PYTHON_CFLAGS="-I${with_python}/include"
+	PYTHON_LIBS="-L${with_python}/lib/ -lpython2.7"
+	AC_SUBST(PYTHON_LIBS)
+	AC_SUBST(PYTHON_CFLAGS)
+else
+	AM_CONDITIONAL(USE_PYTHON, false)
+fi
+
+# check for Boost Python
+AC_ARG_WITH([boost],[AS_HELP_STRING([--with-boost@<:@=DIR@:>@],
+			[location of Boost Python installation])])
+if test "x${with_boost}" != "x" ; then
+	AC_CHECK_FILE([${with_boost}/lib/libboost_python.a],
+		AM_CONDITIONAL(USE_BOOST, true),
+		AC_MSG_ERROR(Could not find Boost Python library libboost_python.a))
+	BOOST_CFLAGS="-I${with_boost}/include"
+	BOOST_LIBS="-L${with_boost}/lib -lboost_python"
+	AC_SUBST(BOOST_LIBS)
+	AC_SUBST(BOOST_CFLAGS)
+else
+	AM_CONDITIONAL(USE_BOOST, false)
+fi
+
 dnl ======================================================================
 dnl  Try harder to be valgrind safe
 dnl ======================================================================

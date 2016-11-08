@@ -51,6 +51,12 @@ struct codes_jobmap_ctx *jobmap_ctx;
 struct codes_jobmap_params_list jobmap_p;
 /* Xu's additions end */
 
+/* Variables for Cortex Support */
+/* Matthieu's additions start */
+static char cortex_file[512];
+static char cortex_class[512];
+/* Matthieu's additions end */
+
 typedef struct nw_state nw_state;
 typedef struct nw_message nw_message;
 typedef int32_t dumpi_req_id;
@@ -1137,7 +1143,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 	        return;
    }
 
-   if (strcmp(workload_type, "dumpi") == 0){
+   if (strcmp(workload_type, "dumpi") == 0 || strcmp(workload_type, "cortex") == 0){
        strcpy(params_d.file_name, file_name_of_job[lid.job]);
        params_d.num_net_traces = num_traces_of_job[lid.job];
        params = (char*)&params_d;
@@ -1146,6 +1152,13 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 //       printf("network LP nw id %d app id %d local rank %d generating events, lp gid is %ld \n", s->nw_id, 
 //               s->app_id, s->local_rank, lp->gid);
    }
+
+#ifdef ENABLE_CORTEX
+   if (strcmp(workload_type, "cortex") == 0) {
+	strcpy(params_d.cortex_script, cortex_file);
+	strcpy(params_d.cortex_class, cortex_class);
+   }
+#endif
 
    wrkld_id = codes_workload_load("dumpi-trace-workload", params, s->app_id, s->local_rank);
 
@@ -1515,6 +1528,10 @@ const tw_optdef app_opt [] =
     TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
     TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
 	TWOPT_CHAR("offset_file", offset_file, "offset file name"),
+#ifdef ENABLE_CORTEX
+	TWOPT_CHAR("cortex-file", cortex_file, "Python file (without .py) containing the CoRtEx translation class"),
+	TWOPT_CHAR("cortex-class", cortex_class, "Python class implementing the CoRtEx translator"),
+#endif
 	TWOPT_END()
 };
 
@@ -1555,8 +1572,14 @@ int main( int argc, char** argv )
     {
 	if(tw_ismaster())
 		printf("Usage: mpirun -np n ./modelnet-mpi-replay --sync=1/3"
-                " --workload_type=dumpi --workload_conf_file=prefix-workload-file-name"
-                " --alloc_file=alloc-file-name -- config-file-name\n"
+                " --workload_type=dumpi"
+		" --workload_conf_file=prefix-workload-file-name"
+                " --alloc_file=alloc-file-name"
+#ifdef ENABLE_CORTEX
+		" --cortex-file=cortex-file-name"
+		" --cortex-class=cortex-class-name"
+#endif
+		" -- config-file-name\n"
                 "See model-net/doc/README.dragonfly.txt and model-net/doc/README.torus.txt"
                 " for instructions on how to run the models with network traces ");
 	tw_end();
