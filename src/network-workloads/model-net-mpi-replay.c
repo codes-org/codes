@@ -1152,8 +1152,6 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 //       printf("network LP nw id %d app id %d local rank %d generating events, lp gid is %ld \n", s->nw_id, 
 //               s->app_id, s->local_rank, lp->gid);
 #ifdef ENABLE_CORTEX
-	fprintf(stderr,"\n\n### Cortex Script is %s"
-			"\n### Cortex Class is %s\n\n",cortex_file,cortex_class);
 	strcpy(params_d.cortex_script, cortex_file);
 	strcpy(params_d.cortex_class, cortex_class);
 #endif
