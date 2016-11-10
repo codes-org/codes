@@ -84,6 +84,12 @@ AC_TRY_COMPILE([#include <mpi.h>], [int ret = MPI_Init(0, (void*)0)],
 PKG_CHECK_MODULES_STATIC([ROSS], [ross], [],
                   [AC_MSG_ERROR([Could not find working ross installation via pkg-config])])
 
+# check for enable-g
+AC_ARG_ENABLE([g],[AS_HELP_STRING([--enable-g],
+			[Build with GDB symbols])],
+		[use_debug=yes],[use_debug=no])
+AM_CONDITIONAL(USE_DEBUG, ["x${use_debug}" = xyes])
+
 # check for Darshan
 AC_ARG_WITH([darshan],[AS_HELP_STRING([--with-darshan],
                         [Build with the darshan workload support])],

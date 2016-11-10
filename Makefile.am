@@ -39,6 +39,12 @@ include $(top_srcdir)/src/Makefile.subdir
 include $(top_srcdir)/tests/Makefile.subdir
 include $(top_srcdir)/doc/Makefile.subdir
 
+if USE_DEBUG
+AM_CPPFLAGS += -g
+AM_CFLAGS   += -g
+AM_CXXFLAGS += -g
+endif
+
 if USE_DARSHAN
 AM_CPPFLAGS += ${DARSHAN_CFLAGS} -DUSE_DARSHAN=1
 src_libcodes_la_SOURCES += src/workload/methods/codes-darshan-io-wrkld.c
