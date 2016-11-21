@@ -18,7 +18,10 @@
 #if ENABLE_CORTEX
 #include <cortex/cortex.h>
 #include <cortex/datatype.h>
+#include <cortex/cortex-mpich.h>
+#ifdef ENABLE_CORTEX_PYTHON
 #include <cortex/cortex-python.h>
+#endif
 #define PROFILE_TYPE cortex_dumpi_profile*
 #define UNDUMPI_OPEN cortex_undumpi_open
 #define DUMPI_START_STREAM_READ cortex_dumpi_start_stream_read
@@ -689,14 +692,17 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
         libundumpi_populate_callbacks(&callbacks, callarr);
 
 #ifdef ENABLE_CORTEX
+#ifdef ENABLE_CORTEX_PYTHON
 	libundumpi_populate_callbacks(CORTEX_PYTHON_TRANSLATION, transarr);
+#else
+	libundumpi_populate_callbacks(CORTEX_MPICH_TRANSLATION, transarr);
 #endif
-
+#endif
         DUMPI_START_STREAM_READ(profile);
         //dumpi_header* trace_header = undumpi_read_header(profile);
         //dumpi_free_header(trace_header);
 
-#ifdef ENABLE_CORTEX
+#ifdef ENABLE_CORTEX_PYTHON
 	cortex_python_set_module(dumpi_params->cortex_script,dumpi_params->cortex_class);
 #endif
 

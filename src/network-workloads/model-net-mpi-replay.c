@@ -53,8 +53,10 @@ struct codes_jobmap_params_list jobmap_p;
 
 /* Variables for Cortex Support */
 /* Matthieu's additions start */
+#ifdef ENABLE_CORTEX_PYTHON
 static char cortex_file[512];
 static char cortex_class[512];
+#endif
 /* Matthieu's additions end */
 
 typedef struct nw_state nw_state;
@@ -1151,7 +1153,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        s->local_rank = lid.rank;
 //       printf("network LP nw id %d app id %d local rank %d generating events, lp gid is %ld \n", s->nw_id, 
 //               s->app_id, s->local_rank, lp->gid);
-#ifdef ENABLE_CORTEX
+#ifdef ENABLE_CORTEX_PYTHON
 	strcpy(params_d.cortex_script, cortex_file);
 	strcpy(params_d.cortex_class, cortex_class);
 #endif
@@ -1525,7 +1527,7 @@ const tw_optdef app_opt [] =
     TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
     TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
 	TWOPT_CHAR("offset_file", offset_file, "offset file name"),
-#ifdef ENABLE_CORTEX
+#ifdef ENABLE_CORTEX_PYTHON
 	TWOPT_CHAR("cortex-file", cortex_file, "Python file (without .py) containing the CoRtEx translation class"),
 	TWOPT_CHAR("cortex-class", cortex_class, "Python class implementing the CoRtEx translator"),
 #endif
@@ -1572,7 +1574,7 @@ int main( int argc, char** argv )
                 " --workload_type=dumpi"
 		" --workload_conf_file=prefix-workload-file-name"
                 " --alloc_file=alloc-file-name"
-#ifdef ENABLE_CORTEX
+#ifdef ENABLE_CORTEX_PYTHON
 		" --cortex-file=cortex-file-name"
 		" --cortex-class=cortex-class-name"
 #endif

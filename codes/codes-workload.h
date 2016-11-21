@@ -69,7 +69,7 @@ struct recorder_params
 struct dumpi_trace_params {
    char file_name[MAX_NAME_LENGTH_WKLD];
    int num_net_traces;
-#ifdef ENABLE_CORTEX
+#ifdef ENABLE_CORTEX_PYTHON
    char cortex_script[MAX_NAME_LENGTH_WKLD];
    char cortex_class[MAX_NAME_LENGTH_WKLD];
 #endif

@@ -88,7 +88,7 @@ PKG_CHECK_MODULES_STATIC([ROSS], [ross], [],
 AC_ARG_ENABLE([g],[AS_HELP_STRING([--enable-g],
 			[Build with GDB symbols])],
 		[use_debug=yes],[use_debug=no])
-AM_CONDITIONAL(USE_DEBUG, ["x${use_debug}" = xyes])
+AM_CONDITIONAL(USE_DEBUG, [test "x${use_debug}" = xyes])
 
 # check for Darshan
 AC_ARG_WITH([darshan],[AS_HELP_STRING([--with-darshan],
@@ -130,46 +130,49 @@ fi
 # check for Cortex
 AC_ARG_WITH([cortex],[AS_HELP_STRING([--with-cortex@<:@=DIR@:>@],
 			[location of Cortex installation])])
+
+# check for Python
+AC_ARG_WITH([python],[AS_HELP_STRING([--with-python@<:@=DIR@:>@],
+			[location of Python 2.7 installation])])
+
+# check for Boost Python
+AC_ARG_WITH([boost],[AS_HELP_STRING([--with-boost@<:@=DIR@:>@],
+			[location of Boost Python installation])])
+
+if [ test "x${with_python}" != "x" -a "x${with_boost}" != "x"] ; then
+        AC_CHECK_FILES([${with_python}/lib/libpython2.7.a ${with_boost}/lib/libboost_python.a],
+                AM_CONDITIONAL(USE_PYTHON, true),
+                AC_MSG_ERROR(Could not find Python and/or Boost-Python libraries))
+        PYTHON_CFLAGS="-I${with_python}/include -I${with_boost}/include"
+        PYTHON_LIBS="-L${with_boost}/lib -lboost_python -L${with_python}/lib/ -lpython2.7"
+        AC_SUBST(PYTHON_LIBS)
+        AC_SUBST(PYTHON_CFLAGS)
+else
+        AM_CONDITIONAL(USE_PYTHON, false)
+fi
+
 if test "x${with_cortex}" != "x" ; then
-	 AC_CHECK_FILES([${with_cortex}/lib/libcortex.a ${with_cortex}/lib/libcortex-python.a],
+	 AC_CHECK_FILES([${with_cortex}/lib/libcortex.a ${with_cortex}/lib/libcortex-mpich.a],
 		AM_CONDITIONAL(USE_CORTEX, true),
-		AC_MSG_ERROR(Could not find Cortex libraries libcortex.a and/or libcortex-python.a))
+		AC_MSG_ERROR(Could not find Cortex libraries libcortex.a and/or libcortex-mpich.a))
 	CORTEX_CFLAGS="-I${with_cortex}/include"
-	CORTEX_LIBS="-L${with_cortex}/lib/ -lcortex-python -lcortex -lstdc++"
+	CORTEX_LIBS="-L${with_cortex}/lib/ -lcortex-mpich -lcortex -lstdc++"
 	AC_SUBST(CORTEX_LIBS)
 	AC_SUBST(CORTEX_CFLAGS)
 else
 	AM_CONDITIONAL(USE_CORTEX, false)
 fi
 
-# check for Python
-AC_ARG_WITH([python],[AS_HELP_STRING([--with-python@<:@=DIR@:>@],
-			[location of Python 2.7 installation])])
-if test "x${with_python}" != "x" ; then
-	AC_CHECK_FILE([${with_python}/lib/libpython2.7.a],
-		AM_CONDITIONAL(USE_PYTHON, true),
-		AC_MSG_ERROR(Could not find Python library))
-	PYTHON_CFLAGS="-I${with_python}/include"
-	PYTHON_LIBS="-L${with_python}/lib/ -lpython2.7"
-	AC_SUBST(PYTHON_LIBS)
-	AC_SUBST(PYTHON_CFLAGS)
+if [ test "x${with_cortex}" != "x" -a "x${with_python}" != "x" -a "x${with_boost}" != "x"] ; then
+	AC_CHECK_FILE([${with_cortex}/lib/libcortex-python.a],
+		AM_CONDITIONAL(USE_CORTEX_PYTHON, true),
+		AC_MSG_ERROR(Could not find library libcortex-python.a))
+	CORTEX_PYTHON_CFLAGS="-I${with_cortex}/include"
+	CORTEX_PYTHON_LIBS="-L${with_cortex}/lib/ -lcortex-python"
+	AC_SUBST(CORTEX_PYTHON_LIBS)
+	AC_SUBST(CORTEX_PYTHON_CFLAGS)
 else
-	AM_CONDITIONAL(USE_PYTHON, false)
-fi
-
-# check for Boost Python
-AC_ARG_WITH([boost],[AS_HELP_STRING([--with-boost@<:@=DIR@:>@],
-			[location of Boost Python installation])])
-if test "x${with_boost}" != "x" ; then
-	AC_CHECK_FILE([${with_boost}/lib/libboost_python.a],
-		AM_CONDITIONAL(USE_BOOST, true),
-		AC_MSG_ERROR(Could not find Boost Python library libboost_python.a))
-	BOOST_CFLAGS="-I${with_boost}/include"
-	BOOST_LIBS="-L${with_boost}/lib -lboost_python"
-	AC_SUBST(BOOST_LIBS)
-	AC_SUBST(BOOST_CFLAGS)
-else
-	AM_CONDITIONAL(USE_BOOST, false)
+	AM_CONDITIONAL(USE_CORTEX_PYTHON, false)
 fi
 
 dnl ======================================================================
