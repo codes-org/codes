@@ -2711,7 +2711,7 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
 
     int written = 0;
     if(!s->terminal_id)
-        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>\n");
+        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Aggregate packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>\n");
 
     written += sprintf(s->output_buf + written, "%llu %u %ld %lf %ld %lf %lf\n",
             LLU(lp->gid), s->terminal_id, s->total_msg_size, s->total_time,

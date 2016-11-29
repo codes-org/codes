@@ -2348,7 +2348,7 @@ dragonfly_terminal_final( terminal_state * s,
     
     int written = 0;
     if(!s->terminal_id)
-        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>");
+        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Aggregate packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>");
 
     written += sprintf(s->output_buf + written, "\n %llu %u %ld %lf %ld %lf %lf",
             LLU(lp->gid), s->terminal_id, s->total_msg_size, s->total_time, 
