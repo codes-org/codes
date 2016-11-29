@@ -699,7 +699,7 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	callbacks.on_recv_init = (dumpi_recv_init_call)handleDUMPIIgnore;
 	callbacks.on_start = (dumpi_start_call)handleDUMPIIgnore;
 	callbacks.on_startall = (dumpi_startall_call)handleDUMPIIgnore;
-	callbacks.on_sendrecv = (dumpi_sendrecv_call)handleDUMPIIgnore;
+	callbacks.on_sendrecv = (dumpi_sendrecv_call)handleDUMPISendrecv;
 	callbacks.on_sendrecv_replace = (dumpi_sendrecv_replace_call)handleDUMPIIgnore;
 	callbacks.on_type_contiguous = (dumpi_type_contiguous_call)handleDUMPIIgnore;
 	callbacks.on_barrier = (dumpi_barrier_call)handleDUMPIIgnore;

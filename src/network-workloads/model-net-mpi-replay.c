@@ -643,10 +643,12 @@ static int rm_matching_send(nw_state * ns,
     int index = 0;
     qlist_for_each(ent, &ns->arrival_queue){
         qi = qlist_entry(ent, mpi_msgs_queue, ql);
-        if((qi->num_bytes == qitem->num_bytes)
-                && (qi->tag == qitem->tag || qitem->tag == -1)
+        if(//(qi->num_bytes == qitem->num_bytes) // it is not a requirement in MPI that the send and receive sizes match
+                // && 
+		(qi->tag == qitem->tag || qitem->tag == -1)
                 && ((qi->source_rank == qitem->source_rank) || qitem->source_rank == -1))
         {
+            qitem->num_bytes = qi->num_bytes;
             matched = 1;
             break;
         }
