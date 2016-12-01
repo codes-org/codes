@@ -8,11 +8,17 @@ darshan_libs=@DARSHAN_LIBS@
 darshan_cflags=@DARSHAN_CFLAGS@
 dumpi_cflags=@DUMPI_CFLAGS@
 dumpi_libs=@DUMPI_LIBS@
+cortex_cflags=@CORTEX_CFLAGS@
+cortex_libs=@CORTEX_LIBS@
+python_cflags=@PYTHON_CFLAGS@
+python_libs=@PYTHON_LIBS@
+boost_cflags=@BOOST_CFLAGS@
+boost_libs=@BOOST_LIBS@
 
 Name: codes-base
 Description: Base functionality for CODES storage simulation
 Version: @PACKAGE_VERSION@
 URL: http://trac.mcs.anl.gov/projects/CODES
 Requires:
-Libs: -L${libdir} -lcodes ${ross_libs} ${darshan_libs} ${dumpi_libs} 
-Cflags: -I${includedir} ${ross_cflags} ${darshan_cflags} ${dumpi_cflags}
+Libs: -L${libdir} -lcodes ${ross_libs} ${darshan_libs} ${dumpi_libs} ${cortex_libs}
+Cflags: -I${includedir} ${ross_cflags} ${darshan_cflags} ${dumpi_cflags} ${cortex_cflags}

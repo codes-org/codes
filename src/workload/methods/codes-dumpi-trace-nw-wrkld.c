@@ -15,6 +15,24 @@
 #include "codes/codes-workload.h"
 #include "codes/quickhash.h"
 
+#if ENABLE_CORTEX
+#include <cortex/cortex.h>
+#include <cortex/datatype.h>
+#include <cortex/cortex-mpich.h>
+#ifdef ENABLE_CORTEX_PYTHON
+#include <cortex/cortex-python.h>
+#endif
+#define PROFILE_TYPE cortex_dumpi_profile*
+#define UNDUMPI_OPEN cortex_undumpi_open
+#define DUMPI_START_STREAM_READ cortex_dumpi_start_stream_read
+#define UNDUMPI_CLOSE cortex_undumpi_close
+#else
+#define PROFILE_TYPE dumpi_profile*
+#define UNDUMPI_OPEN undumpi_open
+#define DUMPI_START_STREAM_READ dumpi_start_stream_read
+#define UNDUMPI_CLOSE undumpi_close
+#endif
+
 #define MAX_LENGTH 512
 #define MAX_OPERATIONS 32768
 #define DUMPI_IGNORE_DELAY 100
@@ -26,6 +44,7 @@ static int rank_tbl_pop = 0;
 /* context of the MPI workload */
 typedef struct rank_mpi_context
 {
+    PROFILE_TYPE profile;
     int my_app_id;
     // whether we've seen an init op (needed for timing correctness)
     int is_init;
@@ -92,7 +111,7 @@ static int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank
 static void dumpi_trace_nw_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
 
 /* get number of bytes from the workload data type and count */
-static int64_t get_num_bytes(dumpi_datatype dt);
+static int64_t get_num_bytes(rank_mpi_context* my_ctx, dumpi_datatype dt);
 
 /* computes the delay between MPI operations */
 static void update_compute_time(const dumpi_time* time, rank_mpi_context* my_ctx);
@@ -339,7 +358,7 @@ int handleDUMPIISend(const dumpi_isend *prm, uint16_t thread, const dumpi_time *
 	wrkld_per_rank.u.send.tag = prm->tag;
 	wrkld_per_rank.u.send.count = prm->count;
 	wrkld_per_rank.u.send.data_type = prm->datatype;
-    wrkld_per_rank.u.send.num_bytes = prm->count * get_num_bytes(prm->datatype);
+    wrkld_per_rank.u.send.num_bytes = prm->count * get_num_bytes(myctx,prm->datatype);
 	assert(wrkld_per_rank.u.send.num_bytes >= 0);
     	wrkld_per_rank.u.send.req_id = prm->request;
         wrkld_per_rank.u.send.dest_rank = prm->dest;
@@ -359,7 +378,7 @@ int handleDUMPIIRecv(const dumpi_irecv *prm, uint16_t thread, const dumpi_time *
 	wrkld_per_rank.u.recv.data_type = prm->datatype;
 	wrkld_per_rank.u.recv.count = prm->count;
 	wrkld_per_rank.u.recv.tag = prm->tag;
-        wrkld_per_rank.u.recv.num_bytes = prm->count * get_num_bytes(prm->datatype);
+        wrkld_per_rank.u.recv.num_bytes = prm->count * get_num_bytes(myctx,prm->datatype);
 	    
         assert(wrkld_per_rank.u.recv.num_bytes >= 0);
         wrkld_per_rank.u.recv.source_rank = prm->source;
@@ -381,7 +400,7 @@ int handleDUMPISend(const dumpi_send *prm, uint16_t thread,
 	    wrkld_per_rank.u.send.tag = prm->tag;
         wrkld_per_rank.u.send.count = prm->count;
         wrkld_per_rank.u.send.data_type = prm->datatype;
-        wrkld_per_rank.u.send.num_bytes = prm->count * get_num_bytes(prm->datatype);
+        wrkld_per_rank.u.send.num_bytes = prm->count * get_num_bytes(myctx,prm->datatype);
 	    assert(wrkld_per_rank.u.send.num_bytes >= 0);
         wrkld_per_rank.u.send.dest_rank = prm->dest;
         wrkld_per_rank.u.send.source_rank = myctx->my_rank;
@@ -403,7 +422,7 @@ int handleDUMPIRecv(const dumpi_recv *prm, uint16_t thread,
     wrkld_per_rank.u.recv.tag = prm->tag;
     wrkld_per_rank.u.recv.count = prm->count;
     wrkld_per_rank.u.recv.data_type = prm->datatype;
-    wrkld_per_rank.u.recv.num_bytes = prm->count * get_num_bytes(prm->datatype);
+    wrkld_per_rank.u.recv.num_bytes = prm->count * get_num_bytes(myctx,prm->datatype);
 	assert(wrkld_per_rank.u.recv.num_bytes >= 0);
         wrkld_per_rank.u.recv.source_rank = prm->source;
         wrkld_per_rank.u.recv.dest_rank = -1;
@@ -411,6 +430,41 @@ int handleDUMPIRecv(const dumpi_recv *prm, uint16_t thread,
         update_times_and_insert(&wrkld_per_rank, wall, myctx);
         return 0;
 
+}
+
+int handleDUMPISendrecv(const dumpi_sendrecv* prm, uint16_t thread,
+			const dumpi_time *cpu, const dumpi_time *wall,
+			const dumpi_perfinfo *perf, void *uarg)
+{
+	rank_mpi_context* myctx = (rank_mpi_context*)uarg;
+
+	{
+		struct codes_workload_op wrkld_per_rank;
+		wrkld_per_rank.op_type = CODES_WK_SEND;
+		wrkld_per_rank.u.send.tag = prm->sendtag;
+		wrkld_per_rank.u.send.count = prm->sendcount;
+		wrkld_per_rank.u.send.data_type = prm->sendtype;
+		wrkld_per_rank.u.send.num_bytes = prm->sendcount * get_num_bytes(myctx,prm->sendtype);
+		assert(wrkld_per_rank.u.send.num_bytes >= 0);
+		wrkld_per_rank.u.send.dest_rank = prm->dest;
+		wrkld_per_rank.u.send.source_rank = myctx->my_rank;
+		wrkld_per_rank.u.send.req_id = -1;
+		update_times_and_insert(&wrkld_per_rank, wall, myctx);
+	}
+
+	{
+		struct codes_workload_op wrkld_per_rank;
+		wrkld_per_rank.op_type = CODES_WK_RECV;
+		wrkld_per_rank.u.recv.tag = prm->recvtag;
+		wrkld_per_rank.u.recv.count = prm->recvcount;
+		wrkld_per_rank.u.recv.data_type = prm->recvtype;
+		wrkld_per_rank.u.recv.num_bytes = prm->recvcount * get_num_bytes(myctx,prm->recvtype);
+		assert(wrkld_per_rank.u.recv.num_bytes >= 0);
+		wrkld_per_rank.u.recv.source_rank = prm->source;
+		wrkld_per_rank.u.recv.dest_rank = -1;
+		update_times_and_insert(&wrkld_per_rank, wall, myctx);
+	}
+	return 0;
 }
 
 int handleDUMPIBcast(const dumpi_bcast *prm, uint16_t thread,
@@ -421,7 +475,7 @@ int handleDUMPIBcast(const dumpi_bcast *prm, uint16_t thread,
 	struct codes_workload_op wrkld_per_rank;
 
         wrkld_per_rank.op_type = CODES_WK_BCAST;
-        wrkld_per_rank.u.collective.num_bytes = prm->count * get_num_bytes(prm->datatype);
+        wrkld_per_rank.u.collective.num_bytes = prm->count * get_num_bytes(myctx,prm->datatype);
 	assert(wrkld_per_rank.u.collective.num_bytes >= 0);
 
         update_times_and_insert(&wrkld_per_rank, wall, myctx);
@@ -436,7 +490,7 @@ int handleDUMPIAllgather(const dumpi_allgather *prm, uint16_t thread,
 	struct codes_workload_op wrkld_per_rank;
 
         wrkld_per_rank.op_type = CODES_WK_ALLGATHER;
-        wrkld_per_rank.u.collective.num_bytes = prm->sendcount * get_num_bytes(prm->sendtype);
+        wrkld_per_rank.u.collective.num_bytes = prm->sendcount * get_num_bytes(myctx,prm->sendtype);
 	assert(wrkld_per_rank.u.collective.num_bytes > 0);
 
         update_times_and_insert(&wrkld_per_rank, wall, myctx);
@@ -451,7 +505,7 @@ int handleDUMPIAllgatherv(const dumpi_allgatherv *prm, uint16_t thread,
 	struct codes_workload_op wrkld_per_rank;
 
         wrkld_per_rank.op_type = CODES_WK_ALLGATHERV;
-        wrkld_per_rank.u.collective.num_bytes = prm->sendcount * get_num_bytes(prm->sendtype);
+        wrkld_per_rank.u.collective.num_bytes = prm->sendcount * get_num_bytes(myctx,prm->sendtype);
 	assert(wrkld_per_rank.u.collective.num_bytes > 0);
 
         update_times_and_insert(&wrkld_per_rank, wall, myctx);
@@ -466,7 +520,7 @@ int handleDUMPIAlltoall(const dumpi_alltoall *prm, uint16_t thread,
 	struct codes_workload_op wrkld_per_rank;
 
         wrkld_per_rank.op_type = CODES_WK_ALLTOALL;
-        wrkld_per_rank.u.collective.num_bytes = prm->sendcount * get_num_bytes(prm->sendtype);
+        wrkld_per_rank.u.collective.num_bytes = prm->sendcount * get_num_bytes(myctx,prm->sendtype);
 	assert(wrkld_per_rank.u.collective.num_bytes > 0);
 
         update_times_and_insert(&wrkld_per_rank, wall, myctx);
@@ -481,7 +535,7 @@ int handleDUMPIAlltoallv(const dumpi_alltoallv *prm, uint16_t thread,
 	struct codes_workload_op wrkld_per_rank;
 
         wrkld_per_rank.op_type = CODES_WK_ALLTOALLV;
-        wrkld_per_rank.u.collective.num_bytes = prm->sendcounts[0] * get_num_bytes(prm->sendtype);
+        wrkld_per_rank.u.collective.num_bytes = prm->sendcounts[0] * get_num_bytes(myctx,prm->sendtype);
 	assert(wrkld_per_rank.u.collective.num_bytes > 0);
 
         update_times_and_insert(&wrkld_per_rank, wall, myctx);
@@ -496,7 +550,7 @@ int handleDUMPIReduce(const dumpi_reduce *prm, uint16_t thread,
 	struct codes_workload_op wrkld_per_rank;
 
         wrkld_per_rank.op_type = CODES_WK_REDUCE;
-        wrkld_per_rank.u.collective.num_bytes = prm->count * get_num_bytes(prm->datatype);
+        wrkld_per_rank.u.collective.num_bytes = prm->count * get_num_bytes(myctx,prm->datatype);
 	assert(wrkld_per_rank.u.collective.num_bytes > 0);
 
         update_times_and_insert(&wrkld_per_rank, wall, myctx);
@@ -511,7 +565,7 @@ int handleDUMPIAllreduce(const dumpi_allreduce *prm, uint16_t thread,
 	struct codes_workload_op wrkld_per_rank;
 
         wrkld_per_rank.op_type = CODES_WK_ALLREDUCE;
-        wrkld_per_rank.u.collective.num_bytes = prm->count * get_num_bytes(prm->datatype);
+        wrkld_per_rank.u.collective.num_bytes = prm->count * get_num_bytes(myctx,prm->datatype);
 	assert(wrkld_per_rank.u.collective.num_bytes > 0);
 
         update_times_and_insert(&wrkld_per_rank, wall, myctx);
@@ -550,7 +604,6 @@ static int hash_rank_compare(void *key, struct qhash_head *link)
     tmp = qhash_entry(link, rank_mpi_context, hash_link);
     if (tmp->my_rank == in->rank && tmp->my_app_id == in->app)
         return 1;
-
     return 0;
 }
 
@@ -558,7 +611,10 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 {
 	libundumpi_callbacks callbacks;
 	libundumpi_cbpair callarr[DUMPI_END_OF_STREAM];
-	dumpi_profile* profile;
+#ifdef ENABLE_CORTEX
+	libundumpi_cbpair transarr[DUMPI_END_OF_STREAM];
+#endif
+	PROFILE_TYPE profile;
 	dumpi_trace_params* dumpi_params = (dumpi_trace_params*)params;
 	char file_name[MAX_LENGTH];
 
@@ -589,7 +645,12 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
              sprintf(file_name, "%s0%d.bin", dumpi_params->file_name, rank);
              else
               sprintf(file_name, "%s%d.bin", dumpi_params->file_name, rank);
+#ifdef ENABLE_CORTEX
+	profile = cortex_undumpi_open(file_name, app_id, dumpi_params->num_net_traces, rank);
+#else
 	profile =  undumpi_open(file_name);
+#endif
+        my_ctx->profile = profile;
         if(NULL == profile) {
                 printf("Error: unable to open DUMPI trace: %s", file_name);
                 exit(-1);
@@ -597,6 +658,9 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	
 	memset(&callbacks, 0, sizeof(libundumpi_callbacks));
         memset(&callarr, 0, sizeof(libundumpi_cbpair) * DUMPI_END_OF_STREAM);
+#ifdef ENABLE_CORTEX
+	memset(&transarr, 0, sizeof(libundumpi_cbpair) * DUMPI_END_OF_STREAM);
+#endif
 
 	/* handle MPI function calls */	        
         callbacks.on_init = handleDUMPIInit;
@@ -635,7 +699,7 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	callbacks.on_recv_init = (dumpi_recv_init_call)handleDUMPIIgnore;
 	callbacks.on_start = (dumpi_start_call)handleDUMPIIgnore;
 	callbacks.on_startall = (dumpi_startall_call)handleDUMPIIgnore;
-	callbacks.on_sendrecv = (dumpi_sendrecv_call)handleDUMPIIgnore;
+	callbacks.on_sendrecv = (dumpi_sendrecv_call)handleDUMPISendrecv;
 	callbacks.on_sendrecv_replace = (dumpi_sendrecv_replace_call)handleDUMPIIgnore;
 	callbacks.on_type_contiguous = (dumpi_type_contiguous_call)handleDUMPIIgnore;
 	callbacks.on_barrier = (dumpi_barrier_call)handleDUMPIIgnore;
@@ -662,9 +726,20 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 
         libundumpi_populate_callbacks(&callbacks, callarr);
 
-        dumpi_start_stream_read(profile);
+#ifdef ENABLE_CORTEX
+#ifdef ENABLE_CORTEX_PYTHON
+	libundumpi_populate_callbacks(CORTEX_PYTHON_TRANSLATION, transarr);
+#else
+	libundumpi_populate_callbacks(CORTEX_MPICH_TRANSLATION, transarr);
+#endif
+#endif
+        DUMPI_START_STREAM_READ(profile);
         //dumpi_header* trace_header = undumpi_read_header(profile);
         //dumpi_free_header(trace_header);
+
+#ifdef ENABLE_CORTEX_PYTHON
+	cortex_python_set_module(dumpi_params->cortex_script,dumpi_params->cortex_class);
+#endif
 
         int finalize_reached = 0;
         int active = 1;
@@ -672,9 +747,13 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
         while(active && !finalize_reached)
         {
            num_calls++;
+#ifdef ENABLE_CORTEX
+	   active = cortex_undumpi_read_single_call(profile, callarr, transarr, (void*)my_ctx, &finalize_reached);
+#else
            active = undumpi_read_single_call(profile, callarr, (void*)my_ctx, &finalize_reached);
+#endif
         }
-	undumpi_close(profile);
+	UNDUMPI_CLOSE(profile);
 	dumpi_finalize_mpi_op_data(my_ctx->dumpi_mpi_array);
 	/* add this rank context to hash table */	
         rank_mpi_compare cmp;
@@ -686,8 +765,11 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	return 0;
 }
 
-static int64_t get_num_bytes(dumpi_datatype dt)
+static int64_t get_num_bytes(rank_mpi_context* myctx, dumpi_datatype dt)
 {
+#ifdef ENABLE_CORTEX
+   return cortex_datatype_get_size(myctx->profile,dt);
+#endif
    switch(dt)
    {
 	case DUMPI_DATATYPE_ERROR:

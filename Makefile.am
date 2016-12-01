@@ -39,6 +39,12 @@ include $(top_srcdir)/src/Makefile.subdir
 include $(top_srcdir)/tests/Makefile.subdir
 include $(top_srcdir)/doc/Makefile.subdir
 
+if USE_DEBUG
+AM_CPPFLAGS += -g
+AM_CFLAGS   += -g
+AM_CXXFLAGS += -g
+endif
+
 if USE_DARSHAN
 AM_CPPFLAGS += ${DARSHAN_CFLAGS} -DUSE_DARSHAN=1
 src_libcodes_la_SOURCES += src/workload/methods/codes-darshan-io-wrkld.c
@@ -55,4 +61,17 @@ if USE_DUMPI
 AM_CPPFLAGS += ${DUMPI_CFLAGS} -DUSE_DUMPI=1
 src_libcodes_la_SOURCES += src/workload/methods/codes-dumpi-trace-nw-wrkld.c
 LDADD += ${DUMPI_LIBS}
+if USE_CORTEX
+if USE_PYTHON
+if USE_CORTEX_PYTHON
+AM_CPPFLAGS += ${CORTEX_PYTHON_CFLAGS} -DENABLE_CORTEX_PYTHON=1
+LDADD += ${CORTEX_PYTHON_LIBS}
+AM_CPPFLAGS += ${PYTHON_CFLAGS}
+LDADD += ${PYTHON_LIBS}
 endif
+endif
+AM_CPPFLAGS += ${CORTEX_CFLAGS} -DENABLE_CORTEX=1
+LDADD += ${CORTEX_LIBS}
+endif
+endif
+
