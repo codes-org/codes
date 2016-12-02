@@ -112,13 +112,17 @@ void rb_svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer)
     memcpy(buffer, &type, sizeof(type));
     if(type < 0 || type > 3)
     {
+        tw_event *cev = (tw_event*)(m - 1);
         char grp_name[64];
+        char src_lp_type_name[64];
         char dest_lp_type_name[64];
         char ann[64];
         int grp_index, lp_type_idx, rid, offs;
+        codes_mapping_get_lp_info(cev->send_lp, grp_name, &grp_index, src_lp_type_name,
+                &lp_type_idx, ann, &rid, &offs);
         codes_mapping_get_lp_info(lp->gid, grp_name, &grp_index, dest_lp_type_name,
                 &lp_type_idx, ann, &rid, &offs);
-        printf("dest: %s, recv_ts= %f, evtype: %d\n", dest_lp_type_name, tw_now(lp), type);
+        printf("src: %s, dest: %s, recv_ts= %f, evtype: %d\n", src_lp_type_name, dest_lp_type_name, tw_now(lp), m->svr_event_type);
     }
 }
 
