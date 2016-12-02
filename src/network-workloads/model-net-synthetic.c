@@ -15,6 +15,7 @@
 #include "codes/codes_mapping.h"
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
+#include "codes/net/dragonfly.h"
 
 #define PAYLOAD_SZ 2048
 
@@ -105,17 +106,27 @@ tw_lptype svr_lp = {
     sizeof(svr_state),
 };
 
-void rb_svr_event_collect(svr_msg *m, char *buffer)
+void rb_svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer)
 {
     int type = (int) m->svr_event_type;
     memcpy(buffer, &type, sizeof(type));
+    if(type < 0 || type > 3)
+    {
+        char grp_name[64];
+        char dest_lp_type_name[64];
+        char ann[64];
+        int grp_index, lp_type_idx, rid, offs;
+        codes_mapping_get_lp_info(lp->gid, grp_name, &grp_index, dest_lp_type_name,
+                &lp_type_idx, ann, &rid, &offs);
+        printf("dest: %s, recv_ts= %f, evtype: %d\n", dest_lp_type_name, tw_now(lp), type);
+    }
 }
 
 st_event_collect svr_event_types[] = {
     {(rbev_col_f) rb_svr_event_collect,
      sizeof(int),
-     (ev_col_f) NULL,
-     0},
+     (ev_col_f) rb_svr_event_collect,
+     sizeof(int)},
     {0}
 };
 
@@ -388,7 +399,7 @@ int main(
     model_net_register();
     svr_add_lp_type();
 
-    if (g_st_ev_rb_collect)
+    if (g_st_ev_rb_collect || g_st_ev_collect)
     {
         dragonfly_register_evcol();
         router_register_evcol();

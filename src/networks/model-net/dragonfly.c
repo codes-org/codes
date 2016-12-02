@@ -3256,17 +3256,31 @@ tw_lptype dragonfly_lps[] =
    {NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0},
 };
 
-void rb_event_collect(terminal_message *m, char *buffer)
+void rb_event_collect(terminal_message *m, tw_lp *lp, char *buffer)
 {
     int type = (int) m->type;
     memcpy(buffer, &type, sizeof(type));
+    if(type < 0 || type > 10)
+    {
+        tw_event *cev = (tw_event*)(m - 1);
+        char grp_name[64];
+        char src_lp_type_name[64];
+        char dest_lp_type_name[64];
+        char ann[64];
+        int grp_index, lp_type_idx, rid, offs;
+        codes_mapping_get_lp_info(cev->send_lp, grp_name, &grp_index, src_lp_type_name,
+                &lp_type_idx, ann, &rid, &offs);
+        codes_mapping_get_lp_info(lp->gid, grp_name, &grp_index, dest_lp_type_name,
+                &lp_type_idx, ann, &rid, &offs);
+        printf("src: %s, dest: %s, recv_ts= %f, evtype: %d\n", src_lp_type_name, dest_lp_type_name, tw_now(lp), m->type);
+    }
 }
 
 st_event_collect event_types[] = {
     {(rbev_col_f) rb_event_collect,
      sizeof(int),
-     (ev_col_f) NULL,
-     0},
+     (ev_col_f) rb_event_collect,
+     sizeof(int)},
     {0}
 };
 

@@ -489,7 +489,7 @@ static void codes_mapping_init(void)
          else
              /* sorry, const... */
              tw_lp_settype(ross_lid, (tw_lptype*) lptype);
-         if (g_st_ev_rb_collect)
+         if (g_st_ev_rb_collect || g_st_ev_collect)
          {
              ev_type = evcol_type_lookup(lp_type_name);
              st_evcol_settype(ross_lid, (st_event_collect*) ev_type);

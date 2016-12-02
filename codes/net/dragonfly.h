@@ -13,8 +13,8 @@ extern "C" {
 
 #include <ross.h>
 
-void dragonfly_register_evcol();
-void router_register_evcol();
+extern void dragonfly_register_evcol();
+extern void router_register_evcol();
 
 typedef struct terminal_message terminal_message;
 
