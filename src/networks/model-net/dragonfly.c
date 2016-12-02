@@ -3256,48 +3256,36 @@ tw_lptype dragonfly_lps[] =
    {NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0},
 };
 
-void rb_event_collect(terminal_message *m, tw_lp *lp, char *buffer)
+/* For ROSS event tracing */
+void dragonfly_event_collect(terminal_message *m, tw_lp *lp, char *buffer)
 {
     int type = (int) m->type;
     memcpy(buffer, &type, sizeof(type));
-    if(type < 0 || type > 10)
-    {
-        tw_event *cev = (tw_event*)(m - 1);
-        char grp_name[64];
-        char src_lp_type_name[64];
-        char dest_lp_type_name[64];
-        char ann[64];
-        int grp_index, lp_type_idx, rid, offs;
-        codes_mapping_get_lp_info(cev->send_lp, grp_name, &grp_index, src_lp_type_name,
-                &lp_type_idx, ann, &rid, &offs);
-        codes_mapping_get_lp_info(lp->gid, grp_name, &grp_index, dest_lp_type_name,
-                &lp_type_idx, ann, &rid, &offs);
-        printf("src: %s, dest: %s, recv_ts= %f, evtype: %d\n", src_lp_type_name, dest_lp_type_name, tw_now(lp), m->type);
-    }
 }
 
-st_event_collect event_types[] = {
-    {(rbev_col_f) rb_event_collect,
+st_trace_type dragonfly_trace_types[] = {
+    {(rbev_trace_f) dragonfly_event_collect,
      sizeof(int),
-     (ev_col_f) rb_event_collect,
+     (ev_trace_f) dragonfly_event_collect,
      sizeof(int)},
     {0}
 };
 
-static const st_event_collect  *dragonfly_get_event_type(void)
+static const st_trace_type  *dragonfly_get_trace_types(void)
 {
-    return(&event_types[0]);
+    return(&dragonfly_trace_types[0]);
 }
 
-void dragonfly_register_evcol(st_event_collect *base_type)
+static void dragonfly_register_trace(st_trace_type *base_type)
 {
-    ev_type_register(LP_CONFIG_NM_TERM, base_type);
+    trace_type_register(LP_CONFIG_NM_TERM, base_type);
 }
 
-void router_register_evcol(st_event_collect *base_type)
+static void router_register_trace(st_trace_type *base_type)
 {
-    ev_type_register(LP_CONFIG_NM_ROUT, base_type);
+    trace_type_register(LP_CONFIG_NM_ROUT, base_type);
 }
+/*** END of ROSS event tracing additions */
 
 /* returns the dragonfly lp type for lp registration */
 static const tw_lptype* dragonfly_get_cn_lp_type(void)
@@ -3334,9 +3322,9 @@ struct model_net_method dragonfly_method =
     .mn_sample_fn = (void*)dragonfly_sample_fn,    
     .mn_sample_rc_fn = (void*)dragonfly_sample_rc_fn,
     .mn_sample_init_fn = (void*)dragonfly_sample_init,
-    .mn_sample_fini_fn = (void*)dragonfly_sample_fin
-    .mn_ev_register = dragonfly_register_evcol,
-    .mn_get_event_type = dragonfly_get_event_type,
+    .mn_sample_fini_fn = (void*)dragonfly_sample_fin,
+    .mn_trace_register = dragonfly_register_trace,
+    .mn_get_trace_type = dragonfly_get_trace_types,
 };
 
 struct model_net_method dragonfly_router_method =
@@ -3355,7 +3343,7 @@ struct model_net_method dragonfly_router_method =
     .mn_sample_fn = (void*)dragonfly_rsample_fn,
     .mn_sample_rc_fn = (void*)dragonfly_rsample_rc_fn,
     .mn_sample_init_fn = (void*)dragonfly_rsample_init,
-    .mn_sample_fini_fn = (void*)dragonfly_rsample_fin
-    .mn_ev_register = router_register_evcol,
-    .mn_get_event_type = dragonfly_get_event_type,
+    .mn_sample_fini_fn = (void*)dragonfly_rsample_fin,
+    .mn_trace_register = router_register_trace,
+    .mn_get_trace_type = dragonfly_get_trace_types,
 };
