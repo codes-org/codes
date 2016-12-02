@@ -113,6 +113,19 @@ tw_lptype model_net_base_lp = {
     sizeof(model_net_base_state),
 };
 
+void mn_event_collect(model_net_wrap_msg *m, tw_lp *lp, char *buffer)
+{
+    int type = (int) m->h.event_type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+st_event_collect mn_event_types = {
+    (rbev_col_f) mn_event_collect,
+     sizeof(int),
+     (ev_col_f) mn_event_collect,
+     sizeof(int),
+};
+
 /**** END LP, EVENT PROCESSING FUNCTION DECLS ****/
 
 /**** BEGIN IMPLEMENTATIONS ****/
@@ -151,6 +164,13 @@ void model_net_base_register(int *do_config_nets){
                         &model_net_base_lp);
             else
                 method_array[i]->mn_register(&model_net_base_lp);
+            if (g_st_ev_rb_collect || g_st_ev_collect)
+            {
+                if (method_array[i]->mn_ev_register == NULL)
+                    ev_type_register(model_net_lp_config_names[i], &mn_event_types);
+                else
+                    method_array[i]->mn_ev_register(&mn_event_types);
+            }
         }
     }
 }

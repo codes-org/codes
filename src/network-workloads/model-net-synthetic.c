@@ -405,8 +405,8 @@ int main(
 
     if (g_st_ev_rb_collect || g_st_ev_collect)
     {
-        dragonfly_register_evcol();
-        router_register_evcol();
+        //dragonfly_register_evcol();
+        //router_register_evcol();
         svr_register_evcol();
     }
 

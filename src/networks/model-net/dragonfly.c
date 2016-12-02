@@ -3289,14 +3289,14 @@ static const st_event_collect  *dragonfly_get_event_type(void)
     return(&event_types[0]);
 }
 
-void dragonfly_register_evcol()
+void dragonfly_register_evcol(st_event_collect *base_type)
 {
-    ev_type_register(LP_CONFIG_NM_TERM, dragonfly_get_event_type());
+    ev_type_register(LP_CONFIG_NM_TERM, base_type);
 }
 
-void router_register_evcol()
+void router_register_evcol(st_event_collect *base_type)
 {
-    ev_type_register(LP_CONFIG_NM_ROUT, dragonfly_get_event_type());
+    ev_type_register(LP_CONFIG_NM_ROUT, base_type);
 }
 
 /* returns the dragonfly lp type for lp registration */
@@ -3335,6 +3335,8 @@ struct model_net_method dragonfly_method =
     .mn_sample_rc_fn = (void*)dragonfly_sample_rc_fn,
     .mn_sample_init_fn = (void*)dragonfly_sample_init,
     .mn_sample_fini_fn = (void*)dragonfly_sample_fin
+    .mn_ev_register = dragonfly_register_evcol,
+    .mn_get_event_type = dragonfly_get_event_type,
 };
 
 struct model_net_method dragonfly_router_method =
@@ -3354,4 +3356,6 @@ struct model_net_method dragonfly_router_method =
     .mn_sample_rc_fn = (void*)dragonfly_rsample_rc_fn,
     .mn_sample_init_fn = (void*)dragonfly_rsample_init,
     .mn_sample_fini_fn = (void*)dragonfly_rsample_fin
+    .mn_ev_register = router_register_evcol,
+    .mn_get_event_type = dragonfly_get_event_type,
 };
