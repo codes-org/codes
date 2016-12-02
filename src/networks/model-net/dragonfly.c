@@ -3256,6 +3256,35 @@ tw_lptype dragonfly_lps[] =
    {NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0},
 };
 
+void rb_event_collect(terminal_message *m, char *buffer)
+{
+    int type = (int) m->type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+st_event_collect event_types[] = {
+    {(rbev_col_f) rb_event_collect,
+     sizeof(int),
+     (ev_col_f) NULL,
+     0},
+    {0}
+};
+
+static const st_event_collect  *dragonfly_get_event_type(void)
+{
+    return(&event_types[0]);
+}
+
+void dragonfly_register_evcol()
+{
+    ev_type_register(LP_CONFIG_NM_TERM, dragonfly_get_event_type());
+}
+
+void router_register_evcol()
+{
+    ev_type_register(LP_CONFIG_NM_ROUT, dragonfly_get_event_type());
+}
+
 /* returns the dragonfly lp type for lp registration */
 static const tw_lptype* dragonfly_get_cn_lp_type(void)
 {

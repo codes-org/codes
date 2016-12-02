@@ -458,6 +458,7 @@ static void codes_mapping_init(void)
      tw_lpid nkp_per_pe = g_tw_nkp;
      tw_lpid         lpid, kpid;
      const tw_lptype *lptype;
+     const st_event_collect *ev_type;
 
      /* have 16 kps per pe, this is the optimized configuration for ROSS custom mapping */
      for(kpid = 0; kpid < nkp_per_pe; kpid++)
@@ -488,6 +489,11 @@ static void codes_mapping_init(void)
          else
              /* sorry, const... */
              tw_lp_settype(ross_lid, (tw_lptype*) lptype);
+         if (g_st_ev_rb_collect)
+         {
+             ev_type = evcol_type_lookup(lp_type_name);
+             st_evcol_settype(ross_lid, (st_event_collect*) ev_type);
+         }
      }
      return;
 }

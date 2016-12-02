@@ -21,6 +21,8 @@ const tw_lptype* lp_type_lookup(const char* name);
 /* register an LP with CODES/ROSS */
 void lp_type_register(const char* name, const tw_lptype* type);
 
+void ev_type_register(const char* name, const st_event_collect* type);
+const st_event_collect* evcol_type_lookup(const char* name);
 #ifdef __cplusplus
 }
 #endif

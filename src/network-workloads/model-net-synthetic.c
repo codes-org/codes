@@ -105,6 +105,30 @@ tw_lptype svr_lp = {
     sizeof(svr_state),
 };
 
+void rb_svr_event_collect(svr_msg *m, char *buffer)
+{
+    int type = (int) m->svr_event_type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+st_event_collect svr_event_types[] = {
+    {(rbev_col_f) rb_svr_event_collect,
+     sizeof(int),
+     (ev_col_f) NULL,
+     0},
+    {0}
+};
+
+static const st_event_collect  *svr_get_event_type(void)
+{
+    return(&svr_event_types[0]);
+}
+
+void svr_register_evcol()
+{
+    ev_type_register("server", svr_get_event_type());
+}
+
 const tw_optdef app_opt [] =
 {
         TWOPT_GROUP("Model net synthetic traffic " ),
@@ -363,6 +387,13 @@ int main(
 
     model_net_register();
     svr_add_lp_type();
+
+    if (g_st_ev_rb_collect)
+    {
+        dragonfly_register_evcol();
+        router_register_evcol();
+        svr_register_evcol();
+    }
 
     codes_mapping_setup();
 

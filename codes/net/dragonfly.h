@@ -13,6 +13,9 @@ extern "C" {
 
 #include <ross.h>
 
+void dragonfly_register_evcol();
+void router_register_evcol();
+
 typedef struct terminal_message terminal_message;
 
 /* this message is used for both dragonfly compute nodes and routers */
