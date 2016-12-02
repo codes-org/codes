@@ -1,24 +1,24 @@
 ************ Synthetic traffic with dragonfly network model **********
 - traffic patterns supported: uniform random, nearest group and nearest neighbor traffic.
-	- Uniform random traffic: sends messages to a randomly selected destination
+	- 1--> Uniform random traffic: sends messages to a randomly selected destination
       node. This traffic pattern is uniformly distributed throughout the
       network and gives a better performance with minimal routing as compared
       to non-minimal or adaptive routing.
-    - Nearest group traffic: with minimal routing, it sends traffic to the
+    - 2--> Nearest group traffic: with minimal routing, it sends traffic to the
       single global channel connecting two groups (it congests the network when
       using minimal routing).  This pattern performs better with non-minimal
       and adaptive routing algorithms.
-    - Nearest neighbor traffic: it sends traffic to the next node, potentially
+    - 3--> Nearest neighbor traffic: it sends traffic to the next node, potentially
       connected to the same router. 
 
 SAMPLING:
     - The modelnet_enable_sampling function takes a sampling interval "t" and
-      an end time. Over this end time, dragonfly model will collect compute
+      an end time in nanosecs. Over this end time, dragonfly model will collect compute
       node and router samples after every "t" simulated nanoseconds. The
-      sampling output files can be specified in the config file using
+      names of the sampling output files can be specified in the config file using
       cn_sample_file and rt_sample_file arguments. By default the compute node
       and router outputs will be sent to dragonfly-cn-sampling-%d.bin and
-      dragonfly-router-sampling-%d.bin. Corresponding metadata files for also
+      dragonfly-router-sampling-%d.bin. Corresponding metadata files are also
       generated that gives information on the file format, dragonfly
       configuration being used, router radix etc. 
       
@@ -26,20 +26,22 @@ SAMPLING:
       text format can be found at
       src/networks/model-net/read-dragonfly-sample.c (Note that the router
       radix aka RADIX needs to be tuned with the dragonfly configuration in the
-      utility to enable continguous array allocation).
+      utility to enable continguous array allocation. By default the radix is
+      set to 16 corresponding to a 1,056 node dragonfly network). The utility
+      can be built using mpicc and it expects the generated binary files to be
+      in the same directory when doing the translation from binary into text.
 
 HOW TO RUN:
 
 ROSS optimistic mode:
-mpirun -np 4 ./src/models/network-workloads/model-net-synthetic --sync=3
---traffic=3 --lp-io-dir=mn_synthetic --lp-io-use-suffix=1  --arrival_time=100.0
--- ../src/models/network-workloads/conf/modelnet-synthetic-dragonfly.conf
+mpirun -np 4 ./bin/model-net-synthetic --sync=3 --traffic=1
+--lp-io-dir=mn_synthetic --lp-io-use-suffix=1  --arrival_time=1000.0 --
+../src/network-workloads/conf/modelnet-synthetic-dragonfly.conf 
 
 ROSS serial mode:
-
-./src/models/network-workloads/model-net-synthetic --sync=1 --traffic=3
---lp-io-dir=mn_synthetic --lp-io-use-suffix=1  --arrival_time=100.0 --
-../src/models/network-workloads/conf/modelnet-synthetic-dragonfly.conf
+./bin/model-net-synthetic --sync=1 --traffic=1
+--lp-io-dir=mn_synthetic --lp-io-use-suffix=1  --arrival_time=1000.0 --
+../src/network-workloads/conf/modelnet-synthetic-dragonfly.conf 
 
 options:
 
@@ -53,11 +55,9 @@ num_msgs: number of messages generated per terminal. Each message has a size of
 traffic: 1 for uniform random traffic, 2 for nearest group traffic and 3 for
 nearest neighbor traffic.
 
-sampling-interval: if time-stepped series sampling is turned on, this parameter
-can be used to configure the sampling interval.
+sampling-interval: this parameter can be used to configure the sampling interval.
 
-sampling-end-time: if time-stepped series sampling is turned on, this parameter
-can be used to configure end time.
+sampling-end-time: this parameter can be used to configure end time.
 
 lp-io-dir: generates network traffic information on dragonfly terminals and
 routers. Here is information on individual files:

@@ -718,7 +718,6 @@ static void codes_exec_mpi_recv_rc(
         nw_message* m,
         tw_lp* lp)
 {
-	num_bytes_recvd -= m->rc.saved_num_bytes;
 	ns->recv_time = m->rc.saved_recv_time;
 	if(m->fwd.found_match >= 0)
 	  {
@@ -780,8 +779,6 @@ static void codes_exec_mpi_recv(
 
 	m->rc.saved_recv_time = s->recv_time;
     m->rc.saved_num_bytes = mpi_op->u.recv.num_bytes;
-
-	num_bytes_recvd += mpi_op->u.recv.num_bytes;
 
     mpi_msgs_queue * recv_op = (mpi_msgs_queue*) malloc(sizeof(mpi_msgs_queue));
     recv_op->req_init_time = tw_now(lp);
@@ -990,6 +987,7 @@ static void update_arrival_queue_rc(nw_state* s,
 {
 	s->recv_time = m->rc.saved_recv_time;
     s->num_bytes_recvd -= m->fwd.num_bytes;
+    num_bytes_recvd -= m->fwd.num_bytes;
 
     codes_local_latency_reverse(lp);
 
@@ -1045,6 +1043,7 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
     //    printf("\n Dest rank %d local rank %d ", m->fwd.dest_rank, s->local_rank);
 	m->rc.saved_recv_time = s->recv_time;
     s->num_bytes_recvd += m->fwd.num_bytes;
+    num_bytes_recvd += m->fwd.num_bytes;
 
     // send a callback to the sender to increment times
     // find the global id of the source
@@ -1270,7 +1269,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 			if(m->op_type == CODES_WK_ISEND)
 				codes_issue_next_event_rc(lp);
 			s->num_sends--;
-            s->num_bytes_sent += m->rc.saved_num_bytes;
+            s->num_bytes_sent -= m->rc.saved_num_bytes;
 			num_bytes_sent -= m->rc.saved_num_bytes;
 		}
 		break;
@@ -1703,7 +1702,9 @@ int main( int argc, char** argv )
    assert(num_net_traces);
 
    if(!g_tw_mynode)
-	printf("\n Total bytes sent %llu recvd %llu \n max runtime %lf ns avg runtime %lf \n max comm time %lf avg comm time %lf \n max send time %lf avg send time %lf \n max recv time %lf avg recv time %lf \n max wait time %lf avg wait time %lf \n", total_bytes_sent, total_bytes_recvd,
+	printf("\n Total bytes sent %llu recvd %llu \n max runtime %lf ns avg runtime %lf \n max comm time %lf avg comm time %lf \n max send time %lf avg send time %lf \n max recv time %lf avg recv time %lf \n max wait time %lf avg wait time %lf \n", 
+            total_bytes_sent, 
+            total_bytes_recvd,
 			max_run_time, avg_run_time/num_net_traces,
 			max_comm_run_time, avg_comm_run_time/num_net_traces,
 			total_max_send_time, total_avg_send_time/num_net_traces,
