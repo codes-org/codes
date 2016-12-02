@@ -54,8 +54,9 @@ struct codes_jobmap_params_list jobmap_p;
 /* Variables for Cortex Support */
 /* Matthieu's additions start */
 #ifdef ENABLE_CORTEX_PYTHON
-static char cortex_file[512];
-static char cortex_class[512];
+static char cortex_file[512] = "\0";
+static char cortex_class[512] = "\0";
+static char cortex_gen[512] = "\0";
 #endif
 /* Matthieu's additions end */
 
@@ -1157,6 +1158,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 #ifdef ENABLE_CORTEX_PYTHON
 	strcpy(params_d.cortex_script, cortex_file);
 	strcpy(params_d.cortex_class, cortex_class);
+	strcpy(params_d.cortex_gen, cortex_gen);
 #endif
    }
 
@@ -1531,6 +1533,7 @@ const tw_optdef app_opt [] =
 #ifdef ENABLE_CORTEX_PYTHON
 	TWOPT_CHAR("cortex-file", cortex_file, "Python file (without .py) containing the CoRtEx translation class"),
 	TWOPT_CHAR("cortex-class", cortex_class, "Python class implementing the CoRtEx translator"),
+	TWOPT_CHAR("cortex-gen", cortex_gen, "Python function to pre-generate MPI events"),
 #endif
 	TWOPT_END()
 };
