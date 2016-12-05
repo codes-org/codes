@@ -1,15 +1,16 @@
 ## README for using ROSS instrumentation in CODES
 
-For details about the ROSS instrumentation, see the README-vis.md file in the [ROSS repo](https://ross.cs.rpi.edu).
-The instrumentation is still underdevelopment and the vis2 branch must be checked out to use it. 
+For details about the ROSS instrumentation, see the [ROSS Instrumentation blog post](http://carothersc.github.io/ROSS/feature/instrumentation.html) on the ROSS webpage.
+The instrumentation will be merged into the master branch of the ROSS repo very soon.  
 
 There are currently 3 types of instrumentation: GVT-based, real time, and event tracing.  See the ROSS documentation for more info on
 the specific options or use `--help` with your model.  The GVT-based and real time sampling do not require any changes to your model code.
-The event tracing does in order to get specific model event types.  This document describes how to do it.
+The event tracing will run without any changes, but some additions to the model code is needed in order to get specific model event types.  
+This document describes how to do it.
 
 ### Register LP event tracing function
 
-The examples here are based on the server LP for the synthetic workload generation for dragonfly (src/network-workloads/model-net-synthetic.c).
+The examples here are based on the server LP for the synthetic workload generation for dragonfly (`src/network-workloads/model-net-synthetic.c`).
 
 As described in the ROSS Vis documentation, we need to first add our function that will save the event type (and any other desired data) to the
 buffer location provided by ROSS.
@@ -72,7 +73,7 @@ That's all you need to add for each LP.
 
 ### Model Net LPs
 In addition to the dragonfly synthetic server LP, I've already added in the necessary changes for both the model net base LP type and dragonfly (both router and terminal LPs),
-so no other changes need to be made to those LPs.  
+so no other changes need to be made to those LPs. (Unless you want to collect some additional data.) 
 For any other network LPs that are based on the model net base LP type, there are a few additional details to know.
 There are two fields added to the `model_net_method` struct for pointers to the trace registration functions for each LP.
 
