@@ -5,7 +5,7 @@ if [ -z $srcdir ]; then
               exit 1
  fi
 
-src/network-workloads/model-net-synthetic-fattree --sync=1 --num_messages=1 -- $srcdir/src/network-workloads/conf/modelnet-synthetic-fattree.conf 
+src/network-workloads/model-net-synthetic-fattree --sync=1 -- $srcdir/src/network-workloads/conf/modelnet-synthetic-fattree.conf 
 
 
 
