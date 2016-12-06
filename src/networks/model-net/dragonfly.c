@@ -2341,7 +2341,7 @@ dragonfly_terminal_final( terminal_state * s,
         sprintf(meta_fname, "dragonfly-msg-stats.meta");
 
         FILE * fp = fopen(meta_fname, "w");
-        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>");
+        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Aggregate packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>");
 
         fclose(fp);
     }
