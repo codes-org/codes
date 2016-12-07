@@ -144,7 +144,7 @@ if [ test "x${with_python}" != "x" -a "x${with_boost}" != "x"] ; then
                 AM_CONDITIONAL(USE_PYTHON, true),
                 AC_MSG_ERROR(Could not find Python and/or Boost-Python libraries))
         PYTHON_CFLAGS="-I${with_python}/include -I${with_boost}/include"
-        PYTHON_LIBS="-L${with_boost}/lib -lboost_python -L${with_python}/lib/ -lpython2.7 -ldl -lutil"
+        PYTHON_LIBS="-L${with_boost}/lib -lboost_python -L${with_python}/lib/ -lpython2.7"
         AC_SUBST(PYTHON_LIBS)
         AC_SUBST(PYTHON_CFLAGS)
 else
