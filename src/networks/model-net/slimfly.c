@@ -25,7 +25,7 @@
 #define MEAN_PROCESS 1.0
 
 /* collective specific parameters */
-#define DFLY_HASH_TABLE_SIZE 5000
+#define SFLY_HASH_TABLE_SIZE 5000
 
 // debugging parameters
 #define TRACK 4
@@ -1615,6 +1615,9 @@ void slim_packet_arrive_rc(terminal_state * s, tw_bf * bf, slim_terminal_message
 	    struct sfly_qhash_entry * d_entry_pop = msg->saved_hash;
             qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
             s->rank_tbl_pop++;
+            
+            if(s->rank_tbl_pop >= SFLY_HASH_TABLE_SIZE)
+                tw_error(TW_LOC, "\n Exceeded allocated qhash size, increase hash size in slim fly model");
 
             hash_link = qhash_search(s->rank_tbl, &key);
             tmp = qhash_entry(hash_link, struct sfly_qhash_entry, hash_link);
@@ -1665,7 +1668,7 @@ void slim_packet_arrive(terminal_state * s, tw_bf * bf, slim_terminal_message * 
 
   
   if(!s->rank_tbl)
-     s->rank_tbl = qhash_init(slimfly_rank_hash_compare, slimfly_hash_func, DFLY_HASH_TABLE_SIZE);
+     s->rank_tbl = qhash_init(slimfly_rank_hash_compare, slimfly_hash_func, SFLY_HASH_TABLE_SIZE);
   tw_stime ts = g_tw_lookahead + s->params->credit_delay + tw_rand_unif(lp->rng);
 
   if(msg->packet_ID == TRACK)
@@ -1802,6 +1805,9 @@ void slim_packet_arrive(terminal_state * s, tw_bf * bf, slim_terminal_message * 
        d_entry->remote_event_size = 0;
        qhash_add(s->rank_tbl, &key, &(d_entry->hash_link));
        s->rank_tbl_pop++;
+            
+       if(s->rank_tbl_pop >= SFLY_HASH_TABLE_SIZE)
+           tw_error(TW_LOC, "\n Exceeded allocated qhash size, increase hash size in slimfly model");
 
        hash_link = qhash_search(s->rank_tbl, &key);
        tmp = qhash_entry(hash_link, struct sfly_qhash_entry, hash_link);

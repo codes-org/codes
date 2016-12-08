@@ -1436,6 +1436,9 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * 
             qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
             s->rank_tbl_pop++; 
 
+            if(s->rank_tbl_pop >= DFLY_HASH_TABLE_SIZE)
+                tw_error(TW_LOC, "\n Exceeded allocated qhash size, increase hash size in dragonfly model");
+
             hash_link = &(d_entry_pop->hash_link);
             tmp = d_entry_pop; 
 
@@ -1623,6 +1626,9 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg
        d_entry->remote_event_size = 0;
        qhash_add(s->rank_tbl, &key, &(d_entry->hash_link));
        s->rank_tbl_pop++;
+            
+       if(s->rank_tbl_pop >= DFLY_HASH_TABLE_SIZE)
+            tw_error(TW_LOC, "\n Exceeded allocated qhash size, increase hash size in dragonfly model");
       
        hash_link = &(d_entry->hash_link);
        tmp = d_entry;
