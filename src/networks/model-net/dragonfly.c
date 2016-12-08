@@ -33,7 +33,7 @@
 #define COLLECTIVE_COMPUTATION_DELAY 5700
 #define DRAGONFLY_FAN_OUT_DELAY 20.0
 #define WINDOW_LENGTH 0
-#define DFLY_HASH_TABLE_SIZE 262144
+#define DFLY_HASH_TABLE_SIZE 5000
 
 // debugging parameters
 #define TRACK -1
@@ -757,11 +757,8 @@ terminal_init( terminal_state * s,
       s->vc_occupancy[i]=0;
     }
 
-   s->rank_tbl = qhash_init(dragonfly_rank_hash_compare, dragonfly_hash_func, DFLY_HASH_TABLE_SIZE);
 
-   if(!s->rank_tbl)
-       tw_error(TW_LOC, "\n Hash table not initialized! ");
-
+   s->rank_tbl = NULL;
    s->terminal_msgs = 
        (terminal_message_list**)malloc(1*sizeof(terminal_message_list*));
    s->terminal_msgs_tail = 
@@ -1439,6 +1436,9 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * 
             qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
             s->rank_tbl_pop++; 
 
+            if(s->rank_tbl_pop >= DFLY_HASH_TABLE_SIZE)
+                tw_error(TW_LOC, "\n Exceeded allocated qhash size, increase hash size in dragonfly model");
+
             hash_link = &(d_entry_pop->hash_link);
             tmp = d_entry_pop; 
 
@@ -1491,6 +1491,9 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg
     // NIC aggregation - should this be a separate function?
     // Trigger an event on receiving server
 
+    if(!s->rank_tbl)
+        s->rank_tbl = qhash_init(dragonfly_rank_hash_compare, dragonfly_hash_func, DFLY_HASH_TABLE_SIZE);
+    
     struct dfly_hash_key key;
     key.message_id = msg->message_id; 
     key.sender_id = msg->sender_lp;
@@ -1623,6 +1626,9 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_message * msg
        d_entry->remote_event_size = 0;
        qhash_add(s->rank_tbl, &key, &(d_entry->hash_link));
        s->rank_tbl_pop++;
+            
+       if(s->rank_tbl_pop >= DFLY_HASH_TABLE_SIZE)
+            tw_error(TW_LOC, "\n Exceeded allocated qhash size, increase hash size in dragonfly model");
       
        hash_link = &(d_entry->hash_link);
        tmp = d_entry;
@@ -2341,7 +2347,7 @@ dragonfly_terminal_final( terminal_state * s,
         sprintf(meta_fname, "dragonfly-msg-stats.meta");
 
         FILE * fp = fopen(meta_fname, "w");
-        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>");
+        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Aggregate packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>");
 
         fclose(fp);
     }
@@ -2351,7 +2357,7 @@ dragonfly_terminal_final( terminal_state * s,
         written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Aggregate packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>");
 
     written += sprintf(s->output_buf + written, "\n %llu %u %ld %lf %ld %lf %lf",
-            LLU(lp->gid), s->terminal_id, s->total_msg_size, s->total_time, 
+            LLU(lp->gid), s->terminal_id, s->total_msg_size, (double)s->total_time/s->finished_packets, 
             s->finished_packets, (double)s->total_hops/s->finished_chunks,
             s->busy_time);
 
@@ -2363,8 +2369,10 @@ dragonfly_terminal_final( terminal_state * s,
 
     //if(s->packet_gen != s->packet_fin)
     //    printf("\n generated %d finished %d ", s->packet_gen, s->packet_fin);
+   
+    if(s->rank_tbl)
+        qhash_finalize(s->rank_tbl);
     
-    qhash_finalize(s->rank_tbl);
     rc_stack_destroy(s->st);
     free(s->vc_occupancy);
     free(s->terminal_msgs);

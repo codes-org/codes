@@ -22,7 +22,7 @@
 
 #define DUMP_CONNECTIONS 0
 #define CREDIT_SIZE 8
-#define DFLY_HASH_TABLE_SIZE 262144
+#define DFLY_HASH_TABLE_SIZE 5000
 
 // debugging parameters
 #define TRACK -1
@@ -834,11 +834,8 @@ terminal_custom_init( terminal_state * s,
       s->vc_occupancy[i]=0;
     }
 
-   s->rank_tbl = qhash_init(dragonfly_rank_hash_compare, dragonfly_hash_func, DFLY_HASH_TABLE_SIZE);
 
-   if(!s->rank_tbl)
-       tw_error(TW_LOC, "\n Hash table not initialized! ");
-
+   s->rank_tbl = NULL;
    s->terminal_msgs = 
        (terminal_custom_message_list**)malloc(s->num_vcs*sizeof(terminal_custom_message_list*));
    s->terminal_msgs_tail = 
@@ -1426,6 +1423,9 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_custom_mes
 	        struct dfly_qhash_entry * d_entry_pop = (dfly_qhash_entry *)rc_stack_pop(s->st);
             qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
             s->rank_tbl_pop++; 
+            
+            if(s->rank_tbl_pop >= DFLY_HASH_TABLE_SIZE)
+                tw_error(TW_LOC, "\n Exceeded allocated qhash size, increase hash size in dragonfly model");
 
             hash_link = &(d_entry_pop->hash_link);
             tmp = d_entry_pop; 
@@ -1479,6 +1479,9 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
     // NIC aggregation - should this be a separate function?
     // Trigger an event on receiving server
 
+    if(!s->rank_tbl)
+        s->rank_tbl = qhash_init(dragonfly_rank_hash_compare, dragonfly_hash_func, DFLY_HASH_TABLE_SIZE);
+    
     struct dfly_hash_key key;
     key.message_id = msg->message_id; 
     key.sender_id = msg->sender_lp;
@@ -1611,6 +1614,9 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
        d_entry->remote_event_size = 0;
        qhash_add(s->rank_tbl, &key, &(d_entry->hash_link));
        s->rank_tbl_pop++;
+            
+       if(s->rank_tbl_pop >= DFLY_HASH_TABLE_SIZE)
+                tw_error(TW_LOC, "\n Exceeded allocated qhash size, increase hash size in dragonfly model");
       
        hash_link = &(d_entry->hash_link);
        tmp = d_entry;
@@ -2026,8 +2032,10 @@ dragonfly_custom_terminal_final( terminal_state * s,
 
     //if(s->packet_gen != s->packet_fin)
     //    printf("\n generated %d finished %d ", s->packet_gen, s->packet_fin);
+   
+    if(s->rank_tbl)
+        qhash_finalize(s->rank_tbl);
     
-    qhash_finalize(s->rank_tbl);
     rc_stack_destroy(s->st);
     free(s->vc_occupancy);
     free(s->terminal_msgs);
