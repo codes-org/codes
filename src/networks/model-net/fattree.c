@@ -17,7 +17,7 @@
 #define MEAN_PROCESS 1.0
 
 #define TERMINAL_GUID_PREFIX ((uint64_t)(64) << 32)
-#define FTREE_HASH_TABLE_SIZE 5000
+#define FTREE_HASH_TABLE_SIZE 4999
 
 // debugging parameters
 #define TRACK_PKT -1
