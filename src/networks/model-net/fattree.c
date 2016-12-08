@@ -17,7 +17,7 @@
 #define MEAN_PROCESS 1.0
 
 #define TERMINAL_GUID_PREFIX ((uint64_t)(64) << 32)
-#define FTREE_HASH_TABLE_SIZE 262144
+#define FTREE_HASH_TABLE_SIZE 5000
 
 // debugging parameters
 #define TRACK_PKT -1
@@ -965,9 +965,9 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
    s->in_send_loop = 0;
    s->issueIdle = 0;
 
-   s->rank_tbl = qhash_init(fattree_rank_hash_compare, fattree_hash_func, FTREE_HASH_TABLE_SIZE);
-   if(!s->rank_tbl)
-     tw_error(TW_LOC, "\n Hash table not initialized! ");
+   s->rank_tbl = NULL;
+   //if(!s->rank_tbl)
+   //  tw_error(TW_LOC, "\n Hash table not initialized! ");
 
    s->params->num_terminals = codes_mapping_get_lp_count(lp_group_name, 0,
       LP_CONFIG_NM, s->anno, 0);
@@ -2381,6 +2381,8 @@ void ft_packet_arrive_rc(ft_terminal_state * s, tw_bf * bf, fattree_message * ms
 void ft_packet_arrive(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     tw_lp * lp) {
 
+  if(!s->rank_tbl)  
+    s->rank_tbl = qhash_init(fattree_rank_hash_compare, fattree_hash_func, FTREE_HASH_TABLE_SIZE);
   //Establish msg hash keys
   struct ftree_hash_key key;
   key.message_id = msg->message_id;
