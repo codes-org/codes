@@ -1678,6 +1678,7 @@ void slim_packet_arrive_rc(terminal_state * s, tw_bf * bf, slim_terminal_message
 }
 void slim_send_remote_event(terminal_state * s, slim_terminal_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
 {
+    (void)s;
     void * tmp_ptr = model_net_method_get_edata(SLIMFLY, msg);
     tw_stime ts = g_tw_lookahead + tw_rand_unif(lp->rng);
 

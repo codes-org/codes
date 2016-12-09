@@ -52,7 +52,7 @@ struct  slim_terminal_message
    /* For routing */
    int intm_group_id;
    int intm_router_id;
-   int chunk_id;
+   uint64_t chunk_id;
    uint64_t packet_size;
    uint64_t message_id;
    uint64_t total_size;
