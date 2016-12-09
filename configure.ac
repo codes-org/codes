@@ -197,3 +197,5 @@ fi
 AC_CONFIG_FILES([Makefile])
 
 AC_OUTPUT([maint/codes.pc])
+AC_OUTPUT([src/network-workloads/conf/dragonfly-custom/modelnet-test-dragonfly-theta.conf])
+
