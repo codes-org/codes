@@ -208,6 +208,9 @@ struct terminal_state
    long finished_chunks;
    long finished_packets;
 
+   tw_stime last_buf_full;
+   tw_stime busy_time;
+
    char output_buf[512];
 };
 
@@ -263,6 +266,13 @@ struct router_state
    slim_terminal_message_list ***queued_msgs;
    slim_terminal_message_list ***queued_msgs_tail;
    int *in_send_loop;
+
+   tw_stime* last_buf_full;
+   tw_stime* busy_time;
+   tw_stime* busy_time_sample;
+
+   char output_buf[4096];
+   char output_buf2[4096];
 
    int** vc_occupancy;
    int* link_traffic;	//Aren't used
@@ -831,6 +841,9 @@ void slim_terminal_init( terminal_state * s,
    s->total_time = 0.0;
    s->total_msg_size = 0;
 
+   s->last_buf_full = 0;
+   s->busy_time = 0;
+
    rc_stack_create(&s->st);
    s->num_vcs = 1;
    s->vc_occupancy = (int*)malloc(s->num_vcs * sizeof(int));
@@ -904,6 +917,9 @@ void slim_router_setup(router_state * r, tw_lp * lp)
    r->queued_msgs_tail =
     (slim_terminal_message_list***)malloc(p->radix * sizeof(slim_terminal_message_list**));
 
+   r->last_buf_full = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
+   r->busy_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
+
    for(int i=0; i < p->radix; i++)
     {
        // Set credit & router occupancy
@@ -911,6 +927,9 @@ void slim_router_setup(router_state * r, tw_lp * lp)
         r->link_traffic[i]=0;
 	r->cur_hist_num[i] = 0;
 	r->prev_hist_num[i] = 0;
+
+        r->last_buf_full[i] = 0.0;
+        r->busy_time[i] = 0.0;
 
         r->in_send_loop[i] = 0;
         r->vc_occupancy[i] = (int*)malloc(p->num_vcs * sizeof(int));
@@ -1283,6 +1302,7 @@ void slim_packet_generate_rc(terminal_state * s, tw_bf * bf, slim_terminal_messa
 	if(bf->c11)
 	{
 		s->issueIdle = 0;
+        s->last_buf_full = msg->saved_busy_time;
 	}
 	struct mn_stats* stat;
 	stat = model_net_find_stats(msg->category, s->slimfly_stats_array);
@@ -1357,6 +1377,8 @@ void slim_packet_generate(terminal_state * s, tw_bf * bf, slim_terminal_message 
 	{
 		bf->c11 = 1;
 		s->issueIdle = 1;
+        msg->saved_busy_time = s->last_buf_full;
+        s->last_buf_full = tw_now(lp);
 	}
 
 	if(s->in_send_loop == 0)
@@ -1389,6 +1411,7 @@ void slim_packet_send_rc(terminal_state * s, tw_bf * bf, slim_terminal_message *
 {
       if(bf->c1) {
         s->in_send_loop = 1;
+        s->last_buf_full = msg->saved_busy_time;
         return;
       }
 
@@ -1414,6 +1437,11 @@ void slim_packet_send_rc(terminal_state * s, tw_bf * bf, slim_terminal_message *
       {
           codes_local_latency_reverse(lp);
           s->issueIdle = 1;
+          if(bf->c6)
+          {
+            s->busy_time = msg->saved_total_time;
+            s->last_buf_full = msg->saved_busy_time;
+          }
       }
       return;
 }
@@ -1434,6 +1462,8 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
 	{
 		bf->c1 = 1;
 		s->in_send_loop = 0;
+        msg->saved_busy_time = s->last_buf_full;
+        s->last_buf_full = tw_now(lp);
 		return;
 	}
 
@@ -1538,6 +1568,16 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
 		bf->c5 = 1;
 		s->issueIdle = 0;
 		model_net_method_idle_event(codes_local_latency(lp), 0, lp);
+
+        if(s->last_buf_full > 0.0)
+        {
+            bf->c6 = 1;
+            msg->saved_total_time = s->busy_time;
+            msg->saved_busy_time = s->last_buf_full;
+
+            s->busy_time += (tw_now(lp) - s->last_buf_full);
+            s->last_buf_full = 0.0;
+        }
 	}
 	return;
 }
@@ -1974,27 +2014,33 @@ void slimfly_terminal_final( terminal_state * s,
 
     int written = 0;
     if(!s->terminal_id)
-	{
-        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Avg Msg Size> <Avg Msg Time> <# Msgs finished>");
-#if PARAMS_LOG
-	//Insert output for general and slimfly specific stats/params
-	//Open file to append simulation results
-	char log[200];
-	sprintf( log, "slimfly-results-log.txt");
-	slimfly_results_log=fopen(log, "a");
-	if(slimfly_results_log == NULL)
-		tw_error(TW_LOC, "\n Failed to open slimfly results log file \n");
-	printf("Printing Simulation Parameters/Results Log File\n");
-	fprintf(slimfly_results_log," %9d.%d, %10.3d, %9.3d, %11.3d, %5.3d, %12.3d, %10.3d, %12.3d, %7.3d, %10.3d, %17.3d, %9.3d, %19.3d, %12.3f, %8.3d, ",s->params->num_global_channels+s->params->num_local_channels, s->params->num_cn,g_tw_synchronization_protocol, tw_nnodes(),(int)g_tw_ts_end,(int)g_tw_mblock,(int)g_tw_gvt_interval, (int)g_tw_nkp, s->params->slim_total_terminals,s->params->slim_total_terminals,s->params->slim_total_routers, routing, csf_ratio, num_indirect_routes, adaptive_threshold, s->params->num_vcs);
-	fclose(slimfly_results_log);
-#endif
-	}
+        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Total Packet Latency> <# Flits/Packets finished> <Avg hops> <Busy Time>");
 
-    written += sprintf(s->output_buf + written, "%llu %u %ld %lf %ld %ld %ld %lf\n", LLU(lp->gid), s->terminal_id, s->total_msg_size, s->total_time, s->finished_msgs, s->finished_packets, s->finished_chunks, (double)s->total_hops/s->finished_chunks);
+    written += sprintf(s->output_buf + written, "%llu %u %ld %lf %ld %lf %lf\n",
+            LLU(lp->gid), s->terminal_id, s->total_msg_size, s->total_time,
+            s->finished_packets, (double)s->total_hops/s->finished_chunks,
+            s->busy_time);
+
     lp_io_write(lp->gid, "slimfly-msg-stats", written, s->output_buf);
 
     if(s->terminal_msgs[0] != NULL)
 //      printf("[%lu] leftover terminal messages \n", lp->gid);
+
+    if(!s->terminal_id)
+	{
+#if PARAMS_LOG
+        //Insert output for general and slimfly specific stats/params
+        //Open file to append simulation results
+        char log[200];
+        sprintf( log, "slimfly-results-log.txt");
+        slimfly_results_log=fopen(log, "a");
+        if(slimfly_results_log == NULL)
+            tw_error(TW_LOC, "\n Failed to open slimfly results log file \n");
+        printf("Printing Simulation Parameters/Results Log File\n");
+        fprintf(slimfly_results_log," %9d.%d, %10.3d, %9.3d, %11.3d, %5.3d, %12.3d, %10.3d, %12.3d, %7.3d, %10.3d, %17.3d, %9.3d, %19.3d, %12.3f, %8.3d, ",s->params->num_global_channels+s->params->num_local_channels, s->params->num_cn,g_tw_synchronization_protocol, tw_nnodes(),(int)g_tw_ts_end,(int)g_tw_mblock,(int)g_tw_gvt_interval, (int)g_tw_nkp, s->params->slim_total_terminals,s->params->slim_total_terminals,s->params->slim_total_routers, routing, csf_ratio, num_indirect_routes, adaptive_threshold, s->params->num_vcs);
+        fclose(slimfly_results_log);
+#endif
+	}
 
     qhash_finalize(s->rank_tbl);
     rc_stack_destroy(s->st);
@@ -2036,6 +2082,46 @@ void slimfly_router_final(router_state * s,
         }
       }
     }
+    int written = 0;
+    if(s->router_id == 0)
+    {
+        /* write metadata file */
+/*        char meta_fname[64];
+        sprintf(meta_fname, "slimfly-msg-stats.meta");
+
+        FILE * fp = fopen(meta_fname, "w");
+        fprintf(fp, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
+        fprintf(fp, "# Router ports in the order: %d local channels, %d global channels", 
+                p->num_routers, p->num_global_channels);
+        fclose(fp);
+*/        written = sprintf(s->output_buf,"# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
+    }
+    written += sprintf(s->output_buf + written, "\n %llu %d %d", 
+            LLU(lp->gid),
+            s->group_id,
+            s->router_id);
+    for(int d = 0; d < s->params->num_local_channels + s->params->num_global_channels; d++) 
+        written += sprintf(s->output_buf + written, " %lf", s->busy_time[d]);
+
+    lp_io_write(lp->gid, "slimfly-router-stats", written, s->output_buf);
+
+    written = 0;
+    if(!s->router_id)
+    {
+        written = sprintf(s->output_buf2, "# Format <LP ID> <Group ID> <Router ID> <Link traffic per router port(s)>");
+        written += sprintf(s->output_buf2 + written, "# Router ports in the order: %d local channels, %d global channels",
+            s->params->num_local_channels, s->params->num_global_channels);
+    }
+    written += sprintf(s->output_buf2 + written, "\n %llu %d %d",
+        LLU(lp->gid),
+        s->group_id,
+        s->router_id);
+
+    for(int d = 0; d < s->params->num_local_channels + s->params->num_global_channels; d++) 
+        written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
+
+    assert(written < 4096);
+    lp_io_write(lp->gid, "slimfly-router-traffic", written, s->output_buf2);
 }
 
 /** Get the length (number of hops) in the route/path starting with a local src router to ending dest router
@@ -2832,6 +2918,7 @@ void slim_router_packet_receive_rc(router_state * s,
         }
       }
       if(bf->c4) {
+        s->last_buf_full[output_port] = msg->saved_busy_time;
         slim_delete_terminal_message_list(return_tail(s->queued_msgs[output_port],
           s->queued_msgs_tail[output_port], output_chan));
       }
@@ -3011,6 +3098,8 @@ int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
     cur_chunk->msg.saved_vc = msg->vc_index;
     cur_chunk->msg.saved_channel = msg->output_chan;
     append_to_terminal_message_list( s->queued_msgs[output_port], s->queued_msgs_tail[output_port], output_chan, cur_chunk);
+    msg->saved_busy_time = s->last_buf_full[output_port];
+    s->last_buf_full[output_port] = tw_now(lp);
   }
 
   msg->saved_vc = output_port;
@@ -3206,6 +3295,11 @@ void slim_router_buf_update_rc(router_state * s,
       int indx = msg->vc_index;
       int output_chan = msg->output_chan;
       s->vc_occupancy[indx][output_chan] += s->params->chunk_size;
+      if(bf->c3)
+      {
+        s->busy_time[indx] = msg->saved_rcv_time;
+        s->last_buf_full[indx] = msg->saved_busy_time;
+      }
       if(bf->c1) {
         slim_terminal_message_list* head = return_tail(s->pending_msgs[indx],
             s->pending_msgs_tail[indx], output_chan);
@@ -3225,6 +3319,16 @@ void slim_router_buf_update(router_state * s, tw_bf * bf, slim_terminal_message 
   int indx = msg->vc_index;
   int output_chan = msg->output_chan;
   s->vc_occupancy[indx][output_chan] -= s->params->chunk_size;
+
+  if(s->last_buf_full[indx])
+  {
+    bf->c3 = 1;
+    msg->saved_rcv_time = s->busy_time[indx];
+    msg->saved_busy_time = s->last_buf_full[indx];
+    s->busy_time[indx] += (tw_now(lp) - s->last_buf_full[indx]);
+    s->last_buf_full[indx] = 0.0;
+  }
+
 #if ROUTER_OCCUPANCY_LOG
 int index = floor(N_COLLECT_POINTS*(tw_now(lp)/g_tw_ts_end));
 	vc_occupancy_storage_router[s->router_id][indx][output_chan][index] = s->vc_occupancy[indx][output_chan]/s->params->chunk_size;
