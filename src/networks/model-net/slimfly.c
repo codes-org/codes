@@ -1327,7 +1327,7 @@ void slim_packet_generate(terminal_state * s, tw_bf * bf, slim_terminal_message 
 	if(!num_chunks)
 		num_chunks = 1;
 
-	nic_ts = g_tw_lookahead + s->params->cn_delay * msg->packet_size + tw_rand_unif(lp->rng);
+	nic_ts = g_tw_lookahead + (s->params->cn_delay * num_chunks) + tw_rand_unif(lp->rng);
 
 	msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
 	msg->my_N_hop = 0;
@@ -1467,16 +1467,28 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
 		return;
 	}
 
+    uint64_t num_chunks = cur_entry->msg.packet_size/s->params->chunk_size;
+    if(cur_entry->msg.packet_size % s->params->chunk_size)
+        num_chunks++;
+
+    if(!num_chunks)
+        num_chunks = 1;
+
+    tw_stime delay = s->params->cn_delay;
+    if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
+         delay = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, s->params->cn_bandwidth); 
+
 	msg->saved_available_time = s->terminal_available_time;
-	ts = g_tw_lookahead + s->params->cn_delay + tw_rand_unif(lp->rng);
+	ts = g_tw_lookahead + delay + tw_rand_unif(lp->rng);
 	s->terminal_available_time = maxd(s->terminal_available_time, tw_now(lp));
 	s->terminal_available_time += ts;
 
+    ts = s->terminal_available_time - tw_now(lp);
 	//TODO: be annotation-aware
 	codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
-	&mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
+            &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
 	codes_mapping_get_lp_id(lp_group_name, "slimfly_router", NULL, 1,
-	s->router_id, 0, &router_id);
+            s->router_id, 0, &router_id);
 	// we are sending an event to the router, so no method_event here
 	e = tw_event_new(router_id, s->terminal_available_time - tw_now(lp), lp);
 	m = tw_event_data(e);
@@ -1517,18 +1529,11 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
 	terminal_sends[s->terminal_id][index]++;
 #endif
 
-	int num_chunks = cur_entry->msg.packet_size/s->params->chunk_size;
-	if(cur_entry->msg.packet_size % s->params->chunk_size)
-		num_chunks++;
-
-	if(!num_chunks)
-		num_chunks = 1;
-
 	if(cur_entry->msg.chunk_id == num_chunks - 1 && (cur_entry->msg.local_event_size_bytes > 0))
 	{
 		bf->c2 = 1;
-		ts = codes_local_latency(lp);
-		tw_event *e_new = tw_event_new(cur_entry->msg.sender_lp, ts, lp);
+		tw_stime local_ts = codes_local_latency(lp);
+		tw_event *e_new = tw_event_new(cur_entry->msg.sender_lp, local_ts, lp);
 		slim_terminal_message* m_new = tw_event_data(e_new);
 		void *local_event = (char*)cur_entry->event_data +
 		cur_entry->msg.remote_event_size_bytes;
@@ -1551,7 +1556,7 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
 	{
 		bf->c3 = 1;
 		slim_terminal_message *m_new;
-		ts = g_tw_lookahead + s->params->cn_delay + tw_rand_unif(lp->rng);
+		ts += tw_rand_unif(lp->rng);
 		tw_event* e_new = model_net_method_event_new(lp->gid, ts, lp, SLIMFLY,
 		(void**)&m_new, NULL);
 		m_new->type = T_SEND;
@@ -1567,7 +1572,8 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
 	{
 		bf->c5 = 1;
 		s->issueIdle = 0;
-		model_net_method_idle_event(codes_local_latency(lp), 0, lp);
+        ts += tw_rand_unif(lp->rng);
+		model_net_method_idle_event(ts, 0, lp);
 
         if(s->last_buf_full > 0.0)
         {
