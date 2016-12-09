@@ -1319,8 +1319,8 @@ void slim_packet_generate(terminal_state * s, tw_bf * bf, slim_terminal_message 
 	assert(lp->gid != msg->dest_terminal_id);
 	const slimfly_param *p = s->params;
 
-	int i, total_event_size;
-	int num_chunks = msg->packet_size / p->chunk_size;
+	int total_event_size;
+	uint64_t num_chunks = msg->packet_size / p->chunk_size;
 	if (msg->packet_size % s->params->chunk_size)
 		num_chunks++;
 
@@ -1339,7 +1339,7 @@ void slim_packet_generate(terminal_state * s, tw_bf * bf, slim_terminal_message 
 	if(msg->packet_ID == TRACK)
 		printf("\x1B[34m-->Packet generated at terminal %d sending to router %d \x1b[0m\n", (int)lp->gid, s->router_id);
 
-	for(i = 0; i < num_chunks; i++)
+	for(uint64_t i = 0; i < num_chunks; i++)
 	{
 		slim_terminal_message_list *cur_chunk = (slim_terminal_message_list*)malloc(
 		sizeof(slim_terminal_message_list));
@@ -1435,7 +1435,7 @@ void slim_packet_send_rc(terminal_state * s, tw_bf * bf, slim_terminal_message *
       }
       if(bf->c5)
       {
-          codes_local_latency_reverse(lp);
+          tw_rand_reverse_unif(lp->rng);
           s->issueIdle = 1;
           if(bf->c6)
           {
@@ -1679,7 +1679,7 @@ void slim_packet_arrive_rc(terminal_state * s, tw_bf * bf, slim_terminal_message
 void slim_send_remote_event(terminal_state * s, slim_terminal_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
 {
         void * tmp_ptr = model_net_method_get_edata(SLIMFLY, msg);
-        tw_stime ts = g_tw_lookahead + bytes_to_ns(msg->remote_event_size_bytes, (1/s->params->cn_bandwidth));
+        tw_stime ts = g_tw_lookahead + tw_rand_unif(lp->rng);
 
         if (msg->is_pull){
             bf->c4 = 1;
@@ -1737,7 +1737,7 @@ void slim_packet_arrive(terminal_state * s, tw_bf * bf, slim_terminal_message * 
   /* WE do not allow self messages through slimfly */
   assert(lp->gid != msg->src_terminal_id);
 
-  int num_chunks = msg->packet_size / s->params->chunk_size;
+  uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
   uint64_t total_chunks = msg->total_size / s->params->chunk_size;
 
   if(msg->total_size % s->params->chunk_size)
