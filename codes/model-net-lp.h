@@ -91,6 +91,8 @@ void model_net_method_send_msg_recv_event_rc(tw_lp *sender);
 // method - strange and disturbing things will happen otherwise
 void model_net_method_idle_event(tw_stime offset_ts, int is_recv_queue,
         tw_lp * lp);
+void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue,
+        int queue_offset, tw_lp * lp);
 
 // Get a ptr to past the message struct area, where the self/remote events
 // are located, given the type of network.
@@ -115,6 +117,8 @@ typedef struct model_net_base_msg {
     // no need for event type - in wrap message
     model_net_request req;
     int is_from_remote;
+    int isQueueReq;
+    tw_stime save_ts;
     // parameters to pass to new messages (via model_net_set_msg_params)
     // TODO: make this a union for multiple types of parameters
     mn_sched_params sched_params;

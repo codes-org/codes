@@ -87,8 +87,14 @@ static int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
 
 enum ROUTING_ALGO
 {
-    STATIC=0,
+    STATIC=1,
     ADAPTIVE,
+};
+
+enum RAIL_SELECTION_ALGO
+{
+    RAIL_DEDICATED=1,
+    RAIL_ADAPTIVE,
 };
 static char routing_folder[MAX_NAME_LENGTH];
 static char dot_file_p[MAX_NAME_LENGTH];
@@ -141,14 +147,20 @@ struct fattree_param
   int chunk_size; /* full-sized packets are broken into smaller chunks.*/
   int packet_size;
   int num_terminals;
-  int l1_set_size;
-  int l1_term_size;
+  int l1_set_size, l0_set_size;
+  int l1_term_size, l0_term_size;
+  int cn_per_switch;
+  double tapering_ratio;
   double cn_delay;
   double head_delay;
   double credit_delay;
   double router_delay;
   double soft_delay;
   int routing;
+  int rail_select;
+  int rail_size_limit;
+  int num_rails;
+  int ports_per_nic;
 };
 
 struct ftree_hash_key
@@ -180,20 +192,20 @@ struct ft_terminal_state
   // Fattree specific parameters
   unsigned int terminal_id;
   unsigned int switch_id;
-  tw_lpid switch_lp;
+  unsigned int rail_id;
+  tw_lpid *switch_lp;
 
   // Each terminal will have an input and output channel with the switch
-  int vc_occupancy; // NUM_VC
-  tw_stime terminal_available_time;
-  tw_stime next_credit_available_time;
+  int *vc_occupancy; // NUM_VC
+  tw_stime* terminal_available_time;
 
   struct mn_stats fattree_stats_array[CATEGORY_MAX];
 
   fattree_message_list **terminal_msgs;
   fattree_message_list **terminal_msgs_tail;
-  int terminal_length;
-  int in_send_loop;
-  int issueIdle;
+  int *terminal_length;
+  int *in_send_loop;
+  int *issueIdle;
 
    struct rc_stack * st;
 
@@ -210,8 +222,8 @@ struct ft_terminal_state
   long finished_chunks;
   long finished_packets;
 
-  tw_stime last_buf_full;
-  tw_stime busy_time;
+  tw_stime *last_buf_full;
+  tw_stime *busy_time;
   char output_buf[4096];
   char output_buf3[4096];
 
@@ -246,6 +258,7 @@ struct switch_state
 {
   unsigned int switch_id;
   int switch_level;
+  unsigned int rail_id;
   int radix;
   int num_cons;
   int num_lcons;
@@ -257,7 +270,6 @@ struct switch_state
   int unused;
 
   tw_stime* next_output_available_time;
-  tw_stime* next_credit_available_time;
   tw_stime* last_buf_full;
 
   tw_stime* busy_time;
@@ -562,13 +574,14 @@ static void dot_write_switch_info(switch_state *s, int sw_gid, FILE *fout)
 {
   if(!s || s->unused || !(s->params) || !fout) return;
   if(!dump_topo) return;
+  if(s->rail_id) return;
 
   const char *root_attr = ",root_switch", *empty_attr = "";
   uint64_t switch_guid = get_switch_guid(s);
   fattree_param *p = s->params;
 
   fprintf(fout, "\t\"S_%d_%d\" [comment=\"0x%016"PRIx64",radix=%d%s\"];\n",
-      s->switch_level, sw_gid, switch_guid, s->radix,
+      s->switch_level, s->switch_id, switch_guid, s->radix,
       (p->num_levels == s->switch_level + 1) ? root_attr : empty_attr);
 }
 
@@ -577,6 +590,7 @@ static void dot_write_term_info(ft_terminal_state *t, FILE *fout)
 {
   uint64_t term_guid = t->terminal_id;
   if(!dump_topo) return;
+  if(t->rail_id) return;
 
   if(!t || !fout) return;
   /* need to shift the term guid, because opensm doesn't like guid=0...0 */
@@ -678,6 +692,7 @@ static void fattree_read_config(const char * anno, fattree_param *p){
   p->ft_type = 1;
   configuration_get_value_int(&config, "PARAMS", "ft_type", anno,
       &p->ft_type);
+  if(!g_tw_mynode) printf("FT type is %d\n", p->ft_type);
 
   configuration_get_value_int(&config, "PARAMS", "num_levels", anno,
       &p->num_levels);
@@ -687,6 +702,14 @@ static void fattree_read_config(const char * anno, fattree_param *p){
   if(p->num_levels > 3) {
     tw_error(TW_LOC, "Too many num_levels, only upto 3 supported Aborting\n");
   }
+  if(!g_tw_mynode) printf("FT num levels is %d\n", p->num_levels);
+  
+  p->tapering_ratio = 1;
+  configuration_get_value_double(&config, "PARAMS", "tapering", anno,
+      &p->tapering_ratio);
+  if(!g_tw_mynode) printf("FT tapering is %lf\n", p->tapering_ratio);
+
+  p->tapering_ratio += 1;
 
   p->num_switches = (int *) malloc (p->num_levels * sizeof(int));
   p->switch_radix = (int*) malloc (p->num_levels * sizeof(int));
@@ -732,91 +755,107 @@ static void fattree_read_config(const char * anno, fattree_param *p){
     token = strtok(NULL,",");
   }
 
+  if(fmod(p->switch_radix[0],  p->tapering_ratio)) {
+    tw_error(TW_LOC, "Tapering ratio does not fit the given radix; tapering + 1 should"
+    " evenly divide the L0 switch radix\n");
+  }
+
   p->Ns = p->switch_radix[0]/2;
-  int num_terminals = p->num_switches[0]*p->switch_radix[0]/2;
+  if(p->num_switches[0] % p->Ns) {
+    if(!g_tw_mynode) printf("Number of switches has to be a multiple of switch radix/2 (%d);" 
+        "next largest value is %d\n", p->Ns, (p->num_switches[0]/p->Ns + 1)*p->Ns);
+    tw_error(TW_LOC, "Incorrect number of switches");
+  }
+
+  int num_terminals = p->num_switches[0] * (p->tapering_ratio - 1)*(p->switch_radix[0]/p->tapering_ratio);
+  p->num_terminals = num_terminals;
+    
+  p->l0_set_size = p->switch_radix[0]/2;
+  p->l0_term_size = (p->tapering_ratio - 1)*(p->switch_radix[0]/p->tapering_ratio);
 
   if(p->num_levels == 2) {
-    p->num_switches[1] = p->num_switches[0]/2;
+    p->num_switches[1] = p->num_switches[0]/p->tapering_ratio/2;
     p->switch_radix[1] = p->switch_radix[0];
-    p->l1_set_size = p->switch_radix[0]/4;
-    p->l1_term_size = (p->l1_set_size * p->switch_radix[0]);
-
+    p->l1_set_size =  p->num_switches[1];
+    p->l1_term_size = num_terminals;
   } else {
-	if(p->ft_type == 0){
-      p->Np = ceil((num_terminals)/(double)(p->Ns*p->Ns));
-      p->num_switches[1] = p->num_switches[0];
-      p->num_switches[2] = ceil((p->Ns*p->Ns) / floor(p->switch_radix[0]/p->Np));
-      p->switch_radix[1] = p->switch_radix[2] = p->switch_radix[0];
-      p->link_repetitions = floor(p->switch_radix[2] / p->Np);
-      printf("Np:%d Ns:%d\n",p->Np,p->Ns);
-	}else{
-	  p->num_switches[1] = p->num_switches[0];
-      p->num_switches[2] = p->num_switches[0]/2;
-      p->switch_radix[1] = p->switch_radix[2] = p->switch_radix[0];
-	}
-	p->l1_set_size = p->switch_radix[0]/2;
-    p->l1_term_size = (p->l1_set_size * (p->switch_radix[0] / 2));
+    p->switch_radix[1] = p->switch_radix[2] = p->switch_radix[0];
+	  p->l1_set_size = p->switch_radix[0]/p->tapering_ratio;
+    p->l1_term_size = p->l0_set_size * p->l0_term_size;
+    p->Np = p->num_switches[0]/p->l0_set_size;
+    p->num_switches[1] =  p->Np * p->l1_set_size;
+    p->link_repetitions = p->switch_radix[0]/p->Np;
+    if(p->l1_set_size % p->link_repetitions) {
+      while(p->l1_set_size % p->link_repetitions) {
+        p->link_repetitions--;
+      }
+    } 
+    int halfPods = p->l1_set_size/p->link_repetitions;
+    p->num_switches[2] = halfPods * p->Ns;
+    if(!g_tw_mynode) printf("Pods %d; L2 pods %d; Link repetition:%d; l1_set_size %d\n", 
+        p->Np, halfPods, p->link_repetitions, p->l1_set_size);
   }
 
-#if FATTREE_CONNECTIONS
-  for(int jj=0;jj<3;jj++)
-  {
-    printf("num_switches[%d]=%d\n",jj,p->num_switches[jj]);
-    printf("switch_radix[%d]=%d\n",jj,p->switch_radix[jj]);
-  }
-#endif
-
-  i = 1;
-  for(i = 1; i < p->num_levels - 1; i++) {
-    if(p->num_switches[i - 1] * p->switch_radix[i - 1] >
-       p->num_switches[i] * p->switch_radix[i]) {
-      tw_error(TW_LOC, "Not enough switches/radix at level %d for full "
-          "bisection bandwidth\n", i);
+  if(p->ft_type == 1 && p->num_levels == 3) {
+    if(p->Np != p->switch_radix[0] && p->Np !=  p->switch_radix[0]/2) {
+      if(!g_tw_mynode) {
+        printf("ft_type 1 should be used for a system with %d or %d pods, which "
+        "needs %d or %d L0 switches, respectively\n",  p->switch_radix[0], 
+         p->switch_radix[0]/2,  p->switch_radix[0] *  p->switch_radix[0]/2,
+          p->switch_radix[0]/2 *  p->switch_radix[0]/2);
+      }
+      tw_error(TW_LOC, "Incorrect number of switches for ft_type 1");
     }
   }
 
-  if(p->num_switches[i - 1] * p->switch_radix[i - 1] > 2 * p->num_switches[i] *
-      p->switch_radix[i]) {
-    tw_error(TW_LOC, "Not enough switches/radix at level %d (top) for full "
-        "bisection bandwidth\n", i);
+  for(int jj=0;jj<3 && !g_tw_mynode;jj++)
+  {
+    printf("num_switches[%d]=%d\n",jj,p->num_switches[jj]);
   }
 
-  configuration_get_value_int(&config, "PARAMS", "packet_size", anno,
+  rc = configuration_get_value_int(&config, "PARAMS", "packet_size", anno,
       &p->packet_size);
-  if(!p->packet_size) {
+  if(rc) {
     p->packet_size = 512;
-    fprintf(stderr, "Packet size is not specified, setting to %d\n",
-        p->packet_size);
+  }
+  if(!g_tw_mynode) printf("FT packet size is %d\n", p->packet_size);
+
+  p->num_rails = 1;
+  configuration_get_value_int(&config, "PARAMS", "num_rails", anno, &p->num_rails);
+  if(!g_tw_mynode) printf("FT num rails is %d\n", p->num_rails);
+  
+  if(p->ft_type == 2) {
+    p->ports_per_nic = p->num_rails;
+  } else {
+    p->ports_per_nic = 1;
   }
 
   p->router_delay = 50;
   configuration_get_value_double(&config, "PARAMS", "router_delay", anno,
       &p->router_delay);
+  if(!g_tw_mynode) printf("FT router delay is %.1lf\n", p->router_delay);
 
   p->soft_delay = 1000;
   configuration_get_value_double(&config, "PARAMS", "soft_delay", anno,
       &p->soft_delay);
 
-  configuration_get_value_int(&config, "PARAMS", "vc_size", anno, &p->vc_size);
-  if(!p->vc_size) {
-    p->vc_size = 8*p->packet_size;
-    fprintf(stderr, "Buffer size of global channels not specified, setting to "
-        "%d\n", p->vc_size);
+  rc = configuration_get_value_int(&config, "PARAMS", "vc_size", anno, &p->vc_size);
+  if(rc) {
+    p->vc_size = 8 * p->packet_size;
   }
+  if(!g_tw_mynode) printf("FT buffer size links is %d\n", p->vc_size);
 
-  configuration_get_value_int(&config, "PARAMS", "cn_vc_size", anno,
+  rc = configuration_get_value_int(&config, "PARAMS", "cn_vc_size", anno,
       &p->cn_vc_size);
-  if(!p->cn_vc_size) {
-    p->cn_vc_size = 8*p->packet_size;
-    fprintf(stderr, "Buffer size of compute node channels not specified, "
-        "setting to %d\n", p->cn_vc_size);
+  if(rc) {
+    p->cn_vc_size = 8 * p->packet_size;
   }
+  if(!g_tw_mynode) printf("FT buffer size injection is %d\n", p->cn_vc_size);
 
   rc = configuration_get_value_int(&config, "PARAMS", "chunk_size", anno, &p->chunk_size);
-    if(rc) {
-        p->chunk_size = 512;
-        fprintf(stderr, "Chunk size for packets is specified, setting to %d\n", p->chunk_size);
-    }
+  if(rc) {
+    p->chunk_size = 512;
+  }
 
   char routing_str[MAX_NAME_LENGTH];
   configuration_get_value(&config, "PARAMS", "routing", anno, routing_str,
@@ -827,10 +866,26 @@ static void fattree_read_config(const char * anno, fattree_param *p){
     p->routing = ADAPTIVE;
   else
   {
-    fprintf(stderr, 
-        "No routing protocol specified, setting to adaptive routing\n");
     p->routing = ADAPTIVE;
   }
+  if(!g_tw_mynode) printf("FT routing is %d\n", p->routing);
+  
+  char rail_select_str[MAX_NAME_LENGTH];
+  configuration_get_value(&config, "PARAMS", "rail_select", anno, rail_select_str,
+      MAX_NAME_LENGTH);
+  if(strcmp(rail_select_str, "dedicated") == 0)
+    p->rail_select = RAIL_DEDICATED;
+  else if(strcmp(rail_select_str, "adaptive")==0)
+    p->rail_select = RAIL_ADAPTIVE;
+  else {
+    p->rail_select = RAIL_DEDICATED;
+  }
+  if(!g_tw_mynode) printf("FT rail selection is %d\n", p->rail_select);
+
+  p->rail_size_limit = 32768;
+  configuration_get_value_int(&config, "PARAMS", "rail_select_limit", anno,
+      &p->rail_size_limit);
+  if(!g_tw_mynode) printf("FT rail select limit  is %d\n", p->rail_size_limit);
   
   configuration_get_value_int(&config, "PARAMS", "dump_topo", anno,
       &dump_topo);
@@ -855,21 +910,20 @@ static void fattree_read_config(const char * anno, fattree_param *p){
     }
   }
   
-  configuration_get_value_double(&config, "PARAMS", "link_bandwidth", anno,
+  rc = configuration_get_value_double(&config, "PARAMS", "link_bandwidth", anno,
       &p->link_bandwidth);
-  if(!p->link_bandwidth) {
+  if(rc) {
     p->link_bandwidth = 5;
-    fprintf(stderr, "Bandwidth of links is specified, setting to %lf\n",
-        p->link_bandwidth);
   }
 
-  configuration_get_value_double(&config, "PARAMS", "cn_bandwidth", anno,
+  rc = configuration_get_value_double(&config, "PARAMS", "cn_bandwidth", anno,
       &p->cn_bandwidth);
   if(!p->cn_bandwidth) {
     p->cn_bandwidth = 5;
-    fprintf(stderr, "Bandwidth of compute node channels not specified, "
-        "setting to %lf\n", p->cn_bandwidth);
   }
+  
+  if(!g_tw_mynode) printf("FT bandwidths link %.1lf node %.1lf\n", 
+      p->link_bandwidth, p->cn_bandwidth);
 
 #if FATTREE_DEBUG
   printf("l1_set_size:%d l1_term_size:%d\n",p->l1_set_size,p->l1_term_size);
@@ -927,61 +981,83 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
            s->anno, 0);
 
-   if(num_lps != (s->params->switch_radix[0]/2)) {
-     tw_error(TW_LOC, "Number of NICs per repetition has to be equal to "
-         "half the radix of leaf level switches %d vs %d\n", num_lps,
-          s->params->switch_radix[0]/2);
+   if(s->params->ft_type != 2) {
+    num_lps /= s->params->num_rails;
    }
-   s->terminal_id = (mapping_rep_id * num_lps) + mapping_offset;
-   s->switch_id = s->terminal_id / (s->params->switch_radix[0] / 2);
-   codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
-           s->switch_id, 0, &s->switch_lp);
-   s->terminal_available_time = 0.0;
-   s->packet_counter = 0;
-   s->terminal_msgs =
-     (fattree_message_list**)malloc(1*sizeof(fattree_message_list*));
-   s->terminal_msgs_tail =
-     (fattree_message_list**)malloc(1*sizeof(fattree_message_list*));
 
+   if(num_lps != s->params->l0_term_size) {
+     tw_error(TW_LOC, "Number of NICs per repetition per rail has to be equal to "
+         "%d, not the given value of %d\n", s->params->l0_term_size, num_lps);
+   }
+  
+   if(s->params->ft_type != 2) {
+    s->terminal_id = (mapping_rep_id * num_lps) + (mapping_offset/s->params->num_rails);
+    s->rail_id = (mapping_offset % s->params->num_rails);
+   } else {
+    s->terminal_id = (mapping_rep_id * num_lps) + mapping_offset;
+    s->rail_id = 0;
+   }
+   s->switch_id = s->terminal_id / s->params->l0_term_size;
+   s->switch_lp = (tw_lpid*)malloc(s->params->ports_per_nic * sizeof(tw_lpid));
+   if(s->params->ft_type != 2) {
+     codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
+         s->switch_id, 0 + s->params->num_levels * s->rail_id, &s->switch_lp[0]);
+   } else {
+     for(int i = 0; i < s->params->ports_per_nic; i++) {
+       codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
+           s->switch_id, 0 + s->params->num_levels * i, &s->switch_lp[i]);
+     }
+   }
+   s->terminal_available_time = (tw_stime*) malloc(s->params->ports_per_nic * sizeof(tw_stime));
+   s->vc_occupancy = (int*) malloc(s->params->ports_per_nic * sizeof(int));
+   s->terminal_length = (int*) malloc(s->params->ports_per_nic * sizeof(int));
+   s->in_send_loop = (int*) malloc(s->params->ports_per_nic * sizeof(int));
+   s->issueIdle = (int*) malloc(s->params->ports_per_nic * sizeof(int));
+   s->terminal_msgs =
+     (fattree_message_list**)malloc(s->params->ports_per_nic*sizeof(fattree_message_list*));
+   s->terminal_msgs_tail =
+     (fattree_message_list**)malloc(s->params->ports_per_nic*sizeof(fattree_message_list*));
+   s->last_buf_full = (tw_stime*) malloc(s->params->ports_per_nic * sizeof(tw_stime));
+   s->busy_time = (tw_stime*) malloc(s->params->ports_per_nic * sizeof(tw_stime));
+   for(int i = 0; i < s->params->ports_per_nic; i++) {
+     s->terminal_available_time[i] = 0.0;
+     s->vc_occupancy[i] = 0;
+     s->terminal_msgs[i] = NULL;
+     s->terminal_msgs_tail[i] = NULL;
+     s->terminal_length[i] = 0;
+     s->in_send_loop[i] = 0;
+     s->issueIdle[i] = 0;
+     s->last_buf_full[i] = 0;
+     s->busy_time[i] = 0;
+   }
+   s->packet_counter = 0;
    s->finished_msgs = 0;
    s->finished_chunks = 0;
    s->finished_packets = 0;
    s->total_time = 0.0;
    s->total_msg_size = 0;
 
-   s->last_buf_full = 0;
-   s->busy_time = 0;
-
-#if FATTREE_HELLO
-   printf("I am terminal %d (%llu), connected to switch %d\n", s->terminal_id,
-       LLU(lp->gid), s->switch_id);
+#if FATTREE_DEBUG
+   printf("I am terminal %d (%llu), connected to switch %d in rail id %d\n", s->terminal_id,
+       LLU(lp->gid), s->switch_id, s->rail_id);
 #endif
 
    rc_stack_create(&s->st);
-
-   s->vc_occupancy = 0;
-   s->terminal_msgs[0] = NULL;
-   s->terminal_msgs_tail[0] = NULL;
-   s->terminal_length = 0;
-   s->in_send_loop = 0;
-   s->issueIdle = 0;
 
    s->rank_tbl = NULL;
    //if(!s->rank_tbl)
    //  tw_error(TW_LOC, "\n Hash table not initialized! ");
 
-   s->params->num_terminals = codes_mapping_get_lp_count(lp_group_name, 0,
-      LP_CONFIG_NM, s->anno, 0);
    /* dump partial topology into DOT format
     * skip term2sw link part, because we are missing the remote switch port
     * in this stage of the code
     */
-   if(!dot_file)
+   if(!dot_file && !s->rail_id)
      dot_write_open_file(&dot_file);
    dot_write_term_info(s, dot_file);
 
    /* ensure the DOT file is out before reading it with external tools */
-   if(dot_file)
+   if(dot_file && !s->rail_id)
      fflush(dot_file);
 
    return;
@@ -992,14 +1068,11 @@ void switch_init(switch_state * r, tw_lp * lp)
 {
 
   char anno[MAX_NAME_LENGTH];
-  int num_terminals = -1;
 
   if(def_gname_set == 0) {
     def_gname_set = 1;
     codes_mapping_get_lp_info(0, def_group_name, &mapping_grp_id, NULL,
         &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
-    num_terminals = codes_mapping_get_lp_count(def_group_name, 0,
-      LP_CONFIG_NM, anno, 0);
   }
 
   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
@@ -1016,28 +1089,27 @@ void switch_init(switch_state * r, tw_lp * lp)
 
   // shorthand
   fattree_param *p = r->params;
-  if(mapping_offset == p->num_levels - 1) {
-    if(mapping_rep_id >= p->num_switches[mapping_offset]) {
-      r->unused = 1;
-      return;
-    }
+  if(mapping_rep_id >= p->num_switches[mapping_offset % p->num_levels]) {
+    r->unused = 1;
+    return;
   }
 
   r->unused = 0;
 
-  r->switch_id = mapping_rep_id + mapping_offset * p->num_switches[0];
-
-  if(num_terminals != -1) {
-    p->num_terminals = num_terminals;
+  if((mapping_offset % p->num_levels) == 0) {
+    r->switch_id = mapping_rep_id;
+  } else if((mapping_offset % p->num_levels) ==  1) {
+    r->switch_id = mapping_rep_id + p->num_switches[0];
+  } else {
+    r->switch_id = mapping_rep_id + p->num_switches[0] + p->num_switches[1];
   }
+  r->rail_id = mapping_offset / p->num_levels;
 
-  r->switch_level = mapping_offset;
+  r->switch_level = mapping_offset % p->num_levels;
 
   r->radix = p->switch_radix[r->switch_level];
 
   r->next_output_available_time = (tw_stime*) malloc (r->radix *
-      sizeof(tw_stime));
-  r->next_credit_available_time = (tw_stime*) malloc (r->radix *
       sizeof(tw_stime));
   r->vc_occupancy = (int*) malloc (r->radix * sizeof(int));
   r->in_send_loop = (int*) malloc (r->radix * sizeof(int));
@@ -1067,7 +1139,6 @@ void switch_init(switch_state * r, tw_lp * lp)
     r->busy_time[i] = 0.0;
     r->busy_time_sample[i] = 0.0;
     r->next_output_available_time[i] = 0;
-    r->next_credit_available_time[i] = 0;
     r->vc_occupancy[i] = 0;
     r->in_send_loop[i] = 0;
     r->link_traffic[i] = 0;
@@ -1079,7 +1150,7 @@ void switch_init(switch_state * r, tw_lp * lp)
   }
 
   /* dump partial topology info into DOT format (switch radix, guid, ...) */
-  if(!dot_file)
+  if(!dot_file && !r->rail_id)
     dot_write_open_file(&dot_file);
   dot_write_switch_info(r, lp->gid, dot_file);
 
@@ -1092,228 +1163,185 @@ void switch_init(switch_state * r, tw_lp * lp)
   //set lps connected to each port
   r->num_cons = 0;
   r->num_lcons = 0;
-#if FATTREE_HELLO
-  printf("I am switch %d (%llu), level %d, radix %d\n", r->switch_id,
-    LLU(lp->gid), r->switch_level, r->radix);
+#if FATTREE_DEBUG
+  printf("I am switch %d (%llu), level %d, radix %d, rail id %d\n", r->switch_id,
+    LLU(lp->gid), r->switch_level, r->radix, r->rail_id);
 #endif
   //if at level 0, first half ports go to terminals
   if(r->switch_level == 0) {
-    int start_terminal = r->switch_id * (p->switch_radix[0] / 2);
-    int end_terminal = start_terminal + (p->switch_radix[0] / 2);
+    int term_rails, term_railid;
+    if(p->ft_type != 2) {
+      term_rails = p->num_rails;
+      term_railid = r->rail_id;
+    } else {
+      term_rails = 1;
+      term_railid = 0;
+    }
+    int start_terminal = r->switch_id * p->l0_term_size;
+    int end_terminal = start_terminal + p->l0_term_size;
     for(int term = start_terminal; term < end_terminal; term++) {
       tw_lpid nextTerm;
-      int rep = term / (p->switch_radix[0] / 2);
-      int off = term % (p->switch_radix[0] / 2);
+      int rep = term / p->l0_term_size;
+      int off = (term % p->l0_term_size) * term_rails + term_railid;
       codes_mapping_get_lp_id(def_group_name, LP_CONFIG_NM, NULL, 1,
           rep, off, &nextTerm);
       r->port_connections[r->num_cons++] = nextTerm;
 #if FATTREE_CONNECTIONS
-	  written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(codes_mapping_get_lp_relative_id(nextTerm,0,0)));
+	    written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(codes_mapping_get_lp_relative_id(nextTerm,0,0)/term_rails));
 #endif
       r->num_lcons++;
 #if FATTREE_DEBUG
-      printf("L0->term I am switch %d, connect to terminal %d (%llu) at port %d yes collecting\n",
-          r->switch_id, term, LLU(nextTerm), r->num_cons - 1);
+      printf("L0->term I am switch %d, connect to terminal %d (%llu) at port %d, rail id %d yes collecting\n",
+          r->switch_id, term, LLU(nextTerm), r->num_cons - 1, r->rail_id);
 #endif
       /* write sw2term links and (reverse link, too) into DOT file */
-      dot_write_sw2term_link(r->switch_level, lp->gid, r->num_cons - 1, term, 1, dot_file);
+      if(!r->rail_id) {
+        dot_write_sw2term_link(r->switch_level, r->switch_id, r->num_cons - 1, term, 1, dot_file);
+      }
     }
     r->start_lneigh = start_terminal;
     r->end_lneigh = end_terminal;
     r->con_per_lneigh = 1;
-    assert(r->num_lcons == (r->radix / 2));
+    assert(r->num_lcons == p->l0_term_size);
     int l1_set;
     if(p->num_levels == 2) {
       l1_set = 0;
       r->con_per_uneigh = 2;
     } else {
-      l1_set = r->switch_id / p->l1_set_size;
+      l1_set = r->switch_id / p->l0_set_size;
       r->con_per_uneigh = 1;
     }
     int l1_base = l1_set * p->l1_set_size;
     r->start_uneigh = p->num_switches[0] + l1_base;
     for(int l1 = 0; l1 < p->l1_set_size; l1++) {
       tw_lpid nextTerm;
+      assert(l1_base < p->num_switches[1]);
       codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
-          l1_base, 1, &nextTerm);
+          l1_base, 1 + r->rail_id * p->num_levels, &nextTerm);
       for(int con = 0; con < r->con_per_uneigh; con++) {
         r->port_connections[r->num_cons++] = nextTerm;
-#if FATTREE_CONNECTIONS || FATTREE_DEBUG
+#if FATTREE_CONNECTIONS
         codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
             &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
-        next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
-	    written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
+        next_switch_lid = mapping_rep_id +  p->num_switches[0];
+	      written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
 #endif
 #if FATTREE_DEBUG
-    printf("L0->L1 I am switch %d, connect to upper switch %d L1 (%llu) rel_id:%llu at port %d yes collecting\n",
-          r->switch_id, l1_base, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
+    printf("L0->L1 I am switch %d, connect to upper switch %d L1 (%llu) rel_id:%llu at port %d, rail id %d yes collecting\n",
+          r->switch_id, l1_base, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1, r->rail_id);
 #endif
         /* write all inter switch links to DOT file (initialized before) */
-        dot_write_sw2sw_link(r->switch_level, lp->gid, r->num_cons - 1,
-              r->switch_level + 1, nextTerm, -1, dot_file);
+        if(!r->rail_id) {
+          dot_write_sw2sw_link(r->switch_level, r->switch_id, r->num_cons - 1,
+              r->switch_level + 1, p->num_switches[0] + l1_base, -1, dot_file);
+        }
       }
       l1_base++;
     }
   } else if (r->switch_level == 1) {
-    int l0_set_size, l0_base;
+    int l0_base;
     if(p->num_levels == 2) {
-      l0_set_size = p->num_switches[0];
       l0_base = 0;
       r->start_lneigh = 0;
       r->end_lneigh = p->num_switches[0];
       r->con_per_lneigh = 2;
     } else {
-      l0_set_size = p->l1_set_size;
       l0_base = ((r->switch_id - p->num_switches[0]) / p->l1_set_size) *
-        l0_set_size;
+        p->l0_set_size;
       r->start_lneigh = l0_base;
-      r->end_lneigh = l0_base + l0_set_size;
+      r->end_lneigh = l0_base + p->l0_set_size;
       r->con_per_lneigh = 1;
     }
-    for(int l0 = 0; l0 < l0_set_size; l0++) {
+    for(int l0 = 0; l0 < p->l0_set_size; l0++) {
       tw_lpid nextTerm;
       codes_mapping_get_lp_id(def_group_name, "fattree_switch", NULL, 1,
-          l0_base, 0, &nextTerm);
+          l0_base, 0 + r->rail_id * p->num_levels, &nextTerm);
       for(int con = 0; con < r->con_per_lneigh; con++) {
         r->port_connections[r->num_cons++] = nextTerm;
-#if FATTREE_CONNECTIONS || FATTREE_DEBUG
+#if FATTREE_CONNECTIONS
         codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
             &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
-        next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
+        next_switch_lid = mapping_rep_id;
         written_2 += sprintf(r->output_buf2 + written_2, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
 #endif
         r->num_lcons++;
 #if FATTREE_DEBUG
-        printf("L1->L0 I am switch %d, connect to switch %d L0 (%llu) rel_id:%llu at port %d not collecting\n",
-            r->switch_id, l0_base, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
+        printf("L1->L0 I am switch %d, connect to switch %d L0 (%llu) rel_id:%llu at port %d, rail id %d not collecting\n",
+            r->switch_id, l0_base, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1, r->rail_id);
 #endif
         /* write all inter switch links to DOT file (initialized before) */
-        dot_write_sw2sw_link(r->switch_level, lp->gid, r->num_cons - 1,
-              r->switch_level - 1, nextTerm, -1, dot_file);
+        if(!r->rail_id) {
+          dot_write_sw2sw_link(r->switch_level, r->switch_id, r->num_cons - 1,
+              r->switch_level - 1, l0_base, -1, dot_file);
+        }
       }
       l0_base++;
     }
     if(p->num_levels == 3) {
-      if(p->ft_type == 0) {
-        /*for(int rep=0;rep<p->link_repetitions;rep++)*/{
-            int rep = 0;
-            int l2 = ((r->switch_id - p->num_switches[0]) % p->l1_set_size + rep*p->l1_set_size);
-            /* not true anymore */
-            r->start_uneigh = p->num_switches[0] + l2;
-            r->con_per_uneigh = p->link_repetitions;
-            printf("link_repetitions:%d rep:%d l2:%d\n",p->link_repetitions,rep,l2);
-            for(; l2 < p->num_switches[2]; l2 += p->l1_set_size) {
-              tw_lpid nextTerm;
-              codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
-                      l2, 2, &nextTerm);
-              for(int con = 0; con < r->con_per_uneigh; con++) {
-                r->port_connections[r->num_cons++] = nextTerm;
-#if FATTREE_CONNECTIONS || FATTREE_DEBUG
-                codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
-                    &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
-                next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
-                written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
+      int l2_base = 0;
+      int rep = p->link_repetitions;
+      int l2 = ((r->switch_id - p->num_switches[0]) % p->l1_set_size)/rep * p->Ns;
+      r->con_per_uneigh = 1;
+      for(int off = 0; off < p->Ns; off++) {
+        tw_lpid nextTerm;
+        assert(l2 + off < p->num_switches[2]);
+        codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
+            l2 + off, 2 + r->rail_id * p->num_levels, &nextTerm);
+        for(int con = 0; con < r->con_per_uneigh; con++) {
+          r->port_connections[r->num_cons++] = nextTerm;
+#if FATTREE_CONNECTIONS
+          codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
+              &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
+          next_switch_lid = mapping_rep_id +  p->num_switches[0] + p->num_switches[1];
+          written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
 #endif
 #if FATTREE_DEBUG
-                printf("L1->L2:t=0 I am switch %d, connect to upper switch %d L2 (%llu) rel_id:%llu at port %d yes collecting\n",
-                    r->switch_id, l2+rep*p->l1_set_size, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
+          printf("L1->L2:t=0 I am switch %d, connect to upper switch %d L2 (%llu) rel_id:%llu at port %d, rail id %d yes collecting\n",
+              r->switch_id, l2+off, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1, r->rail_id);
 #endif
-				/* write all inter switch links to DOT file (initialized before) */
-            	dot_write_sw2sw_link(r->switch_level, lp->gid, r->num_cons - 1,
-                  r->switch_level + 1, nextTerm, -1, dot_file);
-              }
-            }
-        }
-      } else {
-        int l2 = ((r->switch_id - p->num_switches[0]) % p->l1_set_size);
-        /* not true anymore */
-        r->start_uneigh = p->num_switches[0] + l2;
-        r->con_per_uneigh = 2;
-        for(; l2 < p->num_switches[2]; l2 += p->l1_set_size) {
-          tw_lpid nextTerm;
-          codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
-              l2, 2, &nextTerm);
-          for(int con = 0; con < r->con_per_uneigh; con++) {
-            r->port_connections[r->num_cons++] = nextTerm;
-#if FATTREE_CONNECTIONS || FATTREE_DEBUG
-            codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
-                &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
-            next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
-            written += sprintf(r->output_buf + written, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
-#endif
-#if FATTREE_DEBUG
-            printf("L1->L2:t!=0 I am switch %d, connect to upper switch %d L2 (%llu) rel_id:%llu at port %d yes collecting\n",
-                r->switch_id, l2, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
-#endif
-            /* write all inter switch links to DOT file (initialized before) */
-            dot_write_sw2sw_link(r->switch_level, lp->gid, r->num_cons - 1,
-                  r->switch_level + 1, nextTerm, -1, dot_file);
+          /* write all inter switch links to DOT file (initialized before) */
+          if(!r->rail_id) {
+            dot_write_sw2sw_link(r->switch_level, r->switch_id, r->num_cons - 1,
+                r->switch_level + 1, p->num_switches[0] + p->num_switches[1] + l2 + off, -1, dot_file);
           }
         }
       }
     }
   } else {
-    if(p->ft_type == 0) {
-      r->con_per_lneigh = p->link_repetitions;
-      /* not true anymore */
-      r->start_lneigh = p->num_switches[0];
-      r->end_lneigh = r->start_lneigh + p->num_switches[1];
-      int l1 = (r->switch_id - p->num_switches[0] - p->num_switches[1]) % p->l1_set_size;
-      for(; l1 < p->num_switches[1]; l1 += p->l1_set_size) {
+    int rep = p->link_repetitions;
+    r->con_per_lneigh = 1;
+    int l1 = (r->switch_id - p->num_switches[0] - p->num_switches[1])/p->Ns * rep;
+    for(; l1 < p->num_switches[1]; l1 += p->l1_set_size) {
+      for(int off = 0; off < rep; off++) {
         tw_lpid nextTerm;
+        assert(l1 + off < p->num_switches[1]);
         codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
-            l1, 1, &nextTerm);
+            l1 + off, 1 + r->rail_id * p->num_levels, &nextTerm);
         for(int con = 0; con < r->con_per_lneigh; con++) {
           r->port_connections[r->num_cons++] = nextTerm;
-#if FATTREE_CONNECTIONS || FATTREE_DEBUG
+#if FATTREE_CONNECTIONS
           codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
               &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
-          next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
-	      written_2 += sprintf(r->output_buf2 + written_2, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
+          next_switch_lid = mapping_rep_id + p->num_switches[0];
+          written_2 += sprintf(r->output_buf2 + written_2, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
 #endif
           r->num_lcons++;
 #if FATTREE_DEBUG
-          printf("L2->L1:t=0 I am switch %d, connect to  switch %d L1 (%llu) rel_id:%llu at port %d not collecting\n",
-                  r->switch_id, l1, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
+          printf("L2->L1:t=0 I am switch %d, connect to  switch %d L1 (%llu) rel_id:%llu at port %d, rail id %d not collecting\n",
+              r->switch_id, l1 + rep, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1, r->rail_id);
 #endif
           /* write all inter switch links to DOT file (initialized before) */
-          dot_write_sw2sw_link(r->switch_level, lp->gid, r->num_cons - 1,
-                r->switch_level - 1, nextTerm, -1, dot_file);
-        }
-      }
-    } else {
-      r->con_per_lneigh = 2;
-      /* not true anymore */
-      r->start_lneigh = p->num_switches[0];
-      r->end_lneigh = r->start_lneigh + p->num_switches[1];
-      int l1 = (r->switch_id - p->num_switches[0] - p->num_switches[1]) % p->l1_set_size;
-      for(; l1 < p->num_switches[1]; l1 += p->l1_set_size) {
-        tw_lpid nextTerm;
-        codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
-            l1, 1, &nextTerm);
-        for(int con = 0; con < r->con_per_lneigh; con++) {
-          r->port_connections[r->num_cons++] = nextTerm;
-#if FATTREE_CONNECTIONS || FATTREE_DEBUG
-          codes_mapping_get_lp_info(nextTerm, lp_group_name, &mapping_grp_id, NULL,
-              &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
-          next_switch_lid = mapping_rep_id + mapping_offset * p->num_switches[0];
-	      written_2 += sprintf(r->output_buf2 + written_2, "%u, %llu, ", r->switch_id+p->num_terminals,LLU(next_switch_lid)+p->num_terminals);
-#endif
-          r->num_lcons++;
-#if FATTREE_DEBUG
-          printf("L2->L1:t!=0 I am switch %d, connect to  switch %d L1 (%llu) rel_id:%llu at port %d not collecting\n",
-              r->switch_id, l1, LLU(nextTerm), LLU(next_switch_lid), r->num_cons - 1);
-#endif
-          /* write all inter switch links to DOT file (initialized before) */
-          dot_write_sw2sw_link(r->switch_level, lp->gid, r->num_cons - 1,
-                r->switch_level - 1, nextTerm, -1, dot_file);
+          if(!r->rail_id) {
+            dot_write_sw2sw_link(r->switch_level, r->switch_id, r->num_cons - 1,
+                r->switch_level - 1, p->num_switches[0] + l1 + off, -1, dot_file);
+          }
         }
       }
     }
   }
 
   /* ensure the DOT file is out before reading it with external tools */
-  if(dot_file)
+  if(dot_file && !r->rail_id)
     fflush(dot_file);
 
 #if FATTREE_CONNECTIONS
@@ -1480,6 +1508,7 @@ static tw_stime fattree_packet_event(
   msg->local_event_size_bytes = 0;
   msg->type = T_GENERATE;
   msg->dest_terminal_id = req->dest_mn_lp;
+  msg->rail_id = req->queue_offset;
   msg->message_id = req->msg_id;
   msg->is_pull = req->is_pull;
   msg->pull_size = req->pull_size;
@@ -1537,23 +1566,23 @@ void ft_packet_generate_rc(ft_terminal_state * s, tw_bf * bf, fattree_message * 
     int i;
     for(i = 0; i < num_chunks; i++) {
 	delete_fattree_message_list(return_tail(s->terminal_msgs,
-	    s->terminal_msgs_tail, 0));
-	s->terminal_length -= s->params->chunk_size;
+	    s->terminal_msgs_tail, msg->saved_vc));
+	s->terminal_length[msg->saved_vc] -= s->params->chunk_size;
     }
     if(bf->c11) {
-	s->issueIdle = 0;
-	s->last_buf_full = msg->saved_busy_time;
+	s->issueIdle[msg->rail_id] = 0;
+	s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
     }
     if(bf->c5) {
 	codes_local_latency_reverse(lp);
-	s->in_send_loop = 0;
+	s->in_send_loop[msg->saved_vc] = 0;
     }
 
     struct mn_stats* stat;
     stat = model_net_find_stats(msg->category, s->fattree_stats_array);
     stat->send_count--;
     stat->send_bytes -= msg->packet_size;
-    stat->send_time -= (1/s->params->cn_bandwidth) * msg->packet_size;
+    stat->send_time -= (1/s->params->link_bandwidth) * msg->packet_size;
 }
 
 /* generates packet at the current fattree compute node */
@@ -1581,6 +1610,21 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
 
   msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
 
+  int target_queue = msg->rail_id;
+  if(s->params->rail_select == RAIL_ADAPTIVE && 
+     msg->total_size > s->params->rail_size_limit) {
+    int curr_buffer = s->terminal_length[target_queue];
+    for(int i = 1; i < s->params->ports_per_nic; i++) {
+      int next = (msg->rail_id + i) % s->params->ports_per_nic;
+      if(s->terminal_length[next] < curr_buffer) {
+        curr_buffer =  s->terminal_length[next];
+        target_queue = next;
+      }
+    }
+  }
+
+  msg->saved_vc = target_queue;
+
   for(uint64_t i = 0; i < num_chunks; i++)
   {
     fattree_message_list * cur_chunk = (fattree_message_list *)malloc(
@@ -1606,28 +1650,29 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
     cur_chunk->msg.chunk_id = i;
     cur_chunk->msg.origin_switch_id = s->switch_id;
     append_to_fattree_message_list(s->terminal_msgs, s->terminal_msgs_tail,
-      0, cur_chunk);
-    s->terminal_length += s->params->chunk_size;
+      target_queue, cur_chunk);
+    s->terminal_length[target_queue] += s->params->chunk_size;
   }
 
-  if(s->terminal_length < 2 * s->params->cn_vc_size) {
-    model_net_method_idle_event(nic_ts, 0, lp);
+  if(s->terminal_length[target_queue] < s->params->cn_vc_size) {
+    model_net_method_idle_event2(nic_ts, 0, msg->rail_id, lp);
   } else {
     bf->c11 = 1;
-    s->issueIdle = 1;
-    msg->saved_busy_time = s->last_buf_full;
-    s->last_buf_full = tw_now(lp);
+    s->issueIdle[msg->rail_id] = 1;
+    msg->saved_busy_time = s->last_buf_full[msg->rail_id];
+    s->last_buf_full[msg->rail_id] = tw_now(lp);
   }
 
-  if(s->in_send_loop == 0) {
+  if(s->in_send_loop[target_queue] == 0) {
     fattree_message *m;
     bf->c5 = 1;
     ts = codes_local_latency(lp);
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, FATTREE,
       (void**)&m, NULL);
     m->type = T_SEND;
+    m->vc_index = target_queue;
     m->magic = fattree_terminal_magic_num;
-    s->in_send_loop = 1;
+    s->in_send_loop[target_queue] = 1;
     tw_event_send(e);
   }
 
@@ -1637,7 +1682,7 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
   stat = model_net_find_stats(msg->category, s->fattree_stats_array);
   stat->send_count++;
   stat->send_bytes += msg->packet_size;
-  stat->send_time += (1/p->cn_bandwidth) * msg->packet_size;
+  stat->send_time += (1/p->link_bandwidth) * msg->packet_size;
   if(stat->max_event_size < total_event_size)
     stat->max_event_size = total_event_size;
 
@@ -1650,24 +1695,24 @@ void ft_packet_send_rc(ft_terminal_state * s, tw_bf *bf, fattree_message * msg, 
     t_send_r++;
 #endif
     if(bf->c1) {
-      s->in_send_loop = 1;
-      s->last_buf_full = msg->saved_busy_time;
+      s->in_send_loop[msg->vc_index] = 1;
+      s->last_buf_full[msg->vc_index] = msg->saved_busy_time;
       return;
     }
 
     tw_rand_reverse_unif(lp->rng);
-    s->terminal_available_time = msg->saved_available_time;
+    s->terminal_available_time[msg->vc_index] = msg->saved_available_time;
     if(bf->c2) {
       codes_local_latency_reverse(lp);
     }
     s->packet_counter--;
-    s->vc_occupancy -= s->params->chunk_size;
+    s->vc_occupancy[msg->vc_index] -= s->params->chunk_size;
 
     fattree_message_list* cur_entry = rc_stack_pop(s->st);
 
     prepend_to_fattree_message_list(s->terminal_msgs,
-        s->terminal_msgs_tail, 0, cur_entry);
-    s->terminal_length += s->params->chunk_size;
+        s->terminal_msgs_tail, msg->vc_index, cur_entry);
+    s->terminal_length[msg->vc_index] += s->params->chunk_size;
 #if DEBUG_RC
     if(s->terminal_id == 0)
        printf("time:%lf terminal_length:%d \n",tw_now(lp),s->terminal_length);
@@ -1677,11 +1722,11 @@ void ft_packet_send_rc(ft_terminal_state * s, tw_bf *bf, fattree_message * msg, 
       tw_rand_reverse_unif(lp->rng);
     }
     if(bf->c4) {
-      s->in_send_loop = 1;
+      s->in_send_loop[msg->vc_index] = 1;
     }
     if(bf->c5) {
       codes_local_latency_reverse(lp);
-      s->issueIdle = 1;
+      s->issueIdle[msg->vc_index] = 1;
     }
 }
 /* sends the packet from the compute node to the attached switch */
@@ -1698,15 +1743,14 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   tw_event *e;
   fattree_message *m;
 
-  fattree_message_list* cur_entry = s->terminal_msgs[0];
+  fattree_message_list* cur_entry = s->terminal_msgs[msg->vc_index];
 
-  if(s->vc_occupancy + s->params->chunk_size > s->params->cn_vc_size ||
+  if(s->vc_occupancy[msg->vc_index] + s->params->chunk_size > s->params->cn_vc_size ||
     cur_entry == NULL) {
     bf->c1 = 1;
-    s->in_send_loop = 0;
-
-    msg->saved_busy_time = s->last_buf_full;
-    s->last_buf_full = tw_now(lp);
+    s->in_send_loop[msg->vc_index] = 0;
+    msg->saved_busy_time = s->last_buf_full[msg->vc_index];
+    s->last_buf_full[msg->vc_index] = tw_now(lp);
     return;
   }
   
@@ -1719,20 +1763,20 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
 
   ts = g_tw_lookahead + + g_tw_lookahead * tw_rand_unif(lp->rng);
   if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1)) {
-    ts += s->params->cn_delay * (cur_entry->msg.packet_size % s->params->chunk_size);
+    ts += s->params->head_delay * (cur_entry->msg.packet_size % s->params->chunk_size);
   } else {
     bf->c12 = 1;
-    ts += s->params->cn_delay * s->params->chunk_size;
+    ts += s->params->head_delay * s->params->chunk_size;
   }
 
-  msg->saved_available_time = s->terminal_available_time;
-  s->terminal_available_time = maxd(s->terminal_available_time, tw_now(lp));
-  s->terminal_available_time += ts;
+  msg->saved_available_time = s->terminal_available_time[msg->vc_index];
+  s->terminal_available_time[msg->vc_index] = maxd(s->terminal_available_time[msg->vc_index], tw_now(lp));
+  s->terminal_available_time[msg->vc_index] += ts;
 
   // we are sending an event to the switch, so no method_event here
-  ts = s->terminal_available_time - tw_now(lp);
+  ts = s->terminal_available_time[msg->vc_index] - tw_now(lp);
 
-  e = tw_event_new(s->switch_lp, ts, lp);
+  e = tw_event_new(s->switch_lp[msg->vc_index], ts, lp);
   m = tw_event_data(e);
   memcpy(m, &cur_entry->msg, sizeof(fattree_message));
   if (m->remote_event_size_bytes){
@@ -1743,7 +1787,8 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   m->type = S_ARRIVE;
   m->src_terminal_id = lp->gid;
   m->intm_id = s->terminal_id;
-  m->vc_index = 0;
+  m->rail_id = msg->vc_index;
+  m->vc_index = msg->vc_index;
   m->vc_off = 0; //we only have one connection to the terminal NIC
   m->local_event_size_bytes = 0;
   m->last_hop = TERMINAL;
@@ -1765,35 +1810,36 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   }
 
   s->packet_counter++;
-  s->vc_occupancy += s->params->chunk_size;
-  cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, 0);
+  s->vc_occupancy[msg->vc_index] += s->params->chunk_size;
+  cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, msg->vc_index);
   rc_stack_push(lp, cur_entry, delete_fattree_message_list, s->st);
-  s->terminal_length -= s->params->chunk_size;
+  s->terminal_length[msg->vc_index] -= s->params->chunk_size;
 
 //  if(s->terminal_id == 1)
 //    printf("send time:%5.6lf lp_id:%3llu terminal_length:%5d \n",tw_now(lp),LLU(lp->gid),s->terminal_length);
 
-  cur_entry = s->terminal_msgs[0];
+  cur_entry = s->terminal_msgs[msg->vc_index];
 
   if(cur_entry != NULL &&
-    s->vc_occupancy + s->params->chunk_size <= s->params->cn_vc_size) {
+    s->vc_occupancy[msg->vc_index] + s->params->chunk_size <= s->params->cn_vc_size) {
     bf->c3 = 1;
     fattree_message *m_new;
     ts = ts + g_tw_lookahead * tw_rand_unif(lp->rng);
     e = model_net_method_event_new(lp->gid, ts, lp, FATTREE,
       (void**)&m_new, NULL);
     m_new->type = T_SEND;
+    m_new->vc_index = msg->vc_index;
     m_new->magic = fattree_terminal_magic_num;
     tw_event_send(e);
   } else {
     bf->c4 = 1;
-    s->in_send_loop = 0;
+    s->in_send_loop[msg->vc_index] = 0;
   }
 
-  if(s->issueIdle) {
+  if(s->issueIdle[msg->vc_index]) {
     bf->c5 = 1;
-    s->issueIdle = 0;
-    model_net_method_idle_event(codes_local_latency(lp), 0, lp);
+    s->issueIdle[msg->vc_index] = 0;
+    model_net_method_idle_event2(codes_local_latency(lp), 0, msg->vc_index, lp);
   }
 
   return;
@@ -1855,13 +1901,6 @@ void switch_packet_receive( switch_state * s, tw_bf * bf,
     max_vc_size = s->params->cn_vc_size;
     to_terminal = 1;
   }
-
-  int dest_term_local_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0);
-
-  if(msg->packet_ID == LLU(TRACK_PKT))
-    printf("\n Packet %llu chunk %llu arrived at switch %d switch_gid %llu dest_terminal_id %llu dest_term_local_id %llu final_dest_gid %llu output_port %d to_terminal %d\n",
-        msg->packet_ID, LLU(msg->chunk_id), s->switch_id, LLU(lp->gid), LLU(msg->dest_terminal_id), LLU(dest_term_local_id), LLU(msg->final_dest_gid),
-        output_port, to_terminal);
 
   fattree_message_list * cur_chunk = (fattree_message_list *)malloc(
       sizeof(fattree_message_list));
@@ -1983,7 +2022,7 @@ void switch_packet_send( switch_state * s, tw_bf * bf, fattree_message * msg,
   // dest can be a switch or a terminal, so we must check
   if(s->switch_level == 0 && output_port < s->num_lcons) {
     to_terminal = 1;
-    delay = s->params->cn_delay;
+    delay = s->params->head_delay;
   }
 
   uint64_t num_chunks = cur_entry->msg.packet_size / s->params->chunk_size;
@@ -2134,16 +2173,16 @@ void ft_terminal_buf_update_rc(ft_terminal_state * s, tw_bf * bf, fattree_messag
 #if DEBUG_RC
     t_buffer_r++;
 #endif
-    s->vc_occupancy += s->params->chunk_size;
+    s->vc_occupancy[msg->vc_index] += s->params->chunk_size;
     codes_local_latency_reverse(lp);
     if(bf->c3)
     {
-      s->busy_time = msg->saved_total_time;
-      s->last_buf_full = msg->saved_busy_time;
+      s->busy_time[msg->vc_index] = msg->saved_total_time;
+      s->last_buf_full[msg->vc_index] = msg->saved_busy_time;
       s->busy_time_sample = msg->saved_sample_time;
     }
     if(bf->c1) {
-      s->in_send_loop = 0;
+      s->in_send_loop[msg->vc_index] = 0;
     }
 }
 /* update the compute node-switch channel buffer */
@@ -2153,29 +2192,30 @@ void ft_terminal_buf_update(ft_terminal_state * s, tw_bf * bf,
   bf->c1 = 0;
 
   tw_stime ts = codes_local_latency(lp);
-  s->vc_occupancy -= s->params->chunk_size;
+  s->vc_occupancy[msg->vc_index] -= s->params->chunk_size;
 
   /* Update the terminal buffer time */
-  if(s->last_buf_full > 0)
+  if(s->last_buf_full[msg->vc_index] > 0)
   {
     bf->c3 = 1;
-    msg->saved_total_time = s->busy_time;
-    msg->saved_busy_time = s->last_buf_full;
+    msg->saved_total_time = s->busy_time[msg->vc_index];
+    msg->saved_busy_time = s->last_buf_full[msg->vc_index];
     msg->saved_sample_time = s->busy_time_sample;
 
-    s->busy_time += (tw_now(lp) - s->last_buf_full);
-    s->busy_time_sample += (tw_now(lp) - s->last_buf_full);
-    s->last_buf_full = 0.0;
+    s->busy_time[msg->vc_index] += (tw_now(lp) - s->last_buf_full[msg->vc_index]);
+    s->busy_time_sample += (tw_now(lp) - s->last_buf_full[msg->vc_index]);
+    s->last_buf_full[msg->vc_index] = 0.0;
   }
 
-  if(s->in_send_loop == 0 && s->terminal_msgs[0] != NULL) {
+  if(s->in_send_loop[msg->vc_index] == 0 && s->terminal_msgs[msg->vc_index] != NULL) {
     fattree_message *m;
     bf->c1 = 1;
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, FATTREE,
         (void**)&m, NULL);
     m->type = T_SEND;
+    m->vc_index = msg->vc_index;
     m->magic = fattree_terminal_magic_num;
-    s->in_send_loop = 1;
+    s->in_send_loop[msg->vc_index] = 1;
     //printf("[%d] term buf Send to %d\n", lp->gid, lp->gid);
     tw_event_send(e);
   }
@@ -2270,7 +2310,6 @@ void ft_send_remote_event(ft_terminal_state * s, fattree_message * msg, tw_lp * 
 
         void * tmp_ptr = model_net_method_get_edata(FATTREE, msg);
 
-        //tw_stime ts = g_tw_lookahead + bytes_to_ns(msg->remote_event_size_bytes, (1/s->params->cn_bandwidth));
         tw_stime ts = g_tw_lookahead + tw_rand_unif(lp->rng);
 
         if (msg->is_pull){
@@ -2398,7 +2437,6 @@ void ft_packet_arrive(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   //If no chunks (sending msgs as whole) then set to 1
   if(!total_chunks)
           total_chunks = 1;
-  assert(lp->gid == msg->dest_terminal_id);
 
 #if DEBUG_RC
   if(msg->packet_ID == LLU(TRACK_PKT))
@@ -2414,7 +2452,7 @@ void ft_packet_arrive(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   ts = g_tw_lookahead + s->params->credit_delay + g_tw_lookahead * tw_rand_unif(lp->rng);
 
   // no method_event here - message going to switch
-  buf_e = tw_event_new(s->switch_lp, ts, lp);
+  buf_e = tw_event_new(s->switch_lp[msg->rail_id], ts, lp);
   buf_msg = tw_event_data(buf_e);
   buf_msg->magic = switch_magic_num;
   buf_msg->vc_index = msg->vc_index;
@@ -2437,8 +2475,6 @@ void ft_packet_arrive(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   s->fin_chunks_sample++;
 
    s->data_size_sample += msg->total_size;
-  /* WE do not allow self messages through fattree */
-  assert(lp->gid != msg->src_terminal_id);
 
   uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
   if (msg->packet_size % s->params->chunk_size)
@@ -2590,6 +2626,9 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
   fattree_param *p = s->params;
 
   int dest_term_local_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0);
+  if(s->params->ft_type != 2) {
+    dest_term_local_id /= s->params->num_rails;
+  }
   /* either do static oblivious routing, if set up properly via LFTs */
   if(s->params->routing == STATIC) {
     assert(dest_term_local_id >= 0 && dest_term_local_id < p->num_terminals);
@@ -2613,7 +2652,7 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
       end_port = s->num_cons;
     }
   } else if(s->switch_level == 1) {
-    int dest_switch_id = dest_term_local_id / (p->switch_radix[0] / 2);
+    int dest_switch_id = dest_term_local_id / p->l0_term_size;
     //if only two level or packet going down, send to the right switch
     if(p->num_levels == 2 || (dest_switch_id >= s->start_lneigh &&
       dest_switch_id < s->end_lneigh)) {
@@ -2625,13 +2664,8 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
     }
   } else { //switch level 2
     int dest_l1_group = dest_term_local_id / p->l1_term_size;
-    if(s->params->ft_type == 0) {
-      start_port = dest_l1_group * /* (p->l1_set_size/2) **/ s->con_per_lneigh;
-      end_port = start_port +(/*(p->l1_set_size/2) **/ s->con_per_lneigh);
-    } else {
-      start_port = dest_l1_group * s->con_per_lneigh;
-      end_port = start_port + s->con_per_lneigh;
-    }
+    start_port = dest_l1_group * s->params->link_repetitions * s->con_per_lneigh;
+    end_port = start_port + (s->params->link_repetitions * s->con_per_lneigh);
   }
 
   assert(end_port > start_port);
@@ -2658,19 +2692,6 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
   }
   return outport;
 }
-
-/* Currently incomplete. */
-/*int get_base_port(switch_state *s, int from_term, int index) {
-  int return_port;
-  if(s->switch_level == 2) {
-  } else if(from_term || index < (int)s->switch_id) {
-    return_port = ((index - s->start_lneigh) * s->con_per_lneigh);
-  } else {
-    return_port = s->num_lcons;
-    return_port += ((index - s->start_uneigh) * s->con_per_uneigh);
-  }
-  return return_port;
-}*/
 
 void ft_terminal_event( ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
 		tw_lp * lp ) {
@@ -2721,13 +2742,13 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
     model_net_print_stats(lp->gid, s->fattree_stats_array);
 
     int written = 0;
-    if(!s->terminal_id)
-        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Aggregate packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>\n");
+    if(!s->terminal_id && !s->rail_id)
+        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Rail ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>\n");
 
-    written += sprintf(s->output_buf + written, "%llu %u %lld %lf %ld %lf %lf\n",
-            LLU(lp->gid), s->terminal_id, s->total_msg_size, s->total_time,
+    written += sprintf(s->output_buf + written, "%llu %u %u %ld %lf %ld %lf %lf\n",
+            LLU(lp->gid), s->terminal_id, s->rail_id, s->total_msg_size, s->total_time,
             s->finished_packets, (double)s->total_hops/s->finished_chunks,
-            s->busy_time);
+            s->busy_time[0]);
 
     lp_io_write(lp->gid, "fattree-msg-stats", written, s->output_buf);
 
@@ -2806,28 +2827,28 @@ void fattree_switch_final(switch_state * s, tw_lp * lp)
 
 //    const fattree_param *p = s->params;
     int written = 0;
-    if(!s->switch_id)
+    if(!s->switch_id && !s->rail_id)
     {
-        written = sprintf(s->output_buf, "# Format <LP ID> <Level ID> <Switch ID> <Busy time per switch port(s)>");
+        written = sprintf(s->output_buf, "# Format <LP ID> <Rail ID> <Level ID> <Switch ID> <Busy time per switch port(s)>");
         written += sprintf(s->output_buf + written, "# Switch ports: %d\n",
                 s->radix);
     }
-    written += sprintf(s->output_buf + written, "\n %llu %d %d",
-            LLU(lp->gid),s->switch_level,s->switch_id);
+    written += sprintf(s->output_buf + written, "\n %llu %d %d %d",
+            LLU(lp->gid),s->rail_id,s->switch_level,s->switch_id);
     for(int d = 0; d < s->radix; d++)
         written += sprintf(s->output_buf + written, " %lf", s->busy_time[d]);
 
     lp_io_write(lp->gid, "fattree-switch-stats", written, s->output_buf);
 
     written = 0;
-    if(!s->switch_id)
+    if(!s->switch_id && !s->rail_id)
     {
-        written = sprintf(s->output_buf2, "# Format <LP ID> <Level ID> <Switch ID> <Link traffic per switch port(s)>");
+        written = sprintf(s->output_buf2, "# Format <LP ID> <Rail ID> <Level ID> <Switch ID> <Link traffic per switch port(s)>");
         written += sprintf(s->output_buf2 + written, "# Switch ports: %d",
             s->radix);
     }
-    written += sprintf(s->output_buf2 + written, "\n %llu %d %d",
-        LLU(lp->gid),s->switch_level,s->switch_id);
+    written += sprintf(s->output_buf2 + written, "\n %llu %d %d %d",
+        LLU(lp->gid),s->rail_id,s->switch_level,s->switch_id);
 
     for(int d = 0; d < s->radix; d++)
         written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));

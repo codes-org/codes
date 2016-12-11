@@ -125,6 +125,7 @@ typedef struct model_net_request {
     uint64_t msg_id;
     int      net_id;
     int      is_pull;
+    int      queue_offset;
     int      remote_event_size;
     int      self_event_size;
     char     category[CATEGORY_NAME_MAX];
