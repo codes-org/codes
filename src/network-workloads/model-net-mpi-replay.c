@@ -1441,9 +1441,11 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 		int count_irecv = qlist_count(&s->pending_recvs_queue);
         int count_isend = qlist_count(&s->arrival_queue);
 		if(count_irecv || count_isend)
-        printf("\n LP %llu unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf",
-			lp->gid, count_irecv, count_isend, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->send_time, s->wait_time);
-
+        {
+            printf("\n LP %llu unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf",
+			    lp->gid, count_irecv, count_isend, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->send_time, s->wait_time);
+            tw_error(TW_LOC, "\n Unmatched send and receive, terminating simulation");
+        }
         written += sprintf(s->output_buf + written, "\n %llu %llu %ld %ld %ld %ld %lf %lf %lf", lp->gid, s->nw_id, s->num_sends, s->num_recvs, s->num_bytes_sent,
                 s->num_bytes_recvd, s->send_time, s->elapsed_time - s->compute_time, s->compute_time);
         lp_io_write(lp->gid, "mpi-replay-stats", written, s->output_buf);
