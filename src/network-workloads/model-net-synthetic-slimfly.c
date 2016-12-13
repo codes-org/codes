@@ -230,11 +230,11 @@ static void issue_event(
     }
     if(load != 0)
     {
-        MEAN_INTERVAL = bytes_to_ns(this_packet_size, load*this_global_bandwidth) + this_link_delay;
+        MEAN_INTERVAL = bytes_to_ns(this_packet_size, load*this_global_bandwidth);
     }
 
     /* skew each kickoff event slightly to help avoid event ties later on */
-    kickoff_time = g_tw_lookahead + MEAN_INTERVAL + tw_rand_exponential(lp->rng, (double)MEAN_INTERVAL/100);
+    kickoff_time = g_tw_lookahead + tw_rand_exponential(lp->rng, MEAN_INTERVAL);
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
