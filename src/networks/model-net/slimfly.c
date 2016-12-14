@@ -3042,8 +3042,16 @@ void slim_router_packet_send_rc(router_state * s,
 
     tw_rand_reverse_unif(lp->rng);
 
+    if(bf->c11)
+    {
+        s->link_traffic[output_port] -= msg->packet_size % s->params->chunk_size;
+    }
+    if(bf->c12)
+    {
+        s->link_traffic[output_port] -= s->params->chunk_size;
+    }
     s->next_output_available_time[output_port] = msg->saved_available_time;
-    s->link_traffic[output_port] -= s->params->chunk_size;
+
     create_prepend_to_terminal_message_list(s->pending_msgs[output_port],
             s->pending_msgs_tail[output_port], output_chan, msg);
 
@@ -3095,26 +3103,41 @@ slim_router_packet_send( router_state * s,
 
     int to_terminal = 1, global = 0;
     double delay = s->params->cn_delay;
+    double bandwidth = s->params->cn_bandwidth;
 
     if(output_port < s->params->num_local_channels)
     {
         to_terminal = 0;
         delay = s->params->local_delay;
+        bandwidth = s->params->local_bandwidth;
     }
     else if(output_port < s->params->num_local_channels + s->params->num_global_channels)
     {
         to_terminal = 0;
         global = 1;
         delay = s->params->global_delay;
+        bandwidth = s->params->global_bandwidth;
     }
 
-    ts = g_tw_lookahead + delay + tw_rand_unif(lp->rng) + s->params->router_delay;
+    uint64_t num_chunks = cur_entry->msg.packet_size / s->params->chunk_size;
+    if(msg->packet_size % s->params->chunk_size)
+        num_chunks++;
+    if(!num_chunks)
+        num_chunks = 1;
+
+    double bytetime = delay;
+
+    if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
+        bytetime = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, bandwidth); 
+
+    ts = g_tw_lookahead + tw_rand_unif(lp->rng) + bytetime + s->params->router_delay;
 
     msg->saved_available_time = s->next_output_available_time[output_port];
     s->next_output_available_time[output_port] =
         maxd(s->next_output_available_time[output_port], tw_now(lp));
     s->next_output_available_time[output_port] += ts;
 
+    ts = s->next_output_available_time[output_port] - tw_now(lp);
     // dest can be a router or a terminal, so we must check
     void * m_data;
     if (to_terminal)
@@ -3145,7 +3168,14 @@ slim_router_packet_send( router_state * s,
     m->intm_lp_id = lp->gid;
     m->magic = slim_router_magic_num;
 
-    s->link_traffic[output_port] += s->params->chunk_size;
+    if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1)) {
+        bf->c11 = 1;
+        s->link_traffic[output_port] +=  (cur_entry->msg.packet_size %
+            s->params->chunk_size); 
+    } else {
+        bf->c12 = 1;
+        s->link_traffic[output_port] += s->params->chunk_size;
+    }
 
     /* Determine the event type. If the packet has arrived at the final
      * destination router then it should arrive at the destination terminal
@@ -3168,14 +3198,19 @@ slim_router_packet_send( router_state * s,
     copy_terminal_list_entry(cur_entry, msg);
     slim_delete_terminal_message_list(cur_entry);
 
-    cur_entry = s->pending_msgs[output_port][2];
+    cur_entry = s->pending_msgs[output_port][3];
+
+    s->next_output_available_time[output_port] -= s->params->router_delay;
+    ts -= s->params->router_delay;
+
+    if(cur_entry == NULL) cur_entry = s->pending_msgs[output_port][2];
     if(cur_entry == NULL) cur_entry = s->pending_msgs[output_port][1];
     if(cur_entry == NULL) cur_entry = s->pending_msgs[output_port][0];
     if(cur_entry != NULL)
     {
         bf->c3 = 1;
         slim_terminal_message *m_new;
-        ts = g_tw_lookahead + delay + tw_rand_unif(lp->rng);
+        ts = ts + g_tw_lookahead * tw_rand_unif(lp->rng);
         tw_event *e_new = tw_event_new(lp->gid, ts, lp);
         m_new = tw_event_data(e_new);
         m_new->type = R_SEND;
