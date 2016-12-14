@@ -2818,6 +2818,12 @@ void slim_router_packet_receive_rc(router_state * s,
     if(bf->c1)
         tw_rand_reverse_unif(lp->rng);
 
+    if(bf->c5){
+        for(int i=0;i<num_indirect_routes;i++){
+            tw_rand_reverse_unif(lp->rng);
+        }
+    }
+
     if(bf->c2) {
         tw_rand_reverse_unif(lp->rng);
         slim_delete_terminal_message_list(return_tail(s->pending_msgs[output_port],
