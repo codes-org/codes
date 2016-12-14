@@ -1593,6 +1593,9 @@ void slim_packet_arrive_rc(terminal_state * s, tw_bf * bf, slim_terminal_message
 
     if(bf->c7)
     {
+        if(bf->c8) 
+            tw_rand_reverse_unif(lp->rng);
+
         s->finished_msgs--;
         total_msg_sz -= msg->total_size;
         N_finished_msgs--;
@@ -1651,6 +1654,26 @@ void slim_packet_arrive(terminal_state * s, tw_bf * bf, slim_terminal_message * 
     // NIC aggregation - should this be a separate function?
     // Trigger an event on receiving server
 
+    struct sfly_hash_key key;
+    key.message_id = msg->message_id;
+    key.sender_id = msg->sender_lp;
+
+    struct qhash_head *hash_link = NULL;
+    struct sfly_qhash_entry * tmp = NULL;
+
+    hash_link = qhash_search(s->rank_tbl, &key);
+
+    if(hash_link)
+        tmp = qhash_entry(hash_link, struct sfly_qhash_entry, hash_link);
+
+    uint64_t total_chunks = msg->total_size / s->params->chunk_size;
+
+    if(msg->total_size % s->params->chunk_size)
+        total_chunks++;
+
+    if(!total_chunks)
+        total_chunks = 1;
+
     tw_stime ts = g_tw_lookahead + s->params->credit_delay + tw_rand_unif(lp->rng);
 
     if(msg->packet_ID == TRACK)
@@ -1679,14 +1702,6 @@ void slim_packet_arrive(terminal_state * s, tw_bf * bf, slim_terminal_message * 
     assert(lp->gid != msg->src_terminal_id);
 
     uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
-    uint64_t total_chunks = msg->total_size / s->params->chunk_size;
-
-    if(msg->total_size % s->params->chunk_size)
-        total_chunks++;
-
-    if(!total_chunks)
-        total_chunks = 1;
-
     if (msg->packet_size % s->params->chunk_size)
         num_chunks++;
 
@@ -1726,17 +1741,10 @@ void slim_packet_arrive(terminal_state * s, tw_bf * bf, slim_terminal_message * 
     /* Now retreieve the number of chunks completed from the hash and update
      * them */
     void *m_data_src = model_net_method_get_edata(SLIMFLY, msg);
-    struct qhash_head *hash_link = NULL;
-    struct sfly_qhash_entry * tmp = NULL;
-    struct sfly_hash_key key;
-    key.message_id = msg->message_id;
-    key.sender_id = msg->sender_lp;
 
-    hash_link = qhash_search(s->rank_tbl, &key);
-    tmp = qhash_entry(hash_link, struct sfly_qhash_entry, hash_link);
 
     /* If an entry does not exist then create one */
-    if(!hash_link)
+    if(!tmp)
     {
         bf->c5 = 1;
         struct sfly_qhash_entry * d_entry = malloc(sizeof (struct sfly_qhash_entry));
@@ -1747,13 +1755,12 @@ void slim_packet_arrive(terminal_state * s, tw_bf * bf, slim_terminal_message * 
         qhash_add(s->rank_tbl, &key, &(d_entry->hash_link));
         s->rank_tbl_pop++;
 
-        hash_link = qhash_search(s->rank_tbl, &key);
-        tmp = qhash_entry(hash_link, struct sfly_qhash_entry, hash_link);
+        hash_link = &(d_entry->hash_link);
+        tmp = d_entry;
     }
 
     assert(tmp);
     tmp->num_chunks++;
-
 
     /* if its the last chunk of the packet then handle the remote event data */
     if(msg->chunk_id == num_chunks - 1)
@@ -1789,8 +1796,10 @@ void slim_packet_arrive(terminal_state * s, tw_bf * bf, slim_terminal_message * 
         s->total_msg_size += msg->total_size;
         s->finished_msgs++;
 
-        //assert(tmp->remote_event_data && tmp->remote_event_size);
-        slim_send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
+        if(tmp->remote_event_data && tmp->remote_event_size > 0) {
+            bf->c8 = 1;
+            slim_send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
+        }
         /* Remove the hash entry */
         qhash_del(hash_link);
         msg->saved_hash = tmp;
