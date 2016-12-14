@@ -1835,6 +1835,7 @@ void slim_terminal_buf_update(terminal_state * s,
         tw_lp * lp)
 {
     (void)msg;
+    bf->c1 = 0;
 
     tw_stime ts = codes_local_latency(lp);
     s->vc_occupancy[0] -= s->params->chunk_size;
@@ -1852,11 +1853,6 @@ void slim_terminal_buf_update(terminal_state * s,
         m->magic = slim_terminal_magic_num;
         s->in_send_loop = 1;
         tw_event_send(e);
-    }
-    else if(s->in_send_loop == 0 && s->terminal_msgs[0] == NULL)
-    {
-        bf->c2 = 1;
-        model_net_method_idle_event(ts, 0, lp);
     }
 
     return;
