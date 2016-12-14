@@ -1180,43 +1180,6 @@ static void slimfly_packet_event_rc(tw_lp *sender)
     return;
 }
 
-/* given two group IDs, find the router of the src_gid that connects to the dest_gid*/
-tw_lpid slim_getRouterFromGroupID(int dest_gid,
-        int src_gid,
-        int num_routers,
-        int total_groups)
-{
-#if USE_DIRECT_SCHEME
-    int dest = dest_gid;
-    if(dest == total_groups - 1) {
-        dest = src_gid;
-    }
-    return src_gid * num_routers + (dest % num_routers);
-#else
-    int group_begin = src_gid * num_routers;
-    int group_end = (src_gid * num_routers) + num_routers-1;
-    int offset = (dest_gid * num_routers - group_begin) / num_routers;
-
-    if((dest_gid * num_routers) < group_begin)
-        offset = (group_begin - dest_gid * num_routers) / num_routers; // take absolute value
-
-    int half_channel = num_routers / 4;
-    int index = (offset - 1)/(half_channel * num_routers);
-
-    offset=(offset - 1) % (half_channel * num_routers);
-
-    // If the destination router is in the same group
-    tw_lpid router_id;
-
-    if(index % 2 != 0)
-        router_id = group_end - (offset / half_channel); // start from the end
-    else
-        router_id = group_begin + (offset / half_channel);
-
-    return router_id;
-#endif
-}
-
 /*When a packet is sent from the current router and a buffer slot becomes available, a credit is sent back to schedule another packet event*/
 void slim_router_credit_send(router_state * s, tw_bf * bf, slim_terminal_message * msg, tw_lp * lp, int sq)
 {
@@ -1604,29 +1567,6 @@ void slim_packet_arrive_rc(terminal_state * s, tw_bf * bf, slim_terminal_message
     slimfly_total_time -= (tw_now(lp) - msg->travel_start_time);
     s->total_time = msg->saved_avg_time;
 
-    /*if(msg->chunk_id == num_chunks - 1)
-      {
-      mn_stats* stat;
-      stat = model_net_find_stats(msg->category, s->slimfly_stats_array);
-      stat->recv_count--;
-      stat->recv_bytes -= msg->packet_size;
-      stat->recv_time -= tw_now(lp) - msg->travel_start_time;
-
-
-      N_finished_packets--;
-
-      slimfly_total_time -= (tw_now(lp) - msg->travel_start_time);
-
-      if(bf->c3)
-      slimfly_max_latency = msg->saved_available_time;
-      }
-      if (msg->chunk_id == num_chunks-1 &&
-      msg->remote_event_size_bytes &&
-      msg->is_pull)
-      {
-      int net_id = model_net_get_id(LP_METHOD_NM);
-      model_net_event_rc(net_id, lp, msg->pull_size);
-      }*/
     struct qhash_head * hash_link = NULL;
     struct sfly_qhash_entry * tmp = NULL;
 
@@ -1783,47 +1723,6 @@ void slim_packet_arrive(terminal_state * s, tw_bf * bf, slim_terminal_message * 
     }
 #endif
 
-    /*tw_event * e;
-      slim_terminal_message * m;
-      if(msg->chunk_id == num_chunks-1)
-      {
-      bf->c2 = 1;
-      mn_stats* stat = model_net_find_stats(msg->category, s->slimfly_stats_array);
-      stat->recv_count++;
-      stat->recv_bytes += msg->packet_size;
-      stat->recv_time += tw_now(lp) - msg->travel_start_time;
-      N_finished_packets++;
-      total_hops -= msg->my_N_hop;
-
-      slimfly_total_time += tw_now( lp ) - msg->travel_start_time;
-      if (slimfly_max_latency < tw_now( lp ) - msg->travel_start_time)
-      {
-      bf->c3 = 1;
-      msg->saved_available_time = slimfly_max_latency;
-      slimfly_max_latency=tw_now( lp ) - msg->travel_start_time;
-      }
-      if(msg->remote_event_size_bytes)
-      {
-      void * tmp_ptr = model_net_method_get_edata(SLIMFLY, msg);
-      ts = g_tw_lookahead + 0.1 + (1/s->params->cn_bandwidth) * msg->remote_event_size_bytes;
-      if (msg->is_pull){
-      struct codes_mctx mc_dst =
-      codes_mctx_set_global_direct(msg->sender_mn_lp);
-      struct codes_mctx mc_src =
-      codes_mctx_set_global_direct(lp->gid);
-      int net_id = model_net_get_id(LP_METHOD_NM);
-      model_net_event_mctx(net_id, &mc_src, &mc_dst, msg->category,
-      msg->sender_lp, msg->pull_size, ts,
-      msg->remote_event_size_bytes, tmp_ptr, 0, NULL, lp);
-      }
-      else {
-      e = tw_event_new(msg->final_dest_gid, ts, lp);
-      m = tw_event_data(e);
-      memcpy(m, tmp_ptr, msg->remote_event_size_bytes);
-      tw_event_send(e);
-      }
-      }
-      }*/
     /* Now retreieve the number of chunks completed from the hash and update
      * them */
     void *m_data_src = model_net_method_get_edata(SLIMFLY, msg);
