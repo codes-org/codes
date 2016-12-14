@@ -3258,7 +3258,7 @@ void slim_router_buf_update_rc(router_state * s,
         tw_rand_reverse_unif(lp->rng);
         prepend_to_terminal_message_list(s->queued_msgs[indx],
                 s->queued_msgs_tail[indx], output_chan, head);
-        s->vc_occupancy[indx][output_chan] -= s->params->chunk_size;
+        s->vc_occupancy[indx][output_chan] += s->params->chunk_size;
     }
     if(bf->c2) {
         codes_local_latency_reverse(lp);
@@ -3292,7 +3292,7 @@ void slim_router_buf_update(router_state * s, tw_bf * bf, slim_terminal_message 
         slim_router_credit_send(s, bf,  &head->msg, lp, 1);
         append_to_terminal_message_list(s->pending_msgs[indx],
                 s->pending_msgs_tail[indx], output_chan, head);
-        s->vc_occupancy[indx][output_chan] += s->params->chunk_size;
+        s->vc_occupancy[indx][output_chan] -= s->params->chunk_size;
 #if ROUTER_OCCUPANCY_LOG
         vc_occupancy_storage_router[s->router_id][indx][output_chan][index] = s->vc_occupancy[indx][output_chan]/s->params->chunk_size;
 #endif
