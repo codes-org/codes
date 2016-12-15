@@ -266,6 +266,7 @@ struct router_state
     slim_terminal_message_list ***queued_msgs;
     slim_terminal_message_list ***queued_msgs_tail;
     int *in_send_loop;
+    struct rc_stack * st;
 
     tw_stime* last_buf_full;
     tw_stime* busy_time;
@@ -299,7 +300,7 @@ static int slimfly_rank_hash_compare(
         void *key, struct qhash_head *link)
 {
     struct sfly_hash_key *message_key = (struct sfly_hash_key *)key;
-    struct sfly_qhash_entry *tmp;
+    struct sfly_qhash_entry *tmp = NULL;
 
     tmp = qhash_entry(link, struct sfly_qhash_entry, hash_link);
 
@@ -316,7 +317,7 @@ static int slimfly_hash_func(void *k, int table_size)
     key = key * 21;
     key = ~key ^ (tmp->sender_id >> 4);
     key = key * tmp->sender_id;
-    return (int)(key % table_size);
+    return (int)(key & (table_size - 1));
 }
 
 /* convert GiB/s and bytes to ns */
@@ -340,12 +341,14 @@ static int slimfly_get_msg_sz(void)
     return sizeof(slim_terminal_message);
 }
 
-/*static void free_tmp(void * ptr)
-  {
-  struct sfly_qhash_entry * sfly = ptr;
-  free(sfly->remote_event_data);
-  free(sfly);
-  }*/
+static void free_tmp(void * ptr)
+{
+    struct sfly_qhash_entry * sfly = ptr;
+    if(sfly->remote_event_data)
+        free(sfly->remote_event_data);
+    if(sfly)
+        free(sfly);
+}
 
 static void append_to_terminal_message_list(
         slim_terminal_message_list ** thisq,
@@ -375,23 +378,6 @@ static void prepend_to_terminal_message_list(
     thisq[index] = msg;
 }
 
-static void create_prepend_to_terminal_message_list(
-        slim_terminal_message_list ** thisq,
-        slim_terminal_message_list ** thistail,
-        int index,
-        slim_terminal_message *msg) {
-    slim_terminal_message_list* new_entry = (slim_terminal_message_list*)malloc(
-            sizeof(slim_terminal_message_list));
-    slim_init_terminal_message_list(new_entry, msg);
-    if(msg->remote_event_size_bytes) {
-        void *m_data = model_net_method_get_edata(SLIMFLY, msg);
-        size_t s = msg->remote_event_size_bytes + msg->local_event_size_bytes;
-        new_entry->event_data = (void*)malloc(s);
-        memcpy(new_entry->event_data, m_data, s);
-    }
-    prepend_to_terminal_message_list( thisq, thistail, index, new_entry);
-}
-
 static slim_terminal_message_list* return_head(
         slim_terminal_message_list ** thisq,
         slim_terminal_message_list ** thistail,
@@ -414,6 +400,7 @@ static slim_terminal_message_list* return_tail(
         slim_terminal_message_list ** thistail,
         int index) {
     slim_terminal_message_list *tail = thistail[index];
+    assert(tail);
     if(tail->prev != NULL) {
         tail->prev->next = NULL;
         thistail[index] = tail->prev;
@@ -425,50 +412,6 @@ static slim_terminal_message_list* return_tail(
     return tail;
 }
 
-static void copy_terminal_list_entry( slim_terminal_message_list *cur_entry,
-        slim_terminal_message *msg) {
-    slim_terminal_message *cur_msg = &cur_entry->msg;
-    msg->travel_start_time = cur_msg->travel_start_time;
-    msg->packet_ID = cur_msg->packet_ID;
-    strcpy(msg->category, cur_msg->category);
-    msg->final_dest_gid = cur_msg->final_dest_gid;
-    msg->msg_start_time = msg->msg_start_time;
-    msg->sender_lp = cur_msg->sender_lp;
-    msg->dest_terminal_id = cur_msg->dest_terminal_id;
-    msg->src_terminal_id = cur_msg->src_terminal_id;
-    msg->local_id = cur_msg->local_id;
-    msg->origin_router_id = cur_msg->origin_router_id;
-    msg->my_N_hop = cur_msg->my_N_hop;
-    msg->my_l_hop = cur_msg->my_l_hop;
-    msg->my_g_hop = cur_msg->my_g_hop;
-    msg->intm_lp_id = cur_msg->intm_lp_id;
-    msg->saved_channel = cur_msg->saved_channel;
-    msg->saved_vc = cur_msg->saved_vc;
-    msg->last_hop = cur_msg->last_hop;
-    msg->path_type = cur_msg->path_type;
-    msg->vc_index = cur_msg->vc_index;
-    msg->output_chan = cur_msg->output_chan;
-    msg->is_pull = cur_msg->is_pull;
-    msg->pull_size = cur_msg->pull_size;
-    msg->intm_group_id = cur_msg->intm_group_id;
-    msg->intm_router_id = cur_msg->intm_router_id;
-    msg->chunk_id = cur_msg->chunk_id;
-    msg->sender_mn_lp = cur_msg->sender_mn_lp;
-    msg->total_size = cur_msg->total_size;
-    msg->packet_size = cur_msg->packet_size;
-    msg->message_id = cur_msg->message_id;
-    msg->local_event_size_bytes = cur_msg->local_event_size_bytes;
-    msg->remote_event_size_bytes = cur_msg->remote_event_size_bytes;
-    msg->sender_node = cur_msg->sender_node;
-    msg->next_stop = cur_msg->next_stop;
-    msg->magic = cur_msg->magic;
-
-    if(msg->local_event_size_bytes +  msg->remote_event_size_bytes > 0) {
-        void *m_data = model_net_method_get_edata(SLIMFLY, msg);
-        memcpy(m_data, cur_entry->event_data,
-                msg->local_event_size_bytes +  msg->remote_event_size_bytes);
-    }
-}
 static void slimfly_read_config(const char * anno, slimfly_param *params){
     // shorthand
     slimfly_param *p = params;
@@ -920,6 +863,8 @@ void slim_router_setup(router_state * r, tw_lp * lp)
     r->last_buf_full = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
     r->busy_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
 
+    rc_stack_create(&r->st);
+
     for(int i=0; i < p->radix; i++)
     {
         // Set credit & router occupancy
@@ -1181,10 +1126,8 @@ static void slimfly_packet_event_rc(tw_lp *sender)
 }
 
 /*When a packet is sent from the current router and a buffer slot becomes available, a credit is sent back to schedule another packet event*/
-void slim_router_credit_send(router_state * s, tw_bf * bf, slim_terminal_message * msg, tw_lp * lp, int sq)
+void slim_router_credit_send(router_state * s, slim_terminal_message * msg, tw_lp * lp, int sq)
 {
-    (void)bf;
-
     tw_event * buf_e;
     tw_stime ts;
     slim_terminal_message * buf_msg;
@@ -1388,8 +1331,10 @@ void slim_packet_send_rc(terminal_state * s, tw_bf * bf, slim_terminal_message *
     s->packet_counter--;
     s->vc_occupancy[0] -= s->params->chunk_size;
 
-    create_prepend_to_terminal_message_list(s->terminal_msgs,
-            s->terminal_msgs_tail, 0, msg);
+    slim_terminal_message_list* cur_entry = rc_stack_pop(s->st);
+
+    prepend_to_terminal_message_list(s->terminal_msgs,
+            s->terminal_msgs_tail, 0, cur_entry);
     if(bf->c3) {
         tw_rand_reverse_unif(lp->rng);
     }
@@ -1509,8 +1454,7 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
     vc_occupancy_storage_terminal[s->terminal_id][0][index] = s->vc_occupancy[0]/s->params->chunk_size;
 #endif
     cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, 0);
-    copy_terminal_list_entry(cur_entry, msg);
-    slim_delete_terminal_message_list(cur_entry);
+    rc_stack_push(lp, cur_entry, slim_delete_terminal_message_list, s->st);
     s->terminal_length -= s->params->chunk_size;
 
     cur_entry = s->terminal_msgs[0];
@@ -1601,13 +1545,12 @@ void slim_packet_arrive_rc(terminal_state * s, tw_bf * bf, slim_terminal_message
         N_finished_msgs--;
         s->total_msg_size -= msg->total_size;
 
-        //            struct sfly_qhash_entry * d_entry_pop = (struct sfly_qhash_entry*)rc_stack_pop(s->st);
-        struct sfly_qhash_entry * d_entry_pop = msg->saved_hash;
+        struct sfly_qhash_entry * d_entry_pop = rc_stack_pop(s->st);
         qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
         s->rank_tbl_pop++;
 
-        hash_link = qhash_search(s->rank_tbl, &key);
-        tmp = qhash_entry(hash_link, struct sfly_qhash_entry, hash_link);
+        hash_link = &(d_entry_pop->hash_link);
+        tmp = d_entry_pop;
 
 
         if(bf->c4)
@@ -1675,9 +1618,6 @@ void slim_packet_arrive(terminal_state * s, tw_bf * bf, slim_terminal_message * 
         total_chunks = 1;
 
     tw_stime ts = g_tw_lookahead + s->params->credit_delay + tw_rand_unif(lp->rng);
-
-    if(msg->packet_ID == TRACK)
-        printf("\n terminal sending credit at chan %d \n", msg->saved_vc);
 
     // no method_event here - message going to router
     tw_event * buf_e;
@@ -1802,8 +1742,7 @@ void slim_packet_arrive(terminal_state * s, tw_bf * bf, slim_terminal_message * 
         }
         /* Remove the hash entry */
         qhash_del(hash_link);
-        msg->saved_hash = tmp;
-        //rc_stack_push(lp, tmp, free_tmp, s->st);
+        rc_stack_push(lp, tmp, free_tmp, s->st);
         s->rank_tbl_pop--;
     }
 #if TERMINAL_SENDS_RECVS_LOG
@@ -1866,7 +1805,7 @@ void slim_terminal_event( terminal_state * s,
     *(int *)bf = (int)0;
     assert(msg->magic == slim_terminal_magic_num);
 
-    //rc_stack_gc(lp, s->st);
+    rc_stack_gc(lp, s->st);
     switch(msg->type)
     {
         case T_GENERATE:
@@ -2658,12 +2597,10 @@ tw_lpid slim_get_next_stop(router_state * s,
 }
 /* gets the output port corresponding to the next stop of the message */
 int slim_get_output_port( router_state * s,
-        tw_bf * bf,
         slim_terminal_message * msg,
         tw_lp * lp,
         int next_stop )
 {
-    (void)bf;
     (void)lp;
 
     int output_port = -1, terminal_id;
@@ -2711,7 +2648,6 @@ int slim_get_output_port( router_state * s,
 
 /* UGAL (first condition is from booksim), output port equality check comes from Dally slimfly'09*/
 static int do_adaptive_routing( router_state * s,
-        tw_bf * bf,
         slim_terminal_message * msg,
         tw_lp * lp,
         int dest_router_id,
@@ -2731,7 +2667,7 @@ static int do_adaptive_routing( router_state * s,
     //Compute the next stop on the minimal path and get port number
     int temp_minimal_next_stop = getMinimalRouterFromEquations(msg, dest_router_id, s);
     codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, temp_minimal_next_stop, 0, &minimal_next_stop);
-    minimal_out_port = slim_get_output_port(s, bf, msg, lp, minimal_next_stop);
+    minimal_out_port = slim_get_output_port(s, msg, lp, minimal_next_stop);
 
     //Compute the next stop on the non-minimal paths and get port number
     int temp_nonmin_next_stop;
@@ -2739,7 +2675,7 @@ static int do_adaptive_routing( router_state * s,
     {
         temp_nonmin_next_stop = getMinimalRouterFromEquations(msg, intm_id[i], s);
         codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, temp_nonmin_next_stop, 0, &nonmin_next_stop[i]);
-        nonmin_out_port[i] = slim_get_output_port(s, bf, msg, lp, nonmin_next_stop[i]);
+        nonmin_out_port[i] = slim_get_output_port(s, msg, lp, nonmin_next_stop[i]);
     }
 
     //Only computed on first hop so vc will always be 0 for both min and nonmin
@@ -2826,8 +2762,9 @@ void slim_router_packet_receive_rc(router_state * s,
 
     if(bf->c2) {
         tw_rand_reverse_unif(lp->rng);
-        slim_delete_terminal_message_list(return_tail(s->pending_msgs[output_port],
-                    s->pending_msgs_tail[output_port], output_chan));
+        slim_terminal_message_list * tail = return_tail(s->pending_msgs[output_port],
+                    s->pending_msgs_tail[output_port], output_chan);
+        slim_delete_terminal_message_list(tail);
         s->vc_occupancy[output_port][output_chan] -= s->params->chunk_size;
         if(bf->c3) {
             codes_local_latency_reverse(lp);
@@ -2908,7 +2845,7 @@ slim_router_packet_receive( router_state * s,
 
     if(msg->last_hop == TERMINAL && routing == ADAPTIVE)
     {
-        next_stop = do_adaptive_routing(s, bf, &(cur_chunk->msg), lp, dest_router_id, intm_router);
+        next_stop = do_adaptive_routing(s, &(cur_chunk->msg), lp, dest_router_id, intm_router);
     }
     else
     {
@@ -2929,7 +2866,8 @@ slim_router_packet_receive( router_state * s,
             &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
     int local_router_id = (mapping_offset + mapping_rep_id);
 
-    output_port = slim_get_output_port(s, bf, msg, lp, next_stop);
+    output_port = slim_get_output_port(s, &(cur_chunk->msg), lp, next_stop);
+    assert(output_port >= 0);
     output_chan = 0;
     int max_vc_size = s->params->cn_vc_size;
 
@@ -2947,15 +2885,15 @@ slim_router_packet_receive( router_state * s,
     {
         max_vc_size = s->params->local_vc_size;
         output_chan = msg->my_N_hop;
-        if(msg->my_N_hop >3)
-            output_chan = 3;
+//        if(msg->my_N_hop >3)
+//            output_chan = 3;
     }
     else if(output_port < (s->params->num_local_channels + s->params->num_global_channels))
     {
         max_vc_size = s->params->global_vc_size;
         output_chan = msg->my_N_hop;
-        if(msg->my_N_hop >3)
-            output_chan = 3;
+//        if(msg->my_N_hop >3)
+//            output_chan = 3;
     }
 
 #if TRACK_OUTPUT
@@ -2980,7 +2918,7 @@ slim_router_packet_receive( router_state * s,
         }
 #endif
         bf->c2 = 1;
-        slim_router_credit_send(s, bf, msg, lp, -1);
+        slim_router_credit_send(s, msg, lp, -1);
         append_to_terminal_message_list( s->pending_msgs[output_port], s->pending_msgs_tail[output_port], output_chan, cur_chunk);
         s->vc_occupancy[output_port][output_chan] += s->params->chunk_size;
 
@@ -3033,18 +2971,20 @@ void slim_router_packet_send_rc(router_state * s,
         tw_bf * bf,
         slim_terminal_message * msg, tw_lp * lp)
 {
-    int output_port = msg->vc_index;
-    int output_chan = msg->output_chan;
+    int output_port = msg->saved_vc;
+    int output_chan = msg->saved_channel;
     if(bf->c1) {
         s->in_send_loop[output_port] = 1;
         return;
     }
 
     tw_rand_reverse_unif(lp->rng);
+    slim_terminal_message_list * cur_entry = rc_stack_pop(s->st);
+    assert(cur_entry);
 
     if(bf->c11)
     {
-        s->link_traffic[output_port] -= msg->packet_size % s->params->chunk_size;
+        s->link_traffic[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size;
     }
     if(bf->c12)
     {
@@ -3052,8 +2992,8 @@ void slim_router_packet_send_rc(router_state * s,
     }
     s->next_output_available_time[output_port] = msg->saved_available_time;
 
-    create_prepend_to_terminal_message_list(s->pending_msgs[output_port],
-            s->pending_msgs_tail[output_port], output_chan, msg);
+    prepend_to_terminal_message_list(s->pending_msgs[output_port],
+            s->pending_msgs_tail[output_port], output_chan, cur_entry);
 
     if(bf->c3) {
         tw_rand_reverse_unif(lp->rng);
@@ -3092,6 +3032,8 @@ slim_router_packet_send( router_state * s,
             }
         }
     }
+    msg->saved_vc = output_port;
+    msg->saved_channel = output_chan;
 
     if(cur_entry == NULL)
     {
@@ -3195,8 +3137,7 @@ slim_router_packet_send( router_state * s,
 
     cur_entry = return_head(s->pending_msgs[output_port],
             s->pending_msgs_tail[output_port], output_chan);
-    copy_terminal_list_entry(cur_entry, msg);
-    slim_delete_terminal_message_list(cur_entry);
+    rc_stack_push(lp, cur_entry, slim_delete_terminal_message_list, s->st);
 
     cur_entry = s->pending_msgs[output_port][3];
 
@@ -3289,7 +3230,7 @@ void slim_router_buf_update(router_state * s, tw_bf * bf, slim_terminal_message 
         bf->c1 = 1;
         slim_terminal_message_list *head = return_head(s->queued_msgs[indx],
                 s->queued_msgs_tail[indx], output_chan);
-        slim_router_credit_send(s, bf,  &head->msg, lp, 1);
+        slim_router_credit_send(s, &head->msg, lp, 1);
         append_to_terminal_message_list(s->pending_msgs[indx],
                 s->pending_msgs_tail[indx], output_chan, head);
         s->vc_occupancy[indx][output_chan] -= s->params->chunk_size;
