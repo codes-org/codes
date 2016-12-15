@@ -256,8 +256,13 @@ static void handle_kickoff_rev_event(
             svr_msg * m,
             tw_lp * lp)
 {
+    if(b->c1)
+        tw_rand_reverse_unif(lp->rng);
+
 	ns->msg_sent_count--;
 	model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+
+    tw_rand_reverse_unif(lp->rng);
 }	
 static void handle_kickoff_event(
 	    svr_state * ns,
@@ -284,6 +289,7 @@ static void handle_kickoff_event(
    /* in case of uniform random traffic, send to a random destination. */
    if(traffic == UNIFORM)
    {
+       b->c1 = 1;
    	local_dest = tw_rand_integer(lp->rng, 0, num_nodes - 1);
 //	printf("\n LP %ld sending to %d ", lp->gid, local_dest);
    }
