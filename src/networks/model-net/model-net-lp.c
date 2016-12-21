@@ -113,6 +113,23 @@ tw_lptype model_net_base_lp = {
     sizeof(model_net_base_state),
 };
 
+/* setup for the ROSS event tracing
+ * can have a different function for  rbev_trace_f and ev_trace_f
+ * but right now it is set to the same function for both
+ */
+void mn_event_collect(model_net_wrap_msg *m, tw_lp *lp, char *buffer)
+{
+    int type = (int) m->h.event_type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+st_trace_type mn_trace_types = {
+    (rbev_trace_f) mn_event_collect,
+     sizeof(int),
+     (ev_trace_f) mn_event_collect,
+     sizeof(int),
+};
+
 /**** END LP, EVENT PROCESSING FUNCTION DECLS ****/
 
 /**** BEGIN IMPLEMENTATIONS ****/
@@ -151,6 +168,13 @@ void model_net_base_register(int *do_config_nets){
                         &model_net_base_lp);
             else
                 method_array[i]->mn_register(&model_net_base_lp);
+            if (g_st_ev_trace) // for ROSS event tracing
+            {
+                if (method_array[i]->mn_trace_register == NULL)
+                    trace_type_register(model_net_lp_config_names[i], &mn_trace_types);
+                else
+                    method_array[i]->mn_trace_register(&mn_trace_types);
+            }
         }
     }
 }
