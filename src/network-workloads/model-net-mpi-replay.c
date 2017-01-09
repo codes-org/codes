@@ -21,8 +21,9 @@
 #define TRACK_LP -1
 #define TRACE -1
 #define MAX_WAIT_REQS 512
+#define NOISE 3.0
 #define CHK_LP_NM "nw-lp"
-#define CS_LP_DBG 0
+#define CS_LP_DBG 1
 #define lprintf(_fmt, ...) \
         do {if (CS_LP_DBG) printf(_fmt, __VA_ARGS__);} while (0)
 #define MAX_STATS 65536
@@ -489,7 +490,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
     num_syn_bytes_sent += PAYLOAD_SZ; 
 
     /* New event after MEAN_INTERVAL */  
-    tw_stime ts = mean_interval  + tw_rand_exponential(lp->rng, mean_interval/1000); 
+    tw_stime ts = mean_interval  + tw_rand_exponential(lp->rng, NOISE); 
     tw_event * e;
     nw_message * m_new;
     e = tw_event_new(lp->gid, ts, lp);
@@ -1639,6 +1640,11 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
             s->elapsed_time = tw_now(lp) - s->start_time;
             s->is_finished = 1; 
         
+            if(!alloc_spec)
+            {
+                bf->c9 = 1;
+                return;
+            }
             /* Notify ranks from other job that checkpoint traffic has completed */
             int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx); 
             if(num_jobs <= 1)

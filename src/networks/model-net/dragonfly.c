@@ -3207,7 +3207,7 @@ tw_lptype dragonfly_lps[] =
      (map_f) codes_mapping,
      sizeof(router_state),
    },
-   {NULL, NULL, NULL, NULL, NULL, NULL, 0},
+   {NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0},
 };
 
 /* returns the dragonfly lp type for lp registration */
