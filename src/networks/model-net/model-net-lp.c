@@ -119,7 +119,26 @@ tw_lptype model_net_base_lp = {
  */
 void mn_event_collect(model_net_wrap_msg *m, tw_lp *lp, char *buffer)
 {
-    int type = (int) m->h.event_type;
+    // assigning large numbers to message types to make it easier to
+    // determine which messages are model net base LP msgs
+    int type;
+    switch (m->h.event_type){
+        case MN_BASE_NEW_MSG:
+            type = 9000;
+            break;
+        case MN_BASE_SCHED_NEXT:
+            type = 9001;
+            break;
+        case MN_BASE_SAMPLE: 
+            type = 9002;
+            break;
+        case MN_BASE_PASS:
+            type = 9003;
+            break;
+        default:
+            type = 9004;
+            break;
+    }
     memcpy(buffer, &type, sizeof(type));
 }
 
