@@ -52,7 +52,7 @@ struct  slim_terminal_message
    /* For routing */
    int intm_group_id;
    int intm_router_id;
-   int chunk_id;
+   uint64_t chunk_id;
    uint64_t packet_size;
    uint64_t message_id;
    uint64_t total_size;
@@ -73,8 +73,11 @@ struct  slim_terminal_message
    short path_type;
    tw_stime saved_available_time;
    tw_stime saved_avg_time;
-   tw_stime saved_credit_time;
-   tw_stime saved_collective_init_time;  
+   tw_stime saved_rcv_time;
+   tw_stime saved_busy_time; 
+   tw_stime saved_total_time;
+//   tw_stime saved_credit_time;
+//   tw_stime saved_collective_init_time;  
    tw_stime saved_hist_start_time;
    tw_stime msg_start_time;
 
