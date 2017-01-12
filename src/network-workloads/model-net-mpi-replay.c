@@ -1558,6 +1558,35 @@ static void nw_add_lp_type()
   lp_type_register("nw-lp", nw_get_lp_type());
 }
 
+/* setup for the ROSS event tracing
+ * can have a different function for  rbev_trace_f and ev_trace_f
+ * but right now it is set to the same function for both
+ */
+void nw_lp_event_collect(nw_message *m, tw_lp *lp, char *buffer)
+{
+    int type = m->msg_type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+st_trace_type nw_lp_trace_types[] = {
+    {(rbev_trace_f) nw_lp_event_collect,
+     sizeof(int),
+     (ev_trace_f) nw_lp_event_collect,
+     sizeof(int)},
+    {0}
+};
+
+static const st_trace_type  *nw_lp_get_trace_types(void)
+{
+    return(&nw_lp_trace_types[0]);
+}
+
+void nw_lp_register_trace()
+{
+    trace_type_register("nw-lp", nw_lp_get_trace_types());
+}
+/* end of ROSS event tracing setup */
+
 int main( int argc, char** argv )
 {
   int rank, nprocs;
@@ -1628,6 +1657,9 @@ int main( int argc, char** argv )
 
    nw_add_lp_type();
    model_net_register();
+
+    if (g_st_ev_trace)
+        nw_lp_register_trace();
 
    net_ids = model_net_configure(&num_nets);
 //   assert(num_nets == 1);
