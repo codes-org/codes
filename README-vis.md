@@ -125,3 +125,11 @@ struct model_net_method dragonfly_router_method =
 ```
 
 Any other LPs built off of the model net LP, can be changed in the same way.
+
+
+### CODES LPs that have event type collection implemented:
+- nw-lp (model-net-mpi-replay.c)
+- original dragonfly router and terminal LPs (dragonfly.c)
+- dfly server LP (model-net-synthetic.c)
+- fat tree terminal and switch LPs (fattree.c)
+- model-net-base-lp (model-net-lp.c)
