@@ -2959,6 +2959,33 @@ tw_lptype fattree_lps[] =
   {NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0},
 };
 
+/* For ROSS event tracing */
+void fattree_event_collect(fattree_message *m, tw_lp *lp, char *buffer)
+{
+    int type = (int) m->type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+st_trace_type fattree_trace_types[] = {
+    {(rbev_trace_f) fattree_event_collect,
+     sizeof(int),
+     (ev_trace_f) fattree_event_collect,
+     sizeof(int)},
+    {0}
+};
+
+static const st_trace_type  *fattree_get_trace_types(void)
+{
+    return(&fattree_trace_types[0]);
+}
+
+static void fattree_register_trace(st_trace_type *base_type)
+{
+    trace_type_register(LP_CONFIG_NM, base_type);
+    trace_type_register("fattree_switch", base_type);
+}
+/*** END of ROSS event tracing additions */
+
 /* returns the fattree lp type for lp registration */
 static const tw_lptype* fattree_get_cn_lp_type(void)
 {
@@ -2987,6 +3014,8 @@ struct model_net_method fattree_method =
   .mn_report_stats = fattree_report_stats,
 //  .model_net_method_find_local_device = NULL,
   .mn_collective_call = NULL,
-  .mn_collective_call_rc = NULL
+  .mn_collective_call_rc = NULL,
+  .mn_trace_register = fattree_register_trace,
+  .mn_get_trace_type = fattree_get_trace_types
 };
 
