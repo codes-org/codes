@@ -133,3 +133,4 @@ Any other LPs built off of the model net LP, can be changed in the same way.
 - dfly server LP (model-net-synthetic.c)
 - fat tree terminal and switch LPs (fattree.c)
 - model-net-base-lp (model-net-lp.c)
+- fat tree server LP (model-net-synthetic-fattree.c)

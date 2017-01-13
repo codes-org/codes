@@ -120,6 +120,34 @@ tw_lptype svr_lp = {
     sizeof(svr_state),
 };
 
+/* setup for the ROSS event tracing
+ * can have a different function for  rbev_trace_f and ev_trace_f
+ * but right now it is set to the same function for both
+ */
+void ft_svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer)
+{
+    int type = (int) m->svr_event_type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+st_trace_type ft_svr_trace_types[] = {
+    {(rbev_trace_f) ft_svr_event_collect,
+     sizeof(int),
+     (ev_trace_f) ft_svr_event_collect,
+     sizeof(int)},
+    {0}
+};
+
+static const st_trace_type  *ft_svr_get_trace_types(void)
+{
+    return(&ft_svr_trace_types[0]);
+}
+
+void ft_svr_register_trace()
+{
+    trace_type_register("server", ft_svr_get_trace_types());
+}
+
 const tw_optdef app_opt [] =
 {
         TWOPT_GROUP("Model net synthetic traffic " ),
@@ -407,6 +435,9 @@ int main(
     model_net_register();
 
     svr_add_lp_type();
+
+    if (g_st_ev_trace)
+        ft_svr_register_trace();
 
     codes_mapping_setup();
 
