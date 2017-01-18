@@ -33,7 +33,7 @@
 #define COLLECTIVE_COMPUTATION_DELAY 5700
 #define DRAGONFLY_FAN_OUT_DELAY 20.0
 #define WINDOW_LENGTH 0
-#define DFLY_HASH_TABLE_SIZE 5000
+#define DFLY_HASH_TABLE_SIZE 4999
 
 // debugging parameters
 #define TRACK -1
@@ -3264,6 +3264,37 @@ tw_lptype dragonfly_lps[] =
    {NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0},
 };
 
+/* For ROSS event tracing */
+void dragonfly_event_collect(terminal_message *m, tw_lp *lp, char *buffer)
+{
+    int type = (int) m->type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+st_trace_type dragonfly_trace_types[] = {
+    {(rbev_trace_f) dragonfly_event_collect,
+     sizeof(int),
+     (ev_trace_f) dragonfly_event_collect,
+     sizeof(int)},
+    {0}
+};
+
+static const st_trace_type  *dragonfly_get_trace_types(void)
+{
+    return(&dragonfly_trace_types[0]);
+}
+
+static void dragonfly_register_trace(st_trace_type *base_type)
+{
+    trace_type_register(LP_CONFIG_NM_TERM, base_type);
+}
+
+static void router_register_trace(st_trace_type *base_type)
+{
+    trace_type_register(LP_CONFIG_NM_ROUT, base_type);
+}
+/*** END of ROSS event tracing additions */
+
 /* returns the dragonfly lp type for lp registration */
 static const tw_lptype* dragonfly_get_cn_lp_type(void)
 {
@@ -3299,7 +3330,9 @@ struct model_net_method dragonfly_method =
     .mn_sample_fn = (void*)dragonfly_sample_fn,    
     .mn_sample_rc_fn = (void*)dragonfly_sample_rc_fn,
     .mn_sample_init_fn = (void*)dragonfly_sample_init,
-    .mn_sample_fini_fn = (void*)dragonfly_sample_fin
+    .mn_sample_fini_fn = (void*)dragonfly_sample_fin,
+    .mn_trace_register = dragonfly_register_trace,
+    .mn_get_trace_type = dragonfly_get_trace_types,
 };
 
 struct model_net_method dragonfly_router_method =
@@ -3318,5 +3351,7 @@ struct model_net_method dragonfly_router_method =
     .mn_sample_fn = (void*)dragonfly_rsample_fn,
     .mn_sample_rc_fn = (void*)dragonfly_rsample_rc_fn,
     .mn_sample_init_fn = (void*)dragonfly_rsample_init,
-    .mn_sample_fini_fn = (void*)dragonfly_rsample_fin
+    .mn_sample_fini_fn = (void*)dragonfly_rsample_fin,
+    .mn_trace_register = router_register_trace,
+    .mn_get_trace_type = dragonfly_get_trace_types,
 };

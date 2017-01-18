@@ -25,7 +25,7 @@
 #define MEAN_PROCESS 1.0
 
 /* collective specific parameters */
-#define SFLY_HASH_TABLE_SIZE 5000
+#define SFLY_HASH_TABLE_SIZE 4999
 
 // debugging parameters
 #define TRACK 4

@@ -16,6 +16,7 @@ struct lp_name_mapping
 {
     const char* name;
     const tw_lptype* type;
+    const st_trace_type* trace_type;
 };
 
 static struct lp_name_mapping map_array[MAX_LP_TYPES];
@@ -40,6 +41,35 @@ const tw_lptype* lp_type_lookup(const char* name)
         if(strcmp(name, map_array[i].name) == 0)
         {
             return(map_array[i].type);
+        }
+    }
+
+    return(NULL);
+}
+
+// needs to be called after lp_type_register()
+void trace_type_register(const char* name, const st_trace_type* type)
+{
+    int i;
+
+    for(i=0; i<map_array_size; i++)
+    {
+        if(strcmp(name, map_array[i].name) == 0)
+        {
+            map_array[i].trace_type = type;
+        }
+    }
+}
+
+const st_trace_type* trace_type_lookup(const char* name)
+{
+    int i;
+
+    for(i=0; i<map_array_size; i++)
+    {
+        if(strcmp(name, map_array[i].name) == 0)
+        {
+            return(map_array[i].trace_type);
         }
     }
 

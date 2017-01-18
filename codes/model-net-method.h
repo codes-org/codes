@@ -63,6 +63,8 @@ struct model_net_method
     revent_f mn_sample_rc_fn;
     init_f mn_sample_init_fn;
     final_f mn_sample_fini_fn;
+    void (*mn_trace_register)(st_trace_type *base_type);
+    const st_trace_type* (*mn_get_trace_type)();
 };
 
 extern struct model_net_method * method_array[];
