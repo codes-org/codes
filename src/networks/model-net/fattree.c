@@ -2773,7 +2773,9 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
 #endif
 	}
 
-    qhash_finalize(s->rank_tbl);
+    if(s->rank_tbl)
+        qhash_finalize(s->rank_tbl);
+
     rc_stack_destroy(s->st);
 //    free(s->vc_occupancy);
     free(s->terminal_msgs);

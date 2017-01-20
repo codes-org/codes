@@ -603,8 +603,9 @@ static int rm_matching_rcv(nw_state * ns,
 
     qlist_for_each(ent, &ns->pending_recvs_queue){
         qi = qlist_entry(ent, mpi_msgs_queue, ql);
-        if((qi->num_bytes == qitem->num_bytes)
-                && ((qi->tag == qitem->tag) || qi->tag == -1)
+        if(//(qi->num_bytes == qitem->num_bytes)
+                //&& 
+                ((qi->tag == qitem->tag) || qi->tag == -1)
                 && ((qi->source_rank == qitem->source_rank) || qi->source_rank == -1))
         {
             matched = 1;
