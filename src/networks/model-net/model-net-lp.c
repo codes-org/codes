@@ -53,6 +53,7 @@ typedef struct model_net_base_state {
     // lp type and state of underlying model net method - cache here so we
     // don't have to constantly look up
     const tw_lptype *sub_type;
+    const st_trace_type *sub_trace_type;
     void *sub_state;
 } model_net_base_state;
 
@@ -117,29 +118,36 @@ tw_lptype model_net_base_lp = {
  * can have a different function for  rbev_trace_f and ev_trace_f
  * but right now it is set to the same function for both
  */
-void mn_event_collect(model_net_wrap_msg *m, tw_lp *lp, char *buffer)
+void mn_event_collect(model_net_wrap_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
     // assigning large numbers to message types to make it easier to
     // determine which messages are model net base LP msgs
     int type;
+    void * sub_msg;
     switch (m->h.event_type){
         case MN_BASE_NEW_MSG:
             type = 9000;
+            memcpy(buffer, &type, sizeof(type));
             break;
         case MN_BASE_SCHED_NEXT:
             type = 9001;
+            memcpy(buffer, &type, sizeof(type));
             break;
         case MN_BASE_SAMPLE: 
             type = 9002;
+            memcpy(buffer, &type, sizeof(type));
             break;
         case MN_BASE_PASS:
-            type = 9003;
+            sub_msg = ((char*)m)+msg_offsets[((model_net_base_state*)lp->cur_state)->net_id];
+            if (g_st_ev_trace == RB_TRACE)
+                (((model_net_base_state*)lp->cur_state)->sub_trace_type->rbev_trace)(sub_msg, lp, buffer, collect_flag);
+            else if (g_st_ev_trace == FULL_TRACE)
+                (((model_net_base_state*)lp->cur_state)->sub_trace_type->ev_trace)(sub_msg, lp, buffer, collect_flag);
             break;
-        default:
+        default:  // this shouldn't happen, but can help detect an issue
             type = 9004;
             break;
     }
-    memcpy(buffer, &type, sizeof(type));
 }
 
 st_trace_type mn_trace_types = {
@@ -395,6 +403,10 @@ void model_net_base_lp_init(
             ns->sched_recv);
 
     ns->sub_type = model_net_get_lp_type(ns->net_id);
+
+    if (g_st_ev_trace)
+        ns->sub_trace_type = model_net_get_trace_type(ns->net_id);
+
     // NOTE: some models actually expect LP state to be 0 initialized...
     // *cough anything that uses mn_stats_array cough*
     ns->sub_state = calloc(1, ns->sub_type->state_sz);

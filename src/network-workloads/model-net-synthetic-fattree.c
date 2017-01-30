@@ -124,7 +124,7 @@ tw_lptype svr_lp = {
  * can have a different function for  rbev_trace_f and ev_trace_f
  * but right now it is set to the same function for both
  */
-void ft_svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer)
+void ft_svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
     int type = (int) m->svr_event_type;
     memcpy(buffer, &type, sizeof(type));

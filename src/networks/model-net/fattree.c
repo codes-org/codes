@@ -2962,7 +2962,7 @@ tw_lptype fattree_lps[] =
 };
 
 /* For ROSS event tracing */
-void fattree_event_collect(fattree_message *m, tw_lp *lp, char *buffer)
+void fattree_event_collect(fattree_message *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
     int type = (int) m->type;
     memcpy(buffer, &type, sizeof(type));
@@ -2984,7 +2984,8 @@ static const st_trace_type  *fattree_get_trace_types(void)
 static void fattree_register_trace(st_trace_type *base_type)
 {
     trace_type_register(LP_CONFIG_NM, base_type);
-    trace_type_register("fattree_switch", base_type);
+    trace_type_register("fattree_switch", &fattree_trace_types[0]);
+    //trace_type_register("fattree_switch", base_type);
 }
 /*** END of ROSS event tracing additions */
 
