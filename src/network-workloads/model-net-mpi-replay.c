@@ -1563,7 +1563,7 @@ static void nw_add_lp_type()
  * can have a different function for  rbev_trace_f and ev_trace_f
  * but right now it is set to the same function for both
  */
-void nw_lp_event_collect(nw_message *m, tw_lp *lp, char *buffer)
+void nw_lp_event_collect(nw_message *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
     int type = m->msg_type;
     memcpy(buffer, &type, sizeof(type));

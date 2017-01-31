@@ -3265,7 +3265,7 @@ tw_lptype dragonfly_lps[] =
 };
 
 /* For ROSS event tracing */
-void dragonfly_event_collect(terminal_message *m, tw_lp *lp, char *buffer)
+void dragonfly_event_collect(terminal_message *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
     int type = (int) m->type;
     memcpy(buffer, &type, sizeof(type));
