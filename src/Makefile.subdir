@@ -139,6 +139,7 @@ src_libcodes_la_SOURCES =  \
 	src/util/jobmap-impl/jobmap-list.c\
 	src/util/jobmap-impl/jobmap-identity.c\
 	src/util/codes-mapping-context.c \
+  src/util/codes-comm.c \
     src/workload/codes-workload.c \
     src/workload/methods/codes-iolang-wrkld.c \
     src/workload/methods/codes-checkpoint-wrkld.c \
@@ -187,7 +188,9 @@ src_workload_codes_workload_dump_SOURCES = \
 
 src_network_workloads_model_net_dumpi_traces_dump_SOURCES = src/network-workloads/model-net-dumpi-traces-dump.c 
 src_network_workloads_model_net_synthetic_slimfly_SOURCES = src/network-workloads/model-net-synthetic-slimfly.c
-src_network_workloads_model_net_mpi_replay_SOURCES = src/network-workloads/model-net-mpi-replay.c 
+src_network_workloads_model_net_mpi_replay_SOURCES = \
+	src/network-workloads/model-net-mpi-replay.c \
+  src/network-workloads/model-net-mpi-replay-main.c
 src_network_workloads_model_net_synthetic_SOURCES = src/network-workloads/model-net-synthetic.c 
 src_network_workloads_model_net_synthetic_custom_dfly_SOURCES = src/network-workloads/model-net-synthetic-custom-dfly.c 
 
