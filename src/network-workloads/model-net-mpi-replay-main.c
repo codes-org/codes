@@ -4,9 +4,7 @@
  *
  */
 #include <mpi.h>
-
-int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv);
-
+#include "codes/codes-mpi-replay.h"
 
 
 int main(int argc, char** argv) {
