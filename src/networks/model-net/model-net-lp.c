@@ -619,18 +619,22 @@ void handle_new_msg(
         tw_stime exp_time = ((ns->node_copy_next_available_time[queue] 
                             > tw_now(lp)) ? ns->node_copy_next_available_time[queue] : tw_now(lp));
         exp_time += r->msg_size * codes_cn_delay;
+        exp_time -= tw_now(lp);
+        tw_stime delay = codes_local_latency(lp);
         ns->node_copy_next_available_time[queue] = exp_time;
         int remote_event_size = r->remote_event_size;
         int self_event_size = r->self_event_size;
         void *e_msg = (m+1);
         if (remote_event_size > 0) {
-            tw_event *e = tw_event_new(r->final_dest_lp, exp_time - tw_now(lp), lp);
+            exp_time += delay;
+            tw_event *e = tw_event_new(r->final_dest_lp, exp_time, lp);
             memcpy(tw_event_data(e), e_msg, remote_event_size);
             tw_event_send(e);
             e_msg = (char*)e_msg + remote_event_size; 
         }
         if (self_event_size > 0) {
-            tw_event *e = tw_event_new(r->src_lp, exp_time - tw_now(lp), lp);
+            exp_time += delay;
+            tw_event *e = tw_event_new(r->src_lp, exp_time, lp);
             memcpy(tw_event_data(e), e_msg, self_event_size);
             tw_event_send(e);
         }
@@ -640,7 +644,7 @@ void handle_new_msg(
     if(m->msg.m_base.isQueueReq) {
         m->msg.m_base.save_ts = ns->next_available_time;
         tw_stime exp_time = ((ns->next_available_time > tw_now(lp)) ? ns->next_available_time : tw_now(lp));
-        exp_time += ns->params->nic_seq_delay;
+        exp_time += ns->params->nic_seq_delay + codes_local_latency(lp);
         ns->next_available_time = exp_time;
         tw_event *e = tw_event_new(lp->gid, exp_time - tw_now(lp), lp);
         model_net_wrap_msg *m_new = tw_event_data(e);
@@ -721,6 +725,7 @@ void handle_new_msg_rc(
         model_net_wrap_msg *m,
         tw_lp *lp){
     if(lp->gid == m->msg.m_base.req.dest_mn_lp) {
+        codes_local_latency_reverse(lp);
         model_net_request *r = &m->msg.m_base.req;
         int rep_id, offset;
         codes_mapping_get_lp_info2(r->src_lp, NULL, NULL, NULL, &rep_id, &offset);
@@ -729,6 +734,7 @@ void handle_new_msg_rc(
         return;
     }
     if(m->msg.m_base.isQueueReq) {
+        codes_local_latency_reverse(lp);
         ns->next_available_time = m->msg.m_base.save_ts;
         return;
     }

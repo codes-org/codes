@@ -112,7 +112,6 @@ struct em_cn_sample
 };
 
 /* handles terminal and router events like packet generate/send/receive/buffer */
-typedef enum event_t event_t;
 typedef struct terminal_state terminal_state;
 typedef struct router_state router_state;
 
@@ -189,6 +188,7 @@ enum event_t
   R_ARRIVE,
   R_BUFFER,
 };
+typedef enum event_t event_t;
 
 /* whether the last hop of a packet was global, local or a terminal */
 enum last_hop
@@ -2496,40 +2496,45 @@ static void router_register(tw_lptype *base_type) {
   lp_type_register(LP_CONFIG_NM_ROUT, base_type);
 }
 
-struct model_net_method express_mesh_method =
+extern "C" {
+struct model_net_method express_mesh_method  = 
 {
-  .mn_configure = em_configure,
-  .mn_register = em_register,
-  .model_net_method_packet_event = em_packet_event,
-  .model_net_method_packet_event_rc = em_packet_event_rc,
-  .model_net_method_recv_msg_event = NULL,
-  .model_net_method_recv_msg_event_rc = NULL,
-  .mn_get_lp_type = em_get_cn_lp_type,
-  .mn_get_msg_sz = em_get_msg_sz,
-  .mn_report_stats = em_report_stats,
-  .mn_collective_call = NULL,
-  .mn_collective_call_rc = NULL,
-  //.mn_sample_fn = (event_f)em_sample_fn,    
-  //.mn_sample_rc_fn = (revent_f)em_sample_rc_fn,
-  .mn_sample_init_fn = (init_f)em_sample_init,
-  //.mn_sample_fini_fn = (final_f)em_sample_fin
+  0,
+  em_configure,
+  em_register,
+  em_packet_event,
+  em_packet_event_rc,
+  NULL,
+  NULL,
+  em_get_cn_lp_type,
+  em_get_msg_sz,
+  em_report_stats,
+  NULL,
+  NULL,
+  NULL,//(event_f)em_sample_fn,  
+  NULL,//(revent_f)em_sample_rc_fn, 
+  (init_f)em_sample_init,
+  NULL//(final_f)em_sample_fin,  
 };
 
 struct model_net_method express_mesh_router_method =
 {
-  .mn_configure = NULL, 
-  .mn_register  = router_register,
-  .model_net_method_packet_event = NULL,
-  .model_net_method_packet_event_rc = NULL,
-  .model_net_method_recv_msg_event = NULL,
-  .model_net_method_recv_msg_event_rc = NULL,
-  .mn_get_lp_type = router_get_lp_type,
-  .mn_get_msg_sz = em_get_msg_sz,
-  .mn_report_stats = NULL, // not yet supported
-  .mn_collective_call = NULL,
-  .mn_collective_call_rc = NULL,
-  //.mn_sample_fn = (event_f)em_rsample_fn,
-  //.mn_sample_rc_fn = (revent_f)em_rsample_rc_fn,
-  .mn_sample_init_fn = (init_f)em_rsample_init,
-  //.mn_sample_fini_fn = (final_f)em_rsample_fin
+  0,
+  NULL,
+  router_register,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  router_get_lp_type,
+  em_get_msg_sz,
+  NULL,
+  NULL,
+  NULL,
+  NULL,//(event_f)em_rsample_fn,  
+  NULL,//(revent_f)em_rsample_rc_fn, 
+  (init_f)em_rsample_init,
+  NULL//(final_f)em_rsample_fin,  
 };
+
+}
