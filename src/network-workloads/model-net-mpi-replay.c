@@ -1572,6 +1572,9 @@ int main( int argc, char** argv )
 
   workload_type[0]='\0';
   tw_opt_add(app_opt);
+
+  tw_comm_set(MPI_COMM_WORLD);
+
   tw_init(&argc, &argv);
 
   if(strcmp(workload_type, "dumpi") != 0)
@@ -1725,6 +1728,7 @@ int main( int argc, char** argv )
        codes_jobmap_destroy(jobmap_ctx);
 
    tw_end();
+   MPI_Finalize();
 
   return 0;
 }
