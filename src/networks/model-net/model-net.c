@@ -58,7 +58,7 @@ tw_stime mn_msg_offset = 0.0;
 static int is_msg_params_set[MAX_MN_MSG_PARAM_TYPES];
 static mn_sched_params sched_params; // MN_MSG_PARAM_SCHED
 static tw_stime start_time_param; // MN_MSG_PARAM_START_TIME
-static double cn_bandwidth = 10;
+static double cn_bandwidth = 20;
 tw_stime codes_cn_delay;
 static int codes_node_eager_limit = 16000;
 

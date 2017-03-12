@@ -254,7 +254,7 @@ static void base_read_config(const char * anno, model_net_base_params *p){
                 "setting to %lf\n", p->nic_seq_delay);
     }
 
-    p->node_copy_queues = 4;
+    p->node_copy_queues = 1;
     ret = configuration_get_value_int(&config, "PARAMS", "node_copy_queues", anno,
             &p->node_copy_queues);
     if(ret && !g_tw_mynode) {
