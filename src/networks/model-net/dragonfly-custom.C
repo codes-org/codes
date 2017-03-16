@@ -20,6 +20,11 @@
 #include <vector>
 #include <map>
 
+#ifdef ENABLE_CORTEX
+#include <cortex/cortex.h>
+#include <cortex/topology.h>
+#endif
+
 #define DUMP_CONNECTIONS 0
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
@@ -3216,4 +3221,65 @@ struct model_net_method dragonfly_custom_router_method =
     (init_f)dragonfly_custom_rsample_init,
     (final_f)dragonfly_custom_rsample_fin
 };
+
+#ifdef ENABLE_CORTEX
+
+static double dragonfly_get_router_link_bandwidth(void* topo, router_id_t r1, router_id_t r2) {
+        // TODO
+        return -1.0;
+}
+
+static double dragonfly_get_compute_node_bandwidth(void* topo, cn_id_t node) {
+        // TODO
+        return -1.0;
+}
+
+static int dragonfly_get_router_neighbor_count(void* topo, router_id_t r) {
+        // TODO
+        return 0;
+}
+
+static void dragonfly_get_router_neighbor_list(void* topo, router_id_t r, router_id_t* neighbors) {
+        // TODO
+}
+
+static int dragonfly_get_router_location(void* topo, router_id_t r, int32_t* location, int size) {
+        // TODO
+        return 0;
+}
+
+static int dragonfly_get_compute_node_location(void* topo, cn_id_t node, int32_t* location, int size) {
+        // TODO
+        return 0;
+}
+
+static router_id_t dragonfly_get_router_from_compute_node(void* topo, cn_id_t node) {
+        // TODO
+        return -1;
+}
+
+static int dragonfly_get_router_compute_node_count(void* topo, router_id_t r) {
+        // TODO
+        return 0;
+}
+
+static void dragonfly_get_router_compute_node_list(void* topo, router_id_t r, cn_id_t* nodes) {
+        // TODO
+}
+
+cortex_topology dragonfly_cortex_topology = {
+        .internal = NULL,
+        .get_router_link_bandwidth      = dragonfly_get_router_link_bandwidth,
+        .get_compute_node_bandwidth     = dragonfly_get_compute_node_bandwidth,
+        .get_router_neighbor_count      = dragonfly_get_router_neighbor_count,
+        .get_router_neighbor_list       = dragonfly_get_router_neighbor_list,
+        .get_router_location            = dragonfly_get_router_location,
+        .get_compute_node_location      = dragonfly_get_compute_node_location,
+        .get_router_from_compute_node   = dragonfly_get_router_from_compute_node,
+        .get_router_compute_node_count  = dragonfly_get_router_compute_node_count,
+        .get_router_compute_node_list   = dragonfly_get_router_compute_node_list,
+};
+
+#endif
+
 }
