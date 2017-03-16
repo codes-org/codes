@@ -99,6 +99,8 @@ static int sample_rtr_bytes_written = 0;
 static char cn_sample_file[MAX_NAME_LENGTH];
 static char router_sample_file[MAX_NAME_LENGTH];
 
+static tw_stime mpi_soft_overhead = 150;
+
 typedef struct terminal_custom_message_list terminal_custom_message_list;
 struct terminal_custom_message_list {
     terminal_custom_message msg;
@@ -515,7 +517,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
         fprintf(stderr, "Bandwidth of compute node channels not specified, setting to %lf\n", p->cn_bandwidth);
     }
 
-    p->router_delay = 50;
+    p->router_delay = 100;
     configuration_get_value_double(&config, "PARAMS", "router_delay", anno,
             &p->router_delay);
 
@@ -627,7 +629,10 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     }
     FILE *systemFile = fopen(interFile, "rb");
     if(!myRank)
+    {
       printf("Reading inter-group connectivity file: %s\n", interFile);
+      printf("\n Total routers %d total groups %d ", p->total_routers, p->num_groups);
+    }
 
     {
       vector< int > offsets;
@@ -637,6 +642,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
       for(int g = 0; g < connectionList.size(); g++) {
         connectionList[g].resize(p->num_groups);
       }
+      
       InterGroupLink newLink;
 
       while(fread(&newLink, sizeof(InterGroupLink), 1, systemFile) != 0) {
@@ -668,7 +674,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
         printf(" ( %d - ", it->first);
         for(int l = 0; l < it->second.size(); l++) {
           // offset is number of local connections
-          // type is blue or green according to Cray architecture 
+          // type is black or green according to Cray architecture 
           printf("%d,%d ", it->second[l].offset, it->second[l].type);
         }
         printf(")");
@@ -995,18 +1001,18 @@ static tw_stime dragonfly_custom_packet_event(
 
     if(is_last_pckt) /* Its the last packet so pass in remote and local event information*/
       {
-	if(req->remote_event_size > 0)
-	 {
-		msg->remote_event_size_bytes = req->remote_event_size;
-		memcpy(tmp_ptr, remote_event, req->remote_event_size);
-		tmp_ptr += req->remote_event_size;
-	}
-	if(req->self_event_size > 0)
-	{
-		msg->local_event_size_bytes = req->self_event_size;
-		memcpy(tmp_ptr, self_event, req->self_event_size);
-		tmp_ptr += req->self_event_size;
-	}
+        if(req->remote_event_size > 0)
+         {
+            msg->remote_event_size_bytes = req->remote_event_size;
+            memcpy(tmp_ptr, remote_event, req->remote_event_size);
+            tmp_ptr += req->remote_event_size;
+        }
+        if(req->self_event_size > 0)
+        {
+            msg->local_event_size_bytes = req->self_event_size;
+            memcpy(tmp_ptr, self_event, req->self_event_size);
+            tmp_ptr += req->self_event_size;
+        }
      }
 	   //printf("\n dragonfly remote event %d local event %d last packet %d %lf ", msg->remote_event_size_bytes, msg->local_event_size_bytes, is_last_pckt, xfer_to_nic_time);
     tw_event_send(e_new);
@@ -1119,13 +1125,18 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
 
   int total_event_size;
   uint64_t num_chunks = msg->packet_size / p->chunk_size;
+  double cn_delay = s->params->cn_delay;
+
   if (msg->packet_size % s->params->chunk_size) 
       num_chunks++;
 
   if(!num_chunks)
     num_chunks = 1;
 
-  nic_ts = g_tw_lookahead + (num_chunks * s->params->cn_delay) + tw_rand_unif(lp->rng);
+  if(msg->packet_size < s->params->chunk_size)
+      cn_delay = bytes_to_ns(msg->packet_size % s->params->chunk_size, s->params->cn_bandwidth);
+
+  nic_ts = g_tw_lookahead + (num_chunks * cn_delay) + tw_rand_unif(lp->rng);
   
   msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
   msg->my_N_hop = 0;
@@ -1138,7 +1149,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
             msg->packet_ID, s->terminal_id, LLU(msg->dest_terminal_id),
             LLU(msg->packet_size), LLU(num_chunks));
 
-  for(uint64_t i = 0; i < num_chunks; i++)
+  for(int i = 0; i < num_chunks; i++)
   {
     terminal_custom_message_list *cur_chunk = (terminal_custom_message_list*)malloc(
       sizeof(terminal_custom_message_list));
@@ -1449,7 +1460,7 @@ static void send_remote_event(terminal_state * s, terminal_custom_message * msg,
 {
         void * tmp_ptr = model_net_method_get_edata(DRAGONFLY, msg);
         //tw_stime ts = g_tw_lookahead + bytes_to_ns(msg->remote_event_size_bytes, (1/s->params->cn_bandwidth));
-        tw_stime ts = g_tw_lookahead + tw_rand_unif(lp->rng);
+        tw_stime ts = g_tw_lookahead + mpi_soft_overhead + tw_rand_unif(lp->rng);
         if (msg->is_pull){
             bf->c4 = 1;
             struct codes_mctx mc_dst =
@@ -1785,7 +1796,7 @@ void dragonfly_custom_rsample_fin(router_state * s,
                 "link traffic for each of the %d links (int64_t) \nsample end time (double) forward events per sample \nreverse events per sample ",
                 p->radix, p->radix);
         fprintf(fp, "\n\nOrdering of links \n%d local (router-router same group) channels \n%d global (router-router remote group)"
-                " channels \n%d terminal channels", p->radix/2, p->radix/4, p->radix/4);
+                " channels \n%d terminal channels", p->num_col_chans * p->num_router_rows, p->num_global_channels);
         fclose(fp);
     }
     char rt_fn[MAX_NAME_LENGTH];
@@ -2887,7 +2898,10 @@ router_packet_send( router_state * s,
       num_chunks = 1;
 
   double bytetime = delay;
-  
+ 
+  if(cur_entry->msg.packet_size == 0)
+      bytetime = bytes_to_ns(CREDIT_SIZE, bandwidth);
+
   if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
       bytetime = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, bandwidth); 
   

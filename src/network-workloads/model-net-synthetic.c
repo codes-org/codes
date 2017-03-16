@@ -35,8 +35,8 @@ static lp_io_handle io_handle;
 static unsigned int lp_io_use_suffix = 0;
 static int do_lp_io = 0;
 static int num_msgs = 20;
-static unsigned int sampling_interval = 800000;
-static unsigned int sampling_end_time = 1600000;
+static tw_stime sampling_interval = 800000;
+static tw_stime sampling_end_time = 1600000;
 
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
@@ -139,8 +139,8 @@ const tw_optdef app_opt [] =
         TWOPT_GROUP("Model net synthetic traffic " ),
     	TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
     	TWOPT_UINT("num_messages", num_msgs, "Number of messages to be generated per terminal "),
-    	TWOPT_UINT("sampling-interval", sampling_interval, "the sampling interval "),
-    	TWOPT_UINT("sampling-end-time", sampling_end_time, "sampling end time "),
+    	TWOPT_STIME("sampling-interval", sampling_interval, "the sampling interval "),
+    	TWOPT_STIME("sampling-end-time", sampling_end_time, "sampling end time "),
 	    TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
         TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
         TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),

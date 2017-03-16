@@ -29,12 +29,15 @@ int main(int argc, char **argv) {
   int r = atoi(argv[2]);
   int c = atoi(argv[3]);
 
+  int total_routers = g * r * c; 
+
   FILE *intra = fopen(argv[4], "wb");
   FILE *inter = fopen(argv[5], "wb");
 
   int router = 0;
   int green = 0, black = 1;
   int groups = 0;
+  printf("\n Rows %d Cols %d Groups %d ", r, c, g);
   for(int rows = 0; rows < r; rows++) {
     for(int cols = 0; cols < c; cols++) {
       for(int cols1 = 0; cols1 < c; cols1++) {
@@ -79,15 +82,19 @@ int main(int argc, char **argv) {
           int dstB = (nsrcg % (gs/2)) * 2;
           srcr = srcrB + srcB;
           dstr = dstrB + dstB;
-          for(int r = 0; r < 2; r++) {
-            for(int block = 0; block < gsize; block++) {
-              fwrite(&srcr, sizeof(int), 1, inter);
-              fwrite(&dstr, sizeof(int), 1, inter);
-              printf("INTER %d %d\n", srcr, dstr);
+
+          if(srcr >= total_routers || dstr >= total_routers)
+              printf("\n connection between invalid routers src %d and dest %d ", srcr, dstr);
+
+            for(int r = 0; r < 2; r++) {
+                for(int block = 0; block < gsize; block++) {
+                fwrite(&srcr, sizeof(int), 1, inter);
+                fwrite(&dstr, sizeof(int), 1, inter);
+                //printf("INTER %d %d srcg %d destg %d srcrb %d dstrB %d \n", srcr, dstr, srcg, dstg, srcrB, dstrB);
             }
+           }
             srcr++;
             dstr++;
-          }
         }
       }
     }

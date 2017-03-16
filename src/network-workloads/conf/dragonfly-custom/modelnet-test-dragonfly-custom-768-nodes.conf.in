@@ -49,9 +49,9 @@ PARAMS
 # number of global channels per router 
    num_global_channels="10";
 # network config file for intra-group connections 
-   intra-group-connections="@abs_srcdir@/intra-custom-small";
+   intra-group-connections="@abs_srcdir@/intra-theta";
 # network config file for inter-group connections
-   inter-group-connections="@abs_srcdir@/inter-custom-small";
+   inter-group-connections="@abs_srcdir@/inter-theta";
 # routing protocol to be used 
    routing="prog-adaptive";
 }
