@@ -546,7 +546,7 @@ static void dot_write_open_file(FILE **fout)
 
   char *dot_file_prefix = dot_file_p;
   int rank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  MPI_Comm_rank(MPI_COMM_CODES, &rank);
   sprintf(file_name, "%s/%s.dot.%d", dir_name, dot_file_prefix, rank);
   *fout = fopen(file_name, "w+");
   if(*fout == NULL) {
@@ -1348,22 +1348,22 @@ static void fattree_report_stats()
 	long long ts_buffer_f = 0;
 	long long ts_buffer_r = 0;
 
-	MPI_Reduce( &packet_event_f, &t_packet_event_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &packet_event_r, &t_packet_event_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &t_generate_f, &tt_generate_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &t_generate_r, &tt_generate_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &t_send_f, &tt_send_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &t_send_r, &tt_send_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &t_arrive_f, &tt_arrive_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &t_arrive_r, &tt_arrive_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &t_buffer_f, &tt_buffer_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &t_buffer_r, &tt_buffer_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &s_send_f, &ts_send_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &s_send_r, &ts_send_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &s_arrive_f, &ts_arrive_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &s_arrive_r, &ts_arrive_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &s_buffer_f, &ts_buffer_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &s_buffer_r, &ts_buffer_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce( &packet_event_f, &t_packet_event_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &packet_event_r, &t_packet_event_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &t_generate_f, &tt_generate_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &t_generate_r, &tt_generate_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &t_send_f, &tt_send_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &t_send_r, &tt_send_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &t_arrive_f, &tt_arrive_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &t_arrive_r, &tt_arrive_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &t_buffer_f, &tt_buffer_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &t_buffer_r, &tt_buffer_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &s_send_f, &ts_send_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &s_send_r, &ts_send_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &s_arrive_f, &ts_arrive_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &s_arrive_r, &ts_arrive_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &s_buffer_f, &ts_buffer_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &s_buffer_r, &ts_buffer_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
 
    if(!g_tw_mynode)
    {
@@ -1399,16 +1399,16 @@ static void fattree_report_stats()
    tw_stime avg_time, max_time;
    long total_gen, total_fin;
 
-   MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &N_finished_msgs, &total_finished_msgs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &N_finished_chunks, &total_finished_chunks, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &total_msg_sz, &final_msg_sz, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &fattree_total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &fattree_max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &N_finished_msgs, &total_finished_msgs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &N_finished_chunks, &total_finished_chunks, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &total_msg_sz, &final_msg_sz, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &fattree_total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &fattree_max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_CODES);
 
-   MPI_Reduce( &fattree_packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &fattree_packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &fattree_packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &fattree_packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
 
    /* print statistics */
    if(!g_tw_mynode)
@@ -2836,7 +2836,7 @@ void fattree_switch_final(switch_state * s, tw_lp * lp)
 //    char *stats_file = getenv("TRACER_LINK_FILE");
 //  if(stats_file != NULL) {
     int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_rank(MPI_COMM_CODES, &rank);
     char file_name[512];
     sprintf(file_name, "%s.%d", "tracer_stats_file", rank);
     FILE *fout = fopen(file_name, "a");
