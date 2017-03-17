@@ -3224,60 +3224,90 @@ struct model_net_method dragonfly_custom_router_method =
 
 #ifdef ENABLE_CORTEX
 
-static double dragonfly_get_router_link_bandwidth(void* topo, router_id_t r1, router_id_t r2) {
+static double dragonfly_custom_get_router_link_bandwidth(void* topo, router_id_t r1, router_id_t r2) {
         // TODO
+	// Given two router ids r1 and r2, this function should return the bandwidth (double)
+	// of the link between the two routers, or 0 of such a link does not exist in the topology.
+	// The function should return -1 if one of the router id is invalid.
         return -1.0;
 }
 
-static double dragonfly_get_compute_node_bandwidth(void* topo, cn_id_t node) {
+static double dragonfly_custom_get_compute_node_bandwidth(void* topo, cn_id_t node) {
         // TODO
+	// Given the id of a compute node, this function should return the bandwidth of the
+	// link connecting this compute node to its router.
+	// The function should return -1 if the compute node id is invalid.
         return -1.0;
 }
 
-static int dragonfly_get_router_neighbor_count(void* topo, router_id_t r) {
+static int dragonfly_custom_get_router_neighbor_count(void* topo, router_id_t r) {
         // TODO
-        return 0;
-}
-
-static void dragonfly_get_router_neighbor_list(void* topo, router_id_t r, router_id_t* neighbors) {
-        // TODO
-}
-
-static int dragonfly_get_router_location(void* topo, router_id_t r, int32_t* location, int size) {
-        // TODO
-        return 0;
-}
-
-static int dragonfly_get_compute_node_location(void* topo, cn_id_t node, int32_t* location, int size) {
-        // TODO
-        return 0;
-}
-
-static router_id_t dragonfly_get_router_from_compute_node(void* topo, cn_id_t node) {
-        // TODO
+	// Given the id of a router, this function should return the number of routers
+	// (not compute nodes) connected to it. It should return -1 if the router id
+	// is not valid.
         return -1;
 }
 
-static int dragonfly_get_router_compute_node_count(void* topo, router_id_t r) {
+static void dragonfly_custom_get_router_neighbor_list(void* topo, router_id_t r, router_id_t* neighbors) {
         // TODO
+	// Given a router id r, this function fills the "neighbors" array with the ids of routers
+	// directly connected to r. It is assumed that enough memory has been allocated to "neighbors"
+	// (using get_router_neighbor_count to know the required size).
+}
+
+static int dragonfly_custom_get_router_location(void* topo, router_id_t r, int32_t* location, int size) {
+        // TODO
+	// Given a router id r, this function should fill the "location" array (of maximum size "size")
+	// with information providing the location of the router in the topology. In a Dragonfly network,
+	// for instance, this can be the array [ group_id, router_id ] where group_id is the id of the
+	// group in which the router is, and router_id is the id of the router inside this group (as opposed
+	// to "r" which is its global id). For a torus network, this would be the dimensions.
+	// If the "size" is sufficient to hold the information, the function should return the size 
+	// effectively used (e.g. 2 in the above example). If however the function did not manage to use
+	// the provided buffer, it should return -1.
+        return -1;
+}
+
+static int dragonfly_custom_get_compute_node_location(void* topo, cn_id_t node, int32_t* location, int size) {
+        // TODO
+	// This function does the same as dragonfly_custom_get_router_location but for a compute node instead
+	// of a router. E.g., for a dragonfly network, the location could be expressed as the array
+	// [ group_id, router_id, terminal_id ]
+        return -1;
+}
+
+static router_id_t dragonfly_custom_get_router_from_compute_node(void* topo, cn_id_t node) {
+        // TODO
+	// Given a node id, this function returns the id of the router connected to the node,
+	// or -1 if the node id is not valid.
+        return -1;
+}
+
+static int dragonfly_custom_get_router_compute_node_count(void* topo, router_id_t r) {
+        // TODO
+	// Given the id of a router, returns the number of compute nodes connected to this
+	// router, or -1 if the router id is not valid.
         return 0;
 }
 
-static void dragonfly_get_router_compute_node_list(void* topo, router_id_t r, cn_id_t* nodes) {
+static void dragonfly_custom_get_router_compute_node_list(void* topo, router_id_t r, cn_id_t* nodes) {
         // TODO
+	// Given the id of a router, fills the "nodes" array with the list of ids of compute nodes
+	// connected to this router. It is assumed that enough memory has been allocated for the
+	// "nodes" variable to hold all the ids.
 }
 
-cortex_topology dragonfly_cortex_topology = {
+cortex_topology dragonfly_custom_cortex_topology = {
         .internal = NULL,
-        .get_router_link_bandwidth      = dragonfly_get_router_link_bandwidth,
-        .get_compute_node_bandwidth     = dragonfly_get_compute_node_bandwidth,
-        .get_router_neighbor_count      = dragonfly_get_router_neighbor_count,
-        .get_router_neighbor_list       = dragonfly_get_router_neighbor_list,
-        .get_router_location            = dragonfly_get_router_location,
-        .get_compute_node_location      = dragonfly_get_compute_node_location,
-        .get_router_from_compute_node   = dragonfly_get_router_from_compute_node,
-        .get_router_compute_node_count  = dragonfly_get_router_compute_node_count,
-        .get_router_compute_node_list   = dragonfly_get_router_compute_node_list,
+        .get_router_link_bandwidth      = dragonfly_custom_get_router_link_bandwidth,
+        .get_compute_node_bandwidth     = dragonfly_custom_get_compute_node_bandwidth,
+        .get_router_neighbor_count      = dragonfly_custom_get_router_neighbor_count,
+        .get_router_neighbor_list       = dragonfly_custom_get_router_neighbor_list,
+        .get_router_location            = dragonfly_custom_get_router_location,
+        .get_compute_node_location      = dragonfly_custom_get_compute_node_location,
+        .get_router_from_compute_node   = dragonfly_custom_get_router_from_compute_node,
+        .get_router_compute_node_count  = dragonfly_custom_get_router_compute_node_count,
+        .get_router_compute_node_list   = dragonfly_custom_get_router_compute_node_list,
 };
 
 #endif
