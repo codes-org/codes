@@ -651,6 +651,14 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	} else {
 		profile = cortex_undumpi_open(file_name, app_id, dumpi_params->num_net_traces, rank);
 	}
+	
+	// TODO: call cortex_placement_set (from cortex/placement.h) to set the compute node id of
+	// each rank of the application
+	
+	// TODO: call cortex_topology_set (from cortex/topology.h) to set the topology to one of
+	// the topologies defined in codes/cortex-topology.h depending on which network we are dealing with.
+	// Note: there might be a better we to do this, for instance by adding the cortex_topology inside
+	// the network's model_net_method structure?
 #else
 	profile =  undumpi_open(file_name);
 #endif
