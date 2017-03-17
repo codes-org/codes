@@ -13,6 +13,11 @@
 #include <ctype.h>
 #include <search.h>
 
+#ifdef ENABLE_CORTEX
+#include <cortex/cortex.h>
+#include <cortex/topology.h>
+#endif
+
 #define CREDIT_SIZE 8
 #define MEAN_PROCESS 1.0
 
@@ -2992,3 +2997,62 @@ struct model_net_method fattree_method =
   .mn_collective_call_rc = NULL
 };
 
+#ifdef ENABLE_CORTEX
+
+static double fattree_get_router_link_bandwidth(void* topo, router_id_t r1, router_id_t r2) {
+        // TODO
+        return -1.0;
+}
+
+static double fattree_get_compute_node_bandwidth(void* topo, cn_id_t node) {
+        // TODO
+        return -1.0;
+}
+
+static int fattree_get_router_neighbor_count(void* topo, router_id_t r) {
+        // TODO
+        return 0;
+}
+
+static void fattree_get_router_neighbor_list(void* topo, router_id_t r, router_id_t* neighbors) {
+        // TODO
+}
+
+static int fattree_get_router_location(void* topo, router_id_t r, int32_t* location, int size) {
+        // TODO
+        return 0;
+}
+
+static int fattree_get_compute_node_location(void* topo, cn_id_t node, int32_t* location, int size) {
+        // TODO
+        return 0;
+}
+
+static router_id_t fattree_get_router_from_compute_node(void* topo, cn_id_t node) {
+        // TODO
+        return -1;
+}
+
+static int fattree_get_router_compute_node_count(void* topo, router_id_t r) {
+        // TODO
+        return 0;
+}
+
+static void fattree_get_router_compute_node_list(void* topo, router_id_t r, cn_id_t* nodes) {
+        // TODO
+}
+
+cortex_topology fattree_cortex_topology = {
+        .internal = NULL,
+        .get_router_link_bandwidth      = fattree_get_router_link_bandwidth,
+        .get_compute_node_bandwidth     = fattree_get_compute_node_bandwidth,
+        .get_router_neighbor_count      = fattree_get_router_neighbor_count,
+        .get_router_neighbor_list       = fattree_get_router_neighbor_list,
+        .get_router_location            = fattree_get_router_location,
+        .get_compute_node_location      = fattree_get_compute_node_location,
+        .get_router_from_compute_node   = fattree_get_router_from_compute_node,
+        .get_router_compute_node_count  = fattree_get_router_compute_node_count,
+        .get_router_compute_node_list   = fattree_get_router_compute_node_list,
+};
+
+#endif
