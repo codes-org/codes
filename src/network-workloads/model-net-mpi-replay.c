@@ -1588,6 +1588,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 #ifdef ENABLE_CORTEX_PYTHON
 		" --cortex-file=cortex-file-name"
 		" --cortex-class=cortex-class-name"
+		" --cortex-gen=cortex-function-name"
 #endif
 		" -- config-file-name\n"
                 "See model-net/doc/README.dragonfly.txt and model-net/doc/README.torus.txt"
