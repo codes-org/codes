@@ -74,7 +74,7 @@ int main(int argc, char **argv) {
         } else {
           ndstg--;
         }
-        int gsize = 2, gs = 16;
+        int gsize = 2, gs = c;
         for(int row = 0; row < r; row++) {
           int srcrB = srcg * r * c + row * c, srcr;
           int dstrB = dstg * r * c + row * c, dstr;
@@ -90,11 +90,11 @@ int main(int argc, char **argv) {
                 for(int block = 0; block < gsize; block++) {
                 fwrite(&srcr, sizeof(int), 1, inter);
                 fwrite(&dstr, sizeof(int), 1, inter);
-                //printf("INTER %d %d srcg %d destg %d srcrb %d dstrB %d \n", srcr, dstr, srcg, dstg, srcrB, dstrB);
+                printf("INTER %d %d srcg %d destg %d srcrb %d dstrB %d \n", srcr, dstr, srcg, dstg, srcrB, dstrB);
             }
-           }
             srcr++;
             dstr++;
+            }
         }
       }
     }
