@@ -21,7 +21,9 @@ int main(int argc, char** argv) {
 //  	modelnet_mpi_replay(comm,&argc,&argv);
 
    modelnet_mpi_replay(MPI_COMM_WORLD,&argc,&argv);
-	MPI_Finalize();
+  int flag;
+  MPI_Finalized(&flag);
+	if(!flag) MPI_Finalize();
 	return 0;
 }
 
