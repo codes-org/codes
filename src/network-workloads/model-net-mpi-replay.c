@@ -1730,7 +1730,6 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
        codes_jobmap_destroy(jobmap_ctx);
 
    tw_end();
-   MPI_Finalize();
 
   return 0;
 }
