@@ -20,7 +20,7 @@
 #include <vector>
 #include <map>
 
-#define DUMP_CONNECTIONS 1
+#define DUMP_CONNECTIONS 0
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
 
@@ -1807,29 +1807,29 @@ void dragonfly_custom_rsample_fin(router_state * s,
                 " channels \n%d terminal channels", p->intra_grp_radix, p->num_global_channels);
         fclose(fp);
     }
-    char rt_fn[MAX_NAME_LENGTH];
-    if(strcmp(router_sample_file, "") == 0)
-        sprintf(rt_fn, "dragonfly-router-sampling-%ld.bin", g_tw_mynode); 
-    else
-        sprintf(rt_fn, "%s-%ld.bin", router_sample_file, g_tw_mynode);
-    
-    int i = 0;
+        char rt_fn[MAX_NAME_LENGTH];
+        if(strcmp(router_sample_file, "") == 0)
+            sprintf(rt_fn, "dragonfly-router-sampling-%ld.bin", g_tw_mynode); 
+        else
+            sprintf(rt_fn, "%s-%ld.bin", router_sample_file, g_tw_mynode);
+        
+        int i = 0;
 
-    int size_sample = sizeof(tw_lpid) + p->radix * (sizeof(int64_t) + sizeof(tw_stime)) + sizeof(tw_stime) + 2 * sizeof(long);
-    FILE * fp = fopen(rt_fn, "a");
-    fseek(fp, sample_rtr_bytes_written, SEEK_SET);
+        int size_sample = sizeof(tw_lpid) + p->radix * (sizeof(int64_t) + sizeof(tw_stime)) + sizeof(tw_stime) + 2 * sizeof(long);
+        FILE * fp = fopen(rt_fn, "a");
+        fseek(fp, sample_rtr_bytes_written, SEEK_SET);
 
-    for(; i < s->op_arr_size; i++)
-    {
-        fwrite((void*)&(s->rsamples[i].router_id), sizeof(tw_lpid), 1, fp);
-        fwrite(s->rsamples[i].busy_time, sizeof(tw_stime), p->radix, fp);
-        fwrite(s->rsamples[i].link_traffic_sample, sizeof(int64_t), p->radix, fp);
-        fwrite((void*)&(s->rsamples[i].end_time), sizeof(tw_stime), 1, fp);
-        fwrite((void*)&(s->rsamples[i].fwd_events), sizeof(long), 1, fp);
-        fwrite((void*)&(s->rsamples[i].rev_events), sizeof(long), 1, fp);
-    }
-    sample_rtr_bytes_written += (s->op_arr_size * size_sample);
-    fclose(fp);
+        for(; i < s->op_arr_size; i++)
+        {
+            fwrite((void*)&(s->rsamples[i].router_id), sizeof(tw_lpid), 1, fp);
+            fwrite(s->rsamples[i].busy_time, sizeof(tw_stime), p->radix, fp);
+            fwrite(s->rsamples[i].link_traffic_sample, sizeof(int64_t), p->radix, fp);
+            fwrite((void*)&(s->rsamples[i].end_time), sizeof(tw_stime), 1, fp);
+            fwrite((void*)&(s->rsamples[i].fwd_events), sizeof(long), 1, fp);
+            fwrite((void*)&(s->rsamples[i].rev_events), sizeof(long), 1, fp);
+        }
+        sample_rtr_bytes_written += (s->op_arr_size * size_sample);
+        fclose(fp);
 }
 void dragonfly_custom_sample_init(terminal_state * s,
         tw_lp * lp)
@@ -1939,18 +1939,19 @@ void dragonfly_custom_sample_fin(terminal_state * s,
                 "\nbusy time (double)\nsample end time(double) \nforward events (long) \nreverse events (long)");
         fclose(fp);
     }
-    char rt_fn[MAX_NAME_LENGTH];
-    if(strncmp(cn_sample_file, "", 10) == 0)
-        sprintf(rt_fn, "dragonfly-cn-sampling-%ld.bin", g_tw_mynode); 
-    else
-        sprintf(rt_fn, "%s-%ld.bin", cn_sample_file, g_tw_mynode);
 
-    FILE * fp = fopen(rt_fn, "a");
-    fseek(fp, sample_bytes_written, SEEK_SET);
-    fwrite(s->sample_stat, sizeof(struct dfly_cn_sample), s->op_arr_size, fp);
-    fclose(fp);
+        char rt_fn[MAX_NAME_LENGTH];
+        if(strncmp(cn_sample_file, "", 10) == 0)
+            sprintf(rt_fn, "dragonfly-cn-sampling-%ld.bin", g_tw_mynode); 
+        else
+            sprintf(rt_fn, "%s-%ld.bin", cn_sample_file, g_tw_mynode);
 
-    sample_bytes_written += (s->op_arr_size * sizeof(struct dfly_cn_sample));
+        FILE * fp = fopen(rt_fn, "a");
+        fseek(fp, sample_bytes_written, SEEK_SET);
+        fwrite(s->sample_stat, sizeof(struct dfly_cn_sample), s->op_arr_size, fp);
+        fclose(fp);
+
+        sample_bytes_written += (s->op_arr_size * sizeof(struct dfly_cn_sample));
 }
 
 static void terminal_buf_update_rc(terminal_state * s,
@@ -2447,6 +2448,7 @@ static int do_global_adaptive_routing( router_state * s,
 
   if(num_min_chans > 1)
   {
+    bf->c10 = 1;
     dest_rtr_bs = get_intra_router(s->router_id, min_rtr_b, s->params->num_routers);
     dest_rtr_b_sel = tw_rand_integer(lp->rng, 0, dest_rtr_bs.size() - 1);
     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_bs[dest_rtr_b_sel],
@@ -2475,6 +2477,7 @@ static int do_global_adaptive_routing( router_state * s,
 
   if(num_nonmin_chans > 1)
   {
+    bf->c11 = 1;
     dest_rtr_bs = get_intra_router(s->router_id, nonmin_rtr_b, s->params->num_routers);  
     dest_rtr_b_sel = tw_rand_integer(lp->rng, 0, dest_rtr_bs.size() - 1);
     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_bs[dest_rtr_b_sel],
@@ -2586,19 +2589,30 @@ static void router_packet_receive_rc(router_state * s,
     int output_chan = msg->saved_channel;
 
     tw_rand_reverse_unif(lp->rng);
-    tw_rand_reverse_unif(lp->rng);
 
     if(bf->c20)
     {
-        for(int i = 0; i < 12; i++)
+        for(int i = 0; i < 8; i++)
             tw_rand_reverse_unif(lp->rng);
+    
+        if(bf->c10)
+        {
+            tw_rand_reverse_unif(lp->rng);
+            tw_rand_reverse_unif(lp->rng);
+        }
+        if(bf->c11)
+        {
+            tw_rand_reverse_unif(lp->rng);
+            tw_rand_reverse_unif(lp->rng);
+        }
     }
     if(bf->c19)
         tw_rand_reverse_unif(lp->rng);
 
+    tw_rand_reverse_unif(lp->rng);
     if(bf->c6)
     {
-        for(int i = 0; i < 6; i++)
+        for(int i = 0; i < 4; i++)
             tw_rand_reverse_unif(lp->rng);
     }
     if(bf->c2) {
@@ -2856,7 +2870,6 @@ static void router_packet_send_rc(router_state * s,
         s->link_traffic_sample[output_port] -= s->params->chunk_size;
     }
     s->next_output_available_time[output_port] = msg->saved_available_time;
-
 
     prepend_to_terminal_custom_message_list(s->pending_msgs[output_port],
             s->pending_msgs_tail[output_port], output_chan, cur_entry);

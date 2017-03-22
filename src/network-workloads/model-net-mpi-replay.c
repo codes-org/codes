@@ -24,7 +24,7 @@
 #define TRACE -1
 #define MAX_WAIT_REQS 512
 #define CS_LP_DBG 0
-#define EAGER_THRESHOLD 8192
+#define EAGER_THRESHOLD 81920000
 #define RANK_HASH_TABLE_SZ 2000
 #define NOISE 3.0
 #define NW_LP_NM "nw-lp"
@@ -36,7 +36,7 @@
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
 
-int enable_msg_tracking = 1;
+int enable_msg_tracking = 0;
 
 int unmatched = 0;
 char workload_type[128];
