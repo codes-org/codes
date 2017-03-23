@@ -278,14 +278,14 @@ void model_net_base_configure(){
     msg_offsets[TORUS] =
         offsetof(model_net_wrap_msg, msg.m_torus);
     msg_offsets[DRAGONFLY] =
-        offsetof(model_net_wrap_msg, msg.m_dfly);
+        offsetof(model_net_wrap_msg, msg.m_custom_dfly);
     // note: dragonfly router uses the same event struct
     msg_offsets[DRAGONFLY_ROUTER] =
-        offsetof(model_net_wrap_msg, msg.m_dfly);
+        offsetof(model_net_wrap_msg, msg.m_custom_dfly);
     msg_offsets[DRAGONFLY_CUSTOM] =
-        offsetof(model_net_wrap_msg, msg.m_dfly);
+        offsetof(model_net_wrap_msg, msg.m_custom_dfly);
     msg_offsets[DRAGONFLY_CUSTOM_ROUTER] =
-        offsetof(model_net_wrap_msg, msg.m_dfly);
+        offsetof(model_net_wrap_msg, msg.m_custom_dfly);
     msg_offsets[SLIMFLY] =
         offsetof(model_net_wrap_msg, msg.m_slim);
     msg_offsets[FATTREE] =

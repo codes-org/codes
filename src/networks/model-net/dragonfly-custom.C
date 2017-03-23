@@ -63,7 +63,6 @@ struct InterGroupLink {
   int src, dest;
 };
 
-
 static int debug_slot_count = 0;
 static long term_ecount, router_ecount, term_rev_ecount, router_rev_ecount;
 static long packet_gen = 0, packet_fin = 0;
@@ -99,7 +98,8 @@ static int sample_rtr_bytes_written = 0;
 static char cn_sample_file[MAX_NAME_LENGTH];
 static char router_sample_file[MAX_NAME_LENGTH];
 
-static tw_stime mpi_soft_overhead = 150;
+//don't do overhead here - job of MPI layer
+static tw_stime mpi_soft_overhead = 0;
 
 typedef struct terminal_custom_message_list terminal_custom_message_list;
 struct terminal_custom_message_list {
@@ -518,11 +518,11 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
         fprintf(stderr, "Bandwidth of compute node channels not specified, setting to %lf\n", p->cn_bandwidth);
     }
 
-    configuration_get_value_double(&config, "PARAMS", "router_delay", anno,
+    rc = configuration_get_value_double(&config, "PARAMS", "router_delay", anno,
             &p->router_delay);
     if(rc) {
-        p->router_delay = 100;
-        }
+      p->router_delay = 100;
+    }
 
     configuration_get_value(&config, "PARAMS", "cn_sample_file", anno, cn_sample_file,
             MAX_NAME_LENGTH);
@@ -989,7 +989,7 @@ static tw_stime dragonfly_custom_packet_event(
     //e_new = tw_event_new(sender->gid, xfer_to_nic_time+offset, sender);
     //msg = tw_event_data(e_new);
     e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
-            sender, DRAGONFLY, (void**)&msg, (void**)&tmp_ptr);
+            sender, DRAGONFLY_CUSTOM, (void**)&msg, (void**)&tmp_ptr);
     strcpy(msg->category, req->category);
     msg->final_dest_gid = req->final_dest_lp;
     msg->total_size = req->msg_size;
@@ -1062,11 +1062,11 @@ static void router_credit_send(router_state * s, terminal_custom_message * msg,
   ts = g_tw_lookahead + p->credit_delay +  tw_rand_unif(lp->rng);
 	
   if (is_terminal) {
-    buf_e = model_net_method_event_new(dest, ts, lp, DRAGONFLY, 
+    buf_e = model_net_method_event_new(dest, ts, lp, DRAGONFLY_CUSTOM, 
       (void**)&buf_msg, NULL);
     buf_msg->magic = terminal_magic_num;
   } else {
-    buf_e = model_net_method_event_new(dest, ts, lp, DRAGONFLY_ROUTER,
+    buf_e = model_net_method_event_new(dest, ts, lp, DRAGONFLY_CUSTOM_ROUTER,
             (void**)&buf_msg, NULL);
     buf_msg->magic = router_magic_num;
   }
@@ -1164,13 +1164,12 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
     msg->origin_router_id = s->router_id;
     init_terminal_custom_message_list(cur_chunk, msg);
   
-
     if(msg->remote_event_size_bytes + msg->local_event_size_bytes > 0) {
       cur_chunk->event_data = (char*)malloc(
           msg->remote_event_size_bytes + msg->local_event_size_bytes);
     }
     
-    void * m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
+    void * m_data_src = model_net_method_get_edata(DRAGONFLY_CUSTOM, msg);
     if (msg->remote_event_size_bytes){
       memcpy(cur_chunk->event_data, m_data_src, msg->remote_event_size_bytes);
     }
@@ -1200,7 +1199,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
     bf->c5 = 1;
     ts = codes_local_latency(lp);
     terminal_custom_message *m;
-    tw_event* e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY, 
+    tw_event* e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_CUSTOM, 
       (void**)&m, NULL);
     m->type = T_SEND;
     m->magic = terminal_magic_num;
@@ -1208,7 +1207,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
     tw_event_send(e);
   }
 
-  total_event_size = model_net_get_msg_sz(DRAGONFLY) + 
+  total_event_size = model_net_get_msg_sz(DRAGONFLY_CUSTOM) + 
       msg->remote_event_size_bytes + msg->local_event_size_bytes;
   mn_stats* stat;
   stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
@@ -1309,7 +1308,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
   // we are sending an event to the router, so no method_event here
   void * remote_event;
   e = model_net_method_event_new(router_id, ts, lp,
-          DRAGONFLY_ROUTER, (void**)&m, &remote_event);
+          DRAGONFLY_CUSTOM_ROUTER, (void**)&m, &remote_event);
   memcpy(m, &cur_entry->msg, sizeof(terminal_custom_message));
   if (m->remote_event_size_bytes){
     memcpy(remote_event, cur_entry->event_data, m->remote_event_size_bytes);
@@ -1350,7 +1349,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
     bf->c3 = 1;
     terminal_custom_message *m_new;
     ts += tw_rand_unif(lp->rng);
-    e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY, 
+    e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_CUSTOM, 
       (void**)&m_new, NULL);
     m_new->type = T_SEND;
     m_new->magic = terminal_magic_num;
@@ -1432,7 +1431,8 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_custom_mes
        if(bf->c7)
         {
             //assert(!hash_link);
-            tw_rand_reverse_unif(lp->rng);
+            if(bf->c8) 
+              tw_rand_reverse_unif(lp->rng);
             N_finished_msgs--;
             s->finished_msgs--;
             total_msg_sz -= msg->total_size;
@@ -1466,7 +1466,7 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_custom_mes
 }
 static void send_remote_event(terminal_state * s, terminal_custom_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
 {
-        void * tmp_ptr = model_net_method_get_edata(DRAGONFLY, msg);
+        void * tmp_ptr = model_net_method_get_edata(DRAGONFLY_CUSTOM, msg);
         //tw_stime ts = g_tw_lookahead + bytes_to_ns(msg->remote_event_size_bytes, (1/s->params->cn_bandwidth));
         tw_stime ts = g_tw_lookahead + mpi_soft_overhead + tw_rand_unif(lp->rng);
         if (msg->is_pull){
@@ -1541,7 +1541,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
   tw_event * buf_e;
   terminal_custom_message * buf_msg;
   buf_e = model_net_method_event_new(msg->intm_lp_id, ts, lp,
-          DRAGONFLY_ROUTER, (void**)&buf_msg, NULL);
+          DRAGONFLY_CUSTOM_ROUTER, (void**)&buf_msg, NULL);
   buf_msg->magic = router_magic_num;
   buf_msg->vc_index = msg->vc_index;
   buf_msg->output_chan = msg->output_chan;
@@ -1620,7 +1620,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
 
    /* Now retreieve the number of chunks completed from the hash and update
     * them */
-   void *m_data_src = model_net_method_get_edata(DRAGONFLY, msg);
+   void *m_data_src = model_net_method_get_edata(DRAGONFLY_CUSTOM, msg);
 
    /* If an entry does not exist then create one */
    if(!tmp)
@@ -1682,7 +1682,10 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
         s->finished_msgs++;
         
         //assert(tmp->remote_event_data && tmp->remote_event_size > 0);
-        send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
+        if(tmp->remote_event_data && tmp->remote_event_size > 0) {
+          bf->c8 = 1;
+          send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
+        }
         /* Remove the hash entry */
         qhash_del(hash_link);
         rc_stack_push(lp, tmp, free_tmp, s->st);
@@ -1984,7 +1987,7 @@ terminal_buf_update(terminal_state * s,
   if(s->in_send_loop == 0 && s->terminal_msgs[0] != NULL) {
     terminal_custom_message *m;
     bf->c1 = 1;
-    tw_event* e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY, 
+    tw_event* e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_CUSTOM, 
         (void**)&m, NULL);
     m->type = T_SEND;
     m->magic = terminal_magic_num;
@@ -2104,7 +2107,7 @@ void dragonfly_custom_router_final(router_state * s,
     {
         written = sprintf(s->output_buf2, "# Format <LP ID> <Group ID> <Router ID> <Link traffic per router port(s)>");
         written += sprintf(s->output_buf2 + written, "# Router ports in the order: %d local channels, %d global channels \n",
-            p->num_routers, p->num_global_channels);
+            p->intra_grp_radix, p->num_global_channels);
     }
     written += sprintf(s->output_buf2 + written, "\n %llu %d %d",
         LLU(lp->gid),
@@ -2117,7 +2120,7 @@ void dragonfly_custom_router_final(router_state * s,
     lp_io_write(lp->gid, (char*)"dragonfly-router-traffic", written, s->output_buf2);
 }
 
-static vector<int> get_intra_router(int src_router_id, int dest_router_id, int num_rtrs_per_grp)
+static vector<int> get_intra_router(router_state * s, int src_router_id, int dest_router_id, int num_rtrs_per_grp)
 {
        /* Check for intra-group connections */
        int src_rel_id = src_router_id % num_rtrs_per_grp;
@@ -2133,22 +2136,17 @@ static vector<int> get_intra_router(int src_router_id, int dest_router_id, int n
        /* If no direct connection exists then find an intermediate connection */
        if(curMap.find(dest_rel_id) == curMap.end())
        {
-           map<int, vector<Link> > &destMap = intraGroupLinks[dest_rel_id];
-           map< int, vector<Link> >::iterator it_dest = destMap.begin();
+         int src_col = src_rel_id % s->params->num_router_cols;
+         int src_row = src_rel_id / s->params->num_router_cols;
 
-           while(it_src != curMap.end() && it_dest != destMap.end())
-           {
-                if(it_src->first < it_dest->first) 
-                    it_src++;
-                else if(it_dest->first < it_src->first)
-                    it_dest++;
-                else
-                {
-                    intersection.push_back(offset + it_src->first);
-                    it_src++;
-                    it_dest++;
-                }
-           }
+         int dest_col = dest_rel_id % s->params->num_router_cols;
+         int dest_row = dest_rel_id / s->params->num_router_cols;
+
+         //row first, column second
+         int choice1 = src_row *  s->params->num_router_cols + dest_col;
+         int choice2 = dest_row * s->params->num_router_cols + src_col;
+         intersection.push_back(offset + choice1);
+         intersection.push_back(offset + choice2);
        }
        else
        {
@@ -2189,7 +2187,7 @@ get_next_stop(router_state * s,
    if(s->group_id == dest_group_id)
    {
        bf->c19 = 1;
-       vector<int> next_stop = get_intra_router(local_router_id, dest_router_id, s->params->num_routers);
+       vector<int> next_stop = get_intra_router(s, local_router_id, dest_router_id, s->params->num_routers);
        assert(!next_stop.empty());
        select_chan = tw_rand_integer(lp->rng, 0, next_stop.size() - 1);
 
@@ -2242,7 +2240,7 @@ get_next_stop(router_state * s,
   {
       /* Connection within the group */
       bf->c19 = 1;
-      vector<int> dests = get_intra_router(local_router_id, msg->saved_src_dest, s->params->num_routers);
+      vector<int> dests = get_intra_router(s, local_router_id, msg->saved_src_dest, s->params->num_routers);
       assert(!dests.empty());
       select_chan = tw_rand_integer(lp->rng, 0, dests.size() - 1);
        
@@ -2298,10 +2296,6 @@ get_output_port( router_state * s,
 
          assert(interGroupLinks[src_router][intm_grp_id].size() > 0);
 
-             /* Note: we are not using ROSS random number generator here for
-              * channel selection 
-              * because it will be hard to handle this with reverse handlers
-              * for adaptive/prog-adaptive routings. */
          rand_offset = tw_rand_integer(lp->rng, 0, interGroupLinks[src_router][intm_grp_id].size()-1);
 
          assert(rand_offset >= 0);
@@ -2365,8 +2359,8 @@ static void do_local_adaptive_routing(router_state * s,
             my_grp_id, dest_grp_id, intm_grp_id, intm_router_id);
 
   int min_chan=-1, nonmin_chan=-1;
-  vector<int> next_min_stops = get_intra_router(s->router_id, dest_router_id, s->params->num_routers);
-  vector<int> next_nonmin_stops = get_intra_router(s->router_id, intm_router_id, s->params->num_routers);
+  vector<int> next_min_stops = get_intra_router(s, s->router_id, dest_router_id, s->params->num_routers);
+  vector<int> next_nonmin_stops = get_intra_router(s, s->router_id, intm_router_id, s->params->num_routers);
 
    min_chan = tw_rand_integer(lp->rng, 0, next_min_stops.size() - 1);
    nonmin_chan = tw_rand_integer(lp->rng, 0, next_nonmin_stops.size() - 1);
@@ -2436,7 +2430,7 @@ static int do_global_adaptive_routing( router_state * s,
   if(num_min_chans > 1)
     min_rtr_b = connectionList[my_grp_id][dest_grp_id][min_chan_b];
 
-  dest_rtr_as = get_intra_router(s->router_id, min_rtr_a, s->params->num_routers);
+  dest_rtr_as = get_intra_router(s, s->router_id, min_rtr_a, s->params->num_routers);
   
   int dest_rtr_b_sel;
   int dest_rtr_a_sel = tw_rand_integer(lp->rng, 0, dest_rtr_as.size() - 1);
@@ -2449,7 +2443,7 @@ static int do_global_adaptive_routing( router_state * s,
   if(num_min_chans > 1)
   {
     bf->c10 = 1;
-    dest_rtr_bs = get_intra_router(s->router_id, min_rtr_b, s->params->num_routers);
+    dest_rtr_bs = get_intra_router(s, s->router_id, min_rtr_b, s->params->num_routers);
     dest_rtr_b_sel = tw_rand_integer(lp->rng, 0, dest_rtr_bs.size() - 1);
     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_bs[dest_rtr_b_sel],
           0, &min_rtr_b_id); 
@@ -2468,7 +2462,7 @@ static int do_global_adaptive_routing( router_state * s,
   if(num_nonmin_chans > 1)
     nonmin_rtr_b = connectionList[my_grp_id][intm_grp_id][nonmin_chan_b];
 
-  dest_rtr_as = get_intra_router(s->router_id, nonmin_rtr_a, s->params->num_routers);  
+  dest_rtr_as = get_intra_router(s, s->router_id, nonmin_rtr_a, s->params->num_routers);  
   dest_rtr_a_sel = tw_rand_integer(lp->rng, 0, dest_rtr_as.size() - 1);
   
   codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_as[dest_rtr_a_sel],
@@ -2478,7 +2472,7 @@ static int do_global_adaptive_routing( router_state * s,
   if(num_nonmin_chans > 1)
   {
     bf->c11 = 1;
-    dest_rtr_bs = get_intra_router(s->router_id, nonmin_rtr_b, s->params->num_routers);  
+    dest_rtr_bs = get_intra_router(s, s->router_id, nonmin_rtr_b, s->params->num_routers);  
     dest_rtr_b_sel = tw_rand_integer(lp->rng, 0, dest_rtr_bs.size() - 1);
     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_bs[dest_rtr_b_sel],
           0, &nonmin_rtr_b_id); 
@@ -2606,15 +2600,15 @@ static void router_packet_receive_rc(router_state * s,
             tw_rand_reverse_unif(lp->rng);
         }
     }
-    if(bf->c19)
-        tw_rand_reverse_unif(lp->rng);
-
-    tw_rand_reverse_unif(lp->rng);
     if(bf->c6)
     {
         for(int i = 0; i < 4; i++)
             tw_rand_reverse_unif(lp->rng);
     }
+    if(bf->c19)
+        tw_rand_reverse_unif(lp->rng);
+
+    tw_rand_reverse_unif(lp->rng);
     if(bf->c2) {
         tw_rand_reverse_unif(lp->rng);
         terminal_custom_message_list * tail = return_tail(s->pending_msgs[output_port], s->pending_msgs_tail[output_port], output_chan);
@@ -2684,17 +2678,15 @@ router_packet_receive( router_state * s,
       intm_router_id = tw_rand_integer(lp->rng, 0, s->params->total_routers - 1); 
   }
   else
-      intm_router_id = (src_grp_id * s->params->num_routers) + tw_rand_integer(lp->rng, 0, s->params->num_routers - 1);
+    intm_router_id = (src_grp_id * s->params->num_routers) + tw_rand_integer(lp->rng, 1, s->params->num_routers - 1);
 
   /* For global adaptive routing, we make sure that a different group
    * is selected. For local adaptive routing, if the same router as self is
    * selected then we choose the neighboring router. */
   if(src_grp_id != dest_grp_id 
-          && (intm_router_id / s->params->num_routers) == local_grp_id)
-     intm_router_id = (s->router_id + s->params->num_routers) % s->params->total_routers;
-  else if(intm_router_id == s->router_id)
-      intm_router_id = (src_grp_id * s->params->num_routers) + ((s->router_id + 1) % s->params->num_routers);
- 
+      && (intm_router_id / s->params->num_routers) == local_grp_id)
+    intm_router_id = (s->router_id + s->params->num_routers) % s->params->total_routers;
+
   /* progressive adaptive routing is only triggered when packet has to traverse a
    * global channel. It doesn't make sense to use it within a group */
   if(dest_grp_id != src_grp_id && 
@@ -2799,7 +2791,7 @@ router_packet_receive( router_state * s,
   assert(output_chan < s->params->num_vcs && output_chan >= 0);
 
   if(msg->remote_event_size_bytes > 0) {
-    void *m_data_src = model_net_method_get_edata(DRAGONFLY_ROUTER, msg);
+    void *m_data_src = model_net_method_get_edata(DRAGONFLY_CUSTOM_ROUTER, msg);
     cur_chunk->event_data = (char*)malloc(msg->remote_event_size_bytes);
     memcpy(cur_chunk->event_data, m_data_src, msg->remote_event_size_bytes);
   }
@@ -2816,7 +2808,7 @@ router_packet_receive( router_state * s,
       terminal_custom_message *m;
       ts = codes_local_latency(lp); 
       tw_event *e = model_net_method_event_new(lp->gid, ts, lp,
-              DRAGONFLY_ROUTER, (void**)&m, NULL);
+              DRAGONFLY_CUSTOM_ROUTER, (void**)&m, NULL);
       m->type = R_SEND;
       m->magic = router_magic_num;
       m->vc_index = output_port;
@@ -2961,11 +2953,11 @@ router_packet_send( router_state * s,
     assert(cur_entry->msg.next_stop == cur_entry->msg.dest_terminal_id);
     e = model_net_method_event_new(cur_entry->msg.next_stop, 
         s->next_output_available_time[output_port] - tw_now(lp), lp,
-        DRAGONFLY, (void**)&m, &m_data);
+        DRAGONFLY_CUSTOM, (void**)&m, &m_data);
   } else {
     e = model_net_method_event_new(cur_entry->msg.next_stop,
             s->next_output_available_time[output_port] - tw_now(lp), lp,
-            DRAGONFLY_ROUTER, (void**)&m, &m_data);
+            DRAGONFLY_CUSTOM_ROUTER, (void**)&m, &m_data);
   }
   memcpy(m, &cur_entry->msg, sizeof(terminal_custom_message));
   if (m->remote_event_size_bytes){
@@ -3024,7 +3016,7 @@ router_packet_send( router_state * s,
     bf->c3 = 1;
     terminal_custom_message *m_new;
     ts += g_tw_lookahead + tw_rand_unif(lp->rng);
-    e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_ROUTER,
+    e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_CUSTOM_ROUTER,
             (void**)&m_new, NULL);
     m_new->type = R_SEND;
     m_new->magic = router_magic_num;
@@ -3096,7 +3088,7 @@ static void router_buf_update(router_state * s, tw_bf * bf, terminal_custom_mess
     bf->c2 = 1;
     terminal_custom_message *m;
     tw_stime ts = codes_local_latency(lp);
-    tw_event *e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_ROUTER,
+    tw_event *e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_CUSTOM_ROUTER,
             (void**)&m, NULL);
     m->type = R_SEND;
     m->vc_index = indx;
@@ -3247,10 +3239,10 @@ struct model_net_method dragonfly_custom_method =
     dragonfly_custom_report_stats,
     NULL,
     NULL,   
-    (event_f)dragonfly_custom_sample_fn,    
-    (revent_f)dragonfly_custom_sample_rc_fn,
+    NULL,//(event_f)dragonfly_custom_sample_fn,    
+    NULL,//(revent_f)dragonfly_custom_sample_rc_fn,
     (init_f)dragonfly_custom_sample_init,
-    (final_f)dragonfly_custom_sample_fin
+    NULL,//(final_f)dragonfly_custom_sample_fin
 };
 
 struct model_net_method dragonfly_custom_router_method =
@@ -3267,9 +3259,9 @@ struct model_net_method dragonfly_custom_router_method =
     NULL, // not yet supported
     NULL,
     NULL,
-    (event_f)dragonfly_custom_rsample_fn,
-    (revent_f)dragonfly_custom_rsample_rc_fn,
+    NULL,//(event_f)dragonfly_custom_rsample_fn,
+    NULL,//(revent_f)dragonfly_custom_rsample_rc_fn,
     (init_f)dragonfly_custom_rsample_init,
-    (final_f)dragonfly_custom_rsample_fin
+    NULL,//(final_f)dragonfly_custom_rsample_fin
 };
 }
