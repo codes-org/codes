@@ -2137,7 +2137,7 @@ static vector<int> get_intra_router(router_state * s, int src_router_id, int des
        /* If no direct connection exists then find an intermediate connection */
        if(curMap.find(dest_rel_id) == curMap.end())
        {
-         int src_col = src_rel_id % s->params->num_router_cols;
+         /*int src_col = src_rel_id % s->params->num_router_cols;
          int src_row = src_rel_id / s->params->num_router_cols;
 
          int dest_col = dest_rel_id % s->params->num_router_cols;
@@ -2147,7 +2147,24 @@ static vector<int> get_intra_router(router_state * s, int src_router_id, int des
          int choice1 = src_row *  s->params->num_router_cols + dest_col;
          int choice2 = dest_row * s->params->num_router_cols + src_col;
          intersection.push_back(offset + choice1);
-         intersection.push_back(offset + choice2);
+         intersection.push_back(offset + choice2);*/
+           map<int, vector<Link> > &destMap = intraGroupLinks[dest_rel_id];
+           map< int, vector<Link> >::iterator it_dest = destMap.begin();
+           
+           while(it_src != curMap.end() && it_dest != destMap.end())         
+           { 
+               if(it_src->first < it_dest->first) 
+                   it_src++; 
+               else
+               if(it_dest->first < it_src->first) 
+                   it_dest++; 
+               else {
+                   intersection.push_back(offset + it_src->first);
+                   it_src++; 
+                   it_dest++; 
+               } 
+           }
+
        }
        else
        {
