@@ -23,12 +23,12 @@
 #include <cortex/cortex-python.h>
 #endif
 #define PROFILE_TYPE cortex_dumpi_profile*
-#define UNDUMPI_OPEN cortex_undumpi_open
+//#define UNDUMPI_OPEN cortex_undumpi_open
 #define DUMPI_START_STREAM_READ cortex_dumpi_start_stream_read
 #define UNDUMPI_CLOSE cortex_undumpi_close
 #else
 #define PROFILE_TYPE dumpi_profile*
-#define UNDUMPI_OPEN undumpi_open
+//#define UNDUMPI_OPEN undumpi_open
 #define DUMPI_START_STREAM_READ dumpi_start_stream_read
 #define UNDUMPI_CLOSE undumpi_close
 #endif
@@ -646,7 +646,11 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
              else
               sprintf(file_name, "%s%d.bin", dumpi_params->file_name, rank);
 #ifdef ENABLE_CORTEX
-	profile = cortex_undumpi_open(file_name, app_id, dumpi_params->num_net_traces, rank);
+	if(strcmp(dumpi_params->file_name,"none") == 0) {
+		profile = cortex_undumpi_open(NULL, app_id, dumpi_params->num_net_traces, rank);
+	} else {
+		profile = cortex_undumpi_open(file_name, app_id, dumpi_params->num_net_traces, rank);
+	}
 #else
 	profile =  undumpi_open(file_name);
 #endif
@@ -728,7 +732,11 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 
 #ifdef ENABLE_CORTEX
 #ifdef ENABLE_CORTEX_PYTHON
-	libundumpi_populate_callbacks(CORTEX_PYTHON_TRANSLATION, transarr);
+	if(dumpi_params->cortex_script[0] != 0) {
+		libundumpi_populate_callbacks(CORTEX_PYTHON_TRANSLATION, transarr);
+	} else {
+		libundumpi_populate_callbacks(CORTEX_MPICH_TRANSLATION, transarr);
+	}
 #else
 	libundumpi_populate_callbacks(CORTEX_MPICH_TRANSLATION, transarr);
 #endif
@@ -738,7 +746,16 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
         //dumpi_free_header(trace_header);
 
 #ifdef ENABLE_CORTEX_PYTHON
-	cortex_python_set_module(dumpi_params->cortex_script,dumpi_params->cortex_class);
+	if(dumpi_params->cortex_script[0] != 0) {
+		if(dumpi_params->cortex_class[0] != 0) {
+			cortex_python_set_module(dumpi_params->cortex_script, dumpi_params->cortex_class);
+		} else {
+			cortex_python_set_module(dumpi_params->cortex_script, NULL);
+		}
+		if(dumpi_params->cortex_gen[0] != 0) {
+			cortex_python_call_generator(profile, dumpi_params->cortex_gen);
+		}
+	}
 #endif
 
         int finalize_reached = 0;
