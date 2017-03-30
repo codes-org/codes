@@ -3225,11 +3225,57 @@ struct model_net_method dragonfly_custom_router_method =
 #ifdef ENABLE_CORTEX
 
 static double dragonfly_custom_get_router_link_bandwidth(void* topo, router_id_t r1, router_id_t r2) {
-        // TODO
+        // TODO: handle this function for multiple cables between the routers.
+        // Right now it returns the bandwidth of a single cable only. 
 	// Given two router ids r1 and r2, this function should return the bandwidth (double)
 	// of the link between the two routers, or 0 of such a link does not exist in the topology.
 	// The function should return -1 if one of the router id is invalid.
+    const dragonfly_param * params = &all_params[num_params-1];
+    if(!params)
         return -1.0;
+
+    if(r1 > params->total_routers || r2 > params->total_routers)
+        return -1.0;
+
+    if(r1 < 0 || r2 < 0)
+        return -1.0;
+
+    int gid_r1 = r1 / params->num_routers;
+    int gid_r2 = r2 / params->num_routers;
+
+    if(gid_r1 == gid_r2)
+    {
+        int lid_r1 = r1 % params->num_routers;
+        int lid_r2 = r2 % params->num_routers;
+
+        /* The connection will be there if the router is in the same row or
+         * same column */
+        int src_row_r1 = lid_r1 / params->num_router_cols;
+        int src_row_r2 = lid_r2 / params->num_router_cols;
+
+        int src_col_r1 = lid_r1 % params->num_router_cols;
+        int src_col_r2 = lid_r2 % params->num_router_cols;
+
+        if(src_row_r1 == src_row_r2 || src_col_r1 == src_col_r2)
+            return params->local_bandwidth;
+        else
+            return 0.0;
+    }
+    else
+    {
+        vector<blink> &curVec = interGroupLinks[r1][gid_r2];
+        vector<blink>::iterator it = curVec.begin();
+
+        for(; it != curVec.end(); it++)
+        {
+            blink bl = *it;
+            if(bl.dest == r2)
+                return params->global_bandwidth;
+        }
+        
+        return 0.0;
+    }
+    return -1.0;
 }
 
 static double dragonfly_custom_get_compute_node_bandwidth(void* topo, cn_id_t node) {
@@ -3237,7 +3283,14 @@ static double dragonfly_custom_get_compute_node_bandwidth(void* topo, cn_id_t no
 	// Given the id of a compute node, this function should return the bandwidth of the
 	// link connecting this compute node to its router.
 	// The function should return -1 if the compute node id is invalid.
+    const dragonfly_param * params = &all_params[num_params-1];
+    if(!params)
         return -1.0;
+   
+    if(node < 0 || node >= params->total_terminals)
+        return -1.0;
+    
+    return params->cn_bandwidth;
 }
 
 static int dragonfly_custom_get_router_neighbor_count(void* topo, router_id_t r) {
@@ -3245,14 +3298,62 @@ static int dragonfly_custom_get_router_neighbor_count(void* topo, router_id_t r)
 	// Given the id of a router, this function should return the number of routers
 	// (not compute nodes) connected to it. It should return -1 if the router id
 	// is not valid.
-        return -1;
+    const dragonfly_param * params = &all_params[num_params-1];
+    if(!params)
+        return -1.0;
+
+    if(r < 0 || r >= params->total_routers)
+        return -1.0;
+
+    return (params->num_router_cols - 1) + (params->num_router_rows - 1) + params->num_global_channels;
 }
 
 static void dragonfly_custom_get_router_neighbor_list(void* topo, router_id_t r, router_id_t* neighbors) {
-        // TODO
 	// Given a router id r, this function fills the "neighbors" array with the ids of routers
 	// directly connected to r. It is assumed that enough memory has been allocated to "neighbors"
 	// (using get_router_neighbor_count to know the required size).
+    const dragonfly_param * params = &all_params[num_params-1];
+    if(!params)
+        return -1.0;
+
+    if(r < 0 || r >= params->total_routers)
+        return -1.0;
+
+    int gid = r / params->num_routers;
+    int src_row = r / params->num_router_cols;
+    int src_col = r % params->num_router_cols;
+
+    /* First the routers in the same row */
+    for(int i = 0; i < params->num_router_cols; i++)
+    {
+       int neighbor = gid * p->num_routers + (src_row * params->num_router_cols) + i;
+       if(neighbor != r)
+           neighbors[i] = neighbor;
+    }
+
+    /* Now the routers in the same column. */
+    for(int i = 0; i <  params->num_router_rows; i++)
+    {
+        int neighbor = gid * p->num_routers + src_col + (i * params->num_router_cols);
+
+        int offset = i + num_router_cols - 1;
+
+        if(neighbor != r)
+            neighbors[offset] = neighbor;
+    }
+    int g_offset = params->num_router_cols + params->num_router_cols - 2;
+    
+    /* Now fill up global channels */
+    set<router_id_t> g_neighbors;
+
+    map< int, vector<bLink> > &curMap = interGroupLinks[a];
+    map< int, vector<bLink> >::iterator it = curMap.begin(); 
+    for(; it != curMap.end(); it++) {   
+    for(int l = 0; l < it->second.size(); l++) {
+        g_neighbors.insert(it->second[l].dest);
+    }
+    }
+    copy(g_neighbors.begin, g_neighbors.end, neighbors[g_offset]);
 }
 
 static int dragonfly_custom_get_router_location(void* topo, router_id_t r, int32_t* location, int size) {
@@ -3265,7 +3366,21 @@ static int dragonfly_custom_get_router_location(void* topo, router_id_t r, int32
 	// If the "size" is sufficient to hold the information, the function should return the size 
 	// effectively used (e.g. 2 in the above example). If however the function did not manage to use
 	// the provided buffer, it should return -1.
+    const dragonfly_param * params = &all_params[num_params-1];
+    if(!params)
         return -1;
+
+    if(r < 0 || r >= params->total_terminals)
+        return -1;
+
+    if(size < 2)
+        return -1;
+
+    int rid = r % params->num_routers;
+    int gid = r / params->num_routers;
+    location[0] = gid;
+    location[1] = rid;
+    return 2;
 }
 
 static int dragonfly_custom_get_compute_node_location(void* topo, cn_id_t node, int32_t* location, int size) {
@@ -3273,28 +3388,64 @@ static int dragonfly_custom_get_compute_node_location(void* topo, cn_id_t node, 
 	// This function does the same as dragonfly_custom_get_router_location but for a compute node instead
 	// of a router. E.g., for a dragonfly network, the location could be expressed as the array
 	// [ group_id, router_id, terminal_id ]
+    const dragonfly_param * params = &all_params[num_params-1];
+    if(!params)
         return -1;
+
+    if(node < 0 || node >= params->total_terminals)
+        return -1;
+  
+    if(size < 3)
+        return -1;
+
+    int rid = node / params->num_cn;
+    int gid = rid / params->num_routers;
+    int lid = node % params->num_cn;
+   
+    location[0] = gid;
+    location[1] = rid;
+    location[2] = lid;
+
+    return 3;
 }
 
 static router_id_t dragonfly_custom_get_router_from_compute_node(void* topo, cn_id_t node) {
         // TODO
 	// Given a node id, this function returns the id of the router connected to the node,
 	// or -1 if the node id is not valid.
-        return -1;
+        const dragonfly_param * params = &all_params[num_params-1];
+        if(!params)
+            return -1;
+
+        if(node < 0 || node >= params->total_terminals)
+            return -1;
+       
+        router_id_t rid = node / params->num_cn;
+        return rid;
 }
 
 static int dragonfly_custom_get_router_compute_node_count(void* topo, router_id_t r) {
-        // TODO
 	// Given the id of a router, returns the number of compute nodes connected to this
 	// router, or -1 if the router id is not valid.
-        return 0;
+        const dragonfly_param * params = &all_params[num_params-1];
+        if(!params)
+            return -1;
+
+        if(r < 0 || r >= params->total_routers)
+            return -1;
+        
+        return params->num_cn;
 }
 
 static void dragonfly_custom_get_router_compute_node_list(void* topo, router_id_t r, cn_id_t* nodes) {
-        // TODO
+        // TODO: What if there is an invalid router ID?
 	// Given the id of a router, fills the "nodes" array with the list of ids of compute nodes
 	// connected to this router. It is assumed that enough memory has been allocated for the
 	// "nodes" variable to hold all the ids.
+      const dragonfly_param * params = &all_params[num_params-1];
+    
+      for(int i = 0; i < params->num_cn; i++)
+         nodes[i] = r * params->num_cn + i;
 }
 
 cortex_topology dragonfly_custom_cortex_topology = {
