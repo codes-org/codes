@@ -19,6 +19,7 @@
 #include "codes/rc-stack.h"
 #include <vector>
 #include <map>
+#include <set>
 
 #ifdef ENABLE_CORTEX
 #include <cortex/cortex.h>
@@ -3263,19 +3264,19 @@ static double dragonfly_custom_get_router_link_bandwidth(void* topo, router_id_t
     }
     else
     {
-        vector<blink> &curVec = interGroupLinks[r1][gid_r2];
-        vector<blink>::iterator it = curVec.begin();
+        vector<bLink> &curVec = interGroupLinks[r1][gid_r2];
+        vector<bLink>::iterator it = curVec.begin();
 
         for(; it != curVec.end(); it++)
         {
-            blink bl = *it;
+            bLink bl = *it;
             if(bl.dest == r2)
                 return params->global_bandwidth;
         }
         
         return 0.0;
     }
-    return -1.0;
+    return 0.0;
 }
 
 static double dragonfly_custom_get_compute_node_bandwidth(void* topo, cn_id_t node) {
@@ -3305,7 +3306,17 @@ static int dragonfly_custom_get_router_neighbor_count(void* topo, router_id_t r)
     if(r < 0 || r >= params->total_routers)
         return -1.0;
 
-    return (params->num_router_cols - 1) + (params->num_router_rows - 1) + params->num_global_channels;
+    /* Now count the global channels */
+    set<router_id_t> g_neighbors;
+
+    map< int, vector<bLink> > &curMap = interGroupLinks[r];
+    map< int, vector<bLink> >::iterator it = curMap.begin(); 
+    for(; it != curMap.end(); it++) {   
+    for(int l = 0; l < it->second.size(); l++) {
+        g_neighbors.insert(it->second[l].dest);
+    }
+    }
+    return (params->num_router_cols - 1) + (params->num_router_rows - 1) + g_neighbors.size();
 }
 
 static void dragonfly_custom_get_router_neighbor_list(void* topo, router_id_t r, router_id_t* neighbors) {
@@ -3313,11 +3324,6 @@ static void dragonfly_custom_get_router_neighbor_list(void* topo, router_id_t r,
 	// directly connected to r. It is assumed that enough memory has been allocated to "neighbors"
 	// (using get_router_neighbor_count to know the required size).
     const dragonfly_param * params = &all_params[num_params-1];
-    if(!params)
-        return -1.0;
-
-    if(r < 0 || r >= params->total_routers)
-        return -1.0;
 
     int gid = r / params->num_routers;
     int src_row = r / params->num_router_cols;
@@ -3326,7 +3332,7 @@ static void dragonfly_custom_get_router_neighbor_list(void* topo, router_id_t r,
     /* First the routers in the same row */
     for(int i = 0; i < params->num_router_cols; i++)
     {
-       int neighbor = gid * p->num_routers + (src_row * params->num_router_cols) + i;
+       int neighbor = gid * params->num_routers + (src_row * params->num_router_cols) + i;
        if(neighbor != r)
            neighbors[i] = neighbor;
     }
@@ -3334,9 +3340,9 @@ static void dragonfly_custom_get_router_neighbor_list(void* topo, router_id_t r,
     /* Now the routers in the same column. */
     for(int i = 0; i <  params->num_router_rows; i++)
     {
-        int neighbor = gid * p->num_routers + src_col + (i * params->num_router_cols);
+        int neighbor = gid * params->num_routers + src_col + (i * params->num_router_cols);
 
-        int offset = i + num_router_cols - 1;
+        int offset = i + params->num_router_cols - 1;
 
         if(neighbor != r)
             neighbors[offset] = neighbor;
@@ -3346,14 +3352,22 @@ static void dragonfly_custom_get_router_neighbor_list(void* topo, router_id_t r,
     /* Now fill up global channels */
     set<router_id_t> g_neighbors;
 
-    map< int, vector<bLink> > &curMap = interGroupLinks[a];
+    map< int, vector<bLink> > &curMap = interGroupLinks[r];
     map< int, vector<bLink> >::iterator it = curMap.begin(); 
     for(; it != curMap.end(); it++) {   
     for(int l = 0; l < it->second.size(); l++) {
         g_neighbors.insert(it->second[l].dest);
     }
     }
-    copy(g_neighbors.begin, g_neighbors.end, neighbors[g_offset]);
+    /* Now transfer the content of the sets to the array */
+    set<router_id_t>::iterator it_set;
+    int count = 0;
+
+    for(it_set = g_neighbors.begin(); it_set != g_neighbors.end(); it_set++)
+    {
+        neighbors[g_offset+count] = *it_set;
+        ++count;
+    }
 }
 
 static int dragonfly_custom_get_router_location(void* topo, router_id_t r, int32_t* location, int size) {
