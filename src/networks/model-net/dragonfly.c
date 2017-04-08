@@ -3363,6 +3363,16 @@ struct model_net_method dragonfly_router_method =
 
 #ifdef ENABLE_CORTEX
 
+static int dragonfly_get_number_of_compute_nodes(void* topo) {
+		// TODO
+		return -1;
+}
+
+static int dragonfly_get_number_of_routers(void* topo) {
+		// TODO
+		return -1;
+}
+
 static double dragonfly_get_router_link_bandwidth(void* topo, router_id_t r1, router_id_t r2) {
         // TODO
         return -1.0;
@@ -3408,6 +3418,8 @@ static void dragonfly_get_router_compute_node_list(void* topo, router_id_t r, cn
 
 cortex_topology dragonfly_cortex_topology = {
         .internal = NULL,
+		.get_number_of_routers			= dragonfly_get_number_of_routers,
+		.get_number_of_compute_nodes	= dragonfly_get_number_of_compute_nodes,
         .get_router_link_bandwidth      = dragonfly_get_router_link_bandwidth,
         .get_compute_node_bandwidth     = dragonfly_get_compute_node_bandwidth,
         .get_router_neighbor_count      = dragonfly_get_router_neighbor_count,

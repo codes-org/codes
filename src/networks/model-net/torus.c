@@ -2061,6 +2061,16 @@ int model_net_torus_get_flat_id(
 
 #ifdef ENABLE_CORTEX
 
+static int torus_get_number_of_compute_nodes(void* topo) {
+	// TODO
+	return -1;
+}
+
+static int torus_get_number_of_routers(void* topo) {
+	// TODO
+	return -1;
+}
+
 static double torus_get_router_link_bandwidth(void* topo, router_id_t r1, router_id_t r2) {
 	// TODO
 	return -1.0;
@@ -2106,6 +2116,8 @@ static void torus_get_router_compute_node_list(void* topo, router_id_t r, cn_id_
 
 cortex_topology torus_cortex_topology = {
 	.internal = NULL,
+	.get_number_of_compute_nodes = torus_get_number_of_compute_nodes,
+	.get_number_of_routers	= torus_get_number_of_routers,
 	.get_router_link_bandwidth 	= torus_get_router_link_bandwidth,
 	.get_compute_node_bandwidth 	= torus_get_compute_node_bandwidth,
 	.get_router_neighbor_count 	= torus_get_router_neighbor_count,
