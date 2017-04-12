@@ -26,7 +26,7 @@
 #include <cortex/topology.h>
 #endif
 
-#define DUMP_CONNECTIONS 0
+#define DUMP_CONNECTIONS 1
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
 
@@ -3330,24 +3330,34 @@ static void dragonfly_custom_get_router_neighbor_list(void* topo, router_id_t r,
     int src_col = r % params->num_router_cols;
 
     /* First the routers in the same row */
-    for(int i = 0; i < params->num_router_cols; i++)
-    {
+     int i = 0;
+     int offset = 0;
+     while(i < params->num_router_cols)
+     {
        int neighbor = gid * params->num_routers + (src_row * params->num_router_cols) + i;
        if(neighbor != r)
-           neighbors[i] = neighbor;
-    }
+       {
+           neighbors[offset] = neighbor;
+           offset++;
+       }
+       i++;
+     }
 
     /* Now the routers in the same column. */
-    for(int i = 0; i <  params->num_router_rows; i++)
+    offset = 0;
+    i = 0;
+    while(i <  params->num_router_rows)
     {
         int neighbor = gid * params->num_routers + src_col + (i * params->num_router_cols);
 
-        int offset = i + params->num_router_cols - 1;
-
         if(neighbor != r)
-            neighbors[offset] = neighbor;
+        {
+            neighbors[offset+params->num_router_cols-1] = neighbor;
+            offset++;
+        }
+        i++;
     }
-    int g_offset = params->num_router_cols + params->num_router_cols - 2;
+    int g_offset = params->num_router_cols + params->num_router_rows - 2;
     
     /* Now fill up global channels */
     set<router_id_t> g_neighbors;
@@ -3412,8 +3422,9 @@ static int dragonfly_custom_get_compute_node_location(void* topo, cn_id_t node, 
     if(size < 3)
         return -1;
 
-    int rid = node / params->num_cn;
-    int gid = rid / params->num_routers;
+    int rid = (node / params->num_cn) % params->num_routers;
+    int rid_global = node / params->num_cn;
+    int gid = rid_global / params->num_routers;
     int lid = node % params->num_cn;
    
     location[0] = gid;
