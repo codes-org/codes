@@ -26,7 +26,7 @@
 #include <cortex/topology.h>
 #endif
 
-#define DUMP_CONNECTIONS 1
+#define DUMP_CONNECTIONS 0
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
 
@@ -3226,13 +3226,21 @@ struct model_net_method dragonfly_custom_router_method =
 #ifdef ENABLE_CORTEX
 
 static int dragonfly_custom_get_number_of_compute_nodes(void* topo) {
-        // TODO
-        return -1;
+    
+        const dragonfly_param * params = &all_params[num_params-1];
+        if(!params)
+            return -1.0;
+
+        return params->total_terminals;
 }
 
 static int dragonfly_custom_get_number_of_routers(void* topo) {
         // TODO
-        return -1;
+        const dragonfly_param * params = &all_params[num_params-1];
+        if(!params)
+            return -1.0;
+
+        return params->total_routers;
 }
 
 static double dragonfly_custom_get_router_link_bandwidth(void* topo, router_id_t r1, router_id_t r2) {
@@ -3478,7 +3486,7 @@ static void dragonfly_custom_get_router_compute_node_list(void* topo, router_id_
 	// connected to this router. It is assumed that enough memory has been allocated for the
 	// "nodes" variable to hold all the ids.
       const dragonfly_param * params = &all_params[num_params-1];
-    
+   
       for(int i = 0; i < params->num_cn; i++)
          nodes[i] = r * params->num_cn + i;
 }
@@ -3509,6 +3517,7 @@ cortex_topology dragonfly_custom_cortex_topology = {
 //        .get_router_compute_node_count  = 
 			dragonfly_custom_get_router_compute_node_count,
 //        .get_router_compute_node_list   = dragonfly_custom_get_router_compute_node_list,
+            dragonfly_custom_get_router_compute_node_list
 };
 
 }

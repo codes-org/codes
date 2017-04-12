@@ -6,13 +6,17 @@
 #include "codes/codes.h"
 #include <cortex/topology.h>
 #include "codes/model-net.h"
-  
 /* TODO: Replace NUM_NODES and num_routers once we have functions to fetch
  * topology node and router counts. Right now it is hard coded for Theta. */
-#define NUM_NODES 3456
 extern struct cortex_topology dragonfly_custom_cortex_topology;
 
 int main(int argc, char** argv) {
+  
+  if(argc < 2)
+  {
+    printf("\n Usage: %s dragonfly-config-file ", argv[0]);
+    return -1;
+  }
   int* net_ids;
   int num_nets;
   
@@ -28,7 +32,6 @@ int main(int argc, char** argv) {
 
   /* TODO: Replace NUM_NODES and num_routers once we have functions to fetch
    * topology node and router counts. Right now it is hard coded for Theta. */
-  int num_routers = NUM_NODES/4;
 
   void * topo_arg = NULL;
   double local_bandwidth, global_bandwidth, cn_bandwidth;
@@ -42,6 +45,10 @@ int main(int argc, char** argv) {
   configuration_get_value_double(&config, "PARAMS", "global_bandwidth", NULL, &global_bandwidth);
   configuration_get_value_double(&config, "PARAMS", "cn_bandwidth", NULL, &cn_bandwidth);
 
+  int num_routers =  dragonfly_custom_cortex_topology.get_number_of_routers(topo_arg);
+  int total_cns = dragonfly_custom_cortex_topology.get_number_of_compute_nodes(topo_arg);
+
+  printf("\n Aggregate number of routers %d number of cns %d ", num_routers, total_cns);
   /* First check for the same rows */
   for(int i = 0; i < num_router_cols - 1; i++)
   {
@@ -99,13 +106,12 @@ int main(int argc, char** argv) {
   for(int i = grp1_offset; i < grp1_offset + num_router_cols; i++)
   {
       int num_neighbors = dragonfly_custom_cortex_topology.get_router_neighbor_count(topo_arg, i);
-      //printf("\n Router %d Number of neighbors %d ", i, num_neighbors);
       assert(num_neighbors == 22);
 
       router_id_t * routers = malloc(num_neighbors * sizeof(router_id_t));
       dragonfly_custom_cortex_topology.get_router_neighbor_list(topo_arg, i, routers);
 
-      if(i == 0)
+      if(i == grp1_offset)
       {
         for(int j = 0; j < num_neighbors; j++)
           printf("\n Router id %d ", routers[j]);
