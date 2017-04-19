@@ -22,6 +22,7 @@ extern "C" {
 #include "model-net.h"
 #include "model-net-sched.h"
 #include "net/dragonfly.h"
+#include "net/dragonfly-custom.h"
 #include "net/slimfly.h"
 #include "net/fattree.h"
 #include "net/loggp.h"
@@ -124,6 +125,7 @@ typedef struct model_net_wrap_msg {
     union {
         model_net_base_msg      m_base;  // base lp
         terminal_message        m_dfly;  // dragonfly
+        terminal_custom_message        m_custom_dfly;  // dragonfly-custom
         slim_terminal_message   m_slim;  // slimfly
 	fattree_message		m_fat;   // fattree
         loggp_message           m_loggp; // loggp

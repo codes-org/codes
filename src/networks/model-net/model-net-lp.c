@@ -18,6 +18,7 @@
 /**** BEGIN SIMULATION DATA STRUCTURES ****/
 
 int model_net_base_magic;
+int mn_sample_enabled = 0;
 
 // message-type specific offsets - don't want to get bitten later by alignment
 // issues...
@@ -36,7 +37,6 @@ static const char              * annos[CONFIGURATION_MAX_ANNOS];
 static model_net_base_params     all_params[CONFIGURATION_MAX_ANNOS];
 
 static tw_stime mn_sample_interval = 0.0;
-static int mn_sample_enabled = 0;
 static tw_stime mn_sample_end = 0.0;
 
 typedef struct model_net_base_state {
@@ -283,9 +283,9 @@ void model_net_base_configure(){
     msg_offsets[DRAGONFLY_ROUTER] =
         offsetof(model_net_wrap_msg, msg.m_dfly);
     msg_offsets[DRAGONFLY_CUSTOM] =
-        offsetof(model_net_wrap_msg, msg.m_dfly);
+        offsetof(model_net_wrap_msg, msg.m_custom_dfly);
     msg_offsets[DRAGONFLY_CUSTOM_ROUTER] =
-        offsetof(model_net_wrap_msg, msg.m_dfly);
+        offsetof(model_net_wrap_msg, msg.m_custom_dfly);
     msg_offsets[SLIMFLY] =
         offsetof(model_net_wrap_msg, msg.m_slim);
     msg_offsets[FATTREE] =
