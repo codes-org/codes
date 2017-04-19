@@ -140,7 +140,7 @@ AC_ARG_WITH([boost],[AS_HELP_STRING([--with-boost@<:@=DIR@:>@],
 			[location of Boost Python installation])])
 
 if [ test "x${with_python}" != "x" -a "x${with_boost}" != "x"] ; then
-        AC_CHECK_FILES([${with_python}/lib/libpython2.7.a ${with_boost}/lib/libboost_python.a],
+        AC_CHECK_FILES([${with_python}/lib/libpython2.7.so ${with_boost}/lib/libboost_python.a],
                 AM_CONDITIONAL(USE_PYTHON, true),
                 AC_MSG_ERROR(Could not find Python and/or Boost-Python libraries))
         PYTHON_CFLAGS="-I${with_python}/include -I${with_boost}/include"

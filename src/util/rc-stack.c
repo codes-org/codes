@@ -38,6 +38,9 @@ void rc_stack_create(struct rc_stack **s){
         case OPTIMISTIC:
             ss->mode = RC_OPT;
             break;
+        case OPTIMISTIC_REALTIME:
+            ss->mode = RC_OPT;
+            break;
         case OPTIMISTIC_DEBUG:
             ss->mode = RC_OPT_DBG;
             break;

@@ -28,6 +28,7 @@ TESTS += tests/lp-io-test.sh \
  tests/map-ctx-test.sh \
  tests/modelnet-test.sh \
  tests/modelnet-test-torus.sh \
+ tests/modelnet-test-torus-traces.sh \
  tests/modelnet-test-loggp.sh \
  tests/modelnet-test-dragonfly.sh \
  tests/modelnet-test-slimfly.sh \
