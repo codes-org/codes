@@ -2839,8 +2839,8 @@ router_packet_receive( router_state * s,
     } else if (cur_chunk->msg.my_g_hop == 2) {
       if(routing == PROG_ADAPTIVE && cur_chunk->msg.my_l_hop < 6) {
         cur_chunk->msg.my_l_hop = 6;
-      } else if(cur_chunk->msg.my_l_hop < 8) {
-        cur_chunk->msg.my_l_hop = 8;
+      } else if(cur_chunk->msg.my_l_hop < 4) {
+        cur_chunk->msg.my_l_hop = 4;
       }
     }
     output_chan = cur_chunk->msg.my_l_hop;
