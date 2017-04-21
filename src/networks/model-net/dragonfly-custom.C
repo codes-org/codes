@@ -834,7 +834,9 @@ terminal_custom_init( terminal_state * s,
    s->router_id=(int)s->terminal_id / (s->params->num_cn);
    s->terminal_available_time = 0.0;
    s->packet_counter = 0;
-   
+   s->min_latency = INT_MAX;
+   s->max_latency = 0;   
+
    s->finished_msgs = 0;
    s->finished_chunks = 0;
    s->finished_packets = 0;
@@ -1677,6 +1679,9 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
          tmp->remote_event_size = msg->remote_event_size_bytes; 
          memcpy(tmp->remote_event_data, m_data_src, msg->remote_event_size_bytes);
     }
+     if(s->min_latency > tw_now(lp) - msg->travel_start_time) {
+		s->min_latency = tw_now(lp) - msg->travel_start_time;	
+	}
         if (dragonfly_max_latency < tw_now( lp ) - msg->travel_start_time) {
           bf->c3 = 1;
           msg->saved_available_time = dragonfly_max_latency;
@@ -2056,12 +2061,12 @@ dragonfly_custom_terminal_final( terminal_state * s,
    
     int written = 0;
     if(!s->terminal_id)
-        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>\n");
+        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max Latency> <Min Latency >\n");
 
-    written += sprintf(s->output_buf + written, "%llu %u %llu %lf %ld %lf %lf %lf\n",
+    written += sprintf(s->output_buf + written, "%llu %u %llu %lf %ld %lf %lf %lf %lf\n",
             LLU(lp->gid), s->terminal_id, LLU(s->total_msg_size), s->total_time/s->finished_chunks, 
             s->finished_packets, (double)s->total_hops/s->finished_chunks,
-            s->busy_time, s->max_latency);
+            s->busy_time, s->max_latency, s->min_latency);
 
     lp_io_write(lp->gid, (char*)"dragonfly-msg-stats", written, s->output_buf); 
     
