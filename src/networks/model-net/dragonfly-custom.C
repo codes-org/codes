@@ -90,6 +90,10 @@ static int router_magic_num = 0;
 /* terminal magic number */
 static int terminal_magic_num = 0;
 
+/* Hops within a group */
+static int num_intra_nonmin_hops = 4;
+static int num_intra_min_hops = 2;
+
 static FILE * dragonfly_log = NULL;
 
 static int sample_bytes_written = 0;
@@ -236,6 +240,10 @@ struct terminal_state
 
    tw_stime last_buf_full;
    tw_stime busy_time;
+   
+   tw_stime max_latency;
+   tw_stime min_latency;
+
    char output_buf[4096];
    /* For LP suspend functionality */
    int error_ct;
@@ -895,8 +903,10 @@ void router_custom_setup(router_state * r, tw_lp * lp)
                 "does not match with repetitions * dragonfly_router %d  ",
                 p->num_routers, p->total_routers, num_grp_reps * num_routers_per_mgrp);
 
-   r->router_id=mapping_rep_id + mapping_offset;
+   r->router_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
    r->group_id=r->router_id/p->num_routers;
+    
+   //printf("\n Local router id %d global id %d ", r->router_id, lp->gid);
 
    r->fwd_events = 0;
    r->rev_events = 0;
@@ -1304,7 +1314,8 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
   codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
       &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
   codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 1,
-      s->router_id, 0, &router_id);
+      s->router_id / num_routers_per_mgrp, s->router_id % num_routers_per_mgrp, &router_id);
+//  printf("\n Local router id %d global router id %d ", s->router_id, router_id);
   // we are sending an event to the router, so no method_event here
   void * remote_event;
   e = model_net_method_event_new(router_id, ts, lp,
@@ -1427,7 +1438,10 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_custom_mes
         s->finished_packets--;
       }
        if(bf->c3)
+       {
           dragonfly_max_latency = msg->saved_available_time;
+          s->max_latency = msg->saved_available_time;
+       }
        
        if(bf->c7)
         {
@@ -1667,6 +1681,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
           bf->c3 = 1;
           msg->saved_available_time = dragonfly_max_latency;
           dragonfly_max_latency = tw_now( lp ) - msg->travel_start_time;
+          s->max_latency = tw_now(lp) - msg->travel_start_time;
         }
     /* If all chunks of a message have arrived then send a remote event to the
      * callee*/
@@ -2043,10 +2058,10 @@ dragonfly_custom_terminal_final( terminal_state * s,
     if(!s->terminal_id)
         written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>\n");
 
-    written += sprintf(s->output_buf + written, "%llu %u %llu %lf %ld %lf %lf\n",
-            LLU(lp->gid), s->terminal_id, LLU(s->total_msg_size), s->total_time, 
+    written += sprintf(s->output_buf + written, "%llu %u %llu %lf %ld %lf %lf %lf\n",
+            LLU(lp->gid), s->terminal_id, LLU(s->total_msg_size), s->total_time/s->finished_chunks, 
             s->finished_packets, (double)s->total_hops/s->finished_chunks,
-            s->busy_time);
+            s->busy_time, s->max_latency);
 
     lp_io_write(lp->gid, (char*)"dragonfly-msg-stats", written, s->output_buf); 
     
@@ -2213,8 +2228,8 @@ get_next_stop(router_state * s,
        //if(msg->last_hop == GLOBAL && next_stop[select_chan] == dest_router_id)
        //   msg->my_l_hop++;
 
-       codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, next_stop[select_chan],
-          0, &router_dest_id);
+       codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, next_stop[select_chan] / num_routers_per_mgrp,
+          next_stop[select_chan] % num_routers_per_mgrp, &router_dest_id);
        return router_dest_id;
    }
 
@@ -2275,8 +2290,8 @@ get_next_stop(router_state * s,
       }
       dest_lp = dests[select_chan];
   }
-   codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_lp,
-      0, &router_dest_id);
+   codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_lp / num_routers_per_mgrp,
+      dest_lp % num_routers_per_mgrp, &router_dest_id);
     
    return router_dest_id;
 }
@@ -2312,6 +2327,9 @@ get_output_port( router_state * s,
       {
           /* traversing a global channel */
          vector<bLink> &curVec = interGroupLinks[src_router][intm_grp_id];
+
+         if(interGroupLinks[src_router][intm_grp_id].size() == 0)
+             printf("\n Source router %d intm_grp_id %d ", src_router, intm_grp_id);
 
          assert(interGroupLinks[src_router][intm_grp_id].size() > 0);
 
@@ -2384,10 +2402,10 @@ static void do_local_adaptive_routing(router_state * s,
    min_chan = tw_rand_integer(lp->rng, 0, next_min_stops.size() - 1);
    nonmin_chan = tw_rand_integer(lp->rng, 0, next_nonmin_stops.size() - 1);
   
-   codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, next_min_stops[min_chan],
-          0, &min_rtr_id);
-  codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, next_nonmin_stops[nonmin_chan],
-          0, &nonmin_rtr_id);
+   codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, next_min_stops[min_chan] / num_routers_per_mgrp,
+          next_min_stops[min_chan] % num_routers_per_mgrp, &min_rtr_id);
+  codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, next_nonmin_stops[nonmin_chan] / num_routers_per_mgrp,
+          next_nonmin_stops[nonmin_chan] % num_routers_per_mgrp, &nonmin_rtr_id);
 
   min_port = get_output_port(s, msg, lp, bf, min_rtr_id);
   nonmin_port = get_output_port(s, msg, lp, bf, nonmin_rtr_id);
@@ -2405,12 +2423,13 @@ static void do_local_adaptive_routing(router_state * s,
   int local_stop = -1;
   tw_lpid global_stop;
 
-  if(nonmin_port_count >= min_port_count)
+  if(nonmin_port_count * num_intra_nonmin_hops > min_port_count * num_intra_min_hops)
   {
       msg->path_type = MINIMAL;
   }
   else
   {
+//      printf("\n Nonmin port count %ld min port count %ld ", nonmin_port_count, min_port_count);
       msg->path_type = NON_MINIMAL;
   }
 }
@@ -2473,8 +2492,8 @@ static int do_global_adaptive_routing( router_state * s,
   int dest_rtr_b_sel;
   int dest_rtr_a_sel = tw_rand_integer(lp->rng, 0, dest_rtr_as.size() - 1);
 
-  codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_as[dest_rtr_a_sel],
-          0, &min_rtr_a_id); 
+  codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_as[dest_rtr_a_sel] / num_routers_per_mgrp,
+          dest_rtr_as[dest_rtr_a_sel] % num_routers_per_mgrp, &min_rtr_a_id); 
 
   min_port_a = get_output_port(s, msg, lp, bf, min_rtr_a_id);
 
@@ -2487,8 +2506,8 @@ static int do_global_adaptive_routing( router_state * s,
       dest_rtr_bs = get_intra_router(s, s->router_id, min_rtr_b, s->params->num_routers);
     }
     dest_rtr_b_sel = tw_rand_integer(lp->rng, 0, dest_rtr_bs.size() - 1);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_bs[dest_rtr_b_sel],
-          0, &min_rtr_b_id); 
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_bs[dest_rtr_b_sel] / num_routers_per_mgrp,
+          dest_rtr_bs[dest_rtr_b_sel] % num_routers_per_mgrp, &min_rtr_b_id); 
     min_port_b = get_output_port(s, msg, lp, bf, min_rtr_b_id);
   }
 
@@ -2525,8 +2544,8 @@ static int do_global_adaptive_routing( router_state * s,
   }
   dest_rtr_a_sel = tw_rand_integer(lp->rng, 0, dest_rtr_as.size() - 1);
   
-  codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_as[dest_rtr_a_sel],
-          0, &nonmin_rtr_a_id); 
+  codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_as[dest_rtr_a_sel] / num_routers_per_mgrp,
+          dest_rtr_as[dest_rtr_a_sel] % num_routers_per_mgrp, &nonmin_rtr_a_id); 
   nonmin_port_a = get_output_port(s, msg, lp, bf, nonmin_rtr_a_id); 
 
   if(num_nonmin_chans > 1)
@@ -2539,8 +2558,8 @@ static int do_global_adaptive_routing( router_state * s,
       dest_rtr_bs = get_intra_router(s, s->router_id, nonmin_rtr_b, s->params->num_routers);  
     }
     dest_rtr_b_sel = tw_rand_integer(lp->rng, 0, dest_rtr_bs.size() - 1);
-    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_bs[dest_rtr_b_sel],
-          0, &nonmin_rtr_b_id); 
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_bs[dest_rtr_b_sel] / num_routers_per_mgrp,
+          dest_rtr_bs[dest_rtr_b_sel] % num_routers_per_mgrp, &nonmin_rtr_b_id); 
     nonmin_port_b = get_output_port(s, msg, lp, bf, nonmin_rtr_b_id);
   }
   /*randomly select two minimal routes and two non-minimal routes */
