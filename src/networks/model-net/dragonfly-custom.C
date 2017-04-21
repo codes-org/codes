@@ -1442,9 +1442,12 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_custom_mes
        if(bf->c3)
        {
           dragonfly_max_latency = msg->saved_available_time;
-          s->max_latency = msg->saved_available_time;
        }
-       
+      
+       if(bf->c22)
+	{
+          s->max_latency = msg->saved_available_time;
+	} 
        if(bf->c7)
         {
             //assert(!hash_link);
@@ -1688,6 +1691,11 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
           dragonfly_max_latency = tw_now( lp ) - msg->travel_start_time;
           s->max_latency = tw_now(lp) - msg->travel_start_time;
         }
+	if(s->max_latency < tw_now( lp ) - msg->travel_start_time) {
+	  bf->c22 = 1;
+	  msg->saved_available_time = s->max_latency;
+	  s->max_latency = tw_now(lp) - msg->travel_start_time;
+	}
     /* If all chunks of a message have arrived then send a remote event to the
      * callee*/
     //assert(tmp->num_chunks <= total_chunks);
