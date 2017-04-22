@@ -1597,6 +1597,8 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 	return -1;
     }
 
+	jobmap_ctx = NULL; // make sure it's NULL if it's not used
+
     if(strlen(workloads_conf_file) > 0)
     {
         FILE *name_file = fopen(workloads_conf_file, "r");
@@ -1629,6 +1631,11 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
         strcpy(file_name_of_job[0], workload_file);
         num_traces_of_job[0] = num_net_traces;
         alloc_spec = 0;
+		if(strlen(alloc_file) > 0) {
+			alloc_spec = 1;
+			jobmap_p.alloc_file = alloc_file;
+			jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_LIST, &jobmap_p);
+		}
     }
     MPI_Comm_rank(MPI_COMM_CODES, &rank);
     MPI_Comm_size(MPI_COMM_CODES, &nprocs);
