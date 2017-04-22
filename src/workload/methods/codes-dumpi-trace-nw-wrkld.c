@@ -14,6 +14,7 @@
 #include "dumpi/libundumpi/libundumpi.h"
 #include "codes/codes-workload.h"
 #include "codes/quickhash.h"
+#include "codes/model-net.h"
 
 #if ENABLE_CORTEX
 #include <cortex/cortex.h>
@@ -655,10 +656,7 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	// TODO: call cortex_placement_set (from cortex/placement.h) to set the compute node id of
 	// each rank of the application
 	
-	// TODO: call cortex_topology_set (from cortex/topology.h) to set the topology to one of
-	// the topologies defined in codes/cortex-topology.h depending on which network we are dealing with.
-	// Note: there might be a better we to do this, for instance by adding the cortex_topology inside
-	// the network's model_net_method structure?
+	cortex_topology_set(profile,&model_net_topology);
 #else
 	profile =  undumpi_open(file_name);
 #endif

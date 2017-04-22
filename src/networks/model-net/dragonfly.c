@@ -54,6 +54,11 @@
 #define LP_CONFIG_NM_ROUT (model_net_lp_config_names[DRAGONFLY_ROUTER])
 #define LP_METHOD_NM_ROUT (model_net_method_names[DRAGONFLY_ROUTER])
 
+#ifdef ENABLE_CORTEX
+/* This structure is defined at the end of the file */
+extern cortex_topology dragonfly_cortex_topology;
+#endif
+
 int debug_slot_count = 0;
 long term_ecount, router_ecount, term_rev_ecount, router_rev_ecount;
 long packet_gen = 0, packet_fin = 0;
@@ -604,6 +609,9 @@ static void dragonfly_configure(){
     if (anno_map->has_unanno_lp > 0){
         dragonfly_read_config(NULL, &all_params[anno_map->num_annos]);
     }
+#ifdef ENABLE_CORTEX
+	model_net_topology = dragonfly_cortex_topology;
+#endif
 }
 
 /* report dragonfly statistics like average and maximum packet latency, average number of hops traversed */

@@ -40,6 +40,11 @@
 #define LP_CONFIG_NM (model_net_lp_config_names[TORUS])
 #define LP_METHOD_NM (model_net_method_names[TORUS])
 
+#ifdef ENABLE_CORTEX
+/* This structure is defined at the end of the file */
+extern cortex_topology torus_cortex_topology;
+#endif
+
 static double maxd(double a, double b) { return a < b ? b : a; }
 
 /* Torus network model implementation of codes, implements the modelnet API */
@@ -385,6 +390,9 @@ static void torus_configure(){
     if (anno_map->has_unanno_lp > 0){
         torus_read_config(NULL, &all_params[anno_map->num_annos]);
     }
+#ifdef ENABLE_CORTEX
+	model_net_topology = torus_cortex_topology;
+#endif
 }
 
 /* helper functions - convert between flat ids and torus n-dimensional ids */

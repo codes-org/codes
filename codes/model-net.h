@@ -18,6 +18,11 @@ extern "C" {
 #include <codes/codes-mapping-context.h>
 #include <stdint.h>
 
+#ifdef ENABLE_CORTEX
+#include <cortex/cortex.h>
+#include <cortex/topology.h>
+#endif
+
 #define PULL_MSG_SIZE 128
 
 #define MAX_NAME_LENGTH 256
@@ -405,6 +410,11 @@ void model_net_print_stats(tw_lpid lpid, mn_stats mn_stats_array[]);
 
 /* find model-net statistics */
 mn_stats* model_net_find_stats(char const * category, mn_stats mn_stats_array[]);
+
+#ifdef ENABLE_CORTEX
+/* structure that gives access to the topology functions */
+extern cortex_topology model_net_topology;
+#endif
 
 #ifdef __cplusplus
 }

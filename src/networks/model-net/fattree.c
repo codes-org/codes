@@ -39,6 +39,11 @@
 #define LP_CONFIG_NM (model_net_lp_config_names[FATTREE])
 #define LP_METHOD_NM (model_net_method_names[FATTREE])
 
+#ifdef ENABLE_CORTEX
+/* This structure is defined at the end of the file */
+extern cortex_topology fattree_cortex_topology;
+#endif
+
 #if DEBUG_RC
   //Reverse Compute Debug Variables
   long long packet_event_f = 0;
@@ -896,6 +901,9 @@ static void fattree_configure(){
   if (anno_map->has_unanno_lp > 0){
     fattree_read_config(NULL, &all_params[anno_map->num_annos]);
   }
+#ifdef ENABLE_CORTEX
+  model_net_topology = fattree_cortex_topology;
+#endif
 }
 
 /* initialize a fattree compute node terminal */
