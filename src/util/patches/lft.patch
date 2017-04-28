@@ -1,6 +1,6 @@
-diff -Nur scripts.orig/create_static_lft.sh  scripts/create_static_lft.sh
---- scripts.orig/create_static_lft.sh	1969-12-31 16:00:00.000000000 -0800
-+++ scripts/create_static_lft.sh 2016-08-16 11:08:06.058810000 -0700
+diff -u scripts/create_static_lft.sh 2016-08-16 11:08:06.058810000 -0700 scripts/create_static_lft.sh
+--- scripts/create_static_lft.sh 2016-08-16 11:08:06.058810000 -0700
++++ scripts/create_static_lft.sh	2017-04-25 19:59:16.977561809 +0900
 @@ -0,0 +1,47 @@
 +#!/bin/bash
 +
@@ -37,21 +37,21 @@ diff -Nur scripts.orig/create_static_lft.sh  scripts/create_static_lft.sh
 +$HOME/simulation/scripts/simulate.py -n ${SIM_DIR} -r ${OSM_ROUTING} -p exchange
 +if [ "x$?" != "x0" ]; then exit -1; fi
 +
-+mv ${SIM_DIR}/ofedout/ibdiagnet.fdbs ${SIM_DIR}/
++mv ${SIM_DIR}/ofedout/opensm.fdbs ${SIM_DIR}/
 +mv ${SIM_DIR}/ofedout/opensm-subnet.lst ${SIM_DIR}/
 +echo "running post_process_lfts.py"
-+$HOME/simulation/scripts/post_process_lfts.py ${SIM_DIR}/ibdiagnet.fdbs ${SIM_DIR}/opensm-subnet.lst ${SIM_DIR}/
++$HOME/simulation/scripts/post_process_lfts.py ${SIM_DIR}/opensm.fdbs ${SIM_DIR}/opensm-subnet.lst ${SIM_DIR}/
 +if [ "x$?" != "x0" ]; then exit -1; fi
 +echo "Done with script"
 +
 +#if [ -z ${KEEP_INTERMEDIATE} ]; then
-+#   rm -rf ./checkConnectivity.log ./log.txt ./ofedout/ ./${WRITE_TOPOLOGY_DOT_FILE}.dot ./topo.* ./ibdiagnet.fdbs ./opensm-subnet.lst
++#   rm -rf ./log.txt ./ofedout/ ./${WRITE_TOPOLOGY_DOT_FILE}.dot ./topo.* ./opensm.fdbs ./opensm-subnet.lst
 +#fi
 +
 +exit 0
-diff -Nur scripts.orig/get_static_lft_for_codes.sh scripts/get_static_lft_for_codes.sh
---- scripts.orig/get_static_lft_for_codes.sh	1969-12-31 16:00:00.000000000 -0800
-+++ scripts/get_static_lft_for_codes.sh	2016-08-16 11:08:06.058810000 -0700
+diff -u scripts/get_static_lft_for_codes.sh scripts/get_static_lft_for_codes.sh
+--- scripts/get_static_lft_for_codes.sh	2016-08-16 11:08:06.058810000 -0700
++++ scripts/get_static_lft_for_codes.sh	2017-04-25 19:59:39.901542081 +0900
 @@ -0,0 +1,36 @@
 +#!/bin/bash
 +
@@ -79,13 +79,13 @@ diff -Nur scripts.orig/get_static_lft_for_codes.sh scripts/get_static_lft_for_co
 +$HOME/simulation/scripts/simulate.py -n ${SIM_DIR} -r ${OSM_ROUTING} -p exchange
 +if [ "x$?" != "x0" ]; then exit -1; fi
 +
-+mv ${SIM_DIR}/ofedout/ibdiagnet.fdbs ${SIM_DIR}/
++mv ${SIM_DIR}/ofedout/opensm.fdbs ${SIM_DIR}/
 +mv ${SIM_DIR}/ofedout/opensm-subnet.lst ${SIM_DIR}/
-+$HOME/simulation/scripts/post_process_lfts.py ${SIM_DIR}/ibdiagnet.fdbs ${SIM_DIR}/opensm-subnet.lst ${SIM_DIR}/
++$HOME/simulation/scripts/post_process_lfts.py ${SIM_DIR}/opensm.fdbs ${SIM_DIR}/opensm-subnet.lst ${SIM_DIR}/
 +if [ "x$?" != "x0" ]; then exit -1; fi
 +
 +#if [ -z ${KEEP_INTERMEDIATE} ]; then
-+#   rm -rf ./checkConnectivity.log ./log.txt ./ofedout/ ./${WRITE_TOPOLOGY_DOT_FILE}.dot ./topo.* ./ibdiagnet.fdbs ./opensm-subnet.lst
++#   rm -rf ./log.txt ./ofedout/ ./${WRITE_TOPOLOGY_DOT_FILE}.dot ./topo.* ./opensm.fdbs ./opensm-subnet.lst
 +#fi
 +
 +exit 0
@@ -117,9 +117,9 @@ diff -Nur scripts.orig/post_process_dot.sh scripts/post_process_dot.sh
 +rm -f ${PATH_TO_DOT}.dot.*
 +
 +exit 0
-diff -Nur scripts.orig/post_process_lfts.py scripts/post_process_lfts.py
---- scripts.orig/post_process_lfts.py	1969-12-31 16:00:00.000000000 -0800
-+++ scripts/post_process_lfts.py	2016-08-15 15:41:29.189179000 -0700
+diff -u scripts/post_process_lfts.py scripts/post_process_lfts.py
+--- scripts/post_process_lfts.py	2016-08-15 15:41:29.189179000 -0700
++++ scripts/post_process_lfts.py	2017-04-25 19:12:03.552153747 +0900
 @@ -0,0 +1,62 @@
 +#!/usr/bin/env python
 +
@@ -136,7 +136,7 @@ diff -Nur scripts.orig/post_process_lfts.py scripts/post_process_lfts.py
 +
 +   outdir = os.path.normpath(sys.argv[3])
 +except:
-+   sys.exit('Usage: post_process_lfts.py ./ibdiagnet.fdbs ./opensm-subnet.lst')
++   sys.exit('Usage: post_process_lfts.py ./opensm.fdbs ./opensm-subnet.lst')
 +
 +if not os.path.exists(fdbsFile) or not os.path.exists(lstFile):
 +   sys.exit('ERR: file %s or %s does not exist' % (fdbsFile, lstFile))
@@ -183,3 +183,1943 @@ diff -Nur scripts.orig/post_process_lfts.py scripts/post_process_lfts.py
 +out.close()
 +
 +sys.exit(0)
+only in patch2:
+unchanged:
+--- scripts.orig/checkConnectivity.py	2017-04-25 16:23:23.472601516 +0900
++++ scripts/checkConnectivity.py	1970-01-01 09:00:00.000000000 +0900
+@@ -1,165 +0,0 @@
+-#!/usr/bin/env python
+-
+-import sys, re, os, random, operator, colorsys, math
+-
+-class showUnicastForwarding(object):
+-    subnet          = {}
+-    hcaTable        = []
+-    disconn         = 0
+-
+-    def parse_lstFile(self, fileName=''):
+-        lstFile = open( fileName, 'r' )
+-
+-        network = {}
+-        for line in lstFile:
+-            p = re.compile('{\s+([a-zA-Z0-9_-]+)\s+Ports:(\w+)\s+SystemGUID:(\w+)\s+NodeGUID:(\w+)\s+PortGUID:(\w+)\s+VenID:(\w+)\s+DevID:(\w+)\s+Rev:(\w+)\s+{(.+)}\s+LID:(\w+)\s+PN:(\w+)\s+}\s+{\s+([a-zA-Z0-9_-]+)\s+Ports:(\w+)\s+SystemGUID:(\w+)\s+NodeGUID:(\w+)\s+PortGUID:(\w+)\s+VenID:(\w+)\s+DevID:(\w+)\s+Rev:(\w+)\s+{(.+)}\s+LID:(\w+)\s+PN:(\w+)\s+}\s+.+')
+-            if p.match(line):
+-                m = p.match(line)
+-                node1, ports1, sguid1, nguid1, pguid1, vid1, did1, rev1, name1, lid1, pn1 = m.group(1), int(m.group(2),16), m.group(3), m.group(4), m.group(5), \
+-                                                                                            m.group(6), m.group(7), m.group(8), m.group(9), int(m.group(10),16), int(m.group(11),16)
+-                node2, ports2, sguid2, nguid2, pguid2, vid2, did2, rev2, name2, lid2, pn2 = m.group(12), int(m.group(13),16), m.group(14), m.group(15), m.group(16), \
+-                                                                                            m.group(17), m.group(18), m.group(19), m.group(20), int(m.group(21),16), int(m.group(22),16)
+-
+-                nguid1, nguid2 = nguid1.lower(), nguid2.lower()
+-
+-                if node1.find('CA') > -1:
+-                    node1, ports1, sguid1, nguid1, pguid1, vid1, did1, rev1, name1, lid1, pn1, node2, ports2, sguid2, nguid2, pguid2, vid2, did2, rev2, name2, lid2, pn2 = \
+-                            node2, ports2, sguid2, nguid2, pguid2, vid2, did2, rev2, name2, lid2, pn2, node1, ports1, sguid1, nguid1, pguid1, vid1, did1, rev1, name1, lid1, pn1
+-                if node2.find('CA') > -1:
+-                    #nguid2 = name2
+-                    self.hcaTable.append([nguid2, pn2])
+-
+-                if network.has_key(nguid1):
+-                    network[nguid1][pn1] = {'rnguid':nguid2, 'rpn':pn2}
+-                else:
+-                    network[nguid1] = {'lid':lid1}
+-                    network[nguid1][pn1] = {'rnguid':nguid2, 'rpn':pn2}
+-
+-                if network.has_key(nguid2):
+-                    network[nguid2][pn2] = {'rnguid':nguid1, 'rpn':pn1}
+-                else:
+-                    network[nguid2] = {'lid':lid2}
+-                    network[nguid2][pn2] = {'rnguid':nguid1, 'rpn':pn1}
+-        
+-        self.subnet = network
+-        lstFile.close()
+-
+-
+-    def parse_fdbsFile(self, fileName=''):
+-        network = self.subnet
+-        nguid = None
+-        lft = {}
+-
+-        fdbsFile = open( fileName, 'r' )
+-        for line in fdbsFile:
+-            p = re.compile('osm_ucast_mgr_dump_ucast_routes: Switch 0x(\w+)')
+-            if p.match(line):
+-                if nguid:
+-                    network[nguid]['lft'] = lft
+-                    lft = {}
+-                nguid = p.match(line).group(1).lower()
+-
+-            p = re.compile('0x(\w+)\s+:\s+(\d+)\s+.*')
+-            if p.match(line):
+-                lid, port = int(p.match(line).group(1), 16), int(p.match(line).group(2))
+-                lft[lid] = port
+-
+-        if nguid:
+-            network[nguid]['lft'] = lft
+-
+-        fdbsFile.close()
+-
+-
+-    def calc_connectivity(self):
+-        network = self.subnet
+-
+-        hopMatrix = {}
+-        for hcaSrc, portSrc in self.hcaTable:
+-
+-            srcLid  = network[hcaSrc]['lid']
+-            hopMatrix[srcLid] = {}
+-
+-            for hcaDest, portDest in self.hcaTable:
+-                if hcaSrc == hcaDest:
+-                    continue
+-
+-                curr = network[hcaSrc][portSrc]['rnguid']
+-                destLid = network[hcaDest]['lid']
+-                hop = 1
+-
+-                while (curr != hcaDest):
+-                    if not network[curr]['lft'].has_key(destLid):
+-                        print "No connection between: ", hcaSrc, hcaDest
+-                        self.disconn += 1
+-                        break
+-                    exitPort = network[curr]['lft'][destLid]
+-                    curr = network[curr][exitPort]['rnguid']
+-                    hop += 1
+-                    if hop > 64:
+-                        print 'Error: hop count bigger than 64 => there is something wrong with the LFTs!'
+-                        return
+-
+-                hopMatrix[srcLid][destLid] = hop
+-
+-        if self.disconn > 0:
+-            print 'Error: %s Hca<->Hca routes are disconnected due to faults in the routing table (out of %s connections in total)' % (self.disconn, len(self.hcaTable)*(len(self.hcaTable)-1))
+-        else:
+-            minHop = 2^32-1
+-            maxHop, sumHop, count, sumSqare = 0, 0, 0, 0
+-            for srcLid in hopMatrix.keys():
+-                for dstLid in hopMatrix[srcLid].keys():
+-                    hop = hopMatrix[srcLid][dstLid]
+-                    sumHop += hop
+-                    sumSqare += hop*hop
+-                    count += 1
+-                    if minHop > hop:
+-                        minHop = hop
+-                    if maxHop < hop:
+-                        maxHop = hop
+-
+-            print 'Hop Count for the Network [min, max, avg, stddev]: [', minHop, maxHop, (1.0*sumHop)/count, math.sqrt(((1.0*sumSqare)/count)-math.pow((1.0*sumHop)/count, 2)), ']'
+-
+-
+-    def __init__(self):
+-        if len(sys.argv) == 2:
+-            path = os.path.normpath(sys.argv[1])
+-            if not os.path.exists(path):
+-                print "Error: input directory does not exist or is not accessable"
+-                print ""
+-                self.printHelp()
+-            self.inputDir = os.path.join(path)
+-
+-            lstFile = os.path.join(self.inputDir, 'ibdiagnet.lst')
+-            if not os.path.exists(lstFile):
+-                print "Error: %s file does not exist or is not accessable" % lstFile
+-                print ""
+-                self.printHelp()
+-
+-            fdbsFile = os.path.join(self.inputDir, 'ibdiagnet.fdbs')
+-            if not os.path.exists(fdbsFile):
+-                print "Error: %s file does not exist or is not accessable" % fdbsFile
+-                print ""
+-                self.printHelp()
+-
+-        else:
+-            self.printHelp()
+-
+-        self.parse_lstFile(lstFile)
+-        self.parse_fdbsFile(fdbsFile)
+-        self.calc_connectivity()
+-
+-
+-    def printHelp(self):
+-        print "Usage: ", sys.argv[0], " <path-to-ib-output>"
+-        print ""
+-        print "     Example:"
+-        print "         ", sys.argv[0], " $OSM_CACHE_DIR/ibdiagnetout"
+-        print ""
+-        print "     Hint to generate *.lst and *.fdbs outpout:"
+-        print "         ibdiagnet [-r] -o <path-to-ib-output>"
+-        sys.exit('')
+-
+-if __name__ == "__main__":
+-    app = showUnicastForwarding()
+-    sys.exit('\nFinish!')
+-
+only in patch2:
+unchanged:
+--- scripts.orig/IBNetLFTtoFDBS.py	2017-04-25 16:23:23.640601410 +0900
++++ scripts/IBNetLFTtoFDBS.py	1970-01-01 09:00:00.000000000 +0900
+@@ -1,161 +0,0 @@
+-#!/usr/bin/env python
+-
+-import sys, re, os
+-from optparse import OptionParser
+-
+-class IBNetLFTtoFDBS(object):
+-    maxLID = 0
+-
+-    def read_ibnetdiscoverFile(self, fileName):
+-        if not os.path.exists(fileName):
+-            sys.exit("Error: file specified by '-ibnd' not found; check your config")
+-
+-        # parse ibnetdiscover.log to get the topology of the network
+-        network = {}
+-        guid = 0
+-        ibnetFile = open(fileName, 'r')
+-        for line in ibnetFile:
+-            p = re.compile('^sysimgguid=.*')
+-            if p.match(line):
+-                guid = 0
+-            p = re.compile('^Switch\s+(\d+)\s"S-(\w+)"\s+.*#\s+"(.*)".*\s+lid\s+(\d+)\s*.*$')
+-            if p.match(line):
+-                m = p.match(line)
+-                guid, numPorts, name, lid = int(m.group(2), 16), int(m.group(1)), m.group(3), int(m.group(4))
+-                if network.has_key(guid):
+-                    print "Error: same switch guid found multiple times in ibnetdiscover.log"
+-                else:
+-                    network[guid] = {'lid':lid, 'name':name, 'numPorts':numPorts, 'ports':{}}
+-                    if lid > self.maxLID:   self.maxLID = lid
+-            p = re.compile('^\[(\d+)\]\s+"(\w)-(\w+)"\[(\d+)\].*#\s+"(.*)"\s+lid\s+(\d+).*')
+-            if guid != 0 and p.match(line):
+-                # ibnetdiscover OR ibnetdiscover -s
+-                m = p.match(line)
+-                lport, rtype, rguid, rport, rname, rlid = int(m.group(1)), m.group(2), int(m.group(3), 16), int(m.group(4)), m.group(5), int(m.group(6))
+-                if network[guid]['ports'].has_key(lport):
+-                    print "Error: same port of one switch found multiple times in ibnetdiscover.log"
+-                else:
+-                    network[guid]['ports'][lport] = {'type':rtype, 'guid':rguid, 'port':rport, 'name':rname, 'lid':rlid}
+-                    if rlid > self.maxLID:   self.maxLID = rlid
+-        ibnetFile.close()
+-        return network
+-
+-
+-    def read_lftFile(self, fileName):
+-        if not os.path.exists(fileName):
+-            sys.exit("Error: file specified by '-lft' not found; check your config")
+-
+-        # names are unique if they come out of createIBNet.py
+-        lft = {}
+-        swname = ''
+-        lftFile = open(fileName, 'r')
+-        for line in lftFile:
+-            p = re.compile('^S(\S*)\s+\d+\s+\[(.*)\]')
+-            if p.match(line):
+-                m = p.match(line)
+-                swname, adj_list = 'S%s'%m.group(1), m.group(2).split(',')
+-                lft[swname] = {'name':swname, 'lid':-1, 'adj_list':adj_list, 'lft':{}}
+-
+-            p = re.compile('^(\S*)\s+(\d+)')
+-            if p.match(line):
+-                m = p.match(line)
+-                remote, route_thru_port = m.group(1), int(m.group(2))
+-                lft[swname]['lft'][remote] = {'lid':-1, 'arti_port':route_thru_port, 'real_port':-1}
+-
+-            p = re.compile('^(\S*)\s+UNREACHABLE')
+-            if p.match(line):
+-                m = p.match(line)
+-                remote = m.group(1)
+-                lft[swname]['lft'][remote] = {'lid':-1, 'arti_port':-1, 'real_port':-1}
+-        lftFile.close()
+-        return lft
+-
+-
+-    def mergeLFTandIBNETD(self, network, lft):
+-        for guid in network.keys():
+-            name, lid = network[guid]['name'], network[guid]['lid']
+-            lft[name]['lid'] = lid
+-            lft[name]['guid'] = guid
+-            lft[name]['lft'][name]['real_port'] = 0
+-
+-            for port in network[guid]['ports'].keys():
+-                rtype, rname, rlid = network[guid]['ports'][port]['type'], network[guid]['ports'][port]['name'], network[guid]['ports'][port]['lid']
+-                lft[name]['lft'][rname]['lid'] = rlid
+-                if rtype == 'H':
+-                    if lft[name]['lft'][rname]['arti_port'] != 0:
+-                        sys.exit("Error: arti_port for local Hca should be 0")
+-                    if lft[name]['lft'][rname]['real_port'] != -1:
+-                        sys.exit("Error: real_port for local Hca specified twice")
+-                    lft[name]['lft'][rname]['real_port'] = port
+-                else:
+-                    arti_port = lft[name]['lft'][rname]['arti_port']
+-                    for remote in lft[name]['lft'].keys():
+-                        if lft[name]['lft'][remote]['arti_port'] == arti_port:
+-                            lft[name]['lft'][remote]['real_port'] = port
+-
+-                # add known LIDs to other LFTs
+-                for name2 in lft.keys():
+-                    if name2 == name:   continue
+-                    for rname2 in lft[name2]['lft'].keys():
+-                        if rname2 == rname:
+-                            lft[name2]['lft'][rname2]['lid'] = rlid
+-
+-            #print '\n', name, lft[name]['guid']
+-            #for port in network[guid]['ports'].keys(): print port, network[guid]['ports'][port]
+-            #for rname in lft[name]['lft'].keys():
+-            #    print rname, lft[name]['lft'][rname]['lid'], lft[name]['lft'][rname]['real_port'], lft[name]['lft'][rname]['arti_port']
+-        return lft
+-
+-
+-    def write_fdbsFile(self, fileName, lft):
+-        if not os.path.exists(fileName):
+-            print "Warning: file specified by '-fdbs' does not exist; take action to move it to the right place for further processing"
+-
+-        fdbsFile = open(fileName, 'w')
+-        for switch in lft.keys():
+-            guid = lft[switch]['guid']
+-            fdbsFile.write('osm_ucast_mgr_dump_ucast_routes: Switch 0x%016x\n' % guid)
+-            fdbsFile.write('LID    : Port : Hops : Optimal\n')
+-            for lid in xrange(1, self.maxLID+1):
+-                remote = ''
+-                for rname in lft[switch]['lft'].keys():
+-                    if lft[switch]['lft'][rname]['lid'] == lid:
+-                        remote = rname
+-                        break
+-
+-                if lft[switch]['lft'][remote]['real_port'] != -1:
+-                    fdbsFile.write('0x%04X : %03i  : 00   : yes\n' % (lid, lft[switch]['lft'][remote]['real_port']))
+-                else:
+-                    fdbsFile.write('0x%04X : UNREACHABLE\n' % lid)
+-            fdbsFile.write('\n')
+-        fdbsFile.close()
+-	
+-
+-    def __init__(self):
+-        parser = OptionParser(description='Convert rounting created by createIBNet.py into real LFTs which match IBsim output (ibdiagnet.fdbs).')
+-        parser.add_option('--lft', nargs=1, help='*.lft file created by createIBNet.py', \
+-                          metavar='<some.lft>', dest='lftFile')
+-        parser.add_option('--ibnd', nargs=1, help='ibnetdiscover.log file (or equivalent) created by `ibnetdiscover -s > ibnetdiscover.log`', \
+-                          metavar='<ibnetdiscover.log>', dest='ibnetdiscoverFile')
+-        parser.add_option('--fdbs', nargs=1, help='output file: this script writes/replaces *.fdbs (similar to the one you get with `ibdiagnet -o <path>`)', \
+-                          metavar='<output.fdbs>', dest='fdbsFile')
+-        (options, args) = parser.parse_args()
+-
+-        if options.ibnetdiscoverFile == None or options.lftFile == None or options.fdbsFile == None:
+-            parser.print_usage()
+-            sys.exit()
+-
+-        ibnetdiscoverFile   = options.ibnetdiscoverFile
+-        lftFile             = options.lftFile
+-        fdbsFile            = options.fdbsFile
+-
+-        network  = self.read_ibnetdiscoverFile(ibnetdiscoverFile)
+-        lfts     = self.read_lftFile(lftFile)
+-        realLFTs = self.mergeLFTandIBNETD(network, lfts)
+-        self.write_fdbsFile(fdbsFile, realLFTs)
+-
+-
+-if __name__ == "__main__":
+-    app = IBNetLFTtoFDBS()
+-    sys.exit('\nFinish!')
+-
+only in patch2:
+unchanged:
+--- scripts.orig/ibsim2omnet.py	2017-04-25 16:23:23.712601364 +0900
++++ scripts/ibsim2omnet.py	1970-01-01 09:00:00.000000000 +0900
+@@ -1,774 +0,0 @@
+-#!/usr/bin/env python
+-
+-import sys, re, os, random, operator
+-
+-class ibsim2omnet(object):
+-    inputDir        = ''
+-    outputPrefix    = ''
+-    LFTs            = {}
+-    switchList      = []
+-    switches        = {}
+-    hcaList         = []
+-    hopMatrix       = {}
+-    vlMap           = {}
+-    lidList         = []
+-    has_vltable     = False
+-    max_lid         = 0
+-    
+-    vl_avail        = 8
+-    sizeOneVLinCredits = 128
+-    width           = 4     # 4x
+-    speed           = 2.5   # 2.5 Gbit/s
+-    creditSize      = 64    # bytes in one buffer element
+-    mtu             = 2048  # maximum size [in Bytes] of the payload in one packet
+-    totalBufferSize = int(vl_avail * sizeOneVLinCredits)   # the total buffer size in credits
+-    #credMinTime     = 4     # time between checing VL update and injecting an update [in usec]; also huge influence on sim time
+-    vlHighLimit     = 4     # IB Vl Arb High Limit
+-    msgLength       = mtu
+-
+-
+-    trafficDist     = 'trfUniform'
+-    dstSeqMode      = 'dstRandom' #'dstSeqLoop'
+-
+-    LRH             = 8     # local route header in byte
+-    GRH             = 0     # we dont need it (40 byte in theory)
+-    BTH             = 12
+-    ETH             = 0     # not needed
+-    ICRC            = 4
+-    VCRC            = 2
+-
+-    pktLenByte      = LRH + GRH + BTH + ETH + mtu + ICRC + VCRC # simple pkt (IBA 5.4)
+-
+-    vlout           = 'vltable_dump'   # possible: vltable_dump (extra file) or vltable_print (within opensm.log)
+-    pattern         = 'rndAll'           # possible: nextNeighbor, rndAll, oneShift, allShift, oneExchange, allExchange
+-
+-    cputime         = 24*60*60
+-    simtime         = 1
+-
+-
+-    def FloydWarshall(self, graph):
+-        # initialized to infinity (0 and w have been initialized already)
+-        for i in graph.keys():
+-            for j in graph.keys():
+-                if not graph[i].has_key(j):
+-                    graph[i][j] = 4294967295
+-
+-        # run Floyd-Warshall algorithm
+-        for k in graph.keys():
+-            for i in graph.keys():
+-                for j in graph.keys():
+-                    if graph[i][k] + graph[k][j] < graph[i][j]:
+-                        graph[i][j] = graph[i][k] + graph[k][j]
+-
+-
+-    def read_ibdiagnet(self):
+-        if not os.path.exists(os.path.join(self.inputDir, 'ibdiagnet.fdbs')):
+-            print "Error: ibdiagnet.fdbs not found"
+-            print ""
+-            self.printHelp()
+-
+-        # parse ibdiagnet.fdbs to get the LFTs for each switch
+-        guid = 0
+-        max_lid = 0
+-        fdbsFile = open(os.path.join(self.inputDir, 'ibdiagnet.fdbs'), 'r')
+-        for line in fdbsFile:
+-            p = re.compile('^$')
+-            if p.match(line):
+-                guid = 0
+-                if self.max_lid < max_lid:
+-                    self.max_lid = max_lid
+-                max_lid = 0
+-            p = re.compile('.* Switch 0x(\w+)$')
+-            if p.match(line):
+-                m = p.match(line)
+-                guid = int(m.group(1), 16)  # hex to int
+-                if self.LFTs.has_key(guid):
+-                    print "Error: same switch guid found multiple times in ibdiagnet.fdbs"
+-                else:
+-                    self.switchList.append(guid)
+-                    self.LFTs[guid] = []
+-            p = re.compile('^0x(\w*)\s.*')
+-            if guid != 0 and p.match(line):
+-                max_lid = max_lid + 1
+-                p = re.compile('^0x(\w+)\s+:\s+(\d+)\s+:.*')
+-                if p.match(line):
+-                    m = p.match(line)
+-                    lid, port = int(m.group(1), 16), int(m.group(2))
+-                p = re.compile('^0x(\w+)\s+:\s+UNREACHABLE.*')
+-                if p.match(line):
+-                    m = p.match(line)
+-                    lid, port = int(m.group(1), 16), 255
+-                self.LFTs[guid].append([lid, port])
+-        fdbsFile.close()
+-        #for i in xrange(0,50):
+-        #    print '0x%04X' % (i)
+-
+-
+-    def read_ibnetdiscover(self):
+-        if not os.path.exists(os.path.join(self.inputDir, 'ibnetdiscover.log')):
+-            print "Error: ibnetdiscover.log not found"
+-            print ""
+-            self.printHelp()
+-
+-        # parse ibnetdiscover.log to get the topology of the network
+-        guid = 0
+-        ibnetFile = open(os.path.join(self.inputDir, 'ibnetdiscover.log'), 'r')
+-        for line in ibnetFile:
+-            p = re.compile('^sysimgguid=.*')
+-            if p.match(line):
+-                guid = 0
+-            p = re.compile('^Switch\s+(\d+)\s"S-(\w+)"\s+.*#\s+"(.*)".*\s+lid\s+(\d+)\s*.*$')
+-            if p.match(line):
+-                m = p.match(line)
+-                guid, numPorts, name, lid = int(m.group(2), 16), int(m.group(1)), m.group(3), int(m.group(4))
+-                if self.switches.has_key(guid):
+-                    print "Error: same switch guid found multiple times in ibnetdiscover.log"
+-                else:
+-                    self.switches[guid] = {'lid':lid, 'name':name, 'numPorts':numPorts, 'ports':{}, 'numHCA':0}
+-                    self.hopMatrix[guid] = {guid: 0}
+-            p = re.compile('^\[(\d+)\]\s+"(\w)-(\w+)"\[(\d+)\].*#\s+"(.*)"\s+lid\s+(\d+)\s+(\d+)x(\w+)')
+-            if guid != 0 and p.match(line):
+-                # ibnetdiscover OR ibnetdiscover -s
+-                m = p.match(line)
+-                lport, rtype, rguid, rport, rname, rlid, rlinkwidth, rlinkfreq = int(m.group(1)), m.group(2), int(m.group(3), 16), int(m.group(4)), m.group(5), int(m.group(6)), int(m.group(7)), m.group(8)
+-                if   rlinkfreq == "SDR":   rlinkspeed =  2.5        # 8b/10b encoding
+-                elif rlinkfreq == "DDR":   rlinkspeed =  5.0        # 8b/10b encoding
+-                elif rlinkfreq == "QDR":   rlinkspeed = 10.0        # 8b/10b encoding
+-                elif rlinkfreq == "FDR10": rlinkspeed = 10.3125     # 64b/66b encoding
+-                elif rlinkfreq == "FDR":   rlinkspeed = 14.0625     # 64b/66b encoding
+-                elif rlinkfreq == "EDR":   rlinkspeed = 25.78125    # 64b/66b encoding
+-                if self.switches[guid]['ports'].has_key(lport):
+-                    print "Error: same port of one switch found multiple times in ibnetdiscover.log"
+-                else:
+-                    self.switches[guid]['ports'][lport] = {'type':rtype, 'guid':rguid, 'port':rport, 'name':rname, 'lid':rlid, 'width':rlinkwidth, 'speed':rlinkspeed}
+-                    if rtype == "H":
+-                        self.hcaList.append([rguid, rlid, rport, rlinkwidth, rlinkspeed])
+-                        self.switches[guid]['numHCA'] += 1
+-                    elif rtype == "S" and not self.hopMatrix[guid].has_key(rguid):
+-                        self.hopMatrix[guid][rguid] = 1
+-
+-        ibnetFile.close()
+-
+-
+-    def read_opensmlog(self):
+-        # parse opensm.log to get the slid/dlid to SL mapping
+-        vltable_found = False
+-        if self.vlout.find('vltable_print') > -1:
+-            try:
+-                osmFile = open(os.path.join(self.inputDir, 'opensm.log'), 'r')
+-            except IOError:
+-                print "Error: opensm.log not found"
+-                print ""
+-                self.printHelp()
+-            for line in osmFile:
+-                p = re.compile('.*Virtual Lanes available:\s(\d*)')
+-                if p.match(line):
+-                    self.vl_avail = int(p.match(line).group(1))
+-                    self.totalBufferSize = int(self.vl_avail * self.sizeOneVLinCredits)
+-                p = re.compile('.*vltable_print:\s*route from')
+-                if not vltable_found and p.match(line):
+-                    vltable_found = True
+-                p = re.compile('.*vltable_print:\s+route from src_lid=(\d+) to dest_lid=(\d+) on vl=(\d+)')
+-                if p.match(line):
+-                    m = p.match(line)
+-                    slid, dlid, vl = int(m.group(1)), int(m.group(2)), int(m.group(3))
+-                    if not self.vlMap.has_key(slid):
+-                        self.lidList.append(slid)
+-                        self.vlMap[slid] = []
+-                    self.vlMap[slid].append([dlid, vl])
+-            self.lidList.sort()     # sort in-place
+-            self.has_vltable = vltable_found
+-            osmFile.close()
+-        else:
+-            try:
+-                osmFile = open(os.path.join(self.inputDir, 'opensm.log'), 'r')
+-                for line in osmFile:
+-                    p = re.compile('.*Virtual Lanes available:\s+(\d+)')
+-                    if p.match(line):
+-                        self.vl_avail = int(p.match(line).group(1))
+-                        self.totalBufferSize = int(self.vl_avail * self.sizeOneVLinCredits)
+-                osmFile.close()
+-            except IOError:
+-                self.has_vltable = False
+-            try:
+-                vlFile = open(os.path.join(self.inputDir, 'vltable.log'), 'r')
+-                for line in vlFile:
+-                    p = re.compile('(\d+)\s+(\d+)\s+(\d+)')
+-                    if p.match(line):
+-                        m = p.match(line)
+-                        slid, dlid, vl = int(m.group(1)), int(m.group(2)), int(m.group(3))
+-                        if not self.vlMap.has_key(slid):
+-                            self.lidList.append(slid)
+-                            self.vlMap[slid] = []
+-                        if vl > self.vl_avail - 1:
+-                            self.vl_avail = vl + 1
+-                            self.totalBufferSize = int(self.vl_avail * self.sizeOneVLinCredits)
+-                        self.vlMap[slid].append([dlid, vl])
+-                self.lidList.sort()     # sort in-place
+-                self.has_vltable = True
+-                vlFile.close()
+-            except IOError:
+-                self.has_vltable = False
+- 
+-
+-    def write_omnet_vlt(self):
+-        # write *.vlt (VL table) file
+-        path, prefix = os.path.split(os.path.normpath(self.outputPrefix))
+-        vltFile = open(os.path.join(path, prefix+'.vlt'), 'w')
+-        if self.has_vltable:
+-            for lid in self.lidList:
+-                # sort vl table (just in case, and because python is fun)
+-                self.vlMap[lid] = sorted(self.vlMap[lid], key=lambda dlid_vl_comb: dlid_vl_comb[0])     # sort NOT in-place
+-                # fill holes in the list
+-                for nlid in xrange(1, self.max_lid+1):     # 0..(largest lid)
+-                    if [x[0] for x in self.vlMap[lid]].count(nlid) < 1:
+-                        self.vlMap[lid].insert(nlid-1, [nlid, 255])
+-                # write fake vl=255 for lid=0 in the begining, stupid lists
+-                vltFile.write("%s: 255 %s\n" % (lid, " ".join([str(x[1]) for x in self.vlMap[lid]])))
+-        else:
+-            print "Warning: opensm.log does not contain vltable info or vltable.log does not exist; assume vl=0 for all slid/dlid"
+-            for lid in xrange(1, self.max_lid+1):
+-                vltFile.write("%s: 255 %s\n" % (lid, " ".join(['0' for x in range(1, self.max_lid+1)])))
+-        vltFile.close()
+-
+-
+-    def get_hcaList_for_shift(self):
+-        # get the hop count from all sw to all sw
+-        self.FloydWarshall(self.hopMatrix)
+-        # get sw list and sort by name
+-        swList0 = self.hopMatrix.keys()
+-        swList0.sort()
+-        # drop all sw which have no HCA
+-        swList = []
+-        for swGUID in swList0:
+-            if self.switches[swGUID]['numHCA'] != 0:
+-                swList.append(swGUID)
+-        swList0 = []
+-        # add new HCAs to the list of 'sorted' HCAs; HCAs will be grouped by switch and 'close' to each other in the topology
+-        hcaList = []
+-        while len(swList) > 0:
+-            swGUID = swList.pop(0)
+-            # insert all HCA of this switch
+-            for port in self.switches[swGUID]['ports'].keys():
+-                if self.switches[swGUID]['ports'][port]['type'] == "H":
+-                    hcaList.append([self.switches[swGUID]['ports'][port]['guid'], self.switches[swGUID]['ports'][port]['lid']])
+-
+-            # search next sw which is closest to the current and move him into position 0
+-            nextSW = None
+-            maxHOP = 4294967295
+-            for sw in swList:
+-                if self.hopMatrix[swGUID][sw] < maxHOP:
+-                    nextSW = sw
+-                    maxHOP = self.hopMatrix[swGUID][sw]
+-            if nextSW != None:
+-                swList.remove(nextSW)
+-                swList.insert(0, nextSW)
+-        return hcaList
+-
+-
+-    def write_omnet_dst(self):
+-        # write *.dst (destination sequence table) file
+-        path, prefix = os.path.split(os.path.normpath(self.outputPrefix))
+-        dstFile = open(os.path.join(path, prefix+'.dst'), 'w')
+-        if self.pattern.find('nextNeighbor') > -1:
+-            for hca in self.hcaList:
+-                guid, lid, port, w, s = hca
+-                i = self.hcaList.index(hca)
+-                next_guid, next_lid, next_port, w, s = self.hcaList[(i+1) % len(self.hcaList)]
+-                dstFile.write('%s: %s\n' % (lid, next_lid))
+-        elif self.pattern.find('rndAll') > -1:
+-            for hca in self.hcaList:
+-                guid, lid, port, w, s = hca
+-                list = [str(hca[1]) for hca in self.hcaList if (hca[1] != lid)]
+-                if self.dstSeqMode.find('dstSeqLoop') > -1:
+-                    random.shuffle(list)
+-                elif self.dstSeqMode.find('dstRandom') > -1:
+-                    list.sort()
+-                else:
+-                    print "WARNING: unknown dstSeqMode found..."
+-                dstFile.write('%s: %s\n' % (lid, " ".join(list)))
+-        elif self.pattern.find('oneShift') > -1 or self.pattern.find('oneExchange') > -1:
+-            # get the actual shift
+-            shift = 0
+-            p = re.compile('shift(\d+)')
+-            if p.match(self.dstSeqMode):
+-                m = p.match(self.dstSeqMode)
+-                shift = int(m.group(1))
+-            p = re.compile('exchange(\d+)')
+-            if p.match(self.dstSeqMode):
+-                m = p.match(self.dstSeqMode)
+-                shift = int(m.group(1))
+-
+-            # add new HCAs to the list of 'sorted' HCAs; HCAs will be grouped by switch and 'close' to each other in the topology
+-            hcaList = self.get_hcaList_for_shift()
+-
+-            # write the shift/exchange pattern for every HCA
+-            pos = 0
+-            llen = len(hcaList)
+-            if self.pattern.find('oneShift') > -1:
+-                shift = shift % llen
+-                for hcaGUID, hcaLID in hcaList:
+-                    dstFile.write('%s: %s\n' % (hcaLID, hcaList[(llen + pos + shift) % llen][1]))
+-                    pos += 1
+-            elif self.pattern.find('oneExchange') > -1:
+-                shift = max(shift % int(llen/2.0), 1)
+-                for hcaGUID, hcaLID in hcaList:
+-                    dstFile.write('%s: %s %s\n' % (hcaLID, hcaList[(llen + pos - shift) % llen][1], hcaList[(llen + pos + shift) % llen][1]))
+-                    pos += 1
+-        elif self.pattern.find('allShift') > -1 or self.pattern.find('allExchange') > -1:
+-            # add new HCAs to the list of 'sorted' HCAs; HCAs will be grouped by switch and 'close' to each other in the topology
+-            hcaList = self.get_hcaList_for_shift()
+-            llen = len(hcaList)
+-            dbl_hcaList = []
+-            dbl_hcaList.extend(hcaList)
+-            dbl_hcaList.extend(hcaList)
+-
+-            pos = 0
+-            # write the shift/exchange pattern for every HCA
+-            if self.pattern.find('allShift') > -1:
+-                for hcaGUID, hcaLID in hcaList:
+-                    dstFile.write('%s: %s\n' % (hcaLID, " ".join([str(x[1]) for x in dbl_hcaList[pos+1:pos+llen]])))
+-                    pos += 1
+-            elif self.pattern.find('allExchange') > -1:
+-                for hcaGUID, hcaLID in hcaList:
+-                    dstFile.write('%s:' % hcaLID)
+-                    for shift in range(1, int(llen/2.0)):
+-                        dstFile.write(' %s %s' % (dbl_hcaList[llen + pos - shift][1], dbl_hcaList[pos + shift][1]))
+-                    if llen % 2 == 0:
+-                        dstFile.write(' %s' % dbl_hcaList[pos + int(llen/2.0)][1])
+-                    dstFile.write('\n')
+-                    pos += 1
+-        else:
+-            print "WARNING: unknown pattern found..."
+-
+-        dstFile.close()
+-
+-
+-    def write_omnet_fdbs(self):
+-        # write *.fdbs file
+-        path, prefix = os.path.split(os.path.normpath(self.outputPrefix))
+-        fdbsFile = open(os.path.join(path, prefix+'.fdbs'), 'w')
+-        for guid in self.switchList:
+-            # write fake LID=0 in the begining, stupid lists
+-            fdbsFile.write("%s: 0 %s\n" % (self.switchList.index(guid), " ".join([str(x[1]) for x in self.LFTs[guid]])))
+-        fdbsFile.close()
+-
+-
+-    def write_omnet_ned(self):
+-        # head of *.ned file
+-        path, prefix = os.path.split(os.path.normpath(self.outputPrefix))
+-        nedFile = open(os.path.join(path, prefix+'.ned'), 'w')
+-        #nedFile.write("package ibmodel.networks.%s;\n\n" % (prefix))
+-        #nedFile.write("import ibmodel.src.Switch;\n")
+-        #nedFile.write("import ibmodel.src.HCA;\n\n")
+-        nedFile.write("import src.Switch;\n")
+-        nedFile.write("import src.HCA;\n")
+-        nedFile.write("import src.BandwidthControler;\n")
+-        nedFile.write("import src.SendRecvControler;\n")
+-        nedFile.write("import src.GlobalDLControler;\n\n")
+-        nedFile.write('module %s\n{\n\t@display("bgb=946,315");\n' % (prefix))
+-
+-        # write submodules (i.e. hca or switch)
+-        nedFile.write('\tsubmodules:\n')
+-        nedFile.write('\t\tbandwidthControler: BandwidthControler;\n')
+-        nedFile.write('\t\tsendrecvControler: SendRecvControler;\n')
+-        nedFile.write('\t\tglobalDLControler: GlobalDLControler;\n')
+-        for guid in self.switchList:
+-            nedFile.write('\t\tS_%016x: Switch\t//LID=%s Name="%s"\n\t\t{\n' % (guid, self.switches[guid]['lid'], self.switches[guid]['name']))
+-            nedFile.write('\t\t\tparameters:\n')
+-            nedFile.write('\t\t\t\tnumSwitchPorts = %s;\n' % (self.switches[guid]['numPorts']+1))   # we also need port 0, or would have to convert the fdbs tables
+-            nedFile.write('\t\t\t\tfdbIndex = %s;\n' % (self.switchList.index(guid)))
+-            nedFile.write('\t\t\t\t//DRGroups = \" \";\n')
+-            nedFile.write('\t\t\tgates:\n')
+-            nedFile.write('\t\t\t\tout[%s];\n' % (self.switches[guid]['numPorts']+1))
+-            nedFile.write('\t\t\t\tin[%s];\n' % (self.switches[guid]['numPorts']+1))
+-            nedFile.write('\t\t}\n')
+-            for hcaPort in [port for port in self.switches[guid]['ports'].keys() if self.switches[guid]['ports'][port]['type'] == "H"]:
+-                nedFile.write('\t\tH_%016x_%s: HCA\t//LID=%s Name="%s"\n\t\t{\n' % (self.switches[guid]['ports'][hcaPort]['guid'], self.switches[guid]['ports'][hcaPort]['port'], self.switches[guid]['ports'][hcaPort]['lid'], self.switches[guid]['ports'][hcaPort]['name']))
+-                nedFile.write('\t\t\tparameters:\n')
+-                nedFile.write('\t\t\t\tgen.srcLid = %s;\n' % (self.switches[guid]['ports'][hcaPort]['lid']))
+-                nedFile.write('\t\t\t\tgen.dstLid = %s; //just a fake, the real dstLids are in a file\n' % (self.switches[guid]['ports'][hcaPort]['lid']))
+-                nedFile.write('\t\t\t\tgen.vlSeqIndex = %s;\n' % (self.switches[guid]['ports'][hcaPort]['lid']))
+-                nedFile.write('\t\t\t\tgen.dstSeqIndex = %s;\n' % (self.switches[guid]['ports'][hcaPort]['lid']))
+-                nedFile.write('\t\t}\n')
+-            nedFile.write('\n')
+-
+-        # www.openfabrics.org/archives/2007infiniband/10_W.L.%2520Gore%2520%26%2520Associates.pdf
+-        # we assume fastest 3m copper cables
+-        linkdelay = 43  # in ns
+-
+-        # write connections (i.e. hca<->sw or sw<->sw)
+-        nedFile.write('\n\tconnections:\n')
+-        for guid in self.switchList:
+-            nedFile.write('\t\t//S_%016x --> SWs\n' % (guid))
+-            #nedFile.write('\t\tS_%016x.out[0] --> { delay = %sns; } --> S_%016x.in[0];\n' % (guid, linkdelay, guid))    # managment port, we assign it as self port (not needed with @loose)
+-            for swPort in [port for port in self.switches[guid]['ports'].keys() if self.switches[guid]['ports'][port]['type'] == "S"]:
+-                nedFile.write('\t\tS_%016x.out[%s] --> { delay = %sns; } --> S_%016x.in[%s];\n' % (guid, swPort, linkdelay, self.switches[guid]['ports'][swPort]['guid'], self.switches[guid]['ports'][swPort]['port']))
+-            nedFile.write('\t\t//S_%016x --> HCAs\n' % (guid))
+-            for swPort in [port for port in self.switches[guid]['ports'].keys() if self.switches[guid]['ports'][port]['type'] == "H"]:
+-                nedFile.write('\t\tS_%016x.out[%s] --> { delay = %sns; } --> H_%016x_%s.in;\n' % (guid, swPort, linkdelay, self.switches[guid]['ports'][swPort]['guid'], self.switches[guid]['ports'][swPort]['port']))
+-            nedFile.write('\t\t//HCAs --> S_%016x\n' % (guid))
+-            for swPort in [port for port in self.switches[guid]['ports'].keys() if self.switches[guid]['ports'][port]['type'] == "H"]:
+-                nedFile.write('\t\tH_%016x_%s.out --> { delay = %sns; } --> S_%016x.in[%s];\n' % (self.switches[guid]['ports'][swPort]['guid'], self.switches[guid]['ports'][swPort]['port'], linkdelay, guid, swPort))
+-            nedFile.write('\n')
+-        
+-        # end of *.ned file
+-        nedFile.write('}\n\n')
+-        nedFile.write('network FABRIC extends %s\n{\n\tparameters:\n}\n' % (prefix))
+-        nedFile.close()
+-
+-
+-    def write_omnet_ini(self):
+-        path, prefix = os.path.split(os.path.normpath(self.outputPrefix))
+-        iniFile = open(os.path.join(path, prefix+'.ini'), 'w')
+-
+-        iniFile.write('[General]\n')
+-        iniFile.write('network = FABRIC\t# this line is for Cmdenv\n')
+-        iniFile.write('cmdenv-express-mode = true\n')
+-        iniFile.write('record-eventlog = false\n')
+-        iniFile.write('cmdenv-interactive = true\n')
+-        iniFile.write('print-undisposed = false\n')
+-        iniFile.write('debug-on-errors = true\n')
+-        iniFile.write('\n')
+-
+-        iniFile.write('#######################\n# SWITCH              #\n#######################\n')
+-        iniFile.write('**.S_*.fdbsVecFile = "%s.fdbs"\n' % (prefix))
+-        iniFile.write('**.S_**.ibuf.maxBeingSent = 2\n')
+-        iniFile.write('**.S_**.ibuf.totalBufferSize = %s\t# in credits\n' % self.totalBufferSize)
+-        iniFile.write('**.S_**.ibuf.maxStatic* = %s\t#Max num of credits reserved for VL*\n' % int(self.totalBufferSize / self.vl_avail))
+-        #iniFile.write('**.S_**.ibuf.maxStatic0 = %s\t#Max num of credits reserved for VL*\n' % int(self.totalBufferSize / self.vl_avail))
+-        #iniFile.write('**.S_**.ibuf.maxStatic* = %s\t#Max num of credits reserved for VL*\n' % int(32))
+-        iniFile.write('include ./%s.sw\n' % (prefix))
+-        iniFile.write('\n')
+-
+-        iniFile.write('#######################\n# HCA                 #\n#######################\n')
+-        # start a bit late to wait for the flow control update of the VLs
+-        iniFile.write('**.H_**.gen.genStartTime = 0.0000001s\n')
+-        iniFile.write('**.H_**.gen**.virtualLaneFile = true\n')
+-        iniFile.write('**.H_**.gen**.vlSeqVecFile = "%s.vlt"\n' % (prefix))
+-        iniFile.write('**.H_**.ibuf.maxBeingSent = 2\n')
+-        iniFile.write('**.H_**.ibuf.totalBufferSize = %s\t# in credits\n' % self.totalBufferSize)
+-        iniFile.write('**.H_**.ibuf.maxStatic* = %s\t#Max num of credits reserved for VL*\n' % int(self.totalBufferSize / self.vl_avail))
+-        #iniFile.write('**.H_**.ibuf.maxStatic0 = %s\t#Max num of credits reserved for VL*\n' % int(self.totalBufferSize / self.vl_avail))
+-        #iniFile.write('**.H_**.ibuf.maxStatic* = %s\t#Max num of credits reserved for VL*\n' % int(32))
+-        #iniFile.write('**.H_**.sink.pciExpWidth = 8\t# Sink must not be too efficient\n')
+-        #iniFile.write('**.H_**.sink.pciExpTransferRate = 2.5\t# 2.5 equals PCI 1.1, 5.0 equals PCI 2.0, and 8.0 PCI 3.0\n')
+-        iniFile.write('**.H_**.sink.hiccupDuration_us = ${hdur=0.01}\n')
+-        iniFile.write('**.H_**.sink.hiccupDelay_us = 0.1\n')
+-        iniFile.write('include ./%s.hca\n' % (prefix))
+-        iniFile.write('\n')
+-
+-        iniFile.write('#######################\n# Traffic             #\n#######################\n')
+-        iniFile.write('**.H_**.gen.trafficDist = "%s"\n' % self.trafficDist)
+-        if self.trafficDist.find('trfFlood') > -1:
+-            self.msgLength = 65536
+-            iniFile.write('**.H_**.gen**.floodVLs = "0 1 2 3 4 5 6 7"\n')
+-            #iniFile.write('**.H_**.gen**.msgLength = 65536\n')
+-        elif self.trafficDist.find('trfLengthMix') > -1:
+-            iniFile.write('**.H_**.gen**.PktLenDist = "%s"\n' % int(self.pktLenByte))
+-            iniFile.write('**.H_**.gen**.PktLenProb = "10"\t# some list with percentages\n')
+-        elif self.trafficDist.find('trfUniform') > -1:
+-            iniFile.write('**.H_**.gen.intraBurstDelay = 0\t# sleep time between bursts in nsec\n')
+-            iniFile.write('**.H_**.gen.interBurstDelay = 0\t# between packets of same burst in nsec\n')
+-            iniFile.write('**.H_**.gen.burstLength = 1\t# the length of the burst in packets\n')
+-            iniFile.write('**.H_**.gen.burstNumber = 1\t# Number of burst overall\n')
+-            iniFile.write('**.H_**.gen.slowStart = 0\t# start with a lower intraburstdelay\n')
+-        if self.pattern.find('oneShift') > -1 or self.pattern.find('oneExchange') > -1:
+-            iniFile.write('**.H_**.gen.dstSeqMode = "%s"\n' % 'dstSeqLoop')
+-        else:
+-            iniFile.write('**.H_**.gen.dstSeqMode = "%s"\n' % self.dstSeqMode)
+-        if self.dstSeqMode.find('dstLid') > -1:
+-            iniFile.write('**.H_**.gen.dstLid = 0\n')
+-        elif self.dstSeqMode.find('dstSeqOnce') > -1 or self.dstSeqMode.find('dstSeqLoop') > -1 \
+-                or self.dstSeqMode.find('dstRandom') > -1 or self.dstSeqMode.find('shift') > -1 or self.dstSeqMode.find('exchange') > -1:
+-            iniFile.write('**.H_**.gen.dstSeqVecFile = "%s.dst"\n' % (prefix))
+-            iniFile.write('**.H_**.gen.sizeSeqVecFile = ""\t# VecFile for Msg sizes; nothing to do w/ dstSeqVecFile\n')
+-        elif self.dstSeqMode.find('dstHotSpot') > -1:
+-            iniFile.write('**.H_**.gen.dynamicHSFile = false\t# no file provided\n')
+-            iniFile.write('**.H_**.gen.dynHSSeqVecFile = ""\n')
+-            iniFile.write('**.H_**.gen.dstHotSpotPerc = 0\n')
+-            iniFile.write('**.H_**.gen.dstBurstHSDel = 0.5\n')
+-            iniFile.write('**.H_**.gen.dstBurstHSInterDel = 0.5\n')
+-        if self.dstSeqMode.find('dstSeqOnce') > -1 and (self.pattern.find('allShift') > -1 or self.pattern.find('allExchange') > -1):
+-            if len(self.hcaList) >= 500:    # small msg for big cluster, otherwise long runtime
+-                self.msgLength = self.msgLength * 1
+-            else:
+-                self.msgLength = self.msgLength * 10
+-        iniFile.write('**.H_**.gen**.msgLength = %s\t# msgLen == mtu here\n' % self.msgLength)
+-        iniFile.write('**.H_**.gen.dstHotSpotPerc = 0\n')
+-        iniFile.write('\n')
+-
+-        iniFile.write('#######################\n# Generator (gen)     #\n#######################\n')
+-        iniFile.write('**.gen.GenModel = 0\n')
+-        iniFile.write('**.gen.width = %s\t# if not set before use default 4x\n' % self.width)
+-        iniFile.write('**.gen.speed = %s\t# if not set before use default 2.5\n' % self.speed)
+-        iniFile.write('**.gen.creditSize = %s\t# bytes in one buffer element\n' % self.creditSize)
+-        iniFile.write('**.gen.mtu = %s\t# number of credits in one mtu\n' % int(self.mtu / self.creditSize))
+-        iniFile.write('**.gen.packetlengthbytes = %s\t# packetlength in bytes\n' % int(self.pktLenByte))
+-        iniFile.write('**.gen.packetlength = %s\t# packetlength in number of credits\n' % int((self.pktLenByte + self.creditSize - 1) / self.creditSize))
+-        iniFile.write('**.gen**.msgLengthInMTUs = %s\n' % int(self.msgLength / self.mtu))
+-        iniFile.write('\n')
+-
+-        iniFile.write('#######################\n# Input Buffer (ibuf) #\n#######################\n')
+-        iniFile.write('**.ibuf.width = %s\t# if not set before use default 4x\n' % self.width)
+-        iniFile.write('**.ibuf.recordVectors = 0\n')
+-        iniFile.write('\n')
+-
+-        iniFile.write('#######################\n# Output Buffer (obuf)#\n#######################\n')
+-        iniFile.write('**.obuf.width = %s\t# if not set before use default 4x\n' % self.width)
+-        iniFile.write('**.obuf.speed = %s\t# if not set before use default 2.5\n' % self.speed)
+-        iniFile.write('**.obuf.recordVectors = 0\n')
+-        iniFile.write('**.S_**.obuf.size = 78\t# the number of credits the Q can store in credits for switches\n')
+-        iniFile.write('**.H_**.obuf.size = 56\t# in credits for HCAs\n')
+-        #iniFile.write('**.obuf.credMinTime = %s\t# time between VL Credit packets in usec\n' % self.credMinTime)
+-        iniFile.write('\n')
+-
+-        iniFile.write('#######################\n# IB traffic sink     #\n#######################\n')
+-        iniFile.write('**.sink.recordVectors = 0\n')
+-        iniFile.write('**.sink.creditSize = %s\t# credit size in bytes\n' % self.creditSize)
+-        iniFile.write('\n')
+-
+-        iniFile.write('#######################\n# IB VL Arbiter       #\n#######################\n')
+-        iniFile.write('**.maxVL = %s\t# start count at 0\n' % (self.vl_avail - 1))
+-        iniFile.write('**.vlarb.recordVectors = 0\n')
+-        iniFile.write('**.vlarb.width = %s\t# if not set before use default 4x\n' % self.width)
+-        iniFile.write('**.vlarb.vlHighLimit = %s\t# IB VL Arb High Limit\n' % self.vlHighLimit)
+-        if self.has_vltable:
+-            iniFile.write('**.vlarb.highVLArbEntries = "%s"\n' % (" ".join([("%s:64" % x) for x in range(0,self.vl_avail)])))
+-            iniFile.write('**.vlarb.lowVLArbEntries = "%s"\n' % (" ".join([("%s:4" % x) for x in range(0,self.vl_avail)])))
+-        else:
+-            iniFile.write('**.vlarb.highVLArbEntries = "%s"\n' % (" ".join([("%s:255" % x) for x in range(0,self.vl_avail)])))
+-            iniFile.write('**.vlarb.lowVLArbEntries = "%s"\n' % (" ".join([("%s:32" % x) for x in range(0,self.vl_avail)])))
+-        iniFile.write('\n')
+-
+-        iniFile.write('#######################\n# Congestion control  #\n#######################\n')
+-        iniFile.write('**.cc_enabled = false\n')
+-        iniFile.write('**.S_**.ccmgr.Victim_Mask = 0\n')
+-        iniFile.write('\n')
+-
+-        iniFile.write('#######################\n# Runs                #\n#######################\n')
+-        if len(self.hcaList) >= 900:
+-            self.cputime = 4*24*60*60   # 4 days instead
+-        iniFile.write('cpu-time-limit = ${cputime=%s}s\n' % (self.cputime))
+-        iniFile.write('sim-time-limit = ${simtime=%s}s\n' % (self.simtime))
+-        iniFile.write('**.logInterval = ${logint=%s}s\n' % (self.simtime/1000.0))
+-        iniFile.write('**.vector-recording = false\n')  # very very very important
+-        iniFile.write('**.recordVectors = 0\n')
+-        iniFile.write('\n')
+-
+-        iniFile.write('#######################\n# predefined stuff    #\n#######################\n')
+-        #iniFile.write('include ../../src/modules.ini\n')
+-        if os.getenv('IBMODELDIR'):
+-            iniFile.write('include %s\n' % os.path.join(os.getenv('IBMODELDIR'), 'src', 'modules.ini'))
+-        else:
+-            iniFile.write('include %s\n' % os.path.join('..', '..', 'src', 'modules.ini'))
+-        iniFile.write('\n')
+-
+-        iniFile.close()
+-
+-
+-    def write_omnet_sw(self):
+-        # write special (maybe changing) configs for switches
+-        path, prefix = os.path.split(os.path.normpath(self.outputPrefix))
+-        swFile = open(os.path.join(path, prefix+'.sw'), 'w')
+-        for guid in self.switchList:
+-            widthBin = {1: 0, 4: 0, 8: 0, 12: 0}
+-            speedBin = {2.5: 0, 5.0: 0, 10.0: 0, 12.5: 0, 17.05: 0, 31.25: 0}
+-            for port in self.switches[guid]['ports'].keys():
+-                widthBin[ self.switches[guid]['ports'][port]['width'] ] = widthBin[ self.switches[guid]['ports'][port]['width'] ] + 1
+-                speedBin[ self.switches[guid]['ports'][port]['speed'] ] = speedBin[ self.switches[guid]['ports'][port]['speed'] ] + 1
+-
+-            mostFilling = 0
+-            mostFilledWidthBin = 0
+-            highestWidthFilling = 0
+-            for width in widthBin.keys():
+-                if widthBin[width] > mostFilling:
+-                    mostFilling = widthBin[width]
+-                    mostFilledWidthBin = width
+-                if widthBin[width] != 0 and width > highestWidthFilling:
+-                    highestWidthFilling = width
+-            mostFilling = 0
+-            mostFilledSpeedBin = 0
+-            highestSpeedFilling = 0
+-            for speed in speedBin.keys():
+-                if speedBin[speed] > mostFilling:
+-                    mostFilling = speedBin[speed]
+-                    mostFilledSpeedBin = speed
+-                if speedBin[speed] != 0 and speed > highestSpeedFilling:
+-                    highestSpeedFilling = speed
+-
+-            for width in widthBin.keys():
+-                if widthBin[width] == 0 or width == mostFilledWidthBin:
+-                    continue
+-                for port in self.switches[guid]['ports'].keys():
+-                    if self.switches[guid]['ports'][port]['width'] == width:
+-                        swFile.write('**.S_%016x**.port[%s]**.width = %s\n' % (guid, port, width))
+-            swFile.write('**.S_%016x**.width = %s\n' % (guid, mostFilledWidthBin))  # link width 1x, 4x, 8x, or 12x (somehow 1x is not supported by the model)
+-
+-            for speed in speedBin.keys():
+-                if speedBin[speed] == 0 or speed == mostFilledSpeedBin:
+-                    continue
+-                for port in self.switches[guid]['ports'].keys():
+-                    if self.switches[guid]['ports'][port]['speed'] == speed:
+-                        swFile.write('**.S_%016x**.port[%s]**.speed = %s\n' % (guid, port, speed))
+-            swFile.write('**.S_%016x**.speed = %s\n' % (guid, mostFilledSpeedBin))  # link speed 2.5, 5.0, or 10.0, ... (higher for FDR)
+-
+-            if highestWidthFilling == 4 and highestSpeedFilling == 2.5:
+-                ISWDelay = 64 - 4
+-            elif highestWidthFilling == 4 and highestSpeedFilling == 5.0:
+-                ISWDelay = 32 - 2
+-            elif highestWidthFilling == 4 and highestSpeedFilling == 10.0:
+-                ISWDelay = 16 - 1
+-            elif highestWidthFilling == 8 and highestSpeedFilling == 2.5:
+-                ISWDelay = 32 - 2
+-            elif highestWidthFilling == 8 and highestSpeedFilling == 5.0:
+-                ISWDelay = 16 - 1
+-            elif highestWidthFilling == 8 and highestSpeedFilling == 10.0:
+-                ISWDelay = 8 - 1    # correct???
+-            else:
+-                sys.exit("Error: supit width/speed combination -> ISWDelay unknown")
+-            swFile.write('**.S_%016x**.ISWDelay = %s\t# in ns\n' % (guid, ISWDelay))
+-            swFile.write('**.S_%016x**.VSWDelay = 60\t# in ns\n' % guid)
+- 
+-            if highestSpeedFilling == 2.5:      coreFreq = 200
+-            elif highestSpeedFilling == 5.0:    coreFreq = 400
+-            elif highestSpeedFilling == 10.0:   coreFreq = 800
+-            else: sys.exit("Error: unknown coreFreq")
+-            swFile.write('**.S_%016x**.vlarb.coreFreq_MH = %s\t# switch core frequency should be 200, 400, and 800 for SDR, DDR, and QDR respectively\n' % (guid, coreFreq))
+-            
+-            # see IBA 7.9.4 C7-54 for calc of credMinTime
+-            # (assume: we want to send a FCP after every 5 data credits)
+-            # 8 bit / speed_in_bit/s -> 1 symbol cycle in sec; convert to microsec
+-            credMinTime = ((8 / (highestSpeedFilling * 10**9)) * (10**6) * 64) * 5
+-            swFile.write('**.S_%016x**.obuf.credMinTime = %s\n' % (guid, credMinTime))
+-        swFile.close()
+-
+-
+-    def write_omnet_hca(self):
+-        # write special (maybe changing) configs for switches
+-        path, prefix = os.path.split(os.path.normpath(self.outputPrefix))
+-        hcaFile = open(os.path.join(path, prefix+'.hca'), 'w')
+-
+-        widthBin = {1: 0, 4: 0, 8: 0, 12: 0}
+-        speedBin = {2.5: 0, 5.0: 0, 10.0: 0, 12.5: 0, 17.05: 0, 31.25: 0}
+-        pciBin   = {"1X/2.5": [8,2.5], "1X/5.0": [8,2.5], "1X/10.0": [8,2.5], \
+-                    "4X/2.5": [8,2.5], "4X/5.0": [8,5.0], "4X/10.0": [8,5.0], "4X/12.5": [16,5.0], "4X/17.05": [16,5.0], \
+-                    "8X/2.5": [8,2.5], "8X/5.0": [8,5.0], "8X/10.0": [16,5.0], "8X/12.5": [16,8], "8X/17.05": [16,8]}
+-        for hca in self.hcaList:
+-            guid, lid, port, width, speed = hca
+-            widthBin[ width ] = widthBin[ width ] + 1
+-            speedBin[ speed ] = speedBin[ speed ] + 1
+-
+-        mostFilling = 0
+-        mostFilledWidthBin = 0
+-        for width in widthBin.keys():
+-            if widthBin[width] > mostFilling:
+-                mostFilling = widthBin[width]
+-                mostFilledWidthBin = width
+-        mostFilling = 0
+-        mostFilledSpeedBin = 0
+-        for speed in speedBin.keys():
+-            if speedBin[speed] > mostFilling:
+-                mostFilling = speedBin[speed]
+-                mostFilledSpeedBin = speed
+-
+-        for width in widthBin.keys():
+-            if widthBin[width] == 0 or width == mostFilledWidthBin:
+-                continue
+-            for hca in self.hcaList:
+-                guid, lid, port, hcawidth, hcaspeed = hca
+-                if hcawidth == width:
+-                    hcaFile.write('**.H_%016x_%s**.width = %s\n' % (guid, port, width))
+-        hcaFile.write('**.H_**.width = %s\n' % (mostFilledWidthBin))
+-
+-        for speed in speedBin.keys():
+-            if speedBin[speed] == 0 or speed == mostFilledSpeedBin:
+-                continue
+-            for hca in self.hcaList:
+-                guid, lid, port, hcawidth, hcaspeed = hca
+-                if hcaspeed == speed:
+-                    hcaFile.write('**.H_%016x_%s**.speed = %s\n' % (guid, port, speed))
+-                    if speed == 2.5:    coreFreq = 125
+-                    elif speed == 5.0:  coreFreq = 250
+-                    elif speed == 10.0: coreFreq = 500
+-                    else: sys.exit("Error: unknown coreFreq")
+-                    if pciBin.has_key("%sX/%s" % (hcawidth, hcaspeed)):
+-                        pciwidth, pcispeed = pciBin["%sX/%s" % (hcawidth, hcaspeed)]
+-                    else: sys.exit("Error: unknown pci width/speed")
+-                    hcaFile.write('**.H_%016x_%s**.vlarb.coreFreq_MH = %s\n' % (guid, port, coreFreq))
+-                    credMinTime = ((8 / (speed * 10**9)) * (10**6) * 64) * 5
+-                    hcaFile.write('**.H_%016x_%s**.obuf.credMinTime = %s\n' % (guid, port, credMinTime))
+-                    hcaFile.write('**.H_%016x_%s**.sink.pciExpWidth = %s\n' % (guid, port, pciwidth))
+-                    hcaFile.write('**.H_%016x_%s**.sink.pciExpTransferRate = %s\n' % (guid, port, pcispeed))
+-
+-        hcaFile.write('**.H_**.speed = %s\n' % (mostFilledSpeedBin))
+-
+-        if mostFilledSpeedBin == 2.5:       coreFreq = 125
+-        elif mostFilledSpeedBin == 5.0:     coreFreq = 250
+-        elif mostFilledSpeedBin == 10.0:    coreFreq = 500
+-        else: sys.exit("Error: unknown coreFreq")
+-        hcaFile.write('**.H_**.vlarb.coreFreq_MH = %s\t# HCAs frequency is the wire frequency, should be 125, 250, and 500 for SDR, DDR, and QDR respectively\n' % coreFreq)
+-        
+-        # see calc for sw (its the same)
+-        credMinTime = ((8 / (mostFilledSpeedBin * 10**9)) * (10**6) * 64) * 5
+-        hcaFile.write('**.H_**.obuf.credMinTime = %s\n' % credMinTime)
+-
+-        if pciBin.has_key("%sX/%s" % (mostFilledWidthBin, mostFilledSpeedBin)):
+-            pciwidth, pcispeed = pciBin["%sX/%s" % (mostFilledWidthBin, mostFilledSpeedBin)]
+-        else: sys.exit("Error: unknown pci width/speed")
+-        hcaFile.write('**.H_**.sink.pciExpWidth = %s\n' % pciwidth)
+-        hcaFile.write('**.H_**.sink.pciExpTransferRate = %s\n' % pcispeed)
+-
+-
+-    def printHelp(self):
+-        print "Usage: ", sys.argv[0], " <path-to-ib-output> <path/prefix-for-omnet-input> <pattern> <traffic>"
+-        print ""
+-        print "     Example:"
+-        print "         ", sys.argv[0], " $OSM_CACHE_DIR/ibdiagnetout ./new-omnet-network oneShift shift12"
+-        print "     Possible pattern:"
+-        print "         nextNeighbor, rndAll, oneShift, allShift, oneExchange, allExchange"
+-        print "     Possible fine tuning of the traffic:"
+-        print "         none, dstRandom, dstSeqLoop, dstSeqOnce, shift[0-9999], exchange[0-9999]"
+-        print ""
+-        print "     Hint to generate IB outpout:"
+-        print "         opensm.log with vltable_print() output"
+-        print "         ibdiagnet -o <path-to-ib-output>"
+-        print "         ibnetdiscover -s > <path-to-ib-output>/ibnetdiscover.log"
+-        sys.exit('')
+-
+-
+-    def __init__(self):
+-        if len(sys.argv) > 4:
+-            path = os.path.normpath(sys.argv[1])
+-            if not os.path.exists(path):
+-                print "Error: input directory does not exist or is not accessable"
+-                print ""
+-                self.printHelp()
+-            self.inputDir = os.path.join(path)
+-
+-            path, prefix = os.path.split( os.path.normpath(sys.argv[2]) )
+-            if path == '':
+-                path = os.getcwd()
+-            self.outputPrefix = os.path.join(path, prefix)
+-
+-            self.pattern = sys.argv[3]
+-            self.dstSeqMode = sys.argv[4]
+-        else:
+-            self.printHelp()
+-        
+-        self.read_ibdiagnet()
+-        self.read_ibnetdiscover()
+-        self.read_opensmlog()
+-
+-        self.write_omnet_vlt()
+-        self.write_omnet_dst()
+-        self.write_omnet_fdbs()
+-        self.write_omnet_ned()
+-        self.write_omnet_ini()
+-        self.write_omnet_sw()
+-        self.write_omnet_hca()
+-
+-
+-if __name__ == "__main__":
+-    app = ibsim2omnet()
+-    sys.exit('\nFinish!')
+only in patch2:
+unchanged:
+--- scripts.orig/lostConnectionsBeforeRerouting.py	2017-04-25 16:23:23.804601307 +0900
++++ scripts/lostConnectionsBeforeRerouting.py	1970-01-01 09:00:00.000000000 +0900
+@@ -1,231 +0,0 @@
+-#!/usr/bin/env python
+-
+-import sys, re, os, random, operator, colorsys, copy
+-
+-class lostConnections(object):
+-    subnet          = {}
+-    hcaTable        = []
+-    disconn         = 0
+-    killedSwitches  = []
+-    killedLinks     = []
+-    bisected        = False
+-
+-
+-    def parse_topoLog(self, fileName=''):
+-        read_next_line_for_killed_switches = False
+-        read_next_line_for_killed_links    = False
+-
+-        self.bisected = False
+-        logFile = open( fileName, 'r' )
+-        for line in logFile:
+-            if read_next_line_for_killed_switches:
+-                tmpSwitchList = line.split(';')
+-                self.killedSwitches = [sw.strip() for sw in tmpSwitchList]
+-                read_next_line_for_killed_switches = False
+-                continue
+-
+-            if read_next_line_for_killed_links:
+-                tmpLinkList = line.split(';')
+-                for link in tmpLinkList:
+-                    link = link.strip()
+-                    linkAtoB = link.split('<->')
+-                    linkAtoB.sort()
+-                    self.killedLinks.append("%s<->%s" % (linkAtoB[0], linkAtoB[1]))
+-                read_next_line_for_killed_links    = False
+-                continue
+-
+-            p = re.compile('List of dead (\w+):')
+-            if p.match(line):
+-                m = p.match(line)
+-                if m.group(1).find('switches') > -1:
+-                    read_next_line_for_killed_switches = True
+-                elif m.group(1).find('links') > -1:
+-                    read_next_line_for_killed_links    = True
+-                else:
+-                    sys.exit("Error: strange output, don't understand the following line:\n%s" % line)
+-                continue
+-
+-            if line.find('led to a disconnected network') > -1:
+-                self.bisected = True
+-        logFile.close()
+-
+-
+-    def parse_lstFile(self, fileName=''):
+-        lstFile = open( fileName, 'r' )
+-
+-        killedSwitches = copy.deepcopy(self.killedSwitches)
+-        killedLinks    = copy.deepcopy(self.killedLinks)
+-        killedLinksForLater = {}
+-
+-        network = {}
+-        for line in lstFile:
+-            p = re.compile('{\s+([a-zA-Z0-9_-]+)\s+Ports:(\w+)\s+SystemGUID:(\w+)\s+NodeGUID:(\w+)\s+PortGUID:(\w+)\s+VenID:(\w+)\s+DevID:(\w+)\s+Rev:(\w+)\s+{(.+)}\s+LID:(\w+)\s+PN:(\w+)\s+}\s+{\s+([a-zA-Z0-9_-]+)\s+Ports:(\w+)\s+SystemGUID:(\w+)\s+NodeGUID:(\w+)\s+PortGUID:(\w+)\s+VenID:(\w+)\s+DevID:(\w+)\s+Rev:(\w+)\s+{(.+)}\s+LID:(\w+)\s+PN:(\w+)\s+}\s+.+')
+-            if p.match(line):
+-                m = p.match(line)
+-                node1, ports1, sguid1, nguid1, pguid1, vid1, did1, rev1, name1, lid1, pn1 = m.group(1), int(m.group(2),16), m.group(3), m.group(4), m.group(5), \
+-                                                                                            m.group(6), m.group(7), m.group(8), m.group(9), int(m.group(10),16), int(m.group(11),16)
+-                node2, ports2, sguid2, nguid2, pguid2, vid2, did2, rev2, name2, lid2, pn2 = m.group(12), int(m.group(13),16), m.group(14), m.group(15), m.group(16), \
+-                                                                                            m.group(17), m.group(18), m.group(19), m.group(20), int(m.group(21),16), int(m.group(22),16)
+-
+-                nguid1, nguid2 = nguid1.lower(), nguid2.lower()
+-
+-                if node1.find('CA') > -1:
+-                    node1, ports1, sguid1, nguid1, pguid1, vid1, did1, rev1, name1, lid1, pn1, node2, ports2, sguid2, nguid2, pguid2, vid2, did2, rev2, name2, lid2, pn2 = \
+-                            node2, ports2, sguid2, nguid2, pguid2, vid2, did2, rev2, name2, lid2, pn2, node1, ports1, sguid1, nguid1, pguid1, vid1, did1, rev1, name1, lid1, pn1
+-
+-                connectionKilled = False
+-
+-                if killedSwitches.count(name1.strip()) > 0 or killedSwitches.count(name2.strip()) > 0:
+-                    connectionKilled = True
+-
+-                linkAtoB = [name1.strip(), name2.strip()]
+-                linkAtoB.sort()
+-                link = "%s<->%s" % (linkAtoB[0], linkAtoB[1])
+-                if killedLinks.count(link) > 0:
+-                    if killedLinksForLater.has_key(link):
+-                        killedLinksForLater[link].append([nguid1, pn1, nguid2, pn2])
+-                    else:
+-                        killedLinksForLater[link] = [[nguid1, pn1, nguid2, pn2]]
+-                #link1 = "%s<->%s" % (name1.strip(), name2.strip())
+-                #link2 = "%s<->%s" % (name2.strip(), name1.strip())
+-                #if killedLinks.count(link1) > 0:
+-                #    killedLinks.remove(link1)
+-                #    connectionKilled = True
+-                #if killedLinks.count(link2) > 0:
+-                #    killedLinks.remove(link2)
+-                #    connectionKilled = True
+-
+-                if node2.find('CA') > -1:
+-                    self.hcaTable.append([nguid2, pn2])
+-
+-                if network.has_key(nguid1):
+-                    network[nguid1][pn1] = {'rnguid':nguid2, 'rpn':pn2, 'killed':connectionKilled}
+-                else:
+-                    network[nguid1] = {'lid':lid1}
+-                    network[nguid1][pn1] = {'rnguid':nguid2, 'rpn':pn2, 'killed':connectionKilled}
+-
+-                if network.has_key(nguid2):
+-                    network[nguid2][pn2] = {'rnguid':nguid1, 'rpn':pn1, 'killed':connectionKilled}
+-                else:
+-                    network[nguid2] = {'lid':lid2}
+-                    network[nguid2][pn2] = {'rnguid':nguid1, 'rpn':pn1, 'killed':connectionKilled}
+-
+-        for link in killedLinksForLater.keys():
+-            if killedLinks.count(link) > len(killedLinksForLater[link]):
+-                sys.exit('Error: morere links killed by createIBNet than available; can not be true.')
+-            parallelLinkSet = killedLinksForLater[link][:]
+-            random.shuffle(parallelLinkSet)
+-            for i in range(killedLinks.count(link)):
+-                nguid1, pn1, nguid2, pn2 = parallelLinkSet[i]
+-                network[nguid1][pn1]['killed'] = True
+-                network[nguid2][pn2]['killed'] = True
+-        
+-        self.subnet = network
+-        lstFile.close()
+-
+-
+-    def parse_fdbsFile(self, fileName=''):
+-        network = self.subnet
+-        nguid = None
+-        lft = {}
+-
+-        fdbsFile = open( fileName, 'r' )
+-        for line in fdbsFile:
+-            p = re.compile('osm_ucast_mgr_dump_ucast_routes: Switch 0x(\w+)')
+-            if p.match(line):
+-                if nguid:
+-                    network[nguid]['lft'] = lft
+-                    lft = {}
+-                nguid = p.match(line).group(1).lower()
+-
+-            p = re.compile('0x(\w+)\s+:\s+(\d+)\s+.*')
+-            if p.match(line):
+-                lid, port = int(p.match(line).group(1), 16), int(p.match(line).group(2))
+-                lft[lid] = port
+-        if nguid:
+-            network[nguid]['lft'] = lft
+-        fdbsFile.close()
+-
+-
+-    def calc_lostConnections(self):
+-        network = self.subnet
+-
+-        for hcaSrc, portSrc in self.hcaTable:
+-            for hcaDest, portDest in self.hcaTable:
+-                if hcaSrc == hcaDest:
+-                    continue
+-                curr = network[hcaSrc][portSrc]['rnguid']
+-                destLid = network[hcaDest]['lid']
+-
+-                if network[hcaSrc][portSrc]['killed']:
+-                    self.disconn += 1
+-                    continue
+-
+-                while (curr != hcaDest):
+-                    if not network[curr]['lft'].has_key(destLid):
+-                        print "Error: No connection between: ", hcaSrc, hcaDest, " (this should not happen, or initial routing is broken)"
+-                        self.disconn += 1
+-                        break
+-                    exitPort = network[curr]['lft'][destLid]
+-                    if network[curr][exitPort]['killed']:
+-                        self.disconn += 1
+-                        break
+-                    curr = network[curr][exitPort]['rnguid']
+-
+-        if not self.bisected:
+-            print '%s of %s Hca<->Hca routes are disconnected due to dead network components (before reroute)' % (self.disconn, len(self.hcaTable)*(len(self.hcaTable)-1))
+-        else:
+-            print '%s of %s Hca<->Hca routes are disconnected due to dead network components (before reroute) and faults caused network bisection' % (self.disconn, len(self.hcaTable)*(len(self.hcaTable)-1))
+-
+-
+-    def __init__(self):
+-        if len(sys.argv) == 3:
+-            path = os.path.normpath(sys.argv[1])
+-            if not os.path.exists(path):
+-                print "Error: input directory does not exist or is not accessable"
+-                print ""
+-                self.printHelp()
+-            self.inputDir = os.path.join(path)
+-
+-            lstFile = os.path.join(self.inputDir, 'ibdiagnet.lst')
+-            if not os.path.exists(lstFile):
+-                print "Error: %s file does not exist or is not accessable" % lstFile
+-                print ""
+-                self.printHelp()
+-
+-            fdbsFile = os.path.join(self.inputDir, 'ibdiagnet.fdbs')
+-            if not os.path.exists(fdbsFile):
+-                print "Error: %s file does not exist or is not accessable" % fdbsFile
+-                print ""
+-                self.printHelp()
+-
+-            topoLog = os.path.normpath(sys.argv[2])
+-            if not os.path.exists(topoLog):
+-                print "Error: %s file does not exist or is not accessable" % topoLog
+-                print ""
+-                self.printHelp()
+-
+-        else:
+-            self.printHelp()
+-
+-        self.parse_topoLog(topoLog)
+-        self.parse_lstFile(lstFile)
+-        self.parse_fdbsFile(fdbsFile)
+-        self.calc_lostConnections()
+-
+-
+-    def printHelp(self):
+-        print "Usage: ", sys.argv[0], " <ib-output-w/o-failures> <createTopo-log-w/-failures>"
+-        print ""
+-        print "     Example:"
+-        print "         ", sys.argv[0], " $OSM_CACHE_DIR/ibdiagnetout ./topo_w_failure.log"
+-        print ""
+-        print "     Hint to generate *.lst, *.fdbs and log outpout:"
+-        print "         ibdiagnet [-r] -o <path-to-ib-output>"
+-        print "         createIBNet.py -t ... > topo_w_failure.log"
+-        sys.exit('')
+-
+-if __name__ == "__main__":
+-    app = lostConnections()
+-    sys.exit('\nFinish!')
+-
+only in patch2:
+unchanged:
+--- scripts.orig/scanFabric.sh	2017-04-25 17:46:35.148894936 +0900
++++ scripts/scanFabric.sh	1970-01-01 09:00:00.000000000 +0900
+@@ -1,38 +0,0 @@
+-#!/bin/sh
+-
+-trap cleanup 2 11 15
+-
+-cleanup()
+-{
+-	kill -9 ${sub}
+-	exit 0
+-}
+-
+-#0. Init
+-if [ -z $2 ]; then
+-	export OFEDDIR=/home/domke/DiplArbeit/ofed
+-	export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${OFEDDIR}/lib
+-	export IBSIMLIB=${OFEDDIR}/lib/umad2sim/libumad2sim.so
+-	export OSM_TMP_DIR=/home/domke/DiplArbeit/tmp
+-	export OSM_CACHE_DIR=/home/domke/DiplArbeit/tmp
+-else
+-	export OFEDDIR=$1/ofed
+-        export PATH=${OFEDDIR}/bin:${OFEDDIR}/sbin:$PATH
+-	export LD_LIBRARY_PATH=${OFEDDIR}/lib:$LD_LIBRARY_PATH
+-	export IBSIMLIB=${OFEDDIR}/lib/umad2sim/libumad2sim.so
+-	export OSM_TMP_DIR=$2
+-	export OSM_CACHE_DIR=$2
+-fi
+-
+-#1. Run Simulator:
+-cd $OFEDDIR
+-LD_PRELOAD=${IBSIMLIB} ./bin/ibdiagnet -o $OSM_TMP_DIR
+-
+-cd $OFEDDIR
+-LD_PRELOAD=${IBSIMLIB} ./sbin/ibnetdiscover -s > $OSM_TMP_DIR/ibnetdiscover.log
+-
+-echo ''
+-echo 'SUBNET SCANNED'
+-
+-exit 0
+-
+only in patch2:
+unchanged:
+--- scripts.orig/simLostConn.py	2017-04-25 16:23:23.892601252 +0900
++++ scripts/simLostConn.py	1970-01-01 09:00:00.000000000 +0900
+@@ -1,541 +0,0 @@
+-#!/usr/bin/env python
+-
+-import sys, os, random, time, subprocess, signal, socket, re, math
+-from optparse import OptionParser
+-
+-class buildExperiment(object):
+-    def copyOldBaseData(self, oldDir, newDir):
+-        if not os.path.exists(oldDir):
+-            print 'Warning: %s missing' % oldDir
+-            return False
+-        if not os.path.exists(os.path.join(oldDir, 'omnet.log')):
+-            print 'Warning: simulation for base data did not finish; omnet.log missing (for %s).' % oldDir
+-            return False
+-
+-        if not os.path.exists(newDir): os.makedirs(newDir)
+-        os.system("cp %s/topo.net %s/" % (oldDir, newDir))
+-        os.system("cp %s/*.lst %s/" % (os.path.join(oldDir, 'ofedout'), newDir))
+-        os.system("cp %s/*.fdbs %s/" % (os.path.join(oldDir, 'ofedout'), newDir))
+-        return True
+-
+-
+-    def buildSH(self, scriptsDir, expDir, task):
+-        runsh = os.path.join(expDir, 'lostConnSim_%s.sh' % os.path.basename(expDir))
+-        run = open(runsh, 'w')
+-        run.write('#!/bin/bash\n')
+-        run.write('cd %s\n' % os.path.join(expDir))
+-        run.write('%s/simLostConn.py -n `pwd` -t "%s"\n' % (scriptsDir, task))
+-        run.close()
+-
+-
+-    def __init__(self):
+-        if os.uname()[1].find('tgx-login1') > -1 or os.uname()[1].find('nid0') > -1:
+-            homedir = os.path.join('/', 'work', 'A2401644')
+-        else: homedir = os.getenv('HOME')
+-        instdir = os.path.join(homedir, 'simulation')
+-        scriptdir = os.path.join(instdir, 'scripts')
+-        expdir = os.path.join(instdir, 'experiments')
+-        lostdir = os.path.join(instdir, 'lostConnExp')
+-        pattern = 'exchange'
+-        routings = ['minhop', 'sssp', 'dfsssp', 'ftree', 'updn', 'dnup', 'dor', 'lash', 'torus-2QoS', 'tofu']
+-        faultType = 'lnf'
+-        faultyLinks = '0'
+-        rseed = '1'
+-
+-        if not os.path.exists(expdir):
+-            sys.exit('Error: directory with base data is missing.')
+-        if not os.path.exists(lostdir):
+-            os.mkdir(lostdir)
+-
+-        # 2d Mesh (25 switches + 240 links), balanced
+-        #routings = ['dfsssp', 'dor', 'lash', 'torus-2QoS']
+-        sw, hca, links = 25, 275, 240
+-        task = '-wid 4 -spe QDR -t 2D-Mesh -d1 5 -d2 5 -ml -s %s -sp 36 -n %s -np 1' % (sw, hca)
+-        newDirName = '2d_mesh_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing) 
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # 2d Torus (25 switches + 300 links), balanced
+-        #routings = ['dfsssp', 'lash', 'torus-2QoS']
+-        sw, hca, links = 25, 275, 300
+-        task = '-wid 4 -spe QDR -t 2D-Torus -d1 5 -d2 5 -ml -s %s -sp 36 -n %s -np 1' % (sw, hca)
+-        newDirName = '2d_torus_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # 3d Mesh (27 switches + 216 links), balanced
+-        #routings = ['dfsssp', 'dor', 'lash', 'torus-2QoS']
+-        sw, hca, links = 27, 270, 216
+-        task = '-wid 4 -spe QDR -t 3D-Mesh -d1 3 -d2 3 -d3 3 -ml -s %s -sp 36 -n %s -np 1' % (sw, hca)
+-        newDirName = '3d_mesh_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # 3d torus (27 switches + 324 links), balanced
+-        #routings = ['dfsssp', 'dor', 'lash', 'torus-2QoS']
+-        sw, hca, links = 27, 270, 324
+-        task = '-wid 4 -spe QDR -t 3D-Torus -d1 3 -d2 3 -d3 3 -ml -s %s -sp 36 -n %s -np 1' % (sw, hca)
+-        newDirName = '3d_torus_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+- 
+-        # kautz (24 switches + 288 links), balanced
+-        #routings = ['dfsssp', 'lash']
+-        sw, hca, links = 24, 264, 288
+-        task = '-wid 4 -spe QDR -t Kautz -kb 2 -kn 4 -ml -sp 36 -n %s -np 1' % (hca)
+-        newDirName = 'kautz_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # random (32 switches + 256 links), balanced
+-        #routings = ['dfsssp', 'dor', 'lash']
+-        sw, hca, links = 32, 256, 256
+-        task = '-wid 4 -spe QDR -t Random -s %s -sp 36 -n %s -np 1 -cl %s' % (sw, hca, links)
+-        newDirName = 'random_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # k-ary-n (32 switches + 256 links), balanced
+-        #routings = ['minhop', 'sssp', 'dfsssp', 'ftree', 'updn', 'dnup', 'dor', 'lash']
+-        sw, hca, links = 32, 256, 256
+-        task = '-wid 4 -spe QDR -t k-ary-n-Tree -tk 16 -tn 2 -sp 36 -n %s' % (hca)
+-        newDirName = 'krntree_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # xgft (33 switches + 242 links), balanced
+-        #routings = ['minhop', 'sssp', 'dfsssp', 'ftree', 'updn', 'dnup', 'dor', 'lash']
+-        sw, hca, links = 33, 264, 242
+-        task = '-wid 4 -spe QDR -t XGFT -xh 1 -xm 22 -xw 11 -sp 36 -n %s -np 1' % (hca)
+-        newDirName = 'xgft_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # dragonfly (40 switches + 276 links), balanced
+-        #routings = ['dfsssp', 'lash']
+-        sw, hca, links = 40, 280, 276
+-        task = '-wid 4 -spe QDR -t Dragonfly -fa 10 -fp 5 -fh 5 -fg 4 -sp 36 -n %s -np 1' % (hca)
+-        newDirName = 'dragonfly_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # cascade (1 group w/ 768 hca + 96 switches + 960 links)
+-        #routings = ['dfsssp', 'lash']
+-        sw, hca, links = 96, 768, 960
+-        task = '-wid 4 -spe QDR -t Cascade -cg 1 -np 1'
+-        newDirName = 'cascade_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # tofu (288 sw/hca + 1440 links)
+-        #routings = ['dor', 'tofu']
+-        sw, hca, links = 288, 288, 1440
+-        task = '-wid 4 -spe QDR -t Tofu -d1 4 -d2 3 -d3 2 -n %s -np 1 -ari' % (hca)
+-        newDirName = 'tofu_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # MMS (50 sw + 175*3 sw/sw-links)
+-        #routings = ['dfsssp', 'lash']
+-        sw, hca, links = 50, 700, 525
+-        task = '-wid 4 -spe QDR -t MMS -mms 7 -ml -s %s -sp 36 -n %s -np 1' % (sw, hca)
+-        newDirName = 'mms_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # tsubame2.0
+-        #routings = ['dfsssp', 'ftree', 'updn', 'dnup', 'lash']
+-        sw, hca, links = 258, 1555, 3621
+-        network = os.path.join(instdir, 'real_networks', 'tsubame2.0.txt')
+-        rootguid = os.path.join(instdir, 'real_networks', 'tsubame2.0_rootguids.conf')
+-        task = '-t load -i %s -rid %s -sp 36 -np 1' % (network, rootguid)
+-        newDirName = 'tsubame'
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # tsubame2.0 rail2
+-        #routings = ['dfsssp', 'ftree', 'updn', 'dnup', 'lash']
+-        sw, hca, links = 243, 1407, 3384
+-        network = os.path.join(instdir, 'real_networks', 'tsubame2.0_rail2.txt')
+-        rootguid = os.path.join(instdir, 'real_networks', 'tsubame2.0_rail2_rootguids.conf')
+-        task = '-t load -i %s -rid %s -sp 36 -np 1' % (network, rootguid)
+-        newDirName = 'tsubame_rail2'
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # 3d torus (150 switches + 1050 links)
+-        #routings = ['dfsssp', 'lash', 'torus-2QoS']
+-        sw, hca, links = 150, 1050, 1800
+-        task = '-wid 4 -spe QDR -t 3D-Torus -d1 6 -d2 5 -d3 5 -ml -s %s -sp 36 -n %s -np 1' % (sw, hca)
+-        newDirName = '3d_torus_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # 3d torus ( switches +  links)
+-        #routings = ['dfsssp', 'lash', 'torus-2QoS']
+-        sw, hca, links = 343, 2058, 5145
+-        task = '-wid 4 -spe QDR -t 3D-Torus -d1 7 -d2 7 -d3 7 -ml -s %s -sp 36 -n %s -np 1' % (sw, hca)
+-        newDirName = '3d_torus_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # kautz (150 switches + 1500 links)
+-        #routings = ['dfsssp', 'lash']
+-        sw, hca, links = 150, 1050, 1500
+-        task = '-wid 4 -spe QDR -t Kautz -kb 5 -kn 3 -ml -sp 36 -n %s -np 1' % (hca)
+-        newDirName = 'kautz_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # kautz (392 switches + 5488 links)
+-        #routings = ['dfsssp', 'lash']
+-        sw, hca, links = 392, 2352, 5488
+-        task = '-wid 4 -spe QDR -t Kautz -kb 7 -kn 3 -ml -sp 36 -n %s -np 1' % (hca)
+-        newDirName = 'kautz_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # k-ary-n (300 switches + 2000 links)
+-        #routings = ['dfsssp', 'ftree', 'updn', 'dnup']
+-        sw, hca, links = 300, 1100, 2000
+-        task = '-wid 4 -spe QDR -t k-ary-n-Tree -tk 10 -tn 3 -sp 36 -n %s' % (hca)
+-        newDirName = 'krntree_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # k-ary-n (588 switches + 5488 links)
+-        #routings = ['dfsssp', 'ftree', 'updn', 'dnup']
+-        sw, hca, links = 588, 2156, 5488
+-        task = '-wid 4 -spe QDR -t k-ary-n-Tree -tk 14 -tn 3 -sp 36 -n %s' % (hca)
+-        newDirName = 'krntree_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # dragonfly (150 switches + 1515 links)
+-        #routings = ['dfsssp', 'lash']
+-        sw, hca, links = 180, 1080, 1515
+-        task = '-wid 4 -spe QDR -t Dragonfly -fa 12 -fp 6 -fh 6 -fg 15 -sp 36 -n %s -np 1' % (hca)
+-        newDirName = 'dragonfly_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # dragonfly (322 switches + 3105 links)
+-        #routings = ['dfsssp', 'lash']
+-        sw, hca, links = 322, 2254, 3105
+-        task = '-wid 4 -spe QDR -t Dragonfly -fa 14 -fp 7 -fh 7 -fg 23 -sp 36 -n %s -np 1' % (hca)
+-        newDirName = 'dragonfly_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-       
+-        # cascade (2 group w/ 1536 hca + 192 switches + 1924 links)
+-        #routings = ['dfsssp', 'lash']
+-        sw, hca, links = 192, 1536, 1924
+-        task = '-wid 4 -spe QDR -t Cascade -cg 2 -np 1'
+-        newDirName = 'cascade_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # cascade (3 group w/ 2304 hca + 288 switches + 2892 links)
+-        #routings = ['dfsssp', 'lash']
+-        sw, hca, links = 288, 2304, 2892
+-        task = '-wid 4 -spe QDR -t Cascade -cg 3 -np 1'
+-        newDirName = 'cascade_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # tofu (1080 sw/hca + 5400 links)
+-        #routings = ['tofu']
+-        sw, hca, links = 1080, 1080, 5400
+-        task = '-wid 4 -spe QDR -t Tofu -d1 6 -d2 5 -d3 3 -n %s -np 1' % (hca)
+-        newDirName = 'tofu_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        # tofu (2100 sw/hca + 10500 links)
+-        #routings = ['tofu']
+-        sw, hca, links = 2100, 2100, 10500
+-        task = '-wid 4 -spe QDR -t Tofu -d1 7 -d2 5 -d3 5 -n %s -np 1' % (hca)
+-        newDirName = 'tofu_s%s_n%s_l%s' % (sw, hca, links)
+-        oldDirName = '%s_rs%s' % (newDirName, rseed)
+-        for routing in routings:
+-            oldDir = os.path.join(expdir, oldDirName, faultType, faultyLinks, routing, pattern)
+-            newDir = os.path.join(lostdir, newDirName, routing)
+-            if not self.copyOldBaseData(oldDir, newDir): continue
+-            self.buildSH(scriptdir, newDir, task)
+-
+-        os.system("find %s -iname '*.sh' | xargs chmod +x" % lostdir)
+-        sys.exit()
+-
+-
+-class runSim(object):
+-    def __init__(self, experimentdir, task):
+-        if os.uname()[1].find('tgx-login1') > -1 or os.uname()[1].find('nid0') > -1:
+-            homedir = os.path.join('/', 'work', 'A2401644')
+-        else: homedir = os.getenv('HOME')
+-        instdir = os.path.join(homedir, 'simulation')
+-        scriptdir = os.path.join(instdir, 'scripts')
+-        testdir = experimentdir
+-        
+-        log = open(os.path.join(testdir, 'lostPaths.log'), 'w', 0)
+-
+-        faultType = '-lnf'
+-        for faultyLinks in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]:
+-            fault = '%s %s' % (faultType, faultyLinks)
+-            for rseed in xrange(100):
+-                seed = '-rs %s' % rseed
+-                os.system("%s/createIBNet.py %s %s %s -idc -o %s/tmp.net >%s/topo.log 2>&1" % (scriptdir, task, fault, seed, testdir, testdir))
+-                log.write("faulttype: %s faults: %s rseed: %s\n" % (faultType, faultyLinks, rseed))
+-                proc = subprocess.Popen([os.path.join(scriptdir,'lostConnectionsBeforeRerouting.py'), testdir, os.path.join(testdir,'topo.log')], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+-                out, err = proc.communicate()
+-                log.write("%s\n" % out)
+-        faultType = '-snf'
+-        for faultySwitches in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]:
+-            fault = '%s %s' % (faultType, faultySwitches)
+-            for rseed in xrange(100):
+-                seed = '-rs %s' % rseed
+-                os.system("%s/createIBNet.py %s %s %s -idc -o %s/tmp.net >%s/topo.log 2>&1" % (scriptdir, task, fault, seed, testdir, testdir))
+-                log.write("faulttype: %s faults: %s rseed: %s\n" % (faultType, faultySwitches, rseed))
+-                proc = subprocess.Popen([os.path.join(scriptdir,'lostConnectionsBeforeRerouting.py'), testdir, os.path.join(testdir,'topo.log')], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+-                out, err = proc.communicate()
+-                log.write("%s\n" % out)
+-
+-        log.write('\nFinished!\n')
+-        log.close()
+-
+-
+-class analyzeExperiment(object):
+-    def __init__(self):
+-        if os.uname()[1].find('tgx-login1') > -1 or os.uname()[1].find('nid0') > -1:
+-            homedir = os.path.join('/', 'work', 'A2401644')
+-        else: homedir = os.getenv('HOME')
+-        instdir = os.path.join(homedir, 'simulation')
+-        scriptdir = os.path.join(instdir, 'scripts')
+-        lostdir = os.path.join(instdir, 'lostConnExp')
+-        result = os.path.join(instdir, 'resultLostConn.gp')
+-
+-        res = open(result, 'w')
+-        res.write('# experiment | routing | faultType | faults | maxConn | numBisection | lostConn_min | lostConn_max | lostConn_avg | lostConn_stddev | 75% ConfidenceInterval LB | 75% ConfidenceInterval UB | 95% ConfidenceInterval LB | 95% ConfidenceInterval UB | 97.5% ConfidenceInterval LB | 97.5% ConfidenceInterval UB | 99% ConfidenceInterval LB | 99% ConfidenceInterval UB | 99.9% ConfidenceInterval LB | 99.9% ConfidenceInterval UB | percentLost | lowerExtrem | lowerQuartile | median | upperQuartile | upperExtrem\n')
+-
+-        for root, dirs, files in os.walk(lostdir):
+-            if files.count('lostPaths.log') == 0: continue
+-            print 'Processing: ', root
+-
+-            rest, routing   = os.path.split(root)
+-            rest, exp       = os.path.split(rest)
+-            LCRes = {}
+-
+-            log = open(os.path.join(root, 'lostPaths.log'), 'r')
+-            logDone = False
+-            lineNr = 0
+-            for line in log:
+-                lineNr += 1
+-                p = re.compile('faulttype:\s+-(\w+)\s+faults:\s+(\d+)\s+rseed:\s+(\d+).*')
+-                if p.match(line):
+-                    m = p.match(line)
+-                    faultType, faults, rseed = m.group(1), m.group(2), m.group(3)
+-                    if not LCRes.has_key(faultType):
+-                        LCRes[faultType] = {faults: {'maxConn':0, 'LC_min':math.pow(2,64)-1, 'LC_max':0, 'LC_count':0, 'LC_sum':0.0, 'LC_sumSqare':0.0, 'LC_bisected':0, 'listLC':[]}}
+-                    if not LCRes[faultType].has_key(faults):
+-                        LCRes[faultType][faults] = {'maxConn':0, 'LC_min':math.pow(2,64)-1, 'LC_max':0, 'LC_count':0, 'LC_sum':0.0, 'LC_sumSqare':0.0, 'LC_bisected':0, 'listLC':[]}
+-
+-
+-                p = re.compile('(\d+)\s+of\s+(\d+)\s+Hca<->Hca.*')
+-                if p.match(line):
+-                    m = p.match(line)
+-                    lostConn, maxConn = int(m.group(1)), int(m.group(2))
+-                    if not LCRes.has_key(faultType) or not LCRes[faultType].has_key(faults):
+-                        sys.exit('Error: file corrupted; faultType=%s or faults=%s not in database.' % (faultType, faults))
+-
+-                    if LCRes[faultType][faults]['maxConn'] == 0:         LCRes[faultType][faults]['maxConn'] = maxConn
+-                    elif LCRes[faultType][faults]['maxConn'] != maxConn: sys.exit('Error: file corrupted; maxConn inconsitent; lineNr: %s.' % lineNr)
+-
+-                    if lostConn < LCRes[faultType][faults]['LC_min']: LCRes[faultType][faults]['LC_min'] = lostConn
+-                    if LCRes[faultType][faults]['LC_max'] < lostConn: LCRes[faultType][faults]['LC_max'] = lostConn
+-                    LCRes[faultType][faults]['LC_count'] += 1
+-                    LCRes[faultType][faults]['LC_sum'] += lostConn
+-                    LCRes[faultType][faults]['LC_sumSqare'] += math.pow(lostConn, 2)
+-                    LCRes[faultType][faults]['listLC'].append(lostConn)
+-
+-                if line.find('and faults caused network bisection') > -1:
+-                    LCRes[faultType][faults]['LC_bisected'] += 1
+-
+-                if line.find('Finished') > -1:
+-                    logDone = True
+-
+-            if not logDone:
+-                print 'Warning: either simulation failed or is running for ', root
+-                continue
+-
+-            for faultType in LCRes.keys():
+-                for faults in LCRes[faultType]:
+-                    maxConn = LCRes[faultType][faults]['maxConn']
+-                    lostConn_min = LCRes[faultType][faults]['LC_min']
+-                    lostConn_max = LCRes[faultType][faults]['LC_max']
+-                    lostConn_sum = LCRes[faultType][faults]['LC_sum']
+-                    lostConn_sumSqare = LCRes[faultType][faults]['LC_sumSqare']
+-                    count = LCRes[faultType][faults]['LC_count']
+-                    lostConn_bisected = LCRes[faultType][faults]['LC_bisected']
+-                    lostConn_avg = lostConn_sum / count
+-                    lostConn_stddev = math.sqrt((lostConn_sumSqare/count)-math.pow(lostConn_sum/count, 2))
+-                    # http://www.stat.purdue.edu/~mccabe/ips4tab/bmtables.pdf
+-                    confi75lb = lostConn_avg - 1.15 * (lostConn_stddev / math.sqrt(count))
+-                    confi75ub = lostConn_avg + 1.15 * (lostConn_stddev / math.sqrt(count))
+-                    confi95lb = lostConn_avg - 1.96 * (lostConn_stddev / math.sqrt(count))
+-                    confi95ub = lostConn_avg + 1.96 * (lostConn_stddev / math.sqrt(count))
+-                    confi975lb = lostConn_avg - 2.24 * (lostConn_stddev / math.sqrt(count))
+-                    confi975ub = lostConn_avg + 2.24 * (lostConn_stddev / math.sqrt(count))
+-                    confi99lb = lostConn_avg - 2.58 * (lostConn_stddev / math.sqrt(count))
+-                    confi99ub = lostConn_avg + 2.58 * (lostConn_stddev / math.sqrt(count))
+-                    confi999lb = lostConn_avg - 3.29 * (lostConn_stddev / math.sqrt(count))
+-                    confi999ub = lostConn_avg + 3.29 * (lostConn_stddev / math.sqrt(count))
+-                    percentLost = lostConn_avg / maxConn * 100.0
+-
+-                    listLostConn = LCRes[faultType][faults]['listLC'][:]
+-                    listLostConn.sort()
+-                    lowerExtrem = listLostConn[0]
+-                    upperExtrem = listLostConn[-1]
+-                    if len(listLostConn)%2 == 0:
+-                        median = (listLostConn[len(listLostConn)/2-1] + listLostConn[len(listLostConn)/2]) / 2.0
+-                        lowerhalfList = listLostConn[:len(listLostConn)/2][:]
+-                        upperhalfList = listLostConn[len(listLostConn)/2:][:]
+-                    else:
+-                        median = 1.0 * listLostConn[len(listLostConn)/2]
+-                        lowerhalfList = listLostConn[:len(listLostConn)/2][:]
+-                        upperhalfList = listLostConn[len(listLostConn)/2+1:][:]
+-                    if len(lowerhalfList)%2 == 0:
+-                        lowerQuartile = (lowerhalfList[len(lowerhalfList)/2-1] + lowerhalfList[len(lowerhalfList)/2]) / 2.0
+-                    else:
+-                        lowerQuartile = 1.0 * lowerhalfList[len(lowerhalfList)/2]
+-                    if len(upperhalfList)%2 == 0:
+-                        upperQuartile = (upperhalfList[len(upperhalfList)/2-1] + upperhalfList[len(upperhalfList)/2]) / 2.0
+-                    else:
+-                        upperQuartile = 1.0 * upperhalfList[len(upperhalfList)/2]
+-
+-                    res.write('%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s \t%s\n' % (exp, routing, faultType, faults, maxConn, lostConn_bisected, lostConn_min, lostConn_max, lostConn_avg, lostConn_stddev, confi75lb, confi75ub, confi95lb, confi95ub, confi975lb, confi975ub, confi99lb, confi99ub, confi999lb, confi999ub, percentLost, lowerExtrem, lowerQuartile, median, upperQuartile, upperExtrem))
+-
+-            log.close()
+-
+-        res.close()
+-
+-
+-if __name__ == "__main__":
+-    parser = OptionParser()
+-    
+-    parser.add_option("-b", "--build", action="store_true", dest="build", help="build the experiemts", default=False)
+-    parser.add_option("-a", "--analyze", action="store_true", dest="analyze", help="analyze the experiemt results", default=False)
+-    parser.add_option("-n", "--network", dest="network", help="path to the topology file", default=None)
+-    parser.add_option("-t", "--task", dest="task", help="comm. to produce topology", default=None)
+-
+-    (options, args) = parser.parse_args()
+-
+-    if options.build:
+-        app = buildExperiment()
+-    elif options.analyze:
+-        app = analyzeExperiment()
+-    elif options.network and options.task:
+-        app = runSim(options.network, options.task)
+-    else:
+-        parser.print_help()
+-
+-    sys.exit('\nFinish!')
+-

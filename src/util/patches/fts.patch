@@ -626,13 +626,109 @@ diff -Nur scripts.orig/createIBNet.py scripts/createIBNet.py
 +   #sys.exit('\nFinish!')
 +   sys.exit(0)
  
-diff -Nur scripts.orig/simulate.py scripts/simulate.py
---- scripts.orig/simulate.py	2016-08-17 14:02:19.306717000 -0700
-+++ scripts/simulate.py	2016-08-17 13:10:45.369042000 -0700
-@@ -724,21 +724,23 @@
-         os.system("sed -i -e 's#\"/usr/bin\":##g' %s/bin/ibdiagnet" % ofeddir)
+diff -u scripts/simulate.py scripts/simulate.py
+--- scripts/simulate.py	2016-08-17 13:10:45.369042000 -0700
++++ scripts/simulate.py	2017-04-25 19:24:20.959463076 +0900
+@@ -610,24 +610,24 @@
+             os.mkdir(os.path.join(instdir, 'libibmad'))
+         if not os.path.exists(os.path.join(instdir, 'opensm')):
+             os.mkdir(os.path.join(instdir, 'opensm'))
+-        if not os.path.exists(os.path.join(instdir, 'infiniband-diags')):
+-            os.mkdir(os.path.join(instdir, 'infiniband-diags'))
++        #if not os.path.exists(os.path.join(instdir, 'infiniband-diags')):
++        #    os.mkdir(os.path.join(instdir, 'infiniband-diags'))
+         if not os.path.exists(os.path.join(instdir, 'ibsim')):
+             os.mkdir(os.path.join(instdir, 'ibsim'))
+-        if not os.path.exists(os.path.join(instdir, 'ibutils')):
+-            os.mkdir(os.path.join(instdir, 'ibutils'))
+-        if not os.path.exists(os.path.join(instdir, 'omnet')):
+-            os.mkdir(os.path.join(instdir, 'omnet'))
+-        if not os.path.exists(os.path.join(instdir, 'ibmodel')):
+-            os.mkdir(os.path.join(instdir, 'ibmodel'))
++        #if not os.path.exists(os.path.join(instdir, 'ibutils')):
++        #    os.mkdir(os.path.join(instdir, 'ibutils'))
++        #if not os.path.exists(os.path.join(instdir, 'omnet')):
++        #    os.mkdir(os.path.join(instdir, 'omnet'))
++        #if not os.path.exists(os.path.join(instdir, 'ibmodel')):
++        #    os.mkdir(os.path.join(instdir, 'ibmodel'))
+         os.system('tar xzf %s.tar.gz -C %s --strip-components 1' % (os.path.join(currdir, 'libibumad'), 'libibumad'))
+         os.system('tar xzf %s.tar.gz -C %s --strip-components 1' % (os.path.join(currdir, 'libibmad'), 'libibmad'))
+         os.system('tar xzf %s.tar.gz -C %s --strip-components 1' % (os.path.join(currdir, 'opensm'), 'opensm'))
+-        os.system('tar xzf %s.tar.gz -C %s --strip-components 1' % (os.path.join(currdir, 'infiniband-diags'), 'infiniband-diags'))
++        #os.system('tar xzf %s.tar.gz -C %s --strip-components 1' % (os.path.join(currdir, 'infiniband-diags'), 'infiniband-diags'))
+         os.system('tar xzf %s.tar.gz -C %s --strip-components 1' % (os.path.join(currdir, 'ibsim'), 'ibsim'))
+-        os.system('tar xzf %s.tar.gz -C %s --strip-components 1' % (os.path.join(currdir, 'ibutils'), 'ibutils'))
+-        os.system('tar xzf %s.tar.gz -C %s --strip-components 1' % (os.path.join(currdir, 'omnet'), 'omnet'))
+-        os.system('tar xzf %s.tar.gz -C %s --strip-components 1' % (os.path.join(currdir, 'ibmodel'), 'ibmodel'))
++        #os.system('tar xzf %s.tar.gz -C %s --strip-components 1' % (os.path.join(currdir, 'ibutils'), 'ibutils'))
++        #os.system('tar xzf %s.tar.gz -C %s --strip-components 1' % (os.path.join(currdir, 'omnet'), 'omnet'))
++        #os.system('tar xzf %s.tar.gz -C %s --strip-components 1' % (os.path.join(currdir, 'ibmodel'), 'ibmodel'))
+ 
+         # patching opensm
+         for root, dirs, files in os.walk(currdir):
+@@ -681,64 +681,70 @@
+         os.system('make install >install.log 2>&1')
          os.chdir(instdir)
  
+-        print "Step 4..."
+-        os.chdir(os.path.join(instdir, 'infiniband-diags'))
+-        os.system('(aclocal; libtoolize --force; autoheader; autoconf) >/dev/null 2>&1')
+-        os.system('./autogen.sh >autogen.log 2>&1')
+-        os.system('./configure %s --with-perl-installdir=%s >configure.log 2>&1' % (glob_config_opts, os.path.join(ofeddir, 'perl')))
+-        os.system('./autogen.sh >autogen.log 2>&1')
+-        os.system('./configure %s --with-perl-installdir=%s >configure.log 2>&1' % (glob_config_opts, os.path.join(ofeddir, 'perl')))
+-        os.system('make >make.log 2>&1')
+-        os.system('make install >install.log 2>&1')
+-        os.chdir(instdir)
++        print '...... skipping step 4 .....'
++        if 0:
++           print "Step 4..."
++           os.chdir(os.path.join(instdir, 'infiniband-diags'))
++           os.system('(aclocal; libtoolize --force; autoheader; autoconf) >/dev/null 2>&1')
++           os.system('./autogen.sh >autogen.log 2>&1')
++           os.system('./configure %s --with-perl-installdir=%s >configure.log 2>&1' % (glob_config_opts, os.path.join(ofeddir, 'perl')))
++           os.system('./autogen.sh >autogen.log 2>&1')
++           os.system('./configure %s --with-perl-installdir=%s >configure.log 2>&1' % (glob_config_opts, os.path.join(ofeddir, 'perl')))
++           os.system('make >make.log 2>&1')
++           os.system('make install >install.log 2>&1')
++           os.chdir(instdir)
+ 
+         print "Step 5..."
+         os.chdir(os.path.join(instdir, 'ibsim'))
+         os.system('make IB_DEV_DIR=%s prefix=%s all install >make.log 2>&1' % (instdir, ofeddir))
+         os.chdir(instdir)
+  
+-        print "Step 6..."
+-        #os.chdir(os.path.join(instdir, 'ibutils'))
++        print '...... skipping step 6 .....'
++        if 0:
++           print "Step 6..."
++           #os.chdir(os.path.join(instdir, 'ibutils'))
+ #        if socket.gethostname().find("t2a") >= 0:
+ #            os.system("for x in `grep -R 2.2.6 . | cut -d ':' -f1 | sort -u`; do sed -i -e 's/2.2.6b/2.2.6/g' $x; done")
+ #            os.system("for x in `grep -R Debian-2.2.6-2ubuntu1 . | cut -d ':' -f1 | sort -u`; do sed -i -e 's/ Debian-2.2.6-2ubuntu1//g' $x; done")
+ #            os.system("for x in `grep -R 1.3017 . | cut -d ':' -f1 | sort -u`; do sed -i -e 's/1.3017/1.3012/g' $x; done")
+ #        elif socket.gethostname().find("rc0") >= 0:
+-        os.chdir(os.path.join(instdir, 'ibutils', 'ibdiag'))
+-        os.system('(aclocal; libtoolize --force; autoconf) >/dev/null 2>&1')
+-        os.chdir(os.path.join(instdir, 'ibutils', 'ibdm'))
+-        os.system('(aclocal; libtoolize --force; autoheader; autoconf) >/dev/null 2>&1')
+-        os.chdir(os.path.join(instdir, 'ibutils', 'ibis'))
+-        os.system('(aclocal; libtoolize --force; autoheader; autoconf) >/dev/null 2>&1')
+-        os.chdir(os.path.join(instdir, 'ibutils', 'ibmgtsim'))
+-        os.system('(aclocal; libtoolize --force; autoheader; autoconf) >/dev/null 2>&1')
+-        os.chdir(os.path.join(instdir, 'ibutils'))
+-        os.system('(aclocal; libtoolize --force; autoconf) >/dev/null 2>&1')
+-        os.system('./autogen.sh >autogen.log 2>&1')
+-        os.system('./configure %s --with-osm=%s >configure.log 2>&1' % (glob_config_opts, ofeddir))
+-        os.system('./autogen.sh >autogen.log 2>&1')
+-        os.system('./configure %s --with-osm=%s >configure.log 2>&1' % (glob_config_opts, ofeddir))
+-        os.system('make >make.log 2>&1')
+-        os.system('make check >check.log 2>&1')
+-        os.system('make install >install.log 2>&1')
+-        os.system("sed -i -e 's#\"/usr/bin\":##g' %s/bin/ibdiagnet" % ofeddir)
+-        os.chdir(instdir)
+-
 -        print "Step 7..."
 -        os.chdir(os.path.join(instdir, 'omnet'))
 -        os.environ['PATH'] = '%s:%s' % (os.path.join(instdir, 'omnet', 'bin'), os.getenv('PATH'))
@@ -648,6 +744,26 @@ diff -Nur scripts.orig/simulate.py scripts/simulate.py
 -        os.environ['LD_LIBRARY_PATH'] = '%s:%s' % (os.path.join(instdir, 'omnet', 'lib'), os.getenv('LD_LIBRARY_PATH'))
 -        os.system('opp_makemake -f --deep -O out')
 -        os.system('make MODE=release')
++           os.chdir(os.path.join(instdir, 'ibutils', 'ibdiag'))
++           os.system('(aclocal; libtoolize --force; autoconf) >/dev/null 2>&1')
++           os.chdir(os.path.join(instdir, 'ibutils', 'ibdm'))
++           os.system('(aclocal; libtoolize --force; autoheader; autoconf) >/dev/null 2>&1')
++           os.chdir(os.path.join(instdir, 'ibutils', 'ibis'))
++           os.system('(aclocal; libtoolize --force; autoheader; autoconf) >/dev/null 2>&1')
++           os.chdir(os.path.join(instdir, 'ibutils', 'ibmgtsim'))
++           os.system('(aclocal; libtoolize --force; autoheader; autoconf) >/dev/null 2>&1')
++           os.chdir(os.path.join(instdir, 'ibutils'))
++           os.system('(aclocal; libtoolize --force; autoconf) >/dev/null 2>&1')
++           os.system('./autogen.sh >autogen.log 2>&1')
++           os.system('./configure %s --with-osm=%s >configure.log 2>&1' % (glob_config_opts, ofeddir))
++           os.system('./autogen.sh >autogen.log 2>&1')
++           os.system('./configure %s --with-osm=%s >configure.log 2>&1' % (glob_config_opts, ofeddir))
++           os.system('make >make.log 2>&1')
++           os.system('make check >check.log 2>&1')
++           os.system('make install >install.log 2>&1')
++           os.system("sed -i -e 's#\"/usr/bin\":##g' %s/bin/ibdiagnet" % ofeddir)
++           os.chdir(instdir)
++
 +        print '...... skipping omnet install .....'
 +        if 0:
 +           print "Step 7..."
@@ -668,9 +784,123 @@ diff -Nur scripts.orig/simulate.py scripts/simulate.py
  
          print "Step 9..."
          os.system('cp %s/*.py %s/' % (currdir, scriptdir))
-@@ -925,39 +927,40 @@
-             log.close()
+@@ -832,24 +838,26 @@
+                 routing_failed = True
+         osm_log.close()
+ 
+-        print "Scan fabric..."
+-        scanlog = os.path.join(ofedoutdir, 'scan.log')
+-        cmd = '%s %s %s >%s 2>&1 &' % (os.path.join(scriptdir, 'scanFabric.sh' ), instdir, ofedoutdir, scanlog)
+-        log.write('%s %s\n' % (time.asctime(), cmd))
+-        os.system(cmd)
+-        while True:
+-            if os.path.exists(scanlog):
+-                break
+-            time.sleep(1)
+-        scan_log = open(scanlog, 'r')
+-        gstr = ''
+-        while True:
+-            str = scan_log.read()
+-            gstr = gstr + str
+-            if gstr.find('SUBNET SCANNED') != -1:
+-                break
+-            time.sleep(1)
+-        scan_log.close()
++        # doesnt work in this mode since we removed ibdiagnet/ibnetdiscover
++        if 0:
++            print "Scan fabric..."
++            scanlog = os.path.join(ofedoutdir, 'scan.log')
++            cmd = '%s %s %s >%s 2>&1 &' % (os.path.join(scriptdir, 'scanFabric.sh' ), instdir, ofedoutdir, scanlog)
++            log.write('%s %s\n' % (time.asctime(), cmd))
++            os.system(cmd)
++            while True:
++                if os.path.exists(scanlog):
++                    break
++                time.sleep(1)
++            scan_log = open(scanlog, 'r')
++            gstr = ''
++            while True:
++                str = scan_log.read()
++                gstr = gstr + str
++                if gstr.find('SUBNET SCANNED') != -1:
++                    break
++                time.sleep(1)
++            scan_log.close()
+ 
+         print "Stop ibsim/opensm..."
+         toKill = [['startOpenSM.pid', signal.SIGTERM], ['startSIM.pid', signal.SIGTERM], ['opensm.pid', signal.SIGKILL], ['ibsim.pid', signal.SIGKILL]]
+@@ -867,6 +875,9 @@
              return
+ 
+         if routing.find('tofu') > -1:
++            log.write( '\nERROR: tofu not supported in this modus!\n' )
++            log.close()
++            return
+             print "Replace with tofu routing..."
+             LFTtoFDBSlog = os.path.join(testdir, 'LFTtoFDBSlog.log')
+             cmd = '%s --lft %s --ibnd %s --fdbs %s >%s 2>&1 &' % (os.path.join(scriptdir, 'IBNetLFTtoFDBS.py'), os.path.join(ofedoutdir, 'topo.lft'), os.path.join(ofedoutdir, 'ibnetdiscover.log'), os.path.join(ofedoutdir, 'ibdiagnet.fdbs'), LFTtoFDBSlog)
+@@ -896,68 +907,71 @@
+                 log.close()
+                 return
+ 
+-        print "Check the connectivity of the system..."
+-        checklog = os.path.join(testdir, 'checkConnectivity.log')
+-        cmd = '%s %s >%s 2>&1 &' % (os.path.join(scriptdir, 'checkConnectivity.py'), ofedoutdir, checklog)
+-        log.write('%s %s\n' % (time.asctime(), cmd))
+-        os.system(cmd)
+-        while True:
+-            if os.path.exists(checklog):
+-                break
+-            time.sleep(1)
+-        check_log = open(checklog, 'r')
+-        gstr = ''
+-        while True:
+-            str = check_log.read()
+-            gstr = gstr + str
+-            if gstr.find('Finish') != -1 or gstr.find('Usage') != -1 or gstr.find('Error') != -1:
+-                break
+-            time.sleep(1)
+-        routing_failed = False
+-        gstr = gstr.splitlines()
+-        for line in gstr:
+-            if line.find('Error') != -1 or line.find('Usage') != -1:
+-                log.write( '%s\n' % (line) )
+-                routing_failed = True
+-        check_log.close()
+-        if routing_failed:
+-            log.write( '\nERROR: routing failed, connectivity broken!\n' )
+-            log.close()
+-            return
++        # doesnt work in this mode since we removed ibdiagnet/ibnetdiscover
++        if 0:
++            print "Check the connectivity of the system..."
++            checklog = os.path.join(testdir, 'checkConnectivity.log')
++            cmd = '%s %s >%s 2>&1 &' % (os.path.join(scriptdir, 'checkConnectivity.py'), ofedoutdir, checklog)
++            log.write('%s %s\n' % (time.asctime(), cmd))
++            os.system(cmd)
++            while True:
++                if os.path.exists(checklog):
++                    break
++                time.sleep(1)
++            check_log = open(checklog, 'r')
++            gstr = ''
++            while True:
++                str = check_log.read()
++                gstr = gstr + str
++                if gstr.find('Finish') != -1 or gstr.find('Usage') != -1 or gstr.find('Error') != -1:
++                    break
++                time.sleep(1)
++            routing_failed = False
++            gstr = gstr.splitlines()
++            for line in gstr:
++                if line.find('Error') != -1 or line.find('Usage') != -1:
++                    log.write( '%s\n' % (line) )
++                    routing_failed = True
++            check_log.close()
++            if routing_failed:
++                log.write( '\nERROR: routing failed, connectivity broken!\n' )
++                log.close()
++                return
  
 -        print "Transform fabric into omnet++ format..."
 -        omnetfiles = os.path.join(testdir, 'omnet')
@@ -742,23 +972,21 @@ diff -Nur scripts.orig/simulate.py scripts/simulate.py
  
          log.write('\nFinished!\n')
          log.close()
-@@ -1138,5 +1141,6 @@
-     else:
-         parser.print_help()
+@@ -1140,3 +1154,4 @@
  
 -    sys.exit('\nFinish!')
 +    #sys.exit('\nFinish!')
 +    sys.exit(0)
  
-diff -Nur scripts.orig/startOpenSM.sh scripts/startOpenSM.sh
---- scripts.orig/startOpenSM.sh	2016-08-17 14:02:30.943729000 -0700
-+++ scripts/startOpenSM.sh	2016-08-17 13:59:43.760997000 -0700
+diff -u scripts/startOpenSM.sh scripts/startOpenSM.sh
+--- scripts/startOpenSM.sh	2016-08-17 13:59:43.760997000 -0700
++++ scripts/startOpenSM.sh	2017-04-25 18:59:13.484892065 +0900
 @@ -39,7 +39,10 @@
  
  DEBUG=""
  if [ -n $2 ]; then
 -	DEBUG="-D ${2}" 
-+	DEBUG="-D ${2} -d2" 
++	DEBUG="-D 0x43 -d2 --once"
 +fi
 +if [ -f ${4}/../batch_jobs.conf ]; then
 +	DEBUG="${DEBUG} --batch_job_file ${4}/../batch_jobs.conf" 
