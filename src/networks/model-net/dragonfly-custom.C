@@ -2436,7 +2436,8 @@ static void do_local_adaptive_routing(router_state * s,
   int local_stop = -1;
   tw_lpid global_stop;
 
-  if(nonmin_port_count * num_intra_nonmin_hops > min_port_count * num_intra_min_hops)
+//  if(nonmin_port_count * num_intra_nonmin_hops > min_port_count * num_intra_min_hops)
+  if(nonmin_port_count > min_port_count)
   {
       msg->path_type = MINIMAL;
   }
