@@ -72,6 +72,7 @@ struct dumpi_trace_params {
 #ifdef ENABLE_CORTEX_PYTHON
    char cortex_script[MAX_NAME_LENGTH_WKLD];
    char cortex_class[MAX_NAME_LENGTH_WKLD];
+   char cortex_gen[MAX_NAME_LENGTH_WKLD];
 #endif
 };
 
