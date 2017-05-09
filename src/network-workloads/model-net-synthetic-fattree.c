@@ -130,22 +130,29 @@ void ft_svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag
     memcpy(buffer, &type, sizeof(type));
 }
 
-st_trace_type ft_svr_trace_types[] = {
+void ft_svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
+{
+    return;
+}
+
+st_model_types ft_svr_model_types[] = {
     {(rbev_trace_f) ft_svr_event_collect,
      sizeof(int),
      (ev_trace_f) ft_svr_event_collect,
-     sizeof(int)},
+     sizeof(int),
+     (model_stat_f) ft_svr_model_stat_collect,
+     0},
     {0}
 };
 
-static const st_trace_type  *ft_svr_get_trace_types(void)
+static const st_model_types  *ft_svr_get_model_stat_types(void)
 {
-    return(&ft_svr_trace_types[0]);
+    return(&ft_svr_model_types[0]);
 }
 
-void ft_svr_register_trace()
+void ft_svr_register_model_stats()
 {
-    trace_type_register("server", ft_svr_get_trace_types());
+    st_model_type_register("server", ft_svr_get_model_stat_types());
 }
 
 const tw_optdef app_opt [] =
@@ -437,7 +444,7 @@ int main(
     svr_add_lp_type();
 
     if (g_st_ev_trace)
-        ft_svr_register_trace();
+        ft_svr_register_model_stats();
 
     codes_mapping_setup();
 

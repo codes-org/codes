@@ -116,22 +116,29 @@ void svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
     memcpy(buffer, &type, sizeof(type));
 }
 
-st_trace_type svr_trace_types[] = {
+void svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
+{
+    return;
+}
+
+st_model_types svr_model_types[] = {
     {(rbev_trace_f) svr_event_collect,
      sizeof(int),
      (ev_trace_f) svr_event_collect,
-     sizeof(int)},
+     sizeof(int),
+     (model_stat_f) svr_model_stat_collect,
+     0},
     {0}
 };
 
-static const st_trace_type  *svr_get_trace_types(void)
+static const st_model_types  *svr_get_model_stat_types(void)
 {
-    return(&svr_trace_types[0]);
+    return(&svr_model_types[0]);
 }
 
-void svr_register_trace()
+void svr_register_model_types()
 {
-    trace_type_register("server", svr_get_trace_types());
+    st_model_type_register("server", svr_get_model_stat_types());
 }
 
 const tw_optdef app_opt [] =
@@ -393,8 +400,8 @@ int main(
     model_net_register();
     svr_add_lp_type();
 
-    if (g_st_ev_trace)
-        svr_register_trace();
+    if (g_st_ev_trace || g_st_model_stats)
+        svr_register_model_types();
 
     codes_mapping_setup();
 

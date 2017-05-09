@@ -388,7 +388,7 @@ void model_net_set_msg_param(
 
 /* returns pointer to LP information for simplenet module */
 const tw_lptype* model_net_get_lp_type(int net_id);
-const st_trace_type* model_net_get_trace_type(int net_id);
+const st_model_types* model_net_get_model_stat_type(int net_id);
 
 DEPRECATED
 uint64_t model_net_get_packet_size(int net_id);

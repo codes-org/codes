@@ -16,7 +16,7 @@ struct lp_name_mapping
 {
     const char* name;
     const tw_lptype* type;
-    const st_trace_type* trace_type;
+    const st_model_types* trace_type;
 };
 
 static struct lp_name_mapping map_array[MAX_LP_TYPES];
@@ -48,7 +48,7 @@ const tw_lptype* lp_type_lookup(const char* name)
 }
 
 // needs to be called after lp_type_register()
-void trace_type_register(const char* name, const st_trace_type* type)
+void st_model_type_register(const char* name, const st_model_types* type)
 {
     int i;
 
@@ -61,7 +61,7 @@ void trace_type_register(const char* name, const st_trace_type* type)
     }
 }
 
-const st_trace_type* trace_type_lookup(const char* name)
+const st_model_types* st_model_type_lookup(const char* name)
 {
     int i;
 

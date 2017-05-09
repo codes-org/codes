@@ -1811,6 +1811,7 @@ void switch_packet_receive_rc(switch_state * s,
 	s_arrive_r++;
 #endif
     int output_port = msg->saved_vc;
+    tw_rand_reverse_unif(lp->rng);
     if(bf->c1)
     {
         tw_rand_reverse_unif(lp->rng);
@@ -2636,10 +2637,13 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
 
   assert(end_port > start_port);
 
-  outport = start_port;
+  //outport = start_port;
+  // when occupancy is same, just choose random port
+  outport = tw_rand_integer(lp->rng, start_port, end_port-1);  
   int load = s->vc_occupancy[outport] + s->queued_length[outport];
   if(load != 0) {
-    for(int port = start_port + 1; port < end_port; port++) {
+    //for(int port = start_port + 1; port < end_port; port++) {
+    for(int port = start_port; port < end_port; port++) {
       if(s->vc_occupancy[port] +  s->queued_length[port] < load) {
         load = s->vc_occupancy[port] +  s->queued_length[port];
         outport = port;
@@ -2968,23 +2972,27 @@ void fattree_event_collect(fattree_message *m, tw_lp *lp, char *buffer, int *col
     memcpy(buffer, &type, sizeof(type));
 }
 
-st_trace_type fattree_trace_types[] = {
+// TODO will need to separate fattree_method into one for terminal and one for switch
+// in order to use the ROSS model stats collection
+st_model_types fattree_model_types[] = {
     {(rbev_trace_f) fattree_event_collect,
      sizeof(int),
      (ev_trace_f) fattree_event_collect,
-     sizeof(int)},
+     sizeof(int),
+    NULL,
+    0},
     {0}
 };
 
-static const st_trace_type  *fattree_get_trace_types(void)
+static const st_model_types  *fattree_get_model_stat_types(void)
 {
-    return(&fattree_trace_types[0]);
+    return(&fattree_model_types[0]);
 }
 
-static void fattree_register_trace(st_trace_type *base_type)
+static void fattree_register_model_stats(st_model_types *base_type)
 {
-    trace_type_register(LP_CONFIG_NM, base_type);
-    trace_type_register("fattree_switch", &fattree_trace_types[0]);
+    st_model_type_register(LP_CONFIG_NM, base_type);
+    st_model_type_register("fattree_switch", &fattree_model_types[0]);
     //trace_type_register("fattree_switch", base_type);
 }
 /*** END of ROSS event tracing additions */
@@ -3018,7 +3026,7 @@ struct model_net_method fattree_method =
 //  .model_net_method_find_local_device = NULL,
   .mn_collective_call = NULL,
   .mn_collective_call_rc = NULL,
-  .mn_trace_register = fattree_register_trace,
-  .mn_get_trace_type = fattree_get_trace_types
+  .mn_model_stat_register = fattree_register_model_stats,
+  .mn_get_model_stat_types = fattree_get_model_stat_types
 };
 
