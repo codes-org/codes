@@ -130,6 +130,10 @@ void ft_svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag
     memcpy(buffer, &type, sizeof(type));
 }
 
+/* can add in any model level data to be collected along with simulation engine data
+ * in the ROSS instrumentation.  Will need to update the last field in 
+ * ft_svr_model_types[0] for the size of the data to save in each function call
+ */
 void ft_svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
 {
     return;

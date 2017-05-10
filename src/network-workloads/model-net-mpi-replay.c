@@ -2207,6 +2207,10 @@ void nw_lp_event_collect(nw_message *m, tw_lp *lp, char *buffer, int *collect_fl
     memcpy(buffer, &type, sizeof(type));
 }
 
+/* can add in any model level data to be collected along with simulation engine data
+ * in the ROSS instrumentation.  Will need to update the last field in 
+ * nw_lp_model_types[0] for the size of the data to save in each function call
+ */
 void nw_lp_model_stat_collect(nw_state *s, tw_lp *lp, char *buffer)
 {
     return;
