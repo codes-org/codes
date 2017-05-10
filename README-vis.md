@@ -139,10 +139,9 @@ int main(int argc, char **argv)
 `g_st_ev_trace` is a ROSS flag for determining if event tracing is turned on and `g_st_model_stats` determines if the GVT-based or real time instrumentation
 modes are collecting model-level data as well.  
 
- 
-
 
 ### CODES LPs that currently have event type collection implemented:
+If you're using any of the following CODES models, you don't have to add anything, unless you want to change the data that's being collected.
 - nw-lp (model-net-mpi-replay.c)
 - original dragonfly router and terminal LPs (dragonfly.c)
 - dfly server LP (model-net-synthetic.c)
