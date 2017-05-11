@@ -2119,7 +2119,7 @@ void dragonfly_custom_router_final(router_state * s,
     {
         written = sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
         written += sprintf(s->output_buf + written, "# Router ports in the order: %d local channels, %d global channels \n", 
-                p->num_routers, p->num_global_channels);
+                p->intra_grp_radix, p->num_global_channels);
     }
     written += sprintf(s->output_buf + written, "\n %llu %d %d", 
             LLU(lp->gid),
