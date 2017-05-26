@@ -60,7 +60,6 @@ endif
 if USE_DUMPI
 AM_CPPFLAGS += ${DUMPI_CFLAGS} -DUSE_DUMPI=1
 src_libcodes_la_SOURCES += src/workload/methods/codes-dumpi-trace-nw-wrkld.c
-LDADD += ${DUMPI_LIBS}
 if USE_CORTEX
 if USE_PYTHON
 if USE_CORTEX_PYTHON
@@ -73,5 +72,6 @@ endif
 AM_CPPFLAGS += ${CORTEX_CFLAGS} -DENABLE_CORTEX=1
 LDADD += ${CORTEX_LIBS}
 endif
+LDADD += ${DUMPI_LIBS}
 endif
 
