@@ -14,6 +14,9 @@ extern "C" {
 
 #include <ross.h>
 #include <assert.h>
+#include <mpi.h>
+
+extern MPI_Comm MPI_COMM_CODES;
 
 // for printf conversions: shorthand for cast to long long unsigned format (llu)
 #define LLU(x) ((unsigned long long)(x))

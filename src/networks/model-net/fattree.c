@@ -13,6 +13,11 @@
 #include <ctype.h>
 #include <search.h>
 
+#ifdef ENABLE_CORTEX
+#include <cortex/cortex.h>
+#include <cortex/topology.h>
+#endif
+
 #define CREDIT_SIZE 8
 #define MEAN_PROCESS 1.0
 
@@ -33,6 +38,11 @@
 
 #define LP_CONFIG_NM (model_net_lp_config_names[FATTREE])
 #define LP_METHOD_NM (model_net_method_names[FATTREE])
+
+#ifdef ENABLE_CORTEX
+/* This structure is defined at the end of the file */
+extern cortex_topology fattree_cortex_topology;
+#endif
 
 #if DEBUG_RC
   //Reverse Compute Debug Variables
@@ -546,7 +556,7 @@ static void dot_write_open_file(FILE **fout)
 
   char *dot_file_prefix = dot_file_p;
   int rank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  MPI_Comm_rank(MPI_COMM_CODES, &rank);
   sprintf(file_name, "%s/%s.dot.%d", dir_name, dot_file_prefix, rank);
   *fout = fopen(file_name, "w+");
   if(*fout == NULL) {
@@ -891,6 +901,9 @@ static void fattree_configure(){
   if (anno_map->has_unanno_lp > 0){
     fattree_read_config(NULL, &all_params[anno_map->num_annos]);
   }
+#ifdef ENABLE_CORTEX
+  model_net_topology = fattree_cortex_topology;
+#endif
 }
 
 /* initialize a fattree compute node terminal */
@@ -1348,22 +1361,22 @@ static void fattree_report_stats()
 	long long ts_buffer_f = 0;
 	long long ts_buffer_r = 0;
 
-	MPI_Reduce( &packet_event_f, &t_packet_event_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &packet_event_r, &t_packet_event_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &t_generate_f, &tt_generate_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &t_generate_r, &tt_generate_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &t_send_f, &tt_send_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &t_send_r, &tt_send_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &t_arrive_f, &tt_arrive_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &t_arrive_r, &tt_arrive_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &t_buffer_f, &tt_buffer_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &t_buffer_r, &tt_buffer_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &s_send_f, &ts_send_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &s_send_r, &ts_send_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &s_arrive_f, &ts_arrive_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &s_arrive_r, &ts_arrive_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &s_buffer_f, &ts_buffer_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-	MPI_Reduce( &s_buffer_r, &ts_buffer_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce( &packet_event_f, &t_packet_event_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &packet_event_r, &t_packet_event_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &t_generate_f, &tt_generate_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &t_generate_r, &tt_generate_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &t_send_f, &tt_send_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &t_send_r, &tt_send_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &t_arrive_f, &tt_arrive_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &t_arrive_r, &tt_arrive_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &t_buffer_f, &tt_buffer_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &t_buffer_r, &tt_buffer_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &s_send_f, &ts_send_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &s_send_r, &ts_send_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &s_arrive_f, &ts_arrive_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &s_arrive_r, &ts_arrive_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &s_buffer_f, &ts_buffer_f, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+	MPI_Reduce( &s_buffer_r, &ts_buffer_r, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
 
    if(!g_tw_mynode)
    {
@@ -1399,16 +1412,16 @@ static void fattree_report_stats()
    tw_stime avg_time, max_time;
    long total_gen, total_fin;
 
-   MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &N_finished_msgs, &total_finished_msgs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &N_finished_chunks, &total_finished_chunks, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &total_msg_sz, &final_msg_sz, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &fattree_total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &fattree_max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &N_finished_msgs, &total_finished_msgs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &N_finished_chunks, &total_finished_chunks, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &total_msg_sz, &final_msg_sz, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &fattree_total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &fattree_max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_CODES);
 
-   MPI_Reduce( &fattree_packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &fattree_packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &fattree_packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &fattree_packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
 
    /* print statistics */
    if(!g_tw_mynode)
@@ -2836,7 +2849,7 @@ void fattree_switch_final(switch_state * s, tw_lp * lp)
 //    char *stats_file = getenv("TRACER_LINK_FILE");
 //  if(stats_file != NULL) {
     int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_rank(MPI_COMM_CODES, &rank);
     char file_name[512];
     sprintf(file_name, "%s.%d", "tracer_stats_file", rank);
     FILE *fout = fopen(file_name, "a");
@@ -2992,3 +3005,74 @@ struct model_net_method fattree_method =
   .mn_collective_call_rc = NULL
 };
 
+#ifdef ENABLE_CORTEX
+
+static int fattree_get_number_of_compute_nodes(void* topo) {
+        // TODO
+        return -1;
+}
+
+static int fattree_get_number_of_routers(void* topo) {
+        // TODO
+        return -1;
+}
+
+static double fattree_get_router_link_bandwidth(void* topo, router_id_t r1, router_id_t r2) {
+        // TODO
+        return -1.0;
+}
+
+static double fattree_get_compute_node_bandwidth(void* topo, cn_id_t node) {
+        // TODO
+        return -1.0;
+}
+
+static int fattree_get_router_neighbor_count(void* topo, router_id_t r) {
+        // TODO
+        return 0;
+}
+
+static void fattree_get_router_neighbor_list(void* topo, router_id_t r, router_id_t* neighbors) {
+        // TODO
+}
+
+static int fattree_get_router_location(void* topo, router_id_t r, int32_t* location, int size) {
+        // TODO
+        return 0;
+}
+
+static int fattree_get_compute_node_location(void* topo, cn_id_t node, int32_t* location, int size) {
+        // TODO
+        return 0;
+}
+
+static router_id_t fattree_get_router_from_compute_node(void* topo, cn_id_t node) {
+        // TODO
+        return -1;
+}
+
+static int fattree_get_router_compute_node_count(void* topo, router_id_t r) {
+        // TODO
+        return 0;
+}
+
+static void fattree_get_router_compute_node_list(void* topo, router_id_t r, cn_id_t* nodes) {
+        // TODO
+}
+
+cortex_topology fattree_cortex_topology = {
+        .internal = NULL,
+		.get_number_of_compute_nodes	= fattree_get_number_of_compute_nodes,
+		.get_number_of_routers			= fattree_get_number_of_routers,
+        .get_router_link_bandwidth      = fattree_get_router_link_bandwidth,
+        .get_compute_node_bandwidth     = fattree_get_compute_node_bandwidth,
+        .get_router_neighbor_count      = fattree_get_router_neighbor_count,
+        .get_router_neighbor_list       = fattree_get_router_neighbor_list,
+        .get_router_location            = fattree_get_router_location,
+        .get_compute_node_location      = fattree_get_compute_node_location,
+        .get_router_from_compute_node   = fattree_get_router_from_compute_node,
+        .get_router_compute_node_count  = fattree_get_router_compute_node_count,
+        .get_router_compute_node_list   = fattree_get_router_compute_node_list,
+};
+
+#endif

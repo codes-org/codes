@@ -554,7 +554,7 @@ static void slimfly_read_config(const char * anno, slimfly_param *params){
     slim_total_routers_noah = p->num_groups * p->num_routers;
     slim_total_terminals_noah = p->slim_total_routers * p->num_cn;
     int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_rank(MPI_COMM_CODES, &rank);
     if(!rank) {
         printf("\n Total nodes %d total routers %d total groups %d num_terminals %d num_routers %d radix %d local_channels %d global_channels %d \n",
                 p->num_cn * p->slim_total_routers, p->slim_total_routers, p->num_groups, p->num_cn, p->num_routers,

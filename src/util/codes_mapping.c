@@ -67,7 +67,7 @@ static char local_lp_name[MAX_NAME_LENGTH],
 int codes_mapping_get_lps_for_pe()
 {
     int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_rank(MPI_COMM_CODES, &rank);
 #if CODES_MAPPING_DEBUG
     printf("%d lps for rank %d\n", lps_per_pe_floor+(g_tw_mynode < lps_leftover), rank);
 #endif

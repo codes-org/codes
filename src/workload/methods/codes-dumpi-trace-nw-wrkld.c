@@ -14,6 +14,8 @@
 #include "dumpi/libundumpi/libundumpi.h"
 #include "codes/codes-workload.h"
 #include "codes/quickhash.h"
+#include "codes/codes-jobmap.h"
+#include "codes/model-net.h"
 
 #if ENABLE_CORTEX
 #include <cortex/cortex.h>
@@ -37,6 +39,9 @@
 #define MAX_OPERATIONS 32768
 #define DUMPI_IGNORE_DELAY 100
 #define RANK_HASH_TABLE_SIZE 400
+
+/* This variable is defined in src/network-workloads/model-net-mpi-replay.c */
+extern struct codes_jobmap_ctx *jobmap_ctx; 
 
 static struct qhash_table *rank_tbl = NULL;
 static int rank_tbl_pop = 0;
@@ -651,6 +656,24 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	} else {
 		profile = cortex_undumpi_open(file_name, app_id, dumpi_params->num_net_traces, rank);
 	}
+	
+	{ int i;
+	for(i=0; i < dumpi_params->num_net_traces; i++) {
+		struct codes_jobmap_id id = {
+			.job = app_id,
+			.rank = i
+		};
+		uint32_t cn_id;
+		if(jobmap_ctx) {
+			cn_id = codes_jobmap_to_global_id(id, jobmap_ctx);
+		} else {
+			cn_id = i;
+		}
+		cortex_placement_set(profile, i, cn_id);
+	}
+	}
+	
+	cortex_topology_set(profile,&model_net_topology);
 #else
 	profile =  undumpi_open(file_name);
 #endif

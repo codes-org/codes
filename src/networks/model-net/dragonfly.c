@@ -22,6 +22,11 @@
 #include "codes/quickhash.h"
 #include "codes/rc-stack.h"
 
+#ifdef ENABLE_CORTEX
+#include <cortex/cortex.h>
+#include <cortex/topology.h>
+#endif
+
 #define CREDIT_SZ 8
 #define MEAN_PROCESS 1.0
 
@@ -48,6 +53,11 @@
 #define LP_METHOD_NM_TERM (model_net_method_names[DRAGONFLY])
 #define LP_CONFIG_NM_ROUT (model_net_lp_config_names[DRAGONFLY_ROUTER])
 #define LP_METHOD_NM_ROUT (model_net_method_names[DRAGONFLY_ROUTER])
+
+#ifdef ENABLE_CORTEX
+/* This structure is defined at the end of the file */
+extern cortex_topology dragonfly_cortex_topology;
+#endif
 
 int debug_slot_count = 0;
 long term_ecount, router_ecount, term_rev_ecount, router_rev_ecount;
@@ -573,7 +583,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     p->total_routers = p->num_groups * p->num_routers;
     p->total_terminals = p->total_routers * p->num_cn;
     int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_rank(MPI_COMM_CODES, &rank);
     if(!rank) {
         printf("\n Total nodes %d routers %d groups %d radix %d \n",
                 p->num_cn * p->total_routers, p->total_routers, p->num_groups,
@@ -599,6 +609,9 @@ static void dragonfly_configure(){
     if (anno_map->has_unanno_lp > 0){
         dragonfly_read_config(NULL, &all_params[anno_map->num_annos]);
     }
+#ifdef ENABLE_CORTEX
+	model_net_topology = dragonfly_cortex_topology;
+#endif
 }
 
 /* report dragonfly statistics like average and maximum packet latency, average number of hops traversed */
@@ -610,20 +623,20 @@ static void dragonfly_report_stats()
    int total_minimal_packets, total_nonmin_packets;
    long total_gen, total_fin;
 
-   MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &N_finished_msgs, &total_finished_msgs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &N_finished_chunks, &total_finished_chunks, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &total_msg_sz, &final_msg_sz, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &dragonfly_total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &dragonfly_max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &N_finished_msgs, &total_finished_msgs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &N_finished_chunks, &total_finished_chunks, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &total_msg_sz, &final_msg_sz, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &dragonfly_total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &dragonfly_max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_CODES);
    
-   MPI_Reduce( &packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
    if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
     {
-	MPI_Reduce(&minimal_count, &total_minimal_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
- 	MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(&minimal_count, &total_minimal_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
+ 	MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
     }
 
    /* print statistics */
@@ -3355,3 +3368,75 @@ struct model_net_method dragonfly_router_method =
     .mn_trace_register = router_register_trace,
     .mn_get_trace_type = dragonfly_get_trace_types,
 };
+
+#ifdef ENABLE_CORTEX
+
+static int dragonfly_get_number_of_compute_nodes(void* topo) {
+		// TODO
+		return -1;
+}
+
+static int dragonfly_get_number_of_routers(void* topo) {
+		// TODO
+		return -1;
+}
+
+static double dragonfly_get_router_link_bandwidth(void* topo, router_id_t r1, router_id_t r2) {
+        // TODO
+        return -1.0;
+}
+
+static double dragonfly_get_compute_node_bandwidth(void* topo, cn_id_t node) {
+        // TODO
+        return -1.0;
+}
+
+static int dragonfly_get_router_neighbor_count(void* topo, router_id_t r) {
+        // TODO
+        return 0;
+}
+
+static void dragonfly_get_router_neighbor_list(void* topo, router_id_t r, router_id_t* neighbors) {
+        // TODO
+}
+
+static int dragonfly_get_router_location(void* topo, router_id_t r, int32_t* location, int size) {
+        // TODO
+        return 0;
+}
+
+static int dragonfly_get_compute_node_location(void* topo, cn_id_t node, int32_t* location, int size) {
+        // TODO
+        return 0;
+}
+
+static router_id_t dragonfly_get_router_from_compute_node(void* topo, cn_id_t node) {
+        // TODO
+        return -1;
+}
+
+static int dragonfly_get_router_compute_node_count(void* topo, router_id_t r) {
+        // TODO
+        return 0;
+}
+
+static void dragonfly_get_router_compute_node_list(void* topo, router_id_t r, cn_id_t* nodes) {
+        // TODO
+}
+
+cortex_topology dragonfly_cortex_topology = {
+        .internal = NULL,
+		.get_number_of_routers			= dragonfly_get_number_of_routers,
+		.get_number_of_compute_nodes	= dragonfly_get_number_of_compute_nodes,
+        .get_router_link_bandwidth      = dragonfly_get_router_link_bandwidth,
+        .get_compute_node_bandwidth     = dragonfly_get_compute_node_bandwidth,
+        .get_router_neighbor_count      = dragonfly_get_router_neighbor_count,
+        .get_router_neighbor_list       = dragonfly_get_router_neighbor_list,
+        .get_router_location            = dragonfly_get_router_location,
+        .get_compute_node_location      = dragonfly_get_compute_node_location,
+        .get_router_from_compute_node   = dragonfly_get_router_from_compute_node,
+        .get_router_compute_node_count  = dragonfly_get_router_compute_node_count,
+        .get_router_compute_node_list   = dragonfly_get_router_compute_node_list,
+};
+
+#endif

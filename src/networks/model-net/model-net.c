@@ -14,6 +14,7 @@
 #include "codes/codes.h"
 #include <codes/codes_mapping.h>
 
+
 #define STR_SIZE 16
 #define PROC_TIME 10.0
 
@@ -636,6 +637,11 @@ tw_lpid model_net_find_local_device_mctx(
     return codes_mctx_to_lpid(map_ctx, model_net_lp_config_names[net_id],
             sender_gid);
 }
+
+#ifdef ENABLE_CORTEX
+/* structure that gives access to the topology functions */
+cortex_topology model_net_topology;
+#endif
 
 /*
  * Local variables:

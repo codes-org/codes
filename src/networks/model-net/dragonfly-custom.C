@@ -19,6 +19,12 @@
 #include "codes/rc-stack.h"
 #include <vector>
 #include <map>
+#include <set>
+
+#ifdef ENABLE_CORTEX
+#include <cortex/cortex.h>
+#include <cortex/topology.h>
+#endif
 
 #define DUMP_CONNECTIONS 0
 #define CREDIT_SIZE 8
@@ -62,6 +68,13 @@ struct IntraGroupLink {
 struct InterGroupLink {
   int src, dest;
 };
+
+#ifdef ENABLE_CORTEX
+/* This structure is defined at the end of the file */
+extern "C" {
+extern cortex_topology dragonfly_custom_cortex_topology;
+}
+#endif
 
 static int debug_slot_count = 0;
 static long term_ecount, router_ecount, term_rev_ecount, router_rev_ecount;
@@ -482,7 +495,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     // shorthand
     dragonfly_param *p = params;
     int myRank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
+    MPI_Comm_rank(MPI_COMM_CODES, &myRank);
 
     int rc = configuration_get_value_int(&config, "PARAMS", "local_vc_size", anno, &p->local_vc_size);
     if(rc) {
@@ -564,7 +577,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     rc = configuration_get_value_int(&config, "PARAMS", "num_groups", anno, &p->num_groups);
     if(rc) {
       printf("Number of groups not specified. Aborting");
-      MPI_Abort(MPI_COMM_WORLD, 1);
+      MPI_Abort(MPI_COMM_CODES, 1);
     }
     rc = configuration_get_value_int(&config, "PARAMS", "num_col_chans", anno, &p->num_col_chans);
     if(rc) {
@@ -756,6 +769,9 @@ void dragonfly_custom_configure(){
     if (anno_map->has_unanno_lp > 0){
         dragonfly_read_config(NULL, &all_params[anno_map->num_annos]);
     }
+#ifdef ENABLE_CORTEX
+	model_net_topology = dragonfly_custom_cortex_topology;
+#endif
 }
 
 /* report dragonfly statistics like average and maximum packet latency, average number of hops traversed */
@@ -767,20 +783,20 @@ void dragonfly_custom_report_stats()
    int total_minimal_packets, total_nonmin_packets;
    long total_gen, total_fin;
 
-   MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &N_finished_msgs, &total_finished_msgs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &N_finished_chunks, &total_finished_chunks, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &total_msg_sz, &final_msg_sz, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &dragonfly_total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &dragonfly_max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &N_finished_msgs, &total_finished_msgs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &N_finished_chunks, &total_finished_chunks, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &total_msg_sz, &final_msg_sz, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &dragonfly_total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &dragonfly_max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_CODES);
    
-   MPI_Reduce( &packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce( &packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce( &packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce( &packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
    if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
     {
-	MPI_Reduce(&minimal_count, &total_minimal_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
- 	MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(&minimal_count, &total_minimal_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
+ 	MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
     }
 
    /* print statistics */
@@ -3363,4 +3379,305 @@ struct model_net_method dragonfly_custom_router_method =
     (init_f)dragonfly_custom_rsample_init,
     NULL,//(final_f)dragonfly_custom_rsample_fin
 };
+
+#ifdef ENABLE_CORTEX
+
+static int dragonfly_custom_get_number_of_compute_nodes(void* topo) {
+    
+        const dragonfly_param * params = &all_params[num_params-1];
+        if(!params)
+            return -1.0;
+
+        return params->total_terminals;
+}
+
+static int dragonfly_custom_get_number_of_routers(void* topo) {
+        // TODO
+        const dragonfly_param * params = &all_params[num_params-1];
+        if(!params)
+            return -1.0;
+
+        return params->total_routers;
+}
+
+static double dragonfly_custom_get_router_link_bandwidth(void* topo, router_id_t r1, router_id_t r2) {
+        // TODO: handle this function for multiple cables between the routers.
+        // Right now it returns the bandwidth of a single cable only. 
+	// Given two router ids r1 and r2, this function should return the bandwidth (double)
+	// of the link between the two routers, or 0 of such a link does not exist in the topology.
+	// The function should return -1 if one of the router id is invalid.
+    const dragonfly_param * params = &all_params[num_params-1];
+    if(!params)
+        return -1.0;
+
+    if(r1 > params->total_routers || r2 > params->total_routers)
+        return -1.0;
+
+    if(r1 < 0 || r2 < 0)
+        return -1.0;
+
+    int gid_r1 = r1 / params->num_routers;
+    int gid_r2 = r2 / params->num_routers;
+
+    if(gid_r1 == gid_r2)
+    {
+        int lid_r1 = r1 % params->num_routers;
+        int lid_r2 = r2 % params->num_routers;
+
+        /* The connection will be there if the router is in the same row or
+         * same column */
+        int src_row_r1 = lid_r1 / params->num_router_cols;
+        int src_row_r2 = lid_r2 / params->num_router_cols;
+
+        int src_col_r1 = lid_r1 % params->num_router_cols;
+        int src_col_r2 = lid_r2 % params->num_router_cols;
+
+        if(src_row_r1 == src_row_r2 || src_col_r1 == src_col_r2)
+            return params->local_bandwidth;
+        else
+            return 0.0;
+    }
+    else
+    {
+        vector<bLink> &curVec = interGroupLinks[r1][gid_r2];
+        vector<bLink>::iterator it = curVec.begin();
+
+        for(; it != curVec.end(); it++)
+        {
+            bLink bl = *it;
+            if(bl.dest == r2)
+                return params->global_bandwidth;
+        }
+        
+        return 0.0;
+    }
+    return 0.0;
+}
+
+static double dragonfly_custom_get_compute_node_bandwidth(void* topo, cn_id_t node) {
+        // TODO
+	// Given the id of a compute node, this function should return the bandwidth of the
+	// link connecting this compute node to its router.
+	// The function should return -1 if the compute node id is invalid.
+    const dragonfly_param * params = &all_params[num_params-1];
+    if(!params)
+        return -1.0;
+   
+    if(node < 0 || node >= params->total_terminals)
+        return -1.0;
+    
+    return params->cn_bandwidth;
+}
+
+static int dragonfly_custom_get_router_neighbor_count(void* topo, router_id_t r) {
+        // TODO
+	// Given the id of a router, this function should return the number of routers
+	// (not compute nodes) connected to it. It should return -1 if the router id
+	// is not valid.
+    const dragonfly_param * params = &all_params[num_params-1];
+    if(!params)
+        return -1.0;
+
+    if(r < 0 || r >= params->total_routers)
+        return -1.0;
+
+    /* Now count the global channels */
+    set<router_id_t> g_neighbors;
+
+    map< int, vector<bLink> > &curMap = interGroupLinks[r];
+    map< int, vector<bLink> >::iterator it = curMap.begin(); 
+    for(; it != curMap.end(); it++) {   
+    for(int l = 0; l < it->second.size(); l++) {
+        g_neighbors.insert(it->second[l].dest);
+    }
+    }
+    return (params->num_router_cols - 1) + (params->num_router_rows - 1) + g_neighbors.size();
+}
+
+static void dragonfly_custom_get_router_neighbor_list(void* topo, router_id_t r, router_id_t* neighbors) {
+	// Given a router id r, this function fills the "neighbors" array with the ids of routers
+	// directly connected to r. It is assumed that enough memory has been allocated to "neighbors"
+	// (using get_router_neighbor_count to know the required size).
+    const dragonfly_param * params = &all_params[num_params-1];
+
+    int gid = r / params->num_routers;
+    int src_row = r / params->num_router_cols;
+    int src_col = r % params->num_router_cols;
+
+    /* First the routers in the same row */
+     int i = 0;
+     int offset = 0;
+     while(i < params->num_router_cols)
+     {
+       int neighbor = gid * params->num_routers + (src_row * params->num_router_cols) + i;
+       if(neighbor != r)
+       {
+           neighbors[offset] = neighbor;
+           offset++;
+       }
+       i++;
+     }
+
+    /* Now the routers in the same column. */
+    offset = 0;
+    i = 0;
+    while(i <  params->num_router_rows)
+    {
+        int neighbor = gid * params->num_routers + src_col + (i * params->num_router_cols);
+
+        if(neighbor != r)
+        {
+            neighbors[offset+params->num_router_cols-1] = neighbor;
+            offset++;
+        }
+        i++;
+    }
+    int g_offset = params->num_router_cols + params->num_router_rows - 2;
+    
+    /* Now fill up global channels */
+    set<router_id_t> g_neighbors;
+
+    map< int, vector<bLink> > &curMap = interGroupLinks[r];
+    map< int, vector<bLink> >::iterator it = curMap.begin(); 
+    for(; it != curMap.end(); it++) {   
+    for(int l = 0; l < it->second.size(); l++) {
+        g_neighbors.insert(it->second[l].dest);
+    }
+    }
+    /* Now transfer the content of the sets to the array */
+    set<router_id_t>::iterator it_set;
+    int count = 0;
+
+    for(it_set = g_neighbors.begin(); it_set != g_neighbors.end(); it_set++)
+    {
+        neighbors[g_offset+count] = *it_set;
+        ++count;
+    }
+}
+
+static int dragonfly_custom_get_router_location(void* topo, router_id_t r, int32_t* location, int size) {
+        // TODO
+	// Given a router id r, this function should fill the "location" array (of maximum size "size")
+	// with information providing the location of the router in the topology. In a Dragonfly network,
+	// for instance, this can be the array [ group_id, router_id ] where group_id is the id of the
+	// group in which the router is, and router_id is the id of the router inside this group (as opposed
+	// to "r" which is its global id). For a torus network, this would be the dimensions.
+	// If the "size" is sufficient to hold the information, the function should return the size 
+	// effectively used (e.g. 2 in the above example). If however the function did not manage to use
+	// the provided buffer, it should return -1.
+    const dragonfly_param * params = &all_params[num_params-1];
+    if(!params)
+        return -1;
+
+    if(r < 0 || r >= params->total_terminals)
+        return -1;
+
+    if(size < 2)
+        return -1;
+
+    int rid = r % params->num_routers;
+    int gid = r / params->num_routers;
+    location[0] = gid;
+    location[1] = rid;
+    return 2;
+}
+
+static int dragonfly_custom_get_compute_node_location(void* topo, cn_id_t node, int32_t* location, int size) {
+        // TODO
+	// This function does the same as dragonfly_custom_get_router_location but for a compute node instead
+	// of a router. E.g., for a dragonfly network, the location could be expressed as the array
+	// [ group_id, router_id, terminal_id ]
+    const dragonfly_param * params = &all_params[num_params-1];
+    if(!params)
+        return -1;
+
+    if(node < 0 || node >= params->total_terminals)
+        return -1;
+  
+    if(size < 3)
+        return -1;
+
+    int rid = (node / params->num_cn) % params->num_routers;
+    int rid_global = node / params->num_cn;
+    int gid = rid_global / params->num_routers;
+    int lid = node % params->num_cn;
+   
+    location[0] = gid;
+    location[1] = rid;
+    location[2] = lid;
+
+    return 3;
+}
+
+static router_id_t dragonfly_custom_get_router_from_compute_node(void* topo, cn_id_t node) {
+        // TODO
+	// Given a node id, this function returns the id of the router connected to the node,
+	// or -1 if the node id is not valid.
+        const dragonfly_param * params = &all_params[num_params-1];
+        if(!params)
+            return -1;
+
+        if(node < 0 || node >= params->total_terminals)
+            return -1;
+       
+        router_id_t rid = node / params->num_cn;
+        return rid;
+}
+
+static int dragonfly_custom_get_router_compute_node_count(void* topo, router_id_t r) {
+	// Given the id of a router, returns the number of compute nodes connected to this
+	// router, or -1 if the router id is not valid.
+        const dragonfly_param * params = &all_params[num_params-1];
+        if(!params)
+            return -1;
+
+        if(r < 0 || r >= params->total_routers)
+            return -1;
+        
+        return params->num_cn;
+}
+
+static void dragonfly_custom_get_router_compute_node_list(void* topo, router_id_t r, cn_id_t* nodes) {
+        // TODO: What if there is an invalid router ID?
+	// Given the id of a router, fills the "nodes" array with the list of ids of compute nodes
+	// connected to this router. It is assumed that enough memory has been allocated for the
+	// "nodes" variable to hold all the ids.
+      const dragonfly_param * params = &all_params[num_params-1];
+   
+      for(int i = 0; i < params->num_cn; i++)
+         nodes[i] = r * params->num_cn + i;
+}
+
+extern "C" {
+
+cortex_topology dragonfly_custom_cortex_topology = {
+//        .internal = 
+			NULL,
+//		  .get_number_of_routers          = 
+			dragonfly_custom_get_number_of_routers,
+//		  .get_number_of_compute_nodes	  = 
+			dragonfly_custom_get_number_of_compute_nodes,
+//        .get_router_link_bandwidth      = 
+			dragonfly_custom_get_router_link_bandwidth,
+//        .get_compute_node_bandwidth     = 
+			dragonfly_custom_get_compute_node_bandwidth,
+//        .get_router_neighbor_count      = 
+			dragonfly_custom_get_router_neighbor_count,
+//        .get_router_neighbor_list       = 
+			dragonfly_custom_get_router_neighbor_list,
+//        .get_router_location            = 
+			dragonfly_custom_get_router_location,
+//        .get_compute_node_location      = 
+			dragonfly_custom_get_compute_node_location,
+//        .get_router_from_compute_node   = 
+			dragonfly_custom_get_router_from_compute_node,
+//        .get_router_compute_node_count  = 
+			dragonfly_custom_get_router_compute_node_count,
+//        .get_router_compute_node_list   = dragonfly_custom_get_router_compute_node_list,
+            dragonfly_custom_get_router_compute_node_list
+};
+
+}
+#endif
+
 }
