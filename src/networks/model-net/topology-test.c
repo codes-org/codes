@@ -4,14 +4,22 @@
 
 #include "codes/codes-workload.h"
 #include "codes/codes.h"
+
+#ifdef ENABLE_CORTEX
 #include <cortex/topology.h>
+#endif
+
 #include "codes/model-net.h"
 /* TODO: Replace NUM_NODES and num_routers once we have functions to fetch
  * topology node and router counts. Right now it is hard coded for Theta. */
 extern struct cortex_topology dragonfly_custom_cortex_topology;
 
 int main(int argc, char** argv) {
-  
+
+#ifndef ENABLE_CORTEX
+    printf("\n Cortex needs to be enabled in order to run the test. See <https://xgitlab.cels.anl.gov/codes/codes/wikis/codes-cortex-install> ");
+    return -1;
+#else
   if(argc < 2)
   {
     printf("\n Usage: %s dragonfly-config-file ", argv[0]);
@@ -148,4 +156,5 @@ int main(int argc, char** argv) {
         }
   }
   MPI_Finalize();
+#endif
 }
