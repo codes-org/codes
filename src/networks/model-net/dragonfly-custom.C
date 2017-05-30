@@ -1105,11 +1105,8 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_custom_m
    tw_rand_reverse_unif(lp->rng);
 
    int num_chunks = msg->packet_size/s->params->chunk_size;
-   if(msg->packet_size % s->params->chunk_size)
+   if(msg->packet_size < s->params->chunk_size)
        num_chunks++;
-
-   if(!num_chunks)
-       num_chunks = 1;
 
    int i;
    for(i = 0; i < num_chunks; i++) {
@@ -1147,11 +1144,8 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
   uint64_t num_chunks = msg->packet_size / p->chunk_size;
   double cn_delay = s->params->cn_delay;
 
-  if (msg->packet_size % s->params->chunk_size) 
+  if (msg->packet_size < s->params->chunk_size) 
       num_chunks++;
-
-  if(!num_chunks)
-    num_chunks = 1;
 
   if(msg->packet_size < s->params->chunk_size)
       cn_delay = bytes_to_ns(msg->packet_size % s->params->chunk_size, s->params->cn_bandwidth);
@@ -1296,14 +1290,11 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
   }
 
   uint64_t num_chunks = cur_entry->msg.packet_size/s->params->chunk_size;
-  if(cur_entry->msg.packet_size % s->params->chunk_size)
+  if(cur_entry->msg.packet_size < s->params->chunk_size)
     num_chunks++;
 
-  if(!num_chunks)
-      num_chunks = 1;
-  
   tw_stime delay = s->params->cn_delay;
-  if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
+  if((cur_entry->msg.packet_size < s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
        delay = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, s->params->cn_bandwidth); 
 
   msg->saved_available_time = s->terminal_available_time;
@@ -1584,11 +1575,8 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
   assert(lp->gid != msg->src_terminal_id);
 
   uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
-  if (msg->packet_size % s->params->chunk_size)
+  if (msg->packet_size < s->params->chunk_size)
     num_chunks++;
-
-  if(!num_chunks)
-     num_chunks = 1;
 
   if(msg->path_type == MINIMAL)
     minimal_count++;
@@ -2066,10 +2054,16 @@ dragonfly_custom_terminal_final( terminal_state * s,
       tw_lp * lp )
 {
 	model_net_print_stats(lp->gid, s->dragonfly_stats_array);
-   
+  
+    if(s->terminal_id == 0)
+    {
+        char meta_filename[64];
+        sprintf(meta_filename, "dragonfly-msg-stats.meta");
+
+        FILE * fp = fopen(meta_filename, "w+");
+        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max Latency> <Min Latency >\n");
+    }
     int written = 0;
-    if(!s->terminal_id)
-        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max Latency> <Min Latency >\n");
 
     written += sprintf(s->output_buf + written, "%llu %u %llu %lf %ld %lf %lf %lf %lf\n",
             LLU(lp->gid), s->terminal_id, LLU(s->total_msg_size), s->total_time/s->finished_chunks, 
@@ -3034,17 +3028,15 @@ router_packet_send( router_state * s,
   }
 
   uint64_t num_chunks = cur_entry->msg.packet_size / s->params->chunk_size;
-  if(msg->packet_size % s->params->chunk_size)
+  if(msg->packet_size < s->params->chunk_size)
       num_chunks++;
-  if(!num_chunks)
-      num_chunks = 1;
 
   double bytetime = delay;
  
   if(cur_entry->msg.packet_size == 0)
       bytetime = bytes_to_ns(CREDIT_SIZE, bandwidth);
 
-  if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
+  if((cur_entry->msg.packet_size < s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
       bytetime = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, bandwidth); 
   
   ts = g_tw_lookahead + tw_rand_unif( lp->rng) + bytetime + s->params->router_delay;

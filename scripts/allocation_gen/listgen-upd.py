@@ -64,7 +64,7 @@ def permeate_alloc(job_ranks, total_nodes, cores_per_node):
     f.closed
 
 def random_alloc(job_rank, total_nodes, num_seed, cores_per_node):
-    filename_substr='allocation-'+str(total_nodes)+'-'
+    filename_substr='rand_node1-alloc-'+str(total_nodes)+'-'
     for jobsize in job_rank:
         filename_substr += str(jobsize)+'_'
         #print filename_substr
