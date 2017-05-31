@@ -2071,55 +2071,82 @@ int model_net_torus_get_flat_id(
 
 static int torus_get_number_of_compute_nodes(void* topo) {
 	// TODO
+    (void)topo;
 	return -1;
 }
 
 static int torus_get_number_of_routers(void* topo) {
 	// TODO
+    (void)topo;
 	return -1;
 }
 
 static double torus_get_router_link_bandwidth(void* topo, router_id_t r1, router_id_t r2) {
 	// TODO
+    (void)topo;
+    (void)r1;
+    (void)r2;
 	return -1.0;
 }
 
 static double torus_get_compute_node_bandwidth(void* topo, cn_id_t node) {
 	// TODO
+    (void)topo;
+    (void)node;
 	return -1.0;
 }
 
 static int torus_get_router_neighbor_count(void* topo, router_id_t r) {
 	// TODO
+    (void)topo;
+    (void)r;
 	return 0;
 }
 
 static void torus_get_router_neighbor_list(void* topo, router_id_t r, router_id_t* neighbors) {
 	// TODO
+    (void)topo;
+    (void)r;
+    (void)neighbors;
 }
 
 static int torus_get_router_location(void* topo, router_id_t r, int32_t* location, int size) {
 	// TODO
+    (void)topo;
+    (void)r;
+    (void)location;
+    (void)size;
 	return 0;
 }
 
 static int torus_get_compute_node_location(void* topo, cn_id_t node, int32_t* location, int size) {
 	// TODO
+    (void)topo;
+    (void)node;
+    (void)location;
+    (void)size;
 	return 0;
 }
 
 static router_id_t torus_get_router_from_compute_node(void* topo, cn_id_t node) {
 	// TODO
+    (void)topo;
+    (void)node;
 	return -1;
 }
 
 static int torus_get_router_compute_node_count(void* topo, router_id_t r) {
 	// TODO
+    (void)topo;
+    (void)r;
 	return 0;
 }
 
 static void torus_get_router_compute_node_list(void* topo, router_id_t r, cn_id_t* nodes) {
 	// TODO
+    (void)topo;
+    (void)r;
+    (void)nodes;
 }
 
 cortex_topology torus_cortex_topology = {

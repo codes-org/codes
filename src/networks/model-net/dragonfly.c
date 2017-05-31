@@ -175,7 +175,7 @@ struct dfly_qhash_entry
 {
    struct dfly_hash_key key;
    char * remote_event_data;
-   int num_chunks;
+   uint64_t num_chunks;
    int remote_event_size;
    struct qhash_head hash_link;
 };
@@ -238,7 +238,7 @@ struct terminal_state
    int num_fan_nodes;
 
    const char * anno;
-   const dragonfly_param *params;
+   dragonfly_param *params;
 
    struct qhash_table *rank_tbl;
    uint64_t rank_tbl_pop;
@@ -344,7 +344,7 @@ struct router_state
    int64_t * link_traffic_sample;
 
    const char * anno;
-   const dragonfly_param *params;
+   dragonfly_param *params;
 
    int* prev_hist_num;
    int* cur_hist_num;
@@ -740,8 +740,8 @@ terminal_init( terminal_state * s,
         s->params = &all_params[id];
     }
 
-   int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
-           s->anno, 0);
+   //int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
+   //        s->anno, 0);
 
    s->terminal_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);  
    
@@ -1344,7 +1344,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
   s->packet_counter++;
   s->vc_occupancy[0] += s->params->chunk_size;
   cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, 0); 
-  rc_stack_push(lp, cur_entry, delete_terminal_message_list, s->st);
+  rc_stack_push(lp, cur_entry, (void*)delete_terminal_message_list, s->st);
   s->terminal_length -= s->params->chunk_size;
 
   cur_entry = s->terminal_msgs[0];
@@ -1472,6 +1472,7 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_message * 
 }
 static void send_remote_event(terminal_state * s, terminal_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
 {
+        (void)s;
         void * tmp_ptr = model_net_method_get_edata(DRAGONFLY, msg);
         //tw_stime ts = g_tw_lookahead + bytes_to_ns(msg->remote_event_size_bytes, (1/s->params->cn_bandwidth));
         tw_stime ts = g_tw_lookahead + tw_rand_unif(lp->rng);
@@ -2264,6 +2265,7 @@ static void terminal_buf_update_rc(terminal_state * s,
 		    terminal_message * msg, 
 		    tw_lp * lp)
 {
+      (void)msg;
       s->vc_occupancy[0] += s->params->chunk_size;
       codes_local_latency_reverse(lp);
       if(bf->c1) {
@@ -2279,6 +2281,8 @@ terminal_buf_update(terminal_state * s,
 		    terminal_message * msg, 
 		    tw_lp * lp)
 {
+  (void)msg;
+
   bf->c1 = 0;
   bf->c2 = 0;
   bf->c3 = 0;
@@ -2369,7 +2373,7 @@ dragonfly_terminal_final( terminal_state * s,
     if(!s->terminal_id)
         written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Aggregate packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>");
 
-    written += sprintf(s->output_buf + written, "\n %llu %u %ld %lf %ld %lf %lf",
+    written += sprintf(s->output_buf + written, "\n %llu %u %lld %lf %ld %lf %lf",
             LLU(lp->gid), s->terminal_id, s->total_msg_size, (double)s->total_time/s->finished_packets, 
             s->finished_packets, (double)s->total_hops/s->finished_chunks,
             s->busy_time);
@@ -3049,7 +3053,7 @@ router_packet_send( router_state * s,
   
   cur_entry = return_head(s->pending_msgs[output_port], 
     s->pending_msgs_tail[output_port], output_chan);
-  rc_stack_push(lp, cur_entry, delete_terminal_message_list, s->st);
+  rc_stack_push(lp, cur_entry, (void*)delete_terminal_message_list, s->st);
   
   cur_entry = s->pending_msgs[output_port][2];
  
@@ -3280,6 +3284,8 @@ tw_lptype dragonfly_lps[] =
 /* For ROSS event tracing */
 void dragonfly_event_collect(terminal_message *m, tw_lp *lp, char *buffer)
 {
+    (void)lp;
+
     int type = (int) m->type;
     memcpy(buffer, &type, sizeof(type));
 }
@@ -3373,55 +3379,82 @@ struct model_net_method dragonfly_router_method =
 
 static int dragonfly_get_number_of_compute_nodes(void* topo) {
 		// TODO
+        (void)topo;
 		return -1;
 }
 
 static int dragonfly_get_number_of_routers(void* topo) {
 		// TODO
+        (void)topo;
 		return -1;
 }
 
 static double dragonfly_get_router_link_bandwidth(void* topo, router_id_t r1, router_id_t r2) {
         // TODO
+        (void)topo;
+        (void)r2;
+        (void)r1;
         return -1.0;
 }
 
 static double dragonfly_get_compute_node_bandwidth(void* topo, cn_id_t node) {
         // TODO
+        (void)topo;
+        (void)node;
         return -1.0;
 }
 
 static int dragonfly_get_router_neighbor_count(void* topo, router_id_t r) {
         // TODO
+        (void)topo;
+        (void)r;
         return 0;
 }
 
 static void dragonfly_get_router_neighbor_list(void* topo, router_id_t r, router_id_t* neighbors) {
         // TODO
+        (void)topo;
+        (void)r;
+        (void)neighbors;
 }
 
 static int dragonfly_get_router_location(void* topo, router_id_t r, int32_t* location, int size) {
         // TODO
+        (void)topo;
+        (void)r;
+        (void)location;
+        (void)size;
         return 0;
 }
 
 static int dragonfly_get_compute_node_location(void* topo, cn_id_t node, int32_t* location, int size) {
         // TODO
+        (void)topo;
+        (void)node;
+        (void)location;
+        (void)size;
         return 0;
 }
 
 static router_id_t dragonfly_get_router_from_compute_node(void* topo, cn_id_t node) {
         // TODO
+        (void)topo;
+        (void)node;
         return -1;
 }
 
 static int dragonfly_get_router_compute_node_count(void* topo, router_id_t r) {
         // TODO
+        (void)topo;
+        (void)r;
         return 0;
 }
 
 static void dragonfly_get_router_compute_node_list(void* topo, router_id_t r, cn_id_t* nodes) {
         // TODO
+        (void)topo;
+        (void)r;
+        (void)nodes;
 }
 
 cortex_topology dragonfly_cortex_topology = {
