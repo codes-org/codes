@@ -598,6 +598,11 @@ const tw_lptype* model_net_get_lp_type(int net_id)
    return method_array[net_id]->mn_get_lp_type();
 }
 
+const st_model_types* model_net_get_model_stat_type(int net_id)
+{
+   return method_array[net_id]->mn_get_model_stat_types();
+}
+
 void model_net_report_stats(int net_id)
 {
   if(net_id < 0 || net_id >= MAX_NETS)

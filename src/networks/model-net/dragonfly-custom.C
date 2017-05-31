@@ -1840,7 +1840,7 @@ void dragonfly_custom_rsample_fin(router_state * s,
                 "link traffic for each of the %d links (int64_t) \nsample end time (double) forward events per sample \nreverse events per sample ",
                 p->radix, p->radix);
         fprintf(fp, "\n\nOrdering of links \n%d local (router-router same group) channels \n%d global (router-router remote group)"
-                " channels \n%d terminal channels", p->intra_grp_radix, p->num_global_channels);
+                " channels \n %d terminal channels", p->intra_grp_radix, p->num_global_channels, p->num_cn);
         fclose(fp);
     }
         char rt_fn[MAX_NAME_LENGTH];

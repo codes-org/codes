@@ -1454,7 +1454,7 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
     vc_occupancy_storage_terminal[s->terminal_id][0][index] = s->vc_occupancy[0]/s->params->chunk_size;
 #endif
     cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, 0);
-    rc_stack_push(lp, cur_entry, slim_delete_terminal_message_list, s->st);
+    rc_stack_push(lp, cur_entry, (void*)slim_delete_terminal_message_list, s->st);
     s->terminal_length -= s->params->chunk_size;
 
     cur_entry = s->terminal_msgs[0];
@@ -3137,7 +3137,7 @@ slim_router_packet_send( router_state * s,
 
     cur_entry = return_head(s->pending_msgs[output_port],
             s->pending_msgs_tail[output_port], output_chan);
-    rc_stack_push(lp, cur_entry, slim_delete_terminal_message_list, s->st);
+    rc_stack_push(lp, cur_entry, (void*)slim_delete_terminal_message_list, s->st);
 
     cur_entry = s->pending_msgs[output_port][3];
 

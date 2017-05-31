@@ -166,21 +166,6 @@ struct ftree_qhash_entry
    struct qhash_head hash_link;
 };
 
-/* convert GiB/s and bytes to ns */
- static tw_stime bytes_to_ns(uint64_t bytes, double GB_p_s)
- {
-     tw_stime time;
-
-     /* bytes to GB */
-     time = ((double)bytes)/(1024.0*1024.0*1024.0);
-     /* GiB to s */
-     time = time / GB_p_s;
-     /* s to ns */
-     time = time * 1000.0 * 1000.0 * 1000.0;
-
-     return(time);
- }
-
 /* handles terminal and switch events like packet generate/send/receive/buffer */
 typedef enum event_t event_t;
 typedef struct ft_terminal_state ft_terminal_state;
@@ -564,13 +549,13 @@ static void dot_write_open_file(FILE **fout)
   }
 }
 
-static void dot_write_close_file(FILE **fout)
+/*static void dot_write_close_file(FILE **fout)
 {
   if(!fout || !(*fout)) return;
   if(!dump_topo) return;
   fclose(*fout);
   *fout = NULL;
-}
+}*/
 
 /* sw IDs aren't unique, but level+ID info is */
 static void dot_write_switch_info(switch_state *s, int sw_gid, FILE *fout)
@@ -651,21 +636,21 @@ static void dot_write_sw2term_link(int lsw_lvl, int lsw_id, int lsw_port,
            term_id, lsw_lvl, lsw_id, lsw_port);
 }
 
-static void dot_write_term2sw_link(int term_id, int rsw_lvl, int rsw_id,
+/*static void dot_write_term2sw_link(int term_id, int rsw_lvl, int rsw_id,
                                    int rsw_port, FILE *fout)
 {
   if(!fout) return;
   if(!dump_topo) return;
 
-  /* add +1 to ports, since ibsim/opensm start with physical port number 1
+  *//* add +1 to ports, since ibsim/opensm start with physical port number 1
    * (port 0 is internal sw port)
    */
   //if(NULL != getenv("OSM_ROUTING"))
-     rsw_port++;
+  //   rsw_port++;
 
-  fprintf(fout, "\t\"H_%d\" -> \"S_%d_%d\" [comment=\"P1->P%d\"];\n",
-        term_id, rsw_lvl, rsw_id, rsw_port);
-}
+  //fprintf(fout, "\t\"H_%d\" -> \"S_%d_%d\" [comment=\"P1->P%d\"];\n",
+  //      term_id, rsw_lvl, rsw_id, rsw_port);
+//}
 
 void post_switch_init(switch_state *s, tw_lp *lp)
 {
@@ -1209,7 +1194,6 @@ void switch_init(switch_state * r, tw_lp * lp)
       l0_base++;
     }
     if(p->num_levels == 3) {
-      int l2_base = 0;
       if(p->ft_type == 0) {
         /*for(int rep=0;rep<p->link_repetitions;rep++)*/{
             int rep = 0;
@@ -1824,6 +1808,7 @@ void switch_packet_receive_rc(switch_state * s,
 	s_arrive_r++;
 #endif
     int output_port = msg->saved_vc;
+    tw_rand_reverse_unif(lp->rng);
     if(bf->c1)
     {
         tw_rand_reverse_unif(lp->rng);
@@ -2281,6 +2266,8 @@ void switch_buf_update(switch_state * s, tw_bf * bf, fattree_message * msg,
 
 void ft_send_remote_event(ft_terminal_state * s, fattree_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
 {
+        (void)s;
+
         void * tmp_ptr = model_net_method_get_edata(FATTREE, msg);
 
         //tw_stime ts = g_tw_lookahead + bytes_to_ns(msg->remote_event_size_bytes, (1/s->params->cn_bandwidth));
@@ -2649,10 +2636,13 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
 
   assert(end_port > start_port);
 
-  outport = start_port;
+  //outport = start_port;
+  // when occupancy is same, just choose random port
+  outport = tw_rand_integer(lp->rng, start_port, end_port-1);  
   int load = s->vc_occupancy[outport] + s->queued_length[outport];
   if(load != 0) {
-    for(int port = start_port + 1; port < end_port; port++) {
+    //for(int port = start_port + 1; port < end_port; port++) {
+    for(int port = start_port; port < end_port; port++) {
       if(s->vc_occupancy[port] +  s->queued_length[port] < load) {
         load = s->vc_occupancy[port] +  s->queued_length[port];
         outport = port;
@@ -2734,7 +2724,7 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
     if(!s->terminal_id)
         written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Aggregate packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>\n");
 
-    written += sprintf(s->output_buf + written, "%llu %u %ld %lf %ld %lf %lf\n",
+    written += sprintf(s->output_buf + written, "%llu %u %lld %lf %ld %lf %lf\n",
             LLU(lp->gid), s->terminal_id, s->total_msg_size, s->total_time,
             s->finished_packets, (double)s->total_hops/s->finished_chunks,
             s->busy_time);
@@ -2974,6 +2964,41 @@ tw_lptype fattree_lps[] =
   {NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0},
 };
 
+/* For ROSS event tracing */
+void fattree_event_collect(fattree_message *m, tw_lp *lp, char *buffer, int *collect_flag)
+{
+    (void)lp;
+    (void)collect_flag;
+
+    int type = (int) m->type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+// TODO will need to separate fattree_method into one for terminal and one for switch
+// in order to use the ROSS model stats collection
+st_model_types fattree_model_types[] = {
+    {(rbev_trace_f) fattree_event_collect,
+     sizeof(int),
+     (ev_trace_f) fattree_event_collect,
+     sizeof(int),
+    NULL,
+    0},
+    {NULL, 0, NULL, 0, NULL, 0}
+};
+
+static const st_model_types  *fattree_get_model_stat_types(void)
+{
+    return(&fattree_model_types[0]);
+}
+
+static void fattree_register_model_stats(st_model_types *base_type)
+{
+    st_model_type_register(LP_CONFIG_NM, base_type);
+    st_model_type_register("fattree_switch", &fattree_model_types[0]);
+    //trace_type_register("fattree_switch", base_type);
+}
+/*** END of ROSS event tracing additions */
+
 /* returns the fattree lp type for lp registration */
 static const tw_lptype* fattree_get_cn_lp_type(void)
 {
@@ -3002,62 +3027,91 @@ struct model_net_method fattree_method =
   .mn_report_stats = fattree_report_stats,
 //  .model_net_method_find_local_device = NULL,
   .mn_collective_call = NULL,
-  .mn_collective_call_rc = NULL
+  .mn_collective_call_rc = NULL,
+  .mn_model_stat_register = fattree_register_model_stats,
+  .mn_get_model_stat_types = fattree_get_model_stat_types
 };
 
 #ifdef ENABLE_CORTEX
 
 static int fattree_get_number_of_compute_nodes(void* topo) {
         // TODO
+        (void)topo;
         return -1;
 }
 
 static int fattree_get_number_of_routers(void* topo) {
         // TODO
+        (void)topo;
         return -1;
 }
 
 static double fattree_get_router_link_bandwidth(void* topo, router_id_t r1, router_id_t r2) {
         // TODO
+        (void)topo;
+        (void)r1;
+        (void)r2;
         return -1.0;
 }
 
 static double fattree_get_compute_node_bandwidth(void* topo, cn_id_t node) {
         // TODO
+        (void)topo;
+        (void)node;
         return -1.0;
 }
 
 static int fattree_get_router_neighbor_count(void* topo, router_id_t r) {
         // TODO
+        (void)topo;
+        (void)r;
         return 0;
 }
 
 static void fattree_get_router_neighbor_list(void* topo, router_id_t r, router_id_t* neighbors) {
         // TODO
+        (void)topo;
+        (void)r;
+        (void)neighbors;
 }
 
 static int fattree_get_router_location(void* topo, router_id_t r, int32_t* location, int size) {
         // TODO
+        (void)topo;
+        (void)r;
+        (void)location;
+        (void)size;
         return 0;
 }
 
 static int fattree_get_compute_node_location(void* topo, cn_id_t node, int32_t* location, int size) {
         // TODO
+        (void)topo;
+        (void)node;
+        (void)location;
+        (void)size;
         return 0;
 }
 
 static router_id_t fattree_get_router_from_compute_node(void* topo, cn_id_t node) {
         // TODO
+        (void)topo;
+        (void)node;
         return -1;
 }
 
 static int fattree_get_router_compute_node_count(void* topo, router_id_t r) {
         // TODO
+        (void)topo;
+        (void)r;
         return 0;
 }
 
 static void fattree_get_router_compute_node_list(void* topo, router_id_t r, cn_id_t* nodes) {
         // TODO
+        (void)topo;
+        (void)r;
+        (void)nodes;
 }
 
 cortex_topology fattree_cortex_topology = {
