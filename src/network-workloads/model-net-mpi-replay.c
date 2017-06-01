@@ -18,9 +18,7 @@
 
 /* turning on track lp will generate a lot of output messages */
 #define MN_LP_NM "modelnet_dragonfly_custom"
-
 #define CONTROL_MSG_SZ 64
-#define TRACK_LP -1
 #define TRACE -1
 #define MAX_WAIT_REQS 512
 #define CS_LP_DBG 0
@@ -37,6 +35,7 @@ static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
 
 int enable_msg_tracking = 0;
+tw_lpid TRACK_LP = -1;
 
 int unmatched = 0;
 char workload_type[128];
@@ -103,9 +102,6 @@ long long num_syn_bytes_recvd = 0;
 double max_time = 0,  max_comm_time = 0, max_wait_time = 0, max_send_time = 0, max_recv_time = 0;
 double avg_time = 0, avg_comm_time = 0, avg_wait_time = 0, avg_send_time = 0, avg_recv_time = 0;
 
-/* global variables for codes mapping */
-static char lp_group_name[MAX_NAME_LENGTH], lp_type_name[MAX_NAME_LENGTH], annotation[MAX_NAME_LENGTH];
-static int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
 
 /* runtime option for disabling computation time simulation */
 static int disable_delay = 0;
@@ -352,7 +348,11 @@ static void update_message_size_rc(
         tw_bf * bf,
         struct nw_message * m)
 {
-
+/*TODO: Complete reverse handler */
+    (void)ns;
+    (void)lp;
+    (void)bf;
+    (void)m;
 }
 /* update the message size */
 static void update_message_size(
@@ -364,6 +364,9 @@ static void update_message_size(
         int is_eager,
         int is_send)
 {
+            (void)bf;
+            (void)is_eager;
+
             struct qhash_head * hash_link = NULL;
             tw_stime msg_init_time = qitem->req_init_time;
         
@@ -383,7 +386,7 @@ static void update_message_size(
                 msg_info->num_msgs = 1;
                 msg_info->agg_latency = tw_now(lp) - msg_init_time;
                 msg_info->avg_latency = msg_info->agg_latency;
-                qhash_add(ns->msg_sz_table, &(msg_info->msg_size), &(msg_info->hash_link));
+                qhash_add(ns->msg_sz_table, &(msg_info->msg_size), msg_info->hash_link);
                 qlist_add(&msg_info->ql, &ns->msg_sz_list);
                 //printf("\n Msg size %d aggregate latency %f num messages %d ", m->fwd.num_bytes, msg_info->agg_latency, msg_info->num_msgs);
             }
@@ -402,6 +405,9 @@ static void notify_background_traffic_rc(
         tw_bf * bf,
         struct nw_message * m)
 {
+    (void)ns;
+    (void)bf;
+    (void)m;
     tw_rand_reverse_unif(lp->rng); 
 }
 
@@ -411,6 +417,9 @@ static void notify_background_traffic(
         tw_bf * bf,
         struct nw_message * m)
 {
+        (void)bf;
+        (void)m;
+
         struct codes_jobmap_id jid; 
         jid = codes_jobmap_to_local_id(ns->nw_id, jobmap_ctx);
         
@@ -426,7 +435,7 @@ static void notify_background_traffic(
 
             int num_other_ranks = codes_jobmap_get_num_ranks(other_id, jobmap_ctx);
 
-            lprintf("\n Other ranks %ld ", num_other_ranks);
+            lprintf("\n Other ranks %d ", num_other_ranks);
             tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_exponential(lp->rng, mean_interval/10000);
             tw_lpid global_dest_id;
      
@@ -509,6 +518,10 @@ void finish_bckgnd_traffic_rc(
     struct nw_message * msg,
     tw_lp * lp)
 {
+        (void)b;
+        (void)msg;
+        (void)lp;
+
         ns->is_finished = 0;
         return;
 }
@@ -518,8 +531,10 @@ void finish_bckgnd_traffic(
     struct nw_message * msg,
     tw_lp * lp)
 {
+        (void)b;
+        (void)msg;
         ns->is_finished = 1;
-        lprintf("\n LP %llu completed sending data %lld completed at time %lf ", lp->gid, ns->gen_data, tw_now(lp));
+        lprintf("\n LP %llu completed sending data %lu completed at time %lf ", lp->gid, ns->gen_data, tw_now(lp));
         return;
 }
 
@@ -614,6 +629,9 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
 
 void arrive_syn_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
+    (void)bf;
+    (void)m;
+    (void)lp;
 //    printf("\n Data arrived %d total data %ld ", m->fwd.num_bytes, s->syn_data);
     int data = m->fwd.num_bytes;
     s->syn_data -= data;
@@ -621,6 +639,9 @@ void arrive_syn_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 }
 void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
+    (void)bf;
+    (void)lp;
+
 //    printf("\n Data arrived %d total data %ld ", m->fwd.num_bytes, s->syn_data);
     int data = m->fwd.num_bytes;
     s->syn_data += data;
@@ -629,10 +650,10 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 /* Debugging functions, may generate unused function warning */
 static void print_waiting_reqs(int32_t * reqs, int count)
 {
-    printf("\n Waiting reqs: ");
+    lprintf("\n Waiting reqs: %d count", count);
     int i;
     for(i = 0; i < count; i++ )
-        printf(" %d ", reqs[i]);
+        lprintf(" %d ", reqs[i]);
 }
 static void print_msgs_queue(struct qlist_head * head, int is_send)
 {
@@ -664,6 +685,9 @@ static int clear_completed_reqs(nw_state * s,
         tw_lp * lp,
         int32_t * reqs, int count)
 {
+    (void)s;
+    (void)lp;
+
     int i, matched = 0;
 
     for( i = 0; i < count; i++)
@@ -698,6 +722,7 @@ static void add_completed_reqs(nw_state * s,
         tw_lp * lp,
         int count)
 {
+    (void)lp;
     int i;
     for( i = 0; i < count; i++)
     {
@@ -716,6 +741,8 @@ static int notify_posted_wait(nw_state* s,
         tw_bf * bf, nw_message * m, tw_lp * lp,
         dumpi_req_id completed_req)
 {
+    (void)bf;
+
     struct pending_waits* wait_elem = s->wait_op;
     int wait_completed = 0;
 
@@ -885,12 +912,12 @@ static void codes_exec_mpi_wait_all(
   int i = 0, num_matched = 0;
   m->fwd.num_matched = 0;
 
-  /*if(lp->gid == TRACK)
+  if(lp->gid == TRACK_LP)
   {
       printf("\n MPI Wait all posted ");
       print_waiting_reqs(mpi_op->u.waits.req_ids, count);
       print_completed_queue(&s->completed_reqs);
-  }*/
+  }
       /* check number of completed irecvs in the completion queue */
   for(i = 0; i < count; i++)
   {
@@ -1417,11 +1444,15 @@ static void update_completed_queue(nw_state* s,
 
 static void send_ack_back_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
+    (void)s;
+    (void)bf;
     /* Send an ack back to the sender */
     model_net_event_rc2(lp, &m->event_rc);
 }
 static void send_ack_back(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp, mpi_msgs_queue * mpi_op)
 {
+    (void)bf;
+
     int global_dest_rank = mpi_op->source_rank;
 
     if(alloc_spec)
@@ -1568,6 +1599,9 @@ static void update_message_time(
         nw_message * m,
         tw_lp * lp)
 {
+    (void)bf;
+    (void)lp;
+
     m->rc.saved_send_time = s->send_time;
     s->send_time += m->fwd.msg_send_time;
 }
@@ -1578,6 +1612,8 @@ static void update_message_time_rc(
         nw_message * m,
         tw_lp * lp)
 {
+    (void)bf;
+    (void)lp;
     s->send_time = m->rc.saved_send_time;
 }
 
@@ -1925,7 +1961,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
              }
 
              notify_neighbor(s, lp, bf, m);
-             printf("Client rank %d completed workload, local rank %d .\n", s->nw_id, s->local_rank);
+             printf("Client rank %llu completed workload, local rank %d .\n", s->nw_id, s->local_rank);
 
              return;
         }
@@ -2009,11 +2045,11 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
     if(!s->nw_id)
         written = sprintf(s->output_buf, "# Format <LP ID> <Terminal ID> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time>");
 
-    /*if(s->wait_op)
+    if(s->wait_op)
     {
-        printf("\n Incomplete wait operation Rank %ld ", s->nw_id);
+        lprintf("\n Incomplete wait operation Rank %llu ", s->nw_id);
         print_waiting_reqs(s->wait_op->req_ids, s->wait_op->count);
-    }*/
+    }
     if(alloc_spec == 1)
     {
         struct codes_jobmap_id lid;
@@ -2038,13 +2074,13 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
             qlist_for_each(ent, &s->msg_sz_list)
             {
                 tmp_msg = qlist_entry(ent, struct msg_size_info, ql);
-                printf("\n Rank %d Msg size %d num_msgs %d agg_latency %f avg_latency %f",
+                printf("\n Rank %d Msg size %lld num_msgs %d agg_latency %f avg_latency %f",
                         s->local_rank, tmp_msg->msg_size, tmp_msg->num_msgs, tmp_msg->agg_latency, tmp_msg->avg_latency);
                 //fprintf(msg_size_log, "\n Rank %d Msg size %d num_msgs %d agg_latency %f avg_latency %f",
                 //        s->local_rank, tmp_msg->msg_size, tmp_msg->num_msgs, tmp_msg->agg_latency, tmp_msg->avg_latency);
                 if(s->local_rank == 0)
                 {
-                    fprintf(msg_size_log, "\n %d %d %d %f",
+                    fprintf(msg_size_log, "\n %llu %lld %d %f",
                         s->nw_id, tmp_msg->msg_size, tmp_msg->num_msgs, tmp_msg->avg_latency);
                 }
             }
@@ -2203,6 +2239,9 @@ static void nw_add_lp_type()
  */
 void nw_lp_event_collect(nw_message *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
+    (void)lp;
+    (void)collect_flag;
+
     int type = m->msg_type;
     memcpy(buffer, &type, sizeof(type));
 }
@@ -2213,6 +2252,10 @@ void nw_lp_event_collect(nw_message *m, tw_lp *lp, char *buffer, int *collect_fl
  */
 void nw_lp_model_stat_collect(nw_state *s, tw_lp *lp, char *buffer)
 {
+    (void)s;
+    (void)lp;
+    (void)buffer;
+
     return;
 }
 
@@ -2223,7 +2266,7 @@ st_model_types nw_lp_model_types[] = {
      sizeof(int),
      (model_stat_f) nw_lp_model_stat_collect,
      0},
-    {0}
+    {NULL, 0, NULL, 0, NULL, 0}
 };
 
 static const st_model_types  *nw_lp_get_model_stat_types(void)
