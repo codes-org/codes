@@ -5,6 +5,7 @@
  */
 #include <ross.h>
 #include <inttypes.h>
+#include <sys/stat.h>
 
 #include "codes/codes-workload.h"
 #include "codes/codes.h"
@@ -51,6 +52,7 @@ static tw_stime mean_interval = 100000;
 
 /* Doing LP IO*/
 static char lp_io_dir[256] = {'\0'};
+static char sampling_dir[32] = {'\0'};
 static lp_io_handle io_handle;
 static unsigned int lp_io_use_suffix = 0;
 static int do_lp_io = 0;
@@ -983,7 +985,7 @@ static int rm_matching_rcv(nw_state * ns,
                 && ((qi->source_rank == qitem->source_rank) || qi->source_rank == -1))
         {
             matched = 1;
-            //qitem->num_bytes = qi->num_bytes;
+            qitem->num_bytes = qi->num_bytes;
             break;
         }
         ++index;
@@ -1035,7 +1037,7 @@ static int rm_matching_send(nw_state * ns,
 		(qi->tag == qitem->tag || qitem->tag == -1)
                 && ((qi->source_rank == qitem->source_rank) || qitem->source_rank == -1))
         {
-            //qi->num_bytes = qitem->num_bytes;
+            qi->num_bytes = qitem->num_bytes;
             matched = 1;
             break;
         }
@@ -1263,7 +1265,8 @@ static void codes_exec_mpi_send(nw_state* s,
         global_dest_rank = get_global_id_of_job_rank(mpi_op->u.send.dest_rank, s->app_id);
     }
 
-    //printf("\n Sender rank %d global dest rank %d dest-rank %d rend %d", s->nw_id, global_dest_rank, mpi_op->u.send.dest_rank, is_rend);
+//    if(mpi_op->u.send.tag == -1006)
+//    printf("\n Sender rank %llu global dest rank %d dest-rank %d bytes %d Tag %d", s->nw_id, global_dest_rank, mpi_op->u.send.dest_rank, mpi_op->u.send.num_bytes, mpi_op->u.send.tag);
     m->rc.saved_num_bytes = mpi_op->u.send.num_bytes;
 	/* model-net event */
 	tw_lpid dest_rank = codes_mapping_get_lpid_from_relative(global_dest_rank, NULL, "nw-lp", NULL, 0);
@@ -2329,6 +2332,9 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 
 	jobmap_ctx = NULL; // make sure it's NULL if it's not used
 
+    sprintf(sampling_dir, "sampling-dir");
+    mkdir(sampling_dir, S_IRUSR | S_IWUSR | S_IXUSR);
+
     if(strlen(workloads_conf_file) > 0)
     {
         FILE *name_file = fopen(workloads_conf_file, "r");
@@ -2413,7 +2419,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
        }
    }
    char agg_log_name[512];
-   sprintf(agg_log_name, "mpi-aggregate-logs-%d.bin", rank);
+   sprintf(agg_log_name, "%s/mpi-aggregate-logs-%d.bin", sampling_dir, rank);
    workload_agg_log = fopen(agg_log_name, "w+");
    workload_meta_log = fopen("mpi-workload-meta-log", "w+");
    
