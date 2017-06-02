@@ -16,6 +16,9 @@ extern struct cortex_topology dragonfly_custom_cortex_topology;
 
 int main(int argc, char** argv) {
 
+    (void)argv;
+    (void)argc;
+
 #ifndef ENABLE_CORTEX
     printf("\n Cortex needs to be enabled in order to run the test. See <https://xgitlab.cels.anl.gov/codes/codes/wikis/codes-cortex-install> ");
     return -1;

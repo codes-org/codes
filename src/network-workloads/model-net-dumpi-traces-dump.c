@@ -22,9 +22,8 @@ static int wrkld_id;
 typedef struct nw_state nw_state;
 typedef struct nw_message nw_message;
 
-static int net_id = 0;
 static float noise = 5.0;
-static int num_net_lps, num_nw_lps;
+static int num_net_lps;
 long long num_bytes_sent=0;
 long long num_bytes_recvd=0;
 
@@ -42,10 +41,6 @@ long total_collectives = 0;
 long total_sends = 0;
 long total_recvs = 0;
 long total_delays = 0;
-
-/* global variables for codes mapping */
-static char lp_group_name[MAX_NAME_LENGTH], lp_type_name[MAX_NAME_LENGTH], annotation[MAX_NAME_LENGTH];
-static int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
 
 enum MPI_NW_EVENTS
 {
@@ -187,6 +182,8 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 
 void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
+        (void)bf;
+
         codes_workload_get_next_rc(wrkld_id, 0, (int)s->nw_id, &m->op);
         if(m->op.op_type == CODES_WK_END)
                 return;
@@ -272,6 +269,8 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
 
 static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
+        (void)bf;
+
 		struct codes_workload_op mpi_op;
     		codes_workload_get_next(wrkld_id, 0, (int)s->nw_id, &mpi_op);
 		memcpy(&m->op, &mpi_op, sizeof(struct codes_workload_op));
@@ -366,7 +365,7 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 		total_delays += s->num_delays;
 		total_collectives += s->num_cols;
 		
-		printf("\n LP %ld total sends %ld receives %ld wait_alls %ld waits %ld ", lp->gid, s->num_sends,s->num_recvs, s->num_waitall, s->num_wait);
+		printf("\n LP %llu total sends %ld receives %ld wait_alls %ld waits %ld ", lp->gid, s->num_sends,s->num_recvs, s->num_waitall, s->num_wait);
 	        avg_time += s->total_time;
 		avg_compute_time += s->compute_time;
                 avg_comm_time += (s->total_time - s->compute_time);
@@ -409,8 +408,6 @@ static void nw_add_lp_type()
 int main( int argc, char** argv )
 {
   int rank, nprocs;
-  int num_nets;
-  int* net_ids;
 
   g_tw_ts_end = s_to_ns(60*60*24*365); /* one year, in nsecs */
 
@@ -446,7 +443,6 @@ int main( int argc, char** argv )
     double total_avg_send_time;
     double total_avg_wait_time;
     double total_avg_recv_time;
-    double total_avg_col_time;
     double total_avg_comp_time;
     long overall_sends, overall_recvs, overall_waits, overall_cols;
 	
@@ -466,11 +462,10 @@ int main( int argc, char** argv )
    MPI_Reduce(&total_collectives, &overall_cols, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
 
    if(!g_tw_mynode)
-	printf("\n Total bytes sent %lld recvd %lld \n avg runtime %lf \n avg comm time %lf avg compute time %lf \n avg collective time %lf avg send time %lf \n avg recv time %lf \n avg wait time %lf \n total sends %ld total recvs %ld total waits %ld total collectives %ld ", total_bytes_sent, total_bytes_recvd, 
+	printf("\n Total bytes sent %lld recvd %lld \n avg runtime %lf \n avg comm time %lf avg compute time %lf \n avg send time %lf \n avg recv time %lf \n avg wait time %lf \n total sends %ld total recvs %ld total waits %ld total collectives %ld ", total_bytes_sent, total_bytes_recvd, 
 			avg_run_time/num_net_lps,
 			avg_comm_run_time/num_net_lps,
 			total_avg_comp_time/num_net_lps,
-			total_avg_col_time/num_net_lps,
 			total_avg_send_time/num_net_lps,
 			total_avg_recv_time/num_net_lps,
 			total_avg_wait_time/num_net_lps,

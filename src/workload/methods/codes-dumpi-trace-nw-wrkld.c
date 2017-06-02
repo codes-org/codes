@@ -412,7 +412,6 @@ int handleDUMPIISend(const dumpi_isend *prm, uint16_t thread, const dumpi_time *
         wrkld_per_rank.u.send.count = prm->count;
         wrkld_per_rank.u.send.data_type = prm->datatype;
         wrkld_per_rank.u.send.num_bytes = prm->count * get_num_bytes(myctx,prm->datatype);
-        printf("\n Num bytes %lld num bytes %lld ", prm->count, get_num_bytes(myctx,prm->datatype));
         assert(wrkld_per_rank.u.send.num_bytes >= 0);
     	wrkld_per_rank.u.send.req_id = prm->request;
         wrkld_per_rank.u.send.dest_rank = prm->dest;

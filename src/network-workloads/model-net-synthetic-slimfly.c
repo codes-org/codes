@@ -26,8 +26,6 @@ FILE * slimfly_results_log_2=NULL;
 FILE * slimfly_ross_csv_log=NULL;
 
 static int net_id = 0;
-static int num_routers = 0;
-static int num_servers = 0;
 static int offset = 2;
 static int traffic = 1;
 static double arrival_time = 1000.0;
@@ -45,14 +43,10 @@ static lp_io_handle io_handle;
 static unsigned int lp_io_use_suffix = 0;
 static int do_lp_io = 0;
 
-/* whether to pull instead of push */
-static int do_pull = 0;
-
 static int num_servers_per_rep = 0;
 static int num_routers_per_grp = 0;
 static int num_nodes_per_grp = 0;
 
-static int num_reps = 0;
 static int num_groups = 0;
 static int num_nodes = 0;
 
@@ -197,6 +191,7 @@ static void issue_event(
     svr_state * ns,
     tw_lp * lp)
 {
+    (void)ns;
     tw_event *e;
     svr_msg *m;
     tw_stime kickoff_time;
@@ -256,6 +251,10 @@ static void handle_kickoff_rev_event(
             svr_msg * m,
             tw_lp * lp)
 {
+    (void)b;
+    (void)m;
+    (void)lp;
+
     if(b->c1)
         tw_rand_reverse_unif(lp->rng);
 
@@ -270,6 +269,8 @@ static void handle_kickoff_event(
 	    svr_msg * m,
 	    tw_lp * lp)
 {
+    (void)m;
+
     char anno[MAX_NAME_LENGTH];
     tw_lpid local_dest = -1, global_dest = -1;
    
@@ -336,6 +337,9 @@ static void handle_remote_rev_event(
             svr_msg * m,
             tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
         ns->msg_recvd_count--;
 }
 
@@ -345,6 +349,9 @@ static void handle_remote_event(
 	    svr_msg * m,
 	    tw_lp * lp)
 {
+    (void)b;
+    (void)m;
+    (void)lp;
 	ns->msg_recvd_count++;
 }
 
@@ -354,6 +361,9 @@ static void handle_local_rev_event(
                 svr_msg * m,
                 tw_lp * lp)
 {
+    (void)b;
+    (void)m;
+    (void)lp;
 	ns->local_recvd_count--;
 }
 
@@ -363,18 +373,10 @@ static void handle_local_event(
                 svr_msg * m,
                 tw_lp * lp)
 {
+    (void)b;
+    (void)m;
+    (void)lp;
     ns->local_recvd_count++;
-}
-/* convert ns to seconds */
-static tw_stime ns_to_s(tw_stime ns)
-{
-    return(ns / (1000.0 * 1000.0 * 1000.0));
-}
-
-/* convert seconds to ns */
-static tw_stime s_to_ns(tw_stime ns)
-{
-    return(ns * (1000.0 * 1000.0 * 1000.0));
 }
 
 int index_mine = 0;

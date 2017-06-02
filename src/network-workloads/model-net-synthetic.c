@@ -28,7 +28,7 @@ static int num_servers_per_rep = 0;
 static int num_routers_per_grp = 0;
 static int num_nodes_per_grp = 0;
 static int num_groups = 0;
-static int num_nodes = 0;
+static unsigned long long num_nodes = 0;
 
 static char lp_io_dir[256] = {'\0'};
 static lp_io_handle io_handle;
@@ -112,6 +112,8 @@ tw_lptype svr_lp = {
  */
 void svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
+    (void)lp;
+    (void)collect_flag;
     int type = (int) m->svr_event_type;
     memcpy(buffer, &type, sizeof(type));
 }
@@ -122,6 +124,9 @@ void svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
  */
 void svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
 {
+    (void)s;
+    (void)lp;
+    (void)buffer;
     return;
 }
 
@@ -132,7 +137,7 @@ st_model_types svr_model_types[] = {
      sizeof(int),
      (model_stat_f) svr_model_stat_collect,
      0},
-    {0}
+    {NULL, 0, NULL, 0, NULL, 0}
 };
 
 static const st_model_types  *svr_get_model_stat_types(void)
@@ -172,6 +177,8 @@ static void issue_event(
     svr_state * ns,
     tw_lp * lp)
 {
+    (void)ns;
+
     tw_event *e;
     svr_msg *m;
     tw_stime kickoff_time;
@@ -278,6 +285,9 @@ static void handle_remote_rev_event(
             svr_msg * m,
             tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
         ns->msg_recvd_count--;
 }
 
@@ -287,6 +297,9 @@ static void handle_remote_event(
 	    svr_msg * m,
 	    tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
 	ns->msg_recvd_count++;
 }
 
@@ -296,6 +309,9 @@ static void handle_local_rev_event(
                 svr_msg * m,
                 tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
 	ns->local_recvd_count--;
 }
 
@@ -305,6 +321,9 @@ static void handle_local_event(
                 svr_msg * m,
                 tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
     ns->local_recvd_count++;
 }
 /* convert ns to seconds */

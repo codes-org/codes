@@ -126,6 +126,10 @@ tw_lptype svr_lp = {
  */
 void ft_svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
+    (void)lp;
+    (void)buffer;
+    (void)collect_flag;
+
     int type = (int) m->svr_event_type;
     memcpy(buffer, &type, sizeof(type));
 }
@@ -136,6 +140,10 @@ void ft_svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag
  */
 void ft_svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
 {
+    (void)s;
+    (void)lp;
+    (void)buffer;
+
     return;
 }
 
@@ -146,7 +154,7 @@ st_model_types ft_svr_model_types[] = {
      sizeof(int),
      (model_stat_f) ft_svr_model_stat_collect,
      0},
-    {0}
+    {NULL, 0, NULL, 0, NULL, 0}
 };
 
 static const st_model_types  *ft_svr_get_model_stat_types(void)

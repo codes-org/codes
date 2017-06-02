@@ -28,7 +28,7 @@ static int num_routers_per_grp = 0;
 static int num_nodes_per_grp = 0;
 static int num_nodes_per_cn = 0;
 static int num_groups = 0;
-static int num_nodes = 0;
+static unsigned long long num_nodes = 0;
 
 static char lp_io_dir[256] = {'\0'};
 static lp_io_handle io_handle;
@@ -133,6 +133,7 @@ static void issue_event(
     svr_state * ns,
     tw_lp * lp)
 {
+    (void)ns;
     tw_event *e;
     svr_msg *m;
     tw_stime kickoff_time;
@@ -239,6 +240,9 @@ static void handle_remote_rev_event(
             svr_msg * m,
             tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
         ns->msg_recvd_count--;
 }
 
@@ -248,6 +252,9 @@ static void handle_remote_event(
 	    svr_msg * m,
 	    tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
 	ns->msg_recvd_count++;
 }
 
@@ -257,6 +264,9 @@ static void handle_local_rev_event(
                 svr_msg * m,
                 tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
 	ns->local_recvd_count--;
 }
 
@@ -266,6 +276,9 @@ static void handle_local_event(
                 svr_msg * m,
                 tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
     ns->local_recvd_count++;
 }
 /* convert ns to seconds */
