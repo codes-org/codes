@@ -22,7 +22,7 @@
 #define CONTROL_MSG_SZ 64
 #define TRACE -1
 #define MAX_WAIT_REQS 512
-#define CS_LP_DBG 0
+#define CS_LP_DBG 1
 #define EAGER_THRESHOLD 81920000
 #define RANK_HASH_TABLE_SZ 2000
 #define NOISE 3.0
@@ -914,7 +914,7 @@ static void codes_exec_mpi_wait_all(
   int i = 0, num_matched = 0;
   m->fwd.num_matched = 0;
 
-  if(lp->gid == TRACK_LP)
+  //if(lp->gid == TRACK_LP)
   {
       printf("\n MPI Wait all posted ");
       print_waiting_reqs(mpi_op->u.waits.req_ids, count);
@@ -1082,6 +1082,7 @@ static void codes_issue_next_event(tw_lp* lp)
    tw_stime ts;
 
    ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
+   assert(ts > 0);
    e = tw_event_new( lp->gid, ts, lp );
    msg = tw_event_data(e);
 
@@ -1102,6 +1103,7 @@ static void codes_exec_comp_delay(
     ts = s_to_ns(mpi_op->u.delay.seconds);
 
 	ts += g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
+    assert(ts > 0);
 
 	e = tw_event_new( lp->gid, ts , lp );
 	msg = tw_event_data(e);
@@ -1560,10 +1562,12 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
 
     if(m->fwd.num_bytes < EAGER_THRESHOLD)
     {
+        tw_stime ts = codes_local_latency(lp);
+        assert(ts > 0);
         bf->c1 = 1;
         tw_event *e_callback =
         tw_event_new(rank_to_lpid(global_src_id),
-                codes_local_latency(lp), lp);
+                ts, lp);
         nw_message *m_callback = tw_event_data(e_callback);
         m_callback->msg_type = MPI_SEND_ARRIVED_CB;
         m_callback->fwd.msg_send_time = tw_now(lp) - m->fwd.sim_start_time;
@@ -1632,6 +1636,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->mpi_wkld_samples = calloc(MAX_STATS, sizeof(struct mpi_workload_sample));
    s->sampling_indx = 0;
    s->is_finished = 0;
+   s->cur_interval_end = 0;
 
    if(!num_net_traces)
 	num_net_traces = num_mpi_lps;

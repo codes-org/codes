@@ -412,6 +412,7 @@ int handleDUMPIISend(const dumpi_isend *prm, uint16_t thread, const dumpi_time *
         wrkld_per_rank.u.send.count = prm->count;
         wrkld_per_rank.u.send.data_type = prm->datatype;
         wrkld_per_rank.u.send.num_bytes = prm->count * get_num_bytes(myctx,prm->datatype);
+        printf("\n Num bytes %lld num bytes %lld ", prm->count, get_num_bytes(myctx,prm->datatype));
         assert(wrkld_per_rank.u.send.num_bytes >= 0);
     	wrkld_per_rank.u.send.req_id = prm->request;
         wrkld_per_rank.u.send.dest_rank = prm->dest;
@@ -440,7 +441,7 @@ int handleDUMPIIRecv(const dumpi_irecv *prm, uint16_t thread, const dumpi_time *
 	    wrkld_per_rank.u.recv.tag = prm->tag;
         wrkld_per_rank.u.recv.num_bytes = prm->count * get_num_bytes(myctx,prm->datatype);
 	    
-        assert(wrkld_per_rank.u.recv.num_bytes >= 0);
+        //assert(wrkld_per_rank.u.recv.num_bytes >= 0);
         wrkld_per_rank.u.recv.source_rank = prm->source;
         wrkld_per_rank.u.recv.dest_rank = -1;
 	    wrkld_per_rank.u.recv.req_id = prm->request;
@@ -523,6 +524,7 @@ int handleDUMPISendrecv(const dumpi_sendrecv* prm, uint16_t thread,
 		wrkld_per_rank.u.send.count = prm->sendcount;
 		wrkld_per_rank.u.send.data_type = prm->sendtype;
 		wrkld_per_rank.u.send.num_bytes = prm->sendcount * get_num_bytes(myctx,prm->sendtype);
+
 		assert(wrkld_per_rank.u.send.num_bytes >= 0);
 		wrkld_per_rank.u.send.dest_rank = prm->dest;
 		wrkld_per_rank.u.send.source_rank = myctx->my_rank;
@@ -926,7 +928,9 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 
 	return 0;
 }
-
+/* Data types are for 64-bit archs. Source:
+ * https://www.tutorialspoint.com/cprogramming/c_data_types.htm 
+ * */
 static int64_t get_num_bytes(rank_mpi_context* myctx, dumpi_datatype dt)
 {
 #ifdef ENABLE_CORTEX
@@ -957,28 +961,55 @@ static int64_t get_num_bytes(rank_mpi_context* myctx, dumpi_datatype dt)
 	break;
 
 	 case DUMPI_INT:
-	 case DUMPI_UNSIGNED:
-	 case DUMPI_FLOAT:
-	 case DUMPI_FLOAT_INT:
 		return 4;
 	 break;
 
+	 case DUMPI_UNSIGNED:
+     return 4;
+     break;
+
+	 case DUMPI_FLOAT:
+	 case DUMPI_FLOAT_INT:
+        return 4;
+     break;
+
 	case DUMPI_DOUBLE:
+     return 8;
+    break;
+
 	case DUMPI_LONG:
+     return 8;
+     break;
+
 	case DUMPI_LONG_INT:
+     return 8;
+     break;
+
 	case DUMPI_UNSIGNED_LONG:
+     return 8;
+     break;
+
 	case DUMPI_LONG_LONG_INT:
+     return 8;
+     break;
+
 	case DUMPI_UNSIGNED_LONG_LONG:
+     return 8;
+     break;
+
 	case DUMPI_LONG_LONG:
+     return 8;
+     break;
+
 	case DUMPI_DOUBLE_INT:
 		return 8;
 	break;
 
-	case DUMPI_LONG_DOUBLE:
 	case DUMPI_LONG_DOUBLE_INT:
-		return 16;
-	break;
-	
+	case DUMPI_LONG_DOUBLE:
+        return 10;
+        break;
+
 	default:
 	  {
         tw_error(TW_LOC, "\n undefined data type");
