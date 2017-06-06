@@ -76,6 +76,7 @@ struct svr_msg
     enum svr_event svr_event_type;
     tw_lpid src;          /* source of this request or ack */
     int incremented_flag; /* helper for reverse computation */
+    model_net_event_return event_rc; /* model-net event reverse computation flag */
 };
 
 static void svr_init(
@@ -218,7 +219,7 @@ static void handle_kickoff_rev_event(
     if(b->c1)
         tw_rand_reverse_unif(lp->rng);
 
-    model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+    model_net_event_rc2(lp, &m->event_rc);
 	ns->msg_sent_count--;
     tw_rand_reverse_unif(lp->rng);
 }

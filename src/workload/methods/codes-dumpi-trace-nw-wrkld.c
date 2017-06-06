@@ -935,6 +935,8 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
  * */
 static int64_t get_num_bytes(rank_mpi_context* myctx, dumpi_datatype dt)
 {
+    (void)myctx;
+
 #ifdef ENABLE_CORTEX
    return cortex_datatype_get_size(myctx->profile,dt);
 #endif
