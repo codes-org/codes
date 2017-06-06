@@ -23,7 +23,7 @@
 #define TRACE -1
 #define MAX_WAIT_REQS 512
 #define CS_LP_DBG 1
-#define EAGER_THRESHOLD 81920000
+#define EAGER_THRESHOLD 8192000
 #define RANK_HASH_TABLE_SZ 2000
 #define NOISE 3.0
 #define NW_LP_NM "nw-lp"
@@ -1056,6 +1056,8 @@ static int rm_matching_send(nw_state * ns,
             bf->c10 = 1;
             send_ack_back(ns, bf, m, lp, qi);
         }
+	    rc_stack_push(lp, qi, free, ns->processed_ops);
+
         m->rc.saved_recv_time = ns->recv_time;
         ns->recv_time += (tw_now(lp) - qitem->req_init_time);
 
@@ -1217,7 +1219,6 @@ static void codes_exec_mpi_recv(
 	  {
         m->fwd.found_match = found_matching_sends;
         codes_issue_next_event(lp);
-	    rc_stack_push(lp, recv_op, free, s->processed_ops);
       }
 }
 
@@ -1245,11 +1246,16 @@ static void codes_exec_mpi_send_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_
            }
         }
         model_net_event_rc2(lp, &m->event_rc);
-        if(m->op_type == CODES_WK_ISEND)
+
+        if(bf->c4)
             codes_issue_next_event_rc(lp);
         s->num_sends--;
-        s->num_bytes_sent -= m->rc.saved_num_bytes;
-        num_bytes_sent -= m->rc.saved_num_bytes;
+
+        if(bf->c3)
+        {
+            s->num_bytes_sent -= m->rc.saved_num_bytes;
+            num_bytes_sent -= m->rc.saved_num_bytes;
+        }
 }
 /* executes MPI send and isend operations */
 static void codes_exec_mpi_send(nw_state* s,
@@ -1267,7 +1273,6 @@ static void codes_exec_mpi_send(nw_state* s,
         global_dest_rank = get_global_id_of_job_rank(mpi_op->u.send.dest_rank, s->app_id);
     }
 
-//    if(mpi_op->u.send.tag == -1006)
 //    printf("\n Sender rank %llu global dest rank %d dest-rank %d bytes %d Tag %d", s->nw_id, global_dest_rank, mpi_op->u.send.dest_rank, mpi_op->u.send.num_bytes, mpi_op->u.send.tag);
     m->rc.saved_num_bytes = mpi_op->u.send.num_bytes;
 	/* model-net event */
@@ -1275,6 +1280,7 @@ static void codes_exec_mpi_send(nw_state* s,
 
     if(!is_rend)
     {
+        bf->c3 = 1;
         num_bytes_sent += mpi_op->u.send.num_bytes;
         s->num_bytes_sent += mpi_op->u.send.num_bytes;
     }
@@ -1371,7 +1377,10 @@ static void codes_exec_mpi_send(nw_state* s,
     }
 	/* isend executed, now get next MPI operation from the queue */
 	if(mpi_op->op_type == CODES_WK_ISEND && !is_rend)
+    {
+       bf->c4 = 1;
 	   codes_issue_next_event(lp);
+    }
 }
 
 /* convert seconds to ns */
@@ -1427,11 +1436,11 @@ static void update_completed_queue(nw_state* s,
         req->req_id = req_id;
         qlist_add_tail(&req->ql, &s->completed_reqs);
 
-/*        if(lp->gid == TRACK)
+       // if(lp->gid == TRACK)
         {
             printf("\n Forward mode adding %ld ", req_id);
             print_completed_queue(&s->completed_reqs);
-        }*/
+        }
     }
     else
      {
@@ -1477,7 +1486,7 @@ static void send_ack_back(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp, m
     remote_m.fwd.num_bytes = mpi_op->num_bytes;
     remote_m.fwd.req_id = mpi_op->req_id;  
 
-//    printf("\n Op type %d dest rank %d ", mpi_op->op_type, mpi_op->dest_rank);
+    printf("\n Op type %d dest rank %d ", mpi_op->op_type, mpi_op->dest_rank);
     m->event_rc = model_net_event_mctx(net_id, &group_ratio, &group_ratio, 
         "test", dest_rank, CONTROL_MSG_SZ, (self_overhead + soft_delay_mpi + nic_delay),
     sizeof(nw_message), (const void*)&remote_m, 0, NULL, lp);
@@ -1780,14 +1789,15 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
             mpi_op.source_rank = m->fwd.src_rank;
             mpi_op.dest_rank = m->fwd.dest_rank;
             mpi_op.req_init_time = m->fwd.sim_start_time;
-            
-            update_message_size(s, lp, bf, m, &mpi_op, 0, 1);
+           
+            if(enable_msg_tracking)
+                update_message_size(s, lp, bf, m, &mpi_op, 0, 1);
         
             int global_src_id = m->fwd.src_rank;
+            
             if(alloc_spec)
-            {
-            global_src_id = get_global_id_of_job_rank(m->fwd.src_rank, s->app_id);
-            }
+                global_src_id = get_global_id_of_job_rank(m->fwd.src_rank, s->app_id);
+            
             tw_event *e_callback =
             tw_event_new(rank_to_lpid(global_src_id),
                 codes_local_latency(lp), lp);
@@ -1811,6 +1821,7 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
             mpi_op.u.send.dest_rank = m->fwd.dest_rank;
             mpi_op.sim_start_time = m->fwd.sim_start_time;
             mpi_op.u.send.req_id = m->fwd.req_id;
+            printf("\n Global dest rank %d ", m->fwd.dest_rank);
 
             codes_exec_mpi_send(s, bf, m, lp, &mpi_op, is_rend);
         }

@@ -472,7 +472,8 @@ int handleDUMPISend(const dumpi_send *prm, uint16_t thread,
         wrkld_per_rank.u.send.source_rank = myctx->my_rank;
          wrkld_per_rank.u.send.req_id = -1;
 
-        update_times_and_insert(&wrkld_per_rank, wall, myctx);
+        
+         update_times_and_insert(&wrkld_per_rank, wall, myctx);
         return 0;
 }
 
@@ -524,7 +525,8 @@ int handleDUMPISendrecv(const dumpi_sendrecv* prm, uint16_t thread,
 		wrkld_per_rank.u.send.data_type = prm->sendtype;
 		wrkld_per_rank.u.send.num_bytes = prm->sendcount * get_num_bytes(myctx,prm->sendtype);
 
-		assert(wrkld_per_rank.u.send.num_bytes >= 0);
+		
+        assert(wrkld_per_rank.u.send.num_bytes >= 0);
 		wrkld_per_rank.u.send.dest_rank = prm->dest;
 		wrkld_per_rank.u.send.source_rank = myctx->my_rank;
 		wrkld_per_rank.u.send.req_id = -1;
@@ -538,7 +540,8 @@ int handleDUMPISendrecv(const dumpi_sendrecv* prm, uint16_t thread,
 		wrkld_per_rank.u.recv.count = prm->recvcount;
 		wrkld_per_rank.u.recv.data_type = prm->recvtype;
 		wrkld_per_rank.u.recv.num_bytes = prm->recvcount * get_num_bytes(myctx,prm->recvtype);
-		assert(wrkld_per_rank.u.recv.num_bytes >= 0);
+
+        assert(wrkld_per_rank.u.recv.num_bytes >= 0);
 		wrkld_per_rank.u.recv.source_rank = prm->source;
 		wrkld_per_rank.u.recv.dest_rank = -1;
 		update_times_and_insert(&wrkld_per_rank, wall, myctx);
