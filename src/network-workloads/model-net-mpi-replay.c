@@ -35,7 +35,7 @@
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
 
-/* Message tracking works in sequential mode only! */
+/* NOTE: Message tracking works in sequential mode only! */
 int enable_msg_tracking = 0;
 tw_lpid TRACK_LP = -1;
 
@@ -288,7 +288,7 @@ struct nw_message
        double saved_recv_time;
        double saved_wait_time;
        double saved_delay;
-       int16_t saved_num_bytes;
+       int32_t saved_num_bytes;
    } rc;
 };
 
@@ -1268,6 +1268,10 @@ static void codes_exec_mpi_send(nw_state* s,
         struct codes_workload_op * mpi_op,
         int is_rend)
 {
+    bf->c3 = 0;
+    bf->c1 = 0;
+    bf->c4 = 0;
+
 	/* model-net event */
     int global_dest_rank = mpi_op->u.send.dest_rank;
 
@@ -1282,7 +1286,7 @@ static void codes_exec_mpi_send(nw_state* s,
 	/* model-net event */
 	tw_lpid dest_rank = codes_mapping_get_lpid_from_relative(global_dest_rank, NULL, "nw-lp", NULL, 0);
 
-    if(!is_rend)
+    if(is_rend == 1 || (!is_rend && mpi_op->u.send.num_bytes < EAGER_THRESHOLD))
     {
         bf->c3 = 1;
         num_bytes_sent += mpi_op->u.send.num_bytes;
@@ -1774,7 +1778,7 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 
     assert(s->app_id >= 0 && s->local_rank >= 0);
 
-    *(int *)bf = (int)0;
+    //*(int *)bf = (int)0;
     rc_stack_gc(lp, s->matched_reqs);
     rc_stack_gc(lp, s->processed_ops);
     rc_stack_gc(lp, s->processed_wait_op);
@@ -2069,11 +2073,12 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
     if(!s->nw_id)
         written = sprintf(s->output_buf, "# Format <LP ID> <Terminal ID> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time>");
 
-    if(s->wait_op)
+    /*if(s->wait_op)
     {
         lprintf("\n Incomplete wait operation Rank %llu ", s->nw_id);
         print_waiting_reqs(s->wait_op->req_ids, s->wait_op->count);
-    }
+        print_completed_queue(&s->completed_reqs);
+    }*/
     if(alloc_spec == 1)
     {
         struct codes_jobmap_id lid;
@@ -2516,8 +2521,9 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
     }
    model_net_report_stats(net_id);
    
-   if(unmatched)         
-        tw_error(TW_LOC, "\n Unmatched send and receive, terminating simulation");
+   if(unmatched && g_tw_mynode == 0) 
+       fprintf(stderr, "\n Warning: unmatched send and receive operations found.\n");
+        //tw_error(TW_LOC, "\n Unmatched send and receive, terminating simulation");
    
    if(alloc_spec)
        codes_jobmap_destroy(jobmap_ctx);
