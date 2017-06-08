@@ -14,6 +14,7 @@
 #include "codes/codes.h"
 #include <codes/codes_mapping.h>
 
+
 #define STR_SIZE 16
 #define PROC_TIME 10.0
 
@@ -597,6 +598,11 @@ const tw_lptype* model_net_get_lp_type(int net_id)
    return method_array[net_id]->mn_get_lp_type();
 }
 
+const st_model_types* model_net_get_model_stat_type(int net_id)
+{
+   return method_array[net_id]->mn_get_model_stat_types();
+}
+
 void model_net_report_stats(int net_id)
 {
   if(net_id < 0 || net_id >= MAX_NETS)
@@ -636,6 +642,11 @@ tw_lpid model_net_find_local_device_mctx(
     return codes_mctx_to_lpid(map_ctx, model_net_lp_config_names[net_id],
             sender_gid);
 }
+
+#ifdef ENABLE_CORTEX
+/* structure that gives access to the topology functions */
+cortex_topology model_net_topology;
+#endif
 
 /*
  * Local variables:

@@ -17,6 +17,11 @@
 #include "codes/net/torus.h"
 #include "codes/rc-stack.h"
 
+#ifdef ENABLE_CORTEX
+#include <cortex/cortex.h>
+#include <cortex/topology.h>
+#endif
+
 #define DEBUG 1
 #define MEAN_INTERVAL 100
 // type casts to make compiler happy
@@ -34,6 +39,11 @@
 
 #define LP_CONFIG_NM (model_net_lp_config_names[TORUS])
 #define LP_METHOD_NM (model_net_method_names[TORUS])
+
+#ifdef ENABLE_CORTEX
+/* This structure is defined at the end of the file */
+extern cortex_topology torus_cortex_topology;
+#endif
 
 static double maxd(double a, double b) { return a < b ? b : a; }
 
@@ -380,6 +390,9 @@ static void torus_configure(){
     if (anno_map->has_unanno_lp > 0){
         torus_read_config(NULL, &all_params[anno_map->num_annos]);
     }
+#ifdef ENABLE_CORTEX
+	model_net_topology = torus_cortex_topology;
+#endif
 }
 
 /* helper functions - convert between flat ids and torus n-dimensional ids */
@@ -1687,10 +1700,10 @@ static void torus_report_stats()
     long long avg_hops, total_finished_packets;
     tw_stime avg_time, max_time;
 
-    MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce( &total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce( &max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+    MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+    MPI_Reduce( &total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
+    MPI_Reduce( &max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_CODES);
 
     if(!g_tw_mynode)
      {
@@ -2053,6 +2066,105 @@ int model_net_torus_get_flat_id(
 {
     return to_flat_id(ndims, dim_lens, dim_ids);
 }
+
+#ifdef ENABLE_CORTEX
+
+static int torus_get_number_of_compute_nodes(void* topo) {
+	// TODO
+    (void)topo;
+	return -1;
+}
+
+static int torus_get_number_of_routers(void* topo) {
+	// TODO
+    (void)topo;
+	return -1;
+}
+
+static double torus_get_router_link_bandwidth(void* topo, router_id_t r1, router_id_t r2) {
+	// TODO
+    (void)topo;
+    (void)r1;
+    (void)r2;
+	return -1.0;
+}
+
+static double torus_get_compute_node_bandwidth(void* topo, cn_id_t node) {
+	// TODO
+    (void)topo;
+    (void)node;
+	return -1.0;
+}
+
+static int torus_get_router_neighbor_count(void* topo, router_id_t r) {
+	// TODO
+    (void)topo;
+    (void)r;
+	return 0;
+}
+
+static void torus_get_router_neighbor_list(void* topo, router_id_t r, router_id_t* neighbors) {
+	// TODO
+    (void)topo;
+    (void)r;
+    (void)neighbors;
+}
+
+static int torus_get_router_location(void* topo, router_id_t r, int32_t* location, int size) {
+	// TODO
+    (void)topo;
+    (void)r;
+    (void)location;
+    (void)size;
+	return 0;
+}
+
+static int torus_get_compute_node_location(void* topo, cn_id_t node, int32_t* location, int size) {
+	// TODO
+    (void)topo;
+    (void)node;
+    (void)location;
+    (void)size;
+	return 0;
+}
+
+static router_id_t torus_get_router_from_compute_node(void* topo, cn_id_t node) {
+	// TODO
+    (void)topo;
+    (void)node;
+	return -1;
+}
+
+static int torus_get_router_compute_node_count(void* topo, router_id_t r) {
+	// TODO
+    (void)topo;
+    (void)r;
+	return 0;
+}
+
+static void torus_get_router_compute_node_list(void* topo, router_id_t r, cn_id_t* nodes) {
+	// TODO
+    (void)topo;
+    (void)r;
+    (void)nodes;
+}
+
+cortex_topology torus_cortex_topology = {
+	.internal = NULL,
+	.get_number_of_compute_nodes = torus_get_number_of_compute_nodes,
+	.get_number_of_routers	= torus_get_number_of_routers,
+	.get_router_link_bandwidth 	= torus_get_router_link_bandwidth,
+	.get_compute_node_bandwidth 	= torus_get_compute_node_bandwidth,
+	.get_router_neighbor_count 	= torus_get_router_neighbor_count,
+	.get_router_neighbor_list	= torus_get_router_neighbor_list,
+	.get_router_location		= torus_get_router_location,
+	.get_compute_node_location	= torus_get_compute_node_location,
+	.get_router_from_compute_node	= torus_get_router_from_compute_node,
+	.get_router_compute_node_count	= torus_get_router_compute_node_count,
+	.get_router_compute_node_list	= torus_get_router_compute_node_list,
+};
+
+#endif
 
 
 /*

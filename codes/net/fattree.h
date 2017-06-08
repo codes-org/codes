@@ -3,6 +3,9 @@
 
 #include <ross.h>
 
+/* Functions used for ROSS event tracing */
+extern void fattree_register_evtrace();
+
 /* Global variable for modelnet output directory name */
 extern char *modelnet_stats_dir;
 

@@ -28,7 +28,7 @@ static int num_routers_per_grp = 0;
 static int num_nodes_per_grp = 0;
 static int num_nodes_per_cn = 0;
 static int num_groups = 0;
-static int num_nodes = 0;
+static unsigned long long num_nodes = 0;
 
 static char lp_io_dir[256] = {'\0'};
 static lp_io_handle io_handle;
@@ -76,6 +76,7 @@ struct svr_msg
     enum svr_event svr_event_type;
     tw_lpid src;          /* source of this request or ack */
     int incremented_flag; /* helper for reverse computation */
+    model_net_event_return event_rc;
 };
 
 static void svr_init(
@@ -133,6 +134,7 @@ static void issue_event(
     svr_state * ns,
     tw_lp * lp)
 {
+    (void)ns;
     tw_event *e;
     svr_msg *m;
     tw_stime kickoff_time;
@@ -172,7 +174,7 @@ static void handle_kickoff_rev_event(
     if(b->c1)
         tw_rand_reverse_unif(lp->rng);
 
-    model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+    model_net_event_rc2(lp, &m->event_rc);
 	ns->msg_sent_count--;
     tw_rand_reverse_unif(lp->rng);
 }
@@ -239,6 +241,9 @@ static void handle_remote_rev_event(
             svr_msg * m,
             tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
         ns->msg_recvd_count--;
 }
 
@@ -248,6 +253,9 @@ static void handle_remote_event(
 	    svr_msg * m,
 	    tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
 	ns->msg_recvd_count++;
 }
 
@@ -257,6 +265,9 @@ static void handle_local_rev_event(
                 svr_msg * m,
                 tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
 	ns->local_recvd_count--;
 }
 
@@ -266,6 +277,9 @@ static void handle_local_event(
                 svr_msg * m,
                 tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
     ns->local_recvd_count++;
 }
 /* convert ns to seconds */
@@ -358,10 +372,10 @@ int main(
             return 0;
     }
 
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Comm_rank(MPI_COMM_CODES, &rank);
+    MPI_Comm_size(MPI_COMM_CODES, &nprocs);
 
-    configuration_load(argv[2], MPI_COMM_WORLD, &config);
+    configuration_load(argv[2], MPI_COMM_CODES, &config);
 
     model_net_register();
     svr_add_lp_type();
@@ -401,12 +415,12 @@ int main(
     {
         do_lp_io = 1;
         int flags = lp_io_use_suffix ? LP_IO_UNIQ_SUFFIX : 0;
-        int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_WORLD);
+        int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_CODES);
         assert(ret == 0 || !"lp_io_prepare failure");
     }
     tw_run();
     if (do_lp_io){
-        int ret = lp_io_flush(io_handle, MPI_COMM_WORLD);
+        int ret = lp_io_flush(io_handle, MPI_COMM_CODES);
         assert(ret == 0 || !"lp_io_flush failure");
     }
     model_net_report_stats(net_id);

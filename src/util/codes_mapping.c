@@ -67,7 +67,7 @@ static char local_lp_name[MAX_NAME_LENGTH],
 int codes_mapping_get_lps_for_pe()
 {
     int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_rank(MPI_COMM_CODES, &rank);
 #if CODES_MAPPING_DEBUG
     printf("%d lps for rank %d\n", lps_per_pe_floor+(g_tw_mynode < lps_leftover), rank);
 #endif
@@ -458,7 +458,7 @@ static void codes_mapping_init(void)
      tw_lpid nkp_per_pe = g_tw_nkp;
      tw_lpid         lpid, kpid;
      const tw_lptype *lptype;
-     const st_trace_type *trace_type;
+     const st_model_types *trace_type;
 
      /* have 16 kps per pe, this is the optimized configuration for ROSS custom mapping */
      for(kpid = 0; kpid < nkp_per_pe; kpid++)
@@ -489,10 +489,10 @@ static void codes_mapping_init(void)
          else
              /* sorry, const... */
              tw_lp_settype(ross_lid, (tw_lptype*) lptype);
-         if (g_st_ev_trace)
+         if (g_st_ev_trace || g_st_model_stats)
          {
-             trace_type = trace_type_lookup(lp_type_name);
-             st_evtrace_settype(ross_lid, (st_trace_type*) trace_type);
+             trace_type = st_model_type_lookup(lp_type_name);
+             st_model_settype(ross_lid, (st_model_types*) trace_type);
          }
      }
      return;

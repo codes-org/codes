@@ -53,6 +53,7 @@ typedef struct model_net_base_state {
     // lp type and state of underlying model net method - cache here so we
     // don't have to constantly look up
     const tw_lptype *sub_type;
+    const st_model_types *sub_model_type;
     void *sub_state;
 } model_net_base_state;
 
@@ -117,17 +118,54 @@ tw_lptype model_net_base_lp = {
  * can have a different function for  rbev_trace_f and ev_trace_f
  * but right now it is set to the same function for both
  */
-void mn_event_collect(model_net_wrap_msg *m, tw_lp *lp, char *buffer)
+void mn_event_collect(model_net_wrap_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
-    int type = (int) m->h.event_type;
-    memcpy(buffer, &type, sizeof(type));
+    // assigning large numbers to message types to make it easier to
+    // determine which messages are model net base LP msgs
+    int type;
+    void * sub_msg;
+    switch (m->h.event_type){
+        case MN_BASE_NEW_MSG:
+            type = 9000;
+            memcpy(buffer, &type, sizeof(type));
+            break;
+        case MN_BASE_SCHED_NEXT:
+            type = 9001;
+            memcpy(buffer, &type, sizeof(type));
+            break;
+        case MN_BASE_SAMPLE: 
+            type = 9002;
+            memcpy(buffer, &type, sizeof(type));
+            break;
+        case MN_BASE_PASS:
+            sub_msg = ((char*)m)+msg_offsets[((model_net_base_state*)lp->cur_state)->net_id];
+            if (g_st_ev_trace == RB_TRACE || g_st_ev_trace == COMMIT_TRACE)
+                (((model_net_base_state*)lp->cur_state)->sub_model_type->rbev_trace)(sub_msg, lp, buffer, collect_flag);
+            else if (g_st_ev_trace == FULL_TRACE)
+                (((model_net_base_state*)lp->cur_state)->sub_model_type->ev_trace)(sub_msg, lp, buffer, collect_flag);
+            break;
+        default:  // this shouldn't happen, but can help detect an issue
+            type = 9004;
+            break;
+    }
 }
 
-st_trace_type mn_trace_types = {
+void mn_model_stat_collect(model_net_base_state *s, tw_lp *lp, char *buffer)
+{
+    // need to call the model level stats collection fn
+    (*s->sub_model_type->model_stat_fn)(s->sub_state, lp, buffer);
+    return;
+}
+
+st_model_types mn_model_types[MAX_NETS];
+
+st_model_types mn_model_base_type = {
     (rbev_trace_f) mn_event_collect,
      sizeof(int),
      (ev_trace_f) mn_event_collect,
      sizeof(int),
+     (model_stat_f) mn_model_stat_collect,
+     0
 };
 
 /**** END LP, EVENT PROCESSING FUNCTION DECLS ****/
@@ -168,12 +206,14 @@ void model_net_base_register(int *do_config_nets){
                         &model_net_base_lp);
             else
                 method_array[i]->mn_register(&model_net_base_lp);
-            if (g_st_ev_trace) // for ROSS event tracing
+            if (g_st_ev_trace || g_st_model_stats) // for ROSS event tracing
             {
-                if (method_array[i]->mn_trace_register == NULL)
-                    trace_type_register(model_net_lp_config_names[i], &mn_trace_types);
+                memcpy(&mn_model_types[i], &mn_model_base_type, sizeof(st_model_types));
+
+                if (method_array[i]->mn_model_stat_register == NULL)
+                    st_model_type_register(model_net_lp_config_names[i], &mn_model_types[i]);
                 else
-                    method_array[i]->mn_trace_register(&mn_trace_types);
+                    method_array[i]->mn_model_stat_register(&mn_model_types[i]);
             }
         }
     }
@@ -376,6 +416,14 @@ void model_net_base_lp_init(
             ns->sched_recv);
 
     ns->sub_type = model_net_get_lp_type(ns->net_id);
+
+    /* some ROSS instrumentation setup */
+    if (g_st_ev_trace || g_st_model_stats)
+    {
+        ns->sub_model_type = model_net_get_model_stat_type(ns->net_id);
+        mn_model_types[ns->net_id].mstat_sz = ns->sub_model_type->mstat_sz;
+    }
+
     // NOTE: some models actually expect LP state to be 0 initialized...
     // *cough anything that uses mn_stats_array cough*
     ns->sub_state = calloc(1, ns->sub_type->state_sz);
@@ -415,7 +463,7 @@ void model_net_base_event(
         tw_lp * lp){
 
     if(m->h.magic != model_net_base_magic)
-        printf("\n LP ID mismatched %d ", lp->gid);
+        printf("\n LP ID mismatched %llu ", lp->gid);
 
     assert(m->h.magic == model_net_base_magic);
 

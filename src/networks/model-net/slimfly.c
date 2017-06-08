@@ -554,7 +554,7 @@ static void slimfly_read_config(const char * anno, slimfly_param *params){
     slim_total_routers_noah = p->num_groups * p->num_routers;
     slim_total_terminals_noah = p->slim_total_routers * p->num_cn;
     int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_rank(MPI_COMM_CODES, &rank);
     if(!rank) {
         printf("\n Total nodes %d total routers %d total groups %d num_terminals %d num_routers %d radix %d local_channels %d global_channels %d \n",
                 p->num_cn * p->slim_total_routers, p->slim_total_routers, p->num_groups, p->num_cn, p->num_routers,
@@ -1454,7 +1454,7 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
     vc_occupancy_storage_terminal[s->terminal_id][0][index] = s->vc_occupancy[0]/s->params->chunk_size;
 #endif
     cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, 0);
-    rc_stack_push(lp, cur_entry, slim_delete_terminal_message_list, s->st);
+    rc_stack_push(lp, cur_entry, (void*)slim_delete_terminal_message_list, s->st);
     s->terminal_length -= s->params->chunk_size;
 
     cur_entry = s->terminal_msgs[0];
@@ -3137,7 +3137,7 @@ slim_router_packet_send( router_state * s,
 
     cur_entry = return_head(s->pending_msgs[output_port],
             s->pending_msgs_tail[output_port], output_chan);
-    rc_stack_push(lp, cur_entry, slim_delete_terminal_message_list, s->st);
+    rc_stack_push(lp, cur_entry, (void*)slim_delete_terminal_message_list, s->st);
 
     cur_entry = s->pending_msgs[output_port][3];
 

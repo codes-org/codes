@@ -28,7 +28,7 @@ static int num_servers_per_rep = 0;
 static int num_routers_per_grp = 0;
 static int num_nodes_per_grp = 0;
 static int num_groups = 0;
-static int num_nodes = 0;
+static unsigned long long num_nodes = 0;
 
 static char lp_io_dir[256] = {'\0'};
 static lp_io_handle io_handle;
@@ -76,6 +76,7 @@ struct svr_msg
     enum svr_event svr_event_type;
     tw_lpid src;          /* source of this request or ack */
     int incremented_flag; /* helper for reverse computation */
+    model_net_event_return event_rc; /* model-net event reverse computation flag */
 };
 
 static void svr_init(
@@ -110,28 +111,44 @@ tw_lptype svr_lp = {
  * can have a different function for  rbev_trace_f and ev_trace_f
  * but right now it is set to the same function for both
  */
-void svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer)
+void svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
+    (void)lp;
+    (void)collect_flag;
     int type = (int) m->svr_event_type;
     memcpy(buffer, &type, sizeof(type));
 }
 
-st_trace_type svr_trace_types[] = {
+/* can add in any model level data to be collected along with simulation engine data
+ * in the ROSS instrumentation.  Will need to update the last field in 
+ * svr_model_types[0] for the size of the data to save in each function call
+ */
+void svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
+{
+    (void)s;
+    (void)lp;
+    (void)buffer;
+    return;
+}
+
+st_model_types svr_model_types[] = {
     {(rbev_trace_f) svr_event_collect,
      sizeof(int),
      (ev_trace_f) svr_event_collect,
-     sizeof(int)},
-    {0}
+     sizeof(int),
+     (model_stat_f) svr_model_stat_collect,
+     0},
+    {NULL, 0, NULL, 0, NULL, 0}
 };
 
-static const st_trace_type  *svr_get_trace_types(void)
+static const st_model_types  *svr_get_model_stat_types(void)
 {
-    return(&svr_trace_types[0]);
+    return(&svr_model_types[0]);
 }
 
-void svr_register_trace()
+void svr_register_model_types()
 {
-    trace_type_register("server", svr_get_trace_types());
+    st_model_type_register("server", svr_get_model_stat_types());
 }
 
 const tw_optdef app_opt [] =
@@ -161,6 +178,8 @@ static void issue_event(
     svr_state * ns,
     tw_lp * lp)
 {
+    (void)ns;
+
     tw_event *e;
     svr_msg *m;
     tw_stime kickoff_time;
@@ -200,7 +219,7 @@ static void handle_kickoff_rev_event(
     if(b->c1)
         tw_rand_reverse_unif(lp->rng);
 
-    model_net_event_rc(net_id, lp, PAYLOAD_SZ);
+    model_net_event_rc2(lp, &m->event_rc);
 	ns->msg_sent_count--;
     tw_rand_reverse_unif(lp->rng);
 }
@@ -267,6 +286,9 @@ static void handle_remote_rev_event(
             svr_msg * m,
             tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
         ns->msg_recvd_count--;
 }
 
@@ -276,6 +298,9 @@ static void handle_remote_event(
 	    svr_msg * m,
 	    tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
 	ns->msg_recvd_count++;
 }
 
@@ -285,6 +310,9 @@ static void handle_local_rev_event(
                 svr_msg * m,
                 tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
 	ns->local_recvd_count--;
 }
 
@@ -294,6 +322,9 @@ static void handle_local_event(
                 svr_msg * m,
                 tw_lp * lp)
 {
+        (void)b;
+        (void)m;
+        (void)lp;
     ns->local_recvd_count++;
 }
 /* convert ns to seconds */
@@ -393,8 +424,8 @@ int main(
     model_net_register();
     svr_add_lp_type();
 
-    if (g_st_ev_trace)
-        svr_register_trace();
+    if (g_st_ev_trace || g_st_model_stats)
+        svr_register_model_types();
 
     codes_mapping_setup();
 
