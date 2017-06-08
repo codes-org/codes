@@ -36,8 +36,9 @@ static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
 
 /* NOTE: Message tracking works in sequential mode only! */
+int debug_cols = 0;
 int enable_msg_tracking = 0;
-tw_lpid TRACK_LP = 0;
+tw_lpid TRACK_LP = -1;
 
 int unmatched = 0;
 char workload_type[128];
@@ -215,6 +216,15 @@ struct nw_state
 
 	/* time spent by the LP in executing the app trace*/
 	double start_time;
+
+    double col_time;
+
+    double reduce_time;
+    int num_reduce;
+
+    double all_reduce_time;
+    int num_all_reduce;
+
 	double elapsed_time;
 	/* time spent in compute operations */
 	double compute_time;
@@ -232,7 +242,7 @@ struct nw_state
 	struct qlist_head completed_reqs;
 
     tw_stime cur_interval_end;
-
+    
     /* Pending wait operation */
     struct pending_waits * wait_op;
 
@@ -1397,9 +1407,14 @@ static void codes_exec_mpi_send(nw_state* s,
 }
 
 /* convert seconds to ns */
-static tw_stime s_to_ns(tw_stime ns)
+static tw_stime s_to_ns(tw_stime s)
 {
-    return(ns * (1000.0 * 1000.0 * 1000.0));
+    return(s * (1000.0 * 1000.0 * 1000.0));
+}
+/* convert seconds to ns */
+static tw_stime ns_to_s(tw_stime ns)
+{
+    return(ns / (1000.0 * 1000.0 * 1000.0));
 }
 
 static void update_completed_queue_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
@@ -1658,6 +1673,10 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->sampling_indx = 0;
    s->is_finished = 0;
    s->cur_interval_end = 0;
+   s->col_time = 0;
+   s->num_reduce = 0;
+   s->reduce_time = 0;
+   s->all_reduce_time = 0;
 
    if(!num_net_traces)
 	num_net_traces = num_mpi_lps;
@@ -1925,13 +1944,27 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
             }
 		}
 		break;
+		case CODES_WK_ALLREDUCE:
+        {
+            if(bf->c1)
+            {
+                s->num_all_reduce--;
+                s->col_time = m->rc.saved_send_time; 
+                s->all_reduce_time -= s->col_time;
+            }
+            else
+            {
+               s->col_time = 0; 
+            }
+            codes_issue_next_event_rc(lp);
+        }
+        break;
 		case CODES_WK_BCAST:
 		case CODES_WK_ALLGATHER:
 		case CODES_WK_ALLGATHERV:
 		case CODES_WK_ALLTOALL:
 		case CODES_WK_ALLTOALLV:
 		case CODES_WK_REDUCE:
-		case CODES_WK_ALLREDUCE:
 		case CODES_WK_COL:
 		{
 			s->num_cols--;
@@ -2053,16 +2086,34 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
                 codes_exec_mpi_wait(s, bf, lp, &mpi_op);
 			}
 			break;
+			case CODES_WK_ALLREDUCE:
+            {
+				s->num_cols++;
+                if(s->col_time > 0)
+                {
+                    bf->c1 = 1;
+                    m->rc.saved_delay = s->all_reduce_time;
+                    s->all_reduce_time += (tw_now(lp) - s->col_time);
+                    m->rc.saved_send_time = s->col_time;
+                    s->col_time = 0;
+                    s->num_all_reduce++;
+                }
+                else
+                {
+                   s->col_time = tw_now(lp); 
+                }
+			    codes_issue_next_event(lp);
+            }
+            break;
+			
+            case CODES_WK_REDUCE:
 			case CODES_WK_BCAST:
 			case CODES_WK_ALLGATHER:
 			case CODES_WK_ALLGATHERV:
 			case CODES_WK_ALLTOALL:
 			case CODES_WK_ALLTOALLV:
-			case CODES_WK_REDUCE:
-			case CODES_WK_ALLREDUCE:
 			case CODES_WK_COL:
 			{
-                //printf("\n MPI COL ");
 				s->num_cols++;
 			    codes_issue_next_event(lp);
             }
@@ -2159,7 +2210,10 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 		if(s->recv_time > max_recv_time)
 			max_recv_time = s->recv_time;
 
-		avg_time += s->elapsed_time;
+        if(debug_cols)
+            printf("\n Rank %lld Avg all reduce time %lf ", s->nw_id, ns_to_s(s->all_reduce_time / s->num_all_reduce));
+		
+        avg_time += s->elapsed_time;
 		avg_comm_time += (s->elapsed_time - s->compute_time);
 		avg_wait_time += s->wait_time;
 		avg_send_time += s->send_time;
