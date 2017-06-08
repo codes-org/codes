@@ -116,7 +116,7 @@ static int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank
 static void dumpi_trace_nw_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
 
 /* get number of bytes from the workload data type and count */
-static int64_t get_num_bytes(rank_mpi_context* my_ctx, dumpi_datatype dt);
+static uint64_t get_num_bytes(rank_mpi_context* my_ctx, dumpi_datatype dt);
 
 /* computes the delay between MPI operations */
 static void update_compute_time(const dumpi_time* time, rank_mpi_context* my_ctx);
@@ -440,7 +440,7 @@ int handleDUMPIIRecv(const dumpi_irecv *prm, uint16_t thread, const dumpi_time *
 	    wrkld_per_rank.u.recv.tag = prm->tag;
         wrkld_per_rank.u.recv.num_bytes = prm->count * get_num_bytes(myctx,prm->datatype);
 	    
-        //assert(wrkld_per_rank.u.recv.num_bytes >= 0);
+        assert(wrkld_per_rank.u.recv.num_bytes >= 0);
         wrkld_per_rank.u.recv.source_rank = prm->source;
         wrkld_per_rank.u.recv.dest_rank = -1;
 	    wrkld_per_rank.u.recv.req_id = prm->request;
@@ -487,7 +487,6 @@ int handleDUMPIRecv(const dumpi_recv *prm, uint16_t thread,
      (void)wall;
      (void)perf;
 
-	//printf("\n irecv source %d count %d data type %d", prm->source, prm->count, prm->datatype);
 	rank_mpi_context* myctx = (rank_mpi_context*)uarg;
 	struct codes_workload_op wrkld_per_rank;
 
@@ -500,6 +499,7 @@ int handleDUMPIRecv(const dumpi_recv *prm, uint16_t thread,
     wrkld_per_rank.u.recv.source_rank = prm->source;
     wrkld_per_rank.u.recv.dest_rank = -1;
 
+	//printf("\n recv source %d count %d data type %d bytes %lld ", prm->source, prm->count, prm->datatype, wrkld_per_rank.u.recv.num_bytes);
     update_times_and_insert(&wrkld_per_rank, wall, myctx);
     return 0;
 
@@ -933,7 +933,7 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 /* Data types are for 64-bit archs. Source:
  * https://www.tutorialspoint.com/cprogramming/c_data_types.htm 
  * */
-static int64_t get_num_bytes(rank_mpi_context* myctx, dumpi_datatype dt)
+static uint64_t get_num_bytes(rank_mpi_context* myctx, dumpi_datatype dt)
 {
     (void)myctx;
 

@@ -37,7 +37,7 @@ static int msg_size_hash_compare(
 
 /* NOTE: Message tracking works in sequential mode only! */
 int enable_msg_tracking = 0;
-tw_lpid TRACK_LP = -1;
+tw_lpid TRACK_LP = 0;
 
 int unmatched = 0;
 char workload_type[128];
@@ -794,15 +794,15 @@ static int notify_posted_wait(nw_state* s,
 }
 
 /* reverse handler of MPI wait operation */
-static void codes_exec_mpi_wait_rc(nw_state* s, tw_lp* lp)
+static void codes_exec_mpi_wait_rc(nw_state* s, tw_bf * bf, tw_lp* lp)
 {
-    if(s->wait_op)
+    if(bf->c2)
      {
          struct pending_waits * wait_op = s->wait_op;
          free(wait_op);
          s->wait_op = NULL;
      }
-   else
+   if(bf->c1)
     {
         codes_issue_next_event_rc(lp);
         completed_requests * qi = rc_stack_pop(s->processed_ops);
@@ -812,11 +812,12 @@ static void codes_exec_mpi_wait_rc(nw_state* s, tw_lp* lp)
 }
 
 /* execute MPI wait operation */
-static void codes_exec_mpi_wait(nw_state* s, tw_lp* lp, struct codes_workload_op * mpi_op)
+static void codes_exec_mpi_wait(nw_state* s, tw_bf * bf, tw_lp* lp, struct codes_workload_op * mpi_op)
 {
     /* check in the completed receives queue if the request ID has already been completed.*/
     assert(!s->wait_op);
     dumpi_req_id req_id = mpi_op->u.wait.req_id;
+
     struct completed_requests* current = NULL;
 
     struct qlist_head * ent = NULL;
@@ -825,12 +826,15 @@ static void codes_exec_mpi_wait(nw_state* s, tw_lp* lp, struct codes_workload_op
         current = qlist_entry(ent, completed_requests, ql);
         if(current->req_id == req_id)
         {
+            bf->c1=1;
             qlist_del(&current->ql);
             rc_stack_push(lp, current, free, s->processed_ops);
             codes_issue_next_event(lp);
             return;
         }
     }
+
+    bf->c2 = 1;
     /* If not, add the wait operation in the pending 'waits' list. */
     struct pending_waits* wait_op = malloc(sizeof(struct pending_waits));
     wait_op->op_type = mpi_op->op_type;
@@ -1199,6 +1203,7 @@ static void codes_exec_mpi_recv(
     recv_op->req_id = mpi_op->u.recv.req_id;
 
 
+    //printf("\n Req id %d bytes %d source %d tag %d ", recv_op->req_id, recv_op->num_bytes, recv_op->source_rank, recv_op->tag);
     if(s->nw_id == (tw_lpid)TRACK_LP)
         printf("\n Receive op posted num bytes %llu source %d ", recv_op->num_bytes,
                 recv_op->source_rank);
@@ -1328,7 +1333,7 @@ static void codes_exec_mpi_send(nw_state* s,
     local_m.fwd.req_id = mpi_op->u.send.req_id;
     local_m.fwd.app_id = s->app_id;
             
-    
+   
     if(mpi_op->u.send.num_bytes < EAGER_THRESHOLD)
     {
         /* directly issue a model-net send */
@@ -1945,7 +1950,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 		case CODES_WK_WAIT:
 		{
 			s->num_wait--;
-			codes_exec_mpi_wait_rc(s, lp);
+			codes_exec_mpi_wait_rc(s, bf, lp);
 		}
 		break;
 		case CODES_WK_WAITALL:
@@ -2044,7 +2049,8 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			{
                 //printf("\n MPI WAIT ");
 				s->num_wait++;
-                codes_exec_mpi_wait(s, lp, &mpi_op);
+                //TODO: Uncomment:
+                codes_exec_mpi_wait(s, bf, lp, &mpi_op);
 			}
 			break;
 			case CODES_WK_BCAST:
