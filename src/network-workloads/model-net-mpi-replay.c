@@ -25,7 +25,6 @@
 #define CS_LP_DBG 1
 #define EAGER_THRESHOLD 8192
 #define RANK_HASH_TABLE_SZ 2000
-#define NOISE 3.0
 #define NW_LP_NM "nw-lp"
 #define lprintf(_fmt, ...) \
         do {if (CS_LP_DBG) printf(_fmt, __VA_ARGS__);} while (0)
@@ -631,7 +630,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
     num_syn_bytes_sent += PAYLOAD_SZ; 
 
     /* New event after MEAN_INTERVAL */  
-    tw_stime ts = mean_interval  + tw_rand_exponential(lp->rng, NOISE); 
+    tw_stime ts = mean_interval  + tw_rand_exponential(lp->rng, noise); 
     tw_event * e;
     nw_message * m_new;
     e = tw_event_new(lp->gid, ts, lp);
@@ -1000,7 +999,7 @@ static int rm_matching_rcv(nw_state * ns,
                 && ((qi->source_rank == qitem->source_rank) || qi->source_rank == -1))
         {
             matched = 1;
-            qitem->num_bytes = qi->num_bytes;
+            qi->num_bytes = qitem->num_bytes;
             break;
         }
         ++index;
@@ -1052,7 +1051,7 @@ static int rm_matching_send(nw_state * ns,
 		(qi->tag == qitem->tag || qitem->tag == -1)
                 && ((qi->source_rank == qitem->source_rank) || qitem->source_rank == -1))
         {
-            qi->num_bytes = qitem->num_bytes;
+            qitem->num_bytes = qi->num_bytes;
             matched = 1;
             break;
         }
@@ -1387,7 +1386,7 @@ static void codes_exec_mpi_send(nw_state* s,
             "test", dest_rank, mpi_op->u.send.num_bytes, (self_overhead + soft_delay_mpi + nic_delay),
 	    sizeof(nw_message), (const void*)&remote_m, sizeof(nw_message), (const void*)&local_m, lp);
     }
-    if(enable_debug)
+    if(enable_debug && !is_rend)
     {
         if(mpi_op->op_type == CODES_WK_ISEND)
         {
