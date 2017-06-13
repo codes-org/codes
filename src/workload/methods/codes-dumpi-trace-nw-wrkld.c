@@ -53,6 +53,7 @@ typedef struct rank_mpi_context
     int my_app_id;
     // whether we've seen an init op (needed for timing correctness)
     int is_init;
+    int num_reqs;
     int64_t my_rank;
     double last_op_time;
     double init_time;
@@ -517,9 +518,10 @@ int handleDUMPISendrecv(const dumpi_sendrecv* prm, uint16_t thread,
 	
      rank_mpi_context* myctx = (rank_mpi_context*)uarg;
 
+     /* Issue a non-blocking send */
 	{
 		struct codes_workload_op wrkld_per_rank;
-		wrkld_per_rank.op_type = CODES_WK_SEND;
+		wrkld_per_rank.op_type = CODES_WK_ISEND;
 		wrkld_per_rank.u.send.tag = prm->sendtag;
 		wrkld_per_rank.u.send.count = prm->sendcount;
 		wrkld_per_rank.u.send.data_type = prm->sendtype;
@@ -529,10 +531,12 @@ int handleDUMPISendrecv(const dumpi_sendrecv* prm, uint16_t thread,
         assert(wrkld_per_rank.u.send.num_bytes >= 0);
 		wrkld_per_rank.u.send.dest_rank = prm->dest;
 		wrkld_per_rank.u.send.source_rank = myctx->my_rank;
-		wrkld_per_rank.u.send.req_id = -1;
+		wrkld_per_rank.u.send.req_id = myctx->num_reqs;
 		update_times_and_insert(&wrkld_per_rank, wall, myctx);
+
 	}
 
+    /* issue a blocking receive */
 	{
 		struct codes_workload_op wrkld_per_rank;
 		wrkld_per_rank.op_type = CODES_WK_RECV;
@@ -546,6 +550,19 @@ int handleDUMPISendrecv(const dumpi_sendrecv* prm, uint16_t thread,
 		wrkld_per_rank.u.recv.dest_rank = -1;
 		update_times_and_insert(&wrkld_per_rank, wall, myctx);
 	}
+    
+    /* Issue a wait operation */
+    {
+        struct codes_workload_op wrkld_per_rank;
+
+        wrkld_per_rank.op_type = CODES_WK_WAIT;
+        wrkld_per_rank.u.wait.req_id = myctx->num_reqs;
+
+        update_times_and_insert(&wrkld_per_rank, wall, myctx);
+    
+        myctx->num_reqs++;
+    }
+
 	return 0;
 }
 
@@ -763,9 +780,10 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	my_ctx = malloc(sizeof(rank_mpi_context));
 	assert(my_ctx);
 	my_ctx->my_rank = rank;
-        my_ctx->my_app_id = app_id;
+    my_ctx->my_app_id = app_id;
 	my_ctx->last_op_time = 0.0;
-        my_ctx->is_init = 0;
+    my_ctx->is_init = 0;
+    my_ctx->num_reqs = 0;
 	my_ctx->dumpi_mpi_array = dumpi_init_op_data();
 
 	if(rank < 10)
