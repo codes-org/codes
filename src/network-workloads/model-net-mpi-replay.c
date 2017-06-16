@@ -2210,7 +2210,7 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 			max_recv_time = s->recv_time;
 
         if(debug_cols)
-            printf("\n Rank %lld Avg all reduce time %lf ", s->nw_id, ns_to_s(s->all_reduce_time / s->num_all_reduce));
+            printf("\n Rank %lld avg all reduce time %lf ", s->nw_id, ns_to_s(s->all_reduce_time / s->num_all_reduce));
 		
         avg_time += s->elapsed_time;
 		avg_comm_time += (s->elapsed_time - s->compute_time);
