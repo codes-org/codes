@@ -66,6 +66,8 @@ model.
 ROSS-vis instrumentation-- recording model level statistics in binary format
 and translating them into text.
 
+Running ensemble simulations with Switft.
+
 0.5.2 (July 13, 2016)
 
 Summer of CODES was another huge success! This release was created during the
