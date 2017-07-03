@@ -34,7 +34,7 @@ static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
 
 /* NOTE: Message tracking works in sequential mode only! */
-int debug_cols = 0;
+static int debug_cols = 0;
 int enable_msg_tracking = 0;
 tw_lpid TRACK_LP = -1;
 
@@ -2287,6 +2287,7 @@ const tw_optdef app_opt [] =
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
 	TWOPT_UINT("eager_threshold", EAGER_THRESHOLD, "the transition point for eager/rendezvous protocols (Default 8192)"),
     TWOPT_UINT("disable_compute", disable_delay, "disable compute simulation"),
+    TWOPT_UINT("debug_cols", debug_cols, "completion time of collective operations (currently MPI_AllReduce)"),
     TWOPT_UINT("enable_mpi_debug", enable_debug, "enable debugging of MPI sim layer (works with sync=1 only)"),
     TWOPT_UINT("sampling_interval", sampling_interval, "sampling interval for MPI operations"),
 	TWOPT_UINT("enable_sampling", enable_sampling, "enable sampling (only works in sequential mode)"),

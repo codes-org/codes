@@ -1,3 +1,61 @@
+0.6.0 (July 03, 2017)
+
+general:
+========
+
+C++ models can now be built and integrated with CODES. The new dragonfly model
+has been implemented in C++.
+
+support has been added for building CODES with CoRTex -- a library for translating collectives
+to point to point operations. For details see:
+
+https://xgitlab.cels.anl.gov/codes/codes/wikis/codes-cortex-workload
+
+CODES wiki with details on model development, networking, MPI simulation and
+more has been added at:
+
+https://xgitlab.cels.anl.gov/codes/codes/wikis/home
+
+Test suite has been extended -- tests for DUMPI trace replay have been added.
+
+Unused variable warnings have been fixed.
+
+networks:
+==========
+
+dragonfly network model based on Cray XC topology has been added. The model can
+use the network configurations of Theta and Edison systems. Custom network
+configurations can be generated using C scripts. For details see:
+
+https://xgitlab.cels.anl.gov/codes/codes/wikis/codes-dragonfly
+
+fat tree network model with support for adaptive and static routing has been
+added. The model can support both full and pruned fat tree configurations. For
+details, refer to the wiki:
+
+https://xgitlab.cels.anl.gov/codes/codes/wikis/codes-fattree
+
+memory consumption has been reduced by doing lazy allocation of hash memory.
+
+MPI trace replay:
+==============
+
+MPI rendezvous protocol can now be replayed in addition to the eager protocol.
+The transition point for switching between the two protocols is configurable.
+
+Background network communication using uniform random workload can now be
+generated. The traffic generation gets automatically shut off when the main workload
+finishes.
+
+Collectives can now be translated into point to point using the CoRTex library. 
+
+Performance of MPI_AllReduce is reported when debug_cols option is enabled.
+
+Aggregate and average performance of different message size is reported when
+message tracking is enabled (this option is for debugging, works in sequential
+mode only).
+
+
 0.5.2 (July 13, 2016)
 
 Summer of CODES was another huge success! This release was created during the
