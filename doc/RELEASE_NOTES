@@ -20,6 +20,9 @@ Test suite has been extended -- tests for DUMPI trace replay have been added.
 
 Unused variable warnings have been fixed.
 
+Compatible with the most recent ROSS version that has visualization related
+changes.
+
 networks:
 ==========
 
@@ -55,6 +58,13 @@ Aggregate and average performance of different message size is reported when
 message tracking is enabled (this option is for debugging, works in sequential
 mode only).
 
+Work in progress:
+=============
+Integration of the express mesh model and multi-rail/multi-plane fat tree
+model.
+
+ROSS-vis instrumentation-- recording model level statistics in binary format
+and translating them into text.
 
 0.5.2 (July 13, 2016)
 
