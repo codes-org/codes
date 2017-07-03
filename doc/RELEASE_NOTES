@@ -6,8 +6,8 @@ general:
 C++ models can now be built and integrated with CODES. The new dragonfly model
 has been implemented in C++.
 
-support has been added for building CODES with CoRTex -- a library for translating collectives
-to point to point operations. For details see:
+CODES can now replay collective operations by using CoRTex -- a library for
+translating collectives to point to point operations. For details see:
 
 https://xgitlab.cels.anl.gov/codes/codes/wikis/codes-cortex-workload
 
@@ -65,8 +65,6 @@ model.
 
 ROSS-vis instrumentation-- recording model level statistics in binary format
 and translating them into text.
-
-Running ensemble simulations with Switft.
 
 0.5.2 (July 13, 2016)
 
