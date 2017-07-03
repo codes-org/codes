@@ -23,7 +23,6 @@
 #define TRACE -1
 #define MAX_WAIT_REQS 512
 #define CS_LP_DBG 1
-#define EAGER_THRESHOLD 8192
 #define RANK_HASH_TABLE_SZ 2000
 #define NW_LP_NM "nw-lp"
 #define lprintf(_fmt, ...) \
@@ -46,6 +45,7 @@ char offset_file[8192];
 static int wrkld_id;
 static int num_net_traces = 0;
 static int num_dumpi_traces = 0;
+static uint64_t EAGER_THRESHOLD = 8192;
 
 static int alloc_spec = 0;
 static tw_stime self_overhead = 10.0;
@@ -279,7 +279,7 @@ struct nw_message
    {
        tw_lpid src_rank;
        int dest_rank;
-       int64_t num_bytes;
+       uint64_t num_bytes;
        int num_matched;
        int data_type;
        double sim_start_time;
@@ -2285,6 +2285,7 @@ const tw_optdef app_opt [] =
 	TWOPT_CHAR("alloc_file", alloc_file, "allocation file name"),
 	TWOPT_CHAR("workload_conf_file", workloads_conf_file, "workload config file name"),
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
+	TWOPT_UINT("eager_threshold", EAGER_THRESHOLD, "the transition point for eager/rendezvous protocols (Default 8192)"),
     TWOPT_UINT("disable_compute", disable_delay, "disable compute simulation"),
     TWOPT_UINT("enable_mpi_debug", enable_debug, "enable debugging of MPI sim layer (works with sync=1 only)"),
     TWOPT_UINT("sampling_interval", sampling_interval, "sampling interval for MPI operations"),
