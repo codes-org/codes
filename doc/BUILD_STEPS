@@ -3,7 +3,7 @@ machines.
 
 0 - Checkout, build, and install the trunk version of ROSS
 (https://github.com/carothersc/ROSS). At the time of
-release (0.5.2), ROSS's latest commit hash was d3bdc07, so this revision is
+release (0.6.0), ROSS's latest commit hash was 10d7a06b2d, so this revision is
 "safe" in the unlikely case incompatible changes come along in the future. If
 working from the CODES master branches, use the ROSS master branch.
 

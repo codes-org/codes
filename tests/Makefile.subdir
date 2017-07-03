@@ -42,7 +42,8 @@ TESTS += tests/lp-io-test.sh \
  tests/modelnet-p2p-bw-loggp.sh \
  tests/modelnet-prio-sched-test.sh
 
-EXTRA_DIST += tests/lp-io-test.sh \
+EXTRA_DIST += tests/download-traces.sh \
+ tests/lp-io-test.sh \
  tests/workload/codes-workload-test.sh \
  tests/workload/codes-workload-test.conf \
  tests/workload/README.txt \
@@ -68,6 +69,7 @@ EXTRA_DIST += tests/lp-io-test.sh \
  tests/modelnet-test-dragonfly-traces.sh \
  tests/modelnet-test-dragonfly-custom-synthetic.sh \
  tests/modelnet-test-dragonfly-custom-traces.sh \
+ tests/modelnet-test-fattree-synthetic.sh \
  tests/modelnet-test-slimfly.sh \
  tests/modelnet-test-slimfly-synthetic.sh \
  tests/modelnet-test-slimfly-traces.sh \
@@ -86,7 +88,11 @@ EXTRA_DIST += tests/lp-io-test.sh \
  tests/conf/modelnet-test-latency.conf \
  tests/conf/modelnet-test-latency-tri.conf \
  tests/conf/modelnet-test-torus.conf \
- tests/conf/ng-mpi-tukey.dat \
+ tests/conf/ng-mpi-tukey.dat	\
+ src/network-workloads/conf/modelnet-mpi-test-slimfly-min.conf	\
+ src/network-workloads/conf/modelnet-mpi-test-dfly-amg-216.conf	\
+ src/network-workloads/conf/dragonfly-custom/intra-theta	\
+ src/network-workloads/conf/dragonfly-custom/inter-theta	\
  tests/README_MN_TEST.txt
 
 tests_lp_io_test_SOURCES = tests/lp-io-test.c
