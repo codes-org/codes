@@ -60,6 +60,11 @@ endif
 if USE_DUMPI
 AM_CPPFLAGS += ${DUMPI_CFLAGS} -DUSE_DUMPI=1
 src_libcodes_la_SOURCES += src/workload/methods/codes-dumpi-trace-nw-wrkld.c
+TESTS += tests/modelnet-test-dragonfly-traces.sh \
+		 tests/modelnet-test-dragonfly-custom-traces.sh \
+		 tests/modelnet-test-slimfly-traces.sh	\
+		 tests/modelnet-test-torus-traces.sh
+check_PROGRAMS += src/network-workloads/model-net-mpi-replay
 if USE_CORTEX
 if USE_PYTHON
 if USE_CORTEX_PYTHON
