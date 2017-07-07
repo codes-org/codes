@@ -262,6 +262,7 @@ struct nw_state
     int max_arr_size;
     struct mpi_workload_sample * mpi_wkld_samples;
     char output_buf[512];
+    char col_stats[64];
 };
 
 /* data for handling reverse computation.
@@ -2209,9 +2210,13 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 		if(s->recv_time > max_recv_time)
 			max_recv_time = s->recv_time;
 
+        written = 0;
+
         if(debug_cols)
-            printf("\n Rank %lld avg all reduce time %lf ", s->nw_id, ns_to_s(s->all_reduce_time / s->num_all_reduce));
+            written += sprintf(s->col_stats + written, "%lld \t %lf \n", s->nw_id, ns_to_s(s->all_reduce_time / s->num_all_reduce));
 		
+        lp_io_write(lp->gid, "avg-all-reduce-time", written, s->col_stats);
+
         avg_time += s->elapsed_time;
 		avg_comm_time += (s->elapsed_time - s->compute_time);
 		avg_wait_time += s->wait_time;
