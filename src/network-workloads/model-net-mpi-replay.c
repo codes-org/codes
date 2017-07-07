@@ -39,6 +39,7 @@ int enable_msg_tracking = 0;
 int is_synthetic = 0;
 tw_lpid TRACK_LP = -1;
 
+static double total_syn_data = 0;
 int unmatched = 0;
 char workload_type[128];
 char workload_file[8192];
@@ -496,7 +497,7 @@ static void notify_neighbor(
             && ns->is_finished == 1
             && ns->neighbor_completed == 1)
     {
-        printf("\n All workloads completed, notifying background traffic ");
+//        printf("\n All workloads completed, notifying background traffic ");
         bf->c0 = 1;
         notify_background_traffic(ns, lp, bf, m);
         return;
@@ -510,7 +511,7 @@ static void notify_neighbor(
     {
         bf->c1 = 1;
 
-        printf("\n Local rank %d notifying neighbor %d ", ns->local_rank, ns->local_rank+1);
+//        printf("\n Local rank %d notifying neighbor %d ", ns->local_rank, ns->local_rank+1);
         tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_exponential(lp->rng, mean_interval/10000);
         nbr_jid.rank = ns->local_rank + 1;
         
@@ -1722,7 +1723,6 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 #endif
    }
 
-   wrkld_id = codes_workload_load("dumpi-trace-workload", params, s->app_id, s->local_rank);
 
    double overhead;
    int rc = configuration_get_value_double(&config, "PARAMS", "self_msg_overhead", NULL, &overhead);
@@ -2127,6 +2127,8 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 
 void nw_test_finalize(nw_state* s, tw_lp* lp)
 {
+    total_syn_data += s->syn_data;
+
     int written = 0;
     if(!s->nw_id)
         written = sprintf(s->output_buf, "# Format <LP ID> <Terminal ID> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time> <Job ID>");
@@ -2556,6 +2558,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
     double total_avg_send_time, total_max_send_time;
      double total_avg_wait_time, total_max_wait_time;
      double total_avg_recv_time, total_max_recv_time;
+     double g_total_syn_data;
 
     MPI_Reduce(&num_bytes_sent, &total_bytes_sent, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
     MPI_Reduce(&num_bytes_recvd, &total_bytes_recvd, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
@@ -2570,6 +2573,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    MPI_Reduce(&max_recv_time, &total_max_recv_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_CODES);
    MPI_Reduce(&avg_wait_time, &total_avg_wait_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
    MPI_Reduce(&avg_send_time, &total_avg_send_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce(&total_syn_data, &g_total_syn_data, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);  
 
    assert(num_net_traces);
 
@@ -2586,6 +2590,8 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
         int ret = lp_io_flush(io_handle, MPI_COMM_CODES);
         assert(ret == 0 || !"lp_io_flush failure");
     }
+    printf("\n Synthetic traffic stats: data received per proc %lf bytes \n", g_total_syn_data/num_syn_clients);
+
    model_net_report_stats(net_id);
    
    if(unmatched && g_tw_mynode == 0) 
