@@ -86,7 +86,7 @@ typedef struct nw_message nw_message;
 typedef int32_t dumpi_req_id;
 
 static int net_id = 0;
-static float noise = 5.0;
+static float noise = 2.0;
 static int num_nw_lps = 0, num_mpi_lps = 0;
 
 static int num_syn_clients;
@@ -2299,6 +2299,7 @@ const tw_optdef app_opt [] =
     TWOPT_UINT("enable_mpi_debug", enable_debug, "enable debugging of MPI sim layer (works with sync=1 only)"),
     TWOPT_UINT("sampling_interval", sampling_interval, "sampling interval for MPI operations"),
 	TWOPT_UINT("enable_sampling", enable_sampling, "enable sampling (only works in sequential mode)"),
+    TWOPT_STIME("mean_interval", mean_interval, "mean interval for generating background traffic"),
     TWOPT_STIME("sampling_end_time", sampling_end_time, "sampling_end_time"),
     TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
     TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
