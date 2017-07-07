@@ -36,6 +36,7 @@ static int msg_size_hash_compare(
 /* NOTE: Message tracking works in sequential mode only! */
 static int debug_cols = 0;
 int enable_msg_tracking = 0;
+int is_synthetic = 0;
 tw_lpid TRACK_LP = -1;
 
 int unmatched = 0;
@@ -568,7 +569,6 @@ void finish_nbr_wkld(
     struct nw_message * msg,
     tw_lp * lp)
 {
-    printf("\n Workload completed, notifying neighbor ");
     ns->neighbor_completed = 1;
 
     notify_neighbor(ns, lp, b, msg);
@@ -1764,6 +1764,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
         m_new = tw_event_data(e);
         m_new->msg_type = CLI_BCKGND_GEN;
         tw_event_send(e);
+        is_synthetic = 1;
 
    }
    else 
@@ -2020,14 +2021,14 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
             /* Notify ranks from other job that checkpoint traffic has
              * completed */
             int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx); 
-             if(num_jobs <= 1)
+             if(num_jobs <= 1 || is_synthetic == 0)
              {
                 bf->c9 = 1;
                 return;
              }
 
              notify_neighbor(s, lp, bf, m);
-             printf("Client rank %llu completed workload, local rank %d .\n", s->nw_id, s->local_rank);
+//             printf("Client rank %llu completed workload, local rank %d .\n", s->nw_id, s->local_rank);
 
              return;
         }
@@ -2128,7 +2129,7 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 {
     int written = 0;
     if(!s->nw_id)
-        written = sprintf(s->output_buf, "# Format <LP ID> <Terminal ID> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time>");
+        written = sprintf(s->output_buf, "# Format <LP ID> <Terminal ID> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time> <Job ID>");
 
     /*if(s->wait_op)
     {
@@ -2180,8 +2181,8 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
             printf("\n LP %llu unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf",
 			    lp->gid, count_irecv, count_isend, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->send_time, s->wait_time);
         }
-        written += sprintf(s->output_buf + written, "\n %llu %llu %ld %ld %ld %ld %lf %lf %lf", lp->gid, s->nw_id, s->num_sends, s->num_recvs, s->num_bytes_sent,
-                s->num_bytes_recvd, s->send_time, s->elapsed_time - s->compute_time, s->compute_time);
+        written += sprintf(s->output_buf + written, "\n %llu %llu %ld %ld %ld %ld %lf %lf %lf %d", lp->gid, s->nw_id, s->num_sends, s->num_recvs, s->num_bytes_sent,
+                s->num_bytes_recvd, s->send_time, s->elapsed_time - s->compute_time, s->compute_time, s->app_id);
         lp_io_write(lp->gid, "mpi-replay-stats", written, s->output_buf);
 
 		if(s->elapsed_time - s->compute_time > max_comm_time)
