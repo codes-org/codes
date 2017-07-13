@@ -666,6 +666,13 @@ void post_switch_init(switch_state *s, tw_lp *lp)
 
 
 static void fattree_read_config(const char * anno, fattree_param *p){
+  uint32_t h1 = 0, h2 = 0;
+  bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
+  switch_magic_num = h1 + h2;
+    
+  bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
+  fattree_terminal_magic_num = h1 + h2;
+  
   int i;
 
   p->ft_type = 1;
@@ -897,10 +904,6 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
     s->packet_gen = 0;
     s->packet_fin = 0;
 
-    uint32_t h1 = 0, h2 = 0;
-    bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
-    fattree_terminal_magic_num = h1 + h2;
-
     char anno[MAX_NAME_LENGTH];
 
     if(def_gname_set == 0) {
@@ -987,9 +990,6 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
 /* sets up the switch */
 void switch_init(switch_state * r, tw_lp * lp)
 {
-  uint32_t h1 = 0, h2 = 0;
-  bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
-  switch_magic_num = h1 + h2;
 
   char anno[MAX_NAME_LENGTH];
   int num_terminals = -1;
@@ -2660,7 +2660,7 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
 }
 
 /* Currently incomplete. */
-int get_base_port(switch_state *s, int from_term, int index) {
+/*int get_base_port(switch_state *s, int from_term, int index) {
   int return_port;
   if(s->switch_level == 2) {
   } else if(from_term || index < (int)s->switch_id) {
@@ -2670,7 +2670,7 @@ int get_base_port(switch_state *s, int from_term, int index) {
     return_port += ((index - s->start_uneigh) * s->con_per_uneigh);
   }
   return return_port;
-}
+}*/
 
 void ft_terminal_event( ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
 		tw_lp * lp ) {

@@ -492,6 +492,14 @@ static terminal_custom_message_list* return_tail(
 }
 
 static void dragonfly_read_config(const char * anno, dragonfly_param *params){
+    /*Adding init for router magic number*/
+    uint32_t h1 = 0, h2 = 0; 
+    bj_hashlittle2(LP_METHOD_NM_ROUT, strlen(LP_METHOD_NM_ROUT), &h1, &h2);
+    router_magic_num = h1 + h2;
+    
+    bj_hashlittle2(LP_METHOD_NM_TERM, strlen(LP_METHOD_NM_TERM), &h1, &h2);
+    terminal_magic_num = h1 + h2;
+    
     // shorthand
     dragonfly_param *p = params;
     int myRank;
@@ -822,10 +830,6 @@ terminal_custom_init( terminal_state * s,
     s->packet_gen = 0;
     s->packet_fin = 0;
 
-    uint32_t h1 = 0, h2 = 0; 
-    bj_hashlittle2(LP_METHOD_NM_TERM, strlen(LP_METHOD_NM_TERM), &h1, &h2);
-    terminal_magic_num = h1 + h2;
-    
     int i;
     char anno[MAX_NAME_LENGTH];
 
@@ -893,9 +897,6 @@ terminal_custom_init( terminal_state * s,
  * local channels, compute node channels */
 void router_custom_setup(router_state * r, tw_lp * lp)
 {
-    uint32_t h1 = 0, h2 = 0; 
-    bj_hashlittle2(LP_METHOD_NM_ROUT, strlen(LP_METHOD_NM_ROUT), &h1, &h2);
-    router_magic_num = h1 + h2;
     
     char anno[MAX_NAME_LENGTH];
     codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,

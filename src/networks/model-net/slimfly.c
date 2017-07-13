@@ -413,6 +413,11 @@ static slim_terminal_message_list* return_tail(
 }
 
 static void slimfly_read_config(const char * anno, slimfly_param *params){
+    uint32_t h1 = 0, h2 = 0;
+    bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
+    slim_terminal_magic_num = h1 + h2;
+    bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
+    slim_router_magic_num = h1 + h2;
     // shorthand
     slimfly_param *p = params;
 
@@ -749,9 +754,6 @@ static void slimfly_report_stats()
 void slim_terminal_init( terminal_state * s,
         tw_lp * lp )
 {
-    uint32_t h1 = 0, h2 = 0;
-    bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
-    slim_terminal_magic_num = h1 + h2;
 
     int i;
     char anno[MAX_NAME_LENGTH];
@@ -819,10 +821,6 @@ void slim_terminal_init( terminal_state * s,
  * local channels, compute node channels */
 void slim_router_setup(router_state * r, tw_lp * lp)
 {
-    uint32_t h1 = 0, h2 = 0;
-    bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
-    slim_router_magic_num = h1 + h2;
-
     char anno[MAX_NAME_LENGTH];
     codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
             &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
