@@ -46,6 +46,7 @@ extern struct codes_jobmap_ctx *jobmap_ctx;
 static struct qhash_table *rank_tbl = NULL;
 static int rank_tbl_pop = 0;
 
+static unsigned int max_threshold = INT_MAX;
 /* context of the MPI workload */
 typedef struct rank_mpi_context
 {
@@ -54,6 +55,7 @@ typedef struct rank_mpi_context
     // whether we've seen an init op (needed for timing correctness)
     int is_init;
     int num_reqs;
+    unsigned int num_ops;
     int64_t my_rank;
     double last_op_time;
     double init_time;
@@ -785,6 +787,7 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
     my_ctx->is_init = 0;
     my_ctx->num_reqs = 0;
 	my_ctx->dumpi_mpi_array = dumpi_init_op_data();
+    my_ctx->num_ops = 0;
 
 	if(rank < 10)
             sprintf(file_name, "%s000%d.bin", dumpi_params->file_name, rank);
@@ -931,8 +934,20 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
         while(active && !finalize_reached)
         {
            num_calls++;
+           my_ctx->num_ops++;
 #ifdef ENABLE_CORTEX
-	   active = cortex_undumpi_read_single_call(profile, callarr, transarr, (void*)my_ctx, &finalize_reached);
+           if(my_ctx->num_ops < max_threshold)
+	        active = cortex_undumpi_read_single_call(profile, callarr, transarr, (void*)my_ctx, &finalize_reached);
+           else
+           {
+                struct codes_workload_op op;
+                op.op_type = CODES_WK_END;
+
+                op.start_time = my_ctx->last_op_time;
+                op.end_time = my_ctx->last_op_time + 1;
+                dumpi_insert_next_op(my_ctx->dumpi_mpi_array, &op);
+                break;
+           }
 #else
            active = undumpi_read_single_call(profile, callarr, (void*)my_ctx, &finalize_reached);
 #endif
