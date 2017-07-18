@@ -423,7 +423,11 @@ static void notify_background_traffic_rc(
     (void)ns;
     (void)bf;
     (void)m;
-    tw_rand_reverse_unif(lp->rng); 
+        
+    int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx); 
+    
+    for(int i = 0; i < num_jobs - 1; i++)
+        tw_rand_reverse_unif(lp->rng); 
 }
 
 static void notify_background_traffic(
@@ -2591,7 +2595,8 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
         int ret = lp_io_flush(io_handle, MPI_COMM_CODES);
         assert(ret == 0 || !"lp_io_flush failure");
     }
-    printf("\n Synthetic traffic stats: data received per proc %lf bytes \n", g_total_syn_data/num_syn_clients);
+    if(is_synthetic)
+        printf("\n Synthetic traffic stats: data received per proc %lf bytes \n", g_total_syn_data/num_syn_clients);
 
    model_net_report_stats(net_id);
    
