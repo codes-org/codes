@@ -62,7 +62,7 @@ typedef int32_t dumpi_req_id;
 
 static int net_id = 0;
 static float noise = 5.0;
-static int num_net_lps, num_nw_lps;
+static int num_net_lps = 0, num_nw_lps = 0;
 
 static int num_syn_clients;
 static int num_col_clients;
