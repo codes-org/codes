@@ -15,6 +15,7 @@
 #include "codes/codes-workload.h"
 #include "codes/quickhash.h"
 #include "codes/codes-jobmap.h"
+#include "codes/jenkins-hash.h"
 #include "codes/model-net.h"
 
 #if ENABLE_CORTEX
@@ -46,6 +47,7 @@ extern struct codes_jobmap_ctx *jobmap_ctx;
 static struct qhash_table *rank_tbl = NULL;
 static int rank_tbl_pop = 0;
 
+static unsigned int max_threshold = INT_MAX;
 /* context of the MPI workload */
 typedef struct rank_mpi_context
 {
@@ -54,6 +56,7 @@ typedef struct rank_mpi_context
     // whether we've seen an init op (needed for timing correctness)
     int is_init;
     int num_reqs;
+    unsigned int num_ops;
     int64_t my_rank;
     double last_op_time;
     double init_time;
@@ -105,6 +108,12 @@ static inline double time_to_us_lf(dumpi_clock t){
 }*/
 static inline double time_to_ns_lf(dumpi_clock t){
         return (double) t.sec * 1e9 + (double) t.nsec;
+}
+static int32_t get_unique_req_id(int32_t request_id)
+{
+    uint32_t pc = 0, pb = 0;
+    bj_hashlittle2(&request_id, sizeof(int32_t), &pc, &pb);
+    return pc;
 }
 /*static inline double time_to_s_lf(dumpi_clock t){
         return (double) t.sec + (double) t.nsec / 1e9;
@@ -338,10 +347,10 @@ int handleDUMPIWaitsome(const dumpi_waitsome *prm, uint16_t thread,
 
         wrkld_per_rank.op_type = CODES_WK_WAITSOME;
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int32_t*)malloc(prm->count * sizeof(int32_t));
+        wrkld_per_rank.u.waits.req_ids = (int*)malloc(prm->count * sizeof(int));
 
         for( i = 0; i < prm->count; i++ )
-                wrkld_per_rank.u.waits.req_ids[i] = (int32_t)prm->requests[i];
+                wrkld_per_rank.u.waits.req_ids[i] = prm->requests[i];
 
         update_times_and_insert(&wrkld_per_rank, wall, myctx);
         return 0;
@@ -363,10 +372,10 @@ int handleDUMPIWaitany(const dumpi_waitany *prm, uint16_t thread,
 
         wrkld_per_rank.op_type = CODES_WK_WAITANY;
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int32_t*)malloc(prm->count * sizeof(int32_t));
+        wrkld_per_rank.u.waits.req_ids = (int*)malloc(prm->count * sizeof(int));
 
         for( i = 0; i < prm->count; i++ )
-                wrkld_per_rank.u.waits.req_ids[i] = (int32_t)prm->requests[i];
+                wrkld_per_rank.u.waits.req_ids[i] = prm->requests[i];
 
         update_times_and_insert(&wrkld_per_rank, wall, myctx);
         return 0;
@@ -389,7 +398,7 @@ int handleDUMPIWaitall(const dumpi_waitall *prm, uint16_t thread,
         wrkld_per_rank.op_type = CODES_WK_WAITALL;
 
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int32_t*)malloc(prm->count * sizeof(int32_t));
+        wrkld_per_rank.u.waits.req_ids = (int*)malloc(prm->count * sizeof(int));
         for( i = 0; i < prm->count; i++ )
                 wrkld_per_rank.u.waits.req_ids[i] = prm->requests[i];
 
@@ -785,6 +794,7 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
     my_ctx->is_init = 0;
     my_ctx->num_reqs = 0;
 	my_ctx->dumpi_mpi_array = dumpi_init_op_data();
+    my_ctx->num_ops = 0;
 
 	if(rank < 10)
             sprintf(file_name, "%s000%d.bin", dumpi_params->file_name, rank);
@@ -931,8 +941,20 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
         while(active && !finalize_reached)
         {
            num_calls++;
+           my_ctx->num_ops++;
 #ifdef ENABLE_CORTEX
-	   active = cortex_undumpi_read_single_call(profile, callarr, transarr, (void*)my_ctx, &finalize_reached);
+           if(my_ctx->num_ops < max_threshold)
+	        active = cortex_undumpi_read_single_call(profile, callarr, transarr, (void*)my_ctx, &finalize_reached);
+           else
+           {
+                struct codes_workload_op op;
+                op.op_type = CODES_WK_END;
+
+                op.start_time = my_ctx->last_op_time;
+                op.end_time = my_ctx->last_op_time + 1;
+                dumpi_insert_next_op(my_ctx->dumpi_mpi_array, &op);
+                break;
+           }
 #else
            active = undumpi_read_single_call(profile, callarr, (void*)my_ctx, &finalize_reached);
 #endif
