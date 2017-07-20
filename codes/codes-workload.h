@@ -156,7 +156,7 @@ struct codes_workload_op
      */
 
     /* what type of operation this is */
-    enum codes_workload_op_type op_type;
+    int op_type;
     /* currently only used by network workloads */
     double start_time;
     double end_time;
@@ -198,7 +198,7 @@ struct codes_workload_op
             int16_t data_type; /* MPI data type to be matched with the recv */
             int count; /* number of elements to be received */
             int tag; /* tag of the message */
-            int32_t req_id;
+            int req_id;
         } send;
         struct {
             /* TODO: not sure why source rank is here */
@@ -208,7 +208,7 @@ struct codes_workload_op
             int16_t data_type; /* MPI data type to be matched with the send */
             int count; /* number of elements to be sent */
             int tag; /* tag of the message */
-            int32_t req_id;
+            int req_id;
         } recv;
         /* TODO: non-stub for other collectives */
         struct {
@@ -216,14 +216,14 @@ struct codes_workload_op
         } collective;
         struct {
             int count;
-            int32_t* req_ids;
+            int* req_ids;
         } waits;
         struct {
-            int32_t req_id;
+            int req_id;
         } wait;
         struct
         {
-            int32_t req_id;
+            int req_id;
         }
         free;
     }u;
