@@ -15,6 +15,7 @@
 #include "codes/codes-workload.h"
 #include "codes/quickhash.h"
 #include "codes/codes-jobmap.h"
+#include "codes/jenkins-hash.h"
 #include "codes/model-net.h"
 
 #if ENABLE_CORTEX
@@ -107,6 +108,12 @@ static inline double time_to_us_lf(dumpi_clock t){
 }*/
 static inline double time_to_ns_lf(dumpi_clock t){
         return (double) t.sec * 1e9 + (double) t.nsec;
+}
+static int32_t get_unique_req_id(int32_t request_id)
+{
+    uint32_t pc = 0, pb = 0;
+    bj_hashlittle2(&request_id, sizeof(int32_t), &pc, &pb);
+    return pc;
 }
 /*static inline double time_to_s_lf(dumpi_clock t){
         return (double) t.sec + (double) t.nsec / 1e9;
@@ -340,10 +347,10 @@ int handleDUMPIWaitsome(const dumpi_waitsome *prm, uint16_t thread,
 
         wrkld_per_rank.op_type = CODES_WK_WAITSOME;
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int32_t*)malloc(prm->count * sizeof(int32_t));
+        wrkld_per_rank.u.waits.req_ids = (int*)malloc(prm->count * sizeof(int));
 
         for( i = 0; i < prm->count; i++ )
-                wrkld_per_rank.u.waits.req_ids[i] = (int32_t)prm->requests[i];
+                wrkld_per_rank.u.waits.req_ids[i] = prm->requests[i];
 
         update_times_and_insert(&wrkld_per_rank, wall, myctx);
         return 0;
@@ -365,10 +372,10 @@ int handleDUMPIWaitany(const dumpi_waitany *prm, uint16_t thread,
 
         wrkld_per_rank.op_type = CODES_WK_WAITANY;
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int32_t*)malloc(prm->count * sizeof(int32_t));
+        wrkld_per_rank.u.waits.req_ids = (int*)malloc(prm->count * sizeof(int));
 
         for( i = 0; i < prm->count; i++ )
-                wrkld_per_rank.u.waits.req_ids[i] = (int32_t)prm->requests[i];
+                wrkld_per_rank.u.waits.req_ids[i] = prm->requests[i];
 
         update_times_and_insert(&wrkld_per_rank, wall, myctx);
         return 0;
@@ -391,7 +398,7 @@ int handleDUMPIWaitall(const dumpi_waitall *prm, uint16_t thread,
         wrkld_per_rank.op_type = CODES_WK_WAITALL;
 
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int32_t*)malloc(prm->count * sizeof(int32_t));
+        wrkld_per_rank.u.waits.req_ids = (int*)malloc(prm->count * sizeof(int));
         for( i = 0; i < prm->count; i++ )
                 wrkld_per_rank.u.waits.req_ids[i] = prm->requests[i];
 
