@@ -1854,7 +1854,9 @@ void switch_packet_receive_rc(switch_state * s,
 	s_arrive_r++;
 #endif
     int output_port = msg->saved_vc;
-    tw_rand_reverse_unif(lp->rng);
+    if(s->params->routing != STATIC) {
+      tw_rand_reverse_unif(lp->rng);
+    }
     if(bf->c1)
     {
         tw_rand_reverse_unif(lp->rng);
