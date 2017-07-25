@@ -246,7 +246,7 @@ static void base_read_config(const char * anno, model_net_base_params *p){
                 "setting to %d\n", p->num_queues);
     }
 
-    p->nic_seq_delay = 200;
+    p->nic_seq_delay = 10;
     ret = configuration_get_value_double(&config, "PARAMS", "nic_seq_delay", anno,
             &p->nic_seq_delay);
     if(ret && !g_tw_mynode) {
