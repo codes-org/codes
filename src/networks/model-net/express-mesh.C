@@ -50,8 +50,8 @@ static int terminal_magic_num = 0;
 static int sample_bytes_written = 0;
 static int sample_rtr_bytes_written = 0;
 
-char cn_sample_file[MAX_NAME_LENGTH];
-char router_sample_file[MAX_NAME_LENGTH];
+char em_cn_sample_file[MAX_NAME_LENGTH];
+char em_rtr_sample_file[MAX_NAME_LENGTH];
 
 static void init_message_list(message_list *thism, 
     em_message *inmsg) {
@@ -381,9 +381,9 @@ static void em_read_config(const char * anno, em_param *params){
       &p->router_delay);
 
   configuration_get_value(&config, "PARAMS", "cn_sample_file", anno, 
-      cn_sample_file, MAX_NAME_LENGTH);
+      em_cn_sample_file, MAX_NAME_LENGTH);
   configuration_get_value(&config, "PARAMS", "rt_sample_file", anno, 
-      router_sample_file, MAX_NAME_LENGTH);
+      em_rtr_sample_file, MAX_NAME_LENGTH);
 
   char routing_str[MAX_NAME_LENGTH];
   configuration_get_value(&config, "PARAMS", "routing", anno, routing_str,
@@ -1416,12 +1416,12 @@ terminal_final( terminal_state * s, tw_lp * lp )
   if(!s->terminal_id)
     written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>");
 
-  written += sprintf(s->output_buf + written, "\n %llu %u %ld %lf %ld %lf %lf",
+  written += sprintf(s->output_buf + written, "\n %llu %u %llu %lf %ld %lf %lf",
       LLU(lp->gid), s->terminal_id, s->total_msg_size, s->total_time, 
       s->finished_packets, (double)s->total_hops/s->finished_chunks,
       s->busy_time);
 
-  lp_io_write(lp->gid, "em-msg-stats", written, s->output_buf); 
+  lp_io_write(lp->gid, (char*)"em-msg-stats", written, s->output_buf); 
 
   for(int i = 0; i < s->params->num_vcs; i++) {
     if(s->terminal_msgs[0][i] != NULL) 
@@ -2169,7 +2169,7 @@ static void router_final(router_state * s,
   for(int d = 0; d < p->radix; d++) 
     written += sprintf(s->output_buf + written, " %lf", s->busy_time[d]);
 
-  lp_io_write(lp->gid, "em-router-stats", written, s->output_buf);
+  lp_io_write(lp->gid, (char*)"em-router-stats", written, s->output_buf);
 
   written = 0;
   if(!s->router_id)
@@ -2184,7 +2184,7 @@ static void router_final(router_state * s,
     written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
 
   assert(written < 4096);
-  lp_io_write(lp->gid, "em-router-traffic", written, s->output_buf2);
+  lp_io_write(lp->gid, (char*)"em-router-traffic", written, s->output_buf2);
 }
 
 static void em_rsample_init(router_state * s,
@@ -2305,10 +2305,10 @@ static void em_rsample_fin(router_state * s,
     fclose(fp);
   }
   char rt_fn[MAX_NAME_LENGTH];
-  if(strcmp(router_sample_file, "") == 0)
+  if(strcmp(em_rtr_sample_file, "") == 0)
     sprintf(rt_fn, "em-router-sampling-%ld.bin", g_tw_mynode); 
   else
-    sprintf(rt_fn, "%s-%ld.bin", router_sample_file, g_tw_mynode);
+    sprintf(rt_fn, "%s-%ld.bin", em_rtr_sample_file, g_tw_mynode);
 
   int i = 0;
 
@@ -2437,10 +2437,10 @@ static void em_sample_fin(terminal_state * s,
     fclose(fp);
   }
   char rt_fn[MAX_NAME_LENGTH];
-  if(strncmp(cn_sample_file, "", 10) == 0)
+  if(strncmp(em_cn_sample_file, "", 10) == 0)
     sprintf(rt_fn, "em-cn-sampling-%ld.bin", g_tw_mynode); 
   else
-    sprintf(rt_fn, "%s-%ld.bin", cn_sample_file, g_tw_mynode);
+    sprintf(rt_fn, "%s-%ld.bin", em_cn_sample_file, g_tw_mynode);
 
   FILE * fp = fopen(rt_fn, "a");
   fseek(fp, sample_bytes_written, SEEK_SET);

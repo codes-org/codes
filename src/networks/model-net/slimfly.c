@@ -596,7 +596,6 @@ static void slimfly_report_stats()
     int total_minimal_packets, total_nonmin_packets;
     float throughput_avg = 0.0;
     float throughput_avg2 = 0.0;
-    char log[300];
 
     MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -1224,7 +1223,8 @@ void slim_packet_generate(terminal_state * s, tw_bf * bf, slim_terminal_message 
     assert(lp->gid != msg->dest_terminal_id);
     const slimfly_param *p = s->params;
 
-    int i, total_event_size;
+    uint64_t i;
+    int total_event_size;
     uint64_t num_chunks = msg->packet_size / p->chunk_size;
     if (msg->packet_size % s->params->chunk_size)
         num_chunks++;
@@ -1876,7 +1876,7 @@ void slimfly_terminal_final( terminal_state * s,
     lp_io_write(lp->gid, "slimfly-msg-stats", written, s->output_buf);
 
     if(s->terminal_msgs[0] != NULL)
-      printf("[%lu] leftover terminal messages \n", lp->gid);
+      printf("[%llu] leftover terminal messages \n", lp->gid);
 
         if(!s->terminal_id)
         {
@@ -1911,11 +1911,11 @@ void slimfly_router_final(router_state * s,
     for(i = 0; i < s->params->radix; i++) {
         for(j = 0; j < s->params->num_vcs; j++) {
             if(s->queued_msgs[i][j] != NULL) {
-              printf("[%lu] leftover queued messages %d %d %d\n", lp->gid, i, j,
+              printf("[%llu] leftover queued messages %d %d %d\n", lp->gid, i, j,
                      s->vc_occupancy[i][j]);
             }
             if(s->pending_msgs[i][j] != NULL) {
-              printf("[%lu] lefover pending messages %d %d\n", lp->gid, i, j);
+              printf("[%llu] lefover pending messages %d %d\n", lp->gid, i, j);
             }
         }
     }

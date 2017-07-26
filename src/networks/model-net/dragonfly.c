@@ -91,8 +91,8 @@ FILE * dragonfly_log = NULL;
 int sample_bytes_written = 0;
 int sample_rtr_bytes_written = 0;
 
-char cn_sample_file[MAX_NAME_LENGTH];
-char router_sample_file[MAX_NAME_LENGTH];
+char dfly_cn_sample_file[MAX_NAME_LENGTH];
+char dfly_rtr_sample_file[MAX_NAME_LENGTH];
 
 typedef struct terminal_message_list terminal_message_list;
 struct terminal_message_list {
@@ -590,9 +590,9 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     configuration_get_value_double(&config, "PARAMS", "router_delay", anno,
             &p->router_delay);
 
-    configuration_get_value(&config, "PARAMS", "cn_sample_file", anno, cn_sample_file,
+    configuration_get_value(&config, "PARAMS", "cn_sample_file", anno, dfly_cn_sample_file,
             MAX_NAME_LENGTH);
-    configuration_get_value(&config, "PARAMS", "rt_sample_file", anno, router_sample_file,
+    configuration_get_value(&config, "PARAMS", "rt_sample_file", anno, dfly_rtr_sample_file,
             MAX_NAME_LENGTH);
     
     char routing_str[MAX_NAME_LENGTH];
@@ -2143,10 +2143,10 @@ static void dragonfly_rsample_fin(router_state * s,
         fclose(fp);
     }
     char rt_fn[MAX_NAME_LENGTH];
-    if(strcmp(router_sample_file, "") == 0)
+    if(strcmp(dfly_rtr_sample_file, "") == 0)
         sprintf(rt_fn, "dragonfly-router-sampling-%ld.bin", g_tw_mynode); 
     else
-        sprintf(rt_fn, "%s-%ld.bin", router_sample_file, g_tw_mynode);
+        sprintf(rt_fn, "%s-%ld.bin", dfly_rtr_sample_file, g_tw_mynode);
     
     int i = 0;
 
@@ -2305,10 +2305,10 @@ static void dragonfly_sample_fin(terminal_state * s,
         fclose(fp);
     }
     char rt_fn[MAX_NAME_LENGTH];
-    if(strncmp(cn_sample_file, "", 10) == 0)
+    if(strncmp(dfly_cn_sample_file, "", 10) == 0)
         sprintf(rt_fn, "dragonfly-cn-sampling-%ld.bin", g_tw_mynode); 
     else
-        sprintf(rt_fn, "%s-%ld.bin", cn_sample_file, g_tw_mynode);
+        sprintf(rt_fn, "%s-%ld.bin", dfly_cn_sample_file, g_tw_mynode);
 
     FILE * fp = fopen(rt_fn, "a");
     fseek(fp, sample_bytes_written, SEEK_SET);
@@ -3481,8 +3481,8 @@ struct model_net_method dragonfly_method =
     .mn_report_stats = dragonfly_report_stats,
     .mn_collective_call = dragonfly_collective,
     .mn_collective_call_rc = dragonfly_collective_rc,   
-    //.mn_sample_fn = (void*)dragonfly_sample_fn,    
-    //.mn_sample_rc_fn = (void*)dragonfly_sample_rc_fn,
+    .mn_sample_fn = (void*)dragonfly_sample_fn,    
+    .mn_sample_rc_fn = (void*)dragonfly_sample_rc_fn,
     .mn_sample_init_fn = (void*)dragonfly_sample_init,
     .mn_sample_fini_fn = (void*)dragonfly_sample_fin,
     .mn_model_stat_register = dragonfly_register_model_types,
@@ -3502,8 +3502,8 @@ struct model_net_method dragonfly_router_method =
     .mn_report_stats = NULL, // not yet supported
     .mn_collective_call = NULL,
     .mn_collective_call_rc = NULL,
-    //.mn_sample_fn = (void*)dragonfly_rsample_fn,
-    //.mn_sample_rc_fn = (void*)dragonfly_rsample_rc_fn,
+    .mn_sample_fn = (void*)dragonfly_rsample_fn,
+    .mn_sample_rc_fn = (void*)dragonfly_rsample_rc_fn,
     .mn_sample_init_fn = (void*)dragonfly_rsample_init,
     .mn_sample_fini_fn = (void*)dragonfly_rsample_fin,
     .mn_model_stat_register = router_register_model_types,
