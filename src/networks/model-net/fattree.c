@@ -570,7 +570,7 @@ static void dot_write_open_file(FILE **fout)
 }*/
 
 /* sw IDs aren't unique, but level+ID info is */
-static void dot_write_switch_info(switch_state *s, int sw_gid, FILE *fout)
+static void dot_write_switch_info(switch_state *s, FILE *fout)
 {
   if(!s || s->unused || !(s->params) || !fout) return;
   if(!dump_topo) return;
@@ -1152,7 +1152,7 @@ void switch_init(switch_state * r, tw_lp * lp)
   /* dump partial topology info into DOT format (switch radix, guid, ...) */
   if(!dot_file && !r->rail_id)
     dot_write_open_file(&dot_file);
-  dot_write_switch_info(r, lp->gid, dot_file);
+  dot_write_switch_info(r, dot_file);
 
 #if FATTREE_CONNECTIONS || FATTREE_DEBUG
     tw_lpid next_switch_lid;
@@ -1278,7 +1278,6 @@ void switch_init(switch_state * r, tw_lp * lp)
       l0_base++;
     }
     if(p->num_levels == 3) {
-      int l2_base = 0;
       int rep = p->link_repetitions;
       int l2 = ((r->switch_id - p->num_switches[0]) % p->l1_set_size)/rep * p->Ns;
       r->con_per_uneigh = 1;
@@ -1612,7 +1611,7 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
 
   int target_queue = msg->rail_id;
   if(s->params->rail_select == RAIL_ADAPTIVE && 
-     msg->total_size > s->params->rail_size_limit) {
+     (int)msg->total_size > s->params->rail_size_limit) {
     int curr_buffer = s->terminal_length[target_queue];
     for(int i = 1; i < s->params->ports_per_nic; i++) {
       int next = (msg->rail_id + i) % s->params->ports_per_nic;
@@ -1812,7 +1811,7 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   s->packet_counter++;
   s->vc_occupancy[msg->vc_index] += s->params->chunk_size;
   cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, msg->vc_index);
-  rc_stack_push(lp, cur_entry, delete_fattree_message_list, s->st);
+  rc_stack_push(lp, cur_entry, (void*)delete_fattree_message_list, s->st);
   s->terminal_length[msg->vc_index] -= s->params->chunk_size;
 
 //  if(s->terminal_id == 1)
@@ -2090,7 +2089,7 @@ void switch_packet_send( switch_state * s, tw_bf * bf, fattree_message * msg,
 
   cur_entry = return_head(s->pending_msgs, s->pending_msgs_tail,
     output_port);
-  rc_stack_push(lp, cur_entry, delete_fattree_message_list, s->st);
+  rc_stack_push(lp, cur_entry, (void*)delete_fattree_message_list, s->st);
 
   s->next_output_available_time[output_port] -= s->params->router_delay;
   ts -= s->params->router_delay;
@@ -2747,7 +2746,7 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
     if(!s->terminal_id && !s->rail_id)
         written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Rail ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>\n");
 
-    written += sprintf(s->output_buf + written, "%llu %u %u %ld %lf %ld %lf %lf\n",
+    written += sprintf(s->output_buf + written, "%llu %u %u %llu %lf %ld %lf %lf\n",
             LLU(lp->gid), s->terminal_id, s->rail_id, s->total_msg_size, s->total_time,
             s->finished_packets, (double)s->total_hops/s->finished_chunks,
             s->busy_time[0]);
