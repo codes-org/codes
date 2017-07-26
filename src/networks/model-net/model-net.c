@@ -28,6 +28,8 @@ extern struct model_net_method fattree_method;
 extern struct model_net_method dragonfly_router_method;
 extern struct model_net_method dragonfly_custom_router_method;
 extern struct model_net_method loggp_method;
+extern struct model_net_method express_mesh_method;
+extern struct model_net_method express_mesh_router_method;
 
 #define X(a,b,c,d) b,
 char * model_net_lp_config_names[] = {
@@ -56,6 +58,9 @@ tw_stime mn_msg_offset = 0.0;
 static int is_msg_params_set[MAX_MN_MSG_PARAM_TYPES];
 static mn_sched_params sched_params; // MN_MSG_PARAM_SCHED
 static tw_stime start_time_param; // MN_MSG_PARAM_START_TIME
+static double cn_bandwidth = 20;
+tw_stime codes_cn_delay;
+static int codes_node_eager_limit = 16000;
 
 // global listing of lp types found by model_net_register
 // - needs to be held between the register and configure calls
@@ -135,6 +140,25 @@ int* model_net_configure(int *id_count){
     // init the per-msg params here
     memset(is_msg_params_set, 0,
             MAX_MN_MSG_PARAM_TYPES*sizeof(*is_msg_params_set));
+  
+    ret = configuration_get_value_double(&config, "PARAMS", "intra_bandwidth", NULL,
+            &cn_bandwidth);
+    if(ret && !g_tw_mynode) {
+        fprintf(stderr, "Bandwidth of compute node channels not specified, "
+                "setting to %lf\n", cn_bandwidth);
+    }
+
+    codes_cn_delay = 1/cn_bandwidth;
+    if(!g_tw_mynode) {
+        printf("within node transfer per byte delay is %f\n", codes_cn_delay);
+    }
+    
+    ret = configuration_get_value_int(&config, "PARAMS", "node_eager_limit", NULL,
+            &codes_node_eager_limit);
+    if(ret && !g_tw_mynode) {
+        fprintf(stderr, "Within-node eager limit (node_eager_limit) not specified, "
+                "setting to %d\n", codes_node_eager_limit);
+    }
 
     return ids;
 }
@@ -235,6 +259,7 @@ static model_net_event_return model_net_noop_event(
         tw_lpid final_dest_lp,
         int is_pull,
         tw_stime offset,
+        uint64_t message_size,
         int remote_event_size,
         void const * remote_event,
         int self_event_size,
@@ -243,22 +268,25 @@ static model_net_event_return model_net_noop_event(
 {
     model_net_event_return num_rng_calls = 0;
     tw_stime poffset = mn_in_sequence ? mn_msg_offset : 0.0;
+    tw_stime delay = codes_local_latency(sender);
+
+    tw_stime sendTime = message_size * codes_cn_delay;
 
     if (self_event_size && self_event != NULL) {
-        poffset += codes_local_latency(sender);
+        poffset += delay;
         num_rng_calls++;
-        tw_event *e = tw_event_new(sender->gid, poffset+offset, sender);
+        tw_event *e = tw_event_new(sender->gid, poffset+offset+sendTime, sender);
         memcpy(tw_event_data(e), self_event, self_event_size);
         tw_event_send(e);
     }
 
     if (remote_event_size && remote_event != NULL) {
-        poffset += codes_local_latency(sender);
+        poffset += delay;
         num_rng_calls++;
         /* special case - in a "pull" event, the "remote" message is actually
          * to self */
         tw_event *e = tw_event_new(is_pull ? sender->gid : final_dest_lp,
-                poffset+offset, sender);
+                poffset+offset+sendTime, sender);
         memcpy(tw_event_data(e), remote_event, remote_event_size);
         tw_event_send(e);
     }
@@ -298,8 +326,8 @@ static model_net_event_return model_net_event_impl_base(
     tw_lpid dest_mn_lp = model_net_find_local_device_mctx(net_id, recv_map_ctx,
             final_dest_lp);
 
-    if (src_mn_lp == dest_mn_lp)
-        return model_net_noop_event(final_dest_lp, is_pull, offset,
+    if (src_mn_lp == dest_mn_lp && message_size < (uint64_t)codes_node_eager_limit)
+        return model_net_noop_event(final_dest_lp, is_pull, offset, message_size,
                 remote_event_size, remote_event, self_event_size, self_event,
                 sender);
 
@@ -342,6 +370,7 @@ static model_net_event_return model_net_event_impl_base(
 
     // this is an outgoing message
     m->msg.m_base.is_from_remote = 0;
+    m->msg.m_base.isQueueReq = 1;
 
     // set the msg-specific params
     if (is_msg_params_set[MN_SCHED_PARAM_PRIO])

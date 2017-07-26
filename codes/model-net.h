@@ -72,6 +72,8 @@ typedef struct mn_stats mn_stats;
     X(DRAGONFLY_CUSTOM, "modelnet_dragonfly_custom", "dragonfly_custom", &dragonfly_custom_method)\
     X(DRAGONFLY_CUSTOM_ROUTER, "modelnet_dragonfly_custom_router", "dragonfly_custom_router", &dragonfly_custom_router_method)\
     X(LOGGP,     "modelnet_loggp",     "loggp",     &loggp_method)\
+    X(EXPRESS_MESH, "modelnet_express_mesh", "express_mesh", &express_mesh_method)\
+    X(EXPRESS_MESH_ROUTER, "modelnet_express_mesh_router", "express_mesh_router", &express_mesh_router_method)\
     X(MAX_NETS,  NULL,                 NULL,        NULL)
 
 #define X(a,b,c,d) a,
@@ -123,6 +125,7 @@ typedef struct model_net_request {
     uint64_t msg_id;
     int      net_id;
     int      is_pull;
+    int      queue_offset;
     int      remote_event_size;
     int      self_event_size;
     char     category[CATEGORY_NAME_MAX];

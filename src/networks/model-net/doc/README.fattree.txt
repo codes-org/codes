@@ -51,14 +51,20 @@ Supported PARAMS:
 packet_size, chunk_size (ideally kept same)
 modelnet_scheduler - NIC message scheduler
 modelnet_order=( "fattree" ); 
-router_delay : delay caused by switched in ns
 num_levels : number of levels in the fattree (same as fattree_switch)
+tapering : controls division of ports to nodes at leaf level
 switch_count : number of leaf level switches (same as repetitions)
 switch_radix : radix of the switches
+router_delay : delay caused by switched in ns
 vc_size : size of switch VCs in bytes
 cn_vc_size : size of VC between NIC and switch in bytes
 link_bandwidth, cn_bandwidth : in GB/s
 routing : {adaptive, static}
+
+For radix k switches with tapering t, t*k/(t+1) ports are used for connecting
+to nodes, and remaining are connected to next level switches. fmod(k, t+1) has
+to be 0. Default tapering is 1, i.e. full bandwidth. Note that, even when
+tapering is >1, the number of leaf level switches in a Pod are k/2.
 
 2- Static Routing
 If static routing is chosen, two more PARAMS must be provided:

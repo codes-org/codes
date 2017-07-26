@@ -49,6 +49,7 @@ struct fattree_message
 
   // For buffer message
   short vc_index;
+  short rail_id;
   short vc_off;
   int is_pull;
   model_net_event_return event_rc;
