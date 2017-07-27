@@ -3502,8 +3502,9 @@ static void dragonfly_custom_get_router_neighbor_list(void* topo, router_id_t r,
     const dragonfly_param * params = &all_params[num_params-1];
 
     int gid = r / params->num_routers;
-    int src_row = r / params->num_router_cols;
-    int src_col = r % params->num_router_cols;
+    int local_rid = r - (gid * params->num_routers);
+    int src_row = local_rid / params->num_router_cols;
+    int src_col = local_rid % params->num_router_cols;
 
     /* First the routers in the same row */
      int i = 0;
