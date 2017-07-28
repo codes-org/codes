@@ -601,7 +601,9 @@ void handle_new_msg(
         num_servers = codes_mapping_get_lp_count(sender_group, 1,
                 sender_lpname, NULL, 1);
         servers_per_node = num_servers/ns->params->num_queues; //this is for entire switch
+        if(servers_per_node == 0) servers_per_node = 1;
         servers_per_node_queue = num_servers/ns->nics_per_router/ns->params->node_copy_queues;
+        if(servers_per_node_queue == 0) servers_per_node_queue = 1;
         if(!g_tw_mynode) {
             fprintf(stdout, "Set num_servers per router %d, servers per "
                 "injection queue per router %d, servers per node copy queue "
@@ -692,6 +694,7 @@ void handle_new_msg(
             num_servers = codes_mapping_get_lp_count(sender_group, 1,
                     sender_lpname, NULL, 1);
             servers_per_node = num_servers/ns->params->num_queues;
+            if(servers_per_node == 0) servers_per_node = 1;
         } else {
             codes_mapping_get_lp_info2(r->src_lp, NULL, NULL, NULL, &rep_id, &offset);
         }
