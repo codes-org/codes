@@ -1298,6 +1298,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
 
   if(s->vc_occupancy[0] + s->params->chunk_size > s->params->cn_vc_size 
       || cur_entry == NULL) {
+    /* REMOVE cur_entry check*/
     bf->c1 = 1;
     s->in_send_loop = 0;
 
@@ -1840,8 +1841,8 @@ void dragonfly_custom_rsample_fin(router_state * s,
         fprintf(fp, "Router sample struct format: \nrouter_id (tw_lpid) \nbusy time for each of the %d links (double) \n"
                 "link traffic for each of the %d links (int64_t) \nsample end time (double) forward events per sample \nreverse events per sample ",
                 p->radix, p->radix);
-        fprintf(fp, "\n\nOrdering of links \n%d local (router-router same group) channels \n%d global (router-router remote group)"
-                " channels \n %d terminal channels", p->intra_grp_radix, p->num_global_channels, p->num_cn);
+        fprintf(fp, "\n\nOrdering of links \n%d green (router-router same row) channels \n %d black (router-router same column) channels \n %d global (router-router remote group)"
+                " channels \n %d terminal channels", p->num_router_cols * p->num_row_chans, p->num_router_rows * p->num_col_chans, p->num_global_channels, p->num_cn);
         fclose(fp);
     }
         char rt_fn[MAX_NAME_LENGTH];
@@ -2078,7 +2079,7 @@ dragonfly_custom_terminal_final( terminal_state * s,
         sprintf(meta_filename, "dragonfly-msg-stats.meta");
 
         FILE * fp = fopen(meta_filename, "w+");
-        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max Latency> <Min Latency >\n");
+        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
     }
     int written = 0;
 
@@ -2129,8 +2130,8 @@ void dragonfly_custom_router_final(router_state * s,
     if(!s->router_id)
     {
         written = sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
-        written += sprintf(s->output_buf + written, "# Router ports in the order: %d local channels, %d global channels \n", 
-                p->intra_grp_radix, p->num_global_channels);
+        written += sprintf(s->output_buf + written, "# Router ports in the order: %d green links, %d black links %d global channels \n", 
+                p->num_router_cols * p->num_row_chans, p->num_router_rows * p->num_col_chans, p->num_global_channels);
     }
     written += sprintf(s->output_buf + written, "\n %llu %d %d", 
             LLU(lp->gid),
@@ -2145,9 +2146,9 @@ void dragonfly_custom_router_final(router_state * s,
     written = 0;
     if(!s->router_id)
     {
-        written = sprintf(s->output_buf2, "# Format <LP ID> <Group ID> <Router ID> <Link traffic per router port(s)>");
-        written += sprintf(s->output_buf2 + written, "# Router ports in the order: %d local channels, %d global channels \n",
-            p->intra_grp_radix, p->num_global_channels);
+        written = sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
+        written += sprintf(s->output_buf + written, "# Router ports in the order: %d green links, %d black links %d global channels \n", 
+                p->num_router_cols * p->num_row_chans, p->num_router_rows * p->num_col_chans, p->num_global_channels);
     }
     written += sprintf(s->output_buf2 + written, "\n %llu %d %d",
         LLU(lp->gid),
@@ -2943,6 +2944,10 @@ router_packet_receive( router_state * s,
       s->queued_msgs_tail[output_port], output_chan, cur_chunk);
     s->queued_count[output_port] += s->params->chunk_size;
     msg->saved_busy_time = s->last_buf_full[output_port];
+    /* a check for pending msgs is non-empty then we dont set anything. If
+     * that is empty then we check if last_buf_full is set or not. If already
+     * set then we don't overwrite it. If two packets arrive next to each other
+     * then the first person should be setting it. */
     s->last_buf_full[output_port] = tw_now(lp);
   }
 
