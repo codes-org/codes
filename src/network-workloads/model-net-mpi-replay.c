@@ -850,10 +850,10 @@ static void codes_exec_mpi_wait_rc(nw_state* s, tw_bf * bf, tw_lp* lp, nw_messag
    if(bf->c1)
     {
         completed_requests * qi = (completed_requests*)rc_stack_pop(s->processed_ops);
-        if(m->fwd.found_match == 0)
-        {
+        /*if(m->fwd.found_match == 0)
+        {*/
             qlist_add(&qi->ql, &s->completed_reqs);
-        }
+        /*}
         else
         {
            int index = 1;
@@ -867,7 +867,7 @@ static void codes_exec_mpi_wait_rc(nw_state* s, tw_bf * bf, tw_lp* lp, nw_messag
                 }
                 index++;
            }
-        }
+        }*/
         codes_issue_next_event_rc(lp);
         return;
     }
