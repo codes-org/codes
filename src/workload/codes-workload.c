@@ -13,14 +13,24 @@
 /* list of available methods.  These are statically compiled for now, but we
  * could make generators optional via autoconf tests etc. if needed
  */
+/* added by pj: differ POSIX and MPI IO in darshan 3.00*/
+#define	DARSHAN_POSIX_IO 	1
+#define	DARSHAN_MPI_IO		0
+
 extern struct codes_workload_method test_workload_method;
 extern struct codes_workload_method iolang_workload_method;
 #ifdef USE_DUMPI
 extern struct codes_workload_method dumpi_trace_workload_method;
 #endif
+
 #ifdef USE_DARSHAN
-extern struct codes_workload_method darshan_io_workload_method;
+#if DARSHAN_POSIX_IO
+extern struct codes_workload_method darshan_posix_io_workload_method;
+#elif DARSHAN_MPI_IO
+extern struct codes_workload_method darshan_mpi_io_workload_method;
 #endif
+#endif
+
 #ifdef USE_RECORDER
 extern struct codes_workload_method recorder_io_workload_method;
 #endif
@@ -34,8 +44,16 @@ static struct codes_workload_method const * method_array_default[] =
 #ifdef USE_DUMPI
     &dumpi_trace_workload_method,
 #endif
+
 #ifdef USE_DARSHAN
-    &darshan_io_workload_method,
+/* added by pj: posix and mpi io */
+#if	DARSHAN_POSIX_IO
+    &darshan_posix_io_workload_method,
+#elif DARNSHAN_MPI_IO
+	/* TODO: MPI_IO */
+	&darshan_mpi_io_workload_method,
+#endif
+
 #endif
 #ifdef USE_RECORDER
     &recorder_io_workload_method,
@@ -142,7 +160,7 @@ int codes_workload_load(
         const char* type,
         const char* params,
         int app_id,
-        int rank)
+        int rank, int *total_time)
 {
     init_workload_methods();
 
@@ -155,7 +173,7 @@ int codes_workload_load(
         if(strcmp(method_array[i]->method_name, type) == 0)
         {
             /* load appropriate workload generator */
-            ret = method_array[i]->codes_workload_load(params, app_id, rank);
+            ret = method_array[i]->codes_workload_load(params, app_id, rank, total_time);
             if(ret < 0)
             {
                 return(-1);
@@ -264,15 +282,42 @@ void codes_workload_get_next_rc2(
     method_array[wkld_id]->codes_workload_get_next_rc2(app_id, rank);
 }
 
+int codes_workload_get_time(const char *type, const char *params, int app_id,
+		int rank, double *read_time, double *write_time, int64_t *read_bytes, int64_t *written_bytes)
+{
+	int i;
+	init_workload_methods();
+
+	//printf("entering rank count, method_array = %p \n", method_array);
+	for(i=0; method_array[i] != NULL; i++)
+	{
+		//printf("%p\n", method_array[i]);
+		//printf(" geting time:: method_array[%d]->method_name = %s, type = %s\n", i, method_array[i]->method_name, type);
+		if(strcmp(method_array[i]->method_name, type) == 0)
+		{
+			if (method_array[i]->codes_workload_get_time != NULL)
+				return method_array[i]->codes_workload_get_time(
+						params, app_id, rank, read_time, write_time, read_bytes, written_bytes);
+			else
+				return -1;
+		}
+	}
+	return 0;
+}
+
 int codes_workload_get_rank_cnt(
         const char* type,
         const char* params,
         int app_id)
 {
     int i;
+    init_workload_methods();
 
+    //printf("entering rank count, method_array = %p \n", method_array);
     for(i=0; method_array[i] != NULL; i++)
     {
+    	//printf("%p\n", method_array[i]);
+    	//printf("method_array[%d]->method_name = %s, type = %s\n", i, method_array[i]->method_name, type);
         if(strcmp(method_array[i]->method_name, type) == 0)
         {
             if (method_array[i]->codes_workload_get_rank_cnt != NULL)
@@ -327,7 +372,7 @@ void codes_workload_print_op(
             break;
         case CODES_WK_SEND:
             fprintf(f, "op: app:%d rank:%d type:send "
-                    "src:%d dst:%d bytes:%llu type:%d count:%d tag:%d "
+                    "src:%d dst:%d bytes:%d type:%d count:%d tag:%d "
                     "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.send.source_rank, op->u.send.dest_rank,
@@ -337,7 +382,7 @@ void codes_workload_print_op(
             break;
         case CODES_WK_RECV:
             fprintf(f, "op: app:%d rank:%d type:recv "
-                    "src:%d dst:%d bytes:%llu type:%d count:%d tag:%d "
+                    "src:%d dst:%d bytes:%d type:%d count:%d tag:%d "
                     "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.recv.source_rank, op->u.recv.dest_rank,
@@ -347,7 +392,7 @@ void codes_workload_print_op(
             break;
         case CODES_WK_ISEND:
             fprintf(f, "op: app:%d rank:%d type:isend "
-                    "src:%d dst:%d bytes:%llu type:%d count:%d tag:%d "
+                    "src:%d dst:%d bytes:%d type:%d count:%d tag:%d "
                     "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.send.source_rank, op->u.send.dest_rank,
@@ -357,7 +402,7 @@ void codes_workload_print_op(
             break;
         case CODES_WK_IRECV:
             fprintf(f, "op: app:%d rank:%d type:irecv "
-                    "src:%d dst:%d bytes:%llu type:%d count:%d tag:%d "
+                    "src:%d dst:%d bytes:%d type:%d count:%d tag:%d "
                     "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.recv.source_rank, op->u.recv.dest_rank,
