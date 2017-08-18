@@ -160,7 +160,7 @@ int codes_workload_load(
         const char* type,
         const char* params,
         int app_id,
-        int rank, int *total_time)
+        int rank)
 {
     init_workload_methods();
 
@@ -173,7 +173,7 @@ int codes_workload_load(
         if(strcmp(method_array[i]->method_name, type) == 0)
         {
             /* load appropriate workload generator */
-            ret = method_array[i]->codes_workload_load(params, app_id, rank, total_time);
+            ret = method_array[i]->codes_workload_load(params, app_id, rank);
             if(ret < 0)
             {
                 return(-1);

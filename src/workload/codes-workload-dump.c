@@ -308,8 +308,7 @@ int main(int argc, char *argv[])
     for (i = start_rank ; i < start_rank+n; i++){
         struct codes_workload_op op;
         //printf("loading %s, %d\n", type, i);
-        int total_time;
-        int id = codes_workload_load(type, wparams, 0, i, &total_time);
+        int id = codes_workload_load(type, wparams, 0, i);
         double total_read_time = 0.0, total_write_time = 0.0;
         int64_t total_read_bytes = 0, total_written_bytes = 0;
         codes_workload_get_time(type, wparams, 0, i, &total_read_time, &total_write_time, &total_read_bytes, &total_written_bytes);
