@@ -294,6 +294,7 @@ int main(int argc, char *argv[])
 
     /* if num_ranks not set, pull it from the workload */
     if (n == -1){
+    	//printf("Getting rank count\n");
         n = codes_workload_get_rank_cnt(type, wparams, 0);
         if (n == -1) {
             fprintf(stderr,
@@ -301,12 +302,18 @@ int main(int argc, char *argv[])
                     "Specify option --num-ranks\n");
             return 1;
         }
+        printf("rank count = %d\n", n);
     }
 
     for (i = start_rank ; i < start_rank+n; i++){
         struct codes_workload_op op;
-        printf("loading %s, %d\n", type, i);
-        int id = codes_workload_load(type, wparams, 0, i);
+        //printf("loading %s, %d\n", type, i);
+        int total_time;
+        int id = codes_workload_load(type, wparams, 0, i, &total_time);
+        double total_read_time = 0.0, total_write_time = 0.0;
+        int64_t total_read_bytes = 0, total_written_bytes = 0;
+        codes_workload_get_time(type, wparams, 0, i, &total_read_time, &total_write_time, &total_read_bytes, &total_written_bytes);
+        printf("total_read_time = %f, total_write_time = %f\n", total_read_time, total_write_time);
         assert(id != -1);
         do {
             codes_workload_get_next(id, 0, i, &op);
@@ -392,11 +399,11 @@ int main(int argc, char *argv[])
                     {
                         if(i == 0)
                         {
-                    int j;
-                    printf("\n rank %d wait_all: ", i);
-                    for(j = 0; j < op.u.waits.count; j++)
-                        printf(" %d ", op.u.waits.req_ids[j]);
-                    num_waitalls++;
+							int j;
+							printf("\n rank %d wait_all: ", i);
+							for(j = 0; j < op.u.waits.count; j++)
+								printf(" %d ", op.u.waits.req_ids[j]);
+							num_waitalls++;
                         }
                     }
                     break;

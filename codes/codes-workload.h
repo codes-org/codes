@@ -58,6 +58,7 @@ struct darshan_params
 {
     char log_file_path[MAX_NAME_LENGTH_WKLD];
     int64_t aggregator_cnt;
+    int app_cnt;
 };
 
 struct recorder_params
@@ -157,7 +158,7 @@ struct codes_workload_op
      */
 
     /* what type of operation this is */
-    int op_type;
+    enum codes_workload_op_type op_type;
     /* currently only used by network workloads */
     double start_time;
     double end_time;
@@ -275,7 +276,7 @@ int codes_workload_load(
         const char* type,
         const char* params,
         int app_id,
-        int rank);
+        int rank, int *total_time);
 
 /* Retrieves the next I/O operation to execute.  the wkld_id is the
  * identifier returned by the init() function.  The op argument is a pointer
@@ -313,6 +314,11 @@ void codes_workload_print_op(
         int app_id,
         int rank);
 
+int codes_workload_get_time(const char *type,
+		const char * params,
+		int app_id,
+		int rank, double *read_time, double *write_time, int64_t *read_bytes, int64_t *written_bytes);
+
 /* implementation structure */
 struct codes_workload_method
 {
@@ -320,10 +326,12 @@ struct codes_workload_method
     void * (*codes_workload_read_config) (
             ConfigHandle *handle, char const * section_name,
             char const * annotation, int num_ranks);
-    int (*codes_workload_load)(const char* params, int app_id, int rank);
+    int (*codes_workload_load)(const char* params, int app_id, int rank, int *total_time);
     void (*codes_workload_get_next)(int app_id, int rank, struct codes_workload_op *op);
     void (*codes_workload_get_next_rc2)(int app_id, int rank);
     int (*codes_workload_get_rank_cnt)(const char* params, int app_id);
+    /* added for get all read or write time */
+    int (*codes_workload_get_time)(const char * params, int app_id, int rank, double *read_time, double *write_time, int64_t *read_bytes, int64_t *written_bytes);
 };
 
 
