@@ -109,12 +109,12 @@ static inline double time_to_us_lf(dumpi_clock t){
 static inline double time_to_ns_lf(dumpi_clock t){
         return (double) t.sec * 1e9 + (double) t.nsec;
 }
-static int32_t get_unique_req_id(int32_t request_id)
+/*static int32_t get_unique_req_id(int32_t request_id)
 {
     uint32_t pc = 0, pb = 0;
     bj_hashlittle2(&request_id, sizeof(int32_t), &pc, &pb);
     return pc;
-}
+}*/
 /*static inline double time_to_s_lf(dumpi_clock t){
         return (double) t.sec + (double) t.nsec / 1e9;
 }*/

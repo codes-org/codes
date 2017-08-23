@@ -1,3 +1,18 @@
+Contributors to date (in chronological order, with current affiliations)
+- Ning Liu, IBM
+- Jason Cope, DDN
+- Philip Carns, Argonne National Labs
+- Misbah Mubarak, Argonne National Labs
+- Shane Snyder, Argonne National Labs
+- Jonathan P. Jenkins
+- Noah Wolfe, RPI
+- Nikhil Jain, Lawrence Livermore Labs
+- Matthieu Dorier, Argonne National Labs
+- Caitlin Ross, RPI
+- Xu Yang, Amazon
+- Jens Domke, Tokyo Institute of Tech.
+- Xin Wang, IIT
+
 Contributions of external (non-Argonne) collaborators:
 
 Nikhil Jain, Abhinav Bhatele (LLNL)
