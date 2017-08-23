@@ -50,7 +50,7 @@ char offset_file[8192];
 static int wrkld_id;
 static int num_net_traces = 0;
 static int num_dumpi_traces = 0;
-static uint64_t EAGER_THRESHOLD = 8192;
+static int64_t EAGER_THRESHOLD = 8192;
 
 static int alloc_spec = 0;
 static tw_stime self_overhead = 10.0;
@@ -155,7 +155,7 @@ struct mpi_msgs_queue
     int tag;
     int source_rank;
     int dest_rank;
-    uint64_t num_bytes;
+    int64_t num_bytes;
     tw_stime req_init_time;
 	dumpi_req_id req_id;
     struct qlist_head ql;
@@ -287,7 +287,7 @@ struct nw_message
    {
        tw_lpid src_rank;
        int dest_rank;
-       uint64_t num_bytes;
+       int64_t num_bytes;
        int num_matched;
        int data_type;
        double sim_start_time;
@@ -305,7 +305,7 @@ struct nw_message
        double saved_recv_time;
        double saved_wait_time;
        double saved_delay;
-       int32_t saved_num_bytes;
+       int64_t saved_num_bytes;
    } rc;
 };
 
@@ -558,7 +558,7 @@ void finish_bckgnd_traffic(
         (void)b;
         (void)msg;
         ns->is_finished = 1;
-        lprintf("\n LP %llu completed sending data %lu completed at time %lf ", lp->gid, ns->gen_data, tw_now(lp));
+        lprintf("\n LP %llu completed sending data %lu completed at time %lf ", LLU(lp->gid), ns->gen_data, tw_now(lp));
         return;
 }
 
@@ -671,13 +671,13 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
     num_syn_bytes_recvd += data;
 }
 /* Debugging functions, may generate unused function warning */
-static void print_waiting_reqs(uint32_t * reqs, int count)
+/*static void print_waiting_reqs(uint32_t * reqs, int count)
 {
     lprintf("\n Waiting reqs: %d count", count);
     int i;
     for(i = 0; i < count; i++ )
         lprintf(" %d ", reqs[i]);
-}
+}*/
 static void print_msgs_queue(struct qlist_head * head, int is_send)
 {
     if(is_send)
@@ -690,10 +690,10 @@ static void print_msgs_queue(struct qlist_head * head, int is_send)
     qlist_for_each(ent, head)
        {
             current = qlist_entry(ent, mpi_msgs_queue, ql);
-            printf(" \n Source %d Dest %d bytes %llu tag %d ", current->source_rank, current->dest_rank, current->num_bytes, current->tag);
+            printf(" \n Source %d Dest %d bytes %"PRId64" tag %d ", current->source_rank, current->dest_rank, current->num_bytes, current->tag);
        }
 }
-static void print_completed_queue(tw_lp * lp, struct qlist_head * head)
+/*static void print_completed_queue(tw_lp * lp, struct qlist_head * head)
 {
 //    printf("\n Completed queue: ");
       struct qlist_head * ent = NULL;
@@ -704,7 +704,7 @@ static void print_completed_queue(tw_lp * lp, struct qlist_head * head)
             current = qlist_entry(ent, completed_requests, ql);
             tw_output(lp, " %llu ", current->req_id);
        }
-}
+}*/
 static int clear_completed_reqs(nw_state * s,
         tw_lp * lp,
         int * reqs, int count)
@@ -826,14 +826,14 @@ static int notify_posted_wait(nw_state* s,
                     printf("\n Num completed %d count %d LP %llu ",
                             wait_elem->num_completed,
                             wait_elem->count,
-                            lp->gid);
+                            LLU(lp->gid));
 //                if(wait_elem->num_completed > wait_elem->count)
 //                    tw_lp_suspend(lp, 1, 0);
 
                 if(wait_elem->num_completed >= wait_elem->count)
                 {
                     if(enable_debug)
-                        fprintf(workload_log, "\n(%lf) APP ID %d MPI WAITALL COMPLETED AT %llu ", tw_now(lp), s->app_id, s->nw_id);
+                        fprintf(workload_log, "\n(%lf) APP ID %d MPI WAITALL COMPLETED AT %llu ", tw_now(lp), s->app_id, LLU(s->nw_id));
                     wait_completed = 1;
                 }
 
@@ -850,10 +850,10 @@ static void codes_exec_mpi_wait_rc(nw_state* s, tw_bf * bf, tw_lp* lp, nw_messag
    if(bf->c1)
     {
         completed_requests * qi = (completed_requests*)rc_stack_pop(s->processed_ops);
-        /*if(m->fwd.found_match == 0)
-        {*/
+        if(m->fwd.found_match == 0)
+        {
             qlist_add(&qi->ql, &s->completed_reqs);
-        /*}
+        }
         else
         {
            int index = 1;
@@ -867,7 +867,7 @@ static void codes_exec_mpi_wait_rc(nw_state* s, tw_bf * bf, tw_lp* lp, nw_messag
                 }
                 index++;
            }
-        }*/
+        }
         codes_issue_next_event_rc(lp);
         return;
     }
@@ -963,7 +963,7 @@ static void codes_exec_mpi_wait_all(
         struct codes_workload_op * mpi_op)
 {
   if(enable_debug)
-    fprintf(workload_log, "\n MPI WAITALL POSTED AT %llu ", s->nw_id);
+    fprintf(workload_log, "\n MPI WAITALL POSTED AT %llu ", LLU(s->nw_id));
 
   if(enable_sampling)
   {
@@ -1372,7 +1372,7 @@ static void codes_exec_mpi_send(nw_state* s,
     }
 
     if(lp->gid == TRACK_LP)
-        printf("\n Sender rank %llu global dest rank %d dest-rank %d bytes %lld Tag %d", s->nw_id, global_dest_rank, mpi_op->u.send.dest_rank, mpi_op->u.send.num_bytes, mpi_op->u.send.tag);
+        printf("\n Sender rank %llu global dest rank %d dest-rank %d bytes %"PRIu64" Tag %d", LLU(s->nw_id), global_dest_rank, mpi_op->u.send.dest_rank, mpi_op->u.send.num_bytes, mpi_op->u.send.tag);
     m->rc.saved_num_bytes = mpi_op->u.send.num_bytes;
 	/* model-net event */
 	tw_lpid dest_rank = codes_mapping_get_lpid_from_relative(global_dest_rank, NULL, "nw-lp", NULL, 0);
@@ -1471,12 +1471,12 @@ static void codes_exec_mpi_send(nw_state* s,
     {
         if(mpi_op->op_type == CODES_WK_ISEND)
         {
-            fprintf(workload_log, "\n (%lf) APP %d MPI ISEND SOURCE %llu DEST %d TAG %d BYTES %llu ",
-                    tw_now(lp), s->app_id, s->nw_id, global_dest_rank, mpi_op->u.send.tag, mpi_op->u.send.num_bytes);
+            fprintf(workload_log, "\n (%lf) APP %d MPI ISEND SOURCE %llu DEST %d TAG %d BYTES %"PRId64,
+                    tw_now(lp), s->app_id, LLU(s->nw_id), global_dest_rank, mpi_op->u.send.tag, mpi_op->u.send.num_bytes);
         }
         else
-            fprintf(workload_log, "\n (%lf) APP ID %d MPI SEND SOURCE %llu DEST %d TAG %d BYTES %llu ",
-                    tw_now(lp), s->app_id, s->nw_id, global_dest_rank, mpi_op->u.send.tag, mpi_op->u.send.num_bytes);
+            fprintf(workload_log, "\n (%lf) APP ID %d MPI SEND SOURCE %llu DEST %d TAG %d BYTES %"PRId64,
+                    tw_now(lp), s->app_id, LLU(s->nw_id), global_dest_rank, mpi_op->u.send.tag, mpi_op->u.send.num_bytes);
     }
 	/* isend executed, now get next MPI operation from the queue */
 	if(mpi_op->op_type == CODES_WK_ISEND && !is_rend)
@@ -1651,7 +1651,7 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
 {
     if(s->app_id != m->fwd.app_id)
         printf("\n Received message for app %d my id %d my rank %llu ",
-                m->fwd.app_id, s->app_id, s->nw_id);
+                m->fwd.app_id, s->app_id, LLU(s->nw_id));
     assert(s->app_id == m->fwd.app_id);
 
     //if(s->local_rank != m->fwd.dest_rank)
@@ -2241,14 +2241,14 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
             qlist_for_each(ent, &s->msg_sz_list)
             {
                 tmp_msg = qlist_entry(ent, struct msg_size_info, ql);
-                printf("\n Rank %d Msg size %lld num_msgs %d agg_latency %f avg_latency %f",
+                printf("\n Rank %d Msg size %"PRId64" num_msgs %d agg_latency %f avg_latency %f",
                         s->local_rank, tmp_msg->msg_size, tmp_msg->num_msgs, tmp_msg->agg_latency, tmp_msg->avg_latency);
                 //fprintf(msg_size_log, "\n Rank %d Msg size %d num_msgs %d agg_latency %f avg_latency %f",
                 //        s->local_rank, tmp_msg->msg_size, tmp_msg->num_msgs, tmp_msg->agg_latency, tmp_msg->avg_latency);
                 if(s->local_rank == 0)
                 {
-                    fprintf(msg_size_log, "\n %llu %lld %d %f",
-                        s->nw_id, tmp_msg->msg_size, tmp_msg->num_msgs, tmp_msg->avg_latency);
+                    fprintf(msg_size_log, "\n %llu %"PRId64" %d %f",
+                        LLU(s->nw_id), tmp_msg->msg_size, tmp_msg->num_msgs, tmp_msg->avg_latency);
                 }
             }
         }
@@ -2259,11 +2259,11 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
         {
             unmatched = 1;
             printf("\n LP %llu unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf",
-			    lp->gid, count_irecv, count_isend, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->send_time, s->wait_time);
+			    LLU(lp->gid), count_irecv, count_isend, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->send_time, s->wait_time);
         }
-        written += sprintf(s->output_buf + written, "\n %llu %llu %ld %ld %ld %ld %lf %lf %lf %d", lp->gid, s->nw_id, s->num_sends, s->num_recvs, s->num_bytes_sent,
+        written += sprintf(s->output_buf + written, "\n %llu %llu %ld %ld %ld %ld %lf %lf %lf %d", LLU(lp->gid), LLU(s->nw_id), s->num_sends, s->num_recvs, s->num_bytes_sent,
                 s->num_bytes_recvd, s->send_time, s->elapsed_time - s->compute_time, s->compute_time, s->app_id);
-        lp_io_write(lp->gid, "mpi-replay-stats", written, s->output_buf);
+        lp_io_write(lp->gid, (char*)"mpi-replay-stats", written, s->output_buf);
 
 		if(s->elapsed_time - s->compute_time > max_comm_time)
 			max_comm_time = s->elapsed_time - s->compute_time;
@@ -2294,9 +2294,9 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
         written = 0;
 
         if(debug_cols)
-            written += sprintf(s->col_stats + written, "%lld \t %lf \n", s->nw_id, ns_to_s(s->all_reduce_time / s->num_all_reduce));
+            written += sprintf(s->col_stats + written, "%llu \t %lf \n", LLU(s->nw_id), ns_to_s(s->all_reduce_time / s->num_all_reduce));
 		
-        lp_io_write(lp->gid, "avg-all-reduce-time", written, s->col_stats);
+        lp_io_write(lp->gid, (char*)"avg-all-reduce-time", written, s->col_stats);
 
         avg_time += s->elapsed_time;
 		avg_comm_time += (s->elapsed_time - s->compute_time);
@@ -2659,7 +2659,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    assert(num_net_traces);
 
    if(!g_tw_mynode)
-	printf("\n Total bytes sent %llu recvd %llu \n max runtime %lf ns avg runtime %lf \n max comm time %lf avg comm time %lf \n max send time %lf avg send time %lf \n max recv time %lf avg recv time %lf \n max wait time %lf avg wait time %lf \n", 
+	printf("\n Total bytes sent %lld recvd %lld \n max runtime %lf ns avg runtime %lf \n max comm time %lf avg comm time %lf \n max send time %lf avg send time %lf \n max recv time %lf avg recv time %lf \n max wait time %lf avg wait time %lf \n", 
             total_bytes_sent, 
             total_bytes_recvd,
 			max_run_time, avg_run_time/num_net_traces,

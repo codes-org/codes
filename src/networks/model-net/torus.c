@@ -1027,7 +1027,7 @@ static void dimension_order_routing( nodes_state * s,
 			     int * dir )
 {
      int dest[s->params->n_dims];
-     int dest_id;
+     int dest_id = -1;
 
   /* dummys - check later */
   *dim = -1;

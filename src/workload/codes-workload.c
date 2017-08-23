@@ -327,7 +327,7 @@ void codes_workload_print_op(
             break;
         case CODES_WK_SEND:
             fprintf(f, "op: app:%d rank:%d type:send "
-                    "src:%d dst:%d bytes:%llu type:%d count:%d tag:%d "
+                    "src:%d dst:%d bytes:%"PRIu64" type:%d count:%d tag:%d "
                     "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.send.source_rank, op->u.send.dest_rank,
@@ -337,7 +337,7 @@ void codes_workload_print_op(
             break;
         case CODES_WK_RECV:
             fprintf(f, "op: app:%d rank:%d type:recv "
-                    "src:%d dst:%d bytes:%llu type:%d count:%d tag:%d "
+                    "src:%d dst:%d bytes:%"PRIu64" type:%d count:%d tag:%d "
                     "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.recv.source_rank, op->u.recv.dest_rank,
@@ -347,7 +347,7 @@ void codes_workload_print_op(
             break;
         case CODES_WK_ISEND:
             fprintf(f, "op: app:%d rank:%d type:isend "
-                    "src:%d dst:%d bytes:%llu type:%d count:%d tag:%d "
+                    "src:%d dst:%d bytes:%"PRIu64" type:%d count:%d tag:%d "
                     "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.send.source_rank, op->u.send.dest_rank,
@@ -357,7 +357,7 @@ void codes_workload_print_op(
             break;
         case CODES_WK_IRECV:
             fprintf(f, "op: app:%d rank:%d type:irecv "
-                    "src:%d dst:%d bytes:%llu type:%d count:%d tag:%d "
+                    "src:%d dst:%d bytes:%"PRIu64" type:%d count:%d tag:%d "
                     "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.recv.source_rank, op->u.recv.dest_rank,
