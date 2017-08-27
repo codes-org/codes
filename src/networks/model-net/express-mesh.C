@@ -303,7 +303,7 @@ static void local_read_config(const char * anno, local_param *params){
   local_param *p = params;
 
   // general params - do not change unless you intent to modify them
-  rc = configuration_get_value_double(&config, "PARAMS", "link_bandwidth",
+  int rc = configuration_get_value_double(&config, "PARAMS", "link_bandwidth",
       anno, &p->link_bandwidth);
   if(rc) {
     p->link_bandwidth = 5.25;
@@ -365,7 +365,7 @@ static void local_read_config(const char * anno, local_param *params){
       local_rtr_sample_file, MAX_NAME_LENGTH);
 
   //CHANGE: add network specific parameters here
-  int rc = configuration_get_value_int(&config, "PARAMS", "n_dims", anno,
+  rc = configuration_get_value_int(&config, "PARAMS", "n_dims", anno,
       &p->n_dims);
   if(rc) {
     tw_error(TW_LOC, "Number of dimensions not specified\n");
@@ -2530,7 +2530,7 @@ static void router_register(tw_lptype *base_type) {
 
 extern "C" {
 //CHANGE: use network specific struct names
-struct model_net_method NETWORK_method  =
+struct model_net_method express_mesh_method  =
 {
   0,
   local_configure,
@@ -2550,7 +2550,7 @@ struct model_net_method NETWORK_method  =
   NULL//(final_f)local_sample_fin,
 };
 
-struct model_net_method NETWORK_router_method =
+struct model_net_method express_mesh_router_method =
 {
   0,
   NULL,

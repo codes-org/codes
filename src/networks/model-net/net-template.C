@@ -296,7 +296,7 @@ static void local_read_config(const char * anno, local_param *params){
   local_param *p = params;
 
   // general params - do not change unless you intent to modify them
-  rc = configuration_get_value_double(&config, "PARAMS", "link_bandwidth",
+  int rc = configuration_get_value_double(&config, "PARAMS", "link_bandwidth",
       anno, &p->link_bandwidth);
   if(rc) {
     p->link_bandwidth = 5.25;
