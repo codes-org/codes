@@ -8,7 +8,7 @@
 #include "codes/model-net-lp.h"
 
 //CHANGE: use the network file created
-#include "codes/net/express-mesh.h"
+#include "codes/net/net-template.h"
 
 #include "codes/net/common-net.h"
 #include "sys/file.h"
@@ -18,16 +18,15 @@
 
 #define CREDIT_SZ 8
 #define HASH_TABLE_SIZE 262144
-#define MULT_FACTOR 2
 
 #define DEBUG 0
 #define MAX_STATS 65536
 
 //CHANGE: define them for the local network
-#define LOCAL_NETWORK_NAME EXPRESS_MESH
-#define LOCAL_NETWORK_ROUTER_NAME EXPRESS_MESH_ROUTER
-#define LOCAL_MSG_STRUCT em_message
-#define LOCAL_MSG_NAME_FROM_UNION em_msg
+#define LOCAL_NETWORK_NAME <NET_NAME>
+#define LOCAL_NETWORK_ROUTER_NAME <NET_ROUTER_NAME>
+#define LOCAL_MSG_STRUCT <STRUCT NAME DEFINED>
+#define LOCAL_MSG_NAME_FROM_UNION <MSG NAME USED IN THE UNION>
 
 #define LP_CONFIG_NM_TERM (model_net_lp_config_names[LOCAL_NETWORK_NAME])
 #define LP_METHOD_NM_TERM (model_net_method_names[LOCAL_NETWORK_NAME])
@@ -91,11 +90,6 @@ struct local_param
   double credit_delay; /* how long for credit to arrive - all bytes */
 
   //CHANGE: add network specific data here
-  int n_dims; // Dimensions in the base torus layout
-  int *dim_length;
-  int gap; // Gap at which nodes are connected (0 for log)
-  int * factor; /* used in torus coordinate calculation */
-  int *cons_per_dim, *offset_per_dim;
 };
 
 struct local_router_sample
@@ -247,7 +241,6 @@ struct router_state
   char output_buf2[4096];
 
   //CHANGE: add network specific data here
-  int* dim_position;
 };
 
 struct VC_Entry {
@@ -365,81 +358,9 @@ static void local_read_config(const char * anno, local_param *params){
       local_rtr_sample_file, MAX_NAME_LENGTH);
 
   //CHANGE: add network specific parameters here
-  int rc = configuration_get_value_int(&config, "PARAMS", "n_dims", anno,
-      &p->n_dims);
-  if(rc) {
-    tw_error(TW_LOC, "Number of dimensions not specified\n");
-  }
-
-  rc = configuration_get_value_int(&config, "PARAMS", "gap", anno, &p->gap);
-  if(rc) {
-    tw_error(TW_LOC, "Gap not specified\n");
-  }
-
-  char dim_length_str[MAX_NAME_LENGTH];
-  rc = configuration_get_value(&config, "PARAMS", "dim_length", anno,
-      dim_length_str, MAX_NAME_LENGTH);
-  if (rc == 0){
-    tw_error(TW_LOC, "couldn't read PARAMS:dim_length");
-  }
-  char* token;
-  p->dim_length= (int*)malloc(p->n_dims * sizeof(*p->dim_length));
-  token = strtok(dim_length_str, ",");
-  int i = 0;
-  while(token != NULL)
-  {
-    sscanf(token, "%d", &p->dim_length[i]);
-    if(p->dim_length[i] <= 0)
-    {
-      tw_error(TW_LOC, "Invalid torus dimension specified "
-          "(%d at pos %d), exiting... ", p->dim_length[i], i);
-    }
-    i++;
-    token = strtok(NULL,",");
-  }
-
-  char routing_str[MAX_NAME_LENGTH];
-  configuration_get_value(&config, "PARAMS", "routing", anno, routing_str,
-      MAX_NAME_LENGTH);
-  if(strcmp(routing_str, "static") == 0)
-    p->routing = STATIC;
-  else if (strcmp(routing_str, "adaptive") == 0) {
-    p->routing = ADAPTIVE;
-    if(p->num_vcs < 2) {
-      p->num_vcs = 2;
-    }
-  }
-  else
-  {
-    p->routing = STATIC;
-    fprintf(stderr,
-        "No routing protocol specified, setting to static routing\n");
-  }
 
   //CHANGE: derived parameters often are computed based on network specifics
-  p->radix = 0;
-  p->total_routers = 1;
-  p->cons_per_dim = (int *)malloc(p->n_dims * sizeof(int));
-  p->offset_per_dim = (int *)malloc(p->n_dims * sizeof(int));
-  for(int i = 0; i < p->n_dims; i++) {
-    p->cons_per_dim[i] = 2 + (p->dim_length[i] - 3)/p->gap;
-    p->radix += p->cons_per_dim[i];
-    p->total_routers *= p->dim_length[i];
-    if(i == 0) {
-      p->offset_per_dim[i] = p->num_cn;
-    } else {
-      p->offset_per_dim[i] = p->offset_per_dim[i - 1] + p->cons_per_dim[i - 1];
-    }
-  }
-  p->radix += p->num_cn;
-  p->total_terminals = p->total_routers * p->num_cn;
-
-  int rank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  if(!rank) {
-    printf("\n Total nodes %d routers %d radix %d \n",
-        p->total_terminals, p->total_routers, p->radix);
-  }
+  //p->radix, p->total_routers, p->total_terminals
 
   //general derived parameters
   p->cn_delay = bytes_to_ns(1, p->cn_bandwidth);
@@ -594,45 +515,6 @@ static void terminal_init( terminal_state * s, tw_lp * lp )
 //specific data structures
 static void create_router_connections(router_state * r, tw_lp * lp) {
   local_param *p = (local_param *)r->params;
-
-  r->dim_position = (int *)malloc(p->n_dims * sizeof(int));
-
-  to_dim_id(r->router_id, r->params->n_dims, r->params->dim_length,
-      r->dim_position);
-
-  //set up connections
-  int curr_con = 0;
-  int first = r->router_id * p->num_cn;
-  for(; curr_con < p->num_cn; curr_con++) {
-    r->link_connections[curr_con] = codes_mapping_get_lpid_from_relative(
-      first, NULL, LP_CONFIG_NM_TERM, r->anno, 1);
-    first++;
-  }
-
-  int temp_dim_pos[p->n_dims];
-  for(int i = 0; i < p->n_dims; i++)
-    temp_dim_pos[i] = r->dim_position[i];
-
-  for(int curr_dim = 0; curr_dim < p->n_dims; curr_dim++) {
-    curr_con = p->offset_per_dim[curr_dim];
-    for(int loc = 0; loc < p->dim_length[curr_dim]; loc++) {
-      if(loc != r->dim_position[curr_dim]) {
-        if(loc == r->dim_position[curr_dim] - 1 ||
-           loc == r->dim_position[curr_dim] + 1 ||
-           (loc < r->dim_position[curr_dim] &&
-           ((r->dim_position[curr_dim] - 1 - loc) % p->gap == 0)) ||
-           (loc > r->dim_position[curr_dim] &&
-           ((loc - r->dim_position[curr_dim] - 1) % p->gap == 0))) {
-          temp_dim_pos[curr_dim] = loc;
-          int neigh_id = to_flat_id(p->n_dims, p->dim_length, temp_dim_pos);
-          temp_dim_pos[curr_dim] = r->dim_position[curr_dim];
-          r->link_connections[curr_con] = codes_mapping_get_lpid_from_relative(
-              neigh_id, NULL, LP_CONFIG_NM_ROUT, r->anno, 1);
-          curr_con++;
-        }
-      }
-    }
-  }
 }
 
 static void router_setup(router_state * r, tw_lp * lp)
@@ -1475,162 +1357,8 @@ get_next_stop(router_state * s,
     LOCAL_MSG_STRUCT * msg,
     tw_bf *bf,
     int *port,
-    int *vc,
-    int *src_dim,
-    int *dst_dim,
-    int *static_port)
+    int *vc)
 {
-  *static_port = -1;
-  *src_dim = -2;
-  if(msg->last_hop == TERMINAL) {
-    *src_dim = -1;
-  } else {
-    for(int i = s->params->n_dims - 1; i >= 0; i--) {
-      if(msg->vc_index >= s->params->offset_per_dim[i]) {
-        *src_dim = i;
-        break;
-      }
-    }
-  }
-  assert(*src_dim > -2);
-
-  int dest[s->params->n_dims];
-  to_dim_id(msg->dest_terminal/s->params->num_cn, s->params->n_dims,
-    s->params->dim_length, dest);
-
-  std::vector<NextHop> port_options;
-  bool at_dest = true;
-  int first_dim = -1;
-  for(int i = 0; i < s->params->n_dims; i++)
-  {
-    if(s->dim_position[i] != dest[i]) {
-      at_dest = false;
-      *port = s->params->offset_per_dim[i];
-      if(first_dim  == -1) {
-        first_dim = i;
-      }
-
-      int first_dim_con;
-      if(s->dim_position[i] == 0) {
-        first_dim_con = -1;
-      } else {
-        first_dim_con = (s->dim_position[i] - 1) % s->params->gap;
-      }
-
-      if(dest[i] == s->dim_position[i] - 1) {
-        *port += (s->dim_position[i] - 1 - first_dim_con) / s->params->gap;
-        port_options.push_back(NextHop(i, *port));
-      } else if(dest[i] == s->dim_position[i] + 1) {
-        *port += 1 + (s->dim_position[i] - 1 - first_dim_con) / s->params->gap;
-        *port -= (s->dim_position[i] == 0 ? 1 : 0);
-        port_options.push_back(NextHop(i, *port));
-      } else {
-        if(dest[i] < s->dim_position[i]) {
-          if((s->dim_position[i] - 1 - dest[i]) % s->params->gap == 0) {
-            *port += (dest[i] - first_dim_con) / s->params->gap;
-            port_options.push_back(NextHop(i, *port));
-          } else {
-            int long_hop;
-            if(dest[i] < first_dim_con) {
-              long_hop = *port;
-            } else {
-              long_hop = *port + (dest[i] - first_dim_con) / s->params->gap + 1;
-            }
-            //int long_hop = *port + (dest[i] - first_dim_con) / s->params->gap + 1;
-            int short_hop = *port + (s->dim_position[i] - 1 - first_dim_con) / s->params->gap;
-            port_options.push_back(NextHop(i, long_hop));
-            port_options.push_back(NextHop(i, short_hop));
-          }
-        } else if(dest[i] > s->dim_position[i]) {
-          if((dest[i] - s->dim_position[i] - 1) % s->params->gap == 0) {
-            *port += (s->dim_position[i] - 1 - first_dim_con) / s->params->gap
-              + 1 + (dest[i] - s->dim_position[i] - 1) / s->params->gap;
-            *port -= (s->dim_position[i] == 0 ? 1 : 0);
-            port_options.push_back(NextHop(i, *port));
-          } else {
-            int long_hop = *port + (s->dim_position[i] - 1 - first_dim_con) / s->params->gap
-              + 1 + (dest[i] - s->dim_position[i] - 1) / s->params->gap;
-            int short_hop = *port + 1 + (s->dim_position[i] - 1 - first_dim_con) / s->params->gap;
-            short_hop -= (s->dim_position[i] == 0 ? 1 : 0);
-            long_hop -= (s->dim_position[i] == 0 ? 1 : 0);
-            port_options.push_back(NextHop(i, long_hop));
-            port_options.push_back(NextHop(i, short_hop));
-          }
-        } else {
-          tw_error(TW_LOC, "Impossible condition in get_next_stop");
-        }
-      }
-      if(s->params->routing == STATIC) {
-        break;
-      }
-    }
-  }
-
-  int try_vcs = s->params->num_vcs;
-  if(at_dest) {
-    *port = (msg->dest_terminal % s->params->num_cn);
-    port_options.push_back(NextHop(-1, *port));
-    try_vcs = 1;
-    assert(port_options.size() == 1);
-  }
-  if(s->params->routing == STATIC || at_dest) {
-    *vc = 0;
-    *port = port_options[0].port;
-    *dst_dim = port_options[0].dim;
-    int vc_s = s->vc_occupancy[*port][*vc] + s->queued_count[*port];
-    for(int i = 0; i < port_options.size(); i++) {
-      for(int j = 0; j < try_vcs; j++) {
-        if(s->vc_occupancy[port_options[i].port][j] +
-           s->queued_count[port_options[i].port] < vc_s) {
-          vc_s = s->vc_occupancy[port_options[i].port][j] +
-                 s->queued_count[port_options[i].port];
-          *port = port_options[i].port;
-          *dst_dim = port_options[i].dim;
-          *vc = j;
-        }
-      }
-    }
-  } else {
-    *vc = 1; //dynamic VC
-    *port = port_options[0].port;
-    *dst_dim = port_options[0].dim;
-    int vc_s = s->vc_occupancy[*port][*vc] + s->queued_count[*port];
-    for(int i = 0; i < port_options.size(); i++) {
-      for(int j = 1; j < try_vcs; j++) {
-        if(s->vc_occupancy[port_options[i].port][j] +
-           s->queued_count[port_options[i].port] < vc_s) {
-          vc_s = s->vc_occupancy[port_options[i].port][j] +
-                 s->queued_count[port_options[i].port];
-          *port = port_options[i].port;
-          *dst_dim = port_options[i].dim;
-          *vc = j;
-        }
-      }
-    }
-    //if going to queued list, find the first dim port also
-    if((s->vc_occupancy[*port][*vc] + s->params->chunk_size > s->params->vc_size)) {
-      int start_vc = 1;
-      int end_vc = s->params->num_vcs;
-      *static_port = port_options[0].port;
-      int vc_s = s->vc_occupancy[*static_port][start_vc] + s->queued_count[*static_port];
-      for(int i = 0; (i < port_options.size()) &&
-                     (port_options[i].dim == first_dim); i++) {
-        for(int j = start_vc; j < end_vc; j++) {
-          if(s->vc_occupancy[port_options[i].port][j] +
-              s->queued_count[port_options[i].port] < vc_s) {
-            vc_s = s->vc_occupancy[port_options[i].port][j] +
-              s->queued_count[port_options[i].port];
-            *static_port = port_options[i].port;
-          }
-        }
-      }
-    }
-  }
-#if DEBUG
-  printf("[%lld-%d] Me: %d %d %d: Dest %d %d %d Found %d %d\n", msg->packet_ID, s->params->n_dims,
-      s->dim_position[0], s->dim_position[1], s->dim_position[2],
-      dest[0], dest[1], dest[2], *dst_dim, *port);
-#endif
 }
 
 //CHANGE: reverse computation for get_next_stop
@@ -1696,10 +1424,6 @@ router_packet_receive( router_state * s,
 
   get_next_stop(s, msg, bf, &next_port, &next_vc, &src_dim, &next_dim, &static_port);
 
-  if(s->params->routing != STATIC && next_dim != -1) {
-    assert(next_vc != 0);
-  }
-
   message_list * cur_chunk = (message_list*)malloc(sizeof(message_list));
   init_message_list(cur_chunk, msg);
 
@@ -1715,15 +1439,8 @@ router_packet_receive( router_state * s,
   }
 
   cur_chunk->LOCAL_MSG_NAME_FROM_UNION.my_N_hop++;
-  assert(cur_chunk->LOCAL_MSG_NAME_FROM_UNION.my_N_hop < s->params->n_dims * s->params->gap + 2);
 
-  //additional condition for Express Mesh when changing dimension
-  int multfactor = 1;
-  if(s->params->routing == STATIC && next_dim != -1 && src_dim != next_dim) {
-    multfactor = MULT_FACTOR;
-  }
-
-  if(s->vc_occupancy[next_port][next_vc] + multfactor * s->params->chunk_size
+  if(s->vc_occupancy[next_port][next_vc] + s->params->chunk_size
       <= max_vc_size) {
     bf->c2 = 1;
     router_credit_send(s, msg, lp);
@@ -1745,41 +1462,12 @@ router_packet_receive( router_state * s,
     }
   } else {
     bf->c4 = 1;
-    if(multfactor == 1) {
-      cur_chunk->LOCAL_MSG_NAME_FROM_UNION.dim_change = 0;
-    } else {
-      cur_chunk->LOCAL_MSG_NAME_FROM_UNION.dim_change = 1;
-    }
     cur_chunk->port = next_port; cur_chunk->index = next_vc;
     append_to_message_list(s->queued_msgs[next_port],
         s->queued_msgs_tail[next_port], next_vc, cur_chunk);
     s->queued_count[next_port] += s->params->chunk_size;
     msg->saved_busy_time = s->last_buf_full[next_port];
     s->last_buf_full[next_port] = tw_now(lp);
-    //additional routing optimization for Express Mesh : if both static outport
-    //and dynamic output is not currently available, get queued to both
-    if(s->params->routing != STATIC && next_dim != -1) {
-      assert(static_port >= s->params->num_cn);
-      assert(next_vc != 0);
-      bf->c6 = 1;
-      cur_chunk->in_alt_q = 1;
-      cur_chunk->altq_port = static_port;
-      altq_append_to_message_list(s->queued_msgs[static_port],
-          s->queued_msgs_tail[static_port], 0, cur_chunk);
-      bool triggerSend = (s->vc_occupancy[static_port][0] + MULT_FACTOR * s->params->chunk_size <= s->params->vc_size);
-      if(triggerSend && s->in_send_loop[static_port] == 0) {
-        bf->c5 = 1;
-        LOCAL_MSG_STRUCT *m;
-        ts = codes_local_latency(lp);
-        tw_event *e = model_net_method_event_new(lp->gid, ts, lp,
-            LOCAL_NETWORK_ROUTER_NAME, (void**)&m, NULL);
-        m->type = R_SEND;
-        m->magic = router_magic_num;
-        m->vc_index = static_port;
-        tw_event_send(e);
-        s->in_send_loop[static_port] = 1;
-      }
-    }
   }
 
   msg->saved_vc = next_port;
@@ -1813,17 +1501,6 @@ static void router_packet_receive_rc(router_state * s,
           s->queued_msgs_tail[next_port], next_vc);
     s->queued_count[next_port] -= s->params->chunk_size;
     s->last_buf_full[next_port] = msg->saved_busy_time;
-    if(bf->c6) {
-      assert(tail->in_alt_q == 1);
-      int static_port = tail->altq_port;
-      message_list *stail = altq_return_tail(s->queued_msgs[static_port],
-        s->queued_msgs_tail[static_port], 0);
-      assert(stail == tail);
-      if(bf->c5) {
-        codes_local_latency_reverse(lp);
-        s->in_send_loop[static_port] = 0;
-      }
-    }
     delete_message_list(tail);
   }
 }
@@ -1849,31 +1526,10 @@ router_packet_send( router_state * s,
     }
   }
 
-  //possible move from dynamics VCs to static VC
   if(entries.size() == 0) {
-    if((output_port >= s->params->num_cn) && (s->params->routing != STATIC) &&
-       (s->vc_occupancy[output_port][0] + MULT_FACTOR * s->params->chunk_size <= s->params->vc_size)) {
-      if(s->queued_msgs[output_port][0] != NULL) {
-        bf->c21 = 1;
-        message_list *head = altq_return_head(s->queued_msgs[output_port],
-            s->queued_msgs_tail[output_port], 0);
-        head->in_alt_q = 0;
-        router_credit_send(s, &head->LOCAL_MSG_NAME_FROM_UNION, lp);
-        delete_from_message_list(s->queued_msgs, s->queued_msgs_tail, head);
-        s->queued_count[head->port] -= s->params->chunk_size;
-        msg->saved_vc = head->port;
-        msg->saved_channel = head->index;
-        s->vc_occupancy[output_port][0] += s->params->chunk_size;
-        VC_Entry tmp;
-        tmp.vc = 0; tmp.entry = head;
-        entries.push_back(tmp);
-      }
-    }
-    if(entries.size() == 0) {
-      bf->c1 = 1;
-      s->in_send_loop[output_port] = 0;
-      return;
-    }
+    bf->c1 = 1;
+    s->in_send_loop[output_port] = 0;
+    return;
   }
 
   //CHANGE: no priorities among VCs; can be changed.
@@ -1958,10 +1614,8 @@ router_packet_send( router_state * s,
   }
   tw_event_send(e);
 
-  if(!bf->c21) {
-    cur_entry = return_head(s->pending_msgs[output_port],
-        s->pending_msgs_tail[output_port], use_vc);
-  }
+  cur_entry = return_head(s->pending_msgs[output_port],
+      s->pending_msgs_tail[output_port], use_vc);
   rc_stack_push(lp, cur_entry, delete_message_list, s->st);
 
   s->next_output_available_time[output_port] -= s->params->router_delay;
@@ -2009,20 +1663,9 @@ static void router_packet_send_rc(router_state * s,
     s->link_traffic_sample[output_port] -= s->params->chunk_size;
   }
 
-  if(bf->c21) {
-    tw_rand_reverse_unif(lp->rng);
-    cur_entry->port = msg->saved_vc; cur_entry->index = msg->saved_channel;
-    cur_entry->in_alt_q = 1;
-    altq_prepend_to_message_list(s->queued_msgs[output_port],
-        s->queued_msgs_tail[output_port], 0, cur_entry);
-    add_to_message_list(s->queued_msgs, s->queued_msgs_tail, cur_entry);
-    s->vc_occupancy[output_port][0] -= s->params->chunk_size;
-    s->queued_count[msg->saved_vc] += s->params->chunk_size;
-  } else {
-    cur_entry->port = output_port; cur_entry->index = use_vc;
-    prepend_to_message_list(s->pending_msgs[output_port],
-        s->pending_msgs_tail[output_port], use_vc, cur_entry);
-  }
+  cur_entry->port = output_port; cur_entry->index = use_vc;
+  prepend_to_message_list(s->pending_msgs[output_port],
+      s->pending_msgs_tail[output_port], use_vc, cur_entry);
 
   tw_rand_reverse_unif(lp->rng);
 }
@@ -2050,31 +1693,19 @@ static void router_buf_update(router_state * s, tw_bf * bf, LOCAL_MSG_STRUCT * m
     max_vc_size = s->params->cn_vc_size;
   }
 
-  if((s->params->routing == STATIC || output_chan != 0 || indx < s->params->num_cn)
-      && s->queued_msgs[indx][output_chan] != NULL) {
-    if(!s->queued_msgs[indx][output_chan]->LOCAL_MSG_NAME_FROM_UNION.dim_change ||
-      (s->vc_occupancy[indx][output_chan] + MULT_FACTOR * s->params->chunk_size
-      <= max_vc_size)) {
-      bf->c1 = 1;
-      message_list *head = return_head(s->queued_msgs[indx],
-          s->queued_msgs_tail[indx], output_chan);
-      router_credit_send(s, &head->LOCAL_MSG_NAME_FROM_UNION, lp);
-      if(head->in_alt_q) {
-        bf->c21 = 1;
-        altq_delete_from_message_list(s->queued_msgs, s->queued_msgs_tail, head);
-        head->in_alt_q = 0;
-      }
-      head->port = indx; head->index = output_chan;
-      append_to_message_list(s->pending_msgs[indx],
-          s->pending_msgs_tail[indx], output_chan, head);
-      s->vc_occupancy[indx][output_chan] += s->params->chunk_size;
-      s->queued_count[indx] -= s->params->chunk_size;
-    }
+  if(s->queued_msgs[indx][output_chan] != NULL) {
+    bf->c1 = 1;
+    message_list *head = return_head(s->queued_msgs[indx],
+        s->queued_msgs_tail[indx], output_chan);
+    router_credit_send(s, &head->LOCAL_MSG_NAME_FROM_UNION, lp);
+    head->port = indx; head->index = output_chan;
+    append_to_message_list(s->pending_msgs[indx],
+        s->pending_msgs_tail[indx], output_chan, head);
+    s->vc_occupancy[indx][output_chan] += s->params->chunk_size;
+    s->queued_count[indx] -= s->params->chunk_size;
   }
 
-  if(s->in_send_loop[indx] == 0 && ((s->pending_msgs[indx][output_chan] != NULL) ||
-      ((s->vc_occupancy[indx][0] + MULT_FACTOR * s->params->chunk_size <= s->params->vc_size)
-        && (s->queued_msgs[indx][0] != NULL)))) {
+  if(s->in_send_loop[indx] == 0 && (s->pending_msgs[indx][output_chan] != NULL))
     bf->c2 = 1;
     LOCAL_MSG_STRUCT *m;
     tw_stime ts = codes_local_latency(lp);
@@ -2108,10 +1739,6 @@ static void router_buf_update_rc(router_state * s,
     message_list* head = return_tail(s->pending_msgs[indx],
         s->pending_msgs_tail[indx], output_chan);
     tw_rand_reverse_unif(lp->rng);
-    if(bf->c21) {
-      head->in_alt_q = 1;
-      altq_add_to_message_list(s->queued_msgs, s->queued_msgs_tail, head);
-    }
     head->port = indx; head->index = output_chan;
     prepend_to_message_list(s->queued_msgs[indx],
         s->queued_msgs_tail[indx], output_chan, head);
