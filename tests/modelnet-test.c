@@ -187,8 +187,14 @@ int main(
     {
       strcpy(router_name, "slimfly_router");
     }
+    
+    if(net_id == EXPRESS_MESH)
+    {
+      strcpy(router_name, "modelnet_express_mesh_router");
+    }
 
-    if(net_id == SLIMFLY || net_id == DRAGONFLY)
+
+    if(net_id == SLIMFLY || net_id == DRAGONFLY || net_id == EXPRESS_MESH)
     {
 	  num_routers = codes_mapping_get_lp_count("MODELNET_GRP", 0,
                   router_name, NULL, 1);
@@ -356,11 +362,8 @@ static void handle_kickoff_event(
     int opt_offset = 0;
     int total_lps = num_servers * 2 + num_routers;
 
-    if(net_id == DRAGONFLY && (lp->gid % lps_per_rep == num_servers_per_rep - 1))
-          opt_offset = num_servers_per_rep + num_routers_per_rep; /* optional offset due to dragonfly mapping */
-
-    if(net_id == SLIMFLY && (lp->gid % lps_per_rep == num_servers_per_rep -1))
-          opt_offset = num_servers_per_rep + num_routers_per_rep;
+    if((net_id == DRAGONFLY || net_id == SLIMFLY || net_id == EXPRESS_MESH) && (lp->gid % lps_per_rep == num_servers_per_rep - 1))
+          opt_offset = num_servers_per_rep + num_routers_per_rep; 
 
     /* each server sends a request to the next highest server */
     int dest_id = (lp->gid + offset + opt_offset)%total_lps;
@@ -451,11 +454,8 @@ static void handle_ack_event(
 //    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
     int opt_offset = 0;
 
-   if(net_id == DRAGONFLY && (lp->gid % lps_per_rep == num_servers_per_rep - 1))
+   if((net_id == DRAGONFLY || net_id == SLIMFLY || net_id == EXPRESS_MESH) && (lp->gid % lps_per_rep == num_servers_per_rep - 1))
       opt_offset = num_servers_per_rep + num_routers_per_rep; /* optional offset due to dragonfly mapping */
-
-    if(net_id == SLIMFLY && (lp->gid % lps_per_rep == num_servers_per_rep -1))
-        opt_offset = num_servers_per_rep + num_routers_per_rep;
 
     tw_lpid dest_id = (lp->gid + offset + opt_offset)%(num_servers*2 + num_routers);
 
@@ -512,11 +512,8 @@ static void handle_req_event(
 //    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
     int opt_offset = 0;
 
-    if(net_id == DRAGONFLY && (m->src % lps_per_rep == num_servers_per_rep - 1))
+    if((net_id == DRAGONFLY || net_id == SLIMFLY || net_id == EXPRESS_MESH) && (m->src % lps_per_rep == num_servers_per_rep - 1))
           opt_offset = num_servers_per_rep + num_routers_per_rep; /* optional offset due to dragonfly mapping */
-
-    if(net_id == SLIMFLY && (m->src % lps_per_rep == num_servers_per_rep -1))
-          opt_offset = num_servers_per_rep + num_routers_per_rep;
 
     assert(lp->gid == (m->src + offset + opt_offset)%(num_servers*2 + num_routers));
     ns->msg_recvd_count++;
