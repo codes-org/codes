@@ -250,7 +250,7 @@ struct terminal_state
    long finished_chunks;
    long finished_packets;
 
-   tw_stime last_buf_full;
+   tw_stime * last_buf_full;
    tw_stime busy_time;
    char output_buf[4096];
    /* For LP suspend functionality */
@@ -333,7 +333,7 @@ struct router_state
    
    tw_stime* next_output_available_time;
    tw_stime* cur_hist_start_time;
-   tw_stime* last_buf_full;
+   tw_stime** last_buf_full;
 
    tw_stime* busy_time;
    tw_stime* busy_time_sample;
@@ -791,7 +791,7 @@ terminal_init( terminal_state * s,
    s->total_time = 0.0;
    s->total_msg_size = 0;
 
-   s->last_buf_full = 0.0;
+   s->last_buf_full = (tw_stime*)malloc(s->num_vcs * sizeof(int));
    s->busy_time = 0.0;
 
    s->fwd_events = 0;
@@ -803,6 +803,7 @@ terminal_init( terminal_state * s,
 
    for( i = 0; i < s->num_vcs; i++ )
     {
+      s->last_buf_full[i] = 0.0;
       s->vc_occupancy[i]=0;
     }
 
@@ -891,7 +892,7 @@ static void router_setup(router_state * r, tw_lp * lp)
    r->queued_msgs_tail = 
     (terminal_message_list***)malloc(p->radix * sizeof(terminal_message_list**));
    r->queued_count = (int*)malloc(p->radix * sizeof(int));
-   r->last_buf_full = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
+   r->last_buf_full = (tw_stime**)malloc(p->radix * sizeof(tw_stime*));
    r->busy_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
    r->busy_time_sample = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
 
@@ -905,7 +906,6 @@ static void router_setup(router_state * r, tw_lp * lp)
    for(int i=0; i < p->radix; i++)
     {
        // Set credit & router occupancy
-    r->last_buf_full[i] = 0.0;
     r->busy_time[i] = 0.0;
     r->busy_time_sample[i] = 0.0;
 	r->next_output_available_time[i]=0;
@@ -917,6 +917,7 @@ static void router_setup(router_state * r, tw_lp * lp)
     r->queued_count[i] = 0;    
     r->in_send_loop[i] = 0;
     r->vc_occupancy[i] = (int*)malloc(p->num_vcs * sizeof(int));
+    r->last_buf_full[i] = (tw_stime*)malloc(p->num_vcs * sizeof(tw_stime));
     r->pending_msgs[i] = (terminal_message_list**)malloc(p->num_vcs * 
         sizeof(terminal_message_list*));
     r->pending_msgs_tail[i] = (terminal_message_list**)malloc(p->num_vcs * 
@@ -926,6 +927,7 @@ static void router_setup(router_state * r, tw_lp * lp)
     r->queued_msgs_tail[i] = (terminal_message_list**)malloc(p->num_vcs * 
         sizeof(terminal_message_list*));
         for(int j = 0; j < p->num_vcs; j++) {
+            r->last_buf_full[i][j] = 0.0;
             r->vc_occupancy[i][j] = 0;
             r->pending_msgs[i][j] = NULL;
             r->pending_msgs_tail[i][j] = NULL;
@@ -1165,7 +1167,10 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_message 
     }
       if(bf->c11) {
         s->issueIdle = 0;
-        s->last_buf_full = msg->saved_busy_time;
+        if(bf->c8)
+        {
+            s->last_buf_full[0] = msg->saved_busy_time;
+        }
       }
      struct mn_stats* stat;
      stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
@@ -1242,8 +1247,13 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_message * m
   } else {
     bf->c11 = 1;
     s->issueIdle = 1;
-    msg->saved_busy_time = s->last_buf_full;
-    s->last_buf_full = tw_now(lp);
+      if(s->last_buf_full[0] == 0.0)
+      {
+        bf->c8 = 1;
+        msg->saved_busy_time = s->last_buf_full[0];
+        /* TODO: Assumes a single vc from terminal to router */
+        s->last_buf_full[0] = tw_now(lp);
+      }
   }
   
   if(s->in_send_loop == 0) {
@@ -1276,7 +1286,8 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * ms
 {
       if(bf->c1) {
         s->in_send_loop = 1;
-        s->last_buf_full = msg->saved_busy_time;
+        if(bf->c10)
+            s->last_buf_full[0] = msg->saved_busy_time;
         return;
       }
       
@@ -1307,7 +1318,7 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_message * ms
           if(bf->c6)
           {
             s->busy_time = msg->saved_total_time;
-            s->last_buf_full = msg->saved_busy_time;
+            s->last_buf_full[0] = msg->saved_busy_time;
             s->busy_time_sample = msg->saved_sample_time;
             s->busy_time_ross_sample = msg->saved_busy_time_ross;
           }
@@ -1325,13 +1336,19 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
 
   terminal_message_list* cur_entry = s->terminal_msgs[0];
 
+  if(s->vc_occupancy[0] + s->params->chunk_size > s->params->cn_vc_size)
+  {
+      if(s->last_buf_full[0] == 0.0)
+      {
+        bf->c10 = 1;
+        msg->saved_busy_time = s->last_buf_full[0];
+        s->last_buf_full[0] = tw_now(lp);
+      }
+  }
   if(s->vc_occupancy[0] + s->params->chunk_size > s->params->cn_vc_size 
       || cur_entry == NULL) {
     bf->c1 = 1;
     s->in_send_loop = 0;
-
-    msg->saved_busy_time = s->last_buf_full;
-    s->last_buf_full = tw_now(lp);
     return;
   }
 
@@ -1418,18 +1435,17 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_message * msg,
     ts += tw_rand_unif(lp->rng);
     model_net_method_idle_event(ts, 0, lp);
    
-    if(s->last_buf_full > 0.0)
+    if(s->last_buf_full[0] > 0.0)
     {
         bf->c6 = 1;
         msg->saved_total_time = s->busy_time;
-        msg->saved_busy_time = s->last_buf_full;
         msg->saved_sample_time = s->busy_time_sample;
         msg->saved_busy_time_ross = s->busy_time_ross_sample;
 
-        s->busy_time += (tw_now(lp) - s->last_buf_full);
-        s->busy_time_sample += (tw_now(lp) - s->last_buf_full);
-        s->busy_time_ross_sample += (tw_now(lp) - s->last_buf_full);
-        s->last_buf_full = 0.0;
+        s->busy_time += (tw_now(lp) - s->last_buf_full[0]);
+        s->busy_time_sample += (tw_now(lp) - s->last_buf_full[0]);
+        s->busy_time_ross_sample += (tw_now(lp) - s->last_buf_full[0]);
+        s->last_buf_full[0] = 0.0;
     }
   }
   return;
@@ -2797,7 +2813,10 @@ static void router_packet_receive_rc(router_state * s,
         }
       }
       if(bf->c4) {
-      s->last_buf_full[output_port] = msg->saved_busy_time;
+          if(bf->c22)
+          {
+            s->last_buf_full[output_port][output_chan] = msg->saved_busy_time;
+          }
       delete_terminal_message_list(return_tail(s->queued_msgs[output_port], 
           s->queued_msgs_tail[output_port], output_chan));
       s->queued_count[output_port] -= s->params->chunk_size; 
@@ -2917,8 +2936,12 @@ router_packet_receive( router_state * s,
     append_to_terminal_message_list( s->queued_msgs[output_port], 
       s->queued_msgs_tail[output_port], output_chan, cur_chunk);
     s->queued_count[output_port] += s->params->chunk_size;
-    msg->saved_busy_time = s->last_buf_full[output_port];
-    s->last_buf_full[output_port] = tw_now(lp);
+    if(s->pending_msgs[output_port][output_chan] == NULL && s->last_buf_full[output_port][output_chan] == 0.0)
+          {
+            bf->c22 = 1;
+            msg->saved_busy_time = s->last_buf_full[output_port][output_chan];
+            s->last_buf_full[output_port][output_chan] = tw_now(lp);
+          }
   }
 
   msg->saved_vc = output_port;
@@ -3155,7 +3178,7 @@ static void router_buf_update_rc(router_state * s,
         s->busy_time[indx] = msg->saved_rcv_time;
         s->busy_time_sample[indx] = msg->saved_sample_time;
         s->busy_time_ross_sample[indx] = msg->saved_busy_time_ross;
-        s->last_buf_full[indx] = msg->saved_busy_time;
+        s->last_buf_full[indx][output_chan] = msg->saved_busy_time;
       }
       if(bf->c1) {
         terminal_message_list* head = return_tail(s->pending_msgs[indx],
@@ -3178,17 +3201,17 @@ static void router_buf_update(router_state * s, tw_bf * bf, terminal_message * m
   int output_chan = msg->output_chan;
   s->vc_occupancy[indx][output_chan] -= s->params->chunk_size;
   
-  if(s->last_buf_full[indx])
+  if(s->last_buf_full[indx][output_chan])
   {
     bf->c3 = 1;
     msg->saved_rcv_time = s->busy_time[indx];
-    msg->saved_busy_time = s->last_buf_full[indx];
+    msg->saved_busy_time = s->last_buf_full[indx][output_chan];
     msg->saved_sample_time = s->busy_time_sample[indx];
     msg->saved_busy_time_ross = s->busy_time_ross_sample[indx];
-    s->busy_time[indx] += (tw_now(lp) - s->last_buf_full[indx]);
-    s->busy_time_sample[indx] += (tw_now(lp) - s->last_buf_full[indx]);
-    s->busy_time_ross_sample[indx] += (tw_now(lp) - s->last_buf_full[indx]);
-    s->last_buf_full[indx] = 0.0;
+    s->busy_time[indx] += (tw_now(lp) - s->last_buf_full[indx][output_chan]);
+    s->busy_time_sample[indx] += (tw_now(lp) - s->last_buf_full[indx][output_chan]);
+    s->busy_time_ross_sample[indx] += (tw_now(lp) - s->last_buf_full[indx][output_chan]);
+    s->last_buf_full[indx][output_chan] = 0.0;
   }
   if(s->queued_msgs[indx][output_chan] != NULL) {
     bf->c1 = 1;
