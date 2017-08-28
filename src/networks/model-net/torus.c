@@ -1297,7 +1297,7 @@ static void packet_send( nodes_state * s,
               if(cur_entry == NULL)
               {
                 bf->c4 = 1;
-                if(!s->last_buf_full[queue])
+                if(s->queued_msgs[queue][STATICQ] != NULL && s->last_buf_full[queue] == 0.0)
                 {
                     bf->c24 = 1;
                     msg->saved_busy_time = s->last_buf_full[queue];

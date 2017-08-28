@@ -784,11 +784,11 @@ void slim_terminal_init( terminal_state * s,
     s->total_time = 0.0;
     s->total_msg_size = 0;
 
-   s->last_buf_full = (tw_stime*)malloc(s->num_vcs * sizeof(int));
     s->busy_time = 0;
 
     rc_stack_create(&s->st);
     s->num_vcs = 1;
+   s->last_buf_full = (tw_stime*)malloc(s->num_vcs * sizeof(tw_stime));
     s->vc_occupancy = (int*)malloc(s->num_vcs * sizeof(int));
 
     for( i = 0; i < s->num_vcs; i++ )

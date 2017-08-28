@@ -790,15 +790,15 @@ terminal_init( terminal_state * s,
    s->finished_packets = 0;
    s->total_time = 0.0;
    s->total_msg_size = 0;
+   s->num_vcs = 1;
 
-   s->last_buf_full = (tw_stime*)malloc(s->num_vcs * sizeof(int));
+   s->last_buf_full = (tw_stime*)malloc(s->num_vcs * sizeof(tw_stime));
    s->busy_time = 0.0;
 
    s->fwd_events = 0;
    s->rev_events = 0;
 
    rc_stack_create(&s->st);
-   s->num_vcs = 1;
    s->vc_occupancy = (int*)malloc(s->num_vcs * sizeof(int));
 
    for( i = 0; i < s->num_vcs; i++ )

@@ -871,7 +871,7 @@ terminal_custom_init( terminal_state * s,
    rc_stack_create(&s->st);
    s->num_vcs = 1;
    s->vc_occupancy = (int*)malloc(s->num_vcs * sizeof(int));
-   s->last_buf_full = (tw_stime*)malloc(s->num_vcs * sizeof(int));
+   s->last_buf_full = (tw_stime*)malloc(s->num_vcs * sizeof(tw_stime));
 
    for( i = 0; i < s->num_vcs; i++ )
     {
