@@ -207,7 +207,7 @@ struct terminal_state
     long finished_chunks;
     long finished_packets;
 
-    tw_stime last_buf_full;
+    tw_stime * last_buf_full;
     tw_stime busy_time;
 
     char output_buf[512];
@@ -267,7 +267,7 @@ struct router_state
     int *in_send_loop;
     struct rc_stack * st;
 
-    tw_stime* last_buf_full;
+    tw_stime** last_buf_full;
     tw_stime* busy_time;
     tw_stime* busy_time_sample;
 
@@ -784,7 +784,7 @@ void slim_terminal_init( terminal_state * s,
     s->total_time = 0.0;
     s->total_msg_size = 0;
 
-    s->last_buf_full = 0;
+   s->last_buf_full = (tw_stime*)malloc(s->num_vcs * sizeof(int));
     s->busy_time = 0;
 
     rc_stack_create(&s->st);
@@ -793,6 +793,7 @@ void slim_terminal_init( terminal_state * s,
 
     for( i = 0; i < s->num_vcs; i++ )
     {
+        s->last_buf_full[i] = 0.0;
         s->vc_occupancy[i]=0;
     }
 
@@ -856,7 +857,7 @@ void slim_router_setup(router_state * r, tw_lp * lp)
     r->queued_msgs_tail =
         (slim_terminal_message_list***)malloc(p->radix * sizeof(slim_terminal_message_list**));
 
-    r->last_buf_full = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
+   r->last_buf_full = (tw_stime**)malloc(p->radix * sizeof(tw_stime*));
     r->busy_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
 
     rc_stack_create(&r->st);
@@ -869,13 +870,13 @@ void slim_router_setup(router_state * r, tw_lp * lp)
         r->cur_hist_num[i] = 0;
         r->prev_hist_num[i] = 0;
 
-        r->last_buf_full[i] = 0.0;
         r->busy_time[i] = 0.0;
 
         r->in_send_loop[i] = 0;
         r->vc_occupancy[i] = (int*)malloc(p->num_vcs * sizeof(int));
-        r->pending_msgs[i] = (slim_terminal_message_list**)malloc(p->num_vcs *
+        r->pending_msgs[i] = (slim_terminal_message_list**)malloc(p->num_vcs * 
                 sizeof(slim_terminal_message_list*));
+        r->last_buf_full[i] = (tw_stime*)malloc(p->num_vcs * sizeof(tw_stime));
         r->pending_msgs_tail[i] = (slim_terminal_message_list**)malloc(p->num_vcs *
                 sizeof(slim_terminal_message_list*));
         r->queued_msgs[i] = (slim_terminal_message_list**)malloc(p->num_vcs *
@@ -883,6 +884,7 @@ void slim_router_setup(router_state * r, tw_lp * lp)
         r->queued_msgs_tail[i] = (slim_terminal_message_list**)malloc(p->num_vcs *
                 sizeof(slim_terminal_message_list*));
         for(int j = 0; j < p->num_vcs; j++) {
+            r->last_buf_full[i][j] = 0.0;
             r->vc_occupancy[i][j] = 0;
             r->pending_msgs[i][j] = NULL;
             r->pending_msgs_tail[i][j] = NULL;
@@ -1206,7 +1208,10 @@ void slim_packet_generate_rc(terminal_state * s, tw_bf * bf, slim_terminal_messa
     if(bf->c11)
     {
         s->issueIdle = 0;
-        s->last_buf_full = msg->saved_busy_time;
+        if(bf->c8)
+        {
+            s->last_buf_full[0] = msg->saved_busy_time;
+        }
     }
     struct mn_stats* stat;
     stat = model_net_find_stats(msg->category, s->slimfly_stats_array);
@@ -1282,8 +1287,13 @@ void slim_packet_generate(terminal_state * s, tw_bf * bf, slim_terminal_message 
     {
         bf->c11 = 1;
         s->issueIdle = 1;
-        msg->saved_busy_time = s->last_buf_full;
-        s->last_buf_full = tw_now(lp);
+        if(s->last_buf_full[0] == 0.0)
+        {
+            bf->c8 = 1;
+            msg->saved_busy_time = s->last_buf_full[0];
+            /* TODO: Assumes a single vc from terminal to router */
+            s->last_buf_full[0] = tw_now(lp);
+        }
     }
 
     if(s->in_send_loop == 0)
@@ -1316,7 +1326,10 @@ void slim_packet_send_rc(terminal_state * s, tw_bf * bf, slim_terminal_message *
 {
     if(bf->c1) {
         s->in_send_loop = 1;
-        s->last_buf_full = msg->saved_busy_time;
+        
+        if(bf->c10)
+            s->last_buf_full[0] = msg->saved_busy_time;
+        
         return;
     }
 
@@ -1347,7 +1360,7 @@ void slim_packet_send_rc(terminal_state * s, tw_bf * bf, slim_terminal_message *
         if(bf->c6)
         {
             s->busy_time = msg->saved_total_time;
-            s->last_buf_full = msg->saved_busy_time;
+            s->last_buf_full[0] = msg->saved_busy_time;
         }
     }
     return;
@@ -1363,14 +1376,21 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
     tw_lpid router_id;
 
     slim_terminal_message_list* cur_entry = s->terminal_msgs[0];
+  if(s->vc_occupancy[0] + s->params->chunk_size > s->params->cn_vc_size)
+  {
+      if(s->last_buf_full[0] == 0.0)
+      {
+        bf->c10 = 1;
+        msg->saved_busy_time = s->last_buf_full[0];
+        s->last_buf_full[0] = tw_now(lp);
+      }
+  }
 
     if(s->vc_occupancy[0] + s->params->chunk_size > s->params->cn_vc_size
             || cur_entry == NULL)
     {
         bf->c1 = 1;
         s->in_send_loop = 0;
-        msg->saved_busy_time = s->last_buf_full;
-        s->last_buf_full = tw_now(lp);
         return;
     }
 
@@ -1481,14 +1501,14 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
         ts += tw_rand_unif(lp->rng);
         model_net_method_idle_event(ts, 0, lp);
 
-        if(s->last_buf_full > 0.0)
+        if(s->last_buf_full[0] > 0.0)
         {
             bf->c6 = 1;
             msg->saved_total_time = s->busy_time;
-            msg->saved_busy_time = s->last_buf_full;
+            msg->saved_busy_time = s->last_buf_full[0];
 
-            s->busy_time += (tw_now(lp) - s->last_buf_full);
-            s->last_buf_full = 0.0;
+            s->busy_time += (tw_now(lp) - s->last_buf_full[0]);
+            s->last_buf_full[0] = 0.0;
         }
     }
     return;
@@ -2760,7 +2780,10 @@ void slim_router_packet_receive_rc(router_state * s,
         }
     }
     if(bf->c4) {
-        s->last_buf_full[output_port] = msg->saved_busy_time;
+          if(bf->c22)
+          {
+        s->last_buf_full[output_port][output_chan] = msg->saved_busy_time;
+          }
         slim_delete_terminal_message_list(return_tail(s->queued_msgs[output_port],
                     s->queued_msgs_tail[output_port], output_chan));
     }
@@ -2939,8 +2962,12 @@ slim_router_packet_receive( router_state * s,
         cur_chunk->msg.saved_vc = msg->vc_index;
         cur_chunk->msg.saved_channel = msg->output_chan;
         append_to_terminal_message_list( s->queued_msgs[output_port], s->queued_msgs_tail[output_port], output_chan, cur_chunk);
-        msg->saved_busy_time = s->last_buf_full[output_port];
-        s->last_buf_full[output_port] = tw_now(lp);
+        if(s->pending_msgs[output_port][output_chan] == NULL && s->last_buf_full[output_port][output_chan] == 0.0)
+          {
+            bf->c22 = 1;
+            msg->saved_busy_time = s->last_buf_full[output_port][output_chan];
+            s->last_buf_full[output_port][output_chan] = tw_now(lp);
+          }
     }
 
     msg->saved_vc = output_port;
@@ -3177,7 +3204,7 @@ void slim_router_buf_update_rc(router_state * s,
     if(bf->c3)
     {
         s->busy_time[indx] = msg->saved_rcv_time;
-        s->last_buf_full[indx] = msg->saved_busy_time;
+        s->last_buf_full[indx][output_chan] = msg->saved_busy_time;
     }
     if(bf->c1) {
         slim_terminal_message_list* head = return_tail(s->pending_msgs[indx],
@@ -3203,9 +3230,9 @@ void slim_router_buf_update(router_state * s, tw_bf * bf, slim_terminal_message 
     {
         bf->c3 = 1;
         msg->saved_rcv_time = s->busy_time[indx];
-        msg->saved_busy_time = s->last_buf_full[indx];
-        s->busy_time[indx] += (tw_now(lp) - s->last_buf_full[indx]);
-        s->last_buf_full[indx] = 0.0;
+        msg->saved_busy_time = s->last_buf_full[indx][output_chan];
+        s->busy_time[indx] += (tw_now(lp) - s->last_buf_full[indx][output_chan]);
+        s->last_buf_full[indx][output_chan] = 0.0;
     }
 
 #if ROUTER_OCCUPANCY_LOG
