@@ -22,7 +22,6 @@
 
 #define ALIGN_BY_8(x) ((x) + ((x) % 8))
 
-#define	MPI_IO 		0
 /* structure for storing a darshan workload operation (a codes op with 2 timestamps) */
 struct darshan_io_op
 {
@@ -136,6 +135,9 @@ static void * darshan_io_workload_read_config(
     assert(d);
     d->log_file_path[0] = '\0';
     d->aggregator_cnt = -1;
+    
+    /* silence warning */
+    (void)num_ranks;
 
     int rc = configuration_get_value_relpath(handle, section_name,
             "darshan_log_file", annotation, d->log_file_path,
@@ -157,6 +159,9 @@ static int darshan_psx_io_workload_get_time(const char *params, int app_id, int 
 	darshan_fd logfile_fd = NULL;
 	psx_file_rec = (struct darshan_posix_file *)calloc(1, sizeof(struct darshan_posix_file));
 	darshan_params *d_params = (darshan_params *)params;
+
+        /* silence warning */
+        (void)app_id;
 
 	int ret;
 	if (!d_params)
@@ -246,16 +251,14 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
             generate_psx_ind_file_events(psx_file_rec, my_ctx);
         }
         /* generate all i/o events involving this rank in this collective file */
-#if MPI_IO
-        else if (psx_file.rank == -1)
+        else if (psx_file_rec->base_rec.rank == -1)
         {
             /* make sure the file i/o counters are valid */
-            file_sanity_check(&next_file, &job);
+            file_sanity_check(psx_file_rec, &job, logfile_fd);
 
             /* generate collective i/o events and store them in the rank context */
-            generate_psx_coll_file_events(&next_file, my_ctx, job.nprocs, d_params->aggregator_cnt);
+            generate_psx_coll_file_events(psx_file_rec, my_ctx, job.nprocs, d_params->aggregator_cnt);
         }
-#endif
         else if (psx_file_rec->base_rec.rank < rank)
             continue;
         else
@@ -368,6 +371,9 @@ static int darshan_psx_io_workload_get_rank_cnt(const char *params, int app_id)
     darshan_fd logfile_fd = NULL;
     struct darshan_job job;
     int ret;
+
+    /* silence warning */
+    (void)app_id;
 
     if (!d_params)
         return -1;
@@ -613,7 +619,6 @@ static void generate_psx_ind_file_events(
 
     return;
 }
-#if MPI_IO
 /* generate events for the i/o ops stored in a collectively opened file for this rank */
 void generate_psx_coll_file_events(
     struct darshan_posix_file *file, struct rank_io_context *io_context,
@@ -633,7 +638,7 @@ void generate_psx_coll_file_events(
     int64_t coll_io_ops_this_cycle;
     int64_t rank_cnt;
     int create_flag = 0;
-    double cur_time = file->fcounters[POSIX_F_OPEN_TIMESTAMP];
+    double cur_time = file->fcounters[POSIX_F_OPEN_START_TIMESTAMP];
     double total_delay;
     double first_io_delay = 0.0;
     double close_delay = 0.0;
@@ -642,6 +647,10 @@ void generate_psx_coll_file_events(
     double meta_op_time;
     int64_t i;
 
+    /* TODO: port this */
+#if 1
+    return;
+#else
     /* the collective file was never opened (i.e., just stat-ed), so return */
     if (!(file->counters[POSIX_OPENS]))
         return;
@@ -651,10 +660,13 @@ void generate_psx_coll_file_events(
      */
     assert(file->counters[POSIX_OPENS] >= nprocs);
 
-    total_delay = file->fcounters[POSIX_F_CLOSE_TIMESTAMP] -
-                  file->fcounters[POSIX_F_OPEN_TIMESTAMP] -
+    total_delay = file->fcounters[POSIX_F_CLOSE_END_TIMESTAMP] -
+                  file->fcounters[POSIX_F_OPEN_START_TIMESTAMP];
+#if 0
+                  -
                   ((file->fcounters[POSIX_F_MPI_META_TIME] + file->fcounters[CP_F_MPI_READ_TIME] +
                   file->fcounters[POSIX_F_MPI_WRITE_TIME]) / nprocs);
+#endif 
 
     if (file->counters[CP_COLL_OPENS] || file->counters[CP_INDEP_OPENS])
     {
@@ -856,8 +868,8 @@ void generate_psx_coll_file_events(
     }
 
     return;
-}
 #endif
+}
 
 /* fill in an open event structure and store it with the rank context */
 static double generate_psx_open_event(
@@ -909,7 +921,6 @@ static double generate_psx_close_event(
     return cur_time;
 }
 
-#if MPI_IO
 /* fill in a barrier event structure and store it with the rank context */
 static double generate_barrier_event(
     struct darshan_posix_file *file, int64_t root, double cur_time, struct rank_io_context *io_context)
@@ -926,12 +937,11 @@ static double generate_barrier_event(
     next_io_op.end_time = cur_time;
 
     /* store the barrier event */
-    if (file->rank == -1)
+    if (file->base_rec.rank == -1)
         darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
 
     return cur_time;
 }
-#endif
 
 /* generate all i/o events for one independent file open and store them with the rank context */
 static double generate_psx_ind_io_events(
@@ -1067,7 +1077,6 @@ static double generate_psx_ind_io_events(
 
     return cur_time;
 }
-#if MPI_IO
 static double generate_psx_coll_io_events(
     struct darshan_posix_file *file, int64_t ind_io_ops_this_cycle, int64_t coll_io_ops_this_cycle,
     int64_t nprocs, int64_t aggregator_cnt, double inter_io_delay, double meta_op_time,
@@ -1089,6 +1098,10 @@ static double generate_psx_coll_io_events(
     int64_t i, j;
     struct darshan_io_op next_io_op;
 
+/* TODO: port this */
+#if 1
+        return(cur_time);
+#else
     if (!total_io_ops_this_cycle)
         return cur_time;
 
@@ -1338,10 +1351,12 @@ static double generate_psx_coll_io_events(
     }
 
     return cur_time;
+#endif
 }
 
 static void determine_coll_io_params(
-    struct darshan_file *file, int write_flag, int64_t coll_op_cnt, int64_t agg_cnt,
+    struct darshan_posix_file *file,
+    int write_flag, int64_t coll_op_cnt, int64_t agg_cnt,
     int64_t agg_ndx, size_t *io_sz, off_t *io_off, struct rank_io_context *io_context)
 {
     static int64_t size_bins_left = 0;
@@ -1350,8 +1365,6 @@ static void determine_coll_io_params(
     int i, j;
     int start_ndx, end_ndx;
     int64_t *all_size_bins = NULL;
-    int64_t *common_accesses = &(file->counters[CP_ACCESS1_ACCESS]); /* 4 common accesses */
-    int64_t *common_access_counts = &(file->counters[CP_ACCESS1_COUNT]); /* common access counts */
     int64_t *total_io_size = NULL;
     int64_t tmp_cnt;
     int64_t switch_cnt;
@@ -1364,6 +1377,12 @@ static void determine_coll_io_params(
                                             4 * 1024 * 1024, 10 * 1024 * 1024, 100 * 1024 * 1024,
                                             1024 * 1024 * 1024, INT64_MAX };
     
+    /* TODO: port this */
+#if 1
+    return;
+#else
+    int64_t *common_accesses = &(file->counters[CP_ACCESS1_ACCESS]); /* 4 common accesses */
+    int64_t *common_access_counts = &(file->counters[CP_ACCESS1_COUNT]); /* common access counts */
     if (write_flag)
     {
         all_size_bins = &(file->counters[CP_SIZE_WRITE_0_100]);
@@ -1643,8 +1662,8 @@ static void determine_coll_io_params(
     agg_off += *io_sz;
 
     return;
-}
 #endif
+}
 
 static void determine_ind_io_params(
     struct darshan_posix_file *file, int write_flag, size_t *io_sz, off_t *io_off,
@@ -1812,7 +1831,7 @@ static void file_sanity_check(
     int64_t ops_not_implemented;
     int64_t ops_total;
 
-    /* make sure we have log version 2.03 or greater */
+    /* make sure we have log version 3.00 or greater */
     if (strcmp(fd->version, "3.00") < 0)
     {
         fprintf(stderr, "Error: Darshan log version must be >= 3.00 (using %s)\n",
