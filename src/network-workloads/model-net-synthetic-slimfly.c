@@ -299,7 +299,7 @@ static void handle_kickoff_event(
    {
         // Assign the global router ID
         // TODO: be annotation-aware
-        int num_lps = codes_mapping_get_lp_count(group_name, 1, LP_CONFIG_NM, anno, 0);
+        int num_lps = codes_mapping_get_lp_count(group_name, 1, LP_CONFIG_NM, NULL, 0);
 
         int src_terminal_id = (rep_id * num_lps) + offset;  
     //   s->router_id=(int)s->terminal_id / (s->params->num_routers/2);
