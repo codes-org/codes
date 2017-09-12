@@ -141,7 +141,7 @@ int* model_net_configure(int *id_count){
     memset(is_msg_params_set, 0,
             MAX_MN_MSG_PARAM_TYPES*sizeof(*is_msg_params_set));
   
-    ret = configuration_get_value_double(&config, "PARAMS", "intra_bandwidth", NULL,
+    ret = configuration_get_value_double(&config, "PARAMS", "cn_bandwidth", NULL,
             &cn_bandwidth);
     if(ret && !g_tw_mynode) {
         fprintf(stderr, "Bandwidth of compute node channels not specified, "
