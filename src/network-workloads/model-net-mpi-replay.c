@@ -1999,8 +1999,6 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
                 bf->c28 = 1;
                 update_completed_queue(s, bf, m, lp, m->fwd.req_id);
             }
-            else
-                tw_error(TW_LOC, "\n Invalid op type ");
         }
         break;
 
