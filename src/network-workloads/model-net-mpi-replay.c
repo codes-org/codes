@@ -1503,7 +1503,7 @@ static void codes_exec_mpi_send(nw_state* s,
                     tw_now(lp), s->app_id, LLU(s->nw_id), global_dest_rank, mpi_op->u.send.tag, mpi_op->u.send.num_bytes);
     }
 	/* isend executed, now get next MPI operation from the queue */
-	if(mpi_op->op_type == CODES_WK_ISEND && (is_rend || is_eager))
+	if(mpi_op->op_type == CODES_WK_ISEND && (!is_rend || is_eager))
     {
        bf->c4 = 1;
 	   codes_issue_next_event(lp);
