@@ -1940,7 +1940,7 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
             m_callback->msg_type = MPI_SEND_ARRIVED_CB;
             m_callback->fwd.msg_send_time = tw_now(lp) - m->fwd.sim_start_time;
             tw_event_send(e_callback);
-            
+           
             /* request id pending completion */
             if(m->fwd.matched_req >= 0)
             {
