@@ -1953,8 +1953,8 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
                 codes_issue_next_event(lp);
             }
             
-            m->rc.saved_recv_time = ns->recv_time;
-            ns->recv_time += (tw_now(lp) - m->fwd.sim_start_time);
+            m->rc.saved_recv_time = s->recv_time;
+            s->recv_time += (tw_now(lp) - m->fwd.sim_start_time);
 
         }
         break;
@@ -2399,7 +2399,7 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
             if(bf->c8)
                 update_completed_queue_rc(s, bf, m, lp);
             
-            ns->recv_time = m->rc.saved_recv_time;
+            s->recv_time = m->rc.saved_recv_time;
         }
         break;
 
