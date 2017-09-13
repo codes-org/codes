@@ -85,7 +85,7 @@ static double generate_barrier_event(struct darshan_posix_file *file, int64_t ro
 static double generate_psx_ind_io_events(struct darshan_posix_file *file, int64_t io_ops_this_cycle,
                                          double inter_io_delay, double cur_time,
                                          struct rank_io_context *io_context);
-static double generate_psx_coll_io_events(struct darshan_posix_file *file, int64_t ind_io_ops_this_cycle,
+static double generate_psx_coll_io_events(struct darshan_unified_record *unif, int64_t ind_io_ops_this_cycle,
                                           int64_t coll_io_ops_this_cycle, int64_t nprocs,
                                           int64_t aggregator_cnt, double inter_io_delay,
                                           double meta_op_time, double cur_time,
@@ -690,7 +690,7 @@ static void generate_psx_ind_file_events(
 /* generate events for the i/o ops stored in a collectively opened file for this rank */
 static void generate_psx_coll_file_events(struct darshan_unified_record *unif,
                                           struct rank_io_context *io_context,
-                                          int64_t nprocs, int64_t aggregator_cnt)
+                                          int64_t nprocs, int64_t in_agg_cnt)
 {
     int64_t open_cycles;
     int64_t total_ind_opens;
@@ -715,39 +715,33 @@ static void generate_psx_coll_file_events(struct darshan_unified_record *unif,
     double meta_op_time;
     int64_t i;
 
-    /* TODO: port this */
-#if 1
-    return;
-#else
     /* the collective file was never opened (i.e., just stat-ed), so return */
-    if (!(file->counters[POSIX_OPENS]))
+    if (!(unif->psx_file_rec.counters[POSIX_OPENS]))
         return;
 
     /*  in this case, posix opens are less than mpi opens...
      *  this is probably a mpi deferred open -- assume app will not use this, currently.
      */
-    assert(file->counters[POSIX_OPENS] >= nprocs);
+    assert(unif->psx_file_rec.counters[POSIX_OPENS] >= nprocs);
 
-    total_delay = file->fcounters[POSIX_F_CLOSE_END_TIMESTAMP] -
-                  file->fcounters[POSIX_F_OPEN_START_TIMESTAMP];
-#if 0
+    total_delay = unif->psx_file_rec.fcounters[POSIX_F_CLOSE_END_TIMESTAMP] -
+                  unif->psx_file_rec.fcounters[POSIX_F_OPEN_START_TIMESTAMP]
                   -
-                  ((file->fcounters[POSIX_F_MPI_META_TIME] + file->fcounters[CP_F_MPI_READ_TIME] +
-                  file->fcounters[POSIX_F_MPI_WRITE_TIME]) / nprocs);
-#endif 
+                  ((unif->psx_file_rec.fcounters[MPIIO_F_META_TIME] + unif->psx_file_rec.fcounters[MPIIO_F_READ_TIME] +
+                  unif->psx_file_rec.fcounters[MPIIO_F_WRITE_TIME]) / nprocs);
 
-    if (file->counters[CP_COLL_OPENS] || file->counters[CP_INDEP_OPENS])
+    if (unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS] || unif->mpiio_file_rec.counters[MPIIO_INDEP_OPENS])
     {
-        extra_opens = file->counters[CP_POSIX_OPENS] - file->counters[CP_COLL_OPENS] -
-                      file->counters[CP_INDEP_OPENS];
+        extra_opens = unif->psx_file_rec.counters[POSIX_OPENS] - unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS] -
+                      unif->mpiio_file_rec.counters[MPIIO_INDEP_OPENS];
 
-        total_coll_opens = file->counters[CP_COLL_OPENS];
-        total_ind_opens = file->counters[CP_POSIX_OPENS] - total_coll_opens - extra_opens;
+        total_coll_opens = unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS];
+        total_ind_opens = unif->psx_file_rec.counters[POSIX_OPENS] - total_coll_opens - extra_opens;
 
-        total_ind_io_ops = file->counters[CP_INDEP_READS] + file->counters[CP_INDEP_WRITES];
-        total_coll_io_ops = (file->counters[CP_COLL_READS] + file->counters[CP_COLL_WRITES]) / nprocs;
+        total_ind_io_ops = unif->mpiio_file_rec.counters[MPIIO_INDEP_READS] + unif->mpiio_file_rec.counters[MPIIO_INDEP_WRITES];
+        total_coll_io_ops = (unif->mpiio_file_rec.counters[MPIIO_COLL_READS] + unif->mpiio_file_rec.counters[MPIIO_COLL_WRITES]) / nprocs;
 
-        if (file->counters[CP_COLL_OPENS])
+        if (unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS])
         {
             int tmp_ind_io_cycles;
             if (total_ind_io_ops < total_coll_io_ops)
@@ -761,21 +755,21 @@ static void generate_psx_coll_file_events(struct darshan_unified_record *unif,
             }
 
             open_cycles = total_coll_opens / nprocs;
-            calc_io_delays(file, ceil(((double)(total_coll_opens + total_ind_opens)) / nprocs),
+            calc_io_delays(&unif->psx_file_rec, ceil(((double)(total_coll_opens + total_ind_opens)) / nprocs),
                            total_coll_io_ops + tmp_ind_io_cycles, total_delay,
                            &first_io_delay, &close_delay, &inter_cycle_delay, &inter_io_delay);
         }
         else
         {
             open_cycles = ceil((double)total_ind_opens / nprocs);
-            calc_io_delays(file, open_cycles, ceil((double)total_ind_io_ops / nprocs), total_delay,
+            calc_io_delays(&unif->psx_file_rec, open_cycles, ceil((double)total_ind_io_ops / nprocs), total_delay,
                            &first_io_delay, &close_delay, &inter_cycle_delay, &inter_io_delay);
         }
     }
     else
     {
-        extra_opens = file->counters[CP_POSIX_OPENS] % nprocs;
-        if (extra_opens && ((file->counters[CP_POSIX_OPENS] / nprocs) % extra_opens))
+        extra_opens = unif->psx_file_rec.counters[POSIX_OPENS] % nprocs;
+        if (extra_opens && ((unif->psx_file_rec.counters[POSIX_OPENS] / nprocs) % extra_opens))
         {
             extra_opens = 0;
         }
@@ -790,22 +784,22 @@ static void generate_psx_coll_file_events(struct darshan_unified_record *unif,
         }
 
         total_coll_opens = 0;
-        total_ind_opens = file->counters[CP_POSIX_OPENS] - extra_opens;
+        total_ind_opens = unif->psx_file_rec.counters[POSIX_OPENS] - extra_opens;
 
         total_ind_io_ops = total_io_ops - extra_io_ops;
         total_coll_io_ops = 0;
 
         open_cycles = ceil((double)total_ind_opens / nprocs);
-        calc_io_delays(file, open_cycles, ceil((double)total_ind_io_ops / nprocs), total_delay,
+        calc_io_delays(&unif->psx_file_rec, open_cycles, ceil((double)total_ind_io_ops / nprocs), total_delay,
                        &first_io_delay, &close_delay, &inter_cycle_delay, &inter_io_delay);
     }
 
     /* calculate average meta op time (for i/o and opens/closes) */
-    meta_op_time = file->fcounters[CP_F_POSIX_META_TIME] / ((2 * file->counters[CP_POSIX_OPENS]) +
-                   file->counters[CP_POSIX_READS] + file->counters[CP_POSIX_WRITES]);
+    meta_op_time = unif->psx_file_rec.fcounters[POSIX_F_META_TIME] / ((2 * unif->psx_file_rec.counters[POSIX_OPENS]) +
+                   unif->psx_file_rec.counters[POSIX_READS] + unif->psx_file_rec.counters[POSIX_WRITES]);
 
     /* it is rare to overwrite existing files, so set the create flag */
-    if (file->counters[CP_BYTES_WRITTEN])
+    if (unif->psx_file_rec.counters[POSIX_BYTES_WRITTEN])
     {
         create_flag = 1;
     }
@@ -827,40 +821,40 @@ static void generate_psx_coll_file_events(struct darshan_unified_record *unif,
             else
                 rank_cnt = extra_opens;
 
-            cur_time = generate_psx_open_event(file, create_flag, meta_op_time, cur_time,
+            cur_time = generate_psx_open_event(&unif->psx_file_rec, create_flag, meta_op_time, cur_time,
                                                io_context, (io_context->my_rank < rank_cnt));
             create_flag = 0;
 
-            if (!file->counters[CP_COLL_OPENS] && !file->counters[CP_INDEP_OPENS])
+            if (!unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS] && !unif->mpiio_file_rec.counters[MPIIO_INDEP_OPENS])
             {
-                cur_time = generate_psx_coll_io_events(file, 1, 0, nprocs, nprocs, 0.0,
+                cur_time = generate_psx_coll_io_events(unif, 1, 0, nprocs, nprocs, 0.0,
                                                        meta_op_time, cur_time, io_context);
                 extra_io_ops--;
             }
 
-            cur_time = generate_psx_close_event(file, meta_op_time, cur_time, io_context,
+            cur_time = generate_psx_close_event(&unif->psx_file_rec, meta_op_time, cur_time, io_context,
                                                 (io_context->my_rank < rank_cnt));
-            file->counters[CP_POSIX_OPENS] -= rank_cnt;
+            unif->psx_file_rec.counters[POSIX_OPENS] -= rank_cnt;
         }
         /* assign any extra opens to rank 0 (these may correspond to file creations or
          * header reads/writes)
          */
         else if (extra_opens && !(i % (open_cycles / extra_opens)))
         {
-            cur_time = generate_psx_open_event(file, create_flag, meta_op_time, cur_time,
+            cur_time = generate_psx_open_event(&unif->psx_file_rec, create_flag, meta_op_time, cur_time,
                                                io_context, (io_context->my_rank == 0));
             create_flag = 0;
 
-            if (!file->counters[CP_COLL_OPENS] && !file->counters[CP_INDEP_OPENS])
+            if (!unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS] && !unif->mpiio_file_rec.counters[MPIIO_INDEP_OPENS])
             {
-                cur_time = generate_psx_coll_io_events(file, 1, 0, nprocs, nprocs, 0.0,
+                cur_time = generate_psx_coll_io_events(unif, 1, 0, nprocs, nprocs, 0.0,
                                                        meta_op_time, cur_time, io_context);
                 extra_io_ops--;
             }
 
-            cur_time = generate_psx_close_event(file, meta_op_time, cur_time, io_context,
+            cur_time = generate_psx_close_event(&unif->psx_file_rec, meta_op_time, cur_time, io_context,
                                                 (io_context->my_rank == 0));
-            file->counters[CP_POSIX_OPENS]--;
+            unif->psx_file_rec.counters[POSIX_OPENS]--;
         }
 
         while (ind_opens_this_cycle)
@@ -870,28 +864,28 @@ static void generate_psx_coll_file_events(struct darshan_unified_record *unif,
             else
                 rank_cnt = ind_opens_this_cycle;
 
-            cur_time = generate_psx_open_event(file, create_flag, meta_op_time, cur_time,
+            cur_time = generate_psx_open_event(&unif->psx_file_rec, create_flag, meta_op_time, cur_time,
                                                io_context, (io_context->my_rank < rank_cnt));
             create_flag = 0;
 
             cur_time += first_io_delay;
 
             ind_io_ops_this_cycle = ceil(((double)total_ind_io_ops / total_ind_opens) * rank_cnt);
-            cur_time = generate_psx_coll_io_events(file, ind_io_ops_this_cycle, 0, nprocs,
+            cur_time = generate_psx_coll_io_events(unif, ind_io_ops_this_cycle, 0, nprocs,
                                                    nprocs, inter_io_delay, meta_op_time,
                                                    cur_time, io_context);
             total_ind_io_ops -= ind_io_ops_this_cycle;
 
             cur_time += close_delay;
 
-            cur_time = generate_psx_close_event(file, meta_op_time, cur_time, io_context,
+            cur_time = generate_psx_close_event(&unif->psx_file_rec, meta_op_time, cur_time, io_context,
                                                 (io_context->my_rank < rank_cnt));
 
-            file->counters[CP_POSIX_OPENS] -= rank_cnt;
+            unif->psx_file_rec.counters[POSIX_OPENS] -= rank_cnt;
             ind_opens_this_cycle -= rank_cnt;
             total_ind_opens -= rank_cnt;
 
-            if (file->counters[CP_POSIX_OPENS])
+            if (unif->psx_file_rec.counters[POSIX_OPENS])
                 cur_time += inter_cycle_delay;
         }
 
@@ -899,22 +893,22 @@ static void generate_psx_coll_file_events(struct darshan_unified_record *unif,
         {
             assert(!create_flag);
 
-            cur_time = generate_barrier_event(file, 0, cur_time, io_context);
+            cur_time = generate_barrier_event(&unif->psx_file_rec, 0, cur_time, io_context);
 
-            cur_time = generate_psx_open_event(file, create_flag, meta_op_time,
+            cur_time = generate_psx_open_event(&unif->psx_file_rec, create_flag, meta_op_time,
                                                cur_time, io_context, 1);
 
             cur_time += first_io_delay;
 
-            if (file->counters[CP_INDEP_OPENS])
+            if (unif->mpiio_file_rec.counters[MPIIO_INDEP_OPENS])
                 ind_io_ops_this_cycle = 0;
             else
                 ind_io_ops_this_cycle = ceil((double)total_ind_io_ops / 
-                                             (file->counters[CP_COLL_OPENS] / nprocs));
+                                             (unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS] / nprocs));
 
             coll_io_ops_this_cycle = ceil((double)total_coll_io_ops / 
-                                          (file->counters[CP_COLL_OPENS] / nprocs));
-            cur_time = generate_psx_coll_io_events(file, ind_io_ops_this_cycle,
+                                          (unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS] / nprocs));
+            cur_time = generate_psx_coll_io_events(unif, ind_io_ops_this_cycle,
                                                    coll_io_ops_this_cycle, nprocs, in_agg_cnt,
                                                    inter_io_delay, meta_op_time, cur_time,
                                                    io_context);
@@ -923,20 +917,18 @@ static void generate_psx_coll_file_events(struct darshan_unified_record *unif,
 
             cur_time += close_delay;
 
-            cur_time = generate_psx_close_event(file, meta_op_time, cur_time, io_context, 1);
+            cur_time = generate_psx_close_event(&unif->psx_file_rec, meta_op_time, cur_time, io_context, 1);
 
-            file->counters[CP_POSIX_OPENS] -= nprocs;
-            file->counters[CP_COLL_OPENS] -= nprocs;
+            unif->psx_file_rec.counters[POSIX_OPENS] -= nprocs;
+            unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS] -= nprocs;
             coll_opens_this_cycle -= nprocs;
             total_coll_opens -= nprocs;
 
-            if (file->counters[CP_POSIX_OPENS])
+            if (unif->psx_file_rec.counters[POSIX_OPENS])
                 cur_time += inter_cycle_delay;
         }
     }
-
     return;
-#endif
 }
 
 /* fill in an open event structure and store it with the rank context */
@@ -1146,14 +1138,14 @@ static double generate_psx_ind_io_events(
     return cur_time;
 }
 static double generate_psx_coll_io_events(
-    struct darshan_posix_file *file, int64_t ind_io_ops_this_cycle, int64_t coll_io_ops_this_cycle,
+    struct darshan_unified_record *unif, int64_t ind_io_ops_this_cycle, int64_t coll_io_ops_this_cycle,
     int64_t nprocs, int64_t aggregator_cnt, double inter_io_delay, double meta_op_time,
     double cur_time, struct rank_io_context *io_context)
 {
     static int rw = -1; /* rw = 1 for write, 0 for read, -1 for uninitialized */
     static int64_t io_ops_this_rw;
     static double rd_bw = 0.0, wr_bw = 0.0;
-    int64_t psx_rw_ops_remaining = file->counters[POSIX_READS] + file->counters[POSIX_WRITES];
+    int64_t psx_rw_ops_remaining = unif->psx_file_rec.counters[POSIX_READS] + unif->psx_file_rec.counters[POSIX_WRITES];
     int64_t total_io_ops_this_cycle = ind_io_ops_this_cycle + coll_io_ops_this_cycle;
     int64_t tmp_rank;
     int64_t next_ind_io_rank = 0;
