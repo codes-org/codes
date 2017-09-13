@@ -296,18 +296,24 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
          */
         assert(dur_cur);
     }
+    darshan_log_close(logfile_fd);
 
-#if 0
+    /* file records have all been retrieved from darshan log.  Now we loop
+     * through them and generate workload events from each record
+     */
+    for(dur_cur = dur_head; dur_cur; dur_cur = dur_cur->next)
     {
         /* generate all i/o events contained in this independent file */
-        if (psx_file_rec->base_rec.rank == rank)
+        if (dur_cur->psx_file_rec.base_rec.rank == rank)
         {
             /* make sure the file i/o counters are valid */
-            file_sanity_check(psx_file_rec, &job, logfile_fd);
+            file_sanity_check(&dur_cur->psx_file_rec, &job, logfile_fd);
 
             /* generate i/o events and store them in this rank's workload context */
-            generate_psx_ind_file_events(psx_file_rec, my_ctx);
+            generate_psx_ind_file_events(&dur_cur->psx_file_rec, my_ctx);
         }
+
+#if 0
         /* generate all i/o events involving this rank in this collective file */
         else if (psx_file_rec->base_rec.rank == -1)
         {
@@ -322,15 +328,14 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
         else
             break;
 
-        assert(psx_file_rec->counters[POSIX_OPENS] == 0);
-        assert(psx_file_rec->counters[POSIX_READS] == 0);
-        assert(psx_file_rec->counters[POSIX_WRITES] == 0);
-    }
 #endif
+        assert(dur_cur->psx_file_rec.counters[POSIX_OPENS] == 0);
+        assert(dur_cur->psx_file_rec.counters[POSIX_READS] == 0);
+        assert(dur_cur->psx_file_rec.counters[POSIX_WRITES] == 0);
+    }
     if (ret < 0)
         return -1;
 
-    darshan_log_close(logfile_fd);
 
     /* finalize the rank's i/o context so i/o ops may be retrieved later (in order) */
     darshan_finalize_io_op_dat(my_ctx->io_op_dat);
