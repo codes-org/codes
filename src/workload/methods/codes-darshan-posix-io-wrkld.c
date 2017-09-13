@@ -1437,21 +1437,17 @@ static void determine_coll_io_params(
                                             4 * 1024 * 1024, 10 * 1024 * 1024, 100 * 1024 * 1024,
                                             1024 * 1024 * 1024, INT64_MAX };
     
-    /* TODO: port this */
-#if 1
-    return;
-#else
-    int64_t *common_accesses = &(file->counters[CP_ACCESS1_ACCESS]); /* 4 common accesses */
-    int64_t *common_access_counts = &(file->counters[CP_ACCESS1_COUNT]); /* common access counts */
+    int64_t *common_accesses = &(file->counters[POSIX_ACCESS1_ACCESS]); /* 4 common accesses */
+    int64_t *common_access_counts = &(file->counters[POSIX_ACCESS1_COUNT]); /* common access counts */
     if (write_flag)
     {
-        all_size_bins = &(file->counters[CP_SIZE_WRITE_0_100]);
-        total_io_size = &(file->counters[CP_BYTES_WRITTEN]);
+        all_size_bins = &(file->counters[POSIX_SIZE_WRITE_0_100]);
+        total_io_size = &(file->counters[POSIX_BYTES_WRITTEN]);
     }
     else
     {
-        all_size_bins = &(file->counters[CP_SIZE_READ_0_100]);
-        total_io_size = &(file->counters[CP_BYTES_READ]);
+        all_size_bins = &(file->counters[POSIX_SIZE_READ_0_100]);
+        total_io_size = &(file->counters[POSIX_BYTES_READ]);
     }
 
     /* we enter this if statement if we have not yet calculated which size bins to use for the
@@ -1722,7 +1718,6 @@ static void determine_coll_io_params(
     agg_off += *io_sz;
 
     return;
-#endif
 }
 
 static void determine_ind_io_params(
