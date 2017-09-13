@@ -71,7 +71,7 @@ static int darshan_io_op_compare(const void *p1, const void *p2);
 /* Helper functions for implementing the Darshan workload generator */
 static void generate_psx_ind_file_events(struct darshan_posix_file *file,
                                          struct rank_io_context *io_context);
-static void generate_psx_coll_file_events(struct darshan_posix_file *file,
+static void generate_psx_coll_file_events(struct darshan_unified_record *unif,
                                           struct rank_io_context *io_context,
                                           int64_t nprocs, int64_t aggregator_cnt);
 static double generate_psx_open_event(struct darshan_posix_file *file, int create_flag,
@@ -312,23 +312,20 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
             /* generate i/o events and store them in this rank's workload context */
             generate_psx_ind_file_events(&dur_cur->psx_file_rec, my_ctx);
         }
-
-#if 0
         /* generate all i/o events involving this rank in this collective file */
-        else if (psx_file_rec->base_rec.rank == -1)
+        else if (dur_cur->psx_file_rec.base_rec.rank == -1)
         {
             /* make sure the file i/o counters are valid */
-            file_sanity_check(psx_file_rec, &job, logfile_fd);
+            file_sanity_check(&dur_cur->psx_file_rec, &job, logfile_fd);
 
             /* generate collective i/o events and store them in the rank context */
-            generate_psx_coll_file_events(psx_file_rec, my_ctx, job.nprocs, d_params->aggregator_cnt);
+            generate_psx_coll_file_events(dur_cur, my_ctx, job.nprocs, d_params->aggregator_cnt);
         }
         else if (psx_file_rec->base_rec.rank < rank)
             continue;
         else
             break;
 
-#endif
         assert(dur_cur->psx_file_rec.counters[POSIX_OPENS] == 0);
         assert(dur_cur->psx_file_rec.counters[POSIX_READS] == 0);
         assert(dur_cur->psx_file_rec.counters[POSIX_WRITES] == 0);
@@ -691,9 +688,9 @@ static void generate_psx_ind_file_events(
     return;
 }
 /* generate events for the i/o ops stored in a collectively opened file for this rank */
-void generate_psx_coll_file_events(
-    struct darshan_posix_file *file, struct rank_io_context *io_context,
-    int64_t nprocs, int64_t in_agg_cnt)
+static void generate_psx_coll_file_events(struct darshan_unified_record *unif,
+                                          struct rank_io_context *io_context,
+                                          int64_t nprocs, int64_t aggregator_cnt)
 {
     int64_t open_cycles;
     int64_t total_ind_opens;
@@ -702,14 +699,14 @@ void generate_psx_coll_file_events(
     int64_t coll_opens_this_cycle;
     int64_t extra_opens = 0;
     int64_t extra_io_ops = 0;
-    int64_t total_io_ops = file->counters[POSIX_READS] + file->counters[POSIX_WRITES];
+    int64_t total_io_ops = unif->psx_file_rec.counters[POSIX_READS] + unif->psx_file_rec.counters[POSIX_WRITES];
     int64_t total_ind_io_ops;
     int64_t total_coll_io_ops;
     int64_t ind_io_ops_this_cycle;
     int64_t coll_io_ops_this_cycle;
     int64_t rank_cnt;
     int create_flag = 0;
-    double cur_time = file->fcounters[POSIX_F_OPEN_START_TIMESTAMP];
+    double cur_time = unif->psx_file_rec.fcounters[POSIX_F_OPEN_START_TIMESTAMP];
     double total_delay;
     double first_io_delay = 0.0;
     double close_delay = 0.0;
