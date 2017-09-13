@@ -1158,10 +1158,6 @@ static double generate_psx_coll_io_events(
     int64_t i, j;
     struct darshan_io_op next_io_op;
 
-/* TODO: port this */
-#if 1
-        return(cur_time);
-#else
     if (!total_io_ops_this_cycle)
         return cur_time;
 
@@ -1169,41 +1165,41 @@ static double generate_psx_coll_io_events(
     if (rw == -1)
     {
         /* initialize rw to be the first i/o operation found in the log */
-        if (file->fcounters[POSIX_F_WRITE_START_TIMESTAMP] == 0.0)
+        if (unif->psx_file_rec.fcounters[POSIX_F_WRITE_START_TIMESTAMP] == 0.0)
             rw = 0;
-        else if (file->fcounters[POSIX_F_READ_START_TIMESTAMP] == 0.0)
+        else if (unif->psx_file_rec.fcounters[POSIX_F_READ_START_TIMESTAMP] == 0.0)
             rw = 1;
         else
-            rw = (file->fcounters[POSIX_F_READ_START_TIMESTAMP] <
-                  file->fcounters[POSIX_F_WRITE_START_TIMESTAMP]) ? 0 : 1;
+            rw = (unif->psx_file_rec.fcounters[POSIX_F_READ_START_TIMESTAMP] <
+                  unif->psx_file_rec.fcounters[POSIX_F_WRITE_START_TIMESTAMP]) ? 0 : 1;
 
         /* determine how many io ops to do before next rw switch */
         if (!rw)
         {
-            if (file->counters[POSIX_COLL_OPENS])
+            if (unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS])
                 io_ops_this_rw =
-                    ((file->counters[CP_COLL_READS] / nprocs) + file->counters[CP_INDEP_READS]) /
-                    ((file->counters[CP_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
+                    ((unif->mpiio_file_rec.counters[MPIIO_COLL_READS] / nprocs) + unif->mpiio_file_rec.counters[MPIIO_INDEP_READS]) /
+                    ((unif->psx_file_rec.counters[POSIX_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
             else
-                io_ops_this_rw = file->counters[CP_POSIX_READS] /
-                                 ((file->counters[CP_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
+                io_ops_this_rw = unif->psx_file_rec.counters[POSIX_READS] /
+                                 ((unif->psx_file_rec.counters[POSIX_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
         }
         else
         {
-            if (file->counters[CP_COLL_OPENS])
+            if (unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS])
                 io_ops_this_rw =
-                    ((file->counters[CP_COLL_WRITES] / nprocs) + file->counters[CP_INDEP_WRITES]) /
-                    ((file->counters[CP_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
+                    ((unif->mpiio_file_rec.counters[MPIIO_COLL_WRITES] / nprocs) + unif->mpiio_file_rec.counters[MPIIO_INDEP_WRITES]) /
+                    ((unif->psx_file_rec.counters[POSIX_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
             else
-                io_ops_this_rw = file->counters[CP_POSIX_WRITES] /
-                                 ((file->counters[CP_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
+                io_ops_this_rw = unif->psx_file_rec.counters[POSIX_WRITES] /
+                                 ((unif->psx_file_rec.counters[POSIX_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
         }
 
         /* initialize the rd and wr bandwidth values using total io size and time */
-        if (file->fcounters[CP_F_POSIX_READ_TIME])
-            rd_bw = file->counters[CP_BYTES_READ] / file->fcounters[CP_F_POSIX_READ_TIME];
-        if (file->fcounters[CP_F_POSIX_WRITE_TIME])
-            wr_bw = file->counters[CP_BYTES_WRITTEN] / file->fcounters[CP_F_POSIX_WRITE_TIME];
+        if (unif->psx_file_rec.fcounters[POSIX_F_READ_TIME])
+            rd_bw = unif->psx_file_rec.counters[POSIX_BYTES_READ] / unif->psx_file_rec.fcounters[POSIX_F_READ_TIME];
+        if (unif->psx_file_rec.fcounters[POSIX_F_WRITE_TIME])
+            wr_bw = unif->psx_file_rec.counters[POSIX_BYTES_WRITTEN] / unif->psx_file_rec.fcounters[POSIX_F_WRITE_TIME];
     }
 
     if (coll_io_ops_this_cycle)
@@ -1218,12 +1214,12 @@ static double generate_psx_coll_io_events(
             tmp_rank = (next_ind_io_rank++) % nprocs;
             ind_io_ops_this_cycle--;
 
-            determine_ind_io_params(file, rw, &io_sz, &io_off, io_context);
+            determine_ind_io_params(&unif->psx_file_rec, rw, &io_sz, &io_off, io_context);
             if (!rw)
             {
                 /* generate a read event */
                 next_io_op.codes_op.op_type = CODES_WK_READ;
-                next_io_op.codes_op.u.read.file_id = file->hash;
+                next_io_op.codes_op.u.read.file_id = unif->psx_file_rec.base_rec.id;
                 next_io_op.codes_op.u.read.size = io_sz;
                 next_io_op.codes_op.u.read.offset = io_off;
 
@@ -1233,14 +1229,14 @@ static double generate_psx_coll_io_events(
                 else
                     io_op_time = (io_sz / rd_bw);
                 
-                file->counters[CP_POSIX_READS]--;
-                file->counters[CP_INDEP_READS]--;
+                unif->psx_file_rec.counters[POSIX_READS]--;
+                unif->mpiio_file_rec.counters[MPIIO_INDEP_READS]--;
             }
             else
             {
                 /* generate a write event */
                 next_io_op.codes_op.op_type = CODES_WK_WRITE;
-                next_io_op.codes_op.u.write.file_id = file->hash;
+                next_io_op.codes_op.u.write.file_id = unif->psx_file_rec.base_rec.id;
                 next_io_op.codes_op.u.write.size = io_sz;
                 next_io_op.codes_op.u.write.offset = io_off;
 
@@ -1250,15 +1246,15 @@ static double generate_psx_coll_io_events(
                 else
                     io_op_time = (io_sz / wr_bw);
 
-                file->counters[CP_POSIX_WRITES]--;
-                file->counters[CP_INDEP_WRITES]--;
+                unif->psx_file_rec.counters[POSIX_WRITES]--;
+                unif->mpiio_file_rec.counters[MPIIO_INDEP_WRITES]--;
             }
             next_io_op.start_time = cur_time;
             next_io_op.end_time = cur_time + io_op_time + meta_op_time;
 
             psx_rw_ops_remaining--;
-            assert(file->counters[CP_POSIX_READS] >= 0);
-            assert(file->counters[CP_POSIX_WRITES] >= 0);
+            assert(unif->psx_file_rec.counters[POSIX_READS] >= 0);
+            assert(unif->psx_file_rec.counters[POSIX_WRITES] >= 0);
 
             /* store the io operation if it belongs to this rank */
             if (tmp_rank == io_context->my_rank)
@@ -1279,17 +1275,17 @@ static double generate_psx_coll_io_events(
 
             if (!rw)
             {
-                io_cnt = ceil((double)(file->counters[CP_POSIX_READS] -
-                              file->counters[CP_INDEP_READS]) / 
-                              (file->counters[CP_COLL_READS] / nprocs));
-                file->counters[CP_COLL_READS] -= nprocs;
+                io_cnt = ceil((double)(unif->psx_file_rec.counters[POSIX_READS] -
+                              unif->mpiio_file_rec.counters[MPIIO_INDEP_READS]) / 
+                              (unif->mpiio_file_rec.counters[MPIIO_COLL_READS] / nprocs));
+                unif->mpiio_file_rec.counters[MPIIO_COLL_READS] -= nprocs;
             }
             else
             {
-                io_cnt = ceil((double)(file->counters[CP_POSIX_WRITES] -
-                              file->counters[CP_INDEP_WRITES]) / 
-                              (file->counters[CP_COLL_WRITES] / nprocs));
-                file->counters[CP_COLL_WRITES] -= nprocs;
+                io_cnt = ceil((double)(unif->psx_file_rec.counters[POSIX_WRITES] -
+                              unif->mpiio_file_rec.counters[MPIIO_INDEP_WRITES]) / 
+                              (unif->mpiio_file_rec.counters[MPIIO_COLL_WRITES] / nprocs));
+                unif->mpiio_file_rec.counters[MPIIO_COLL_WRITES] -= nprocs;
             }
 
             if (coll_io_ops_this_cycle)
@@ -1302,19 +1298,19 @@ static double generate_psx_coll_io_events(
                 int64_t tmp_coll_cnt = MIN(io_cnt - j, aggregator_cnt);
                 int64_t tmp_agg_ndx;
 
-                cur_time = generate_barrier_event(file, 0, cur_time, io_context);
+                cur_time = generate_barrier_event(&unif->psx_file_rec, 0, cur_time, io_context);
 
                 tmp_agg_ndx = (int64_t)round(io_context->my_rank / ranks_per_aggregator);
                 if ((round(tmp_agg_ndx * ranks_per_aggregator) == io_context->my_rank) &&
                     (tmp_agg_ndx < tmp_coll_cnt))
                 {
-                    determine_coll_io_params(file, rw, io_cnt, tmp_coll_cnt, tmp_agg_ndx + 1, 
+                    determine_coll_io_params(&unif->psx_file_rec, rw, io_cnt, tmp_coll_cnt, tmp_agg_ndx + 1, 
                                              &io_sz, &io_off, io_context);
                     if (!rw)
                     {
                         /* generate a read event */
                         next_io_op.codes_op.op_type = CODES_WK_READ;
-                        next_io_op.codes_op.u.read.file_id = file->hash;
+                        next_io_op.codes_op.u.read.file_id = unif->psx_file_rec.base_rec.id;
                         next_io_op.codes_op.u.read.size = io_sz;
                         next_io_op.codes_op.u.read.offset = io_off;
 
@@ -1324,13 +1320,14 @@ static double generate_psx_coll_io_events(
                         else
                             io_op_time = (io_sz / rd_bw);
                         
-                        file->counters[CP_POSIX_READS] -= tmp_coll_cnt;
+                        unif->psx_file_rec.counters[POSIX_READS] -= tmp_coll_cnt;
                     }
                     else
                     {
                         /* generate a write event */
                         next_io_op.codes_op.op_type = CODES_WK_WRITE;
-                        next_io_op.codes_op.u.write.file_id = file->hash;
+                        next_io_op.codes_op.u.write.file_id = unif->psx_file_rec.base_rec.id;
+
                         next_io_op.codes_op.u.write.size = io_sz;
                         next_io_op.codes_op.u.write.offset = io_off;
 
@@ -1340,7 +1337,7 @@ static double generate_psx_coll_io_events(
                         else
                             io_op_time = (io_sz / wr_bw);
 
-                        file->counters[CP_POSIX_WRITES] -= tmp_coll_cnt;
+                        unif->psx_file_rec.counters[POSIX_WRITES] -= tmp_coll_cnt;
                     }
                     next_io_op.start_time = cur_time;
                     next_io_op.end_time = cur_time + io_op_time + meta_op_time;
@@ -1353,16 +1350,16 @@ static double generate_psx_coll_io_events(
                 {
                     if (!rw)
                     {
-                        file->counters[CP_POSIX_READS] -= tmp_coll_cnt;
+                        unif->psx_file_rec.counters[POSIX_READS] -= tmp_coll_cnt;
                     }
                     else
                     {
-                        file->counters[CP_POSIX_WRITES] -= tmp_coll_cnt;
+                        unif->psx_file_rec.counters[POSIX_WRITES] -= tmp_coll_cnt;
                     }
                 }
                 psx_rw_ops_remaining -= tmp_coll_cnt;
-                assert(file->counters[CP_POSIX_READS] >= 0);
-                assert(file->counters[CP_POSIX_WRITES] >= 0);
+                assert(unif->psx_file_rec.counters[POSIX_READS] >= 0);
+                assert(unif->psx_file_rec.counters[POSIX_WRITES] >= 0);
             }
 
             if (i != (total_io_ops_this_cycle - 1))
@@ -1376,42 +1373,41 @@ static double generate_psx_coll_io_events(
         {
             /* toggle the read/write flag */
             rw ^= 1;
-            file->counters[CP_RW_SWITCHES] -= aggregator_cnt;
+            unif->psx_file_rec.counters[POSIX_RW_SWITCHES] -= aggregator_cnt;
 
             /* determine how many io ops to do before next rw switch */
             if (!rw)
             {
-                if (file->counters[CP_COLL_OPENS])
+                if (unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS])
                     io_ops_this_rw =
-                        ((file->counters[CP_COLL_READS] / nprocs) +
-                        file->counters[CP_INDEP_READS]) / ((file->counters[CP_RW_SWITCHES] /
+                        ((unif->mpiio_file_rec.counters[MPIIO_COLL_READS] / nprocs) +
+                        unif->mpiio_file_rec.counters[MPIIO_INDEP_READS]) / ((unif->psx_file_rec.counters[POSIX_RW_SWITCHES] /
                         (2 * aggregator_cnt)) + 1);
                 else
-                    io_ops_this_rw = file->counters[CP_POSIX_READS] /
-                                     ((file->counters[CP_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
+                    io_ops_this_rw = unif->psx_file_rec.counters[POSIX_READS] /
+                                     ((unif->psx_file_rec.counters[POSIX_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
             }
             else
             {
-                if (file->counters[CP_COLL_OPENS])
+                if (unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS])
                     io_ops_this_rw =
-                        ((file->counters[CP_COLL_WRITES] / nprocs) +
-                        file->counters[CP_INDEP_WRITES]) / ((file->counters[CP_RW_SWITCHES] /
+                        ((unif->mpiio_file_rec.counters[MPIIO_COLL_WRITES] / nprocs) +
+                        unif->mpiio_file_rec.counters[MPIIO_INDEP_WRITES]) / ((unif->psx_file_rec.counters[POSIX_RW_SWITCHES] /
                         (2 * aggregator_cnt)) + 1);
                 else
-                    io_ops_this_rw = file->counters[CP_POSIX_WRITES] /
-                                     ((file->counters[CP_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
+                    io_ops_this_rw = unif->psx_file_rec.counters[POSIX_WRITES] /
+                                     ((unif->psx_file_rec.counters[POSIX_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
             }
         }
     }
 
     /* reset the static rw flag if this is the last open-close cycle for this file */
-    if (file->counters[CP_POSIX_OPENS] <= nprocs)
+    if (unif->mpiio_file_rec.counters[POSIX_OPENS] <= nprocs)
     {
         rw = -1;
     }
 
     return cur_time;
-#endif
 }
 
 static void determine_coll_io_params(
