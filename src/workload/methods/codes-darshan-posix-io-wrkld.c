@@ -42,6 +42,13 @@ struct rank_io_context
     struct qhash_head hash_link;
 };
 
+struct darshan_unified_record
+{
+    struct darshan_posix_file psx_file_rec;
+    struct darshan_mpiio_file mpiio_file_rec;
+    struct darshan_unified_record *next;
+};
+
 static void * darshan_io_workload_read_config(
         ConfigHandle * handle,
         char const * section_name,
@@ -110,6 +117,7 @@ struct codes_workload_method darshan_posix_io_workload_method =
 
 extern struct darshan_mod_logutil_funcs posix_logutils;
 static struct darshan_mod_logutil_funcs *psx_utils = &posix_logutils;
+static struct darshan_mod_logutil_funcs *mpiio_utils = &mpiio_logutils;
 static int total_rank_cnt = 0;
 
 /* hash table to store per-rank workload contexts */
@@ -196,10 +204,18 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
     //struct darshan_file next_file;
     /* open posix log file */
     struct darshan_posix_file *psx_file_rec;
+    struct darshan_mpiio_file *mpiio_file_rec;
     struct rank_io_context *my_ctx;
     int ret;
+    struct darshan_unified_record *dur_new = NULL;
+    struct darshan_unified_record *dur_head = NULL;
+    struct darshan_unified_record *dur_cur = NULL;
+
     psx_file_rec = (struct darshan_posix_file *) calloc(1, sizeof(struct darshan_posix_file));
-    memset(psx_file_rec, 0,  sizeof(struct darshan_posix_file));
+    assert(psx_file_rec);
+    mpiio_file_rec = (struct darshan_mpiio_file *) calloc(1, sizeof(struct darshan_mpiio_file));
+    assert(mpiio_file_rec);
+
     //APP_ID_UNSUPPORTED(app_id, "darshan")
 
     if (!d_params)
@@ -239,7 +255,49 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
     my_ctx->next_off = 0;
 
     /* loop over all files contained in the log file */
+    /* build a linked list to preserve order, we will make another pass over
+     * mpiio records and combine them
+     */
     while ((ret = psx_utils->log_get_record(logfile_fd, (void **)&psx_file_rec)) > 0)
+    {
+        dur_new = calloc(1, sizeof(*dur_new));
+        assert(dur_new);
+
+        dur_new->psx_file_rec = *psx_file_rec;
+
+        if(!dur_head)
+            dur_head = dur_new;
+        if(dur_cur)
+            dur_cur->next = dur_new;
+        dur_cur = dur_new;
+    }
+
+    /* now loop over mpiio records (if present) and match them up with the
+     * posix records
+     */
+    while ((ret = mpiio_utils->log_get_record(logfile_fd, (void **)&mpiio_file_rec)) > 0)
+    {
+        for(dur_cur = dur_head; dur_cur; dur_cur = dur_cur->next)
+        {
+            if((dur_cur->psx_file_rec.base_rec.rank ==
+                mpiio_file_rec->base_rec.rank) &&
+               (dur_cur->psx_file_rec.base_rec.id ==
+                mpiio_file_rec->base_rec.id))
+            {
+                dur_cur->mpiio_file_rec = *mpiio_file_rec;
+                break;
+            }
+        }
+        /* if we exit loop with null dur_cur, that means that an mpiio record is present
+         * for which there is no exact match in the posix records.  This
+         * could (for example) happen if mpiio was using deferred opens,
+         * producing a shared record in mpi and unique records in posix.  Or
+         * if mpiio is using a non-posix back end
+         */
+        assert(dur_cur);
+    }
+
+#if 0
     {
         /* generate all i/o events contained in this independent file */
         if (psx_file_rec->base_rec.rank == rank)
@@ -268,6 +326,7 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
         assert(psx_file_rec->counters[POSIX_READS] == 0);
         assert(psx_file_rec->counters[POSIX_WRITES] == 0);
     }
+#endif
     if (ret < 0)
         return -1;
 
@@ -311,6 +370,13 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
     qhash_add(rank_tbl, &(my_ctx->my_rank), &(my_ctx->hash_link));
     app_hash_tbl_links[app_id]->ran_tbl_pop++;
 
+    /* free linked list */
+    for(dur_cur = dur_head; dur_cur; dur_cur = dur_cur->next)
+    {
+        free(dur_cur);
+    }
+    free(psx_file_rec);
+    free(mpiio_file_rec);
     return 0;
 }
 
