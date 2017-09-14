@@ -296,7 +296,6 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
          */
         assert(dur_cur);
     }
-    darshan_log_close(logfile_fd);
 
     /* file records have all been retrieved from darshan log.  Now we loop
      * through them and generate workload events from each record
@@ -333,6 +332,7 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
     if (ret < 0)
         return -1;
 
+    darshan_log_close(logfile_fd);
 
     /* finalize the rank's i/o context so i/o ops may be retrieved later (in order) */
     darshan_finalize_io_op_dat(my_ctx->io_op_dat);
