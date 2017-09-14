@@ -1798,9 +1798,9 @@ static void calc_io_delays(
     double *first_io_delay, double *close_delay, double *inter_open_delay, double *inter_io_delay)
 {
     double first_io_time, last_io_time;
-    double first_io_pct, close_pct, inter_open_pct, inter_io_pct;
-    double total_delay_pct;
-    double tmp_inter_io_pct, tmp_inter_open_pct;
+    double first_io_pct, close_pct, inter_open_pct, inter_io_pct = 0;
+    double total_delay_pct = 0;
+    double tmp_inter_io_pct, tmp_inter_open_pct = 0;
 
     if (total_delay > 0.0)
     {
