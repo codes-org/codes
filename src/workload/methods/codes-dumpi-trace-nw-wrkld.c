@@ -559,6 +559,7 @@ int handleDUMPISendrecv(const dumpi_sendrecv* prm, uint16_t thread,
         assert(wrkld_per_rank.u.recv.num_bytes >= 0);
 		wrkld_per_rank.u.recv.source_rank = prm->source;
 		wrkld_per_rank.u.recv.dest_rank = -1;
+	    wrkld_per_rank.u.recv.req_id = -1;
 		update_times_and_insert(&wrkld_per_rank, wall, myctx);
 	}
     
