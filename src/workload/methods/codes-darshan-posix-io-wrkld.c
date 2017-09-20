@@ -545,6 +545,9 @@ static void darshan_insert_next_io_op(
     struct darshan_io_dat_array *array = (struct darshan_io_dat_array *)io_op_dat;
     struct darshan_io_op *tmp;
 
+    fprintf(stderr, "DBG: inserting io op %d start_time %f\n", io_op->codes_op.op_type, io_op->start_time);
+    assert(io_op->start_time >= 0);
+
     /* realloc array if it is already full */
     if (array->op_arr_ndx == array->op_arr_cnt)
     {
@@ -1869,6 +1872,15 @@ static void calc_io_delays(
             first_io_pct = 0.0;
             close_pct = 1 - inter_open_pct;
         }
+
+        /* Safety check; adjust approximation if the percentages are
+         * negative.  This can happen if (for example) the same file is
+         * opened and closed multiple times.
+         */
+        if(first_io_pct < 0)
+            first_io_pct = 0;
+        if(close_pct < 0)
+            close_pct = 1 - inter_open_pct;
 
         /* adjust per open delay percentages using a simple heuristic */
         total_delay_pct = inter_open_pct + inter_io_pct + first_io_pct + close_pct;
