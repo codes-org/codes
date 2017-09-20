@@ -121,9 +121,10 @@ static struct darshan_mod_logutil_funcs *mpiio_utils = &mpiio_logutils;
 static int total_rank_cnt = 0;
 
 /* hash table to store per-rank workload contexts */
-//static struct qhash_table *rank_tbl = NULL;
-//static int rank_tbl_pop = 0;
+static struct qhash_table *rank_tbl = NULL;
+static int rank_tbl_pop = 0;
 
+#if 0
 /* added for multiple apps by pj*/
 typedef struct app_hash_tbl
 {
@@ -132,6 +133,7 @@ typedef struct app_hash_tbl
 } app_hash_tbl;
 
 static app_hash_tbl **app_hash_tbl_links = NULL;
+#endif
 
 static void * darshan_io_workload_read_config(
         ConfigHandle * handle,
@@ -210,13 +212,14 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
     struct darshan_unified_record *dur_new = NULL;
     struct darshan_unified_record *dur_head = NULL;
     struct darshan_unified_record *dur_cur = NULL;
+    struct darshan_unified_record *dur_tmp = NULL;
 
     psx_file_rec = (struct darshan_posix_file *) calloc(1, sizeof(struct darshan_posix_file));
     assert(psx_file_rec);
     mpiio_file_rec = (struct darshan_mpiio_file *) calloc(1, sizeof(struct darshan_mpiio_file));
     assert(mpiio_file_rec);
 
-    //APP_ID_UNSUPPORTED(app_id, "darshan")
+    APP_ID_UNSUPPORTED(app_id, "darshan")
 
     if (!d_params)
         return -1;
@@ -337,6 +340,8 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
     /* finalize the rank's i/o context so i/o ops may be retrieved later (in order) */
     darshan_finalize_io_op_dat(my_ctx->io_op_dat);
 
+    /* TODO: fix this; does a zero byte calloc in make check test */
+#if 0
     /* added by pj: hold rank_tbl of each app */
     //printf("app_hash_tbl_links = %p\n", app_hash_tbl_links);
     if(!app_hash_tbl_links)
@@ -359,23 +364,32 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
     app_hash_tbl * cur_app_link = app_hash_tbl_links[app_id];
     /* initialize the hash table of rank contexts, if it has not been initialized */
     struct qhash_table * rank_tbl = cur_app_link->rank_tbl;
+#endif
     //printf("rank_tbl = %p\n", rank_tbl);
     if (!rank_tbl)
     {
         rank_tbl = qhash_init(darshan_rank_hash_compare, quickhash_64bit_hash, RANK_HASH_TABLE_SIZE);
         if (!rank_tbl)
             return -1;
+#if 0
         cur_app_link->rank_tbl = rank_tbl;
+#endif
     }
 
     /* add this rank context to the hash table */
     qhash_add(rank_tbl, &(my_ctx->my_rank), &(my_ctx->hash_link));
+#if 0
     app_hash_tbl_links[app_id]->ran_tbl_pop++;
+#else
+    rank_tbl_pop++;
+#endif
 
     /* free linked list */
-    for(dur_cur = dur_head; dur_cur; dur_cur = dur_cur->next)
+    for(dur_cur = dur_head; dur_cur;)
     {
-        free(dur_cur);
+        dur_tmp = dur_cur;
+        dur_cur = dur_cur->next;
+        free(dur_tmp);
     }
     free(psx_file_rec);
     free(mpiio_file_rec);
@@ -393,7 +407,11 @@ static void darshan_psx_io_workload_get_next(int app_id, int rank, struct codes_
     assert(rank < total_rank_cnt);
 
     /* find i/o context for this rank in the rank hash table */
+#if 0
     hash_link = qhash_search(app_hash_tbl_links[app_id]->rank_tbl, &my_rank);
+#else
+    hash_link = qhash_search(rank_tbl, &my_rank);
+#endif
     /* terminate the workload if there is no valid rank context */
     if (!hash_link)
     {
@@ -414,12 +432,21 @@ static void darshan_psx_io_workload_get_next(int app_id, int rank, struct codes_
         qhash_del(hash_link);
         free(tmp);
  
+#if 0
         app_hash_tbl_links[app_id]->ran_tbl_pop--;
         if (!app_hash_tbl_links[app_id]->ran_tbl_pop)
         {
             qhash_finalize(app_hash_tbl_links[app_id]->rank_tbl);
             app_hash_tbl_links[app_id]->rank_tbl = NULL;
         }
+#else
+        rank_tbl_pop--;
+        if (!rank_tbl_pop)
+        {
+            qhash_finalize(rank_tbl);
+            rank_tbl = NULL;
+        }
+#endif
     }
     else
     {
