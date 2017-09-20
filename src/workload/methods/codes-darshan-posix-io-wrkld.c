@@ -1862,9 +1862,9 @@ static void calc_io_delays(
         /* determine delay contribution for first io and close delays */
         if (first_io_time != 0.0)
         {
-            first_io_pct = (first_io_time - file->fcounters[POSIX_F_OPEN_END_TIMESTAMP]) *
+            first_io_pct = (first_io_time - file->fcounters[POSIX_F_OPEN_START_TIMESTAMP]) *
                            (num_opens / total_delay);
-            close_pct = (file->fcounters[POSIX_F_CLOSE_START_TIMESTAMP] - last_io_time) *
+            close_pct = (file->fcounters[POSIX_F_CLOSE_END_TIMESTAMP] - last_io_time) *
                         (num_opens / total_delay);
         }
         else
@@ -1949,8 +1949,8 @@ static void file_sanity_check(
         file->fcounters[POSIX_F_WRITE_END_TIMESTAMP] = 0.0;
 
     /* set file close time to the end of execution if it is not given */
-    if (file->fcounters[POSIX_F_CLOSE_START_TIMESTAMP] == 0.0)
-        file->fcounters[POSIX_F_CLOSE_START_TIMESTAMP] = job->end_time - job->start_time + 1;
+    if (file->fcounters[POSIX_F_CLOSE_END_TIMESTAMP] == 0.0)
+        file->fcounters[POSIX_F_CLOSE_END_TIMESTAMP] = job->end_time - job->start_time + 1;
 
     /* collapse fopen/fread/etc. calls into the corresponding open/read/etc. counters */
     /*fopens etc are removed in darshan3.1.3*/
