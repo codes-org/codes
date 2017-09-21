@@ -284,10 +284,14 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
             /* generate i/o events and store them in this rank's workload context */
             generate_psx_ind_file_events(&dur_cur->psx_file_rec, my_ctx);
         }
-        else
+        else if(dur_cur->psx_file_rec.base_rec.rank == -1)
         {
             /* TODO: implement */
             assert(0);
+        }
+        else
+        {
+            continue;
         }
 
         assert(dur_cur->psx_file_rec.counters[POSIX_OPENS] == 0);
