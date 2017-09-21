@@ -57,7 +57,6 @@ struct iolang_params
 struct darshan_params
 {
     char log_file_path[MAX_NAME_LENGTH_WKLD];
-    int64_t aggregator_cnt;
     int app_cnt;
 };
 

@@ -27,7 +27,6 @@ static struct option long_opts[] =
     {"num-ranks", required_argument, NULL, 'n'},
     {"start-rank", required_argument, NULL, 'r'},
     {"d-log", required_argument, NULL, 'l'},
-    {"d-aggregator-cnt", required_argument, NULL, 'a'},
     {"i-meta", required_argument, NULL, 'm'},
     {"i-use-relpath", no_argument, NULL, 'p'},
     {"r-trace-dir", required_argument, NULL, 'd'},
@@ -53,7 +52,6 @@ void usage(){
             "-s: print final workload stats\n"
             "DARSHAN OPTIONS (darshan_io_workload)\n"
             "--d-log: darshan log file\n"
-            "--d-aggregator-cnt: number of aggregators for collective I/O in darshan\n"
             "IOLANG OPTIONS (iolang_workload)\n"
             "--i-meta: i/o language kernel meta file path\n"
             "--i-use-relpath: use i/o kernel path relative meta file path\n"
@@ -133,9 +131,6 @@ int main(int argc, char *argv[])
             case 'l':
                 strcpy(d_params.log_file_path, optarg);
                 break;
-            case 'a':
-                d_params.aggregator_cnt = atol(optarg);
-                break;
             case 'm':
                 strcpy(i_params.io_kernel_meta_path, optarg);
                 break;
@@ -203,11 +198,6 @@ int main(int argc, char *argv[])
     else if (strcmp(type, "darshan_io_workload") == 0){
         if (d_params.log_file_path[0] == '\0'){
             fprintf(stderr, "Expected \"--d-log\" argument for darshan workload\n");
-            usage();
-            return 1;
-        }
-        else if (d_params.aggregator_cnt == 0){
-            fprintf(stderr, "Expected \"--d-aggregator-cnt\" argument for darshan workload\n");
             usage();
             return 1;
         }
