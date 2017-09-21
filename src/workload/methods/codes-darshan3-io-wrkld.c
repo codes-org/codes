@@ -71,30 +71,17 @@ static int darshan_io_op_compare(const void *p1, const void *p2);
 /* Helper functions for implementing the Darshan workload generator */
 static void generate_psx_ind_file_events(struct darshan_posix_file *file,
                                          struct rank_io_context *io_context);
-static void generate_psx_coll_file_events(struct darshan_unified_record *unif,
-                                          struct rank_io_context *io_context,
-                                          int64_t nprocs, int64_t aggregator_cnt);
 static double generate_psx_open_event(struct darshan_posix_file *file, int create_flag,
                                       double meta_op_time, double cur_time,
                                       struct rank_io_context *io_context, int insert_flag);
 static double generate_psx_close_event(struct darshan_posix_file *file, double meta_op_time,
                                        double cur_time, struct rank_io_context *io_context,
                                        int insert_flag);
-static double generate_barrier_event(struct darshan_posix_file *file, int64_t root, double cur_time,
-                                     struct rank_io_context *io_context);
 static double generate_psx_ind_io_events(struct darshan_posix_file *file, int64_t io_ops_this_cycle,
                                          double inter_io_delay, double cur_time,
                                          struct rank_io_context *io_context);
-static double generate_psx_coll_io_events(struct darshan_unified_record *unif, int64_t ind_io_ops_this_cycle,
-                                          int64_t coll_io_ops_this_cycle, int64_t nprocs,
-                                          int64_t aggregator_cnt, double inter_io_delay,
-                                          double meta_op_time, double cur_time,
-                                          struct rank_io_context *io_context);
 static void determine_ind_io_params(struct darshan_posix_file *file, int write_flag, size_t *io_sz,
                                     off_t *io_off, struct rank_io_context *io_context);
-static void determine_coll_io_params(struct darshan_posix_file *file, int write_flag, int64_t coll_op_cnt,
-                                     int64_t agg_cnt, int64_t agg_ndx, size_t *io_sz, off_t *io_off,
-                                     struct rank_io_context *io_context);
 static void calc_io_delays(struct darshan_posix_file *file, int64_t num_opens, int64_t num_io_ops,
                            double total_delay, double *first_io_delay, double *close_delay,
                            double *inter_open_delay, double *inter_io_delay);
@@ -124,17 +111,6 @@ static int total_rank_cnt = 0;
 static struct qhash_table *rank_tbl = NULL;
 static int rank_tbl_pop = 0;
 
-#if 0
-/* added for multiple apps by pj*/
-typedef struct app_hash_tbl
-{
-	struct qhash_table *rank_tbl;
-	int ran_tbl_pop;
-} app_hash_tbl;
-
-static app_hash_tbl **app_hash_tbl_links = NULL;
-#endif
-
 static void * darshan_io_workload_read_config(
         ConfigHandle * handle,
         char const * section_name,
@@ -144,7 +120,6 @@ static void * darshan_io_workload_read_config(
     darshan_params *d = malloc(sizeof(*d));
     assert(d);
     d->log_file_path[0] = '\0';
-    d->aggregator_cnt = -1;
     
     /* silence warning */
     (void)num_ranks;
@@ -153,12 +128,7 @@ static void * darshan_io_workload_read_config(
             "darshan_log_file", annotation, d->log_file_path,
             MAX_NAME_LENGTH_WKLD);
     assert(rc > 0);
-    int tmp;
-    rc = configuration_get_value_int(&config, "workload", 
-            "darshan_aggregator_count", annotation, &tmp);
-    assert(rc == 0);
-    d->aggregator_cnt = tmp;
-
+   
     return d;
 }
 
@@ -314,19 +284,11 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
             /* generate i/o events and store them in this rank's workload context */
             generate_psx_ind_file_events(&dur_cur->psx_file_rec, my_ctx);
         }
-        /* generate all i/o events involving this rank in this collective file */
-        else if (dur_cur->psx_file_rec.base_rec.rank == -1)
-        {
-            /* make sure the file i/o counters are valid */
-            file_sanity_check(&dur_cur->psx_file_rec, &job, logfile_fd);
-
-            /* generate collective i/o events and store them in the rank context */
-            generate_psx_coll_file_events(dur_cur, my_ctx, job.nprocs, d_params->aggregator_cnt);
-        }
-        else if (psx_file_rec->base_rec.rank < rank)
-            continue;
         else
-            break;
+        {
+            /* TODO: implement */
+            assert(0);
+        }
 
         assert(dur_cur->psx_file_rec.counters[POSIX_OPENS] == 0);
         assert(dur_cur->psx_file_rec.counters[POSIX_READS] == 0);
@@ -339,50 +301,16 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
 
     /* finalize the rank's i/o context so i/o ops may be retrieved later (in order) */
     darshan_finalize_io_op_dat(my_ctx->io_op_dat);
-
-    /* TODO: fix this; does a zero byte calloc in make check test */
-#if 0
-    /* added by pj: hold rank_tbl of each app */
-    //printf("app_hash_tbl_links = %p\n", app_hash_tbl_links);
-    if(!app_hash_tbl_links)
-    {
-    	app_hash_tbl_links = (app_hash_tbl **)calloc(d_params->app_cnt, sizeof(app_hash_tbl *));
-    	if(!app_hash_tbl_links)
-    	{
-    		printf("Error: can't create app_hash_tbl_links\n");
-    	}
-    }
-    //printf("app_hash_tbl_links[%d] = %p\n", app_id, app_hash_tbl_links[app_id]);
-    if(!app_hash_tbl_links[app_id])
-    {
-    	app_hash_tbl_links[app_id] = (app_hash_tbl *)calloc(1, sizeof(app_hash_tbl));
-    	if(!app_hash_tbl_links[app_id])
-    	{
-    		printf("Error: can't create app_hash_tbl_links[app_id]\n");
-    	}
-    }
-    app_hash_tbl * cur_app_link = app_hash_tbl_links[app_id];
-    /* initialize the hash table of rank contexts, if it has not been initialized */
-    struct qhash_table * rank_tbl = cur_app_link->rank_tbl;
-#endif
-    //printf("rank_tbl = %p\n", rank_tbl);
     if (!rank_tbl)
     {
         rank_tbl = qhash_init(darshan_rank_hash_compare, quickhash_64bit_hash, RANK_HASH_TABLE_SIZE);
         if (!rank_tbl)
             return -1;
-#if 0
-        cur_app_link->rank_tbl = rank_tbl;
-#endif
     }
 
     /* add this rank context to the hash table */
     qhash_add(rank_tbl, &(my_ctx->my_rank), &(my_ctx->hash_link));
-#if 0
-    app_hash_tbl_links[app_id]->ran_tbl_pop++;
-#else
     rank_tbl_pop++;
-#endif
 
     /* free linked list */
     for(dur_cur = dur_head; dur_cur;)
@@ -407,11 +335,7 @@ static void darshan_psx_io_workload_get_next(int app_id, int rank, struct codes_
     assert(rank < total_rank_cnt);
 
     /* find i/o context for this rank in the rank hash table */
-#if 0
-    hash_link = qhash_search(app_hash_tbl_links[app_id]->rank_tbl, &my_rank);
-#else
     hash_link = qhash_search(rank_tbl, &my_rank);
-#endif
     /* terminate the workload if there is no valid rank context */
     if (!hash_link)
     {
@@ -431,22 +355,12 @@ static void darshan_psx_io_workload_get_next(int app_id, int rank, struct codes_
     {
         qhash_del(hash_link);
         free(tmp);
- 
-#if 0
-        app_hash_tbl_links[app_id]->ran_tbl_pop--;
-        if (!app_hash_tbl_links[app_id]->ran_tbl_pop)
-        {
-            qhash_finalize(app_hash_tbl_links[app_id]->rank_tbl);
-            app_hash_tbl_links[app_id]->rank_tbl = NULL;
-        }
-#else
         rank_tbl_pop--;
         if (!rank_tbl_pop)
         {
             qhash_finalize(rank_tbl);
             rank_tbl = NULL;
         }
-#endif
     }
     else
     {
@@ -545,7 +459,6 @@ static void darshan_insert_next_io_op(
     struct darshan_io_dat_array *array = (struct darshan_io_dat_array *)io_op_dat;
     struct darshan_io_op *tmp;
 
-    fprintf(stderr, "DBG: inserting io op %d start_time %f\n", io_op->codes_op.op_type, io_op->start_time);
     assert(io_op->start_time >= 0);
 
     /* realloc array if it is already full */
@@ -717,249 +630,6 @@ static void generate_psx_ind_file_events(
 
     return;
 }
-/* generate events for the i/o ops stored in a collectively opened file for this rank */
-static void generate_psx_coll_file_events(struct darshan_unified_record *unif,
-                                          struct rank_io_context *io_context,
-                                          int64_t nprocs, int64_t in_agg_cnt)
-{
-    int64_t open_cycles;
-    int64_t total_ind_opens;
-    int64_t total_coll_opens;
-    int64_t ind_opens_this_cycle;
-    int64_t coll_opens_this_cycle;
-    int64_t extra_opens = 0;
-    int64_t extra_io_ops = 0;
-    int64_t total_io_ops = unif->psx_file_rec.counters[POSIX_READS] + unif->psx_file_rec.counters[POSIX_WRITES];
-    int64_t total_ind_io_ops;
-    int64_t total_coll_io_ops;
-    int64_t ind_io_ops_this_cycle;
-    int64_t coll_io_ops_this_cycle;
-    int64_t rank_cnt;
-    int create_flag = 0;
-    double cur_time = unif->psx_file_rec.fcounters[POSIX_F_OPEN_START_TIMESTAMP];
-    double total_delay;
-    double first_io_delay = 0.0;
-    double close_delay = 0.0;
-    double inter_cycle_delay = 0.0;
-    double inter_io_delay = 0.0;
-    double meta_op_time;
-    int64_t i;
-
-    /* the collective file was never opened (i.e., just stat-ed), so return */
-    if (!(unif->psx_file_rec.counters[POSIX_OPENS]))
-        return;
-
-    /*  in this case, posix opens are less than mpi opens...
-     *  this is probably a mpi deferred open -- assume app will not use this, currently.
-     */
-    assert(unif->psx_file_rec.counters[POSIX_OPENS] >= nprocs);
-
-    total_delay = unif->psx_file_rec.fcounters[POSIX_F_CLOSE_END_TIMESTAMP] -
-                  unif->psx_file_rec.fcounters[POSIX_F_OPEN_START_TIMESTAMP]
-                  -
-                  ((unif->psx_file_rec.fcounters[MPIIO_F_META_TIME] + unif->psx_file_rec.fcounters[MPIIO_F_READ_TIME] +
-                  unif->psx_file_rec.fcounters[MPIIO_F_WRITE_TIME]) / nprocs);
-
-    if (unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS] || unif->mpiio_file_rec.counters[MPIIO_INDEP_OPENS])
-    {
-        extra_opens = unif->psx_file_rec.counters[POSIX_OPENS] - unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS] -
-                      unif->mpiio_file_rec.counters[MPIIO_INDEP_OPENS];
-
-        total_coll_opens = unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS];
-        total_ind_opens = unif->psx_file_rec.counters[POSIX_OPENS] - total_coll_opens - extra_opens;
-
-        total_ind_io_ops = unif->mpiio_file_rec.counters[MPIIO_INDEP_READS] + unif->mpiio_file_rec.counters[MPIIO_INDEP_WRITES];
-        total_coll_io_ops = (unif->mpiio_file_rec.counters[MPIIO_COLL_READS] + unif->mpiio_file_rec.counters[MPIIO_COLL_WRITES]) / nprocs;
-
-        if (unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS])
-        {
-            int tmp_ind_io_cycles;
-            if (total_ind_io_ops < total_coll_io_ops)
-            {
-                tmp_ind_io_cycles = total_ind_io_ops;
-            }
-            else
-            {
-                tmp_ind_io_cycles = ceil(((double)total_ind_io_ops / total_coll_io_ops) / nprocs) *
-                                    total_coll_io_ops;
-            }
-
-            open_cycles = total_coll_opens / nprocs;
-            calc_io_delays(&unif->psx_file_rec, ceil(((double)(total_coll_opens + total_ind_opens)) / nprocs),
-                           total_coll_io_ops + tmp_ind_io_cycles, total_delay,
-                           &first_io_delay, &close_delay, &inter_cycle_delay, &inter_io_delay);
-        }
-        else
-        {
-            open_cycles = ceil((double)total_ind_opens / nprocs);
-            calc_io_delays(&unif->psx_file_rec, open_cycles, ceil((double)total_ind_io_ops / nprocs), total_delay,
-                           &first_io_delay, &close_delay, &inter_cycle_delay, &inter_io_delay);
-        }
-    }
-    else
-    {
-        extra_opens = unif->psx_file_rec.counters[POSIX_OPENS] % nprocs;
-        if (extra_opens && ((unif->psx_file_rec.counters[POSIX_OPENS] / nprocs) % extra_opens))
-        {
-            extra_opens = 0;
-        }
-        else
-        {
-            extra_io_ops = total_io_ops % nprocs;
-            if (extra_io_ops != extra_opens)
-            {
-                extra_opens = 0;
-                extra_io_ops = 0;
-            }
-        }
-
-        total_coll_opens = 0;
-        total_ind_opens = unif->psx_file_rec.counters[POSIX_OPENS] - extra_opens;
-
-        total_ind_io_ops = total_io_ops - extra_io_ops;
-        total_coll_io_ops = 0;
-
-        open_cycles = ceil((double)total_ind_opens / nprocs);
-        calc_io_delays(&unif->psx_file_rec, open_cycles, ceil((double)total_ind_io_ops / nprocs), total_delay,
-                       &first_io_delay, &close_delay, &inter_cycle_delay, &inter_io_delay);
-    }
-
-    /* calculate average meta op time (for i/o and opens/closes) */
-    meta_op_time = unif->psx_file_rec.fcounters[POSIX_F_META_TIME] / ((2 * unif->psx_file_rec.counters[POSIX_OPENS]) +
-                   unif->psx_file_rec.counters[POSIX_READS] + unif->psx_file_rec.counters[POSIX_WRITES]);
-
-    /* it is rare to overwrite existing files, so set the create flag */
-    if (unif->psx_file_rec.counters[POSIX_BYTES_WRITTEN])
-    {
-        create_flag = 1;
-    }
-
-    /* generate all events for this collectively opened file */
-    for (i = 0; i < open_cycles; i++)
-    {
-        ind_opens_this_cycle = ceil((double)total_ind_opens / (open_cycles - i));
-        coll_opens_this_cycle = total_coll_opens / (open_cycles - i);
-
-        /* assign any extra opens to as many ranks as possible if we are generating events
-         * for a file that was only opened independently (these likely correspond to file
-         * creations)
-         */
-        if(extra_opens && !coll_opens_this_cycle)
-        {
-            if (extra_opens >= nprocs)
-                rank_cnt = nprocs;
-            else
-                rank_cnt = extra_opens;
-
-            cur_time = generate_psx_open_event(&unif->psx_file_rec, create_flag, meta_op_time, cur_time,
-                                               io_context, (io_context->my_rank < rank_cnt));
-            create_flag = 0;
-
-            if (!unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS] && !unif->mpiio_file_rec.counters[MPIIO_INDEP_OPENS])
-            {
-                cur_time = generate_psx_coll_io_events(unif, 1, 0, nprocs, nprocs, 0.0,
-                                                       meta_op_time, cur_time, io_context);
-                extra_io_ops--;
-            }
-
-            cur_time = generate_psx_close_event(&unif->psx_file_rec, meta_op_time, cur_time, io_context,
-                                                (io_context->my_rank < rank_cnt));
-            unif->psx_file_rec.counters[POSIX_OPENS] -= rank_cnt;
-        }
-        /* assign any extra opens to rank 0 (these may correspond to file creations or
-         * header reads/writes)
-         */
-        else if (extra_opens && !(i % (open_cycles / extra_opens)))
-        {
-            cur_time = generate_psx_open_event(&unif->psx_file_rec, create_flag, meta_op_time, cur_time,
-                                               io_context, (io_context->my_rank == 0));
-            create_flag = 0;
-
-            if (!unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS] && !unif->mpiio_file_rec.counters[MPIIO_INDEP_OPENS])
-            {
-                cur_time = generate_psx_coll_io_events(unif, 1, 0, nprocs, nprocs, 0.0,
-                                                       meta_op_time, cur_time, io_context);
-                extra_io_ops--;
-            }
-
-            cur_time = generate_psx_close_event(&unif->psx_file_rec, meta_op_time, cur_time, io_context,
-                                                (io_context->my_rank == 0));
-            unif->psx_file_rec.counters[POSIX_OPENS]--;
-        }
-
-        while (ind_opens_this_cycle)
-        {
-            if (ind_opens_this_cycle >= nprocs)
-                rank_cnt = nprocs;
-            else
-                rank_cnt = ind_opens_this_cycle;
-
-            cur_time = generate_psx_open_event(&unif->psx_file_rec, create_flag, meta_op_time, cur_time,
-                                               io_context, (io_context->my_rank < rank_cnt));
-            create_flag = 0;
-
-            cur_time += first_io_delay;
-
-            ind_io_ops_this_cycle = ceil(((double)total_ind_io_ops / total_ind_opens) * rank_cnt);
-            cur_time = generate_psx_coll_io_events(unif, ind_io_ops_this_cycle, 0, nprocs,
-                                                   nprocs, inter_io_delay, meta_op_time,
-                                                   cur_time, io_context);
-            total_ind_io_ops -= ind_io_ops_this_cycle;
-
-            cur_time += close_delay;
-
-            cur_time = generate_psx_close_event(&unif->psx_file_rec, meta_op_time, cur_time, io_context,
-                                                (io_context->my_rank < rank_cnt));
-
-            unif->psx_file_rec.counters[POSIX_OPENS] -= rank_cnt;
-            ind_opens_this_cycle -= rank_cnt;
-            total_ind_opens -= rank_cnt;
-
-            if (unif->psx_file_rec.counters[POSIX_OPENS])
-                cur_time += inter_cycle_delay;
-        }
-
-        while (coll_opens_this_cycle)
-        {
-            assert(!create_flag);
-
-            cur_time = generate_barrier_event(&unif->psx_file_rec, 0, cur_time, io_context);
-
-            cur_time = generate_psx_open_event(&unif->psx_file_rec, create_flag, meta_op_time,
-                                               cur_time, io_context, 1);
-
-            cur_time += first_io_delay;
-
-            if (unif->mpiio_file_rec.counters[MPIIO_INDEP_OPENS])
-                ind_io_ops_this_cycle = 0;
-            else
-                ind_io_ops_this_cycle = ceil((double)total_ind_io_ops / 
-                                             (unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS] / nprocs));
-
-            coll_io_ops_this_cycle = ceil((double)total_coll_io_ops / 
-                                          (unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS] / nprocs));
-            cur_time = generate_psx_coll_io_events(unif, ind_io_ops_this_cycle,
-                                                   coll_io_ops_this_cycle, nprocs, in_agg_cnt,
-                                                   inter_io_delay, meta_op_time, cur_time,
-                                                   io_context);
-            total_ind_io_ops -= ind_io_ops_this_cycle;
-            total_coll_io_ops -= coll_io_ops_this_cycle;
-
-            cur_time += close_delay;
-
-            cur_time = generate_psx_close_event(&unif->psx_file_rec, meta_op_time, cur_time, io_context, 1);
-
-            unif->psx_file_rec.counters[POSIX_OPENS] -= nprocs;
-            unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS] -= nprocs;
-            coll_opens_this_cycle -= nprocs;
-            total_coll_opens -= nprocs;
-
-            if (unif->psx_file_rec.counters[POSIX_OPENS])
-                cur_time += inter_cycle_delay;
-        }
-    }
-    return;
-}
 
 /* fill in an open event structure and store it with the rank context */
 static double generate_psx_open_event(
@@ -1007,28 +677,6 @@ static double generate_psx_close_event(
         darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
 
     io_context->next_off = 0;
-
-    return cur_time;
-}
-
-/* fill in a barrier event structure and store it with the rank context */
-static double generate_barrier_event(
-    struct darshan_posix_file *file, int64_t root, double cur_time, struct rank_io_context *io_context)
-{
-    struct darshan_io_op next_io_op =
-    {
-        .codes_op.op_type = CODES_WK_BARRIER, 
-        .codes_op.u.barrier.count = 8192, /* all processes */
-        .codes_op.u.barrier.root = root,
-        .start_time = cur_time
-    };
-
-    cur_time += .000001; /* small synthetic delay representing time to barrier */
-    next_io_op.end_time = cur_time;
-
-    /* store the barrier event */
-    if (file->base_rec.rank == -1)
-        darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
 
     return cur_time;
 }
@@ -1166,584 +814,6 @@ static double generate_psx_ind_io_events(
     }
 
     return cur_time;
-}
-static double generate_psx_coll_io_events(
-    struct darshan_unified_record *unif, int64_t ind_io_ops_this_cycle, int64_t coll_io_ops_this_cycle,
-    int64_t nprocs, int64_t aggregator_cnt, double inter_io_delay, double meta_op_time,
-    double cur_time, struct rank_io_context *io_context)
-{
-    static int rw = -1; /* rw = 1 for write, 0 for read, -1 for uninitialized */
-    static int64_t io_ops_this_rw;
-    static double rd_bw = 0.0, wr_bw = 0.0;
-    int64_t psx_rw_ops_remaining = unif->psx_file_rec.counters[POSIX_READS] + unif->psx_file_rec.counters[POSIX_WRITES];
-    int64_t total_io_ops_this_cycle = ind_io_ops_this_cycle + coll_io_ops_this_cycle;
-    int64_t tmp_rank;
-    int64_t next_ind_io_rank = 0;
-    int64_t io_cnt;
-    double ranks_per_aggregator = (double)(nprocs - 1) / (aggregator_cnt - 1);
-    int64_t ind_ops_remaining = 0;
-    double io_op_time;
-    size_t io_sz;
-    off_t io_off;
-    int64_t i, j;
-    struct darshan_io_op next_io_op;
-
-    if (!total_io_ops_this_cycle)
-        return cur_time;
-
-    /* initialze static variables when a new file is opened */
-    if (rw == -1)
-    {
-        /* initialize rw to be the first i/o operation found in the log */
-        if (unif->psx_file_rec.fcounters[POSIX_F_WRITE_START_TIMESTAMP] == 0.0)
-            rw = 0;
-        else if (unif->psx_file_rec.fcounters[POSIX_F_READ_START_TIMESTAMP] == 0.0)
-            rw = 1;
-        else
-            rw = (unif->psx_file_rec.fcounters[POSIX_F_READ_START_TIMESTAMP] <
-                  unif->psx_file_rec.fcounters[POSIX_F_WRITE_START_TIMESTAMP]) ? 0 : 1;
-
-        /* determine how many io ops to do before next rw switch */
-        if (!rw)
-        {
-            if (unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS])
-                io_ops_this_rw =
-                    ((unif->mpiio_file_rec.counters[MPIIO_COLL_READS] / nprocs) + unif->mpiio_file_rec.counters[MPIIO_INDEP_READS]) /
-                    ((unif->psx_file_rec.counters[POSIX_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
-            else
-                io_ops_this_rw = unif->psx_file_rec.counters[POSIX_READS] /
-                                 ((unif->psx_file_rec.counters[POSIX_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
-        }
-        else
-        {
-            if (unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS])
-                io_ops_this_rw =
-                    ((unif->mpiio_file_rec.counters[MPIIO_COLL_WRITES] / nprocs) + unif->mpiio_file_rec.counters[MPIIO_INDEP_WRITES]) /
-                    ((unif->psx_file_rec.counters[POSIX_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
-            else
-                io_ops_this_rw = unif->psx_file_rec.counters[POSIX_WRITES] /
-                                 ((unif->psx_file_rec.counters[POSIX_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
-        }
-
-        /* initialize the rd and wr bandwidth values using total io size and time */
-        if (unif->psx_file_rec.fcounters[POSIX_F_READ_TIME])
-            rd_bw = unif->psx_file_rec.counters[POSIX_BYTES_READ] / unif->psx_file_rec.fcounters[POSIX_F_READ_TIME];
-        if (unif->psx_file_rec.fcounters[POSIX_F_WRITE_TIME])
-            wr_bw = unif->psx_file_rec.counters[POSIX_BYTES_WRITTEN] / unif->psx_file_rec.fcounters[POSIX_F_WRITE_TIME];
-    }
-
-    if (coll_io_ops_this_cycle)
-        ind_ops_remaining = ceil((double)ind_io_ops_this_cycle / coll_io_ops_this_cycle);
-    else
-        ind_ops_remaining = ind_io_ops_this_cycle;
-
-    for (i = 0; i < total_io_ops_this_cycle; i++)
-    {
-        if (ind_ops_remaining)
-        {
-            tmp_rank = (next_ind_io_rank++) % nprocs;
-            ind_io_ops_this_cycle--;
-
-            determine_ind_io_params(&unif->psx_file_rec, rw, &io_sz, &io_off, io_context);
-            if (!rw)
-            {
-                /* generate a read event */
-                next_io_op.codes_op.op_type = CODES_WK_READ;
-                next_io_op.codes_op.u.read.file_id = unif->psx_file_rec.base_rec.id;
-                next_io_op.codes_op.u.read.size = io_sz;
-                next_io_op.codes_op.u.read.offset = io_off;
-
-                /* set the end time based on observed bandwidth and io size */
-                if (rd_bw == 0.0)
-                    io_op_time = 0.0;
-                else
-                    io_op_time = (io_sz / rd_bw);
-                
-                unif->psx_file_rec.counters[POSIX_READS]--;
-                unif->mpiio_file_rec.counters[MPIIO_INDEP_READS]--;
-            }
-            else
-            {
-                /* generate a write event */
-                next_io_op.codes_op.op_type = CODES_WK_WRITE;
-                next_io_op.codes_op.u.write.file_id = unif->psx_file_rec.base_rec.id;
-                next_io_op.codes_op.u.write.size = io_sz;
-                next_io_op.codes_op.u.write.offset = io_off;
-
-                /* set the end time based on observed bandwidth and io size */
-                if (wr_bw == 0.0)
-                    io_op_time = 0.0;
-                else
-                    io_op_time = (io_sz / wr_bw);
-
-                unif->psx_file_rec.counters[POSIX_WRITES]--;
-                unif->mpiio_file_rec.counters[MPIIO_INDEP_WRITES]--;
-            }
-            next_io_op.start_time = cur_time;
-            next_io_op.end_time = cur_time + io_op_time + meta_op_time;
-
-            psx_rw_ops_remaining--;
-            assert(unif->psx_file_rec.counters[POSIX_READS] >= 0);
-            assert(unif->psx_file_rec.counters[POSIX_WRITES] >= 0);
-
-            /* store the io operation if it belongs to this rank */
-            if (tmp_rank == io_context->my_rank)
-            {
-                darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
-                cur_time = next_io_op.end_time;
-                if (coll_io_ops_this_cycle || (ind_ops_remaining > nprocs))
-                    cur_time += inter_io_delay;
-            }
-
-            ind_ops_remaining--;
-            if (!ind_ops_remaining) next_ind_io_rank = 0;
-        }
-        else
-        {
-            tmp_rank = 0;
-            coll_io_ops_this_cycle--;
-
-            if (!rw)
-            {
-                io_cnt = ceil((double)(unif->psx_file_rec.counters[POSIX_READS] -
-                              unif->mpiio_file_rec.counters[MPIIO_INDEP_READS]) / 
-                              (unif->mpiio_file_rec.counters[MPIIO_COLL_READS] / nprocs));
-                unif->mpiio_file_rec.counters[MPIIO_COLL_READS] -= nprocs;
-            }
-            else
-            {
-                io_cnt = ceil((double)(unif->psx_file_rec.counters[POSIX_WRITES] -
-                              unif->mpiio_file_rec.counters[MPIIO_INDEP_WRITES]) / 
-                              (unif->mpiio_file_rec.counters[MPIIO_COLL_WRITES] / nprocs));
-                unif->mpiio_file_rec.counters[MPIIO_COLL_WRITES] -= nprocs;
-            }
-
-            if (coll_io_ops_this_cycle)
-                ind_ops_remaining = ceil((double)ind_io_ops_this_cycle / coll_io_ops_this_cycle);
-            else
-                ind_ops_remaining = ind_io_ops_this_cycle;
-
-            for (j = 0; j < io_cnt; j += aggregator_cnt)
-            {
-                int64_t tmp_coll_cnt = MIN(io_cnt - j, aggregator_cnt);
-                int64_t tmp_agg_ndx;
-
-                cur_time = generate_barrier_event(&unif->psx_file_rec, 0, cur_time, io_context);
-
-                tmp_agg_ndx = (int64_t)round(io_context->my_rank / ranks_per_aggregator);
-                if ((round(tmp_agg_ndx * ranks_per_aggregator) == io_context->my_rank) &&
-                    (tmp_agg_ndx < tmp_coll_cnt))
-                {
-                    determine_coll_io_params(&unif->psx_file_rec, rw, io_cnt, tmp_coll_cnt, tmp_agg_ndx + 1, 
-                                             &io_sz, &io_off, io_context);
-                    if (!rw)
-                    {
-                        /* generate a read event */
-                        next_io_op.codes_op.op_type = CODES_WK_READ;
-                        next_io_op.codes_op.u.read.file_id = unif->psx_file_rec.base_rec.id;
-                        next_io_op.codes_op.u.read.size = io_sz;
-                        next_io_op.codes_op.u.read.offset = io_off;
-
-                        /* set the end time based on observed bandwidth and io size */
-                        if (rd_bw == 0.0)
-                            io_op_time = 0.0;
-                        else
-                            io_op_time = (io_sz / rd_bw);
-                        
-                        unif->psx_file_rec.counters[POSIX_READS] -= tmp_coll_cnt;
-                    }
-                    else
-                    {
-                        /* generate a write event */
-                        next_io_op.codes_op.op_type = CODES_WK_WRITE;
-                        next_io_op.codes_op.u.write.file_id = unif->psx_file_rec.base_rec.id;
-
-                        next_io_op.codes_op.u.write.size = io_sz;
-                        next_io_op.codes_op.u.write.offset = io_off;
-
-                        /* set the end time based on observed bandwidth and io size */
-                        if (wr_bw == 0.0)
-                            io_op_time = 0.0;
-                        else
-                            io_op_time = (io_sz / wr_bw);
-
-                        unif->psx_file_rec.counters[POSIX_WRITES] -= tmp_coll_cnt;
-                    }
-                    next_io_op.start_time = cur_time;
-                    next_io_op.end_time = cur_time + io_op_time + meta_op_time;
-
-                    darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
-
-                    cur_time = next_io_op.end_time;
-                }
-                else
-                {
-                    if (!rw)
-                    {
-                        unif->psx_file_rec.counters[POSIX_READS] -= tmp_coll_cnt;
-                    }
-                    else
-                    {
-                        unif->psx_file_rec.counters[POSIX_WRITES] -= tmp_coll_cnt;
-                    }
-                }
-                psx_rw_ops_remaining -= tmp_coll_cnt;
-                assert(unif->psx_file_rec.counters[POSIX_READS] >= 0);
-                assert(unif->psx_file_rec.counters[POSIX_WRITES] >= 0);
-            }
-
-            if (i != (total_io_ops_this_cycle - 1))
-                cur_time += inter_io_delay;
-        }
-        io_ops_this_rw--;
-
-
-        /* determine whether to toggle between reads and writes */
-        if (!io_ops_this_rw && psx_rw_ops_remaining)
-        {
-            /* toggle the read/write flag */
-            rw ^= 1;
-            unif->psx_file_rec.counters[POSIX_RW_SWITCHES] -= aggregator_cnt;
-
-            /* determine how many io ops to do before next rw switch */
-            if (!rw)
-            {
-                if (unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS])
-                    io_ops_this_rw =
-                        ((unif->mpiio_file_rec.counters[MPIIO_COLL_READS] / nprocs) +
-                        unif->mpiio_file_rec.counters[MPIIO_INDEP_READS]) / ((unif->psx_file_rec.counters[POSIX_RW_SWITCHES] /
-                        (2 * aggregator_cnt)) + 1);
-                else
-                    io_ops_this_rw = unif->psx_file_rec.counters[POSIX_READS] /
-                                     ((unif->psx_file_rec.counters[POSIX_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
-            }
-            else
-            {
-                if (unif->mpiio_file_rec.counters[MPIIO_COLL_OPENS])
-                    io_ops_this_rw =
-                        ((unif->mpiio_file_rec.counters[MPIIO_COLL_WRITES] / nprocs) +
-                        unif->mpiio_file_rec.counters[MPIIO_INDEP_WRITES]) / ((unif->psx_file_rec.counters[POSIX_RW_SWITCHES] /
-                        (2 * aggregator_cnt)) + 1);
-                else
-                    io_ops_this_rw = unif->psx_file_rec.counters[POSIX_WRITES] /
-                                     ((unif->psx_file_rec.counters[POSIX_RW_SWITCHES] / (2 * aggregator_cnt)) + 1);
-            }
-        }
-    }
-
-    /* reset the static rw flag if this is the last open-close cycle for this file */
-    if (unif->mpiio_file_rec.counters[POSIX_OPENS] <= nprocs)
-    {
-        rw = -1;
-    }
-
-    return cur_time;
-}
-
-static void determine_coll_io_params(
-    struct darshan_posix_file *file,
-    int write_flag, int64_t coll_op_cnt, int64_t agg_cnt,
-    int64_t agg_ndx, size_t *io_sz, off_t *io_off, struct rank_io_context *io_context)
-{
-    static int64_t size_bins_left = 0;
-    static int64_t agg_size_bins[10] = { 0 };
-    static off_t agg_off = 0;
-    int i, j;
-    int start_ndx, end_ndx;
-    int64_t *all_size_bins = NULL;
-    int64_t *total_io_size = NULL;
-    int64_t tmp_cnt;
-    int64_t switch_cnt;
-    int64_t leftover;
-    int64_t bins_to_use;
-    const int64_t size_bin_min_vals[10] = { 0, 100, 1024, 10 * 1024, 100 * 1024, 1024 * 1024,
-                                            4 * 1024 * 1024, 10 * 1024 * 1024, 100 * 1024 * 1024,
-                                            1024 * 1024 * 1024 };
-    const int64_t size_bin_max_vals[10] = { 100, 1024, 10 * 1024, 100 * 1024, 1024 * 1024,
-                                            4 * 1024 * 1024, 10 * 1024 * 1024, 100 * 1024 * 1024,
-                                            1024 * 1024 * 1024, INT64_MAX };
-    
-    int64_t *common_accesses = &(file->counters[POSIX_ACCESS1_ACCESS]); /* 4 common accesses */
-    int64_t *common_access_counts = &(file->counters[POSIX_ACCESS1_COUNT]); /* common access counts */
-    if (write_flag)
-    {
-        all_size_bins = &(file->counters[POSIX_SIZE_WRITE_0_100]);
-        total_io_size = &(file->counters[POSIX_BYTES_WRITTEN]);
-    }
-    else
-    {
-        all_size_bins = &(file->counters[POSIX_SIZE_READ_0_100]);
-        total_io_size = &(file->counters[POSIX_BYTES_READ]);
-    }
-
-    /* we enter this if statement if we have not yet calculated which size bins to use for the
-     * current collective I/O operation.
-     */
-    if (!size_bins_left)
-    {
-        int64_t total_agg_size_bin_cnt = 0;
-        int tmp_ndx = 9;
-
-        /* find some size bins that we can assign accesses out of.
-         * Note: we require the bins be reasonably close to each other in size, and be less
-         * than 100 MiB.
-         */
-        for (i = 7; i >= 0; i--)
-        {
-            if (all_size_bins[i])
-            {
-                if (total_agg_size_bin_cnt)
-                {
-                    if ((tmp_ndx - 3) <= i)
-                    {
-                        tmp_ndx = i;
-                        total_agg_size_bin_cnt += all_size_bins[i];
-                    }
-                    break;
-                }
-                else
-                {
-                    tmp_ndx = i;
-                    total_agg_size_bin_cnt += all_size_bins[i];
-                }
-            }
-        }
-
-        /* assign accesses from found bins proportional to bin size */
-        for (i = 7; i >= tmp_ndx; i--)
-        {
-            if (all_size_bins[i])
-            {
-                agg_size_bins[i] = ((double)all_size_bins[i] / total_agg_size_bin_cnt) *
-                                   MIN(total_agg_size_bin_cnt, coll_op_cnt);
-                size_bins_left += agg_size_bins[i];
-                all_size_bins[i] -= agg_size_bins[i];
-            }
-
-            if (size_bins_left == coll_op_cnt) break;
-        }
-
-        /* if we still haven't assigned enough accesses, just assign them stupidly */
-        if (size_bins_left < coll_op_cnt)
-        {
-            for (i = 9; i >= 0; i--)
-            {
-                if (all_size_bins[i])
-                {
-                    tmp_cnt = MIN(all_size_bins[i], coll_op_cnt - size_bins_left);
-                    agg_size_bins[i] += tmp_cnt;
-                    size_bins_left += tmp_cnt;
-                    all_size_bins[i] -= tmp_cnt;
-                }
-
-                if (size_bins_left == coll_op_cnt) break;
-            }
-        }
-        assert(size_bins_left == coll_op_cnt);
-
-        ssize_t tmp_size;
-        int64_t tmp_agg_ndx = 1; /* start at aggregator 1 */
-        int64_t tmp_agg_cnt;
-        int64_t tmp_common_cnts[4];
-        int64_t tmp_size_bins[10];
-        memcpy(tmp_common_cnts, common_access_counts, 4 * sizeof(int64_t));
-        memcpy(tmp_size_bins, agg_size_bins, 10 * sizeof(int64_t));
-        tmp_cnt = coll_op_cnt;
-        agg_off = io_context->next_off;
-
-        while (tmp_cnt)
-        {
-            start_ndx = -1;
-            end_ndx = -1;
-            leftover = 0;
-            tmp_agg_cnt = MIN(tmp_cnt, agg_cnt);
-        
-            for (i = 9; i >= 0; i--)
-            {
-                if (tmp_size_bins[i])
-                {
-                    if (start_ndx == -1) start_ndx = i;
-
-                    tmp_agg_cnt -= tmp_size_bins[i];
-                    if (tmp_agg_cnt <= 0)
-                    {
-                        end_ndx = i;
-                        break;
-                    }
-                }
-            }
-
-            i = start_ndx;
-            tmp_agg_cnt = MIN(tmp_cnt, agg_cnt);
-            while (tmp_agg_cnt)
-            {
-                if ((tmp_size_bins[i] >= tmp_agg_cnt) && !leftover)
-                {
-                    switch_cnt = tmp_agg_cnt;
-                }
-                else if (tmp_size_bins[i])
-                {
-                    bins_to_use = MIN(tmp_size_bins[i], tmp_agg_cnt - leftover);
-                    switch_cnt = ceil((double)bins_to_use / (tmp_agg_cnt - bins_to_use));
-
-                    leftover += (bins_to_use - switch_cnt);
-                }
-                else
-                {
-                    switch_cnt = 0;
-                }
-
-                /* assign i/o operations until we need to move to the next size bin */
-                while (switch_cnt)
-                {
-                    /* assign access sizes, starting with common and falling back to default */
-                    tmp_size = -1;
-                    for (j = 0; j < 4; j++)
-                    {
-                        if (tmp_common_cnts[j] &&
-                            (common_accesses[j] > size_bin_min_vals[i]) &&
-                            (common_accesses[j] <= size_bin_max_vals[i]))
-                        {
-                            tmp_size = common_accesses[j];
-                            tmp_common_cnts[j]--;
-                            break;
-                        }
-                    }
-
-                    if (tmp_size == -1)
-                    {
-                        tmp_size = ALIGN_BY_8((size_bin_max_vals[i] - size_bin_min_vals[i]) / 2);
-                    }
-
-                    /* only increment offset for aggregators less than me */
-                    if (tmp_agg_ndx < agg_ndx)
-                    {
-                        agg_off += tmp_size;
-                    }
-                    io_context->next_off += tmp_size;
-
-                    tmp_cnt--;
-                    tmp_agg_cnt--;
-                    switch_cnt--;
-                    tmp_size_bins[i]--;
-                    tmp_agg_ndx++;
-                    if (tmp_agg_ndx > agg_cnt) tmp_agg_ndx = 1;
-                }
-
-                i--;
-                if (i < end_ndx)
-                {
-                    i = start_ndx;
-                    leftover = 0;
-                }
-            }
-        }
-    }
-
-    /* assign an actual access size, according to already initialized agg size bins */
-    *io_sz = 0;
-    if (*total_io_size > 0)
-    {
-        tmp_cnt = agg_cnt;
-        start_ndx = -1;
-        end_ndx = -1;
-        leftover = 0;
-        int my_ndx = -1;
-
-        for (i = 9; i >= 0; i--)
-        {
-            if (agg_size_bins[i])
-            {
-                if (start_ndx == -1) start_ndx = i;
-
-                tmp_cnt -= agg_size_bins[i];
-                if (tmp_cnt <= 0)
-                {
-                    end_ndx = i;
-                    break;
-                }
-            }
-        }
-
-        i = start_ndx;
-        tmp_cnt = agg_cnt;
-        while (tmp_cnt)
-        {
-            if ((agg_size_bins[i] >= tmp_cnt) && !leftover)
-            {
-                switch_cnt = tmp_cnt;
-            }
-            else if (agg_size_bins[i])
-            {
-                bins_to_use = MIN(agg_size_bins[i], tmp_cnt - leftover);
-                switch_cnt = ceil((double)bins_to_use / (tmp_cnt - bins_to_use));
-
-                leftover += (bins_to_use - switch_cnt);
-            }
-            else
-            {
-                switch_cnt = 0;
-            }
-
-            if (switch_cnt)
-            {
-                if (my_ndx == -1)
-                {
-                    if (agg_ndx <= switch_cnt)
-                        my_ndx = i;
-                    else
-                        agg_ndx -= switch_cnt;
-                }
-
-                agg_size_bins[i] -= switch_cnt;
-                if (tmp_cnt > switch_cnt)
-                    tmp_cnt -= switch_cnt;
-                else
-                    tmp_cnt = 0;
-            }
-
-            i--;
-            if (i < end_ndx)
-            {
-                i = start_ndx;
-                leftover = 0;
-            }
-        }
-        assert((my_ndx >= 0) && (my_ndx < 10));
-
-        /* first try a common access size */
-        for (j = 0; j < 4; j++)
-        {
-            if (common_access_counts[j] &&
-                (common_accesses[j] > size_bin_min_vals[my_ndx]) &&
-                (common_accesses[j] <= size_bin_max_vals[my_ndx])) 
-            {
-                *io_sz = common_accesses[j];
-                common_access_counts[j]--;
-                break;
-            }
-        }
-
-        /* if no common access size found, assign a default size */
-        if (j == 4)
-        {
-            /* default size is the median of the range, aligned to be multiple of 8 */
-            size_t gen_size = (size_bin_max_vals[my_ndx] - size_bin_min_vals[my_ndx]) / 2;
-            *io_sz = ALIGN_BY_8(gen_size);
-        }
-    }
-    *total_io_size -= *io_sz;
-
-    /* decrement size bins counter */
-    size_bins_left -= agg_cnt;
-    if (size_bins_left < agg_ndx)
-        size_bins_left = 0;
-
-    /* we simply assign offsets sequentially through an aggregator's file view */
-    *io_off = agg_off;
-    agg_off += *io_sz;
-
-    return;
 }
 
 static void determine_ind_io_params(
