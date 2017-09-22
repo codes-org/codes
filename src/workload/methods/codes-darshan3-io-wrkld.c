@@ -583,7 +583,7 @@ static void generate_psx_file_events(
     {
         /* shared file */
         total_delay = file->fcounters[POSIX_F_CLOSE_END_TIMESTAMP] - file->fcounters[POSIX_F_OPEN_START_TIMESTAMP] -
-                      ((file->fcounters[POSIX_F_READ_TIME] - file->fcounters[POSIX_F_WRITE_TIME] -
+                      ((file->fcounters[POSIX_F_READ_TIME] + file->fcounters[POSIX_F_WRITE_TIME] +
                       file->fcounters[POSIX_F_META_TIME])/total_rank_cnt);
     }
     else
