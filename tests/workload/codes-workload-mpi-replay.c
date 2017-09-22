@@ -142,14 +142,10 @@ int load_workload(char *conf_path, int rank)
     if (strcmp(workload_type, "darshan_io_workload") == 0)
     {
         struct darshan_params d_params;
-        char aggregator_count[10];
 
         /* get the darshan params from the config file */
         configuration_get_value(&config, "PARAMS", "log_file_path",
                                 NULL, d_params.log_file_path, MAX_NAME_LENGTH_WKLD);
-        configuration_get_value(&config, "PARAMS", "aggregator_count", NULL, aggregator_count, 10);
-        d_params.aggregator_cnt = atol(aggregator_count);
-
         return codes_workload_load(workload_type, (char *)&d_params, 0, rank);
     }
     else if (strcmp(workload_type, "iolang_workload") == 0)
