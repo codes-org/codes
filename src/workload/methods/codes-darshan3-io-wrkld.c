@@ -578,22 +578,40 @@ static void generate_psx_file_events(
     double meta_op_time;
     int create_flag;
 
-    /* TODO: implement support for shared files */
-    assert(file->base_rec.rank == io_context->my_rank);
-
     /* determine delay available between first open and last close */
-    total_delay = file->fcounters[POSIX_F_CLOSE_END_TIMESTAMP] - file->fcounters[POSIX_F_OPEN_START_TIMESTAMP] -
-                  file->fcounters[POSIX_F_READ_TIME] - file->fcounters[POSIX_F_WRITE_TIME] -
-                  file->fcounters[POSIX_F_META_TIME];
+    if(file->base_rec.rank == -1)
+    {
+        /* shared file */
+        total_delay = file->fcounters[POSIX_F_CLOSE_END_TIMESTAMP] - file->fcounters[POSIX_F_OPEN_START_TIMESTAMP] -
+                      ((file->fcounters[POSIX_F_READ_TIME] - file->fcounters[POSIX_F_WRITE_TIME] -
+                      file->fcounters[POSIX_F_META_TIME])/total_rank_cnt);
+    }
+    else
+    {
+        /* uniq file */
+        total_delay = file->fcounters[POSIX_F_CLOSE_END_TIMESTAMP] - file->fcounters[POSIX_F_OPEN_START_TIMESTAMP] -
+                      file->fcounters[POSIX_F_READ_TIME] - file->fcounters[POSIX_F_WRITE_TIME] -
+                      file->fcounters[POSIX_F_META_TIME];
+    }
 
-    /* how many io operations on this file? */
-    num_io_ops = file->counters[POSIX_READS] + file->counters[POSIX_WRITES];
+    /* how many io operations on this file per rank (rounded up) ? */
+    if(file->base_rec.rank == -1)
+    {
+        num_io_ops = (file->counters[POSIX_READS] + file->counters[POSIX_WRITES]) / total_rank_cnt;
+        if((file->counters[POSIX_READS] + file->counters[POSIX_WRITES]) % total_rank_cnt)
+            num_io_ops++;
+    }
+    else
+        num_io_ops = file->counters[POSIX_READS] + file->counters[POSIX_WRITES];
+
     /* calculate synthetic delay values */
     calc_io_delays(file, num_io_ops, total_delay,
         &first_io_delay, &close_delay, &inter_io_delay);
 
     /* calculate average meta op time, divide among open and close for now */
     meta_op_time = file->fcounters[POSIX_F_META_TIME] / 2.0;
+    if(file->base_rec.rank == -1)
+        meta_op_time /= total_rank_cnt;
 
     /* set the create flag if the file was written to */
     if (file->counters[POSIX_BYTES_WRITTEN])
@@ -685,6 +703,9 @@ static double generate_psx_ind_io_events(
     int64_t i;
     struct darshan_io_op next_io_op;
     int num_io_ops = file->counters[POSIX_WRITES] + file->counters[POSIX_READS];
+
+    /* TODO: implement support for shared files */
+    assert(file->base_rec.rank == io_context->my_rank);
 
     /* loop to generate all writes */
     for (i = 0; i < file->counters[POSIX_WRITES]; i++)
