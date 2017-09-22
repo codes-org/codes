@@ -75,7 +75,7 @@ static double generate_psx_open_event(struct darshan_posix_file *file, int creat
 static double generate_psx_close_event(struct darshan_posix_file *file, double meta_op_time,
                                        double cur_time, struct rank_io_context *io_context,
                                        int insert_flag);
-static double generate_psx_ind_io_events(struct darshan_posix_file *file, int64_t num_io_ops,
+static double generate_psx_ind_io_events(struct darshan_posix_file *file,
                                          double inter_io_delay, double cur_time,
                                          struct rank_io_context *io_context);
 static void determine_ind_io_params(struct darshan_posix_file *file, int write_flag, size_t *io_sz,
@@ -291,9 +291,6 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
         {
             continue;
         }
-
-        assert(dur_cur->psx_file_rec.counters[POSIX_READS] == 0);
-        assert(dur_cur->psx_file_rec.counters[POSIX_WRITES] == 0);
     }
     if (ret < 0)
         return -1;
@@ -603,7 +600,7 @@ static void generate_psx_ind_file_events(
     cur_time += first_io_delay;
 
     /* perform the calculated number of i/o operations for this file open */
-    cur_time = generate_psx_ind_io_events(file, num_io_ops, inter_io_delay,
+    cur_time = generate_psx_ind_io_events(file, inter_io_delay,
                                           cur_time, io_context);
 
     /* account for potential delay from last io to close */
@@ -668,122 +665,85 @@ static double generate_psx_close_event(
 
 /* generate all i/o events for one independent file open and store them with the rank context */
 static double generate_psx_ind_io_events(
-    struct darshan_posix_file *file, int64_t num_io_ops, double inter_io_delay,
+    struct darshan_posix_file *file, double inter_io_delay,
     double cur_time, struct rank_io_context *io_context)
 {
-    static int rw = -1; /* rw = 1 for write, 0 for read, -1 for uninitialized */
-    static int64_t io_ops_this_rw;
     static double rd_bw = 0.0, wr_bw = 0.0;
-    int64_t psx_rw_ops_remaining = file->counters[POSIX_READS] + file->counters[POSIX_WRITES];
     double io_op_time;
     size_t io_sz;
     off_t io_off;
     int64_t i;
     struct darshan_io_op next_io_op;
+    int num_io_ops = file->counters[POSIX_WRITES] + file->counters[POSIX_READS];
 
-    /* if there are no i/o ops, just return immediately */
-    if (!num_io_ops)
-        return cur_time;
-
-    /* initialze static variables when a new file is opened */
-    if (rw == -1)
+    /* loop to generate all writes */
+    for (i = 0; i < file->counters[POSIX_WRITES]; i++)
     {
-        /* initialize rw to be the first i/o operation found in the log */
-        if (file->fcounters[POSIX_F_WRITE_START_TIMESTAMP] == 0.0)
-            rw = 0;
-        else if (file->fcounters[POSIX_F_READ_START_TIMESTAMP] == 0.0)
-            rw = 1;
-        else
-            rw = (file->fcounters[POSIX_F_READ_START_TIMESTAMP] <
-                  file->fcounters[POSIX_F_WRITE_START_TIMESTAMP]) ? 0 : 1;
+        /* calculate what value to use for i/o size and offset */
+        determine_ind_io_params(file, 1, &io_sz, &io_off, io_context);
 
-        /* determine how many io ops to do before next rw switch */
-        if (!rw)
-            io_ops_this_rw = file->counters[POSIX_READS] /
-                             ((file->counters[POSIX_RW_SWITCHES] / 2) + 1);
+        /* generate a write event */
+        next_io_op.codes_op.op_type = CODES_WK_WRITE;
+        next_io_op.codes_op.u.write.file_id = file->base_rec.id;
+        next_io_op.codes_op.u.write.size = io_sz;
+        next_io_op.codes_op.u.write.offset = io_off;
+        next_io_op.start_time = cur_time;
+        next_io_op.codes_op.start_time = cur_time;
+
+        /* set the end time based on observed bandwidth and io size */
+        if (wr_bw == 0.0)
+            io_op_time = 0.0;
         else
-            io_ops_this_rw = file->counters[POSIX_WRITES] /
-                             ((file->counters[POSIX_RW_SWITCHES] / 2) + 1);
+            io_op_time = (io_sz / wr_bw);
 
         /* initialize the rd and wr bandwidth values using total io size and time */
         if (file->fcounters[POSIX_F_READ_TIME])
             rd_bw = file->counters[POSIX_BYTES_READ] / file->fcounters[POSIX_F_READ_TIME];
         if (file->fcounters[POSIX_F_WRITE_TIME])
-            wr_bw = file->counters[POSIX_BYTES_WRITTEN] / file->fcounters[POSIX_F_WRITE_TIME];
-    }
+            wr_bw = file->counters[POSIX_BYTES_WRITTEN] / file->fcounters[POSIX_F_WRITE_TIME]; 
 
-    /* loop to generate all reads/writes for this open/close sequence */
-    for (i = 0; i < num_io_ops; i++)
-    {
-        /* calculate what value to use for i/o size and offset */
-        determine_ind_io_params(file, rw, &io_sz, &io_off, io_context);
-        if (!rw)
-        {
-            /* generate a read event */
-            next_io_op.codes_op.op_type = CODES_WK_READ;
-            next_io_op.codes_op.u.read.file_id = file->base_rec.id;
-            next_io_op.codes_op.u.read.size = io_sz;
-            next_io_op.codes_op.u.read.offset = io_off;
-            next_io_op.start_time = cur_time;
-            next_io_op.codes_op.start_time = cur_time;
-            /* set the end time based on observed bandwidth and io size */
-            if (rd_bw == 0.0)
-                io_op_time = 0.0;
-            else
-                io_op_time = (io_sz / rd_bw);
+        /* update time */
+        cur_time += io_op_time;
+        next_io_op.end_time = cur_time;
+        next_io_op.codes_op.end_time = cur_time;
 
-            /* update time, accounting for metadata time */
-            cur_time += io_op_time;
-            next_io_op.end_time = cur_time;
-            next_io_op.codes_op.end_time = cur_time;
-            file->counters[POSIX_READS]--;
-            //printf("end_time, start_time = %f, %f, rd_bw = %f\n", next_io_op.end_time, next_io_op.start_time, rd_bw);
-        }
-        else
-        {
-            /* generate a write event */
-            next_io_op.codes_op.op_type = CODES_WK_WRITE;
-            next_io_op.codes_op.u.write.file_id = file->base_rec.id;
-            next_io_op.codes_op.u.write.size = io_sz;
-            next_io_op.codes_op.u.write.offset = io_off;
-            next_io_op.start_time = cur_time;
-            next_io_op.codes_op.start_time = cur_time;
-
-            /* set the end time based on observed bandwidth and io size */
-            if (wr_bw == 0.0)
-                io_op_time = 0.0;
-            else
-                io_op_time = (io_sz / wr_bw);
-
-            /* update time, accounting for metadata time */
-            cur_time += io_op_time;
-            next_io_op.end_time = cur_time;
-            next_io_op.codes_op.end_time = cur_time;
-            file->counters[POSIX_WRITES]--;
-        }
-        psx_rw_ops_remaining--;
-        io_ops_this_rw--;
-        assert(file->counters[POSIX_READS] >= 0);
-        assert(file->counters[POSIX_WRITES] >= 0);
-        //printf("%s event\n", next_io_op.codes_op.op_type == CODES_WK_WRITE ? "WRITE" : "READ");
         /* store the i/o event */
         darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
 
-        /* determine whether to toggle between reads and writes */
-        if (!io_ops_this_rw && psx_rw_ops_remaining)
+        if (i != (num_io_ops - 1))
         {
-            /* toggle the read/write flag */
-            rw ^= 1;
-            file->counters[POSIX_RW_SWITCHES]--;
-
-            /* determine how many io ops to do before next rw switch */
-            if (!rw)
-                io_ops_this_rw = file->counters[POSIX_READS] /
-                                 ((file->counters[POSIX_RW_SWITCHES] / 2) + 1);
-            else
-                io_ops_this_rw = file->counters[POSIX_WRITES] /
-                                 ((file->counters[POSIX_RW_SWITCHES] / 2) + 1);
+            /* update current time to account for possible delay between i/o operations */
+            cur_time += inter_io_delay;
         }
+    }
+
+    /* loop to generate all reads */
+    for (i = 0; i < file->counters[POSIX_READS]; i++)
+    {
+        /* calculate what value to use for i/o size and offset */
+        determine_ind_io_params(file, 0, &io_sz, &io_off, io_context);
+
+        /* generate a read event */
+        next_io_op.codes_op.op_type = CODES_WK_READ;
+        next_io_op.codes_op.u.read.file_id = file->base_rec.id;
+        next_io_op.codes_op.u.read.size = io_sz;
+        next_io_op.codes_op.u.read.offset = io_off;
+        next_io_op.start_time = cur_time;
+        next_io_op.codes_op.start_time = cur_time;
+
+        /* set the end time based on observed bandwidth and io size */
+        if (rd_bw == 0.0)
+            io_op_time = 0.0;
+        else
+            io_op_time = (io_sz / rd_bw);
+
+        /* update time */
+        cur_time += io_op_time;
+        next_io_op.end_time = cur_time;
+        next_io_op.codes_op.end_time = cur_time;
+
+        /* store the i/o event */
+        darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
 
         if (i != (num_io_ops - 1))
         {
