@@ -75,7 +75,7 @@ static double generate_psx_open_event(struct darshan_posix_file *file, int creat
 static double generate_psx_close_event(struct darshan_posix_file *file, double meta_op_time,
                                        double cur_time, struct rank_io_context *io_context,
                                        int insert_flag);
-static double generate_psx_ind_io_events(struct darshan_posix_file *file, int64_t io_ops_this_cycle,
+static double generate_psx_ind_io_events(struct darshan_posix_file *file, int64_t num_io_ops,
                                          double inter_io_delay, double cur_time,
                                          struct rank_io_context *io_context);
 static void determine_ind_io_params(struct darshan_posix_file *file, int write_flag, size_t *io_sz,
@@ -668,7 +668,7 @@ static double generate_psx_close_event(
 
 /* generate all i/o events for one independent file open and store them with the rank context */
 static double generate_psx_ind_io_events(
-    struct darshan_posix_file *file, int64_t io_ops_this_cycle, double inter_io_delay,
+    struct darshan_posix_file *file, int64_t num_io_ops, double inter_io_delay,
     double cur_time, struct rank_io_context *io_context)
 {
     static int rw = -1; /* rw = 1 for write, 0 for read, -1 for uninitialized */
@@ -682,7 +682,7 @@ static double generate_psx_ind_io_events(
     struct darshan_io_op next_io_op;
 
     /* if there are no i/o ops, just return immediately */
-    if (!io_ops_this_cycle)
+    if (!num_io_ops)
         return cur_time;
 
     /* initialze static variables when a new file is opened */
@@ -713,7 +713,7 @@ static double generate_psx_ind_io_events(
     }
 
     /* loop to generate all reads/writes for this open/close sequence */
-    for (i = 0; i < io_ops_this_cycle; i++)
+    for (i = 0; i < num_io_ops; i++)
     {
         /* calculate what value to use for i/o size and offset */
         determine_ind_io_params(file, rw, &io_sz, &io_off, io_context);
@@ -785,17 +785,11 @@ static double generate_psx_ind_io_events(
                                  ((file->counters[POSIX_RW_SWITCHES] / 2) + 1);
         }
 
-        if (i != (io_ops_this_cycle - 1))
+        if (i != (num_io_ops - 1))
         {
             /* update current time to account for possible delay between i/o operations */
             cur_time += inter_io_delay;
         }
-    }
-
-    /* reset the static rw flag if this is the last open-close cycle for this file */
-    if (file->counters[POSIX_OPENS] == 1)
-    {
-        rw = -1;
     }
 
     return cur_time;
