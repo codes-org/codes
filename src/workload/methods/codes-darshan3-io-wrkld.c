@@ -11,14 +11,12 @@
 
 #include "darshan-logutils.h"
 
-#define DEF_INTER_IO_DELAY_PCT 0.2
-#define DEF_INTER_CYC_DELAY_PCT 0.4
-
 #define DARSHAN_NEGLIGIBLE_DELAY 0.00001
 
 #define RANK_HASH_TABLE_SIZE 397
 
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#define MAX(a, b) (((a) > (b)) ? (a) : (b))
 
 #define ALIGN_BY_8(x) ((x) + ((x) % 8))
 
@@ -82,9 +80,9 @@ static double generate_psx_ind_io_events(struct darshan_posix_file *file, int64_
                                          struct rank_io_context *io_context);
 static void determine_ind_io_params(struct darshan_posix_file *file, int write_flag, size_t *io_sz,
                                     off_t *io_off, struct rank_io_context *io_context);
-static void calc_io_delays(struct darshan_posix_file *file, int64_t num_opens, int64_t num_io_ops,
+static void calc_io_delays(struct darshan_posix_file *file, int64_t num_io_ops,
                            double total_delay, double *first_io_delay, double *close_delay,
-                           double *inter_open_delay, double *inter_io_delay);
+                           double *inter_io_delay);
 static void file_sanity_check(struct darshan_posix_file *file, struct darshan_job *job, darshan_fd fd);
 
 static int darshan_psx_io_workload_get_time(const char *params, int app_id, int rank, double *read_time, double *write_time,
@@ -294,7 +292,6 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
             continue;
         }
 
-        assert(dur_cur->psx_file_rec.counters[POSIX_OPENS] == 0);
         assert(dur_cur->psx_file_rec.counters[POSIX_READS] == 0);
         assert(dur_cur->psx_file_rec.counters[POSIX_WRITES] == 0);
     }
@@ -563,35 +560,33 @@ static int darshan_io_op_compare(
 static void generate_psx_ind_file_events(
     struct darshan_posix_file *file, struct rank_io_context *io_context)
 {
-    int64_t io_ops_this_cycle;
     double cur_time = file->fcounters[POSIX_F_OPEN_START_TIMESTAMP];
     double total_delay;
     double first_io_delay = 0.0;
     double close_delay = 0.0;
-    double inter_open_delay = 0.0;
     double inter_io_delay = 0.0;
+    int num_io_ops = 0;
     double meta_op_time;
     int create_flag;
-    int64_t i;
 
-    /* if the file was never really opened, just return because we have no timing info */
-    //printf("file->counters[POSIX_OPENS] = %d\n", file->counters[POSIX_OPENS]);
-    if (file->counters[POSIX_OPENS] == 0)
-        return;
+    /*  TODO: logic elsewhere to keep us from entering this fn if file
+     *  wasn't opened
+     */
+    assert(file->counters[POSIX_OPENS]);
 
-    /* determine delay available per open-io-close cycle */
+    /* determine delay available between first open and last close */
     total_delay = file->fcounters[POSIX_F_CLOSE_END_TIMESTAMP] - file->fcounters[POSIX_F_OPEN_START_TIMESTAMP] -
                   file->fcounters[POSIX_F_READ_TIME] - file->fcounters[POSIX_F_WRITE_TIME] -
                   file->fcounters[POSIX_F_META_TIME];
 
+    /* how many io operations on this file? */
+    num_io_ops = file->counters[POSIX_READS] + file->counters[POSIX_WRITES];
     /* calculate synthetic delay values */
-    calc_io_delays(file, file->counters[POSIX_OPENS],
-                   file->counters[POSIX_READS] + file->counters[POSIX_WRITES], total_delay,
-                   &first_io_delay, &close_delay, &inter_open_delay, &inter_io_delay);
+    calc_io_delays(file, num_io_ops, total_delay,
+        &first_io_delay, &close_delay, &inter_io_delay);
 
-    /* calculate average meta op time (for i/o and opens/closes) */
-    /* TODO: this needs to be updated when we add in stat, seek, etc. */
-    meta_op_time = file->fcounters[POSIX_F_META_TIME] / (2 * file->counters[POSIX_OPENS]);
+    /* calculate average meta op time, divide among open and close for now */
+    meta_op_time = file->fcounters[POSIX_F_META_TIME] / 2.0;
 
     /* set the create flag if the file was written to */
     if (file->counters[POSIX_BYTES_WRITTEN])
@@ -599,38 +594,24 @@ static void generate_psx_ind_file_events(
         create_flag = 1;
     }
 
-    /* generate open/io/close events for all cycles */
-    /* TODO: add stats */
-    for (i = 0; file->counters[POSIX_OPENS]; i++, file->counters[POSIX_OPENS]--)
-    {
-        /* generate an open event */
-        cur_time = generate_psx_open_event(file, create_flag, meta_op_time, cur_time,
-                                           io_context, 1);
-        create_flag = 0;
+    /* generate an open event */
+    cur_time = generate_psx_open_event(file, create_flag, meta_op_time, 
+        cur_time, io_context, 1);
+    create_flag = 0;
 
-        /* account for potential delay from first open to first io */
-        cur_time += first_io_delay;
+    /* account for potential delay from first open to first io */
+    cur_time += first_io_delay;
 
-        io_ops_this_cycle = ceil((double)(file->counters[POSIX_READS] +
-                                 file->counters[POSIX_WRITES]) /
-                                 file->counters[POSIX_OPENS]);
+    /* perform the calculated number of i/o operations for this file open */
+    cur_time = generate_psx_ind_io_events(file, num_io_ops, inter_io_delay,
+                                          cur_time, io_context);
 
-        /* perform the calculated number of i/o operations for this file open */
-        cur_time = generate_psx_ind_io_events(file, io_ops_this_cycle, inter_io_delay,
-                                              cur_time, io_context);
+    /* account for potential delay from last io to close */
+    cur_time += close_delay;
 
-        /* account for potential delay from last io to close */
-        cur_time += close_delay;
-
-        /* generate a close for the open event at the start of the loop */
-        cur_time = generate_psx_close_event(file, meta_op_time, cur_time, io_context, 1);
-
-        /* account for potential interopen delay if more than one open */
-        if (file->counters[POSIX_OPENS] > 1)
-        {
-            cur_time += inter_open_delay;
-        }
-    }
+    /* generate a close for the open event at the start of the loop */
+    cur_time = generate_psx_close_event(file, meta_op_time, cur_time, 
+        io_context, 1);
 
     return;
 }
@@ -898,92 +879,42 @@ static void determine_ind_io_params(
 /* calculate the simulated "delay" between different i/o events using delay info
  * from the file counters */
 static void calc_io_delays(
-    struct darshan_posix_file *file, int64_t num_opens, int64_t num_io_ops, double total_delay,
-    double *first_io_delay, double *close_delay, double *inter_open_delay, double *inter_io_delay)
+    struct darshan_posix_file *file, int64_t num_io_ops, double total_delay,
+    double *first_io_delay, double *close_delay, double *inter_io_delay)
 {
     double first_io_time, last_io_time;
-    double first_io_pct, close_pct, inter_open_pct, inter_io_pct = 0;
-    double total_delay_pct = 0;
-    double tmp_inter_io_pct, tmp_inter_open_pct = 0;
 
-    if (total_delay > 0.0)
+    if(total_delay <= 0)
     {
-        /* determine the time of the first io operation */
-        if (!file->fcounters[POSIX_F_WRITE_START_TIMESTAMP])
-            first_io_time = file->fcounters[POSIX_F_READ_START_TIMESTAMP];
-        else if (!file->fcounters[POSIX_F_READ_START_TIMESTAMP])
-            first_io_time = file->fcounters[POSIX_F_WRITE_START_TIMESTAMP];
-        else if (file->fcounters[POSIX_F_READ_START_TIMESTAMP] <
-                 file->fcounters[POSIX_F_WRITE_START_TIMESTAMP])
-            first_io_time = file->fcounters[POSIX_F_READ_START_TIMESTAMP];
-        else
-            first_io_time = file->fcounters[POSIX_F_WRITE_START_TIMESTAMP];
-
-        /* determine the time of the last io operation */
-        if (file->fcounters[POSIX_F_READ_END_TIMESTAMP] > file->fcounters[POSIX_F_WRITE_END_TIMESTAMP])
-            last_io_time = file->fcounters[POSIX_F_READ_END_TIMESTAMP];
-        else
-            last_io_time = file->fcounters[POSIX_F_WRITE_END_TIMESTAMP];
-
-        /* no delay contribution for inter-open delay if there is only a single open */
-        if (num_opens > 1)
-            inter_open_pct = DEF_INTER_CYC_DELAY_PCT;
-
-        /* no delay contribution for inter-io delay if there is one or less io op */
-        if ((num_io_ops - num_opens) > 0)
-            inter_io_pct = DEF_INTER_IO_DELAY_PCT;
-
-        /* determine delay contribution for first io and close delays */
-        if (first_io_time != 0.0)
-        {
-            first_io_pct = (first_io_time - file->fcounters[POSIX_F_OPEN_START_TIMESTAMP]) *
-                           (num_opens / total_delay);
-            close_pct = (file->fcounters[POSIX_F_CLOSE_END_TIMESTAMP] - last_io_time) *
-                        (num_opens / total_delay);
-        }
-        else
-        {
-            first_io_pct = 0.0;
-            close_pct = 1 - inter_open_pct;
-        }
-
-        /* Safety check; adjust approximation if the percentages are
-         * negative.  This can happen if (for example) the same file is
-         * opened and closed multiple times.
-         */
-        if(first_io_pct < 0)
-            first_io_pct = 0;
-        if(close_pct < 0)
-            close_pct = 1 - inter_open_pct;
-
-        /* adjust per open delay percentages using a simple heuristic */
-        total_delay_pct = inter_open_pct + inter_io_pct + first_io_pct + close_pct;
-        if ((total_delay_pct < 1) && (inter_open_pct || inter_io_pct))
-        {
-            /* only adjust inter-open and inter-io delays if we underestimate */
-            tmp_inter_open_pct = (inter_open_pct / (inter_open_pct + inter_io_pct)) *
-                                 (1 - first_io_pct - close_pct);
-            tmp_inter_io_pct = (inter_io_pct / (inter_open_pct + inter_io_pct)) *
-                               (1 - first_io_pct - close_pct);
-            inter_open_pct = tmp_inter_open_pct;
-            inter_io_pct = tmp_inter_io_pct;
-        }
-        else
-        {
-            inter_open_pct += (inter_open_pct / total_delay_pct) * (1 - total_delay_pct);
-            inter_io_pct += (inter_io_pct / total_delay_pct) * (1 - total_delay_pct);
-            first_io_pct += (first_io_pct / total_delay_pct) * (1 - total_delay_pct);
-            close_pct += (close_pct / total_delay_pct) * (1 - total_delay_pct);
-        }
-
-        *first_io_delay = (first_io_pct * total_delay) / num_opens;
-        *close_delay = (close_pct * total_delay) / num_opens;
-
-        if (num_opens > 1)
-            *inter_open_delay = (inter_open_pct * total_delay) / (num_opens - 1);
-        if ((num_io_ops - num_opens) > 0)
-            *inter_io_delay = (inter_io_pct * total_delay) / (num_io_ops - num_opens);
+        *first_io_delay = 0;
+        *close_delay = 0;
+        *inter_io_delay = 0;
+        return;
     }
+
+    /* determine the start time of the first io operation */
+    first_io_time = MIN(
+        file->fcounters[POSIX_F_READ_START_TIMESTAMP],
+        file->fcounters[POSIX_F_WRITE_START_TIMESTAMP]);
+    if(first_io_time == 0)
+        first_io_time = MAX(file->fcounters[POSIX_F_READ_START_TIMESTAMP],
+            file->fcounters[POSIX_F_WRITE_START_TIMESTAMP]);
+
+    /* determine the end time of the last io operation */
+    last_io_time = MAX(
+        file->fcounters[POSIX_F_READ_END_TIMESTAMP],
+        file->fcounters[POSIX_F_WRITE_END_TIMESTAMP]);
+
+    /* calculate delays between opena and first IO operations, and between
+     * last I/O operation and close
+     */
+    *first_io_delay = first_io_time - file->fcounters[POSIX_F_OPEN_START_TIMESTAMP];
+    *close_delay = file->fcounters[POSIX_F_CLOSE_END_TIMESTAMP] - last_io_time;
+    assert(*first_io_delay >= 0);
+    assert(*close_delay >= 0);
+
+    /* evenly distribute I/O operation delay */
+    *inter_io_delay = (total_delay - *first_io_delay - *close_delay)/num_io_ops;
 
     return;
 }
