@@ -707,6 +707,12 @@ static double generate_psx_ind_io_events(
     /* TODO: implement support for shared files */
     assert(file->base_rec.rank == io_context->my_rank);
 
+    /* initialize the rd and wr bandwidth values using total io size and time */
+    if (file->fcounters[POSIX_F_READ_TIME])
+        rd_bw = file->counters[POSIX_BYTES_READ] / file->fcounters[POSIX_F_READ_TIME];
+    if (file->fcounters[POSIX_F_WRITE_TIME])
+        wr_bw = file->counters[POSIX_BYTES_WRITTEN] / file->fcounters[POSIX_F_WRITE_TIME]; 
+
     /* loop to generate all writes */
     for (i = 0; i < file->counters[POSIX_WRITES]; i++)
     {
@@ -726,12 +732,6 @@ static double generate_psx_ind_io_events(
             io_op_time = 0.0;
         else
             io_op_time = (io_sz / wr_bw);
-
-        /* initialize the rd and wr bandwidth values using total io size and time */
-        if (file->fcounters[POSIX_F_READ_TIME])
-            rd_bw = file->counters[POSIX_BYTES_READ] / file->fcounters[POSIX_F_READ_TIME];
-        if (file->fcounters[POSIX_F_WRITE_TIME])
-            wr_bw = file->counters[POSIX_BYTES_WRITTEN] / file->fcounters[POSIX_F_WRITE_TIME]; 
 
         /* update time */
         cur_time += io_op_time;
