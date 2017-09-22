@@ -67,7 +67,7 @@ static void darshan_finalize_io_op_dat(void *io_op_dat);
 static int darshan_io_op_compare(const void *p1, const void *p2);
 
 /* Helper functions for implementing the Darshan workload generator */
-static void generate_psx_ind_file_events(struct darshan_posix_file *file,
+static void generate_psx_file_events(struct darshan_posix_file *file,
                                          struct rank_io_context *io_context);
 static double generate_psx_open_event(struct darshan_posix_file *file, int create_flag,
                                       double meta_op_time, double cur_time,
@@ -273,22 +273,34 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
      */
     for(dur_cur = dur_head; dur_cur; dur_cur = dur_cur->next)
     {
-        /* generate all i/o events contained in this independent file */
-        if (dur_cur->psx_file_rec.base_rec.rank == rank)
+        /* MPI-IO */
+        if(dur_cur->mpiio_file_rec.counters[MPIIO_COLL_OPENS] ||
+            dur_cur->mpiio_file_rec.counters[MPIIO_INDEP_OPENS])
         {
-            /* make sure the file i/o counters are valid */
-            file_sanity_check(&dur_cur->psx_file_rec, &job, logfile_fd);
-
-            /* generate i/o events and store them in this rank's workload context */
-            generate_psx_ind_file_events(&dur_cur->psx_file_rec, my_ctx);
+            fprintf(stderr, "TODO: implement MPI-IO event generation.\n"
+                "... falling throught to POSIX for now.\n");
         }
-        else if(dur_cur->psx_file_rec.base_rec.rank == -1)
+        /* POSIX */
+        if(dur_cur->psx_file_rec.counters[POSIX_OPENS])
         {
-            /* TODO: implement */
-            assert(0);
+            /* don't parse unless this file record belongs to this rank, or
+             * this is a globally shared file record.
+             */
+            if(dur_cur->psx_file_rec.base_rec.rank == rank ||
+                dur_cur->psx_file_rec.base_rec.rank == -1)
+            {
+                /* make sure the file i/o counters are valid */
+                file_sanity_check(&dur_cur->psx_file_rec, &job, logfile_fd);
+
+                /* generate i/o events and store them in this rank's 
+                 * workload context 
+                 */
+                generate_psx_file_events(&dur_cur->psx_file_rec, my_ctx);
+            }
         }
         else
         {
+            /* no I/O here that we can generate events for; continue */
             continue;
         }
     }
@@ -553,8 +565,8 @@ static int darshan_io_op_compare(
 /*                                       */
 /*****************************************/
 
-/* generate events for an independently opened file, and store these events */
-static void generate_psx_ind_file_events(
+/* generate events for a POSIX file */
+static void generate_psx_file_events(
     struct darshan_posix_file *file, struct rank_io_context *io_context)
 {
     double cur_time = file->fcounters[POSIX_F_OPEN_START_TIMESTAMP];
@@ -566,10 +578,8 @@ static void generate_psx_ind_file_events(
     double meta_op_time;
     int create_flag;
 
-    /*  TODO: logic elsewhere to keep us from entering this fn if file
-     *  wasn't opened
-     */
-    assert(file->counters[POSIX_OPENS]);
+    /* TODO: implement support for shared files */
+    assert(file->base_rec.rank == io_context->my_rank);
 
     /* determine delay available between first open and last close */
     total_delay = file->fcounters[POSIX_F_CLOSE_END_TIMESTAMP] - file->fcounters[POSIX_F_OPEN_START_TIMESTAMP] -
@@ -892,7 +902,6 @@ static void file_sanity_check(
     assert(file->counters[POSIX_WRITES] >= 0);
     assert(file->counters[POSIX_BYTES_READ] >= 0);
     assert(file->counters[POSIX_BYTES_WRITTEN] >= 0);
-    assert(file->counters[POSIX_RW_SWITCHES] >= 0);
 
     /* set any timestamps that happen to be negative to 0 */
     if (file->fcounters[POSIX_F_READ_START_TIMESTAMP] < 0.0)
