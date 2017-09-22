@@ -877,9 +877,6 @@ static void calc_io_delays(
 static void file_sanity_check(
     struct darshan_posix_file *file, struct darshan_job *job, darshan_fd fd)
 {
-    int64_t ops_not_implemented;
-    int64_t ops_total;
-
     /* make sure we have log version 3.00 or greater */
     if (strcmp(fd->version, "3.00") < 0)
     {
@@ -910,21 +907,6 @@ static void file_sanity_check(
     /* set file close time to the end of execution if it is not given */
     if (file->fcounters[POSIX_F_CLOSE_END_TIMESTAMP] == 0.0)
         file->fcounters[POSIX_F_CLOSE_END_TIMESTAMP] = job->end_time - job->start_time + 1;
-
-    /* collapse fopen/fread/etc. calls into the corresponding open/read/etc. counters */
-    /*fopens etc are removed in darshan3.1.3*/
-    /*
-    file->counters[POSIX_OPENS] += file->counters[POSIX_FOPENS];
-    file->counters[POSIX_READS] += file->counters[POSIX_FREADS];
-    file->counters[POSIX_WRITES] += file->counters[POSIX_FWRITES];
-    file->counters[POSIX_SEEKS] += file->counters[POSIX_FSEEKS];
-	*/
-    /* reduce total meta time by percentage of ops not currently implemented */
-    /* NOTE: we lump fseeks and r/w operations together when setting op durations ... */
-    ops_not_implemented = file->counters[POSIX_STATS] + file->counters[POSIX_FSYNCS];
-    ops_total = ops_not_implemented + (2 * file->counters[POSIX_OPENS]) +
-                file->counters[POSIX_SEEKS];
-    file->fcounters[POSIX_F_META_TIME] *= (1 - ((double)ops_not_implemented / ops_total));
 
     return;
 }
