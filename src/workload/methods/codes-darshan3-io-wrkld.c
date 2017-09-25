@@ -836,7 +836,7 @@ static double generate_mpiio_io_events(
             i%total_rank_cnt == io_context->my_rank))
         {
             /* generate a write event */
-            next_io_op.codes_op.op_type = CODES_WK_WRITE;
+            next_io_op.codes_op.op_type = CODES_WK_MPI_WRITE;
             next_io_op.codes_op.u.write.file_id = mfile->base_rec.id;
             next_io_op.codes_op.u.write.size = io_sz;
             next_io_op.codes_op.u.write.offset = io_off;
@@ -873,7 +873,7 @@ static double generate_mpiio_io_events(
             i%total_rank_cnt == io_context->my_rank))
         {
             /* generate a read event */
-            next_io_op.codes_op.op_type = CODES_WK_READ;
+            next_io_op.codes_op.op_type = CODES_WK_MPI_READ;
             next_io_op.codes_op.u.read.file_id = mfile->base_rec.id;
             next_io_op.codes_op.u.read.size = io_sz;
             next_io_op.codes_op.u.read.offset = io_off;
