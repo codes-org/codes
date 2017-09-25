@@ -817,16 +817,18 @@ static double generate_mpiio_io_events(
     if (mfile->fcounters[MPIIO_F_WRITE_TIME])
         wr_bw = mfile->counters[MPIIO_BYTES_WRITTEN] / mfile->fcounters[MPIIO_F_WRITE_TIME]; 
 
-    /* TODO implement collective io */
-    assert(mfile->counters[MPIIO_COLL_WRITES] == 0);
-    assert(mfile->counters[MPIIO_COLL_READS] == 0);
+    /* generator only understands if all ranks participate in collective for
+     * now
+     */
+    assert(mfile->counters[MPIIO_COLL_WRITES]%total_rank_cnt == 0);
+    assert(mfile->counters[MPIIO_COLL_READS]%total_rank_cnt == 0);
 
     /* note: go through all writes even if this is a shared file so that we
      * can correctly track offsets and sizes in aggregate.  We'll just emit
      * events for this rank.
      */
     /* loop to generate all writes */
-    for (i = 0; i < mfile->counters[MPIIO_INDEP_WRITES]; i++)
+    for (i = 0; i < (mfile->counters[MPIIO_COLL_WRITES] + mfile->counters[MPIIO_INDEP_WRITES]); i++)
     {
         /* calculate what value to use for i/o size and offset */
         determine_mpiio_io_params(mfile, 1, &io_sz, &io_off, io_context);
@@ -836,7 +838,11 @@ static double generate_mpiio_io_events(
             i%total_rank_cnt == io_context->my_rank))
         {
             /* generate a write event */
-            next_io_op.codes_op.op_type = CODES_WK_MPI_WRITE;
+            /* first do collectives, then non-collectives */
+            if(i<mfile->counters[MPIIO_COLL_WRITES])
+                next_io_op.codes_op.op_type = CODES_WK_MPI_COLL_WRITE;
+            else
+                next_io_op.codes_op.op_type = CODES_WK_MPI_WRITE;
             next_io_op.codes_op.u.write.file_id = mfile->base_rec.id;
             next_io_op.codes_op.u.write.size = io_sz;
             next_io_op.codes_op.u.write.offset = io_off;
@@ -863,7 +869,7 @@ static double generate_mpiio_io_events(
     }
 
     /* loop to generate all reads */
-    for (i = 0; i < mfile->counters[MPIIO_INDEP_READS]; i++)
+    for (i = 0; i < (mfile->counters[MPIIO_COLL_READS] + mfile->counters[MPIIO_INDEP_READS]); i++)
     {
         /* calculate what value to use for i/o size and offset */
         determine_mpiio_io_params(mfile, 0, &io_sz, &io_off, io_context);
@@ -873,7 +879,10 @@ static double generate_mpiio_io_events(
             i%total_rank_cnt == io_context->my_rank))
         {
             /* generate a read event */
-            next_io_op.codes_op.op_type = CODES_WK_MPI_READ;
+            if(i<mfile->counters[MPIIO_COLL_READS])
+                next_io_op.codes_op.op_type = CODES_WK_MPI_COLL_READ;
+            else
+                next_io_op.codes_op.op_type = CODES_WK_MPI_READ;
             next_io_op.codes_op.u.read.file_id = mfile->base_rec.id;
             next_io_op.codes_op.u.read.size = io_sz;
             next_io_op.codes_op.u.read.offset = io_off;
