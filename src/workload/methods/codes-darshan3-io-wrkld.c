@@ -80,6 +80,9 @@ static double generate_close_event(darshan_record_id id, enum codes_workload_op_
 static double generate_psx_io_events(struct darshan_posix_file *file,
                                          double inter_io_delay, double cur_time,
                                          struct rank_io_context *io_context);
+static void determine_mpiio_io_params(
+    struct darshan_mpiio_file *mfile, int write_flag, size_t *io_sz, off_t *io_off,
+    struct rank_io_context *io_context);
 static void determine_psx_io_params(struct darshan_posix_file *file, int write_flag, size_t *io_sz,
                                     off_t *io_off, struct rank_io_context *io_context);
 static void psx_calc_io_delays(struct darshan_posix_file *file, int64_t num_io_ops,
@@ -297,7 +300,7 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
                 /* generate i/o events and store them in this rank's 
                  * workload context 
                  */
-                generate_mpiio_file_events(&dur_cur->psx_file_rec, my_ctx);
+                generate_mpiio_file_events(&dur_cur->mpiio_file_rec, my_ctx);
             }
         }
         /* POSIX */
@@ -908,6 +911,82 @@ static double generate_psx_io_events(
 
     return cur_time;
 }
+
+static void determine_mpiio_io_params(
+    struct darshan_mpiio_file *mfile, int write_flag, size_t *io_sz, off_t *io_off,
+    struct rank_io_context *io_context)
+{
+    int size_bin_ndx = 0;
+    int64_t *rd_size_bins = &(mfile->counters[MPIIO_SIZE_READ_AGG_0_100]);
+    int64_t *wr_size_bins = &(mfile->counters[MPIIO_SIZE_WRITE_AGG_0_100]);
+    int64_t *size_bins = NULL;
+    int64_t *common_accesses = &(mfile->counters[MPIIO_ACCESS1_ACCESS]); /* 4 common accesses */
+    int64_t *common_access_counts = &(mfile->counters[MPIIO_ACCESS1_COUNT]); /* common access counts */
+    int64_t *total_io_size = NULL;
+    int i, j = 0;
+    const int64_t size_bin_min_vals[10] = { 0, 100, 1024, 10 * 1024, 100 * 1024, 1024 * 1024,
+                                            4 * 1024 * 1024, 10 * 1024 * 1024, 100 * 1024 * 1024,
+                                            1024 * 1024 * 1024 };
+    const int64_t size_bin_max_vals[10] = { 100, 1024, 10 * 1024, 100 * 1024, 1024 * 1024,
+                                            4 * 1024 * 1024, 10 * 1024 * 1024, 100 * 1024 * 1024,
+                                            1024 * 1024 * 1024, INT64_MAX };
+
+    /* assign data values depending on whether the operation is a read or write */
+    if (write_flag)
+    {
+        total_io_size = &(mfile->counters[MPIIO_BYTES_WRITTEN]);
+        size_bins = wr_size_bins;
+    }
+    else
+    {
+        total_io_size = &(mfile->counters[MPIIO_BYTES_READ]);
+        size_bins = rd_size_bins;
+    }
+
+    for (i = 0; i < 10; i++)
+    {
+        if (size_bins[i])
+        {
+            size_bin_ndx = i;
+            break;
+        }
+    }
+
+    *io_sz = 0;
+    if (*total_io_size > 0)
+    {
+        /* try to assign a common access first (intelligently) */
+        for (j = 0; j < 4; j++)
+        {
+            if (common_access_counts[j] &&
+                (common_accesses[j] >= size_bin_min_vals[size_bin_ndx]) &&
+                (common_accesses[j] <= size_bin_max_vals[size_bin_ndx]))
+            {
+                *io_sz = common_accesses[j];
+                common_access_counts[j]--;
+                break;
+            }
+        }
+
+        /* if no common accesses left, then assign default size for this bin */
+        if (*io_sz == 0)
+        {
+            size_t gen_size;
+            gen_size = (size_bin_max_vals[size_bin_ndx] - size_bin_min_vals[size_bin_ndx]) / 2;
+            *io_sz = ALIGN_BY_8(gen_size);
+        }
+        assert(*io_sz);
+    }
+
+    *total_io_size -= *io_sz;
+    size_bins[size_bin_ndx]--;
+
+    *io_off = io_context->next_off;
+    io_context->next_off += *io_sz;
+
+    return;
+}
+
 
 static void determine_psx_io_params(
     struct darshan_posix_file *file, int write_flag, size_t *io_sz, off_t *io_off,
