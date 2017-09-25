@@ -69,10 +69,12 @@ static int darshan_io_op_compare(const void *p1, const void *p2);
 /* Helper functions for implementing the Darshan workload generator */
 static void generate_psx_file_events(struct darshan_posix_file *file,
                                          struct rank_io_context *io_context);
-static double generate_psx_open_event(struct darshan_posix_file *file, int create_flag,
+static void generate_mpiio_file_events(
+    struct darshan_mpiio_file *mfile, struct rank_io_context *io_context);
+static double generate_open_event(darshan_record_id id, enum codes_workload_op_type type, int create_flag,
                                       double meta_op_time, double cur_time,
                                       struct rank_io_context *io_context, int insert_flag);
-static double generate_psx_close_event(struct darshan_posix_file *file, double meta_op_time,
+static double generate_close_event(darshan_record_id id, enum codes_workload_op_type type, double meta_op_time,
                                        double cur_time, struct rank_io_context *io_context,
                                        int insert_flag);
 static double generate_psx_io_events(struct darshan_posix_file *file,
@@ -80,9 +82,12 @@ static double generate_psx_io_events(struct darshan_posix_file *file,
                                          struct rank_io_context *io_context);
 static void determine_psx_io_params(struct darshan_posix_file *file, int write_flag, size_t *io_sz,
                                     off_t *io_off, struct rank_io_context *io_context);
-static void calc_io_delays(struct darshan_posix_file *file, int64_t num_io_ops,
+static void psx_calc_io_delays(struct darshan_posix_file *file, int64_t num_io_ops,
                            double total_delay, double *first_io_delay, double *close_delay,
                            double *inter_io_delay);
+static void mpiio_calc_io_delays(
+    struct darshan_mpiio_file *mfile, int64_t num_io_ops, double total_delay,
+    double *first_io_delay, double *close_delay, double *inter_io_delay);
 static void file_sanity_check(
     struct darshan_posix_file *file, struct darshan_mpiio_file *mfile,
     struct darshan_job *job, darshan_fd fd);
@@ -289,14 +294,14 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
                 file_sanity_check(&dur_cur->psx_file_rec, 
                     &dur_cur->mpiio_file_rec, &job, logfile_fd);
 
+                /* generate i/o events and store them in this rank's 
+                 * workload context 
+                 */
+                generate_mpiio_file_events(&dur_cur->psx_file_rec, my_ctx);
             }
-
-            fprintf(stderr, "TODO: implement MPI-IO event generation.\n"
-                "... falling throught to POSIX for now.\n");
         }
-        /* TODO: make this an else */
         /* POSIX */
-        if(dur_cur->psx_file_rec.counters[POSIX_OPENS])
+        else if(dur_cur->psx_file_rec.counters[POSIX_OPENS])
         {
             /* don't parse unless this file record belongs to this rank, or
              * this is a globally shared file record.
@@ -581,6 +586,91 @@ static int darshan_io_op_compare(
 /*                                       */
 /*****************************************/
 
+static void generate_mpiio_file_events(
+    struct darshan_mpiio_file *mfile, struct rank_io_context *io_context)
+{
+    double cur_time = mfile->fcounters[MPIIO_F_OPEN_TIMESTAMP];
+    double total_delay;
+    double first_io_delay = 0.0;
+    double close_delay = 0.0;
+    double inter_io_delay = 0.0;
+    int num_io_ops = 0;
+    double meta_op_time;
+    int create_flag;
+    enum codes_workload_op_type open_type;
+
+    /* determine delay available between first open and last close */
+    if(mfile->base_rec.rank == -1)
+    {
+        /* shared file */
+        total_delay = mfile->fcounters[MPIIO_F_CLOSE_TIMESTAMP] - mfile->fcounters[MPIIO_F_OPEN_TIMESTAMP] -
+                      ((mfile->fcounters[MPIIO_F_READ_TIME] + mfile->fcounters[MPIIO_F_WRITE_TIME] +
+                      mfile->fcounters[MPIIO_F_META_TIME])/total_rank_cnt);
+    }
+    else
+    {
+        /* uniq file */
+        total_delay = mfile->fcounters[MPIIO_F_CLOSE_TIMESTAMP] - mfile->fcounters[MPIIO_F_OPEN_TIMESTAMP] -
+                      mfile->fcounters[MPIIO_F_READ_TIME] - mfile->fcounters[MPIIO_F_WRITE_TIME] -
+                      mfile->fcounters[MPIIO_F_META_TIME];
+    }
+
+    /* how many io operations on this file per rank (rounded up) ? */
+    int all_io_ops = mfile->counters[MPIIO_INDEP_READS] + mfile->counters[MPIIO_INDEP_WRITES] + mfile->counters[MPIIO_COLL_READS] + mfile->counters[MPIIO_COLL_WRITES];
+    if(mfile->base_rec.rank == -1)
+    {
+        num_io_ops = all_io_ops / total_rank_cnt;
+        if(all_io_ops % total_rank_cnt)
+            num_io_ops++;
+    }
+    else
+        num_io_ops = all_io_ops;
+
+    /* calculate synthetic delay values */
+    mpiio_calc_io_delays(mfile, num_io_ops, total_delay,
+        &first_io_delay, &close_delay, &inter_io_delay);
+
+    /* calculate average meta op time, divide among open and close for now */
+    meta_op_time = mfile->fcounters[MPIIO_F_META_TIME] / 2.0;
+    if(mfile->base_rec.rank == -1)
+        meta_op_time /= total_rank_cnt;
+
+    /* set the create flag if the file was written to */
+    if (mfile->counters[MPIIO_BYTES_WRITTEN])
+    {
+        create_flag = 1;
+    }
+
+    /* generate an open event */
+    if(mfile->counters[MPIIO_COLL_OPENS] > 0)
+        open_type = CODES_WK_MPI_COLL_OPEN;
+    else
+        open_type = CODES_WK_MPI_OPEN;
+    cur_time = generate_open_event(mfile->base_rec.id, open_type, create_flag, meta_op_time, 
+        cur_time, io_context, 1);
+    create_flag = 0;
+
+    /* account for potential delay from first open to first io */
+    cur_time += first_io_delay;
+
+    /* TODO: implement this */
+#if 0
+    /* perform the calculated number of i/o operations for this file open */
+    cur_time = generate_psx_io_events(file, inter_io_delay,
+                                          cur_time, io_context);
+#else
+    fprintf(stderr, "TODO: implement mpiio io events.\n");
+#endif
+    /* account for potential delay from last io to close */
+    cur_time += close_delay;
+
+    /* generate a close for the open event at the start of the loop */
+    cur_time = generate_close_event(mfile->base_rec.id, CODES_WK_MPI_CLOSE, meta_op_time, cur_time, 
+        io_context, 1);
+
+    return;
+}
+
 /* generate events for a POSIX file */
 static void generate_psx_file_events(
     struct darshan_posix_file *file, struct rank_io_context *io_context)
@@ -621,7 +711,7 @@ static void generate_psx_file_events(
         num_io_ops = file->counters[POSIX_READS] + file->counters[POSIX_WRITES];
 
     /* calculate synthetic delay values */
-    calc_io_delays(file, num_io_ops, total_delay,
+    psx_calc_io_delays(file, num_io_ops, total_delay,
         &first_io_delay, &close_delay, &inter_io_delay);
 
     /* calculate average meta op time, divide among open and close for now */
@@ -636,7 +726,7 @@ static void generate_psx_file_events(
     }
 
     /* generate an open event */
-    cur_time = generate_psx_open_event(file, create_flag, meta_op_time, 
+    cur_time = generate_open_event(file->base_rec.id, CODES_WK_OPEN, create_flag, meta_op_time, 
         cur_time, io_context, 1);
     create_flag = 0;
 
@@ -651,21 +741,21 @@ static void generate_psx_file_events(
     cur_time += close_delay;
 
     /* generate a close for the open event at the start of the loop */
-    cur_time = generate_psx_close_event(file, meta_op_time, cur_time, 
+    cur_time = generate_close_event(file->base_rec.id, CODES_WK_CLOSE, meta_op_time, cur_time, 
         io_context, 1);
 
     return;
 }
 
 /* fill in an open event structure and store it with the rank context */
-static double generate_psx_open_event(
-    struct darshan_posix_file *file, int create_flag, double meta_op_time,
+static double generate_open_event(
+    darshan_record_id id, enum codes_workload_op_type type, int create_flag, double meta_op_time,
     double cur_time, struct rank_io_context *io_context, int insert_flag)
 {
     struct darshan_io_op next_io_op = 
     {
-        .codes_op.op_type = CODES_WK_OPEN,
-        .codes_op.u.open.file_id = file->base_rec.id,
+        .codes_op.op_type = type,
+        .codes_op.u.open.file_id = id,
         .codes_op.u.open.create_flag = create_flag,
         .start_time = cur_time
     };
@@ -682,14 +772,14 @@ static double generate_psx_open_event(
 }
 
 /* fill in a close event structure and store it with the rank context */
-static double generate_psx_close_event(
-    struct darshan_posix_file *file, double meta_op_time, double cur_time,
+static double generate_close_event(
+    darshan_record_id id, enum codes_workload_op_type type, double meta_op_time, double cur_time,
     struct rank_io_context *io_context, int insert_flag)
 {
     struct darshan_io_op next_io_op =
     {
-        .codes_op.op_type = CODES_WK_CLOSE,
-        .codes_op.u.close.file_id = file->base_rec.id,
+        .codes_op.op_type = type,
+        .codes_op.u.close.file_id = id,
         .start_time = cur_time
     };
 
@@ -896,7 +986,50 @@ static void determine_psx_io_params(
 
 /* calculate the simulated "delay" between different i/o events using delay info
  * from the file counters */
-static void calc_io_delays(
+static void mpiio_calc_io_delays(
+    struct darshan_mpiio_file *mfile, int64_t num_io_ops, double total_delay,
+    double *first_io_delay, double *close_delay, double *inter_io_delay)
+{
+    double first_io_time, last_io_time;
+
+    if(total_delay <= 0)
+    {
+        *first_io_delay = 0;
+        *close_delay = 0;
+        *inter_io_delay = 0;
+        return;
+    }
+
+    /* determine the start time of the first io operation */
+    first_io_time = MIN(
+        mfile->fcounters[MPIIO_F_READ_START_TIMESTAMP],
+        mfile->fcounters[MPIIO_F_WRITE_START_TIMESTAMP]);
+    if(first_io_time == 0)
+        first_io_time = MAX(mfile->fcounters[MPIIO_F_READ_START_TIMESTAMP],
+            mfile->fcounters[MPIIO_F_WRITE_START_TIMESTAMP]);
+
+    /* determine the end time of the last io operation */
+    last_io_time = MAX(
+        mfile->fcounters[MPIIO_F_READ_END_TIMESTAMP],
+        mfile->fcounters[MPIIO_F_WRITE_END_TIMESTAMP]);
+
+    /* calculate delays between opena and first IO operations, and between
+     * last I/O operation and close
+     */
+    *first_io_delay = first_io_time - mfile->fcounters[MPIIO_F_OPEN_TIMESTAMP];
+    *close_delay = mfile->fcounters[MPIIO_F_CLOSE_TIMESTAMP] - last_io_time;
+    assert(*first_io_delay >= 0);
+    assert(*close_delay >= 0);
+
+    /* evenly distribute I/O operation delay */
+    *inter_io_delay = (total_delay - *first_io_delay - *close_delay)/num_io_ops;
+
+    return;
+}
+
+/* calculate the simulated "delay" between different i/o events using delay info
+ * from the file counters */
+static void psx_calc_io_delays(
     struct darshan_posix_file *file, int64_t num_io_ops, double total_delay,
     double *first_io_delay, double *close_delay, double *inter_io_delay)
 {
