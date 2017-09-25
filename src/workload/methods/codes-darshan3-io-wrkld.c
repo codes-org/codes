@@ -83,7 +83,9 @@ static void determine_psx_io_params(struct darshan_posix_file *file, int write_f
 static void calc_io_delays(struct darshan_posix_file *file, int64_t num_io_ops,
                            double total_delay, double *first_io_delay, double *close_delay,
                            double *inter_io_delay);
-static void file_sanity_check(struct darshan_posix_file *file, struct darshan_job *job, darshan_fd fd);
+static void file_sanity_check(
+    struct darshan_posix_file *file, struct darshan_mpiio_file *mfile,
+    struct darshan_job *job, darshan_fd fd);
 
 static int darshan_psx_io_workload_get_time(const char *params, int app_id, int rank, double *read_time, double *write_time,
 												int64_t *read_bytes, int64_t *written_bytes);
@@ -277,9 +279,22 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
         if(dur_cur->mpiio_file_rec.counters[MPIIO_COLL_OPENS] ||
             dur_cur->mpiio_file_rec.counters[MPIIO_INDEP_OPENS])
         {
+            /* don't parse unless this file record belongs to this rank, or
+             * this is a globally shared file record.
+             */
+            if(dur_cur->psx_file_rec.base_rec.rank == rank ||
+                dur_cur->psx_file_rec.base_rec.rank == -1)
+            {
+                /* make sure the file i/o counters are valid */
+                file_sanity_check(&dur_cur->psx_file_rec, 
+                    &dur_cur->mpiio_file_rec, &job, logfile_fd);
+
+            }
+
             fprintf(stderr, "TODO: implement MPI-IO event generation.\n"
                 "... falling throught to POSIX for now.\n");
         }
+        /* TODO: make this an else */
         /* POSIX */
         if(dur_cur->psx_file_rec.counters[POSIX_OPENS])
         {
@@ -290,7 +305,8 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
                 dur_cur->psx_file_rec.base_rec.rank == -1)
             {
                 /* make sure the file i/o counters are valid */
-                file_sanity_check(&dur_cur->psx_file_rec, &job, logfile_fd);
+                file_sanity_check(&dur_cur->psx_file_rec, 
+                    &dur_cur->mpiio_file_rec, &job, logfile_fd);
 
                 /* generate i/o events and store them in this rank's 
                  * workload context 
@@ -923,7 +939,8 @@ static void calc_io_delays(
 
 /* check to make sure file stats are valid and properly formatted */
 static void file_sanity_check(
-    struct darshan_posix_file *file, struct darshan_job *job, darshan_fd fd)
+    struct darshan_posix_file *file, struct darshan_mpiio_file *mfile,
+    struct darshan_job *job, darshan_fd fd)
 {
     /* make sure we have log version 3.00 or greater */
     if (strcmp(fd->version, "3.00") < 0)
@@ -935,11 +952,25 @@ static void file_sanity_check(
 
     /* these counters should not be negative */
     assert(file->counters[POSIX_OPENS] >= 0);
-    //assert(file->counters[POSIX_COLL_OPENS] >= 0);
     assert(file->counters[POSIX_READS] >= 0);
     assert(file->counters[POSIX_WRITES] >= 0);
     assert(file->counters[POSIX_BYTES_READ] >= 0);
     assert(file->counters[POSIX_BYTES_WRITTEN] >= 0);
+
+    assert(mfile->counters[MPIIO_INDEP_OPENS] >= 0);
+    assert(mfile->counters[MPIIO_COLL_OPENS] >= 0);
+    assert(mfile->counters[MPIIO_INDEP_READS] >= 0);
+    assert(mfile->counters[MPIIO_INDEP_WRITES] >= 0);
+    assert(mfile->counters[MPIIO_COLL_READS] >= 0);
+    assert(mfile->counters[MPIIO_COLL_WRITES] >= 0);
+    assert(mfile->counters[MPIIO_BYTES_READ] >= 0);
+    assert(mfile->counters[MPIIO_BYTES_WRITTEN] >= 0);
+    
+    /* this code doesn't handle split or nb mpiio operations */
+    assert(mfile->counters[MPIIO_SPLIT_READS] == 0);
+    assert(mfile->counters[MPIIO_SPLIT_WRITES] == 0);
+    assert(mfile->counters[MPIIO_NB_READS] == 0);
+    assert(mfile->counters[MPIIO_NB_WRITES] == 0);
 
     /* set any timestamps that happen to be negative to 0 */
     if (file->fcounters[POSIX_F_READ_START_TIMESTAMP] < 0.0)
@@ -951,9 +982,20 @@ static void file_sanity_check(
     if (file->fcounters[POSIX_F_WRITE_END_TIMESTAMP] < 0.0)
         file->fcounters[POSIX_F_WRITE_END_TIMESTAMP] = 0.0;
 
+    if (mfile->fcounters[MPIIO_F_READ_START_TIMESTAMP] < 0.0)
+        mfile->fcounters[MPIIO_F_READ_START_TIMESTAMP] = 0.0;
+    if (mfile->fcounters[MPIIO_F_WRITE_START_TIMESTAMP] < 0.0)
+        mfile->fcounters[MPIIO_F_WRITE_START_TIMESTAMP] = 0.0;
+    if (mfile->fcounters[MPIIO_F_READ_END_TIMESTAMP] < 0.0)
+        mfile->fcounters[MPIIO_F_READ_END_TIMESTAMP] = 0.0;
+    if (mfile->fcounters[MPIIO_F_WRITE_END_TIMESTAMP] < 0.0)
+        mfile->fcounters[MPIIO_F_WRITE_END_TIMESTAMP] = 0.0;
+
     /* set file close time to the end of execution if it is not given */
     if (file->fcounters[POSIX_F_CLOSE_END_TIMESTAMP] == 0.0)
         file->fcounters[POSIX_F_CLOSE_END_TIMESTAMP] = job->end_time - job->start_time + 1;
+    if (mfile->fcounters[MPIIO_F_CLOSE_TIMESTAMP] == 0.0)
+        mfile->fcounters[MPIIO_F_CLOSE_TIMESTAMP] = job->end_time - job->start_time + 1;
 
     return;
 }
