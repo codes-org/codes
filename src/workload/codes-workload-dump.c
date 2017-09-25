@@ -317,16 +317,23 @@ int main(int argc, char *argv[])
                     num_barriers++;
                     break;
                 case CODES_WK_OPEN:
+                case CODES_WK_MPI_OPEN:
+                case CODES_WK_MPI_COLL_OPEN:
                     num_opens++;
                     break;
                 case CODES_WK_CLOSE:
+                case CODES_WK_MPI_CLOSE:
                     num_closes++;
                     break;
                 case CODES_WK_WRITE:
+                case CODES_WK_MPI_WRITE:
+                case CODES_WK_MPI_COLL_WRITE:
                     num_writes++;
                     write_size += op.u.write.size;
                     break;
                 case CODES_WK_READ:
+                case CODES_WK_MPI_READ:
+                case CODES_WK_MPI_COLL_READ:
                     num_reads++;
                     read_size += op.u.write.size;
                     break;
