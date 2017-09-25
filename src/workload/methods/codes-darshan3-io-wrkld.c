@@ -80,6 +80,9 @@ static double generate_close_event(darshan_record_id id, enum codes_workload_op_
 static double generate_psx_io_events(struct darshan_posix_file *file,
                                          double inter_io_delay, double cur_time,
                                          struct rank_io_context *io_context);
+static double generate_mpiio_io_events(
+    struct darshan_mpiio_file *mfile, double inter_io_delay,
+    double cur_time, struct rank_io_context *io_context);
 static void determine_mpiio_io_params(
     struct darshan_mpiio_file *mfile, int write_flag, size_t *io_sz, off_t *io_off,
     struct rank_io_context *io_context);
@@ -656,14 +659,10 @@ static void generate_mpiio_file_events(
     /* account for potential delay from first open to first io */
     cur_time += first_io_delay;
 
-    /* TODO: implement this */
-#if 0
     /* perform the calculated number of i/o operations for this file open */
-    cur_time = generate_psx_io_events(file, inter_io_delay,
+    cur_time = generate_mpiio_io_events(mfile, inter_io_delay,
                                           cur_time, io_context);
-#else
-    fprintf(stderr, "TODO: implement mpiio io events.\n");
-#endif
+    
     /* account for potential delay from last io to close */
     cur_time += close_delay;
 
@@ -800,7 +799,116 @@ static double generate_close_event(
     return cur_time;
 }
 
-/* generate all i/o events for one independent file open and store them with the rank context */
+/* generate all i/o events for one file open and store them with the rank context */
+static double generate_mpiio_io_events(
+    struct darshan_mpiio_file *mfile, double inter_io_delay,
+    double cur_time, struct rank_io_context *io_context)
+{
+    static double rd_bw = 0.0, wr_bw = 0.0;
+    double io_op_time;
+    size_t io_sz;
+    off_t io_off;
+    int64_t i;
+    struct darshan_io_op next_io_op;
+
+    /* initialize the rd and wr bandwidth values using total io size and time */
+    if (mfile->fcounters[MPIIO_F_READ_TIME])
+        rd_bw = mfile->counters[MPIIO_BYTES_READ] / mfile->fcounters[MPIIO_F_READ_TIME];
+    if (mfile->fcounters[MPIIO_F_WRITE_TIME])
+        wr_bw = mfile->counters[MPIIO_BYTES_WRITTEN] / mfile->fcounters[MPIIO_F_WRITE_TIME]; 
+
+    /* TODO implement collective io */
+    assert(mfile->counters[MPIIO_COLL_WRITES] == 0);
+    assert(mfile->counters[MPIIO_COLL_READS] == 0);
+
+    /* note: go through all writes even if this is a shared file so that we
+     * can correctly track offsets and sizes in aggregate.  We'll just emit
+     * events for this rank.
+     */
+    /* loop to generate all writes */
+    for (i = 0; i < mfile->counters[MPIIO_INDEP_WRITES]; i++)
+    {
+        /* calculate what value to use for i/o size and offset */
+        determine_mpiio_io_params(mfile, 1, &io_sz, &io_off, io_context);
+
+        if(mfile->base_rec.rank == io_context->my_rank ||
+            (mfile->base_rec.rank == -1 &&
+            i%total_rank_cnt == io_context->my_rank))
+        {
+            /* generate a write event */
+            next_io_op.codes_op.op_type = CODES_WK_WRITE;
+            next_io_op.codes_op.u.write.file_id = mfile->base_rec.id;
+            next_io_op.codes_op.u.write.size = io_sz;
+            next_io_op.codes_op.u.write.offset = io_off;
+            next_io_op.start_time = cur_time;
+            next_io_op.codes_op.start_time = cur_time;
+
+            /* set the end time based on observed bandwidth and io size */
+            if (wr_bw == 0.0)
+                io_op_time = 0.0;
+            else
+                io_op_time = (io_sz / wr_bw);
+
+            /* update time */
+            cur_time += io_op_time;
+            next_io_op.end_time = cur_time;
+            next_io_op.codes_op.end_time = cur_time;
+
+            /* store the i/o event */
+            darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
+
+            /* update current time to account for possible delay between i/o operations */
+            cur_time += inter_io_delay;
+        }
+    }
+
+    /* loop to generate all reads */
+    for (i = 0; i < mfile->counters[MPIIO_INDEP_READS]; i++)
+    {
+        /* calculate what value to use for i/o size and offset */
+        determine_mpiio_io_params(mfile, 0, &io_sz, &io_off, io_context);
+
+        if(mfile->base_rec.rank == io_context->my_rank ||
+            (mfile->base_rec.rank == -1 &&
+            i%total_rank_cnt == io_context->my_rank))
+        {
+            /* generate a read event */
+            next_io_op.codes_op.op_type = CODES_WK_READ;
+            next_io_op.codes_op.u.read.file_id = mfile->base_rec.id;
+            next_io_op.codes_op.u.read.size = io_sz;
+            next_io_op.codes_op.u.read.offset = io_off;
+            next_io_op.start_time = cur_time;
+            next_io_op.codes_op.start_time = cur_time;
+
+            /* set the end time based on observed bandwidth and io size */
+            if (rd_bw == 0.0)
+                io_op_time = 0.0;
+            else
+                io_op_time = (io_sz / rd_bw);
+
+            /* update time */
+            cur_time += io_op_time;
+            next_io_op.end_time = cur_time;
+            next_io_op.codes_op.end_time = cur_time;
+
+            /* store the i/o event */
+            darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
+
+            /* update current time to account for possible delay between i/o operations */
+            cur_time += inter_io_delay;
+        }
+    }
+
+    /* the last op should not have incremented cur_time; we'll handle as a
+     * close delay
+     */
+    cur_time -= inter_io_delay;
+
+    return cur_time;
+}
+
+
+/* generate all i/o events for one file open and store them with the rank context */
 static double generate_psx_io_events(
     struct darshan_posix_file *file, double inter_io_delay,
     double cur_time, struct rank_io_context *io_context)
@@ -853,16 +961,8 @@ static double generate_psx_io_events(
 
             /* store the i/o event */
             darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
-
-            if (file->counters[POSIX_READS] ||
-                (file->base_rec.rank == io_context->my_rank 
-                    && (file->counters[POSIX_WRITES] - i) > 1) ||
-                (file->base_rec.rank == -1 && (!file->counters[POSIX_READS] 
-                    || (file->counters[POSIX_WRITES] - i) > total_rank_cnt)))
-            {
-                /* update current time to account for possible delay between i/o operations */
-                cur_time += inter_io_delay;
-            }
+            /* update current time to account for possible delay between i/o operations */
+            cur_time += inter_io_delay;
         }
     }
 
@@ -898,16 +998,15 @@ static double generate_psx_io_events(
             /* store the i/o event */
             darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
 
-            if ((file->base_rec.rank == io_context->my_rank 
-                    && (file->counters[POSIX_READS] - i) > 1) ||
-                (file->base_rec.rank == -1 && (!file->counters[POSIX_READS] 
-                    || (file->counters[POSIX_READS] - i) > total_rank_cnt)))
-            {
-                /* update current time to account for possible delay between i/o operations */
-                cur_time += inter_io_delay;
-            }
+            /* update current time to account for possible delay between i/o operations */
+            cur_time += inter_io_delay;
         }
     }
+
+    /* the last op should not have incremented cur_time; we'll handle as a
+     * close delay
+     */
+    cur_time -= inter_io_delay;
 
     return cur_time;
 }
