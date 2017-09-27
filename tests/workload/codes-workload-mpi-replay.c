@@ -337,6 +337,58 @@ static int track_open_file(uint64_t file_hash, int fildes, MPI_File fh)
     return(0);
 }
 
+static int do_close(int rank, uint64_t file_hash, enum codes_workload_op_type type, long long op_number)
+{
+    int fildes;
+    MPI_File fh;
+    struct qlist_head *hash_link = NULL;
+    struct file_info *tmp_list = NULL;
+    int ret;
+
+    if (opt_verbose)
+        fprintf(log_stream, "[Rank %d] Operation %lld : %s file %"PRIu64"\n",
+                rank, op_number, (type == CODES_WK_CLOSE) ? "CLOSE" : "MPI_CLOSE", file_hash);
+
+    if (!opt_noop)
+    {
+        /* search for the corresponding file descriptor in the hash table */
+        hash_link = qhash_search_and_remove(fd_table, &(file_hash));
+        assert(hash_link);
+        tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
+        fildes = tmp_list->file_descriptor;
+        fh = tmp_list->fh;
+        free(tmp_list);
+
+        if(type == CODES_WK_CLOSE)
+        {
+            /* perform the close operation */
+            ret = close(fildes);
+            if (ret < 0)
+            {
+                fprintf(stderr, "Rank %d failure on operation %lld [CLOSE: %s]\n",
+                        rank, op_number, strerror(errno));
+                return -1;
+            }
+        }
+        else
+        {
+            ret = MPI_File_close(&fh);
+            if (ret < 0)
+            {
+                fprintf(stderr, "Rank %d failure on operation %lld [CLOSE]\n",
+                        rank, op_number);
+                return -1;
+            }
+        }
+#if DEBUG_PROFILING
+        end = MPI_Wtime();
+        total_close_time += (end - start);
+#endif
+    }
+
+    return(0);
+}
+
 static int do_mpi_open(int rank, uint64_t file_hash, int create_flag, int collective_flag, long long op_number)
 {
     int mpi_open_flags = MPI_MODE_RDWR;
@@ -472,40 +524,13 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
         case CODES_WK_MPI_OPEN:
             return(do_mpi_open(rank, replay_op.u.open.file_id, 
                 replay_op.u.open.create_flag, 0, op_number));
-            break;
         case CODES_WK_MPI_COLL_OPEN:
             return(do_mpi_open(rank, replay_op.u.open.file_id, 
                 replay_op.u.open.create_flag, 1, op_number));
-            break;
         case CODES_WK_CLOSE:
-            if (opt_verbose)
-                fprintf(log_stream, "[Rank %d] Operation %lld : CLOSE file %"PRIu64"\n",
-                        rank, op_number, replay_op.u.close.file_id);
-
-            if (!opt_noop)
-            {
-                /* search for the corresponding file descriptor in the hash table */
-                hash_link = qhash_search_and_remove(fd_table, &(replay_op.u.close.file_id));
-                assert(hash_link);
-                tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
-                fildes = tmp_list->file_descriptor;
-                free(tmp_list);
-
-                /* perform the close operation */
-                ret = close(fildes);
-                if (ret < 0)
-                {
-                    fprintf(stderr, "Rank %d failure on operation %lld [CLOSE: %s]\n",
-                            rank, op_number, strerror(errno));
-                    return -1;
-                }
-
-#if DEBUG_PROFILING
-                end = MPI_Wtime();
-                total_close_time += (end - start);
-#endif
-            }
-            return 0;
+        case CODES_WK_MPI_CLOSE:
+            return(do_close(rank, replay_op.u.close.file_id, replay_op.op_type,
+                op_number));
         case CODES_WK_WRITE:
             if (opt_verbose)
                 fprintf(log_stream, "[Rank %d] Operation %lld : WRITE file %llu (sz = %llu, off = %llu)\n",
