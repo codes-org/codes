@@ -33,6 +33,7 @@ struct file_info
     struct qlist_head hash_link;
     uint64_t file_hash;
     int file_descriptor;
+    MPI_File fh;
 };
 
 int replay_workload_op(struct codes_workload_op replay_op, int rank, long long int op_number);
@@ -300,6 +301,81 @@ error_exit:
     return ret;
 }
 
+static int track_open_file(uint64_t file_hash, int fildes, MPI_File fh)
+{
+    struct file_info *tmp_list = NULL;
+    int i;
+
+    /* save the file descriptor for this file in a hash table to be retrieved later */
+    tmp_list = malloc(sizeof(struct file_info));
+    if (!tmp_list)
+    {
+        fprintf(stderr, "No memory available for file hash entry\n");
+        return -1;
+    }
+
+    tmp_list->file_hash = file_hash;
+    tmp_list->file_descriptor = fildes;
+    tmp_list->fh = fh;
+    qhash_add(fd_table, &(file_hash), &(tmp_list->hash_link));
+
+    if (!buf)
+    {
+        buf = malloc(16*1024*1024);
+        assert(buf);
+        for(i=0; i<16*1024*1024; i++)
+        {
+            buf[i] = '1';
+        }
+    }
+
+#if DEBUG_PROFILING
+    end = MPI_Wtime();
+    total_open_time += (end - start);
+#endif
+
+    return(0);
+}
+
+static int do_mpi_open(int rank, uint64_t file_hash, int create_flag, int collective_flag, long long op_number)
+{
+    int mpi_open_flags = MPI_MODE_RDWR;
+    char file_name[250];
+    MPI_File fh;
+    int ret;
+    MPI_Comm comm = MPI_COMM_SELF;
+
+    if (opt_verbose)
+        fprintf(log_stream, "[Rank %d] Operation %lld: %s file %"PRIu64"\n", rank, op_number,
+               collective_flag ? "MPI_FILE_OPEN (collective)" : "MPI_FILE_OPEN (independent)", file_hash);
+
+    if (!opt_noop)
+    {
+        /* set the create flag, if necessary */
+        if (create_flag)
+            mpi_open_flags |= MPI_MODE_CREATE;
+        if (collective_flag)
+            comm = MPI_COMM_WORLD;
+
+        /* write the file hash to string to be used as the actual file name */
+        snprintf(file_name, sizeof(file_name), "%"PRIu64, file_hash);
+
+        /* perform the open operation */
+        ret = MPI_File_open(comm, file_name, mpi_open_flags, MPI_INFO_NULL, &fh);
+        if (ret < 0)
+        {
+            fprintf(stderr, "Rank %d failure on operation %lld [%s]\n",
+                    rank, op_number, "MPI_FILE_OPEN");
+            return -1;
+        }
+
+        if(track_open_file(file_hash, -1, fh) < 0)
+            return -1;
+    }
+
+    return(0);
+}
+
 int replay_workload_op(struct codes_workload_op replay_op, int rank, long long int op_number)
 {
     struct timespec delay;
@@ -309,7 +385,6 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
     struct file_info *tmp_list = NULL;
     struct qlist_head *hash_link = NULL;
     int ret;
-    int i;
 
 #if DEBUG_PROFILING
     double start, end;
@@ -366,7 +441,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
 #endif
             }
             return 0;
-        case CODES_WK_OPEN:
+         case CODES_WK_OPEN:
             if (opt_verbose)
                 fprintf(log_stream, "[Rank %d] Operation %lld: %s file %"PRIu64"\n", rank, op_number,
                        (replay_op.u.open.create_flag) ? "CREATE" : "OPEN", replay_op.u.open.file_id);
@@ -390,34 +465,18 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                     return -1;
                 }
 
-                /* save the file descriptor for this file in a hash table to be retrieved later */
-                tmp_list = malloc(sizeof(struct file_info));
-                if (!tmp_list)
-                {
-                    fprintf(stderr, "No memory available for file hash entry\n");
+                if(track_open_file(replay_op.u.open.file_id, fildes, MPI_FILE_NULL) < 0)
                     return -1;
-                }
-
-                tmp_list->file_hash = replay_op.u.open.file_id;
-                tmp_list->file_descriptor = fildes;
-                qhash_add(fd_table, &(replay_op.u.open.file_id), &(tmp_list->hash_link));
-
-                if (!buf)
-                {
-                    buf = malloc(16*1024*1024);
-                    assert(buf);
-                    for(i=0; i<16*1024*1024; i++)
-                    {
-                        buf[i] = '1';
-                    }
-                }
-
-#if DEBUG_PROFILING
-                end = MPI_Wtime();
-                total_open_time += (end - start);
-#endif
             }
             return 0;
+        case CODES_WK_MPI_OPEN:
+            return(do_mpi_open(rank, replay_op.u.open.file_id, 
+                replay_op.u.open.create_flag, 0, op_number));
+            break;
+        case CODES_WK_MPI_COLL_OPEN:
+            return(do_mpi_open(rank, replay_op.u.open.file_id, 
+                replay_op.u.open.create_flag, 1, op_number));
+            break;
         case CODES_WK_CLOSE:
             if (opt_verbose)
                 fprintf(log_stream, "[Rank %d] Operation %lld : CLOSE file %"PRIu64"\n",
