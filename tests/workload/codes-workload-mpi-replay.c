@@ -337,6 +337,67 @@ static int track_open_file(uint64_t file_hash, int fildes, MPI_File fh)
     return(0);
 }
 
+static int do_write(struct codes_workload_op replay_op, int rank, long long int op_number)
+{
+    int fildes;
+    MPI_File fh;
+    struct qlist_head *hash_link = NULL;
+    struct file_info *tmp_list = NULL;
+    int ret;
+    char *op_name;
+    MPI_Status status;
+
+    if(replay_op.op_type == CODES_WK_WRITE)
+        op_name = "WRITE";
+    else if(replay_op.op_type == CODES_WK_MPI_WRITE)
+        op_name = "MPI_WRITE (independent)";
+    else
+        op_name = "MPI_WRITE (collective)";
+
+    if (opt_verbose)
+        fprintf(log_stream, "[Rank %d] Operation %lld : %s file %llu (sz = %llu, off = %llu)\n",
+               rank, op_number, op_name, LLU(replay_op.u.write.file_id), LLU(replay_op.u.write.size),
+               LLU(replay_op.u.write.offset));
+
+    if (!opt_noop)
+    {
+        /* search for the corresponding file descriptor in the hash table */
+        hash_link = qhash_search(fd_table, &(replay_op.u.write.file_id));
+        assert(hash_link);
+        tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
+        fildes = tmp_list->file_descriptor;
+        fh = tmp_list->fh;
+
+        switch(replay_op.op_type)
+        {
+            case CODES_WK_WRITE:
+                ret = pwrite(fildes, buf, replay_op.u.write.size, replay_op.u.write.offset);
+                break;
+            case CODES_WK_MPI_WRITE:
+                ret = MPI_File_write_at(fh, replay_op.u.write.offset, buf, replay_op.u.write.size, MPI_BYTE, &status);
+                break;
+            case CODES_WK_MPI_COLL_WRITE:
+                ret = MPI_File_write_at_all(fh, replay_op.u.write.offset, buf, replay_op.u.write.size, MPI_BYTE, &status);
+                break;
+            default:
+                assert(0);
+        }
+
+        if (ret < 0)
+        {
+            fprintf(stderr, "Rank %d failure on operation %lld [%s]\n",
+                    rank, op_number, op_name);
+            return -1;
+        }
+
+#if DEBUG_PROFILING
+        end = MPI_Wtime();
+        total_write_time += (end - start);
+#endif
+    }
+    return(0);
+}
+
 static int do_close(int rank, uint64_t file_hash, enum codes_workload_op_type type, long long op_number)
 {
     int fildes;
@@ -532,34 +593,9 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             return(do_close(rank, replay_op.u.close.file_id, replay_op.op_type,
                 op_number));
         case CODES_WK_WRITE:
-            if (opt_verbose)
-                fprintf(log_stream, "[Rank %d] Operation %lld : WRITE file %llu (sz = %llu, off = %llu)\n",
-                       rank, op_number, LLU(replay_op.u.write.file_id), LLU(replay_op.u.write.size),
-                       LLU(replay_op.u.write.offset));
-
-            if (!opt_noop)
-            {
-                /* search for the corresponding file descriptor in the hash table */
-                hash_link = qhash_search(fd_table, &(replay_op.u.write.file_id));
-                assert(hash_link);
-                tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
-                fildes = tmp_list->file_descriptor;
-
-                ret = pwrite(fildes, buf, replay_op.u.write.size, replay_op.u.write.offset);
-
-                if (ret < 0)
-                {
-                    fprintf(stderr, "Rank %d failure on operation %lld [WRITE: %s]\n",
-                            rank, op_number, strerror(errno));
-                    return -1;
-                }
-
-#if DEBUG_PROFILING
-                end = MPI_Wtime();
-                total_write_time += (end - start);
-#endif
-            }
-            return 0;
+        case CODES_WK_MPI_WRITE:
+        case CODES_WK_MPI_COLL_WRITE:
+            return(do_write(replay_op, rank, op_number));
         case CODES_WK_READ:
             if (opt_verbose)
                 fprintf(log_stream, "[Rank %d] Operation %lld : READ file %llu (sz = %llu, off = %llu)\n",
