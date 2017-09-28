@@ -55,7 +55,7 @@ typedef struct rank_mpi_context
     int my_app_id;
     // whether we've seen an init op (needed for timing correctness)
     int is_init;
-    int num_reqs;
+    unsigned int num_reqs;
     unsigned int num_ops;
     int64_t my_rank;
     double last_op_time;
@@ -347,7 +347,7 @@ int handleDUMPIWaitsome(const dumpi_waitsome *prm, uint16_t thread,
 
         wrkld_per_rank.op_type = CODES_WK_WAITSOME;
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int*)malloc(prm->count * sizeof(int));
+        wrkld_per_rank.u.waits.req_ids = (unsigned int*)malloc(prm->count * sizeof(unsigned int));
 
         for( i = 0; i < prm->count; i++ )
                 wrkld_per_rank.u.waits.req_ids[i] = prm->requests[i];
@@ -372,7 +372,7 @@ int handleDUMPIWaitany(const dumpi_waitany *prm, uint16_t thread,
 
         wrkld_per_rank.op_type = CODES_WK_WAITANY;
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int*)malloc(prm->count * sizeof(int));
+        wrkld_per_rank.u.waits.req_ids = (unsigned int*)malloc(prm->count * sizeof(unsigned int));
 
         for( i = 0; i < prm->count; i++ )
                 wrkld_per_rank.u.waits.req_ids[i] = prm->requests[i];
@@ -398,7 +398,7 @@ int handleDUMPIWaitall(const dumpi_waitall *prm, uint16_t thread,
         wrkld_per_rank.op_type = CODES_WK_WAITALL;
 
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int*)malloc(prm->count * sizeof(int));
+        wrkld_per_rank.u.waits.req_ids = (unsigned int*)malloc(prm->count * sizeof(unsigned int));
         for( i = 0; i < prm->count; i++ )
                 wrkld_per_rank.u.waits.req_ids[i] = prm->requests[i];
 
@@ -546,7 +546,6 @@ int handleDUMPISendrecv(const dumpi_sendrecv* prm, uint16_t thread,
 		update_times_and_insert(&wrkld_per_rank, wall, myctx);
 
 	}
-
     /* issue a blocking receive */
 	{
 		struct codes_workload_op wrkld_per_rank;
@@ -574,6 +573,7 @@ int handleDUMPISendrecv(const dumpi_sendrecv* prm, uint16_t thread,
     
         myctx->num_reqs++;
     }
+
 
 	return 0;
 }

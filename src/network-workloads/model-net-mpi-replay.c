@@ -86,7 +86,7 @@ static char cortex_gen[512] = "\0";
 
 typedef struct nw_state nw_state;
 typedef struct nw_message nw_message;
-typedef int dumpi_req_id;
+typedef unsigned int dumpi_req_id;
 
 static int net_id = 0;
 static float noise = 2.0;
@@ -164,7 +164,7 @@ struct mpi_msgs_queue
 /* stores request IDs of completed MPI operations (Isends or Irecvs) */
 struct completed_requests
 {
-	int req_id;
+	unsigned int req_id;
     struct qlist_head ql;
     int index;
 };
@@ -173,7 +173,7 @@ struct completed_requests
 struct pending_waits
 {
     int op_type;
-    int req_ids[MAX_WAIT_REQS];
+    unsigned int req_ids[MAX_WAIT_REQS];
 	int num_completed;
 	int count;
     tw_stime start_time;
@@ -293,7 +293,7 @@ struct nw_message
        double sim_start_time;
        // for callbacks - time message was received
        double msg_send_time;
-       int req_id;
+       unsigned int req_id;
        int matched_req;
        int tag;
        int app_id;
@@ -695,7 +695,7 @@ static void print_msgs_queue(struct qlist_head * head, int is_send)
             printf(" \n Source %d Dest %d bytes %"PRId64" tag %d ", current->source_rank, current->dest_rank, current->num_bytes, current->tag);
        }
 }
-/*static void print_completed_queue(tw_lp * lp, struct qlist_head * head)
+static void print_completed_queue(tw_lp * lp, struct qlist_head * head)
 {
 //    printf("\n Completed queue: ");
       struct qlist_head * ent = NULL;
@@ -706,10 +706,10 @@ static void print_msgs_queue(struct qlist_head * head, int is_send)
             current = qlist_entry(ent, completed_requests, ql);
             tw_output(lp, " %llu ", current->req_id);
        }
-}*/
+}
 static int clear_completed_reqs(nw_state * s,
         tw_lp * lp,
-        int * reqs, int count)
+        unsigned int * reqs, int count)
 {
     (void)s;
     (void)lp;
@@ -794,7 +794,7 @@ static tw_lpid rank_to_lpid(int rank)
 
 static int notify_posted_wait(nw_state* s,
         tw_bf * bf, nw_message * m, tw_lp * lp,
-        int completed_req)
+        unsigned int completed_req)
 {
     (void)bf;
 
@@ -882,8 +882,10 @@ static void codes_exec_mpi_wait_rc(nw_state* s, tw_bf * bf, tw_lp* lp, nw_messag
 static void codes_exec_mpi_wait(nw_state* s, tw_bf * bf, nw_message * m, tw_lp* lp, struct codes_workload_op * mpi_op)
 {
     /* check in the completed receives queue if the request ID has already been completed.*/
+                
+//    printf("\n Wait posted rank id %d ", s->nw_id);
     assert(!s->wait_op);
-    int req_id = mpi_op->u.wait.req_id;
+    unsigned int req_id = mpi_op->u.wait.req_id;
 
     struct completed_requests* current = NULL;
 
@@ -899,11 +901,11 @@ static void codes_exec_mpi_wait(nw_state* s, tw_bf * bf, nw_message * m, tw_lp* 
             rc_stack_push(lp, current, free, s->processed_ops);
             codes_issue_next_event(lp);
             m->fwd.found_match = index;
-            /*if(s->nw_id == (tw_lpid)TRACK_LP)
+            if(s->nw_id == (tw_lpid)TRACK_LP)
             {
                 tw_output(lp, "\n wait matched at post %d ", req_id);
                 print_completed_queue(lp, &s->completed_reqs);
-            }*/
+            }
             return;
         }
         ++index;
@@ -1007,7 +1009,7 @@ static void codes_exec_mpi_wait_all(
       /* check number of completed irecvs in the completion queue */
   for(i = 0; i < count; i++)
   {
-      int req_id = mpi_op->u.waits.req_ids[i];
+      unsigned int req_id = mpi_op->u.waits.req_ids[i];
       struct qlist_head * ent = NULL;
       struct completed_requests* current = NULL;
       qlist_for_each(ent, &s->completed_reqs)
@@ -1172,6 +1174,12 @@ static int rm_matching_send(nw_state * ns,
             bf->c9 = 1;
             update_completed_queue(ns, bf, m, lp, qitem->req_id);
         }
+        else
+         if(qitem->op_type == CODES_WK_RECV && !is_rend)
+         {
+            bf->c6 = 1;
+            codes_issue_next_event(lp);
+         }
 
 
         qlist_del(&qi->ql);
@@ -1328,9 +1336,8 @@ static void codes_exec_mpi_recv(
       }
 	else
 	  {
-        bf->c6 = 1;
+        //bf->c6 = 1;
         m->fwd.found_match = found_matching_sends;
-        codes_issue_next_event(lp);
       }
 }
 
@@ -1995,7 +2002,7 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
            else
             if(m->op_type == CODES_WK_ISEND && (is_eager == 1 || m->fwd.rend_send == 1))
             {
-              //tw_output(lp, "\n isend req id %llu ", m->fwd.req_id);
+//              tw_output(lp, "\n isend req id %llu ", m->fwd.req_id);
                 bf->c28 = 1;
                 update_completed_queue(s, bf, m, lp, m->fwd.req_id);
             }

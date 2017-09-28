@@ -198,7 +198,7 @@ struct codes_workload_op
             int16_t data_type; /* MPI data type to be matched with the recv */
             int count; /* number of elements to be received */
             int tag; /* tag of the message */
-            int req_id;
+            unsigned int req_id;
         } send;
         struct {
             /* TODO: not sure why source rank is here */
@@ -208,7 +208,7 @@ struct codes_workload_op
             int16_t data_type; /* MPI data type to be matched with the send */
             int count; /* number of elements to be sent */
             int tag; /* tag of the message */
-            int req_id;
+            unsigned int req_id;
         } recv;
         /* TODO: non-stub for other collectives */
         struct {
@@ -216,14 +216,14 @@ struct codes_workload_op
         } collective;
         struct {
             int count;
-            int* req_ids;
+            unsigned int* req_ids;
         } waits;
         struct {
-            int req_id;
+            unsigned int req_id;
         } wait;
         struct
         {
-            int req_id;
+            unsigned int req_id;
         }
         free;
     }u;
