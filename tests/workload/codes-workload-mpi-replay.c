@@ -43,6 +43,7 @@ int hash_file_compare(void *key, struct qlist_head *link);
 static int opt_verbose = 0;
 static int opt_noop = 0;
 static double opt_delay_pct = 1.0;
+static double opt_max_delay = -1;
 
 /* hash table for storing file descriptors of opened files */
 static struct qhash_table *fd_table = NULL;
@@ -67,8 +68,10 @@ void usage(char *exename)
     fprintf(stderr, "\t<conf_file_path> : (absolute) path to a valid workload configuration file\n");
     fprintf(stderr, "\t<workload_test_dir> : the directory to replay the workload I/O in\n");
     fprintf(stderr, "\n\t[OPTIONS] includes:\n");
-    fprintf(stderr, "\t\t--noop : do not perform i/o\n");
-    fprintf(stderr, "\t\t    -v : verbose (output i/o details)\n");
+    fprintf(stderr, "\t\t--noop  : do not perform i/o\n");
+    fprintf(stderr, "\t\t    -v  : verbose (output i/o details)\n");
+    fprintf(stderr, "\t\t--delay-ratio : floating point ratio applied to each delay (defaults to 1)\n");
+    fprintf(stderr, "\t\t--max-delay : maximum delay (in seconds) to replay\n");
 
     exit(1);
 }
@@ -81,7 +84,8 @@ void parse_args(int argc, char **argv, char **conf_path, char **test_dir)
         {"conf", 1, NULL, 'c'},
         {"test-dir", 1, NULL, 'd'},
         {"noop", 0, NULL, 'n'},
-        {"delay", 1, NULL, 'p'},
+        {"delay-ratio", 1, NULL, 'p'},
+        {"max-delay", 1, NULL, 'm'},
         {"help", 0, NULL, 0},
         {0, 0, 0, 0}
     };
@@ -111,6 +115,9 @@ void parse_args(int argc, char **argv, char **conf_path, char **test_dir)
                 break;
             case 'p':
                 opt_delay_pct = atof(optarg);
+                break;
+            case 'm':
+                opt_max_delay = atof(optarg);
                 break;
             case 0:
             case '?':
@@ -267,7 +274,12 @@ int main(int argc, char *argv[])
         {
 
             if (next_op.op_type == CODES_WK_DELAY)
+            {
                 next_op.u.delay.seconds *= opt_delay_pct;
+                /* cap max delay if requested by cmd line */
+                if(opt_max_delay >= 0 && next_op.u.delay.seconds > opt_max_delay)
+                    next_op.u.delay.seconds = opt_max_delay;
+            }
 
             /* replay the next workload operation */
             ret = replay_workload_op(next_op, myrank, replay_op_number++);
