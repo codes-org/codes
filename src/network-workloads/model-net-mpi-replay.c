@@ -1320,19 +1320,18 @@ static void codes_exec_mpi_recv(
 
 	int found_matching_sends = rm_matching_send(s, bf, m, lp, recv_op);
 
+	       /* for mpi irecvs, this is a non-blocking receive so just post it and move on with the trace read. */
+	if(mpi_op->op_type == CODES_WK_IRECV)
+    {
+        bf->c6 = 1;
+	    codes_issue_next_event(lp);
+    }
 	/* save the req id inserted in the completed queue for reverse computation. */
 	if(found_matching_sends < 0)
 	  {
 	   	  m->fwd.found_match = -1;
           qlist_add(&recv_op->ql, &s->pending_recvs_queue);
 
-	       /* for mpi irecvs, this is a non-blocking receive so just post it and move on with the trace read. */
-		if(mpi_op->op_type == CODES_WK_IRECV)
-		   {
-            bf->c6 = 1;
-			codes_issue_next_event(lp);
-			return;
-		   }
       }
 	else
 	  {
