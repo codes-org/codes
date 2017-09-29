@@ -2624,7 +2624,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    nw_add_lp_type();
    model_net_register();
 
-    if (g_st_ev_trace || g_st_model_stats)
+    if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
         nw_lp_register_model();
 
    net_ids = model_net_configure(&num_nets);

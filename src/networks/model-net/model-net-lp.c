@@ -164,6 +164,16 @@ void mn_model_stat_collect(model_net_base_state *s, tw_lp *lp, char *buffer)
     return;
 }
 
+void mn_sample_event(model_net_base_state *s, tw_bf * bf, tw_lp * lp, void *sample)
+{
+    (*s->sub_model_type->sample_event_fn)(s->sub_state, bf, lp, sample);
+}
+
+void mn_sample_rc_event(model_net_base_state *s, tw_bf * bf, tw_lp * lp, void *sample)
+{
+    (*s->sub_model_type->sample_revent_fn)(s->sub_state, bf, lp, sample);
+}
+
 st_model_types mn_model_types[MAX_NETS];
 
 st_model_types mn_model_base_type = {
@@ -172,6 +182,9 @@ st_model_types mn_model_base_type = {
      (ev_trace_f) mn_event_collect,
      sizeof(int),
      (model_stat_f) mn_model_stat_collect,
+     0,
+     (sample_event_f) mn_sample_event,
+     (sample_revent_f) mn_sample_rc_event,
      0
 };
 
@@ -213,7 +226,7 @@ void model_net_base_register(int *do_config_nets){
                         &model_net_base_lp);
             else
                 method_array[i]->mn_register(&model_net_base_lp);
-            if (g_st_ev_trace || g_st_model_stats) // for ROSS event tracing
+            if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps) // for ROSS event tracing
             {
                 memcpy(&mn_model_types[i], &mn_model_base_type, sizeof(st_model_types));
 
@@ -465,10 +478,11 @@ void model_net_base_lp_init(
     ns->sub_type = model_net_get_lp_type(ns->net_id);
 
     /* some ROSS instrumentation setup */
-    if (g_st_ev_trace || g_st_model_stats)
+    if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
     {
         ns->sub_model_type = model_net_get_model_stat_type(ns->net_id);
         mn_model_types[ns->net_id].mstat_sz = ns->sub_model_type->mstat_sz;
+        mn_model_types[ns->net_id].sample_struct_sz = ns->sub_model_type->sample_struct_sz;
     }
 
     // NOTE: some models actually expect LP state to be 0 initialized...
