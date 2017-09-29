@@ -2504,8 +2504,11 @@ st_model_types nw_lp_model_types[] = {
      (ev_trace_f) nw_lp_event_collect,
      sizeof(int),
      (model_stat_f) nw_lp_model_stat_collect,
+     0,
+     NULL,
+     NULL,
      0},
-    {NULL, 0, NULL, 0, NULL, 0}
+    {NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0}
 };
 
 static const st_model_types  *nw_lp_get_model_stat_types(void)
