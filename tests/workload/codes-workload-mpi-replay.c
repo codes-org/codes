@@ -26,6 +26,7 @@
 #include <codes/codes.h>
 
 #define DEBUG_PROFILING 0
+#define BUF_SIZE (128*1024*1024)
 
 /* hash table entry for looking up file descriptor of a workload file id */
 struct file_info
@@ -333,9 +334,9 @@ static int track_open_file(uint64_t file_hash, int fildes, MPI_File fh)
 
     if (!buf)
     {
-        buf = malloc(16*1024*1024);
+        buf = malloc(BUF_SIZE);
         assert(buf);
-        for(i=0; i<16*1024*1024; i++)
+        for(i=0; i<BUF_SIZE; i++)
         {
             buf[i] = '1';
         }
@@ -373,6 +374,12 @@ static int do_read(struct codes_workload_op replay_op, int rank, long long int o
 
     if (!opt_noop)
     {
+	if(replay_op.u.read.size > BUF_SIZE)
+	{
+		fprintf(stderr, "ERROR: workload read of size %lu is larger than buffer size of %d\n", replay_op.u.read.size, BUF_SIZE);
+		return(-1);
+	}
+
         /* search for the corresponding file descriptor in the hash table */
         hash_link = qhash_search(fd_table, &(replay_op.u.read.file_id));
         assert(hash_link);
@@ -434,6 +441,12 @@ static int do_write(struct codes_workload_op replay_op, int rank, long long int 
 
     if (!opt_noop)
     {
+	if(replay_op.u.write.size > BUF_SIZE)
+	{
+		fprintf(stderr, "ERROR: workload write of size %lu is larger than buffer size of %d\n", replay_op.u.write.size, BUF_SIZE);
+		return(-1);
+	}
+		
         /* search for the corresponding file descriptor in the hash table */
         hash_link = qhash_search(fd_table, &(replay_op.u.write.file_id));
         assert(hash_link);
