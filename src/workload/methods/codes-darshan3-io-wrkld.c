@@ -1292,6 +1292,21 @@ static void file_sanity_check(
     assert(mfile->counters[MPIIO_NB_READS] == 0);
     assert(mfile->counters[MPIIO_NB_WRITES] == 0);
 
+    /* if we see collective I/O, but the rank is non-negative, then we 
+     * can treat them as independent I/O operations.  This is a collective
+     * MPI-IO call being made on a file with MPI_COMM_SELF communicator
+     */
+    if(mfile->counters[MPIIO_COLL_READS] > 0 && mfile->base_rec.rank >= 0)
+    {
+        mfile->counters[MPIIO_INDEP_READS] += mfile->counters[MPIIO_COLL_READS];
+        mfile->counters[MPIIO_COLL_READS] = 0;
+    }
+    if(mfile->counters[MPIIO_COLL_WRITES] > 0 && mfile->base_rec.rank >= 0)
+    {
+        mfile->counters[MPIIO_INDEP_WRITES] += mfile->counters[MPIIO_COLL_WRITES];
+        mfile->counters[MPIIO_COLL_WRITES] = 0;
+    }
+
     /* set any timestamps that happen to be negative to 0 */
     if (file->fcounters[POSIX_F_READ_START_TIMESTAMP] < 0.0)
         file->fcounters[POSIX_F_READ_START_TIMESTAMP] = 0.0;
