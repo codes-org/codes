@@ -382,7 +382,11 @@ static int do_read(struct codes_workload_op replay_op, int rank, long long int o
 
         /* search for the corresponding file descriptor in the hash table */
         hash_link = qhash_search(fd_table, &(replay_op.u.read.file_id));
-        assert(hash_link);
+        if(!hash_link)
+        {
+            fprintf(stderr, "ERROR: rank %d unable to find fd_table record for file_id %llu in read path.\n", rank, LLU(replay_op.u.read.file_id));
+            assert(hash_link);
+        }
         tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
         fildes = tmp_list->file_descriptor;
         fh = tmp_list->fh;
@@ -449,7 +453,11 @@ static int do_write(struct codes_workload_op replay_op, int rank, long long int 
 		
         /* search for the corresponding file descriptor in the hash table */
         hash_link = qhash_search(fd_table, &(replay_op.u.write.file_id));
-        assert(hash_link);
+        if(!hash_link)
+        {
+            fprintf(stderr, "ERROR: rank %d unable to find fd_table record for file_id %llu in write path.\n", rank, LLU(replay_op.u.write.file_id));
+            assert(hash_link);
+        }
         tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
         fildes = tmp_list->file_descriptor;
         fh = tmp_list->fh;
@@ -500,7 +508,11 @@ static int do_close(int rank, uint64_t file_hash, enum codes_workload_op_type ty
     {
         /* search for the corresponding file descriptor in the hash table */
         hash_link = qhash_search_and_remove(fd_table, &(file_hash));
-        assert(hash_link);
+        if(!hash_link)
+        {
+            fprintf(stderr, "ERROR: rank %d unable to find fd_table record for file_id %llu in close path.\n", rank, LLU(file_hash));
+            assert(hash_link);
+        }
         tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
         fildes = tmp_list->file_descriptor;
         fh = tmp_list->fh;
