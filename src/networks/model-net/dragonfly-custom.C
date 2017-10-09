@@ -753,9 +753,9 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     }
 #endif
     if(!myRank) {
-        printf("\n Total nodes %d routers %d groups %d routers per group %d radix %d\n",
+        printf("\n Total nodes %d routers %d groups %d routers per group %d radix %d interGroupLinks %d intraGroupLinks %d\n",
                 p->num_cn * p->total_routers, p->total_routers, p->num_groups,
-                p->num_routers, p->radix);
+                p->num_routers, p->radix, interGroupLinks.size(), intraGroupLinks.size());
     }
 
     p->cn_delay = bytes_to_ns(p->chunk_size, p->cn_bandwidth);
@@ -2099,12 +2099,12 @@ dragonfly_custom_terminal_final( terminal_state * s,
         sprintf(meta_filename, "dragonfly-msg-stats.meta");
 
         FILE * fp = fopen(meta_filename, "w+");
-        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
+        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Total Packet Latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
     }
     int written = 0;
 
     written += sprintf(s->output_buf + written, "%llu %u %llu %lf %ld %lf %lf %lf %lf\n",
-            LLU(lp->gid), s->terminal_id, LLU(s->total_msg_size), s->total_time/s->finished_chunks, 
+            LLU(lp->gid), s->terminal_id, LLU(s->total_msg_size), s->total_time, 
             s->finished_packets, (double)s->total_hops/s->finished_chunks,
             s->busy_time, s->max_latency, s->min_latency);
 
