@@ -737,10 +737,15 @@ static void print_msgs_queue(struct qlist_head * head, int is_send)
 
     struct qlist_head * ent = NULL;
     mpi_msgs_queue * current = NULL;
+    int count = 0;
+    int total_bytes = 0;
     qlist_for_each(ent, head)
        {
             current = qlist_entry(ent, mpi_msgs_queue, ql);
-            printf(" \n Source %d Dest %d bytes %"PRId64" tag %d ", current->source_rank, current->dest_rank, current->num_bytes, current->tag);
+            count++;
+            total_bytes += current->num_bytes;
+            if(count == 0)
+                printf(" \n irecv:%d isend:%d op_type:%d Source %d Dest %d bytes %"PRId64" tag %d count:%d total_bytes:%d req_time:%llu", CODES_WK_IRECV, CODES_WK_ISEND, current->op_type, current->source_rank, current->dest_rank, current->num_bytes, current->tag, count, total_bytes, current->req_init_time);
        }
 }
 /*static void print_completed_queue(tw_lp * lp, struct qlist_head * head)
@@ -1227,12 +1232,7 @@ static void codes_exec_comp_delay(
     if(enable_sampling)
     {
         increment_sampling_check(s, lp, bf);
-        int indx = s->sampling_indx;
-        if(indx == 0){
-            s->mpi_wkld_samples[indx].comp_time_sample = s->compute_time;
-        }else{
-            s->mpi_wkld_samples[indx].comp_time_sample = s->mpi_wkld_samples[indx-1].comp_time_sample - s->compute_time;
-        }
+        s->mpi_wkld_samples[ s->sampling_indx].comp_time_sample = s->compute_time;
     }
 
     ts = s_to_ns(mpi_op->u.delay.seconds);
@@ -1593,14 +1593,9 @@ static void update_completed_queue(nw_state* s,
             if(enable_sampling)
             {
                 increment_sampling_check(s, lp, bf);
-                int indx = s->sampling_indx;
-                if(indx == 0){
-                    s->mpi_wkld_samples[indx].wait_time_sample = s->wait_time;
-                    s->mpi_wkld_samples[indx].comm_time_sample = s->elapsed_time - s->compute_time;
-                }else{
-                    s->mpi_wkld_samples[indx].wait_time_sample = s->wait_time - s->mpi_wkld_samples[indx-1].wait_time_sample;
-                    s->mpi_wkld_samples[indx].comm_time_sample = s->mpi_wkld_samples[indx-1].comm_time_sample - (s->elapsed_time - s->compute_time);
-                }
+                printf("elapsed:%f compute:%f\n",s->elapsed_time, s->compute_time);
+                s->mpi_wkld_samples[s->sampling_indx].wait_time_sample = s->wait_time;
+                s->mpi_wkld_samples[s->sampling_indx].comm_time_sample = s->elapsed_time - s->compute_time;
             }
 
             struct pending_waits* wait_elem = s->wait_op;
@@ -1772,11 +1767,7 @@ static void update_message_time(
     if(enable_sampling)
     {
         increment_sampling_check(s, lp, bf);
-        int indx = s->sampling_indx;
-        if(indx == 0)
-            s->mpi_wkld_samples[indx].send_time_sample = s->send_time;
-        else
-            s->mpi_wkld_samples[indx].send_time_sample = s->send_time - s->mpi_wkld_samples[indx-1].send_time_sample;
+        s->mpi_wkld_samples[s->sampling_indx].send_time_sample = s->send_time;
     }
 }
 
