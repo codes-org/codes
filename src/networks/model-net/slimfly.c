@@ -44,7 +44,6 @@
 #define ROUTER_SENDS_RECVS_LOG 0
 #define TERMINAL_OCCUPANCY_LOG 0
 #define ROUTER_OCCUPANCY_LOG 0
-#define PARAMS_LOG 0
 #define N_COLLECT_POINTS 100
 
 /*unsigned long terminal_sends[TEMP_NUM_TERMINALS][N_COLLECT_POINTS];
@@ -616,19 +615,6 @@ static void slimfly_report_stats()
     {
         printf(" Average number of hops traversed %f average chunk latency %lf us maximum chunk latency %lf us avg message size %lf bytes finished messages %lld \n", (float)avg_hops/total_finished_chunks, avg_time/(total_finished_chunks*1000), max_time/1000, (float)final_msg_sz/total_finished_msgs, total_finished_msgs);
 
-#if PARAMS_LOG
-        throughput_avg = throughput_avg / (float)slim_total_terminals_noah;
-        throughput_avg2 = throughput_avg2 / (float)slim_total_terminals_noah;
-
-        //Open file to append simulation results
-        sprintf( log, "slimfly-results-log.txt");
-        slimfly_results_log=fopen(log, "a");
-        if(slimfly_results_log == NULL)
-            tw_error(TW_LOC, "\n Failed to open slimfly results log file \n");
-        printf("Printing Simulation Parameters/Results Log File\n");
-        fprintf(slimfly_results_log,"%10.3lf, %15.3lf, %11.3lf, %13.3d, %16.3d, %16.3lld, %25.5f, %14.5f, ", (float)avg_hops/total_finished_packets, avg_time/(total_finished_packets),max_time,total_minimal_packets,total_nonmin_packets,total_finished_chunks,throughput_avg*100,throughput_avg2);
-        fclose(slimfly_results_log);
-#endif
     }
 
 #if ROUTER_OCCUPANCY_LOG
@@ -1857,33 +1843,6 @@ void slimfly_terminal_final( terminal_state * s,
 {
     model_net_print_stats(lp->gid, s->slimfly_stats_array);
 
-#if PARAMS_LOG
-    float link_throughput;
-    float throughput_percentage = 0.0;
-    tw_stime bandwidth;
-    tw_stime interval;
-    bandwidth = s->total_msg_size / (1024.0 *1024.0 *1024.0);
-    interval = ((1000000000.0)/g_tw_ts_end);
-    bandwidth = bandwidth * interval;
-    link_throughput = bandwidth;
-    if(s->params->num_cn == 9 || s->params->num_cn == 3)
-    {
-        throughput_percentage = link_throughput / (0.71 * 12.5);
-    }
-    else if(s->params->num_cn == 10 || s->params->num_cn == 11)
-    {
-        throughput_percentage = link_throughput / (0.67 * 12.5);
-    }
-    else
-    {
-        throughput_percentage = link_throughput / (0.71 * 12.5);
-    }
-
-    pe_throughput_percent = pe_throughput_percent + throughput_percentage;
-    pe_throughput = pe_throughput + link_throughput;
-
-#endif
-
     int written = 0;
     if(!s->terminal_id)
         written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Total Packet Latency> <# Flits/Packets finished> <Avg hops> <Busy Time>");
@@ -1898,21 +1857,6 @@ void slimfly_terminal_final( terminal_state * s,
     if(s->terminal_msgs[0] != NULL)
       printf("[%llu] leftover terminal messages \n", lp->gid);
 
-        if(!s->terminal_id)
-        {
-#if PARAMS_LOG
-            //Insert output for general and slimfly specific stats/params
-            //Open file to append simulation results
-            char log[200];
-            sprintf( log, "slimfly-results-log.txt");
-            slimfly_results_log=fopen(log, "a");
-            if(slimfly_results_log == NULL)
-                tw_error(TW_LOC, "\n Failed to open slimfly results log file \n");
-            printf("Printing Simulation Parameters/Results Log File\n");
-            fprintf(slimfly_results_log," %9d.%d, %10.3d, %9.3d, %11.3d, %5.3d, %12.3d, %10.3d, %12.3d, %7.3d, %10.3d, %17.3d, %9.3d, %19.3d, %12.3f, %8.3d, ",s->params->num_global_channels+s->params->num_local_channels, s->params->num_cn,g_tw_synchronization_protocol, tw_nnodes(),(int)g_tw_ts_end,(int)g_tw_mblock,(int)g_tw_gvt_interval, (int)g_tw_nkp, s->params->slim_total_terminals,s->params->slim_total_terminals,s->params->slim_total_routers, routing, csf_ratio, num_indirect_routes, adaptive_threshold, s->params->num_vcs);
-            fclose(slimfly_results_log);
-#endif
-        }
 
     qhash_finalize(s->rank_tbl);
     rc_stack_destroy(s->st);
