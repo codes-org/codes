@@ -45,6 +45,7 @@ static int opt_verbose = 0;
 static int opt_noop = 0;
 static double opt_delay_pct = 1.0;
 static double opt_max_delay = -1;
+static int opt_prep = 0;
 
 /* hash table for storing file descriptors of opened files */
 static struct qhash_table *fd_table = NULL;
@@ -73,6 +74,7 @@ void usage(char *exename)
     fprintf(stderr, "\t\t    -v  : verbose (output i/o details)\n");
     fprintf(stderr, "\t\t--delay-ratio : floating point ratio applied to each delay (defaults to 1)\n");
     fprintf(stderr, "\t\t--max-delay : maximum delay (in seconds) to replay\n");
+    fprintf(stderr, "\t\t--prep: instead of running replay, pre-populate files that will be needed for subsequent replay\n");
 
     exit(1);
 }
@@ -85,6 +87,7 @@ void parse_args(int argc, char **argv, char **conf_path, char **test_dir)
         {"conf", 1, NULL, 'c'},
         {"test-dir", 1, NULL, 'd'},
         {"noop", 0, NULL, 'n'},
+        {"prep", 0, NULL, 'P'},
         {"delay-ratio", 1, NULL, 'p'},
         {"max-delay", 1, NULL, 'm'},
         {"help", 0, NULL, 0},
@@ -108,6 +111,9 @@ void parse_args(int argc, char **argv, char **conf_path, char **test_dir)
             case 'n':
                 opt_noop = 1;
                 break;
+            case 'P':
+                opt_prep = 1;
+                break;
             case 'c':
                 *conf_path = optarg;
                 break;
@@ -126,6 +132,12 @@ void parse_args(int argc, char **argv, char **conf_path, char **test_dir)
                 usage(argv[0]);
                 break;
         }
+    }
+
+    if(opt_noop && opt_prep)
+    {
+        fprintf(stderr, "Error: cannot use --noop and --prep at the same time.\n");
+        usage(argv[0]);
     }
 
     if (optind < argc || !(*conf_path) || !(*test_dir))
@@ -286,6 +298,7 @@ int main(int argc, char *argv[])
             ret = replay_workload_op(next_op, myrank, replay_op_number++);
             if (ret < 0)
             {
+                fprintf(stderr, "Error: replay_workload_op() for replay_op_number %lld failed on rank %d\n", replay_op_number-1, myrank);
                 break;
             }
         }
@@ -508,6 +521,8 @@ static int do_close(int rank, uint64_t file_hash, enum codes_workload_op_type ty
     {
         /* search for the corresponding file descriptor in the hash table */
         hash_link = qhash_search_and_remove(fd_table, &(file_hash));
+        if(!hash_link && opt_prep)
+            return(0);
         if(!hash_link)
         {
             fprintf(stderr, "ERROR: rank %d unable to find fd_table record for file_id %llu in close path.\n", rank, LLU(file_hash));
@@ -522,7 +537,7 @@ static int do_close(int rank, uint64_t file_hash, enum codes_workload_op_type ty
         {
             /* perform the close operation */
             ret = close(fildes);
-            if (ret < 0)
+            if (ret < 0 && !opt_prep)
             {
                 fprintf(stderr, "Rank %d failure on operation %lld [CLOSE: %s]\n",
                         rank, op_number, strerror(errno));
@@ -532,7 +547,7 @@ static int do_close(int rank, uint64_t file_hash, enum codes_workload_op_type ty
         else
         {
             ret = MPI_File_close(&fh);
-            if (ret < 0)
+            if (ret < 0 && !opt_prep)
             {
                 fprintf(stderr, "Rank %d failure on operation %lld [CLOSE]\n",
                         rank, op_number);
@@ -587,6 +602,30 @@ static int do_mpi_open(int rank, uint64_t file_hash, int create_flag, int collec
     return(0);
 }
 
+static void convert_read_to_write(struct codes_workload_op *read_op,
+    struct codes_workload_op *write_op)
+{
+    memset(write_op, 0, sizeof(*write_op));
+
+    if(read_op->op_type == CODES_WK_MPI_READ)
+        write_op->op_type = CODES_WK_MPI_WRITE;
+    else if(read_op->op_type == CODES_WK_MPI_COLL_READ)
+        write_op->op_type = CODES_WK_MPI_COLL_WRITE;
+    else if(read_op->op_type == CODES_WK_READ)
+        write_op->op_type = CODES_WK_WRITE;
+    else
+        assert(0);
+
+    write_op->start_time = read_op->start_time;
+    write_op->end_time = read_op->end_time;
+    write_op->sim_start_time = read_op->sim_start_time;
+    write_op->u.write.file_id = read_op->u.read.file_id;
+    write_op->u.write.offset = read_op->u.read.offset;
+    write_op->u.write.size = read_op->u.read.size;
+
+    return;
+}
+
 int replay_workload_op(struct codes_workload_op replay_op, int rank, long long int op_number)
 {
     struct timespec delay;
@@ -594,6 +633,7 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
     char file_name[250];
     int fildes;
     int ret;
+    struct codes_workload_op converted_op;
 
 #if DEBUG_PROFILING
     double start, end;
@@ -603,6 +643,8 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
     switch (replay_op.op_type)
     {
         case CODES_WK_DELAY:
+            if (opt_prep)
+                return(0);
             if (opt_verbose)
                 fprintf(log_stream, "[Rank %d] Operation %lld : DELAY %lf seconds\n",
                        rank, op_number, replay_op.u.delay.seconds);
@@ -651,6 +693,10 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             }
             return 0;
          case CODES_WK_OPEN:
+            if(opt_prep && replay_op.u.open.create_flag)
+                return(0);
+            if(opt_prep)
+                replay_op.u.open.create_flag = 1;
             if (opt_verbose)
                 fprintf(log_stream, "[Rank %d] Operation %lld: %s file %"PRIu64"\n", rank, op_number,
                        (replay_op.u.open.create_flag) ? "CREATE" : "OPEN", replay_op.u.open.file_id);
@@ -679,9 +725,13 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
             }
             return 0;
         case CODES_WK_MPI_OPEN:
+            if(opt_prep && replay_op.u.open.create_flag)
+                return(0);
             return(do_mpi_open(rank, replay_op.u.open.file_id, 
                 replay_op.u.open.create_flag, 0, op_number));
         case CODES_WK_MPI_COLL_OPEN:
+            if(opt_prep && replay_op.u.open.create_flag)
+                return(0);
             return(do_mpi_open(rank, replay_op.u.open.file_id, 
                 replay_op.u.open.create_flag, 1, op_number));
         case CODES_WK_CLOSE:
@@ -691,10 +741,17 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
         case CODES_WK_WRITE:
         case CODES_WK_MPI_WRITE:
         case CODES_WK_MPI_COLL_WRITE:
+            if(opt_prep)
+                return(0);
             return(do_write(replay_op, rank, op_number));
         case CODES_WK_READ:
         case CODES_WK_MPI_READ:
         case CODES_WK_MPI_COLL_READ:
+            if(opt_prep)
+            {
+                convert_read_to_write(&replay_op, &converted_op);
+                return(do_write(converted_op, rank, op_number));
+            }
             return(do_read(replay_op, rank, op_number));
         default:
             fprintf(stderr, "** Rank %d: INVALID OPERATION (op count = %lld) **\n", rank, op_number);
