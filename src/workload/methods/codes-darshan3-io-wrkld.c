@@ -286,6 +286,19 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
      */
     for(dur_cur = dur_head; dur_cur; dur_cur = dur_cur->next)
     {
+        /* skip the file and emit a warning if it is RW */
+        if(dur_cur->psx_file_rec.counters[POSIX_BYTES_READ] &&
+            dur_cur->psx_file_rec.counters[POSIX_BYTES_WRITTEN])
+        {
+            if(rank == 0)
+            {
+                printf("WARNING: skipping R/W file record %lu with %ld bytes read and %ld bytes written\n", dur_cur->psx_file_rec.base_rec.id,
+                    dur_cur->psx_file_rec.counters[POSIX_BYTES_READ],
+                    dur_cur->psx_file_rec.counters[POSIX_BYTES_WRITTEN]);
+            }
+            continue;
+        }
+
         /* MPI-IO */
         if(dur_cur->mpiio_file_rec.counters[MPIIO_COLL_OPENS] ||
             dur_cur->mpiio_file_rec.counters[MPIIO_INDEP_OPENS])
