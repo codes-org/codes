@@ -41,7 +41,7 @@ static int preserve_wait_ordering = 0;
 static int enable_msg_tracking = 0;
 static int is_synthetic = 0;
 tw_lpid TRACK_LP = -1;
-
+int nprocs = 0;
 static double total_syn_data = 0;
 static int unmatched = 0;
 char workload_type[128];
@@ -156,6 +156,7 @@ struct mpi_msgs_queue
     int source_rank;
     int dest_rank;
     int64_t num_bytes;
+    int64_t seq_id;
     tw_stime req_init_time;
 	dumpi_req_id req_id;
     struct qlist_head ql;
@@ -758,31 +759,8 @@ static void add_completed_reqs(nw_state * s,
     for(int i = 0; i < count; i++)
     {
        struct completed_requests * req = (struct completed_requests*)rc_stack_pop(s->matched_reqs);
-
        // turn on only if wait-all unmatched error arises in optimistic mode.
-       if(preserve_wait_ordering)
-       {
-            if(req->index == 0)
-            {
-                qlist_add(&req->ql, &s->completed_reqs);
-            }
-            else
-            {
-                int index = 1;
-                struct qlist_head * ent = NULL;
-                qlist_for_each(ent, &s->completed_reqs) 
-                {
-                    if(index == req->index)
-                    {
-                        qlist_add(&req->ql, ent);
-                    }
-                }//end qlist
-            }// end else*/
-       }
-       else
-       {
-               qlist_add(&req->ql, &s->completed_reqs);
-       }
+       qlist_add(&req->ql, &s->completed_reqs);
     }//end for
 }
 
@@ -1094,6 +1072,7 @@ static int rm_matching_rcv(nw_state * ns,
         }
         else
         {
+            bf->c12 = 1;
             m->rc.saved_recv_time = ns->recv_time;
             ns->recv_time += (tw_now(lp) - m->fwd.sim_start_time);
         }
@@ -1242,8 +1221,8 @@ static void codes_exec_mpi_recv_rc(
 {
 	ns->recv_time = m->rc.saved_recv_time;
 
-    if(bf->c10)
-        send_ack_back_rc(ns, bf, m, lp);
+    if(bf->c11)
+        codes_issue_next_event_rc(lp);
 
 	if(m->fwd.found_match >= 0)
 	  {
@@ -1252,6 +1231,8 @@ static void codes_exec_mpi_recv_rc(
 
         mpi_msgs_queue * qi = (mpi_msgs_queue*)rc_stack_pop(ns->processed_ops);
 
+        if(bf->c10)
+            send_ack_back_rc(ns, bf, m, lp);
         if(m->fwd.found_match == 0)
         {
             qlist_add(&qi->ql, &ns->arrival_queue);
@@ -1279,12 +1260,9 @@ static void codes_exec_mpi_recv_rc(
       }
 	else if(m->fwd.found_match < 0)
 	    {
-            struct qlist_head * ent = qlist_pop(&ns->pending_recvs_queue);
+            struct qlist_head * ent = qlist_pop_back(&ns->pending_recvs_queue);
             mpi_msgs_queue * qi = qlist_entry(ent, mpi_msgs_queue, ql);
             free(qi);
-
-            if(m->op_type == CODES_WK_IRECV)
-                codes_issue_next_event_rc(lp);
 	    }
 }
 
@@ -1330,7 +1308,7 @@ static void codes_exec_mpi_recv(
 	if(found_matching_sends < 0)
 	  {
 	   	  m->fwd.found_match = -1;
-          qlist_add(&recv_op->ql, &s->pending_recvs_queue);
+          qlist_add_tail(&recv_op->ql, &s->pending_recvs_queue);
 
       }
 	else
@@ -1404,12 +1382,6 @@ static void codes_exec_mpi_send(nw_state* s,
 	/* model-net event */
 	tw_lpid dest_rank = codes_mapping_get_lpid_from_relative(global_dest_rank, NULL, "nw-lp", NULL, 0);
 
-    if(is_rend == 1 || (!is_rend && mpi_op->u.send.num_bytes < EAGER_THRESHOLD))
-    {
-        bf->c3 = 1;
-        num_bytes_sent += mpi_op->u.send.num_bytes;
-        s->num_bytes_sent += mpi_op->u.send.num_bytes;
-    }
     if(enable_sampling)
     {
         if(tw_now(lp) >= s->cur_interval_end)
@@ -1507,6 +1479,12 @@ static void codes_exec_mpi_send(nw_state* s,
         else
             fprintf(workload_log, "\n (%lf) APP ID %d MPI SEND SOURCE %llu DEST %d TAG %d BYTES %"PRId64,
                     tw_now(lp), s->app_id, LLU(s->nw_id), global_dest_rank, mpi_op->u.send.tag, mpi_op->u.send.num_bytes);
+    }
+    if(is_rend || is_eager)    
+    {
+       bf->c3 = 1;
+       s->num_bytes_sent += mpi_op->u.send.num_bytes;
+       num_bytes_sent += mpi_op->u.send.num_bytes;
     }
 	/* isend executed, now get next MPI operation from the queue */
 	if(mpi_op->op_type == CODES_WK_ISEND && (!is_rend || is_eager))
@@ -1632,7 +1610,6 @@ static void update_arrival_queue_rc(nw_state* s,
         tw_bf * bf,
         nw_message * m, tw_lp * lp)
 {
-	s->recv_time = m->rc.saved_recv_time;
     s->num_bytes_recvd -= m->fwd.num_bytes;
     num_bytes_recvd -= m->fwd.num_bytes;
 
@@ -1665,14 +1642,19 @@ static void update_arrival_queue_rc(nw_state* s,
                index++;
             }
         }
+        if(bf->c12)
+	        s->recv_time = m->rc.saved_recv_time;
+        
+        if(bf->c10)
+            send_ack_back_rc(s, bf, m, lp);
         if(bf->c9)
             update_completed_queue_rc(s, bf, m, lp);
-        else if(bf->c8)
+        if(bf->c8)
             codes_issue_next_event_rc(lp);
     }
 	else if(m->fwd.found_match < 0)
 	{
-	    struct qlist_head * ent = qlist_pop(&s->arrival_queue);
+	    struct qlist_head * ent = qlist_pop_back(&s->arrival_queue);
         mpi_msgs_queue * qi = qlist_entry(ent, mpi_msgs_queue, ql);
         free(qi);
     }
@@ -1732,7 +1714,7 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
     if(found_matching_recv < 0)
     {
         m->fwd.found_match = -1;
-        qlist_add(&arrived_op->ql, &s->arrival_queue);
+        qlist_add_tail(&arrived_op->ql, &s->arrival_queue);
     }
     else
     {
@@ -1814,6 +1796,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    if (strcmp(workload_type, "dumpi") == 0){
        strcpy(params_d.file_name, file_name_of_job[lid.job]);
        params_d.num_net_traces = num_traces_of_job[lid.job];
+       params_d.nprocs = nprocs; 
        params = (char*)&params_d;
        s->app_id = lid.job;
        s->local_rank = lid.rank;
@@ -2382,7 +2365,7 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
         {
          if(bf->c29)
              codes_issue_next_event_rc(lp);
-         else if(bf->c28)
+         if(bf->c28)
             update_completed_queue_rc(s, bf, m, lp);
         }
         break;
@@ -2539,7 +2522,7 @@ static int msg_size_hash_compare(
 }
 int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 {
-  int rank, nprocs;
+  int rank;
   int num_nets;
   int* net_ids;
 

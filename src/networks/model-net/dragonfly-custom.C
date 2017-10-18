@@ -1174,7 +1174,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
 
   nic_ts = g_tw_lookahead + (num_chunks * cn_delay) + tw_rand_unif(lp->rng);
   
-  msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
+  msg->packet_ID = s->packet_counter;
   msg->my_N_hop = 0;
   msg->my_l_hop = 0;
   msg->my_g_hop = 0;
@@ -1257,12 +1257,11 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
 static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_custom_message * msg,
         tw_lp * lp)
 {
+      if(bf->c10)
+         s->last_buf_full[0] = msg->saved_busy_time;
+      
       if(bf->c1) {
         s->in_send_loop = 1;
-        
-        if(bf->c10)
-            s->last_buf_full[0] = msg->saved_busy_time;
-        
         return;
       }
       
@@ -1582,7 +1581,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
     assert(lp->gid == msg->dest_terminal_id);
 
     if(msg->packet_ID == LLU(TRACK_PKT))
-        printf("\n Packet %llu arrived at lp %llu hops %d ", msg->packet_ID, LLU(lp->gid), msg->my_N_hop);
+        printf("\n Packet %d arrived at lp %llu hops %d ", msg->sender_lp, LLU(lp->gid), msg->my_N_hop);
   
   tw_stime ts = g_tw_lookahead + s->params->credit_delay + tw_rand_unif(lp->rng);
 
@@ -2197,14 +2196,14 @@ static vector<int> get_intra_router(router_state * s, int src_router_id, int des
        /* If no direct connection exists then find an intermediate connection */
        if(curMap.find(dest_rel_id) == curMap.end())
        {
-         /*int src_col = src_rel_id % s->params->num_router_cols;
+         int src_col = src_rel_id % s->params->num_router_cols;
          int src_row = src_rel_id / s->params->num_router_cols;
 
          int dest_col = dest_rel_id % s->params->num_router_cols;
          int dest_row = dest_rel_id / s->params->num_router_cols;
 
          //row first, column second
-         int choice1 = src_row *  s->params->num_router_cols + dest_col;
+         /*int choice1 = src_row *  s->params->num_router_cols + dest_col;
          int choice2 = dest_row * s->params->num_router_cols + src_col;
          intersection.push_back(offset + choice1);
          intersection.push_back(offset + choice2);*/
@@ -2312,8 +2311,8 @@ get_next_stop(router_state * s,
   //printf("\n Dest router id %d %d !!! ", dest_router_id, msg->intm_rtr_id);
   if(s->router_id == msg->saved_src_dest)
   {
-      //dest_lp = connectionList[dest_group_id][my_grp_id][msg->saved_src_chan];
-      dest_lp = interGroupLinks[s->router_id][dest_group_id][0].dest;
+      dest_lp = connectionList[dest_group_id][my_grp_id][msg->saved_src_chan];
+      //dest_lp = interGroupLinks[s->router_id][dest_group_id][0].dest;
   }
   else
   {
@@ -2791,6 +2790,8 @@ router_packet_receive( router_state * s,
    cur_chunk->msg.path_type = routing; /*defaults to the routing algorithm if we 
                                 don't have adaptive or progressive adaptive routing here*/
 
+       
+//  printf("\n Packet %llu source %d arrived at router %d ", msg->packet_ID, msg->src_terminal_id, s->router_id);
   /* Set the default route as minimal for prog-adaptive */
   if(routing == PROG_ADAPTIVE && cur_chunk->msg.last_hop == TERMINAL)
       cur_chunk->msg.path_type = MINIMAL;
