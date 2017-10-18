@@ -615,7 +615,7 @@ static void generate_mpiio_file_events(
     double inter_io_delay = 0.0;
     int num_io_ops = 0;
     double meta_op_time;
-    int create_flag;
+    int create_flag = 0;
     enum codes_workload_op_type open_type;
 
     /* determine delay available between first open and last close */
@@ -667,7 +667,6 @@ static void generate_mpiio_file_events(
         open_type = CODES_WK_MPI_OPEN;
     cur_time = generate_open_event(mfile->base_rec.id, open_type, create_flag, meta_op_time, 
         cur_time, io_context, 1);
-    create_flag = 0;
 
     /* account for potential delay from first open to first io */
     cur_time += first_io_delay;
@@ -697,7 +696,7 @@ static void generate_psx_file_events(
     double inter_io_delay = 0.0;
     int num_io_ops = 0;
     double meta_op_time;
-    int create_flag;
+    int create_flag = 0;
 
     /* determine delay available between first open and last close */
     if(file->base_rec.rank == -1)
@@ -743,7 +742,6 @@ static void generate_psx_file_events(
     /* generate an open event */
     cur_time = generate_open_event(file->base_rec.id, CODES_WK_OPEN, create_flag, meta_op_time, 
         cur_time, io_context, 1);
-    create_flag = 0;
 
     /* account for potential delay from first open to first io */
     cur_time += first_io_delay;
