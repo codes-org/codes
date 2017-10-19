@@ -28,10 +28,13 @@
 #define lprintf(_fmt, ...) \
         do {if (CS_LP_DBG) printf(_fmt, __VA_ARGS__);} while (0)
 #define MAX_STATS 65536
-#define PAYLOAD_SZ 1024
+#define PAYLOAD_SZ 8
 
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
+
+int total_count_irecv = 0, total_count_isend = 0;
+int total_irecvs = 0, total_isends = 0;
 
 /* NOTE: Message tracking works in sequential mode only! */
 static int debug_cols = 0;
@@ -107,6 +110,9 @@ long long num_bytes_recvd=0;
 long long num_syn_bytes_sent = 0;
 long long num_syn_bytes_recvd = 0;
 
+static int msgs_per_tick = 0;
+static double tick_interval = 0;
+
 double max_time = 0,  max_comm_time = 0, max_wait_time = 0, max_send_time = 0, max_recv_time = 0;
 double avg_time = 0, avg_comm_time = 0, avg_wait_time = 0, avg_send_time = 0, avg_recv_time = 0;
 
@@ -149,7 +155,8 @@ struct mpi_workload_sample
     unsigned long num_delays_sample;
     unsigned long num_wait_all_sample;
     unsigned long num_waits_sample;
-    unsigned long num_bytes_sample;
+    unsigned long num_bytes_sent_sample;
+    unsigned long num_bytes_recvd_sample;
     unsigned long min_bytes_sample;
     unsigned long max_bytes_sample;
     double send_time_sample;
@@ -229,7 +236,6 @@ struct nw_state
 	unsigned long num_waitall;
 	unsigned long num_waitsome;
 
-
 	/* time spent by the LP in executing the app trace*/
 	double start_time;
 
@@ -271,9 +277,8 @@ struct nw_state
     unsigned long num_bytes_sent;
     unsigned long num_bytes_recvd;
 
-    unsigned long syn_data;
-    unsigned long gen_data;
-    
+    unsigned long msgs_per_tick_sent;
+
     /* For sampling data */
     int sampling_indx;
     int max_arr_size;
@@ -319,6 +324,7 @@ struct nw_message
        int64_t saved_num_bytes;
        int64_t saved_min_bytes;
        int64_t saved_max_bytes;
+       int64_t saved_msgs_per_tick_sent;
    } rc;
 };
 
@@ -608,7 +614,7 @@ void finish_bckgnd_traffic(
         (void)b;
         (void)msg;
         ns->is_finished = 1;
-        lprintf("\n LP %llu completed sending data %lu completed at time %lf ", LLU(lp->gid), ns->gen_data, tw_now(lp));
+        lprintf("\n LP %llu completed sending data %lu completed at time %lf ", LLU(lp->gid), ns->num_bytes_sent, tw_now(lp));
         return;
 }
 
@@ -638,13 +644,24 @@ static void gen_synthetic_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp 
     if(bf->c0)
         return;
 
+    s->msgs_per_tick_sent--;
+    if(bf->c17){
+        s->msgs_per_tick_sent = m->rc.saved_msgs_per_tick_sent;
+    }
+
     model_net_event_rc2(lp, &m->event_rc);
-    s->gen_data -= PAYLOAD_SZ;
+    s->num_bytes_sent -= PAYLOAD_SZ;
+    s->num_sends--;
+    s->compute_time = m->rc.saved_delay;
 
-    num_syn_bytes_sent -= PAYLOAD_SZ;
-    tw_rand_reverse_unif(lp->rng);
-    tw_rand_reverse_unif(lp->rng);
+    if(enable_sampling)
+    {
+       int indx = s->sampling_indx;
 
+       s->mpi_wkld_samples[indx].num_sends_sample--;
+       s->mpi_wkld_samples[indx].num_bytes_sent_sample -= PAYLOAD_SZ;
+       increment_sampling_check_rc(s, bf);
+    }
 }
 
 /* generate synthetic traffic */
@@ -687,11 +704,39 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
             sizeof(nw_message), (const void*)&remote_m, 
             0, NULL, lp);
     
-    s->gen_data += PAYLOAD_SZ;
-    num_syn_bytes_sent += PAYLOAD_SZ; 
+    s->num_bytes_sent += PAYLOAD_SZ;
+    num_bytes_sent += PAYLOAD_SZ; 
+    s->num_sends++;
+    if(enable_sampling)
+    {
+        increment_sampling_check(s, lp, bf);
+        int indx = s->sampling_indx;
+        s->mpi_wkld_samples[indx].num_sends_sample++;
+        s->mpi_wkld_samples[indx].num_bytes_sent_sample += PAYLOAD_SZ;
+        s->mpi_wkld_samples[indx].send_time_sample = s->send_time;
+        m->rc.saved_max_bytes = s->mpi_wkld_samples[indx].max_bytes_sample;
+        m->rc.saved_min_bytes = s->mpi_wkld_samples[indx].min_bytes_sample;
+        s->mpi_wkld_samples[indx].comp_time_sample = s->compute_time;
+    }
+
+    int tick_delay = 0;
+    /* Check if num messages sent has reached total for the current tick window */
+    /* If so, issue next message to start at the beggining of the next tick */
+    //printf("LP:%llu, msgs_per_tick_sent:%llu, msgs_per_tick:%llu, tick_delay:%d, tick_interval:%llu, tw_now:%llu\n", LLU(lp->gid),LLU(s->msgs_per_tick_sent), LLU(msgs_per_tick), tick_delay, LLU(tick_interval), LLU(tw_now(lp)));
+    if(s->msgs_per_tick_sent >= msgs_per_tick){
+        tick_delay = tick_interval - (LLU(tw_now(lp)) % LLU(tick_interval));
+        m->rc.saved_delay = s->compute_time;
+        s->compute_time += tick_delay;
+        m->rc.saved_msgs_per_tick_sent = s->msgs_per_tick_sent;
+        s->msgs_per_tick_sent = 0;
+        bf->c17 = 1;
+        if(LLU(lp->gid) == 0)
+            printf("All messages transfered before tick. LP:%llu, msgs_per_tick_sent:%llu, msgs_per_tick:%llu, tick_delay:%d, tick_interval:%llu, tw_now:%llu\n", LLU(lp->gid),LLU(s->msgs_per_tick_sent), LLU(msgs_per_tick), tick_delay, LLU(tick_interval), LLU(tw_now(lp)));
+    }
+    s->msgs_per_tick_sent++;
 
     /* New event after MEAN_INTERVAL */  
-    tw_stime ts = mean_interval  + tw_rand_exponential(lp->rng, noise); 
+    tw_stime ts = 0.1 + tick_delay + mean_interval + tw_rand_exponential(lp->rng, noise); 
     tw_event * e;
     nw_message * m_new;
     e = tw_event_new(lp->gid, ts, lp);
@@ -707,8 +752,17 @@ void arrive_syn_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
     (void)lp;
 //    printf("\n Data arrived %d total data %ld ", m->fwd.num_bytes, s->syn_data);
     int data = m->fwd.num_bytes;
-    s->syn_data -= data;
-    num_syn_bytes_recvd -= data;
+    s->num_bytes_recvd -= data;
+    s->num_recvs--;
+    s->send_time = m->rc.saved_send_time;
+    num_bytes_recvd -= data;
+    if(enable_sampling)
+    {
+        int indx = s->sampling_indx;
+        s->mpi_wkld_samples[indx].num_recvs_sample--;
+        s->mpi_wkld_samples[indx].num_bytes_recvd_sample -= PAYLOAD_SZ;
+        increment_sampling_check_rc(s, bf);
+    }
 }
 void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
@@ -717,8 +771,18 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 
 //    printf("\n Data arrived %d total data %ld ", m->fwd.num_bytes, s->syn_data);
     int data = m->fwd.num_bytes;
-    s->syn_data += data;
-    num_syn_bytes_recvd += data;
+    s->num_bytes_recvd += data;
+    s->num_recvs++;
+    m->rc.saved_send_time = s->send_time;
+    s->send_time += tw_now(lp) - m->fwd.sim_start_time;
+    num_bytes_recvd += data;
+    if(enable_sampling)
+    {
+        increment_sampling_check(s, lp, bf);
+        int indx = s->sampling_indx;
+        s->mpi_wkld_samples[indx].num_recvs_sample++;
+        s->mpi_wkld_samples[indx].num_bytes_recvd_sample += PAYLOAD_SZ;
+    }
 }
 /* Debugging functions, may generate unused function warning */
 /*static void print_waiting_reqs(uint32_t * reqs, int count)
@@ -1370,19 +1434,6 @@ int get_global_id_of_job_rank(tw_lpid job_rank, int app_id)
 }
 static void codes_exec_mpi_send_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-        if(enable_sampling)
-        {
-           int indx = s->sampling_indx;
-
-           s->mpi_wkld_samples[indx].num_sends_sample--;
-           s->mpi_wkld_samples[indx].num_bytes_sample -= m->rc.saved_num_bytes;
-
-           if(bf->c1)
-           {
-               s->sampling_indx--;
-               s->cur_interval_end -= sampling_interval;
-           }
-        }
         if(bf->c15 || bf->c16)
             s->num_sends--;
 
@@ -1434,7 +1485,7 @@ static void codes_exec_mpi_send(nw_state* s,
         increment_sampling_check(s, lp, bf);
         int indx = s->sampling_indx;
         s->mpi_wkld_samples[indx].num_sends_sample++;
-        s->mpi_wkld_samples[indx].num_bytes_sample += mpi_op->u.send.num_bytes;
+        s->mpi_wkld_samples[indx].num_bytes_sent_sample += mpi_op->u.send.num_bytes;
         m->rc.saved_max_bytes = s->mpi_wkld_samples[indx].max_bytes_sample;
         m->rc.saved_min_bytes = s->mpi_wkld_samples[indx].min_bytes_sample;
         if(s->mpi_wkld_samples[indx].max_bytes_sample < mpi_op->u.send.num_bytes)
@@ -1593,7 +1644,6 @@ static void update_completed_queue(nw_state* s,
             if(enable_sampling)
             {
                 increment_sampling_check(s, lp, bf);
-                printf("elapsed:%f compute:%f\n",s->elapsed_time, s->compute_time);
                 s->mpi_wkld_samples[s->sampling_indx].wait_time_sample = s->wait_time;
                 s->mpi_wkld_samples[s->sampling_indx].comm_time_sample = s->elapsed_time - s->compute_time;
             }
@@ -1877,6 +1927,8 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->compute_time = 0;
    s->elapsed_time = 0;
         
+   s->msgs_per_tick_sent = 0;
+
    s->app_id = lid.job;
    s->local_rank = lid.rank;
 
@@ -2055,7 +2107,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
             {
                int indx = s->sampling_indx;
                s->mpi_wkld_samples[indx].num_sends_sample--;
-               s->mpi_wkld_samples[indx].num_bytes_sample -= m->rc.saved_num_bytes;
+               s->mpi_wkld_samples[indx].num_bytes_sent_sample -= m->rc.saved_num_bytes;
                s->mpi_wkld_samples[indx].max_bytes_sample = m->rc.saved_max_bytes;
                s->mpi_wkld_samples[indx].min_bytes_sample = m->rc.saved_min_bytes;
                increment_sampling_check_rc(s, bf);
@@ -2330,13 +2382,13 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 
 void nw_test_finalize(nw_state* s, tw_lp* lp)
 {
-    total_syn_data += s->syn_data;
+    total_syn_data += s->num_bytes_recvd;
 
     int written = 0;
     int written2 = 0;
     if(!s->nw_id){
-        written = sprintf(s->output_buf, "# Format <LP ID> <Terminal ID> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time> <Job ID>");
-        written2 = sprintf(s->output_buf2, "# Format <LP ID> <Terminal ID> <Interval> <Num Sends> <Num Recvs> <Num Collectives> <Num delays> <Num Wait_Alls> <Num Waits> <Send Time> <Wait Time> <Comm Time> <Compute Time> <Total Bytes> <Min Bytes> <Max Bytes>\n");
+        written = sprintf(s->output_buf, "# Format <LP ID> <MPI Rank ID> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time> <Job ID>");
+        written2 = sprintf(s->output_buf2, "# Format <LP ID> <Terminal ID> <Interval> <Num Sends> <Num Recvs> <Num Collectives> <Num delays> <Num Wait_Alls> <Num Waits> <Send Time> <Wait Time> <Comm Time> <Compute Time> <Total Bytes Sent> <Total Bytes Received> <Min Bytes Sent> <Max Bytes Sent>\n");
         written2 += sprintf(s->output_buf2 + written2, "sampling-interval %lf sampling-end-time %lf\n", sampling_interval, sampling_end_time);
     }
 
@@ -2384,11 +2436,15 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 		int count_irecv = 0, count_isend = 0;
         count_irecv = qlist_count(&s->pending_recvs_queue);
         count_isend = qlist_count(&s->arrival_queue);
+        total_count_irecv += count_irecv;
+        total_count_isend += count_isend;
+        total_irecvs += s->num_recvs;
+        total_isends += s->num_sends;
 		if(count_irecv > 0 || count_isend > 0)
         {
             unmatched = 1;
-            printf("\n LP %llu unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf",
-			    LLU(lp->gid), count_irecv, count_isend, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->send_time, s->wait_time);
+            printf("\n LP %llu total un_irecvs %d/%d total un_isends %d/%d unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf",
+			    LLU(lp->gid), total_count_irecv, total_irecvs, total_isends, total_count_isend, count_irecv, count_isend, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->send_time, s->wait_time);
         }
         written += sprintf(s->output_buf + written, "\n %llu %llu %ld %ld %ld %ld %lf %lf %lf %d", LLU(lp->gid), LLU(s->nw_id), s->num_sends, s->num_recvs, s->num_bytes_sent,
                 s->num_bytes_recvd, s->send_time, s->elapsed_time - s->compute_time, s->compute_time, s->app_id);
@@ -2411,12 +2467,12 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
             fwrite(s->mpi_wkld_samples, sizeof(struct mpi_workload_sample), s->sampling_indx + 1, workload_agg_log);
             //printf("sampling_indx:%d sampling_interval:%f sampling_end_time:%f\n",s->sampling_indx, sampling_interval, sampling_end_time);
             for(int i=0; i<sampling_end_time/sampling_interval; i++){
-                written2 += sprintf(s->output_buf2 + written2, "%llu %llu %d %lu %lu %lu %lu %lu %lu %lf %lf %lf %lf %lu %lu %lu\n",
+                written2 += sprintf(s->output_buf2 + written2, "%llu %llu %d %lu %lu %lu %lu %lu %lu %lf %lf %lf %lf %lu %lu %lu %lu\n",
                         LLU(lp->gid), LLU(s->nw_id), i, s->mpi_wkld_samples[i].num_sends_sample, s->mpi_wkld_samples[i].num_recvs_sample,
                         s->mpi_wkld_samples[i].num_cols_sample, s->mpi_wkld_samples[i].num_delays_sample, s->mpi_wkld_samples[i].num_wait_all_sample,
                         s->mpi_wkld_samples[i].num_waits_sample, s->mpi_wkld_samples[i].send_time_sample, s->mpi_wkld_samples[i].wait_time_sample,
                         s->mpi_wkld_samples[i].comm_time_sample, s->mpi_wkld_samples[i].comp_time_sample,
-                        s->mpi_wkld_samples[i].num_bytes_sample, s->mpi_wkld_samples[i].min_bytes_sample, s->mpi_wkld_samples[i].max_bytes_sample);
+                        s->mpi_wkld_samples[i].num_bytes_sent_sample, s->mpi_wkld_samples[i].num_bytes_recvd_sample, s->mpi_wkld_samples[i].min_bytes_sample, s->mpi_wkld_samples[i].max_bytes_sample);
             }
             lp_io_write(lp->gid, "mpi-sampling-stats", written2, s->output_buf2);
         }
@@ -2523,6 +2579,8 @@ const tw_optdef app_opt [] =
     TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
     TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
 	TWOPT_CHAR("offset_file", offset_file, "offset file name"),
+    TWOPT_UINT("msgs_per_tick", msgs_per_tick, "Number of messages for each node to transfer between each simulated tick (Default 0)"),
+    TWOPT_STIME("tick_interval",tick_interval, "Length of a tick in nanoseconds (Default 0)"),
 #ifdef ENABLE_CORTEX_PYTHON
 	TWOPT_CHAR("cortex-file", cortex_file, "Python file (without .py) containing the CoRtEx translation class"),
 	TWOPT_CHAR("cortex-class", cortex_class, "Python class implementing the CoRtEx translator"),

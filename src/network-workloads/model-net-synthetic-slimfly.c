@@ -16,12 +16,11 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 
-#define PAYLOAD_SZ 256
+#define PAYLOAD_SZ 8
 #define LP_CONFIG_NM (model_net_lp_config_names[SLIMFLY])
 
 #define PRINT_WORST_CASE_MATCH 0
 
-#define PARAMS_LOG 1
 FILE * slimfly_results_log_2=NULL;
 FILE * slimfly_ross_csv_log=NULL;
 
@@ -42,6 +41,7 @@ static char lp_io_dir[356] = {'\0'};
 static lp_io_handle io_handle;
 static unsigned int lp_io_use_suffix = 0;
 static int do_lp_io = 0;
+static int num_msgs = 20;
 
 static int num_servers_per_rep = 0;
 static int num_routers_per_grp = 0;
@@ -124,6 +124,7 @@ const tw_optdef app_opt [] =
 {
         TWOPT_GROUP("Model net synthetic traffic " ),
         TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
+    	TWOPT_UINT("num_messages", num_msgs, "Number of messages to be generated per terminal "),
         TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
         TWOPT_STIME("load", load, "percentage of packet inter-arrival rate to simulate"), 
         TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
@@ -138,7 +139,7 @@ const tw_lptype* svr_get_lp_type()
 
 static void svr_add_lp_type()
 {
-  lp_type_register("server", svr_get_lp_type());
+  lp_type_register("nw-lp", svr_get_lp_type());
 }
 
 /* convert GiB/s and bytes to ns */
@@ -230,7 +231,8 @@ static void issue_event(
     }
 
     /* skew each kickoff event slightly to help avoid event ties later on */
-    kickoff_time = g_tw_lookahead + tw_rand_exponential(lp->rng, MEAN_INTERVAL);
+//    kickoff_time = g_tw_lookahead + tw_rand_exponential(lp->rng, MEAN_INTERVAL);
+    kickoff_time = 1.1 * g_tw_lookahead + tw_rand_integer(lp->rng, 0, arrival_time);
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
@@ -255,6 +257,7 @@ static void handle_kickoff_rev_event(
     (void)b;
     (void)m;
     (void)lp;
+    if(m->incremented_flag)
 
     if(b->c1)
         tw_rand_reverse_unif(lp->rng);
@@ -271,6 +274,13 @@ static void handle_kickoff_event(
 	    tw_lp * lp)
 {
     (void)m;
+
+    if(ns->msg_sent_count >= num_msgs)
+    {
+        m->incremented_flag = 1;
+        return;
+    }
+    m->incremented_flag = 0;
 
     char anno[MAX_NAME_LENGTH];
     tw_lpid local_dest = -1, global_dest = -1;
@@ -471,19 +481,13 @@ int main(
     net_id = *net_ids;
     free(net_ids);
 
-    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "server", NULL, 1);
+    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "nw-lp", NULL, 1);
     configuration_get_value_int(&config, "PARAMS", "num_terminals", NULL, &num_terminals);
     configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers_per_grp);
     num_groups = (num_routers_per_grp * 2);
     num_nodes = num_groups * num_routers_per_grp * num_servers_per_rep;
     num_nodes_per_grp = num_routers_per_grp * num_servers_per_rep;
     total_routers = num_routers_per_grp * num_routers_per_grp * 2;
-
-/*    if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
-    {
-        return(-1);
-    }
-*/
 
     if(lp_io_dir[0])
     {
@@ -517,102 +521,8 @@ int main(
 
    model_net_report_stats(net_id);
 
-    if(rank == 0)
-    {
-#if PARAMS_LOG
-	//Open file to append simulation results
-	char log[200];
-	sprintf( log, "slimfly-results-log.txt");
-	slimfly_results_log_2=fopen(log, "a");
-	if(slimfly_results_log_2 == NULL)
-		tw_error(TW_LOC, "\n Failed to open slimfly results log file \n");
-	printf("Printing Simulation Parameters/Results Log File\n");
-	fprintf(slimfly_results_log_2,"%16.3d, %6.2f, %13.2f, ",traffic, load, MEAN_INTERVAL);
-#endif
-    }
-
-/*    if(lp_io_flush(handle, MPI_COMM_WORLD) < 0)
-    {
-        assert(ret == 0 || !"lp_io_flush failure");
-        return(-1);
-    }
-*/
     tw_end();
 
-    if(rank == 0)
-    {
-#if PARAMS_LOG
-	slimfly_ross_csv_log=fopen("ross.csv", "r");
-	if(slimfly_ross_csv_log == NULL)
-		tw_error(TW_LOC, "\n Failed to open ross.csv log file \n");
-	printf("Reading ROSS specific data from ross.csv and Printing to Slim Fly Log File\n");
-	
-	char * line = NULL;
-	size_t len = 0;
-	ssize_t read = getline(&line, &len, slimfly_ross_csv_log);
-	while (read != -1) 
-	{
-		read = getline(&line, &len, slimfly_ross_csv_log);
-	}
-//		read = getline(&line, &len, slimfly_ross_csv_log);
-
-	char * pch;
-	pch = strtok (line,",");
-	int idx = 0;
-        int gvt_computations;
-	long long total_events, rollbacks, net_events;
-        float running_time, efficiency, event_rate;
-	while (pch != NULL)
-	{
-		pch = strtok (NULL, ",");
-//		printf("%d: %s\n",idx,pch);
-		switch(idx)
-		{
-/*			case 0:
-				printf("%s\n",pch);
-				break;
-			case 1:
-				printf("%s\n",pch);
-				break;
-			case 2:
-				printf("%s\n",pch);
-				break;
-			case 3:
-				printf("%s\n",pch);
-				break;
-			case 4:
-				printf("%s\n",pch);
-				break;
-*/			
-			case 4:
-				total_events = atoll(pch);
-				break;
-			case 13:
-				rollbacks = atoll(pch);
-				break;
-			case 17:
-				gvt_computations = atoi(pch);
-				break;
-			case 18:
-				net_events = atoll(pch);
-				break;
-			case 3:
-				running_time = atof(pch);
-				break;
-			case 8:
-				efficiency = atof(pch);
-				break;
-			case 19:
-				event_rate = atof(pch);
-				break;
-		}
-		idx++;
-	}
-	fprintf(slimfly_results_log_2,"%12llu, %10llu, %16d, %10llu, %17.4f, %10.2f, %22.2f\n",total_events,rollbacks,gvt_computations,net_events,running_time,efficiency,event_rate);
-	fclose(slimfly_results_log_2);
-	fclose(slimfly_ross_csv_log);
-#endif
-    }
     return 0;
 }
 

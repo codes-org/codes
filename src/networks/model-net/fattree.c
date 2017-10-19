@@ -2744,17 +2744,17 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
 
     int written = 0;
     if(!s->terminal_id && !s->rail_id)
-        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Rail ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>\n");
+        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Total packet latency> <# Flits/Packets finished> <Packets Generated> <Avg hops> <Busy Time>\n");
 
-    written += sprintf(s->output_buf + written, "%llu %u %u %llu %lf %ld %lf %lf\n",
-            LLU(lp->gid), s->terminal_id, s->rail_id, s->total_msg_size, s->total_time,
-            s->finished_packets, (double)s->total_hops/s->finished_chunks,
+    written += sprintf(s->output_buf + written, "%llu %u %llu %lf %ld %ld %lf %lf\n",
+            LLU(lp->gid), s->terminal_id, LLU(s->total_msg_size), s->total_time,
+            s->finished_packets, s->packet_gen ,(double)s->total_hops/s->finished_chunks,
             s->busy_time[0]);
 
     lp_io_write(lp->gid, "fattree-msg-stats", written, s->output_buf);
 
-    if(s->terminal_msgs[0] != NULL)
-      printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
+//    if(s->terminal_msgs[0] != NULL)
+//      printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
     //if(s->packet_gen != s->packet_fin)
     //    printf("\n generated %d finished %d ", s->packet_gen, s->packet_fin);
 
@@ -2815,14 +2815,14 @@ void fattree_switch_final(switch_state * s, tw_lp * lp)
 
     (void)lp;
     int i;
-    for(i = 0; i < s->radix; i++) {
-        if(s->queued_msgs[i] != NULL) {
-          printf("[%llu] leftover queued messages %d %d\n", LLU(lp->gid), i,s->vc_occupancy[i]);
-        }
-        if(s->pending_msgs[i] != NULL) {
-          printf("[%llu] lefover pending messages %d\n", LLU(lp->gid), i);
-        }
-      }
+//    for(i = 0; i < s->radix; i++) {
+//        if(s->queued_msgs[i] != NULL) {
+//          printf("[%llu] leftover queued messages %d %d\n", LLU(lp->gid), i,s->vc_occupancy[i]);
+//        }
+//        if(s->pending_msgs[i] != NULL) {
+//          printf("[%llu] lefover pending messages %d\n", LLU(lp->gid), i);
+//        }
+//      }
 
     rc_stack_destroy(s->st);
 

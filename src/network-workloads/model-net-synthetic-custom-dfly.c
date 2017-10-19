@@ -16,7 +16,7 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 
-#define PAYLOAD_SZ 2048
+#define PAYLOAD_SZ 8
 
 static int net_id = 0;
 static int traffic = 1;
@@ -144,7 +144,8 @@ static void issue_event(
      */
 
     /* skew each kickoff event slightly to help avoid event ties later on */
-    kickoff_time = 1.1 * g_tw_lookahead + tw_rand_exponential(lp->rng, arrival_time);
+    //kickoff_time = 1.1 * g_tw_lookahead + tw_rand_exponential(lp->rng, arrival_time);
+    kickoff_time = 1.1 * g_tw_lookahead + tw_rand_integer(lp->rng, 0, arrival_time);
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);

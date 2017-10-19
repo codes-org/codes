@@ -17,9 +17,7 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 
-#define PAYLOAD_SZ 512
-
-#define PARAMS_LOG 1
+#define PAYLOAD_SZ 8
 
 static int net_id = 0;
 static int offset = 2;
@@ -27,15 +25,19 @@ static int traffic = 1;
 static double arrival_time = 1000.0;
 static double load = 0.0;	//Percent utilization of terminal uplink
 static double MEAN_INTERVAL = 0.0;
-char * modelnet_stats_dir;
 /* whether to pull instead of push */
 
 static int num_servers_per_rep = 0;
 static int num_routers_per_grp = 0;
 static int num_nodes_per_grp = 0;
 
+static char lp_io_dir[256] = {'\0'};
+static lp_io_handle io_handle;
+static unsigned int lp_io_use_suffix = 0;
+static int do_lp_io = 0;
 static int num_groups = 0;
 static int num_nodes = 0;
+static int num_msgs = 20;
 
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
@@ -165,15 +167,18 @@ static const st_model_types  *ft_svr_get_model_stat_types(void)
 
 void ft_svr_register_model_stats()
 {
-    st_model_type_register("server", ft_svr_get_model_stat_types());
+    st_model_type_register("nw-lp", ft_svr_get_model_stat_types());
 }
 
 const tw_optdef app_opt [] =
 {
         TWOPT_GROUP("Model net synthetic traffic " ),
 	TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
+    	TWOPT_UINT("num_messages", num_msgs, "Number of messages to be generated per terminal "),
 	TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
         TWOPT_STIME("load", load, "percentage of terminal link bandiwdth to inject packets"),
+        TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
+        TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
         TWOPT_END()
 };
 
@@ -184,7 +189,7 @@ const tw_lptype* svr_get_lp_type()
 
 static void svr_add_lp_type()
 {
-  lp_type_register("server", svr_get_lp_type());
+  lp_type_register("nw-lp", svr_get_lp_type());
 }
 
 static void issue_event(
@@ -227,7 +232,8 @@ static void issue_event(
 
     /* skew each kickoff event slightly to help avoid event ties later on */
 //    kickoff_time = 1.1 * g_tw_lookahead + tw_rand_exponential(lp->rng, arrival_time);
-    kickoff_time = g_tw_lookahead + tw_rand_exponential(lp->rng, MEAN_INTERVAL);
+//    kickoff_time = g_tw_lookahead + tw_rand_exponential(lp->rng, MEAN_INTERVAL);
+    kickoff_time = 1.1 * g_tw_lookahead + tw_rand_integer(lp->rng, 0, arrival_time);
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
@@ -253,6 +259,9 @@ static void handle_kickoff_rev_event(
 {
     (void)b;
     (void)m;
+    if(m->incremented_flag)
+
+        return;
 	ns->msg_sent_count--;
 	model_net_event_rc2(lp, &m->event_rc);
     tw_rand_reverse_unif(lp->rng);
@@ -265,6 +274,14 @@ static void handle_kickoff_event(
 {
     (void)b;
     (void)m;
+
+    if(ns->msg_sent_count >= num_msgs)
+    {
+        m->incremented_flag = 1;
+        return;
+    }
+    m->incremented_flag = 0;
+
 //    char* anno;
     char anno[MAX_NAME_LENGTH];
     tw_lpid local_dest = -1, global_dest = -1;
@@ -432,8 +449,6 @@ int main(
     int num_nets;
     int *net_ids;
 
-    lp_io_handle handle;
-
     tw_opt_add(app_opt);
 
     tw_init(&argc, &argv);
@@ -473,7 +488,7 @@ int main(
         MPI_Finalize();
         return 0;
     }
-    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "server",
+    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "nw-lp",
             NULL, 1);
     configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers_per_grp);
     
@@ -481,118 +496,24 @@ int main(
     num_nodes = num_groups * num_routers_per_grp * (num_routers_per_grp / 2);
     num_nodes_per_grp = num_routers_per_grp * (num_routers_per_grp / 2);
 
-    num_nodes = codes_mapping_get_lp_count("MODELNET_GRP", 0, "server", NULL, 1);
+    num_nodes = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp", NULL, 1);
 
     printf("num_nodes:%d \n",num_nodes);
 
-    if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
+    if(lp_io_dir[0])
     {
-        return(-1);
+        do_lp_io = 1;
+        int flags = lp_io_use_suffix ? LP_IO_UNIQ_SUFFIX : 0;
+        int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_CODES);
+        assert(ret == 0 || !"lp_io_prepare failure");
     }
-    modelnet_stats_dir = lp_io_handle_to_dir(handle);
-
     tw_run();
-
+    if (do_lp_io){
+        int ret = lp_io_flush(io_handle, MPI_COMM_CODES);
+        assert(ret == 0 || !"lp_io_flush failure");
+    }
     model_net_report_stats(net_id);
-
-
-#if PARAMS_LOG
-    if(!g_tw_mynode)
-    {
-	char temp_filename[1024];
-	char temp_filename_header[1024];
-	sprintf(temp_filename,"%s/sim_log.txt",modelnet_stats_dir);
-	sprintf(temp_filename_header,"%s/sim_log_header.txt",modelnet_stats_dir);
-	FILE *fattree_results_log=fopen(temp_filename, "a");
-	FILE *fattree_results_log_header=fopen(temp_filename_header, "a");
-	if(fattree_results_log == NULL)
-		printf("\n Failed to open results log file %s in synthetic-fattree\n",temp_filename);
-	if(fattree_results_log_header == NULL)
-		printf("\n Failed to open results log header file %s in synthetic-fattree\n",temp_filename_header);
-	printf("Printing Simulation Parameters/Results Log File\n");
-	fprintf(fattree_results_log_header,", <Workload>, <Load>, <Mean Interval>, ");
-	fprintf(fattree_results_log,"%11.3d, %5.2f, %15.2f, ",traffic, load, MEAN_INTERVAL);
-	fclose(fattree_results_log_header);
-	fclose(fattree_results_log);
-    }
-#endif
-
-    if(lp_io_flush(handle, MPI_COMM_WORLD) < 0)
-    {
-        return(-1);
-    }
-
     tw_end();
-
-#if PARAMS_LOG
-    if(!g_tw_mynode)
-    {
-	char temp_filename[1024];
-	char temp_filename_header[1024];
-	sprintf(temp_filename,"%s/sim_log.txt",modelnet_stats_dir);
-	sprintf(temp_filename_header,"%s/sim_log_header.txt",modelnet_stats_dir);
-	FILE *fattree_results_log=fopen(temp_filename, "a");
-	FILE *fattree_results_log_header=fopen(temp_filename_header, "a");
-	FILE *fattree_ross_csv_log=fopen("ross.csv", "r");
-	if(fattree_results_log == NULL)
-		printf("\n Failed to open results log file %s in synthetic-fattree\n",temp_filename);
-	if(fattree_results_log_header == NULL)
-		printf("\n Failed to open results log header file %s in synthetic-fattree\n",temp_filename_header);
-	if(fattree_ross_csv_log == NULL)
-		tw_error(TW_LOC, "\n Failed to open ross.csv log file \n");
-	printf("Reading ROSS specific data from ross.csv and Printing to Fat Tree Log File\n");
-	
-	char * line = NULL;
-	size_t len = 0;
-	ssize_t read = getline(&line, &len, fattree_ross_csv_log);
-	while (read != -1) 
-	{
-		read = getline(&line, &len, fattree_ross_csv_log);
-	}
-
-	char * pch;
-	pch = strtok (line,",");
-	int idx = 0;
-        int gvt_computations;
-	long long total_events, rollbacks, net_events;
-        float running_time, efficiency, event_rate;
-	while (pch != NULL)
-	{
-		pch = strtok (NULL, ",");
-		switch(idx)
-		{
-			case 4:
-				total_events = atoll(pch);
-				break;
-			case 13:
-				rollbacks = atoll(pch);
-				break;
-			case 17:
-				gvt_computations = atoi(pch);
-				break;
-			case 18:
-				net_events = atoll(pch);
-				break;
-			case 3:
-				running_time = atof(pch);
-				break;
-			case 8:
-				efficiency = atof(pch);
-				break;
-			case 19:
-				event_rate = atof(pch);
-				break;
-		}
-		idx++;
-	}
-	fprintf(fattree_results_log_header,"<Total Events>, <Rollbacks>, <GVT Computations>, <Net Events>, <Running Time>, <Efficiency>, <Event Rate>");
-	fprintf(fattree_results_log,"%14llu, %11llu, %18d, %12llu, %14.4f, %12.2f, %12.2f\n",total_events,rollbacks,gvt_computations,net_events,running_time,efficiency,event_rate);
-	fclose(fattree_results_log);
-	fclose(fattree_results_log_header);
-	fclose(fattree_ross_csv_log);
-    }
-#endif
-
     return 0;
 }
 

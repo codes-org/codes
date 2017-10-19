@@ -69,8 +69,6 @@ FILE * MMS_input_file=NULL;
 int csf_ratio = 1;						//Constant selected to balance the ratio between minimal and indirect routes
 int num_indirect_routes = 4;			//Number of indirect (Valiant) routes to use in Adaptive routing methods
 float adaptive_threshold = 0.1;
-float pe_throughput_percent = 0.0;
-float pe_throughput = 0.0;
 
 int *X;
 int *X_prime;
@@ -81,6 +79,8 @@ static double maxd(double a, double b) { return a < b ? b : a; }
 
 /* minimal and non-minimal packet counts for adaptive routing*/
 static int minimal_count=0, nonmin_count=0;
+
+long slimfly_packet_gen = 0, slimfly_packet_fin = 0;
 
 typedef struct slimfly_param slimfly_param;
 /* annotation-specific parameters (unannotated entry occurs at the
@@ -174,6 +174,9 @@ struct terminal_state
 {
     uint64_t packet_counter;
 
+    int packet_gen;
+    int packet_fin;
+
     int router_id;
     int terminal_id;
 
@@ -200,8 +203,8 @@ struct terminal_state
     uint64_t rank_tbl_pop;
 
     tw_stime   total_time;
-    long total_msg_size;
-    long total_hops;
+    uint64_t total_msg_size;
+    double total_hops;
     long finished_msgs;
     long finished_chunks;
     long finished_packets;
@@ -593,8 +596,7 @@ static void slimfly_report_stats()
     long long total_finished_msgs, final_msg_sz;
     tw_stime avg_time, max_time;
     int total_minimal_packets, total_nonmin_packets;
-    float throughput_avg = 0.0;
-    float throughput_avg2 = 0.0;
+    long total_gen, total_fin;
 
     MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -604,8 +606,8 @@ static void slimfly_report_stats()
     MPI_Reduce( &slimfly_total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce( &slimfly_max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 
-    MPI_Reduce(&pe_throughput_percent, &throughput_avg, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&pe_throughput, &throughput_avg2, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce( &slimfly_packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+    MPI_Reduce( &slimfly_packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
 
     MPI_Reduce(&minimal_count, &total_minimal_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -613,8 +615,9 @@ static void slimfly_report_stats()
     /* print statistics */
     if(!g_tw_mynode)
     {
-        printf(" Average number of hops traversed %f average chunk latency %lf us maximum chunk latency %lf us avg message size %lf bytes finished messages %lld \n", (float)avg_hops/total_finished_chunks, avg_time/(total_finished_chunks*1000), max_time/1000, (float)final_msg_sz/total_finished_msgs, total_finished_msgs);
-
+        printf(" Average number of hops traversed %f average chunk latency %lf us maximum chunk latency %lf us avg message size %lf bytes finished messages %lld finished chunks %lld \n",
+                (float)avg_hops/total_finished_chunks, avg_time/(total_finished_chunks*1000), max_time/1000, (float)final_msg_sz/total_finished_msgs, total_finished_msgs, total_finished_chunks);
+        printf(" Total packets generated %ld finished %ld \n", total_gen, total_fin);
     }
 
 #if ROUTER_OCCUPANCY_LOG
@@ -738,6 +741,8 @@ static void slimfly_report_stats()
 void slim_terminal_init( terminal_state * s,
         tw_lp * lp )
 {
+    s->packet_gen = 0;
+    s->packet_fin = 0;
 
     int i;
     char anno[MAX_NAME_LENGTH];
@@ -1170,6 +1175,9 @@ void slim_router_credit_send(router_state * s, slim_terminal_message * msg, tw_l
 
 void slim_packet_generate_rc(terminal_state * s, tw_bf * bf, slim_terminal_message * msg, tw_lp * lp)
 {
+    s->packet_gen--;
+    slimfly_packet_gen--;
+
     tw_rand_reverse_unif(lp->rng);
 
     int num_chunks = msg->packet_size/s->params->chunk_size;
@@ -1209,6 +1217,9 @@ void slim_packet_generate_rc(terminal_state * s, tw_bf * bf, slim_terminal_messa
 /* generates packet at the current slimfly compute node */
 void slim_packet_generate(terminal_state * s, tw_bf * bf, slim_terminal_message * msg, tw_lp * lp)
 {
+    slimfly_packet_gen++;
+    s->packet_gen++;
+
     tw_stime ts, nic_ts;
 
     assert(lp->gid != msg->dest_terminal_id);
@@ -1217,13 +1228,15 @@ void slim_packet_generate(terminal_state * s, tw_bf * bf, slim_terminal_message 
     uint64_t i;
     int total_event_size;
     uint64_t num_chunks = msg->packet_size / p->chunk_size;
-    if (msg->packet_size % s->params->chunk_size)
+    double cn_delay = s->params->cn_delay;
+
+    if (msg->packet_size < s->params->chunk_size)
         num_chunks++;
 
-    if(!num_chunks)
-        num_chunks = 1;
+    if (msg->packet_size < s->params->chunk_size)
+        cn_delay = bytes_to_ns(msg->packet_size % s->params->chunk_size, s->params->cn_bandwidth);
 
-    nic_ts = g_tw_lookahead + (s->params->cn_delay * num_chunks) + tw_rand_unif(lp->rng);
+    nic_ts = g_tw_lookahead + (num_chunks * cn_delay) + tw_rand_unif(lp->rng);
 
     msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
     msg->my_N_hop = 0;
@@ -1232,8 +1245,8 @@ void slim_packet_generate(terminal_state * s, tw_bf * bf, slim_terminal_message 
     msg->intm_group_id = -1;
     msg->intm_router_id = -1;
 
-    if(msg->packet_ID == TRACK)
-        printf("\x1B[34m-->Packet generated at terminal %d sending to router %d \x1b[0m\n", (int)lp->gid, s->router_id);
+    //if(msg->packet_ID == TRACK)
+    //    printf("%llu \x1B[34m-->Packet generated at terminal %d sending to router %d \x1b[0m\n", LLU(tw_now(lp)),(int)lp->gid, s->router_id);
 
     for(i = 0; i < num_chunks; i++)
     {
@@ -1502,6 +1515,12 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
 
 void slim_packet_arrive_rc(terminal_state * s, tw_bf * bf, slim_terminal_message * msg, tw_lp * lp)
 {
+    if(bf->c31)
+    {
+	    s->packet_fin--;
+	    slimfly_packet_fin--;
+    }
+
     tw_rand_reverse_unif(lp->rng);
     if(msg->path_type == MINIMAL)
         minimal_count--;
@@ -1646,6 +1665,13 @@ void slim_packet_arrive(terminal_state * s, tw_bf * bf, slim_terminal_message * 
 
     if(!num_chunks)
         num_chunks = 1;
+
+    if(msg->chunk_id == num_chunks - 1)
+    {
+        bf->c31 = 1;
+        s->packet_fin++;
+        slimfly_packet_fin++;
+    }
 
     if(msg->path_type == MINIMAL)
         minimal_count++;
@@ -1845,17 +1871,17 @@ void slimfly_terminal_final( terminal_state * s,
 
     int written = 0;
     if(!s->terminal_id)
-        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Total Packet Latency> <# Flits/Packets finished> <Avg hops> <Busy Time>");
+        written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Total Packet Latency> <# Flits/Packets finished> <Packets Generated> <Avg hops> <Busy Time>\n");
 
-    written += sprintf(s->output_buf + written, "%llu %u %ld %lf %ld %lf %lf\n",
-            LLU(lp->gid), s->terminal_id, s->total_msg_size, s->total_time,
-            s->finished_packets, (double)s->total_hops/s->finished_chunks,
+    written += sprintf(s->output_buf + written, "%llu %u %llu %lf %ld %ld %lf %lf\n",
+            LLU(lp->gid), s->terminal_id, LLU(s->total_msg_size), s->total_time,
+            s->finished_packets, s->packet_gen, (double)s->total_hops/s->finished_chunks,
             s->busy_time);
 
     lp_io_write(lp->gid, "slimfly-msg-stats", written, s->output_buf);
 
-    if(s->terminal_msgs[0] != NULL)
-      printf("[%llu] leftover terminal messages \n", lp->gid);
+ //   if(s->terminal_msgs[0] != NULL)
+ //     printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
 
 
     qhash_finalize(s->rank_tbl);
@@ -1875,12 +1901,12 @@ void slimfly_router_final(router_state * s,
     for(i = 0; i < s->params->radix; i++) {
         for(j = 0; j < s->params->num_vcs; j++) {
             if(s->queued_msgs[i][j] != NULL) {
-              printf("[%llu] leftover queued messages %d %d %d\n", lp->gid, i, j,
+              printf("[%llu] leftover queued messages %d %d %d\n", LLU(lp->gid), i, j,
                      s->vc_occupancy[i][j]);
             }
-            if(s->pending_msgs[i][j] != NULL) {
-              printf("[%llu] lefover pending messages %d %d\n", lp->gid, i, j);
-            }
+//            if(s->pending_msgs[i][j] != NULL) {
+//              printf("[%llu] lefover pending messages %d %d\n", LLU(lp->gid), i, j);
+//            }
         }
     }
     rc_stack_destroy(s->st);
@@ -1902,7 +1928,7 @@ void slimfly_router_final(router_state * s,
             LLU(lp->gid),
             s->group_id,
             s->router_id);
-    for(int d = 0; d < s->params->num_local_channels + s->params->num_global_channels; d++) 
+    for(int d = 0; d < s->params->radix; d++) 
         written += sprintf(s->output_buf + written, " %lf", s->busy_time[d]);
 
     lp_io_write(lp->gid, "slimfly-router-stats", written, s->output_buf);
@@ -1919,7 +1945,7 @@ void slimfly_router_final(router_state * s,
             s->router_id /s-> params->num_routers,
             s->router_id % s->params->num_routers);
 
-    for(int d = 0; d < s->params->num_local_channels + s->params->num_global_channels; d++) 
+    for(int d = 0; d < s->params->radix; d++) 
         written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
 
     assert(written < 4096);
@@ -3170,7 +3196,7 @@ void slim_router_buf_update(router_state * s, tw_bf * bf, slim_terminal_message 
     int output_chan = msg->output_chan;
     s->vc_occupancy[indx][output_chan] -= s->params->chunk_size;
 
-    if(s->last_buf_full[indx])
+    if(s->last_buf_full[indx][output_chan] > 0.0)
     {
         bf->c3 = 1;
         msg->saved_rcv_time = s->busy_time[indx];
