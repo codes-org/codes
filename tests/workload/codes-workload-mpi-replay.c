@@ -492,6 +492,9 @@ static int do_write(struct codes_workload_op replay_op, int rank, long long int 
 
         if (ret < 0)
         {
+            if(replay_op.op_type == CODES_WK_WRITE)
+                perror("pwrite");
+
             fprintf(stderr, "Rank %d failure on operation %lld [%s]\n",
                     rank, op_number, op_name);
             return -1;
