@@ -590,6 +590,8 @@ static int darshan_io_op_compare(
 {
     struct darshan_io_op *a = (struct darshan_io_op *)p1;
     struct darshan_io_op *b = (struct darshan_io_op *)p2;
+    
+    assert(a->start_time != b->start_time);
 
     if (a->start_time < b->start_time)
         return -1;
@@ -633,6 +635,8 @@ static void generate_mpiio_file_events(
                       mfile->fcounters[MPIIO_F_READ_TIME] - mfile->fcounters[MPIIO_F_WRITE_TIME] -
                       mfile->fcounters[MPIIO_F_META_TIME];
     }
+    if(total_delay < 0)
+        total_delay = 0;
 
     /* how many io operations on this file per rank (rounded up) ? */
     int all_io_ops = mfile->counters[MPIIO_INDEP_READS] + mfile->counters[MPIIO_INDEP_WRITES] + mfile->counters[MPIIO_COLL_READS] + mfile->counters[MPIIO_COLL_WRITES];
@@ -713,6 +717,8 @@ static void generate_psx_file_events(
                       file->fcounters[POSIX_F_READ_TIME] - file->fcounters[POSIX_F_WRITE_TIME] -
                       file->fcounters[POSIX_F_META_TIME];
     }
+    if(total_delay < 0)
+        total_delay = 0;
 
     /* how many io operations on this file per rank (rounded up) ? */
     if(file->base_rec.rank == -1)
@@ -728,10 +734,17 @@ static void generate_psx_file_events(
     psx_calc_io_delays(file, num_io_ops, total_delay,
         &first_io_delay, &close_delay, &inter_io_delay);
 
+    assert(first_io_delay >= 0);
+    assert(close_delay >= 0);
+    assert(meta_op_time >= 0);
+    assert(inter_io_delay >= 0);
+
     /* calculate average meta op time, divide among open and close for now */
     meta_op_time = file->fcounters[POSIX_F_META_TIME] / 2.0;
     if(file->base_rec.rank == -1)
         meta_op_time /= total_rank_cnt;
+
+    assert(meta_op_time >= 0);
 
     /* set the create flag if the file was written to */
     if (file->counters[POSIX_BYTES_WRITTEN])
@@ -968,12 +981,15 @@ static double generate_psx_io_events(
             next_io_op.start_time = cur_time;
             next_io_op.codes_op.start_time = cur_time;
 
+            assert(wr_bw >= 0);
+
             /* set the end time based on observed bandwidth and io size */
             if (wr_bw == 0.0)
                 io_op_time = 0.0;
             else
                 io_op_time = (io_sz / wr_bw);
 
+            assert(io_op_time >= 0);
             /* update time */
             cur_time += io_op_time;
             next_io_op.end_time = cur_time;
@@ -1010,6 +1026,7 @@ static double generate_psx_io_events(
             else
                 io_op_time = (io_sz / rd_bw);
 
+            assert(io_op_time >= 0);
             /* update time */
             cur_time += io_op_time;
             next_io_op.end_time = cur_time;
@@ -1221,6 +1238,8 @@ static void mpiio_calc_io_delays(
 
     /* evenly distribute I/O operation delay */
     *inter_io_delay = (total_delay - *first_io_delay - *close_delay)/num_io_ops;
+    if(*inter_io_delay < 0)
+        *inter_io_delay = 0;
 
     return;
 }
@@ -1264,6 +1283,8 @@ static void psx_calc_io_delays(
 
     /* evenly distribute I/O operation delay */
     *inter_io_delay = (total_delay - *first_io_delay - *close_delay)/num_io_ops;
+    if(*inter_io_delay < 0)
+        *inter_io_delay = 0;
 
     return;
 }
