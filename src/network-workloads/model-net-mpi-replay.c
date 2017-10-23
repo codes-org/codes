@@ -28,8 +28,8 @@
 #define lprintf(_fmt, ...) \
         do {if (CS_LP_DBG) printf(_fmt, __VA_ARGS__);} while (0)
 #define MAX_STATS 65536
-#define PAYLOAD_SZ 8
-
+//#define PAYLOAD_SZ 8
+static int PAYLOAD_SZ = 8;
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
 
@@ -2580,7 +2580,8 @@ const tw_optdef app_opt [] =
     TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
 	TWOPT_CHAR("offset_file", offset_file, "offset file name"),
     TWOPT_UINT("msgs_per_tick", msgs_per_tick, "Number of messages for each node to transfer between each simulated tick (Default 0)"),
-    TWOPT_STIME("tick_interval",tick_interval, "Length of a tick in nanoseconds (Default 0)"),
+    TWOPT_STIME("tick_interval", tick_interval, "Length of a tick in nanoseconds (Default 0)"),
+    TWOPT_STIME("payload_size", PAYLOAD_SZ, "size, in bytes, of the messages transfered in the background traffic (Default 8B)"),
 #ifdef ENABLE_CORTEX_PYTHON
 	TWOPT_CHAR("cortex-file", cortex_file, "Python file (without .py) containing the CoRtEx translation class"),
 	TWOPT_CHAR("cortex-class", cortex_class, "Python class implementing the CoRtEx translator"),
