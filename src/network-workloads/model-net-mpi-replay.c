@@ -110,7 +110,7 @@ long long num_bytes_recvd=0;
 long long num_syn_bytes_sent = 0;
 long long num_syn_bytes_recvd = 0;
 
-static int msgs_per_tick = 0;
+static unsigned long msgs_per_tick = 0;
 static double tick_interval = 0;
 
 double max_time = 0,  max_comm_time = 0, max_wait_time = 0, max_send_time = 0, max_recv_time = 0;
@@ -2387,7 +2387,7 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
     int written = 0;
     int written2 = 0;
     if(!s->nw_id){
-        written = sprintf(s->output_buf, "# Format <LP ID> <MPI Rank ID> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time> <Job ID>");
+        written = sprintf(s->output_buf, "# Format <LP ID> <MPI Rank ID> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <End Time> <Send time> <Comm. time> <Compute time> <Job ID>");
         written2 = sprintf(s->output_buf2, "# Format <LP ID> <Terminal ID> <Interval> <Num Sends> <Num Recvs> <Num Collectives> <Num delays> <Num Wait_Alls> <Num Waits> <Send Time> <Wait Time> <Comm Time> <Compute Time> <Total Bytes Sent> <Total Bytes Received> <Min Bytes Sent> <Max Bytes Sent>\n");
         written2 += sprintf(s->output_buf2 + written2, "sampling-interval %lf sampling-end-time %lf\n", sampling_interval, sampling_end_time);
     }
@@ -2446,8 +2446,8 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
             printf("\n LP %llu total un_irecvs %d/%d total un_isends %d/%d unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf",
 			    LLU(lp->gid), total_count_irecv, total_irecvs, total_isends, total_count_isend, count_irecv, count_isend, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->send_time, s->wait_time);
         }
-        written += sprintf(s->output_buf + written, "\n %llu %llu %ld %ld %ld %ld %lf %lf %lf %d", LLU(lp->gid), LLU(s->nw_id), s->num_sends, s->num_recvs, s->num_bytes_sent,
-                s->num_bytes_recvd, s->send_time, s->elapsed_time - s->compute_time, s->compute_time, s->app_id);
+        written += sprintf(s->output_buf + written, "\n %llu %llu %ld %ld %ld %ld %llu %lf %lf %lf %d", LLU(lp->gid), LLU(s->nw_id), s->num_sends, s->num_recvs, s->num_bytes_sent,
+                s->num_bytes_recvd, LLU(tw_now(lp)), s->send_time, s->elapsed_time - s->compute_time, s->compute_time, s->app_id);
         lp_io_write(lp->gid, (char*)"mpi-replay-stats", written, s->output_buf);
 
 		if(s->elapsed_time - s->compute_time > max_comm_time)
