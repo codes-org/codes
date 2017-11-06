@@ -2115,7 +2115,6 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
             model_net_event_rc2(lp, &m->event_rc);
 			if(m->op_type == CODES_WK_ISEND)
 				codes_issue_next_event_rc(lp);
-			s->num_sends--;
             s->num_bytes_sent += m->rc.saved_num_bytes;
 			num_bytes_sent -= m->rc.saved_num_bytes;
 		}
