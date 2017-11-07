@@ -1986,6 +1986,9 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
     rc_stack_gc(lp, s->processed_ops);
     rc_stack_gc(lp, s->processed_wait_op);
 
+    // There is no END operation for background traffic so update elapsed time for every operation
+    s->elapsed_time = tw_now(lp) - s->start_time;
+
     switch(m->msg_type)
 	{
 		case MPI_SEND_ARRIVED:
@@ -2445,8 +2448,8 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
             printf("\n LP %llu total un_irecvs %d/%d total un_isends %d/%d unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf",
 			    LLU(lp->gid), total_count_irecv, total_irecvs, total_isends, total_count_isend, count_irecv, count_isend, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->send_time, s->wait_time);
         }
-        written += sprintf(s->output_buf + written, "\n %llu %llu %ld %ld %ld %ld %llu %lf %lf %lf %d", LLU(lp->gid), LLU(s->nw_id), s->num_sends, s->num_recvs, s->num_bytes_sent,
-                s->num_bytes_recvd, LLU(tw_now(lp)), s->send_time, s->elapsed_time - s->compute_time, s->compute_time, s->app_id);
+        written += sprintf(s->output_buf + written, "\n %llu %llu %ld %ld %ld %ld %lf %lf %lf %lf %d", LLU(lp->gid), LLU(s->nw_id), s->num_sends, s->num_recvs, s->num_bytes_sent,
+                s->num_bytes_recvd, s->elapsed_time, s->send_time, s->elapsed_time - s->compute_time, s->compute_time, s->app_id);
         lp_io_write(lp->gid, (char*)"mpi-replay-stats", written, s->output_buf);
 
 		if(s->elapsed_time - s->compute_time > max_comm_time)
