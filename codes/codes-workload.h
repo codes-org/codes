@@ -57,7 +57,6 @@ struct iolang_params
 struct darshan_params
 {
     char log_file_path[MAX_NAME_LENGTH_WKLD];
-    int64_t aggregator_cnt;
     int app_cnt;
 };
 
@@ -147,7 +146,24 @@ enum codes_workload_op_type
 
     /* for workloads that have events not yet handled
      * (eg the workload language) */
-    CODES_WK_IGNORE
+    CODES_WK_IGNORE, 
+
+    /* extended IO workload operations: MPI */
+
+    /* open */
+    CODES_WK_MPI_OPEN,
+    /* close */
+    CODES_WK_MPI_CLOSE,
+    /* write */
+    CODES_WK_MPI_WRITE,
+    /* read */
+    CODES_WK_MPI_READ,
+    /* collective open */
+    CODES_WK_MPI_COLL_OPEN,
+    /* collective_write */
+    CODES_WK_MPI_COLL_WRITE,
+    /* collective_read */
+    CODES_WK_MPI_COLL_READ,
 };
 
 /* I/O operation paramaters */
@@ -276,7 +292,7 @@ int codes_workload_load(
         const char* type,
         const char* params,
         int app_id,
-        int rank, int *total_time);
+        int rank);
 
 /* Retrieves the next I/O operation to execute.  the wkld_id is the
  * identifier returned by the init() function.  The op argument is a pointer
@@ -326,7 +342,7 @@ struct codes_workload_method
     void * (*codes_workload_read_config) (
             ConfigHandle *handle, char const * section_name,
             char const * annotation, int num_ranks);
-    int (*codes_workload_load)(const char* params, int app_id, int rank, int *total_time);
+    int (*codes_workload_load)(const char* params, int app_id, int rank);
     void (*codes_workload_get_next)(int app_id, int rank, struct codes_workload_op *op);
     void (*codes_workload_get_next_rc2)(int app_id, int rank);
     int (*codes_workload_get_rank_cnt)(const char* params, int app_id);

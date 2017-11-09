@@ -160,7 +160,7 @@ int codes_workload_load(
         const char* type,
         const char* params,
         int app_id,
-        int rank, int *total_time)
+        int rank)
 {
     init_workload_methods();
 
@@ -173,7 +173,7 @@ int codes_workload_load(
         if(strcmp(method_array[i]->method_name, type) == 0)
         {
             /* load appropriate workload generator */
-            ret = method_array[i]->codes_workload_load(params, app_id, rank, total_time);
+            ret = method_array[i]->codes_workload_load(params, app_id, rank);
             if(ret < 0)
             {
                 return(-1);
@@ -338,6 +338,8 @@ void codes_workload_print_op(
         int app_id,
         int rank)
 {
+    char *name;
+
     switch(op->op_type){
         case CODES_WK_END:
             fprintf(f, "op: app:%d rank:%d type:end\n", app_id, rank);
@@ -351,23 +353,41 @@ void codes_workload_print_op(
                     app_id, rank, op->u.barrier.count, op->u.barrier.root);
             break;
         case CODES_WK_OPEN:
-            fprintf(f, "op: app:%d rank:%d type:open file_id:%llu flag:%d\n",
-                    app_id, rank, LLU(op->u.open.file_id), op->u.open.create_flag);
+        case CODES_WK_MPI_OPEN:
+        case CODES_WK_MPI_COLL_OPEN:
+            if(op->op_type == CODES_WK_OPEN) name = "open";
+            if(op->op_type == CODES_WK_MPI_OPEN) name = "mpi_open";
+            if(op->op_type == CODES_WK_MPI_COLL_OPEN) name = "mpi_coll_open";
+            fprintf(f, "op: app:%d rank:%d type:%s file_id:%llu flag:%d\n",
+                    app_id, rank, name, LLU(op->u.open.file_id), op->u.open.create_flag);
             break;
         case CODES_WK_CLOSE:
-            fprintf(f, "op: app:%d rank:%d type:close file_id:%llu\n",
-                    app_id, rank, LLU(op->u.close.file_id));
+        case CODES_WK_MPI_CLOSE:
+            if(op->op_type == CODES_WK_CLOSE) name = "close";
+            if(op->op_type == CODES_WK_MPI_CLOSE) name = "mpi_close";
+            fprintf(f, "op: app:%d rank:%d type:%s file_id:%llu\n",
+                    app_id, rank, name, LLU(op->u.close.file_id));
             break;
         case CODES_WK_WRITE:
-            fprintf(f, "op: app:%d rank:%d type:write "
+        case CODES_WK_MPI_WRITE:
+        case CODES_WK_MPI_COLL_WRITE:
+            if(op->op_type == CODES_WK_WRITE) name = "write";
+            if(op->op_type == CODES_WK_MPI_WRITE) name = "mpi_write";
+            if(op->op_type == CODES_WK_MPI_COLL_WRITE) name = "mpi_coll_write";
+            fprintf(f, "op: app:%d rank:%d type:%s "
                        "file_id:%llu off:%llu size:%llu\n",
-                    app_id, rank, LLU(op->u.write.file_id), LLU(op->u.write.offset),
+                    app_id, rank, name, LLU(op->u.write.file_id), LLU(op->u.write.offset),
                     LLU(op->u.write.size));
             break;
         case CODES_WK_READ:
-            fprintf(f, "op: app:%d rank:%d type:read "
+        case CODES_WK_MPI_READ:
+        case CODES_WK_MPI_COLL_READ:
+            if(op->op_type == CODES_WK_READ) name = "read";
+            if(op->op_type == CODES_WK_MPI_READ) name = "mpi_read";
+            if(op->op_type == CODES_WK_MPI_COLL_READ) name = "mpi_coll_read";
+            fprintf(f, "op: app:%d rank:%d type:%s "
                        "file_id:%llu off:%llu size:%llu\n",
-                    app_id, rank, LLU(op->u.read.file_id), LLU(op->u.read.offset),
+                    app_id, rank, name, LLU(op->u.read.file_id), LLU(op->u.read.offset),
                     LLU(op->u.read.size));
             break;
         case CODES_WK_SEND:
