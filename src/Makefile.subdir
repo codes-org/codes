@@ -157,6 +157,7 @@ src_libcodes_la_SOURCES =  \
 	src/networks/model-net/express-mesh.C \
 	src/networks/model-net/dragonfly.c \
 	src/networks/model-net/dragonfly-custom.C \
+	src/networks/model-net/dragonfly-plus.C \
 	src/networks/model-net/slimfly.c \
 	src/networks/model-net/fattree.c \
 	src/networks/model-net/loggp.c \
@@ -164,7 +165,7 @@ src_libcodes_la_SOURCES =  \
 	src/networks/model-net/model-net-lp.c \
 	src/networks/model-net/model-net-sched.c \
 	src/networks/model-net/model-net-sched-impl.h \
-	src/networks/model-net/model-net-sched-impl.c 
+	src/networks/model-net/model-net-sched-impl.c
 
 src_libcodes_mpi_replay_la_SOURCES = \
   src/network-workloads/model-net-mpi-replay.c
@@ -194,14 +195,14 @@ bin_PROGRAMS += src/network-workloads/model-net-synthetic-fattree
 src_workload_codes_workload_dump_SOURCES = \
  src/workload/codes-workload-dump.c
 
-src_network_workloads_model_net_dumpi_traces_dump_SOURCES = src/network-workloads/model-net-dumpi-traces-dump.c 
+src_network_workloads_model_net_dumpi_traces_dump_SOURCES = src/network-workloads/model-net-dumpi-traces-dump.c
 src_network_workloads_model_net_synthetic_slimfly_SOURCES = src/network-workloads/model-net-synthetic-slimfly.c
 src_network_workloads_model_net_mpi_replay_SOURCES = \
 	src/network-workloads/model-net-mpi-replay.c \
   src/network-workloads/model-net-mpi-replay-main.c
 src_network_workloads_model_net_mpi_replay_CFLAGS = $(AM_CFLAGS)
-src_network_workloads_model_net_synthetic_SOURCES = src/network-workloads/model-net-synthetic.c 
-src_network_workloads_model_net_synthetic_custom_dfly_SOURCES = src/network-workloads/model-net-synthetic-custom-dfly.c 
+src_network_workloads_model_net_synthetic_SOURCES = src/network-workloads/model-net-synthetic.c
+src_network_workloads_model_net_synthetic_custom_dfly_SOURCES = src/network-workloads/model-net-synthetic-custom-dfly.c
 src_networks_model_net_topology_test_SOURCES = src/networks/model-net/topology-test.c
 
 #bin_PROGRAMS += src/network-workload/codes-nw-test
