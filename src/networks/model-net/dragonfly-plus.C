@@ -26,7 +26,7 @@
 #include <cortex/topology.h>
 #endif
 
-#define DUMP_CONNECTIONS 0
+#define DUMP_CONNECTIONS 1
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
 
@@ -44,7 +44,7 @@
 
 using namespace std;
 struct Link {
-  int offset, type;
+  int offset;
 };
 struct bLink {
   int offset, dest;
@@ -62,7 +62,7 @@ static vector< map< int, vector<bLink> > > interGroupLinks;
 static vector< vector< vector<int> > > connectionList;
 
 struct IntraGroupLink {
-  int src, dest, type;
+  int src, dest;
 };
 
 struct InterGroupLink {
@@ -86,11 +86,11 @@ static double maxd(double a, double b) { return a < b ? b : a; }
 static int minimal_count=0, nonmin_count=0;
 static int num_routers_per_mgrp = 0;
 
-typedef struct dragonfly_param dragonfly_param;
+typedef struct dragonfly_plus_param dragonfly_plus_param;
 /* annotation-specific parameters (unannotated entry occurs at the
  * last index) */
 static uint64_t                  num_params = 0;
-static dragonfly_param         * all_params = NULL;
+static dragonfly_plus_param         * all_params = NULL;
 static const config_anno_map_t * anno_map   = NULL;
 
 /* global variables for codes mapping */
@@ -140,7 +140,7 @@ static void delete_terminal_plus_message_list(void *thisO) {
     free(toDel);
 }
 
-struct dragonfly_param
+struct dragonfly_plus_param
 {
     // configuration parameters
     int num_routers; /*Number of routers in a group*/
@@ -155,10 +155,18 @@ struct dragonfly_param
     // derived parameters
     int num_cn;
     int intra_grp_radix;
+
     int num_col_chans;
     int num_row_chans;
     int num_router_rows;
     int num_router_cols;
+
+    //dfp params start
+    int num_level_chans; //number of channels between levels of the group(?)
+    int num_router_spine; //number of spine routers (top level)
+    int num_router_leaf; //number of leaf routers (bottom level)
+    //dfp params end
+
     int num_groups;
     int radix;
     int total_routers;
@@ -239,7 +247,7 @@ struct terminal_state
    int terminal_length;
 
    const char * anno;
-   const dragonfly_param *params;
+   const dragonfly_plus_param *params;
 
    struct qhash_table *rank_tbl;
    uint64_t rank_tbl_pop;
@@ -315,12 +323,21 @@ enum LINK_TYPE
     GREEN,
     BLACK,
 };
+
+enum router_type
+{
+    SPINE = 1,
+    LEAF
+};
+
 struct router_state
 {
    unsigned int router_id;
    int group_id;
    int op_arr_size;
    int max_arr_size;
+   
+   router_type dfp_router_type; //Enum to specify whether this router is a spine or a leaf
 
    int* global_channel;
 
@@ -345,7 +362,7 @@ struct router_state
    int64_t * link_traffic_sample;
 
    const char * anno;
-   const dragonfly_param *params;
+   const dragonfly_plus_param *params;
 
    int* prev_hist_num;
    int* cur_hist_num;
@@ -491,7 +508,7 @@ static terminal_plus_message_list* return_tail(
     return tail;
 }
 
-static void dragonfly_read_config(const char * anno, dragonfly_param *params){
+static void dragonfly_read_config(const char * anno, dragonfly_plus_param *params){
     /*Adding init for router magic number*/
     uint32_t h1 = 0, h2 = 0;
     bj_hashlittle2(LP_METHOD_NM_ROUT, strlen(LP_METHOD_NM_ROUT), &h1, &h2);
@@ -501,7 +518,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     terminal_magic_num = h1 + h2;
 
     // shorthand
-    dragonfly_param *p = params;
+    dragonfly_plus_param *p = params;
     int myRank;
     MPI_Comm_rank(MPI_COMM_CODES, &myRank);
 
@@ -590,7 +607,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     rc = configuration_get_value_int(&config, "PARAMS", "num_col_chans", anno, &p->num_col_chans);
     if(rc) {
 //        printf("\n Number of links connecting chassis not specified, setting to default value 3 ");
-        p->num_col_chans = 3;
+        p->num_col_chans = 1;
     }
     rc = configuration_get_value_int(&config, "PARAMS", "num_row_chans", anno, &p->num_row_chans);
     if(rc) {
@@ -600,15 +617,28 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     rc = configuration_get_value_int(&config, "PARAMS", "num_router_rows", anno, &p->num_router_rows);
     if(rc) {
         printf("\n Number of router rows not specified, setting to 6 ");
-        p->num_router_rows = 6;
+        p->num_router_rows = 1;
     }
     rc = configuration_get_value_int(&config, "PARAMS", "num_router_cols", anno, &p->num_router_cols);
     if(rc) {
         printf("\n Number of router columns not specified, setting to 16 ");
-        p->num_router_cols = 16;
+        p->num_router_cols = 1;
     }
-    p->intra_grp_radix = (p->num_router_cols * p->num_row_chans) + (p->num_router_rows * p->num_col_chans);
-    p->num_routers = p->num_router_rows * p->num_router_cols;
+    // p->intra_grp_radix = (p->num_router_cols * p->num_row_chans) + (p->num_router_rows * p->num_col_chans);
+    // p->num_routers = p->num_router_rows * p->num_router_cols;
+
+    rc = configuration_get_value_int(&config, "PARAMS", "num_router_spine", anno, &p->num_router_spine);
+    if(rc) {
+        p->num_router_spine = 1;
+    }
+    rc = configuration_get_value_int(&config, "PARAMS", "num_router_leaf", anno, &p->num_router_leaf);
+    if(rc) {
+        p->num_router_leaf = 1;
+    }
+
+
+    p->intra_grp_radix = p->num_router_spine * p->num_router_leaf;
+    p->num_routers = p->num_router_spine + p->num_router_leaf; //num routers per group
 
     rc = configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", anno, &p->num_cn);
     if(rc) {
@@ -621,9 +651,10 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
         printf("\n Number of global channels per router not specified, setting to 10 ");
         p->num_global_channels = 10;
     }
-    p->radix = (p->num_router_cols * p->num_row_chans) + (p->num_col_chans * p->num_router_rows) + p->num_global_channels + p->num_cn;
+    // p->radix = (p->num_router_cols * p->num_row_chans) + (p->num_col_chans * p->num_router_rows) + p->num_global_channels + p->num_cn;
+    p->radix = p->intra_grp_radix + p->num_global_channels + p->num_cn;
     p->total_routers = p->num_groups * p->num_routers;
-    p->total_terminals = p->total_routers * p->num_cn;
+    p->total_terminals = (p->num_groups * p->num_router_leaf) * p->num_cn;
 
     // read intra group connections, store from a router's perspective
     // all links to the same router form a vector
@@ -637,6 +668,8 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     if(!groupFile)
         tw_error(TW_LOC, "intra-group file not found ");
 
+
+    //TODO debug this if statement where the vector and maps are built
     if(!myRank)
       printf("Reading intra-group connectivity file: %s\n", intraFile);
 
@@ -648,7 +681,6 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
 
       while(fread(&newLink, sizeof(IntraGroupLink), 1, groupFile) != 0) {
         Link tmpLink;
-        tmpLink.type = newLink.type;
         tmpLink.offset = offsets[newLink.src]++;
         intraGroupLinks[newLink.src][newLink.dest].push_back(tmpLink);
       }
@@ -712,7 +744,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
         for(int l = 0; l < it->second.size(); l++) {
           // offset is number of local connections
           // type is black or green according to Cray architecture
-          printf("%d,%d ", it->second[l].offset, it->second[l].type);
+          printf("%d ", it->second[l].offset);
         }
         printf(")");
       }
@@ -768,7 +800,7 @@ void dragonfly_plus_configure(){
     anno_map = codes_mapping_get_lp_anno_map(LP_CONFIG_NM_TERM);
     assert(anno_map);
     num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
-    all_params = (dragonfly_param *)malloc(num_params * sizeof(*all_params));
+    all_params = (dragonfly_plus_param *)malloc(num_params * sizeof(*all_params));
 
     for (int i = 0; i < anno_map->num_annos; i++){
         const char * anno = anno_map->annotations[i].ptr;
@@ -851,7 +883,7 @@ terminal_plus_init( terminal_state * s,
            s->anno, 0);
 
    s->terminal_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
-   s->router_id=(int)s->terminal_id / (s->params->num_cn);
+   s->router_id=(int)s->terminal_id / (s->params->num_cn); //TODO I think this is where the router that the terminal is connected to is specified
    s->terminal_available_time = 0.0;
    s->packet_counter = 0;
    s->min_latency = INT_MAX;
@@ -913,7 +945,7 @@ void router_plus_setup(router_state * r, tw_lp * lp)
     }
 
     // shorthand
-    const dragonfly_param *p = r->params;
+    const dragonfly_plus_param *p = r->params;
 
     num_routers_per_mgrp = codes_mapping_get_lp_count (lp_group_name, 1, "modelnet_dragonfly_plus_router",
             NULL, 0);
@@ -931,6 +963,20 @@ void router_plus_setup(router_state * r, tw_lp * lp)
    r->fwd_events = 0;
    r->rev_events = 0;
 
+   //Determine if router is a spine or a leaf
+   int intra_group_id = r->router_id%p->num_routers;
+   if (intra_group_id < (p->num_routers/2))
+   {
+      r->dfp_router_type = SPINE;
+    //   printf("%i is a SPINE\n",r->router_id);
+   }
+   else
+   {
+      r->dfp_router_type = LEAF;
+    //   printf("%i is a LEAF\n",r->router_id);
+   }
+    
+
 
    r->global_channel = (int*)malloc(p->num_global_channels * sizeof(int));
    r->next_output_available_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
@@ -940,7 +986,7 @@ void router_plus_setup(router_state * r, tw_lp * lp)
    r->cur_hist_num = (int*)malloc(p->radix * sizeof(int));
    r->prev_hist_num = (int*)malloc(p->radix * sizeof(int));
 
-   r->last_sent_chan = (int*) malloc(p->num_router_rows * sizeof(int));
+//    r->last_sent_chan = (int*) malloc(p->num_router_rows * sizeof(int));
    r->vc_occupancy = (int**)malloc(p->radix * sizeof(int*));
    r->in_send_loop = (int*)malloc(p->radix * sizeof(int));
    r->pending_msgs =
@@ -958,8 +1004,8 @@ void router_plus_setup(router_state * r, tw_lp * lp)
 
    rc_stack_create(&r->st);
 
-   for(int i = 0; i < p->num_router_rows; i++)
-       r->last_sent_chan[i] = 0;
+//    for(int i = 0; i < p->num_router_rows; i++)
+//        r->last_sent_chan[i] = 0;
 
    for(int i=0; i < p->radix; i++)
     {
@@ -993,6 +1039,7 @@ void router_plus_setup(router_state * r, tw_lp * lp)
             r->queued_msgs_tail[i][j] = NULL;
         }
     }
+
    return;
 }
 
@@ -1075,7 +1122,7 @@ static void router_credit_send(router_state * s, terminal_plus_message * msg,
   int dest = 0,  type = R_BUFFER;
   int is_terminal = 0;
 
-  const dragonfly_param *p = s->params;
+  const dragonfly_plus_param *p = s->params;
 
   // Notify sender terminal about available buffer space
   if(msg->last_hop == TERMINAL) {
@@ -1160,7 +1207,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_plus_messag
   tw_stime ts, nic_ts;
 
   assert(lp->gid != msg->dest_terminal_id);
-  const dragonfly_param *p = s->params;
+  const dragonfly_plus_param *p = s->params;
 
   int total_event_size;
   uint64_t num_chunks = msg->packet_size / p->chunk_size;
@@ -1754,7 +1801,7 @@ void dragonfly_plus_rsample_init(router_state * s,
 {
    (void)lp;
    int i = 0;
-   const dragonfly_param * p = s->params;
+   const dragonfly_plus_param * p = s->params;
 
    assert(p->radix);
 
@@ -1779,7 +1826,7 @@ void dragonfly_plus_rsample_rc_fn(router_state * s,
     int cur_indx = s->op_arr_size;
     struct dfly_router_sample stat = s->rsamples[cur_indx];
 
-    const dragonfly_param * p = s->params;
+    const dragonfly_plus_param * p = s->params;
     int i =0;
 
     for(; i < p->radix; i++)
@@ -1806,7 +1853,7 @@ void dragonfly_plus_rsample_fn(router_state * s,
   (void)lp;
   (void)msg;
 
-  const dragonfly_param * p = s->params;
+  const dragonfly_plus_param * p = s->params;
 
   if(s->op_arr_size >= s->max_arr_size)
   {
@@ -1848,7 +1895,7 @@ void dragonfly_plus_rsample_fin(router_state * s,
         tw_lp * lp)
 {
     (void)lp;
-    const dragonfly_param * p = s->params;
+    const dragonfly_plus_param * p = s->params;
 
     if(s->router_id == 0)
     {
@@ -2145,7 +2192,7 @@ void dragonfly_plus_router_final(router_state * s,
 
     rc_stack_destroy(s->st);
 
-    const dragonfly_param *p = s->params;
+    const dragonfly_plus_param *p = s->params;
     int written = 0;
     if(!s->router_id)
     {
@@ -2351,7 +2398,7 @@ get_output_port( router_state * s,
   int output_port = -1;
   int rand_offset = -1;
   int terminal_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0);
-  const dragonfly_param *p = s->params;
+  const dragonfly_plus_param *p = s->params;
 
   int local_router_id = codes_mapping_get_lp_relative_id(next_stop, 0, 0);
   int src_router = s->router_id;
@@ -3418,7 +3465,7 @@ struct model_net_method dragonfly_plus_router_method =
 
 static int dragonfly_plus_get_number_of_compute_nodes(void* topo) {
 
-        const dragonfly_param * params = &all_params[num_params-1];
+        const dragonfly_plus_param * params = &all_params[num_params-1];
         if(!params)
             return -1.0;
 
@@ -3427,7 +3474,7 @@ static int dragonfly_plus_get_number_of_compute_nodes(void* topo) {
 
 static int dragonfly_plus_get_number_of_routers(void* topo) {
         // TODO
-        const dragonfly_param * params = &all_params[num_params-1];
+        const dragonfly_plus_param * params = &all_params[num_params-1];
         if(!params)
             return -1.0;
 
@@ -3440,7 +3487,7 @@ static double dragonfly_plus_get_router_link_bandwidth(void* topo, router_id_t r
 	// Given two router ids r1 and r2, this function should return the bandwidth (double)
 	// of the link between the two routers, or 0 of such a link does not exist in the topology.
 	// The function should return -1 if one of the router id is invalid.
-    const dragonfly_param * params = &all_params[num_params-1];
+    const dragonfly_plus_param * params = &all_params[num_params-1];
     if(!params)
         return -1.0;
 
@@ -3493,7 +3540,7 @@ static double dragonfly_plus_get_compute_node_bandwidth(void* topo, cn_id_t node
 	// Given the id of a compute node, this function should return the bandwidth of the
 	// link connecting this compute node to its router.
 	// The function should return -1 if the compute node id is invalid.
-    const dragonfly_param * params = &all_params[num_params-1];
+    const dragonfly_plus_param * params = &all_params[num_params-1];
     if(!params)
         return -1.0;
 
@@ -3508,7 +3555,7 @@ static int dragonfly_plus_get_router_neighbor_count(void* topo, router_id_t r) {
 	// Given the id of a router, this function should return the number of routers
 	// (not compute nodes) connected to it. It should return -1 if the router id
 	// is not valid.
-    const dragonfly_param * params = &all_params[num_params-1];
+    const dragonfly_plus_param * params = &all_params[num_params-1];
     if(!params)
         return -1.0;
 
@@ -3532,7 +3579,7 @@ static void dragonfly_plus_get_router_neighbor_list(void* topo, router_id_t r, r
 	// Given a router id r, this function fills the "neighbors" array with the ids of routers
 	// directly connected to r. It is assumed that enough memory has been allocated to "neighbors"
 	// (using get_router_neighbor_count to know the required size).
-    const dragonfly_param * params = &all_params[num_params-1];
+    const dragonfly_plus_param * params = &all_params[num_params-1];
 
     int gid = r / params->num_routers;
     int local_rid = r - (gid * params->num_routers);
@@ -3600,7 +3647,7 @@ static int dragonfly_plus_get_router_location(void* topo, router_id_t r, int32_t
 	// If the "size" is sufficient to hold the information, the function should return the size
 	// effectively used (e.g. 2 in the above example). If however the function did not manage to use
 	// the provided buffer, it should return -1.
-    const dragonfly_param * params = &all_params[num_params-1];
+    const dragonfly_plus_param * params = &all_params[num_params-1];
     if(!params)
         return -1;
 
@@ -3622,7 +3669,7 @@ static int dragonfly_plus_get_compute_node_location(void* topo, cn_id_t node, in
 	// This function does the same as dragonfly_plus_get_router_location but for a compute node instead
 	// of a router. E.g., for a dragonfly network, the location could be expressed as the array
 	// [ group_id, router_id, terminal_id ]
-    const dragonfly_param * params = &all_params[num_params-1];
+    const dragonfly_plus_param * params = &all_params[num_params-1];
     if(!params)
         return -1;
 
@@ -3648,7 +3695,7 @@ static router_id_t dragonfly_plus_get_router_from_compute_node(void* topo, cn_id
         // TODO
 	// Given a node id, this function returns the id of the router connected to the node,
 	// or -1 if the node id is not valid.
-        const dragonfly_param * params = &all_params[num_params-1];
+        const dragonfly_plus_param * params = &all_params[num_params-1];
         if(!params)
             return -1;
 
@@ -3662,7 +3709,7 @@ static router_id_t dragonfly_plus_get_router_from_compute_node(void* topo, cn_id
 static int dragonfly_plus_get_router_compute_node_count(void* topo, router_id_t r) {
 	// Given the id of a router, returns the number of compute nodes connected to this
 	// router, or -1 if the router id is not valid.
-        const dragonfly_param * params = &all_params[num_params-1];
+        const dragonfly_plus_param * params = &all_params[num_params-1];
         if(!params)
             return -1;
 
@@ -3677,7 +3724,7 @@ static void dragonfly_plus_get_router_compute_node_list(void* topo, router_id_t 
 	// Given the id of a router, fills the "nodes" array with the list of ids of compute nodes
 	// connected to this router. It is assumed that enough memory has been allocated for the
 	// "nodes" variable to hold all the ids.
-      const dragonfly_param * params = &all_params[num_params-1];
+      const dragonfly_plus_param * params = &all_params[num_params-1];
 
       for(int i = 0; i < params->num_cn; i++)
          nodes[i] = r * params->num_cn + i;
