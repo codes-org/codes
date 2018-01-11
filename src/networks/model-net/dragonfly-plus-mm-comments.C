@@ -156,6 +156,7 @@ struct dragonfly_plus_param
     int num_cn;
     int intra_grp_radix;
 
+    // MM: won't need these four variables, remove
     int num_col_chans;
     int num_row_chans;
     int num_router_rows;
@@ -342,7 +343,6 @@ struct router_state
    int* global_channel;
 
    tw_stime* next_output_available_time;
-   tw_stime* cur_hist_start_time;
    tw_stime** last_buf_full;
 
    tw_stime* busy_time;
@@ -356,16 +356,12 @@ struct router_state
    int *queued_count;
    struct rc_stack * st;
 
-   int* last_sent_chan;
    int** vc_occupancy;
    int64_t* link_traffic;
    int64_t * link_traffic_sample;
 
    const char * anno;
    const dragonfly_plus_param *params;
-
-   int* prev_hist_num;
-   int* cur_hist_num;
 
    char output_buf[4096];
    char output_buf2[4096];
@@ -594,16 +590,15 @@ static void dragonfly_read_config(const char * anno, dragonfly_plus_param *param
         routing = -1;
     }
 
-    if(routing == PROG_ADAPTIVE)
-        p->num_vcs = 10;
-    else
-        p->num_vcs = 8;
+    /* MM: This should be 2 for dragonfly plus*/
+    p->num_vcs = 2;
 
     rc = configuration_get_value_int(&config, "PARAMS", "num_groups", anno, &p->num_groups);
     if(rc) {
       printf("Number of groups not specified. Aborting");
       MPI_Abort(MPI_COMM_CODES, 1);
     }
+    /* MM: Don't need the following four config variables. Remove. */
     rc = configuration_get_value_int(&config, "PARAMS", "num_col_chans", anno, &p->num_col_chans);
     if(rc) {
 //        printf("\n Number of links connecting chassis not specified, setting to default value 3 ");
@@ -980,13 +975,9 @@ void router_plus_setup(router_state * r, tw_lp * lp)
 
    r->global_channel = (int*)malloc(p->num_global_channels * sizeof(int));
    r->next_output_available_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
-   r->cur_hist_start_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
    r->link_traffic = (int64_t*)malloc(p->radix * sizeof(int64_t));
    r->link_traffic_sample = (int64_t*)malloc(p->radix * sizeof(int64_t));
-   r->cur_hist_num = (int*)malloc(p->radix * sizeof(int));
-   r->prev_hist_num = (int*)malloc(p->radix * sizeof(int));
 
-//    r->last_sent_chan = (int*) malloc(p->num_router_rows * sizeof(int));
    r->vc_occupancy = (int**)malloc(p->radix * sizeof(int*));
    r->in_send_loop = (int*)malloc(p->radix * sizeof(int));
    r->pending_msgs =
@@ -1004,16 +995,12 @@ void router_plus_setup(router_state * r, tw_lp * lp)
 
    rc_stack_create(&r->st);
 
-//    for(int i = 0; i < p->num_router_rows; i++)
-//        r->last_sent_chan[i] = 0;
-
    for(int i=0; i < p->radix; i++)
     {
        // Set credit & router occupancy
     r->busy_time[i] = 0.0;
     r->busy_time_sample[i] = 0.0;
 	r->next_output_available_time[i]=0;
-	r->cur_hist_start_time[i] = 0;
     r->link_traffic[i]=0;
     r->link_traffic_sample[i] = 0;
 	r->cur_hist_num[i] = 0;
@@ -1043,7 +1030,8 @@ void router_plus_setup(router_state * r, tw_lp * lp)
    return;
 }
 
-
+/* MM: These packet events (packet_send, packet_receive etc.) will be used as is, basically, the routing functions will
+ * be changed only. */
 /* dragonfly packet event , generates a dragonfly packet on the compute node */
 static tw_stime dragonfly_plus_packet_event(
         model_net_request const * req,
@@ -1112,6 +1100,8 @@ static void dragonfly_plus_packet_event_rc(tw_lp *sender)
 	    return;
 }
 
+/*MM: This will also be used as is. This is meant to sent a credit back to the
+ * sending router. */
 /*When a packet is sent from the current router and a buffer slot becomes available, a credit is sent back to schedule another packet event*/
 static void router_credit_send(router_state * s, terminal_plus_message * msg,
   tw_lp * lp, int sq) {
@@ -2192,6 +2182,9 @@ void dragonfly_plus_router_final(router_state * s,
 
     rc_stack_destroy(s->st);
 
+    /*MM: These statistics will need to be updated for dragonfly plus.
+     * Especially the meta file information on router ports still have green
+     * and black links. */
     const dragonfly_plus_param *p = s->params;
     int written = 0;
     if(!s->router_id)
@@ -2228,6 +2221,9 @@ void dragonfly_plus_router_final(router_state * s,
     lp_io_write(lp->gid, (char*)"dragonfly-router-traffic", written, s->output_buf2);
 }
 
+/* MM: This function needs to be modified. Add static routing for fat tree here
+ * if needed. This would rather be simplified to return the connected spine or
+ * leaf router alone. */
 static vector<int> get_intra_router(router_state * s, int src_router_id, int dest_router_id, int num_rtrs_per_grp)
 {
        /* Check for intra-group connections */
@@ -2280,6 +2276,7 @@ static vector<int> get_intra_router(router_state * s, int src_router_id, int des
        }
     return intersection;
 }
+/*MM: This function would need major routing changes. */
 /* get the next stop for the current packet
  * determines if it is a router within a group, a router in another group
  * or the destination terminal */
@@ -2387,6 +2384,7 @@ get_next_stop(router_state * s,
 
    return router_dest_id;
 }
+/*MM: This function would need major changes according to routing algorithm. */
 /* gets the output port corresponding to the next stop of the message */
 static int
 get_output_port( router_state * s,
@@ -2469,6 +2467,8 @@ get_output_port( router_state * s,
     return output_port;
 }
 
+/* MM: This will no longer be needed for dragonfly plus. We will have to
+ * implement progressive adaptive routing though. */
 static void do_local_adaptive_routing(router_state * s,
         tw_lp * lp,
         terminal_plus_message * msg,
@@ -2526,6 +2526,7 @@ static void do_local_adaptive_routing(router_state * s,
       msg->path_type = NON_MINIMAL;
   }
 }
+/*MM: Change this to do_adaptive_routing. Do you know what are the congestion sensing mechanism for adaptive routing in dragonfly plus? Is it similar to dragonfly? */
 static int do_global_adaptive_routing( router_state * s,
                  tw_lp * lp,
 				 terminal_plus_message * msg,
@@ -2811,6 +2812,8 @@ static void router_packet_receive_rc(router_state * s,
       }
 }
 
+/* MM: This will need changes for the port selection and routing part. The
+ * progressive adaptive routing would need modification as well. */
 /* Packet arrives at the router and a credit is sent back to the sending terminal/router */
 static void
 router_packet_receive( router_state * s,
@@ -3073,6 +3076,8 @@ static void router_packet_send_rc(router_state * s,
         s->in_send_loop[output_port] = 1;
       }
 }
+
+/* MM: I think this mostly stays the same. */
 /* routes the current packet to the next stop */
 static void
 router_packet_send( router_state * s,
