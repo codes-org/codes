@@ -1,4 +1,4 @@
-# Copyright 2017 - Neil McGlohon 
+# Copyright 2017 - Neil McGlohon
 # mcglon@rpi.edu
 
 import sys
@@ -28,7 +28,7 @@ def main():
 
     writeIntra(num_spine_routers, num_leaf_routers, intra)
     writeInter(num_spine_routers, num_leaf_routers, topology_size, groups, redundant_global_cons_per, inter)
-    
+
     intra.close()
     inter.close()
 
@@ -62,14 +62,14 @@ def writeInter(num_spine_routers,num_leaf_routers, topology_size, num_groups, re
     global_cons_per = redundant_global_cons_per + 1
 
     if (topology_size is TopSize.SMALL) or (topology_size is TopSize.MEDIUM):
-        #Every spine is connected to every other group 
+        #Every spine is connected to every other group
 
         if (topology_size is TopSize.MEDIUM) and (redundant_global_cons_per > 0):
             print("Error: redundant connections incompatible with Medium topology")
             exit(0)
 
         for source_gi in range(num_groups):
-            for si in range(num_spine_routers):
+            for si in range(num_leaf_routers, total_routers_per_group):
                 source_id = getRouterGID(si,source_gi,total_routers_per_group)
 
                 for dest_gi in range(num_groups):
@@ -99,7 +99,7 @@ def writeInter(num_spine_routers,num_leaf_routers, topology_size, num_groups, re
 
         for source_gi in range(num_groups): #for each group i
             other_groups = [i for i in range(num_groups) if i != source_gi ] #list of group ids not including self
-            
+
             for si in range(num_spine_routers): #for each local spine router
                 source_id = getRouterGID(si,source_gi,total_routers_per_group) #get the global ID of local spine si
 
@@ -109,7 +109,7 @@ def writeInter(num_spine_routers,num_leaf_routers, topology_size, num_groups, re
 
                     fd.write(struct.pack("2i",source_id,dest_id))
                     print("INTER %d %d srcg %d destg %d"%(source_id,dest_id,source_gi,other_groups[gi]))
-                
+
     else:
         print("Error: Invalid topology size given. Please use {0 | 1 | 2}")
         exit(0)
