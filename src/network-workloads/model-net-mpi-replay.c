@@ -776,10 +776,10 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
             m->rc.saved_conn_indx = conn_indx;
             num_chips_finished_this_tick++;
             times_finished[s->local_rank]++;
-            if(times_finished[s->local_rank] > 1){
+            /*if(times_finished[s->local_rank] > 1){
                 printf("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nchip %d finished too many times\n",s->local_rank);
                 exit(0);
-            }
+            }*/
         }
         s->num_sends_per_conn[conn_indx]++;
     }
@@ -2048,7 +2048,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
             num_chips_finished_this_tick = 0;
             s->last_conn = 0;
             s->num_chip_conns = 0;
-            if( starting_connection[s->local_rank] >= 0 ){
+            if( starting_connection[s->local_rank] >= 0 && starting_connection[s->local_rank+1] > 0){
                 int start = starting_connection[s->local_rank];
                 int i = 1;
                 int end = starting_connection[s->local_rank + i];
@@ -2921,8 +2921,6 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
             avg_spikes_per_tick[conn_indx] = avg_spike;
             conn_indx++;
             assert(src_chip < num_syn_clients);
-            if(dst_chip >= num_syn_clients)
-                printf("placeholder");
             assert(dst_chip < num_syn_clients);
             assert(conn_indx < num_syn_clients*num_syn_clients);
         }
