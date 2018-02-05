@@ -1,0 +1,332 @@
+#ifndef CONNECTION_MANAGER_H
+#define CONNECTION_MANAGER_H
+
+/**
+ * connection-manager.h -- Simple, Readable, Connection management interface
+ * Neil McGlohon
+ *
+ * Copyright (c) 2018 Rensselaer Polytechnic Institute
+ */
+#include <map>
+#include <vector>
+#include "codes/codes.h"
+#include "codes/model-net.h"
+
+
+using namespace std;
+
+/**
+ * @brief Enum differentiating local router connection types from global.
+ * Local connections will have router IDs ranging from [0,num_router_per_group)
+ * whereas global connections will have router IDs ranging from [0,total_routers)
+ */
+enum ConnectionType
+{
+    CONN_LOCAL = 1,
+    CONN_GLOBAL,
+    CONN_TERMINAL
+};
+
+/**
+ * @brief Struct for connection information.
+ */
+struct Connection
+{
+    int port; //port ID of the connection
+    int other_id; //id of the destination - depends on type of connection
+    int group_id; //group id of the destination
+    ConnectionType conn_type; //type of the connection: CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
+};
+
+/**
+ * @class ConnectionManager
+ *
+ * @brief
+ * This class is meant to make organization of the connections between routers more
+ * streamlined. It provides a simple, readable interface which helps reduce
+ * semantic errors during development.
+ *
+ * @note
+ * This class was designed with dragonfly type topologies in mind. Certain parts may not
+ * make sense for other types of topologies, they might work fine, but no guarantees.
+ *
+ * This class assumes that each router group has the same number of routers in it: _num_routers_per_group.
+ */
+class ConnectionManager {
+    map< int, vector< Connection > > intraGroupConnections; //direct connections within a group - IDs are group local
+    map< int, vector< Connection > > globalConnections; //direct connections between routers not in same group - IDs are global router IDs
+    map< int, vector< Connection > > terminalConnections; //direct connections between this router and its compute node terminals
+
+    map< int, Connection > _portMap; //Mapper for ports to connections
+
+    int _source_id_local; //local id (within group) of owner of this connection manager
+    int _source_id_global; //global id (not lp gid) of owner of this connection manager
+    int _source_group; //group id of the owner of this connection manager
+
+    int _used_intra_ports; //number of used ports for intra connections
+    int _used_inter_ports; //number of used ports for inter connections
+    int _used_terminal_ports; //number of used ports for terminal connections
+
+    int _max_intra_ports; //maximum number of ports for intra connecitons
+    int _max_inter_ports; //maximum number of ports for inter connections
+    int _max_terminal_ports; //maximum number of ports for terminal connections.
+
+    int _num_routers_per_group; //number of routers per group - used for turning global ID into local and back
+
+public:
+    ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int num_router_per_group);
+
+    /**
+     * @brief Adds a connection to the manager
+     * @param dest_id the ID of the destination router, local if type is local, global if type is global
+     * @param group_id the group id of the destination router
+     * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
+     */
+    void add_connection(int dest_id, int group_id, ConnectionType type);
+
+    /**
+     * @brief get the source ID of the owner of the manager
+     * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
+     */
+    int get_source_id(ConnectionType type);
+
+    /**
+     * @brief get the port(s) associated with a specific destination ID
+     * @param dest_id the ID (local or global depending on type) of the destination
+     * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
+     */
+    vector<int> get_ports(int dest_id, ConnectionType type);
+
+    /**
+     * @brief get the connection associated with a specific port number
+     * @param port the enumeration of the port in question
+     */
+    Connection get_connection_on_port(int port);
+
+    /**
+     * @brief returns true if a connection exists in the manager from the source to the specified destination ID BY TYPE
+     * @param dest_id the ID of the destination depending on the type
+     * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
+     * @note Will not return true if dest_id is within own group and type is CONN_GLOBAL, see is_any_connection_to()
+     */
+    bool is_connected_to_by_type(int dest_id, ConnectionType type);
+
+    /**
+     * @brief returns true if any connection exists in the manager from the soruce to the specified global destination ID
+     * @param dest_global_id the global id of the destination
+     * @note This is meant to allow for a developer to determine connectivity just from the global ID, even if the two entities
+     *       are connected by a local or terminal connection.
+     */
+    bool is_any_connection_to(int dest_global_id);
+
+    /**
+     * @brief returns the total number of used ports by the owner of the manager
+     */
+    int get_total_used_ports();
+
+    /**
+     * @brief returns the number of used ports for a specific connection type
+     * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
+     */
+    int get_used_ports_for(ConnectionType type);
+
+    /**
+     * @brief prints out the state of the connection manager
+     */
+    void print_connections();
+
+private:
+
+    vector< Connection > get_connections(int dest_id, ConnectionType type);
+};
+
+
+//*******************    BEGIN IMPLEMENTATION ********************************************************
+
+//*******************    Connection Manager Implementation *******************************************
+ConnectionManager::ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int num_router_per_group)
+{
+    _source_id_local = src_id_local;
+    _source_id_global = src_id_global;
+    _source_group = src_group;
+
+    _used_intra_ports = 0;
+    _used_inter_ports = 0;
+    _used_terminal_ports = 0;
+
+    _max_intra_ports = max_intra;
+    _max_inter_ports = max_inter;
+    _max_terminal_ports = max_term;
+
+    _num_routers_per_group = num_router_per_group;
+}
+
+void ConnectionManager::add_connection(int dest_id, int dest_group, ConnectionType type)
+{
+    Connection conn;
+    conn.conn_type = type;
+    conn.other_id = dest_id;
+    conn.group_id = dest_group;
+
+    switch (type)
+    {
+        case CONN_LOCAL:
+            conn.port = this->get_used_ports_for(CONN_LOCAL);
+            intraGroupConnections[dest_id].push_back(conn);
+            _used_intra_ports++;
+            break;
+
+        case CONN_GLOBAL:
+            conn.port = _max_intra_ports + this->get_used_ports_for(CONN_GLOBAL);
+            globalConnections[dest_id].push_back(conn);
+            _used_inter_ports++;
+            break;
+
+        case CONN_TERMINAL:
+            conn.port = _max_intra_ports + _max_inter_ports + this->get_used_ports_for(CONN_TERMINAL);
+            terminalConnections[dest_id].push_back(conn);
+            _used_terminal_ports++;
+            break;
+
+        default:
+            assert(false);
+            // TW_ERROR(TW_LOC, "add_connection(dest_id, type): Undefined connection type\n");
+    }
+
+    _portMap[conn.port] = conn;
+}
+
+int ConnectionManager::get_source_id(ConnectionType type)
+{
+    switch (type)
+    {
+        case CONN_LOCAL:
+            return _source_id_local;
+        case CONN_GLOBAL:
+            return _source_id_global;
+        default:
+            assert(false);
+            // TW_ERROR(TW_LOC, "get_source_id(type): Unsupported connection type\n");
+    }
+}
+
+vector<int> ConnectionManager::get_ports(int dest_id, ConnectionType type)
+{
+    vector< Connection > conns = this->get_connections(dest_id, type);
+
+    vector< int > ports_used;
+    vector< Connection >::iterator it = conns.begin();
+    for(; it != conns.end(); it++) {
+        ports_used.push_back((*it).port); //add port from connection list to the used ports list
+    }
+    return ports_used;
+}
+
+Connection ConnectionManager::get_connection_on_port(int port)
+{
+    return _portMap[port];
+}
+
+bool ConnectionManager::is_connected_to_by_type(int dest_id, ConnectionType type)
+{
+    switch (type)
+    {
+        case CONN_LOCAL:
+            if (intraGroupConnections.find(dest_id) != intraGroupConnections.end())
+                return true;
+            break;
+        case CONN_GLOBAL:
+            if (globalConnections.find(dest_id) != globalConnections.end())
+                return true;
+            break;
+        case CONN_TERMINAL:
+            if (terminalConnections.find(dest_id) != terminalConnections.end())
+                return true;
+            break;
+        default:
+            assert(false);
+            // TW_ERROR(TW_LOC, "get_used_ports_for(type): Undefined connection type\n");
+    }
+    return false;
+}
+
+bool ConnectionManager::is_any_connection_to(int dest_global_id)
+{
+    int local_id = dest_global_id % _num_routers_per_group;
+    if (intraGroupConnections.find(local_id) != intraGroupConnections.end())
+        return true;
+    if (globalConnections.find(dest_global_id) != globalConnections.end())
+        return true;
+    if (terminalConnections.find(dest_global_id) != terminalConnections.end())
+        return true;
+
+    return false;
+}
+
+int ConnectionManager::get_total_used_ports()
+{
+    return _used_intra_ports + _used_inter_ports + _used_terminal_ports;
+}
+
+int ConnectionManager::get_used_ports_for(ConnectionType type)
+{
+    switch (type)
+    {
+        case CONN_LOCAL:
+            return _used_intra_ports;
+        case CONN_GLOBAL:
+            return _used_inter_ports;
+        case CONN_TERMINAL:
+            return _used_terminal_ports;
+        default:
+            assert(false);
+            // TW_ERROR(TW_LOC, "get_used_ports_for(type): Undefined connection type\n");
+    }
+}
+
+vector< Connection > ConnectionManager::get_connections(int dest_id, ConnectionType type)
+{
+    switch (type)
+    {
+        case CONN_LOCAL:
+            return intraGroupConnections[dest_id];
+        case CONN_GLOBAL:
+            return globalConnections[dest_id];
+        case CONN_TERMINAL:
+            return terminalConnections[dest_id];
+        default:
+            assert(false);
+            // TW_ERROR(TW_LOC, "get_connections(type): Undefined connection type\n");
+    }
+}
+
+void ConnectionManager::print_connections()
+{
+    printf("Connections for Router: %d ---------------------------------------\n",_source_id_global);
+
+    int ports_printed = 0;
+    map<int,Connection>::iterator it = _portMap.begin();
+    for(; it != _portMap.end(); it++)
+    {
+        if (ports_printed == 0)
+        {
+            printf(" -- Intra-Group Connections -- \n");
+            printf("  Port  |  Dest_ID  |  Group\n");
+        }
+        if (ports_printed == _max_intra_ports)
+        {
+            printf(" -- Inter-Group Connections -- \n");
+            printf("  Port  |  Dest_ID  |  Group\n");
+        }
+        if (ports_printed == _max_intra_ports + _max_inter_ports)
+        {
+            printf(" -- Terminal Connections -- \n");
+            printf("  Port  |  Dest_ID  |  Group\n");
+        }
+
+        printf("  %d   ->   %d        :  %d  \n", it->first, it->second.other_id, it->second.group_id);
+        ports_printed++;
+    }
+}
+
+#endif /* end of include guard:*/
