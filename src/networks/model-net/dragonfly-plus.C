@@ -21,6 +21,8 @@
 #include "codes/rc-stack.h"
 #include "sys/file.h"
 
+#include "codes/connection-manager.h"
+
 #ifdef ENABLE_CORTEX
 #include <cortex/cortex.h>
 #include <cortex/topology.h>
@@ -64,6 +66,8 @@ static vector< map< int, vector< bLink > > > interGroupLinks;
 
 /*MM: Maintains a list of routers connecting the source and destination groups */
 static vector< vector< vector< int > > > connectionList;
+
+static vector< ConnectionManager > connManagerList;
 
 struct IntraGroupLink
 {
@@ -343,6 +347,8 @@ struct router_state
     int max_arr_size;
 
     router_type dfp_router_type;  // Enum to specify whether this router is a spine or a leaf
+
+    ConnectionManager *connMan;
 
     int *global_channel;
 
@@ -637,40 +643,38 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     if (strlen(intraFile) <= 0) {
         tw_error(TW_LOC, "Intra group connections file not specified. Aborting");
     }
+
+    //setup Connection Managers for each router
+    for(int i = 0; i < p->total_routers; i++)
+    {
+        int src_id_global = i;
+        int src_id_local = i % p->num_routers;
+        int src_group = i / p->num_routers;
+
+        ConnectionManager conman = ConnectionManager(src_id_local, src_id_global, src_group, p->intra_grp_radix, p->num_global_connections, p->num_cn, p->num_routers);
+        connManagerList.push_back(conman);
+    }
+
     FILE *groupFile = fopen(intraFile, "rb");
     if (!groupFile)
         tw_error(TW_LOC, "intra-group file not found ");
 
-
-    // TODO debug this if statement where the vector and maps are built
-    if (!myRank)
-        printf("Reading intra-group connectivity file: %s\n", intraFile);
-
-    {
-        vector< int > offsets;
-        offsets.resize(p->num_routers, 0);
-        intraGroupLinks.resize(p->num_routers);
-        IntraGroupLink newLink;
-
-        while (fread(&newLink, sizeof(IntraGroupLink), 1, groupFile) != 0) {
-            Link tmpLink;
-            tmpLink.offset = offsets[newLink.src]++;
-            intraGroupLinks[newLink.src][newLink.dest].push_back(tmpLink);
+    IntraGroupLink newLink;
+    while (fread(&newLink, sizeof(IntraGroupLink), 1, groupFile) != 0) {
+        int src_id_local = newLink.src;
+        int dest_id_local = newLink.dest;
+        for(int i = 0; i < p->total_routers; i++)
+        {
+            int group_id = i/p->num_routers;
+            if (i % p->num_routers == src_id_local)
+            {
+                connManagerList[i].add_connection(dest_id_local, group_id, CONN_LOCAL);
+            }
         }
     }
 
-    // printf("DUMPING INTRA-CONN FOR ROUTER 3:\n");
-    // printf(" (dest - offset) \n");
-    // for (int i = 0; i < intraGroupLinks[3].size(); i++)
-    // {
-    //     for (int j = 0; j < intraGroupLinks[3][i].size(); j++)
-    //     {
-    //         printf(" (%d - %d) ", i, intraGroupLinks[3][i][j].offset);
-    //     }
-    // }
-    // printf("\n");
-
     fclose(groupFile);
+
 
     // read inter group connections, store from a router's perspective
     // also create a group level table that tells all the connecting routers
@@ -685,71 +689,35 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         printf("\n Total routers %d total groups %d ", p->total_routers, p->num_groups);
     }
 
+    connectionList.resize(p->num_groups);
+    for (int g = 0; g < connectionList.size(); g++) {
+        connectionList[g].resize(p->num_groups);
+    }
+
+    InterGroupLink newInterLink;
+    while (fread(&newInterLink, sizeof(InterGroupLink), 1, systemFile) != 0) {
+        int src_id_global = newInterLink.src;
+        int src_group_id = src_id_global / p->num_routers;
+        int dest_id_global = newInterLink.dest;
+        int dest_group_id = dest_id_global / p->num_routers;
+
+        connManagerList[src_id_global].add_connection(dest_id_global, dest_group_id, CONN_GLOBAL);
+
+        int r;
+        for (r = 0; r < connectionList[src_group_id][dest_group_id].size(); r++) {
+            if (connectionList[src_group_id][dest_group_id][r] == newInterLink.src)
+                break;
+        }
+        if (r == connectionList[src_group_id][dest_group_id].size()) {
+            connectionList[src_group_id][dest_group_id].push_back(newInterLink.src);
+        }
+    }
+
+#if DUMP_CONNECTIONS == 1
+    printf("Printing State of Conn Mans\n");
+    for(int i = 0; i < p->total_routers; i++)
     {
-        vector< int > offsets;
-        offsets.resize(p->total_routers, 0);
-        interGroupLinks.resize(p->total_routers);
-        connectionList.resize(p->num_groups);
-        for (int g = 0; g < connectionList.size(); g++) {
-            connectionList[g].resize(p->num_groups);
-        }
-
-        InterGroupLink newLink;
-
-        while (fread(&newLink, sizeof(InterGroupLink), 1, systemFile) != 0) {
-            bLink tmpLink;
-            tmpLink.dest = newLink.dest;
-            int srcG = newLink.src / p->num_routers;
-            int destG = newLink.dest / p->num_routers;
-            tmpLink.offset = offsets[newLink.src]++;
-            interGroupLinks[newLink.src][destG].push_back(tmpLink);
-            int r;
-            for (r = 0; r < connectionList[srcG][destG].size(); r++) {
-                if (connectionList[srcG][destG][r] == newLink.src)
-                    break;
-            }
-            if (r == connectionList[srcG][destG].size()) {
-                connectionList[srcG][destG].push_back(newLink.src);
-            }
-        }
-    }
-
-    fclose(systemFile);
-
-#if DUMP_CONNECTIONS == 1
-    printf("Dumping intra-group connections\n");
-    for (int a = 0; a < intraGroupLinks.size(); a++) {
-        printf("Connections for router %d\n", a);
-        map< int, vector< Link > > &curMap = intraGroupLinks[a];
-        map< int, vector< Link > >::iterator it = curMap.begin();
-        for (; it != curMap.end(); it++) {
-            printf(" ( %d - ", it->first);
-            for (int l = 0; l < it->second.size(); l++) {
-                // offset is number of local connections
-                // type is black or green according to Cray architecture
-                printf("%d ", it->second[l].offset);
-            }
-            printf(")");
-        }
-        printf("\n");
-    }
-#endif
-#if DUMP_CONNECTIONS == 1
-    printf("Dumping inter-group connections\n");
-    for (int a = 0; a < interGroupLinks.size(); a++) {
-        printf("Connections for router %d\n", a);
-        map< int, vector< bLink > > &curMap = interGroupLinks[a];
-        map< int, vector< bLink > >::iterator it = curMap.begin();
-        for (; it != curMap.end(); it++) {
-            // dest group ID
-            printf(" ( %d - ", it->first);
-            for (int l = 0; l < it->second.size(); l++) {
-                // dest is dest router ID
-                // offset is number of global connections
-                printf("%d,%d ", it->second[l].offset, it->second[l].dest);
-            }
-            printf(")");
-        }
+        connManagerList[i].print_connections();
         printf("\n");
     }
 #endif
@@ -767,6 +735,7 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         printf("\n");
     }
 #endif
+
     if (!myRank) {
         printf("\n Total nodes %d routers %d groups %d routers per group %d radix %d\n",
                p->num_cn * p->total_routers, p->total_routers, p->num_groups, p->num_routers, p->radix);
@@ -984,7 +953,7 @@ void router_plus_setup(router_state *r, tw_lp *lp)
         printf("%lu: %i is a LEAF\n",lp->gid, r->router_id);
     }
 
-
+    r->connMan = &connManagerList[r->router_id];
 
     r->global_channel = (int *) malloc(p->num_global_connections * sizeof(int));
     r->next_output_available_time = (tw_stime *) malloc(p->radix * sizeof(tw_stime));
@@ -2163,32 +2132,33 @@ static vector< int > get_intra_router(router_state *s, int src_router_id, int de
 
     int group_id = src_router_id / num_rtrs_per_grp;
 
-    map< int, vector< Link > > &curMap = intraGroupLinks[src_rel_id];
-    map< int, vector< Link > >::iterator it_src = curMap.begin();
-    int offset = group_id * num_rtrs_per_grp;
+    int group_start_id = group_id * num_rtrs_per_grp;
+
     vector< int > intersection;
 
-    /* If no direct connection exists then find an intermediate connection */
-    if (curMap.find(dest_rel_id) == curMap.end()) {
-        map< int, vector< Link > > &destMap = intraGroupLinks[dest_rel_id];
-        map< int, vector< Link > >::iterator it_dest = destMap.begin();
 
-        while (it_src != curMap.end() && it_dest != destMap.end()) {
-            if (it_src->first < it_dest->first)
-                it_src++;
-            else if (it_dest->first < it_src->first)
-                it_dest++;
-            else {
-                intersection.push_back(offset + it_src->first);
-                it_src++;
-                it_dest++;
+    /* If no direct connection exists then find an intermediate connection */
+    if(!s->connMan->is_connected_to_by_type(dest_rel_id, CONN_LOCAL)) {
+        //TODO allow for more complicated group topologies than just bipartite
+        if (s->dfp_router_type == LEAF) {
+            //put all spine routers in the group into the intersection list
+            for(int i = 0; i < s->params->num_router_spine; i++)
+            {
+                intersection.push_back(group_start_id + s->params->num_router_leaf + i); //spines are the upper half of the ids in the group
+            }
+        }
+        else { //spine
+            //put all leaf routers in the group into the intersection list
+            for(int i = 0; i < s->params->num_router_leaf; i++)
+            {
+                intersection.push_back(group_start_id + i); //leafs are the lower half of the ids in the group
             }
         }
     }
-    else {
-        /* There is a direct connection */
+    else { //there is a direct connection
         intersection.push_back(dest_router_id);
     }
+
     return intersection;
 }
 
@@ -2200,9 +2170,7 @@ static tw_lpid get_next_stop(router_state *s,
                              tw_lp *lp,
                              tw_bf *bf,
                              terminal_plus_message *msg,
-                             int dest_router_id,
-                             int adap_chan,
-                             int do_chan_selection)
+                             int dest_router_id)
 {
     int dest_lp;
     tw_lpid router_dest_id;
@@ -2265,10 +2233,13 @@ static tw_lpid get_next_stop(router_state *s,
         assert(s->dfp_router_type == SPINE); //We're a spine
         //Need to forward packet onto group with destination router
         //TODO: Bitfield flipping here?
+
         bf->c19 = 1;
 
-        select_chan = tw_rand_integer(lp->rng,0, interGroupLinks[s->router_id][dest_group_id].size() - 1);
-        dest_lp = interGroupLinks[s->router_id][dest_group_id][select_chan].dest;
+        vector< Connection > conns_to_group = s->connMan->get_connections_to_group(dest_group_id);
+
+        select_chan = tw_rand_integer(lp->rng, 0, conns_to_group.size() - 1);
+        dest_lp = conns_to_group[select_chan].other_id;
     }
 
     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_lp / num_routers_per_mgrp,
@@ -2297,22 +2268,25 @@ static int get_output_port(router_state *s, terminal_plus_message *msg, tw_lp *l
         //packet from leaf must go to either destination terminal or to a spine router
 
         if ((tw_lpid) next_stop == msg->dest_terminal_id) {  // if the next stop is the destination
+            printf("\tTo Terminal on ");
             int rand_sel = tw_rand_integer(lp->rng, 0, 2); // Make a random number selection (only for reverse computation)
             output_port = p->intra_grp_radix + p->num_global_connections + (terminal_id % p->num_cn); //TODO this seems wrong?
-            printf("\tPort: %d (terminal)\n", output_port);
+            printf("Port: %d (terminal)\n", output_port);
         }
         else {
+            printf("\tTo Spine: ");
             // next stop is not the destination terminal - must go to spine router in same group
             int src_loc_id = src_router % p->num_routers;
             int dest_loc_id = dest_router % p->num_routers;
 
-            int num_links = intraGroupLinks[src_loc_id][dest_loc_id].size(); //number of ports connecting src_router to dest_router
-            printf("\tnum_links to dest = %d\n", num_links);
+            vector< Connection > conns = s->connMan->get_connections_to_router(dest_loc_id, CONN_LOCAL);
+
+            int num_links = conns.size(); //number of ports connection src and dest
+            printf("num_links to dest = %d\n", num_links);
             if (routing == MINIMAL) {
                 //minimal doesn't care about adaptive routing, ARNs. Choose port to dest at random
                 int rand_sel = tw_rand_integer(lp->rng,0,num_links-1);
-                int offset = intraGroupLinks[src_loc_id][dest_loc_id][rand_sel].offset;
-                output_port = offset; //first ports are the intra-group ports so offset alone is sufficient
+                output_port = conns[rand_sel].port;
                 printf("\tPort: %d (intra)\n", output_port);
             }
             else {
@@ -2323,18 +2297,19 @@ static int get_output_port(router_state *s, terminal_plus_message *msg, tw_lp *l
     else if (s->dfp_router_type == SPINE) {
         //packet from spine must go to either a leaf in the same group or to a spine router in another group
         if (dest_group_id == s->group_id) { // if the destination group id is this routers group
+            printf("\tTo Leaf: ");
             //needs to send to leaf via intra group connections
             int src_loc_id = src_router % p->num_routers;
             int dest_loc_id = dest_router % p->num_routers;
 
-            int num_links = intraGroupLinks[src_loc_id][dest_loc_id].size(); //number of ports connecting src_router to dest_router
+            vector< Connection > conns = s->connMan->get_connections_to_router(dest_loc_id, CONN_LOCAL);
 
+            int num_links = conns.size(); //number of ports connection src and dest
             if (routing == MINIMAL) {
                 //minimal doesn't care about adaptive routing, ARNs. Choose port to dest at random
                 int rand_sel = tw_rand_integer(lp->rng,0,num_links-1);
-                int offset = intraGroupLinks[src_loc_id][dest_loc_id][rand_sel].offset;
-                output_port = offset; //first ports are the intra-group ports so offset alone is sufficient
-                printf("\tPort: %d (intra)\n", output_port);
+                output_port = conns[rand_sel].port;
+                printf("Port: %d (intra)\n", output_port);
 
             }
             else {
@@ -2342,14 +2317,15 @@ static int get_output_port(router_state *s, terminal_plus_message *msg, tw_lp *l
             }
         }
         else { // the next stop is a spine router in a different group
+            printf("\tTo Spine (inter) ");
+            vector< Connection > conns = s->connMan->get_connections_to_group(dest_group_id);
 
-            int num_links = interGroupLinks[src_router][dest_group_id].size(); //TODO - THIS IS A PROBLEM RIGHT NOW
-            printf("\tnum_links (inter) to dest = %d",num_links);
+            int num_links = conns.size(); //TODO - THIS IS A PROBLEM RIGHT NOW
+            printf("num_links (inter) to dest = %d\n",num_links);
             if (routing == MINIMAL) {
                 int rand_sel = tw_rand_integer(lp->rng,0,num_links-1);
-                int offset = interGroupLinks[src_router][dest_group_id][rand_sel].offset; //offset of global connections
-                output_port = p->intra_grp_radix + offset;
-                printf("\tPort: %d (inter)\n", output_port);
+                output_port = conns[rand_sel].port;
+                printf("Port: %d (inter)\n", output_port);
 
             }
             else {
@@ -2755,7 +2731,7 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
     // if (routing == PROG_ADAPTIVE && prev_path_type != next_path_type) {
     //     do_chan_selection = 1;
     // }
-    next_stop = get_next_stop(s, lp, bf, &(cur_chunk->msg), dest_router_id, adap_chan, do_chan_selection);
+    next_stop = get_next_stop(s, lp, bf, &(cur_chunk->msg), dest_router_id);
 
     output_port = get_output_port(s, &(cur_chunk->msg), lp, bf, next_stop);
     assert(output_port >= 0);
