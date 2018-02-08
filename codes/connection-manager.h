@@ -167,7 +167,13 @@ public:
      * @param dest_id the ID of the destination depending on the type
      * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
      */
-    vector< Connection > get_connections(int dest_id, ConnectionType type);
+    vector< Connection > get_connections_to_router(int dest_id, ConnectionType type);
+
+    /**
+     * @brief returns a vector of connections to the destination group. connections will be of type CONN_GLOBAL
+     * @param dest_group_id the id of the destination group
+     */
+    vector< Connection > get_connections_to_group(int dest_group_id);
 
     /**
      * @brief prints out the state of the connection manager
@@ -270,7 +276,7 @@ int ConnectionManager::get_source_id(ConnectionType type)
 
 vector<int> ConnectionManager::get_ports(int dest_id, ConnectionType type)
 {
-    vector< Connection > conns = this->get_connections(dest_id, type);
+    vector< Connection > conns = this->get_connections_to_router(dest_id, type);
 
     vector< int > ports_used;
     vector< Connection >::iterator it = conns.begin();
@@ -342,7 +348,7 @@ int ConnectionManager::get_used_ports_for(ConnectionType type)
     }
 }
 
-vector< Connection > ConnectionManager::get_connections(int dest_id, ConnectionType type)
+vector< Connection > ConnectionManager::get_connections_to_router(int dest_id, ConnectionType type)
 {
     switch (type)
     {
@@ -356,6 +362,24 @@ vector< Connection > ConnectionManager::get_connections(int dest_id, ConnectionT
             assert(false);
             // TW_ERROR(TW_LOC, "get_connections(type): Undefined connection type\n");
     }
+}
+
+vector< Connection > ConnectionManager::get_connections_to_group(int dest_group_id)
+{
+    vector< Connection > conns_to_group;
+
+    map< int, vector< Connection > >::iterator it = globalConnections.begin();
+    for(; it != globalConnections.end(); it++) //iterate over each router that is connected to source
+    {
+        vector< Connection >::iterator conns_to_router;
+        for(conns_to_router = (it->second).begin(); conns_to_router != (it->second).end(); conns_to_router++) //iterate over each connection to a specific router
+        {
+            if ((*conns_to_router).group_id == dest_group_id) {
+                conns_to_group.push_back(*conns_to_router);
+            }
+        }
+    }
+    return conns_to_group;
 }
 
 void ConnectionManager::print_connections()
