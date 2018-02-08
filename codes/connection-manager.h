@@ -50,14 +50,25 @@ struct Connection
  * This class was designed with dragonfly type topologies in mind. Certain parts may not
  * make sense for other types of topologies, they might work fine, but no guarantees.
  *
+ * @note
+ * There is the property intermediateRouterToGroupMap and related methods that are implemented but the
+ * logistics to get this information from input file is more complicated than its worth so I have commented
+ * them out.
+ *
+ * @note
  * This class assumes that each router group has the same number of routers in it: _num_routers_per_group.
  */
 class ConnectionManager {
-    map< int, vector< Connection > > intraGroupConnections; //direct connections within a group - IDs are group local
-    map< int, vector< Connection > > globalConnections; //direct connections between routers not in same group - IDs are global router IDs
-    map< int, vector< Connection > > terminalConnections; //direct connections between this router and its compute node terminals
+    map< int, vector< Connection > > intraGroupConnections; //direct connections within a group - IDs are group local - maps local id to list of connections to it
+    map< int, vector< Connection > > globalConnections; //direct connections between routers not in same group - IDs are global router IDs - maps global id to list of connections to it
+    map< int, vector< Connection > > terminalConnections; //direct connections between this router and its compute node terminals - maps terminal id to connections to it
 
     map< int, Connection > _portMap; //Mapper for ports to connections
+
+    // map< int, vector< Connection > > intermediateRouterToGroupMap; //maps group id to list of routers that connect to it.
+    //                                                                //ex: intermediateRouterToGroupMap[3] returns a vector
+    //                                                                //of connections from this router to routers that have
+    //                                                                //direct connections to group 3
 
     int _source_id_local; //local id (within group) of owner of this connection manager
     int _source_id_global; //global id (not lp gid) of owner of this connection manager
@@ -83,6 +94,27 @@ public:
      * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
      */
     void add_connection(int dest_id, int group_id, ConnectionType type);
+
+    // /**
+    //  * @brief adds knowledge of what next hop routers have connections to specific groups
+    //  * @param local_intm_id the local intra group id of the router that has the connection to dest_group_id
+    //  * @param dest_group_id the id of the group that the connection goes to
+    //  */
+    // void add_route_to_group(int local_intm_id, int dest_group_id);
+
+    // /**
+    //  * @brief returns a vector of connections to routers that have direct connections to the specified group id
+    //  * @param dest_group_id the id of the destination group that all connections returned have a direct connection to
+    //  */
+    // vector< Connection > get_intm_conns_to_group(int dest_group_id);
+
+    // /**
+    //  * @brief returns a vector of local router ids that have direct connections to the specified group id
+    //  * @param dest_group_id the id of the destination group that all routers returned have a direct connection to
+    //  * @note if a router has multiple intra group connections to a single router and that router has a connection
+    //  *      to the dest group then that router will appear multiple times in the returned vector.
+    //  */
+    // vector< int > get_intm_routers_to_group(int dest_group_id)
 
     /**
      * @brief get the source ID of the owner of the manager
@@ -131,13 +163,16 @@ public:
     int get_used_ports_for(ConnectionType type);
 
     /**
+     * @brief returns a vector of connections to the destination ID based on the connection type
+     * @param dest_id the ID of the destination depending on the type
+     * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
+     */
+    vector< Connection > get_connections(int dest_id, ConnectionType type);
+
+    /**
      * @brief prints out the state of the connection manager
      */
     void print_connections();
-
-private:
-
-    vector< Connection > get_connections(int dest_id, ConnectionType type);
 };
 
 
@@ -195,6 +230,29 @@ void ConnectionManager::add_connection(int dest_id, int dest_group, ConnectionTy
 
     _portMap[conn.port] = conn;
 }
+
+// void ConnectionManager::add_route_to_group(Connection conn, int dest_group_id)
+// {
+//     intermediateRouterToGroupMap[dest_group_id].push_back(conn);
+// }
+
+// vector< Connection > ConnectionManager::get_intm_conns_to_group(int dest_group_id)
+// {
+//     return intermediateRouterToGroupMap[dest_group_id];
+// }
+
+// vector< int > ConnectionManager::get_intm_routers_to_group(int dest_group_id)
+// {
+//     vector< Connection > intm_router_conns = get_intm_conns_to_group(dest_group_id);
+
+//     vector< int > loc_intm_router_ids;
+//     vector< Connection >::iterator it;
+//     for(it = intm_router_conns.begin(); it != intm_router_conns.end(); it++)
+//     {
+//         loc_intm_router_ids.push_back((*it).other_id);
+//     }
+//     return loc_intm_router_ids;
+// }
 
 int ConnectionManager::get_source_id(ConnectionType type)
 {
