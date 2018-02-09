@@ -137,8 +137,11 @@ st_model_types svr_model_types[] = {
      (ev_trace_f) svr_event_collect,
      sizeof(int),
      (model_stat_f) svr_model_stat_collect,
+     0,
+     NULL,
+     NULL,
      0},
-    {NULL, 0, NULL, 0, NULL, 0}
+    {NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0}
 };
 
 static const st_model_types  *svr_get_model_stat_types(void)
@@ -424,7 +427,7 @@ int main(
     model_net_register();
     svr_add_lp_type();
 
-    if (g_st_ev_trace || g_st_model_stats)
+    if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
         svr_register_model_types();
 
     codes_mapping_setup();
