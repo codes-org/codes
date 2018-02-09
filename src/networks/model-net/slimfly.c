@@ -294,6 +294,8 @@ void slimfly_event_collect(slim_terminal_message *m, tw_lp *lp, char *buffer, in
 void slimfly_model_stat_collect(terminal_state *s, tw_lp *lp, char *buffer);
 static void ross_slimfly_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_sample *sample);
 static void ross_slimfly_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_sample *sample);
+static void ross_slimfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_sample *sample);
+static void ross_slimfly_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_sample *sample);
 
 st_model_types slimfly_model_types[] = {
     {(rbev_trace_f) slimfly_event_collect,
@@ -301,9 +303,18 @@ st_model_types slimfly_model_types[] = {
      (ev_trace_f) slimfly_event_collect,
      sizeof(int),
      (model_stat_f) slimfly_model_stat_collect,
-     sizeof(tw_lpid) + sizeof(long) * 2 + sizeof(double) + sizeof(tw_stime) *2,
+     0, // update this when changing slimfly_model_stat_collect
      (sample_event_f) ross_slimfly_sample_fn,
      (sample_revent_f) ross_slimfly_sample_rc_fn,
+     sizeof(struct slimfly_sample) } , 
+    {(rbev_trace_f) slimfly_event_collect,
+     sizeof(int),
+     (ev_trace_f) slimfly_event_collect,
+     sizeof(int),
+     (model_stat_f) slimfly_model_stat_collect,
+     0, // update this when changing slimfly_model_stat_collect
+     (sample_event_f) ross_slimfly_rsample_fn,
+     (sample_revent_f) ross_slimfly_rsample_rc_fn,
      sizeof(struct slimfly_sample) } , 
     {NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0}
 };
@@ -3428,6 +3439,26 @@ static void ross_slimfly_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, s
 }
 
 static void ross_slimfly_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_sample *sample)
+{
+    (void)lp;
+    (void)bf;
+    (void)s;
+    (void)sample;
+    
+    return;
+}
+
+static void ross_slimfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_sample *sample)
+{
+    (void)lp;
+    (void)bf;
+    (void)s;
+    (void)sample;
+
+    return;
+}
+
+static void ross_slimfly_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_sample *sample)
 {
     (void)lp;
     (void)bf;
