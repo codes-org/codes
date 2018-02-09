@@ -371,7 +371,7 @@ struct router_state
    struct dfly_router_sample ross_rsample;
 };
 
-/* had to pull some of the ROSS model stats collection stuff up here */
+/* ROSS Instrumentation Support */
 void dragonfly_event_collect(terminal_message *m, tw_lp *lp, char *buffer, int *collect_flag);
 void dragonfly_model_stat_collect(terminal_state *s, tw_lp *lp, char *buffer);
 void dfly_router_model_stat_collect(router_state *s, tw_lp *lp, char *buffer);
