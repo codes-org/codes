@@ -166,6 +166,7 @@ public:
      * @brief returns a vector of connections to the destination ID based on the connection type
      * @param dest_id the ID of the destination depending on the type
      * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
+     * @note note that the method is called get connections to router but could also apply to terminal connections
      */
     vector< Connection > get_connections_to_router(int dest_id, ConnectionType type);
 

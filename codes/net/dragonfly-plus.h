@@ -57,9 +57,14 @@ struct terminal_plus_message
   /* last hop of the message, can be a terminal, local router or global router */
   short last_hop;
    /* For routing */
-  int intm_rtr_id;
   int saved_src_dest;
   int saved_src_chan;
+
+  //DFP Specific Routing
+  int intm_rtr_id; //Router ID of the intermediate router for nonminimal routes
+  int intm_group_id; //Group ID of the intermediate router for nonminimal routes
+
+  short dfp_upward_channel_flag;
 
    uint32_t chunk_id;
    uint32_t packet_size;
