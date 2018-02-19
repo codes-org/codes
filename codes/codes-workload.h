@@ -69,6 +69,7 @@ struct recorder_params
 struct dumpi_trace_params {
    char file_name[MAX_NAME_LENGTH_WKLD];
    int num_net_traces;
+   int nprocs;
 #ifdef ENABLE_CORTEX_PYTHON
    char cortex_script[MAX_NAME_LENGTH_WKLD];
    char cortex_class[MAX_NAME_LENGTH_WKLD];
@@ -162,6 +163,7 @@ struct codes_workload_op
     double end_time;
     double sim_start_time;
 
+    int64_t sequence_id;
     /* parameters for each operation type */
     union
     {
@@ -198,7 +200,7 @@ struct codes_workload_op
             int16_t data_type; /* MPI data type to be matched with the recv */
             int count; /* number of elements to be received */
             int tag; /* tag of the message */
-            int req_id;
+            unsigned int req_id;
         } send;
         struct {
             /* TODO: not sure why source rank is here */
@@ -208,7 +210,7 @@ struct codes_workload_op
             int16_t data_type; /* MPI data type to be matched with the send */
             int count; /* number of elements to be sent */
             int tag; /* tag of the message */
-            int req_id;
+            unsigned int req_id;
         } recv;
         /* TODO: non-stub for other collectives */
         struct {
@@ -216,14 +218,14 @@ struct codes_workload_op
         } collective;
         struct {
             int count;
-            int* req_ids;
+            unsigned int* req_ids;
         } waits;
         struct {
-            int req_id;
+            unsigned int req_id;
         } wait;
         struct
         {
-            int req_id;
+            unsigned int req_id;
         }
         free;
     }u;

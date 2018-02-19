@@ -72,8 +72,9 @@ enum svr_event
 enum TRAFFIC
 {
 	UNIFORM = 1, /* sends message to a randomly selected node */
-	NEAREST_GROUP = 2, /* sends message to the node connected to the neighboring router */
-	NEAREST_NEIGHBOR = 3 /* sends message to the next node (potentially connected to the same router) */
+    BISECTION = 2, /* sends messages to node established in bisection pairing*/
+	NEAREST_GROUP = 3, /* sends message to the node connected to the neighboring router */
+	NEAREST_NEIGHBOR = 4 /* sends message to the next node (potentially connected to the same router) */
 };
 
 struct svr_state
@@ -174,7 +175,7 @@ void ft_svr_register_model_stats()
 const tw_optdef app_opt [] =
 {
         TWOPT_GROUP("Model net synthetic traffic " ),
-	TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
+	TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, BISECTION=2 "),
 	TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
         TWOPT_STIME("load", load, "percentage of terminal link bandiwdth to inject packets"),
         TWOPT_END()
@@ -284,15 +285,22 @@ static void handle_kickoff_event(
     ns->start_ts = tw_now(lp);
 
    codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
+   int local_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
    /* in case of uniform random traffic, send to a random destination. */
    if(traffic == UNIFORM)
    {
    	local_dest = tw_rand_integer(lp->rng, 0, num_nodes - 1);
    }
+   if(traffic == BISECTION)
+   {
+        local_dest = (local_id + num_nodes/2) % num_nodes;
+   }
 
    assert(local_dest < LLU(num_nodes));
 
    global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
+
+   //printf("global_src:%d, local_src:%d, global_dest:%d, local_dest:%d num_nodes:%d \n",(int)lp->gid, local_id, (int)global_dest,(int)local_dest, num_nodes);
 
    // If Destination is self, then generate new destination
    if((int)global_dest == (int)lp->gid)
@@ -300,14 +308,6 @@ static void handle_kickoff_event(
        local_dest = (local_dest+1) % (num_nodes-1);
        global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
    }
-
-   int div1 = floor((int)lp->gid/11);
-   int mult1 = div1 * 4;
-   int mod1 = (int)lp->gid % 11;
-   int sum1 = mult1 + mod1;
-//   if((int)lp->gid == 3)
-   if((int)global_dest == (int)lp->gid)
-       printf("global_src:%d, local_src:%d, global_dest:%d, local_dest:%d\n",(int)lp->gid, sum1, (int)global_dest,(int)local_dest);
 
    ns->msg_sent_count++;
 

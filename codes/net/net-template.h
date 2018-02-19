@@ -5,8 +5,8 @@
  */
 
 //CHANGE: modify to match you header file name
-#ifndef EXPRESS_MESH_H
-#define EXPRESS_MESH_H
+#ifndef NET_TEMPLATE_H
+#define NET_TEMPLATE_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,9 +18,7 @@ extern "C" {
 typedef struct net_message net_message;
 
 //CHANGE: modify the struct name - add to message_list union in common-net.h
-typedef struct em_message em_message;
-
-struct em_message
+struct net_message
 {
   //common entries:
   int magic; /* magic number */
@@ -68,8 +66,7 @@ struct em_message
   tw_stime saved_hist_start_time;
   tw_stime saved_sample_time;
 
-  //CHANGE: info for specific networks
-  short dim_change;
+  //CHANGE: add info for specific networks
 };
 
 #ifdef __cplusplus

@@ -31,6 +31,7 @@ TESTS += tests/lp-io-test.sh \
  tests/modelnet-test-torus.sh \
  tests/modelnet-test-loggp.sh \
  tests/modelnet-test-dragonfly.sh \
+ tests/modelnet-test-em.sh \
  tests/modelnet-test-slimfly.sh \
  tests/modelnet-test-dragonfly-synthetic.sh \
  tests/modelnet-test-dragonfly-custom-synthetic.sh \
@@ -66,6 +67,7 @@ EXTRA_DIST += tests/download-traces.sh \
  tests/modelnet-test-dragonfly-traces.sh \
  tests/modelnet-test-dragonfly-custom-synthetic.sh \
  tests/modelnet-test-dragonfly-custom-traces.sh \
+ tests/modelnet-test-em.sh \
  tests/modelnet-test-fattree-synthetic.sh \
  tests/modelnet-test-slimfly.sh \
  tests/modelnet-test-slimfly-synthetic.sh \

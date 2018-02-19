@@ -39,7 +39,6 @@
 #define MAX_LENGTH_FILE 512
 #define MAX_OPERATIONS 32768
 #define DUMPI_IGNORE_DELAY 100
-#define RANK_HASH_TABLE_SIZE 400
 
 /* This variable is defined in src/network-workloads/model-net-mpi-replay.c */
 extern struct codes_jobmap_ctx *jobmap_ctx; 
@@ -55,7 +54,7 @@ typedef struct rank_mpi_context
     int my_app_id;
     // whether we've seen an init op (needed for timing correctness)
     int is_init;
-    int num_reqs;
+    unsigned int num_reqs;
     unsigned int num_ops;
     int64_t my_rank;
     double last_op_time;
@@ -153,7 +152,7 @@ static void* dumpi_init_op_data()
 	assert(tmp);
 	tmp->op_array = malloc(MAX_OPERATIONS * sizeof(struct codes_workload_op));
 	assert(tmp->op_array);
-        tmp->op_arr_ndx = 0;
+    tmp->op_arr_ndx = 0;
 	tmp->op_arr_cnt = MAX_OPERATIONS;
 
 	return (void *)tmp;	
@@ -197,7 +196,7 @@ static void dumpi_roll_back_prev_op(void * mpi_op_array)
 {
     dumpi_op_data_array *array = (dumpi_op_data_array*)mpi_op_array;
     array->op_arr_ndx--;
-    assert(array->op_arr_ndx >= 0);
+    //assert(array->op_arr_ndx >= 0);
 }
 /* removes the next operation from the array */
 static void dumpi_remove_next_op(void *mpi_op_array, struct codes_workload_op *mpi_op,
@@ -207,13 +206,16 @@ static void dumpi_remove_next_op(void *mpi_op_array, struct codes_workload_op *m
 
 	dumpi_op_data_array *array = (dumpi_op_data_array*)mpi_op_array;
 	//printf("\n op array index %d array count %d ", array->op_arr_ndx, array->op_arr_cnt);
-	if (array->op_arr_ndx == array->op_arr_cnt)
+	if (array->op_arr_ndx >= array->op_arr_cnt)
 	 {
 		mpi_op->op_type = CODES_WK_END;
+        mpi_op->sequence_id = array->op_arr_ndx;
+        array->op_arr_ndx++;
 	 }
 	else
 	{
 		struct codes_workload_op *tmp = &(array->op_array[array->op_arr_ndx]);
+        tmp->sequence_id = array->op_arr_ndx;
 		*mpi_op = *tmp;
         array->op_arr_ndx++;
 	}
@@ -347,7 +349,7 @@ int handleDUMPIWaitsome(const dumpi_waitsome *prm, uint16_t thread,
 
         wrkld_per_rank.op_type = CODES_WK_WAITSOME;
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int*)malloc(prm->count * sizeof(int));
+        wrkld_per_rank.u.waits.req_ids = (unsigned int*)malloc(prm->count * sizeof(unsigned int));
 
         for( i = 0; i < prm->count; i++ )
                 wrkld_per_rank.u.waits.req_ids[i] = prm->requests[i];
@@ -372,7 +374,7 @@ int handleDUMPIWaitany(const dumpi_waitany *prm, uint16_t thread,
 
         wrkld_per_rank.op_type = CODES_WK_WAITANY;
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int*)malloc(prm->count * sizeof(int));
+        wrkld_per_rank.u.waits.req_ids = (unsigned int*)malloc(prm->count * sizeof(unsigned int));
 
         for( i = 0; i < prm->count; i++ )
                 wrkld_per_rank.u.waits.req_ids[i] = prm->requests[i];
@@ -398,7 +400,7 @@ int handleDUMPIWaitall(const dumpi_waitall *prm, uint16_t thread,
         wrkld_per_rank.op_type = CODES_WK_WAITALL;
 
         wrkld_per_rank.u.waits.count = prm->count;
-        wrkld_per_rank.u.waits.req_ids = (int*)malloc(prm->count * sizeof(int));
+        wrkld_per_rank.u.waits.req_ids = (unsigned int*)malloc(prm->count * sizeof(unsigned int));
         for( i = 0; i < prm->count; i++ )
                 wrkld_per_rank.u.waits.req_ids[i] = prm->requests[i];
 
@@ -546,7 +548,6 @@ int handleDUMPISendrecv(const dumpi_sendrecv* prm, uint16_t thread,
 		update_times_and_insert(&wrkld_per_rank, wall, myctx);
 
 	}
-
     /* issue a blocking receive */
 	{
 		struct codes_workload_op wrkld_per_rank;
@@ -574,6 +575,7 @@ int handleDUMPISendrecv(const dumpi_sendrecv* prm, uint16_t thread,
     
         myctx->num_reqs++;
     }
+
 
 	return 0;
 }
@@ -781,9 +783,10 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	if(rank >= dumpi_params->num_net_traces)
 		return -1;
 
+    int hash_size = (dumpi_params->num_net_traces / dumpi_params->nprocs) + 1;
 	if(!rank_tbl)
     	{
-            rank_tbl = qhash_init(hash_rank_compare, quickhash_64bit_hash, RANK_HASH_TABLE_SIZE);
+            rank_tbl = qhash_init(hash_rank_compare, quickhash_64bit_hash, hash_size);
             if(!rank_tbl)
                   return -1;
     	}

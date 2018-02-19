@@ -32,6 +32,7 @@ extern void free_tmp(void * ptr);
 typedef struct message_list message_list;
 
 struct message_list {
+  //CHANGE: add message types for new networks here
   union {
     terminal_message dfly_msg;
     em_message em_msg;

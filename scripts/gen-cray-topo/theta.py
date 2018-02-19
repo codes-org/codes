@@ -30,8 +30,8 @@ intercon = open(sys.argv[3], "wb")
 def router(group, row, col):
     return group*96 + row*16 + col
 
-numblack = np.zeros((864,864), dtype=np.int)
-numblue = np.zeros((864,864), dtype=np.int)
+numblack = np.zeros((960,960), dtype=np.int)
+numblue = np.zeros((960,960), dtype=np.int)
 
 with open(filename) as ofile:
     matches =    re.findall('c\d+-\dc\ds\d+a0l\d+\((\d+):(\d):(\d+)\).(\w+).->.c\d+-\dc\ds\d+a0l\d+\((\d+):(\d):(\d+)\)', ofile.read(), re.MULTILINE)
