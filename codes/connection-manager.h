@@ -177,6 +177,13 @@ public:
     vector< Connection > get_connections_to_group(int dest_group_id);
 
     /**
+     * @brief returns a vector of all connections to routers via type specified.
+     * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
+     * @note this will return connections to same destination on different ports as individual connections
+     */
+    vector< Connection > get_connections_by_type(ConnectionType type);
+
+    /**
      * @brief prints out the state of the connection manager
      */
     void print_connections();
@@ -383,6 +390,33 @@ vector< Connection > ConnectionManager::get_connections_to_group(int dest_group_
     return conns_to_group;
 }
 
+vector< Connection > ConnectionManager::get_connections_by_type(ConnectionType type)
+{
+    map< int, vector< Connection > > theMap;
+    switch (type)
+    {
+        case CONN_LOCAL:
+            theMap = intraGroupConnections;
+            break;
+        case CONN_GLOBAL:
+            theMap = globalConnections;
+            break;
+        case CONN_TERMINAL:
+            theMap = terminalConnections;
+            break;
+    }
+
+    vector< Connection > retVec;
+    map< int, vector< Connection > >::iterator it;
+    for(it = theMap.begin(); it != theMap.end(); it++)
+    {
+        retVec.insert(retVec.end(), (*it).second.begin(), (*it).second.end());
+    }
+
+    return retVec;
+}
+
+
 void ConnectionManager::print_connections()
 {
     printf("Connections for Router: %d ---------------------------------------\n",_source_id_global);
@@ -391,17 +425,17 @@ void ConnectionManager::print_connections()
     map<int,Connection>::iterator it = _portMap.begin();
     for(; it != _portMap.end(); it++)
     {
-        if (ports_printed == 0)
+        if ( (ports_printed == 0) && (_used_intra_ports > 0) )
         {
             printf(" -- Intra-Group Connections -- \n");
             printf("  Port  |  Dest_ID  |  Group\n");
         }
-        if (ports_printed == _max_intra_ports)
+        if ( (ports_printed == _used_intra_ports) && (_used_inter_ports > 0) )
         {
             printf(" -- Inter-Group Connections -- \n");
             printf("  Port  |  Dest_ID  |  Group\n");
         }
-        if (ports_printed == _max_intra_ports + _max_inter_ports)
+        if ( (ports_printed == _used_intra_ports + _used_inter_ports) && (_used_terminal_ports > 0) )
         {
             printf(" -- Terminal Connections -- \n");
             printf("  Port  |  Dest_ID  |  Group\n");
@@ -411,5 +445,7 @@ void ConnectionManager::print_connections()
         ports_printed++;
     }
 }
+
+
 
 #endif /* end of include guard:*/
