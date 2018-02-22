@@ -265,13 +265,17 @@ retry:
     }
     mpi_op->sequence_id = t->sequence_id;
     t->sequence_id += 1;
-    // put the event in the stack of previous events
-    if(t->prev_ops_stack_top == t->prev_ops_stack_size) {
-        t->prev_ops_stack = realloc(t->prev_ops_stack, 2*(t->prev_ops_stack_size)*sizeof(struct codes_workload_op));
-        t->prev_ops_stack_size *= 2;
+
+    // if we run in optimistic mode, we need to put the event in the stack
+    if(g_tw_synchronization_protocol > 2) {
+        // put the event in the stack of previous events
+        if(t->prev_ops_stack_top == t->prev_ops_stack_size) {
+            t->prev_ops_stack = realloc(t->prev_ops_stack, 2*(t->prev_ops_stack_size)*sizeof(struct codes_workload_op));
+            t->prev_ops_stack_size *= 2;
+        }
+        t->prev_ops_stack[t->prev_ops_stack_top] = *mpi_op;
+        t->prev_ops_stack_top += 1;
     }
-    t->prev_ops_stack[t->prev_ops_stack_top] = *mpi_op;
-    t->prev_ops_stack_top += 1;
 }
 
 /* check for initialization and normalize reported time */
