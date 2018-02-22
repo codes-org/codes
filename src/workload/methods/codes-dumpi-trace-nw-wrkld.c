@@ -41,8 +41,8 @@
 #define MAX_OPERATIONS 32768
 #define DUMPI_IGNORE_DELAY 100
 
-#define INITIAL_OP_QUEUE_SIZE    64
-#define INITIAL_OP_RC_STACK_SIZE 64
+#define INITIAL_OP_QUEUE_SIZE    4
+#define INITIAL_OP_RC_STACK_SIZE 4
 
 /* This variable is defined in src/network-workloads/model-net-mpi-replay.c */
 extern struct codes_jobmap_ctx *jobmap_ctx; 
@@ -181,8 +181,14 @@ static void dumpi_insert_next_op(struct rank_mpi_context* ctx, struct codes_work
     dumpi_op_data_array* t = &(ctx->dumpi_mpi_array);
     // check if we have some space in the queue
     if(t->next_ops_queue_size == t->next_ops_queue_count) {
-        t->next_ops_queue = realloc(t->next_ops_queue, t->next_ops_queue_size*2);
+        t->next_ops_queue = realloc(t->next_ops_queue, t->next_ops_queue_size*2*sizeof(struct codes_workload_op));
         assert(t->next_ops_queue);
+        if(t->next_ops_queue_first >= t->next_ops_queue_last) {
+            size_t s = t->next_ops_queue_size;
+            size_t x = s - t->next_ops_queue_first;
+            memcpy(t->next_ops_queue + x + s, t->next_ops_queue + x, s*sizeof(struct codes_workload_op));
+            t->next_ops_queue_first += s;
+        }
         t->next_ops_queue_size *= 2;
     }
     t->next_ops_queue[t->next_ops_queue_last] = *mpi_op;
@@ -206,8 +212,14 @@ static void dumpi_roll_back_prev_op(struct rank_mpi_context* ctx)
     assert(t->prev_ops_stack_top);
     // check if the queue size needs to be increased
     if(t->next_ops_queue_size == t->next_ops_queue_count) {
-        t->next_ops_queue = realloc(t->next_ops_queue, t->next_ops_queue_size*2);
+        t->next_ops_queue = realloc(t->next_ops_queue, t->next_ops_queue_size*2*sizeof(struct codes_workload_op));
         assert(t->next_ops_queue);
+        if(t->next_ops_queue_first >= t->next_ops_queue_last) {
+            size_t s = t->next_ops_queue_size;
+            size_t x = s - t->next_ops_queue_first;
+            memcpy(t->next_ops_queue + x + s, t->next_ops_queue + x, s*sizeof(struct codes_workload_op));
+            t->next_ops_queue_first += s;
+        }
         t->next_ops_queue_size *= 2;
     }
     // move the cursor of the first element in the queue
@@ -255,7 +267,7 @@ retry:
     t->sequence_id += 1;
     // put the event in the stack of previous events
     if(t->prev_ops_stack_top == t->prev_ops_stack_size) {
-        t->prev_ops_stack = realloc(t->prev_ops_stack, 2*(t->prev_ops_stack_size));
+        t->prev_ops_stack = realloc(t->prev_ops_stack, 2*(t->prev_ops_stack_size)*sizeof(struct codes_workload_op));
         t->prev_ops_stack_size *= 2;
     }
     t->prev_ops_stack[t->prev_ops_stack_top] = *mpi_op;
@@ -1000,7 +1012,7 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 #endif
         }
 
-        // now that DUMPI events are read on the fly, we shouldn't close the provider here
+        // now that DUMPI events are read on the fly, we shouldn't close the profile here
 #endif
 
 #if 0
