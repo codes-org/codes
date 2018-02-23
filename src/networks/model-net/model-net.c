@@ -629,7 +629,10 @@ const tw_lptype* model_net_get_lp_type(int net_id)
 
 const st_model_types* model_net_get_model_stat_type(int net_id)
 {
-   return method_array[net_id]->mn_get_model_stat_types();
+    if (method_array[net_id]->mn_get_model_stat_types)
+       return method_array[net_id]->mn_get_model_stat_types();
+    else
+        return NULL;
 }
 
 void model_net_report_stats(int net_id)
