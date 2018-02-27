@@ -689,10 +689,12 @@ static void fattree_read_config(const char * anno, fattree_param *p){
   
   int i;
 
-  p->ft_type = 1;
+  p->ft_type = 0;
   configuration_get_value_int(&config, "PARAMS", "ft_type", anno,
       &p->ft_type);
   if(!g_tw_mynode) printf("FT type is %d\n", p->ft_type);
+  if(p->ft_type == 1) printf("Use of FT type 1 is deprecated; please use type 0 for similar functionality\n");
+  if(p->ft_type == 2) printf("You have chosen FT type 2: this is for cases in which different NICs are desired for different rails.\n");
 
   configuration_get_value_int(&config, "PARAMS", "num_levels", anno,
       &p->num_levels);
@@ -825,9 +827,9 @@ static void fattree_read_config(const char * anno, fattree_param *p){
   if(!g_tw_mynode) printf("FT num rails is %d\n", p->num_rails);
   
   if(p->ft_type == 2) {
-    p->ports_per_nic = p->num_rails;
-  } else {
     p->ports_per_nic = 1;
+  } else {
+    p->ports_per_nic = p->num_rails;
   }
 
   p->router_delay = 50;
@@ -981,7 +983,7 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
            s->anno, 0);
 
-   if(s->params->ft_type != 2) {
+   if(s->params->ft_type == 2) {
     num_lps /= s->params->num_rails;
    }
 
@@ -990,7 +992,7 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
          "%d, not the given value of %d\n", s->params->l0_term_size, num_lps);
    }
   
-   if(s->params->ft_type != 2) {
+   if(s->params->ft_type == 2) {
     s->terminal_id = (mapping_rep_id * num_lps) + (mapping_offset/s->params->num_rails);
     s->rail_id = (mapping_offset % s->params->num_rails);
    } else {
@@ -999,7 +1001,7 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
    }
    s->switch_id = s->terminal_id / s->params->l0_term_size;
    s->switch_lp = (tw_lpid*)malloc(s->params->ports_per_nic * sizeof(tw_lpid));
-   if(s->params->ft_type != 2) {
+   if(s->params->ft_type == 2) {
      codes_mapping_get_lp_id(lp_group_name, "fattree_switch", NULL, 1,
          s->switch_id, 0 + s->params->num_levels * s->rail_id, &s->switch_lp[0]);
    } else {
@@ -1170,7 +1172,7 @@ void switch_init(switch_state * r, tw_lp * lp)
   //if at level 0, first half ports go to terminals
   if(r->switch_level == 0) {
     int term_rails, term_railid;
-    if(p->ft_type != 2) {
+    if(p->ft_type == 2) {
       term_rails = p->num_rails;
       term_railid = r->rail_id;
     } else {
@@ -2627,7 +2629,7 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
   fattree_param *p = s->params;
 
   int dest_term_local_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0);
-  if(s->params->ft_type != 2) {
+  if(s->params->ft_type == 2) {
     dest_term_local_id /= s->params->num_rails;
   }
   /* either do static oblivious routing, if set up properly via LFTs */
