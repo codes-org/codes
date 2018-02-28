@@ -1353,9 +1353,15 @@ static void file_sanity_check(
     assert(mfile->counters[MPIIO_NB_WRITES] == 0);
 
     /* if we see collective I/O, but the rank is non-negative, then we 
-     * can treat them as independent I/O operations.  This is a collective
-     * MPI-IO call being made on a file with MPI_COMM_SELF communicator
+     * emulate them as independent I/O operations.  This is a collective on
+     * a sub-communicator or COMM_SELF
      */
+    if(mfile->counters[MPIIO_COLL_OPENS] > 0 && mfile->base_rec.rank >= 0)
+    {
+        fprintf(stderr, "WARNING: id %" PRIu64 " has non-global collective MPIIO operations, emulating as independent.\n", mfile->base_rec.id);
+        mfile->counters[MPIIO_INDEP_OPENS] += mfile->counters[MPIIO_COLL_OPENS];
+        mfile->counters[MPIIO_COLL_OPENS] = 0;
+    }
     if(mfile->counters[MPIIO_COLL_READS] > 0 && mfile->base_rec.rank >= 0)
     {
         mfile->counters[MPIIO_INDEP_READS] += mfile->counters[MPIIO_COLL_READS];
