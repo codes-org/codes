@@ -24,6 +24,9 @@ extern struct codes_workload_method darshan_io_workload_method;
 #ifdef USE_RECORDER
 extern struct codes_workload_method recorder_io_workload_method;
 #endif
+#ifdef USE_ONLINE
+extern struct codes_workload_method online_comm_workload_method;
+#endif
 extern struct codes_workload_method checkpoint_workload_method;
 extern struct codes_workload_method iomock_workload_method;
 
@@ -36,6 +39,9 @@ static struct codes_workload_method const * method_array_default[] =
 #endif
 #ifdef USE_DARSHAN
     &darshan_io_workload_method,
+#endif
+#ifdef USE_ONLINE
+    &online_comm_workload_method,
 #endif
 #ifdef USE_RECORDER
     &recorder_io_workload_method,
@@ -89,6 +95,7 @@ static void init_workload_methods(void)
         // note - includes null char
         int num_default_methods =
             (sizeof(method_array_default) / sizeof(method_array_default[0]));
+        printf("\n Num default methods %d ", num_default_methods);
         method_array = realloc(method_array,
                 (num_default_methods + num_user_methods + 1) *
                 sizeof(*method_array));
@@ -152,6 +159,7 @@ int codes_workload_load(
 
     for(i=0; method_array[i] != NULL; i++)
     {
+        printf("\n loading for workload %s %s ", type, method_array[i]->method_name);
         if(strcmp(method_array[i]->method_name, type) == 0)
         {
             /* load appropriate workload generator */
@@ -264,6 +272,27 @@ void codes_workload_get_next_rc2(
     method_array[wkld_id]->codes_workload_get_next_rc2(app_id, rank);
 }
 
+/* Finalize the workload */
+int codes_workload_finalize(
+        const char* type,
+        const char* params,
+        int app_id, 
+        int rank)
+{
+    int i;
+
+    for(i=0; method_array[i] != NULL; i++)
+    {
+        if(strcmp(method_array[i]->method_name, type) == 0)
+        {
+                return method_array[i]->codes_workload_finalize(
+                        params, app_id, rank);
+        }
+    }
+
+    fprintf(stderr, "Error: failed to find workload generator %s\n", type);
+    return(-1);
+}
 int codes_workload_get_rank_cnt(
         const char* type,
         const char* params,
@@ -428,7 +457,7 @@ void codes_workload_print_op(
 
 void codes_workload_add_method(struct codes_workload_method const * method)
 {
-    static int method_array_cap = 8;
+    static int method_array_cap = 10;
     if (is_workloads_init)
         tw_error(TW_LOC,
                 "adding a workload method after initialization is forbidden");

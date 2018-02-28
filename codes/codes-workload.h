@@ -19,6 +19,9 @@ extern "C" {
 #include <ross.h>
 #include "configuration.h"
 
+#ifdef USE_ONLINE
+#include <abt.h>
+#endif
 #define MAX_NAME_LENGTH_WKLD 512
 
 /* implementations included with codes */
@@ -30,6 +33,7 @@ typedef struct recorder_params recorder_params;
 /* struct to hold the actual data from a single MPI event*/
 typedef struct dumpi_trace_params dumpi_trace_params;
 typedef struct checkpoint_wrkld_params checkpoint_wrkld_params;
+typedef struct online_comm_params online_comm_params;
 
 struct iomock_params
 {
@@ -77,6 +81,11 @@ struct dumpi_trace_params {
 #endif
 };
 
+struct online_comm_params {
+    char workload_name[MAX_NAME_LENGTH_WKLD];
+    char file_path[MAX_NAME_LENGTH_WKLD];
+    int nprocs;
+};
 struct checkpoint_wrkld_params
 {
     int nprocs; /* number of workload processes */
@@ -306,6 +315,13 @@ int codes_workload_get_rank_cnt(
         const char* params,
         int app_id);
 
+/* Finalize the workload */
+int codes_workload_finalize(
+        const char* type,
+        const char* params,
+        int app_id, 
+        int rank);
+
 /* for debugging/logging: print an individual operation to the specified file */
 void codes_workload_print_op(
         FILE *f,
@@ -324,6 +340,7 @@ struct codes_workload_method
     void (*codes_workload_get_next)(int app_id, int rank, struct codes_workload_op *op);
     void (*codes_workload_get_next_rc2)(int app_id, int rank);
     int (*codes_workload_get_rank_cnt)(const char* params, int app_id);
+    int (*codes_workload_finalize)(const char* params, int app_id, int rank);
 };
 
 
