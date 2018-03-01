@@ -254,7 +254,7 @@ void codes_workload_get_next_rc(
     }
     assert(tmp);
 
-    tmp_op = (struct rc_op*)malloc(sizeof(*tmp_op));
+    tmp_op = (struct rc_op*)calloc(1, sizeof(*tmp_op));
     assert(tmp_op);
     tmp_op->op = *op;
     tmp_op->next = tmp->lifo;

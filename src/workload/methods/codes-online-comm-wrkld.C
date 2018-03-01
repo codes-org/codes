@@ -95,6 +95,13 @@ void SWM_Send(SWM_PEER peer,
     ABT_thread_yield_to(global_prod_thread);
 }
 
+/*
+ * @param comm_id: communicator ID (For now, MPI_COMM_WORLD)
+ * reqvc and rspvc: virtual channel IDs for request and response (ignore for
+ * our purpose)
+ * buf: buffer location for the call (ignore for our purpose)
+ * reqrt and rsprt: routing types, ignore and use routing from config file instead. 
+ * */
 void SWM_Barrier(
         SWM_COMM_ID comm_id,
         SWM_VC reqvc,
@@ -359,7 +366,16 @@ void SWM_Sendrecv(
     ABT_thread_yield_to(global_prod_thread);
 }
 
-
+/* @param bytes: number of bytes in Allreduce
+ * @param respbytes: number of bytes to be sent in response (ignore for our
+ * purpose)
+ * $params comm_id: communicator ID (MPI_COMM_WORLD for our case)
+ * @param sendreqvc: virtual channel of the sender request (ignore for our
+ * purpose)
+ * @param sendrspvc: virtual channel of the response request (ignore for our
+ * purpose)
+ * @param sendbuf and rcvbuf: buffers for send and receive calls (ignore for
+ * our purpose) */
 void SWM_Allreduce(
         SWM_BYTES bytes,
         SWM_BYTES respbytes,
@@ -515,11 +531,12 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
          my_ctx->sctx.swm_obj = (void*)nekbone_swm;
     }
     ABT_xstream self_es;
-    ABT_xstream_self(&self_es);
 
     if(global_prod_thread == NULL)
+    {
+        ABT_xstream_self(&self_es);
         ABT_thread_self(&global_prod_thread);
-    
+    }
     ABT_thread_create_on_xstream(self_es, 
             &workload_caller, (void*)&(my_ctx->sctx),
             ABT_THREAD_ATTR_NULL, &(my_ctx->sctx.producer));
@@ -537,6 +554,7 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     qhash_add(rank_tbl, &cmp, &(my_ctx->hash_link));
     rank_tbl_pop++;
 
+    printf("\n workload created %d %d, table popped ", app_id, rank);
     return 0;
 }
 
@@ -563,7 +581,7 @@ static void comm_online_workload_get_next(int app_id, int rank, struct codes_wor
     assert(temp_data);
     while(temp_data->sctx.fifo.empty())
     {
-        //printf("\n Yielding to producer! ");
+        printf("\n Yielding to producer! ");
         ABT_thread_yield_to(temp_data->sctx.producer); 
     }
     struct codes_workload_op * front_op = temp_data->sctx.fifo.front();
