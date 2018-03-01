@@ -31,6 +31,7 @@ ABT_thread global_prod_thread = NULL;
 
 struct shared_context {
      int my_rank;
+     int num_ranks;
      char workload_name[MAX_NAME_LENGTH_WKLD];
      void * swm_obj;
      ABT_thread      producer;
@@ -484,6 +485,7 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     my_ctx = (rank_mpi_context*)calloc(1, sizeof(rank_mpi_context));  
     assert(my_ctx); 
     my_ctx->sctx.my_rank = rank; 
+    my_ctx->sctx.num_ranks = nprocs;
     my_ctx->app_id = app_id;
 
     void** generic_ptrs;
@@ -554,7 +556,6 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     qhash_add(rank_tbl, &cmp, &(my_ctx->hash_link));
     rank_tbl_pop++;
 
-    printf("\n workload created %d %d, table popped ", app_id, rank);
     return 0;
 }
 
@@ -581,7 +582,6 @@ static void comm_online_workload_get_next(int app_id, int rank, struct codes_wor
     assert(temp_data);
     while(temp_data->sctx.fifo.empty())
     {
-        printf("\n Yielding to producer! ");
         ABT_thread_yield_to(temp_data->sctx.producer); 
     }
     struct codes_workload_op * front_op = temp_data->sctx.fifo.front();
