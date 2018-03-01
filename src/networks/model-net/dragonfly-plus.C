@@ -684,7 +684,8 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
             int group_id = i/p->num_routers;
             if (i % p->num_routers == src_id_local)
             {
-                connManagerList[i].add_connection(dest_id_local, group_id, CONN_LOCAL);
+                int dest_id_global = group_id * p->num_routers + dest_id_local;
+                connManagerList[i].add_connection(dest_id_global, CONN_LOCAL);
             }
         }
     }
@@ -695,7 +696,7 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     {
         int assigned_router_id = dragonfly_plus_get_assigned_router_id(i, p);
         int assigned_group_id = assigned_router_id / p->num_routers;
-        connManagerList[assigned_router_id].add_connection(i, assigned_group_id, CONN_TERMINAL);
+        connManagerList[assigned_router_id].add_connection(i, CONN_TERMINAL);
     }
 
     // read inter group connections, store from a router's perspective
@@ -724,7 +725,7 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         int dest_group_id = dest_id_global / p->num_routers;
 
         printf("[%d -> %d]\n",src_id_global, dest_id_global);
-        connManagerList[src_id_global].add_connection(dest_id_global, dest_group_id, CONN_GLOBAL);
+        connManagerList[src_id_global].add_connection(dest_id_global, CONN_GLOBAL);
 
         int r;
         for (r = 0; r < connectionList[src_group_id][dest_group_id].size(); r++) {
@@ -2206,7 +2207,7 @@ static int select_connection_to_group(router_state *s,
     vector< Connection > conns_to_group = s->connMan->get_connections_to_group(dest_group_id);
     bf->c19 = 1;
     int select_chan = tw_rand_integer(lp->rng, 0, conns_to_group.size() - 1);
-    int dest_lp = conns_to_group[select_chan].other_id;
+    int dest_lp = conns_to_group[select_chan].dest_gid;
     return dest_lp;
 }
 
@@ -2215,9 +2216,9 @@ static int select_connection_to_group(router_state *s,
  * determines if it is a router within a group, a router in another group
  * or the destination terminal */
 static tw_lpid get_next_stop(router_state *s,
-                             tw_lp *lp,
                              tw_bf *bf,
                              terminal_plus_message *msg,
+                             tw_lp *lp,
                              int dest_router_id)
 {
     int dest_lp;
@@ -2326,8 +2327,7 @@ static tw_lpid get_next_stop(router_state *s,
                 vector < Connection > conns = s->connMan->get_connections_by_type(CONN_LOCAL); //get all local connections (all leaf routers)
                 bf->c19 = 1;
                 select_chan = tw_rand_integer(lp->rng, 0, conns.size() -1);
-                int group_offset = conns[select_chan].group_id * s->params->num_routers;
-                dest_lp = group_offset + conns[select_chan].other_id;
+                dest_lp = conns[select_chan].dest_gid;
             }
             else if(msg->last_hop == LOCAL) {
                 if(s->dfp_router_type == SPINE) { //then we're a spine in the source group
@@ -2354,7 +2354,7 @@ static tw_lpid get_next_stop(router_state *s,
 }
 /*MM: This function would need major changes according to routing algorithm. */
 /* gets the output port corresponding to the next stop of the message */
-static int get_output_port(router_state *s, terminal_plus_message *msg, tw_lp *lp, tw_bf *bf, tw_lpid next_stop)
+static int get_output_port(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, tw_lpid next_stop)
 {
     // printf("%d: Get Output Port()\n", s->router_id);
     int output_port = -1;
@@ -2387,27 +2387,119 @@ static int get_output_port(router_state *s, terminal_plus_message *msg, tw_lp *l
     int num_conns = conns.size();
     // printf("%dr: get_output_port(): got %d conns\n", s->router_id, num_conns);
 
-    if (isRoutingAdaptive(msg->path_type) ) {
-        tw_error(TW_LOC, "\nget_output_port(): Adaptive routing not implemented"); //TODO implement adaptive routing here
-    }
-    else {
-        int rand_sel = tw_rand_integer(lp->rng, 0, num_conns-1);
-        output_port = conns[rand_sel].port;
-    }
+    int rand_sel = tw_rand_integer(lp->rng, 0, num_conns-1);
+    output_port = conns[rand_sel].port;
 
     return output_port;
 }
 
+// //Returns a vector of possible next stops that follow a minimal route to the destination
+// static vector< Connection > get_possible_minimal_next_stops(router_state *s,
+//                                             tw_bf *bf,
+//                                             terminal_plus_message *msg,
+//                                             tw_lp *lp,
+//                                             int fdest_router_id)
+// {
+//     int local_router_id = s->router_id;
+//     int my_group_id = s->router_id / s->params->num_routers;
+//     int fdest_group_id = fdest_router_id / s->params->num_routers;
+//     int origin_grp_id = msg->origin_router_id / s->params->num_routers;
+
+
+//     vector< Connection > possible_next_connections;
+//     if (msg->last_hop == TERMINAL) {
+//         assert(s->dfp_router_type == LEAF); //we're a leaf
+
+//         set<int> poss_router_id_globals;
+//         for(int i = 0; i < connectionList[my_group_id][fdest_group_id].size(); i++)
+//         {
+//             int poss_router_id = connectionList[my_group_id][fdest_group_id][i];
+//             poss_router_id_globals.insert(poss_router_id);
+//         }
+
+//         // for(set<int>::iterator poss_it = poss_router_id_globals.begin(); poss_it != poss_router_id_globals.end(); poss_it++)
+//         // {
+//         //     vector< Connection > conns =
+//         //     possible_next_connections.push_
+//         // }
+//     }
+//     else {
+//         assert(s->dfp_router_type == SPINE);
+//         vector< Connection > conns_to_group = s->connMan->get_connections_to_group(fdest_group_id); //gets connections to fdest group
+//         for(int i = 0; i < conns_to_group.size(); i++)
+//         {
+//             poss_next_rids.push_back(conns_to_group[i].other_id); //other_id is global id
+//         }
+//     }
+
+//     return poss_next_rids;
+// }
+
+// //Returns a vector of possible next stops that follow a nonminimal route -
+// static vector< Connection > get_possible_nonminimal_next_stops(router_state *s,
+//                                             tw_bf *bf,
+//                                             terminal_plus_message *msg,
+//                                             tw_lp *lp,
+//                                             int dest_router_id)
+// {
+//     int local_router_id = s->router_id;
+//     int my_group_id = s->router_id / s->params->num_routers;
+//     int fdest_group_id = fdest_router_id / s->params->num_routers;
+//     int origin_grp_id = msg->origin_router_id / s->params->num_routers;
+
+//     if (msg->last_hop == TERMINAL) {
+//         assert(s->dfp_router_type == LEAF);
+
+//         int possible_groups[s->params->num_groups - 2];
+//         int added = 0;
+//         for(int i = 0; i < s->params->num_groups; i++)
+//         {
+//             if ( (i != origin_grp_id) && (i != fdest_group_id) ) {
+//                 possible_groups[added] = i;
+//                 added++;
+//             }
+//         }
+
+//         vector< Connection > spinal_conns = s->connMan.get_connections_by_type(ConnectionType.LOCAL); //I am a leaf, my local connections are all to spine routers in my group
+//         set< int > spinal_conn_ids;
+
+//         vector< Connection >::iterator it;
+//         for(it = spinal_conns.begin(); it != spinal_conns.end(); it++)
+//         {
+//             spinal_conn_ids.insert((*it).other_id) //other id is local id
+//         }
+
+
+//     }
+
+
+
+// }
+
+static int do_dfp_routing(router_state *s,
+                                tw_bf *bf,
+                                terminal_plus_message_list *cur_chunk,
+                                tw_lp *lp,
+                                int dest_router_id)
+{
+    if (isRoutingAdaptive(routing)) {
+
+    }
+    else {
+
+    }
+
+
+}
 
 //TODO: I think that I may actually just scrap this method alltogether
 /*MM: Change this to do_adaptive_routing. Do you know what are the congestion sensing mechanism for adaptive
  * routing in dragonfly plus? Is it similar to dragonfly? */
 static int do_adaptive_routing(router_state *s,
-                                      tw_lp *lp,
-                                      terminal_plus_message *msg,
                                       tw_bf *bf,
-                                      int dest_router_id,
-                                      int intm_id)
+                                      terminal_plus_message *msg,
+                                      tw_bf *lp,
+                                      int dest_router_id)
 {
     int next_chan = -1;
     return next_chan;
@@ -2526,18 +2618,19 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
         printf("\n Packet %llu arrived at router %u next stop %d final stop %d local hops %d",
                cur_chunk->msg.packet_ID, s->router_id, next_stop, dest_router_id, cur_chunk->msg.my_l_hop);
 
-    // printf("%dr: final dest is %d in group %d\n",s->router_id, dest_router_id,dest_grp_id);
-    next_stop = get_next_stop(s, lp, bf, &(cur_chunk->msg), dest_router_id);
-    int next_stop_id = codes_mapping_get_lp_relative_id(next_stop, 0, 0);
-    // printf("%dr: next stop is: %d\n", s->router_id, next_stop_id);
+    // output_port = do_dfp_routing(s, bf, cur_chunk, lp, dest_router_id);
+    next_stop = get_next_stop(s, bf, &(cur_chunk->msg), lp, dest_router_id);
+    output_port = get_output_port(s, bf, &(cur_chunk->msg), lp, next_stop);
 
-    output_port = get_output_port(s, &(cur_chunk->msg), lp, bf, next_stop);
-    // printf("%dr: output port is: %d\n",s->router_id, output_port);
+        //From here the output port is known and output_chan is determined shortly
     assert(output_port >= 0);
-    int max_vc_size = s->params->cn_vc_size;
-
     cur_chunk->msg.vc_index = output_port;
     cur_chunk->msg.next_stop = next_stop;
+
+
+    int max_vc_size = s->params->cn_vc_size;
+
+
 
     output_chan = 0;
 
