@@ -685,11 +685,15 @@ static void generate_mpiio_file_events(
         create_flag = 1;
     }
 
+    if(meta_op_time <= 0)
+        meta_op_time = DARSHAN_NEGLIGIBLE_DELAY;
+
     /* generate an open event */
     if(mfile->counters[MPIIO_COLL_OPENS] > 0)
         open_type = CODES_WK_MPI_COLL_OPEN;
     else
         open_type = CODES_WK_MPI_OPEN;
+
     cur_time = generate_open_event(mfile->base_rec.id, open_type, create_flag, meta_op_time, 
         cur_time, io_context, 1);
 
@@ -765,7 +769,7 @@ static void generate_psx_file_events(
     if(file->base_rec.rank == -1)
         meta_op_time /= total_rank_cnt;
 
-    if(meta_op_time < 0)
+    if(meta_op_time <= 0)
         meta_op_time = DARSHAN_NEGLIGIBLE_DELAY;
 
     /* set the create flag if the file was written to */
@@ -856,6 +860,7 @@ static double generate_mpiio_io_events(
     off_t io_off;
     int64_t i;
     struct darshan_io_op next_io_op;
+    int did_io = 0;
 
     /* initialize the rd and wr bandwidth values using total io size and time */
     if (mfile->fcounters[MPIIO_F_READ_TIME])
@@ -910,6 +915,7 @@ static double generate_mpiio_io_events(
 
             /* store the i/o event */
             darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
+            did_io = 1;
 
             /* update current time to account for possible delay between i/o operations */
             cur_time += inter_io_delay;
@@ -951,6 +957,7 @@ static double generate_mpiio_io_events(
 
             /* store the i/o event */
             darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
+            did_io = 1;
 
             /* update current time to account for possible delay between i/o operations */
             cur_time += inter_io_delay;
@@ -960,7 +967,8 @@ static double generate_mpiio_io_events(
     /* the last op should not have incremented cur_time; we'll handle as a
      * close delay
      */
-    cur_time -= inter_io_delay;
+    if(did_io)
+        cur_time -= inter_io_delay;
 
     return cur_time;
 }
@@ -977,6 +985,7 @@ static double generate_psx_io_events(
     off_t io_off;
     int64_t i;
     struct darshan_io_op next_io_op;
+    int did_io = 0;
 
     /* initialize the rd and wr bandwidth values using total io size and time */
     if (file->fcounters[POSIX_F_READ_TIME])
@@ -1022,6 +1031,7 @@ static double generate_psx_io_events(
 
             /* store the i/o event */
             darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
+            did_io = 1;
             /* update current time to account for possible delay between i/o operations */
             cur_time += inter_io_delay;
         }
@@ -1059,6 +1069,7 @@ static double generate_psx_io_events(
 
             /* store the i/o event */
             darshan_insert_next_io_op(io_context->io_op_dat, &next_io_op);
+            did_io = 1;
 
             /* update current time to account for possible delay between i/o operations */
             cur_time += inter_io_delay;
@@ -1068,7 +1079,8 @@ static double generate_psx_io_events(
     /* the last op should not have incremented cur_time; we'll handle as a
      * close delay
      */
-    cur_time -= inter_io_delay;
+    if(did_io)
+        cur_time -= inter_io_delay;
 
     return cur_time;
 }
