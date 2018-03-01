@@ -327,8 +327,8 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
             /* don't parse unless this file record belongs to this rank, or
              * this is a globally shared file record.
              */
-            if(dur_cur->psx_file_rec.base_rec.rank == rank ||
-                dur_cur->psx_file_rec.base_rec.rank == -1)
+            if(dur_cur->mpiio_file_rec.base_rec.rank == rank ||
+                dur_cur->mpiio_file_rec.base_rec.rank == -1)
             {
                 /* make sure the file i/o counters are valid */
                 file_sanity_check(&dur_cur->psx_file_rec, 
