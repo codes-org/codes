@@ -876,6 +876,8 @@ static double generate_mpiio_io_events(
         /* calculate what value to use for i/o size and offset */
         determine_mpiio_io_params(mfile, 1, &io_sz, &io_off, io_context);
 
+        assert(io_sz > 0);
+
         if(mfile->base_rec.rank == io_context->my_rank ||
             (mfile->base_rec.rank == -1 &&
             i%total_rank_cnt == io_context->my_rank))
@@ -894,7 +896,7 @@ static double generate_mpiio_io_events(
 
             /* set the end time based on observed bandwidth and io size */
             if (wr_bw == 0.0)
-                io_op_time = 0.0;
+                io_op_time = DARSHAN_NEGLIGIBLE_DELAY;
             else
                 io_op_time = (io_sz / wr_bw);
 
@@ -916,6 +918,7 @@ static double generate_mpiio_io_events(
     {
         /* calculate what value to use for i/o size and offset */
         determine_mpiio_io_params(mfile, 0, &io_sz, &io_off, io_context);
+        assert(io_sz > 0);
 
         if(mfile->base_rec.rank == io_context->my_rank ||
             (mfile->base_rec.rank == -1 &&
@@ -934,7 +937,7 @@ static double generate_mpiio_io_events(
 
             /* set the end time based on observed bandwidth and io size */
             if (rd_bw == 0.0)
-                io_op_time = 0.0;
+                io_op_time = DARSHAN_NEGLIGIBLE_DELAY;
             else
                 io_op_time = (io_sz / rd_bw);
 
@@ -1004,7 +1007,7 @@ static double generate_psx_io_events(
 
             /* set the end time based on observed bandwidth and io size */
             if (wr_bw == 0.0)
-                io_op_time = 0.0;
+                io_op_time = DARSHAN_NEGLIGIBLE_DELAY;
             else
                 io_op_time = (io_sz / wr_bw);
 
@@ -1041,7 +1044,7 @@ static double generate_psx_io_events(
 
             /* set the end time based on observed bandwidth and io size */
             if (rd_bw == 0.0)
-                io_op_time = 0.0;
+                io_op_time = DARSHAN_NEGLIGIBLE_DELAY;
             else
                 io_op_time = (io_sz / rd_bw);
 
@@ -1129,9 +1132,21 @@ static void determine_mpiio_io_params(
             size_t gen_size;
             gen_size = (size_bin_max_vals[size_bin_ndx] - size_bin_min_vals[size_bin_ndx]) / 2;
             *io_sz = ALIGN_BY_8(gen_size);
+
+            /* safety check: if we use default size of this bin, will it
+             * exhaust remaining bytes?
+             */
+            if(*io_sz > ((*total_io_size) / size_bins[size_bin_ndx]))
+            {
+                *io_sz = ((*total_io_size) / size_bins[size_bin_ndx]);
+                assert(*io_sz >= size_bin_min_vals[size_bin_ndx]);
+                assert(*io_sz <= size_bin_max_vals[size_bin_ndx]);
+            }
         }
         assert(*io_sz);
     }
+
+    assert((*io_sz) > 0);
 
     *total_io_size -= *io_sz;
     size_bins[size_bin_ndx]--;
