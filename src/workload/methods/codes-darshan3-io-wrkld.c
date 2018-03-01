@@ -283,20 +283,23 @@ static int darshan_psx_io_workload_load(const char *params, int app_id, int rank
                 
         }
         
-        /* if we fall through to here, that means that an mpiio record is present
-         * for which there is no exact match in the posix records.  This
-         * could (for example) happen if mpiio was using deferred opens,
-         * producing a shared record in mpi and unique records in posix.  Or
-         * if mpiio is using a non-posix back end. Or if we skip the posix
-         * records because the app issued a stat() on every rank but only
-         * did I/O on a subset.
-         */
-        dur_new = calloc(1, sizeof(*dur_new));
-        assert(dur_new);
+        if(!dur_cur)
+        {
+            /* if we fall through to here, that means that an mpiio record is present
+             * for which there is no exact match in the posix records.  This
+             * could (for example) happen if mpiio was using deferred opens,
+             * producing a shared record in mpi and unique records in posix.  Or
+             * if mpiio is using a non-posix back end. Or if we skip the posix
+             * records because the app issued a stat() on every rank but only
+             * did I/O on a subset.
+             */
+            dur_new = calloc(1, sizeof(*dur_new));
+            assert(dur_new);
 
-        dur_new->mpiio_file_rec = *mpiio_file_rec;
-        dur_new->next = dur_head;
-        dur_head = dur_new;
+            dur_new->mpiio_file_rec = *mpiio_file_rec;
+            dur_new->next = dur_head;
+            dur_head = dur_new;
+        }
     }
 
     /* file records have all been retrieved from darshan log.  Now we loop
