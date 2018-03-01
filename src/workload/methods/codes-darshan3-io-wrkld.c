@@ -761,7 +761,6 @@ static void generate_psx_file_events(
 
     assert(first_io_delay >= 0);
     assert(close_delay >= 0);
-    assert(meta_op_time >= 0);
     assert(inter_io_delay >= 0);
 
     /* calculate average meta op time, divide among open and close for now */
