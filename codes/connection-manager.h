@@ -33,8 +33,12 @@ enum ConnectionType
 struct Connection
 {
     int port; //port ID of the connection
-    int other_id; //id of the destination - depends on type of connection
-    int group_id; //group id of the destination
+    int src_lid; //local id of the source
+    int src_gid; //global id of the source
+    int src_group_id; //group id of the source
+    int dest_lid; //local id of the destination
+    int dest_gid; //global id of the destination
+    int dest_group_id; //group id of the destination
     ConnectionType conn_type; //type of the connection: CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
 };
 
@@ -89,11 +93,10 @@ public:
 
     /**
      * @brief Adds a connection to the manager
-     * @param dest_id the ID of the destination router, local if type is local, global if type is global
-     * @param group_id the group id of the destination router
+     * @param dest_gid the global ID of the destination router
      * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
      */
-    void add_connection(int dest_id, int group_id, ConnectionType type);
+    void add_connection(int dest_gid, ConnectionType type);
 
     // /**
     //  * @brief adds knowledge of what next hop routers have connections to specific groups
@@ -163,12 +166,17 @@ public:
     int get_used_ports_for(ConnectionType type);
 
     /**
+     * @brief returns the type of connection associated with said port
+     * @param port_num the number of the port in question
+     */
+    ConnectionType get_port_type(int port_num);
+
+    /**
      * @brief returns a vector of connections to the destination ID based on the connection type
      * @param dest_id the ID of the destination depending on the type
      * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
-     * @note note that the method is called get connections to router but could also apply to terminal connections
      */
-    vector< Connection > get_connections_to_router(int dest_id, ConnectionType type);
+    vector< Connection > get_connections_to_gid(int dest_id, ConnectionType type);
 
     /**
      * @brief returns a vector of connections to the destination group. connections will be of type CONN_GLOBAL
@@ -210,30 +218,35 @@ ConnectionManager::ConnectionManager(int src_id_local, int src_id_global, int sr
     _num_routers_per_group = num_router_per_group;
 }
 
-void ConnectionManager::add_connection(int dest_id, int dest_group, ConnectionType type)
+void ConnectionManager::add_connection(int dest_gid, ConnectionType type)
 {
     Connection conn;
+    conn.src_lid = _source_id_local;
+    conn.src_gid = _source_id_global;
+    conn.src_group_id = _source_group;
     conn.conn_type = type;
-    conn.other_id = dest_id;
-    conn.group_id = dest_group;
+    conn.dest_lid = dest_gid % _num_routers_per_group;
+    conn.dest_gid = dest_gid;
+    conn.dest_group_id = dest_gid / _num_routers_per_group;
 
     switch (type)
     {
         case CONN_LOCAL:
             conn.port = this->get_used_ports_for(CONN_LOCAL);
-            intraGroupConnections[dest_id].push_back(conn);
+            intraGroupConnections[conn.dest_lid].push_back(conn);
             _used_intra_ports++;
             break;
 
         case CONN_GLOBAL:
             conn.port = _max_intra_ports + this->get_used_ports_for(CONN_GLOBAL);
-            globalConnections[dest_id].push_back(conn);
+            globalConnections[conn.dest_gid].push_back(conn);
             _used_inter_ports++;
             break;
 
         case CONN_TERMINAL:
             conn.port = _max_intra_ports + _max_inter_ports + this->get_used_ports_for(CONN_TERMINAL);
-            terminalConnections[dest_id].push_back(conn);
+            conn.dest_group_id = _source_group;
+            terminalConnections[conn.dest_gid].push_back(conn);
             _used_terminal_ports++;
             break;
 
@@ -284,7 +297,7 @@ int ConnectionManager::get_source_id(ConnectionType type)
 
 vector<int> ConnectionManager::get_ports(int dest_id, ConnectionType type)
 {
-    vector< Connection > conns = this->get_connections_to_router(dest_id, type);
+    vector< Connection > conns = this->get_connections_to_gid(dest_id, type);
 
     vector< int > ports_used;
     vector< Connection >::iterator it = conns.begin();
@@ -356,16 +369,22 @@ int ConnectionManager::get_used_ports_for(ConnectionType type)
     }
 }
 
-vector< Connection > ConnectionManager::get_connections_to_router(int dest_id, ConnectionType type)
+ConnectionType ConnectionManager::get_port_type(int port_num)
+{
+    return _portMap[port_num].conn_type;
+}
+
+
+vector< Connection > ConnectionManager::get_connections_to_gid(int dest_gid, ConnectionType type)
 {
     switch (type)
     {
         case CONN_LOCAL:
-            return intraGroupConnections[dest_id];
+            return intraGroupConnections[dest_gid%_num_routers_per_group];
         case CONN_GLOBAL:
-            return globalConnections[dest_id];
+            return globalConnections[dest_gid];
         case CONN_TERMINAL:
-            return terminalConnections[dest_id];
+            return terminalConnections[dest_gid];
         default:
             assert(false);
             // TW_ERROR(TW_LOC, "get_connections(type): Undefined connection type\n");
@@ -382,7 +401,7 @@ vector< Connection > ConnectionManager::get_connections_to_group(int dest_group_
         vector< Connection >::iterator conns_to_router;
         for(conns_to_router = (it->second).begin(); conns_to_router != (it->second).end(); conns_to_router++) //iterate over each connection to a specific router
         {
-            if ((*conns_to_router).group_id == dest_group_id) {
+            if ((*conns_to_router).dest_group_id == dest_group_id) {
                 conns_to_group.push_back(*conns_to_router);
             }
         }
@@ -441,7 +460,24 @@ void ConnectionManager::print_connections()
             printf("  Port  |  Dest_ID  |  Group\n");
         }
 
-        printf("  %d   ->   %d        :  %d  \n", it->first, it->second.other_id, it->second.group_id);
+        int port_num = it->first;
+        int group_id = it->second.dest_group_id;
+
+        int id,gid;
+        if( get_port_type(port_num) == CONN_LOCAL )
+        {
+            id = it->second.dest_lid;
+            gid = it->second.dest_gid;
+            printf("  %d   ->   (%d,%d)        :  %d  \n", port_num, id, gid, group_id);
+
+        }
+            
+        else {
+            id = it->second.dest_gid;
+            printf("  %d   ->   %d        :  %d  \n", port_num, id, group_id);
+
+        }
+            
         ports_printed++;
     }
 }
