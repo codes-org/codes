@@ -142,7 +142,7 @@ void SWM_Barrier(
     ABT_thread prod;
     void * arg;
     int err;
-    int rank, size, src, dst, mask;
+    int rank, size, src, dest, mask;
 
     err = ABT_thread_self(&prod);
     assert(err == ABT_SUCCESS);
@@ -155,14 +155,11 @@ void SWM_Barrier(
     mask = 0x1;
 
     while(mask < size) {
-        dst = (rank + mask) % size;
+        dest = (rank + mask) % size;
         src = (rank - mask + size) % size;
 
-        args.dest = dst;
-        args.source = src;
-
-        SWM_Sendrecv(comm_id, dest, 1234, reqvc, rspvc, NULL, 0, 0,
-                src,  1234, NULL,  reqrt, rsprt);
+        SWM_Sendrecv(comm_id, dest, 1234, reqvc, rspvc, 0, 0, 0,
+                src,  1234, 0,  reqrt, rsprt);
         mask <<= 1;
     }
 }
@@ -472,10 +469,10 @@ void SWM_Allreduce(
        remaining processes form a nice power-of-two. */
     if (rank < 2*rem) {
         if (rank % 2 == 0) { /* even */
-            SWM_Send(rank+1, comm_id, 1235, sendreqvc, sendrspvc, NULL, count, 1, 0, 0);
+            SWM_Send(rank+1, comm_id, 1235, sendreqvc, sendrspvc, 0, count, 1, 0, 0);
             newrank = -1;
         } else { /* odd */
-            SWM_Recv(rank-1, comm_id, 1235, NULL);
+            SWM_Recv(rank-1, comm_id, 1235, 0);
             newrank = rank / 2;
         }
     } else {
@@ -498,8 +495,8 @@ void SWM_Allreduce(
                 newdst = newrank ^ mask;
                 dst = (newdst < rem) ? newdst*2 + 1 : newdst + rem;
 
-                SWM_Sendrecv(comm_id, dst, 1235, sendreqvc, sendrspvc, NULL,
-                        count, 1, dst, 1235, NULL, 0, 0);
+                SWM_Sendrecv(comm_id, dst, 1235, sendreqvc, sendrspvc, 0,
+                        count, 1, dst, 1235, 0, 0, 0);
 
                 mask <<= 1;
             }
@@ -541,8 +538,8 @@ void SWM_Allreduce(
                         recv_cnt += cnts[i];
                 }
 
-                SWM_Sendrecv(comm_id, dst, 1235, sendreqvc, sendrspvc, NULL,
-                        send_cnt, 1, dst, 1235, NULL, 0, 0);
+                SWM_Sendrecv(comm_id, dst, 1235, sendreqvc, sendrspvc, 0,
+                        send_cnt, 1, dst, 1235, 0, 0, 0);
 
                 send_idx = recv_idx;
                 mask <<= 1;
@@ -576,8 +573,8 @@ void SWM_Allreduce(
                         recv_cnt += cnts[i];
                 }
 
-                SWM_Sendrecv(comm_id, dst, 1235, sendreqvc, sendrspvc, NULL,
-                        send_cnt, 1, dst, 1235, NULL, 0, 0);
+                SWM_Sendrecv(comm_id, dst, 1235, sendreqvc, sendrspvc, 0,
+                        send_cnt, 1, dst, 1235, 0, 0, 0);
 
                 if (newrank > newdst) send_idx = recv_idx;
 
@@ -588,9 +585,9 @@ void SWM_Allreduce(
 
     if(rank < 2*rem) {
         if(rank % 2) {/* odd */
-            SWM_Send(rank-1, comm_id, 1235, sendreqvc, sendrspvc, NULL, count, 1, 0, 0);
+            SWM_Send(rank-1, comm_id, 1235, sendreqvc, sendrspvc, 0, count, 1, 0, 0);
         } else {
-            SWM_Recv(rank+1, comm_id, 1235, NULL);
+            SWM_Recv(rank+1, comm_id, 1235, 0);
         }
     }
 
