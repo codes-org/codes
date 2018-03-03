@@ -66,6 +66,8 @@ struct terminal_plus_message
 
   short dfp_upward_channel_flag;
 
+  int dfp_dest_terminal_id; //this is the terminal id in the dfp network in range [0-total_num_terminals)
+
    uint32_t chunk_id;
    uint32_t packet_size;
    uint32_t message_id;
