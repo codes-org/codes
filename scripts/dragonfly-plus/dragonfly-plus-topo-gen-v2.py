@@ -4,7 +4,7 @@
 # In hindsight this was a lot more complicated than I intended. It was looking to solve a complex problem that turned out to be invalid from the beginning.
 
 ### USAGE ###
-# Correct usage: python3 script.py <num_groups> <num_spine_pg> <num_leaf_pg> <router_radix> <intra-file> <inter-file>
+# Correct usage: python3 script.py <num_groups> <num_spine_pg> <num_leaf_pg> <router_radix> <num_terminal_per_leaf> <intra-file> <inter-file>
 ###       ###
 
 import sys
