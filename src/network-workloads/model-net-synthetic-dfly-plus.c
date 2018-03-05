@@ -59,7 +59,8 @@ enum TRAFFIC
 {
 	UNIFORM = 1, /* sends message to a randomly selected node */
 	NEAREST_GROUP = 2, /* sends message to the node connected to the neighboring router */
-	NEAREST_NEIGHBOR = 3 /* sends message to the next node (potentially connected to the same router) */
+	NEAREST_NEIGHBOR = 3, /* sends message to the next node (potentially connected to the same router) */
+    RANDOM_OTHER_GROUP = 4
 };
 
 struct svr_state
@@ -174,6 +175,11 @@ static void handle_kickoff_rev_event(
     if(b->c1)
         tw_rand_reverse_unif(lp->rng);
 
+    if(traffic == RANDOM_OTHER_GROUP) {
+        tw_rand_reverse_unif(lp->rng);
+        tw_rand_reverse_unif(lp->rng);
+    }
+
     model_net_event_rc2(lp, &m->event_rc);
 	ns->msg_sent_count--;
     tw_rand_reverse_unif(lp->rng);
@@ -209,23 +215,42 @@ static void handle_kickoff_event(
     codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
     int local_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
 
-   /* in case of uniform random traffic, send to a random destination. */
-   if(traffic == UNIFORM)
-   {
-    b->c1 = 1;
-   	local_dest = tw_rand_integer(lp->rng, 0, num_nodes - 1);
-   }
-   else if(traffic == NEAREST_GROUP)
-   {
-	local_dest = (local_id + num_nodes_per_grp) % num_nodes;
-	//printf("\n LP %ld sending to %ld num nodes %d ", local_id, local_dest, num_nodes);
-   }
-   else if(traffic == NEAREST_NEIGHBOR)
-   {
-	local_dest =  (local_id + 1) % num_nodes;
-//	 printf("\n LP %ld sending to %ld num nodes %d ", rep_id * 2 + offset, local_dest, num_nodes);
-   }
-   assert(local_dest < num_nodes);
+    /* in case of uniform random traffic, send to a random destination. */
+    if(traffic == UNIFORM)
+    {
+        b->c1 = 1;
+        local_dest = tw_rand_integer(lp->rng, 0, num_nodes - 1);
+    }
+    else if(traffic == NEAREST_GROUP)
+    {
+        local_dest = (local_id + num_nodes_per_grp) % num_nodes;
+        //printf("\n LP %ld sending to %ld num nodes %d ", local_id, local_dest, num_nodes);
+    }
+    else if(traffic == NEAREST_NEIGHBOR)
+    {
+        local_dest =  (local_id + 1) % num_nodes;
+    //	 printf("\n LP %ld sending to %ld num nodes %d ", rep_id * 2 + offset, local_dest, num_nodes);
+    }
+    else if(traffic == RANDOM_OTHER_GROUP)
+    {
+        int my_group_id = local_id / num_nodes_per_grp;
+
+        int other_groups[num_groups-1];
+        int added =0;
+        for(int i = 0; i < num_groups; i++)
+        {
+            if(i != my_group_id){
+                other_groups[added] = i;
+                added++;
+            }
+        }
+        int rand_group = other_groups[tw_rand_integer(lp->rng,0,added -1)];
+        int rand_node_intra_id = tw_rand_integer(lp->rng, 0, num_nodes_per_grp-1);
+
+        local_dest = (rand_group * num_nodes_per_grp) + rand_node_intra_id;
+        // printf("\n LP %ld sending to %ld num nodes %d ", local_id, local_dest, num_nodes);
+    }
+    assert(local_dest < num_nodes);
 //   codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest / num_servers_per_rep, local_dest % num_servers_per_rep, &global_dest);
    global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
    ns->msg_sent_count++;
