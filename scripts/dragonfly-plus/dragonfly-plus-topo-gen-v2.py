@@ -22,8 +22,16 @@ class Loudness(Enum):
 
 global DRYRUN
 global LOUDNESS
+global SHOW_ADJACENCY
+global NO_OUTPUT_FILE
+
 LOUDNESS = Loudness.STANDARD
 DRYRUN = 0
+SHOW_ADJACENCY = 0
+NO_OUTPUT_FILE = 0
+
+global desired_num_gc_bg
+
 
 if sys.version_info[0] < 3:
     raise Exception("Python 3 or a more recent version is required.")
@@ -77,6 +85,11 @@ class DragonflyPlusNetwork(object):
         self.num_global_links_per_spine = router_radix - num_leaf_pg
         self.num_global_links_pg = self.num_global_links_per_spine * num_spine_pg
 
+        largest_num_groups = (router_radix//2)**2 + 1
+        global desired_num_gc_bg
+        self.desired_num_global_links_between_groups = desired_num_gc_bg
+        self.num_global_links_between_groups = (largest_num_groups-1)//(num_groups-1)
+
         self.num_hosts_per_leaf = num_hosts_per_leaf #just for stats, not used in the actual topology export
 
         self.localConnectionsOutput = []
@@ -93,13 +106,15 @@ class DragonflyPlusNetwork(object):
     def getSummary(self):
         outStr = "\nDragonfly Plus Network:\n"
         outStr += "\tNumber of Groups:          %d\n" % self.num_groups
+        outStr += "\tRouter Radix:              %d\n" % self.router_radix
         outStr += "\tNumber Spine Per Group:    %d\n" % self.num_spine_pg
         outStr += "\tNumber Leaf Per Group:     %d\n" % self.num_leaf_pg
-        outStr += "\tRouter Radix:              %d\n" % self.router_radix
         outStr += "\tNumber Terminal Per Leaf:  %d\n" % self.num_hosts_per_leaf
         outStr += "\n"
         outStr += "\tNumber GC per Spine:       %d\n" % self.num_global_links_per_spine
         outStr += "\tNumber GC per Group:       %d\n" % (self.num_global_links_per_spine * self.num_spine_pg)
+        outStr += "\tNumber GC between Groups:  %d\n" % (self.num_global_links_between_groups)
+        outStr += "\n"
         outStr += "\tTotal Spine:               %d\n" % (self.num_spine_pg * self.num_groups)
         outStr += "\tTotal Leaf:                %d\n" % (self.num_leaf_pg * self.num_groups)
         outStr += "\tTotal Routers:             %d\n" % ((self.num_leaf_pg + self.num_spine_pg) * self.num_groups)
@@ -185,6 +200,8 @@ class DragonflyPlusNetwork(object):
         return rtr
 
     def precheckForErrors(self):
+        if self.num_global_links_pg % self.desired_num_global_links_between_groups != 0:
+            raise Exception("DragonflyPlusNetwork: Global Connection Fairness Violation. num_global_links_pg % num_global_links_between_groups != 0")
         if self.num_global_links_pg % self.num_spine_pg != 0: #are we fair?
             raise Exception("DragonflyPlusNetwork: Global Connection Fairness Violation. num_global_links_pg % num_spine_pg != 0!!!!")
         if self.num_leaf_pg > (self.router_radix - self.getNumGlobalConnsPerSpine()): #do we have enough ports left to connect to all the leafs in the group after connecting global conns?
@@ -238,12 +255,25 @@ class DragonflyPlusNetwork(object):
                 failed = True
 
         log("Verifying Dragonfly Nature...", Loudness.STANDARD)
+
+
+        if failed:
+            raise Exception("DragonflyPlusNetwork: Failed Verification: Fairness")
+
         for g in self.groups:
             if len(set(g.groupConns)) != self.num_global_links_pg:
                 raise Exception("DragonflyPlusNetwork: Not Enough Group Connections")
 
-        if failed:
-            raise Exception("DragonflyPlusNetwork: Failed Verification: Fairness")
+        log("Verifying Inter Group Connection Uniformity...", Loudness.STANDARD)
+        num_gc_between_0_1 = len(self.groups[0].getConnectionsToGroup(1))
+        for g in self.groups:
+            other_groups = g.getOtherGroupIDsStartingAfterMe(self.num_groups)
+            for other_group_id in other_groups:
+                if len(g.getConnectionsToGroup(other_group_id)) != num_gc_between_0_1:
+                    raise Exception("DragonflyPlusNetwork: Failed Verification: InterGroup Connection Uniformity")
+
+
+
 
 
 
@@ -332,6 +362,9 @@ class Group(object):
         all_group_ids = [i for i in range(num_groups) if i != my_group_id]
         return np.roll(all_group_ids, -1*my_group_id)
 
+    def getConnectionsToGroup(self,other_group_id):
+        return [conn for conn in self.groupConns if conn.dest_group.group_id == other_group_id]
+
     def generateLocalConnections(self):
         log("Group %d: generating local connections" % self.group_id, Loudness.LOUD)
 
@@ -347,29 +380,18 @@ class Group(object):
         num_routers_pg = self.network.num_leaf_pg + self.network.num_spine_pg
 
         spine_routers = self.getSpineRouters()
+
+        other_groups = self.getOtherGroupIDsStartingAfterMe(self.network.num_groups)
         for i,group_conn in enumerate(self.groupConns):
             src_router = spine_routers[int(i // self.network.num_global_links_per_spine)]
-
-            shift = int(i // self.network.num_global_links_per_spine) #THIS IS HOW WE ASSURE THINGS ARE FAIRLY DISTRIBUTED
-            shift=0
-            # log("Shift = %i" % shift)
             dest_group = group_conn.dest_group
-            dest_group_id = (group_conn.dest_group.group_id + shift) % self.network.num_groups
+            dest_group_id = group_conn.dest_group.group_id
             local_spinal_id = src_router.local_id - self.network.num_leaf_pg #which spine is the source
             dest_spinal_id = self.network.num_spine_pg - local_spinal_id - 1
             dest_local_id = dest_group.getSpineRouters()[dest_spinal_id].local_id
             dest_global_id = convertLocalIDtoGID(dest_local_id, dest_group_id, num_routers_pg)
             dest_rtr = self.network.getRouter(dest_global_id)
             src_router.connectToOneWay(dest_rtr, ConnType.GLOBAL)
-
-            #TODO THERES A PROBLEM WITH THE SECONDARY GCS NOT BEING SYMMETRIC
-
-
-    @staticmethod
-    def getDestinationRouterAssignment(source_router, dest_group):
-        other_group_id = dest_group.group_id
-        src_router_id = source_router.gid
-        num_shift = 0 # the number of indices to shift the
 
 
 class Router(object):
@@ -383,6 +405,8 @@ class Router(object):
         self.local_connections = []
         self.global_connections = []
         self.network = network
+
+        log("New Router: GID: %d    LID: %d    Group %d" % (self.gid, self.local_id, self.group_id), Loudness.DEBUG)
 
         # local_spinal_id = self.local_id - self.network.num_leaf_pg #what is my ID in terms of num spine
         # other_groups = self.network.groups[group_id].getOtherGroupIDsStartingAfterMe(self.network.num_groups)
@@ -413,15 +437,15 @@ class Router(object):
     def addConnection(self,conn, conntype):
         if conntype is ConnType.LOCAL:
             if len(self.local_connections) >= self.intra_radix:
-                raise Exception("Cannot add connection, exceeds intra_radix")
+                raise Exception("Router %d: Cannot add connection, exceeds intra_radix"% self.gid)
             self.local_connections.append(conn)
             log("New: INTRA %d %d" % (conn.src_router.local_id, conn.dest_router.local_id), Loudness.EXTRA_LOUD)
 
         elif conntype is ConnType.GLOBAL:
             if len(self.global_connections) >= self.inter_radix:
-                raise Exception("Cannot add connection, exceeds inter_radix")
+                raise Exception("Router %d: Cannot add connection, exceeds inter_radix"% self.gid)
             self.global_connections.append(conn)
-            log("New: INTER %d %d" % (conn.src_router.gid, conn.dest_router.gid), Loudness.EXTRA_LOUD)
+            log("New: INTER %d %d  | Group: %d -> %d" % (conn.src_router.gid, conn.dest_router.gid, conn.src_router.group_id, conn.dest_router.group_id), Loudness.EXTRA_LOUD)
         else:
             raise Exception("Invalid Connection Type")
 
@@ -458,21 +482,11 @@ class GroupConnection(object):
         self.src_group = src_group
         self.dest_group = dest_group
 
-def main():
-    if(len(argv) < 7):
-        raise Exception("Correct usage:  python %s <num_groups> <num_spine_pg> <num_leaf_pg> <router_radix> <terminals-per-leaf> <intra-file> <inter-file>" % sys.argv[0])
-
-    num_groups = int(argv[1])
-    num_spine_pg = int(argv[2])
-    num_leaf_pg = int(argv[3])
-    router_radix = int(argv[4])
-    term_per_leaf = int(argv[5])
-    intra_filename = argv[6]
-    inter_filename = argv[7]
-
+def parseOptionArguments():
     global DRYRUN
     global LOUDNESS
-
+    global SHOW_ADJACENCY
+    global NO_OUTPUT_FILE
 
     if "--debug" in argv:
         LOUDNESS = Loudness.DEBUG
@@ -489,9 +503,89 @@ def main():
     if "--dry-run" in argv:
         DRYRUN = 1
 
-    SHOW_ADJACENCY = 0
+    if "--no-output" in argv:
+        NO_OUTPUT_FILE = 1
+
     if "--show-adjacency" in argv:
         SHOW_ADJACENCY = 1
+
+
+#mainV3() assumes things about the network:
+#   num_spine_pg == num_leaf_pg
+#   term_per_leaf = num_spine_pg
+#   num_router_pg = router_radix (half up half down)
+#   total_gc_per_group = router_radix / 2
+def mainV3():
+    parseOptionArguments()
+
+    if DRYRUN or NO_OUTPUT_FILE:
+        if DRYRUN and NO_OUTPUT_FILE:
+            option = '--dry-run'
+        elif DRYRUN:
+            option = '--dry-run'
+        elif NO_OUTPUT_FILE:
+            option = '--no-output'
+        if(len(argv) < 4):
+            raise Exception("Correct usage: python %s <router_radix> <num_gc_between_groups> %s" % (sys.argv[0], option))
+
+    elif(len(argv) < 5):
+        raise Exception("Correct usage:  python %s <router_radix> <num_gc_between_groups> <intra-file> <inter-file>" % sys.argv[0])
+
+    router_radix = int(argv[1])
+    num_gc_between_groups = int(argv[2])
+
+    global desired_num_gc_bg
+    desired_num_gc_bg = num_gc_between_groups
+
+    largest_num_groups = (router_radix//2)**2 + 1
+    num_groups = (largest_num_groups - 1) // num_gc_between_groups + 1
+
+    num_router_pg = int(router_radix)
+    num_spine_pg = int(num_router_pg / 2)
+    num_leaf_pg = num_spine_pg
+    term_per_leaf = num_spine_pg
+
+    if not (DRYRUN or NO_OUTPUT_FILE):
+        intra_filename = argv[3]
+        inter_filename = argv[4]
+
+
+    try:
+        dfp_network = DragonflyPlusNetwork(num_groups, num_spine_pg, num_leaf_pg, router_radix, num_hosts_per_leaf=term_per_leaf)
+    except Exception as err:
+        print("ERROR: ",err)
+        exit(1)
+        
+
+    if not DRYRUN:
+        if not NO_OUTPUT_FILE:
+            dfp_network.writeIntraconnectionFile(intra_filename)
+            dfp_network.writeInterconnectionFile(inter_filename)
+
+    if LOUDNESS is not Loudness.QUIET:
+        print(dfp_network.getSummary())
+
+    if SHOW_ADJACENCY == 1:
+        print("\nPrinting Adjacency Matrix:")
+
+        np.set_printoptions(linewidth=400,threshold=10000,edgeitems=200)
+        A = dfp_network.getAdjacencyMatrix(AdjacencyType.ALL_CONNS)
+        print(A.astype(int))
+
+
+def mainV2():
+    if(len(argv) < 8):
+        raise Exception("Correct usage:  python %s <num_groups> <num_spine_pg> <num_leaf_pg> <router_radix> <terminals-per-leaf> <intra-file> <inter-file>" % sys.argv[0])
+
+    num_groups = int(argv[1])
+    num_spine_pg = int(argv[2])
+    num_leaf_pg = int(argv[3])
+    router_radix = int(argv[4])
+    term_per_leaf = int(argv[5])
+    intra_filename = argv[6]
+    inter_filename = argv[7]
+
+    parseOptionArguments()
 
     dfp_network = DragonflyPlusNetwork(num_groups, num_spine_pg, num_leaf_pg, router_radix, num_hosts_per_leaf=term_per_leaf)
 
@@ -507,9 +601,9 @@ def main():
     if SHOW_ADJACENCY == 1:
         print("\nPrinting Adjacency Matrix:")
 
-        np.set_printoptions(linewidth=400,threshold=10000,edgeitems=20)
+        np.set_printoptions(linewidth=400,threshold=10000,edgeitems=200)
         A = dfp_network.getAdjacencyMatrix(AdjacencyType.ALL_CONNS)
         print(A.astype(int))
 
 if __name__ == '__main__':
-    main()
+    mainV3()
