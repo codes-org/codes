@@ -372,14 +372,28 @@ struct router_state
    struct dfly_router_sample ross_rsample;
 };
 
-/* had to pull some of the ROSS model stats collection stuff up here */
+/* ROSS Instrumentation Support */
+struct dragonfly_cn_sample
+{
+   tw_lpid terminal_id;
+   tw_stime end_time;
+   int vc_occupancy; // will sum occupancy for all vc
+};
+
+struct dragonfly_router_sample
+{
+   tw_lpid router_id;
+   int* vc_occupancy; // sum for all vc for each port
+   tw_stime end_time;
+};
+
 void custom_dragonfly_event_collect(terminal_custom_message *m, tw_lp *lp, char *buffer, int *collect_flag);
 void custom_dragonfly_model_stat_collect(terminal_state *s, tw_lp *lp, char *buffer);
 void custom_dfly_router_model_stat_collect(router_state *s, tw_lp *lp, char *buffer);
-static void ross_custom_dragonfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dfly_router_sample *sample);
-static void ross_custom_dragonfly_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dfly_router_sample *sample);
-static void ross_custom_dragonfly_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample);
-static void ross_custom_dragonfly_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample);
+static void ross_custom_dragonfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dragonfly_router_sample *sample);
+static void ross_custom_dragonfly_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dragonfly_router_sample *sample);
+static void ross_custom_dragonfly_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dragonfly_cn_sample *sample);
+static void ross_custom_dragonfly_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dragonfly_cn_sample *sample);
 
 st_model_types custom_dragonfly_model_types[] = {
     {(rbev_trace_f) custom_dragonfly_event_collect,
@@ -390,7 +404,7 @@ st_model_types custom_dragonfly_model_types[] = {
      sizeof(tw_lpid) + sizeof(long) * 2 + sizeof(double) + sizeof(tw_stime) *2,
      (sample_event_f) ross_custom_dragonfly_sample_fn,
      (sample_revent_f) ross_custom_dragonfly_sample_rc_fn,
-     sizeof(struct dfly_cn_sample) } , 
+     sizeof(struct dragonfly_cn_sample) } , 
     {(rbev_trace_f) custom_dragonfly_event_collect,
      sizeof(int),
      (ev_trace_f) custom_dragonfly_event_collect,
@@ -1009,7 +1023,7 @@ void router_custom_setup(router_state * r, tw_lp * lp)
    if (g_st_model_stats)
        lp->model_types->mstat_sz = sizeof(tw_lpid) + (sizeof(int64_t) + sizeof(tw_stime)) * p->radix;
    if (g_st_use_analysis_lps)
-       lp->model_types->sample_struct_sz = sizeof(struct dfly_router_sample) + (sizeof(tw_stime) + sizeof(int64_t)) * p->radix;
+       lp->model_types->sample_struct_sz = sizeof(struct dragonfly_router_sample) + sizeof(int) * p->radix;
    r->ross_rsample.busy_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
    r->ross_rsample.link_traffic_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
 
@@ -1827,92 +1841,116 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
   return;
 }
 
-static void ross_custom_dragonfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dfly_router_sample *sample)
+static void ross_custom_dragonfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dragonfly_router_sample *sample)
 {
-    (void)lp;
     (void)bf;
 
     const dragonfly_param * p = s->params; 
-    int i = 0;
+    int i, j, total;
 
     sample->router_id = s->router_id;
     sample->end_time = tw_now(lp);
-    sample->fwd_events = s->ross_rsample.fwd_events;
-    sample->rev_events = s->ross_rsample.rev_events;
-    sample->busy_time = (tw_stime*)((&sample->rev_events) + 1);
-    sample->link_traffic_sample = (int64_t*)((&sample->busy_time[0]) + p->radix);
+    sample->vc_occupancy = (int*)((&sample->end_time) + 1);
 
-    for(; i < p->radix; i++)
+    // sum vc occupancy for each port
+    for(i = 0; i < p->radix; i++)
     {
-        sample->busy_time[i] = s->ross_rsample.busy_time[i]; 
-        sample->link_traffic_sample[i] = s->ross_rsample.link_traffic_sample[i]; 
+        total = 0;
+        for (j = 0; j < p->num_vcs; j++)
+            total += s->vc_occupancy[i][j];
+        sample->vc_occupancy[i] = total;
     }
 
-    /* clear up the current router stats */
-    s->ross_rsample.fwd_events = 0;
-    s->ross_rsample.rev_events = 0;
+    //sample->router_id = s->router_id;
+    //sample->end_time = tw_now(lp);
+    //sample->fwd_events = s->ross_rsample.fwd_events;
+    //sample->rev_events = s->ross_rsample.rev_events;
+    //sample->busy_time = (tw_stime*)((&sample->rev_events) + 1);
+    //sample->link_traffic_sample = (int64_t*)((&sample->busy_time[0]) + p->radix);
 
-    for( i = 0; i < p->radix; i++)
-    {
-        s->ross_rsample.busy_time[i] = 0;
-        s->ross_rsample.link_traffic_sample[i] = 0;
-    }
+    //for(; i < p->radix; i++)
+    //{
+    //    sample->busy_time[i] = s->ross_rsample.busy_time[i]; 
+    //    sample->link_traffic_sample[i] = s->ross_rsample.link_traffic_sample[i]; 
+    //}
+
+    ///* clear up the current router stats */
+    //s->ross_rsample.fwd_events = 0;
+    //s->ross_rsample.rev_events = 0;
+
+    //for( i = 0; i < p->radix; i++)
+    //{
+    //    s->ross_rsample.busy_time[i] = 0;
+    //    s->ross_rsample.link_traffic_sample[i] = 0;
+    //}
 }
 
-static void ross_custom_dragonfly_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dfly_router_sample *sample)
+static void ross_custom_dragonfly_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dragonfly_router_sample *sample)
 {
     (void)lp;
     (void)bf;
+    (void)s;
+    (void)sample;
     
-    const dragonfly_param * p = s->params;
-    int i =0;
+    //const dragonfly_param * p = s->params;
+    //int i =0;
 
-    for(; i < p->radix; i++)
-    {
-        s->ross_rsample.busy_time[i] = sample->busy_time[i];
-        s->ross_rsample.link_traffic_sample[i] = sample->link_traffic_sample[i];
-    }
+    //for(; i < p->radix; i++)
+    //{
+    //    s->ross_rsample.busy_time[i] = sample->busy_time[i];
+    //    s->ross_rsample.link_traffic_sample[i] = sample->link_traffic_sample[i];
+    //}
 
-    s->ross_rsample.fwd_events = sample->fwd_events;
-    s->ross_rsample.rev_events = sample->rev_events;
+    //s->ross_rsample.fwd_events = sample->fwd_events;
+    //s->ross_rsample.rev_events = sample->rev_events;
 }
 
-static void ross_custom_dragonfly_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample)
+static void ross_custom_dragonfly_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dragonfly_cn_sample *sample)
 {
-    (void)lp;
     (void)bf;
     
     sample->terminal_id = s->terminal_id;
-    sample->fin_chunks_sample = s->ross_sample.fin_chunks_sample;
-    sample->data_size_sample = s->ross_sample.data_size_sample;
-    sample->fin_hops_sample = s->ross_sample.fin_hops_sample;
-    sample->fin_chunks_time = s->ross_sample.fin_chunks_time;
-    sample->busy_time_sample = s->ross_sample.busy_time_sample;
     sample->end_time = tw_now(lp);
-    sample->fwd_events = s->ross_sample.fwd_events;
-    sample->rev_events = s->ross_sample.rev_events;
+    sample->vc_occupancy = 0;
 
-    s->ross_sample.fin_chunks_sample = 0;
-    s->ross_sample.data_size_sample = 0;
-    s->ross_sample.fin_hops_sample = 0;
-    s->ross_sample.fwd_events = 0;
-    s->ross_sample.rev_events = 0;
-    s->ross_sample.fin_chunks_time = 0;
-    s->ross_sample.busy_time_sample = 0;
+    // sum vc_occupancy
+    int i;
+    for (i = 0; i < s->num_vcs; i++)
+        sample->vc_occupancy += s->vc_occupancy[i];
+
+    //sample->terminal_id = s->terminal_id;
+    //sample->fin_chunks_sample = s->ross_sample.fin_chunks_sample;
+    //sample->data_size_sample = s->ross_sample.data_size_sample;
+    //sample->fin_hops_sample = s->ross_sample.fin_hops_sample;
+    //sample->fin_chunks_time = s->ross_sample.fin_chunks_time;
+    //sample->busy_time_sample = s->ross_sample.busy_time_sample;
+    //sample->end_time = tw_now(lp);
+    //sample->fwd_events = s->ross_sample.fwd_events;
+    //sample->rev_events = s->ross_sample.rev_events;
+
+    //s->ross_sample.fin_chunks_sample = 0;
+    //s->ross_sample.data_size_sample = 0;
+    //s->ross_sample.fin_hops_sample = 0;
+    //s->ross_sample.fwd_events = 0;
+    //s->ross_sample.rev_events = 0;
+    //s->ross_sample.fin_chunks_time = 0;
+    //s->ross_sample.busy_time_sample = 0;
 }
 
-static void ross_custom_dragonfly_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample)
+static void ross_custom_dragonfly_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dragonfly_cn_sample *sample)
 {
     (void)lp;
     (void)bf;
+    (void)s;
+    (void)sample;
 
-    s->ross_sample.busy_time_sample = sample->busy_time_sample;
-    s->ross_sample.fin_chunks_time = sample->fin_chunks_time;
-    s->ross_sample.fin_hops_sample = sample->fin_hops_sample;
-    s->ross_sample.data_size_sample = sample->data_size_sample;
-    s->ross_sample.fin_chunks_sample = sample->fin_chunks_sample;
-    s->ross_sample.fwd_events = sample->fwd_events;
-    s->ross_sample.rev_events = sample->rev_events;
+    //s->ross_sample.busy_time_sample = sample->busy_time_sample;
+    //s->ross_sample.fin_chunks_time = sample->fin_chunks_time;
+    //s->ross_sample.fin_hops_sample = sample->fin_hops_sample;
+    //s->ross_sample.data_size_sample = sample->data_size_sample;
+    //s->ross_sample.fin_chunks_sample = sample->fin_chunks_sample;
+    //s->ross_sample.fwd_events = sample->fwd_events;
+    //s->ross_sample.rev_events = sample->rev_events;
 }
 
 void dragonfly_custom_rsample_init(router_state * s,
