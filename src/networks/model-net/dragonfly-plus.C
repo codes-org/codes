@@ -319,6 +319,12 @@ typedef enum routing_alg_t
     FULLY_PROG_ADAPTIVE //OTFA with ARNs
 } routing_alg_t;
 
+typedef enum route_scoring_metric_t
+{
+    ALPHA = 1, //Count queue lengths and pending messages for a port
+    BETA //Expected Hops to Destination * (Count queue lengths and pending messages) for a port
+} route_scoring_metric_t;
+
 bool isRoutingAdaptive(int alg)
 {
     if (alg == ON_THE_FLY_ADAPTIVE || alg == FULLY_PROG_ADAPTIVE)
@@ -393,6 +399,7 @@ struct router_state
 int dragonfly_plus_get_assigned_router_id(int terminal_id, const dragonfly_plus_param *p);
 
 static short routing = MINIMAL;
+static short scoring = ALPHA;
 
 static tw_stime dragonfly_total_time = 0;
 static tw_stime dragonfly_max_latency = 0;
@@ -609,6 +616,17 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         routing = MINIMAL;
     }
 
+    char scoring_str[MAX_NAME_LENGTH];
+    configuration_get_value(&config, "PARAMS", "route_scoring_metric", anno, scoring_str, MAX_NAME_LENGTH);
+    if (strcmp(scoring_str, "alpha") == 0)
+        scoring = ALPHA;
+    else if (strcmp(scoring_str, "beta") == 0)
+        scoring = BETA;
+    else {
+        fprintf(stderr, "No route scoring protocol specified, setting to alpha scoring\n");
+        scoring = ALPHA;
+    }
+
     /* MM: This should be 2 for dragonfly plus*/
     p->num_vcs = 2;
 
@@ -808,6 +826,21 @@ void dragonfly_plus_report_stats()
         printf("\n Total packets generated: %ld; finished: %ld \n", total_gen, total_fin);
     }
     return;
+}
+
+int dragonfly_plus_get_router_type(int router_id, const dragonfly_plus_param *p)
+{
+    int num_groups = p->num_groups;
+    int num_routers = p->num_routers;
+    int num_router_leaf = p->num_router_leaf;
+
+    int group_id = router_id / num_groups;
+    int router_local_id = router_id % num_routers;
+
+    if (router_local_id > num_router_leaf)
+        return SPINE;
+    else
+        return LEAF;
 }
 
 /* get the router id associated with a given terminal id */
@@ -2220,6 +2253,41 @@ static vector< Connection > get_possible_nonminimal_next_stops(router_state *s,
     return possible_next_conns;
 }
 
+static int get_min_hops_to_dest_from_conn(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, Connection conn)
+{
+    int my_type = s->dfp_router_type;
+    int next_hops_type = dragonfly_plus_get_router_type(conn.dest_gid, s->params);
+
+    int dfp_dest_terminal_id = msg->dfp_dest_terminal_id;
+    int fdest_router_id = dragonfly_plus_get_assigned_router_id(dfp_dest_terminal_id, s->params);
+    int fdest_group_id = fdest_router_id / s->params->num_routers;
+
+    if (msg->dfp_upward_channel_flag)
+    {
+        if (my_type == SPINE)
+            return 2; //Next Spine -> Leaf -> dest_term
+        else
+            return 3; //Next Spine -> Spine -> Leaf -> dest_term
+    }
+
+    if(conn.dest_group_id == fdest_group_id) {
+        if (next_hops_type == SPINE)
+            return 2; //Next Spine -> Leaf -> dest_term
+        else {
+            assert(next_hops_type == LEAF);
+            return 1; //Next Leaf -> dest_term
+        }
+    }
+    else { //next is not in final destination group
+        if (next_hops_type == SPINE) 
+            return 3; //Next Spine -> Spine -> Leaf -> dest_term
+        else {
+            assert(next_hops_type == LEAF);
+            return 4; //Next Leaf -> Spine -> Spine -> Leaf -> dest_term
+        }
+    }
+}
+
 /**
  * Scores a connection based on the metric provided in the function, lower score is better
  */
@@ -2229,12 +2297,28 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
     int score = 0;
     int port = conn.port;
 
-    for(int k=0; k < s->params->num_vcs; k++)
-    {
-        score += s->vc_occupancy[port][k];
+    switch(scoring) {
+        case ALPHA:
+        {
+            for(int k=0; k < s->params->num_vcs; k++)
+            {
+                score += s->vc_occupancy[port][k];
+            }
+            score += s->queued_count[port];
+            break;
+        }
+        case BETA:
+        {
+            int base_score = 0;
+            for(int k=0; k < s->params->num_vcs; k++)
+            {
+                base_score += s->vc_occupancy[port][k];
+            }
+            base_score += s->queued_count[port];
+            score = base_score * get_min_hops_to_dest_from_conn(s, bf, msg, lp, conn);
+            break;
+        }
     }
-    score += s->queued_count[port];
-
     return score;
 }
 
