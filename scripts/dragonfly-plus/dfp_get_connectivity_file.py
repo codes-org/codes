@@ -8,18 +8,18 @@ import csv
 argv = sys.argv
 
 # ----------------------- README -------------------------
-# Usage: python3 get_connectivity_file.py <config_filename> <intra_filename> <inter_filename> <output_filename>
+# Usage: python3 dfp_get_connectivity_file.py <config_filename> <intra_filename> <inter_filename> <output_filename>
 
 # Note: This assumes that the modelnet_order is that of (terminal, router). This will break otherwise.
 
 
 # Example usage:
-#   Have configuration file:      "example/network-model.conf"
-#   Have intra-connection file:   "example/intra-theta-8group"
-#   Have inter-connection file:   "example/inter-theta-8group"
-#   Want output to file:          "output"
+#   Have configuration file:      "example/dfp-test.conf"
+#   Have intra-connection file:   "example/dfp-test-intra"
+#   Have inter-connection file:   "example/dfp-test-inter"
+#   Want output to file:          "example/output"
 #
-#   python3 get_connectivity_file.py example/network-model.conf example/intra-theta-8group example/inter-theta-8group example/output
+#   python3 dfp_get_connectivity_file.py example/dfp-test.conf example/dfp-test-intra example/dfp-test-inter example/output
 
 
 # Options:
@@ -386,7 +386,7 @@ def main():
     LOUDNESS = Loudness.STANDARD
 
     if len(argv) < 5:
-        print("ERROR: Usage: python3 get_connectivity_file.py <config_filename> <intra_filename> <inter_filename> <output_filename> [--<option>]")
+        print("ERROR: Usage: python3 dfp_get_connectivity_file.py <config_filename> <intra_filename> <inter_filename> <output_filename> [--<option>]")
         exit(1)
 
     parseOptionArguments()
