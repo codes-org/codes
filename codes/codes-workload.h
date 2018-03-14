@@ -227,14 +227,14 @@ struct codes_workload_op
         } collective;
         struct {
             int count;
-            unsigned int* req_ids;
+            uint32_t* req_ids;
         } waits;
         struct {
-            unsigned int req_id;
+            uint32_t req_id;
         } wait;
         struct
         {
-            unsigned int req_id;
+            uint32_t req_id;
         }
         free;
     }u;

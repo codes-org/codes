@@ -376,20 +376,22 @@ void codes_workload_print_op(
             break;
         case CODES_WK_ISEND:
             fprintf(f, "op: app:%d rank:%d type:isend "
-                    "src:%d dst:%d bytes:%"PRIu64" type:%d count:%d tag:%d "
+                    "src:%d dst:%d req_id:%"PRIu32" bytes:%"PRIu64" type:%d count:%d tag:%d "
                     "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.send.source_rank, op->u.send.dest_rank,
+                    op->u.send.req_id,
                     op->u.send.num_bytes, op->u.send.data_type,
                     op->u.send.count, op->u.send.tag,
                     op->start_time, op->end_time);
             break;
         case CODES_WK_IRECV:
             fprintf(f, "op: app:%d rank:%d type:irecv "
-                    "src:%d dst:%d bytes:%"PRIu64" type:%d count:%d tag:%d "
+                    "src:%d dst:%d req_id:%"PRIu32" bytes:%"PRIu64" type:%d count:%d tag:%d "
                     "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.recv.source_rank, op->u.recv.dest_rank,
+                    op->u.recv.req_id,
                     op->u.recv.num_bytes, op->u.recv.data_type,
                     op->u.recv.count, op->u.recv.tag,
                     op->start_time, op->end_time);

@@ -417,7 +417,7 @@ static void update_message_size(
             /* update hash table */
             if(!hash_link)
             {
-                struct msg_size_info * msg_info = (struct msg_size_info*)malloc(sizeof(struct msg_size_info));
+                struct msg_size_info * msg_info = (struct msg_size_info*)calloc(1, sizeof(struct msg_size_info));
                 msg_info->msg_size = qitem->num_bytes;
                 msg_info->num_msgs = 1;
                 msg_info->agg_latency = tw_now(lp) - msg_init_time;
@@ -978,7 +978,7 @@ static void codes_exec_mpi_wait(nw_state* s, tw_bf * bf, nw_message * m, tw_lp* 
         print_completed_queue(lp, &s->completed_reqs);
     }*/
     /* If not, add the wait operation in the pending 'waits' list. */
-    struct pending_waits* wait_op = (struct pending_waits*)malloc(sizeof(struct pending_waits));
+    struct pending_waits* wait_op = (struct pending_waits*)calloc(1, sizeof(struct pending_waits));
     wait_op->op_type = mpi_op->op_type;
     wait_op->req_ids[0] = req_id;
     wait_op->count = 1;
@@ -1095,7 +1095,7 @@ static void codes_exec_mpi_wait_all(
   else
   {
       /* If not, add the wait operation in the pending 'waits' list. */
-	  struct pending_waits* wait_op = (struct pending_waits*)malloc(sizeof(struct pending_waits));
+	  struct pending_waits* wait_op = (struct pending_waits*)calloc(1, sizeof(struct pending_waits));
 	  wait_op->count = count;
       wait_op->op_type = mpi_op->op_type;
       assert(count < MAX_WAIT_REQS);
@@ -1364,7 +1364,7 @@ static void codes_exec_mpi_recv(
 	m->rc.saved_recv_time = s->recv_time;
     m->rc.saved_num_bytes = mpi_op->u.recv.num_bytes;
 
-    mpi_msgs_queue * recv_op = (mpi_msgs_queue*) malloc(sizeof(mpi_msgs_queue));
+    mpi_msgs_queue * recv_op = (mpi_msgs_queue*) calloc(1, sizeof(mpi_msgs_queue));
     recv_op->req_init_time = tw_now(lp);
     recv_op->op_type = mpi_op->op_type;
     recv_op->source_rank = mpi_op->u.recv.source_rank;
@@ -1626,7 +1626,7 @@ static void update_completed_queue(nw_state* s,
     if(!waiting)
     {
         bf->c0 = 1;
-        completed_requests * req = (completed_requests*)malloc(sizeof(completed_requests));
+        completed_requests * req = (completed_requests*)calloc(1, sizeof(completed_requests));
         req->req_id = req_id;
         qlist_add(&req->ql, &s->completed_reqs);
 
@@ -1779,7 +1779,7 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
         tw_event_send(e_callback);
     }
     /* Now reconstruct the queue item */
-    mpi_msgs_queue * arrived_op = (mpi_msgs_queue *) malloc(sizeof(mpi_msgs_queue));
+    mpi_msgs_queue * arrived_op = (mpi_msgs_queue *) calloc(1, sizeof(mpi_msgs_queue));
     arrived_op->req_init_time = m->fwd.sim_start_time;
     arrived_op->op_type = m->op_type;
     arrived_op->source_rank = m->fwd.src_rank;
@@ -1844,7 +1844,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->num_reduce = 0;
    s->reduce_time = 0;
    s->all_reduce_time = 0;
-   char type_name[128];
+   char type_name[512];
 
    if(!num_net_traces)
 	num_net_traces = num_mpi_lps;
@@ -1895,14 +1895,25 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 #endif
    }
    else if(strcmp(workload_type, "online") == 0){
-       if(strcmp(workload_name, "lammps") == 0 || strcmp(workload_name, "nekbone") == 0)
+           
+       online_comm_params oc_params;
+       
+       if(strlen(workload_name) > 0)
        {
-           online_comm_params oc_params;
            strcpy(oc_params.workload_name, workload_name); 
-           oc_params.nprocs = num_net_traces; 
-           params = (char*)&oc_params;
-           strcpy(type_name, "online_comm_workload");
        }
+       else if(strlen(workloads_conf_file) > 0)
+       {
+            strcpy(oc_params.workload_name, file_name_of_job[lid.job]);
+       
+       }
+
+       //assert(strcmp(oc_params.workload_name, "lammps") == 0 || strcmp(oc_params.workload_name, "nekbone") == 0);
+       /*TODO: nprocs is different for dumpi and online workload. for
+        * online, it is the number of ranks to be simulated. */
+       oc_params.nprocs = num_traces_of_job[lid.job]; 
+       params = (char*)&oc_params;
+       strcpy(type_name, "online_comm_workload");
    }
        
    s->app_id = lid.job;
@@ -1965,7 +1976,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
         is_synthetic = 1;
 
    }
-   else if(strcmp(workload_type, "dumpi") == 0 || (strcmp(workload_type, "online") == 0)) 
+   else /*TODO: Add support for multiple jobs */ 
    {
 
       wrkld_id = codes_workload_load(type_name, params, s->app_id, s->local_rank);
@@ -2254,7 +2265,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			case CODES_WK_SEND:
 			case CODES_WK_ISEND:
 			 {
-                printf("\n MPI SEND ");
+//                printf("\n MPI SEND ");
 				codes_exec_mpi_send(s, bf, m, lp, mpi_op, 0);
 			 }
 			break;
@@ -2263,14 +2274,14 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			case CODES_WK_IRECV:
 			  {
 				s->num_recvs++;
-                printf("\n MPI RECV ");
+                //printf("\n MPI RECV ");
 				codes_exec_mpi_recv(s, bf, m, lp, mpi_op);
 			  }
 			break;
 
 			case CODES_WK_DELAY:
 			  {
-                printf("\n MPI DELAY ");
+                //printf("\n MPI DELAY ");
 				s->num_delays++;
                 if(disable_delay)
                     codes_issue_next_event(lp);
@@ -2282,7 +2293,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
             case CODES_WK_WAITSOME:
             case CODES_WK_WAITANY:
             {
-                printf("\n MPI WAITANY WAITSOME ");
+                //printf("\n MPI WAITANY WAITSOME ");
                 s->num_waitsome++;
                 codes_issue_next_event(lp);
             }
@@ -2290,7 +2301,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 
 			case CODES_WK_WAITALL:
 			  {
-                printf("\n MPI WAITALL ");
+                //printf("\n MPI WAITALL ");
 				s->num_waitall++;
 			    codes_exec_mpi_wait_all(s, bf, m, lp, mpi_op);
                 //codes_issue_next_event(lp);
@@ -2298,7 +2309,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			break;
 			case CODES_WK_WAIT:
 			{
-                printf("\n MPI WAIT ");
+                //printf("\n MPI WAIT ");
 				s->num_wait++;
                 //TODO: Uncomment:
                 codes_exec_mpi_wait(s, bf, m, lp, mpi_op);
@@ -2306,7 +2317,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			break;
 			case CODES_WK_ALLREDUCE:
             {
-                printf("\n MPI ALL REDUCE");
+                //printf("\n MPI ALL REDUCE");
 				s->num_cols++;
                 if(s->col_time > 0)
                 {
@@ -2371,7 +2382,7 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
             return;
     }
     if(strcmp(workload_type, "online") == 0)
-        codes_workload_finalize(workload_type, params, s->app_id, s->local_rank);
+        codes_workload_finalize("online_comm_workload", params, s->app_id, s->local_rank);
 
     struct msg_size_info * tmp_msg = NULL; 
     struct qlist_head * ent = NULL;
@@ -2685,6 +2696,8 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
             }
             else if(ref!=EOF)
             {
+                /* TODO: For now we simulate one workload with the option to
+                 * enable background traffic. */
                 if(enable_debug)
                     printf("\n%d traces of app %s \n", num_traces_of_job[i], file_name_of_job[i]);
 

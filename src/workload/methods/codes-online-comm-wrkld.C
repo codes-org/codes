@@ -16,13 +16,14 @@
 #include "codes/codes-jobmap.h"
 #include "codes_config.h"
 #include "lammps.h"
+#include "inttypes.h"
 #include "nekbone_swm_user_code.h"
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
 #define ALLREDUCE_SHORT_MSG_SIZE 2048
 
-#define DBG_COMM 1
+//#define DBG_COMM 0
 
 using namespace std;
 
@@ -30,9 +31,11 @@ static struct qhash_table *rank_tbl = NULL;
 static int rank_tbl_pop = 0;
 static int total_rank_cnt = 0;
 ABT_thread global_prod_thread = NULL;
+ABT_xstream self_es;
 
 struct shared_context {
     int my_rank;
+    uint32_t wait_id;
     int num_ranks;
     char workload_name[MAX_NAME_LENGTH_WKLD];
     void * swm_obj;
@@ -182,7 +185,6 @@ void SWM_Isend(SWM_PEER peer,
 
     wrkld_per_rank.op_type = CODES_WK_ISEND;
     wrkld_per_rank.u.send.tag = tag;
-    wrkld_per_rank.u.send.req_id = *handle;
     wrkld_per_rank.u.send.num_bytes = bytes;
     wrkld_per_rank.u.send.dest_rank = peer;
 
@@ -200,6 +202,10 @@ void SWM_Isend(SWM_PEER peer,
     wrkld_per_rank.u.send.source_rank = sctx->my_rank;
     sctx->fifo.push_back(&wrkld_per_rank);
 
+    *handle = sctx->wait_id;
+    wrkld_per_rank.u.send.req_id = *handle;
+    sctx->wait_id++;
+
     ABT_thread_yield_to(global_prod_thread);
 }
 void SWM_Recv(SWM_PEER peer,
@@ -213,6 +219,7 @@ void SWM_Recv(SWM_PEER peer,
     wrkld_per_rank.op_type = CODES_WK_RECV;
     wrkld_per_rank.u.recv.tag = tag;
     wrkld_per_rank.u.recv.source_rank = peer;
+    wrkld_per_rank.u.recv.num_bytes = 0;
 
 #ifdef DBG_COMM
     printf("\n recv op tag: %d source: %d ", tag, peer);
@@ -244,11 +251,10 @@ void SWM_Irecv(SWM_PEER peer,
     wrkld_per_rank.op_type = CODES_WK_IRECV;
     wrkld_per_rank.u.recv.tag = tag;
     wrkld_per_rank.u.recv.source_rank = peer;
-    wrkld_per_rank.u.recv.req_id = *handle;
     wrkld_per_rank.u.recv.num_bytes = 0;
 
 #ifdef DBG_COMM
-    printf("\n irecv op tag: %d source: %d ", tag, peer);
+    //printf("\n irecv op tag: %d source: %d ", tag, peer);
 #endif
 
     /* Retreive the shared context state */
@@ -261,6 +267,10 @@ void SWM_Irecv(SWM_PEER peer,
     struct shared_context * sctx = static_cast<shared_context*>(arg);
     wrkld_per_rank.u.recv.dest_rank = sctx->my_rank;
     sctx->fifo.push_back(&wrkld_per_rank);
+    
+    *handle = sctx->wait_id;
+    wrkld_per_rank.u.recv.req_id = *handle;
+    sctx->wait_id++;
 
     ABT_thread_yield_to(global_prod_thread);
 
@@ -331,7 +341,7 @@ void SWM_Waitall(int len, uint32_t * req_ids)
 
 #ifdef DBG_COMM
     for(int i = 0; i < len; i++)
-        printf("\n wait op req_id: %"PRIu32"\n", req_ids[i]);
+        printf("\n wait op len %d req_id: %"PRIu32"\n", len, req_ids[i]);
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -375,6 +385,7 @@ void SWM_Sendrecv(
     recv_op.op_type = CODES_WK_RECV;
     recv_op.u.recv.tag = recvtag;
     recv_op.u.recv.source_rank = recvpeer;
+    recv_op.u.recv.num_bytes = 0;
 
 #ifdef DBG_COMM
     printf("\n send/recv op send-tag %d send-bytes %d recv-tag: %d recv-source: %d ", sendtag, sendbytes, recvtag, recvpeer);
@@ -648,6 +659,7 @@ static void workload_caller(void * arg)
 {
     shared_context* sctx = static_cast<shared_context*>(arg);
 
+    printf("\n workload name %s ", sctx->workload_name);
     if(strcmp(sctx->workload_name, "lammps") == 0)
     {
         LAMMPS_SWM * lammps_swm = static_cast<LAMMPS_SWM*>(sctx->swm_obj);
@@ -670,6 +682,7 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     assert(my_ctx); 
     my_ctx->sctx.my_rank = rank; 
     my_ctx->sctx.num_ranks = nprocs;
+    my_ctx->sctx.wait_id = 0;
     my_ctx->app_id = app_id;
 
     void** generic_ptrs;
@@ -716,7 +729,6 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
         NEKBONESWMUserCode * nekbone_swm = new NEKBONESWMUserCode(root, generic_ptrs);
         my_ctx->sctx.swm_obj = (void*)nekbone_swm;
     }
-    ABT_xstream self_es;
 
     if(global_prod_thread == NULL)
     {
