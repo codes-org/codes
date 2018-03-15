@@ -159,7 +159,6 @@ int codes_workload_load(
 
     for(i=0; method_array[i] != NULL; i++)
     {
-        printf("\n loading for workload %s %s ", type, method_array[i]->method_name);
         if(strcmp(method_array[i]->method_name, type) == 0)
         {
             /* load appropriate workload generator */
