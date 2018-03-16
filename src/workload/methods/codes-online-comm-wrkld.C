@@ -12,20 +12,20 @@
 #include <assert.h>
 #include <deque>
 #include <iostream>
+#include <inttypes.h>
 #include <fstream>
+#include <boost/property_tree/json_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
 #include "codes/codes-workload.h"
 #include "codes/quickhash.h"
 #include "codes/codes-jobmap.h"
 #include "codes_config.h"
 #include "lammps.h"
-#include "inttypes.h"
 #include "nekbone_swm_user_code.h"
-#include <boost/property_tree/json_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
 
 #define ALLREDUCE_SHORT_MSG_SIZE 2048
 
-//#define DBG_COMM 0
+#define DBG_COMM 0
 
 using namespace std;
 
@@ -192,7 +192,8 @@ void SWM_Isend(SWM_PEER peer,
     wrkld_per_rank.u.send.dest_rank = peer;
 
 #ifdef DBG_COMM
-    printf("\n isend op tag: %d req_id: %"PRIu32" bytes: %d dest: %d ", tag, *handle, bytes, peer);
+//    printf("\n isend op tag: %d req_id: %"PRIu32" bytes: %d dest: %d ", tag, *handle, bytes, peer);
+	  printf("\n send");        
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -302,8 +303,9 @@ void SWM_Compute(long cycle_count)
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
     sctx->fifo.push_back(&wrkld_per_rank);
-
+	
     ABT_thread_yield_to(global_prod_thread);
+
 }
 
 void SWM_Wait(uint32_t req_id)
@@ -316,7 +318,8 @@ void SWM_Wait(uint32_t req_id)
     wrkld_per_rank.u.wait.req_id = req_id;
 
 #ifdef DBG_COMM
-    printf("\n wait op req_id: %"PRIu32"\n", req_id);
+//    printf("\n wait op req_id: %"PRIu32"\n", req_id);
+      printf("\n wait ");
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -346,7 +349,8 @@ void SWM_Waitall(int len, uint32_t * req_ids)
 
 #ifdef DBG_COMM
     for(int i = 0; i < len; i++)
-        printf("\n wait op len %d req_id: %"PRIu32"\n", len, req_ids[i]);
+//        printf("\n wait op len %d req_id: %"PRIu32"\n", len, req_ids[i]);
+	  printf("\n wait op");        
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -682,8 +686,8 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     online_comm_params * o_params = (online_comm_params*)params;
     int nprocs = o_params->nprocs;
 
-    rank_mpi_context *my_ctx;
-    my_ctx = (rank_mpi_context*)calloc(1, sizeof(rank_mpi_context));  
+    rank_mpi_context *my_ctx = new rank_mpi_context;
+    //my_ctx = (rank_mpi_context*)caloc(1, sizeof(rank_mpi_context));  
     assert(my_ctx); 
     my_ctx->sctx.my_rank = rank; 
     my_ctx->sctx.num_ranks = nprocs;
@@ -713,7 +717,7 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
 
     printf("\n path %s ", path.c_str());
     try {
-        std::ifstream jsonFile(path.c_str(), std::ifstream::binary);
+        std::ifstream jsonFile(path.c_str());
         boost::property_tree::json_parser::read_json(jsonFile, root);
         uint32_t process_cnt = root.get<uint32_t>("jobs.size", 1);
         cpu_freq = root.get<double>("jobs.cfg.cpu_freq"); 
@@ -785,6 +789,7 @@ static void comm_online_workload_get_next(int app_id, int rank, struct codes_wor
         ABT_thread_yield_to(temp_data->sctx.producer); 
     }
     struct codes_workload_op * front_op = temp_data->sctx.fifo.front();
+    assert(front_op);
     *op = *front_op;
     temp_data->sctx.fifo.pop_front();
     return;
