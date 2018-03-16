@@ -11,6 +11,8 @@
 #include <ross.h>
 #include <assert.h>
 #include <deque>
+#include <iostream>
+#include <fstream>
 #include "codes/codes-workload.h"
 #include "codes/quickhash.h"
 #include "codes/codes-jobmap.h"
@@ -711,9 +713,7 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
 
     printf("\n path %s ", path.c_str());
     try {
-        std::ifstream jsonFile(path);
-        //            root.put("C:.Windows.System", "20 files"); 
-        //            boost::property_tree::json_parser::write_json("file.json", root);
+        std::ifstream jsonFile(path.c_str(), std::ifstream::binary);
         boost::property_tree::json_parser::read_json(jsonFile, root);
         uint32_t process_cnt = root.get<uint32_t>("jobs.size", 1);
         cpu_freq = root.get<double>("jobs.cfg.cpu_freq"); 
@@ -819,16 +819,24 @@ static int comm_online_workload_finalize(const char* params, int app_id, int ran
     ABT_thread_free(&(temp_data->sctx.producer));
     return 0;
 }
+extern "C" {
 /* workload method name and function pointers for the CODES workload API */
 struct codes_workload_method online_comm_workload_method =
 {
-    .method_name = (char*)"online_comm_workload",
-    .codes_workload_read_config = NULL,
-    .codes_workload_load = comm_online_workload_load,
-    .codes_workload_get_next = comm_online_workload_get_next,
-    .codes_workload_get_next_rc2 = NULL,
-    .codes_workload_get_rank_cnt = comm_online_workload_get_rank_cnt,
-    .codes_workload_finalize = comm_online_workload_finalize
+    //.method_name =
+    (char*)"online_comm_workload",
+    //.codes_workload_read_config = 
+    NULL,
+    //.codes_workload_load = 
+    comm_online_workload_load,
+    //.codes_workload_get_next = 
+    comm_online_workload_get_next,
+    // .codes_workload_get_next_rc2 = 
+    NULL,
+    // .codes_workload_get_rank_cnt
+    comm_online_workload_get_rank_cnt,
+    // .codes_workload_finalize = 
+    comm_online_workload_finalize
 };
-
+} // closing brace for extern "C"
 
