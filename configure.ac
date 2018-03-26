@@ -104,6 +104,24 @@ fi
 AM_CONDITIONAL(USE_DARSHAN, [test "x${use_darshan}" = xyes])
 
 
+# check for Argobots
+AC_ARG_WITH([online],[AS_HELP_STRING([--with-online@<:@=DIR@:>@],
+                        [Build with the online workloads and argobots support])],
+                      [use_online=yes],[use_online=no])
+if test "x${use_online}" != "x" ; then
+    AM_CONDITIONAL(USE_ONLINE, true)
+    PKG_CHECK_MODULES_STATIC([ARGOBOTS], [argobots], [],
+                      [AC_MSG_ERROR([Could not find working argobots installation via pkg-config])])
+    PKG_CHECK_MODULES_STATIC([SWM], [swm], [],
+                      [AC_MSG_ERROR([Could not find working swm installation via pkg-config])])
+    PKG_CHECK_VAR([SWM_DATAROOTDIR], [swm], [datarootdir], [],
+              [AC_MSG_ERROR[Could not find shared directory in SWM]])
+    AC_DEFINE_UNQUOTED([SWM_DATAROOTDIR], ["$SWM_DATAROOTDIR"], [if using json
+                        data files])
+else
+    AM_CONDITIONAL(USE_ONLINE, false)
+fi
+
 # check for Recorder
 AM_CONDITIONAL(USE_RECORDER, true)
 RECORDER_CPPFLAGS="-DUSE_RECORDER=1"

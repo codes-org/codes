@@ -783,8 +783,11 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	if(rank >= dumpi_params->num_net_traces)
 		return -1;
 
-    int hash_size = (dumpi_params->num_net_traces / dumpi_params->nprocs) + 1;
-	if(!rank_tbl)
+    int hash_size = 1;
+    if(dumpi_params->nprocs > 0)
+        hash_size = (dumpi_params->num_net_traces / dumpi_params->nprocs) + 1;
+	
+    if(!rank_tbl)
     	{
             rank_tbl = qhash_init(hash_rank_compare, quickhash_64bit_hash, hash_size);
             if(!rank_tbl)
@@ -850,12 +853,12 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 #endif
 
 	/* handle MPI function calls */	        
-        callbacks.on_init = handleDUMPIInit;
+    callbacks.on_init = handleDUMPIInit;
 	callbacks.on_send = (dumpi_send_call)handleDUMPISend;
-        callbacks.on_recv = (dumpi_recv_call)handleDUMPIRecv;
-        callbacks.on_isend = (dumpi_isend_call)handleDUMPIISend;
-        callbacks.on_irecv = (dumpi_irecv_call)handleDUMPIIRecv;
-        callbacks.on_allreduce = (dumpi_allreduce_call)handleDUMPIAllreduce;
+    callbacks.on_recv = (dumpi_recv_call)handleDUMPIRecv;
+    callbacks.on_isend = (dumpi_isend_call)handleDUMPIISend;
+    callbacks.on_irecv = (dumpi_irecv_call)handleDUMPIIRecv;
+    callbacks.on_allreduce = (dumpi_allreduce_call)handleDUMPIAllreduce;
 	callbacks.on_bcast = (dumpi_bcast_call)handleDUMPIBcast;
 	callbacks.on_get_count = (dumpi_get_count_call)handleDUMPIIgnore;
 	callbacks.on_bsend = (dumpi_bsend_call)handleDUMPIIgnore;
@@ -890,28 +893,28 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	callbacks.on_sendrecv_replace = (dumpi_sendrecv_replace_call)handleDUMPIIgnore;
 	callbacks.on_type_contiguous = (dumpi_type_contiguous_call)handleDUMPIIgnore;
 	callbacks.on_barrier = (dumpi_barrier_call)handleDUMPIIgnore;
-        callbacks.on_gather = (dumpi_gather_call)handleDUMPIIgnore;
-        callbacks.on_gatherv = (dumpi_gatherv_call)handleDUMPIIgnore;
-        callbacks.on_scatter = (dumpi_scatter_call)handleDUMPIIgnore;
-        callbacks.on_scatterv = (dumpi_scatterv_call)handleDUMPIIgnore;
-        callbacks.on_allgather = (dumpi_allgather_call)handleDUMPIIgnore;
-        callbacks.on_allgatherv = (dumpi_allgatherv_call)handleDUMPIIgnore;
-        callbacks.on_alltoall = (dumpi_alltoall_call)handleDUMPIIgnore;
-        callbacks.on_alltoallv = (dumpi_alltoallv_call)handleDUMPIIgnore;
-        callbacks.on_alltoallw = (dumpi_alltoallw_call)handleDUMPIIgnore;
-        callbacks.on_reduce = (dumpi_reduce_call)handleDUMPIIgnore;
-        callbacks.on_reduce_scatter = (dumpi_reduce_scatter_call)handleDUMPIIgnore;
-        callbacks.on_group_size = (dumpi_group_size_call)handleDUMPIIgnore;
-        callbacks.on_group_rank = (dumpi_group_rank_call)handleDUMPIIgnore;
-        callbacks.on_comm_size = (dumpi_comm_size_call)handleDUMPIIgnore;
-        callbacks.on_comm_rank = (dumpi_comm_rank_call)handleDUMPIIgnore;
-        callbacks.on_comm_get_attr = (dumpi_comm_get_attr_call)handleDUMPIIgnore;
-        callbacks.on_comm_dup = (dumpi_comm_dup_call)handleDUMPIError;
-        callbacks.on_comm_create = (dumpi_comm_create_call)handleDUMPIError;
-        callbacks.on_wtime = (dumpi_wtime_call)handleDUMPIIgnore;
-        callbacks.on_finalize = (dumpi_finalize_call)handleDUMPIFinalize;
+    callbacks.on_gather = (dumpi_gather_call)handleDUMPIIgnore;
+    callbacks.on_gatherv = (dumpi_gatherv_call)handleDUMPIIgnore;
+    callbacks.on_scatter = (dumpi_scatter_call)handleDUMPIIgnore;
+    callbacks.on_scatterv = (dumpi_scatterv_call)handleDUMPIIgnore;
+    callbacks.on_allgather = (dumpi_allgather_call)handleDUMPIIgnore;
+    callbacks.on_allgatherv = (dumpi_allgatherv_call)handleDUMPIIgnore;
+    callbacks.on_alltoall = (dumpi_alltoall_call)handleDUMPIIgnore;
+    callbacks.on_alltoallv = (dumpi_alltoallv_call)handleDUMPIIgnore;
+    callbacks.on_alltoallw = (dumpi_alltoallw_call)handleDUMPIIgnore;
+    callbacks.on_reduce = (dumpi_reduce_call)handleDUMPIIgnore;
+    callbacks.on_reduce_scatter = (dumpi_reduce_scatter_call)handleDUMPIIgnore;
+    callbacks.on_group_size = (dumpi_group_size_call)handleDUMPIIgnore;
+    callbacks.on_group_rank = (dumpi_group_rank_call)handleDUMPIIgnore;
+    callbacks.on_comm_size = (dumpi_comm_size_call)handleDUMPIIgnore;
+    callbacks.on_comm_rank = (dumpi_comm_rank_call)handleDUMPIIgnore;
+    callbacks.on_comm_get_attr = (dumpi_comm_get_attr_call)handleDUMPIIgnore;
+    callbacks.on_comm_dup = (dumpi_comm_dup_call)handleDUMPIError;
+    callbacks.on_comm_create = (dumpi_comm_create_call)handleDUMPIError;
+    callbacks.on_wtime = (dumpi_wtime_call)handleDUMPIIgnore;
+    callbacks.on_finalize = (dumpi_finalize_call)handleDUMPIFinalize;
 
-        libundumpi_populate_callbacks(&callbacks, callarr);
+    libundumpi_populate_callbacks(&callbacks, callarr);
 
 #ifdef ENABLE_CORTEX
 #ifdef ENABLE_CORTEX_PYTHON
@@ -924,7 +927,7 @@ int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
 	libundumpi_populate_callbacks(CORTEX_MPICH_TRANSLATION, transarr);
 #endif
 #endif
-        DUMPI_START_STREAM_READ(profile);
+    DUMPI_START_STREAM_READ(profile);
         //dumpi_header* trace_header = undumpi_read_header(profile);
         //dumpi_free_header(trace_header);
 

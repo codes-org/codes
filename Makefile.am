@@ -57,6 +57,12 @@ AM_CPPFLAGS += ${RECORDER_CPPFLAGS}
 src_libcodes_la_SOURCES += src/workload/methods/codes-recorder-io-wrkld.c
 endif
 
+if USE_ONLINE
+AM_CPPFLAGS += ${ARGOBOTS_CFLAGS} ${SWM_CFLAGS} -DUSE_ONLINE=1
+LDADD += ${SWM_LIBS} ${ARGOBOTS_LIBS}
+src_libcodes_la_SOURCES += src/workload/methods/codes-online-comm-wrkld.C
+endif
+
 if USE_DUMPI
 AM_CPPFLAGS += ${DUMPI_CFLAGS} -DUSE_DUMPI=1
 src_libcodes_la_SOURCES += src/workload/methods/codes-dumpi-trace-nw-wrkld.c
