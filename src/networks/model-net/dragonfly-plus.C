@@ -2279,7 +2279,7 @@ static int get_min_hops_to_dest_from_conn(router_state *s, tw_bf *bf, terminal_p
         }
     }
     else { //next is not in final destination group
-        if (next_hops_type == SPINE) 
+        if (next_hops_type == SPINE)
             return 3; //Next Spine -> Spine -> Leaf -> dest_term
         else {
             assert(next_hops_type == LEAF);
@@ -2595,8 +2595,6 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
     cur_chunk->msg.vc_index = output_port;
     cur_chunk->msg.next_stop = next_stop;
 
-    int max_vc_size = s->params->cn_vc_size;
-
     output_chan = 0;
 
     if(cur_chunk->msg.path_type == MINIMAL)
@@ -2606,6 +2604,19 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
     if(cur_chunk->msg.dfp_upward_channel_flag)
     {
         output_chan = 1;
+    }
+
+    ConnectionType port_type = s->connMan.get_port_type(output_port);
+    int max_vc_size = 0;
+    if (port_type == CONN_GLOBAL) {
+        max_vc_size = s->params->global_vc_size;
+    }
+    else if (port_type == CONN_LOCAL) {
+        max_vc_size = s->params->local_vc_size;
+    }
+    else {
+        assert(port_type == CONN_TERMINAL)
+        max_vc_size = s->param->cn_vc_size;
     }
 
     cur_chunk->msg.output_chan = output_chan;
