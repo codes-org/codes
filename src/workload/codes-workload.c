@@ -227,7 +227,6 @@ void codes_workload_get_next(
         return;
     }
 
-    /* ask generator for the next operation */
     method_array[wkld_id]->codes_workload_get_next(app_id, rank, op);
 
     assert(op->op_type);
@@ -253,7 +252,7 @@ void codes_workload_get_next_rc(
     }
     assert(tmp);
 
-    tmp_op = (struct rc_op*)calloc(1, sizeof(*tmp_op));
+    tmp_op = (struct rc_op*)malloc(sizeof(struct rc_op));
     assert(tmp_op);
     tmp_op->op = *op;
     tmp_op->next = tmp->lifo;
