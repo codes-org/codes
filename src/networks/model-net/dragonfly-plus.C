@@ -2606,7 +2606,7 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
         output_chan = 1;
     }
 
-    ConnectionType port_type = s->connMan.get_port_type(output_port);
+    ConnectionType port_type = s->connMan->get_port_type(output_port);
     int max_vc_size = 0;
     if (port_type == CONN_GLOBAL) {
         max_vc_size = s->params->global_vc_size;
@@ -2615,8 +2615,8 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
         max_vc_size = s->params->local_vc_size;
     }
     else {
-        assert(port_type == CONN_TERMINAL)
-        max_vc_size = s->param->cn_vc_size;
+        assert(port_type == CONN_TERMINAL);
+        max_vc_size = s->params->cn_vc_size;
     }
 
     cur_chunk->msg.output_chan = output_chan;
