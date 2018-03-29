@@ -25,7 +25,7 @@
 
 #define ALLREDUCE_SHORT_MSG_SIZE 2048
 
-#define DBG_COMM 0
+//#define DBG_COMM 0
 
 using namespace std;
 
