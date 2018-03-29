@@ -6,7 +6,7 @@
 #include <ross.h>
 #include <inttypes.h>
 #include <sys/stat.h>
-
+#include <sys/resource.h>
 #include "codes/codes-workload.h"
 #include "codes/codes.h"
 #include "codes/configuration.h"
@@ -52,6 +52,8 @@ static int num_net_traces = 0;
 static int num_dumpi_traces = 0;
 static int64_t EAGER_THRESHOLD = 8192;
 
+static long num_ops = 0;
+static upper_threshold = 1048576;
 static int alloc_spec = 0;
 static tw_stime self_overhead = 10.0;
 static tw_stime mean_interval = 100000;
@@ -424,6 +426,7 @@ static void update_message_size(
                 msg_info->num_msgs = 1;
                 msg_info->agg_latency = tw_now(lp) - msg_init_time;
                 msg_info->avg_latency = msg_info->agg_latency;
+                assert(ns->msg_sz_table);
                 qhash_add(ns->msg_sz_table, &(msg_info->msg_size), &(msg_info->hash_link));
                 qlist_add(&msg_info->ql, &ns->msg_sz_list);
                 //printf("\n Msg size %d aggregate latency %f num messages %d ", m->fwd.num_bytes, msg_info->agg_latency, msg_info->num_msgs);
@@ -758,6 +761,10 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
      {
     	printf("\n Data arrived %lld rank %llu total data %ld ", m->fwd.num_bytes, s->nw_id, s->syn_data);
 /*	if(s->syn_data > upper_threshold)
+    if(s->local_rank == 0)
+     {
+    	printf("\n Data arrived %lld rank %llu total data %ld ", m->fwd.num_bytes, s->nw_id, s->syn_data);
+	if(s->syn_data > upper_threshold)
 	{ 
         	struct rusage mem_usage;
 		int who = RUSAGE_SELF;
@@ -765,7 +772,7 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 		printf("\n Memory usage %lf gigabytes", ((double)mem_usage.ru_maxrss / (1024.0 * 1024.0)));
 		upper_threshold += 1048576;
 	}*/
-     }
+	}
     int data = m->fwd.num_bytes;
     s->syn_data += data;
     num_syn_bytes_recvd += data;
@@ -790,7 +797,7 @@ static void print_msgs_queue(struct qlist_head * head, int is_send)
     qlist_for_each(ent, head)
        {
             current = qlist_entry(ent, mpi_msgs_queue, ql);
-            printf(" \n Source %d Dest %d bytes %"PRId64" tag %d ", current->source_rank, current->dest_rank, current->num_bytes, current->tag);
+            //printf(" \n Source %d Dest %d bytes %"PRId64" tag %d ", current->source_rank, current->dest_rank, current->num_bytes, current->tag);
        }
 }
 static void print_completed_queue(tw_lp * lp, struct qlist_head * head)
