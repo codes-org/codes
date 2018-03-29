@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 University of Chicago.
+* Copyright (C) 2014 University of Chicago.
  * See COPYRIGHT notice in top-level directory.
  *
  */
@@ -434,7 +434,7 @@ static void update_message_size(
                 tmp->num_msgs++;
                 tmp->agg_latency += tw_now(lp) - msg_init_time;  
                 tmp->avg_latency = (tmp->agg_latency / tmp->num_msgs);
-//                printf("\n Msg size %d aggregate latency %f num messages %d ", qitem->num_bytes, tmp->agg_latency, tmp->num_msgs);
+//                printf("\n Msg size %lld aggregate latency %f num messages %d ", qitem->num_bytes, tmp->agg_latency, tmp->num_msgs);
             }
 }
 static void notify_background_traffic_rc(
@@ -2560,6 +2560,7 @@ const tw_optdef app_opt [] =
 	TWOPT_CHAR("alloc_file", alloc_file, "allocation file name"),
 	TWOPT_CHAR("workload_conf_file", workloads_conf_file, "workload config file name"),
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
+	TWOPT_UINT("payload_sz", payload_sz, "size of payload for synthetic traffic "),
 	TWOPT_UINT("eager_threshold", EAGER_THRESHOLD, "the transition point for eager/rendezvous protocols (Default 8192)"),
     TWOPT_UINT("disable_compute", disable_delay, "disable compute simulation"),
     TWOPT_UINT("payload_sz", payload_sz, "size of the payload for synthetic traffic"),
@@ -2789,7 +2790,6 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
                payload_sz,
                mean_interval,
 	       rand());
-
 
        msg_size_log = fopen(log_name, "w+");
 
