@@ -1279,8 +1279,8 @@ static void codes_exec_comp_delay(
 	nw_message* msg;
 
     m->rc.saved_delay = s->compute_time;
-    s->compute_time += s_to_ns(mpi_op->u.delay.seconds);
-    ts = s_to_ns(mpi_op->u.delay.seconds);
+    s->compute_time += mpi_op->u.delay.nsecs;
+    ts = mpi_op->u.delay.nsecs;
 
 	ts += g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
     assert(ts > 0);
