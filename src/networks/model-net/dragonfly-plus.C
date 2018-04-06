@@ -315,8 +315,9 @@ typedef enum routing_alg_t
     MINIMAL = 1, //will always follow the minimal route from host to host
     NON_MINIMAL_SPINE, //will always route through an intermediate spine in an intermediate group for inter group traffic
     NON_MINIMAL_LEAF, //will always route through an intermediate leaf in an intermediate group for inter group traffic
-    ON_THE_FLY_ADAPTIVE, //Choose between Minimal, Nonmin spine, and nonmin leaf at the router level based on own congestion
-    FULLY_PROG_ADAPTIVE //OTFA with ARNs
+    PROG_ADAPTIVE, //Choose between Minimal, Nonmin spine, and nonmin leaf at the router level based on own congestion
+    FULLY_PROG_ADAPTIVE, //OTFA with ARNs
+    NON_MINIMAL //A catch all for adaptive routing to determine if a path had deviated from minimal - not an algorithm!!!!!
 } routing_alg_t;
 
 typedef enum route_scoring_metric_t
@@ -327,7 +328,7 @@ typedef enum route_scoring_metric_t
 
 bool isRoutingAdaptive(int alg)
 {
-    if (alg == ON_THE_FLY_ADAPTIVE || alg == FULLY_PROG_ADAPTIVE)
+    if (alg == PROG_ADAPTIVE || alg == FULLY_PROG_ADAPTIVE)
         return true;
     else
         return false;
@@ -336,6 +337,14 @@ bool isRoutingAdaptive(int alg)
 bool isRoutingMinimal(int alg)
 {
     if (alg == MINIMAL)
+        return true;
+    else
+        return false;
+}
+
+bool isRoutingNonminimalExplicit(int alg)
+{
+    if (alg == NON_MINIMAL_LEAF || alg == NON_MINIMAL_SPINE)
         return true;
     else
         return false;
@@ -607,8 +616,8 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         routing = NON_MINIMAL_SPINE;
     else if (strcmp(routing_str, "non-minimal-leaf") == 0)
         routing = NON_MINIMAL_LEAF;
-    else if (strcmp(routing_str, "on-the-fly-adaptive") == 0)
-        routing = ON_THE_FLY_ADAPTIVE;
+    else if (strcmp(routing_str, "prog-adaptive") == 0)
+        routing = PROG_ADAPTIVE;
     else if (strcmp(routing_str, "fully-prog-adaptive") == 0)
         routing = FULLY_PROG_ADAPTIVE;
     else {
@@ -804,10 +813,10 @@ void dragonfly_plus_report_stats()
 
     MPI_Reduce(&packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
     MPI_Reduce(&packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
-    // if (routing == ADAPTIVE || routing == PROG_ADAPTIVE) {
-    //     MPI_Reduce(&minimal_count, &total_minimal_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
-    //     MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
-    // }
+    if(isRoutingAdaptive(routing)) {
+        MPI_Reduce(&minimal_count, &total_minimal_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
+        MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
+    }
 
     /* print statistics */
     if (!g_tw_mynode) {
@@ -817,12 +826,10 @@ void dragonfly_plus_report_stats()
             (float) avg_hops / total_finished_chunks, avg_time / (total_finished_chunks * 1000),
             max_time / 1000, (float) final_msg_sz / total_finished_msgs, total_finished_msgs,
             total_finished_chunks);
-        // if (routing == ADAPTIVE || routing == PROG_ADAPTIVE)
-        //     printf(
-        //         "\n ADAPTIVE ROUTING STATS: %d chunks routed minimally %d chunks routed non-minimally "
-        //         "completed packets %lld \n",
-        //         total_minimal_packets, total_nonmin_packets, total_finished_chunks);
-
+        if(isRoutingAdaptive(routing)) {
+            printf("\n ADAPTIVE ROUTING STATS: %d chunks routed minimally %d chunks routed non-minimally completed packets %lld \n",
+                total_minimal_packets, total_nonmin_packets, total_finished_chunks);
+        }
         printf("\n Total packets generated: %ld; finished: %ld \n", total_gen, total_fin);
     }
     return;
@@ -1465,6 +1472,8 @@ static void packet_arrive_rc(terminal_state *s, tw_bf *bf, terminal_plus_message
     tw_rand_reverse_unif(lp->rng);
     if (msg->path_type == MINIMAL)
         minimal_count--;
+    else
+        nonmin_count--;
     // if (msg->path_type == NON_MINIMAL)
     //     nonmin_count--;
 
@@ -1644,9 +1653,8 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
 
     if (msg->path_type == MINIMAL)
         minimal_count++;
-
-    // if (msg->path_type == NON_MINIMAL)
-    //     nonmin_count++;
+    else
+        nonmin_count++;
 
     if (msg->chunk_id == num_chunks - 1) {
         bf->c31 = 1;
@@ -2391,7 +2399,6 @@ static Connection do_dfp_routing(router_state *s,
 
     if (isRoutingAdaptive(routing)) {
         bool choose_minimal = false;
-        bool turning_upward = false;
 
         int num_min_poss = poss_min_next_stops.size();
         int num_nonmin_poss = poss_non_min_next_stops.size();
@@ -2457,6 +2464,7 @@ static Connection do_dfp_routing(router_state *s,
             theConn = two_minimal_conns[best_min_score_index];
         }
         else {
+            msg->path_type = NON_MINIMAL; //We chose a nonminimal stop - we will never reset the path type back to minimal!!!!
             theConn = two_nonminimal_conns[best_non_min_score_index];
         }
     }
@@ -2566,13 +2574,14 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
         (terminal_plus_message_list *) malloc(sizeof(terminal_plus_message_list));
     init_terminal_plus_message_list(cur_chunk, msg);
 
-    cur_chunk->msg.path_type = MINIMAL;
-    if ( !isRoutingMinimal(routing) )
+    // Set the default route as minimal for adaptive routing on the first router, else leave unchanged
+    if( isRoutingAdaptive(routing) && cur_chunk->msg.last_hop == TERMINAL) {
+        cur_chunk->msg.path_type = MINIMAL;
+    }
+
+    if( !isRoutingAdaptive(routing) ) 
     {
-        if (!cur_chunk->msg.dfp_upward_channel_flag)
-        {
-            cur_chunk->msg.path_type = routing; //if we're on an upward channel then we follow minimal routing
-        }
+        cur_chunk->msg.path_type = routing; //defaults to the routing algorihtm if we don't have adaptive or prog-adaptive routing here
     }
 
     Connection next_stop_conn = do_dfp_routing(s, bf, &(cur_chunk->msg), lp, dest_router_id);
@@ -2599,13 +2608,11 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
 
     output_chan = 0;
 
-    if(cur_chunk->msg.path_type == MINIMAL)
-    {
-        output_chan = 0;
-    }
-    if(cur_chunk->msg.dfp_upward_channel_flag)
-    {
+    if(cur_chunk->msg.dfp_upward_channel_flag) {
         output_chan = 1;
+    }
+    else {
+        output_chan = 0;
     }
 
     cur_chunk->msg.output_chan = output_chan;
