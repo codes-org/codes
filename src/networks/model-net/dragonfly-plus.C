@@ -2406,25 +2406,38 @@ static Connection do_dfp_routing(router_state *s,
         if (msg->dfp_upward_channel_flag == 1 || (my_group_id == fdest_group_id))
             choose_minimal = true; //in both of these cases minimal should always be chosen
 
+        vector< Connection > selected_minimal_conns;
+        if (my_group_id == fdest_group_id) { //if we are in the final destination group
+            selected_minimal_conns = poss_min_next_stops; //then we want to find the least congested out of all of the possible minimum paths
+            
+            //two garbage random numbers to keep things even since we're not randomly selecting two connections. 
+            //TODO This will need to be changed if select_two is made configurable
+            tw_rand_integer(lp->rng,0,1);
+            tw_rand_integer(lp->rng,0,1);
+        }
+        else //then we do the typical randomly select two connections
+        {
+            selected_minimal_conns = dfp_select_two_connections(s, bf, msg, lp, poss_min_next_stops);
+        }
 
-        vector< Connection > two_minimal_conns = dfp_select_two_connections(s, bf, msg, lp, poss_min_next_stops);
-        vector< Connection > two_nonminimal_conns = dfp_select_two_connections(s, bf, msg, lp, poss_non_min_next_stops);
-        int num_conns = two_minimal_conns.size() + two_nonminimal_conns.size(); //we selected two from each //TODO maybe make this configurable
+        vector< Connection > selected_nonminimal_conns = dfp_select_two_connections(s, bf, msg, lp, poss_non_min_next_stops);
+        
+        int num_conns = selected_minimal_conns.size() + selected_nonminimal_conns.size(); //we selected two from each //TODO maybe make this configurable
 
 
         //calculate the best connections for minimal and nonminimal
         int scores[num_conns];
         for(int i = 0; i < num_conns; i++)
         {
-            if(i < (two_minimal_conns.size()) )
-                scores[i] = dfp_score_connection(s, bf, msg, lp, two_minimal_conns[i]);
+            if(i < (selected_minimal_conns.size()) )
+                scores[i] = dfp_score_connection(s, bf, msg, lp, selected_minimal_conns[i]);
             else
-                scores[i] = dfp_score_connection(s, bf, msg, lp, two_nonminimal_conns[i-two_minimal_conns.size()]);
+                scores[i] = dfp_score_connection(s, bf, msg, lp, selected_nonminimal_conns[i-selected_minimal_conns.size()]);
         }
 
         int best_min_score = INT_MAX;
         int best_min_score_index = 0;
-        for(int i = 0; i < two_minimal_conns.size(); i++)
+        for(int i = 0; i < selected_minimal_conns.size(); i++)
         {
             if (scores[i] < best_min_score) {
                 best_min_score = scores[i];
@@ -2434,11 +2447,11 @@ static Connection do_dfp_routing(router_state *s,
 
         int best_non_min_score = INT_MAX;
         int best_non_min_score_index = 0;
-        for(int i = two_minimal_conns.size(); i < num_conns; i++)
+        for(int i = selected_minimal_conns.size(); i < num_conns; i++)
         {
             if (scores[i] < best_non_min_score) {
                 best_non_min_score = scores[i];
-                best_non_min_score_index = i-two_minimal_conns.size();
+                best_non_min_score_index = i-selected_minimal_conns.size();
             }
         }
         //end score calculation
@@ -2461,11 +2474,11 @@ static Connection do_dfp_routing(router_state *s,
         }
 
         if (choose_minimal) {
-            theConn = two_minimal_conns[best_min_score_index];
+            theConn = selected_minimal_conns[best_min_score_index];
         }
         else {
             msg->path_type = NON_MINIMAL; //We chose a nonminimal stop - we will never reset the path type back to minimal!!!!
-            theConn = two_nonminimal_conns[best_non_min_score_index];
+            theConn = selected_nonminimal_conns[best_non_min_score_index];
         }
     }
 
