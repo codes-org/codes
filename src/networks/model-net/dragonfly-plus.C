@@ -170,6 +170,8 @@ struct dragonfly_plus_param
     int num_router_spine;  // number of spine routers (top level)
     int num_router_leaf;   // number of leaf routers (bottom level)
     int queue_threshold;   // predefined queue length threshold T before a packet is routed through a lower priority queue
+
+    long max_port_score;   // maximum score that can be given to any port during route scoring
     // dfp params end
 
     int num_groups;
@@ -310,6 +312,14 @@ enum last_hop
     TERMINAL,
 };
 
+// Used to denote whether a connection is one that would allow a packet to continue along a minimal path or not
+// Specifically used to clearly pass whether a connection is a minimal one through to the connection scoring function
+typedef enum conn_minimality_t
+{
+    C_MIN = 1,
+    C_NONMIN
+} conn_minimality_t;
+
 typedef enum routing_alg_t
 {
     MINIMAL = 1, //will always follow the minimal route from host to host
@@ -323,8 +333,15 @@ typedef enum routing_alg_t
 typedef enum route_scoring_metric_t
 {
     ALPHA = 1, //Count queue lengths and pending messages for a port
-    BETA //Expected Hops to Destination * (Count queue lengths and pending messages) for a port
+    BETA, //Expected Hops to Destination * (Count queue lengths and pending messages) for a port
+    GAMMA
 } route_scoring_metric_t;
+
+typedef enum route_scoring_preference_t
+{
+    LOWER = 1,
+    HIGHER
+} route_scoring_preference_t;
 
 bool isRoutingAdaptive(int alg)
 {
@@ -409,6 +426,7 @@ int dragonfly_plus_get_assigned_router_id(int terminal_id, const dragonfly_plus_
 
 static short routing = MINIMAL;
 static short scoring = ALPHA;
+static short scoring_preference = LOWER;
 
 static tw_stime dragonfly_total_time = 0;
 static tw_stime dragonfly_max_latency = 0;
@@ -625,17 +643,6 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         routing = MINIMAL;
     }
 
-    char scoring_str[MAX_NAME_LENGTH];
-    configuration_get_value(&config, "PARAMS", "route_scoring_metric", anno, scoring_str, MAX_NAME_LENGTH);
-    if (strcmp(scoring_str, "alpha") == 0)
-        scoring = ALPHA;
-    else if (strcmp(scoring_str, "beta") == 0)
-        scoring = BETA;
-    else {
-        fprintf(stderr, "No route scoring protocol specified, setting to alpha scoring\n");
-        scoring = ALPHA;
-    }
-
     /* MM: This should be 2 for dragonfly plus*/
     p->num_vcs = 2;
 
@@ -658,10 +665,8 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         p->num_level_chans = 1;
     }
 
-
     p->num_routers = p->num_router_spine + p->num_router_leaf;  // num routers per group
     p->intra_grp_radix = (p->num_routers / 2) * p->num_level_chans;
-
 
     rc = configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", anno, &p->num_cn);
     if (rc) {
@@ -678,6 +683,50 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
                p->num_cn;  // TODO this may not be sufficient, radix isn't same for leaf and spine routers
     p->total_routers = p->num_groups * p->num_routers;
     p->total_terminals = (p->num_groups * p->num_router_leaf) * p->num_cn;
+
+
+    // char score_pref_str[MAX_NAME_LENGTH];
+    // configuration_get_value(&config, "PARAMS", "route_scoring_preference", anno, score_pref_str, MAX_NAME_LENGTH);
+    // if (strcmp(score_pref_str, "lower") == 0)
+    //     scoring_preference = LOWER;
+    // else if (strcmp(score_pref_str, "higher") == 0)
+    //     scoring_preference = HIGHER;
+    // else {
+    //     fprintf(stderr, "No route score preference specified, setting to 'lower is better'\n");
+    //     scoring_preference = LOWER;
+    // }
+
+    char scoring_str[MAX_NAME_LENGTH];
+    configuration_get_value(&config, "PARAMS", "route_scoring_metric", anno, scoring_str, MAX_NAME_LENGTH);
+    if (strcmp(scoring_str, "alpha") == 0) {
+        scoring = ALPHA;
+        scoring_preference = LOWER;
+    }
+    else if (strcmp(scoring_str, "beta") == 0) {
+        scoring = BETA;
+        scoring_preference = LOWER;
+    }
+    else if (strcmp(scoring_str, "gamma") == 0) {
+        scoring = GAMMA;
+        scoring_preference = HIGHER;
+    }
+    else {
+        fprintf(stderr, "No route scoring protocol specified, setting to alpha scoring\n");
+        scoring = ALPHA;
+        scoring_preference = LOWER;
+    }
+
+
+
+    int largest_vc_size = 0;
+    if (p->local_vc_size > largest_vc_size)
+        largest_vc_size = p->local_vc_size;
+    if (p->global_vc_size > largest_vc_size)
+        largest_vc_size = p->global_vc_size;
+    if (p->cn_vc_size > largest_vc_size)
+        largest_vc_size = p->cn_vc_size;
+
+    p->max_port_score = (p->num_vcs * largest_vc_size) + largest_vc_size; //The maximum score that a port can get during the scoring metrics.
 
     // read intra group connections, store from a router's perspective
     // all links to the same router form a vector
@@ -2297,16 +2346,16 @@ static int get_min_hops_to_dest_from_conn(router_state *s, tw_bf *bf, terminal_p
 }
 
 /**
- * Scores a connection based on the metric provided in the function, lower score is better
+ * Scores a connection based on the metric provided in the function
+ * @param isMinimalPort a boolean variable used in the Gamma metric to pass whether a given port would lead to the destination in a minimal way
  */
-static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, Connection conn)
+static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, Connection conn, conn_minimality_t c_minimality)
 {
-    //Currently just looking at VC Occupancy and message queue length like dragonfly custom
-    int score = 0;
+    int score;
     int port = conn.port;
 
     switch(scoring) {
-        case ALPHA:
+        case ALPHA: //considers vc occupancy and queued count only LOWER SCORE IS BETTER
         {
             for(int k=0; k < s->params->num_vcs; k++)
             {
@@ -2315,7 +2364,7 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
             score += s->queued_count[port];
             break;
         }
-        case BETA:
+        case BETA: //consideres vc occupancy and queued count multiplied by the number of minimum hops to the destination LOWER SCORE IS BETTER
         {
             int base_score = 0;
             for(int k=0; k < s->params->num_vcs; k++)
@@ -2326,6 +2375,24 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
             score = base_score * get_min_hops_to_dest_from_conn(s, bf, msg, lp, conn);
             break;
         }
+        case GAMMA: //consideres vc occupancy and queue count but ports that follow a minimal path to fdest are biased 2:1 HIGHER SCORE IS BETTER
+        {   
+            score = s->params->max_port_score;
+            int to_subtract = 0;
+            for(int k=0; k < s->params->num_vcs; k++)
+            {
+                to_subtract += s->vc_occupancy[port][k];
+            }
+            to_subtract += s->queued_count[port];
+            score -= to_subtract;
+
+            if (c_minimality = C_MIN) //the connection maintains the paths minimality - gets a bonus of 2x
+                score = score * 2;
+            break;
+        }
+        default:
+            tw_error(TW_LOC, "Unsupported Scoring Protocol Error\n");
+
     }
     return score;
 }
@@ -2430,35 +2497,62 @@ static Connection do_dfp_routing(router_state *s,
         for(int i = 0; i < num_conns; i++)
         {
             if(i < (selected_minimal_conns.size()) )
-                scores[i] = dfp_score_connection(s, bf, msg, lp, selected_minimal_conns[i]);
+                scores[i] = dfp_score_connection(s, bf, msg, lp, selected_minimal_conns[i], C_MIN);
             else
-                scores[i] = dfp_score_connection(s, bf, msg, lp, selected_nonminimal_conns[i-selected_minimal_conns.size()]);
+                scores[i] = dfp_score_connection(s, bf, msg, lp, selected_nonminimal_conns[i-selected_minimal_conns.size()], C_NONMIN);
         }
-
-        int best_min_score = INT_MAX;
+        
+        // compare scores based on the scoring preference ----------------------------------------------------------------------------------------------------
         int best_min_score_index = 0;
-        for(int i = 0; i < selected_minimal_conns.size(); i++)
-        {
-            if (scores[i] < best_min_score) {
-                best_min_score = scores[i];
-                best_min_score_index = i;
-            }
-        }
-
-        int best_non_min_score = INT_MAX;
         int best_non_min_score_index = 0;
-        for(int i = selected_minimal_conns.size(); i < num_conns; i++)
-        {
-            if (scores[i] < best_non_min_score) {
-                best_non_min_score = scores[i];
-                best_non_min_score_index = i-selected_minimal_conns.size();
+
+        if (scoring_preference == LOWER) { //Lower scores are better
+            int best_min_score = INT_MAX;
+            for(int i = 0; i < selected_minimal_conns.size(); i++)
+            {
+                if (scores[i] < best_min_score) {
+                    best_min_score = scores[i];
+                    best_min_score_index = i;
+                }
+            }
+
+            int best_non_min_score = INT_MAX;
+            for(int i = selected_minimal_conns.size(); i < num_conns; i++)
+            {
+                if (scores[i] < best_non_min_score) {
+                    best_non_min_score = scores[i];
+                    best_non_min_score_index = i-selected_minimal_conns.size();
+                }
+            }
+
+            if (best_min_score <= best_non_min_score) { //ties go to minimal
+                choose_minimal = true;
             }
         }
-        //end score calculation
+        else if (scoring_preference == HIGHER) { //higher scores are better
+            int best_min_score = 0;
+            for(int i = 0; i < selected_minimal_conns.size(); i++)
+            {
+                if (scores[i] > best_min_score) {
+                    best_min_score = scores[i];
+                    best_min_score_index = i;
+                }
+            }
 
-        if (best_min_score <= best_non_min_score) { //ties go to minimal
-            choose_minimal = true;
+            int best_non_min_score = 0;
+            for(int i = selected_minimal_conns.size(); i < num_conns; i++)
+            {
+                if (scores[i] > best_non_min_score) {
+                    best_non_min_score = scores[i];
+                    best_non_min_score_index = i-selected_minimal_conns.size();
+                }
+            }
+
+            if (best_min_score >= best_non_min_score) { //ties go to minimal
+                choose_minimal = true;
+            }
         }
+        // end scoring stuff ----------------------------------------------------------------------------------------------------------------------------------
 
         //intermediate groups have restrictions on how they have to route to avoid livelock
         if (in_intermediate_group) {
