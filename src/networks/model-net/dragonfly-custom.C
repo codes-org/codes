@@ -577,10 +577,16 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
         routing = -1;
     }
 
-    if(routing == PROG_ADAPTIVE)
-        p->num_vcs = 10;
-    else
-        p->num_vcs = 8;
+    rc = configuration_get_value_int(&config, "PARAMS", "num_vcs_override", anno, &p->num_vcs);
+    if(rc) {
+        if(routing == PROG_ADAPTIVE)
+            p->num_vcs = 10;
+        else
+            p->num_vcs = 8;
+    }
+    else {
+        printf("Overriding num_vcs: p->num_vcs=%d\n"%p->num_vcs);
+    }
     
     rc = configuration_get_value_int(&config, "PARAMS", "num_groups", anno, &p->num_groups);
     if(rc) {
