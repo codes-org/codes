@@ -2356,7 +2356,7 @@ static int get_min_hops_to_dest_from_conn(router_state *s, tw_bf *bf, terminal_p
  */
 static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, Connection conn, conn_minimality_t c_minimality)
 {
-    int score;
+    int score = 0; //can't forget to initialize this to zero.
     int port = conn.port;
 
     switch(scoring) {
@@ -2382,7 +2382,7 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
         }
         case GAMMA: //consideres vc occupancy and queue count but ports that follow a minimal path to fdest are biased 2:1 bonus by multiplying minimal by 2 HIGHER SCORE IS BETTER
         {   
-            score = s->params->max_port_score;
+            score = s->params->max_port_score; //initialize this to max score.
             int to_subtract = 0;
             for(int k=0; k < s->params->num_vcs; k++)
             {
