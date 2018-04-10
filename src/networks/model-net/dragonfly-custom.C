@@ -25,7 +25,6 @@
 #include <cortex/topology.h>
 #endif
 
-#define DF_DALLY 1 
 #define DUMP_CONNECTIONS 1
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
@@ -43,6 +42,8 @@
 #define LP_METHOD_NM_TERM (model_net_method_names[DRAGONFLY_CUSTOM])
 #define LP_CONFIG_NM_ROUT (model_net_lp_config_names[DRAGONFLY_CUSTOM_ROUTER])
 #define LP_METHOD_NM_ROUT (model_net_method_names[DRAGONFLY_CUSTOM_ROUTER])
+
+static int DF_DALLY = 0;
 
 using namespace std;
 struct Link {
@@ -519,6 +520,10 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
         fprintf(stderr, "Buffer size of global channels not specified, setting to %d\n", p->global_vc_size);
     }
 
+    rc = configuration_get_value_int(&config, "PARAMS", "df-dally-vc", anno, &DF_DALLY);
+    if(rc) {
+        DF_DALLY = 0;
+    }
     rc = configuration_get_value_int(&config, "PARAMS", "cn_vc_size", anno, &p->cn_vc_size);
     if(rc) {
         p->cn_vc_size = 1024;
@@ -589,18 +594,21 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     // else {
     //     printf("Overriding num_vcs: p->num_vcs=%d\n",p->num_vcs);
     // }
-    
-#ifndef DF_DALLY
+   
+if(DF_DALLY == 0) 
+{
     if(routing == PROG_ADAPTIVE)
         p->num_vcs = 10;
     else
         p->num_vcs = 8;
-#else    
+}
+else
+{
     if(routing == PROG_ADAPTIVE)
         p->num_vcs = 4;
     else
         p->num_vcs = 3;
-#endif
+}
     rc = configuration_get_value_int(&config, "PARAMS", "num_groups", anno, &p->num_groups);
     if(rc) {
       printf("Number of groups not specified. Aborting");
@@ -2920,25 +2928,27 @@ router_packet_receive( router_state * s,
 
   output_chan = 0;
   if(output_port < s->params->intra_grp_radix) {
-#ifndef DF_DALLY
+   if(DF_DALLY == 0)
+   {
     if(cur_chunk->msg.my_g_hop == 1) {
-      if(routing == PROG_ADAPTIVE && cur_chunk->msg.my_l_hop != 4) {
+      if(routing == PROG_ADAPTIVE && cur_chunk->msg.my_l_hop < 4) {
         cur_chunk->msg.my_l_hop = 4;
       } else if(cur_chunk->msg.my_l_hop < 2) {
         cur_chunk->msg.my_l_hop = 2;
       }
     } else if (cur_chunk->msg.my_g_hop == 2) {
-      if(routing == PROG_ADAPTIVE && cur_chunk->msg.my_l_hop != 6) {
+      if(routing == PROG_ADAPTIVE && cur_chunk->msg.my_l_hop < 6) {
         cur_chunk->msg.my_l_hop = 6;
       } else if(cur_chunk->msg.my_l_hop < 4) {
         cur_chunk->msg.my_l_hop = 4;
       }
     }
-#else
+   }
+  else {
     if(cur_chunk->msg.my_g_hop == 1) {
         if(routing == PROG_ADAPTIVE && cur_chunk->msg.my_l_hop != 2){
             cur_chunk->msg.my_l_hop = 2;
-        } else if(cur_chunk->msg.my_l_hop < 1){
+        } else if(cur_chunk->msg.my_l_hop != 1){
             cur_chunk->msg.my_l_hop = 1;
         }
     }
@@ -2946,10 +2956,10 @@ router_packet_receive( router_state * s,
      if(routing == PROG_ADAPTIVE && cur_chunk->msg.my_l_hop != 3) {
          cur_chunk->msg.my_l_hop = 3;
      }
-     else if(cur_chunk->msg.my_l_hop < 2)
+     else if(cur_chunk->msg.my_l_hop != 2)
         cur_chunk->msg.my_l_hop = 2;
     }
-#endif
+  }
     output_chan = cur_chunk->msg.my_l_hop;
     max_vc_size = s->params->local_vc_size;
     cur_chunk->msg.my_l_hop++;
