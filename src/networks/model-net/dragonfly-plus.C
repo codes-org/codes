@@ -2405,6 +2405,7 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
 
             if (c_minimality != C_MIN)
                 score = score * 2;
+            break;
         }
         default:
             tw_error(TW_LOC, "Unsupported Scoring Protocol Error\n");
