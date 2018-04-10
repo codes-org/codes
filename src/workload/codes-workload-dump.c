@@ -332,7 +332,7 @@ int main(int argc, char *argv[])
         assert(id != -1);
         do {
             codes_workload_get_next(id, 0, i, &op);
-            codes_workload_print_op(stdout, &op, 0, i);
+//            codes_workload_print_op(stdout, &op, 0, i);
 
             switch(op.op_type)
             {
@@ -415,9 +415,6 @@ int main(int argc, char *argv[])
                         if(i == 0)
                         {
                     int j;
-                    printf("\n rank %d wait_all: ", i);
-                    for(j = 0; j < op.u.waits.count; j++)
-                        printf(" %d ", op.u.waits.req_ids[j]);
                     num_waitalls++;
                         }
                     }

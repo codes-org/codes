@@ -53,7 +53,7 @@ static int num_dumpi_traces = 0;
 static int64_t EAGER_THRESHOLD = 8192;
 
 static long num_ops = 0;
-static upper_threshold = 1048576;
+static int upper_threshold = 1048576;
 static int alloc_spec = 0;
 static tw_stime self_overhead = 10.0;
 static tw_stime mean_interval = 100000;

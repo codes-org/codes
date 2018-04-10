@@ -34,7 +34,19 @@ static int rank_tbl_pop = 0;
 static int total_rank_cnt = 0;
 ABT_thread global_prod_thread = NULL;
 ABT_xstream self_es;
-double cpu_freq = 1.0;
+long cpu_freq = 1.0;
+long num_allreduce = 0;
+long num_isends = 0;
+long num_irecvs = 0;
+long num_barriers = 0;
+long num_sends = 0;
+long num_recvs = 0;
+long num_sendrecv = 0;
+long num_waitalls = 0;
+
+std::map<int64_t, int> send_count;
+std::map<int64_t, int> isend_count;
+std::map<int64_t, int> allreduce_count;
 
 struct shared_context {
     int my_rank;
@@ -88,7 +100,18 @@ void SWM_Send(SWM_PEER peer,
     wrkld_per_rank.u.send.dest_rank = peer;
 
 #ifdef DBG_COMM
-    printf("\n send op tag: %d bytes: %d dest: %d ", tag, bytes, peer);
+    if(tag != 1235 && tag != 1234) 
+    {
+        auto it = send_count.find(bytes);
+        if(it == send_count.end())
+        {
+            send_count.insert(std::make_pair(bytes, 1));
+        }
+        else
+        {
+            it->second = it->second + 1;
+        }
+    }
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -102,6 +125,7 @@ void SWM_Send(SWM_PEER peer,
     sctx->fifo.push_back(&wrkld_per_rank);
 
     ABT_thread_yield_to(global_prod_thread);
+    num_sends++;
 }
 
 /*
@@ -144,6 +168,9 @@ void SWM_Barrier(
 
     ABT_thread_yield_to(global_prod_thread);
 #endif
+#ifdef DBG_COMM
+     printf("\n barrier ");
+#endif
     /* Retreive the shared context state */
     ABT_thread prod;
     void * arg;
@@ -168,6 +195,7 @@ void SWM_Barrier(
                 src,  1234, 0,  reqrt, rsprt);
         mask <<= 1;
     }
+    num_barriers++;
 }
 
 void SWM_Isend(SWM_PEER peer,
@@ -192,8 +220,18 @@ void SWM_Isend(SWM_PEER peer,
     wrkld_per_rank.u.send.dest_rank = peer;
 
 #ifdef DBG_COMM
-//    printf("\n isend op tag: %d req_id: %"PRIu32" bytes: %d dest: %d ", tag, *handle, bytes, peer);
-	  printf("\n send");        
+    if(tag != 1235 && tag != 1234) 
+    {
+        auto it = isend_count.find(bytes);
+        if(it == isend_count.end())
+        {
+            isend_count.insert(std::make_pair(bytes, 1));
+        }
+        else
+        {
+            it->second = it->second + 1;
+        }
+    }
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -211,6 +249,7 @@ void SWM_Isend(SWM_PEER peer,
     sctx->wait_id++;
 
     ABT_thread_yield_to(global_prod_thread);
+    num_isends++;
 }
 void SWM_Recv(SWM_PEER peer,
         SWM_COMM_ID comm_id,
@@ -226,7 +265,7 @@ void SWM_Recv(SWM_PEER peer,
     wrkld_per_rank.u.recv.num_bytes = 0;
 
 #ifdef DBG_COMM
-    printf("\n recv op tag: %d source: %d ", tag, peer);
+    //printf("\n recv op tag: %d source: %d ", tag, peer);
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -240,6 +279,7 @@ void SWM_Recv(SWM_PEER peer,
     sctx->fifo.push_back(&wrkld_per_rank);
 
     ABT_thread_yield_to(global_prod_thread);
+    num_recvs++;
 }
 
 /* handle is for the request ID */
@@ -258,7 +298,7 @@ void SWM_Irecv(SWM_PEER peer,
     wrkld_per_rank.u.recv.num_bytes = 0;
 
 #ifdef DBG_COMM
-    //printf("\n irecv op tag: %d source: %d ", tag, peer);
+//    printf("\n irecv op tag: %d source: %d ", tag, peer);
 #endif
 
     /* Retreive the shared context state */
@@ -277,7 +317,7 @@ void SWM_Irecv(SWM_PEER peer,
     sctx->wait_id++;
 
     ABT_thread_yield_to(global_prod_thread);
-
+    num_irecvs++;
 }
 
 void SWM_Compute(long cycle_count)
@@ -319,7 +359,7 @@ void SWM_Wait(uint32_t req_id)
 
 #ifdef DBG_COMM
 //    printf("\n wait op req_id: %"PRIu32"\n", req_id);
-      printf("\n wait ");
+//      printf("\n wait ");
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -336,6 +376,7 @@ void SWM_Wait(uint32_t req_id)
 
 void SWM_Waitall(int len, uint32_t * req_ids)
 {
+    num_waitalls++;
     /* Add an event in the shared queue and then yield */
     struct codes_workload_op wrkld_per_rank;
 
@@ -348,9 +389,8 @@ void SWM_Waitall(int len, uint32_t * req_ids)
         wrkld_per_rank.u.waits.req_ids[i] = req_ids[i];
 
 #ifdef DBG_COMM
-    for(int i = 0; i < len; i++)
+//    for(int i = 0; i < len; i++)
 //        printf("\n wait op len %d req_id: %"PRIu32"\n", len, req_ids[i]);
-	  printf("\n wait op");        
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -397,7 +437,18 @@ void SWM_Sendrecv(
     recv_op.u.recv.num_bytes = 0;
 
 #ifdef DBG_COMM
-    printf("\n send/recv op send-tag %d send-bytes %d recv-tag: %d recv-source: %d ", sendtag, sendbytes, recvtag, recvpeer);
+    if(sendtag != 1235 && sendtag != 1234) 
+    {
+        auto it = send_count.find(sendbytes);
+        if(it == send_count.end())
+        {
+            send_count.insert(std::make_pair(sendbytes, 1));
+        }
+        else
+        {
+            it->second = it->second + 1;
+        }
+    }
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -413,6 +464,7 @@ void SWM_Sendrecv(
     sctx->fifo.push_back(&recv_op);
 
     ABT_thread_yield_to(global_prod_thread);
+    num_sendrecv++;
 }
 
 /* @param count: number of bytes in Allreduce
@@ -460,6 +512,17 @@ void SWM_Allreduce(
     ABT_thread_yield_to(global_prod_thread);
 #endif
 
+#ifdef DBG_COMM
+        auto it = allreduce_count.find(count);
+        if(it == allreduce_count.end())
+        {
+            allreduce_count.insert(std::make_pair(count, 1));
+        }
+        else
+        {
+            it->second = it->second + 1;
+        }
+#endif
     /* Retreive the shared context state */
     ABT_thread prod;
     void * arg;
@@ -613,6 +676,8 @@ void SWM_Allreduce(
 
     if(cnts) free(cnts);
     if(disps) free(disps);
+
+    num_allreduce++;
 }
 
 void SWM_Allreduce(
@@ -648,9 +713,29 @@ void SWM_Finalize()
     struct shared_context * sctx = static_cast<shared_context*>(arg);
     sctx->fifo.push_back(&wrkld_per_rank);
 
-#ifdef DBG_COMM
-    printf("\n finalize workload for rank %d ", sctx->my_rank);
+#ifdef DBG_COMM 
+    auto it = allreduce_count.begin();
+    for(; it != allreduce_count.end(); it++)
+    {
+        cout << "\n Allreduce " << it->first << " " << it->second;
+    }
+    
+    it = send_count.begin();
+    for(; it != send_count.end(); it++)
+    {
+        cout << "\n Send " << it->first << " " << it->second;
+    }
+    
+    it = isend_count.begin();
+    for(; it != isend_count.end(); it++)
+    {
+        cout << "\n isend " << it->first << " " << it->second;
+    }
 #endif
+//#ifdef DBG_COMM
+//    printf("\n finalize workload for rank %d ", sctx->my_rank);
+    printf("\n finalize workload for rank %d num_sends %d num_recvs %d num_isends %d num_irecvs %d num_allreduce %d num_barrier %d num_waitalls %d", sctx->my_rank, num_sends, num_recvs, num_isends, num_irecvs, num_allreduce, num_barriers, num_waitalls);
+//#endif
     ABT_thread_yield_to(global_prod_thread);
 }
 
@@ -816,9 +901,6 @@ static int comm_online_workload_finalize(const char* params, int app_id, int ran
     }
     temp_data = qhash_entry(hash_link, rank_mpi_context, hash_link);
     assert(temp_data);
-#ifdef DBG_COMM
-    printf("\n finalize workload for rank %d ", rank);
-#endif
 
     ABT_thread_join(temp_data->sctx.producer);    
     ABT_thread_free(&(temp_data->sctx.producer));
