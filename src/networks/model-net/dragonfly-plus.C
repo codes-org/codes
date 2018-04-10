@@ -334,7 +334,8 @@ typedef enum route_scoring_metric_t
 {
     ALPHA = 1, //Count queue lengths and pending messages for a port
     BETA, //Expected Hops to Destination * (Count queue lengths and pending messages) for a port
-    GAMMA
+    GAMMA,
+    DELTA
 } route_scoring_metric_t;
 
 typedef enum route_scoring_preference_t
@@ -709,6 +710,10 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     else if (strcmp(scoring_str, "gamma") == 0) {
         scoring = GAMMA;
         scoring_preference = HIGHER;
+    }
+    else if (strcmp(scoring_str, "delta") == 0) {
+        scoring = DELTA;
+        scoring_preference = LOWER;
     }
     else {
         fprintf(stderr, "No route scoring protocol specified, setting to alpha scoring\n");
@@ -2375,7 +2380,7 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
             score = base_score * get_min_hops_to_dest_from_conn(s, bf, msg, lp, conn);
             break;
         }
-        case GAMMA: //consideres vc occupancy and queue count but ports that follow a minimal path to fdest are biased 2:1 HIGHER SCORE IS BETTER
+        case GAMMA: //consideres vc occupancy and queue count but ports that follow a minimal path to fdest are biased 2:1 bonus by multiplying minimal by 2 HIGHER SCORE IS BETTER
         {   
             score = s->params->max_port_score;
             int to_subtract = 0;
@@ -2386,9 +2391,20 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
             to_subtract += s->queued_count[port];
             score -= to_subtract;
 
-            if (c_minimality = C_MIN) //the connection maintains the paths minimality - gets a bonus of 2x
+            if (c_minimality == C_MIN) //the connection maintains the paths minimality - gets a bonus of 2x
                 score = score * 2;
             break;
+        }
+        case DELTA: //consideres vc occupancy and queue count but ports that follow a minimal path to fdest are biased 2:1 through dividing minimal by 2 Lower SCORE IS BETTER
+        {
+            for(int k=0; k < s->params->num_vcs; k++)
+            {
+                score += s->vc_occupancy[port][k];
+            }
+            score += s->queued_count[port];
+
+            if (c_minimality != C_MIN)
+                score = score * 2;
         }
         default:
             tw_error(TW_LOC, "Unsupported Scoring Protocol Error\n");
