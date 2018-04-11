@@ -2019,9 +2019,6 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 
 void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-	if(s->app_id < 0)
-        printf("\n msg type %d ", m->msg_type);
-
     assert(s->app_id >= 0 && s->local_rank >= 0);
 
     //*(int *)bf = (int)0;

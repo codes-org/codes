@@ -605,9 +605,9 @@ if(DF_DALLY == 0)
 else
 {
     if(routing == PROG_ADAPTIVE)
-        p->num_vcs = 4;
+        p->num_vcs = 5;
     else
-        p->num_vcs = 3;
+        p->num_vcs = 4;
 }
     rc = configuration_get_value_int(&config, "PARAMS", "num_groups", anno, &p->num_groups);
     if(rc) {
@@ -2946,18 +2946,18 @@ router_packet_receive( router_state * s,
    }
   else {
     if(cur_chunk->msg.my_g_hop == 1) {
-        if(routing == PROG_ADAPTIVE && cur_chunk->msg.my_l_hop != 2){
+        if(routing == PROG_ADAPTIVE && cur_chunk->msg.my_l_hop < 2){
             cur_chunk->msg.my_l_hop = 2;
-        } else if(cur_chunk->msg.my_l_hop != 1){
+        } else if(cur_chunk->msg.my_l_hop < 1){
             cur_chunk->msg.my_l_hop = 1;
         }
     }
     else if (cur_chunk->msg.my_g_hop == 2) {
-     if(routing == PROG_ADAPTIVE && cur_chunk->msg.my_l_hop != 3) {
-         cur_chunk->msg.my_l_hop = 3;
+     if(routing == PROG_ADAPTIVE && cur_chunk->msg.my_l_hop < 4) {
+         cur_chunk->msg.my_l_hop = 4;
      }
-     else if(cur_chunk->msg.my_l_hop != 2)
-        cur_chunk->msg.my_l_hop = 2;
+     else if(cur_chunk->msg.my_l_hop < 3)
+        cur_chunk->msg.my_l_hop = 3;
     }
   }
     output_chan = cur_chunk->msg.my_l_hop;

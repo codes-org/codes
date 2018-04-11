@@ -44,9 +44,9 @@ long num_recvs = 0;
 long num_sendrecv = 0;
 long num_waitalls = 0;
 
-std::map<int64_t, int> send_count;
-std::map<int64_t, int> isend_count;
-std::map<int64_t, int> allreduce_count;
+//std::map<int64_t, int> send_count;
+//std::map<int64_t, int> isend_count;
+//std::map<int64_t, int> allreduce_count;
 
 struct shared_context {
     int my_rank;
@@ -100,7 +100,7 @@ void SWM_Send(SWM_PEER peer,
     wrkld_per_rank.u.send.dest_rank = peer;
 
 #ifdef DBG_COMM
-    if(tag != 1235 && tag != 1234) 
+/*    if(tag != 1235 && tag != 1234) 
     {
         auto it = send_count.find(bytes);
         if(it == send_count.end())
@@ -111,7 +111,7 @@ void SWM_Send(SWM_PEER peer,
         {
             it->second = it->second + 1;
         }
-    }
+    }*/
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -220,7 +220,7 @@ void SWM_Isend(SWM_PEER peer,
     wrkld_per_rank.u.send.dest_rank = peer;
 
 #ifdef DBG_COMM
-    if(tag != 1235 && tag != 1234) 
+/*    if(tag != 1235 && tag != 1234) 
     {
         auto it = isend_count.find(bytes);
         if(it == isend_count.end())
@@ -231,7 +231,7 @@ void SWM_Isend(SWM_PEER peer,
         {
             it->second = it->second + 1;
         }
-    }
+    }*/
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -437,7 +437,7 @@ void SWM_Sendrecv(
     recv_op.u.recv.num_bytes = 0;
 
 #ifdef DBG_COMM
-    if(sendtag != 1235 && sendtag != 1234) 
+/*    if(sendtag != 1235 && sendtag != 1234) 
     {
         auto it = send_count.find(sendbytes);
         if(it == send_count.end())
@@ -448,7 +448,7 @@ void SWM_Sendrecv(
         {
             it->second = it->second + 1;
         }
-    }
+    }*/
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -714,7 +714,7 @@ void SWM_Finalize()
     sctx->fifo.push_back(&wrkld_per_rank);
 
 #ifdef DBG_COMM 
-    auto it = allreduce_count.begin();
+/*    auto it = allreduce_count.begin();
     for(; it != allreduce_count.end(); it++)
     {
         cout << "\n Allreduce " << it->first << " " << it->second;
@@ -730,7 +730,7 @@ void SWM_Finalize()
     for(; it != isend_count.end(); it++)
     {
         cout << "\n isend " << it->first << " " << it->second;
-    }
+    }*/
 #endif
 //#ifdef DBG_COMM
 //    printf("\n finalize workload for rank %d ", sctx->my_rank);
