@@ -293,7 +293,7 @@ static void base_read_config(const char * anno, model_net_base_params *p){
 
         ret = configuration_get_value(&config, "PARAMS",
                 "prio-sched-sub-sched", anno, sched, MAX_NAME_LENGTH);
-        if (ret == 0)
+        if (ret <= 0)
             *sub_stype = MN_SCHED_FCFS;
         else{
             int i;
