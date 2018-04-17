@@ -2341,8 +2341,13 @@ static int get_min_hops_to_dest_from_conn(router_state *s, tw_bf *bf, terminal_p
         }
     }
     else { //next is not in final destination group
-        if (next_hops_type == SPINE)
-            return 3; //Next Spine -> Spine -> Leaf -> dest_term
+        if (next_hops_type == SPINE) {
+            vector< Connection > cons_to_dest_group = connManagerList[conn.dest_gid].get_connections_to_group(fdest_group_id);
+            if (cons_to_dest_group.size() == 0)
+                return 5; //Next Spine -> Leaf -> Spine -> Spine -> Leaf -> dest_term
+            else 
+                return 3;  //Next Spine -> Spine -> Leaf -> dest_term
+        }
         else {
             assert(next_hops_type == LEAF);
             return 4; //Next Leaf -> Spine -> Spine -> Leaf -> dest_term
