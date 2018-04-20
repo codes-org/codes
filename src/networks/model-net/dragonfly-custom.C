@@ -43,6 +43,7 @@
 #define LP_CONFIG_NM_ROUT (model_net_lp_config_names[DRAGONFLY_CUSTOM_ROUTER])
 #define LP_METHOD_NM_ROUT (model_net_method_names[DRAGONFLY_CUSTOM_ROUTER])
 
+static int BIAS_MIN = 0;
 static int DF_DALLY = 0;
 
 using namespace std;
@@ -523,6 +524,11 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     rc = configuration_get_value_int(&config, "PARAMS", "df-dally-vc", anno, &DF_DALLY);
     if(rc) {
         DF_DALLY = 0;
+    }
+    
+    rc = configuration_get_value_int(&config, "PARAMS", "minimal-bias", anno, &BIAS_MIN);
+    if(rc) {
+        BIAS_MIN = 0;
     }
     rc = configuration_get_value_int(&config, "PARAMS", "cn_vc_size", anno, &p->cn_vc_size);
     if(rc) {
@@ -2500,6 +2506,14 @@ static void do_local_adaptive_routing(router_state * s,
   int local_stop = -1;
   tw_lpid global_stop;
 
+  if(BIAS_MIN == 1)
+  {
+    if(min_port_count > 0)
+    {
+        min_port_count = min_port_count / 2;
+    }
+  }
+
 //  if(nonmin_port_count * num_intra_nonmin_hops > min_port_count * num_intra_min_hops)
   if(nonmin_port_count > min_port_count)
   {
@@ -2704,6 +2718,13 @@ static int do_global_adaptive_routing( router_state * s,
       next_min_stop = min_chan_a;
   }
 
+  if(BIAS_MIN == 1)
+  {
+    if(next_min_count > 0)
+    {
+        next_min_count = next_min_count / 2;
+    }
+  }
   /* Now compare the least congested minimal and non-minimal routes */
   if(next_nonmin_count >= next_min_count)
   {
