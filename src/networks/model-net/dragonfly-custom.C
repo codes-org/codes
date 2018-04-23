@@ -530,6 +530,9 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     if(rc) {
         BIAS_MIN = 0;
     }
+    else
+	printf("\n Setting minimal bias");
+
     rc = configuration_get_value_int(&config, "PARAMS", "cn_vc_size", anno, &p->cn_vc_size);
     if(rc) {
         p->cn_vc_size = 1024;
@@ -2514,14 +2517,11 @@ static void do_local_adaptive_routing(router_state * s,
     }
   }
 
+  msg->path_type = MINIMAL;
+
 //  if(nonmin_port_count * num_intra_nonmin_hops > min_port_count * num_intra_min_hops)
-  if(nonmin_port_count > min_port_count)
+  if(nonmin_port_count < min_port_count)
   {
-      msg->path_type = MINIMAL;
-  }
-  else
-  {
-//      printf("\n Nonmin port count %ld min port count %ld ", nonmin_port_count, min_port_count);
       msg->path_type = NON_MINIMAL;
   }
 }
@@ -2726,15 +2726,15 @@ static int do_global_adaptive_routing( router_state * s,
     }
   }
   /* Now compare the least congested minimal and non-minimal routes */
-  if(next_nonmin_count >= next_min_count)
+  if(next_min_count > next_nonmin_count)
   {
       next_chan = next_min_stop;
-      msg->path_type = MINIMAL;
+      msg->path_type = NON_MINIMAL;
   }
   else
   {
       next_chan = next_nonmin_stop;
-      msg->path_type = NON_MINIMAL;
+      msg->path_type = MINIMAL;
   }
   return next_chan;
 
