@@ -169,7 +169,7 @@ struct dragonfly_plus_param
     int num_level_chans;   // number of channels between levels of the group(?)
     int num_router_spine;  // number of spine routers (top level)
     int num_router_leaf;   // number of leaf routers (bottom level)
-    int queue_threshold;   // predefined queue length threshold T before a packet is routed through a lower priority queue
+    int adaptive_threshold;   // predefined queue length threshold T before a packet is routed through a lower priority queue
 
     long max_port_score;   // maximum score that can be given to any port during route scoring
     // dfp params end
@@ -685,18 +685,6 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     p->total_routers = p->num_groups * p->num_routers;
     p->total_terminals = (p->num_groups * p->num_router_leaf) * p->num_cn;
 
-
-    // char score_pref_str[MAX_NAME_LENGTH];
-    // configuration_get_value(&config, "PARAMS", "route_scoring_preference", anno, score_pref_str, MAX_NAME_LENGTH);
-    // if (strcmp(score_pref_str, "lower") == 0)
-    //     scoring_preference = LOWER;
-    // else if (strcmp(score_pref_str, "higher") == 0)
-    //     scoring_preference = HIGHER;
-    // else {
-    //     fprintf(stderr, "No route score preference specified, setting to 'lower is better'\n");
-    //     scoring_preference = LOWER;
-    // }
-
     char scoring_str[MAX_NAME_LENGTH];
     configuration_get_value(&config, "PARAMS", "route_scoring_metric", anno, scoring_str, MAX_NAME_LENGTH);
     if (strcmp(scoring_str, "alpha") == 0) {
@@ -721,6 +709,11 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         scoring_preference = LOWER;
     }
 
+    rc = configuration_get_value_int(&config, "PARAMS", "adaptive_threshold", anno, &p->adaptive_threshold);
+    if (rc) {
+        printf("Adaptive Minimal Routing Threshold not specified: setting to default = 0. (Will consider minimal and nonminimal routes based on scoring metric alone)");
+        p->adaptive_threshold = 0;
+    }
 
 
     int largest_vc_size = 0;
@@ -2480,6 +2473,7 @@ static Connection do_dfp_routing(router_state *s,
     int origin_grp_id = msg->origin_router_id / s->params->num_routers;
     bool in_intermediate_group = (my_group_id != origin_grp_id) && (my_group_id != fdest_group_id);
 
+    int adaptive_threshold = s->params->adaptive_threshold;
 
     vector< Connection > poss_min_next_stops = get_possible_minimal_next_stops(s, bf, msg, lp, fdest_router_id);
     vector< Connection > poss_non_min_next_stops = get_possible_nonminimal_next_stops(s, bf, msg, lp, fdest_router_id);
@@ -2547,9 +2541,13 @@ static Connection do_dfp_routing(router_state *s,
                 }
             }
 
-            if (best_min_score <= best_non_min_score) { //ties go to minimal
+            if (best_min_score < adaptive_threshold) { //if our best min score is under the adaptive threshold, then we don't consider non-minimal routes, choose minimal
                 choose_minimal = true;
             }
+            else if (best_min_score <= best_non_min_score) { //our best min score is over the adaptive threshold. So we compare best min score with best nonmin score. If best min is still better, then we choose minimal.
+                choose_minimal = true;
+            }
+            //else then we go with nonmin
         }
         else if (scoring_preference == HIGHER) { //higher scores are better
             int best_min_score = 0;
