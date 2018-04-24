@@ -28,7 +28,6 @@
 #define DUMP_CONNECTIONS 1
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
-
 // debugging parameters
 #define DEBUG_LP 892
 #define T_ID -1
@@ -43,8 +42,9 @@
 #define LP_CONFIG_NM_ROUT (model_net_lp_config_names[DRAGONFLY_CUSTOM_ROUTER])
 #define LP_METHOD_NM_ROUT (model_net_method_names[DRAGONFLY_CUSTOM_ROUTER])
 
-static int BIAS_MIN = 0;
+static int BIAS_MIN = 1;
 static int DF_DALLY = 0;
+static int adaptive_threshold = 1024;
 
 using namespace std;
 struct Link {
@@ -514,6 +514,11 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
         p->local_vc_size = 1024;
         fprintf(stderr, "Buffer size of local channels not specified, setting to %d\n", p->local_vc_size);
     }
+
+    rc = configuration_get_value_int(&config, "PARAMS", "adaptive_threshold", anno, &adaptive_threshold);
+    if(rc) {
+    	adaptive_threshold = p->local_vc_size / 8;
+	}
 
     rc = configuration_get_value_int(&config, "PARAMS", "global_vc_size", anno, &p->global_vc_size);
     if(rc) {
@@ -2511,16 +2516,13 @@ static void do_local_adaptive_routing(router_state * s,
 
   if(BIAS_MIN == 1)
   {
-    if(min_port_count > 0)
-    {
-        min_port_count = min_port_count / 2;
-    }
+	nonmin_port_count = nonmin_port_count * 2;
   }
 
   msg->path_type = MINIMAL;
 
 //  if(nonmin_port_count * num_intra_nonmin_hops > min_port_count * num_intra_min_hops)
-  if(nonmin_port_count < min_port_count)
+  if(nonmin_port_count > adaptive_threshold && min_port_count > nonmin_port_count)
   {
       msg->path_type = NON_MINIMAL;
   }
@@ -2720,20 +2722,17 @@ static int do_global_adaptive_routing( router_state * s,
 
   if(BIAS_MIN == 1)
   {
-    if(next_min_count > 0)
-    {
-        next_min_count = next_min_count / 2;
-    }
+	next_nonmin_count = next_nonmin_count * 2;
   }
   /* Now compare the least congested minimal and non-minimal routes */
-  if(next_min_count > next_nonmin_count)
+  if(next_nonmin_count > adaptive_threshold && next_min_count > next_nonmin_count)
   {
-      next_chan = next_min_stop;
+      next_chan = next_nonmin_stop;
       msg->path_type = NON_MINIMAL;
   }
   else
   {
-      next_chan = next_nonmin_stop;
+      next_chan = next_min_stop;
       msg->path_type = MINIMAL;
   }
   return next_chan;
