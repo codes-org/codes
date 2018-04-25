@@ -32,6 +32,8 @@
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
 
+static unsigned long perm_switch_thresh = 20971520;
+
 /* NOTE: Message tracking works in sequential mode only! */
 static int debug_cols = 0;
 /* Turning on this option slows down optimistic mode substantially. Only turn
@@ -150,7 +152,8 @@ enum TRAFFIC
     UNIFORM = 1, /* sends message to a randomly selected node */
     NEAREST_NEIGHBOR = 2, /* sends message to the next node (potentially connected to the same router) */
     ALLTOALL = 3, /* sends message to all other nodes */
-    STENCIL = 4  /* sends message to 4 nearby neighbors */
+    STENCIL = 4, /* sends message to 4 nearby neighbors */
+    PERMUTATION = 5
 };
 struct mpi_workload_sample
 {
@@ -279,7 +282,11 @@ struct nw_state
 
     unsigned long syn_data;
     unsigned long gen_data;
-    
+  
+    unsigned long prev_switch;
+    unsigned long saved_perm_dest;
+    unsigned long rc_perm;
+
     /* For sampling data */
     int sampling_indx;
     int max_arr_size;
@@ -609,6 +616,16 @@ static void gen_synthetic_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp 
     if(bf->c0)
         return;
 
+    if(bf->c1)
+    {
+        tw_rand_reverse_unif(lp->rng);
+    }
+    if(bf->c2)
+    {
+        s->prev_switch -= perm_switch_thresh;
+        s->saved_perm_dest = s->rc_perm;
+        tw_rand_reverse_unif(lp->rng);
+    }
     int i;
     for (i=0; i < m->rc.saved_syn_length; i++){
         model_net_event_rc2(lp, &m->event_rc);
@@ -645,11 +662,32 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
     {
         case UNIFORM:
         {
+            bf->c1 = 1;
             length = 1;
             dest_svr = (int*) calloc(1, sizeof(int));
             dest_svr[0] = tw_rand_integer(lp->rng, 0, num_clients - 1);
             if(dest_svr[0] == s->local_rank)
                 dest_svr[0] = (s->local_rank + 1) % num_clients;
+        }
+        break;
+
+        case PERMUTATION:
+        {
+            length = 1;
+            dest_svr = (int*) calloc(1, sizeof(int));
+            
+            if(s->syn_data - s->prev_switch > perm_switch_thresh)
+            {
+                bf->c2 = 1;
+                s->prev_switch += perm_switch_thresh;
+                dest_svr[0] = tw_rand_integer(lp->rng, 0, num_clients - 1);
+                if(dest_svr[0] == s->local_rank)
+                    dest_svr[0] = (s->local_rank + num_clients/2) % num_clients;
+                s->rc_perm = s->saved_perm_dest;
+                s->saved_perm_dest = dest_svr[0];
+            }
+            else
+                dest_svr[0] = s->saved_perm_dest;
         }
         break;
         case NEAREST_NEIGHBOR:
@@ -1867,6 +1905,8 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->num_reduce = 0;
    s->reduce_time = 0;
    s->all_reduce_time = 0;
+   s->prev_switch = 0;
+
    char type_name[512];
 
    if(!num_net_traces)
