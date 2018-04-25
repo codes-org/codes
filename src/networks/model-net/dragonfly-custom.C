@@ -2522,7 +2522,7 @@ static void do_local_adaptive_routing(router_state * s,
   msg->path_type = MINIMAL;
 
 //  if(nonmin_port_count * num_intra_nonmin_hops > min_port_count * num_intra_min_hops)
-  if(nonmin_port_count > adaptive_threshold && min_port_count > nonmin_port_count)
+  if(min_port_count > adaptive_threshold && min_port_count > nonmin_port_count)
   {
       msg->path_type = NON_MINIMAL;
   }
@@ -2725,7 +2725,7 @@ static int do_global_adaptive_routing( router_state * s,
 	next_nonmin_count = next_nonmin_count * 2;
   }
   /* Now compare the least congested minimal and non-minimal routes */
-  if(next_nonmin_count > adaptive_threshold && next_min_count > next_nonmin_count)
+  if(next_min_count > adaptive_threshold && next_min_count > next_nonmin_count)
   {
       next_chan = next_nonmin_stop;
       msg->path_type = NON_MINIMAL;
