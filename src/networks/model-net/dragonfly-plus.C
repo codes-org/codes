@@ -75,7 +75,7 @@ struct InterGroupLink
 #ifdef ENABLE_CORTEX
 /* This structure is defined at the end of the file */
 extern "C" {
-extern cortex_topology dragonfly_plus_cortex_topology;
+//extern cortex_topology dragonfly_plus_cortex_topology;
 }
 #endif
 
@@ -837,7 +837,7 @@ void dragonfly_plus_configure()
         dragonfly_read_config(NULL, &all_params[anno_map->num_annos]);
     }
 #ifdef ENABLE_CORTEX
-    model_net_topology = dragonfly_plus_cortex_topology;
+//    model_net_topology = dragonfly_plus_cortex_topology;
 #endif
 }
 
