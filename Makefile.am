@@ -13,6 +13,8 @@ EXTRA_PROGRAMS =
 CLEANFILES = $(bin_SCRIPTS)
 EXTRA_DIST =
 BUILT_SOURCES =
+AM_LDFLAGS =
+
 
 # pkgconfig files
 pkgconfigdir = $(libdir)/pkgconfig

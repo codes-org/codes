@@ -5,6 +5,10 @@ AC_PREREQ([2.67])
 AC_INIT([codes], [0.6.0], [http://trac.mcs.anl.gov/projects/codes/newticket],[],[http://www.mcs.anl.gov/projects/codes/])
 LT_INIT
 
+
+#WRAP SOME OPTION AROUND THIS - IT'S NOT REQUIRED FOR 99% OF CODES
+AX_BOOST_BASE([1.66])
+
 AC_CANONICAL_TARGET
 AC_CANONICAL_SYSTEM
 AC_CANONICAL_HOST
