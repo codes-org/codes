@@ -22,6 +22,7 @@
 #include "codes_config.h"
 #include "lammps.h"
 #include "nekbone_swm_user_code.h"
+#include "nearest_neighbor_swm_user_code.h"
 
 #define ALLREDUCE_SHORT_MSG_SIZE 2048
 
@@ -764,6 +765,11 @@ static void workload_caller(void * arg)
         NEKBONESWMUserCode * nekbone_swm = static_cast<NEKBONESWMUserCode*>(sctx->swm_obj);
         nekbone_swm->call();
     }
+    else if(strcmp(sctx->workload_name, "nearest_neighbor") == 0)
+    {
+       NearestNeighborSWMUserCode * nn_swm = static_cast<NearestNeighborSWMUserCode*>(sctx->swm_obj);
+       nn_swm->call();
+    }
 }
 static int comm_online_workload_load(const char * params, int app_id, int rank)
 {
@@ -797,6 +803,10 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     {
         path.append("/workload.json"); 
     }
+    else if(strcmp(o_params->workload_name, "nearest_neighbor") == 0)
+    {
+        path.append("/skeleton.json"); 
+    }
     else
         tw_error(TW_LOC, "\n Undefined workload type %s ", o_params->workload_name);
 
@@ -821,6 +831,11 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     {
         NEKBONESWMUserCode * nekbone_swm = new NEKBONESWMUserCode(root, generic_ptrs);
         my_ctx->sctx.swm_obj = (void*)nekbone_swm;
+    }
+    else if(strcmp(o_params->workload_name, "nearest_neighbor") == 0)
+    {
+        NearestNeighborSWMUserCode * nn_swm = new NearestNeighborSWMUserCode(root, generic_ptrs);
+        my_ctx->sctx.swm_obj = (void*)nn_swm;
     }
 
     if(global_prod_thread == NULL)
