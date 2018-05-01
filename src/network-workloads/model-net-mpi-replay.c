@@ -333,6 +333,7 @@ struct nw_message
        double saved_delay;
        int64_t saved_num_bytes;
        int saved_syn_length;
+       unsigned long saved_prev_switch;
    } rc;
 };
 
@@ -622,7 +623,7 @@ static void gen_synthetic_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp 
     }
     if(bf->c2)
     {
-        s->prev_switch -= perm_switch_thresh;
+        s->prev_switch = m->rc.saved_prev_switch;
         s->saved_perm_dest = s->rc_perm;
         tw_rand_reverse_unif(lp->rng);
     }
@@ -673,13 +674,15 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
 
         case PERMUTATION:
         {
+            m->rc.saved_prev_switch = s->prev_switch; //for reverse computation
+
             length = 1;
             dest_svr = (int*) calloc(1, sizeof(int));
-            
-            if(s->syn_data - s->prev_switch > perm_switch_thresh)
+            if(s->gen_data - s->prev_switch >= perm_switch_thresh)
             {
+                printf("%d - %d >= %d\n",s->gen_data,s->prev_switch,perm_switch_thresh);
                 bf->c2 = 1;
-                s->prev_switch += perm_switch_thresh;
+                s->prev_switch = s->gen_data; //Amount of data pushed at time when switch initiated
                 dest_svr[0] = tw_rand_integer(lp->rng, 0, num_clients - 1);
                 if(dest_svr[0] == s->local_rank)
                     dest_svr[0] = (s->local_rank + num_clients/2) % num_clients;
@@ -2019,7 +2022,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    {
         int synthetic_pattern;
         sscanf(file_name_of_job[lid.job], "synthetic%d", &synthetic_pattern);
-        if(synthetic_pattern <=0 || synthetic_pattern > 4)
+        if(synthetic_pattern <=0 || synthetic_pattern > 5)
         {
             printf("\n Undefined synthetic pattern: setting to uniform random ");
             s->synthetic_pattern = 1;
