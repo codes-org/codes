@@ -680,7 +680,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
             dest_svr = (int*) calloc(1, sizeof(int));
             if(s->gen_data - s->prev_switch >= perm_switch_thresh)
             {
-                printf("%d - %d >= %d\n",s->gen_data,s->prev_switch,perm_switch_thresh);
+                // printf("%d - %d >= %d\n",s->gen_data,s->prev_switch,perm_switch_thresh);
                 bf->c2 = 1;
                 s->prev_switch = s->gen_data; //Amount of data pushed at time when switch initiated
                 dest_svr[0] = tw_rand_integer(lp->rng, 0, num_clients - 1);
