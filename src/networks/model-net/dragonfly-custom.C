@@ -518,7 +518,12 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     rc = configuration_get_value_int(&config, "PARAMS", "adaptive_threshold", anno, &adaptive_threshold);
     if(rc) {
     	adaptive_threshold = p->local_vc_size / 8;
+        printf("\n Setting adaptive threshold to %d ", adaptive_threshold);
 	}
+    else
+    {
+        printf("\n Setting adaptive threshold to %d ", adaptive_threshold);
+    }
 
     rc = configuration_get_value_int(&config, "PARAMS", "global_vc_size", anno, &p->global_vc_size);
     if(rc) {
@@ -2886,6 +2891,7 @@ router_packet_receive( router_state * s,
   /* If destination router is in the same group then local adaptive routing is
    * triggered */
   if(dest_grp_id == src_grp_id &&
+          dest_router_id != s->router_id &&
           (routing == ADAPTIVE || routing == PROG_ADAPTIVE) 
           && cur_chunk->msg.last_hop == TERMINAL)
   {
