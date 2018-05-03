@@ -32,7 +32,7 @@
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
 
-static unsigned long perm_switch_thresh = 20971520;
+static unsigned long perm_switch_thresh = 8388608;
 
 /* NOTE: Message tracking works in sequential mode only! */
 static int debug_cols = 0;

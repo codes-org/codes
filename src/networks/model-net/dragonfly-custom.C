@@ -27,7 +27,7 @@
 
 #define DUMP_CONNECTIONS 0
 #define CREDIT_SIZE 8
-#define DFLY_HASH_TABLE_SIZE 4999
+#define DFLY_HASH_TABLE_SIZE 100000
 // debugging parameters
 #define DEBUG_LP 892
 #define T_ID -1
@@ -2895,9 +2895,14 @@ router_packet_receive( router_state * s,
           (routing == ADAPTIVE || routing == PROG_ADAPTIVE) 
           && cur_chunk->msg.last_hop == TERMINAL)
   {
-      bf->c6 = 1;
-      do_local_adaptive_routing(s, lp, &(cur_chunk->msg), bf, dest_router_id, intm_router_id);
+      
+      //bf->c6 = 1;
+      //do_local_adaptive_routing(s, lp, &(cur_chunk->msg), bf, dest_router_id, intm_router_id);
+      cur_chunk->msg.path_type = MINIMAL;
   }
+
+  if(dest_router_id == s->router_id )
+	cur_chunk->msg.path_type = MINIMAL;
 
   next_path_type = cur_chunk->msg.path_type;
 
