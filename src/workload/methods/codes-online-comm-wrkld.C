@@ -170,7 +170,7 @@ void SWM_Barrier(
     ABT_thread_yield_to(global_prod_thread);
 #endif
 #ifdef DBG_COMM
-     printf("\n barrier ");
+//     printf("\n barrier ");
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -735,7 +735,7 @@ void SWM_Finalize()
 #endif
 //#ifdef DBG_COMM
 //    printf("\n finalize workload for rank %d ", sctx->my_rank);
-    printf("\n finalize workload for rank %d num_sends %d num_recvs %d num_isends %d num_irecvs %d num_allreduce %d num_barrier %d num_waitalls %d", sctx->my_rank, num_sends, num_recvs, num_isends, num_irecvs, num_allreduce, num_barriers, num_waitalls);
+//    printf("\n finalize workload for rank %d num_sends %d num_recvs %d num_isends %d num_irecvs %d num_allreduce %d num_barrier %d num_waitalls %d", sctx->my_rank, num_sends, num_recvs, num_isends, num_irecvs, num_allreduce, num_barriers, num_waitalls);
 //#endif
     ABT_thread_yield_to(global_prod_thread);
 }
@@ -754,7 +754,7 @@ static void workload_caller(void * arg)
 {
     shared_context* sctx = static_cast<shared_context*>(arg);
 
-    printf("\n workload name %s ", sctx->workload_name);
+    //printf("\n workload name %s ", sctx->workload_name);
     if(strcmp(sctx->workload_name, "lammps") == 0)
     {
         LAMMPS_SWM * lammps_swm = static_cast<LAMMPS_SWM*>(sctx->swm_obj);
@@ -810,7 +810,7 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     else
         tw_error(TW_LOC, "\n Undefined workload type %s ", o_params->workload_name);
 
-    printf("\n path %s ", path.c_str());
+    //printf("\n path %s ", path.c_str());
     try {
         std::ifstream jsonFile(path.c_str());
         boost::property_tree::json_parser::read_json(jsonFile, root);
