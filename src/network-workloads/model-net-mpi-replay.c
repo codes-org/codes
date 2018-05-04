@@ -2034,7 +2034,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 
         tw_event * e;
         nw_message * m_new;
-        tw_stime ts = tw_rand_exponential(lp->rng, mean_interval/1000);
+        tw_stime ts = tw_rand_exponential(lp->rng, noise);
         e = tw_event_new(lp->gid, ts, lp);
         m_new = (nw_message*)tw_event_data(e);
         m_new->msg_type = CLI_BCKGND_GEN;
