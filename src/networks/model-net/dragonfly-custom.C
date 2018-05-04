@@ -2851,7 +2851,7 @@ router_packet_receive( router_state * s,
        
 //  printf("\n Packet %llu source %d arrived at router %d ", msg->packet_ID, msg->src_terminal_id, s->router_id);
   /* Set the default route as minimal for prog-adaptive */
-  if(routing == PROG_ADAPTIVE && cur_chunk->msg.last_hop == TERMINAL)
+  if((routing == PROG_ADAPTIVE || routing == ADAPTIVE) && cur_chunk->msg.last_hop == TERMINAL)
       cur_chunk->msg.path_type = MINIMAL;
 
   /* for prog-adaptive routing, record the current route of packet */
@@ -2900,9 +2900,6 @@ router_packet_receive( router_state * s,
       //do_local_adaptive_routing(s, lp, &(cur_chunk->msg), bf, dest_router_id, intm_router_id);
       cur_chunk->msg.path_type = MINIMAL;
   }
-
-  if(dest_router_id == s->router_id )
-	cur_chunk->msg.path_type = MINIMAL;
 
   next_path_type = cur_chunk->msg.path_type;
 
