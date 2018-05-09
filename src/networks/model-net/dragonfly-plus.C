@@ -109,6 +109,9 @@ static int router_magic_num = 0;
 /* terminal magic number */
 static int terminal_magic_num = 0;
 
+static long num_local_packets = 0;
+static long num_remote_packets = 0;
+
 /* Hops within a group */
 static int num_intra_nonmin_hops = 4;
 static int num_intra_min_hops = 2;
@@ -849,6 +852,7 @@ void dragonfly_plus_report_stats()
     tw_stime avg_time, max_time;
     int total_minimal_packets, total_nonmin_packets;
     long total_gen, total_fin;
+    long total_local_packets, total_remote_packets;
 
     MPI_Reduce(&total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
     MPI_Reduce(&N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
@@ -860,6 +864,8 @@ void dragonfly_plus_report_stats()
 
     MPI_Reduce(&packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
     MPI_Reduce(&packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+    MPI_Reduce( &num_local_packets, &total_local_packets, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+    MPI_Reduce( &num_remote_packets, &total_remote_packets, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
     if(isRoutingAdaptive(routing)) {
         MPI_Reduce(&minimal_count, &total_minimal_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
         MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
@@ -877,7 +883,7 @@ void dragonfly_plus_report_stats()
             printf("\n ADAPTIVE ROUTING STATS: %d chunks routed minimally %d chunks routed non-minimally completed packets %lld \n",
                 total_minimal_packets, total_nonmin_packets, total_finished_chunks);
         }
-        printf("\n Total packets generated: %ld; finished: %ld \n", total_gen, total_fin);
+      printf("\n Total packets generated %ld finished %ld Locally routed %ld Remote (inter-group) %ld \n", total_gen, total_fin, total_local_packets, total_remote_packets);
     }
     return;
 }
@@ -1268,6 +1274,15 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
     int total_event_size;
     uint64_t num_chunks = msg->packet_size / p->chunk_size;
     double cn_delay = s->params->cn_delay;
+
+    int dest_router_id = dragonfly_plus_get_assigned_router_id(msg->dfp_dest_terminal_id, s->params);
+    int dest_grp_id = dest_router_id / s->params->num_routers; 
+    int src_grp_id = s->router_id / s->params->num_routers; 
+
+    if(src_grp_id == dest_grp_id)
+      num_local_packets++;
+    else
+      num_remote_packets++;
 
     if (msg->packet_size < s->params->chunk_size)
         num_chunks++;
