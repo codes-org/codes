@@ -46,8 +46,9 @@ static int BIAS_MIN = 1;
 static int DF_DALLY = 0;
 static int adaptive_threshold = 1024;
 
-unsigned long num_local_packets = 0;
-unsigned long num_remote_packets = 0;
+static long num_local_packets_sr = 0;
+static long num_local_packets_sg = 0;
+static long num_remote_packets = 0;
 using namespace std;
 struct Link {
   int offset, type;
@@ -841,7 +842,7 @@ void dragonfly_custom_report_stats()
    tw_stime avg_time, max_time;
    int total_minimal_packets, total_nonmin_packets;
    long total_gen, total_fin;
-   long total_local_packets, total_remote_packets;
+   long total_local_packets_sr, total_local_packets_sg, total_remote_packets;
 
    MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
    MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
@@ -853,7 +854,8 @@ void dragonfly_custom_report_stats()
    
    MPI_Reduce( &packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
    MPI_Reduce(&packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
-   MPI_Reduce( &num_local_packets, &total_local_packets, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+    MPI_Reduce( &num_local_packets_sr, &total_local_packets_sr, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+    MPI_Reduce( &num_local_packets_sg, &total_local_packets_sg, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
    MPI_Reduce( &num_remote_packets, &total_remote_packets, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
    if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
     {
@@ -870,7 +872,7 @@ void dragonfly_custom_report_stats()
               printf("\n ADAPTIVE ROUTING STATS: %d chunks routed minimally %d chunks routed non-minimally completed packets %lld \n", 
                       total_minimal_packets, total_nonmin_packets, total_finished_chunks);
  
-      printf("\n Total packets generated %ld finished %ld Locally routed %ld Remote (inter-group) %ld \n", total_gen, total_fin, total_local_packets, total_remote_packets);
+      printf("\n Total packets generated %ld finished %ld Locally routed- same router %ld different-router %ld Remote (inter-group) %ld \n", total_gen, total_fin, total_local_packets_sr, total_local_packets_sg, total_remote_packets);
    }
    return;
 }
@@ -1232,7 +1234,12 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
   int src_grp_id = s->router_id / s->params->num_routers; 
 
   if(src_grp_id == dest_grp_id)
-      num_local_packets++;
+  {
+      if(dest_router_id == s->router_id)
+          num_local_packets_sr++;
+      else
+          num_local_packets_sg++;
+  }
   else
       num_remote_packets++;
 
