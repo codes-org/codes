@@ -276,6 +276,14 @@ struct terminal_state
    /* for logging forward and reverse events */
    long fwd_events;
    long rev_events;
+
+   /* following used for ROSS model-level stats collection */
+   long fin_chunks_ross_sample;
+   long data_size_ross_sample;
+   long fin_hops_ross_sample;
+   tw_stime fin_chunks_time_ross_sample;
+   tw_stime busy_time_ross_sample;
+   struct dfly_cn_sample ross_sample;
 };
 
 /* terminal event type (1-4) */
@@ -357,7 +365,34 @@ struct router_state
    
    long fwd_events;
    long rev_events;
+
+   /* following used for ROSS model-level stats collection */
+   tw_stime* busy_time_ross_sample;
+   int64_t * link_traffic_ross_sample;
+   struct dfly_router_sample ross_rsample;
 };
+
+/* had to pull some of the ROSS model stats collection stuff up here */
+void custom_dragonfly_event_collect(terminal_custom_message *m, tw_lp *lp, char *buffer, int *collect_flag);
+void custom_dragonfly_model_stat_collect(terminal_state *s, tw_lp *lp, char *buffer);
+void custom_dfly_router_model_stat_collect(router_state *s, tw_lp *lp, char *buffer);
+
+st_model_types custom_dragonfly_model_types[] = {
+    {(rbev_trace_f) custom_dragonfly_event_collect,
+     sizeof(int),
+     (ev_trace_f) custom_dragonfly_event_collect,
+     sizeof(int),
+     (model_stat_f) custom_dragonfly_model_stat_collect,
+     sizeof(tw_lpid) + sizeof(long) * 2 + sizeof(double) + sizeof(tw_stime) *2} , 
+    {(rbev_trace_f) custom_dragonfly_event_collect,
+     sizeof(int),
+     (ev_trace_f) custom_dragonfly_event_collect,
+     sizeof(int),
+     (model_stat_f) custom_dfly_router_model_stat_collect,
+     0}, //updated in router_setup() since it's based on the radix
+    {NULL, 0, NULL, 0, NULL, 0}
+};
+/* End of ROSS model stats collection */
 
 static short routing = MINIMAL;
 
@@ -930,6 +965,8 @@ void router_custom_setup(router_state * r, tw_lp * lp)
 
    r->fwd_events = 0;
    r->rev_events = 0;
+   r->ross_rsample.fwd_events = 0;
+   r->ross_rsample.rev_events = 0;
 
 
    r->global_channel = (int*)malloc(p->num_global_channels * sizeof(int));
@@ -955,6 +992,14 @@ void router_custom_setup(router_state * r, tw_lp * lp)
    r->last_buf_full = (tw_stime**)malloc(p->radix * sizeof(tw_stime*));
    r->busy_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
    r->busy_time_sample = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
+
+   /* set up for ROSS stats sampling */
+   r->link_traffic_ross_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
+   r->busy_time_ross_sample = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
+   if (g_st_model_stats)
+       lp->model_types->mstat_sz = sizeof(tw_lpid) + (sizeof(int64_t) + sizeof(tw_stime)) * p->radix;
+   r->ross_rsample.busy_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
+   r->ross_rsample.link_traffic_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
 
    rc_stack_create(&r->st);
 
@@ -1294,6 +1339,8 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_custom_messa
             s->busy_time = msg->saved_total_time;
             s->last_buf_full[0] = msg->saved_busy_time;
             s->busy_time_sample = msg->saved_sample_time;
+            s->ross_sample.busy_time_sample = msg->saved_sample_time;
+            s->busy_time_ross_sample = msg->saved_busy_time_ross;
           }
       }
       return;
@@ -1416,6 +1463,8 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
 
         s->busy_time += (tw_now(lp) - s->last_buf_full[0]);
         s->busy_time_sample += (tw_now(lp) - s->last_buf_full[0]);
+        s->ross_sample.busy_time_sample += (tw_now(lp) - s->last_buf_full[0]);
+        s->busy_time_ross_sample += (tw_now(lp) - s->last_buf_full[0]);
         s->last_buf_full[0] = 0.0;
     }
   }
@@ -1438,12 +1487,18 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_custom_mes
       N_finished_chunks--;
       s->finished_chunks--;
       s->fin_chunks_sample--;
+      s->ross_sample.fin_chunks_sample--;
+      s->fin_chunks_ross_sample--;
 
       total_hops -= msg->my_N_hop;
        s->total_hops -= msg->my_N_hop;
        s->fin_hops_sample -= msg->my_N_hop;
+       s->ross_sample.fin_hops_sample -= msg->my_N_hop;
+       s->fin_hops_ross_sample -= msg->my_N_hop;
        dragonfly_total_time  = msg->saved_total_time;
        s->fin_chunks_time = msg->saved_sample_time;
+       s->ross_sample.fin_chunks_time = msg->saved_sample_time;
+       s->fin_chunks_time_ross_sample = msg->saved_fin_chunks_ross;
        s->total_time = msg->saved_avg_time;
       
       struct qhash_head * hash_link = NULL;
@@ -1486,6 +1541,8 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_custom_mes
             total_msg_sz -= msg->total_size;
             s->total_msg_size -= msg->total_size;
             s->data_size_sample -= msg->total_size;
+            s->ross_sample.data_size_sample -= msg->total_size;
+            s->data_size_ross_sample -= msg->total_size;
 
 	        struct dfly_qhash_entry * d_entry_pop = (dfly_qhash_entry *)rc_stack_pop(s->st);
             qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
@@ -1607,6 +1664,8 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
   s->finished_chunks++;
   /* Finished chunks per sample */
   s->fin_chunks_sample++;
+  s->ross_sample.fin_chunks_sample++;
+  s->fin_chunks_ross_sample++;
 
   /* WE do not allow self messages through dragonfly */
   assert(lp->gid != msg->src_terminal_id);
@@ -1633,6 +1692,9 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
   /* save the sample time */
     msg->saved_sample_time = s->fin_chunks_time;
     s->fin_chunks_time += (tw_now(lp) - msg->travel_start_time);
+    s->ross_sample.fin_chunks_time += (tw_now(lp) - msg->travel_start_time);
+    msg->saved_fin_chunks_ross = s->fin_chunks_time_ross_sample;
+    s->fin_chunks_time_ross_sample += (tw_now(lp) - msg->travel_start_time);
     
     /* save the total time per LP */
     msg->saved_avg_time = s->total_time;
@@ -1643,6 +1705,8 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
     total_hops += msg->my_N_hop;
     s->total_hops += msg->my_N_hop;
     s->fin_hops_sample += msg->my_N_hop;
+    s->ross_sample.fin_hops_sample += msg->my_N_hop;
+    s->fin_hops_ross_sample += msg->my_N_hop;
 
     mn_stats* stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
     msg->saved_rcv_time = stat->recv_time;
@@ -1730,6 +1794,8 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
         bf->c7 = 1;
 
         s->data_size_sample += msg->total_size;
+        s->ross_sample.data_size_sample += msg->total_size;
+        s->data_size_ross_sample += msg->total_size;
         N_finished_msgs++;
         total_msg_sz += msg->total_size;
         s->total_msg_size += msg->total_size;
@@ -2058,6 +2124,7 @@ terminal_custom_event( terminal_state * s,
 		tw_lp * lp )
 {
   s->fwd_events++;
+  s->ross_sample.fwd_events++;
   //*(int *)bf = (int)0;
   assert(msg->magic == terminal_magic_num);
 
@@ -3008,11 +3075,15 @@ static void router_packet_send_rc(router_state * s,
     {
         s->link_traffic[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size;
         s->link_traffic_sample[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size; 
+        s->ross_rsample.link_traffic_sample[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size; 
+        s->link_traffic_ross_sample[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size; 
     }
     if(bf->c12)
     {
         s->link_traffic[output_port] -= s->params->chunk_size;
         s->link_traffic_sample[output_port] -= s->params->chunk_size;
+        s->ross_rsample.link_traffic_sample[output_port] -= s->params->chunk_size;
+        s->link_traffic_ross_sample[output_port] -= s->params->chunk_size;
     }
     s->next_output_available_time[output_port] = msg->saved_available_time;
 
@@ -3129,10 +3200,16 @@ router_packet_send( router_state * s,
               s->params->chunk_size); 
       s->link_traffic_sample[output_port] += (cur_entry->msg.packet_size % 
                s->params->chunk_size);
+      s->ross_rsample.link_traffic_sample[output_port] += (cur_entry->msg.packet_size % 
+               s->params->chunk_size);
+      s->link_traffic_ross_sample[output_port] += (cur_entry->msg.packet_size % 
+               s->params->chunk_size);
   } else {
     bf->c12 = 1;
     s->link_traffic[output_port] += s->params->chunk_size;
     s->link_traffic_sample[output_port] += s->params->chunk_size;
+    s->ross_rsample.link_traffic_sample[output_port] += s->params->chunk_size;
+    s->link_traffic_ross_sample[output_port] += s->params->chunk_size;
   }
 
   /* Determine the event type. If the packet has arrived at the final 
@@ -3192,6 +3269,8 @@ static void router_buf_update_rc(router_state * s,
       {
         s->busy_time[indx] = msg->saved_rcv_time;
         s->busy_time_sample[indx] = msg->saved_sample_time;
+        s->ross_rsample.busy_time[indx] = msg->saved_sample_time;
+        s->busy_time_ross_sample[indx] = msg->saved_busy_time_ross;
         s->last_buf_full[indx][output_chan] = msg->saved_busy_time;
       }
       if(bf->c1) {
@@ -3221,8 +3300,11 @@ static void router_buf_update(router_state * s, tw_bf * bf, terminal_custom_mess
     msg->saved_rcv_time = s->busy_time[indx];
     msg->saved_busy_time = s->last_buf_full[indx][output_chan];
     msg->saved_sample_time = s->busy_time_sample[indx];
+    msg->saved_busy_time_ross = s->busy_time_ross_sample[indx];
     s->busy_time[indx] += (tw_now(lp) - s->last_buf_full[indx][output_chan]);
     s->busy_time_sample[indx] += (tw_now(lp) - s->last_buf_full[indx][output_chan]);
+    s->ross_rsample.busy_time[indx] += (tw_now(lp) - s->last_buf_full[indx][output_chan]);
+    s->busy_time_ross_sample[indx] += (tw_now(lp) - s->last_buf_full[indx][output_chan]);
     s->last_buf_full[indx][output_chan] = 0.0;
   }
   if(s->queued_msgs[indx][output_chan] != NULL) {
@@ -3253,6 +3335,7 @@ static void router_buf_update(router_state * s, tw_bf * bf, terminal_custom_mess
 void router_custom_event(router_state * s, tw_bf * bf, terminal_custom_message * msg, 
     tw_lp * lp) {
   s->fwd_events++;
+  s->ross_rsample.fwd_events++;
   rc_stack_gc(lp, s->st);
   
   assert(msg->magic == router_magic_num);
@@ -3284,6 +3367,7 @@ void terminal_custom_rc_event_handler(terminal_state * s, tw_bf * bf,
     terminal_custom_message * msg, tw_lp * lp) {
 
    s->rev_events++;
+   s->ross_sample.rev_events++;
    switch(msg->type)
    {
     case T_GENERATE:
@@ -3311,6 +3395,7 @@ void terminal_custom_rc_event_handler(terminal_state * s, tw_bf * bf,
 void router_custom_rc_event_handler(router_state * s, tw_bf * bf, 
   terminal_custom_message * msg, tw_lp * lp) {
     s->rev_events++;
+    s->ross_rsample.rev_events++;
 
     switch(msg->type) {
     case R_SEND: 
@@ -3355,6 +3440,108 @@ tw_lptype dragonfly_custom_lps[] =
 };
 }
 
+/* For ROSS event tracing */
+void custom_dragonfly_event_collect(terminal_custom_message *m, tw_lp *lp, char *buffer, int *collect_flag)
+{
+    (void)lp;
+    (void)collect_flag;
+
+    int type = (int) m->type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+void custom_dragonfly_model_stat_collect(terminal_state *s, tw_lp *lp, char *buffer)
+{
+    (void)lp;
+
+    int index = 0;
+    tw_lpid id = 0;
+    long tmp = 0;
+    tw_stime tmp2 = 0;
+    
+    id = s->terminal_id;
+    memcpy(&buffer[index], &id, sizeof(id));
+    index += sizeof(id);
+
+    tmp = s->fin_chunks_ross_sample;
+    memcpy(&buffer[index], &tmp, sizeof(tmp));
+    index += sizeof(tmp);
+    s->fin_chunks_ross_sample = 0;
+
+    tmp = s->data_size_ross_sample;
+    memcpy(&buffer[index], &tmp, sizeof(tmp));
+    index += sizeof(tmp);
+    s->data_size_ross_sample = 0;
+
+    tmp = s->fin_hops_ross_sample;
+    memcpy(&buffer[index], &tmp, sizeof(tmp));
+    index += sizeof(tmp);
+    s->fin_hops_ross_sample = 0;
+
+    tmp2 = s->fin_chunks_time_ross_sample;
+    memcpy(&buffer[index], &tmp2, sizeof(tmp2));
+    index += sizeof(tmp2);
+    s->fin_chunks_time_ross_sample = 0;
+
+    tmp2 = s->busy_time_ross_sample;
+    memcpy(&buffer[index], &tmp2, sizeof(tmp2));
+    index += sizeof(tmp2);
+    s->busy_time_ross_sample = 0;
+
+    return;
+}
+
+void custom_dfly_router_model_stat_collect(router_state *s, tw_lp *lp, char *buffer)
+{
+    (void)lp;
+
+    const dragonfly_param * p = s->params; 
+    int i, index = 0;
+
+    tw_lpid id = 0;
+    tw_stime tmp = 0;
+    int64_t tmp2 = 0;
+
+    id = s->router_id;
+    memcpy(&buffer[index], &id, sizeof(id));
+    index += sizeof(id);
+
+    for(i = 0; i < p->radix; i++)
+    {
+        tmp = s->busy_time_ross_sample[i];
+        memcpy(&buffer[index], &tmp, sizeof(tmp));
+        index += sizeof(tmp);
+        s->busy_time_ross_sample[i] = 0; 
+
+        tmp2 = s->link_traffic_ross_sample[i];
+        memcpy(&buffer[index], &tmp2, sizeof(tmp2));
+        index += sizeof(tmp2);
+        s->link_traffic_ross_sample[i] = 0; 
+    }
+    return;
+}
+
+static const st_model_types  *custom_dragonfly_get_model_types(void)
+{
+    return(&custom_dragonfly_model_types[0]);
+}
+
+static const st_model_types  *custom_dfly_router_get_model_types(void)
+{
+    return(&custom_dragonfly_model_types[1]);
+}
+
+static void custom_dragonfly_register_model_types(st_model_types *base_type)
+{
+    st_model_type_register(LP_CONFIG_NM_TERM, base_type);
+}
+
+static void custom_router_register_model_types(st_model_types *base_type)
+{
+    st_model_type_register(LP_CONFIG_NM_ROUT, base_type);
+}
+/*** END of ROSS event tracing additions */
+
 /* returns the dragonfly lp type for lp registration */
 static const tw_lptype* dragonfly_custom_get_cn_lp_type(void)
 {
@@ -3393,6 +3580,8 @@ struct model_net_method dragonfly_custom_method =
     NULL,//(revent_f)dragonfly_custom_sample_rc_fn,
     (init_f)dragonfly_custom_sample_init,
     NULL,//(final_f)dragonfly_custom_sample_fin
+    .mn_model_stat_register = custom_dragonfly_register_model_types,
+    .mn_get_model_stat_types = custom_dragonfly_get_model_types,
 };
 
 struct model_net_method dragonfly_custom_router_method =
@@ -3413,6 +3602,8 @@ struct model_net_method dragonfly_custom_router_method =
     NULL,//(revent_f)dragonfly_custom_rsample_rc_fn,
     (init_f)dragonfly_custom_rsample_init,
     NULL,//(final_f)dragonfly_custom_rsample_fin
+    .mn_model_stat_register = custom_router_register_model_types,
+    .mn_get_model_stat_types = custom_dfly_router_get_model_types,
 };
 
 #ifdef ENABLE_CORTEX
