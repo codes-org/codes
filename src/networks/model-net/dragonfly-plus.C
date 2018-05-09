@@ -34,6 +34,7 @@
 #define DUMP_CONNECTIONS 0
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
+#define SHOW_ADAPTIVE_STATS 1
 
 // debugging parameters
 #define TRACK -1
@@ -868,7 +869,7 @@ void dragonfly_plus_report_stats()
     MPI_Reduce( &num_local_packets_sr, &total_local_packets_sr, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
     MPI_Reduce( &num_local_packets_sg, &total_local_packets_sg, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
     MPI_Reduce( &num_remote_packets, &total_remote_packets, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
-    if(isRoutingAdaptive(routing)) {
+    if(isRoutingAdaptive(routing) || SHOW_ADAPTIVE_STATS) {
         MPI_Reduce(&minimal_count, &total_minimal_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
         MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
     }
@@ -881,7 +882,7 @@ void dragonfly_plus_report_stats()
             (float) avg_hops / total_finished_chunks, avg_time / (total_finished_chunks * 1000),
             max_time / 1000, (float) final_msg_sz / total_finished_msgs, total_finished_msgs,
             total_finished_chunks);
-        if(isRoutingAdaptive(routing)) {
+        if(isRoutingAdaptive(routing) || SHOW_ADAPTIVE_STATS) {
             printf("\n ADAPTIVE ROUTING STATS: %d chunks routed minimally %d chunks routed non-minimally completed packets %lld \n",
                 total_minimal_packets, total_nonmin_packets, total_finished_chunks);
         }
@@ -2617,32 +2618,34 @@ static Connection do_dfp_routing(router_state *s,
             theConn = selected_nonminimal_conns[best_non_min_score_index];
         }
     }
-
-    else { //routing algorithm is specified in msg->path_type
+    else { //routing algorithm is specified in routing
         bool choose_minimal = false;
-        if ( msg->path_type == MINIMAL || msg->dfp_upward_channel_flag == 1 || (my_group_id == fdest_group_id) )
+        if (isRoutingMinimal(routing) || msg->dfp_upward_channel_flag == 1 || (my_group_id == fdest_group_id))
             choose_minimal = true;
         else {
             if (in_intermediate_group) {
                 if (s->dfp_router_type == SPINE) { //INTERMEDIATE SPINE
-                    if (msg->path_type == NON_MINIMAL_SPINE) {
-                        //we then follow minimal
+                    if (routing == NON_MINIMAL_SPINE) {
+                        //from here we follow minimal
                         choose_minimal = true;
                         msg->dfp_upward_channel_flag = 1;
                     }
                     else {
-                        assert(msg->path_type == NON_MINIMAL_LEAF);
+                        assert(routing == NON_MINIMAL_LEAF);
+                        //from here we have to go to a leaf
                         choose_minimal = false;
                     }
                 }
                 else { //INTERMEDIATE LEAF
+                    assert(s->dfp_router_type == LEAF);
+                    //from here we have to follow minimal
                     choose_minimal = true;
                     msg->dfp_upward_channel_flag = 1;
                 }
             }
             else { //must be in source group
                 assert(my_group_id == origin_grp_id);
-                choose_minimal = false;
+                choose_minimal = false; //if routing were MINIMAL, then we'd have hit the conditional above and chosen minimal already.
             }
         }
 
@@ -2652,10 +2655,12 @@ static Connection do_dfp_routing(router_state *s,
             theConn = poss_min_next_stops[rand_sel];
         }
         else {
+            msg->path_type = NON_MINIMAL;
             assert(poss_non_min_next_stops.size() > 0);
             int rand_sel = tw_rand_integer(lp->rng, 0, poss_non_min_next_stops.size()-1);
             theConn =  poss_non_min_next_stops[rand_sel];
         }
+
     }
 
     return theConn;
@@ -2723,14 +2728,9 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
         (terminal_plus_message_list *) malloc(sizeof(terminal_plus_message_list));
     init_terminal_plus_message_list(cur_chunk, msg);
 
-    // Set the default route as minimal for adaptive routing on the first router, else leave unchanged
-    if( isRoutingAdaptive(routing) && cur_chunk->msg.last_hop == TERMINAL) {
+    // packets start out as minimal when received from a terminal. The path type is changed off of minimal if/when the packet takes a nonminimal path during routing
+    if( cur_chunk->msg.last_hop == TERMINAL) {
         cur_chunk->msg.path_type = MINIMAL;
-    }
-
-    if( !isRoutingAdaptive(routing) ) 
-    {
-        cur_chunk->msg.path_type = routing; //defaults to the routing algorihtm if we don't have adaptive or prog-adaptive routing here
     }
 
     Connection next_stop_conn = do_dfp_routing(s, bf, &(cur_chunk->msg), lp, dest_router_id);
