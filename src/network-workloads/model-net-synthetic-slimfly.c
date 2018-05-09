@@ -120,6 +120,50 @@ tw_lptype svr_lp = {
     sizeof(svr_state),
 };
 
+/* setup for the ROSS event tracing
+ * can have a different function for  rbev_trace_f and ev_trace_f
+ * but right now it is set to the same function for both
+ */
+void svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
+{
+    (void)lp;
+    (void)collect_flag;
+    int type = (int) m->svr_event_type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+/* can add in any model level data to be collected along with simulation engine data
+ * in the ROSS instrumentation.  Will need to update the last field in 
+ * svr_model_types[0] for the size of the data to save in each function call
+ */
+void svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
+{
+    (void)s;
+    (void)lp;
+    (void)buffer;
+    return;
+}
+
+st_model_types svr_model_types[] = {
+    {(rbev_trace_f) svr_event_collect,
+     sizeof(int),
+     (ev_trace_f) svr_event_collect,
+     sizeof(int),
+     (model_stat_f) svr_model_stat_collect,
+     0},
+    {NULL, 0, NULL, 0, NULL, 0}
+};
+
+static const st_model_types  *svr_get_model_stat_types(void)
+{
+    return(&svr_model_types[0]);
+}
+
+void svr_register_model_types()
+{
+    st_model_type_register("server", svr_get_model_stat_types());
+}
+
 const tw_optdef app_opt [] =
 {
         TWOPT_GROUP("Model net synthetic traffic " ),
@@ -465,6 +509,10 @@ int main(
     configuration_load(argv[2], MPI_COMM_WORLD, &config);
     model_net_register();
     svr_add_lp_type();
+    
+    if (g_st_ev_trace || g_st_model_stats)
+        svr_register_model_types();
+
     codes_mapping_setup();
     net_ids = model_net_configure(&num_nets);
 //    assert(num_nets==1);
