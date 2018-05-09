@@ -296,6 +296,27 @@ struct switch_state
   int *lft;
 };
 
+/* ROSS Instrumentation Support */
+void fattree_event_collect(fattree_message *m, tw_lp *lp, char *buffer, int *collect_flag);
+void fattree_model_stat_collect(ft_terminal_state *s, tw_lp *lp, char *buffer);
+
+st_model_types fattree_model_types[] = {
+    {(rbev_trace_f) fattree_event_collect,
+     sizeof(int),
+     (ev_trace_f) fattree_event_collect,
+     sizeof(int),
+     (model_stat_f) fattree_model_stat_collect,
+     0}, // update when changing fattree_model_stat_collect
+    {(rbev_trace_f) fattree_event_collect,
+     sizeof(int),
+     (ev_trace_f) fattree_event_collect,
+     sizeof(int),
+     (model_stat_f) fattree_model_stat_collect,
+     0}, // update when changing fattree_model_stat_collect
+    {NULL, 0, NULL, 0, NULL, 0}
+};
+/* End of ROSS model stats collection */
+
 static tw_stime         fattree_total_time = 0;
 static tw_stime         fattree_max_latency = 0;
 //static tw_stime         max_collective = 0;
@@ -2967,41 +2988,6 @@ tw_lptype fattree_lps[] =
   {NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0},
 };
 
-/* For ROSS event tracing */
-void fattree_event_collect(fattree_message *m, tw_lp *lp, char *buffer, int *collect_flag)
-{
-    (void)lp;
-    (void)collect_flag;
-
-    int type = (int) m->type;
-    memcpy(buffer, &type, sizeof(type));
-}
-
-// TODO will need to separate fattree_method into one for terminal and one for switch
-// in order to use the ROSS model stats collection
-st_model_types fattree_model_types[] = {
-    {(rbev_trace_f) fattree_event_collect,
-     sizeof(int),
-     (ev_trace_f) fattree_event_collect,
-     sizeof(int),
-    NULL,
-    0},
-    {NULL, 0, NULL, 0, NULL, 0}
-};
-
-static const st_model_types  *fattree_get_model_stat_types(void)
-{
-    return(&fattree_model_types[0]);
-}
-
-static void fattree_register_model_stats(st_model_types *base_type)
-{
-    st_model_type_register(LP_CONFIG_NM, base_type);
-    st_model_type_register("fattree_switch", &fattree_model_types[0]);
-    //trace_type_register("fattree_switch", base_type);
-}
-/*** END of ROSS event tracing additions */
-
 /* returns the fattree lp type for lp registration */
 static const tw_lptype* fattree_get_cn_lp_type(void)
 {
@@ -3016,6 +3002,37 @@ static void fattree_register(tw_lptype *base_type) {
     lp_type_register(LP_CONFIG_NM, base_type);
     lp_type_register("fattree_switch", &fattree_lps[1]);
 }
+
+/* For ROSS Instrumentation */
+void fattree_event_collect(fattree_message *m, tw_lp *lp, char *buffer, int *collect_flag)
+{
+    (void)lp;
+    (void)collect_flag;
+
+    int type = (int) m->type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+void fattree_model_stat_collect(ft_terminal_state *s, tw_lp *lp, char *buffer)
+{
+    (void)lp;
+    (void)s;
+    (void)buffer;
+
+    return;
+}
+
+static const st_model_types  *fattree_get_model_stat_types(void)
+{
+    return(&fattree_model_types[0]);
+}
+
+static void fattree_register_model_stats(st_model_types *base_type)
+{
+    st_model_type_register(LP_CONFIG_NM, base_type);
+    st_model_type_register("fattree_switch", &fattree_model_types[1]);
+}
+/*** END of ROSS event tracing additions */
 
 struct model_net_method fattree_method =
 {
