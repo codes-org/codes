@@ -2737,7 +2737,7 @@ static int do_global_adaptive_routing( router_state * s,
   /* Now compare the least congested minimal and non-minimal routes */
   if(next_min_count > adaptive_threshold && next_min_count > next_nonmin_count)
   {
-      printf("\n Minimal chan %d occupancy %d non-min %d occupancy %d ", next_min_stop, next_min_count, next_nonmin_stop, next_nonmin_count);
+//      printf("\n Minimal chan %d occupancy %d non-min %d occupancy %d ", next_min_stop, next_min_count, next_nonmin_stop, next_nonmin_count);
       next_chan = next_nonmin_stop;
       msg->path_type = NON_MINIMAL;
   }
