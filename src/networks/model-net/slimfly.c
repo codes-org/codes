@@ -284,6 +284,27 @@ struct router_state
     int* cur_hist_num;	//Aren't used
 };
 
+/* ROSS Instrumentation Support */
+void slimfly_event_collect(slim_terminal_message *m, tw_lp *lp, char *buffer, int *collect_flag);
+void slimfly_model_stat_collect(terminal_state *s, tw_lp *lp, char *buffer);
+
+st_model_types slimfly_model_types[] = {
+    {(rbev_trace_f) slimfly_event_collect,
+     sizeof(int),
+     (ev_trace_f) slimfly_event_collect,
+     sizeof(int),
+     (model_stat_f) slimfly_model_stat_collect,
+     0} , // update when changing slimfly_model_stat_collect
+    {(rbev_trace_f) slimfly_event_collect,
+     sizeof(int),
+     (ev_trace_f) slimfly_event_collect,
+     sizeof(int),
+     (model_stat_f) slimfly_model_stat_collect,
+     0} , // update when changing slimfly_model_stat_collect
+    {NULL, 0, NULL, 0, NULL, 0}
+};
+/* End of ROSS model stats collection */
+
 static short routing = MINIMAL;
 
 static tw_stime         slimfly_total_time = 0;
@@ -3373,6 +3394,37 @@ static void slimfly_register(tw_lptype *base_type) {
     lp_type_register("slimfly_router", &slimfly_lps[1]);
 }
 
+/* For ROSS Instrumentation */
+void slimfly_event_collect(slim_terminal_message *m, tw_lp *lp, char *buffer, int *collect_flag)
+{
+    (void)lp;
+    (void)collect_flag;
+
+    int type = (int) m->type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+void slimfly_model_stat_collect(terminal_state *s, tw_lp *lp, char *buffer)
+{
+    (void)lp;
+    (void)s;
+    (void)buffer;
+
+    return;
+}
+
+static const st_model_types  *slimfly_get_cn_model_types(void)
+{
+    return(&slimfly_model_types[0]);
+}
+
+static void slimfly_register_model_types(st_model_types *base_type)
+{
+    st_model_type_register(LP_CONFIG_NM, base_type);
+    st_model_type_register("slimfly_router", &slimfly_model_types[1]);
+}
+/*** END of ROSS event tracing additions */
+
 /* data structure for slimfly statistics */
 struct model_net_method slimfly_method =
 {
@@ -3384,5 +3436,7 @@ struct model_net_method slimfly_method =
     .model_net_method_recv_msg_event_rc = NULL,
     .mn_get_lp_type = slimfly_get_cn_lp_type,
     .mn_get_msg_sz = slimfly_get_msg_sz,
-    .mn_report_stats = slimfly_report_stats
+    .mn_report_stats = slimfly_report_stats,
+    .mn_model_stat_register = slimfly_register_model_types,
+    .mn_get_model_stat_types = slimfly_get_cn_model_types
 };
