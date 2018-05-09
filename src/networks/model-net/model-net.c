@@ -629,6 +629,8 @@ const tw_lptype* model_net_get_lp_type(int net_id)
 
 const st_model_types* model_net_get_model_stat_type(int net_id)
 {
+    if (!method_array[net_id]->mn_get_model_stat_types)
+        tw_error(TW_LOC, "mn_get_model_stat_types not defined for network model with net_id: %d\n", net_id);
    return method_array[net_id]->mn_get_model_stat_types();
 }
 
