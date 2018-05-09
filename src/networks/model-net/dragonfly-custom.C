@@ -3580,8 +3580,8 @@ struct model_net_method dragonfly_custom_method =
     NULL,//(revent_f)dragonfly_custom_sample_rc_fn,
     (init_f)dragonfly_custom_sample_init,
     NULL,//(final_f)dragonfly_custom_sample_fin
-    .mn_model_stat_register = custom_dragonfly_register_model_types,
-    .mn_get_model_stat_types = custom_dragonfly_get_model_types,
+    custom_dragonfly_register_model_types,
+    custom_dragonfly_get_model_types,
 };
 
 struct model_net_method dragonfly_custom_router_method =
@@ -3602,8 +3602,8 @@ struct model_net_method dragonfly_custom_router_method =
     NULL,//(revent_f)dragonfly_custom_rsample_rc_fn,
     (init_f)dragonfly_custom_rsample_init,
     NULL,//(final_f)dragonfly_custom_rsample_fin
-    .mn_model_stat_register = custom_router_register_model_types,
-    .mn_get_model_stat_types = custom_dfly_router_get_model_types,
+    custom_router_register_model_types,
+    custom_dfly_router_get_model_types,
 };
 
 #ifdef ENABLE_CORTEX
