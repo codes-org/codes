@@ -3022,7 +3022,7 @@ void fattree_model_stat_collect(ft_terminal_state *s, tw_lp *lp, char *buffer)
     return;
 }
 
-static const st_model_types  *fattree_get_model_stat_types(void)
+static const st_model_types  *fattree_get_cn_model_stat_types(void)
 {
     return(&fattree_model_types[0]);
 }
@@ -3049,7 +3049,7 @@ struct model_net_method fattree_method =
   .mn_collective_call = NULL,
   .mn_collective_call_rc = NULL,
   .mn_model_stat_register = fattree_register_model_stats,
-  .mn_get_model_stat_types = fattree_get_model_stat_types
+  .mn_get_model_stat_types = fattree_get_cn_model_stat_types
 };
 
 #ifdef ENABLE_CORTEX

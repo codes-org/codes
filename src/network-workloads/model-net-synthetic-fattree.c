@@ -456,7 +456,7 @@ int main(
 
     svr_add_lp_type();
 
-    if (g_st_ev_trace)
+    if (g_st_ev_trace || g_st_model_stats)
         ft_svr_register_model_stats();
 
     codes_mapping_setup();
