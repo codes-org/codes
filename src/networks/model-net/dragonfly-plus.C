@@ -31,7 +31,7 @@
 #include <cortex/topology.h>
 #endif
 
-#define DUMP_CONNECTIONS 0
+#define DUMP_CONNECTIONS 1
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
 #define SHOW_ADAPTIVE_STATS 1
@@ -816,6 +816,16 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         }
     }
 
+    if (DUMP_CONNECTIONS)
+    {
+        if (!myRank) {
+            for(int i=0; i < connManagerList.size(); i++)
+            {
+                connManagerList[i].print_connections();
+            }
+        }
+    }
+
     if (!myRank) {
         printf("\n Total nodes %d routers %d groups %d routers per group %d radix %d\n",
                p->num_cn * p->num_router_leaf * p->num_groups, p->total_routers, p->num_groups, p->num_routers, p->radix);
@@ -1279,8 +1289,8 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
     double cn_delay = s->params->cn_delay;
 
     int dest_router_id = dragonfly_plus_get_assigned_router_id(msg->dfp_dest_terminal_id, s->params);
-    int dest_grp_id = dest_router_id / s->params->num_routers; 
-    int src_grp_id = s->router_id / s->params->num_routers; 
+    int dest_grp_id = dest_router_id / s->params->num_routers;
+    int src_grp_id = s->router_id / s->params->num_routers;
 
     if(src_grp_id == dest_grp_id)
     {
@@ -1716,6 +1726,11 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
 
     /* WE do not allow self messages through dragonfly */
     assert(lp->gid != msg->src_terminal_id);
+
+    // Verify that the router that send the packet to this terminal is the router assigned to this terminal
+    int dest_router_id = dragonfly_plus_get_assigned_router_id(s->terminal_id, s->params);
+    int received_from_rel_id = codes_mapping_get_lp_relative_id(msg->intm_lp_id,0,0);
+    assert(dest_router_id == received_from_rel_id);
 
     uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
     if (msg->packet_size < s->params->chunk_size)
@@ -2361,7 +2376,7 @@ static int get_min_hops_to_dest_from_conn(router_state *s, tw_bf *bf, terminal_p
             vector< Connection > cons_to_dest_group = connManagerList[conn.dest_gid].get_connections_to_group(fdest_group_id);
             if (cons_to_dest_group.size() == 0)
                 return 5; //Next Spine -> Leaf -> Spine -> Spine -> Leaf -> dest_term
-            else 
+            else
                 return 3;  //Next Spine -> Spine -> Leaf -> dest_term
         }
         else {
@@ -2402,7 +2417,7 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
             break;
         }
         case GAMMA: //consideres vc occupancy and queue count but ports that follow a minimal path to fdest are biased 2:1 bonus by multiplying minimal by 2 HIGHER SCORE IS BETTER
-        {   
+        {
             score = s->params->max_port_score; //initialize this to max score.
             int to_subtract = 0;
             for(int k=0; k < s->params->num_vcs; k++)
@@ -2515,8 +2530,8 @@ static Connection do_dfp_routing(router_state *s,
         vector< Connection > selected_minimal_conns;
         if (my_group_id == fdest_group_id) { //if we are in the final destination group
             selected_minimal_conns = poss_min_next_stops; //then we want to find the least congested out of all of the possible minimum paths
-            
-            //two garbage random numbers to keep things even since we're not randomly selecting two connections. 
+
+            //two garbage random numbers to keep things even since we're not randomly selecting two connections.
             //TODO This will need to be changed if select_two is made configurable
             tw_rand_integer(lp->rng,0,1);
             tw_rand_integer(lp->rng,0,1);
@@ -2527,7 +2542,7 @@ static Connection do_dfp_routing(router_state *s,
         }
 
         vector< Connection > selected_nonminimal_conns = dfp_select_two_connections(s, bf, msg, lp, poss_non_min_next_stops);
-        
+
         int num_conns = selected_minimal_conns.size() + selected_nonminimal_conns.size(); //we selected two from each //TODO maybe make this configurable
 
 
@@ -2540,7 +2555,7 @@ static Connection do_dfp_routing(router_state *s,
             else
                 scores[i] = dfp_score_connection(s, bf, msg, lp, selected_nonminimal_conns[i-selected_minimal_conns.size()], C_NONMIN);
         }
-        
+
         // compare scores based on the scoring preference ----------------------------------------------------------------------------------------------------
         int best_min_score_index = 0;
         int best_non_min_score_index = 0;
@@ -2624,6 +2639,7 @@ static Connection do_dfp_routing(router_state *s,
             choose_minimal = true;
         else {
             if (in_intermediate_group) {
+                msg->path_type = NON_MINIMAL;
                 if (s->dfp_router_type == SPINE) { //INTERMEDIATE SPINE
                     if (routing == NON_MINIMAL_SPINE) {
                         //from here we follow minimal
@@ -2655,7 +2671,6 @@ static Connection do_dfp_routing(router_state *s,
             theConn = poss_min_next_stops[rand_sel];
         }
         else {
-            msg->path_type = NON_MINIMAL;
             assert(poss_non_min_next_stops.size() > 0);
             int rand_sel = tw_rand_integer(lp->rng, 0, poss_non_min_next_stops.size()-1);
             theConn =  poss_non_min_next_stops[rand_sel];
@@ -2705,11 +2720,62 @@ static void router_packet_receive_rc(router_state *s, tw_bf *bf, terminal_plus_m
     }
 }
 
+static void router_verify_valid_receipt(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
+{
+    tw_lpid last_sender_lpid = msg->intm_lp_id;
+    int rel_id, src_term_rel_id;
+
+    bool has_valid_connection = false;
+    if (msg->last_hop == TERMINAL)
+    {
+        tw_lpid src_term_lpgid = msg->src_terminal_id;
+        src_term_rel_id = codes_mapping_get_lp_relative_id(src_term_lpgid,0,0);
+        has_valid_connection = s->connMan->is_connected_to_by_type(src_term_rel_id, CONN_TERMINAL);
+    }
+    else if (msg->last_hop == LOCAL)
+    {
+        // try {
+        //     rel_id = codes_mapping_get_lp_relative_id(last_sender_lpid,0,0);
+        // }
+        // catch (...) {
+        //     tw_error(TW_LOC, "\nRouter Receipt Verify: Codes Mapping Get LP Rel ID Failure - Local");
+        // }
+        rel_id = codes_mapping_get_lp_relative_id(last_sender_lpid,0,0);
+
+        int rel_loc_id = rel_id % s->params->num_routers;
+        has_valid_connection = s->connMan->is_connected_to_by_type(rel_loc_id, CONN_LOCAL);
+    }
+    else if (msg->last_hop == GLOBAL)
+    {
+        // try {
+        //     rel_id = codes_mapping_get_lp_relative_id(last_sender_lpid,0,0);
+        // }
+        // catch (...) {
+        //     tw_error(TW_LOC, "\nRouter Receipt Verify: Codes Mapping Get LP Rel ID Failure - Global");
+        // }
+        rel_id = codes_mapping_get_lp_relative_id(last_sender_lpid,0,0);
+        has_valid_connection = s->connMan->is_connected_to_by_type(rel_id, CONN_GLOBAL);
+    }
+    else
+    {
+        tw_error(TW_LOC, "\nDFP Router Verify Valid Receipt: Last Hop invalidly defined");
+    }
+
+    if (!has_valid_connection){
+        if (msg->last_hop == TERMINAL)
+            printf("ERROR: Router ID %d has no connection to Terminal %d but received a message from it!",s->router_id, src_term_rel_id);
+        else
+            printf("ERROR: Router ID %d has no connection to Router %d but received a message from it!",s->router_id, rel_id);
+    }
+    assert(has_valid_connection);
+}
+
 /* MM: This will need changes for the port selection and routing part. The
  * progressive adaptive routing would need modification as well. */
 /* Packet arrives at the router and a credit is sent back to the sending terminal/router */
 static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
 {
+    router_verify_valid_receipt(s, bf, msg, lp);
     router_ecount++;
 
     tw_stime ts;
