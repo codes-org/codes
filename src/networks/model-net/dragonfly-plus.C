@@ -333,7 +333,8 @@ typedef enum dfp_path_hop_t
     INTERMEDIATE_LEAF, //a leaf router not in the packets originating group or destination group
     INTERMEDIATE_SPINE, //a spine router not in the packets originating group or destination group
     DESTINATION_LEAF, //a leaf router in the packets destination group
-    DESTINATION_SPINE //a spine router in the packets destination group
+    DESTINATION_SPINE, //a spine router in the packets destination group
+    FINAL_DESTINATION //the leaf router that has a connection to the destination terminal
 } dfp_path_hop_t;
 
 typedef enum routing_alg_t
@@ -872,7 +873,15 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
                 connManagerList[i].print_connections();
             }
         }
+
+        printf("Does spine 479 have conn to group 27?\n");
+        for(int i = 0; i < connectionList[479/p->num_routers][27].size(); i++)
+        {
+            printf("%d\n",connectionList[479/p->num_routers][27][i]);
+        }
     }
+
+    // exit(1);
 
     if (!myRank) {
         printf("\n Total nodes %d routers %d groups %d routers per group %d radix %d\n",
@@ -2467,7 +2476,116 @@ static vector< Connection > get_possible_next_stops_to_specific_router(router_st
 //     }
 
 //     return possible_next_conns;
-// }                                                         
+// }       
+
+static vector< Connection > get_possible_stops_to_intermediate_router(router_state *s,
+                                                                        tw_bf *bf,
+                                                                        terminal_plus_message *msg,
+                                                                        tw_lp *lp,
+                                                                        dfp_path_hop_t my_hop_type,
+                                                                        int specific_router_id)
+{
+    int local_router_id = s->router_id;
+    int my_group_id = s->router_id / s->params->num_routers;
+    int specific_group_id = specific_router_id / s->params->num_routers;
+
+    vector< Connection > possible_next_conns;
+
+    switch (my_hop_type) {
+        case SOURCE_LEAF :
+        {
+            //possible minimal connections are to spines that have a connection to the dest router
+            set<int> poss_router_id_set;
+            for(int i = 0; i < connectionList[my_group_id][specific_group_id].size(); i++)
+            {
+                int poss_router_id = connectionList[my_group_id][specific_group_id][i];
+                if (poss_router_id_set.count(poss_router_id) == 0) { //if we haven't added the connections from poss_router_id yet
+                    vector< Connection > conns = s->connMan->get_connections_to_gid(poss_router_id, CONN_LOCAL);
+                    poss_router_id_set.insert(poss_router_id);
+                    possible_next_conns.insert(possible_next_conns.end(), conns.begin(), conns.end());
+                }
+            }
+        } break;
+        case SOURCE_SPINE :
+        {
+            //possible minimal connections are to spines in the destination group
+            possible_next_conns = s->connMan->get_connections_to_group(specific_group_id);
+        } break;
+        case INTERMEDIATE_SPINE :
+        {
+            possible_next_conns = s->connMan->get_connections_to_gid(specific_router_id, CONN_LOCAL);
+        } break;
+        case INTERMEDIATE_LEAF :
+        case DESTINATION_LEAF :
+        case DESTINATION_SPINE :
+        case FINAL_DESTINATION :
+        default :
+            tw_error(TW_LOC, "Incorrectly handled hop type\n");
+    }
+
+    return possible_next_conns;
+}
+
+
+static vector< Connection > get_possible_minimal_stops_to_destination(router_state *s,
+                                                                        tw_bf *bf,
+                                                                        terminal_plus_message *msg,
+                                                                        tw_lp *lp,
+                                                                        dfp_path_hop_t my_hop_type,
+                                                                        int fdest_router_id)
+{
+    int my_router_id = s->router_id;
+    int my_group_id = s->router_id / s->params->num_routers;
+    int dest_group_id = fdest_router_id / s->params->num_routers;
+
+
+    vector< Connection > possible_next_conns;
+
+    switch (my_hop_type) {
+        case SOURCE_LEAF :
+        case INTERMEDIATE_LEAF :
+        {
+            assert(s->dfp_router_type == LEAF);
+            //possible minimal connections are to spines that have a connection to the dest router group
+            set<int> poss_router_id_set;
+            for(int i = 0; i < connectionList[my_group_id][dest_group_id].size(); i++)
+            {
+                int poss_router_id = connectionList[my_group_id][dest_group_id][i];
+                // printf("%d\n",poss_router_id);
+                if (poss_router_id_set.count(poss_router_id) == 0) { //if we haven't added the connections from poss_router_id yet
+                    vector< Connection > conns = s->connMan->get_connections_to_gid(poss_router_id, CONN_LOCAL);
+                    poss_router_id_set.insert(poss_router_id);
+                    possible_next_conns.insert(possible_next_conns.end(), conns.begin(), conns.end());
+                }
+            }
+
+        } break;
+        case SOURCE_SPINE :
+        case INTERMEDIATE_SPINE :
+        {
+            assert(s->dfp_router_type == SPINE);
+            //possible minimal connections are to spines in the destination group
+            possible_next_conns = s->connMan->get_connections_to_group(dest_group_id);
+            printf("%d connections from spine %d to group %d for %d\n",possible_next_conns.size(), my_router_id, dest_group_id, fdest_router_id);
+        } break;
+        case DESTINATION_LEAF :
+        {
+            possible_next_conns = s->connMan->get_connections_by_type(CONN_LOCAL);
+        } break;
+        case DESTINATION_SPINE :
+        {
+            possible_next_conns = s->connMan->get_connections_to_gid(fdest_router_id, CONN_LOCAL);
+        } break;
+        case FINAL_DESTINATION :
+        {
+            possible_next_conns = s->connMan->get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
+        } break;
+        default :
+            tw_error(TW_LOC, "Incorrectly handled hop type\n");
+    }
+
+    return possible_next_conns;
+}
 
 static int get_min_hops_to_dest_from_conn(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, Connection conn)
 {
@@ -2786,8 +2904,12 @@ static Connection do_dfp_routing(router_state *s,
     if (my_group_id == fdest_group_id) {
         if (s->dfp_router_type == SPINE)
             my_hop_type = DESTINATION_SPINE;
-        else
-            my_hop_type = DESTINATION_LEAF;
+        else {
+            if (s->router_id == fdest_router_id)
+                my_hop_type = FINAL_DESTINATION;
+            else
+                my_hop_type = DESTINATION_LEAF;
+        }
     }
     else if (my_group_id == origin_group_id) {
         if (s->dfp_router_type == SPINE)
@@ -2804,123 +2926,110 @@ static Connection do_dfp_routing(router_state *s,
 
     Connection nextStopConn; //the connection that we will forward the packet to
 
-    if (local_router_id == fdest_router_id) {
-        vector< Connection > poss_next_stops = s->connMan->get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
-        if (poss_next_stops.size() < 1)
-            tw_error(TW_LOC, "Destination Router: No connection to destination terminal\n");
-        nextStopConn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops, C_MIN);
-        return nextStopConn;
-    }
+    // if (local_router_id == fdest_router_id) {
+    //     printf("loc\n");
+    //     vector< Connection > poss_next_stops = s->connMan->get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
+    //     if (poss_next_stops.size() < 1)
+    //         tw_error(TW_LOC, "Destination Router: No connection to destination terminal\n");
+    //     nextStopConn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops, C_MIN);
+    //     return nextStopConn;
+    // }
 
 
     if (isRoutingAdaptive(routing)) {
         if (routing == PROG_ADAPTIVE)
             nextStopConn = do_dfp_prog_adaptive_routing(s, bf, msg, lp, my_hop_type, fdest_router_id);
     }
+
+
     else if (isRoutingMinimal(routing)) {
-        vector< Connection > poss_next_stops = get_possible_next_stops_to_specific_router(s, bf, msg, lp, my_hop_type, fdest_router_id);
+        vector< Connection > poss_next_stops = get_possible_minimal_stops_to_destination(s, bf, msg, lp ,my_hop_type, fdest_router_id);
+        if (poss_next_stops.size() < 0)
+            tw_error(TW_LOC, "MINIMAL DEAD END\n");
+
         nextStopConn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops, C_MIN);
+        return nextStopConn;
     }
+
+
     else { //routing algorithm is specified in routing
         assert( (routing == NON_MINIMAL_LEAF) || (routing == NON_MINIMAL_SPINE) );
         switch ( my_hop_type ) {
             case SOURCE_LEAF :
             {
-                assert(s->dfp_router_type == LEAF);
-                // printf("Begin Source Leaf\n");
-                int intm_router_id = dfp_pick_intermediate_router(s, bf, msg, lp, origin_group_id, fdest_group_id); //technically only picks a leaf router, so it's too far for non_minimal_spine but we'll handle that at INTERMEDIATE_SPINE
-                vector< Connection > poss_intm_next_stops = get_possible_next_stops_to_specific_router(s, bf, msg, lp, my_hop_type, intm_router_id);
-                if (poss_intm_next_stops.size() < 1)
-                    tw_error(TW_LOC, "SOURCE LEAF: poss next stops is empty?!?\n");
-                Connection best_intm_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_intm_next_stops, C_NONMIN);
-
-                msg->path_type = NON_MINIMAL;
+                printf("source leaf\n");
+                //pick an intermediate leaf router to forward to
+                int intm_router_id = dfp_pick_intermediate_router(s, bf, msg, lp, origin_group_id, fdest_group_id);
                 msg->intm_rtr_id = intm_router_id;
-                nextStopConn = best_intm_conn;
-                // printf("End Source leaf\n");
-            }
-            break;
+
+                //forward to a spine router that has a connection to that router's group
+                vector< Connection > poss_next_stops = get_possible_stops_to_intermediate_router(s, bf, msg, lp, my_hop_type, intm_router_id);
+
+                nextStopConn = poss_next_stops[0]; //TODO randomize this
+
+            } break;
             case SOURCE_SPINE :
             {
-                assert(s->dfp_router_type == SPINE);
-                // printf("Begin Source Spine\n");
-                vector< Connection > poss_next_stops = get_possible_next_stops_to_specific_router(s, bf, msg, lp, my_hop_type, msg->intm_rtr_id);
-                if (poss_next_stops.size() < 1)
-                    tw_error(TW_LOC, "SOURCE SPINE: poss next stops is empty?!?\n");
-                Connection best_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops, C_NONMIN);
-                nextStopConn = best_conn;
-                // printf("End Source Spine\n");
-            }
-            break;
+                printf("source spine\n");
+                int intm_router_id = msg->intm_rtr_id;
+                vector< Connection > poss_next_stops = get_possible_stops_to_intermediate_router(s, bf, msg, lp, my_hop_type, intm_router_id);
+
+                nextStopConn = poss_next_stops[0]; //TODO randomize this
+            } break;
             case INTERMEDIATE_LEAF :
             {
-                assert(s->dfp_router_type == LEAF);
-                // printf("Begin Int Leaf\n");
+                printf("int leaf\n");
                 msg->dfp_upward_channel_flag = 1;
-                vector< Connection > poss_next_stops = get_possible_next_stops_to_specific_router(s, bf, msg, lp, my_hop_type, fdest_router_id);
-                if (poss_next_stops.size() < 1)
-                    tw_error(TW_LOC, "INT LEAF: poss next stops is empty?!?\n");
-                Connection best_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops, C_NONMIN);
-                nextStopConn = best_conn;
-                // printf("Begin Ing Leaf\n");
-            }
-            break;
+
+                vector< Connection > poss_next_stops = get_possible_minimal_stops_to_destination(s, bf, msg, lp, my_hop_type, fdest_router_id);
+
+                nextStopConn = poss_next_stops[0]; //TODO randomize this
+                printf("%d: Int leaf sending to %d to go to %d for router %d\n", local_router_id, nextStopConn.dest_gid, fdest_group_id, fdest_router_id);
+
+            } break;
             case INTERMEDIATE_SPINE :
             {
-                assert(s->dfp_router_type == SPINE);
-                // printf("Begin Int Spine\n");
-                if (routing == NON_MINIMAL_SPINE) { //then foward on to destination group
+                if (routing == NON_MINIMAL_SPINE) {
                     msg->dfp_upward_channel_flag = 1;
-                    vector< Connection > poss_next_stops = get_possible_next_stops_to_specific_router(s, bf, msg, lp, my_hop_type, fdest_router_id);
-                    if (poss_next_stops.size() < 1)
-                        tw_error(TW_LOC, "INT SPINE: TO DEST GROUP poss next stops is empty?!?\n");
-                    Connection best_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops, C_NONMIN);
-                    nextStopConn = best_conn;
+                    vector< Connection > poss_next_stops = get_possible_minimal_stops_to_destination(s, bf, msg, lp, my_hop_type, fdest_router_id);
+                    nextStopConn = poss_next_stops[0];
                 }
                 else {
                     assert(routing == NON_MINIMAL_LEAF);
-                    if (msg->dfp_upward_channel_flag == 1) { //then we need to be heading toward the destination!
-                        vector< Connection > poss_next_stops = get_possible_next_stops_to_specific_router(s, bf, msg, lp, my_hop_type, fdest_router_id);
+                    if (msg->dfp_upward_channel_flag == 1) {
+                        printf("int spine to dest\n");
+                        vector< Connection > poss_next_stops = get_possible_minimal_stops_to_destination(s, bf, msg, lp, my_hop_type, fdest_router_id);
                         if (poss_next_stops.size() < 1)
-                            tw_error(TW_LOC, "%d: INT SPINE: TO DEST GROUP poss next stops is empty?!? fdest = %d\n",s->router_id, fdest_router_id);
-                        Connection best_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops, C_NONMIN);
-                        nextStopConn = best_conn;
+                            printf("fuck\n");
+                        nextStopConn = poss_next_stops[0];
                     }
                     else {
-                        vector< Connection > poss_next_stops = get_possible_next_stops_to_specific_router(s, bf, msg, lp, my_hop_type, msg->intm_rtr_id);
-                        if (poss_next_stops.size() < 1)
-                            tw_error(TW_LOC, "INT SPINE: TO INT LEAF poss next stops is empty?!?\n");
-                        Connection best_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops, C_NONMIN);
-                        nextStopConn = best_conn;
+                        printf("int spine to int leaf\n");
+                        int intm_router_id = msg->intm_rtr_id;
+                        vector< Connection > poss_next_stops = get_possible_stops_to_intermediate_router(s, bf, msg, lp, my_hop_type, intm_router_id);
+                        nextStopConn = poss_next_stops[0];
                     }
+
                 }
-                // printf("End Int Spine\n");
-            }
-            break;
+            } break;
             case DESTINATION_LEAF :
             {
-                assert(s->dfp_router_type == LEAF);
-                // printf("Begin Dest Leaf\n");
-                vector< Connection > poss_next_stops = get_possible_next_stops_to_specific_router(s, bf, msg, lp, my_hop_type, fdest_router_id);
-                if (poss_next_stops.size() < 1)
-                    tw_error(TW_LOC, "DEST LEAF: poss next stops is empty?!?\n");
-                Connection best_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops, C_NONMIN);
-                nextStopConn = best_conn;
-                // printf("End Dest Leaf\n");
-            }
-            break;
+                vector< Connection > poss_next_stops = get_possible_minimal_stops_to_destination(s, bf, msg, lp, my_hop_type, fdest_router_id);
+                nextStopConn = poss_next_stops[0];
+            } break;
             case DESTINATION_SPINE :
             {
-                assert(s->dfp_router_type == SPINE);
-                // printf("Begin Dest Spine\n");
-                vector< Connection > poss_next_stops = get_possible_next_stops_to_specific_router(s, bf, msg, lp, my_hop_type, fdest_router_id);
-                if (poss_next_stops.size() < 1)
-                    tw_error(TW_LOC, "DEST LEAF: poss next stops is empty?!?\n");
-                Connection best_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops, C_NONMIN);
-                nextStopConn = best_conn;
-                // printf("End Dest Spine\n");
-            }
-            break;
+                printf("dest spine\n");
+                vector< Connection > poss_next_stops = get_possible_minimal_stops_to_destination(s, bf, msg, lp, my_hop_type, fdest_router_id);
+                nextStopConn = poss_next_stops[0];
+            } break;
+            case FINAL_DESTINATION :
+            {
+                vector< Connection > poss_next_stops = get_possible_minimal_stops_to_destination(s, bf, msg, lp, my_hop_type, fdest_router_id);
+                nextStopConn = poss_next_stops[0];
+            } break;
+            default :
+                tw_error(TW_LOC,"Improperly handled hop type in do routing");
         }
     }
 
