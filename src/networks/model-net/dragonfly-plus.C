@@ -32,7 +32,6 @@
 #endif
 
 #define DUMP_CONNECTIONS 0
-#define PRINT_CONFIG 1
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
 #define SHOW_ADAPTIVE_STATS 1
@@ -327,18 +326,6 @@ typedef enum conn_minimality_t
     C_NONMIN
 } conn_minimality_t;
 
-typedef enum dfp_path_hop_t
-{
-    ORIGIN_LEAF = 1, //the originating leaf
-    SOURCE_LEAF, //a leaf router in the packets originating group
-    SOURCE_SPINE, //a spine router in the packets originating group
-    INTERMEDIATE_LEAF, //a leaf router not in the packets originating group or destination group
-    INTERMEDIATE_SPINE, //a spine router not in the packets originating group or destination group
-    DESTINATION_LEAF, //a leaf router in the packets destination group
-    DESTINATION_SPINE, //a spine router in the packets destination group
-    FINAL_DESTINATION //the leaf router that has a connection to the destination terminal
-} dfp_path_hop_t;
-
 typedef enum routing_alg_t
 {
     MINIMAL = 1, //will always follow the minimal route from host to host
@@ -581,43 +568,6 @@ static terminal_plus_message_list *return_tail(terminal_plus_message_list **this
         thisq[index] = NULL;
     }
     return tail;
-}
-
-void dragonfly_plus_print_params(dragonfly_plus_param *p)
-{
-    int myRank;
-    MPI_Comm_rank(MPI_COMM_CODES, &myRank);
-    if (!myRank) { 
-        printf("--------- Dragonfly Plus Parameters ---------\n");
-        printf("num_routers =            %d\n",p->num_routers);
-        printf("local_bandwidth =        %.2f\n",p->local_bandwidth);
-        printf("global_bandwidth =       %.2f\n",p->global_bandwidth);
-        printf("cn_bandwidth =           %.2f\n",p->cn_bandwidth);
-        printf("num_vcs =                %d\n",p->num_vcs);
-        printf("local_vc_size =          %d\n",p->local_vc_size);
-        printf("global_vc_size =         %d\n",p->global_vc_size);
-        printf("cn_vc_size =             %d\n",p->cn_vc_size);
-        printf("num_cn =                 %d\n",p->num_cn);
-        printf("intra_grp_radix =        %d\n",p->intra_grp_radix);
-        printf("num_level_chans =        %d\n",p->num_level_chans);
-        printf("num_router_spine =       %d\n",p->num_router_spine);
-        printf("num_router_leaf =        %d\n",p->num_router_leaf);
-        printf("adaptive_threshold =     %d\n",p->adaptive_threshold);
-        printf("max_port_score =         %d\n",p->max_port_score);
-        printf("num_groups =             %d\n",p->num_groups);
-        printf("radix =                  %d\n",p->radix);
-        printf("total_routers =          %d\n",p->total_routers);
-        printf("total_terminals =        %d\n",p->total_terminals);
-        printf("num_global_connections = %d\n",p->num_global_connections);
-        printf("cn_delay =               %.2f\n",p->cn_delay);
-        printf("local_delay =            %.2f\n",p->local_delay);
-        printf("global_delay =           %.2f\n",p->global_delay);
-        printf("credit_delay =           %.2f\n",p->credit_delay);
-        printf("router_delay =           %.2f\n",p->router_delay);
-        printf("scoring =                %d\n",scoring);
-        printf("routing =                %d\n",routing);
-        printf("---------------------------------------------\n");
-    }
 }
 
 static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params)
@@ -870,24 +820,6 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         }
     }
 
-    if (DUMP_CONNECTIONS)
-    {
-        if (!myRank) {
-            for(int i=0; i < connManagerList.size(); i++)
-            {
-                connManagerList[i].print_connections();
-            }
-        }
-
-        printf("Does spine 479 have conn to group 27?\n");
-        for(int i = 0; i < connectionList[479/p->num_routers][27].size(); i++)
-        {
-            printf("%d\n",connectionList[479/p->num_routers][27][i]);
-        }
-    }
-
-    // exit(1);
-
     if (!myRank) {
         printf("\n Total nodes %d routers %d groups %d routers per group %d radix %d\n",
                p->num_cn * p->num_router_leaf * p->num_groups, p->total_routers, p->num_groups, p->num_routers, p->radix);
@@ -897,9 +829,6 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     p->local_delay = bytes_to_ns(p->chunk_size, p->local_bandwidth);
     p->global_delay = bytes_to_ns(p->chunk_size, p->global_bandwidth);
     p->credit_delay = bytes_to_ns(CREDIT_SIZE, p->local_bandwidth);  // assume 8 bytes packet
-
-    if (PRINT_CONFIG)
-        dragonfly_plus_print_params(p);
 }
 
 void dragonfly_plus_configure()
@@ -958,10 +887,10 @@ void dragonfly_plus_report_stats()
             max_time / 1000, (float) final_msg_sz / total_finished_msgs, total_finished_msgs,
             total_finished_chunks);
         if(isRoutingAdaptive(routing) || SHOW_ADAPTIVE_STATS) {
-            printf("\n ADAPTIVE ROUTING STATS: %d chunks routed minimally %d chunks routed non-minimally - completed packets: %lld \n",
+            printf("\n ADAPTIVE ROUTING STATS: %d chunks routed minimally %d chunks routed non-minimally completed packets %lld \n",
                 total_minimal_packets, total_nonmin_packets, total_finished_chunks);
         }
-      printf("\n Total packets generated: %ld; finished: %ld; Locally routed: same router: %ld, different-router: %ld; Remote (inter-group): %ld \n", total_gen, total_fin, total_local_packets_sr, total_local_packets_sg, total_remote_packets);
+      printf("\n Total packets generated %ld finished %ld Locally routed- same router %ld different-router %ld Remote (inter-group) %ld \n", total_gen, total_fin, total_local_packets_sr, total_local_packets_sg, total_remote_packets);
     }
     return;
 }
@@ -1356,8 +1285,8 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
     double cn_delay = s->params->cn_delay;
 
     int dest_router_id = dragonfly_plus_get_assigned_router_id(msg->dfp_dest_terminal_id, s->params);
-    int dest_grp_id = dest_router_id / s->params->num_routers;
-    int src_grp_id = s->router_id / s->params->num_routers;
+    int dest_grp_id = dest_router_id / s->params->num_routers; 
+    int src_grp_id = s->router_id / s->params->num_routers; 
 
     if(src_grp_id == dest_grp_id)
     {
@@ -1810,11 +1739,6 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
 
     /* WE do not allow self messages through dragonfly */
     assert(lp->gid != msg->src_terminal_id);
-
-    // Verify that the router that send the packet to this terminal is the router assigned to this terminal
-    int dest_router_id = dragonfly_plus_get_assigned_router_id(s->terminal_id, s->params);
-    int received_from_rel_id = codes_mapping_get_lp_relative_id(msg->intm_lp_id,0,0);
-    assert(dest_router_id == received_from_rel_id);
 
     uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
     if (msg->packet_size < s->params->chunk_size)
@@ -2363,7 +2287,7 @@ static int get_min_hops_to_dest_from_conn(router_state *s, tw_bf *bf, terminal_p
             vector< Connection > cons_to_dest_group = connManagerList[conn.dest_gid].get_connections_to_group(fdest_group_id);
             if (cons_to_dest_group.size() == 0)
                 return 5; //Next Spine -> Leaf -> Spine -> Spine -> Leaf -> dest_term
-            else
+            else 
                 return 3;  //Next Spine -> Spine -> Leaf -> dest_term
         }
         else {
@@ -2381,13 +2305,6 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
 {
     int score = 0; //can't forget to initialize this to zero.
     int port = conn.port;
-
-    if (port == -1) {
-        if (scoring_preference == LOWER)
-            return INT_MAX;
-        else
-            return 0;
-    }
 
     switch(scoring) {
         case ALPHA: //considers vc occupancy and queued count only LOWER SCORE IS BETTER
@@ -2411,7 +2328,7 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
             break;
         }
         case GAMMA: //consideres vc occupancy and queue count but ports that follow a minimal path to fdest are biased 2:1 bonus by multiplying minimal by 2 HIGHER SCORE IS BETTER
-        {
+        {   
             score = s->params->max_port_score; //initialize this to max score.
             int to_subtract = 0;
             for(int k=0; k < s->params->num_vcs; k++)
@@ -2751,7 +2668,7 @@ static Connection do_dfp_routing(router_state *s,
     bool in_intermediate_group = (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
 
 
-    Connection nextStopConn; //the connection that we will forward the packet to
+    int adaptive_threshold = s->params->adaptive_threshold;
 
     //----------- LOCAL GROUP ROUTING --------------
     if (my_router_id == fdest_router_id) {
@@ -2770,6 +2687,7 @@ static Connection do_dfp_routing(router_state *s,
     //------------ END LOCAL GROUP ROUTING ---------
     // from here we can assume that we are not in the destination group
 
+    Connection theConn;
 
     if (isRoutingAdaptive(routing)) {
         if (routing == PROG_ADAPTIVE)
@@ -2929,7 +2847,6 @@ static void router_packet_receive_rc(router_state *s, tw_bf *bf, terminal_plus_m
 /* Packet arrives at the router and a credit is sent back to the sending terminal/router */
 static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
 {
-    router_verify_valid_receipt(s, bf, msg, lp);
     router_ecount++;
 
     tw_stime ts;
@@ -3030,6 +2947,7 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
             m->type = R_SEND;
             m->magic = router_magic_num;
             m->vc_index = output_port;
+            m->dfp_upward_channel_flag = msg->dfp_upward_channel_flag;
 
             tw_event_send(e);
             s->in_send_loop[output_port] = 1;
