@@ -1728,23 +1728,23 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
     // Trigger an event on receiving server
 
     // printf("Packet arrived: %d hops\n", msg->my_N_hop);
-    if (routing == MINIMAL) {
-        if (msg->my_N_hop > 4)
-            printf("Bad Routed Packet Arrived: %d hops\n",msg->my_N_hop);
-    }
-    if (routing == NON_MINIMAL_LEAF) {
-        if (msg->my_N_hop > 7)
-            printf("Bad Routed Packet Arrived: %d hops\n",msg->my_N_hop);
-    }
-    if (routing == NON_MINIMAL_SPINE) {
-        if (msg->my_N_hop > 5)
-            printf("Bad Routed Packet Arrived: %d hops\n",msg->my_N_hop);
-    }
-    if (routing == PROG_ADAPTIVE) {
-        if (msg->my_N_hop > 7)
-            printf("Bad Routed Packet Arrived: %d hops\n",msg->my_N_hop);
-    }
-    
+    // if (routing == MINIMAL) {
+    //     if (msg->my_N_hop > 4)
+    //         printf("Bad Routed Packet Arrived: %d hops\n",msg->my_N_hop);
+    // }
+    // if (routing == NON_MINIMAL_LEAF) {
+    //     if (msg->my_N_hop > 7)
+    //         printf("Bad Routed Packet Arrived: %d hops\n",msg->my_N_hop);
+    // }
+    // if (routing == NON_MINIMAL_SPINE) {
+    //     if (msg->my_N_hop > 5)
+    //         printf("Bad Routed Packet Arrived: %d hops\n",msg->my_N_hop);
+    // }
+    // if (routing == PROG_ADAPTIVE) {
+    //     if (msg->my_N_hop > 7)
+    //         printf("Bad Routed Packet Arrived: %d hops\n",msg->my_N_hop);
+    // }
+
 
     if (!s->rank_tbl)
         s->rank_tbl = qhash_init(dragonfly_rank_hash_compare, dragonfly_hash_func, DFLY_HASH_TABLE_SIZE);
@@ -2615,12 +2615,12 @@ static vector< Connection > get_possible_stops_to_specific_router(router_state *
     }
     else { //then we are not the specific router, nor are we in the specific router's group.
         if (s->dfp_router_type == SPINE) { //then we need to send to the specific group if we have a connection, otherwise we send to a leaf in our group
-            if (specific_router_type == SPINE) { //then it's not good enough to just send to the specific group, we have to send to the specific router
-                vector< Connection > conns_to_spec_router = s->connMan->get_connections_to_gid(specific_router_id, CONN_GLOBAL);
-                if (conns_to_spec_router.size() < 1)
-                    tw_error(TW_LOC, "Failed to find a connection to specific router\n");
-                possible_next_conns = conns_to_spec_router;
-            }
+            // if (specific_router_type == SPINE) { //then it's not good enough to just send to the specific group, we have to send to the specific router
+            //     vector< Connection > conns_to_spec_router = s->connMan->get_connections_to_gid(specific_router_id, CONN_GLOBAL);
+            //     if (conns_to_spec_router.size() < 1)
+            //         tw_error(TW_LOC, "Failed to find a connection to specific router\n");
+            //     possible_next_conns = conns_to_spec_router;
+            // }
 
             vector< Connection > conns_to_spec_group = s->connMan->get_connections_to_group(specific_group_id);
             if (conns_to_spec_group.size() < 1) { //then we have to send to a leaf on local
@@ -2781,7 +2781,8 @@ static Connection do_dfp_routing(router_state *s,
         if (poss_next_stops.size() < 1)
             tw_error(TW_LOC, "MINIMAL DEAD END\n");
         
-        return poss_next_stops[0];
+        int randsel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1 );
+        return poss_next_stops[randsel];
     }
     else { //routing algorithm is specified in routing
         assert( (routing == NON_MINIMAL_LEAF) || (routing == NON_MINIMAL_SPINE) );
@@ -2817,56 +2818,18 @@ static Connection do_dfp_routing(router_state *s,
 
         if (route_to_fdest) {
             vector< Connection > poss_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, fdest_router_id);
-            return poss_next_stops[0];
+            int randsel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1 );
+            return poss_next_stops[randsel];
         }
         else { //then we need to be going toward the intermediate router
             msg->path_type = NON_MINIMAL;
             vector< Connection > poss_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, msg->intm_rtr_id);
-            return poss_next_stops[0];
+            int randsel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1 );
+            return poss_next_stops[randsel];
         }
     }
 
     tw_error(TW_LOC, "do_dfp_routing(): No route chosen!\n");
-}
-
-
-static void router_packet_receive_rc(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
-    router_rev_ecount++;
-    router_ecount--;
-
-    int output_port = msg->saved_vc;
-    int output_chan = msg->saved_channel;
-
-    if( isRoutingAdaptive(routing) ) {
-        //we need to reverse 4
-        for(int i =0; i < 4; i++)
-            tw_rand_reverse_unif(lp->rng);
-    }
-    else {
-        tw_rand_reverse_unif(lp->rng);
-    }
-
-    tw_rand_reverse_unif(lp->rng);
-    if (bf->c2) {
-        tw_rand_reverse_unif(lp->rng);
-        terminal_plus_message_list *tail =
-            return_tail(s->pending_msgs[output_port], s->pending_msgs_tail[output_port], output_chan);
-        delete_terminal_plus_message_list(tail);
-        s->vc_occupancy[output_port][output_chan] -= s->params->chunk_size;
-        if (bf->c3) {
-            codes_local_latency_reverse(lp);
-            s->in_send_loop[output_port] = 0;
-        }
-    }
-    if (bf->c4) {
-        if (bf->c22) {
-            s->last_buf_full[output_port][output_chan] = msg->saved_busy_time;
-        }
-        delete_terminal_plus_message_list(
-            return_tail(s->queued_msgs[output_port], s->queued_msgs_tail[output_port], output_chan));
-        s->queued_count[output_port] -= s->params->chunk_size;
-    }
 }
 
 static void router_verify_valid_receipt(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
@@ -2922,6 +2885,45 @@ static void router_verify_valid_receipt(router_state *s, tw_bf *bf, terminal_plu
     assert(has_valid_connection);
 }
 
+static void router_packet_receive_rc(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
+{
+    router_rev_ecount++;
+    router_ecount--;
+
+    int output_port = msg->saved_vc;
+    int output_chan = msg->saved_channel;
+
+    if( isRoutingAdaptive(routing) ) {
+        //we need to reverse 4
+        for(int i =0; i < 4; i++)
+            tw_rand_reverse_unif(lp->rng);
+    }
+    else {
+        tw_rand_reverse_unif(lp->rng);
+    }
+
+    tw_rand_reverse_unif(lp->rng);
+    if (bf->c2) {
+        tw_rand_reverse_unif(lp->rng);
+        terminal_plus_message_list *tail =
+            return_tail(s->pending_msgs[output_port], s->pending_msgs_tail[output_port], output_chan);
+        delete_terminal_plus_message_list(tail);
+        s->vc_occupancy[output_port][output_chan] -= s->params->chunk_size;
+        if (bf->c3) {
+            codes_local_latency_reverse(lp);
+            s->in_send_loop[output_port] = 0;
+        }
+    }
+    if (bf->c4) {
+        if (bf->c22) {
+            s->last_buf_full[output_port][output_chan] = msg->saved_busy_time;
+        }
+        delete_terminal_plus_message_list(
+            return_tail(s->queued_msgs[output_port], s->queued_msgs_tail[output_port], output_chan));
+        s->queued_count[output_port] -= s->params->chunk_size;
+    }
+}
+
 /* MM: This will need changes for the port selection and routing part. The
  * progressive adaptive routing would need modification as well. */
 /* Packet arrives at the router and a credit is sent back to the sending terminal/router */
@@ -2972,7 +2974,6 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
     cur_chunk->msg.next_stop = next_stop;
 
     output_chan = 0;
-
     if(cur_chunk->msg.dfp_upward_channel_flag) {
         output_chan = 1;
     }
