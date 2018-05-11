@@ -328,7 +328,8 @@ typedef enum conn_minimality_t
 
 typedef enum dfp_path_hop_t
 {
-    SOURCE_LEAF = 1, //a leaf router in the packets originating group
+    ORIGIN_LEAF = 1, //the originating leaf
+    SOURCE_LEAF, //a leaf router in the packets originating group
     SOURCE_SPINE, //a spine router in the packets originating group
     INTERMEDIATE_LEAF, //a leaf router not in the packets originating group or destination group
     INTERMEDIATE_SPINE, //a spine router not in the packets originating group or destination group
@@ -2492,7 +2493,7 @@ static vector< Connection > get_possible_stops_to_intermediate_router(router_sta
     vector< Connection > possible_next_conns;
 
     switch (my_hop_type) {
-        case SOURCE_LEAF :
+        case ORIGIN_LEAF :
         {
             //possible minimal connections are to spines that have a connection to the dest router
             set<int> poss_router_id_set;
@@ -2515,6 +2516,7 @@ static vector< Connection > get_possible_stops_to_intermediate_router(router_sta
         {
             possible_next_conns = s->connMan->get_connections_to_gid(specific_router_id, CONN_LOCAL);
         } break;
+        case SOURCE_LEAF :
         case INTERMEDIATE_LEAF :
         case DESTINATION_LEAF :
         case DESTINATION_SPINE :
@@ -2542,7 +2544,7 @@ static vector< Connection > get_possible_minimal_stops_to_destination(router_sta
     vector< Connection > possible_next_conns;
 
     switch (my_hop_type) {
-        case SOURCE_LEAF :
+        case ORIGIN_LEAF :
         case INTERMEDIATE_LEAF :
         {
             assert(s->dfp_router_type == LEAF);
@@ -2568,6 +2570,7 @@ static vector< Connection > get_possible_minimal_stops_to_destination(router_sta
             possible_next_conns = s->connMan->get_connections_to_group(dest_group_id);
             printf("%d connections from spine %d to group %d for %d\n",possible_next_conns.size(), my_router_id, dest_group_id, fdest_router_id);
         } break;
+        case SOURCE_LEAF :
         case DESTINATION_LEAF :
         {
             possible_next_conns = s->connMan->get_connections_by_type(CONN_LOCAL);
@@ -2914,8 +2917,12 @@ static Connection do_dfp_routing(router_state *s,
     else if (my_group_id == origin_group_id) {
         if (s->dfp_router_type == SPINE)
             my_hop_type = SOURCE_SPINE;
-        else
-            my_hop_type = SOURCE_LEAF;
+        else {
+            if (s->router_id == msg->origin_router_id)
+                my_hop_type = ORIGIN_LEAF;
+            else
+                my_hop_type = SOURCE_LEAF;
+        }
     }
     else {
         if (s->dfp_router_type == SPINE)
@@ -2955,9 +2962,9 @@ static Connection do_dfp_routing(router_state *s,
     else { //routing algorithm is specified in routing
         assert( (routing == NON_MINIMAL_LEAF) || (routing == NON_MINIMAL_SPINE) );
         switch ( my_hop_type ) {
-            case SOURCE_LEAF :
+            case ORIGIN_LEAF : 
             {
-                printf("source leaf\n");
+                printf("origin leaf\n");                
                 //pick an intermediate leaf router to forward to
                 int intm_router_id = dfp_pick_intermediate_router(s, bf, msg, lp, origin_group_id, fdest_group_id);
                 msg->intm_rtr_id = intm_router_id;
@@ -2967,6 +2974,12 @@ static Connection do_dfp_routing(router_state *s,
 
                 nextStopConn = poss_next_stops[0]; //TODO randomize this
 
+            }
+            case SOURCE_LEAF :
+            {
+                printf("source leaf\n");
+                vector< Connection > poss_next_stops = get_possible_minimal_stops_to_destination(s, bf, msg, lp, my_hop_type, fdest_router_id);
+                nextStopConn = poss_next_stops[0];
             } break;
             case SOURCE_SPINE :
             {
