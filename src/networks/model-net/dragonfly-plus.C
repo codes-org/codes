@@ -63,6 +63,7 @@ static vector< vector< vector< int > > > connectionList;
 
 static vector< ConnectionManager > connManagerList;
 
+
 struct IntraGroupLink
 {
     int src, dest;
@@ -385,9 +386,12 @@ enum router_type
     LEAF
 };
 
+static map< int, router_type> router_type_map;
+
+
 struct router_state
 {
-    unsigned int router_id;
+    int router_id;
     int group_id;
     int op_arr_size;
     int max_arr_size;
@@ -1045,10 +1049,12 @@ void router_plus_setup(router_state *r, tw_lp *lp)
     int intra_group_id = r->router_id % p->num_routers;
     if (intra_group_id >= (p->num_routers / 2)) { //TODO this assumes symmetric spine and leafs
         r->dfp_router_type = SPINE;
+        router_type_map[r->router_id] = SPINE;
         // printf("%lu: %i is a SPINE\n",lp->gid, r->router_id);
     }
     else {
         r->dfp_router_type = LEAF;
+        router_type_map[r->router_id] = LEAF;
         // printf("%lu: %i is a LEAF\n",lp->gid, r->router_id);
     }
 
@@ -1650,7 +1656,24 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
     // NIC aggregation - should this be a separate function?
     // Trigger an event on receiving server
 
-    // printf("Packet Arrived: %d hops\n",msg->my_N_hop);
+    // printf("Packet arrived: %d hops\n", msg->my_N_hop);
+    // if (routing == MINIMAL) {
+    //     if (msg->my_N_hop > 4)
+    //         printf("Bad Routed Packet Arrived: %d hops\n",msg->my_N_hop);
+    // }
+    // if (routing == NON_MINIMAL_LEAF) {
+    //     if (msg->my_N_hop > 7)
+    //         printf("Bad Routed Packet Arrived: %d hops\n",msg->my_N_hop);
+    // }
+    // if (routing == NON_MINIMAL_SPINE) {
+    //     if (msg->my_N_hop > 5)
+    //         printf("Bad Routed Packet Arrived: %d hops\n",msg->my_N_hop);
+    // }
+    // if (routing == PROG_ADAPTIVE) {
+    //     if (msg->my_N_hop > 7)
+    //         printf("Bad Routed Packet Arrived: %d hops\n",msg->my_N_hop);
+    // }
+
 
     if (!s->rank_tbl)
         s->rank_tbl = qhash_init(dragonfly_rank_hash_compare, dragonfly_hash_func, DFLY_HASH_TABLE_SIZE);
@@ -2234,103 +2257,6 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
     lp_io_write(lp->gid, (char *) "dragonfly-plus-router-traffic", written, s->output_buf2);
 }
 
-//Returns a vector of possible next stops that follow a minimal route to the destination
-static vector< Connection > get_possible_minimal_next_stops(router_state *s,
-                                            tw_bf *bf,
-                                            terminal_plus_message *msg,
-                                            tw_lp *lp,
-                                            int fdest_router_id)
-{
-    int local_router_id = s->router_id;
-    int my_group_id = s->router_id / s->params->num_routers;
-    int fdest_group_id = fdest_router_id / s->params->num_routers;
-    int origin_grp_id = msg->origin_router_id / s->params->num_routers;
-
-    vector< Connection > possible_next_conns = vector< Connection >();
-
-    if (fdest_router_id == local_router_id) {
-        assert(s->dfp_router_type == LEAF);
-        int term_id = msg->dfp_dest_terminal_id;
-        possible_next_conns = s->connMan->get_connections_to_gid(term_id, CONN_TERMINAL);
-    }
-    else if (s->group_id == fdest_group_id) { //we need to forward to the assigned router for the destination terminal
-        if (s->dfp_router_type == LEAF) {
-            //we need to send to a spine who can send it back down to the dest leaf in our group
-            possible_next_conns = s->connMan->get_connections_by_type(CONN_LOCAL);
-        }
-        else {
-            assert(s->dfp_router_type == SPINE);
-            int assigned_router = dragonfly_plus_get_assigned_router_id(msg->dfp_dest_terminal_id, s->params);
-            possible_next_conns = s->connMan->get_connections_to_gid(assigned_router, CONN_LOCAL);
-        }
-    }
-    else {
-        //Then packet direction is upward to another group
-        if (s->dfp_router_type == LEAF) {
-            //we need to get a list of connections to spine routers in our group that can connect to the fdest group
-
-            set<int> poss_router_id_set;
-            for(int i = 0; i < connectionList[my_group_id][fdest_group_id].size(); i++)
-            {
-                int poss_router_id = connectionList[my_group_id][fdest_group_id][i];
-                if (poss_router_id_set.count(poss_router_id) == 0) { //if we haven't added the connections from poss_router_id yet
-                    vector< Connection > conns = s->connMan->get_connections_to_gid(poss_router_id, CONN_LOCAL);
-                    possible_next_conns.insert(possible_next_conns.end(), conns.begin(), conns.end());
-                    poss_router_id_set.insert(poss_router_id);
-                }
-            }
-        }
-        else {
-            assert(s->dfp_router_type == SPINE);
-            possible_next_conns = s->connMan->get_connections_to_group(fdest_group_id); //gets connections to fdest group
-        }
-    }
-    return possible_next_conns;
-}
-
-//Returns a vector of possible next stops that follow a nonminimal route -
-static vector< Connection > get_possible_nonminimal_next_stops(router_state *s,
-                                            tw_bf *bf,
-                                            terminal_plus_message *msg,
-                                            tw_lp *lp,
-                                            int fdest_router_id)
-{
-    int local_router_id = s->router_id;
-    int my_group_id = s->router_id / s->params->num_routers;
-    int fdest_group_id = fdest_router_id / s->params->num_routers;
-    int origin_grp_id = msg->origin_router_id / s->params->num_routers;
-
-    vector< Connection > possible_next_conns;
-
-    if (s->group_id == fdest_group_id) {
-        return possible_next_conns; //empty because there is only minimal connections within the destination group
-    }
-    else {
-        if(s->dfp_router_type == LEAF) {
-            possible_next_conns = s->connMan->get_connections_by_type(CONN_LOCAL); //I am a leaf, my local connections are all to spine routers in my group
-        }
-        else { //SPINE
-            assert(s->dfp_router_type == SPINE);
-            bool in_intermediate_group = (my_group_id != origin_grp_id) && (my_group_id != fdest_group_id);
-
-            if (in_intermediate_group) { //then the nonminimal paths are those that go to leafs in my group
-                possible_next_conns = s->connMan->get_connections_by_type(CONN_LOCAL);
-            }
-            else { // Then we have to be in source group - nonminimal paths are those that go to any other group other than destination
-
-                for(int i = 0; i < s->params->num_groups; i++)
-                {
-                    if (i != fdest_group_id) {
-                        vector< Connection > conns_to_group = s->connMan->get_connections_to_group(i);
-                        possible_next_conns.insert(possible_next_conns.end(),conns_to_group.begin(),conns_to_group.end());
-                    }
-                }
-            }
-        }
-    }
-    return possible_next_conns;
-}
-
 static int get_min_hops_to_dest_from_conn(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, Connection conn)
 {
     int my_type = s->dfp_router_type;
@@ -2435,6 +2361,34 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
     return score;
 }
 
+//returns a router id of a router in a group that is not the source or the destination groups
+//Uses two RNGs
+static int dfp_pick_intermediate_router(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int source_group_id, int dest_group_id)
+{
+    vector< int > other_groups;
+    for(int i = 0; i < s->params->num_groups; i++)
+    {
+        if ((i != source_group_id) && (i != dest_group_id))
+            other_groups.push_back(i);
+    }
+
+    int intm_group_id = other_groups[tw_rand_integer(lp->rng, 0, other_groups.size() -1 )];
+    int intm_loc_id;
+    int intm_router_id;
+    if (routing == NON_MINIMAL_SPINE) {
+        intm_loc_id = tw_rand_integer(lp->rng, s->params->num_router_leaf, s->params->num_routers -1);
+        intm_router_id = (intm_group_id * s->params->num_routers) + intm_loc_id;
+        assert(router_type_map[intm_router_id] == SPINE);
+    }
+    else {
+        intm_loc_id = tw_rand_integer(lp->rng, 0, s->params->num_router_leaf -1);
+        intm_router_id = (intm_group_id * s->params->num_routers) + intm_loc_id;
+        assert(router_type_map[intm_router_id] == LEAF);
+    }
+    
+    return intm_router_id;
+}
+
 static vector< Connection > dfp_select_two_connections(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector< Connection > conns)
 {
     if(conns.size() < 2) {
@@ -2483,6 +2437,223 @@ static vector< Connection > dfp_select_two_connections(router_state *s, tw_bf *b
     return selected_conns;
 }
 
+//TODO this defaults to min, at time of implementation all connections in conns are of same minimality so their scores compared to each other don't matter on minimality
+static Connection get_best_connection_from_conns(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector<Connection> conns)
+{
+    if (conns.size() == 0) {
+        tw_rand_integer(lp->rng, 0, 2);
+        tw_rand_integer(lp->rng, 0, 2);
+        Connection bad_conn;
+        bad_conn.src_gid = -1;
+        bad_conn.port = -1;
+        return bad_conn;
+    }
+    if (conns.size() < 2) {
+        tw_rand_integer(lp->rng, 0, 2);
+        tw_rand_integer(lp->rng, 0, 2);
+        return conns[0];
+    }
+    int num_to_compare = 2; //TODO make this a configurable
+    vector< Connection > selected_conns = dfp_select_two_connections(s, bf, msg, lp, conns);
+
+    int scores[num_to_compare];
+    for(int i = 0; i < num_to_compare; i++)
+    {
+        scores[i] = dfp_score_connection(s, bf, msg, lp, selected_conns[i], C_MIN);
+    }
+
+    int best_score_index = 0;
+    if (scoring_preference == LOWER) {
+        
+        int best_score = INT_MAX;
+        for(int i = 0; i < num_to_compare; i++)
+        {
+            if (scores[i] < best_score) {
+                best_score = scores[i];
+                best_score_index = i;
+            }
+        }
+    }
+    else {
+        
+        int best_score = 0;
+        for(int i = 0; i < num_to_compare; i++)
+        {
+            if (scores[i] > best_score) {
+                best_score = scores[i];
+                best_score_index = i;
+            }
+        }
+    }
+
+    return selected_conns[best_score_index];
+}
+
+static vector< Connection > get_possible_stops_to_specific_router(router_state *s,
+                                                                        tw_bf *bf,
+                                                                        terminal_plus_message *msg,
+                                                                        tw_lp *lp,
+                                                                        int specific_router_id)
+{
+    int my_router_id = s->router_id;
+    int my_group_id = s->router_id / s->params->num_routers;
+    int specific_group_id = specific_router_id / s->params->num_routers;
+    router_type specific_router_type = router_type_map[specific_router_id];
+
+    if (specific_router_type == SPINE)
+        tw_error(TW_LOC, "ROUTING TO SPINE NOT SUPPORTED\n"); //TODO when picking intm_rtr_id at the origin leaf, we need to pick a spine router that has a direct connection to our group!
+
+    vector< Connection > possible_next_conns;
+
+    if (my_router_id == specific_router_id) {
+        return possible_next_conns; //we're there so theres no need to go further. return empty - routing should check if we've arrived before calling this method
+    }
+    else if (my_group_id == specific_group_id) {
+
+        if (s->dfp_router_type == SPINE) {
+            if (specific_router_type == SPINE) { //Then we need to send to one of our leafs first on local
+                possible_next_conns = s->connMan->get_connections_by_type(CONN_LOCAL); 
+            }
+            else { //Then we have a local connection to the specific router on local
+                assert(specific_router_type == LEAF);
+                possible_next_conns = s->connMan->get_connections_to_gid(specific_router_id, CONN_LOCAL);
+            }
+        }
+        else { //we're a leaf in the specific router group
+            assert(s->dfp_router_type == LEAF);
+            if (specific_router_type == SPINE) { //Then we have a local connection to the specific router on local
+                possible_next_conns = s->connMan->get_connections_to_gid(specific_router_id, CONN_LOCAL);
+            }
+            else { //then the specific router is a leaf within our group and we need to send to one of our spines first
+                assert(specific_router_type == LEAF);
+                possible_next_conns = s->connMan->get_connections_by_type(CONN_LOCAL);
+            }
+        }
+    }
+    else { //then we are not the specific router, nor are we in the specific router's group.
+        if (s->dfp_router_type == SPINE) { //then we need to send to the specific group if we have a connection, otherwise we send to a leaf in our group
+            // if (specific_router_type == SPINE) { //then it's not good enough to just send to the specific group, we have to send to the specific router
+            //     vector< Connection > conns_to_spec_router = s->connMan->get_connections_to_gid(specific_router_id, CONN_GLOBAL);
+            //     if (conns_to_spec_router.size() < 1)
+            //         tw_error(TW_LOC, "Failed to find a connection to specific router\n");
+            //     possible_next_conns = conns_to_spec_router;
+            // }
+
+            vector< Connection > conns_to_spec_group = s->connMan->get_connections_to_group(specific_group_id);
+            if (conns_to_spec_group.size() < 1) { //then we have to send to a leaf on local
+                possible_next_conns = s->connMan->get_connections_by_type(CONN_LOCAL);
+            }
+            else { //then we can send to the specific group via global conn
+                possible_next_conns = s->connMan->get_connections_to_group(specific_group_id);
+            }
+
+        }
+        else { //then we are a leaf and need to send to a spine that has a connection to the spec router group 
+            assert(s->dfp_router_type == LEAF);
+            vector< Connection> possible_next_conns_to_group;
+            set<int> poss_router_id_set_to_group;
+            for(int i = 0; i < connectionList[my_group_id][specific_group_id].size(); i++)
+            {
+                int poss_router_id = connectionList[my_group_id][specific_group_id][i];
+                // printf("%d\n",poss_router_id);
+                if (poss_router_id_set_to_group.count(poss_router_id) == 0) { //if we haven't added the connections from poss_router_id yet
+                    vector< Connection > conns = s->connMan->get_connections_to_gid(poss_router_id, CONN_LOCAL);
+                    poss_router_id_set_to_group.insert(poss_router_id);
+                    possible_next_conns_to_group.insert(possible_next_conns_to_group.end(), conns.begin(), conns.end());
+                }
+            }
+            if (possible_next_conns_to_group.size() < 1)
+                tw_error(TW_LOC, "Something went wrong when trying to send to a spine with connection to spec group\n");
+
+            if (specific_router_type == SPINE) { //then its not good enough to just send to a spine with a connection to the group, it has to go to a spine that has a direct conn to the spec router id
+                for(int i = 0; i < possible_next_conns_to_group.size(); i++)
+                {
+                    Connection poss_next_spine = possible_next_conns_to_group[i];
+                    vector< Connection> connecting_conns_to_spec = connManagerList[poss_next_spine.dest_gid].get_connections_to_gid(specific_router_id, CONN_GLOBAL);
+                    if (connecting_conns_to_spec.size() > 0) { //then poss_next_spine is a valid next stop, add my connections to it as possible next stops
+                        possible_next_conns.push_back(poss_next_spine);
+                    }
+                }
+            }
+            else { //then just sending to the group is good enough
+                possible_next_conns = possible_next_conns_to_group;
+            }
+        }
+    }
+
+    if (possible_next_conns.size() < 1)
+        tw_error(TW_LOC,"didn't pick any possible next stops!\n");
+
+    return possible_next_conns;
+
+}
+
+static Connection do_dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
+{
+    int my_router_id = s->router_id;
+    int my_group_id = s->router_id / s->params->num_routers;
+    int fdest_group_id = fdest_router_id / s->params->num_routers;
+    int origin_group_id = msg->origin_router_id / s->params->num_routers;
+    bool in_intermediate_group = (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
+    bool outside_source_group = (my_group_id != origin_group_id);
+    int adaptive_threshold = s->params->adaptive_threshold;
+
+    if (msg->intm_rtr_id == -1) //then we havent picked an intermediate router yet
+        msg->intm_rtr_id = dfp_pick_intermediate_router(s, bf, msg, lp, origin_group_id, fdest_group_id);
+    if (msg->intm_rtr_id == my_router_id) //then we are the intermediate router and need to forward to fdest on the upward channel (VL 1)
+        msg->dfp_upward_channel_flag = 1;
+
+    //The check for local routing has already been completed at this point
+
+    Connection nextStopConn;
+    vector< Connection > poss_min_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, fdest_router_id);
+    vector< Connection > poss_intm_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, msg->intm_rtr_id);
+
+    //select two connections from each possible minimal and intermediate and pick the best
+    Connection best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_min_next_stops);
+    Connection best_intm_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_intm_next_stops);
+
+    //if the best is intermediate, encode the intermediate router id in the message, set path type to non minimal
+    int min_score = dfp_score_connection(s, bf, msg, lp, best_min_conn, C_MIN);
+    int intm_score = dfp_score_connection(s, bf, msg, lp, best_intm_conn, C_NONMIN);
+
+    bool route_to_fdest = false;
+    if (msg->dfp_upward_channel_flag == 1) { //then we need to route to fdest, no questions asked.
+        route_to_fdest = true;
+    }
+    else {
+        if (msg->path_type == MINIMAL) { //we need to evaluate whether to stay on the minimal path or deviate
+            if (scoring_preference == LOWER) {
+                if (min_score <= intm_score) {
+                    route_to_fdest = true;
+                }
+                else { //Changing to a nonminimal path!
+                    msg->path_type = NON_MINIMAL;
+
+                }
+            }
+            else { //HIGHER is better
+                if (min_score >= intm_score) {
+                    route_to_fdest = true;
+                }
+                else { //changing to a nonminimal path!
+                    msg->path_type = NON_MINIMAL;
+                }
+            }
+        }
+        //we don't need to do anything if the path type is already non-minimal. "Don't revisit decision to route non-minimally after it's been made to be non-minimal"
+    }
+
+    if (route_to_fdest){
+        nextStopConn = best_min_conn;
+    }
+    else {
+        nextStopConn = best_intm_conn;
+    }
+
+    return nextStopConn;
+}
+
 static Connection do_dfp_routing(router_state *s,
                                 tw_bf *bf,
                                 terminal_plus_message *msg,
@@ -2490,180 +2661,146 @@ static Connection do_dfp_routing(router_state *s,
                                 int fdest_router_id)
 {
 
-    int local_router_id = s->router_id;
+    int my_router_id = s->router_id;
     int my_group_id = s->router_id / s->params->num_routers;
     int fdest_group_id = fdest_router_id / s->params->num_routers;
-    int origin_grp_id = msg->origin_router_id / s->params->num_routers;
-    bool in_intermediate_group = (my_group_id != origin_grp_id) && (my_group_id != fdest_group_id);
+    int origin_group_id = msg->origin_router_id / s->params->num_routers;
+    bool in_intermediate_group = (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
+
 
     int adaptive_threshold = s->params->adaptive_threshold;
 
-    vector< Connection > poss_min_next_stops = get_possible_minimal_next_stops(s, bf, msg, lp, fdest_router_id);
-    vector< Connection > poss_non_min_next_stops = get_possible_nonminimal_next_stops(s, bf, msg, lp, fdest_router_id);
+    //----------- LOCAL GROUP ROUTING --------------
+    if (my_router_id == fdest_router_id) {
+        vector< Connection > poss_next_stops = s->connMan->get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
+        if (poss_next_stops.size() < 1)
+            tw_error(TW_LOC, "Destination Router: No connection to destination terminal\n");
+        return poss_next_stops[0];
+    }
+    else if (my_group_id == fdest_group_id) { //then we just route minimally
+        vector< Connection > poss_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, fdest_router_id);
+        if (poss_next_stops.size() < 1)
+            tw_error(TW_LOC, "DEAD END WHEN ROUTING LOCALLY\n");
+        
+        return poss_next_stops[0];
+    }
+    //------------ END LOCAL GROUP ROUTING ---------
+    // from here we can assume that we are not in the destination group
 
     Connection theConn;
 
     if (isRoutingAdaptive(routing)) {
-        bool choose_minimal = false;
-
-        int num_min_poss = poss_min_next_stops.size();
-        int num_nonmin_poss = poss_non_min_next_stops.size();
-
-        if (msg->dfp_upward_channel_flag == 1 || (my_group_id == fdest_group_id))
-            choose_minimal = true; //in both of these cases minimal should always be chosen
-
-        vector< Connection > selected_minimal_conns;
-        if (my_group_id == fdest_group_id) { //if we are in the final destination group
-            selected_minimal_conns = poss_min_next_stops; //then we want to find the least congested out of all of the possible minimum paths
-            
-            //two garbage random numbers to keep things even since we're not randomly selecting two connections. 
-            //TODO This will need to be changed if select_two is made configurable
-            tw_rand_integer(lp->rng,0,1);
-            tw_rand_integer(lp->rng,0,1);
-        }
-        else //then we do the typical randomly select two connections
-        {
-            selected_minimal_conns = dfp_select_two_connections(s, bf, msg, lp, poss_min_next_stops);
-        }
-
-        vector< Connection > selected_nonminimal_conns = dfp_select_two_connections(s, bf, msg, lp, poss_non_min_next_stops);
+        if (routing == PROG_ADAPTIVE)
+            nextStopConn = do_dfp_prog_adaptive_routing(s, bf, msg, lp, fdest_router_id);
+            return nextStopConn;
+    }
+    else if (isRoutingMinimal(routing)) {
+        vector< Connection > poss_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, fdest_router_id);
+        if (poss_next_stops.size() < 1)
+            tw_error(TW_LOC, "MINIMAL DEAD END\n");
         
-        int num_conns = selected_minimal_conns.size() + selected_nonminimal_conns.size(); //we selected two from each //TODO maybe make this configurable
-
-
-        //calculate the best connections for minimal and nonminimal
-        int scores[num_conns];
-        for(int i = 0; i < num_conns; i++)
-        {
-            if(i < (selected_minimal_conns.size()) )
-                scores[i] = dfp_score_connection(s, bf, msg, lp, selected_minimal_conns[i], C_MIN);
-            else
-                scores[i] = dfp_score_connection(s, bf, msg, lp, selected_nonminimal_conns[i-selected_minimal_conns.size()], C_NONMIN);
-        }
-        
-        // compare scores based on the scoring preference ----------------------------------------------------------------------------------------------------
-        int best_min_score_index = 0;
-        int best_non_min_score_index = 0;
-
-        if (scoring_preference == LOWER) { //Lower scores are better
-            int best_min_score = INT_MAX;
-            for(int i = 0; i < selected_minimal_conns.size(); i++)
-            {
-                if (scores[i] < best_min_score) {
-                    best_min_score = scores[i];
-                    best_min_score_index = i;
-                }
-            }
-
-            int best_non_min_score = INT_MAX;
-            for(int i = selected_minimal_conns.size(); i < num_conns; i++)
-            {
-                if (scores[i] < best_non_min_score) {
-                    best_non_min_score = scores[i];
-                    best_non_min_score_index = i-selected_minimal_conns.size();
-                }
-            }
-
-            if (best_min_score < adaptive_threshold) { //if our best min score is under the adaptive threshold, then we don't consider non-minimal routes, choose minimal
-                choose_minimal = true;
-            }
-            else if (best_min_score <= best_non_min_score) { //our best min score is over the adaptive threshold. So we compare best min score with best nonmin score. If best min is still better, then we choose minimal.
-                choose_minimal = true;
-            }
-            //else then we go with nonmin
-        }
-        else if (scoring_preference == HIGHER) { //higher scores are better
-            int best_min_score = 0;
-            for(int i = 0; i < selected_minimal_conns.size(); i++)
-            {
-                if (scores[i] > best_min_score) {
-                    best_min_score = scores[i];
-                    best_min_score_index = i;
-                }
-            }
-
-            int best_non_min_score = 0;
-            for(int i = selected_minimal_conns.size(); i < num_conns; i++)
-            {
-                if (scores[i] > best_non_min_score) {
-                    best_non_min_score = scores[i];
-                    best_non_min_score_index = i-selected_minimal_conns.size();
-                }
-            }
-
-            if (best_min_score >= best_non_min_score) { //ties go to minimal
-                choose_minimal = true;
-            }
-        }
-        // end scoring stuff ----------------------------------------------------------------------------------------------------------------------------------
-
-        //intermediate groups have restrictions on how they have to route to avoid livelock
-        if (in_intermediate_group) {
-            if (s->dfp_router_type == SPINE) { //intermediate spine
-                if (choose_minimal)
-                    msg->dfp_upward_channel_flag = 1; //only if it chose minimal should this be flipped on
-            }
-            else {
-                assert(s->dfp_router_type == LEAF); //intermediate leaf always sends
-                choose_minimal = true;
-                msg->dfp_upward_channel_flag = 1;
-            }
-        }
-
-        if (choose_minimal) {
-            theConn = selected_minimal_conns[best_min_score_index];
-        }
-        else {
-            msg->path_type = NON_MINIMAL; //We chose a nonminimal stop - we will never reset the path type back to minimal!!!!
-            theConn = selected_nonminimal_conns[best_non_min_score_index];
-        }
+        int randsel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1 );
+        return poss_next_stops[randsel];
     }
     else { //routing algorithm is specified in routing
-        bool choose_minimal = false;
-        if (isRoutingMinimal(routing) || msg->dfp_upward_channel_flag == 1 || (my_group_id == fdest_group_id))
-            choose_minimal = true;
-        else {
-            if (in_intermediate_group) {
-                if (s->dfp_router_type == SPINE) { //INTERMEDIATE SPINE
-                    if (routing == NON_MINIMAL_SPINE) {
-                        //from here we follow minimal
-                        choose_minimal = true;
-                        msg->dfp_upward_channel_flag = 1;
-                    }
-                    else {
-                        assert(routing == NON_MINIMAL_LEAF);
-                        //from here we have to go to a leaf
-                        choose_minimal = false;
-                    }
-                }
-                else { //INTERMEDIATE LEAF
-                    assert(s->dfp_router_type == LEAF);
-                    //from here we have to follow minimal
-                    choose_minimal = true;
-                    msg->dfp_upward_channel_flag = 1;
-                }
+        assert( (routing == NON_MINIMAL_LEAF) || (routing == NON_MINIMAL_SPINE) );
+        bool route_to_fdest = false;
+
+        if(s->dfp_router_type == LEAF) {
+            if (s->router_id == msg->intm_rtr_id) { //then we are the intermediate router
+                msg->dfp_upward_channel_flag = 1; //from here on the packet should be routed to fdest_router_id
+                route_to_fdest = true;
             }
-            else { //must be in source group
-                assert(my_group_id == origin_grp_id);
-                choose_minimal = false; //if routing were MINIMAL, then we'd have hit the conditional above and chosen minimal already.
+            else if (msg->dfp_upward_channel_flag == 1) { //then we have already visited the intermediate router
+                route_to_fdest = true;
+            }
+            else { //then we still need to go to the intermediate router
+                if (msg->intm_rtr_id == -1)
+                    msg->intm_rtr_id = dfp_pick_intermediate_router(s, bf, msg, lp, origin_group_id, fdest_group_id);
+            }
+        }
+        else {
+            assert(s->dfp_router_type == SPINE);
+            if (s->router_id == msg->intm_rtr_id) { //then we are the intermediate router
+                msg->dfp_upward_channel_flag = 1;
+                route_to_fdest = true;
+            }
+            else if (msg->dfp_upward_channel_flag == 1) { //then we have already visited the intermediate router
+                route_to_fdest = true;
+            }
+            else { //then we still need to go to the intermediate router
+                if (msg->intm_rtr_id == -1)
+                    tw_error(TW_LOC, "intm router id not set!");
             }
         }
 
-        if (choose_minimal == true) {
-            assert(poss_min_next_stops.size() > 0);
-            int rand_sel = tw_rand_integer(lp->rng, 0, poss_min_next_stops.size()-1);
-            theConn = poss_min_next_stops[rand_sel];
+        if (route_to_fdest) {
+            vector< Connection > poss_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, fdest_router_id);
+            int randsel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1 );
+            return poss_next_stops[randsel];
         }
-        else {
+        else { //then we need to be going toward the intermediate router
             msg->path_type = NON_MINIMAL;
-            assert(poss_non_min_next_stops.size() > 0);
-            int rand_sel = tw_rand_integer(lp->rng, 0, poss_non_min_next_stops.size()-1);
-            theConn =  poss_non_min_next_stops[rand_sel];
+            vector< Connection > poss_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, msg->intm_rtr_id);
+            int randsel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1 );
+            return poss_next_stops[randsel];
         }
-
     }
 
-    return theConn;
+    tw_error(TW_LOC, "do_dfp_routing(): No route chosen!\n");
+}
+
+static void router_verify_valid_receipt(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
+{
+    tw_lpid last_sender_lpid = msg->intm_lp_id;
+    int rel_id, src_term_rel_id;
+
+    bool has_valid_connection = false;
+    if (msg->last_hop == TERMINAL)
+    {
+        tw_lpid src_term_lpgid = msg->src_terminal_id;
+        try {
+            src_term_rel_id = codes_mapping_get_lp_relative_id(src_term_lpgid,0,0);
+        }
+        catch (...) {
+            tw_error(TW_LOC, "\nRouter Receipt Verify: Codes Mapping Get LP Rel ID Failure - Terminal");
+        }
+        has_valid_connection = s->connMan->is_connected_to_by_type(src_term_rel_id, CONN_TERMINAL);
+    }
+    else if (msg->last_hop == LOCAL)
+    {
+        try {
+            rel_id = codes_mapping_get_lp_relative_id(last_sender_lpid,0,0);
+        }
+        catch (...) {
+            tw_error(TW_LOC, "\nRouter Receipt Verify: Codes Mapping Get LP Rel ID Failure - Local");
+        }
+
+        int rel_loc_id = rel_id % s->params->num_routers;
+        has_valid_connection = s->connMan->is_connected_to_by_type(rel_loc_id, CONN_LOCAL);
+    }
+    else if (msg->last_hop == GLOBAL)
+    {
+        try {
+            rel_id = codes_mapping_get_lp_relative_id(last_sender_lpid,0,0);
+        }
+        catch (...) {
+            tw_error(TW_LOC, "\nRouter Receipt Verify: Codes Mapping Get LP Rel ID Failure - Global");
+        }
+        has_valid_connection = s->connMan->is_connected_to_by_type(rel_id, CONN_GLOBAL);
+    }
+    else
+    {
+        tw_error(TW_LOC, "\nDFP Router Verify Valid Receipt: Last Hop invalidly defined");
+    }
+
+    if (!has_valid_connection){
+        if (msg->last_hop == TERMINAL)
+            printf("ERROR: Router ID %d has no connection to Terminal %d but received a message from it!",s->router_id, src_term_rel_id);
+        else
+            printf("ERROR: Router ID %d has no connection to Router %d but received a message from it!",s->router_id, rel_id);
+    }
+    assert(has_valid_connection);
 }
 
 static void router_packet_receive_rc(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
@@ -2754,7 +2891,6 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
     cur_chunk->msg.next_stop = next_stop;
 
     output_chan = 0;
-
     if(cur_chunk->msg.dfp_upward_channel_flag) {
         output_chan = 1;
     }

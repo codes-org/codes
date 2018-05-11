@@ -34,7 +34,7 @@ static char lp_io_dir[256] = {'\0'};
 static lp_io_handle io_handle;
 static unsigned int lp_io_use_suffix = 0;
 static int do_lp_io = 0;
-static int num_msgs = 20;
+static int num_msgs = 40;
 static tw_stime sampling_interval = 800000;
 static tw_stime sampling_end_time = 1600000;
 
@@ -248,6 +248,12 @@ static void handle_kickoff_event(
         int rand_node_intra_id = tw_rand_integer(lp->rng, 0, num_nodes_per_grp-1);
 
         local_dest = (rand_group * num_nodes_per_grp) + rand_node_intra_id;
+
+        int dest_group_calc = local_dest / num_nodes_per_grp;
+        assert(rand_group == dest_group_calc);
+        assert(rand_group != my_group_id);
+        assert(dest_group_calc != my_group_id);
+        
         // printf("\n LP %ld sending to %ld num nodes %d ", local_id, local_dest, num_nodes);
     }
     assert(local_dest < num_nodes);
