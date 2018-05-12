@@ -585,6 +585,7 @@ void dragonfly_plus_print_params(dragonfly_plus_param *p)
         printf("local_vc_size =          %d\n",p->local_vc_size);
         printf("global_vc_size =         %d\n",p->global_vc_size);
         printf("cn_vc_size =             %d\n",p->cn_vc_size);
+        printf("chunk_size =             %d\n",p->chunk_size);
         printf("num_cn =                 %d\n",p->num_cn);
         printf("intra_grp_radix =        %d\n",p->intra_grp_radix);
         printf("num_level_chans =        %d\n",p->num_level_chans);
@@ -1535,6 +1536,7 @@ static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg
     m->local_event_size_bytes = 0;
     m->intm_rtr_id = -1;
     m->intm_group_id = -1;
+    m->dfp_upward_channel_flag = 0;
     tw_event_send(e);
 
 
