@@ -36,6 +36,7 @@
 #define TRACK_MSG -1
 #define DEBUG 0
 #define MAX_STATS 65536
+#define SHOW_ADAP_STATS 1
 
 #define LP_CONFIG_NM_TERM (model_net_lp_config_names[DRAGONFLY_CUSTOM])
 #define LP_METHOD_NM_TERM (model_net_method_names[DRAGONFLY_CUSTOM])
@@ -857,7 +858,7 @@ void dragonfly_custom_report_stats()
     MPI_Reduce( &num_local_packets_sr, &total_local_packets_sr, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
     MPI_Reduce( &num_local_packets_sg, &total_local_packets_sg, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
    MPI_Reduce( &num_remote_packets, &total_remote_packets, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
-   if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
+   if(routing == ADAPTIVE || routing == PROG_ADAPTIVE || SHOW_ADAP_STATS)
     {
 	MPI_Reduce(&minimal_count, &total_minimal_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
  	MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
@@ -868,7 +869,7 @@ void dragonfly_custom_report_stats()
    {	
       printf(" Average number of hops traversed %f average chunk latency %lf us maximum chunk latency %lf us avg message size %lf bytes finished messages %lld finished chunks %lld \n", 
               (float)avg_hops/total_finished_chunks, avg_time/(total_finished_chunks*1000), max_time/1000, (float)final_msg_sz/total_finished_msgs, total_finished_msgs, total_finished_chunks);
-     if(routing == ADAPTIVE || routing == PROG_ADAPTIVE)
+     if(routing == ADAPTIVE || routing == PROG_ADAPTIVE || SHOW_ADAP_STATS)
               printf("\n ADAPTIVE ROUTING STATS: %d chunks routed minimally %d chunks routed non-minimally completed packets %lld \n", 
                       total_minimal_packets, total_nonmin_packets, total_finished_chunks);
  
@@ -2846,7 +2847,7 @@ router_packet_receive( router_state * s,
   int intm_router_id;
   short prev_path_type = 0, next_path_type = 0;
 
-  terminal_custom_message_list * cur_chunk = (terminal_custom_message_list*)malloc(sizeof(terminal_custom_message_list));
+  terminal_custom_message_list * cur_chunk = (terminal_custom_message_list*)calloc(sizeof(terminal_custom_message_list), 1);
   init_terminal_custom_message_list(cur_chunk, msg);
   
   if(routing == MINIMAL || 
@@ -2895,6 +2896,10 @@ router_packet_receive( router_state * s,
   }
   /* If destination router is in the same group then local adaptive routing is
    * triggered */
+
+  if(s->router_id == dest_router_id)
+      cur_chunk->msg.path_type = MINIMAL;
+
   if(dest_grp_id == src_grp_id &&
           dest_router_id != s->router_id &&
           (routing == ADAPTIVE || routing == PROG_ADAPTIVE) 
