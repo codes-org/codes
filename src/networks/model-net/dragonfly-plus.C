@@ -2440,12 +2440,16 @@ static int dfp_pick_intermediate_router(router_state *s, tw_bf *bf, terminal_plu
     int intm_group_id = other_groups[tw_rand_integer(lp->rng, 0, other_groups.size() -1 )];
     int intm_loc_id;
     int intm_router_id;
-    if (routing == NON_MINIMAL_SPINE) {
+    if (isRoutingAdaptive(routing)) { //INTM ROUTER CAN BE SPINE OR LEAF
+        intm_loc_id = tw_rand_integer(lp->rng, 0, s->params->num_routers -1);
+        intm_router_id = (intm_group_id * s->params->num_routers) + intm_loc_id;
+    }
+    else if (routing == NON_MINIMAL_SPINE) {
         intm_loc_id = tw_rand_integer(lp->rng, s->params->num_router_leaf, s->params->num_routers -1);
         intm_router_id = (intm_group_id * s->params->num_routers) + intm_loc_id;
         assert(router_type_map[intm_router_id] == SPINE);
     }
-    else {
+    else { //non-minimal-leaf
         intm_loc_id = tw_rand_integer(lp->rng, 0, s->params->num_router_leaf -1);
         intm_router_id = (intm_group_id * s->params->num_routers) + intm_loc_id;
         assert(router_type_map[intm_router_id] == LEAF);
@@ -2565,8 +2569,8 @@ static vector< Connection > get_possible_stops_to_specific_router(router_state *
     int specific_group_id = specific_router_id / s->params->num_routers;
     router_type specific_router_type = router_type_map[specific_router_id];
 
-    if (specific_router_type == SPINE)
-        tw_error(TW_LOC, "ROUTING TO SPINE NOT SUPPORTED\n"); //TODO when picking intm_rtr_id at the origin leaf, we need to pick a spine router that has a direct connection to our group!
+    // if (specific_router_type == SPINE)
+    //     tw_error(TW_LOC, "ROUTING TO SPINE NOT SUPPORTED\n"); //TODO when picking intm_rtr_id at the origin leaf, we need to pick a spine router that has a direct connection to our group!
 
     vector< Connection > possible_next_conns;
 
@@ -2575,11 +2579,11 @@ static vector< Connection > get_possible_stops_to_specific_router(router_state *
     }
     else if (my_group_id == specific_group_id) {
 
-        if (s->dfp_router_type == SPINE) {
-            if (specific_router_type == SPINE) { //Then we need to send to one of our leafs first on local
+        if (s->dfp_router_type == SPINE) { //we are spine and we are not the specific router
+            if (specific_router_type == SPINE) { //the specific router is a spine and we're not it so then we need to send to one of our leafs first on local
                 possible_next_conns = s->connMan->get_connections_by_type(CONN_LOCAL); 
             }
-            else { //Then we have a local connection to the specific router on local
+            else { // Then the spec router's a leaf and we have a local connection to the specific router on local
                 assert(specific_router_type == LEAF);
                 possible_next_conns = s->connMan->get_connections_to_gid(specific_router_id, CONN_LOCAL);
             }
@@ -2630,15 +2634,18 @@ static vector< Connection > get_possible_stops_to_specific_router(router_state *
             if (possible_next_conns_to_group.size() < 1)
                 tw_error(TW_LOC, "Something went wrong when trying to send to a spine with connection to spec group\n");
 
-            if (specific_router_type == SPINE) { //then its not good enough to just send to a spine with a connection to the group, it has to go to a spine that has a direct conn to the spec router id
-                for(int i = 0; i < possible_next_conns_to_group.size(); i++)
-                {
-                    Connection poss_next_spine = possible_next_conns_to_group[i];
-                    vector< Connection> connecting_conns_to_spec = connManagerList[poss_next_spine.dest_gid].get_connections_to_gid(specific_router_id, CONN_GLOBAL);
-                    if (connecting_conns_to_spec.size() > 0) { //then poss_next_spine is a valid next stop, add my connections to it as possible next stops
-                        possible_next_conns.push_back(poss_next_spine);
-                    }
-                }
+            // if (specific_router_type == SPINE) { //then its not good enough to just send to a spine with a connection to the group, it has to go to a spine that has a direct conn to the spec router id
+            //     for(int i = 0; i < possible_next_conns_to_group.size(); i++)
+            //     {
+            //         Connection poss_next_spine = possible_next_conns_to_group[i];
+            //         vector< Connection> connecting_conns_to_spec = connManagerList[poss_next_spine.dest_gid].get_connections_to_gid(specific_router_id, CONN_GLOBAL);
+            //         if (connecting_conns_to_spec.size() > 0) { //then poss_next_spine is a valid next stop, add my connections to it as possible next stops
+            //             possible_next_conns.push_back(poss_next_spine);
+            //         }
+            //     }
+            // }
+            if (specific_router_type == SPINE) { //for now let's allow our spine routers to just send to the group, let them route it to the spec router
+                possible_next_conns = possible_next_conns_to_group;
             }
             else { //then just sending to the group is good enough
                 possible_next_conns = possible_next_conns_to_group;
@@ -2663,8 +2670,6 @@ static Connection do_dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, termi
     bool outside_source_group = (my_group_id != origin_group_id);
     int adaptive_threshold = s->params->adaptive_threshold;
 
-    if (msg->intm_rtr_id == -1) //then we havent picked an intermediate router yet
-        msg->intm_rtr_id = dfp_pick_intermediate_router(s, bf, msg, lp, origin_group_id, fdest_group_id);
     if (msg->intm_rtr_id == my_router_id) //then we are the intermediate router and need to forward to fdest on the upward channel (VL 1)
         msg->dfp_upward_channel_flag = 1;
 
@@ -2733,6 +2738,9 @@ static Connection do_dfp_routing(router_state *s,
     bool in_intermediate_group = (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
 
 
+    if (msg->intm_rtr_id == -1) //then we havent picked an intermediate router yet
+        msg->intm_rtr_id = dfp_pick_intermediate_router(s, bf, msg, lp, origin_group_id, fdest_group_id);
+
     Connection nextStopConn; //the connection that we will forward the packet to
 
     //----------- LOCAL GROUP ROUTING --------------
@@ -2781,8 +2789,9 @@ static Connection do_dfp_routing(router_state *s,
                 route_to_fdest = true;
             }
             else { //then we still need to go to the intermediate router
+                //do nothing for now
                 if (msg->intm_rtr_id == -1)
-                    msg->intm_rtr_id = dfp_pick_intermediate_router(s, bf, msg, lp, origin_group_id, fdest_group_id);
+                    tw_error(TW_LOC, "intm router id not set!");
             }
         }
         else {
