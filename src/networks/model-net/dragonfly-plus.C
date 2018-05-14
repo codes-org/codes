@@ -2763,8 +2763,8 @@ static Connection do_dfp_routing(router_state *s,
         if (poss_next_stops.size() < 1)
             tw_error(TW_LOC, "MINIMAL DEAD END\n");
         
-        int randsel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1 );
-        return poss_next_stops[randsel];
+        Connection best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+        return best_min_conn;
     }
     else { //routing algorithm is specified in routing
         assert( (routing == NON_MINIMAL_LEAF) || (routing == NON_MINIMAL_SPINE) );
@@ -2800,14 +2800,14 @@ static Connection do_dfp_routing(router_state *s,
 
         if (route_to_fdest) {
             vector< Connection > poss_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, fdest_router_id);
-            int randsel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1 );
-            return poss_next_stops[randsel];
+            Connection best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+            return best_min_conn;
         }
         else { //then we need to be going toward the intermediate router
             msg->path_type = NON_MINIMAL;
             vector< Connection > poss_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, msg->intm_rtr_id);
-            int randsel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1 );
-            return poss_next_stops[randsel];
+            Connection best_intm_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+            return best_intm_conn;
         }
     }
 
