@@ -2740,14 +2740,16 @@ static Connection do_dfp_routing(router_state *s,
         vector< Connection > poss_next_stops = s->connMan->get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
         if (poss_next_stops.size() < 1)
             tw_error(TW_LOC, "Destination Router: No connection to destination terminal\n");
-        return poss_next_stops[0];
+        Connection best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+        return best_min_conn;
     }
     else if (my_group_id == fdest_group_id) { //then we just route minimally
         vector< Connection > poss_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, fdest_router_id);
         if (poss_next_stops.size() < 1)
             tw_error(TW_LOC, "DEAD END WHEN ROUTING LOCALLY\n");
         
-        return poss_next_stops[0];
+        Connection best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+        return best_min_conn;
     }
     //------------ END LOCAL GROUP ROUTING ---------
     // from here we can assume that we are not in the destination group
