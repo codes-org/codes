@@ -2616,6 +2616,7 @@ const tw_optdef app_opt [] =
     TWOPT_UINT("debug_cols", debug_cols, "completion time of collective operations (currently MPI_AllReduce)"),
     TWOPT_UINT("enable_mpi_debug", enable_debug, "enable debugging of MPI sim layer (works with sync=1 only)"),
     TWOPT_UINT("sampling_interval", sampling_interval, "sampling interval for MPI operations"),
+    TWOPT_UINT("perm-thresh", perm_switch_thresh, "threshold for random permutation operations"),
 	TWOPT_UINT("enable_sampling", enable_sampling, "enable sampling (only works in sequential mode)"),
     TWOPT_STIME("mean_interval", mean_interval, "mean interval for generating background traffic"),
     TWOPT_STIME("sampling_end_time", sampling_end_time, "sampling_end_time"),
