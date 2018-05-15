@@ -36,6 +36,7 @@ static unsigned long perm_switch_thresh = 8388608;
 
 /* NOTE: Message tracking works in sequential mode only! */
 static int debug_cols = 0;
+static int synthetic_pattern = 1;
 /* Turning on this option slows down optimistic mode substantially. Only turn
  * on if you get issues with wait-all completion with traces. */
 static int preserve_wait_ordering = 0;
@@ -2020,7 +2021,6 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 
    if(strncmp(file_name_of_job[lid.job], "synthetic", 9) == 0)
    {
-        int synthetic_pattern;
         sscanf(file_name_of_job[lid.job], "synthetic%d", &synthetic_pattern);
         if(synthetic_pattern <=0 || synthetic_pattern > 5)
         {
@@ -2914,6 +2914,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    assert(num_net_traces);
 
    if(!g_tw_mynode)
+   {
 	printf("\n Total bytes sent %lld recvd %lld \n max runtime %lf ns avg runtime %lf \n max comm time %lf avg comm time %lf \n max send time %lf avg send time %lf \n max recv time %lf avg recv time %lf \n max wait time %lf avg wait time %lf \n", 
             total_bytes_sent, 
             total_bytes_recvd,
@@ -2922,6 +2923,10 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 			total_max_send_time, total_avg_send_time/num_net_traces,
 			total_max_recv_time, total_avg_recv_time/num_net_traces,
 			total_max_wait_time, total_avg_wait_time/num_net_traces);
+    
+    if(synthetic_pattern == PERMUTATION)
+        printf("\n Threshold for random permutation %ld ", perm_switch_thresh);
+   }
     if (do_lp_io){
         int ret = lp_io_flush(io_handle, MPI_COMM_CODES);
         assert(ret == 0 || !"lp_io_flush failure");
