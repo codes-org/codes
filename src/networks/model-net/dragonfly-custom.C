@@ -47,6 +47,8 @@ static int BIAS_MIN = 1;
 static int DF_DALLY = 0;
 static int adaptive_threshold = 1024;
 
+static long num_nbr_packets = 0;
+
 static long num_local_packets_sr = 0;
 static long num_local_packets_sg = 0;
 static long num_remote_packets = 0;
@@ -1242,8 +1244,9 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
           num_local_packets_sg++;
   }
   else
+  {
       num_remote_packets++;
-
+  }
   nic_ts = g_tw_lookahead + (num_chunks * cn_delay) + tw_rand_unif(lp->rng);
   
   msg->packet_ID = s->packet_counter;
@@ -2906,9 +2909,17 @@ router_packet_receive( router_state * s,
           && cur_chunk->msg.last_hop == TERMINAL)
   {
       
-      //bf->c6 = 1;
-      //do_local_adaptive_routing(s, lp, &(cur_chunk->msg), bf, dest_router_id, intm_router_id);
-      cur_chunk->msg.path_type = MINIMAL;
+      if(DF_DALLY == 0)
+      {
+        bf->c6 = 1;
+        do_local_adaptive_routing(s, lp, &(cur_chunk->msg), bf, dest_router_id, intm_router_id);
+      }
+      else if(DF_DALLY == 1)
+      {
+        cur_chunk->msg.path_type = MINIMAL;
+      }
+      else
+          tw_error(TW_LOC, "\n topology type not set correctly! ");
   }
 
   next_path_type = cur_chunk->msg.path_type;
