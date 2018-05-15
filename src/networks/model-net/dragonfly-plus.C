@@ -32,6 +32,7 @@
 #endif
 
 #define DUMP_CONNECTIONS 0
+#define SPINE_LIMITER 1 //forces spines to rechoose an intermediate spine router that they have a direct connection to
 #define PRINT_CONFIG 1
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
@@ -868,6 +869,16 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
             }
         }
     }
+
+
+    for(int i = 0; i < p->total_routers; i++){
+        int loc_id = i % p->num_routers;
+        if (loc_id < p->num_router_leaf)
+            router_type_map[i] = LEAF;
+        else
+            router_type_map[i] = SPINE;
+    }
+
     
     if (!myRank) {
         printf("\n Total nodes %d routers %d groups %d routers per group %d radix %d\n",
@@ -1101,12 +1112,12 @@ void router_plus_setup(router_state *r, tw_lp *lp)
     int intra_group_id = r->router_id % p->num_routers;
     if (intra_group_id >= (p->num_routers / 2)) { //TODO this assumes symmetric spine and leafs
         r->dfp_router_type = SPINE;
-        router_type_map[r->router_id] = SPINE;
+        assert(router_type_map[r->router_id] == SPINE);
         // printf("%lu: %i is a SPINE\n",lp->gid, r->router_id);
     }
     else {
         r->dfp_router_type = LEAF;
-        router_type_map[r->router_id] = LEAF;
+        assert(router_type_map[r->router_id] == LEAF);
         // printf("%lu: %i is a LEAF\n",lp->gid, r->router_id);
     }
 
@@ -2458,6 +2469,24 @@ static int dfp_pick_intermediate_router(router_state *s, tw_bf *bf, terminal_plu
     return intm_router_id;
 }
 
+//to be called by a spine router in the source group to find an intermediate spine router that has a direct connection to the current router
+static int dfp_pick_intermediate_router_with_conn(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int source_group_id, int dest_group_id)
+{
+    vector< Connection > spines_i_connect_to = s->connMan->get_connections_by_type(CONN_GLOBAL);
+
+    vector< int > possible_int_spines;
+    for(int i = 0; i < spines_i_connect_to.size(); i++)
+    {
+        Connection conn = spines_i_connect_to[i];
+        if ((conn.dest_group_id != source_group_id) && (conn.dest_group_id != dest_group_id))
+            possible_int_spines.push_back(conn.dest_gid);
+    }
+    assert(possible_int_spines.size() > 0);
+
+    int rand_sel = tw_rand_integer(lp->rng, 0, possible_int_spines.size()-1);
+    return possible_int_spines[rand_sel];
+}
+
 static vector< Connection > dfp_select_two_connections(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector< Connection > conns)
 {
     if(conns.size() < 2) {
@@ -2506,7 +2535,8 @@ static vector< Connection > dfp_select_two_connections(router_state *s, tw_bf *b
     return selected_conns;
 }
 
-//TODO this defaults to min, at time of implementation all connections in conns are of same minimality so their scores compared to each other don't matter on minimality
+//two rngs per call
+//TODO this defaults to minimality of min, at time of implementation all connections in conns are of same minimality so their scores compared to each other don't matter on minimality
 static Connection get_best_connection_from_conns(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector<Connection> conns)
 {
     if (conns.size() == 0) {
@@ -2613,7 +2643,7 @@ static vector< Connection > get_possible_stops_to_specific_router(router_state *
                 possible_next_conns = s->connMan->get_connections_by_type(CONN_LOCAL);
             }
             else { //then we can send to the specific group via global conn
-                possible_next_conns = s->connMan->get_connections_to_group(specific_group_id);
+                possible_next_conns = conns_to_spec_group;
             }
 
         }
@@ -2660,6 +2690,7 @@ static vector< Connection > get_possible_stops_to_specific_router(router_state *
 
 }
 
+//always uses 4 rngs
 static Connection do_dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
 {
     int my_router_id = s->router_id;
@@ -2737,9 +2768,20 @@ static Connection do_dfp_routing(router_state *s,
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
     bool in_intermediate_group = (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
 
-
-    if (msg->intm_rtr_id == -1) //then we havent picked an intermediate router yet
+    
+    if (s->router_id == msg->origin_router_id) { //then we havent picked an intermediate router yet
         msg->intm_rtr_id = dfp_pick_intermediate_router(s, bf, msg, lp, origin_group_id, fdest_group_id);
+    }
+    else if ( (SPINE_LIMITER) && //if spines should repick better intermediate routers
+        (router_type_map[msg->intm_rtr_id] == SPINE) && //if the router we're supposed to connect to is a spine
+        (s->dfp_router_type == SPINE) && //if we're a spine
+        (my_group_id == origin_group_id) && //if we're in the origin group
+        (s->connMan->get_connections_to_gid(msg->intm_rtr_id, CONN_GLOBAL).size() == 0) ) //if we don't have a connection to the proposed intm router
+    {
+        bf->c30 = 1;
+        msg->intm_rtr_id = dfp_pick_intermediate_router_with_conn(s, bf, msg, lp, origin_group_id, fdest_group_id);
+    }
+
 
     Connection nextStopConn; //the connection that we will forward the packet to
 
@@ -2886,16 +2928,37 @@ static void router_packet_receive_rc(router_state *s, tw_bf *bf, terminal_plus_m
     int output_port = msg->saved_vc;
     int output_chan = msg->saved_channel;
 
-    if( isRoutingAdaptive(routing) ) {
+    //do dfp routing reverse
+    int my_group_id = s->router_id / s->params->num_routers;
+    int dest_router_id = dragonfly_plus_get_assigned_router_id(msg->dfp_dest_terminal_id, s->params);
+    int fdest_group_id = dest_router_id / s->params->num_routers;
+
+    if (s->router_id == msg->origin_router_id) {
+        tw_rand_reverse_unif(lp->rng); //choose group
+        tw_rand_reverse_unif(lp->rng); //choose router
+    }
+    if( SPINE_LIMITER) {
+        if ( bf->c30 == 1)
+            tw_rand_reverse_unif(lp->rng);
+    }
+
+    if (my_group_id == fdest_group_id) {
+        tw_rand_reverse_unif(lp->rng);
+        tw_rand_reverse_unif(lp->rng);
+    }
+    else if( isRoutingAdaptive(routing) ) {
         //we need to reverse 4
         for(int i =0; i < 4; i++)
             tw_rand_reverse_unif(lp->rng);
     }
     else {
         tw_rand_reverse_unif(lp->rng);
+        tw_rand_reverse_unif(lp->rng);
     }
 
-    tw_rand_reverse_unif(lp->rng);
+    //end do dfp routing reverse
+
+    // tw_rand_reverse_unif(lp->rng); nm may14-2018, i think this was wrongly still here
     if (bf->c2) {
         tw_rand_reverse_unif(lp->rng);
         terminal_plus_message_list *tail =
