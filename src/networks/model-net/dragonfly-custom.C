@@ -27,7 +27,7 @@
 
 #define DUMP_CONNECTIONS 0
 #define CREDIT_SIZE 8
-#define DFLY_HASH_TABLE_SIZE 100000
+#define DFLY_HASH_TABLE_SIZE 4999
 // debugging parameters
 #define DEBUG_LP 892
 #define T_ID 10
