@@ -2898,7 +2898,7 @@ router_packet_receive( router_state * s,
   /* If destination router is in the same group then local adaptive routing is
    * triggered */
 
-  if(s->router_id == dest_router_id)
+  if(cur_chunk->msg.origin_router_id == dest_router_id)
       cur_chunk->msg.path_type = MINIMAL;
 
   if(dest_grp_id == src_grp_id &&
