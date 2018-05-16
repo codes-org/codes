@@ -25,7 +25,7 @@
 #include <cortex/topology.h>
 #endif
 
-#define DUMP_CONNECTIONS 0
+#define DUMP_CONNECTIONS 1
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
 // debugging parameters
@@ -46,8 +46,6 @@
 static int BIAS_MIN = 1;
 static int DF_DALLY = 0;
 static int adaptive_threshold = 1024;
-
-static long num_nbr_packets = 0;
 
 static long num_local_packets_sr = 0;
 static long num_local_packets_sg = 0;
@@ -676,7 +674,7 @@ else
         printf("\n Number of global channels per router not specified, setting to 10 ");
         p->num_global_channels = 10;
     }
-    p->radix = (p->num_router_cols * p->num_row_chans) + (p->num_col_chans * p->num_router_rows) + p->num_global_channels + p->num_cn;
+    p->radix = p->intra_grp_radix + p->num_global_channels + p->num_cn;
     p->total_routers = p->num_groups * p->num_routers;
     p->total_terminals = p->total_routers * p->num_cn;
     
@@ -2900,7 +2898,7 @@ router_packet_receive( router_state * s,
   /* If destination router is in the same group then local adaptive routing is
    * triggered */
 
-  if(s->router_id == dest_router_id)
+  if(cur_chunk->msg.origin_router_id == dest_router_id)
       cur_chunk->msg.path_type = MINIMAL;
 
   if(dest_grp_id == src_grp_id &&
@@ -3199,7 +3197,7 @@ router_packet_send( router_state * s,
   if (to_terminal) {
      // printf("\n next stop %d dest term id %d ", cur_entry->msg.next_stop, cur_entry->msg.dest_terminal_id);
      if(cur_entry->msg.next_stop != cur_entry->msg.dest_terminal_id)
-      printf("\n intra-group radix %d output port %d ", s->params->intra_grp_radix, output_port);
+      printf("\n intra-group radix %d output port %d next stop %d", s->params->intra_grp_radix, output_port, cur_entry->msg.next_stop);
       assert(cur_entry->msg.next_stop == cur_entry->msg.dest_terminal_id);
     e = model_net_method_event_new(cur_entry->msg.next_stop, 
         s->next_output_available_time[output_port] - tw_now(lp), lp,
