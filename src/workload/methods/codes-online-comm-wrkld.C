@@ -324,14 +324,14 @@ void SWM_Irecv(SWM_PEER peer,
 void SWM_Compute(long cycle_count)
 {
     if(!cpu_freq)
-        cpu_freq = 4.0e9;
+        cpu_freq = 2.0;
     /* Add an event in the shared queue and then yield */
     struct codes_workload_op wrkld_per_rank;
 
     wrkld_per_rank.op_type = CODES_WK_DELAY;
     /* TODO: Check how to convert cycle count into delay? */
-    wrkld_per_rank.u.delay.nsecs = (cycle_count/cpu_freq);
-    wrkld_per_rank.u.delay.seconds = (cycle_count / cpu_freq) / (1000.0 * 1000.0 * 1000.0);
+    wrkld_per_rank.u.delay.nsecs = cycle_count;
+    wrkld_per_rank.u.delay.seconds = (cycle_count) / (1000.0 * 1000.0 * 1000.0);
 #ifdef DBG_COMM
     printf("\n compute op delay: %ld ", cycle_count);
 #endif
@@ -815,7 +815,7 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
         std::ifstream jsonFile(path.c_str());
         boost::property_tree::json_parser::read_json(jsonFile, root);
         uint32_t process_cnt = root.get<uint32_t>("jobs.size", 1);
-        cpu_freq = root.get<double>("jobs.cfg.cpu_freq"); 
+        cpu_freq = root.get<double>("jobs.cfg.cpu_freq") / 1e9; 
     }
     catch(std::exception & e)
     {
