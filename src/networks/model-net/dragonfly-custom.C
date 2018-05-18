@@ -26,6 +26,7 @@
 #endif
 
 #define DUMP_CONNECTIONS 0
+#define PRINT_CONFIG 1
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
 // debugging parameters
@@ -178,6 +179,9 @@ struct dragonfly_param
     double credit_delay;
     double router_delay;
 };
+
+static const dragonfly_param* stored_params;
+
 
 struct dfly_hash_key
 {
@@ -499,6 +503,42 @@ static terminal_custom_message_list* return_tail(
     return tail;
 }
 
+void dragonfly_print_params(const dragonfly_param *p)
+{
+    int myRank;
+    MPI_Comm_rank(MPI_COMM_CODES, &myRank);
+    if (!myRank) { 
+        printf("\n------------------ Dragonfly Custom Parameters ---------\n");
+        printf("\tnum_routers =            %d\n",p->num_routers);
+        printf("\tlocal_bandwidth =        %.2f\n",p->local_bandwidth);
+        printf("\tglobal_bandwidth =       %.2f\n",p->global_bandwidth);
+        printf("\tcn_bandwidth =           %.2f\n",p->cn_bandwidth);
+        printf("\tnum_vcs =                %d\n",p->num_vcs);
+        printf("\tlocal_vc_size =          %d\n",p->local_vc_size);
+        printf("\tglobal_vc_size =         %d\n",p->global_vc_size);
+        printf("\tcn_vc_size =             %d\n",p->cn_vc_size);
+        printf("\tchunk_size =             %d\n",p->chunk_size);
+        printf("\tnum_cn =                 %d\n",p->num_cn);
+        printf("\tintra_grp_radix =        %d\n",p->intra_grp_radix);
+        printf("\tnum_col_chans =          %d\n",p->num_col_chans);
+        printf("\tnum_row_chans =          %d\n",p->num_row_chans);
+        printf("\tnum_router_rows =        %d\n",p->num_router_rows);
+        printf("\tnum_router_cols =        %d\n",p->num_router_cols);
+        printf("\tnum_groups =             %d\n",p->num_groups);
+        printf("\tradix =                  %d\n",p->radix);
+        printf("\ttotal_routers =          %d\n",p->total_routers);
+        printf("\ttotal_terminals =        %d\n",p->total_terminals);
+        printf("\tnum_global_channels =    %d\n",p->num_global_channels);
+        printf("\tcn_delay =               %.2f\n",p->cn_delay);
+        printf("\tlocal_delay =            %.2f\n",p->local_delay);
+        printf("\tglobal_delay =           %.2f\n",p->global_delay);
+        printf("\tcredit_delay =           %.2f\n",p->credit_delay);
+        printf("\trouter_delay =           %.2f\n",p->router_delay);
+        printf("\trouting =                %d\n",routing);
+        printf("------------------------------------------------------\n\n");
+    }
+}
+
 static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     /*Adding init for router magic number*/
     uint32_t h1 = 0, h2 = 0; 
@@ -815,6 +855,11 @@ else
     p->local_delay = bytes_to_ns(p->chunk_size, p->local_bandwidth);
     p->global_delay = bytes_to_ns(p->chunk_size, p->global_bandwidth);
     p->credit_delay = bytes_to_ns(CREDIT_SIZE, p->local_bandwidth); //assume 8 bytes packet
+
+    if (PRINT_CONFIG) 
+        dragonfly_print_params(p);
+
+    stored_params = p;
 }
 
 void dragonfly_custom_configure(){
@@ -867,6 +912,9 @@ void dragonfly_custom_report_stats()
    /* print statistics */
    if(!g_tw_mynode)
    {	
+    if (PRINT_CONFIG) 
+        dragonfly_print_params(stored_params);
+
       printf(" Average number of hops traversed %f average chunk latency %lf us maximum chunk latency %lf us avg message size %lf bytes finished messages %lld finished chunks %lld \n", 
               (float)avg_hops/total_finished_chunks, avg_time/(total_finished_chunks*1000), max_time/1000, (float)final_msg_sz/total_finished_msgs, total_finished_msgs, total_finished_chunks);
      if(routing == ADAPTIVE || routing == PROG_ADAPTIVE || SHOW_ADAP_STATS)
@@ -2251,6 +2299,13 @@ void dragonfly_custom_router_final(router_state * s,
         written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
 
     lp_io_write(lp->gid, (char*)"dragonfly-router-traffic", written, s->output_buf2);
+    
+    if (!g_tw_mynode) {
+        if (s->router_id == 0) {
+            if (PRINT_CONFIG) 
+                dragonfly_print_params(s->params);
+        }
+    }
 }
 
 static vector<int> get_intra_router(router_state * s, int src_router_id, int dest_router_id, int num_rtrs_per_grp)
