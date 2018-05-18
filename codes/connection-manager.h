@@ -9,6 +9,7 @@
  */
 #include <map>
 #include <vector>
+#include <set>
 #include "codes/codes.h"
 #include "codes/model-net.h"
 
@@ -68,6 +69,8 @@ class ConnectionManager {
     map< int, vector< Connection > > terminalConnections; //direct connections between this router and its compute node terminals - maps terminal id to connections to it
 
     map< int, Connection > _portMap; //Mapper for ports to connections
+
+    set< int > _other_groups_i_connect_to;
 
     // map< int, vector< Connection > > intermediateRouterToGroupMap; //maps group id to list of routers that connect to it.
     //                                                                //ex: intermediateRouterToGroupMap[3] returns a vector
@@ -192,6 +195,12 @@ public:
     vector< Connection > get_connections_by_type(ConnectionType type);
 
     /**
+     * @brief returns a vector of all group IDs that the router has a global connection to
+     * @note this does not include the router's own group as that is a given
+     */
+    vector< int > get_connected_group_ids();
+
+    /**
      * @brief prints out the state of the connection manager
      */
     void print_connections();
@@ -254,6 +263,9 @@ void ConnectionManager::add_connection(int dest_gid, ConnectionType type)
             assert(false);
             // TW_ERROR(TW_LOC, "add_connection(dest_id, type): Undefined connection type\n");
     }
+
+    if(conn.dest_group_id != conn.src_group_id)
+        _other_groups_i_connect_to.insert(conn.dest_group_id);
 
     _portMap[conn.port] = conn;
 }
@@ -435,6 +447,16 @@ vector< Connection > ConnectionManager::get_connections_by_type(ConnectionType t
     return retVec;
 }
 
+vector< int > ConnectionManager::get_connected_group_ids()
+{
+    vector< int > retVec;
+    set< int >::iterator it;
+    for(it = _other_groups_i_connect_to.begin(); it != _other_groups_i_connect_to.end(); it++)
+    {
+        retVec.push_back(*it);
+    }
+    return retVec;
+}
 
 void ConnectionManager::print_connections()
 {
