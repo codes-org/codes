@@ -34,7 +34,7 @@
 #define DUMP_CONNECTIONS 0
 #define PRINT_CONFIG 1
 #define CREDIT_SIZE 8
-#define DFLY_HASH_TABLE_SIZE 20000
+#define DFLY_HASH_TABLE_SIZE 40000
 #define SHOW_ADAPTIVE_STATS 1
 
 // debugging parameters
