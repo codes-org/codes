@@ -2935,7 +2935,7 @@ router_packet_receive( router_state * s,
    * is selected. For local adaptive routing, if the same router as self is
    * selected then we choose the neighboring router. */
   if(src_grp_id != dest_grp_id 
-      && (intm_router_id / s->params->num_routers) == local_grp_id)
+      && ((intm_router_id / s->params->num_routers) == local_grp_id || (intm_router_id / s->params->num_routers) == dest_grp_id))
     intm_router_id = (s->router_id + s->params->num_routers) % s->params->total_routers;
 
   /* progressive adaptive routing is only triggered when packet has to traverse a
