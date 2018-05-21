@@ -2867,15 +2867,23 @@ static Connection do_dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, termi
     else {
         if (msg->path_type == MINIMAL) { //we need to evaluate whether to stay on the minimal path or deviate
             if (scoring_preference == LOWER) {
-                if (min_score <= intm_score) {
+                if (min_score <= adaptive_threshold) {
+                    // printf("CHOOSE MIN:  Min Score=%d\tNonmin Score=%d (Adaptive Threshold =%d)\n",min_score, intm_score,adaptive_threshold);
+                    route_to_fdest = true;
+                }
+                else if (min_score <= intm_score) {
+                    // printf("CHOOSE MIN:  Min Score=%d\tNonmin Score=%d\n",min_score, intm_score);
                     route_to_fdest = true;
                 }
                 else { //Changing to a nonminimal path!
+                    // printf("CHOOSE NONMIN:  Min Score=%d\tNonmin Score=%d\n",min_score, intm_score);
                     msg->path_type = NON_MINIMAL;
 
                 }
             }
             else { //HIGHER is better
+                if (adaptive_threshold > 0)
+                    tw_error(TW_LOC, "Adaptive threshold not compatible with HIGHER score preference yet\n"); //TODO fix this
                 if (min_score >= intm_score) {
                     route_to_fdest = true;
                 }
