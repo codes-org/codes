@@ -33,6 +33,7 @@
 
 #define DUMP_CONNECTIONS 0
 #define PRINT_CONFIG 1
+#define T_ID -1
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 40000
 #define SHOW_ADAPTIVE_STATS 1
@@ -974,7 +975,7 @@ void dragonfly_plus_configure()
     anno_map = codes_mapping_get_lp_anno_map(LP_CONFIG_NM_TERM);
     assert(anno_map);
     num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
-    all_params = (dragonfly_plus_param *) malloc(num_params * sizeof(*all_params));
+    all_params = (dragonfly_plus_param *) calloc(num_params, sizeof(*all_params));
 
     for (int i = 0; i < anno_map->num_annos; i++) {
         const char *anno = anno_map->annotations[i].ptr;
@@ -1124,8 +1125,8 @@ void terminal_plus_init(terminal_state *s, tw_lp *lp)
 
     rc_stack_create(&s->st);
     s->num_vcs = 1;
-    s->vc_occupancy = (int *) malloc(s->num_vcs * sizeof(int));
-    s->last_buf_full = (tw_stime *) malloc(s->num_vcs * sizeof(tw_stime));
+    s->vc_occupancy = (int *) calloc(s->num_vcs, sizeof(int));
+    s->last_buf_full = (tw_stime *) calloc(s->num_vcs, sizeof(tw_stime));
 
     for (i = 0; i < s->num_vcs; i++) {
         s->last_buf_full[i] = 0.0;
@@ -1135,9 +1136,9 @@ void terminal_plus_init(terminal_state *s, tw_lp *lp)
 
     s->rank_tbl = NULL;
     s->terminal_msgs =
-        (terminal_plus_message_list **) malloc(s->num_vcs * sizeof(terminal_plus_message_list *));
+        (terminal_plus_message_list **) calloc(s->num_vcs, sizeof(terminal_plus_message_list *));
     s->terminal_msgs_tail =
-        (terminal_plus_message_list **) malloc(s->num_vcs * sizeof(terminal_plus_message_list *));
+        (terminal_plus_message_list **) calloc(s->num_vcs, sizeof(terminal_plus_message_list *));
     s->terminal_msgs[0] = NULL;
     s->terminal_msgs_tail[0] = NULL;
     s->terminal_length = 0;
@@ -1202,25 +1203,25 @@ void router_plus_setup(router_state *r, tw_lp *lp)
 
     r->connMan = &connManagerList[r->router_id];
 
-    r->global_channel = (int *) malloc(p->num_global_connections * sizeof(int));
-    r->next_output_available_time = (tw_stime *) malloc(p->radix * sizeof(tw_stime));
-    r->link_traffic = (int64_t *) malloc(p->radix * sizeof(int64_t));
-    r->link_traffic_sample = (int64_t *) malloc(p->radix * sizeof(int64_t));
+    r->global_channel = (int *) calloc(p->num_global_connections, sizeof(int));
+    r->next_output_available_time = (tw_stime *) calloc(p->radix, sizeof(tw_stime));
+    r->link_traffic = (int64_t *) calloc(p->radix, sizeof(int64_t));
+    r->link_traffic_sample = (int64_t *) calloc(p->radix, sizeof(int64_t));
 
-    r->vc_occupancy = (int **) malloc(p->radix * sizeof(int *));
-    r->in_send_loop = (int *) malloc(p->radix * sizeof(int));
+    r->vc_occupancy = (int **) calloc(p->radix, sizeof(int *));
+    r->in_send_loop = (int *) calloc(p->radix, sizeof(int));
     r->pending_msgs =
-        (terminal_plus_message_list ***) malloc(p->radix * sizeof(terminal_plus_message_list **));
+        (terminal_plus_message_list ***) calloc(p->radix, sizeof(terminal_plus_message_list **));
     r->pending_msgs_tail =
-        (terminal_plus_message_list ***) malloc(p->radix * sizeof(terminal_plus_message_list **));
+        (terminal_plus_message_list ***) calloc(p->radix, sizeof(terminal_plus_message_list **));
     r->queued_msgs =
-        (terminal_plus_message_list ***) malloc(p->radix * sizeof(terminal_plus_message_list **));
+        (terminal_plus_message_list ***) calloc(p->radix, sizeof(terminal_plus_message_list **));
     r->queued_msgs_tail =
-        (terminal_plus_message_list ***) malloc(p->radix * sizeof(terminal_plus_message_list **));
-    r->queued_count = (int *) malloc(p->radix * sizeof(int));
-    r->last_buf_full = (tw_stime **) malloc(p->radix * sizeof(tw_stime *));
-    r->busy_time = (tw_stime *) malloc(p->radix * sizeof(tw_stime));
-    r->busy_time_sample = (tw_stime *) malloc(p->radix * sizeof(tw_stime));
+        (terminal_plus_message_list ***) calloc(p->radix, sizeof(terminal_plus_message_list **));
+    r->queued_count = (int *) calloc(p->radix, sizeof(int));
+    r->last_buf_full = (tw_stime **) calloc(p->radix, sizeof(tw_stime *));
+    r->busy_time = (tw_stime *) calloc(p->radix, sizeof(tw_stime));
+    r->busy_time_sample = (tw_stime *) calloc(p->radix, sizeof(tw_stime));
 
     rc_stack_create(&r->st);
 
@@ -1454,7 +1455,7 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
     msg->my_g_hop = 0;
 
     // if(msg->dest_terminal_id == TRACK)
-    if (msg->packet_ID == LLU(TRACK_PKT))
+    if (msg->packet_ID == LLU(TRACK_PKT) && lp->gid == T_ID)
         printf("\n Packet %llu generated at terminal %d dest %llu size %llu num chunks %llu ", msg->packet_ID,
                s->terminal_id, LLU(msg->dest_terminal_id), LLU(msg->packet_size), LLU(num_chunks));
 
@@ -1855,7 +1856,7 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
     }*/
     assert(lp->gid == msg->dest_terminal_id);
 
-    if (msg->packet_ID == LLU(TRACK_PKT))
+    if (msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
         printf("\n Packet %llu arrived at lp %llu hops %d ", msg->packet_ID, LLU(lp->gid), msg->my_N_hop);
 
     tw_stime ts = g_tw_lookahead + s->params->credit_delay + tw_rand_unif(lp->rng);
@@ -3249,6 +3250,9 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
             cur_chunk->msg.path_type, src_grp_id, dest_grp_id);
 
     assert(output_chan < s->params->num_vcs && output_chan >= 0);
+
+    if(cur_chunk->msg.packet_ID == LLU(TRACK_PKT) && cur_chunk->msg.src_terminal_id == T_ID)
+            printf("\n Packet %llu arrived at router %u next stop %d final stop %d local hops %d global hops %d", cur_chunk->msg.packet_ID, s->router_id, next_stop, dest_router_id, cur_chunk->msg.my_l_hop, cur_chunk->msg.my_g_hop);
 
     if (msg->remote_event_size_bytes > 0) {
         void *m_data_src = model_net_method_get_edata(DRAGONFLY_PLUS_ROUTER, msg);
