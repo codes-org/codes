@@ -2681,6 +2681,57 @@ static vector< Connection > dfp_select_two_connections(router_state *s, tw_bf *b
     return selected_conns;
 }
 
+
+static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector<Connection> conns)
+{
+    tw_rand_integer(lp->rng,0,1);
+    tw_rand_integer(lp->rng,0,1);
+
+    if (conns.size() == 0) {
+        Connection bad_conn;
+        bad_conn.src_gid = -1;
+        bad_conn.port = -1;
+        return bad_conn;
+    }
+    if (conns.size() == 1) {
+        return conns[0];
+    }
+
+    int num_to_compare = conns.size();
+
+    int scores[num_to_compare];
+    for(int i = 0; i < num_to_compare; i++)
+    {
+        scores[i] = dfp_score_connection(s, bf, msg, lp, conns[i], C_MIN);
+    }
+
+    int best_score_index = 0;
+    if (scoring_preference == LOWER) {
+        
+        int best_score = INT_MAX;
+        for(int i = 0; i < num_to_compare; i++)
+        {
+            if (scores[i] < best_score) {
+                best_score = scores[i];
+                best_score_index = i;
+            }
+        }
+    }
+    else {
+        
+        int best_score = 0;
+        for(int i = 0; i < num_to_compare; i++)
+        {
+            if (scores[i] > best_score) {
+                best_score = scores[i];
+                best_score_index = i;
+            }
+        }
+    }
+
+    return conns[best_score_index];
+}
+
 //two rngs per call
 //TODO this defaults to minimality of min, at time of implementation all connections in conns are of same minimality so their scores compared to each other don't matter on minimality
 static Connection get_best_connection_from_conns(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector<Connection> conns)
@@ -2850,15 +2901,23 @@ static Connection do_dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, termi
     if (msg->intm_rtr_id == my_router_id) //then we are the intermediate router and need to forward to fdest on the upward channel (VL 1)
         msg->dfp_upward_channel_flag = 1;
 
-    //The check for local routing has already been completed at this point
+    //The check for dest group local routing has already been completed at this point
 
     Connection nextStopConn;
     vector< Connection > poss_min_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, fdest_router_id);
     vector< Connection > poss_intm_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, msg->intm_rtr_id);
 
-    //select two connections from each possible minimal and intermediate and pick the best
-    Connection best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_min_next_stops);
-    Connection best_intm_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_intm_next_stops);
+    Connection best_min_conn, best_intm_conn;
+    if (my_group_id == origin_group_id) { // SOURCE GROUP LOCAL ROUTING - pick absolute best connection from the possible stops
+        //get the absolute best from each set
+        Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_min_next_stops);
+        Connection best_intm_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_intm_next_stops);
+    }
+    else {
+        //select two connections from each possible minimal and intermediate and pick the best
+        Connection best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_min_next_stops);
+        Connection best_intm_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_intm_next_stops);
+    }
 
     //if the best is intermediate, encode the intermediate router id in the message, set path type to non minimal
     int min_score = dfp_score_connection(s, bf, msg, lp, best_min_conn, C_MIN);
@@ -2968,12 +3027,12 @@ static Connection do_dfp_routing(router_state *s,
 
     Connection nextStopConn; //the connection that we will forward the packet to
 
-    //----------- LOCAL GROUP ROUTING --------------
+    //----------- DESTINATION LOCAL GROUP ROUTING --------------
     if (my_router_id == fdest_router_id) {
         vector< Connection > poss_next_stops = s->connMan->get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
         if (poss_next_stops.size() < 1)
             tw_error(TW_LOC, "Destination Router: No connection to destination terminal\n");
-        Connection best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+        Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
         return best_min_conn;
     }
     else if (my_group_id == fdest_group_id) { //then we just route minimally
@@ -2981,10 +3040,10 @@ static Connection do_dfp_routing(router_state *s,
         if (poss_next_stops.size() < 1)
             tw_error(TW_LOC, "DEAD END WHEN ROUTING LOCALLY\n");
         
-        Connection best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+        Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
         return best_min_conn;
     }
-    //------------ END LOCAL GROUP ROUTING ---------
+    //------------ END DESTINATION LOCAL GROUP ROUTING ---------
     // from here we can assume that we are not in the destination group
 
 
