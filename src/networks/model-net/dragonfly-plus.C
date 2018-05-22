@@ -33,14 +33,14 @@
 
 #define DUMP_CONNECTIONS 0
 #define PRINT_CONFIG 1
-#define T_ID -1
+#define T_ID 1
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 40000
 #define SHOW_ADAPTIVE_STATS 1
 
 // debugging parameters
 #define TRACK -1
-#define TRACK_PKT -1
+#define TRACK_PKT 0
 #define TRACK_MSG -1
 #define DEBUG 0
 #define MAX_STATS 65536
@@ -1383,6 +1383,7 @@ static void packet_generate_rc(terminal_state *s, tw_bf *bf, terminal_plus_messa
 {
     s->packet_gen--;
     packet_gen--;
+    s->packet_counter--;
 
     tw_rand_reverse_unif(lp->rng);
 
@@ -1449,7 +1450,9 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
 
     nic_ts = g_tw_lookahead + (num_chunks * cn_delay) + tw_rand_unif(lp->rng);
 
-    msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
+    // msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
+    msg->packet_ID = s->packet_counter;
+    s->packet_counter++;
     msg->my_N_hop = 0;
     msg->my_l_hop = 0;
     msg->my_g_hop = 0;
@@ -1543,7 +1546,7 @@ static void packet_send_rc(terminal_state *s, tw_bf *bf, terminal_plus_message *
     }
 
     s->terminal_length += s->params->chunk_size;
-    s->packet_counter--;
+    // s->packet_counter--;
     s->vc_occupancy[0] -= s->params->chunk_size;
 
     terminal_plus_message_list *cur_entry = (terminal_plus_message_list *) rc_stack_pop(s->st);
@@ -1640,7 +1643,7 @@ static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg
         memcpy(m_new, local_event, cur_entry->msg.local_event_size_bytes);
         tw_event_send(e_new);
     }
-    s->packet_counter++;
+    // s->packet_counter++;
     s->vc_occupancy[0] += s->params->chunk_size;
     cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, 0);
     rc_stack_push(lp, cur_entry, delete_terminal_plus_message_list, s->st);
@@ -3033,13 +3036,24 @@ static Connection do_dfp_routing(router_state *s,
 
         if (route_to_fdest) {
             vector< Connection > poss_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, fdest_router_id);
+            if (poss_next_stops.size() < 1)
+                tw_error(TW_LOC, "Dead end when finding stops to fdest router");
+            
             Connection best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+            if (best_min_conn.port == -1)
+                tw_error(TW_LOC, "Get best connection returned a bad connection");
             return best_min_conn;
         }
         else { //then we need to be going toward the intermediate router
             msg->path_type = NON_MINIMAL;
             vector< Connection > poss_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, msg->intm_rtr_id);
+            if (poss_next_stops.size() < 1)
+                tw_error(TW_LOC, "Dead end when finding stops to intermediate router");
+
             Connection best_intm_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+            if (best_intm_conn.port == -1)
+                tw_error(TW_LOC, "Get best connection returned a bad connection");
+            
             return best_intm_conn;
         }
     }
@@ -3197,6 +3211,10 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
 
     Connection next_stop_conn = do_dfp_routing(s, bf, &(cur_chunk->msg), lp, dest_router_id);
 
+    if (s->connMan->is_any_connection_to(next_stop_conn.dest_gid) == false)
+        tw_error(TW_LOC, "Router does not have a connection to chosen destination\n");
+
+
     output_port = next_stop_conn.port;
 
     if (next_stop_conn.conn_type != CONN_TERMINAL) {
@@ -3216,12 +3234,14 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
     cur_chunk->msg.next_stop = next_stop;
 
     output_chan = 0;
-    if(cur_chunk->msg.dfp_upward_channel_flag) {
+    if(cur_chunk->msg.dfp_upward_channel_flag == 1) {
         output_chan = 1;
     }
-    else {
+    else if (cur_chunk->msg.dfp_upward_channel_flag == 0) {
         output_chan = 0;
     }
+    else
+        tw_error(TW_LOC, "upward channel flag has invalid value\n");
 
     ConnectionType port_type = s->connMan->get_port_type(output_port);
     int max_vc_size = 0;
