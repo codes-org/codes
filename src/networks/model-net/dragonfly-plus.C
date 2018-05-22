@@ -2523,6 +2523,7 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
     return score;
 }
 
+
 //returns a router id of a router in a group that is not the source or the destination groups
 //Uses two RNGs
 static int dfp_pick_intermediate_router(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int source_group_id, int dest_group_id)
@@ -2631,6 +2632,45 @@ static int dfp_pick_intermediate_router_with_conn(router_state *s, tw_bf *bf, te
     }
 
     return intm_router_id;
+}
+
+static int dfp_reselect_intermediate_router(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int origin_group_id, int fdest_group_id)
+{
+    assert(s->params->source_group_rerouting == 0); //this method should only be called if rerouting isn't allowed
+    if (s->params->intermediate_router_choice == INT_CHOICE_SPINE) { //then we care about having a connection to the actual spine router
+        if (s->connMan->get_connections_to_gid(msg->intm_rtr_id, CONN_GLOBAL).size() == 0) {
+            bf->c30 = 1;
+            msg->intm_rtr_id = dfp_pick_intermediate_router_with_conn(s, bf, msg, lp, origin_group_id, fdest_group_id);
+        } //else we already have a connection to the intm_rtr_id
+    }
+    if (s->params->intermediate_router_choice == INT_CHOICE_LEAF) { //then we just care about having a connection to the group
+        int intermediate_group_id = msg->intm_rtr_id / s->params->num_routers;
+        if (s->connMan->get_connections_to_group(intermediate_group_id).size() == 0) { //if we don't have a connection to the intermediate group, we have to reroute or reselect
+            bf->c30 = 1;
+            msg->intm_rtr_id = dfp_pick_intermediate_router_with_conn(s, bf, msg, lp, origin_group_id, fdest_group_id);
+        } //else we already have a connection to the intermediate group
+    }
+    if (s->params->intermediate_router_choice == INT_CHOICE_BOTH) {
+        int intermediate_group_id = msg->intm_rtr_id / s->params->num_routers;
+        router_type intm_router_type = router_type_map[msg->intm_rtr_id];
+        if (intm_router_type == SPINE) { //we want a connection to the spine router itself
+            vector< Connection > conns_to_int_spine = s->connMan->get_connections_to_gid(msg->intm_rtr_id, CONN_GLOBAL);
+            if (conns_to_int_spine.size() == 0) { //if we cannot connect to the intermediate spine we have to reroute or choose a new one
+                bf->c30 = 1;
+                msg->intm_rtr_id = dfp_pick_intermediate_router_with_conn(s, bf, msg, lp, origin_group_id, fdest_group_id);
+            } //else we already have a connection to the intermediate spine
+        }
+        else if (intm_router_type == LEAF) { //we want a connection to the intermediate group
+            vector< Connection > conns_to_int_group = s->connMan->get_connections_to_group(intermediate_group_id);
+            if (conns_to_int_group.size() == 0) { //if we cannot connect to the intermediate group we have to reroute or choose a new one
+                bf->c30 = 1;
+                msg->intm_rtr_id = dfp_pick_intermediate_router_with_conn(s, bf, msg, lp, origin_group_id, fdest_group_id);
+            } //else we already have a connection to the intermediate group
+        }
+        else {
+            tw_error(TW_LOC, "Invalid router type in typemap\n");
+        }
+    }
 }
 
 static vector< Connection > dfp_select_two_connections(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector< Connection > conns)
@@ -2897,6 +2937,7 @@ static Connection do_dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, termi
     bool in_intermediate_group = (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
     bool outside_source_group = (my_group_id != origin_group_id);
     int adaptive_threshold = s->params->adaptive_threshold;
+    bool next_hop_is_global = false;
 
     if (msg->intm_rtr_id == my_router_id) //then we are the intermediate router and need to forward to fdest on the upward channel (VL 1)
         msg->dfp_upward_channel_flag = 1;
@@ -2908,16 +2949,24 @@ static Connection do_dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, termi
     vector< Connection > poss_intm_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, msg->intm_rtr_id);
 
     Connection best_min_conn, best_intm_conn;
-    if (my_group_id == origin_group_id) { // SOURCE GROUP LOCAL ROUTING - pick absolute best connection from the possible stops
-        //get the absolute best from each set
-        Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_min_next_stops);
-        Connection best_intm_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_intm_next_stops);
-    }
-    else {
-        //select two connections from each possible minimal and intermediate and pick the best
-        Connection best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_min_next_stops);
-        Connection best_intm_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_intm_next_stops);
-    }
+    ConnectionType conn_type_of_mins, conn_type_of_intms;
+
+    //determine if it's a global or local channel next
+    if (poss_min_next_stops.size() > 0)
+        conn_type_of_mins = poss_min_next_stops[0].conn_type; //they should all be the same
+    if (poss_intm_next_stops.size() > 0)
+        conn_type_of_intms = poss_intm_next_stops[0].conn_type;
+
+    if (conn_type_of_mins == CONN_GLOBAL)
+        best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_min_next_stops);
+    else
+        best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_min_next_stops);
+
+    if (conn_type_of_intms == CONN_GLOBAL)
+        best_intm_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_intm_next_stops);
+    else
+        best_intm_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_intm_next_stops);
+
 
     //if the best is intermediate, encode the intermediate router id in the message, set path type to non minimal
     int min_score = dfp_score_connection(s, bf, msg, lp, best_min_conn, C_MIN);
@@ -2986,44 +3035,10 @@ static Connection do_dfp_routing(router_state *s,
         msg->intm_rtr_id = dfp_pick_intermediate_router(s, bf, msg, lp, origin_group_id, fdest_group_id);
     }
     if ( (my_group_id == origin_group_id) && (s->dfp_router_type == SPINE) ) {
-        if (s->params->source_group_rerouting == 0) { //if we cannot reroute within our source group, we have to pick a new intermediate router
-            if (s->params->intermediate_router_choice == INT_CHOICE_SPINE) { //then we care about having a connection to the actual spine router
-                if (s->connMan->get_connections_to_gid(msg->intm_rtr_id, CONN_GLOBAL).size() == 0) {
-                    bf->c30 = 1;
-                    msg->intm_rtr_id = dfp_pick_intermediate_router_with_conn(s, bf, msg, lp, origin_group_id, fdest_group_id);
-                } //else we already have a connection to the intm_rtr_id
-            }
-            if (s->params->intermediate_router_choice == INT_CHOICE_LEAF) { //then we just care about having a connection to the group
-                int intermediate_group_id = msg->intm_rtr_id / s->params->num_routers;
-                if (s->connMan->get_connections_to_group(intermediate_group_id).size() == 0) { //if we don't have a connection to the intermediate group, we have to reroute or reselect
-                    bf->c30 = 1;
-                    msg->intm_rtr_id = dfp_pick_intermediate_router_with_conn(s, bf, msg, lp, origin_group_id, fdest_group_id);
-                } //else we already have a connection to the intermediate group
-            }
-            if (s->params->intermediate_router_choice == INT_CHOICE_BOTH) {
-                int intermediate_group_id = msg->intm_rtr_id / s->params->num_routers;
-                router_type intm_router_type = router_type_map[msg->intm_rtr_id];
-                if (intm_router_type == SPINE) { //we want a connection to the spine router itself
-                    vector< Connection > conns_to_int_spine = s->connMan->get_connections_to_gid(msg->intm_rtr_id, CONN_GLOBAL);
-                    if (conns_to_int_spine.size() == 0) { //if we cannot connect to the intermediate spine we have to reroute or choose a new one
-                        bf->c30 = 1;
-                        msg->intm_rtr_id = dfp_pick_intermediate_router_with_conn(s, bf, msg, lp, origin_group_id, fdest_group_id);
-                    } //else we already have a connection to the intermediate spine
-                }
-                else if (intm_router_type == LEAF) { //we want a connection to the intermediate group
-                    vector< Connection > conns_to_int_group = s->connMan->get_connections_to_group(intermediate_group_id);
-                    if (conns_to_int_group.size() == 0) { //if we cannot connect to the intermediate group we have to reroute or choose a new one
-                        bf->c30 = 1;
-                        msg->intm_rtr_id = dfp_pick_intermediate_router_with_conn(s, bf, msg, lp, origin_group_id, fdest_group_id);
-                    } //else we already have a connection to the intermediate group
-                }
-                else {
-                    tw_error(TW_LOC, "Invalid router type in typemap\n");
-                }
-            }
-        } //else then we will reroute if necessary
-    } //else we're not in the source group so we don't care about picking good intermediate routers
-
+        if (s->params->source_group_rerouting == 0 && isRoutingAdaptive(routing)) { //if we cannot reroute within our source group, we have to pick a new intermediate router
+            dfp_reselect_intermediate_router(s, bf, msg, lp, origin_group_id, fdest_group_id); //alters msg->intm_rtr_id to be more appropriate
+        }
+    }
 
     Connection nextStopConn; //the connection that we will forward the packet to
 
@@ -3052,14 +3067,21 @@ static Connection do_dfp_routing(router_state *s,
             nextStopConn = do_dfp_prog_adaptive_routing(s, bf, msg, lp, fdest_router_id);
             return nextStopConn;
     }
+
     else if (isRoutingMinimal(routing)) {
         vector< Connection > poss_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, fdest_router_id);
         if (poss_next_stops.size() < 1)
             tw_error(TW_LOC, "MINIMAL DEAD END\n");
         
-        Connection best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+        ConnectionType conn_type = poss_next_stops[0].conn_type;
+        Connection best_min_conn;
+        if (conn_type == CONN_GLOBAL)
+            best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //does the pick 2 and compare
+        else
+            best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //gets absolute best
         return best_min_conn;
     }
+
     else { //routing algorithm is specified in routing
         assert( (routing == NON_MINIMAL_LEAF) || (routing == NON_MINIMAL_SPINE) );
         bool route_to_fdest = false;
@@ -3093,28 +3115,31 @@ static Connection do_dfp_routing(router_state *s,
             }
         }
 
+        vector< Connection > poss_next_stops;
         if (route_to_fdest) {
-            vector< Connection > poss_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, fdest_router_id);
+            poss_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, fdest_router_id);
             if (poss_next_stops.size() < 1)
-                tw_error(TW_LOC, "Dead end when finding stops to fdest router");
-            
-            Connection best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
-            if (best_min_conn.port == -1)
-                tw_error(TW_LOC, "Get best connection returned a bad connection");
-            return best_min_conn;
+                tw_error(TW_LOC, "Dead end when finding stops to fdest router");            
         }
         else { //then we need to be going toward the intermediate router
             msg->path_type = NON_MINIMAL;
-            vector< Connection > poss_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, msg->intm_rtr_id);
+            poss_next_stops = get_possible_stops_to_specific_router(s, bf, msg, lp, msg->intm_rtr_id);
             if (poss_next_stops.size() < 1)
                 tw_error(TW_LOC, "Dead end when finding stops to intermediate router");
-
-            Connection best_intm_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
-            if (best_intm_conn.port == -1)
-                tw_error(TW_LOC, "Get best connection returned a bad connection");
-            
-            return best_intm_conn;
         }
+
+        ConnectionType conn_type = poss_next_stops[0].conn_type; //should all be the same
+
+        Connection best_conn;
+        if (conn_type == CONN_GLOBAL)
+            best_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //pick 2 randomly and pick best from those
+        else
+            best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //pick absolute best from poss_next_stops
+
+        if (best_conn.port == -1)
+            tw_error(TW_LOC, "Get best connection returned a bad connection");
+        
+        return best_conn;
     }
 
     tw_error(TW_LOC, "do_dfp_routing(): No route chosen!\n");
