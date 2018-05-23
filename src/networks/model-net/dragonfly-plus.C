@@ -698,12 +698,16 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
 
     char int_choice_str[MAX_NAME_LENGTH];
     configuration_get_value(&config, "PARAMS", "intermediate_choice", anno, int_choice_str, MAX_NAME_LENGTH);
-    if (strcmp(int_choice_str, "spine") == 0)
+    if (strcmp(int_choice_str, "spine") == 0) {
+        tw_error(TW_LOC, "Intermediate Choice == Spine is not allowed. Dangerous as a legal route is not guaranteed.");
         p->intermediate_router_choice = INT_CHOICE_SPINE;
+    }
     else if (strcmp(int_choice_str, "leaf") == 0)
         p->intermediate_router_choice = INT_CHOICE_LEAF;
-    else if (strcmp(int_choice_str, "both") == 0)
+    else if (strcmp(int_choice_str, "both") == 0) {
+        tw_error(TW_LOC, "Intermediate Choice == Both is not allowed. Dangerous as a legal route is not guaranteed.");
         p->intermediate_router_choice = INT_CHOICE_BOTH;
+    }
     else {
         printf("No intermediate router choice specified, defaulting to leaf routers only\n");
         p->intermediate_router_choice = INT_CHOICE_LEAF;
@@ -712,13 +716,15 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
 
     char source_rerouting_str[MAX_NAME_LENGTH];
     configuration_get_value(&config, "PARAMS", "source_group_rerouting", anno, source_rerouting_str, MAX_NAME_LENGTH);
-    if (strcmp(source_rerouting_str, "on") == 0)
+    if (strcmp(source_rerouting_str, "on") == 0) {
+        tw_error(TW_LOC, "Source Group Rerouting is currently not compliant with Dragonfly Plus topology specifications. Can cause deadlock.\n");
         p->source_group_rerouting = 1;
+    }
     else if (strcmp(source_rerouting_str, "off") == 0)
         p->source_group_rerouting = 0;
     else {
-        printf("No source group rerouting option specified, defaulting to ON (rerouting allowed in source group)\n");
-        p->source_group_rerouting = 1;
+        printf("No source group rerouting option specified, defaulting to OFF (rerouting NOT allowed in source group)\n");
+        p->source_group_rerouting = 0;
     }
 
     char int_rerouting_str[MAX_NAME_LENGTH];
@@ -764,6 +770,7 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         p->intermediate_router_choice = INT_CHOICE_LEAF;
     }
     if (routing == NON_MINIMAL_SPINE) {
+        tw_error(TW_LOC, "non-minimal-spine is a dangerous algorithm. It is forbidden for some topologies due to need for illegal rerouting\n");
         printf("non-minimal-spine routing selected, setting intermediate router choice to spine only\n");
         p->intermediate_router_choice = INT_CHOICE_SPINE;
     }
