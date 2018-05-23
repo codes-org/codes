@@ -1234,16 +1234,16 @@ void router_plus_setup(router_state *r, tw_lp *lp)
         r->link_traffic_sample[i] = 0;
         r->queued_count[i] = 0;
         r->in_send_loop[i] = 0;
-        r->vc_occupancy[i] = (int *) malloc(p->num_vcs * sizeof(int));
+        r->vc_occupancy[i] = (int *) calloc(p->num_vcs, sizeof(int));
         r->pending_msgs[i] =
-            (terminal_plus_message_list **) malloc(p->num_vcs * sizeof(terminal_plus_message_list *));
-        r->last_buf_full[i] = (tw_stime *) malloc(p->num_vcs * sizeof(tw_stime));
+            (terminal_plus_message_list **) calloc(p->num_vcs, sizeof(terminal_plus_message_list *));
+        r->last_buf_full[i] = (tw_stime *) calloc(p->num_vcs, sizeof(tw_stime));
         r->pending_msgs_tail[i] =
-            (terminal_plus_message_list **) malloc(p->num_vcs * sizeof(terminal_plus_message_list *));
+            (terminal_plus_message_list **) calloc(p->num_vcs, sizeof(terminal_plus_message_list *));
         r->queued_msgs[i] =
-            (terminal_plus_message_list **) malloc(p->num_vcs * sizeof(terminal_plus_message_list *));
+            (terminal_plus_message_list **) calloc(p->num_vcs, sizeof(terminal_plus_message_list *));
         r->queued_msgs_tail[i] =
-            (terminal_plus_message_list **) malloc(p->num_vcs * sizeof(terminal_plus_message_list *));
+            (terminal_plus_message_list **) calloc(p->num_vcs, sizeof(terminal_plus_message_list *));
         for (int j = 0; j < p->num_vcs; j++) {
             r->last_buf_full[i][j] = 0.0;
             r->vc_occupancy[i][j] = 0;
@@ -1464,13 +1464,13 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
 
     for (int i = 0; i < num_chunks; i++) {
         terminal_plus_message_list *cur_chunk =
-            (terminal_plus_message_list *) malloc(sizeof(terminal_plus_message_list));
+            (terminal_plus_message_list *) calloc(1, sizeof(terminal_plus_message_list));
         msg->origin_router_id = s->router_id;
         init_terminal_plus_message_list(cur_chunk, msg);
 
         if (msg->remote_event_size_bytes + msg->local_event_size_bytes > 0) {
             cur_chunk->event_data =
-                (char *) malloc(msg->remote_event_size_bytes + msg->local_event_size_bytes);
+                (char *) calloc(1, msg->remote_event_size_bytes + msg->local_event_size_bytes);
         }
 
         void *m_data_src = model_net_method_get_edata(DRAGONFLY_PLUS, msg);
@@ -1947,7 +1947,7 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
     /* If an entry does not exist then create one */
     if (!tmp) {
         bf->c5 = 1;
-        struct dfly_qhash_entry *d_entry = (dfly_qhash_entry *) malloc(sizeof(struct dfly_qhash_entry));
+        struct dfly_qhash_entry *d_entry = (dfly_qhash_entry *) calloc(1, sizeof(struct dfly_qhash_entry));
         d_entry->num_chunks = 0;
         d_entry->key = key;
         d_entry->remote_event_data = NULL;
@@ -1976,7 +1976,7 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
     /* if its the last chunk of the packet then handle the remote event data */
     if (msg->remote_event_size_bytes > 0 && !tmp->remote_event_data) {
         /* Retreive the remote event entry */
-        tmp->remote_event_data = (char *) malloc(msg->remote_event_size_bytes);
+        tmp->remote_event_data = (char *) calloc(1, msg->remote_event_size_bytes);
         assert(tmp->remote_event_data);
         tmp->remote_event_size = msg->remote_event_size_bytes;
         memcpy(tmp->remote_event_data, m_data_src, msg->remote_event_size_bytes);
@@ -2030,10 +2030,10 @@ void dragonfly_plus_rsample_init(router_state *s, tw_lp *lp)
     assert(p->radix);
 
     s->max_arr_size = MAX_STATS;
-    s->rsamples = (struct dfly_router_sample *) malloc(MAX_STATS * sizeof(struct dfly_router_sample));
+    s->rsamples = (struct dfly_router_sample *) calloc(MAX_STATS, sizeof(struct dfly_router_sample));
     for (; i < s->max_arr_size; i++) {
-        s->rsamples[i].busy_time = (tw_stime *) malloc(sizeof(tw_stime) * p->radix);
-        s->rsamples[i].link_traffic_sample = (int64_t *) malloc(sizeof(int64_t) * p->radix);
+        s->rsamples[i].busy_time = (tw_stime *) calloc(p->radix, sizeof(tw_stime));
+        s->rsamples[i].link_traffic_sample = (int64_t *) calloc(p->radix, sizeof(int64_t));
     }
 }
 void dragonfly_plus_rsample_rc_fn(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
@@ -2072,7 +2072,7 @@ void dragonfly_plus_rsample_fn(router_state *s, tw_bf *bf, terminal_plus_message
 
     if (s->op_arr_size >= s->max_arr_size) {
         struct dfly_router_sample *tmp =
-            (dfly_router_sample *) malloc((MAX_STATS + s->max_arr_size) * sizeof(struct dfly_router_sample));
+            (dfly_router_sample *) calloc((MAX_STATS + s->max_arr_size), sizeof(struct dfly_router_sample));
         memcpy(tmp, s->rsamples, s->op_arr_size * sizeof(struct dfly_router_sample));
         free(s->rsamples);
         s->rsamples = tmp;
@@ -2159,7 +2159,7 @@ void dragonfly_plus_sample_init(terminal_state *s, tw_lp *lp)
     s->op_arr_size = 0;
     s->max_arr_size = MAX_STATS;
 
-    s->sample_stat = (dfly_cn_sample *) malloc(MAX_STATS * sizeof(struct dfly_cn_sample));
+    s->sample_stat = (dfly_cn_sample *) calloc(MAX_STATS, sizeof(struct dfly_cn_sample));
 }
 void dragonfly_plus_sample_rc_fn(terminal_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
 {
@@ -2199,7 +2199,7 @@ void dragonfly_plus_sample_fn(terminal_state *s, tw_bf *bf, terminal_plus_messag
         /* In the worst case, copy array to a new memory location, its very
          * expensive operation though */
         struct dfly_cn_sample *tmp =
-            (dfly_cn_sample *) malloc((MAX_STATS + s->max_arr_size) * sizeof(struct dfly_cn_sample));
+            (dfly_cn_sample *) calloc((MAX_STATS + s->max_arr_size), sizeof(struct dfly_cn_sample));
         memcpy(tmp, s->sample_stat, s->op_arr_size * sizeof(struct dfly_cn_sample));
         free(s->sample_stat);
         s->sample_stat = tmp;
@@ -3285,7 +3285,7 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
     short prev_path_type = 0, next_path_type = 0;
 
     terminal_plus_message_list *cur_chunk =
-        (terminal_plus_message_list *) malloc(sizeof(terminal_plus_message_list));
+        (terminal_plus_message_list *) calloc(1, sizeof(terminal_plus_message_list));
     init_terminal_plus_message_list(cur_chunk, msg);
 
     // packets start out as minimal when received from a terminal. The path type is changed off of minimal if/when the packet takes a nonminimal path during routing
@@ -3360,7 +3360,7 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
 
     if (msg->remote_event_size_bytes > 0) {
         void *m_data_src = model_net_method_get_edata(DRAGONFLY_PLUS_ROUTER, msg);
-        cur_chunk->event_data = (char *) malloc(msg->remote_event_size_bytes);
+        cur_chunk->event_data = (char *) calloc(1, msg->remote_event_size_bytes);
         memcpy(cur_chunk->event_data, m_data_src, msg->remote_event_size_bytes);
     }
 
