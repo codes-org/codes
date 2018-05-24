@@ -70,7 +70,8 @@ class ConnectionManager {
 
     map< int, Connection > _portMap; //Mapper for ports to connections
 
-    set< int > _other_groups_i_connect_to;
+    vector< int > _other_groups_i_connect_to;
+    set< int > _other_groups_i_connect_to_set;
 
     // map< int, vector< Connection > > intermediateRouterToGroupMap; //maps group id to list of routers that connect to it.
     //                                                                //ex: intermediateRouterToGroupMap[3] returns a vector
@@ -201,6 +202,11 @@ public:
     vector< int > get_connected_group_ids();
 
     /**
+    *
+    */
+    void solidify_connections();
+
+    /**
      * @brief prints out the state of the connection manager
      */
     void print_connections();
@@ -265,7 +271,7 @@ void ConnectionManager::add_connection(int dest_gid, ConnectionType type)
     }
 
     if(conn.dest_group_id != conn.src_group_id)
-        _other_groups_i_connect_to.insert(conn.dest_group_id);
+        _other_groups_i_connect_to_set.insert(conn.dest_group_id);
 
     _portMap[conn.port] = conn;
 }
@@ -449,14 +455,18 @@ vector< Connection > ConnectionManager::get_connections_by_type(ConnectionType t
 
 vector< int > ConnectionManager::get_connected_group_ids()
 {
-    vector< int > retVec;
-    set< int >::iterator it;
-    for(it = _other_groups_i_connect_to.begin(); it != _other_groups_i_connect_to.end(); it++)
-    {
-        retVec.push_back(*it);
-    }
-    return retVec;
+    return _other_groups_i_connect_to;
 }
+
+void ConnectionManager::solidify_connections()
+{
+    set< int >::iterator it;
+    for(it = _other_groups_i_connect_to_set.begin(); it != _other_groups_i_connect_to_set.end(); it++)
+    {
+        _other_groups_i_connect_to.push_back(*it);
+    }
+}
+
 
 void ConnectionManager::print_connections()
 {

@@ -1261,6 +1261,9 @@ void router_plus_setup(router_state *r, tw_lp *lp)
         }
     }
 
+    if (r->dfp_router_type == SPINE)
+        r->connMan->solidify_connections();
+
     return;
 }
 
