@@ -2392,29 +2392,52 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
     const dragonfly_plus_param *p = s->params;
     int written = 0;
     if (!s->router_id) {
-        written = sprintf(s->output_buf, "DRAGONFLY-PLUS STATS OUTPUT NOT IMPLEMENTED\n");
         written =
-            sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
+            sprintf(s->output_buf, "# Format <Type> <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
+        written += sprintf(s->output_buf + written, "\n# Router ports in the order: %d Intra Links, %d Inter Links %d Terminal Links. Hyphens for Unconnected ports (No terminals on Spine routers)", p->intra_grp_radix, p->num_global_connections, p->num_cn);  
     }
-    written += sprintf(s->output_buf + written, "\n %llu %d %d", LLU(lp->gid), s->router_id / p->num_routers,
-                       s->router_id % p->num_routers);
-    for (int d = 0; d < p->radix; d++)
-        written += sprintf(s->output_buf + written, " %lf", s->busy_time[d]);
+
+    char router_type[10];
+    if (s->dfp_router_type == LEAF)
+        strcpy(router_type,"LEAF");
+    else if(s->dfp_router_type == SPINE)
+        strcpy(router_type,"SPINE");
+
+    written += sprintf(s->output_buf + written, "\n%s %llu %d %d", router_type, LLU(lp->gid), s->router_id / p->num_routers, s->router_id % p->num_routers);
+    for (int d = 0; d < p->radix; d++) {
+        bool printed_hyphen = false;
+        ConnectionType port_type = s->connMan->get_port_type(d);
+        
+        if (port_type == 0) {
+            written += sprintf(s->output_buf + written, " -");
+            printed_hyphen = true;
+        }
+        if (printed_hyphen == false)
+            written += sprintf(s->output_buf + written, " %lf", s->busy_time[d]);
+    }
 
     sprintf(s->output_buf + written, "\n");
     lp_io_write(lp->gid, (char *) "dragonfly-plus-router-stats", written, s->output_buf);
 
     written = 0;
     if (!s->router_id) {
-        written = sprintf(s->output_buf2, "DRAGONFLY-PLUS TRAFFIC OUTPUT NOT IMPLEMENTED\n");
         written =
             sprintf(s->output_buf2, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
+        written += sprintf(s->output_buf2 + written, "\n# Router ports in the order: %d Intra Links, %d Inter Links %d Terminal Links. Hyphens for Unconnected ports (No terminals on Spine routers)", p->intra_grp_radix, p->num_global_connections, p->num_cn);  
     }
-    written += sprintf(s->output_buf2 + written, "\n %llu %d %d", LLU(lp->gid), s->router_id / p->num_routers,
-                       s->router_id % p->num_routers);
+    written += sprintf(s->output_buf2 + written, "\n%s %llu %d %d", router_type, LLU(lp->gid), s->router_id / p->num_routers, s->router_id % p->num_routers);
 
-    for (int d = 0; d < p->radix; d++)
-        written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
+    for (int d = 0; d < p->radix; d++) {
+        bool printed_hyphen = false;
+        ConnectionType port_type = s->connMan->get_port_type(d);
+
+        if (port_type == 0) {
+            written += sprintf(s->output_buf2 + written, " -");
+            printed_hyphen = true;
+        }
+        if (printed_hyphen == false)
+            written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
+    }
 
     lp_io_write(lp->gid, (char *) "dragonfly-plus-router-traffic", written, s->output_buf2);
 }
