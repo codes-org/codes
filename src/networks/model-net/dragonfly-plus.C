@@ -2537,7 +2537,7 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
 static vector< Connection > dfp_select_two_connections(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector< Connection > conns)
 {
     if(conns.size() < 2) {
-        tw_rand_integer(lp->rng,0,2);
+        tw_rand_integer(lp->rng,0,2); //ensure this function always uses two rngs
         tw_rand_integer(lp->rng,0,2);
         if(conns.size() == 1)
             return conns;
@@ -2545,43 +2545,20 @@ static vector< Connection > dfp_select_two_connections(router_state *s, tw_bf *b
             return vector< Connection>();
     }
 
+    int rand_sel_1, rand_sel_2_offset;
 
-    int rand_sel_1, rand_sel_2;
-    vector<int> indices;
-    vector<int>::iterator it;
+    int num_conns = conns.size();
 
-    for(int i = 0; i < conns.size(); i++)
-    {
-        indices.push_back(i);
-    }
+    rand_sel_1 = tw_rand_integer(lp->rng, 0, num_conns-1);
+    rand_sel_2_offset = tw_rand_integer(lp->rng, 0, num_conns-1); //number of indices to count up from the previous selected one. Avoids selecting same one twice
+    int rand_sel_2 = (rand_sel_1 + rand_sel_2_offset) % num_conns;
 
-    // printf("Selecting 1st from %d\n",indices.size());
-    int pi = tw_rand_integer(lp->rng, 0, indices.size()-1);
-    rand_sel_1 = indices[pi];
-    for(it = indices.begin(); it != indices.end(); it++) //because std::find wasn't working :/
-    {
-        if (*it == rand_sel_1)
-            break;
-    }
-    indices.erase(it); //erases the number located at pos pi
+    vector< Connection > retVec;
+    retVec.push_back(conns[rand_sel_1]);
+    retVec.push_back(conns[rand_sel_2]);
 
-    // printf("Selecting 2nd from %d\n",indices.size());
-    pi = tw_rand_integer(lp->rng, 0, indices.size()-1);
-    rand_sel_2 = indices[pi];
-
-    for(it = indices.begin(); it != indices.end(); it++) //because std::find wasn't working :/
-    {
-        if (*it == rand_sel_2)
-            break;
-    }
-    indices.erase(it); //erases the number located at pos pi
-
-    vector< Connection > selected_conns;
-    selected_conns.push_back(conns[rand_sel_1]);
-    selected_conns.push_back(conns[rand_sel_2]);
-    return selected_conns;
+    return retVec;
 }
-
 
 static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector<Connection> conns)
 {
