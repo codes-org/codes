@@ -43,6 +43,11 @@ struct Connection
     ConnectionType conn_type; //type of the connection: CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
 };
 
+inline bool operator<(const Connection& lhs, const Connection& rhs)
+{
+  return lhs.port < rhs.port;
+}
+
 /**
  * @class ConnectionManager
  *
