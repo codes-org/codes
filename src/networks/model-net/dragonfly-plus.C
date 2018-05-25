@@ -194,6 +194,10 @@ struct dragonfly_plus_param
     int num_router_leaf;   // number of leaf routers (bottom level)
     int adaptive_threshold;   // predefined queue length threshold T before a packet is routed through a lower priority queue
 
+    bool source_leaf_consider_nonmin;
+    bool int_spine_consider_min;
+    bool dest_spine_consider_nonmin;
+
     int max_hops_notify; //maximum number of hops allowed before notifying via printout
 
     long max_port_score;   // maximum score that can be given to any port during route scoring
@@ -604,35 +608,38 @@ void dragonfly_plus_print_params(const dragonfly_plus_param *p)
     MPI_Comm_rank(MPI_COMM_CODES, &myRank);
     if (!myRank) { 
         printf("\n------------------ Dragonfly Plus Parameters ---------\n");
-        printf("\tnum_routers =            %d\n",p->num_routers);
-        printf("\tlocal_bandwidth =        %.2f\n",p->local_bandwidth);
-        printf("\tglobal_bandwidth =       %.2f\n",p->global_bandwidth);
-        printf("\tcn_bandwidth =           %.2f\n",p->cn_bandwidth);
-        printf("\tnum_vcs =                %d\n",p->num_vcs);
-        printf("\tlocal_vc_size =          %d\n",p->local_vc_size);
-        printf("\tglobal_vc_size =         %d\n",p->global_vc_size);
-        printf("\tcn_vc_size =             %d\n",p->cn_vc_size);
-        printf("\tchunk_size =             %d\n",p->chunk_size);
-        printf("\tnum_cn =                 %d\n",p->num_cn);
-        printf("\tintra_grp_radix =        %d\n",p->intra_grp_radix);
-        printf("\tnum_level_chans =        %d\n",p->num_level_chans);
-        printf("\tnum_router_spine =       %d\n",p->num_router_spine);
-        printf("\tnum_router_leaf =        %d\n",p->num_router_leaf);
-        printf("\tadaptive_threshold =     %d\n",p->adaptive_threshold);
-        printf("\tmax_port_score =         %ld\n",p->max_port_score);
-        printf("\tnum_groups =             %d\n",p->num_groups);
-        printf("\tradix =                  %d\n",p->radix);
-        printf("\ttotal_routers =          %d\n",p->total_routers);
-        printf("\ttotal_terminals =        %d\n",p->total_terminals);
-        printf("\tnum_global_connections = %d\n",p->num_global_connections);
-        printf("\tcn_delay =               %.2f\n",p->cn_delay);
-        printf("\tlocal_delay =            %.2f\n",p->local_delay);
-        printf("\tglobal_delay =           %.2f\n",p->global_delay);
-        printf("\tcredit_delay =           %.2f\n",p->credit_delay);
-        printf("\trouter_delay =           %.2f\n",p->router_delay);
-        printf("\tscoring =                %d\n",scoring);
-        printf("\trouting =                %d\n",routing);
-        printf("\tmax hops notification =  %d\n",p->max_hops_notify);
+        printf("\tnum_routers =                 %d\n",p->num_routers);
+        printf("\tlocal_bandwidth =             %.2f\n",p->local_bandwidth);
+        printf("\tglobal_bandwidth =            %.2f\n",p->global_bandwidth);
+        printf("\tcn_bandwidth =                %.2f\n",p->cn_bandwidth);
+        printf("\tnum_vcs =                     %d\n",p->num_vcs);
+        printf("\tlocal_vc_size =               %d\n",p->local_vc_size);
+        printf("\tglobal_vc_size =              %d\n",p->global_vc_size);
+        printf("\tcn_vc_size =                  %d\n",p->cn_vc_size);
+        printf("\tchunk_size =                  %d\n",p->chunk_size);
+        printf("\tnum_cn =                      %d\n",p->num_cn);
+        printf("\tintra_grp_radix =             %d\n",p->intra_grp_radix);
+        printf("\tnum_level_chans =             %d\n",p->num_level_chans);
+        printf("\tnum_router_spine =            %d\n",p->num_router_spine);
+        printf("\tnum_router_leaf =             %d\n",p->num_router_leaf);
+        printf("\tmax_port_score =              %ld\n",p->max_port_score);
+        printf("\tnum_groups =                  %d\n",p->num_groups);
+        printf("\tradix =                       %d\n",p->radix);
+        printf("\ttotal_routers =               %d\n",p->total_routers);
+        printf("\ttotal_terminals =             %d\n",p->total_terminals);
+        printf("\tnum_global_connections =      %d\n",p->num_global_connections);
+        printf("\tcn_delay =                    %.2f\n",p->cn_delay);
+        printf("\tlocal_delay =                 %.2f\n",p->local_delay);
+        printf("\tglobal_delay =                %.2f\n",p->global_delay);
+        printf("\tcredit_delay =                %.2f\n",p->credit_delay);
+        printf("\trouter_delay =                %.2f\n",p->router_delay);
+        printf("\tscoring =                     %d\n",scoring);
+        printf("\tadaptive_threshold =          %d\n",p->adaptive_threshold);
+        printf("\trouting =                     %d\n",routing);
+        printf("\tsource_leaf_consider_nonmin = %s\n", (p->source_leaf_consider_nonmin ? "true" : "false"));
+        printf("\tint_spine_consider_min =      %s\n", (p->int_spine_consider_min ? "true" : "false"));
+        printf("\tdest_spine_consider_nonmin =  %s\n", (p->dest_spine_consider_nonmin ? "true" : "false"));
+        printf("\tmax hops notification =       %d\n",p->max_hops_notify);
         printf("------------------------------------------------------\n\n");
     }
 }
@@ -722,9 +729,46 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
 
     rc = configuration_get_value_int(&config, "PARAMS", "notification_on_hops_greater_than", anno, &p->max_hops_notify);
     if (rc) {
-        printf("Maximum hops for notifying not specified, setting to INT MAX");
+        printf("Maximum hops for notifying not specified, setting to INT MAX\n");
         p->max_hops_notify = INT_MAX;
     }
+
+    int src_leaf_cons_choice;
+    rc = configuration_get_value_int(&config, "PARAMS", "source_leaf_consider_nonmin", anno, &src_leaf_cons_choice);
+    if (rc) {
+        printf("Source leaf consideration of nonmin ports not specified. Defaulting to True\n");
+        p->source_leaf_consider_nonmin = true;
+    }
+    else if (src_leaf_cons_choice == 1) {
+        p->source_leaf_consider_nonmin = true;
+    }
+    else
+        p->source_leaf_consider_nonmin = false;
+
+
+    int int_spn_cons_choice;
+    rc = configuration_get_value_int(&config, "PARAMS", "int_spine_consider_min", anno, &int_spn_cons_choice);
+    if (rc) {
+        printf("Int spine consideration of min ports not specified. Defaulting to True\n");
+        p->int_spine_consider_min = true;
+    }
+    else if (int_spn_cons_choice == 1) {
+        p->int_spine_consider_min = true;
+    }
+    else
+        p->int_spine_consider_min = false;
+
+    int dst_spn_cons_choice;
+    rc = configuration_get_value_int(&config, "PARAMS", "dest_spine_consider_nonmin", anno, &dst_spn_cons_choice);
+    if (rc) {
+        printf("Dest spine consideration of nonmin ports not specified. Defaulting to False");
+        p->dest_spine_consider_nonmin = false;
+    }
+    else if (dst_spn_cons_choice == 1) {
+        p->dest_spine_consider_nonmin = true;
+    }
+    else
+        p->dest_spine_consider_nonmin = false;
 
     /* MM: This should be 2 for dragonfly plus*/
     p->num_vcs = 2;
@@ -2687,8 +2731,23 @@ static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *b
 
     }
     else if (my_group_id == fdest_group_id) {
-        assert(possible_nonminimal_stops.size() == 0);  //empty because all legal stops within the destination group are minimal
-        return possible_nonminimal_stops; 
+        if (s->params->dest_spine_consider_nonmin == true) { //then its legal for the dest spine to route to dest leaves that aren't the final destination leaf
+            if (s->dfp_router_type == SPINE) {
+                vector< Connection > conns_to_leaves = s->connMan->get_connections_by_type(CONN_LOCAL);
+                vector< Connection > retVec;
+                for (int i = 0; i < conns_to_leaves.size(); i++) 
+                {
+                    if (conns_to_leaves[i].dest_gid != fdest_router_id)
+                        retVec.push_back(conns_to_leaves[i]);
+                }
+                return retVec;
+            }
+            else {
+                assert(s->dfp_router_type == LEAF);
+                assert(possible_nonminimal_stops.size() == 0); //empty because a leaf in the destination group has no legal nonminimal moves
+                return possible_nonminimal_stops;
+            }
+        }
     }
     else {
         tw_error(TW_LOC, "Invalid group classification\n");
@@ -2809,9 +2868,6 @@ static Connection do_dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, termi
             else if (min_score <= intm_score) {
                 route_to_fdest = true;
             }
-            else { //Changing to a nonminimal path!
-                msg->path_type = NON_MINIMAL;
-            }
         }
         else { //HIGHER is better
             if (adaptive_threshold > 0)
@@ -2819,8 +2875,34 @@ static Connection do_dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, termi
             if (min_score >= intm_score) {
                 route_to_fdest = true;
             }
-            else { //changing to a nonminimal path!
-                msg->path_type = NON_MINIMAL;
+        }
+    }
+
+    if (msg->dfp_upward_channel_flag == 0) { //if the flag is 1, then only minimal hops are considered
+        if (s->params->source_leaf_consider_nonmin == false) { //then we aren't supposed to let the source leaves consider any routes that wouldn't also be minimal
+            if (my_group_id == origin_group_id) {
+                if (s->dfp_router_type == LEAF)
+                    route_to_fdest = true; //we aren't supposed to consider nonmin routes as the source leaf with given config
+            }
+        }
+        if (s->params->int_spine_consider_min == false) { //then we aren't supposed to let spines in intermediate group route to minimal even if possible
+            if (in_intermediate_group) {
+                if (s->dfp_router_type == SPINE) {
+                    route_to_fdest = false;
+                }
+            }
+        }
+        if (s->params->dest_spine_consider_nonmin == false) { //then the destination spines aren't allowed to route to leaves that aren't the destination leaf
+            if (my_group_id == fdest_group_id) {
+                if (s->dfp_router_type == SPINE)
+                    route_to_fdest = true;
+            }
+        }
+        else {
+            assert(s->params->dest_spine_consider_nonmin == true); //then destination spines are allowed to route to non fdest leaves, but only if the dfp upward channel flag hasn't been set
+            if (my_group_id == fdest_group_id) {
+                if (s->dfp_router_type == SPINE)
+                    route_to_fdest = true;
             }
         }
     }
@@ -2834,12 +2916,18 @@ static Connection do_dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, termi
     if (route_to_fdest){
         if (in_intermediate_group == true)
             msg->dfp_upward_channel_flag = 1; //if we're in an intermediate group and take a turn toward the dest group, we flip the flag!
+        if ( (my_group_id == fdest_group_id) && (s->dfp_router_type == LEAF) && (my_router_id != fdest_router_id) )
+            msg->dfp_upward_channel_flag = 1; //if we're a dest leaf but not the fdest leaf we must route using vl 1
 
         nextStopConn = best_min_conn;
     }
     else {
         nextStopConn = best_intm_conn;
+        msg->path_type = NON_MINIMAL;
     }
+
+    if (nextStopConn.port == -1)
+        tw_error(TW_LOC, "DFP Prog Adaptive Routing: No valid next hop was chosen\n");
 
     return nextStopConn;
 }
