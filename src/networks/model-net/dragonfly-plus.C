@@ -157,6 +157,20 @@ static void delete_terminal_plus_message_list(void *thisO)
     free(toDel);
 }
 
+template <class InputIterator1, class InputIterator2, class OutputIterator>
+OutputIterator _set_difference (InputIterator1 first1, InputIterator1 last1,
+                                 InputIterator2 first2, InputIterator2 last2,
+                                 OutputIterator result)
+{
+  while (first1!=last1 && first2!=last2)
+  {
+    if (*first1<*first2) { *result = *first1; ++result; ++first1; }
+    else if (*first2<*first1) ++first2;
+    else { ++first1; ++first2; }
+  }
+  return std::copy(first1,last1,result);
+}
+
 template <class T>
 vector< T > set_difference_vectors(vector<T> vec1, vector<T> vec2)
 {
@@ -164,7 +178,7 @@ vector< T > set_difference_vectors(vector<T> vec1, vector<T> vec2)
     vector< T > retVec(max_len);
     typename vector< T >::iterator retIt;
 
-    retIt = std::set_difference(vec1.begin(), vec1.end(), vec2.begin(), vec2.end(), retVec.begin());
+    retIt = _set_difference(vec1.begin(), vec1.end(), vec2.begin(), vec2.end(), retVec.begin());
 
     retVec.resize(retIt - retVec.begin());
 
