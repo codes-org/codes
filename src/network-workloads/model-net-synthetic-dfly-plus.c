@@ -34,7 +34,7 @@ static char lp_io_dir[256] = {'\0'};
 static lp_io_handle io_handle;
 static unsigned int lp_io_use_suffix = 0;
 static int do_lp_io = 0;
-static int num_msgs = 40;
+static int num_msgs = 20;
 static tw_stime sampling_interval = 800000;
 static tw_stime sampling_end_time = 1600000;
 
