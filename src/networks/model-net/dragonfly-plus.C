@@ -194,10 +194,6 @@ struct dragonfly_plus_param
     int num_router_leaf;   // number of leaf routers (bottom level)
     int adaptive_threshold;   // predefined queue length threshold T before a packet is routed through a lower priority queue
 
-    int intermediate_router_choice; //1 = LEAFS ONLY, 2 = SPINES ONLY, 3 = BOTH POSSIBLE
-    int source_group_rerouting; //Can a packet be rerouted within the source group from spine back toward a leaf
-    int intermediate_group_rerouting; //Can a packet be rerouted within int group from spine toward a leaf
-
     int max_hops_notify; //maximum number of hops allowed before notifying via printout
 
     long max_port_score;   // maximum score that can be given to any port during route scoring
@@ -636,9 +632,6 @@ void dragonfly_plus_print_params(const dragonfly_plus_param *p)
         printf("\trouter_delay =           %.2f\n",p->router_delay);
         printf("\tscoring =                %d\n",scoring);
         printf("\trouting =                %d\n",routing);
-        printf("\tintermediate choice =    %d\n",p->intermediate_router_choice);
-        printf("\tsource group rerouting = %d\n",p->source_group_rerouting);
-        printf("\tint group rerouting =    %d\n",p->intermediate_group_rerouting);
         printf("\tmax hops notification =  %d\n",p->max_hops_notify);
         printf("------------------------------------------------------\n\n");
     }
@@ -710,53 +703,6 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     configuration_get_value(&config, "PARAMS", "cn_sample_file", anno, cn_sample_file, MAX_NAME_LENGTH);
     configuration_get_value(&config, "PARAMS", "rt_sample_file", anno, router_sample_file, MAX_NAME_LENGTH);
 
-
-    char int_choice_str[MAX_NAME_LENGTH];
-    configuration_get_value(&config, "PARAMS", "intermediate_choice", anno, int_choice_str, MAX_NAME_LENGTH);
-    if (strcmp(int_choice_str, "spine") == 0) {
-        tw_error(TW_LOC, "Intermediate Choice == Spine is not allowed. Dangerous as a legal route is not guaranteed.");
-        p->intermediate_router_choice = INT_CHOICE_SPINE;
-    }
-    else if (strcmp(int_choice_str, "leaf") == 0)
-        p->intermediate_router_choice = INT_CHOICE_LEAF;
-    else if (strcmp(int_choice_str, "both") == 0) {
-        tw_error(TW_LOC, "Intermediate Choice == Both is not allowed. Dangerous as a legal route is not guaranteed.");
-        p->intermediate_router_choice = INT_CHOICE_BOTH;
-    }
-    else {
-        printf("No intermediate router choice specified, defaulting to leaf routers only\n");
-        p->intermediate_router_choice = INT_CHOICE_LEAF;
-    }
-
-
-    char source_rerouting_str[MAX_NAME_LENGTH];
-    configuration_get_value(&config, "PARAMS", "source_group_rerouting", anno, source_rerouting_str, MAX_NAME_LENGTH);
-    if (strcmp(source_rerouting_str, "on") == 0) {
-        tw_error(TW_LOC, "Source Group Rerouting is currently not compliant with Dragonfly Plus topology specifications. Can cause deadlock.\n");
-        p->source_group_rerouting = 1;
-    }
-    else if (strcmp(source_rerouting_str, "off") == 0)
-        p->source_group_rerouting = 0;
-    else {
-        printf("No source group rerouting option specified, defaulting to OFF (rerouting NOT allowed in source group)\n");
-        p->source_group_rerouting = 0;
-    }
-
-    char int_rerouting_str[MAX_NAME_LENGTH];
-    configuration_get_value(&config, "PARAMS", "intermediate_group_rerouting", anno, int_rerouting_str, MAX_NAME_LENGTH);
-    if (strcmp(int_rerouting_str, "on") == 0)
-        p->intermediate_group_rerouting = 1;
-    else if (strcmp(int_rerouting_str, "off") == 0)
-    {
-        tw_error(TW_LOC,"Turning off intermediate group rerouting not configurable yet, turn it on in your config file\n");
-        p->intermediate_group_rerouting = 0;
-    }
-    else {
-        // printf("No intermediate group rerouting option specified, defaulting to ON (rerouting allowed within intermediate group)\n");
-        p->intermediate_group_rerouting = 1;
-    }
-
-
     char routing_str[MAX_NAME_LENGTH];
     configuration_get_value(&config, "PARAMS", "routing", anno, routing_str, MAX_NAME_LENGTH);
     if (strcmp(routing_str, "minimal") == 0)
@@ -778,16 +724,6 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     if (rc) {
         printf("Maximum hops for notifying not specified, setting to INT MAX");
         p->max_hops_notify = INT_MAX;
-    }
-
-    if (routing == NON_MINIMAL_LEAF) {
-        printf("non-minimal-leaf routing selected, setting intermediate router choice to leaf only\n");
-        p->intermediate_router_choice = INT_CHOICE_LEAF;
-    }
-    if (routing == NON_MINIMAL_SPINE) {
-        tw_error(TW_LOC, "non-minimal-spine is a dangerous algorithm. It is forbidden for some topologies due to need for illegal rerouting\n");
-        printf("non-minimal-spine routing selected, setting intermediate router choice to spine only\n");
-        p->intermediate_router_choice = INT_CHOICE_SPINE;
     }
 
     /* MM: This should be 2 for dragonfly plus*/
@@ -1828,23 +1764,6 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
     // NIC aggregation - should this be a separate function?
     // Trigger an event on receiving server
 
-    // printf("Packet arrived: %d hops\n", msg->my_N_hop);
-    // if (routing == MINIMAL) {
-    //     if (msg->my_N_hop > 4)
-    //         printf("Bad Routed Packet Arrived: %d hops\n",msg->my_N_hop);
-    // }
-    // if (routing == NON_MINIMAL_LEAF) {
-    //     if (msg->my_N_hop > 7)
-    //         printf("Bad Routed Packet Arrived: %d hops\n",msg->my_N_hop);
-    // }
-    // if (routing == NON_MINIMAL_SPINE) {
-    //     if (msg->my_N_hop > 5)
-    //         printf("Bad Routed Packet Arrived: %d hops\n",msg->my_N_hop);
-    // }
-    // if (routing == PROG_ADAPTIVE) {
-    //     if (msg->my_N_hop > 7)
-    //         printf("Bad Routed Packet Arrived: %d hops\n",msg->my_N_hop);
-    // }
     if (msg->my_N_hop > s->params->max_hops_notify)
     {
         printf("Terminal received a packet with %d hops! (Notify on > than %d)\n",msg->my_N_hop, s->params->max_hops_notify);
@@ -2571,156 +2490,6 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
     return score;
 }
 
-
-//returns a router id of a router in a group that is not the source or the destination groups
-//Uses two RNGs
-static int dfp_pick_intermediate_router(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int source_group_id, int dest_group_id)
-{
-    vector< int > other_groups;
-    for(int i = 0; i < s->params->num_groups; i++)
-    {
-        if ((i != source_group_id) && (i != dest_group_id))
-            other_groups.push_back(i);
-    }
-
-    int intm_group_id = other_groups[tw_rand_integer(lp->rng, 0, other_groups.size() -1 )];
-    int intm_loc_id;
-    int intm_router_id;
-
-    int intermediate_choice_option = s->params->intermediate_router_choice;
-    if (intermediate_choice_option == INT_CHOICE_SPINE) { //int router must be spine
-        intm_loc_id = tw_rand_integer(lp->rng, s->params->num_router_leaf, s->params->num_routers -1);
-        intm_router_id = (intm_group_id * s->params->num_routers) + intm_loc_id;
-        assert(router_type_map[intm_router_id] == SPINE);
-    }
-    else if (intermediate_choice_option == INT_CHOICE_LEAF) { //int router must be leaf
-        intm_loc_id = tw_rand_integer(lp->rng, 0, s->params->num_router_leaf -1);
-        intm_router_id = (intm_group_id * s->params->num_routers) + intm_loc_id;
-        assert(router_type_map[intm_router_id] == LEAF);
-    }
-    else { //int router can be spine or leaf
-        assert(intermediate_choice_option == INT_CHOICE_BOTH);
-        intm_loc_id = tw_rand_integer(lp->rng, 0, s->params->num_routers -1);
-        intm_router_id = (intm_group_id * s->params->num_routers) + intm_loc_id;
-    }
-
-    return intm_router_id;
-}
-
-//to be called by a spine router in the source group to find an intermediate router (spine or leaf depending on int choice option) that has a direct connection to the current router
-//if the int router is a leaf, it is sufficient to just have a connection to the group
-static int dfp_pick_intermediate_router_with_conn(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int source_group_id, int dest_group_id)
-{
-    int intermediate_choice_option = s->params->intermediate_router_choice;
-
-    vector< int > poss_int_groups;
-    vector< int > other_groups_i_connect_to = s->connMan->get_connected_group_ids();
-    for ( vector< int >::iterator it = other_groups_i_connect_to.begin(); it != other_groups_i_connect_to.end(); it++)
-    {
-        if ( ((*it) != source_group_id) && ((*it) != dest_group_id) )
-            poss_int_groups.push_back(*it);
-    }
-
-    int intm_group_id = poss_int_groups[tw_rand_integer(lp->rng, 0, poss_int_groups.size() -1 )];
-    int intm_loc_id;
-    int intm_router_id;
-
-    if (intermediate_choice_option == INT_CHOICE_SPINE) {
-        vector< Connection > poss_spines_i_connect_to;
-        for (vector< int >::iterator it = poss_int_groups.begin(); it != poss_int_groups.end(); it++)
-        {
-            vector< Connection > conns_to_group = s->connMan->get_connections_to_group(*it);
-            poss_spines_i_connect_to.insert(poss_spines_i_connect_to.end(), conns_to_group.begin(), conns_to_group.end()); //append all connections to this possible group
-        }
-
-        assert(poss_spines_i_connect_to.size() > 0);
-
-        int rand_sel = tw_rand_integer(lp->rng, 0, poss_spines_i_connect_to.size() -1);
-        intm_router_id = poss_spines_i_connect_to[rand_sel].dest_gid;
-        assert(router_type_map[intm_router_id] == SPINE);
-
-        tw_rand_integer(lp->rng, 0, 2); //throwaway
-    }
-
-    if (intermediate_choice_option == INT_CHOICE_LEAF) { //int router must be leaf
-
-        intm_loc_id = tw_rand_integer(lp->rng, 0, s->params->num_router_leaf -1);
-        intm_router_id = (intm_group_id * s->params->num_routers) + intm_loc_id;
-        assert(router_type_map[intm_router_id] == LEAF);
-
-        tw_rand_integer(lp->rng, 0, 2); //throwaway
-    }
-
-    if (intermediate_choice_option == INT_CHOICE_BOTH) {
-        int spine_or_leaf = tw_rand_integer(lp->rng, 0, 1); //flip a coin to see if we try to connect to a spine or a leaf
-
-        if (spine_or_leaf == 0) { //tails we aim for a leaf
-            intm_loc_id = tw_rand_integer(lp->rng, 0, s->params->num_router_leaf -1);
-            intm_router_id = (intm_group_id * s->params->num_routers) + intm_loc_id;
-            assert(router_type_map[intm_router_id] == LEAF);
-        }
-        else if (spine_or_leaf == 1) { //heads we aim for a spine
-            vector< Connection > poss_spines_i_connect_to;
-            for (vector< int >::iterator it = poss_int_groups.begin(); it != poss_int_groups.end(); it++)
-            {
-                vector< Connection > conns_to_group = s->connMan->get_connections_to_group(*it);
-                poss_spines_i_connect_to.insert(poss_spines_i_connect_to.end(), conns_to_group.begin(), conns_to_group.end()); //append all connections to this possible group
-            }
-
-            assert(poss_spines_i_connect_to.size() > 0);
-
-            int rand_sel = tw_rand_integer(lp->rng, 0, poss_spines_i_connect_to.size() -1);
-            intm_router_id = poss_spines_i_connect_to[rand_sel].dest_gid;
-            assert(router_type_map[intm_router_id] == SPINE);
-        }
-        else
-        {
-            tw_error(TW_LOC, "Coin flip ended up neither 0 or 1??\n");
-        }
-    }
-
-    return intm_router_id;
-}
-
-static void dfp_reselect_intermediate_router(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int origin_group_id, int fdest_group_id)
-{
-    assert(s->params->source_group_rerouting == 0); //this method should only be called if rerouting isn't allowed
-    if (s->params->intermediate_router_choice == INT_CHOICE_SPINE) { //then we care about having a connection to the actual spine router
-        if (s->connMan->get_connections_to_gid(msg->intm_rtr_id, CONN_GLOBAL).size() == 0) {
-            bf->c30 = 1;
-            msg->intm_rtr_id = dfp_pick_intermediate_router_with_conn(s, bf, msg, lp, origin_group_id, fdest_group_id);
-        } //else we already have a connection to the intm_rtr_id
-    }
-    if (s->params->intermediate_router_choice == INT_CHOICE_LEAF) { //then we just care about having a connection to the group
-        int intermediate_group_id = msg->intm_rtr_id / s->params->num_routers;
-        if (s->connMan->get_connections_to_group(intermediate_group_id).size() == 0) { //if we don't have a connection to the intermediate group, we have to reroute or reselect
-            bf->c30 = 1;
-            msg->intm_rtr_id = dfp_pick_intermediate_router_with_conn(s, bf, msg, lp, origin_group_id, fdest_group_id);
-        } //else we already have a connection to the intermediate group
-    }
-    if (s->params->intermediate_router_choice == INT_CHOICE_BOTH) {
-        int intermediate_group_id = msg->intm_rtr_id / s->params->num_routers;
-        router_type intm_router_type = router_type_map[msg->intm_rtr_id];
-        if (intm_router_type == SPINE) { //we want a connection to the spine router itself
-            vector< Connection > conns_to_int_spine = s->connMan->get_connections_to_gid(msg->intm_rtr_id, CONN_GLOBAL);
-            if (conns_to_int_spine.size() == 0) { //if we cannot connect to the intermediate spine we have to reroute or choose a new one
-                bf->c30 = 1;
-                msg->intm_rtr_id = dfp_pick_intermediate_router_with_conn(s, bf, msg, lp, origin_group_id, fdest_group_id);
-            } //else we already have a connection to the intermediate spine
-        }
-        else if (intm_router_type == LEAF) { //we want a connection to the intermediate group
-            vector< Connection > conns_to_int_group = s->connMan->get_connections_to_group(intermediate_group_id);
-            if (conns_to_int_group.size() == 0) { //if we cannot connect to the intermediate group we have to reroute or choose a new one
-                bf->c30 = 1;
-                msg->intm_rtr_id = dfp_pick_intermediate_router_with_conn(s, bf, msg, lp, origin_group_id, fdest_group_id);
-            } //else we already have a connection to the intermediate group
-        }
-        else {
-            tw_error(TW_LOC, "Invalid router type in typemap\n");
-        }
-    }
-}
-
 static vector< Connection > dfp_select_two_connections(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector< Connection > conns)
 {
     if(conns.size() < 2) {
@@ -3087,16 +2856,6 @@ static Connection do_dfp_routing(router_state *s,
     int fdest_group_id = fdest_router_id / s->params->num_routers;
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
     bool in_intermediate_group = (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
-
-
-    // if (s->router_id == msg->origin_router_id) { //then we havent picked an intermediate router yet
-    //     msg->intm_rtr_id = dfp_pick_intermediate_router(s, bf, msg, lp, origin_group_id, fdest_group_id);
-    // }
-    // if ( (my_group_id == origin_group_id) && (s->dfp_router_type == SPINE) ) {
-    //     if (s->params->source_group_rerouting == 0 && isRoutingAdaptive(routing)) { //if we cannot reroute within our source group, we have to pick a new intermediate router
-    //         dfp_reselect_intermediate_router(s, bf, msg, lp, origin_group_id, fdest_group_id); //alters msg->intm_rtr_id to be more appropriate
-    //     }
-    // }
 
     Connection nextStopConn; //the connection that we will forward the packet to
 
