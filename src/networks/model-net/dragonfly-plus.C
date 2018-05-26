@@ -2592,17 +2592,14 @@ static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf
     int num_to_compare = conns.size();
 
     int scores[num_to_compare];
-    for(int i = 0; i < num_to_compare; i++)
-    {
-        scores[i] = dfp_score_connection(s, bf, msg, lp, conns[i], C_MIN);
-    }
-
     int best_score_index = 0;
     if (scoring_preference == LOWER) {
         
         int best_score = INT_MAX;
         for(int i = 0; i < num_to_compare; i++)
         {
+            scores[i] = dfp_score_connection(s, bf, msg, lp, conns[i], C_MIN);
+
             if (scores[i] < best_score) {
                 best_score = scores[i];
                 best_score_index = i;
@@ -2614,6 +2611,8 @@ static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf
         int best_score = 0;
         for(int i = 0; i < num_to_compare; i++)
         {
+            scores[i] = dfp_score_connection(s, bf, msg, lp, conns[i], C_MIN);
+
             if (scores[i] > best_score) {
                 best_score = scores[i];
                 best_score_index = i;
@@ -2645,17 +2644,14 @@ static Connection get_best_connection_from_conns(router_state *s, tw_bf *bf, ter
     vector< Connection > selected_conns = dfp_select_two_connections(s, bf, msg, lp, conns);
 
     int scores[num_to_compare];
-    for(int i = 0; i < num_to_compare; i++)
-    {
-        scores[i] = dfp_score_connection(s, bf, msg, lp, selected_conns[i], C_MIN);
-    }
-
     int best_score_index = 0;
     if (scoring_preference == LOWER) {
         
         int best_score = INT_MAX;
         for(int i = 0; i < num_to_compare; i++)
         {
+            scores[i] = dfp_score_connection(s, bf, msg, lp, selected_conns[i], C_MIN);
+
             if (scores[i] < best_score) {
                 best_score = scores[i];
                 best_score_index = i;
@@ -2667,6 +2663,8 @@ static Connection get_best_connection_from_conns(router_state *s, tw_bf *bf, ter
         int best_score = 0;
         for(int i = 0; i < num_to_compare; i++)
         {
+            scores[i] = dfp_score_connection(s, bf, msg, lp, selected_conns[i], C_MIN);
+
             if (scores[i] > best_score) {
                 best_score = scores[i];
                 best_score_index = i;
