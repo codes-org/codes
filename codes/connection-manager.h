@@ -78,6 +78,8 @@ class ConnectionManager {
     vector< int > _other_groups_i_connect_to;
     set< int > _other_groups_i_connect_to_set;
 
+    map< int, vector< Connection > > _connections_to_groups_map; //maps group ID to connections to said group
+
     // map< int, vector< Connection > > intermediateRouterToGroupMap; //maps group id to list of routers that connect to it.
     //                                                                //ex: intermediateRouterToGroupMap[3] returns a vector
     //                                                                //of connections from this router to routers that have
@@ -416,20 +418,7 @@ vector< Connection > ConnectionManager::get_connections_to_gid(int dest_gid, Con
 
 vector< Connection > ConnectionManager::get_connections_to_group(int dest_group_id)
 {
-    vector< Connection > conns_to_group;
-
-    map< int, vector< Connection > >::iterator it = globalConnections.begin();
-    for(; it != globalConnections.end(); it++) //iterate over each router that is connected to source
-    {
-        vector< Connection >::iterator conns_to_router;
-        for(conns_to_router = (it->second).begin(); conns_to_router != (it->second).end(); conns_to_router++) //iterate over each connection to a specific router
-        {
-            if ((*conns_to_router).dest_group_id == dest_group_id) {
-                conns_to_group.push_back(*conns_to_router);
-            }
-        }
-    }
-    return conns_to_group;
+    return _connections_to_groups_map[dest_group_id];
 }
 
 vector< Connection > ConnectionManager::get_connections_by_type(ConnectionType type)
@@ -469,6 +458,28 @@ void ConnectionManager::solidify_connections()
     for(it = _other_groups_i_connect_to_set.begin(); it != _other_groups_i_connect_to_set.end(); it++)
     {
         _other_groups_i_connect_to.push_back(*it);
+    }
+
+
+
+    for(it = _other_groups_i_connect_to_set.begin(); it != _other_groups_i_connect_to_set.end(); it++)
+    {
+        int dest_group_id = *it;
+
+        vector< Connection > conns_to_group;
+        map< int, vector< Connection > >::iterator itg = globalConnections.begin();
+        for(; itg != globalConnections.end(); itg++) //iterate over each router that is connected to source
+        {
+            vector< Connection >::iterator conns_to_router;
+            for(conns_to_router = (itg->second).begin(); conns_to_router != (itg->second).end(); conns_to_router++) //iterate over each connection to a specific router
+            {
+                if ((*conns_to_router).dest_group_id == dest_group_id) {
+                    conns_to_group.push_back(*conns_to_router);
+                }
+            }
+        }
+
+        _connections_to_groups_map[dest_group_id] = conns_to_group;
     }
 }
 
