@@ -1270,8 +1270,7 @@ void router_plus_setup(router_state *r, tw_lp *lp)
         }
     }
 
-    if (r->dfp_router_type == SPINE)
-        r->connMan->solidify_connections();
+    r->connMan->solidify_connections();
 
     return;
 }
@@ -2947,7 +2946,7 @@ static Connection do_dfp_routing(router_state *s,
     else if (my_group_id == fdest_group_id) { //then we just route minimally
         vector< Connection > poss_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
         if (poss_next_stops.size() < 1)
-            tw_error(TW_LOC, "DEAD END WHEN ROUTING LOCALLY\n");
+            tw_error(TW_LOC, "DEAD END WHEN ROUTING LOCALLY - My Router ID: %d    FDest Router ID: %d\n", my_router_id, fdest_router_id);
         
         Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
         return best_min_conn;

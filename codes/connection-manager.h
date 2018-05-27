@@ -24,8 +24,8 @@ using namespace std;
 enum ConnectionType
 {
     CONN_LOCAL = 1,
-    CONN_GLOBAL,
-    CONN_TERMINAL
+    CONN_GLOBAL = 2,
+    CONN_TERMINAL = 3
 };
 
 /**
@@ -79,6 +79,7 @@ class ConnectionManager {
     set< int > _other_groups_i_connect_to_set;
 
     map< int, vector< Connection > > _connections_to_groups_map; //maps group ID to connections to said group
+    map< int, vector< Connection > > _all_conns_by_type_map;
 
     // map< int, vector< Connection > > intermediateRouterToGroupMap; //maps group id to list of routers that connect to it.
     //                                                                //ex: intermediateRouterToGroupMap[3] returns a vector
@@ -423,28 +424,20 @@ vector< Connection > ConnectionManager::get_connections_to_group(int dest_group_
 
 vector< Connection > ConnectionManager::get_connections_by_type(ConnectionType type)
 {
-    map< int, vector< Connection > > theMap;
     switch (type)
-    {
-        case CONN_LOCAL:
-            theMap = intraGroupConnections;
-            break;
-        case CONN_GLOBAL:
-            theMap = globalConnections;
-            break;
-        case CONN_TERMINAL:
-            theMap = terminalConnections;
-            break;
-    }
-
-    vector< Connection > retVec;
-    map< int, vector< Connection > >::iterator it;
-    for(it = theMap.begin(); it != theMap.end(); it++)
-    {
-        retVec.insert(retVec.end(), (*it).second.begin(), (*it).second.end());
-    }
-
-    return retVec;
+        {
+            case CONN_LOCAL:
+                return _all_conns_by_type_map[CONN_LOCAL];
+                break;
+            case CONN_GLOBAL:
+                return _all_conns_by_type_map[CONN_GLOBAL];
+                break;
+            case CONN_TERMINAL:
+                return _all_conns_by_type_map[CONN_TERMINAL];
+                break;
+            default:
+                tw_error(TW_LOC, "Bad enum type\n");
+        }
 }
 
 vector< int > ConnectionManager::get_connected_group_ids()
@@ -454,14 +447,14 @@ vector< int > ConnectionManager::get_connected_group_ids()
 
 void ConnectionManager::solidify_connections()
 {
+    //-- other groups connect to
     set< int >::iterator it;
     for(it = _other_groups_i_connect_to_set.begin(); it != _other_groups_i_connect_to_set.end(); it++)
     {
         _other_groups_i_connect_to.push_back(*it);
     }
 
-
-
+    //--connections to group
     for(it = _other_groups_i_connect_to_set.begin(); it != _other_groups_i_connect_to_set.end(); it++)
     {
         int dest_group_id = *it;
@@ -481,6 +474,35 @@ void ConnectionManager::solidify_connections()
 
         _connections_to_groups_map[dest_group_id] = conns_to_group;
     }
+
+    //--get connections by type
+
+    map< int, vector< Connection > > theMap;
+    for ( int enum_int = CONN_LOCAL; enum_int != CONN_TERMINAL + 1; enum_int++ )
+    {
+        switch (enum_int)
+        {
+            case CONN_LOCAL:
+                theMap = intraGroupConnections;
+                break;
+            case CONN_GLOBAL:
+                theMap = globalConnections;
+                break;
+            case CONN_TERMINAL:
+                theMap = terminalConnections;
+                break;
+            default:
+                tw_error(TW_LOC, "Bad enum type\n");
+        }
+
+        vector< Connection > retVec;
+        map< int, vector< Connection > >::iterator it;
+        for(it = theMap.begin(); it != theMap.end(); it++)
+        {
+            retVec.insert(retVec.end(), (*it).second.begin(), (*it).second.end());
+        }
+        _all_conns_by_type_map[enum_int] = retVec;
+    }    
 }
 
 
