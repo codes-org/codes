@@ -2989,9 +2989,10 @@ static Connection do_dfp_routing(router_state *s,
 
         ConnectionType conn_type = poss_next_stops[0].conn_type;
         Connection best_min_conn;
-        if (conn_type == CONN_GLOBAL)
+        if (conn_type == CONN_GLOBAL) {
             int rand_sel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1);
             return poss_next_stops[rand_sel];
+        }
         else
             best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //gets absolute best
         return best_min_conn;
