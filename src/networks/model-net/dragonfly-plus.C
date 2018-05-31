@@ -211,6 +211,7 @@ struct dragonfly_plus_param
     bool source_leaf_consider_nonmin;
     bool int_spine_consider_min;
     bool dest_spine_consider_nonmin;
+    bool dest_spine_consider_global_nonmin;
 
     int max_hops_notify; //maximum number of hops allowed before notifying via printout
 
@@ -653,6 +654,7 @@ void dragonfly_plus_print_params(const dragonfly_plus_param *p)
         printf("\tsource_leaf_consider_nonmin = %s\n", (p->source_leaf_consider_nonmin ? "true" : "false"));
         printf("\tint_spine_consider_min =      %s\n", (p->int_spine_consider_min ? "true" : "false"));
         printf("\tdest_spine_consider_nonmin =  %s\n", (p->dest_spine_consider_nonmin ? "true" : "false"));
+        printf("\tdest_spine_consider_gnonmin = %s\n", (p->dest_spine_consider_global_nonmin ? "true" : "false"));
         printf("\tmax hops notification =       %d\n",p->max_hops_notify);
         printf("------------------------------------------------------\n\n");
     }
@@ -783,6 +785,20 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     }
     else
         p->dest_spine_consider_nonmin = false;
+
+
+    int dst_spn_gcons_choice;
+    rc = configuration_get_value_int(&config, "PARAMS", "dest_spine_consider_global_nonmin", anno, &dst_spn_gcons_choice);
+    if (rc) {
+        printf("Dest spine consideration of global nonmin ports not specified. Defaulting to False");
+        p->dest_spine_consider_global_nonmin = false;
+    }
+    else if (dst_spn_gcons_choice == 1) {
+        p->dest_spine_consider_global_nonmin = true;
+    }
+    else
+        p->dest_spine_consider_global_nonmin = false;
+
 
     /* MM: This should be 2 for dragonfly plus*/
     p->num_vcs = 2;
@@ -2719,22 +2735,37 @@ static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *b
 
     }
     else if (my_group_id == fdest_group_id) {
-        if (s->params->dest_spine_consider_nonmin == true) { //then its legal for the dest spine to route to dest leaves that aren't the final destination leaf
+        if (s->params->dest_spine_consider_nonmin == true || s->params->dest_spine_consider_global_nonmin == true) {
             if (s->dfp_router_type == SPINE) {
-                vector< Connection > conns_to_leaves = s->connMan->get_connections_by_type(CONN_LOCAL);
-                vector< Connection > retVec;
-                for (int i = 0; i < conns_to_leaves.size(); i++) 
-                {
-                    if (conns_to_leaves[i].dest_gid != fdest_router_id)
-                        retVec.push_back(conns_to_leaves[i]);
+                vector< Connection > poss_next_conns;
+
+                if (s->params->dest_spine_consider_nonmin == true) {
+                    vector< Connection > conns_to_leaves = s->connMan->get_connections_by_type(CONN_LOCAL);
+                    for (int i = 0; i < conns_to_leaves.size(); i++)
+                    {
+                        if (conns_to_leaves[i].dest_gid != fdest_router_id)
+                            poss_next_conns.push_back(conns_to_leaves[i]);
+                    }
                 }
-                return retVec;
+                if (s->params->dest_spine_consider_global_nonmin == true) {
+                    vector< Connection > conns_to_spines = s->connMan->get_connections_by_type(CONN_GLOBAL);
+                    for (int i = 0; i < conns_to_spines.size(); i++)
+                    {
+                        if (conns_to_spines[i].dest_group_id != fdest_group_id && conns_to_spines[i].dest_group_id != origin_group_id) {
+                            poss_next_conns.push_back(conns_to_spines[i]);
+                        }
+                    }
+                }
+
+                return poss_next_conns;
             }
             else {
                 assert(s->dfp_router_type == LEAF);
                 assert(possible_nonminimal_stops.size() == 0); //empty because a leaf in the destination group has no legal nonminimal moves
                 return possible_nonminimal_stops;
             }
+
+
         }
     }
     else {
@@ -2880,26 +2911,16 @@ static Connection do_dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, termi
                 }
             }
         }
-        if (s->params->dest_spine_consider_nonmin == false) { //then the destination spines aren't allowed to route to leaves that aren't the destination leaf
-            if (my_group_id == fdest_group_id) {
-                if (s->dfp_router_type == SPINE)
-                    route_to_fdest = true;
-            }
-        }
-        else {
-            assert(s->params->dest_spine_consider_nonmin == true); //then destination spines are allowed to route to non fdest leaves, but only if the dfp upward channel flag hasn't been set
-            if (my_group_id == fdest_group_id) {
-                if (s->dfp_router_type == SPINE)
-                    route_to_fdest = true;
-            }
+        if (my_group_id == fdest_group_id && s->dfp_router_type == SPINE) {
+            if (s->params->dest_spine_consider_nonmin == false && s->params->dest_spine_consider_global_nonmin == false)
+                route_to_fdest = true;
         }
     }
 
     if (route_to_fdest && (poss_min_next_stops.size() == 0))
         route_to_fdest = false;
-    if (route_to_fdest && (poss_intm_next_stops.size() == 0))
+    if (!route_to_fdest && (poss_intm_next_stops.size() == 0))
         route_to_fdest = true;
-
 
     if (route_to_fdest){
         if (in_intermediate_group == true)
