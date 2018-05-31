@@ -2986,14 +2986,17 @@ static Connection do_dfp_routing(router_state *s,
         vector< Connection > poss_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
         if (poss_next_stops.size() < 1)
             tw_error(TW_LOC, "MINIMAL DEAD END\n");
+
+        int rand_sel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1);
+        return poss_next_stops[rand_sel];
         
-        ConnectionType conn_type = poss_next_stops[0].conn_type;
-        Connection best_min_conn;
-        if (conn_type == CONN_GLOBAL)
-            best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //does the pick 2 and compare
-        else
-            best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //gets absolute best
-        return best_min_conn;
+        // ConnectionType conn_type = poss_next_stops[0].conn_type;
+        // Connection best_min_conn;
+        // if (conn_type == CONN_GLOBAL)
+        //     best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //does the pick 2 and compare
+        // else
+        //     best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //gets absolute best
+        // return best_min_conn;
     }
 
     else { //routing algorithm is specified in routing
@@ -3045,6 +3048,31 @@ static Connection do_dfp_routing(router_state *s,
     }
 
     tw_error(TW_LOC, "do_dfp_routing(): No route chosen!\n");
+}
+
+static void do_dfp_routing_rc(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
+{
+    int my_group_id = s->router_id / s->params->num_routers;
+    int fdest_group_id = fdest_router_id / s->params->num_routers;
+
+
+    if (my_group_id == fdest_group_id) {
+        tw_rand_reverse_unif(lp->rng);
+        tw_rand_reverse_unif(lp->rng);
+    }
+    else if (isRoutingAdaptive(routing)) {
+        tw_rand_reverse_unif(lp->rng);
+        tw_rand_reverse_unif(lp->rng);
+        tw_rand_reverse_unif(lp->rng);
+        tw_rand_reverse_unif(lp->rng);
+    }
+    else if (isRoutingMinimal(routing)) {
+        tw_rand_reverse_unif(lp->rng);
+    }
+    else {
+        tw_rand_reverse_unif(lp->rng);
+        tw_rand_reverse_unif(lp->rng);
+    }
 }
 
 static void router_verify_valid_receipt(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
@@ -3114,35 +3142,8 @@ static void router_packet_receive_rc(router_state *s, tw_bf *bf, terminal_plus_m
     int output_chan = msg->saved_channel;
 
     //do dfp routing reverse
-    int my_group_id = s->router_id / s->params->num_routers;
     int dest_router_id = dragonfly_plus_get_assigned_router_id(msg->dfp_dest_terminal_id, s->params);
-    int fdest_group_id = dest_router_id / s->params->num_routers;
-
-    if (s->router_id == msg->origin_router_id) {
-        tw_rand_reverse_unif(lp->rng); //choose group
-        tw_rand_reverse_unif(lp->rng); //choose router
-    }
-    if ( bf->c30 == 1) {
-        tw_rand_reverse_unif(lp->rng);
-        tw_rand_reverse_unif(lp->rng);
-        tw_rand_reverse_unif(lp->rng);
-    }
-
-    if (my_group_id == fdest_group_id) {
-        tw_rand_reverse_unif(lp->rng);
-        tw_rand_reverse_unif(lp->rng);
-    }
-    else if( isRoutingAdaptive(routing) ) {
-        //we need to reverse 4
-        for(int i =0; i < 4; i++)
-            tw_rand_reverse_unif(lp->rng);
-    }
-    else {
-        tw_rand_reverse_unif(lp->rng);
-        tw_rand_reverse_unif(lp->rng);
-    }
-
-    //end do dfp routing reverse
+    do_dfp_routing_rc(s, bf, msg, lp, dest_router_id);
 
     // tw_rand_reverse_unif(lp->rng); nm may14-2018, i think this was wrongly still here
     if (bf->c2) {
