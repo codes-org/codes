@@ -2987,16 +2987,14 @@ static Connection do_dfp_routing(router_state *s,
         if (poss_next_stops.size() < 1)
             tw_error(TW_LOC, "MINIMAL DEAD END\n");
 
-        int rand_sel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1);
-        return poss_next_stops[rand_sel];
-        
-        // ConnectionType conn_type = poss_next_stops[0].conn_type;
-        // Connection best_min_conn;
-        // if (conn_type == CONN_GLOBAL)
-        //     best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //does the pick 2 and compare
-        // else
-        //     best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //gets absolute best
-        // return best_min_conn;
+        ConnectionType conn_type = poss_next_stops[0].conn_type;
+        Connection best_min_conn;
+        if (conn_type == CONN_GLOBAL)
+            int rand_sel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1);
+            return poss_next_stops[rand_sel];
+        else
+            best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //gets absolute best
+        return best_min_conn;
     }
 
     else { //routing algorithm is specified in routing
