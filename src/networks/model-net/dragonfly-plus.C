@@ -446,6 +446,7 @@ struct router_state
     router_type dfp_router_type;  // Enum to specify whether this router is a spine or a leaf
 
     ConnectionManager *connMan;
+    int *gc_usage;
 
     int *global_channel;
 
@@ -765,8 +766,8 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     int int_spn_cons_choice;
     rc = configuration_get_value_int(&config, "PARAMS", "int_spine_consider_min", anno, &int_spn_cons_choice);
     if (rc) {
-        printf("Int spine consideration of min ports not specified. Defaulting to True\n");
-        p->int_spine_consider_min = true;
+        printf("Int spine consideration of min ports not specified. Defaulting to False\n");
+        p->int_spine_consider_min = false;
     }
     else if (int_spn_cons_choice == 1) {
         p->int_spine_consider_min = true;
@@ -790,8 +791,8 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     int dst_spn_gcons_choice;
     rc = configuration_get_value_int(&config, "PARAMS", "dest_spine_consider_global_nonmin", anno, &dst_spn_gcons_choice);
     if (rc) {
-        printf("Dest spine consideration of global nonmin ports not specified. Defaulting to False");
-        p->dest_spine_consider_global_nonmin = false;
+        printf("Dest spine consideration of global nonmin ports not specified. Defaulting to True");
+        p->dest_spine_consider_global_nonmin = true;
     }
     else if (dst_spn_gcons_choice == 1) {
         p->dest_spine_consider_global_nonmin = true;
@@ -1234,6 +1235,8 @@ void router_plus_setup(router_state *r, tw_lp *lp)
     }
 
     r->connMan = &connManagerList[r->router_id];
+
+    r->gc_usage = (int *) calloc(p->num_global_connections, sizeof(int));
 
     r->global_channel = (int *) calloc(p->num_global_connections, sizeof(int));
     r->next_output_available_time = (tw_stime *) calloc(p->radix, sizeof(tw_stime));
@@ -2380,6 +2383,33 @@ void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
 
 void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
 {
+    // int max_gc_usage = 0;
+    // int min_gc_usage = INT_MAX;
+
+    // int running_sum = 0;
+    // for(int i = 0; i < s->params->num_global_connections; i++)
+    // {
+    //     int gc_val = s->gc_usage[i];
+    //     running_sum += gc_val;
+
+    //     if (gc_val > max_gc_usage)
+    //         max_gc_usage = gc_val;
+    //     if (gc_val < min_gc_usage)
+    //         min_gc_usage = gc_val;
+    // }
+    // double mean_gc_usage = (double) running_sum / (double) s->params->num_global_connections; 
+
+    // if (s->dfp_router_type == SPINE) {
+    //     printf("Router %d in group %d:   Min GC Usage= %d    Max GC Usage= %d     Mean GC Usage= %.2f", s->router_id, s->router_id / s->params->num_routers, min_gc_usage, max_gc_usage, mean_gc_usage);
+    //     printf("\t[");
+    //     for(int i = 0; i < s->params->num_global_connections; i++)
+    //     {
+    //         printf("%d ",s->gc_usage[i]);
+    //     }
+    //     printf("]\n");
+    // }
+
+
     free(s->global_channel);
     int i, j;
     for (i = 0; i < s->params->radix; i++) {
@@ -2987,15 +3017,18 @@ static Connection do_dfp_routing(router_state *s,
         if (poss_next_stops.size() < 1)
             tw_error(TW_LOC, "MINIMAL DEAD END\n");
 
-        ConnectionType conn_type = poss_next_stops[0].conn_type;
-        Connection best_min_conn;
-        if (conn_type == CONN_GLOBAL) {
-            int rand_sel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1);
-            return poss_next_stops[rand_sel];
-        }
-        else
-            best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //gets absolute best
-        return best_min_conn;
+        int rand_sel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1 );
+        return poss_next_stops[rand_sel];
+
+        // ConnectionType conn_type = poss_next_stops[0].conn_type;
+        // Connection best_min_conn;
+        // if (conn_type == CONN_GLOBAL) {
+        //     int rand_sel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1);
+        //     return poss_next_stops[rand_sel];
+        // }
+        // else
+        //     best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //gets absolute best
+        // return best_min_conn;
     }
 
     else { //routing algorithm is specified in routing
@@ -3241,6 +3274,11 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
         assert(port_type == CONN_TERMINAL);
         max_vc_size = s->params->cn_vc_size;
     }
+
+    // if (port_type == CONN_GLOBAL) {
+    //     int gc_num = output_port - s->params->intra_grp_radix;
+    //     s->gc_usage[gc_num]++;
+    // }
 
     cur_chunk->msg.output_chan = output_chan;
     cur_chunk->msg.my_N_hop++;
