@@ -26,6 +26,7 @@
 #endif
 
 #define DUMP_CONNECTIONS 0
+#define PRINT_CONFIG 1
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
 // debugging parameters
@@ -178,6 +179,9 @@ struct dragonfly_param
     double credit_delay;
     double router_delay;
 };
+
+static const dragonfly_param* stored_params;
+
 
 struct dfly_hash_key
 {
@@ -499,6 +503,42 @@ static terminal_custom_message_list* return_tail(
     return tail;
 }
 
+void dragonfly_print_params(const dragonfly_param *p)
+{
+    int myRank;
+    MPI_Comm_rank(MPI_COMM_CODES, &myRank);
+    if (!myRank) { 
+        printf("\n------------------ Dragonfly Custom Parameters ---------\n");
+        printf("\tnum_routers =            %d\n",p->num_routers);
+        printf("\tlocal_bandwidth =        %.2f\n",p->local_bandwidth);
+        printf("\tglobal_bandwidth =       %.2f\n",p->global_bandwidth);
+        printf("\tcn_bandwidth =           %.2f\n",p->cn_bandwidth);
+        printf("\tnum_vcs =                %d\n",p->num_vcs);
+        printf("\tlocal_vc_size =          %d\n",p->local_vc_size);
+        printf("\tglobal_vc_size =         %d\n",p->global_vc_size);
+        printf("\tcn_vc_size =             %d\n",p->cn_vc_size);
+        printf("\tchunk_size =             %d\n",p->chunk_size);
+        printf("\tnum_cn =                 %d\n",p->num_cn);
+        printf("\tintra_grp_radix =        %d\n",p->intra_grp_radix);
+        printf("\tnum_col_chans =          %d\n",p->num_col_chans);
+        printf("\tnum_row_chans =          %d\n",p->num_row_chans);
+        printf("\tnum_router_rows =        %d\n",p->num_router_rows);
+        printf("\tnum_router_cols =        %d\n",p->num_router_cols);
+        printf("\tnum_groups =             %d\n",p->num_groups);
+        printf("\tradix =                  %d\n",p->radix);
+        printf("\ttotal_routers =          %d\n",p->total_routers);
+        printf("\ttotal_terminals =        %d\n",p->total_terminals);
+        printf("\tnum_global_channels =    %d\n",p->num_global_channels);
+        printf("\tcn_delay =               %.2f\n",p->cn_delay);
+        printf("\tlocal_delay =            %.2f\n",p->local_delay);
+        printf("\tglobal_delay =           %.2f\n",p->global_delay);
+        printf("\tcredit_delay =           %.2f\n",p->credit_delay);
+        printf("\trouter_delay =           %.2f\n",p->router_delay);
+        printf("\trouting =                %d\n",routing);
+        printf("------------------------------------------------------\n\n");
+    }
+}
+
 static void dragonfly_read_config(const char * anno, dragonfly_param *params){
     /*Adding init for router magic number*/
     uint32_t h1 = 0, h2 = 0; 
@@ -815,13 +855,18 @@ else
     p->local_delay = bytes_to_ns(p->chunk_size, p->local_bandwidth);
     p->global_delay = bytes_to_ns(p->chunk_size, p->global_bandwidth);
     p->credit_delay = bytes_to_ns(CREDIT_SIZE, p->local_bandwidth); //assume 8 bytes packet
+
+    if (PRINT_CONFIG) 
+        dragonfly_print_params(p);
+
+    stored_params = p;
 }
 
 void dragonfly_custom_configure(){
     anno_map = codes_mapping_get_lp_anno_map(LP_CONFIG_NM_TERM);
     assert(anno_map);
     num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
-    all_params = (dragonfly_param *)malloc(num_params * sizeof(*all_params));
+    all_params = (dragonfly_param *)calloc(num_params, sizeof(*all_params));
 
     for (int i = 0; i < anno_map->num_annos; i++){
         const char * anno = anno_map->annotations[i].ptr;
@@ -867,6 +912,9 @@ void dragonfly_custom_report_stats()
    /* print statistics */
    if(!g_tw_mynode)
    {	
+    if (PRINT_CONFIG) 
+        dragonfly_print_params(stored_params);
+
       printf(" Average number of hops traversed %f average chunk latency %lf us maximum chunk latency %lf us avg message size %lf bytes finished messages %lld finished chunks %lld \n", 
               (float)avg_hops/total_finished_chunks, avg_time/(total_finished_chunks*1000), max_time/1000, (float)final_msg_sz/total_finished_msgs, total_finished_msgs, total_finished_chunks);
      if(routing == ADAPTIVE || routing == PROG_ADAPTIVE || SHOW_ADAP_STATS)
@@ -927,8 +975,8 @@ terminal_custom_init( terminal_state * s,
 
    rc_stack_create(&s->st);
    s->num_vcs = 1;
-   s->vc_occupancy = (int*)malloc(s->num_vcs * sizeof(int));
-   s->last_buf_full = (tw_stime*)malloc(s->num_vcs * sizeof(tw_stime));
+   s->vc_occupancy = (int*)calloc(s->num_vcs, sizeof(int));
+   s->last_buf_full = (tw_stime*)calloc(s->num_vcs, sizeof(tw_stime));
 
    for( i = 0; i < s->num_vcs; i++ )
     {
@@ -939,9 +987,9 @@ terminal_custom_init( terminal_state * s,
 
    s->rank_tbl = NULL;
    s->terminal_msgs = 
-       (terminal_custom_message_list**)malloc(s->num_vcs*sizeof(terminal_custom_message_list*));
+       (terminal_custom_message_list**)calloc(s->num_vcs, sizeof(terminal_custom_message_list*));
    s->terminal_msgs_tail = 
-       (terminal_custom_message_list**)malloc(s->num_vcs*sizeof(terminal_custom_message_list*));
+       (terminal_custom_message_list**)calloc(s->num_vcs, sizeof(terminal_custom_message_list*));
    s->terminal_msgs[0] = NULL;
    s->terminal_msgs_tail[0] = NULL;
    s->terminal_length = 0;
@@ -989,29 +1037,29 @@ void router_custom_setup(router_state * r, tw_lp * lp)
    r->rev_events = 0;
 
 
-   r->global_channel = (int*)malloc(p->num_global_channels * sizeof(int));
-   r->next_output_available_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
-   r->cur_hist_start_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
-   r->link_traffic = (int64_t*)malloc(p->radix * sizeof(int64_t));
-   r->link_traffic_sample = (int64_t*)malloc(p->radix * sizeof(int64_t));
-   r->cur_hist_num = (int*)malloc(p->radix * sizeof(int));
-   r->prev_hist_num = (int*)malloc(p->radix * sizeof(int));
+   r->global_channel = (int*)calloc(p->num_global_channels, sizeof(int));
+   r->next_output_available_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
+   r->cur_hist_start_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
+   r->link_traffic = (int64_t*)calloc(p->radix, sizeof(int64_t));
+   r->link_traffic_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
+   r->cur_hist_num = (int*)calloc(p->radix, sizeof(int));
+   r->prev_hist_num = (int*)calloc(p->radix, sizeof(int));
   
-   r->last_sent_chan = (int*) malloc(p->num_router_rows * sizeof(int));
-   r->vc_occupancy = (int**)malloc(p->radix * sizeof(int*));
-   r->in_send_loop = (int*)malloc(p->radix * sizeof(int));
+   r->last_sent_chan = (int*) calloc(p->num_router_rows, sizeof(int));
+   r->vc_occupancy = (int**)calloc(p->radix, sizeof(int*));
+   r->in_send_loop = (int*)calloc(p->radix, sizeof(int));
    r->pending_msgs = 
-    (terminal_custom_message_list***)malloc(p->radix * sizeof(terminal_custom_message_list**));
+    (terminal_custom_message_list***)calloc(p->radix, sizeof(terminal_custom_message_list**));
    r->pending_msgs_tail = 
-    (terminal_custom_message_list***)malloc(p->radix * sizeof(terminal_custom_message_list**));
+    (terminal_custom_message_list***)calloc(p->radix, sizeof(terminal_custom_message_list**));
    r->queued_msgs = 
-    (terminal_custom_message_list***)malloc(p->radix * sizeof(terminal_custom_message_list**));
+    (terminal_custom_message_list***)calloc(p->radix, sizeof(terminal_custom_message_list**));
    r->queued_msgs_tail = 
-    (terminal_custom_message_list***)malloc(p->radix * sizeof(terminal_custom_message_list**));
-   r->queued_count = (int*)malloc(p->radix * sizeof(int));
-   r->last_buf_full = (tw_stime**)malloc(p->radix * sizeof(tw_stime*));
-   r->busy_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
-   r->busy_time_sample = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
+    (terminal_custom_message_list***)calloc(p->radix, sizeof(terminal_custom_message_list**));
+   r->queued_count = (int*)calloc(p->radix, sizeof(int));
+   r->last_buf_full = (tw_stime**)calloc(p->radix, sizeof(tw_stime*));
+   r->busy_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
+   r->busy_time_sample = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
 
    rc_stack_create(&r->st);
 
@@ -1031,15 +1079,15 @@ void router_custom_setup(router_state * r, tw_lp * lp)
 	r->prev_hist_num[i] = 0;
     r->queued_count[i] = 0;    
     r->in_send_loop[i] = 0;
-    r->vc_occupancy[i] = (int*)malloc(p->num_vcs * sizeof(int));
-    r->pending_msgs[i] = (terminal_custom_message_list**)malloc(p->num_vcs * 
+    r->vc_occupancy[i] = (int*)calloc(p->num_vcs, sizeof(int));
+    r->pending_msgs[i] = (terminal_custom_message_list**)calloc(p->num_vcs, 
         sizeof(terminal_custom_message_list*));
-    r->last_buf_full[i] = (tw_stime*)malloc(p->num_vcs * sizeof(tw_stime));
-    r->pending_msgs_tail[i] = (terminal_custom_message_list**)malloc(p->num_vcs * 
+    r->last_buf_full[i] = (tw_stime*)calloc(p->num_vcs, sizeof(tw_stime));
+    r->pending_msgs_tail[i] = (terminal_custom_message_list**)calloc(p->num_vcs,
         sizeof(terminal_custom_message_list*));
-    r->queued_msgs[i] = (terminal_custom_message_list**)malloc(p->num_vcs * 
+    r->queued_msgs[i] = (terminal_custom_message_list**)calloc(p->num_vcs,
         sizeof(terminal_custom_message_list*));
-    r->queued_msgs_tail[i] = (terminal_custom_message_list**)malloc(p->num_vcs * 
+    r->queued_msgs_tail[i] = (terminal_custom_message_list**)calloc(p->num_vcs,
         sizeof(terminal_custom_message_list*));
         for(int j = 0; j < p->num_vcs; j++) {
             r->last_buf_full[i][j] = 0.0;
@@ -1256,13 +1304,13 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
 
   for(int i = 0; i < num_chunks; i++)
   {
-    terminal_custom_message_list *cur_chunk = (terminal_custom_message_list*)malloc(
+    terminal_custom_message_list *cur_chunk = (terminal_custom_message_list*)calloc(1,
       sizeof(terminal_custom_message_list));
     msg->origin_router_id = s->router_id;
     init_terminal_custom_message_list(cur_chunk, msg);
   
     if(msg->remote_event_size_bytes + msg->local_event_size_bytes > 0) {
-      cur_chunk->event_data = (char*)malloc(
+      cur_chunk->event_data = (char*)calloc(1,
           msg->remote_event_size_bytes + msg->local_event_size_bytes);
     }
     
@@ -1744,7 +1792,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
    if(!tmp)
    {
         bf->c5 = 1;
-       struct dfly_qhash_entry * d_entry = (dfly_qhash_entry *)malloc(sizeof (struct dfly_qhash_entry));
+       struct dfly_qhash_entry * d_entry = (dfly_qhash_entry *)calloc(1, sizeof (struct dfly_qhash_entry));
        d_entry->num_chunks = 0;
        d_entry->key = key;
        d_entry->remote_event_data = NULL;
@@ -1775,7 +1823,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
     if(msg->remote_event_size_bytes > 0 && !tmp->remote_event_data)
     {
         /* Retreive the remote event entry */
-         tmp->remote_event_data = (char*)malloc(msg->remote_event_size_bytes);
+         tmp->remote_event_data = (char*)calloc(1, msg->remote_event_size_bytes);
          assert(tmp->remote_event_data);
          tmp->remote_event_size = msg->remote_event_size_bytes; 
          memcpy(tmp->remote_event_data, m_data_src, msg->remote_event_size_bytes);
@@ -1831,11 +1879,11 @@ void dragonfly_custom_rsample_init(router_state * s,
    assert(p->radix);
 
    s->max_arr_size = MAX_STATS;
-   s->rsamples = (struct dfly_router_sample*)malloc(MAX_STATS * sizeof(struct dfly_router_sample)); 
+   s->rsamples = (struct dfly_router_sample*)calloc(MAX_STATS, sizeof(struct dfly_router_sample)); 
    for(; i < s->max_arr_size; i++)
    {
-    s->rsamples[i].busy_time = (tw_stime*)malloc(sizeof(tw_stime) * p->radix); 
-    s->rsamples[i].link_traffic_sample = (int64_t*)malloc(sizeof(int64_t) * p->radix);
+    s->rsamples[i].busy_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime)); 
+    s->rsamples[i].link_traffic_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
    }
 }
 void dragonfly_custom_rsample_rc_fn(router_state * s,
@@ -1882,7 +1930,7 @@ void dragonfly_custom_rsample_fn(router_state * s,
 
   if(s->op_arr_size >= s->max_arr_size) 
   {
-    struct dfly_router_sample * tmp = (dfly_router_sample *)malloc((MAX_STATS + s->max_arr_size) * sizeof(struct dfly_router_sample));
+    struct dfly_router_sample * tmp = (dfly_router_sample *)calloc((MAX_STATS + s->max_arr_size), sizeof(struct dfly_router_sample));
     memcpy(tmp, s->rsamples, s->op_arr_size * sizeof(struct dfly_router_sample));
     free(s->rsamples);
     s->rsamples = tmp;
@@ -1974,7 +2022,7 @@ void dragonfly_custom_sample_init(terminal_state * s,
     s->op_arr_size = 0;
     s->max_arr_size = MAX_STATS;
 
-    s->sample_stat = (dfly_cn_sample *)malloc(MAX_STATS * sizeof(struct dfly_cn_sample));
+    s->sample_stat = (dfly_cn_sample *)calloc(MAX_STATS, sizeof(struct dfly_cn_sample));
     
 }
 void dragonfly_custom_sample_rc_fn(terminal_state * s,
@@ -2021,7 +2069,7 @@ void dragonfly_custom_sample_fn(terminal_state * s,
     {
         /* In the worst case, copy array to a new memory location, its very
          * expensive operation though */
-        struct dfly_cn_sample * tmp = (dfly_cn_sample *)malloc((MAX_STATS + s->max_arr_size) * sizeof(struct dfly_cn_sample));
+        struct dfly_cn_sample * tmp = (dfly_cn_sample *)calloc((MAX_STATS + s->max_arr_size), sizeof(struct dfly_cn_sample));
         memcpy(tmp, s->sample_stat, s->op_arr_size * sizeof(struct dfly_cn_sample));
         free(s->sample_stat);
         s->sample_stat = tmp;
@@ -2251,6 +2299,13 @@ void dragonfly_custom_router_final(router_state * s,
         written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
 
     lp_io_write(lp->gid, (char*)"dragonfly-router-traffic", written, s->output_buf2);
+    
+    if (!g_tw_mynode) {
+        if (s->router_id == 0) {
+            if (PRINT_CONFIG) 
+                dragonfly_print_params(s->params);
+        }
+    }
 }
 
 static vector<int> get_intra_router(router_state * s, int src_router_id, int dest_router_id, int num_rtrs_per_grp)
@@ -2848,7 +2903,7 @@ router_packet_receive( router_state * s,
   int intm_router_id;
   short prev_path_type = 0, next_path_type = 0;
 
-  terminal_custom_message_list * cur_chunk = (terminal_custom_message_list*)calloc(sizeof(terminal_custom_message_list), 1);
+  terminal_custom_message_list * cur_chunk = (terminal_custom_message_list*)calloc(1, sizeof(terminal_custom_message_list));
   init_terminal_custom_message_list(cur_chunk, msg);
   
   if(routing == MINIMAL || 
@@ -2880,7 +2935,7 @@ router_packet_receive( router_state * s,
    * is selected. For local adaptive routing, if the same router as self is
    * selected then we choose the neighboring router. */
   if(src_grp_id != dest_grp_id 
-      && (intm_router_id / s->params->num_routers) == local_grp_id)
+      && ((intm_router_id / s->params->num_routers) == src_grp_id || (intm_router_id / s->params->num_routers) == dest_grp_id))
     intm_router_id = (s->router_id + s->params->num_routers) % s->params->total_routers;
 
   /* progressive adaptive routing is only triggered when packet has to traverse a
@@ -3029,7 +3084,7 @@ router_packet_receive( router_state * s,
 
   if(msg->remote_event_size_bytes > 0) {
     void *m_data_src = model_net_method_get_edata(DRAGONFLY_CUSTOM_ROUTER, msg);
-    cur_chunk->event_data = (char*)malloc(msg->remote_event_size_bytes);
+    cur_chunk->event_data = (char*)calloc(1, msg->remote_event_size_bytes);
     memcpy(cur_chunk->event_data, m_data_src, msg->remote_event_size_bytes);
   }
 

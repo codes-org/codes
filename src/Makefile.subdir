@@ -1,5 +1,9 @@
 lib_LTLIBRARIES += src/libcodes.la src/libcodes_mpi_replay.la
 
+AM_CPPFLAGS += $(BOOST_CPPFLAGS)
+AM_LDFLAGS += $(BOOST_LDFLAGS)
+
+
 BUILT_SOURCES += src/modelconfig/configparser.h \
                  src/modelconfig/configlex.h
 
@@ -142,7 +146,7 @@ src_libcodes_la_SOURCES =  \
 	src/util/jobmap-impl/jobmap-list.c\
 	src/util/jobmap-impl/jobmap-identity.c\
 	src/util/codes-mapping-context.c \
-  src/util/codes-comm.c \
+  	src/util/codes-comm.c \
     src/workload/codes-workload.c \
     src/workload/methods/codes-iolang-wrkld.c \
     src/workload/methods/codes-checkpoint-wrkld.c \

@@ -16,6 +16,7 @@ static darshan_params d_params = {"", 0};
 static iolang_params i_params = {0, 0, "", ""};
 static recorder_params r_params = {"", 0};
 static dumpi_trace_params du_params = {"", 0};
+static online_comm_params oc_params = {"", "", 0};
 static checkpoint_wrkld_params c_params = {0, 0, 0, 0, 0};
 static iomock_params im_params = {0, 0, 1, 0, 0, 0};
 static int n = -1;
@@ -33,6 +34,7 @@ static struct option long_opts[] =
     {"r-trace-dir", required_argument, NULL, 'd'},
     {"r-nprocs", required_argument, NULL, 'x'},
     {"dumpi-log", required_argument, NULL, 'w'},
+    {"workload-name", required_argument, NULL, 'b'},
     {"chkpoint-size", required_argument, NULL, 'S'},
     {"chkpoint-bw", required_argument, NULL, 'B'},
     {"chkpoint-iters", required_argument, NULL, 'i'},
@@ -62,6 +64,8 @@ void usage(){
             "--r-nprocs: number of ranks in original recorder workload\n"
             "DUMPI TRACE OPTIONS (dumpi-trace-workload) \n"
             "--dumpi-log: dumpi log file \n"
+            "ONLINE COMM OPTIONS (online_comm_workload) \n"
+            "--workload-name : name of the workload (lammps or nekbone) \n"
             "CHECKPOINT OPTIONS (checkpoint_io_workload)\n"
             "--chkpoint-size: size of aggregate checkpoint to write\n"
             "--chkpoint-bw: checkpointing bandwidth\n"
@@ -79,6 +83,9 @@ void usage(){
 
 int main(int argc, char *argv[])
 {
+#ifdef USE_ONLINE
+    ABT_init(argc, argv);
+#endif
     int print_stats = 0;
     double total_delay = 0.0;
     int64_t num_barriers = 0;
@@ -120,7 +127,7 @@ int main(int argc, char *argv[])
     int64_t num_testalls = 0;
 
     char ch;
-    while ((ch = getopt_long(argc, argv, "t:n:l:a:m:sp:wr:S:B:R:M:Q:N:z:f:u",
+    while ((ch = getopt_long(argc, argv, "t:n:l:b:a:m:sp:wr:S:B:R:M:Q:N:z:f:u",
                     long_opts, NULL)) != -1){
         switch (ch){
             case 't':
@@ -133,6 +140,9 @@ int main(int argc, char *argv[])
             case 'l':
                 strcpy(d_params.log_file_path, optarg);
                 break;
+            case 'b':
+                strcpy(oc_params.workload_name, optarg);
+            break;
             case 'a':
                 d_params.aggregator_cnt = atol(optarg);
                 break;
@@ -214,6 +224,18 @@ int main(int argc, char *argv[])
         else{
             wparams = (char*)&d_params;
         }
+    }
+    else if(strcmp(type, "online_comm_workload") == 0){
+        if (n == -1){
+            fprintf(stderr,
+                    "Expected \"--num-ranks\" argument for online workload\n");
+            usage();
+            return 1;
+        }
+        else{
+            oc_params.nprocs = n;
+        }
+        wparams = (char *)&oc_params;
     }
     else if (strcmp(type, "iolang_workload") == 0){
         if (n == -1){
@@ -310,7 +332,7 @@ int main(int argc, char *argv[])
         assert(id != -1);
         do {
             codes_workload_get_next(id, 0, i, &op);
-            codes_workload_print_op(stdout, &op, 0, i);
+//            codes_workload_print_op(stdout, &op, 0, i);
 
             switch(op.op_type)
             {
@@ -393,9 +415,6 @@ int main(int argc, char *argv[])
                         if(i == 0)
                         {
                     int j;
-                    printf("\n rank %d wait_all: ", i);
-                    for(j = 0; j < op.u.waits.count; j++)
-                        printf(" %d ", op.u.waits.req_ids[j]);
                     num_waitalls++;
                         }
                     }
@@ -422,6 +441,11 @@ int main(int argc, char *argv[])
                             op.op_type);
             }
         } while (op.op_type != CODES_WK_END);
+
+    if(strcmp(type, "online_comm_workload") == 0)
+    {
+        codes_workload_finalize(type, wparams, 0, i);
+    }
     }
 
     if (print_stats)
@@ -467,6 +491,9 @@ int main(int argc, char *argv[])
         fprintf(stderr, "NUM_TESTALLS:    %"PRId64"\n", num_testalls);
     }
 
+#ifdef USE_ONLINE
+    ABT_finalize();
+#endif
     return 0;
 }
 

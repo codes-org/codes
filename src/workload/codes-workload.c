@@ -24,6 +24,9 @@ extern struct codes_workload_method darshan_io_workload_method;
 #ifdef USE_RECORDER
 extern struct codes_workload_method recorder_io_workload_method;
 #endif
+#ifdef USE_ONLINE
+extern struct codes_workload_method online_comm_workload_method;
+#endif
 extern struct codes_workload_method checkpoint_workload_method;
 extern struct codes_workload_method iomock_workload_method;
 
@@ -36,6 +39,9 @@ static struct codes_workload_method const * method_array_default[] =
 #endif
 #ifdef USE_DARSHAN
     &darshan_io_workload_method,
+#endif
+#ifdef USE_ONLINE
+    &online_comm_workload_method,
 #endif
 #ifdef USE_RECORDER
     &recorder_io_workload_method,
@@ -89,6 +95,7 @@ static void init_workload_methods(void)
         // note - includes null char
         int num_default_methods =
             (sizeof(method_array_default) / sizeof(method_array_default[0]));
+        printf("\n Num default methods %d ", num_default_methods);
         method_array = realloc(method_array,
                 (num_default_methods + num_user_methods + 1) *
                 sizeof(*method_array));
@@ -220,7 +227,6 @@ void codes_workload_get_next(
         return;
     }
 
-    /* ask generator for the next operation */
     method_array[wkld_id]->codes_workload_get_next(app_id, rank, op);
 
     assert(op->op_type);
@@ -246,7 +252,7 @@ void codes_workload_get_next_rc(
     }
     assert(tmp);
 
-    tmp_op = (struct rc_op*)malloc(sizeof(*tmp_op));
+    tmp_op = (struct rc_op*)malloc(sizeof(struct rc_op));
     assert(tmp_op);
     tmp_op->op = *op;
     tmp_op->next = tmp->lifo;
@@ -264,6 +270,27 @@ void codes_workload_get_next_rc2(
     method_array[wkld_id]->codes_workload_get_next_rc2(app_id, rank);
 }
 
+/* Finalize the workload */
+int codes_workload_finalize(
+        const char* type,
+        const char* params,
+        int app_id, 
+        int rank)
+{
+    int i;
+
+    for(i=0; method_array[i] != NULL; i++)
+    {
+        if(strcmp(method_array[i]->method_name, type) == 0)
+        {
+                return method_array[i]->codes_workload_finalize(
+                        params, app_id, rank);
+        }
+    }
+
+    fprintf(stderr, "Error: failed to find workload generator %s\n", type);
+    return(-1);
+}
 int codes_workload_get_rank_cnt(
         const char* type,
         const char* params,
@@ -347,20 +374,22 @@ void codes_workload_print_op(
             break;
         case CODES_WK_ISEND:
             fprintf(f, "op: app:%d rank:%d type:isend "
-                    "src:%d dst:%d bytes:%"PRIu64" type:%d count:%d tag:%d "
+                    "src:%d dst:%d req_id:%"PRIu32" bytes:%"PRIu64" type:%d count:%d tag:%d "
                     "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.send.source_rank, op->u.send.dest_rank,
+                    op->u.send.req_id,
                     op->u.send.num_bytes, op->u.send.data_type,
                     op->u.send.count, op->u.send.tag,
                     op->start_time, op->end_time);
             break;
         case CODES_WK_IRECV:
             fprintf(f, "op: app:%d rank:%d type:irecv "
-                    "src:%d dst:%d bytes:%"PRIu64" type:%d count:%d tag:%d "
+                    "src:%d dst:%d req_id:%"PRIu32" bytes:%"PRIu64" type:%d count:%d tag:%d "
                     "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.recv.source_rank, op->u.recv.dest_rank,
+                    op->u.recv.req_id,
                     op->u.recv.num_bytes, op->u.recv.data_type,
                     op->u.recv.count, op->u.recv.tag,
                     op->start_time, op->end_time);
@@ -428,7 +457,7 @@ void codes_workload_print_op(
 
 void codes_workload_add_method(struct codes_workload_method const * method)
 {
-    static int method_array_cap = 8;
+    static int method_array_cap = 10;
     if (is_workloads_init)
         tw_error(TW_LOC,
                 "adding a workload method after initialization is forbidden");

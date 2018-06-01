@@ -9,6 +9,7 @@
  */
 #include <map>
 #include <vector>
+#include <set>
 #include "codes/codes.h"
 #include "codes/model-net.h"
 
@@ -23,8 +24,8 @@ using namespace std;
 enum ConnectionType
 {
     CONN_LOCAL = 1,
-    CONN_GLOBAL,
-    CONN_TERMINAL
+    CONN_GLOBAL = 2,
+    CONN_TERMINAL = 3
 };
 
 /**
@@ -41,6 +42,11 @@ struct Connection
     int dest_group_id; //group id of the destination
     ConnectionType conn_type; //type of the connection: CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
 };
+
+inline bool operator<(const Connection& lhs, const Connection& rhs)
+{
+  return lhs.port < rhs.port;
+}
 
 /**
  * @class ConnectionManager
@@ -68,6 +74,12 @@ class ConnectionManager {
     map< int, vector< Connection > > terminalConnections; //direct connections between this router and its compute node terminals - maps terminal id to connections to it
 
     map< int, Connection > _portMap; //Mapper for ports to connections
+
+    vector< int > _other_groups_i_connect_to;
+    set< int > _other_groups_i_connect_to_set;
+
+    map< int, vector< Connection > > _connections_to_groups_map; //maps group ID to connections to said group
+    map< int, vector< Connection > > _all_conns_by_type_map;
 
     // map< int, vector< Connection > > intermediateRouterToGroupMap; //maps group id to list of routers that connect to it.
     //                                                                //ex: intermediateRouterToGroupMap[3] returns a vector
@@ -192,6 +204,17 @@ public:
     vector< Connection > get_connections_by_type(ConnectionType type);
 
     /**
+     * @brief returns a vector of all group IDs that the router has a global connection to
+     * @note this does not include the router's own group as that is a given
+     */
+    vector< int > get_connected_group_ids();
+
+    /**
+    *
+    */
+    void solidify_connections();
+
+    /**
      * @brief prints out the state of the connection manager
      */
     void print_connections();
@@ -254,6 +277,9 @@ void ConnectionManager::add_connection(int dest_gid, ConnectionType type)
             assert(false);
             // TW_ERROR(TW_LOC, "add_connection(dest_id, type): Undefined connection type\n");
     }
+
+    if(conn.dest_group_id != conn.src_group_id)
+        _other_groups_i_connect_to_set.insert(conn.dest_group_id);
 
     _portMap[conn.port] = conn;
 }
@@ -393,46 +419,90 @@ vector< Connection > ConnectionManager::get_connections_to_gid(int dest_gid, Con
 
 vector< Connection > ConnectionManager::get_connections_to_group(int dest_group_id)
 {
-    vector< Connection > conns_to_group;
-
-    map< int, vector< Connection > >::iterator it = globalConnections.begin();
-    for(; it != globalConnections.end(); it++) //iterate over each router that is connected to source
-    {
-        vector< Connection >::iterator conns_to_router;
-        for(conns_to_router = (it->second).begin(); conns_to_router != (it->second).end(); conns_to_router++) //iterate over each connection to a specific router
-        {
-            if ((*conns_to_router).dest_group_id == dest_group_id) {
-                conns_to_group.push_back(*conns_to_router);
-            }
-        }
-    }
-    return conns_to_group;
+    return _connections_to_groups_map[dest_group_id];
 }
 
 vector< Connection > ConnectionManager::get_connections_by_type(ConnectionType type)
 {
-    map< int, vector< Connection > > theMap;
     switch (type)
+        {
+            case CONN_LOCAL:
+                return _all_conns_by_type_map[CONN_LOCAL];
+                break;
+            case CONN_GLOBAL:
+                return _all_conns_by_type_map[CONN_GLOBAL];
+                break;
+            case CONN_TERMINAL:
+                return _all_conns_by_type_map[CONN_TERMINAL];
+                break;
+            default:
+                tw_error(TW_LOC, "Bad enum type\n");
+        }
+}
+
+vector< int > ConnectionManager::get_connected_group_ids()
+{
+    return _other_groups_i_connect_to;
+}
+
+void ConnectionManager::solidify_connections()
+{
+    //-- other groups connect to
+    set< int >::iterator it;
+    for(it = _other_groups_i_connect_to_set.begin(); it != _other_groups_i_connect_to_set.end(); it++)
     {
-        case CONN_LOCAL:
-            theMap = intraGroupConnections;
-            break;
-        case CONN_GLOBAL:
-            theMap = globalConnections;
-            break;
-        case CONN_TERMINAL:
-            theMap = terminalConnections;
-            break;
+        _other_groups_i_connect_to.push_back(*it);
     }
 
-    vector< Connection > retVec;
-    map< int, vector< Connection > >::iterator it;
-    for(it = theMap.begin(); it != theMap.end(); it++)
+    //--connections to group
+    for(it = _other_groups_i_connect_to_set.begin(); it != _other_groups_i_connect_to_set.end(); it++)
     {
-        retVec.insert(retVec.end(), (*it).second.begin(), (*it).second.end());
+        int dest_group_id = *it;
+
+        vector< Connection > conns_to_group;
+        map< int, vector< Connection > >::iterator itg = globalConnections.begin();
+        for(; itg != globalConnections.end(); itg++) //iterate over each router that is connected to source
+        {
+            vector< Connection >::iterator conns_to_router;
+            for(conns_to_router = (itg->second).begin(); conns_to_router != (itg->second).end(); conns_to_router++) //iterate over each connection to a specific router
+            {
+                if ((*conns_to_router).dest_group_id == dest_group_id) {
+                    conns_to_group.push_back(*conns_to_router);
+                }
+            }
+        }
+
+        _connections_to_groups_map[dest_group_id] = conns_to_group;
     }
 
-    return retVec;
+    //--get connections by type
+
+    map< int, vector< Connection > > theMap;
+    for ( int enum_int = CONN_LOCAL; enum_int != CONN_TERMINAL + 1; enum_int++ )
+    {
+        switch (enum_int)
+        {
+            case CONN_LOCAL:
+                theMap = intraGroupConnections;
+                break;
+            case CONN_GLOBAL:
+                theMap = globalConnections;
+                break;
+            case CONN_TERMINAL:
+                theMap = terminalConnections;
+                break;
+            default:
+                tw_error(TW_LOC, "Bad enum type\n");
+        }
+
+        vector< Connection > retVec;
+        map< int, vector< Connection > >::iterator it;
+        for(it = theMap.begin(); it != theMap.end(); it++)
+        {
+            retVec.insert(retVec.end(), (*it).second.begin(), (*it).second.end());
+        }
+        _all_conns_by_type_map[enum_int] = retVec;
+    }    
 }
 
 
