@@ -2545,7 +2545,7 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
             {
                 score += s->vc_occupancy[port][k];
             }
-            // score += s->queued_count[port];
+            score += s->queued_count[port];
             break;
         }
         case BETA: //consideres vc occupancy and queued count multiplied by the number of minimum hops to the destination LOWER SCORE IS BETTER
@@ -2555,7 +2555,7 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
             {
                 base_score += s->vc_occupancy[port][k];
             }
-            // base_score += s->queued_count[port];
+            base_score += s->queued_count[port];
             score = base_score * get_min_hops_to_dest_from_conn(s, bf, msg, lp, conn);
             break;
         }
@@ -2567,7 +2567,7 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
             {
                 to_subtract += s->vc_occupancy[port][k];
             }
-            // to_subtract += s->queued_count[port];
+            to_subtract += s->queued_count[port];
             score -= to_subtract;
 
             if (c_minimality == C_MIN) //the connection maintains the paths minimality - gets a bonus of 2x
@@ -2580,7 +2580,7 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
             {
                 score += s->vc_occupancy[port][k];
             }
-            // score += s->queued_count[port];
+            score += s->queued_count[port];
 
             if (c_minimality != C_MIN)
                 score = score * 2;
