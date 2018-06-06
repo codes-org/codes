@@ -2416,7 +2416,10 @@ get_next_stop(router_state * s,
         else
         {
             if(interGroupLinks[s->router_id][dest_group_id].size() > 1 && get_direct_con)
+            {
               select_chan = find_chan(s->router_id, dest_group_id, s->params->num_routers);  
+              assert(select_chan >= 0);
+            }
             else
             {
                 bf->c19 = 1;
