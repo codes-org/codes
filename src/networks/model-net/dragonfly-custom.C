@@ -2662,7 +2662,7 @@ static int do_global_adaptive_routing( router_state * s,
   int num_min_chans = connectionList[my_grp_id][dest_grp_id].size();
   int num_nonmin_chans_a = connectionList[my_grp_id][intm_grp_id_a].size();
   int num_nonmin_chans_b = connectionList[my_grp_id][intm_grp_id_b].size();
-  int min_chan_a, min_chan_b, nonmin_chan_a, nonmin_chan_b;
+  int min_chan_a = -1, min_chan_b = -1, nonmin_chan_a = -1, nonmin_chan_b = -1;
   int min_rtr_a, min_rtr_b, nonmin_rtr_a, nonmin_rtr_b;
   vector<int> dest_rtr_as, dest_rtr_bs;
   int min_port_a, min_port_b, nonmin_port_a, nonmin_port_b;
@@ -2742,13 +2742,13 @@ static int do_global_adaptive_routing( router_state * s,
   }
   else
   {
+    assert(rand_a >= 0);
     nonmin_chan_a = rand_a;
-    nonmin_rtr_a = connectionList[my_grp_id][intm_grp_id_a][rand_a]; 
+    nonmin_rtr_a = connectionList[my_grp_id][intm_grp_id_a][rand_a];
   }
   assert(nonmin_chan_a >= 0);
   
   if(num_nonmin_chans_b > 0) {
-    nonmin_rtr_b = connectionList[my_grp_id][intm_grp_id_b][nonmin_chan_b];
     noIntraB = false;
     if(nonmin_chan_b != -1) {
       bf->c26=1;
@@ -2757,8 +2757,9 @@ static int do_global_adaptive_routing( router_state * s,
     }
     else
     {
+       assert(rand_b >= 0);
        nonmin_chan_b = rand_b;
-       nonmin_rtr_b = connectionList[my_grp_id][intm_grp_id_a][rand_b];
+       nonmin_rtr_b = connectionList[my_grp_id][intm_grp_id_b][rand_b];
     }
     assert(nonmin_chan_b >= 0);
   }
