@@ -2725,8 +2725,11 @@ static int do_global_adaptive_routing( router_state * s,
   }
 
   /* if a direct global channel exists for non-minimal route then give a priority to that. */
-  nonmin_chan_a = find_chan(s->router_id, intm_grp_id_a, s->params->num_routers);
-  nonmin_chan_b = find_chan(s->router_id, intm_grp_id_b, s->params->num_routers);
+  if(msg->my_l_hop == 1)
+  {
+    nonmin_chan_a = find_chan(s->router_id, intm_grp_id_a, s->params->num_routers);
+    nonmin_chan_b = find_chan(s->router_id, intm_grp_id_b, s->params->num_routers);
+  }
   /* two possible nonminimal routes */
   int rand_a = tw_rand_integer(lp->rng, 0, num_nonmin_chans_a - 1);
   int rand_b = tw_rand_integer(lp->rng, 0, num_nonmin_chans_b - 1);
@@ -2880,21 +2883,27 @@ static void router_packet_receive_rc(router_state * s,
     int output_port = msg->saved_vc;
     int output_chan = msg->saved_channel;
 
-    tw_rand_reverse_unif(lp->rng);
-    
+    if(bf->c15)
+    {
+        tw_rand_reverse_unif(lp->rng);
+    }
     if(bf->c18)
+    {
         tw_rand_reverse_unif(lp->rng);
-    
-    if(bf->c16)
         tw_rand_reverse_unif(lp->rng);
+    }
+    if(bf->c3)
+    {
+        tw_rand_reverse_unif(lp->rng);
+        tw_rand_reverse_unif(lp->rng);
+        tw_rand_reverse_unif(lp->rng);
+    }
 
     if(bf->c20)
     {
         for(int i = 0; i < 8; i++)
             tw_rand_reverse_unif(lp->rng);
             
-        //tw_rand_reverse_unif(lp->rng);
-    
         if(bf->c10)
         {
             tw_rand_reverse_unif(lp->rng);
@@ -2975,10 +2984,9 @@ router_packet_receive( router_state * s,
    * intermediate router ID which is in the same group. */
   if(src_grp_id != dest_grp_id)
   {
-      bf->c18 = 1;
       if(cur_chunk->msg.my_l_hop >= 1)
       {
-        bf->c16 = 1;
+        bf->c3 = 1;
         vector<int> direct_rtrs = get_indirect_conns(s, lp, dest_grp_id);
         int indxa = tw_rand_integer(lp->rng, 0, direct_rtrs.size() - 1); 
         intm_router_id = direct_rtrs[indxa];
@@ -2990,6 +2998,7 @@ router_packet_receive( router_state * s,
       }
       else
       {
+          bf->c18 = 1;
           intm_router_id = tw_rand_integer(lp->rng, 0, s->params->total_routers - 1);
           intm_router_id_b = tw_rand_integer(lp->rng, 0, s->params->total_routers - 1); 
         if((intm_router_id/s->params->num_routers) == local_grp_id)
@@ -3000,10 +3009,12 @@ router_packet_receive( router_state * s,
       }
   }
   else
+  {
+     bf->c15 = 1;
     intm_router_id = (src_grp_id * s->params->num_routers) + 
                       (((s->router_id % s->params->num_routers) + 
                        tw_rand_integer(lp->rng, 1, s->params->num_routers - 1)) % s->params->num_routers);
-
+  }
   /* progressive adaptive routing is only triggered when packet has to traverse a
    * global channel. It doesn't make sense to use it within a group */
   if(dest_grp_id != src_grp_id && 
