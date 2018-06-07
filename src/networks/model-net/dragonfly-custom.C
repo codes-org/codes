@@ -178,6 +178,8 @@ struct dragonfly_param
     double global_delay;
     double credit_delay;
     double router_delay;
+
+    int max_hops_notify; //maximum number of hops allowed before notifying via printout
 };
 
 static const dragonfly_param* stored_params;
@@ -535,6 +537,7 @@ void dragonfly_print_params(const dragonfly_param *p)
         printf("\tcredit_delay =           %.2f\n",p->credit_delay);
         printf("\trouter_delay =           %.2f\n",p->router_delay);
         printf("\trouting =                %d\n",routing);
+        printf("\tmax hops notification =  %d\n",p->max_hops_notify);
         printf("------------------------------------------------------\n\n");
     }
 }
@@ -645,6 +648,12 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
         fprintf(stderr, 
                 "No routing protocol specified, setting to minimal routing\n");
         routing = -1;
+    }
+
+    rc = configuration_get_value_int(&config, "PARAMS", "notification_on_hops_greater_than", anno, &p->max_hops_notify);
+    if (rc) {
+        printf("Maximum hops for notifying not specified, setting to INT MAX\n");
+        p->max_hops_notify = INT_MAX;
     }
 
     // rc = configuration_get_value_int(&config, "PARAMS", "num_vcs_override", anno, &p->num_vcs);
@@ -1648,6 +1657,11 @@ static void send_remote_event(terminal_state * s, terminal_custom_message * msg,
 /* packet arrives at the destination terminal */
 static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_message * msg, 
   tw_lp * lp) {
+
+    if (msg->my_N_hop > s->params->max_hops_notify)
+    {
+        printf("Terminal received a packet with %d hops! (Notify on > than %d)\n",msg->my_N_hop, s->params->max_hops_notify);
+    }
 
     // NIC aggregation - should this be a separate function?
     // Trigger an event on receiving server
@@ -2873,6 +2887,83 @@ static int do_global_adaptive_routing( router_state * s,
   }*/
 }
 
+
+static void router_verify_valid_receipt(router_state *s, tw_bf *bf, terminal_custom_message *msg, tw_lp *lp)
+{
+    if (msg->my_N_hop > s->params->max_hops_notify)
+    {
+        printf("Router received a packet with %d hops so far! (Notify on > than %d)\n",msg->my_N_hop, s->params->max_hops_notify);
+    }
+
+
+    bool has_valid_connection;
+    if (msg->last_hop == TERMINAL) {
+        tw_lpid src_term_lpgid = msg->src_terminal_id;
+        int src_term_rel_id;
+
+        try {
+            src_term_rel_id = codes_mapping_get_lp_relative_id(src_term_lpgid,0,0);
+        }
+        catch (...) {
+            tw_error(TW_LOC, "\nRouter Receipt Verify: Codes Mapping Get LP Rel ID Failure - Terminal");
+        }
+
+        has_valid_connection = (s->router_id == (src_term_rel_id / s->params->num_cn)); //a router can only receive a packet from a terminal if that terminal belongs to it
+
+        if (!has_valid_connection) {
+            tw_error(TW_LOC, "\nRouter received packet from non-existent connection - Terminal\n");
+        }
+    
+    }
+    else if (msg->last_hop == LOCAL) {
+        int rel_id;
+
+        try {
+            rel_id = codes_mapping_get_lp_relative_id(msg->intm_lp_id,0,0);
+        }
+        catch (...) {
+            tw_error(TW_LOC, "\nRouter Receipt Verify: Codes Mapping Get LP Rel ID Failure - Local");
+        }
+
+        int my_loc_id = s->router_id % s->params->num_routers;
+        int intm_loc_id = rel_id % s->params->num_routers;
+
+        if (intraGroupLinks[my_loc_id][intm_loc_id].size() > 0)
+            has_valid_connection = true;
+        else
+            has_valid_connection = false;
+        
+        if (!has_valid_connection) {
+            tw_error(TW_LOC, "\nRouter received packet from non-existent connection - Local\n");
+        }
+    }
+    else if (msg->last_hop == GLOBAL) {
+        int rel_id;
+
+        try {
+            rel_id = rel_id = codes_mapping_get_lp_relative_id(msg->intm_lp_id,0,0);
+        }
+        catch (...) {
+            tw_error(TW_LOC, "\nRouter Receipt Verify: Codes Mapping Get LP Rel ID Failure - Global");
+        }
+
+        int rel_id_grp_id = rel_id / s->params->num_routers;
+
+        if (interGroupLinks[s->router_id][rel_id_grp_id].size() > 0)
+            has_valid_connection = true;
+        else
+            has_valid_connection = false;
+        
+        if (!has_valid_connection) {
+            tw_error(TW_LOC, "\nRouter received packet from non-existent connection - Global\n");
+        }
+    }
+    else {
+        tw_error(TW_LOC, "\nUnspecified msg->last_hop when received by a router\n");
+    }
+    
+}
+
 static void router_packet_receive_rc(router_state * s,
         tw_bf * bf,
         terminal_custom_message * msg,
@@ -2952,6 +3043,9 @@ router_packet_receive( router_state * s,
 			terminal_custom_message * msg, 
 			tw_lp * lp )
 {
+  router_verify_valid_receipt(s, bf, msg, lp);
+
+
   router_ecount++;
 
   tw_stime ts;
