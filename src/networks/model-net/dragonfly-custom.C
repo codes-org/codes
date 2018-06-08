@@ -2758,7 +2758,7 @@ static int do_global_adaptive_routing( router_state * s,
   if(nonmin_chan_a != -1) {
     bf->c25=1;
     noIntraA = true;
-    nonmin_rtr_a = interGroupLinks[s->router_id][intm_grp_id_a][nonmin_chan_a].dest;
+    nonmin_rtr_a = interGroupLinks[s->router_id][intm_grp_id_a][0].dest;
   }
   else
   {
@@ -2775,7 +2775,7 @@ static int do_global_adaptive_routing( router_state * s,
     if(nonmin_chan_b != -1) {
       bf->c26=1;
       noIntraB = true;
-      nonmin_rtr_b = interGroupLinks[s->router_id][intm_grp_id_b][nonmin_chan_b].dest;
+      nonmin_rtr_b = interGroupLinks[s->router_id][intm_grp_id_b][0].dest;
     }
     else
     {
