@@ -16,10 +16,10 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 
-#define PAYLOAD_SZ 2048
 
 static int net_id = 0;
 static int traffic = 1;
+static int PAYLOAD_SZ = 2048;
 static double arrival_time = 1000.0;
 
 /* whether to pull instead of push */
@@ -114,6 +114,7 @@ const tw_optdef app_opt [] =
 {
         TWOPT_GROUP("Model net synthetic traffic " ),
     	TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
+    	TWOPT_UINT("payload_sz",PAYLOAD_SZ, "size of the message being sent "),
     	TWOPT_UINT("num_messages", num_msgs, "Number of messages to be generated per terminal "),
     	TWOPT_STIME("sampling-interval", sampling_interval, "the sampling interval "),
     	TWOPT_STIME("sampling-end-time", sampling_end_time, "sampling end time "),
@@ -350,8 +351,8 @@ static void svr_finalize(
 {
     ns->end_ts = tw_now(lp);
 
-    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s(ns->end_ts-ns->start_ts),
-        ((double)(PAYLOAD_SZ*ns->msg_sent_count)/(double)(1024*1024)/ns_to_s(ns->end_ts-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
+//    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s(ns->end_ts-ns->start_ts),
+//        ((double)(PAYLOAD_SZ*ns->msg_sent_count)/(double)(1024*1024)/ns_to_s(ns->end_ts-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
     return;
 }
 
