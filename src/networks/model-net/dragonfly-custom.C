@@ -2323,6 +2323,7 @@ static vector<int> get_intra_router(router_state * s, int src_router_id, int des
        /* If no direct connection exists then find an intermediate connection */
        if(curMap.find(dest_rel_id) == curMap.end())
        {
+         assert(0);
          int src_col = src_rel_id % s->params->num_router_cols;
          int src_row = src_rel_id / s->params->num_router_cols;
 
@@ -2406,6 +2407,7 @@ get_next_stop(router_state * s,
        bf->c19 = 1;
        vector<int> next_stop = get_intra_router(s, local_router_id, dest_router_id, s->params->num_routers);
        assert(!next_stop.empty());
+       assert(next_stop.size() == 1);
        select_chan = tw_rand_integer(lp->rng, 0, next_stop.size() - 1);
 
        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, next_stop[select_chan] / num_routers_per_mgrp,
@@ -2429,21 +2431,22 @@ get_next_stop(router_state * s,
             select_chan = adap_chan;
         else
         {
+            /* Only for non-minimal routes, direct connections are preferred
+             * (global ports) */
             if(interGroupLinks[s->router_id][dest_group_id].size() > 1 && get_direct_con)
             {
-              select_chan = find_chan(s->router_id, dest_group_id, s->params->num_routers);  
+              select_chan = find_chan(s->router_id, dest_group_id, s->params->num_routers); 
               assert(select_chan >= 0);
             }
             else
             {
-                bf->c19 = 1;
+                bf->c16 = 1;
                 select_chan = tw_rand_integer(lp->rng, 0, connectionList[my_grp_id][dest_group_id].size() - 1);
             }
         }
            dest_lp = connectionList[my_grp_id][dest_group_id][select_chan];
         //printf("\n my grp %d dest router %d dest_lp %d rid %d chunk id %d", my_grp_id, dest_router_id, dest_lp, s->router_id, msg->chunk_id);
         msg->saved_src_dest = dest_lp;
-        msg->saved_src_chan = select_chan;
   }
   /* Get the number of global channels connecting the origin and destination
    * groups */
@@ -2451,7 +2454,10 @@ get_next_stop(router_state * s,
 
   if(s->router_id == msg->saved_src_dest)
   {
-      dest_lp = connectionList[dest_group_id][my_grp_id][msg->saved_src_chan];
+        bf->c17 = 1;
+        select_chan = tw_rand_integer(lp->rng, 0, interGroupLinks[s->router_id][dest_group_id].size() - 1);
+        bLink bl = interGroupLinks[s->router_id][dest_group_id][select_chan];
+        dest_lp = bl.dest;
   }
   else
   {
@@ -2511,7 +2517,7 @@ get_output_port( router_state * s,
 
          rand_offset = tw_rand_integer(lp->rng, 0, interGroupLinks[src_router][intm_grp_id].size()-1);
 
-         assert(rand_offset >= 0);
+         assert(rand_offset >= 0 && rand_offset < s->params->num_global_channels);
 
          bLink bl = interGroupLinks[src_router][intm_grp_id][rand_offset];
          int channel_id = bl.offset;
@@ -2529,20 +2535,20 @@ get_output_port( router_state * s,
         int dest_col = intra_rtr_id % p->num_router_cols;
         int dest_row = intra_rtr_id / p->num_router_cols;
 
-        if(src_col == dest_col)
-        {
-            int offset = tw_rand_integer(lp->rng, 0, p->num_col_chans -1);
-            output_port = p->num_router_cols * p->num_row_chans + dest_row * p->num_col_chans + offset;
-            assert(output_port < p->intra_grp_radix);
-        }
-        else
-            if(src_row == dest_row)
+       if(src_row == dest_row)
         {
             int offset = tw_rand_integer(lp->rng, 0, p->num_row_chans -1);
             output_port = dest_col * p->num_row_chans + offset;   
             assert(output_port < (s->params->num_router_cols * p->num_row_chans));
         }
-            else
+        else if(src_col == dest_col)
+        {
+            assert(0);
+            int offset = tw_rand_integer(lp->rng, 0, p->num_col_chans -1);
+            output_port = (p->num_router_cols * p->num_row_chans) + dest_row * p->num_col_chans + offset;
+            assert(output_port < p->intra_grp_radix);
+        }
+         else
             {
                 tw_error(TW_LOC, "\n Invalid dragonfly connectivity src row %d dest row %d src col %d dest col %d src %d dest %d",
                         src_row, dest_row, src_col, dest_col, intragrp_rtr_id, intra_rtr_id);
@@ -2738,7 +2744,7 @@ static int do_global_adaptive_routing( router_state * s,
     min_port_b = get_output_port(s, msg, lp, bf, min_rtr_b_id);
   }
 
-  /* if a direct global channel exists for non-minimal route then give a priority to that. */
+  /* if a direct global channel exists for non-minimal route in the source group then give a priority to that. */
   if(msg->my_l_hop == 1)
   {
     nonmin_chan_a = find_chan(s->router_id, intm_grp_id_a, s->params->num_routers);
@@ -2752,13 +2758,15 @@ static int do_global_adaptive_routing( router_state * s,
   if(nonmin_chan_a != -1) {
     bf->c25=1;
     noIntraA = true;
-    nonmin_rtr_a = interGroupLinks[s->router_id][intm_grp_id_a][0].dest;
+    nonmin_rtr_a = interGroupLinks[s->router_id][intm_grp_id_a][nonmin_chan_a].dest;
   }
   else
   {
     assert(rand_a >= 0);
     nonmin_chan_a = rand_a;
     nonmin_rtr_a = connectionList[my_grp_id][intm_grp_id_a][rand_a];
+    if(nonmin_rtr_a == s->router_id)
+        noIntraA = true;
   }
   assert(nonmin_chan_a >= 0);
   
@@ -2767,13 +2775,15 @@ static int do_global_adaptive_routing( router_state * s,
     if(nonmin_chan_b != -1) {
       bf->c26=1;
       noIntraB = true;
-      nonmin_rtr_b = interGroupLinks[s->router_id][intm_grp_id_b][0].dest;
+      nonmin_rtr_b = interGroupLinks[s->router_id][intm_grp_id_b][nonmin_chan_b].dest;
     }
     else
     {
        assert(rand_b >= 0);
        nonmin_chan_b = rand_b;
        nonmin_rtr_b = connectionList[my_grp_id][intm_grp_id_b][rand_b];
+       if(nonmin_rtr_b == s->router_id)
+           noIntraB = true;
     }
     assert(nonmin_chan_b >= 0);
   }
@@ -3014,6 +3024,10 @@ static void router_packet_receive_rc(router_state * s,
     }
     if(bf->c19)
         tw_rand_reverse_unif(lp->rng);
+    if(bf->c16)
+        tw_rand_reverse_unif(lp->rng);
+    if(bf->c17)
+        tw_rand_reverse_unif(lp->rng);
     if(bf->c21)
         tw_rand_reverse_unif(lp->rng);
 
@@ -3169,7 +3183,6 @@ router_packet_receive( router_state * s,
       * If not, set the non-minimal destination.*/
     if(s->router_id == cur_chunk->msg.intm_rtr_id)
     {
-        //assert(cur_chunk->msg.my_l_hop <= 6);
         cur_chunk->msg.nonmin_done = 1;
     }
     else if(cur_chunk->msg.nonmin_done == 0)
