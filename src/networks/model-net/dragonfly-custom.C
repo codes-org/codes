@@ -683,6 +683,9 @@ else
       printf("Number of groups not specified. Aborting");
       MPI_Abort(MPI_COMM_CODES, 1);
     }
+    if(p->num_groups % 2 == 0 && DF_DALLY == 1)
+        tw_error(TW_LOC, "\n 1-D dragonfly expects an odd number of groups");
+
     rc = configuration_get_value_int(&config, "PARAMS", "num_col_chans", anno, &p->num_col_chans);
     if(rc) {
 //        printf("\n Number of links connecting chassis not specified, setting to default value 3 ");
@@ -2670,16 +2673,29 @@ static int do_global_adaptive_routing( router_state * s,
   int next_chan = -1;
   // decide which routing to take
   // get the queue occupancy of both the minimal and non-minimal output ports 
- 
-  int dest_grp_id = dest_router_id / s->params->num_routers;
-  int intm_grp_id_a = intm_id_a / s->params->num_routers;
-  int intm_grp_id_b = intm_id_b / s->params->num_routers;
+
+  bool local_min = false;
+  int num_routers = s->params->num_routers;
+  int dest_grp_id = dest_router_id / num_routers;
+  int intm_grp_id_a = intm_id_a / num_routers;
+  int intm_grp_id_b = intm_id_b / num_routers;
   
   assert(intm_grp_id_a >= 0 && intm_grp_id_b >=0);
 
-  int my_grp_id = s->router_id / s->params->num_routers;
+  int my_grp_id = s->router_id / num_routers;
 
-  int num_min_chans = connectionList[my_grp_id][dest_grp_id].size();
+  int num_min_chans;
+  vector<int> direct_intra;
+  if(my_grp_id == dest_grp_id)
+  {
+       local_min = true;
+       direct_intra = get_intra_router(s, s->router_id, dest_router_id, num_routers); 
+       num_min_chans = direct_intra.size();
+  }
+  else
+  {
+      num_min_chans = connectionList[my_grp_id][dest_grp_id].size();
+  }
   int num_nonmin_chans_a = connectionList[my_grp_id][intm_grp_id_a].size();
   int num_nonmin_chans_b = connectionList[my_grp_id][intm_grp_id_b].size();
   int min_chan_a = -1, min_chan_b = -1, nonmin_chan_a = -1, nonmin_chan_b = -1;
@@ -2699,29 +2715,43 @@ static int do_global_adaptive_routing( router_state * s,
   int chana1 = 0;
 
   assert(min_chan_a >= 0);
-  min_rtr_a = connectionList[my_grp_id][dest_grp_id][min_chan_a];
-  noIntraA = false;
-  if(min_rtr_a == s->router_id) {
-    noIntraA = true;
-    min_rtr_a = interGroupLinks[s->router_id][dest_grp_id][chana1].dest;
-  }
-  if(num_min_chans > 1) {
-    assert(min_chan_b >= 0);
-    noIntraB = false;
-    min_rtr_b = connectionList[my_grp_id][dest_grp_id][min_chan_b];
+  if(!local_min)
+  {
+    min_rtr_a = connectionList[my_grp_id][dest_grp_id][min_chan_a];
+    noIntraA = false;
+    if(min_rtr_a == s->router_id) {
+        noIntraA = true;
+        min_rtr_a = interGroupLinks[s->router_id][dest_grp_id][chana1].dest;
+    }
+    if(num_min_chans > 1) {
+        assert(min_chan_b >= 0);
+        noIntraB = false;
+        min_rtr_b = connectionList[my_grp_id][dest_grp_id][min_chan_b];
     
-    if(min_rtr_b == s->router_id) {
-      noIntraB = true;
-      min_rtr_b = interGroupLinks[s->router_id][dest_grp_id][chana1].dest;
+        if(min_rtr_b == s->router_id) {
+            noIntraB = true;
+            min_rtr_b = interGroupLinks[s->router_id][dest_grp_id][chana1].dest;
+        }
+    }
+  
+    if(noIntraA) {
+        dest_rtr_as.push_back(min_rtr_a);
+    } else {
+        dest_rtr_as = get_intra_router(s, s->router_id, min_rtr_a, s->params->num_routers);
     }
   }
-  
-  if(noIntraA) {
-    dest_rtr_as.push_back(min_rtr_a);
-  } else {
-    dest_rtr_as = get_intra_router(s, s->router_id, min_rtr_a, s->params->num_routers);
+  else
+  {
+      noIntraA = true;
+      noIntraB = true;
+
+      assert(direct_intra.size() > 0);
+      min_rtr_a = direct_intra[min_chan_a]; 
+      dest_rtr_as.push_back(min_rtr_a);
+
+      if(num_min_chans > 1)
+          min_rtr_b = direct_intra[min_chan_b];
   }
-  
   int dest_rtr_b_sel;
   int dest_rtr_a_sel = tw_rand_integer(lp->rng, 0, dest_rtr_as.size() - 1);
 
@@ -2747,8 +2777,10 @@ static int do_global_adaptive_routing( router_state * s,
   /* if a direct global channel exists for non-minimal route in the source group then give a priority to that. */
   if(msg->my_l_hop == 1)
   {
-    nonmin_chan_a = find_chan(s->router_id, intm_grp_id_a, s->params->num_routers);
-    nonmin_chan_b = find_chan(s->router_id, intm_grp_id_b, s->params->num_routers);
+    assert(routing == PROG_ADAPTIVE);
+    nonmin_chan_a = find_chan(s->router_id, intm_grp_id_a, num_routers);
+    nonmin_chan_b = find_chan(s->router_id, intm_grp_id_b, num_routers);
+    assert(nonmin_chan_a >= 0 && nonmin_chan_b >= 0);
   }
   /* two possible nonminimal routes */
   int rand_a = tw_rand_integer(lp->rng, 0, num_nonmin_chans_a - 1);
@@ -2756,6 +2788,7 @@ static int do_global_adaptive_routing( router_state * s,
 
   noIntraA = false;
   if(nonmin_chan_a != -1) {
+    /* TODO: For a 2-D dragonfly, this can be more than one link. */
     bf->c25=1;
     noIntraA = true;
     nonmin_rtr_a = interGroupLinks[s->router_id][intm_grp_id_a][0].dest;
@@ -3059,29 +3092,27 @@ router_packet_receive( router_state * s,
 {
   router_verify_valid_receipt(s, bf, msg, lp);
 
-
   router_ecount++;
 
   tw_stime ts;
 
+  int num_routers = s->params->num_routers;
+  int num_groups = s->params->num_groups;
+  int total_routers = s->params->total_routers;
+
   int next_stop = -1, output_port = -1, output_chan = -1, adap_chan = -1;
   int dest_router_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0) / s->params->num_cn;
-  int local_grp_id = s->router_id / s->params->num_routers;
-  int src_grp_id = msg->origin_router_id / s->params->num_routers;
-  int dest_grp_id = dest_router_id / s->params->num_routers;
+  int local_grp_id = s->router_id / num_routers;
+  int src_grp_id = msg->origin_router_id / num_routers;
+  int dest_grp_id = dest_router_id / num_routers;
   int intm_router_id, intm_router_id_b;
   short prev_path_type = 0, next_path_type = 0;
 
   terminal_custom_message_list * cur_chunk = (terminal_custom_message_list*)calloc(1, sizeof(terminal_custom_message_list));
   init_terminal_custom_message_list(cur_chunk, msg);
   
-  if(routing == MINIMAL || 
-     routing == NON_MINIMAL)	
-   cur_chunk->msg.path_type = routing; /*defaults to the routing algorithm if we 
-                                don't have adaptive or progressive adaptive routing here*/
-       
   /* Set the default route as minimal for prog-adaptive */
-  if((routing == PROG_ADAPTIVE || routing == ADAPTIVE) && cur_chunk->msg.last_hop == TERMINAL)
+  if(cur_chunk->msg.last_hop == TERMINAL)
       cur_chunk->msg.path_type = MINIMAL;
 
   /* for prog-adaptive routing, record the current route of packet */
@@ -3093,37 +3124,46 @@ router_packet_receive( router_state * s,
    * intermediate router ID which is in the same group. */
   if(src_grp_id != dest_grp_id)
   {
-      if(cur_chunk->msg.my_l_hop >= 1)
+      if(routing == PROG_ADAPTIVE && cur_chunk->msg.my_l_hop >= 1)
       {
         bf->c3 = 1;
         vector<int> direct_rtrs = get_indirect_conns(s, lp, dest_grp_id);
+        assert(direct_rtrs.size() > 0);
         int indxa = tw_rand_integer(lp->rng, 0, direct_rtrs.size() - 1); 
         intm_router_id = direct_rtrs[indxa];
         int indxb = tw_rand_integer(lp->rng, 0, direct_rtrs.size() - 1); 
         intm_router_id_b = direct_rtrs[indxb];
-//        printf("\n intm-router %d intm-router-b %d src-gid %d src-rtr %d", intm_router_id, intm_router_id_b, src_grp_id, s->router_id);
-        assert(intm_router_id / s->params->num_routers != local_grp_id);
-        assert(intm_router_id_b / s->params->num_routers != local_grp_id);
+        assert(intm_router_id / num_routers != local_grp_id);
+        assert(intm_router_id_b / num_routers != local_grp_id);
       }
       else
       {
           bf->c18 = 1;
-          intm_router_id = tw_rand_integer(lp->rng, 0, s->params->total_routers - 1);
-          intm_router_id_b = tw_rand_integer(lp->rng, 0, s->params->total_routers - 1); 
-        if((intm_router_id/s->params->num_routers) == local_grp_id)
-            intm_router_id = (intm_router_id + s->params->num_routers) % s->params->num_groups; 
+          intm_router_id = tw_rand_integer(lp->rng, 0, total_routers - 1);
+          intm_router_id_b = tw_rand_integer(lp->rng, 0, total_routers - 1); 
+          if((intm_router_id/num_routers) == local_grp_id)
+                intm_router_id = (intm_router_id + num_routers) % total_routers; 
         
-        if((intm_router_id_b/s->params->num_routers) == local_grp_id)
-            intm_router_id_b = (intm_router_id_b + s->params->num_routers) % s->params->num_groups;
+         if((intm_router_id_b/num_routers) == local_grp_id)
+         {
+            intm_router_id_b = (intm_router_id_b + num_routers) % total_routers;
+         }
+         
+         assert(intm_router_id / num_routers != local_grp_id);
+         assert(intm_router_id_b / num_routers != local_grp_id);
       }
   }
   else
   {
      bf->c15 = 1;
-    intm_router_id = (src_grp_id * s->params->num_routers) + 
-                      (((s->router_id % s->params->num_routers) + 
-                       tw_rand_integer(lp->rng, 1, s->params->num_routers - 1)) % s->params->num_routers);
+    intm_router_id = (src_grp_id * num_routers) + 
+                      (((s->router_id % num_routers) + 
+                       tw_rand_integer(lp->rng, 1, num_routers - 1)) % num_routers);
   }
+  
+  if(routing == NON_MINIMAL)
+      cur_chunk->msg.path_type = NON_MINIMAL;
+  
   /* progressive adaptive routing is only triggered when packet has to traverse a
    * global channel. It doesn't make sense to use it within a group */
   if(dest_grp_id != src_grp_id && 
@@ -3131,13 +3171,15 @@ router_packet_receive( router_state * s,
               && routing == ADAPTIVE) 
           || (cur_chunk->msg.path_type == MINIMAL 
               && routing == PROG_ADAPTIVE 
-              && s->group_id == src_grp_id)))
+              && s->router_id == dest_router_id)))
+//            && local_grp_id == src_grp_id)))
   {
        bf->c20 = 1;
        adap_chan = do_global_adaptive_routing(s, lp, &(cur_chunk->msg), bf, dest_router_id, intm_router_id, intm_router_id_b);
   }
   /* If destination router is in the same group then local adaptive routing is
    * triggered */
+
 
   if(cur_chunk->msg.origin_router_id == dest_router_id)
       cur_chunk->msg.path_type = MINIMAL;
@@ -3148,17 +3190,8 @@ router_packet_receive( router_state * s,
           && cur_chunk->msg.last_hop == TERMINAL)
   {
       
-      //if(DF_DALLY == 0)
-      //{
         bf->c6 = 1;
         do_local_adaptive_routing(s, lp, &(cur_chunk->msg), bf, dest_router_id, intm_router_id);
-      //}
-      //else if(DF_DALLY == 1)
-      //{
-      //  cur_chunk->msg.path_type = MINIMAL;
-      //}
-      //else
-      //    tw_error(TW_LOC, "\n topology type not set correctly! ");
   }
 
   next_path_type = cur_chunk->msg.path_type;
