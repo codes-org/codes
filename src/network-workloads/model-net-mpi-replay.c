@@ -2554,8 +2554,6 @@ static void nw_add_lp_type()
 }
 
 /* setup for the ROSS event tracing
- * can have a different function for  rbev_trace_f and ev_trace_f
- * but right now it is set to the same function for both
  */
 void nw_lp_event_collect(nw_message *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
@@ -2580,16 +2578,14 @@ void nw_lp_model_stat_collect(nw_state *s, tw_lp *lp, char *buffer)
 }
 
 st_model_types nw_lp_model_types[] = {
-    {(rbev_trace_f) nw_lp_event_collect,
-     sizeof(int),
-     (ev_trace_f) nw_lp_event_collect,
+    {(ev_trace_f) nw_lp_event_collect,
      sizeof(int),
      (model_stat_f) nw_lp_model_stat_collect,
      0,
      NULL,
      NULL,
      0},
-    {NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0}
+    {NULL, 0, NULL, 0, NULL, NULL, 0}
 };
 
 static const st_model_types  *nw_lp_get_model_stat_types(void)

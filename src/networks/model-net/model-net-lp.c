@@ -122,8 +122,6 @@ tw_lptype model_net_base_lp = {
 };
 
 /* setup for the ROSS event tracing
- * can have a different function for  rbev_trace_f and ev_trace_f
- * but right now it is set to the same function for both
  */
 void mn_event_collect(model_net_wrap_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
@@ -148,10 +146,7 @@ void mn_event_collect(model_net_wrap_msg *m, tw_lp *lp, char *buffer, int *colle
             sub_msg = ((char*)m)+msg_offsets[((model_net_base_state*)lp->cur_state)->net_id];
             if (((model_net_base_state*)lp->cur_state)->sub_model_type)
             {
-                if (g_st_ev_trace == RB_TRACE || g_st_ev_trace == COMMIT_TRACE)
-                    (((model_net_base_state*)lp->cur_state)->sub_model_type->rbev_trace)(sub_msg, lp, buffer, collect_flag);
-                else if (g_st_ev_trace == FULL_TRACE)
-                    (((model_net_base_state*)lp->cur_state)->sub_model_type->ev_trace)(sub_msg, lp, buffer, collect_flag);
+                (((model_net_base_state*)lp->cur_state)->sub_model_type->ev_trace)(sub_msg, lp, buffer, collect_flag);
             }
             break;
         default:  // this shouldn't happen, but can help detect an issue
@@ -183,8 +178,6 @@ void mn_sample_rc_event(model_net_base_state *s, tw_bf * bf, tw_lp * lp, void *s
 st_model_types mn_model_types[MAX_NETS];
 
 st_model_types mn_model_base_type = {
-    (rbev_trace_f) mn_event_collect,
-     sizeof(int),
      (ev_trace_f) mn_event_collect,
      sizeof(int),
      (model_stat_f) mn_model_stat_collect,

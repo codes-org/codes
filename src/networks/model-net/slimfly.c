@@ -307,25 +307,21 @@ static void ross_slimfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, st
 static void ross_slimfly_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_router_sample *sample);
 
 st_model_types slimfly_model_types[] = {
-    {(rbev_trace_f) slimfly_event_collect,
-     sizeof(int),
-     (ev_trace_f) slimfly_event_collect,
+    {(ev_trace_f) slimfly_event_collect,
      sizeof(int),
      (model_stat_f) slimfly_model_stat_collect,
      0, // update this when changing slimfly_model_stat_collect
      (sample_event_f) ross_slimfly_sample_fn,
      (sample_revent_f) ross_slimfly_sample_rc_fn,
      sizeof(struct slimfly_cn_sample) } , 
-    {(rbev_trace_f) slimfly_event_collect,
-     sizeof(int),
-     (ev_trace_f) slimfly_event_collect,
+    {(ev_trace_f) slimfly_event_collect,
      sizeof(int),
      (model_stat_f) slimfly_model_stat_collect,
      0, // update this when changing slimfly_model_stat_collect
      (sample_event_f) ross_slimfly_rsample_fn,
      (sample_revent_f) ross_slimfly_rsample_rc_fn,
      0 } , //updated in slim_router_setup() since it's based on the radix 
-    {NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0}
+    {NULL, 0, NULL, 0, NULL, NULL, 0}
 };
 /* End of ROSS model stats collection */
 

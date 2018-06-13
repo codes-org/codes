@@ -108,8 +108,6 @@ tw_lptype svr_lp = {
 };
 
 /* setup for the ROSS event tracing
- * can have a different function for  rbev_trace_f and ev_trace_f
- * but right now it is set to the same function for both
  */
 void custom_svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
@@ -132,16 +130,14 @@ void custom_svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
 }
 
 st_model_types custom_svr_model_types[] = {
-    {(rbev_trace_f) custom_svr_event_collect,
-     sizeof(int),
-     (ev_trace_f) custom_svr_event_collect,
+    {(ev_trace_f) custom_svr_event_collect,
      sizeof(int),
      (model_stat_f) custom_svr_model_stat_collect,
      0,
      NULL,
      NULL,
      0},
-    {NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0}
+    {NULL, 0, NULL, 0, NULL, NULL, 0}
 };
 
 static const st_model_types  *custom_svr_get_model_stat_types(void)

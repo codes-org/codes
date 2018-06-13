@@ -382,25 +382,21 @@ static void ross_custom_dragonfly_sample_fn(terminal_state * s, tw_bf * bf, tw_l
 static void ross_custom_dragonfly_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample);
 
 st_model_types custom_dragonfly_model_types[] = {
-    {(rbev_trace_f) custom_dragonfly_event_collect,
-     sizeof(int),
-     (ev_trace_f) custom_dragonfly_event_collect,
+    {(ev_trace_f) custom_dragonfly_event_collect,
      sizeof(int),
      (model_stat_f) custom_dragonfly_model_stat_collect,
      sizeof(tw_lpid) + sizeof(long) * 2 + sizeof(double) + sizeof(tw_stime) *2,
      (sample_event_f) ross_custom_dragonfly_sample_fn,
      (sample_revent_f) ross_custom_dragonfly_sample_rc_fn,
      sizeof(struct dfly_cn_sample) } , 
-    {(rbev_trace_f) custom_dragonfly_event_collect,
-     sizeof(int),
-     (ev_trace_f) custom_dragonfly_event_collect,
+    {(ev_trace_f) custom_dragonfly_event_collect,
      sizeof(int),
      (model_stat_f) custom_dfly_router_model_stat_collect,
      0, //updated in router_custom_setup() since it's based on the radix
      (sample_event_f) ross_custom_dragonfly_rsample_fn,
      (sample_revent_f) ross_custom_dragonfly_rsample_rc_fn,
      0 } , //updated in router_custom_setup() since it's based on the radix    
-    {NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0}
+    {NULL, 0, NULL, 0, NULL, NULL, 0}
 };
 /* End of ROSS model stats collection */
 

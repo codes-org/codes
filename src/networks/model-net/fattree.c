@@ -319,25 +319,21 @@ static void ross_fattree_ssample_fn(switch_state * s, tw_bf * bf, tw_lp * lp, st
 static void ross_fattree_ssample_rc_fn(switch_state * s, tw_bf * bf, tw_lp * lp, struct fattree_switch_sample *sample);
 
 st_model_types fattree_model_types[] = {
-    {(rbev_trace_f) fattree_event_collect,
-     sizeof(int),
-     (ev_trace_f) fattree_event_collect,
+    {(ev_trace_f) fattree_event_collect,
      sizeof(int),
      (model_stat_f) fattree_model_stat_collect,
      0, // update when changing fattree_model_stat_collect
      (sample_event_f) ross_fattree_sample_fn,
      (sample_revent_f) ross_fattree_sample_rc_fn,
      sizeof(struct fattree_cn_sample) } , 
-    {(rbev_trace_f) fattree_event_collect,
-     sizeof(int),
-     (ev_trace_f) fattree_event_collect,
+    {(ev_trace_f) fattree_event_collect,
      sizeof(int),
      (model_stat_f) fattree_model_stat_collect,
      0, // update when changing fattree_model_stat_collect
      (sample_event_f) ross_fattree_ssample_fn,
      (sample_revent_f) ross_fattree_ssample_rc_fn,
      0 } , // updated in switch_init() 
-    {NULL, 0, NULL, 0, NULL, 0, NULL, NULL, 0}
+    {NULL, 0, NULL, 0, NULL, NULL, 0}
 };
 /* End of ROSS model stats collection */
 
