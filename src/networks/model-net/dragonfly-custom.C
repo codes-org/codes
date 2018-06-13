@@ -3171,8 +3171,8 @@ router_packet_receive( router_state * s,
               && routing == ADAPTIVE) 
           || (cur_chunk->msg.path_type == MINIMAL 
               && routing == PROG_ADAPTIVE 
-              && s->router_id == dest_router_id)))
-//            && local_grp_id == src_grp_id)))
+//              && s->router_id != dest_router_id)))
+            && local_grp_id == src_grp_id)))
   {
        bf->c20 = 1;
        adap_chan = do_global_adaptive_routing(s, lp, &(cur_chunk->msg), bf, dest_router_id, intm_router_id, intm_router_id_b);
