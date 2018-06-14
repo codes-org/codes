@@ -272,6 +272,7 @@ struct terminal_state
    tw_stime min_latency;
 
    char output_buf[4096];
+   char output_buf2[4096];
    /* For LP suspend functionality */
    int error_ct;
 
@@ -1478,7 +1479,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
 
 
   if(cur_entry->msg.packet_ID == LLU(TRACK_PKT) && lp->gid == T_ID)
-    printf("\n Packet %llu generated at terminal %d dest %llu size %llu num chunks %llu router-id %d %d", 
+    printf("\n Packet %llu generated at terminal %d dest %llu size %llu num chunks %llu router-id %d %llu", 
             cur_entry->msg.packet_ID, s->terminal_id, LLU(cur_entry->msg.dest_terminal_id),
             LLU(cur_entry->msg.packet_size), LLU(num_chunks), s->router_id, router_id);
 
@@ -1701,7 +1702,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
     assert(lp->gid == msg->dest_terminal_id);
 
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
-        printf("\n Packet %d arrived at lp %llu hops %d ", msg->sender_lp, LLU(lp->gid), msg->my_N_hop);
+        printf("\n Packet %llu arrived at lp %llu hops %d ", msg->sender_lp, LLU(lp->gid), msg->my_N_hop);
   
   tw_stime ts = g_tw_lookahead + s->params->credit_delay + tw_rand_unif(lp->rng);
 
@@ -2211,26 +2212,36 @@ dragonfly_custom_terminal_final( terminal_state * s,
       tw_lp * lp )
 {
 	model_net_print_stats(lp->gid, s->dragonfly_stats_array);
+    int written = 0;
   
     if(s->terminal_id == 0)
     {
+        written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <dest_id> < dest_type>  <link_type> <link_traffic> <link_saturation>");
+//        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
+    }
+    written += sprintf(s->output_buf + written, "\n%u %s %llu %s %s %llu %lf",
+            s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time); 
+
+    lp_io_write(lp->gid, (char*)"dragonfly-link-stats", written, s->output_buf); 
+    
+    if(s->terminal_id == 0)
+    {
         char meta_filename[64];
-        sprintf(meta_filename, "dragonfly-msg-stats.meta");
+        sprintf(meta_filename, "dragonfly-cn-stats.meta");
 
         FILE * fp = fopen(meta_filename, "w+");
-        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
+        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
     }
-    int written = 0;
+   
+    written = 0;
+    written += sprintf(s->output_buf2 + written, "%llu %llu %lf %lf %lf %lf %llu %lf\n", 
+            lp->gid, s->terminal_id, s->total_time/s->finished_chunks, 
+            s->busy_time, s->max_latency, s->min_latency,
+            s->finished_packets, (double)s->total_hops/s->finished_chunks);
 
-    written += sprintf(s->output_buf + written, "%llu %u %llu %lf %ld %lf %lf %lf %lf\n",
-            LLU(lp->gid), s->terminal_id, LLU(s->total_msg_size), s->total_time/s->finished_chunks, 
-            s->finished_packets, (double)s->total_hops/s->finished_chunks,
-            s->busy_time, s->max_latency, s->min_latency);
-
-    lp_io_write(lp->gid, (char*)"dragonfly-msg-stats", written, s->output_buf); 
-    
     if(s->terminal_msgs[0] != NULL) 
       printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
+    lp_io_write(lp->gid, (char*)"dragonfly-cn-stats", written, s->output_buf2); 
 
 
     //if(s->packet_gen != s->packet_fin)
@@ -2266,24 +2277,46 @@ void dragonfly_custom_router_final(router_state * s,
     
     const dragonfly_param *p = s->params;
     int written = 0;
-    if(!s->router_id)
+    int src_rel_id = s->router_id % p->num_routers;
+    int local_grp_id = s->router_id / p->num_routers;
+    for(int d = 0; d < p->intra_grp_radix; d++) 
     {
-        written = sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
-        written += sprintf(s->output_buf + written, "# Router ports in the order: %d green links, %d black links %d global channels \n", 
-                p->num_router_cols * p->num_row_chans, p->num_router_rows * p->num_col_chans, p->num_global_channels);
+        if(d != src_rel_id)
+        {
+            int dest_ab_id = local_grp_id * p->num_routers + d;
+            written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf", 
+                s->router_id,
+                "R",
+                dest_ab_id,
+                "R",
+                "L",
+                s->link_traffic[d],
+                s->busy_time[d]);
+        }
     }
-    written += sprintf(s->output_buf + written, "\n %llu %d %d", 
-            LLU(lp->gid),
-            s->router_id / p->num_routers,
-            s->router_id % p->num_routers);
-    for(int d = 0; d < p->radix; d++) 
-        written += sprintf(s->output_buf + written, " %lf", s->busy_time[d]);
 
+        map< int, vector<bLink> >  &curMap = interGroupLinks[s->router_id];
+        map< int, vector<bLink> >::iterator it = curMap.begin();
+        for(; it != curMap.end(); it++)
+        {
+            int grp_id = it->first;
+            int dest_rtr_id = interGroupLinks[s->router_id][grp_id][0].dest;
+            /* TODO: Works only for 1-D dragonfly right now. Make it functional
+             * for a 2-D dragonfly. */
+            int offset = interGroupLinks[s->router_id][grp_id][0].offset;
+            written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf", 
+                s->router_id,
+                "R",
+                dest_rtr_id,
+                "R",
+                "G",
+                s->link_traffic[offset],
+                s->busy_time[offset]);
+        }
     sprintf(s->output_buf + written, "\n");
-    lp_io_write(lp->gid, (char*)"dragonfly-router-stats", written, s->output_buf);
+    lp_io_write(lp->gid, (char*)"dragonfly-link-stats", written, s->output_buf);
 
-    written = 0;
-    if(!s->router_id)
+    /*if(!s->router_id)
     {
         written = sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Link Traffic per router port(s)>");
         written += sprintf(s->output_buf + written, "# Router ports in the order: %d green links, %d black links %d global channels \n", 
@@ -2298,7 +2331,7 @@ void dragonfly_custom_router_final(router_state * s,
         written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
 
     lp_io_write(lp->gid, (char*)"dragonfly-router-traffic", written, s->output_buf2);
-    
+    */
     if (!g_tw_mynode) {
         if (s->router_id == 0) {
             if (PRINT_CONFIG) 
