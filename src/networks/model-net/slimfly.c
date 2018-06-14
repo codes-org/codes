@@ -902,8 +902,8 @@ void slim_router_setup(router_state * r, tw_lp * lp)
     r->busy_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
 
     // ROSS Instrumentation
-    if (g_st_use_analysis_lps)
-       lp->model_types->sample_struct_sz = sizeof(struct slimfly_router_sample) + sizeof(int) * p->radix;
+    if (g_st_use_analysis_lps && g_st_model_stats)
+        lp->model_types->sample_struct_sz = sizeof(struct slimfly_router_sample) + sizeof(int) * p->radix;
 
     rc_stack_create(&r->st);
 

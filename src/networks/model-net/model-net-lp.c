@@ -146,7 +146,8 @@ void mn_event_collect(model_net_wrap_msg *m, tw_lp *lp, char *buffer, int *colle
             sub_msg = ((char*)m)+msg_offsets[((model_net_base_state*)lp->cur_state)->net_id];
             if (((model_net_base_state*)lp->cur_state)->sub_model_type)
             {
-                (((model_net_base_state*)lp->cur_state)->sub_model_type->ev_trace)(sub_msg, lp, buffer, collect_flag);
+                if (g_st_ev_trace)
+                    (((model_net_base_state*)lp->cur_state)->sub_model_type->ev_trace)(sub_msg, lp, buffer, collect_flag);
             }
             break;
         default:  // this shouldn't happen, but can help detect an issue

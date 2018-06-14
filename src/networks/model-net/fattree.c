@@ -1172,7 +1172,7 @@ void switch_init(switch_state * r, tw_lp * lp)
   r->busy_time_sample = (tw_stime*)malloc(r->radix * sizeof(tw_stime));
 
   // ROSS Instrumentation
-  if (g_st_use_analysis_lps)
+  if (g_st_use_analysis_lps && g_st_model_stats)
     lp->model_types->sample_struct_sz = sizeof(struct fattree_switch_sample) + sizeof(int) * r->radix;
 
   rc_stack_create(&r->st);
