@@ -145,5 +145,3 @@ If you're using any of the following CODES models, you don't have to add anythin
 - fat tree switch and terminal LPs (fat-tree.c)
 - model-net-base-lp (model-net-lp.c)
  
-The fat-tree terminal and switch LPs (fattree.c) are only partially implemented at the moment.  It needs two `model_net_method` structs to fully implement, 
-but currently both terminal and switch LPs use the same `fattree_method` struct.
