@@ -3257,12 +3257,12 @@ router_packet_receive( router_state * s,
     }
    }
   else {
-    if(cur_chunk->msg.my_g_hop == 1) {
+    /*if(cur_chunk->msg.my_g_hop == 1) {
         if(cur_chunk->msg.my_l_hop < 1){
             cur_chunk->msg.my_l_hop = 1;
         }
     }
-    else if (cur_chunk->msg.my_g_hop == 2) {
+    else*/ if (cur_chunk->msg.my_g_hop == 2) {
       if(cur_chunk->msg.my_l_hop < 2)
         cur_chunk->msg.my_l_hop = 2;
     }
