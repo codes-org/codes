@@ -683,9 +683,6 @@ else
       printf("Number of groups not specified. Aborting");
       MPI_Abort(MPI_COMM_CODES, 1);
     }
-    if(p->num_groups % 2 == 0 && DF_DALLY == 1)
-        tw_error(TW_LOC, "\n 1-D dragonfly expects an odd number of groups");
-
     rc = configuration_get_value_int(&config, "PARAMS", "num_col_chans", anno, &p->num_col_chans);
     if(rc) {
 //        printf("\n Number of links connecting chassis not specified, setting to default value 3 ");
