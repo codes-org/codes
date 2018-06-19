@@ -5,7 +5,7 @@ n is the number of input bgp-log files */
 #include <sys/stat.h>
 #include <mpi.h>
 #include <assert.h>
-#define RADIX 16
+#define RADIX 8
 
 struct dfly_samples
 {
