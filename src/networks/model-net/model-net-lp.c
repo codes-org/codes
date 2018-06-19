@@ -252,6 +252,24 @@ static void base_read_config(const char * anno, model_net_base_params *p){
             &packet_size_l);
     packet_size = packet_size_l;
 
+    if (ret > 0){
+        int i;
+        for (i = 0; i < MAX_SCHEDS; i++){
+            if (strcmp(sched_names[i], sched) == 0){
+                p->sched_params.type = i;
+                break;
+            }
+        }
+        if (i == MAX_SCHEDS){
+            tw_error(TW_LOC,"Unknown value for PARAMS:modelnet-scheduler : "
+                    "%s", sched);
+        }
+    }
+    else{
+        // default: FCFS
+        p->sched_params.type = MN_SCHED_FCFS;
+    }
+
     p->num_queues = 1;
     ret = configuration_get_value_int(&config, "PARAMS", "num_injection_queues", anno,
             &p->num_queues);
@@ -276,24 +294,6 @@ static void base_read_config(const char * anno, model_net_base_params *p){
                 "setting to %d\n", p->node_copy_queues);
     }
 
-    if (ret > 0){
-        int i;
-        for (i = 0; i < MAX_SCHEDS; i++){
-            if (strcmp(sched_names[i], sched) == 0){
-                p->sched_params.type = i;
-                break;
-            }
-        }
-        if (i == MAX_SCHEDS){
-            tw_error(TW_LOC,"Unknown value for PARAMS:modelnet-scheduler : "
-                    "%s", sched);
-        }
-    }
-    else{
-        // default: FCFS
-        p->sched_params.type = MN_SCHED_FCFS;
-    }
-
     // get scheduler-specific parameters
     if (p->sched_params.type == MN_SCHED_PRIO){
         // prio scheduler uses default parameters
@@ -307,7 +307,7 @@ static void base_read_config(const char * anno, model_net_base_params *p){
 
         ret = configuration_get_value(&config, "PARAMS",
                 "prio-sched-sub-sched", anno, sched, MAX_NAME_LENGTH);
-        if (ret == 0)
+        if (ret <= 0)
             *sub_stype = MN_SCHED_FCFS;
         else{
             int i;
