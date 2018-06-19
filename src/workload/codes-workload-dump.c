@@ -27,7 +27,6 @@ static struct option long_opts[] =
     {"num-ranks", required_argument, NULL, 'n'},
     {"start-rank", required_argument, NULL, 'r'},
     {"d-log", required_argument, NULL, 'l'},
-    {"d-aggregator-cnt", required_argument, NULL, 'a'},
     {"i-meta", required_argument, NULL, 'm'},
     {"i-use-relpath", no_argument, NULL, 'p'},
     {"r-trace-dir", required_argument, NULL, 'd'},
@@ -53,7 +52,6 @@ void usage(){
             "-s: print final workload stats\n"
             "DARSHAN OPTIONS (darshan_io_workload)\n"
             "--d-log: darshan log file\n"
-            "--d-aggregator-cnt: number of aggregators for collective I/O in darshan\n"
             "IOLANG OPTIONS (iolang_workload)\n"
             "--i-meta: i/o language kernel meta file path\n"
             "--i-use-relpath: use i/o kernel path relative meta file path\n"
@@ -133,9 +131,6 @@ int main(int argc, char *argv[])
             case 'l':
                 strcpy(d_params.log_file_path, optarg);
                 break;
-            case 'a':
-                d_params.aggregator_cnt = atol(optarg);
-                break;
             case 'm':
                 strcpy(i_params.io_kernel_meta_path, optarg);
                 break;
@@ -203,11 +198,6 @@ int main(int argc, char *argv[])
     else if (strcmp(type, "darshan_io_workload") == 0){
         if (d_params.log_file_path[0] == '\0'){
             fprintf(stderr, "Expected \"--d-log\" argument for darshan workload\n");
-            usage();
-            return 1;
-        }
-        else if (d_params.aggregator_cnt == 0){
-            fprintf(stderr, "Expected \"--d-aggregator-cnt\" argument for darshan workload\n");
             usage();
             return 1;
         }
@@ -294,6 +284,7 @@ int main(int argc, char *argv[])
 
     /* if num_ranks not set, pull it from the workload */
     if (n == -1){
+    	//printf("Getting rank count\n");
         n = codes_workload_get_rank_cnt(type, wparams, 0);
         if (n == -1) {
             fprintf(stderr,
@@ -301,12 +292,17 @@ int main(int argc, char *argv[])
                     "Specify option --num-ranks\n");
             return 1;
         }
+        printf("rank count = %d\n", n);
     }
 
     for (i = start_rank ; i < start_rank+n; i++){
         struct codes_workload_op op;
-        printf("loading %s, %d\n", type, i);
+        //printf("loading %s, %d\n", type, i);
         int id = codes_workload_load(type, wparams, 0, i);
+        double total_read_time = 0.0, total_write_time = 0.0;
+        int64_t total_read_bytes = 0, total_written_bytes = 0;
+        codes_workload_get_time(type, wparams, 0, i, &total_read_time, &total_write_time, &total_read_bytes, &total_written_bytes);
+        printf("total_read_time = %f, total_write_time = %f\n", total_read_time, total_write_time);
         assert(id != -1);
         do {
             codes_workload_get_next(id, 0, i, &op);
@@ -321,16 +317,23 @@ int main(int argc, char *argv[])
                     num_barriers++;
                     break;
                 case CODES_WK_OPEN:
+                case CODES_WK_MPI_OPEN:
+                case CODES_WK_MPI_COLL_OPEN:
                     num_opens++;
                     break;
                 case CODES_WK_CLOSE:
+                case CODES_WK_MPI_CLOSE:
                     num_closes++;
                     break;
                 case CODES_WK_WRITE:
+                case CODES_WK_MPI_WRITE:
+                case CODES_WK_MPI_COLL_WRITE:
                     num_writes++;
                     write_size += op.u.write.size;
                     break;
                 case CODES_WK_READ:
+                case CODES_WK_MPI_READ:
+                case CODES_WK_MPI_COLL_READ:
                     num_reads++;
                     read_size += op.u.write.size;
                     break;
@@ -392,11 +395,11 @@ int main(int argc, char *argv[])
                     {
                         if(i == 0)
                         {
-                    int j;
-                    printf("\n rank %d wait_all: ", i);
-                    for(j = 0; j < op.u.waits.count; j++)
-                        printf(" %d ", op.u.waits.req_ids[j]);
-                    num_waitalls++;
+							int j;
+							printf("\n rank %d wait_all: ", i);
+							for(j = 0; j < op.u.waits.count; j++)
+								printf(" %d ", op.u.waits.req_ids[j]);
+							num_waitalls++;
                         }
                     }
                     break;

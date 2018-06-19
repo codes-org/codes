@@ -47,7 +47,7 @@ endif
 
 if USE_DARSHAN
 AM_CPPFLAGS += ${DARSHAN_CFLAGS} -DUSE_DARSHAN=1
-src_libcodes_la_SOURCES += src/workload/methods/codes-darshan-io-wrkld.c
+src_libcodes_la_SOURCES += src/workload/methods/codes-darshan3-io-wrkld.c
 LDADD += ${DARSHAN_LIBS}
 TESTS += tests/workload/darshan-dump.sh
 endif
