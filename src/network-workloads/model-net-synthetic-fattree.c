@@ -231,6 +231,7 @@ static void issue_event(
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
+    memset(m, 0, sizeof(svr_msg));
     m->svr_event_type = KICKOFF;
     tw_event_send(e);
 }
@@ -269,8 +270,8 @@ static void handle_kickoff_event(
     char anno[MAX_NAME_LENGTH];
     tw_lpid local_dest = -1, global_dest = -1;
    
-    svr_msg * m_local = malloc(sizeof(svr_msg));
-    svr_msg * m_remote = malloc(sizeof(svr_msg));
+    svr_msg * m_local = calloc(1, sizeof(svr_msg));
+    svr_msg * m_remote = calloc(1, sizeof(svr_msg));
 
     m_local->svr_event_type = LOCAL;
     m_local->src = lp->gid;

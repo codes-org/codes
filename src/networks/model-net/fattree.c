@@ -1541,6 +1541,7 @@ static tw_stime fattree_packet_event(
   xfer_to_nic_time = codes_local_latency(sender);
   e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time + offset,
       sender, FATTREE, (void**)&msg, (void**)&tmp_ptr);
+  memset(msg, 0, sizeof(fattree_message));
   strcpy(msg->category, req->category);
   msg->final_dest_gid = req->final_dest_lp;
   msg->total_size = req->msg_size;
@@ -1677,7 +1678,7 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
     init_fattree_message_list(cur_chunk, msg);
 
     if(msg->remote_event_size_bytes + msg->local_event_size_bytes > 0) {
-      cur_chunk->event_data = (char*)malloc(
+      cur_chunk->event_data = (char*)calloc(1,
         msg->remote_event_size_bytes + msg->local_event_size_bytes);
     }
 
@@ -1713,6 +1714,7 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
     ts = codes_local_latency(lp);
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, FATTREE,
       (void**)&m, NULL);
+    memset(m, 0, sizeof(fattree_message));
     m->type = T_SEND;
     m->vc_index = target_queue;
     m->magic = fattree_terminal_magic_num;
@@ -1822,6 +1824,7 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
 
   e = tw_event_new(s->switch_lp[msg->vc_index], ts, lp);
   m = tw_event_data(e);
+  memset(m, 0, sizeof(fattree_message));
   memcpy(m, &cur_entry->msg, sizeof(fattree_message));
   if (m->remote_event_size_bytes){
     memcpy(model_net_method_get_edata(FATTREE, m), cur_entry->event_data,
@@ -1847,6 +1850,7 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     double tsT = codes_local_latency(lp);
     tw_event *e_new = tw_event_new(cur_entry->msg.sender_lp, tsT, lp);
     fattree_message *m_new = tw_event_data(e_new);
+    memset(m_new, 0, sizeof(fattree_message));
     void *local_event = (char*)cur_entry->event_data +
                 cur_entry->msg.remote_event_size_bytes;
     memcpy(m_new, local_event, cur_entry->msg.local_event_size_bytes);
@@ -1871,6 +1875,7 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     ts = ts + g_tw_lookahead * tw_rand_unif(lp->rng);
     e = model_net_method_event_new(lp->gid, ts, lp, FATTREE,
       (void**)&m_new, NULL);
+    memset(m_new, 0, sizeof(fattree_message));
     m_new->type = T_SEND;
     m_new->vc_index = msg->vc_index;
     m_new->magic = fattree_terminal_magic_num;
@@ -1955,7 +1960,7 @@ void switch_packet_receive( switch_state * s, tw_bf * bf,
   {
        void *m_data_src = model_net_method_get_edata(FATTREE, msg);
 
-       cur_chunk->event_data = (char*)malloc(msg->remote_event_size_bytes);
+       cur_chunk->event_data = (char*)calloc(1, msg->remote_event_size_bytes);
        memcpy(cur_chunk->event_data, m_data_src,
         msg->remote_event_size_bytes);
   }
@@ -1976,6 +1981,7 @@ void switch_packet_receive( switch_state * s, tw_bf * bf,
       ts = codes_local_latency(lp);
       tw_event *e = tw_event_new(lp->gid, ts, lp);
       m = tw_event_data(e);
+      memset(m, 0, sizeof(fattree_message));
       m->type = S_SEND;
       m->magic = switch_magic_num;
       m->vc_index = output_port;
@@ -2095,9 +2101,11 @@ void switch_packet_send( switch_state * s, tw_bf * bf, fattree_message * msg,
   if (to_terminal) {
     e = model_net_method_event_new(next_stop, ts, lp,
         FATTREE, (void**)&m, &m_data);
+    memset(m, 0, sizeof(fattree_message));
   } else {
       e = tw_event_new(next_stop, ts, lp);
       m = tw_event_data(e);
+      memset(m, 0, sizeof(fattree_message));
       m_data = model_net_method_get_edata(FATTREE, m);
   }
 
@@ -2146,6 +2154,7 @@ void switch_packet_send( switch_state * s, tw_bf * bf, fattree_message * msg,
     ts = ts + g_tw_lookahead * tw_rand_unif(lp->rng);
     e = tw_event_new(lp->gid, ts, lp);
     m_new = tw_event_data(e);
+    memset(m_new, 0, sizeof(fattree_message));
     m_new->type = S_SEND;
     m_new->magic = switch_magic_num;
     m_new->vc_index = output_port;
@@ -2194,10 +2203,12 @@ void switch_credit_send(switch_state * s, tw_bf * bf, fattree_message * msg,
   if (is_terminal) {
     buf_e = model_net_method_event_new(dest, ts, lp, FATTREE,
       (void**)&buf_msg, NULL);
+    memset(buf_msg, 0, sizeof(fattree_message));
 	buf_msg->magic = fattree_terminal_magic_num;
   } else {
     buf_e = tw_event_new(dest, ts , lp);
     buf_msg = tw_event_data(buf_e);
+    memset(buf_msg, 0, sizeof(fattree_message));
     buf_msg->magic = switch_magic_num;
   }
 
@@ -2258,6 +2269,7 @@ void ft_terminal_buf_update(ft_terminal_state * s, tw_bf * bf,
     bf->c1 = 1;
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, FATTREE,
         (void**)&m, NULL);
+    memset(m, 0, sizeof(fattree_message));
     m->type = T_SEND;
     m->vc_index = msg->vc_index;
     m->magic = fattree_terminal_magic_num;
@@ -2340,6 +2352,7 @@ void switch_buf_update(switch_state * s, tw_bf * bf, fattree_message * msg,
     tw_stime ts = codes_local_latency(lp);
     tw_event *e = tw_event_new(lp->gid, ts, lp);
     m = tw_event_data(e);
+    memset(m, 0, sizeof(fattree_message));
     m->type = S_SEND;
     m->vc_index = indx;
     m->magic = switch_magic_num;
@@ -2375,6 +2388,7 @@ void ft_send_remote_event(ft_terminal_state * s, fattree_message * msg, tw_lp * 
         else{
             tw_event * e = tw_event_new(msg->final_dest_gid, ts, lp);
             void * m_remote = tw_event_data(e);
+            memset(m_remote, 0, sizeof(fattree_message));
             memcpy(m_remote, event_data, remote_event_size);
             tw_event_send(e);
         }
@@ -2500,6 +2514,7 @@ void ft_packet_arrive(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   // no method_event here - message going to switch
   buf_e = tw_event_new(s->switch_lp[msg->rail_id], ts, lp);
   buf_msg = tw_event_data(buf_e);
+  memset(buf_msg, 0, sizeof(fattree_message));
   buf_msg->magic = switch_magic_num;
   buf_msg->vc_index = msg->vc_index;
   buf_msg->type = S_BUFFER;
@@ -2615,7 +2630,7 @@ void ft_packet_arrive(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     if(msg->remote_event_size_bytes > 0 && !tmp->remote_event_data)
     {
         /* Retreive the remote event entry */
-         tmp->remote_event_data = (void*)malloc(msg->remote_event_size_bytes);
+         tmp->remote_event_data = (void*)calloc(1, msg->remote_event_size_bytes);
          assert(tmp->remote_event_data);
          tmp->remote_event_size = msg->remote_event_size_bytes;
          memcpy(tmp->remote_event_data, m_data_src, msg->remote_event_size_bytes);

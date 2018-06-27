@@ -1126,6 +1126,7 @@ static tw_stime slimfly_packet_event(
     //msg = tw_event_data(e_new);
     e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
             sender, SLIMFLY, (void**)&msg, (void**)&tmp_ptr);
+    memset(msg, 0, sizeof(slim_terminal_message));
     strcpy(msg->category, req->category);
     msg->final_dest_gid = req->final_dest_lp;
     msg->total_size = req->msg_size;
@@ -1206,10 +1207,12 @@ void slim_router_credit_send(router_state * s, slim_terminal_message * msg, tw_l
     if (is_terminal) {
         buf_e = model_net_method_event_new(dest, ts, lp, SLIMFLY,
                 (void**)&buf_msg, NULL);
+        memset(buf_msg, 0, sizeof(slim_terminal_message));
         buf_msg->magic = slim_terminal_magic_num;
     } else {
         buf_e = tw_event_new(dest, ts , lp);
         buf_msg = tw_event_data(buf_e);
+        memset(buf_msg, 0, sizeof(slim_terminal_message));
         buf_msg->magic = slim_router_magic_num;
     }
 
@@ -1348,6 +1351,7 @@ void slim_packet_generate(terminal_state * s, tw_bf * bf, slim_terminal_message 
         slim_terminal_message *m;
         tw_event* e = model_net_method_event_new(lp->gid, ts, lp, SLIMFLY,
                 (void**)&m, NULL);
+        memset(m, 0, sizeof(slim_terminal_message));
         m->type = T_SEND;
         m->magic = slim_terminal_magic_num;
         s->in_send_loop = 1;
@@ -1464,6 +1468,7 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
     // we are sending an event to the router, so no method_event here
     e = tw_event_new(router_id, ts, lp);
     m = tw_event_data(e);
+    memset(m, 0, sizeof(slim_terminal_message));
     memcpy(m, &cur_entry->msg, sizeof(slim_terminal_message));
     if (m->remote_event_size_bytes)
     {
@@ -1507,6 +1512,7 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
         tw_stime local_ts = codes_local_latency(lp);
         tw_event *e_new = tw_event_new(cur_entry->msg.sender_lp, local_ts, lp);
         slim_terminal_message* m_new = tw_event_data(e_new);
+        memset(m_new, 0, sizeof(slim_terminal_message));
         void *local_event = (char*)cur_entry->event_data +
             cur_entry->msg.remote_event_size_bytes;
         memcpy(m_new, local_event, cur_entry->msg.local_event_size_bytes);
@@ -1530,6 +1536,7 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
         ts += tw_rand_unif(lp->rng);
         tw_event* e_new = model_net_method_event_new(lp->gid, ts, lp, SLIMFLY,
                 (void**)&m_new, NULL);
+        memset(m_new, 0, sizeof(slim_terminal_message));
         m_new->type = T_SEND;
         m_new->magic = slim_terminal_magic_num;
         tw_event_send(e_new);
@@ -1655,6 +1662,7 @@ void slim_send_remote_event(terminal_state * s, slim_terminal_message * msg, tw_
     else{
         tw_event * e = tw_event_new(msg->final_dest_gid, ts, lp);
         void * m_remote = tw_event_data(e);
+        memset(m_remote, 0, sizeof(slim_terminal_message));
         memcpy(m_remote, event_data, remote_event_size);
         tw_event_send(e);
     }
@@ -1674,6 +1682,7 @@ void slim_packet_arrive(terminal_state * s, tw_bf * bf, slim_terminal_message * 
     slim_terminal_message * buf_msg;
     buf_e = tw_event_new(msg->intm_lp_id, ts, lp);
     buf_msg = tw_event_data(buf_e);
+    memset(buf_msg, 0, sizeof(slim_terminal_message));
     buf_msg->magic = slim_router_magic_num;
     buf_msg->vc_index = msg->vc_index;
     buf_msg->output_chan = msg->output_chan;
@@ -1855,6 +1864,7 @@ void slim_terminal_buf_update(terminal_state * s,
         slim_terminal_message *m;
         bf->c1 = 1;
         tw_event* e = model_net_method_event_new(lp->gid, ts, lp, SLIMFLY, (void**)&m, NULL);
+        memset(m, 0, sizeof(slim_terminal_message));
         m->type = T_SEND;
         m->magic = slim_terminal_magic_num;
         s->in_send_loop = 1;
@@ -2987,6 +2997,7 @@ slim_router_packet_receive( router_state * s,
             ts = codes_local_latency(lp);
             tw_event *e = tw_event_new(lp->gid, ts, lp);
             m = tw_event_data(e);
+            memset(m, 0, sizeof(slim_terminal_message));
             m->type = R_SEND;
             m->magic = slim_router_magic_num;
             m->vc_index = output_port;
@@ -3146,12 +3157,14 @@ slim_router_packet_send( router_state * s,
         e = model_net_method_event_new(cur_entry->msg.next_stop,
                 s->next_output_available_time[output_port] - tw_now(lp), lp,
                 SLIMFLY, (void**)&m, &m_data);
+        memset(m, 0, sizeof(slim_terminal_message));
     }
     else
     {
         e = tw_event_new(cur_entry->msg.next_stop,
                 s->next_output_available_time[output_port] - tw_now(lp), lp);
         m = tw_event_data(e);
+        memset(m, 0, sizeof(slim_terminal_message));
         m_data = model_net_method_get_edata(SLIMFLY, m);
     }
     memcpy(m, &cur_entry->msg, sizeof(slim_terminal_message));
@@ -3212,6 +3225,7 @@ slim_router_packet_send( router_state * s,
         ts = ts + g_tw_lookahead * tw_rand_unif(lp->rng);
         tw_event *e_new = tw_event_new(lp->gid, ts, lp);
         m_new = tw_event_data(e_new);
+        memset(m_new, 0, sizeof(slim_terminal_message));
         m_new->type = R_SEND;
         m_new->magic = slim_router_magic_num;
         m_new->vc_index = output_port;
@@ -3302,6 +3316,7 @@ void slim_router_buf_update(router_state * s, tw_bf * bf, slim_terminal_message 
         tw_stime ts = codes_local_latency(lp);
         tw_event *e = tw_event_new(lp->gid, ts, lp);
         m = tw_event_data(e);
+        memset(m, 0, sizeof(slim_terminal_message));
         m->type = R_SEND;
         m->vc_index = indx;
         m->magic = slim_router_magic_num;

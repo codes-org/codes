@@ -277,6 +277,7 @@ static void issue_event(
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
+    memset(m, 0, sizeof(svr_msg));
     m->svr_event_type = KICKOFF;
     tw_event_send(e);
 }

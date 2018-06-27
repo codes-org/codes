@@ -512,6 +512,7 @@ static tw_stime torus_packet_event(
     //msg = tw_event_data(e_new);
     e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
             sender, TORUS, (void**)&msg, (void**)&tmp_ptr);
+    memset(msg, 0, sizeof(nodes_message));
     strcpy(msg->category, req->category);
     msg->final_dest_gid = req->final_dest_lp;
     msg->dest_lp = req->dest_mn_lp;
@@ -559,6 +560,7 @@ static void credit_send( nodes_state * s,
     ts = (1.1 * g_tw_lookahead) + s->params->credit_delay + tw_rand_unif(lp->rng);
     e = model_net_method_event_new(msg->sender_node, ts, lp, TORUS,
         (void**)&m, NULL);
+    memset(m, 0, sizeof(nodes_message));
     if(sq == -1) {
         m->source_direction = msg->source_direction;
         m->source_dim = msg->source_dim;
@@ -770,6 +772,7 @@ void torus_collective(char const * category, int message_size, int remote_event_
     xfer_to_nic_time = g_tw_lookahead + codes_local_latency(sender);
     e_new = model_net_method_event_new(local_nic_id, xfer_to_nic_time,
             sender, TORUS, (void**)&msg, (void**)&tmp_ptr);
+    memset(msg, 0, sizeof(nodes_message));
 
     msg->remote_event_size_bytes = message_size;
     strcpy(msg->category, category);
@@ -850,6 +853,7 @@ static void node_collective_init(nodes_state * s,
 	    void* m_data;
 	    e_new = model_net_method_event_new(parent_nic_id, xfer_to_nic_time,
             	lp, TORUS, (void**)&msg_new, (void**)&m_data);
+            memset(msg_new, 0, sizeof(nodes_message));
 
             memcpy(msg_new, msg, sizeof(nodes_message));
 	    if (msg->remote_event_size_bytes){
@@ -907,6 +911,7 @@ static void node_collective_fan_in(nodes_state * s,
       	    e_new = model_net_method_event_new(parent_nic_id,
               xfer_to_nic_time,
               lp, TORUS, (void**)&msg_new, &m_data);
+            memset(msg_new, 0, sizeof(nodes_message));
 
             memcpy(msg_new, msg, sizeof(nodes_message));
             msg_new->type = T_COLLECTIVE_FAN_IN;
@@ -944,6 +949,7 @@ static void node_collective_fan_in(nodes_state * s,
 	        e_new = model_net_method_event_new(child_nic_id,
                 xfer_to_nic_time,
 		lp, TORUS, (void**)&msg_new, &m_data);
+                memset(msg_new, 0, sizeof(nodes_message));
 
 		memcpy(msg_new, msg, sizeof(nodes_message));
 	        if (msg->remote_event_size_bytes){
@@ -999,6 +1005,7 @@ static void node_collective_fan_out(nodes_state * s,
 			e_new = model_net_method_event_new(child_nic_id,
 							xfer_to_nic_time,
 					                lp, TORUS, (void**)&msg_new, &m_data);
+                        memset(msg_new, 0, sizeof(nodes_message));
 		        memcpy(msg_new, msg, sizeof(nodes_message));
 		        if (msg->remote_event_size_bytes){
 			        memcpy(m_data, model_net_method_get_edata(TORUS, msg),
@@ -1140,6 +1147,7 @@ static void packet_generate( nodes_state * ns,
        bf->c8 = 1;
        ts = codes_local_latency(lp) + ns->params->cn_delay * msg->packet_size;
        e = model_net_method_event_new(lp->gid, ts, lp, TORUS, (void**)&m, NULL);
+       memset(m, 0, sizeof(nodes_message));
        m->type = SEND;
        m->source_direction = tmp_dir;
        m->source_dim = tmp_dim;
@@ -1337,6 +1345,7 @@ static void packet_send( nodes_state * s,
     ts = s->next_link_available_time[queue][0] - tw_now(lp);
     e = model_net_method_event_new(cur_entry->msg.next_stop, ts,
             lp, TORUS, (void**)&m, &m_data);
+    memset(m, 0, sizeof(nodes_message));
     memcpy(m, &cur_entry->msg, sizeof(nodes_message));
     if (m->remote_event_size_bytes){
         memcpy(m_data, cur_entry->event_data, m->remote_event_size_bytes);
@@ -1410,6 +1419,7 @@ static void packet_send( nodes_state * s,
         bf->c9 = 1;
         ts = ts + codes_local_latency(lp);
         e = model_net_method_event_new(lp->gid, ts, lp, TORUS, (void**)&m, NULL);
+        memset(m, 0, sizeof(nodes_message));
         m->type = SEND;
         m->source_direction = msg->source_direction;
         m->source_dim = msg->source_dim;
@@ -1684,6 +1694,7 @@ static void packet_arrive( nodes_state * s,
             ts = codes_local_latency(lp);
             e = model_net_method_event_new(lp->gid, ts, lp, TORUS, (void**)&m,
                 NULL);
+            memset(m, 0, sizeof(nodes_message));
             m->type = SEND;
             m->source_direction = tmp_dir;
             m->source_dim = tmp_dim;
@@ -1875,6 +1886,7 @@ static void packet_buffer_process( nodes_state * ns, tw_bf * bf, nodes_message *
         nodes_message *m;
         tw_event *e = model_net_method_event_new(lp->gid, ts, lp, TORUS,
             (void**)&m, NULL);
+        memset(m, 0, sizeof(nodes_message));
         m->type = SEND;
         m->source_direction = msg->source_direction;
         m->source_dim = msg->source_dim;

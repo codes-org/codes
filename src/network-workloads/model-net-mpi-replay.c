@@ -486,6 +486,7 @@ static void notify_background_traffic(
                 struct nw_message * m_new;  
                 e = tw_event_new(global_dest_id, ts, lp);
                 m_new = (struct nw_message*)tw_event_data(e);
+                memset(m_new, 0, sizeof(nw_message));
                 m_new->msg_type = CLI_BCKGND_FIN;
                 tw_event_send(e);   
             }
@@ -545,6 +546,7 @@ static void notify_neighbor(
         struct nw_message * m_new;  
         e = tw_event_new(global_dest_id, ts, lp);
         m_new = (struct nw_message*)tw_event_data(e); 
+        memset(m_new, 0, sizeof(nw_message));
         m_new->msg_type = CLI_NBR_FINISH;
         tw_event_send(e);   
     }
@@ -727,6 +729,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
     nw_message * m_new;
     e = tw_event_new(lp->gid, ts, lp);
     m_new = (struct nw_message*)tw_event_data(e);
+    memset(m_new, 0, sizeof(nw_message));
     m_new->msg_type = CLI_BCKGND_GEN;
     tw_event_send(e);
 
@@ -1265,6 +1268,7 @@ static void codes_issue_next_event(tw_lp* lp)
    assert(ts > 0);
    e = tw_event_new( lp->gid, ts, lp );
    msg = (nw_message*)tw_event_data(e);
+   memset(msg, 0, sizeof(nw_message));
 
    msg->msg_type = MPI_OP_GET_NEXT;
    tw_event_send(e);
@@ -1287,6 +1291,7 @@ static void codes_exec_comp_delay(
 
 	e = tw_event_new( lp->gid, ts , lp );
 	msg = (nw_message*)tw_event_data(e);
+    memset(msg, 0, sizeof(nw_message));
 	msg->msg_type = MPI_OP_GET_NEXT;
 	tw_event_send(e);
 
@@ -1771,6 +1776,7 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
         tw_event_new(rank_to_lpid(global_src_id),
                 ts, lp);
         nw_message *m_callback = (nw_message*)tw_event_data(e_callback);
+        memset(m_callback, 0, sizeof(nw_message));
         m_callback->msg_type = MPI_SEND_ARRIVED_CB;
         m_callback->fwd.msg_send_time = tw_now(lp) - m->fwd.sim_start_time;
         tw_event_send(e_callback);
@@ -1942,6 +1948,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
         tw_stime ts = tw_rand_exponential(lp->rng, mean_interval/1000);
         e = tw_event_new(lp->gid, ts, lp);
         m_new = (nw_message*)tw_event_data(e);
+        memset(m_new, 0, sizeof(nw_message));
         m_new->msg_type = CLI_BCKGND_GEN;
         tw_event_send(e);
         is_synthetic = 1;
@@ -2018,6 +2025,7 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
             tw_event_new(rank_to_lpid(global_src_id),
                 codes_local_latency(lp), lp);
             nw_message *m_callback = (nw_message*)tw_event_data(e_callback);
+            memset(m_callback, 0, sizeof(nw_message));
             m_callback->msg_type = MPI_SEND_ARRIVED_CB;
             m_callback->fwd.msg_send_time = tw_now(lp) - m->fwd.sim_start_time;
             tw_event_send(e_callback);

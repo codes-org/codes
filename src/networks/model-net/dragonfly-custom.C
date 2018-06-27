@@ -1131,6 +1131,7 @@ static tw_stime dragonfly_custom_packet_event(
     //msg = tw_event_data(e_new);
     e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
             sender, DRAGONFLY_CUSTOM, (void**)&msg, (void**)&tmp_ptr);
+    memset(msg, 0, sizeof(terminal_custom_message));
     strcpy(msg->category, req->category);
     msg->final_dest_gid = req->final_dest_lp;
     msg->total_size = req->msg_size;
@@ -1205,10 +1206,12 @@ static void router_credit_send(router_state * s, terminal_custom_message * msg,
   if (is_terminal) {
     buf_e = model_net_method_event_new(dest, ts, lp, DRAGONFLY_CUSTOM, 
       (void**)&buf_msg, NULL);
+    memset(buf_msg, 0, sizeof(terminal_custom_message));
     buf_msg->magic = terminal_magic_num;
   } else {
     buf_e = model_net_method_event_new(dest, ts, lp, DRAGONFLY_CUSTOM_ROUTER,
             (void**)&buf_msg, NULL);
+    memset(buf_msg, 0, sizeof(terminal_custom_message));
     buf_msg->magic = router_magic_num;
   }
  
@@ -1357,6 +1360,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
     terminal_custom_message *m;
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_CUSTOM, 
       (void**)&m, NULL);
+    memset(m, 0, sizeof(terminal_custom_message));
     m->type = T_SEND;
     m->magic = terminal_magic_num;
     s->in_send_loop = 1;
@@ -1474,6 +1478,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
   void * remote_event;
   e = model_net_method_event_new(router_id, ts, lp,
           DRAGONFLY_CUSTOM_ROUTER, (void**)&m, &remote_event);
+  memset(m, 0, sizeof(terminal_custom_message));
   memcpy(m, &cur_entry->msg, sizeof(terminal_custom_message));
   if (m->remote_event_size_bytes){
     memcpy(remote_event, cur_entry->event_data, m->remote_event_size_bytes);
@@ -1501,6 +1506,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
     tw_stime local_ts = codes_local_latency(lp); 
     tw_event *e_new = tw_event_new(cur_entry->msg.sender_lp, local_ts, lp);
     void * m_new = tw_event_data(e_new);
+    memset(m_new, 0, sizeof(terminal_custom_message));
     void *local_event = (char*)cur_entry->event_data + 
       cur_entry->msg.remote_event_size_bytes;
     memcpy(m_new, local_event, cur_entry->msg.local_event_size_bytes);
@@ -1521,6 +1527,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
     ts += tw_rand_unif(lp->rng);
     e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_CUSTOM, 
       (void**)&m_new, NULL);
+    memset(m_new, 0, sizeof(terminal_custom_message));
     m_new->type = T_SEND;
     m_new->magic = terminal_magic_num;
     tw_event_send(e);
@@ -1672,6 +1679,7 @@ static void send_remote_event(terminal_state * s, terminal_custom_message * msg,
         else{
             tw_event * e = tw_event_new(msg->final_dest_gid, ts, lp);
             void * m_remote = tw_event_data(e);
+            memset(m_remote, 0, sizeof(terminal_custom_message));
             memcpy(m_remote, event_data, remote_event_size);
             tw_event_send(e); 
         }
@@ -1728,6 +1736,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
   terminal_custom_message * buf_msg;
   buf_e = model_net_method_event_new(msg->intm_lp_id, ts, lp,
           DRAGONFLY_CUSTOM_ROUTER, (void**)&buf_msg, NULL);
+  memset(buf_msg, 0, sizeof(terminal_custom_message));
   buf_msg->magic = router_magic_num;
   buf_msg->vc_index = msg->vc_index;
   buf_msg->output_chan = msg->output_chan;
@@ -2278,6 +2287,7 @@ terminal_buf_update(terminal_state * s,
     bf->c1 = 1;
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_CUSTOM, 
         (void**)&m, NULL);
+    memset(m, 0, sizeof(terminal_custom_message));
     m->type = T_SEND;
     m->magic = terminal_magic_num;
     s->in_send_loop = 1;
@@ -3209,6 +3219,7 @@ router_packet_receive( router_state * s,
       ts = codes_local_latency(lp); 
       tw_event *e = model_net_method_event_new(lp->gid, ts, lp,
               DRAGONFLY_CUSTOM_ROUTER, (void**)&m, NULL);
+      memset(m, 0, sizeof(terminal_custom_message));
       m->type = R_SEND;
       m->magic = router_magic_num;
       m->vc_index = output_port;
@@ -3369,10 +3380,12 @@ router_packet_send( router_state * s,
     e = model_net_method_event_new(cur_entry->msg.next_stop, 
         s->next_output_available_time[output_port] - tw_now(lp), lp,
         DRAGONFLY_CUSTOM, (void**)&m, &m_data);
+    memset(m, 0, sizeof(terminal_custom_message));
   } else {
     e = model_net_method_event_new(cur_entry->msg.next_stop,
             s->next_output_available_time[output_port] - tw_now(lp), lp,
             DRAGONFLY_CUSTOM_ROUTER, (void**)&m, &m_data);
+    memset(m, 0, sizeof(terminal_custom_message));
   }
   memcpy(m, &cur_entry->msg, sizeof(terminal_custom_message));
   if (m->remote_event_size_bytes){
@@ -3441,6 +3454,7 @@ router_packet_send( router_state * s,
     ts += g_tw_lookahead + tw_rand_unif(lp->rng);
     e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_CUSTOM_ROUTER,
             (void**)&m_new, NULL);
+    memset(m_new, 0, sizeof(terminal_custom_message));
     m_new->type = R_SEND;
     m_new->magic = router_magic_num;
     m_new->vc_index = output_port;
@@ -3518,6 +3532,7 @@ static void router_buf_update(router_state * s, tw_bf * bf, terminal_custom_mess
     tw_stime ts = codes_local_latency(lp);
     tw_event *e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_CUSTOM_ROUTER,
             (void**)&m, NULL);
+    memset(m, 0, sizeof(terminal_custom_message));
     m->type = R_SEND;
     m->vc_index = indx;
     m->magic = router_magic_num;

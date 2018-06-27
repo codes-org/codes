@@ -441,6 +441,7 @@ static void handle_msg_ready_event(
         else{
             e_new = tw_event_new(m->final_dest_gid, recv_queue_time, lp);
             m_new = tw_event_data(e_new);
+            memset(m_new, 0, sizeof(loggp_message));
             memcpy(m_new, tmp_ptr, m->event_size_bytes);
             tw_event_send(e_new);
         }
@@ -556,6 +557,7 @@ static void handle_msg_start_event(
     void *m_data;
     e_new = model_net_method_event_new(m->dest_mn_lp, send_queue_time, lp, LOGGP,
             (void**)&m_new, &m_data);
+    memset(m_new, 0, sizeof(loggp_message));
     /* copy entire previous message over, including payload from user of
      * this module
      */
@@ -584,6 +586,7 @@ static void handle_msg_start_event(
 
         e_new = tw_event_new(m->src_gid, send_queue_time+codes_local_latency(lp), lp);
         m_new = tw_event_data(e_new);
+        memset(m_new, 0, sizeof(loggp_message));
 
         void * m_loc = (char*) model_net_method_get_edata(LOGGP, m) +
             m->event_size_bytes;
@@ -620,6 +623,7 @@ static tw_stime loggp_packet_event(
      xfer_to_nic_time = codes_local_latency(sender);
      e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
              sender, LOGGP, (void**)&msg, (void**)&tmp_ptr);
+     memset(msg, 0, sizeof(loggp_message));
      //e_new = tw_event_new(dest_id, xfer_to_nic_time+offset, sender);
      //msg = tw_event_data(e_new);
      strcpy(msg->category, req->category);
@@ -681,6 +685,7 @@ tw_stime loggp_recv_msg_event(
     // this message goes to myself
     tw_event *e = model_net_method_event_new(sender->gid, moffset, sender,
             LOGGP, (void**)&m, &m_data);
+    memset(m, 0, sizeof(loggp_message));
 
     m->magic = loggp_magic;
     m->event_type = LG_MSG_READY;

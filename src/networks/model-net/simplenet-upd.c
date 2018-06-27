@@ -387,6 +387,7 @@ static void handle_msg_ready_event(
         else{
             tw_event * e_new = tw_event_new(m->final_dest_gid, recv_queue_time, lp);
             void * m_new = tw_event_data(e_new);
+            memset(m_new, 0, sizeof(sn_message));
             memcpy(m_new, tmp_ptr, m->event_size_bytes);
             tw_event_send(e_new);
         }
@@ -463,6 +464,7 @@ static void handle_msg_start_event(
     void *m_data;
     e_new = model_net_method_event_new(m->dest_mn_lp, send_queue_time, lp,
             SIMPLENET, (void**)&m_new, &m_data);
+    memset(m_new, 0, sizeof(sn_message));
 
     /* copy entire previous message over, including payload from user of
      * this module
@@ -494,6 +496,7 @@ static void handle_msg_start_event(
 
         e_new = tw_event_new(m->src_gid, send_queue_time+codes_local_latency(lp), lp);
         m_new = tw_event_data(e_new);
+        memset(m_new, 0, sizeof(sn_message));
 
         void * m_loc = (char*) model_net_method_get_edata(SIMPLENET, m) +
             m->event_size_bytes;
@@ -535,6 +538,7 @@ static tw_stime simplenet_packet_event(
      // this is a self message
      e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
              sender, SIMPLENET, (void**)&msg, (void**)&tmp_ptr);
+     memset(msg, 0, sizeof(sn_message));
      strcpy(msg->category, req->category);
      msg->src_gid = req->src_lp;
      msg->src_mn_lp = sender->gid;

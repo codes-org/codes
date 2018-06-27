@@ -30,7 +30,7 @@ AM_CFLAGS =
 
 AM_CXXFLAGS = $(AM_CFLAGS)
 
-LDADD = $(lib_LTLIBRARIES) $(ROSS_LIBS)
+LDADD = $(lib_LTLIBRARIES) $(ROSS_LIBS) -lpthread
 
 include Make.rules
 

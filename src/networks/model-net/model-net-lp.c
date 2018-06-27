@@ -210,6 +210,7 @@ static void issue_sample_event(tw_lp *lp)
     if (tw_now(lp) + mn_sample_interval < mn_sample_end + 0.0001) {
         tw_event *e = tw_event_new(lp->gid, mn_sample_interval, lp);
         model_net_wrap_msg *m = tw_event_data(e);
+        memset(m, 0, sizeof(model_net_wrap_msg));
         msg_set_header(model_net_base_magic, MN_BASE_SAMPLE, lp->gid, &m->h);
         tw_event_send(e);
     }
@@ -648,14 +649,18 @@ void handle_new_msg(
         if (remote_event_size > 0) {
             exp_time += delay;
             tw_event *e = tw_event_new(r->final_dest_lp, exp_time, lp);
-            memcpy(tw_event_data(e), e_msg, remote_event_size);
+            model_net_wrap_msg *m_new = tw_event_data(e);
+            memset(m_new, 0, sizeof(model_net_wrap_msg));
+            memcpy(m_new, e_msg, remote_event_size);
             tw_event_send(e);
             e_msg = (char*)e_msg + remote_event_size; 
         }
         if (self_event_size > 0) {
             exp_time += delay;
             tw_event *e = tw_event_new(r->src_lp, exp_time, lp);
-            memcpy(tw_event_data(e), e_msg, self_event_size);
+            model_net_wrap_msg *m_new = tw_event_data(e);
+            memset(m_new, 0, sizeof(model_net_wrap_msg));
+            memcpy(m_new, e_msg, self_event_size);
             tw_event_send(e);
         }
         return;
@@ -668,6 +673,7 @@ void handle_new_msg(
         ns->next_available_time = exp_time;
         tw_event *e = tw_event_new(lp->gid, exp_time - tw_now(lp), lp);
         model_net_wrap_msg *m_new = tw_event_data(e);
+        memset(m_new, 0, sizeof(model_net_wrap_msg));
         memcpy(m_new, m, sizeof(model_net_wrap_msg));
         void *e_msg = (m+1);
         void *e_new_msg = (m_new+1);
@@ -800,6 +806,7 @@ void handle_sched_next(
         tw_event *e = tw_event_new(lp->gid,
                 poffset+codes_local_latency(lp), lp);
         model_net_wrap_msg *m_wrap = tw_event_data(e);
+        memset(m_wrap, 0, sizeof(model_net_wrap_msg));
         model_net_request *r_wrap = &m_wrap->msg.m_base.req;
         msg_set_header(model_net_base_magic, MN_BASE_SCHED_NEXT, lp->gid,
                 &m_wrap->h);
@@ -841,6 +848,7 @@ tw_event * model_net_method_event_new(
         void **extra_data){
     tw_event *e = tw_event_new(dest_gid, offset_ts, sender);
     model_net_wrap_msg *m_wrap = tw_event_data(e);
+    memset(m_wrap, 0, sizeof(model_net_wrap_msg));
     msg_set_header(model_net_base_magic, MN_BASE_PASS, sender->gid,
             &m_wrap->h);
     *msg_data = ((char*)m_wrap)+msg_offsets[net_id];
@@ -868,6 +876,7 @@ void model_net_method_send_msg_recv_event(
     tw_event *e =
         tw_event_new(dest_mn_lp, offset+codes_local_latency(sender), sender);
     model_net_wrap_msg *m = tw_event_data(e);
+    memset(m, 0, sizeof(model_net_wrap_msg));
     msg_set_header(model_net_base_magic, MN_BASE_NEW_MSG, sender->gid, &m->h);
 
     if (sched_params != NULL)
@@ -915,6 +924,7 @@ void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue,
         int queue_offset, tw_lp * lp){
     tw_event *e = tw_event_new(lp->gid, offset_ts, lp);
     model_net_wrap_msg *m_wrap = tw_event_data(e);
+    memset(m_wrap, 0, sizeof(model_net_wrap_msg));
     model_net_request *r_wrap = &m_wrap->msg.m_base.req;
     msg_set_header(model_net_base_magic, MN_BASE_SCHED_NEXT, lp->gid,
             &m_wrap->h);
