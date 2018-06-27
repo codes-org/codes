@@ -370,7 +370,7 @@ static void handle_kickoff_event(
 //printf("2local_dest:%d global_dest:%d num_nodes:%d\n", local_dest, global_dest, num_nodes);
 
    ns->msg_sent_count++;
-   model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+   m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
    issue_event(ns, lp);
    return;
 }

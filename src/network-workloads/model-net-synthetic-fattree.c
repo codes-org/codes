@@ -307,7 +307,7 @@ static void handle_kickoff_event(
 
    ns->msg_sent_count++;
 
-   model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+   m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
 
    //printf("LP:%d localID:%d Here\n",(int)lp->gid, (int)local_dest);
    issue_event(ns, lp);
