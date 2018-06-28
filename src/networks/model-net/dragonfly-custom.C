@@ -44,6 +44,11 @@
 #define LP_CONFIG_NM_ROUT (model_net_lp_config_names[DRAGONFLY_CUSTOM_ROUTER])
 #define LP_METHOD_NM_ROUT (model_net_method_names[DRAGONFLY_CUSTOM_ROUTER])
 
+static int max_lvc_src_g = 1;
+static int max_lvc_intm_g = 3;
+static int min_gvc_src_g = 0;
+static int min_gvc_intm_g = 1;
+
 static int BIAS_MIN = 1;
 static int DF_DALLY = 0;
 static int adaptive_threshold = 1024;
@@ -2805,7 +2810,7 @@ static int do_global_adaptive_routing( router_state * s,
   }
 
   /* if a direct global channel exists for non-minimal route in the source group then give a priority to that. */
-  if(msg->my_l_hop == 1)
+  if(msg->my_l_hop == max_lvc_src_g)
   {
     assert(routing == PROG_ADAPTIVE);
     nonmin_chan_a = find_chan(s->router_id, intm_grp_id_a, num_routers);
@@ -3154,7 +3159,7 @@ router_packet_receive( router_state * s,
    * intermediate router ID which is in the same group. */
   if(src_grp_id != dest_grp_id)
   {
-      if(routing == PROG_ADAPTIVE && cur_chunk->msg.my_l_hop >= 1)
+      if(cur_chunk->msg.my_l_hop == max_lvc_src_g)
       {
         bf->c3 = 1;
         vector<int> direct_rtrs = get_indirect_conns(s, lp, dest_grp_id);
@@ -3255,8 +3260,12 @@ router_packet_receive( router_state * s,
     }
   }
 
-  if(cur_chunk->msg.path_type == NON_MINIMAL && (cur_chunk->msg.my_l_hop == 1 || cur_chunk->msg.my_l_hop == 2))
+if(cur_chunk->msg.path_type == NON_MINIMAL)
+{
+      if((cur_chunk->msg.my_l_hop == max_lvc_src_g && cur_chunk->msg.my_g_hop == min_gvc_src_g)
+|| (cur_chunk->msg.my_l_hop == max_lvc_intm_g && cur_chunk->msg.my_g_hop == min_gvc_intm_g))
       get_direct_con = 1;
+}
   /* If the packet route has just changed to non-minimal with prog-adaptive
    * routing, we have to compute the next stop based on that */
   int do_chan_selection = 0;
