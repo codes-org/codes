@@ -3287,23 +3287,24 @@ if(cur_chunk->msg.path_type == NON_MINIMAL)
 
   output_chan = 0;
   if(output_port < s->params->intra_grp_radix) {
-   if(DF_DALLY == 1)
-   {
-    if(cur_chunk->msg.my_g_hop == 1) {
-        output_chan = 1;
-    } else if (cur_chunk->msg.my_g_hop == 2) {
-        output_chan = 3;
-    }
-   }
-  else {
+   output_chan = msg->my_l_hop;
+  // if(DF_DALLY == 1)
+  // {
+  //  if(cur_chunk->msg.my_g_hop == 1 && cur_chunk->msg.last_hop == GLOBAL) {
+  //      output_chan = 1;
+  //  } else if (cur_chunk->msg.my_g_hop == 2) {
+  //      output_chan = 3;
+  //  }
+  // }
+  //else {
       /* TODO: Recheck VC count after things are in order for a 2-D dragonfly. */
-    if(cur_chunk->msg.my_g_hop == 1) {
-        output_chan = 2;
-    }
-    else if (cur_chunk->msg.my_g_hop == 2) {
-        output_chan = 6;
-    }
-  }
+  //  if(cur_chunk->msg.my_g_hop == 1 && cur_chunk->msg.last_hop == GLOBAL) {
+    //    output_chan = 2;
+   // }
+   // else if (cur_chunk->msg.my_g_hop == 2 && cur_chunk->msg.last_hop == GLOBAL) {
+     //   output_chan = 6;
+    //}
+  //}
     max_vc_size = s->params->local_vc_size;
     cur_chunk->msg.my_l_hop++;
   } else if(output_port < (s->params->intra_grp_radix + 
