@@ -2471,8 +2471,9 @@ get_next_stop(router_state * s,
         {
             /* Only for non-minimal routes, direct connections are preferred
              * (global ports) */
-            if(interGroupLinks[s->router_id][dest_group_id].size() > 1 && get_direct_con)
+            if(get_direct_con)
             {
+              if(interGroupLinks[s->router_id][dest_group_id].size() > 1)
               select_chan = find_chan(s->router_id, dest_group_id, s->params->num_routers); 
               assert(select_chan >= 0);
             }
