@@ -489,7 +489,7 @@ static void codes_mapping_init(void)
          else
              /* sorry, const... */
              tw_lp_settype(ross_lid, (tw_lptype*) lptype);
-         if (g_st_ev_trace || g_st_model_stats)
+         if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
          {
              trace_type = st_model_type_lookup(lp_type_name);
              st_model_settype(ross_lid, (st_model_types*) trace_type);

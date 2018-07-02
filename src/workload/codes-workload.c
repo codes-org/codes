@@ -13,14 +13,24 @@
 /* list of available methods.  These are statically compiled for now, but we
  * could make generators optional via autoconf tests etc. if needed
  */
+/* added by pj: differ POSIX and MPI IO in darshan 3.00*/
+#define	DARSHAN_POSIX_IO 	1
+#define	DARSHAN_MPI_IO		0
+
 extern struct codes_workload_method test_workload_method;
 extern struct codes_workload_method iolang_workload_method;
 #ifdef USE_DUMPI
 extern struct codes_workload_method dumpi_trace_workload_method;
 #endif
+
 #ifdef USE_DARSHAN
-extern struct codes_workload_method darshan_io_workload_method;
+#if DARSHAN_POSIX_IO
+extern struct codes_workload_method darshan_posix_io_workload_method;
+#elif DARSHAN_MPI_IO
+extern struct codes_workload_method darshan_mpi_io_workload_method;
 #endif
+#endif
+
 #ifdef USE_RECORDER
 extern struct codes_workload_method recorder_io_workload_method;
 #endif
@@ -37,8 +47,16 @@ static struct codes_workload_method const * method_array_default[] =
 #ifdef USE_DUMPI
     &dumpi_trace_workload_method,
 #endif
+
 #ifdef USE_DARSHAN
-    &darshan_io_workload_method,
+/* added by pj: posix and mpi io */
+#if	DARSHAN_POSIX_IO
+    &darshan_posix_io_workload_method,
+#elif DARNSHAN_MPI_IO
+	/* TODO: MPI_IO */
+	&darshan_mpi_io_workload_method,
+#endif
+
 #endif
 #ifdef USE_ONLINE
     &online_comm_workload_method,
@@ -291,15 +309,42 @@ int codes_workload_finalize(
     fprintf(stderr, "Error: failed to find workload generator %s\n", type);
     return(-1);
 }
+int codes_workload_get_time(const char *type, const char *params, int app_id,
+		int rank, double *read_time, double *write_time, int64_t *read_bytes, int64_t *written_bytes)
+{
+	int i;
+	init_workload_methods();
+
+	//printf("entering rank count, method_array = %p \n", method_array);
+	for(i=0; method_array[i] != NULL; i++)
+	{
+		//printf("%p\n", method_array[i]);
+		//printf(" geting time:: method_array[%d]->method_name = %s, type = %s\n", i, method_array[i]->method_name, type);
+		if(strcmp(method_array[i]->method_name, type) == 0)
+		{
+			if (method_array[i]->codes_workload_get_time != NULL)
+				return method_array[i]->codes_workload_get_time(
+						params, app_id, rank, read_time, write_time, read_bytes, written_bytes);
+			else
+				return -1;
+		}
+	}
+	return 0;
+}
+
 int codes_workload_get_rank_cnt(
         const char* type,
         const char* params,
         int app_id)
 {
     int i;
+    init_workload_methods();
 
+    //printf("entering rank count, method_array = %p \n", method_array);
     for(i=0; method_array[i] != NULL; i++)
     {
+    	//printf("%p\n", method_array[i]);
+    	//printf("method_array[%d]->method_name = %s, type = %s\n", i, method_array[i]->method_name, type);
         if(strcmp(method_array[i]->method_name, type) == 0)
         {
             if (method_array[i]->codes_workload_get_rank_cnt != NULL)
@@ -320,6 +365,8 @@ void codes_workload_print_op(
         int app_id,
         int rank)
 {
+    char *name;
+
     switch(op->op_type){
         case CODES_WK_END:
             fprintf(f, "op: app:%d rank:%d type:end\n", app_id, rank);
@@ -333,28 +380,47 @@ void codes_workload_print_op(
                     app_id, rank, op->u.barrier.count, op->u.barrier.root);
             break;
         case CODES_WK_OPEN:
-            fprintf(f, "op: app:%d rank:%d type:open file_id:%llu flag:%d\n",
-                    app_id, rank, LLU(op->u.open.file_id), op->u.open.create_flag);
+        case CODES_WK_MPI_OPEN:
+        case CODES_WK_MPI_COLL_OPEN:
+            if(op->op_type == CODES_WK_OPEN) name = "open";
+            if(op->op_type == CODES_WK_MPI_OPEN) name = "mpi_open";
+            if(op->op_type == CODES_WK_MPI_COLL_OPEN) name = "mpi_coll_open";
+            fprintf(f, "op: app:%d rank:%d type:%s file_id:%llu flag:%d\n",
+                    app_id, rank, name, LLU(op->u.open.file_id), op->u.open.create_flag);
             break;
         case CODES_WK_CLOSE:
-            fprintf(f, "op: app:%d rank:%d type:close file_id:%llu\n",
-                    app_id, rank, LLU(op->u.close.file_id));
+        case CODES_WK_MPI_CLOSE:
+            if(op->op_type == CODES_WK_CLOSE) name = "close";
+            if(op->op_type == CODES_WK_MPI_CLOSE) name = "mpi_close";
+            fprintf(f, "op: app:%d rank:%d type:%s file_id:%llu\n",
+                    app_id, rank, name, LLU(op->u.close.file_id));
             break;
         case CODES_WK_WRITE:
-            fprintf(f, "op: app:%d rank:%d type:write "
+        case CODES_WK_MPI_WRITE:
+        case CODES_WK_MPI_COLL_WRITE:
+            if(op->op_type == CODES_WK_WRITE) name = "write";
+            if(op->op_type == CODES_WK_MPI_WRITE) name = "mpi_write";
+            if(op->op_type == CODES_WK_MPI_COLL_WRITE) name = "mpi_coll_write";
+            fprintf(f, "op: app:%d rank:%d type:%s "
                        "file_id:%llu off:%llu size:%llu\n",
-                    app_id, rank, LLU(op->u.write.file_id), LLU(op->u.write.offset),
+                    app_id, rank, name, LLU(op->u.write.file_id), LLU(op->u.write.offset),
                     LLU(op->u.write.size));
             break;
         case CODES_WK_READ:
-            fprintf(f, "op: app:%d rank:%d type:read "
+        case CODES_WK_MPI_READ:
+        case CODES_WK_MPI_COLL_READ:
+            if(op->op_type == CODES_WK_READ) name = "read";
+            if(op->op_type == CODES_WK_MPI_READ) name = "mpi_read";
+            if(op->op_type == CODES_WK_MPI_COLL_READ) name = "mpi_coll_read";
+            fprintf(f, "op: app:%d rank:%d type:%s "
                        "file_id:%llu off:%llu size:%llu\n",
-                    app_id, rank, LLU(op->u.read.file_id), LLU(op->u.read.offset),
+                    app_id, rank, name, LLU(op->u.read.file_id), LLU(op->u.read.offset),
                     LLU(op->u.read.size));
             break;
         case CODES_WK_SEND:
             fprintf(f, "op: app:%d rank:%d type:send "
                     "src:%d dst:%d bytes:%"PRIu64" type:%d count:%d tag:%d "
+                    "src:%d dst:%d bytes:%d type:%d count:%d tag:%d "
                     "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.send.source_rank, op->u.send.dest_rank,

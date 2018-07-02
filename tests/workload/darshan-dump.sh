@@ -5,4 +5,4 @@ if [ -z $srcdir ]; then
     exit 1
 fi
 
-src/workload/codes-workload-dump --num-ranks 4 --type darshan_io_workload --d-log $srcdir/tests/workload/example.darshan.gz --d-aggregator-cnt 1
+src/workload/codes-workload-dump --num-ranks 4 --type darshan_io_workload --d-log $srcdir/tests/workload/example.darshan
