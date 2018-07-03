@@ -26,6 +26,7 @@
 #include <codes/codes.h>
 
 #define DEBUG_PROFILING 0
+#define BUF_SIZE (128*1024*1024)
 
 /* hash table entry for looking up file descriptor of a workload file id */
 struct file_info
@@ -33,6 +34,7 @@ struct file_info
     struct qlist_head hash_link;
     uint64_t file_hash;
     int file_descriptor;
+    MPI_File fh;
 };
 
 int replay_workload_op(struct codes_workload_op replay_op, int rank, long long int op_number);
@@ -42,6 +44,8 @@ int hash_file_compare(void *key, struct qlist_head *link);
 static int opt_verbose = 0;
 static int opt_noop = 0;
 static double opt_delay_pct = 1.0;
+static double opt_max_delay = -1;
+static int opt_prep = 0;
 
 /* hash table for storing file descriptors of opened files */
 static struct qhash_table *fd_table = NULL;
@@ -66,8 +70,11 @@ void usage(char *exename)
     fprintf(stderr, "\t<conf_file_path> : (absolute) path to a valid workload configuration file\n");
     fprintf(stderr, "\t<workload_test_dir> : the directory to replay the workload I/O in\n");
     fprintf(stderr, "\n\t[OPTIONS] includes:\n");
-    fprintf(stderr, "\t\t--noop : do not perform i/o\n");
-    fprintf(stderr, "\t\t    -v : verbose (output i/o details)\n");
+    fprintf(stderr, "\t\t--noop  : do not perform i/o\n");
+    fprintf(stderr, "\t\t    -v  : verbose (output i/o details)\n");
+    fprintf(stderr, "\t\t--delay-ratio : floating point ratio applied to each delay (defaults to 1)\n");
+    fprintf(stderr, "\t\t--max-delay : maximum delay (in seconds) to replay\n");
+    fprintf(stderr, "\t\t--prep: instead of running replay, pre-populate files that will be needed for subsequent replay\n");
 
     exit(1);
 }
@@ -80,7 +87,9 @@ void parse_args(int argc, char **argv, char **conf_path, char **test_dir)
         {"conf", 1, NULL, 'c'},
         {"test-dir", 1, NULL, 'd'},
         {"noop", 0, NULL, 'n'},
-        {"delay", 1, NULL, 'p'},
+        {"prep", 0, NULL, 'P'},
+        {"delay-ratio", 1, NULL, 'p'},
+        {"max-delay", 1, NULL, 'm'},
         {"help", 0, NULL, 0},
         {0, 0, 0, 0}
     };
@@ -102,6 +111,9 @@ void parse_args(int argc, char **argv, char **conf_path, char **test_dir)
             case 'n':
                 opt_noop = 1;
                 break;
+            case 'P':
+                opt_prep = 1;
+                break;
             case 'c':
                 *conf_path = optarg;
                 break;
@@ -111,12 +123,21 @@ void parse_args(int argc, char **argv, char **conf_path, char **test_dir)
             case 'p':
                 opt_delay_pct = atof(optarg);
                 break;
+            case 'm':
+                opt_max_delay = atof(optarg);
+                break;
             case 0:
             case '?':
             default:
                 usage(argv[0]);
                 break;
         }
+    }
+
+    if(opt_noop && opt_prep)
+    {
+        fprintf(stderr, "Error: cannot use --noop and --prep at the same time.\n");
+        usage(argv[0]);
     }
 
     if (optind < argc || !(*conf_path) || !(*test_dir))
@@ -142,14 +163,10 @@ int load_workload(char *conf_path, int rank)
     if (strcmp(workload_type, "darshan_io_workload") == 0)
     {
         struct darshan_params d_params;
-        char aggregator_count[10];
 
         /* get the darshan params from the config file */
         configuration_get_value(&config, "PARAMS", "log_file_path",
                                 NULL, d_params.log_file_path, MAX_NAME_LENGTH_WKLD);
-        configuration_get_value(&config, "PARAMS", "aggregator_count", NULL, aggregator_count, 10);
-        d_params.aggregator_cnt = atol(aggregator_count);
-
         return codes_workload_load(workload_type, (char *)&d_params, 0, rank);
     }
     else if (strcmp(workload_type, "iolang_workload") == 0)
@@ -270,12 +287,18 @@ int main(int argc, char *argv[])
         {
 
             if (next_op.op_type == CODES_WK_DELAY)
+            {
                 next_op.u.delay.seconds *= opt_delay_pct;
+                /* cap max delay if requested by cmd line */
+                if(opt_max_delay >= 0 && next_op.u.delay.seconds > opt_max_delay)
+                    next_op.u.delay.seconds = opt_max_delay;
+            }
 
             /* replay the next workload operation */
             ret = replay_workload_op(next_op, myrank, replay_op_number++);
             if (ret < 0)
             {
+                fprintf(stderr, "Error: replay_workload_op() for replay_op_number %lld failed on rank %d\n", replay_op_number-1, myrank);
                 break;
             }
         }
@@ -304,16 +327,316 @@ error_exit:
     return ret;
 }
 
+static int track_open_file(uint64_t file_hash, int fildes, MPI_File fh)
+{
+    struct file_info *tmp_list = NULL;
+    int i;
+
+    /* save the file descriptor for this file in a hash table to be retrieved later */
+    tmp_list = malloc(sizeof(struct file_info));
+    if (!tmp_list)
+    {
+        fprintf(stderr, "No memory available for file hash entry\n");
+        return -1;
+    }
+
+    tmp_list->file_hash = file_hash;
+    tmp_list->file_descriptor = fildes;
+    tmp_list->fh = fh;
+    qhash_add(fd_table, &(file_hash), &(tmp_list->hash_link));
+
+    if (!buf)
+    {
+        buf = malloc(BUF_SIZE);
+        assert(buf);
+        for(i=0; i<BUF_SIZE; i++)
+        {
+            buf[i] = '1';
+        }
+    }
+
+#if DEBUG_PROFILING
+    end = MPI_Wtime();
+    total_open_time += (end - start);
+#endif
+
+    return(0);
+}
+
+static int do_read(struct codes_workload_op replay_op, int rank, long long int op_number)
+{
+    int fildes;
+    MPI_File fh;
+    struct qlist_head *hash_link = NULL;
+    struct file_info *tmp_list = NULL;
+    int ret;
+    char *op_name;
+    MPI_Status status;
+
+    if(replay_op.op_type == CODES_WK_READ)
+        op_name = "READ";
+    else if(replay_op.op_type == CODES_WK_MPI_READ)
+        op_name = "MPI_READ (independent)";
+    else
+        op_name = "MPI_READ (collective)";
+
+    if (opt_verbose)
+        fprintf(log_stream, "[Rank %d] Operation %lld : %s file %llu (sz = %llu, off = %llu)\n",
+               rank, op_number, op_name, LLU(replay_op.u.read.file_id), LLU(replay_op.u.read.size),
+               LLU(replay_op.u.read.offset));
+
+    if (!opt_noop)
+    {
+	if(replay_op.u.read.size > BUF_SIZE)
+	{
+		fprintf(stderr, "ERROR: workload read of size %lu is larger than buffer size of %d\n", replay_op.u.read.size, BUF_SIZE);
+		return(-1);
+	}
+
+        /* search for the corresponding file descriptor in the hash table */
+        hash_link = qhash_search(fd_table, &(replay_op.u.read.file_id));
+        if(!hash_link)
+        {
+            fprintf(stderr, "ERROR: rank %d unable to find fd_table record for file_id %llu in read path.\n", rank, LLU(replay_op.u.read.file_id));
+            assert(hash_link);
+        }
+        tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
+        fildes = tmp_list->file_descriptor;
+        fh = tmp_list->fh;
+
+        switch(replay_op.op_type)
+        {
+            case CODES_WK_READ:
+                ret = pread(fildes, buf, replay_op.u.read.size, replay_op.u.read.offset);
+                break;
+            case CODES_WK_MPI_READ:
+                ret = MPI_File_read_at(fh, replay_op.u.read.offset, buf, replay_op.u.read.size, MPI_BYTE, &status);
+                break;
+            case CODES_WK_MPI_COLL_READ:
+                ret = MPI_File_read_at_all(fh, replay_op.u.read.offset, buf, replay_op.u.read.size, MPI_BYTE, &status);
+                break;
+            default:
+                assert(0);
+        }
+
+        if (ret < 0)
+        {
+            fprintf(stderr, "Rank %d failure on operation %lld [%s]\n",
+                    rank, op_number, op_name);
+            return -1;
+        }
+
+#if DEBUG_PROFILING
+        end = MPI_Wtime();
+        total_read_time += (end - start);
+#endif
+    }
+    return(0);
+}
+
+static int do_write(struct codes_workload_op replay_op, int rank, long long int op_number)
+{
+    int fildes;
+    MPI_File fh;
+    struct qlist_head *hash_link = NULL;
+    struct file_info *tmp_list = NULL;
+    int ret;
+    char *op_name;
+    MPI_Status status;
+
+    if(replay_op.op_type == CODES_WK_WRITE)
+        op_name = "WRITE";
+    else if(replay_op.op_type == CODES_WK_MPI_WRITE)
+        op_name = "MPI_WRITE (independent)";
+    else
+        op_name = "MPI_WRITE (collective)";
+
+    if (opt_verbose)
+        fprintf(log_stream, "[Rank %d] Operation %lld : %s file %llu (sz = %llu, off = %llu)\n",
+               rank, op_number, op_name, LLU(replay_op.u.write.file_id), LLU(replay_op.u.write.size),
+               LLU(replay_op.u.write.offset));
+
+    if (!opt_noop)
+    {
+	if(replay_op.u.write.size > BUF_SIZE)
+	{
+		fprintf(stderr, "ERROR: workload write of size %lu is larger than buffer size of %d\n", replay_op.u.write.size, BUF_SIZE);
+		return(-1);
+	}
+		
+        /* search for the corresponding file descriptor in the hash table */
+        hash_link = qhash_search(fd_table, &(replay_op.u.write.file_id));
+        if(!hash_link)
+        {
+            fprintf(stderr, "ERROR: rank %d unable to find fd_table record for file_id %llu in write path.\n", rank, LLU(replay_op.u.write.file_id));
+            assert(hash_link);
+        }
+        tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
+        fildes = tmp_list->file_descriptor;
+        fh = tmp_list->fh;
+
+        switch(replay_op.op_type)
+        {
+            case CODES_WK_WRITE:
+                ret = pwrite(fildes, buf, replay_op.u.write.size, replay_op.u.write.offset);
+                break;
+            case CODES_WK_MPI_WRITE:
+                ret = MPI_File_write_at(fh, replay_op.u.write.offset, buf, replay_op.u.write.size, MPI_BYTE, &status);
+                break;
+            case CODES_WK_MPI_COLL_WRITE:
+                ret = MPI_File_write_at_all(fh, replay_op.u.write.offset, buf, replay_op.u.write.size, MPI_BYTE, &status);
+                break;
+            default:
+                assert(0);
+        }
+
+        if (ret < 0)
+        {
+            if(replay_op.op_type == CODES_WK_WRITE)
+                perror("pwrite");
+
+            fprintf(stderr, "Rank %d failure on operation %lld [%s]\n",
+                    rank, op_number, op_name);
+            return -1;
+        }
+
+#if DEBUG_PROFILING
+        end = MPI_Wtime();
+        total_write_time += (end - start);
+#endif
+    }
+    return(0);
+}
+
+static int do_close(int rank, uint64_t file_hash, enum codes_workload_op_type type, long long op_number)
+{
+    int fildes;
+    MPI_File fh;
+    struct qlist_head *hash_link = NULL;
+    struct file_info *tmp_list = NULL;
+    int ret;
+
+    if (opt_verbose)
+        fprintf(log_stream, "[Rank %d] Operation %lld : %s file %"PRIu64"\n",
+                rank, op_number, (type == CODES_WK_CLOSE) ? "CLOSE" : "MPI_CLOSE", file_hash);
+
+    if (!opt_noop)
+    {
+        /* search for the corresponding file descriptor in the hash table */
+        hash_link = qhash_search_and_remove(fd_table, &(file_hash));
+        if(!hash_link && opt_prep)
+            return(0);
+        if(!hash_link)
+        {
+            fprintf(stderr, "ERROR: rank %d unable to find fd_table record for file_id %llu in close path.\n", rank, LLU(file_hash));
+            assert(hash_link);
+        }
+        tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
+        fildes = tmp_list->file_descriptor;
+        fh = tmp_list->fh;
+        free(tmp_list);
+
+        if(type == CODES_WK_CLOSE)
+        {
+            /* perform the close operation */
+            ret = close(fildes);
+            if (ret < 0 && !opt_prep)
+            {
+                fprintf(stderr, "Rank %d failure on operation %lld [CLOSE: %s]\n",
+                        rank, op_number, strerror(errno));
+                return -1;
+            }
+        }
+        else
+        {
+            ret = MPI_File_close(&fh);
+            if (ret < 0 && !opt_prep)
+            {
+                fprintf(stderr, "Rank %d failure on operation %lld [CLOSE]\n",
+                        rank, op_number);
+                return -1;
+            }
+        }
+#if DEBUG_PROFILING
+        end = MPI_Wtime();
+        total_close_time += (end - start);
+#endif
+    }
+
+    return(0);
+}
+
+static int do_mpi_open(int rank, uint64_t file_hash, int create_flag, int collective_flag, long long op_number)
+{
+    int mpi_open_flags = MPI_MODE_RDWR;
+    char file_name[250];
+    MPI_File fh;
+    int ret;
+    MPI_Comm comm = MPI_COMM_SELF;
+
+    if (opt_verbose)
+        fprintf(log_stream, "[Rank %d] Operation %lld: %s file %"PRIu64"\n", rank, op_number,
+               collective_flag ? "MPI_FILE_OPEN (collective)" : "MPI_FILE_OPEN (independent)", file_hash);
+
+    if (!opt_noop)
+    {
+        /* set the create flag, if necessary */
+        if (create_flag)
+            mpi_open_flags |= MPI_MODE_CREATE;
+        if (collective_flag)
+            comm = MPI_COMM_WORLD;
+
+        /* write the file hash to string to be used as the actual file name */
+        snprintf(file_name, sizeof(file_name), "%"PRIu64, file_hash);
+
+        /* perform the open operation */
+        ret = MPI_File_open(comm, file_name, mpi_open_flags, MPI_INFO_NULL, &fh);
+        if (ret < 0)
+        {
+            fprintf(stderr, "Rank %d failure on operation %lld [%s]\n",
+                    rank, op_number, "MPI_FILE_OPEN");
+            return -1;
+        }
+
+        if(track_open_file(file_hash, -1, fh) < 0)
+            return -1;
+    }
+
+    return(0);
+}
+
+static void convert_read_to_write(struct codes_workload_op *read_op,
+    struct codes_workload_op *write_op)
+{
+    memset(write_op, 0, sizeof(*write_op));
+
+    if(read_op->op_type == CODES_WK_MPI_READ)
+        write_op->op_type = CODES_WK_MPI_WRITE;
+    else if(read_op->op_type == CODES_WK_MPI_COLL_READ)
+        write_op->op_type = CODES_WK_MPI_COLL_WRITE;
+    else if(read_op->op_type == CODES_WK_READ)
+        write_op->op_type = CODES_WK_WRITE;
+    else
+        assert(0);
+
+    write_op->start_time = read_op->start_time;
+    write_op->end_time = read_op->end_time;
+    write_op->sim_start_time = read_op->sim_start_time;
+    write_op->u.write.file_id = read_op->u.read.file_id;
+    write_op->u.write.offset = read_op->u.read.offset;
+    write_op->u.write.size = read_op->u.read.size;
+
+    return;
+}
+
 int replay_workload_op(struct codes_workload_op replay_op, int rank, long long int op_number)
 {
     struct timespec delay;
     int open_flags = O_RDWR;
     char file_name[250];
     int fildes;
-    struct file_info *tmp_list = NULL;
-    struct qlist_head *hash_link = NULL;
     int ret;
-    int i;
+    struct codes_workload_op converted_op;
 
 #if DEBUG_PROFILING
     double start, end;
@@ -323,6 +646,8 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
     switch (replay_op.op_type)
     {
         case CODES_WK_DELAY:
+            if (opt_prep)
+                return(0);
             if (opt_verbose)
                 fprintf(log_stream, "[Rank %d] Operation %lld : DELAY %lf seconds\n",
                        rank, op_number, replay_op.u.delay.seconds);
@@ -370,7 +695,11 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
 #endif
             }
             return 0;
-        case CODES_WK_OPEN:
+         case CODES_WK_OPEN:
+            if(opt_prep && replay_op.u.open.create_flag)
+                return(0);
+            if(opt_prep)
+                replay_op.u.open.create_flag = 1;
             if (opt_verbose)
                 fprintf(log_stream, "[Rank %d] Operation %lld: %s file %"PRIu64"\n", rank, op_number,
                        (replay_op.u.open.create_flag) ? "CREATE" : "OPEN", replay_op.u.open.file_id);
@@ -394,121 +723,39 @@ int replay_workload_op(struct codes_workload_op replay_op, int rank, long long i
                     return -1;
                 }
 
-                /* save the file descriptor for this file in a hash table to be retrieved later */
-                tmp_list = malloc(sizeof(struct file_info));
-                if (!tmp_list)
-                {
-                    fprintf(stderr, "No memory available for file hash entry\n");
+                if(track_open_file(replay_op.u.open.file_id, fildes, MPI_FILE_NULL) < 0)
                     return -1;
-                }
-
-                tmp_list->file_hash = replay_op.u.open.file_id;
-                tmp_list->file_descriptor = fildes;
-                qhash_add(fd_table, &(replay_op.u.open.file_id), &(tmp_list->hash_link));
-
-                if (!buf)
-                {
-                    buf = malloc(16*1024*1024);
-                    assert(buf);
-                    for(i=0; i<16*1024*1024; i++)
-                    {
-                        buf[i] = '1';
-                    }
-                }
-
-#if DEBUG_PROFILING
-                end = MPI_Wtime();
-                total_open_time += (end - start);
-#endif
             }
             return 0;
+        case CODES_WK_MPI_OPEN:
+            if(opt_prep && replay_op.u.open.create_flag)
+                return(0);
+            return(do_mpi_open(rank, replay_op.u.open.file_id, 
+                replay_op.u.open.create_flag, 0, op_number));
+        case CODES_WK_MPI_COLL_OPEN:
+            if(opt_prep && replay_op.u.open.create_flag)
+                return(0);
+            return(do_mpi_open(rank, replay_op.u.open.file_id, 
+                replay_op.u.open.create_flag, 1, op_number));
         case CODES_WK_CLOSE:
-            if (opt_verbose)
-                fprintf(log_stream, "[Rank %d] Operation %lld : CLOSE file %"PRIu64"\n",
-                        rank, op_number, replay_op.u.close.file_id);
-
-            if (!opt_noop)
-            {
-                /* search for the corresponding file descriptor in the hash table */
-                hash_link = qhash_search_and_remove(fd_table, &(replay_op.u.close.file_id));
-                assert(hash_link);
-                tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
-                fildes = tmp_list->file_descriptor;
-                free(tmp_list);
-
-                /* perform the close operation */
-                ret = close(fildes);
-                if (ret < 0)
-                {
-                    fprintf(stderr, "Rank %d failure on operation %lld [CLOSE: %s]\n",
-                            rank, op_number, strerror(errno));
-                    return -1;
-                }
-
-#if DEBUG_PROFILING
-                end = MPI_Wtime();
-                total_close_time += (end - start);
-#endif
-            }
-            return 0;
+        case CODES_WK_MPI_CLOSE:
+            return(do_close(rank, replay_op.u.close.file_id, replay_op.op_type,
+                op_number));
         case CODES_WK_WRITE:
-            if (opt_verbose)
-                fprintf(log_stream, "[Rank %d] Operation %lld : WRITE file %llu (sz = %llu, off = %llu)\n",
-                       rank, op_number, LLU(replay_op.u.write.file_id), LLU(replay_op.u.write.size),
-                       LLU(replay_op.u.write.offset));
-
-            if (!opt_noop)
-            {
-                /* search for the corresponding file descriptor in the hash table */
-                hash_link = qhash_search(fd_table, &(replay_op.u.write.file_id));
-                assert(hash_link);
-                tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
-                fildes = tmp_list->file_descriptor;
-
-                ret = pwrite(fildes, buf, replay_op.u.write.size, replay_op.u.write.offset);
-
-                if (ret < 0)
-                {
-                    fprintf(stderr, "Rank %d failure on operation %lld [WRITE: %s]\n",
-                            rank, op_number, strerror(errno));
-                    return -1;
-                }
-
-#if DEBUG_PROFILING
-                end = MPI_Wtime();
-                total_write_time += (end - start);
-#endif
-            }
-            return 0;
+        case CODES_WK_MPI_WRITE:
+        case CODES_WK_MPI_COLL_WRITE:
+            if(opt_prep)
+                return(0);
+            return(do_write(replay_op, rank, op_number));
         case CODES_WK_READ:
-            if (opt_verbose)
-                fprintf(log_stream, "[Rank %d] Operation %lld : READ file %llu (sz = %llu, off = %llu)\n",
-                        rank, op_number, LLU(replay_op.u.read.file_id),
-                        LLU(replay_op.u.read.size), LLU(replay_op.u.read.offset));
-
-            if (!opt_noop)
+        case CODES_WK_MPI_READ:
+        case CODES_WK_MPI_COLL_READ:
+            if(opt_prep)
             {
-                /* search for the corresponding file descriptor in the hash table */
-                hash_link = qhash_search(fd_table, &(replay_op.u.read.file_id));
-                assert(hash_link);
-                tmp_list = qhash_entry(hash_link, struct file_info, hash_link);
-                fildes = tmp_list->file_descriptor;
-
-                ret = pread(fildes, buf, replay_op.u.read.size, replay_op.u.read.offset);
-
-                if (ret < 0)
-                {
-                    fprintf(stderr, "Rank %d failure on operation %lld [READ: %s]\n",
-                            rank, op_number, strerror(errno));
-                    return -1;
-                }
-
-#if DEBUG_PROFILING
-                end = MPI_Wtime();
-                total_read_time += (end - start);
-#endif
+                convert_read_to_write(&replay_op, &converted_op);
+                return(do_write(converted_op, rank, op_number));
             }
-            return 0;
+            return(do_read(replay_op, rank, op_number));
         default:
             fprintf(stderr, "** Rank %d: INVALID OPERATION (op count = %lld) **\n", rank, op_number);
             return 0;

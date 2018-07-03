@@ -123,8 +123,6 @@ tw_lptype svr_lp = {
 };
 
 /* setup for the ROSS event tracing
- * can have a different function for  rbev_trace_f and ev_trace_f
- * but right now it is set to the same function for both
  */
 void ft_svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
@@ -150,13 +148,14 @@ void ft_svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
 }
 
 st_model_types ft_svr_model_types[] = {
-    {(rbev_trace_f) ft_svr_event_collect,
-     sizeof(int),
-     (ev_trace_f) ft_svr_event_collect,
+    {(ev_trace_f) ft_svr_event_collect,
      sizeof(int),
      (model_stat_f) ft_svr_model_stat_collect,
+     0,
+     NULL,
+     NULL,
      0},
-    {NULL, 0, NULL, 0, NULL, 0}
+    {NULL, 0, NULL, 0, NULL, NULL, 0}
 };
 
 static const st_model_types  *ft_svr_get_model_stat_types(void)
@@ -308,7 +307,7 @@ static void handle_kickoff_event(
 
    ns->msg_sent_count++;
 
-   model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+   m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
 
    //printf("LP:%d localID:%d Here\n",(int)lp->gid, (int)local_dest);
    issue_event(ns, lp);
@@ -456,7 +455,7 @@ int main(
 
     svr_add_lp_type();
 
-    if (g_st_ev_trace)
+    if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
         ft_svr_register_model_stats();
 
     codes_mapping_setup();
