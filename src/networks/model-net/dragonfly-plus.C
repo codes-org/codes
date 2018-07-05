@@ -319,6 +319,7 @@ struct terminal_state
     tw_stime min_latency;
 
     char output_buf[4096];
+    char output_buf2[4096];
     /* For LP suspend functionality */
     int error_ct;
 
@@ -2347,27 +2348,53 @@ void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
 {
     model_net_print_stats(lp->gid, s->dragonfly_stats_array);
 
+    int written = 0;
+    if (s->terminal_id == 0) {
+        written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <dest_id> < dest_type>  <link_type> <link_traffic> <link_saturation>");
+    }
+    written += sprintf(s->output_buf + written, "\n%u %s %llu %s %s %llu %lf",
+        s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time);
+
+    lp_io_write(lp->gid, (char*)"dragonfly-plus-link-stats", written, s->output_buf);
+
+
     if (s->terminal_id == 0) {
         char meta_filename[64];
-        sprintf(meta_filename, "dragonfly-msg-stats.meta");
+        sprintf(meta_filename, "dragonfly-plus-cn-stats.meta");
 
-        FILE *fp = fopen(meta_filename, "w+");
-        fprintf(fp,
-                "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets "
-                "finished> <Avg hops> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
+        FILE * fp = fopen(meta_filename, "w+");
+        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
     }
-    int written = 0;
+   
+    written = 0;
+    written += sprintf(s->output_buf2 + written, "%llu %llu %lf %lf %lf %lf %llu %lf\n", 
+            lp->gid, s->terminal_id, s->total_time/s->finished_chunks, 
+            s->busy_time, s->max_latency, s->min_latency,
+            s->finished_packets, (double)s->total_hops/s->finished_chunks);
 
-    written += sprintf(s->output_buf + written, "%llu %u %llu %lf %ld %lf %lf %lf %lf\n", LLU(lp->gid),
-                       s->terminal_id, LLU(s->total_msg_size), s->total_time / s->finished_chunks,
-                       s->finished_packets, (double) s->total_hops / s->finished_chunks, s->busy_time,
-                       s->max_latency, s->min_latency);
 
-    lp_io_write(lp->gid, (char *) "dragonfly-msg-stats", written, s->output_buf);
+    lp_io_write(lp->gid, (char*)"dragonfly-plus-cn-stats", written, s->output_buf2); 
+
+    // if (s->terminal_id == 0) {
+    //     char meta_filename[64];
+    //     sprintf(meta_filename, "dragonfly-msg-stats.meta");
+
+    //     FILE *fp = fopen(meta_filename, "w+");
+    //     fprintf(fp,
+    //             "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets "
+    //             "finished> <Avg hops> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
+    // }
+    // int written = 0;
+
+    // written += sprintf(s->output_buf + written, "%llu %u %llu %lf %ld %lf %lf %lf %lf\n", LLU(lp->gid),
+    //                    s->terminal_id, LLU(s->total_msg_size), s->total_time / s->finished_chunks,
+    //                    s->finished_packets, (double) s->total_hops / s->finished_chunks, s->busy_time,
+    //                    s->max_latency, s->min_latency);
+
+    // lp_io_write(lp->gid, (char *) "dragonfly-msg-stats", written, s->output_buf);
 
     if (s->terminal_msgs[0] != NULL)
         printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
-
 
     // if(s->packet_gen != s->packet_fin)
     //    printf("\n generated %d finished %d ", s->packet_gen, s->packet_fin);
@@ -2383,33 +2410,6 @@ void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
 
 void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
 {
-    // int max_gc_usage = 0;
-    // int min_gc_usage = INT_MAX;
-
-    // int running_sum = 0;
-    // for(int i = 0; i < s->params->num_global_connections; i++)
-    // {
-    //     int gc_val = s->gc_usage[i];
-    //     running_sum += gc_val;
-
-    //     if (gc_val > max_gc_usage)
-    //         max_gc_usage = gc_val;
-    //     if (gc_val < min_gc_usage)
-    //         min_gc_usage = gc_val;
-    // }
-    // double mean_gc_usage = (double) running_sum / (double) s->params->num_global_connections; 
-
-    // if (s->dfp_router_type == SPINE) {
-    //     printf("Router %d in group %d:   Min GC Usage= %d    Max GC Usage= %d     Mean GC Usage= %.2f", s->router_id, s->router_id / s->params->num_routers, min_gc_usage, max_gc_usage, mean_gc_usage);
-    //     printf("\t[");
-    //     for(int i = 0; i < s->params->num_global_connections; i++)
-    //     {
-    //         printf("%d ",s->gc_usage[i]);
-    //     }
-    //     printf("]\n");
-    // }
-
-
     free(s->global_channel);
     int i, j;
     for (i = 0; i < s->params->radix; i++) {
@@ -2426,60 +2426,101 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
 
     rc_stack_destroy(s->st);
 
-    /*MM: These statistics will need to be updated for dragonfly plus.
-     * Especially the meta file information on router ports still have green
-     * and black links. */
     const dragonfly_plus_param *p = s->params;
     int written = 0;
-    if (!s->router_id) {
-        written =
-            sprintf(s->output_buf, "# Format <Type> <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
-        written += sprintf(s->output_buf + written, "\n# Router ports in the order: %d Intra Links, %d Inter Links %d Terminal Links. Hyphens for Unconnected ports (No terminals on Spine routers)", p->intra_grp_radix, p->num_global_connections, p->num_cn);  
+    int src_rel_id = s->router_id % p->num_routers;
+    int local_grp_id = s->router_id / p->num_routers;
+
+    for( int d = 0; d < p->intra_grp_radix; d++)
+    {
+        if (d != src_rel_id) {
+            int dest_ab_id = local_grp_id * p->num_routers + d;
+            written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf",
+                s->router_id,
+                "R",
+                dest_ab_id,
+                "R",
+                "L",
+                s->link_traffic[d],
+                s->busy_time[d] );
+        }
     }
 
-    char router_type[10];
-    if (s->dfp_router_type == LEAF)
-        strcpy(router_type,"LEAF");
-    else if(s->dfp_router_type == SPINE)
-        strcpy(router_type,"SPINE");
+    vector< Connection > my_global_links = s->connMan->get_connections_by_type(CONN_GLOBAL);
+    vector< Connection >::iterator it = my_global_links.begin();
 
-    written += sprintf(s->output_buf + written, "\n%s %llu %d %d", router_type, LLU(lp->gid), s->router_id / p->num_routers, s->router_id % p->num_routers);
-    for (int d = 0; d < p->radix; d++) {
-        bool printed_hyphen = false;
-        ConnectionType port_type = s->connMan->get_port_type(d);
-        
-        if (port_type == 0) {
-            written += sprintf(s->output_buf + written, " -");
-            printed_hyphen = true;
-        }
-        if (printed_hyphen == false)
-            written += sprintf(s->output_buf + written, " %lf", s->busy_time[d]);
+    for(; it != my_global_links.end(); it++)
+    {
+        int dest_rtr_id = it->dest_gid;
+        int port_no = it->port;
+        assert(port_no >= 0 && port_no < p->radix);
+        written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf",
+            s->router_id,
+            "R",
+            dest_rtr_id,
+            "R",
+            "G",
+            s->link_traffic[port_no],
+            s->busy_time[port_no] );
     }
 
     sprintf(s->output_buf + written, "\n");
-    lp_io_write(lp->gid, (char *) "dragonfly-plus-router-stats", written, s->output_buf);
+    lp_io_write(lp->gid, (char*)"dragonfly-plus-link-stats", written, s->output_buf);
 
-    written = 0;
-    if (!s->router_id) {
-        written =
-            sprintf(s->output_buf2, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
-        written += sprintf(s->output_buf2 + written, "\n# Router ports in the order: %d Intra Links, %d Inter Links %d Terminal Links. Hyphens for Unconnected ports (No terminals on Spine routers)", p->intra_grp_radix, p->num_global_connections, p->num_cn);  
-    }
-    written += sprintf(s->output_buf2 + written, "\n%s %llu %d %d", router_type, LLU(lp->gid), s->router_id / p->num_routers, s->router_id % p->num_routers);
+    // /*MM: These statistics will need to be updated for dragonfly plus.
+    //  * Especially the meta file information on router ports still have green
+    //  * and black links. */
+    // const dragonfly_plus_param *p = s->params;
+    // int written = 0;
+    // if (!s->router_id) {
+    //     written =
+    //         sprintf(s->output_buf, "# Format <Type> <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
+    //     written += sprintf(s->output_buf + written, "\n# Router ports in the order: %d Intra Links, %d Inter Links %d Terminal Links. Hyphens for Unconnected ports (No terminals on Spine routers)", p->intra_grp_radix, p->num_global_connections, p->num_cn);  
+    // }
 
-    for (int d = 0; d < p->radix; d++) {
-        bool printed_hyphen = false;
-        ConnectionType port_type = s->connMan->get_port_type(d);
+    // char router_type[10];
+    // if (s->dfp_router_type == LEAF)
+    //     strcpy(router_type,"LEAF");
+    // else if(s->dfp_router_type == SPINE)
+    //     strcpy(router_type,"SPINE");
 
-        if (port_type == 0) {
-            written += sprintf(s->output_buf2 + written, " -");
-            printed_hyphen = true;
-        }
-        if (printed_hyphen == false)
-            written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
-    }
+    // written += sprintf(s->output_buf + written, "\n%s %llu %d %d", router_type, LLU(lp->gid), s->router_id / p->num_routers, s->router_id % p->num_routers);
+    // for (int d = 0; d < p->radix; d++) {
+    //     bool printed_hyphen = false;
+    //     ConnectionType port_type = s->connMan->get_port_type(d);
+        
+    //     if (port_type == 0) {
+    //         written += sprintf(s->output_buf + written, " -");
+    //         printed_hyphen = true;
+    //     }
+    //     if (printed_hyphen == false)
+    //         written += sprintf(s->output_buf + written, " %lf", s->busy_time[d]);
+    // }
 
-    lp_io_write(lp->gid, (char *) "dragonfly-plus-router-traffic", written, s->output_buf2);
+    // sprintf(s->output_buf + written, "\n");
+    // lp_io_write(lp->gid, (char *) "dragonfly-plus-router-stats", written, s->output_buf);
+
+    // written = 0;
+    // if (!s->router_id) {
+    //     written =
+    //         sprintf(s->output_buf2, "# Format <LP ID> <Group ID> <Router ID> <Busy time per router port(s)>");
+    //     written += sprintf(s->output_buf2 + written, "\n# Router ports in the order: %d Intra Links, %d Inter Links %d Terminal Links. Hyphens for Unconnected ports (No terminals on Spine routers)", p->intra_grp_radix, p->num_global_connections, p->num_cn);  
+    // }
+    // written += sprintf(s->output_buf2 + written, "\n%s %llu %d %d", router_type, LLU(lp->gid), s->router_id / p->num_routers, s->router_id % p->num_routers);
+
+    // for (int d = 0; d < p->radix; d++) {
+    //     bool printed_hyphen = false;
+    //     ConnectionType port_type = s->connMan->get_port_type(d);
+
+    //     if (port_type == 0) {
+    //         written += sprintf(s->output_buf2 + written, " -");
+    //         printed_hyphen = true;
+    //     }
+    //     if (printed_hyphen == false)
+    //         written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
+    // }
+
+    // lp_io_write(lp->gid, (char *) "dragonfly-plus-router-traffic", written, s->output_buf2);
 }
 
 static int get_min_hops_to_dest_from_conn(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, Connection conn)
