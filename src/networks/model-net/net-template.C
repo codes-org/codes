@@ -401,22 +401,22 @@ static void local_report_stats()
   long total_gen, total_fin;
 
   MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0,
-      MPI_COMM_WORLD);
+      MPI_COMM_CODES);
   MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG,
-      MPI_SUM, 0, MPI_COMM_WORLD);
+      MPI_SUM, 0, MPI_COMM_CODES);
   MPI_Reduce( &N_finished_msgs, &total_finished_msgs, 1, MPI_LONG_LONG, MPI_SUM,
-      0, MPI_COMM_WORLD);
+      0, MPI_COMM_CODES);
   MPI_Reduce( &N_finished_chunks, &total_finished_chunks, 1, MPI_LONG_LONG,
-      MPI_SUM, 0, MPI_COMM_WORLD);
+      MPI_SUM, 0, MPI_COMM_CODES);
   MPI_Reduce( &total_msg_sz, &final_msg_sz, 1, MPI_LONG_LONG, MPI_SUM, 0,
-      MPI_COMM_WORLD);
+      MPI_COMM_CODES);
   MPI_Reduce( &local_total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0,
-      MPI_COMM_WORLD);
+      MPI_COMM_CODES);
   MPI_Reduce( &local_max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0,
-      MPI_COMM_WORLD);
+      MPI_COMM_CODES);
 
-  MPI_Reduce( &packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-  MPI_Reduce( &packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Reduce( &packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+  MPI_Reduce( &packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
 
   /* print statistics */
   if(!g_tw_mynode)

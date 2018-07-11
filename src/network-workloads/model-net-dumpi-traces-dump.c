@@ -414,6 +414,11 @@ int main( int argc, char** argv )
   workload_type[0]='\0';
   tw_opt_add(app_opt);
   tw_init(&argc, &argv);
+#ifdef USE_RDAMARIS
+    if(g_st_ross_rank)
+    { // keep damaris ranks from running code between here up until tw_end()
+#endif
+  codes_comm_update();
 
   if(strlen(workload_file) == 0)
     {
@@ -423,10 +428,10 @@ int main( int argc, char** argv )
 	return -1;
     }
 
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Comm_rank(MPI_COMM_CODES, &rank);
+    MPI_Comm_size(MPI_COMM_CODES, &nprocs);
 
-   configuration_load(argv[2], MPI_COMM_WORLD, &config);
+   configuration_load(argv[2], MPI_COMM_CODES, &config);
 
    nw_add_lp_type();
 
@@ -446,20 +451,20 @@ int main( int argc, char** argv )
     double total_avg_comp_time;
     long overall_sends, overall_recvs, overall_waits, overall_cols;
 	
-    MPI_Reduce(&num_bytes_sent, &total_bytes_sent, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&num_bytes_recvd, &total_bytes_recvd, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce(&avg_time, &avg_run_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&num_bytes_sent, &total_bytes_sent, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+    MPI_Reduce(&num_bytes_recvd, &total_bytes_recvd, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce(&avg_time, &avg_run_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
 
-   MPI_Reduce(&avg_recv_time, &total_avg_recv_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce(&avg_comm_time, &avg_comm_run_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce(&avg_col_time, &avg_col_run_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-  MPI_Reduce(&avg_wait_time, &total_avg_wait_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce(&avg_send_time, &total_avg_send_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce(&avg_compute_time, &total_avg_comp_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce(&total_sends, &overall_sends, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce(&total_recvs, &overall_recvs, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce(&total_waits, &overall_waits, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-   MPI_Reduce(&total_collectives, &overall_cols, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce(&avg_recv_time, &total_avg_recv_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce(&avg_comm_time, &avg_comm_run_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce(&avg_col_time, &avg_col_run_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
+  MPI_Reduce(&avg_wait_time, &total_avg_wait_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce(&avg_send_time, &total_avg_send_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce(&avg_compute_time, &total_avg_comp_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce(&total_sends, &overall_sends, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce(&total_recvs, &overall_recvs, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce(&total_waits, &overall_waits, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+   MPI_Reduce(&total_collectives, &overall_cols, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
 
    if(!g_tw_mynode)
 	printf("\n Total bytes sent %lld recvd %lld \n avg runtime %lf \n avg comm time %lf avg compute time %lf \n avg send time %lf \n avg recv time %lf \n avg wait time %lf \n total sends %ld total recvs %ld total waits %ld total collectives %ld ", total_bytes_sent, total_bytes_recvd, 
@@ -470,6 +475,9 @@ int main( int argc, char** argv )
 			total_avg_recv_time/num_net_lps,
 			total_avg_wait_time/num_net_lps,
 			overall_sends, overall_recvs, overall_waits, overall_cols);
+#ifdef USE_RDAMARIS
+    } // end if(g_st_ross_rank)
+#endif
    tw_end();
   
   return 0;
