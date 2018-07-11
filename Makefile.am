@@ -80,3 +80,7 @@ endif
 LDADD += ${DUMPI_LIBS}
 endif
 
+if USE_RDAMARIS
+AM_CPPFLAGS += ${ROSS_Damaris_CFLAGS} -DUSE_RDAMARIS=1
+LDADD += ${ROSS_Damaris_LIBS}
+endif

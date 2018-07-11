@@ -84,6 +84,16 @@ AC_TRY_COMPILE([#include <mpi.h>], [int ret = MPI_Init(0, (void*)0)],
 PKG_CHECK_MODULES_STATIC([ROSS], [ross], [],
                   [AC_MSG_ERROR([Could not find working ross installation via pkg-config])])
 
+#check for Damaris
+AC_ARG_WITH([damaris],[AS_HELP_STRING([--with-damaris],
+                        [build with ROSS-Damaris in situ analysis support])],
+                        [use_rdamaris=yes],[use_rdamaris=no])
+if test "x${use_rdamaris}" != "x" ; then
+    PKG_CHECK_MODULES_STATIC([ROSS_Damaris], [ross-damaris], [],
+                             [AC_MSG_ERROR([Could not find working ROSS-Damaris installation via pkg-config])])
+fi
+AM_CONDITIONAL(USE_RDAMARIS, [test "x${use_rdamaris}" = xyes])
+
 # check for enable-g
 AC_ARG_ENABLE([g],[AS_HELP_STRING([--enable-g],
 			[Build with GDB symbols])],
