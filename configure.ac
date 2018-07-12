@@ -88,7 +88,7 @@ PKG_CHECK_MODULES_STATIC([ROSS], [ross], [],
 AC_ARG_WITH([damaris],[AS_HELP_STRING([--with-damaris],
                         [build with ROSS-Damaris in situ analysis support])],
                         [use_rdamaris=yes],[use_rdamaris=no])
-if test "x${use_rdamaris}" != "x" ; then
+if test "x${use_rdamaris}" = xyes ; then
     PKG_CHECK_MODULES_STATIC([ROSS_Damaris], [ross-damaris], [],
                              [AC_MSG_ERROR([Could not find working ROSS-Damaris installation via pkg-config])])
 fi
