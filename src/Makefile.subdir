@@ -18,7 +18,7 @@ EXTRA_DIST += src/iokernellang/codesparser.y.in \
 			  src/workload/README.codes-workload \
 			  src/network-workloads/README_synthetic.txt \
 			  src/network-workloads/README_traces.txt \
-			  src/network-workloads/workloads.conf \
+			  src/network-workloads/conf/workloads.conf \
 			  src/network-workloads/README_synthetic_slimfly.txt \
 			  src/network-workloads/conf/modelnet-mpi-test.conf \
 			  src/network-workloads/conf/modelnet-mpi-test-cry-router.conf \
@@ -91,8 +91,10 @@ nobase_include_HEADERS = \
 	codes/model-net-lp.h \
 	codes/model-net-sched.h \
 	codes/model-net-inspect.h \
+	codes/connection-manager.h	\
 	codes/net/common-net.h \
 	codes/net/dragonfly.h \
+	codes/net/dragonfly-plus.h	\
 	codes/net/dragonfly-custom.h \
 	codes/net/slimfly.h \
 	codes/net/fattree.h \
@@ -101,7 +103,7 @@ nobase_include_HEADERS = \
 	codes/net/simplep2p.h \
 	codes/net/express-mesh.h \
 	codes/net/torus.h \
-  codes/codes-mpi-replay.h \
+    codes/codes-mpi-replay.h \
 	codes/configfile.h
 
 

@@ -1,3 +1,46 @@
+1.0.0 (July 12, 2018)
+
+general:
+=======
+Adding support for dragonfly-plus network model. Multiple forms of routing
+(progressive adaptive, minimal, non-minimal-spine and leaf) have been
+implemented.
+
+https://xgitlab.cels.anl.gov/codes/codes/wikis/dragonfly-plus
+
+Adding support for express mesh network model, which can be configured as
+hyperX.
+
+Adding support for Multi-plane/rail in fat-tree via multiple single port NICs
+per compute node or one multi-port NIC per node.
+
+Adding a generic template for building new network models. For simplest case,
+only 2 functions and premable changes should suffice to add a new network.
+Updated Express Mesh network model to serve as an example. For details, see 
+
+Darshan workload generator has been updated to use Darshan version 3.x.
+
+Network models updated to capture simulation statistics over virtual time using
+ROSS/CODES instrumentation. For details, see:
+
+https://xgitlab.cels.anl.gov/codes/codes/wikis/Using-ROSS-Instrumentation-with-CODES
+
+Compatible with ROSS version that enables statistics collection of simulation
+performance. For details see:
+
+http://carothersc.github.io/ROSS/instrumentation/instrumentation.html
+
+Online workload replay functionality has been added that allows SWM workloads
+to be simulated insitu on the network models. WIP to integrate Conceptual
+domain specific language for network communication.  
+
+Multiple traffic patterns were added in the background traffic generation
+including stencil, all-to-all and random permutation.
+
+Performance tuning enabled for optimistic mode. For details, see:
+
+https://xgitlab.cels.anl.gov/codes/codes/wikis/Optimistic-Performance-Tuning-Tips
+
 0.6.0 (July 03, 2017)
 
 general:

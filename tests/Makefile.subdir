@@ -46,7 +46,7 @@ EXTRA_DIST += tests/download-traces.sh \
  tests/workload/codes-workload-test.conf \
  tests/workload/README.txt \
  tests/workload/darshan-dump.sh \
- tests/workload/example.darshan.gz \
+ tests/workload/example.darshan \
  tests/mapping_test.sh \
  tests/lsm-test.sh \
  tests/resource-test.sh \
@@ -80,6 +80,7 @@ EXTRA_DIST += tests/download-traces.sh \
  tests/conf/modelnet-test-bw.conf \
  tests/conf/modelnet-test-bw-tri.conf \
  tests/conf/modelnet-test.conf \
+ tests/conf/modelnet-test-em.conf	\
  tests/conf/modelnet-test-dragonfly.conf \
  tests/conf/modelnet-test-slimfly.conf \
  tests/conf/modelnet-test-loggp.conf \
