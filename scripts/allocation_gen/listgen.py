@@ -1,6 +1,9 @@
 import sys
 import random
+
 alloc_file = 'allocation.conf'
+if len(sys.argv) > 2:
+    alloc_file = sys.argv[2]
 
 def contiguous_alloc(job_ranks, total_nodes):
     f = open(alloc_file,'w')
@@ -30,7 +33,6 @@ def cube_alloc(job_ranks, total_nodes):
                 row.append(i+offset)
             layer += row
         cube += layer
-    print "list length is", len(cube), cube
 
     f = open('cube_allc_linear.conf','w')
     for rankid in range(len(cube)):
@@ -57,7 +59,6 @@ def permeate_alloc(job_ranks, total_nodes):
         permeate_list = node_list[num_rank*permeate_area: (num_rank+1)*permeate_area]
         alloc_list = random.sample(permeate_list, job_ranks[num_rank])
         alloc_list.sort()
-        print "length of alloc list", len(alloc_list), "\n", alloc_list,"\n"
         for idx in range(len(alloc_list)):
             f.write("%s " % alloc_list[idx])
         f.write("\n")
@@ -70,7 +71,6 @@ def random_alloc(job_rank, total_nodes):
     for rankid in range(len(job_rank)):
         alloc_list = random.sample(node_list, job_rank[rankid])
         node_list = [i for i in node_list if (i not in alloc_list)]
-        print "length of alloc list", len(alloc_list), "\n", alloc_list,"\n"
         for idx in range(len(alloc_list)):
             f.write("%s " % alloc_list[idx])
         f.write("\n")
@@ -110,22 +110,22 @@ def stripe_alloc(job_ranks, total_nodes):
 
 def policy_select(plcy, job_ranks, total_nodes):
     if plcy == "CONT":
-        print "contiguous alloction!"
+        print("contiguous alloction!")
         contiguous_alloc(job_ranks,  total_nodes)
     elif plcy == "rand":
-        print "random allocation!"
+        print("random allocation!")
         random_alloc(job_ranks, total_nodes)
     elif plcy == "STRIPE":
-        print "stripe allcation!"
+        print("stripe allcation!")
         stripe_alloc(job_ranks, total_nodes)
     elif plcy == "PERMEATE":
-        print "permeate allocation!"
+        print("permeate allocation!")
         permeate_alloc(job_ranks, total_nodes)
     elif plcy == "CUBE":
-        print "cube allocation!"
+        print("cube allocation!")
         cube_alloc(job_ranks, total_nodes)
     else:
-        print "NOT Supported yet!"
+        print("NOT Supported yet!")
 
 
 if __name__ == "__main__":
@@ -139,8 +139,8 @@ if __name__ == "__main__":
     f.close()
     alloc_plcy = array.pop(0)
     total_nodes = array.pop(0)
-    print alloc_plcy
+    print(alloc_plcy)
     array = map(int, array)
-    print array
+    print(array)
     policy_select(alloc_plcy, array, total_nodes)
 

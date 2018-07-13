@@ -13,6 +13,8 @@ EXTRA_PROGRAMS =
 CLEANFILES = $(bin_SCRIPTS)
 EXTRA_DIST =
 BUILT_SOURCES =
+AM_LDFLAGS =
+
 
 # pkgconfig files
 pkgconfigdir = $(libdir)/pkgconfig
@@ -55,6 +57,12 @@ endif
 if USE_RECORDER
 AM_CPPFLAGS += ${RECORDER_CPPFLAGS}
 src_libcodes_la_SOURCES += src/workload/methods/codes-recorder-io-wrkld.c
+endif
+
+if USE_ONLINE
+AM_CPPFLAGS += ${ARGOBOTS_CFLAGS} ${SWM_CFLAGS} -DUSE_ONLINE=1
+LDADD += ${SWM_LIBS} ${ARGOBOTS_LIBS}
+src_libcodes_la_SOURCES += src/workload/methods/codes-online-comm-wrkld.C
 endif
 
 if USE_DUMPI
