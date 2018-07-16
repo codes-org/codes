@@ -138,7 +138,7 @@ void mn_event_collect(model_net_wrap_msg *m, tw_lp *lp, char *buffer, int *colle
             type = 9001;
             memcpy(buffer, &type, sizeof(type));
             break;
-        case MN_BASE_SAMPLE: 
+        case MN_BASE_SAMPLE:
             type = 9002;
             memcpy(buffer, &type, sizeof(type));
             break;
@@ -371,6 +371,10 @@ void model_net_base_configure(){
         offsetof(model_net_wrap_msg, msg.m_custom_dfly);
     msg_offsets[DRAGONFLY_CUSTOM_ROUTER] =
         offsetof(model_net_wrap_msg, msg.m_custom_dfly);
+    msg_offsets[DRAGONFLY_PLUS] =
+        offsetof(model_net_wrap_msg, msg.m_dfly_plus);
+    msg_offsets[DRAGONFLY_PLUS_ROUTER] =
+        offsetof(model_net_wrap_msg, msg.m_dfly_plus);
     msg_offsets[SLIMFLY] =
         offsetof(model_net_wrap_msg, msg.m_slim);
     msg_offsets[FATTREE] =
@@ -453,10 +457,10 @@ void model_net_base_lp_init(
             break;
         }
     }
-    
+
     ns->nics_per_router = codes_mapping_get_lp_count(group, 1,
             lp_type_name, NULL, 1);
-    
+
     ns->msg_id = 0;
     ns->next_available_time = 0;
     ns->node_copy_next_available_time = (tw_stime*)malloc(ns->params->node_copy_queues * sizeof(tw_stime));
@@ -614,7 +618,7 @@ void handle_new_msg(
         char const *sender_lpname;
         int rep_id, offset;
         model_net_request *r = &m->msg.m_base.req;
-        codes_mapping_get_lp_info2(r->src_lp, &sender_group, &sender_lpname, 
+        codes_mapping_get_lp_info2(r->src_lp, &sender_group, &sender_lpname,
                 NULL, &rep_id, &offset);
         num_servers = codes_mapping_get_lp_count(sender_group, 1,
                 sender_lpname, NULL, 1);
@@ -625,10 +629,10 @@ void handle_new_msg(
         if(!g_tw_mynode) {
             fprintf(stdout, "Set num_servers per router %d, servers per "
                 "injection queue per router %d, servers per node copy queue "
-                "per node %d\n", num_servers, servers_per_node, 
+                "per node %d\n", num_servers, servers_per_node,
                 servers_per_node_queue);
         }
-    } 
+    }
 
     if(lp->gid == m->msg.m_base.req.dest_mn_lp) {
         model_net_request *r = &m->msg.m_base.req;
@@ -636,7 +640,7 @@ void handle_new_msg(
         codes_mapping_get_lp_info2(r->src_lp, NULL, NULL, NULL, &rep_id, &offset);
         int queue = offset/ns->nics_per_router/servers_per_node_queue;
         m->msg.m_base.save_ts = ns->node_copy_next_available_time[queue];
-        tw_stime exp_time = ((ns->node_copy_next_available_time[queue] 
+        tw_stime exp_time = ((ns->node_copy_next_available_time[queue]
                             > tw_now(lp)) ? ns->node_copy_next_available_time[queue] : tw_now(lp));
         exp_time += r->msg_size * codes_cn_delay;
         exp_time -= tw_now(lp);
@@ -650,7 +654,7 @@ void handle_new_msg(
             tw_event *e = tw_event_new(r->final_dest_lp, exp_time, lp);
             memcpy(tw_event_data(e), e_msg, remote_event_size);
             tw_event_send(e);
-            e_msg = (char*)e_msg + remote_event_size; 
+            e_msg = (char*)e_msg + remote_event_size;
         }
         if (self_event_size > 0) {
             exp_time += delay;
@@ -676,8 +680,8 @@ void handle_new_msg(
         int self_event_size = r->self_event_size;
         if (remote_event_size > 0){
             memcpy(e_new_msg, e_msg, remote_event_size);
-            e_msg = (char*)e_msg + remote_event_size; 
-            e_new_msg = (char*)e_new_msg + remote_event_size; 
+            e_msg = (char*)e_msg + remote_event_size;
+            e_new_msg = (char*)e_new_msg + remote_event_size;
         }
         if (self_event_size > 0){
             memcpy(e_new_msg, e_msg, self_event_size);
@@ -685,7 +689,7 @@ void handle_new_msg(
         m_new->msg.m_base.isQueueReq = 0;
         tw_event_send(e);
         return;
-    } 
+    }
     // simply pass down to the scheduler
     model_net_request *r = &m->msg.m_base.req;
     // don't forget to set packet size, now that we're responsible for it!
@@ -707,7 +711,7 @@ void handle_new_msg(
         if(num_servers == -1) {
             char const *sender_group;
             char const *sender_lpname;
-            codes_mapping_get_lp_info2(r->src_lp, &sender_group, &sender_lpname, 
+            codes_mapping_get_lp_info2(r->src_lp, &sender_group, &sender_lpname,
                     NULL, &rep_id, &offset);
             num_servers = codes_mapping_get_lp_count(sender_group, 1,
                     sender_lpname, NULL, 1);
@@ -911,7 +915,7 @@ void model_net_method_idle_event(tw_stime offset_ts, int is_recv_queue,
     model_net_method_idle_event2(offset_ts, is_recv_queue, 0, lp);
 }
 
-void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue, 
+void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue,
         int queue_offset, tw_lp * lp){
     tw_event *e = tw_event_new(lp->gid, offset_ts, lp);
     model_net_wrap_msg *m_wrap = tw_event_data(e);

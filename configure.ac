@@ -2,8 +2,12 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.67])
-AC_INIT([codes], [0.6.0], [http://trac.mcs.anl.gov/projects/codes/newticket],[],[http://www.mcs.anl.gov/projects/codes/])
+AC_INIT([codes], [1.0.0], [http://trac.mcs.anl.gov/projects/codes/newticket],[],[http://www.mcs.anl.gov/projects/codes/])
 LT_INIT
+
+
+#WRAP SOME OPTION AROUND THIS - IT'S NOT REQUIRED FOR 99% OF CODES
+AX_BOOST_BASE([1.66])
 
 AC_CANONICAL_TARGET
 AC_CANONICAL_SYSTEM
@@ -26,6 +30,7 @@ AC_PROG_CC
 AM_PROG_CC_C_O
 AC_PROG_CXX
 AC_PROG_CXXCPP
+AX_CXX_COMPILE_STDCXX(11, noext, mandatory)
 AC_PROG_RANLIB
 
 PKG_PROG_PKG_CONFIG
@@ -113,6 +118,24 @@ if test "x${use_darshan}" = xyes ; then
 fi
 AM_CONDITIONAL(USE_DARSHAN, [test "x${use_darshan}" = xyes])
 
+
+# check for Argobots
+AC_ARG_WITH([online],[AS_HELP_STRING([--with-online@<:@=DIR@:>@],
+                        [Build with the online workloads and argobots support])],
+                      [use_online=yes],[use_online=no])
+if test "x${use_online}" != "xno" ; then
+    AM_CONDITIONAL(USE_ONLINE, true)
+    PKG_CHECK_MODULES_STATIC([ARGOBOTS], [argobots], [],
+                      [AC_MSG_ERROR([Could not find working argobots installation via pkg-config])])
+    PKG_CHECK_MODULES_STATIC([SWM], [swm], [],
+                      [AC_MSG_ERROR([Could not find working swm installation via pkg-config])])
+    PKG_CHECK_VAR([SWM_DATAROOTDIR], [swm], [datarootdir], [],
+              [AC_MSG_ERROR[Could not find shared directory in SWM]])
+    AC_DEFINE_UNQUOTED([SWM_DATAROOTDIR], ["$SWM_DATAROOTDIR"], [if using json
+                        data files])
+else
+    AM_CONDITIONAL(USE_ONLINE, false)
+fi
 
 # check for Recorder
 AM_CONDITIONAL(USE_RECORDER, true)

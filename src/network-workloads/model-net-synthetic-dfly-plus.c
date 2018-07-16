@@ -19,8 +19,8 @@
 
 static int net_id = 0;
 static int traffic = 1;
-static double arrival_time = 1000.0;
 static int PAYLOAD_SZ = 2048;
+static double arrival_time = 1000.0;
 
 /* whether to pull instead of push */
 static int num_servers_per_rep = 0;
@@ -62,7 +62,6 @@ enum TRAFFIC
 	NEAREST_GROUP = 3, /* sends message to the node connected to the neighboring router */
 	NEAREST_NEIGHBOR = 4, /* sends message to the next node (potentially connected to the same router) */
     RANDOM_OTHER_GROUP = 5
-
 };
 
 struct svr_state
@@ -111,55 +110,12 @@ tw_lptype svr_lp = {
     sizeof(svr_state),
 };
 
-/* setup for the ROSS event tracing
- */
-void custom_svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
-{
-    (void)lp;
-    (void)collect_flag;
-    int type = (int) m->svr_event_type;
-    memcpy(buffer, &type, sizeof(type));
-}
-
-/* can add in any model level data to be collected along with simulation engine data
- * in the ROSS instrumentation.  Will need to update the last field in 
- * svr_model_types[0] for the size of the data to save in each function call
- */
-void custom_svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
-{
-    (void)s;
-    (void)lp;
-    (void)buffer;
-    return;
-}
-
-st_model_types custom_svr_model_types[] = {
-    {(ev_trace_f) custom_svr_event_collect,
-     sizeof(int),
-     (model_stat_f) custom_svr_model_stat_collect,
-     0,
-     NULL,
-     NULL,
-     0},
-    {NULL, 0, NULL, 0, NULL, NULL, 0}
-};
-
-static const st_model_types  *custom_svr_get_model_stat_types(void)
-{
-    return(&custom_svr_model_types[0]);
-}
-
-void custom_svr_register_model_types()
-{
-    st_model_type_register("nw-lp", custom_svr_get_model_stat_types());
-}
-
 const tw_optdef app_opt [] =
 {
         TWOPT_GROUP("Model net synthetic traffic " ),
     	TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
-    	TWOPT_UINT("num_messages", num_msgs, "Number of messages to be generated per terminal "),
     	TWOPT_UINT("payload_sz",PAYLOAD_SZ, "size of the message being sent "),
+    	TWOPT_UINT("num_messages", num_msgs, "Number of messages to be generated per terminal "),
     	TWOPT_STIME("sampling-interval", sampling_interval, "the sampling interval "),
     	TWOPT_STIME("sampling-end-time", sampling_end_time, "sampling end time "),
 	    TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
@@ -222,9 +178,10 @@ static void handle_kickoff_rev_event(
 
     if(b->c1)
         tw_rand_reverse_unif(lp->rng);
-
+    
     if(b->c8)
         tw_rand_reverse_unif(lp->rng);
+
     if(traffic == RANDOM_OTHER_GROUP) {
         tw_rand_reverse_unif(lp->rng);
         tw_rand_reverse_unif(lp->rng);
@@ -260,27 +217,27 @@ static void handle_kickoff_event(
     memcpy(m_remote, m_local, sizeof(svr_msg));
     m_remote->svr_event_type = REMOTE;
 
-    assert(net_id == DRAGONFLY || net_id == DRAGONFLY_CUSTOM); /* only supported for dragonfly model right now. */
+    assert(net_id == DRAGONFLY || net_id == DRAGONFLY_PLUS || net_id == DRAGONFLY_CUSTOM); /* only supported for dragonfly model right now. */
     ns->start_ts = tw_now(lp);
     codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
     int local_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
 
-   /* in case of uniform random traffic, send to a random destination. */
-   if(traffic == UNIFORM)
-   {
-    b->c1 = 1;
-   	local_dest = tw_rand_integer(lp->rng, 0, num_nodes - 1);
-   }
-   else if(traffic == NEAREST_GROUP)
-   {
-	local_dest = (local_id + num_nodes_per_grp) % num_nodes;
-	//printf("\n LP %ld sending to %ld num nodes %d ", local_id, local_dest, num_nodes);
-   }
-   else if(traffic == NEAREST_NEIGHBOR)
-   {
-	local_dest =  (local_id + 1) % num_nodes;
-//	 printf("\n LP %ld sending to %ld num nodes %d ", rep_id * 2 + offset, local_dest, num_nodes);
-   }
+    /* in case of uniform random traffic, send to a random destination. */
+    if(traffic == UNIFORM)
+    {
+        b->c1 = 1;
+        local_dest = tw_rand_integer(lp->rng, 0, num_nodes - 1);
+    }
+    else if(traffic == NEAREST_GROUP)
+    {
+        local_dest = (local_id + num_nodes_per_grp) % num_nodes;
+        //printf("\n LP %ld sending to %ld num nodes %d ", local_id, local_dest, num_nodes);
+    }
+    else if(traffic == NEAREST_NEIGHBOR)
+    {
+        local_dest =  (local_id + 1) % num_nodes;
+    //	 printf("\n LP %ld sending to %ld num nodes %d ", rep_id * 2 + offset, local_dest, num_nodes);
+    }
    else if(traffic == RAND_PERM)
    {
        if(ns->dest_id == -1)
@@ -294,31 +251,36 @@ static void handle_kickoff_event(
         local_dest = ns->dest_id; 
        }
    }
-   else if(traffic == RANDOM_OTHER_GROUP)
-   {
-       int my_group_id = local_id / num_nodes_per_grp;
+    else if(traffic == RANDOM_OTHER_GROUP)
+    {
+        int my_group_id = local_id / num_nodes_per_grp;
 
-       int other_groups[num_groups-1];
-       int added =0;
-       for(int i = 0; i < num_groups; i++)
-       {
-           if(i != my_group_id) {
-               other_groups[added] = i;
-               added++;
-           }
-       }
+        int other_groups[num_groups-1];
+        int added =0;
+        for(int i = 0; i < num_groups; i++)
+        {
+            if(i != my_group_id){
+                other_groups[added] = i;
+                added++;
+            }
+        }
         int rand_group = other_groups[tw_rand_integer(lp->rng,0,added -1)];
         int rand_node_intra_id = tw_rand_integer(lp->rng, 0, num_nodes_per_grp-1);
 
         local_dest = (rand_group * num_nodes_per_grp) + rand_node_intra_id;
-        printf("\n LP %ld sending to %ld num nodes %d ", local_id, local_dest, num_nodes);
 
-   }
-   assert(local_dest < num_nodes);
+        int dest_group_calc = local_dest / num_nodes_per_grp;
+        assert(rand_group == dest_group_calc);
+        assert(rand_group != my_group_id);
+        assert(dest_group_calc != my_group_id);
+        
+        // printf("\n LP %ld sending to %ld num nodes %d ", local_id, local_dest, num_nodes);
+    }
+    assert(local_dest < num_nodes);
 //   codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest / num_servers_per_rep, local_dest % num_servers_per_rep, &global_dest);
    global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
    ns->msg_sent_count++;
-   m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+   model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
 
    issue_event(ns, lp);
    return;
@@ -389,8 +351,8 @@ static void svr_finalize(
 {
     ns->end_ts = tw_now(lp);
 
-    //printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s(ns->end_ts-ns->start_ts),
-    //    ((double)(PAYLOAD_SZ*ns->msg_sent_count)/(double)(1024*1024)/ns_to_s(ns->end_ts-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
+//    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s(ns->end_ts-ns->start_ts),
+//        ((double)(PAYLOAD_SZ*ns->msg_sent_count)/(double)(1024*1024)/ns_to_s(ns->end_ts-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
     return;
 }
 
@@ -449,15 +411,11 @@ int main(
     int rank;
     int num_nets;
     int *net_ids;
-    int num_router_rows, num_router_cols;
+    int num_routers;
+    int num_router_leaf, num_router_spine;
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
-#ifdef USE_RDAMARIS
-    if(g_st_ross_rank)
-    { // keep damaris ranks from running code between here up until tw_end()
-#endif
-    codes_comm_update();
 
     if(argc < 2)
     {
@@ -474,9 +432,6 @@ int main(
     model_net_register();
     svr_add_lp_type();
 
-    if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
-        custom_svr_register_model_types();
-
     codes_mapping_setup();
 
     net_ids = model_net_configure(&num_nets);
@@ -488,23 +443,24 @@ int main(
     g_tw_ts_end = s_to_ns(5 * 24 * 60 * 60);
     model_net_enable_sampling(sampling_interval, sampling_end_time);
 
-    if(net_id != DRAGONFLY && net_id != DRAGONFLY_CUSTOM)
+    if(!(net_id == DRAGONFLY || net_id == DRAGONFLY_PLUS || net_id == DRAGONFLY_CUSTOM))
     {
-	printf("\n The test works with dragonfly model configuration only! %d %d ", DRAGONFLY_CUSTOM, net_id);
+	printf("\n The test works with dragonfly model configuration only! %d %d ", DRAGONFLY_PLUS, net_id);
         MPI_Finalize();
         return 0;
     }
     num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "nw-lp",
             NULL, 1);
-    configuration_get_value_int(&config, "PARAMS", "num_router_rows", NULL, &num_router_rows);
-    configuration_get_value_int(&config, "PARAMS", "num_router_cols", NULL, &num_router_cols);
+    configuration_get_value_int(&config, "PARAMS", "num_router_leaf", NULL, &num_router_leaf);
+    configuration_get_value_int(&config, "PARAMS", "num_router_spine", NULL, &num_router_spine);
+    configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers);
     configuration_get_value_int(&config, "PARAMS", "num_groups", NULL, &num_groups);
     configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", NULL, &num_nodes_per_cn);
 
-    num_routers_per_grp = num_router_rows * num_router_cols;
+    num_routers_per_grp = num_routers;
 
-    num_nodes = num_groups * num_routers_per_grp * num_nodes_per_cn;
-    num_nodes_per_grp = num_routers_per_grp * num_nodes_per_cn;
+    num_nodes = num_groups * num_router_leaf * num_nodes_per_cn;
+    num_nodes_per_grp = num_router_leaf * num_nodes_per_cn;
 
     assert(num_nodes);
 
@@ -521,9 +477,6 @@ int main(
         assert(ret == 0 || !"lp_io_flush failure");
     }
     model_net_report_stats(net_id);
-#ifdef USE_RDAMARIS
-    } // end if(g_st_ross_rank)
-#endif
     tw_end();
     return 0;
 }
