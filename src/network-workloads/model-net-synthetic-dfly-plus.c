@@ -416,6 +416,11 @@ int main(
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
+#ifdef USE_RDAMARIS
+    if(g_st_ross_rank)
+    { // keep damaris ranks from running code between here up until tw_end()
+#endif
+    codes_comm_update();
 
     if(argc < 2)
     {
@@ -477,6 +482,9 @@ int main(
         assert(ret == 0 || !"lp_io_flush failure");
     }
     model_net_report_stats(net_id);
+#ifdef USE_RDAMARIS
+    } // end if(g_st_ross_rank)
+#endif
     tw_end();
     return 0;
 }
