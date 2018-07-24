@@ -92,6 +92,8 @@ struct terminal_plus_message
    tw_stime saved_total_time;
    tw_stime saved_sample_time;
    tw_stime msg_start_time;
+   tw_stime saved_busy_time_ross;
+   tw_stime saved_fin_chunks_ross;
 };
 
 #ifdef __cplusplus
