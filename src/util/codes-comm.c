@@ -5,8 +5,18 @@
  */
 
 #include <mpi.h>
+#include <ross.h>
 
 MPI_Comm MPI_COMM_CODES = MPI_COMM_WORLD;
+
+/*
+ * Needs to be called AFTER tw_init() because in tw_init, 
+ * ROSS may split the MPI_COMM_ROSS communicator
+ */
+void codes_comm_update()
+{
+    MPI_COMM_CODES = MPI_COMM_ROSS;
+}
 
 /*
  * Local variables:

@@ -280,7 +280,7 @@ static void handle_kickoff_event(
 //   codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest / num_servers_per_rep, local_dest % num_servers_per_rep, &global_dest);
    global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
    ns->msg_sent_count++;
-   model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+   m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
 
    issue_event(ns, lp);
    return;
@@ -416,6 +416,11 @@ int main(
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
+#ifdef USE_RDAMARIS
+    if(g_st_ross_rank)
+    { // keep damaris ranks from running code between here up until tw_end()
+#endif
+    codes_comm_update();
 
     if(argc < 2)
     {
@@ -477,6 +482,9 @@ int main(
         assert(ret == 0 || !"lp_io_flush failure");
     }
     model_net_report_stats(net_id);
+#ifdef USE_RDAMARIS
+    } // end if(g_st_ross_rank)
+#endif
     tw_end();
     return 0;
 }

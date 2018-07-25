@@ -97,6 +97,8 @@ static inline void codes_local_latency_reverse(tw_lp *lp)
     return;
 }
 
+void codes_comm_update();
+
 #ifdef __cplusplus
 }
 #endif

@@ -2725,6 +2725,11 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
   workload_type[0]='\0';
   tw_opt_add(app_opt);
   tw_init(argc, argv);
+#ifdef USE_RDAMARIS
+    if(g_st_ross_rank)
+    { // keep damaris ranks from running code between here up until tw_end()
+#endif
+  codes_comm_update();
 
   if(strcmp(workload_type, "dumpi") != 0 && strcmp(workload_type, "online") != 0)
     {
@@ -2909,7 +2914,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    MPI_Reduce(&max_recv_time, &total_max_recv_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_CODES);
    MPI_Reduce(&avg_wait_time, &total_avg_wait_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
    MPI_Reduce(&avg_send_time, &total_avg_send_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
-   MPI_Reduce(&total_syn_data, &g_total_syn_data, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);  
+   MPI_Reduce(&total_syn_data, &g_total_syn_data, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);  
 
    assert(num_net_traces);
 
@@ -2943,6 +2948,9 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    if(alloc_spec)
        codes_jobmap_destroy(jobmap_ctx);
 
+#ifdef USE_RDAMARIS
+    } // end if(g_st_ross_rank)
+#endif
    tw_end();
 
   return 0;

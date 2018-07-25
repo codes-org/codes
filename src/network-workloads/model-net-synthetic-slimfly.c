@@ -494,6 +494,11 @@ int main(
  
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
+#ifdef USE_RDAMARIS
+    if(g_st_ross_rank)
+    { // keep damaris ranks from running code between here up until tw_end()
+#endif
+    codes_comm_update();
 
     if(argc < 2)
     {
@@ -502,10 +507,10 @@ int main(
             return 0;
     }
 
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Comm_rank(MPI_COMM_CODES, &rank);
+    MPI_Comm_size(MPI_COMM_CODES, &nprocs);
 
-    configuration_load(argv[2], MPI_COMM_WORLD, &config);
+    configuration_load(argv[2], MPI_COMM_CODES, &config);
     model_net_register();
     svr_add_lp_type();
     
@@ -526,7 +531,7 @@ int main(
     num_nodes_per_grp = num_routers_per_grp * num_servers_per_rep;
     total_routers = num_routers_per_grp * num_routers_per_grp * 2;
 
-/*    if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
+/*    if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_CODES) < 0)
     {
         return(-1);
     }
@@ -536,7 +541,7 @@ int main(
     {
         do_lp_io = 1;
         int flags = lp_io_use_suffix ? LP_IO_UNIQ_SUFFIX : 0;
-        int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_WORLD);
+        int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_CODES);
         assert(ret == 0 || !"lp_io_prepare failure");
     }
 
@@ -558,7 +563,7 @@ int main(
 
  
    if (do_lp_io){
-       int ret = lp_io_flush(io_handle, MPI_COMM_WORLD);
+       int ret = lp_io_flush(io_handle, MPI_COMM_CODES);
        assert(ret == 0 || !"lp_io_flush failure");
    }
 
@@ -578,12 +583,15 @@ int main(
 #endif
     }
 
-/*    if(lp_io_flush(handle, MPI_COMM_WORLD) < 0)
+/*    if(lp_io_flush(handle, MPI_COMM_CODES) < 0)
     {
         assert(ret == 0 || !"lp_io_flush failure");
         return(-1);
     }
 */
+#ifdef USE_RDAMARIS
+    } // end if(g_st_ross_rank)
+#endif
     tw_end();
 
     if(rank == 0)

@@ -380,7 +380,7 @@ struct router_state
    struct dfly_router_sample ross_rsample;
 };
 
-/* had to pull some of the ROSS model stats collection stuff up here */
+/* ROSS model instrumentation */
 void custom_dragonfly_event_collect(terminal_custom_message *m, tw_lp *lp, char *buffer, int *collect_flag);
 void custom_dragonfly_model_stat_collect(terminal_state *s, tw_lp *lp, char *buffer);
 void custom_dfly_router_model_stat_collect(router_state *s, tw_lp *lp, char *buffer);
@@ -1545,6 +1545,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
         s->busy_time += (tw_now(lp) - s->last_buf_full[0]);
         s->busy_time_sample += (tw_now(lp) - s->last_buf_full[0]);
         s->ross_sample.busy_time_sample += (tw_now(lp) - s->last_buf_full[0]);
+        msg->saved_busy_time_ross = s->busy_time_ross_sample;
         s->busy_time_ross_sample += (tw_now(lp) - s->last_buf_full[0]);
         s->last_buf_full[0] = 0.0;
     }
@@ -3635,7 +3636,8 @@ tw_lptype dragonfly_custom_lps[] =
 };
 }
 
-/* For ROSS event tracing */
+/* ROSS Instrumentation layer */
+// event tracing callback - used router and terminal LPs
 void custom_dragonfly_event_collect(terminal_custom_message *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
     (void)lp;
@@ -3645,6 +3647,7 @@ void custom_dragonfly_event_collect(terminal_custom_message *m, tw_lp *lp, char 
     memcpy(buffer, &type, sizeof(type));
 }
 
+// GVT-based and real time sampling callback for terminals
 void custom_dragonfly_model_stat_collect(terminal_state *s, tw_lp *lp, char *buffer)
 {
     (void)lp;
@@ -3686,6 +3689,7 @@ void custom_dragonfly_model_stat_collect(terminal_state *s, tw_lp *lp, char *buf
     return;
 }
 
+// GVT-based and real time sampling callback for routers
 void custom_dfly_router_model_stat_collect(router_state *s, tw_lp *lp, char *buffer)
 {
     (void)lp;
@@ -3735,7 +3739,7 @@ static void custom_router_register_model_types(st_model_types *base_type)
 {
     st_model_type_register(LP_CONFIG_NM_ROUT, base_type);
 }
-/*** END of ROSS event tracing additions */
+/*** END of ROSS Instrumentation support */
 
 /* returns the dragonfly lp type for lp registration */
 static const tw_lptype* dragonfly_custom_get_cn_lp_type(void)
