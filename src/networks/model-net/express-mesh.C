@@ -2547,7 +2547,9 @@ struct model_net_method express_mesh_method  =
   NULL,//(event_f)local_sample_fn,
   NULL,//(revent_f)local_sample_rc_fn,
   (init_f)local_sample_init,
-  NULL//(final_f)local_sample_fin,
+  NULL,//(final_f)local_sample_fin,
+  NULL, // for ROSS instrumentation
+  NULL  // for ROSS instrumentation
 };
 
 struct model_net_method express_mesh_router_method =
@@ -2567,7 +2569,9 @@ struct model_net_method express_mesh_router_method =
   NULL,//(event_f)local_rsample_fn,
   NULL,//(revent_f)local_rsample_rc_fn,
   (init_f)local_rsample_init,
-  NULL//(final_f)local_rsample_fin,
+  NULL,//(final_f)local_rsample_fin,
+  NULL, // for ROSS instrumentation
+  NULL  // for ROSS instrumentation
 };
 
 }
