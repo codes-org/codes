@@ -36,6 +36,7 @@ struct message_list {
   union {
     terminal_message dfly_msg;
     em_message em_msg;
+    network_graph_message net_graph_msg;
   };
   char* event_data;
   message_list *next;
