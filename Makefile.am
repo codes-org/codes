@@ -61,6 +61,11 @@ if USE_ONLINE
 AM_CPPFLAGS += ${ARGOBOTS_CFLAGS} ${SWM_CFLAGS} -DUSE_ONLINE=1
 LDADD += ${SWM_LIBS} ${ARGOBOTS_LIBS}
 src_libcodes_la_SOURCES += src/workload/methods/codes-online-comm-wrkld.C
+if USE_CONC
+AM_CPPFLAGS += ${CONCEPTUAL_CFLAGS}
+LDADD += ${CONCEPTUAL_LIBS}
+src_libcodes_la_SOURCES += src/workload/methods/conc-latency.c
+endif
 endif
 
 if USE_DUMPI

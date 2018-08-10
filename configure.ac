@@ -112,15 +112,27 @@ if test "x${use_online}" != "x" ; then
     AM_CONDITIONAL(USE_ONLINE, true)
     PKG_CHECK_MODULES_STATIC([ARGOBOTS], [argobots], [],
                       [AC_MSG_ERROR([Could not find working argobots installation via pkg-config])])
-    PKG_CHECK_MODULES_STATIC([SWM], [swm], [],
-                      [AC_MSG_ERROR([Could not find working swm installation via pkg-config])])
-    PKG_CHECK_VAR([SWM_DATAROOTDIR], [swm], [datarootdir], [],
-              [AC_MSG_ERROR[Could not find shared directory in SWM]])
-    AC_DEFINE_UNQUOTED([SWM_DATAROOTDIR], ["$SWM_DATAROOTDIR"], [if using json
+    AC_DEFINE_UNQUOTED([SWM_DATAROOTDIR], ["${use_online}"], [if using json
                         data files])
 else
     AM_CONDITIONAL(USE_ONLINE, false)
 fi
+
+#check for Conceptual
+AC_ARG_WITH([conceptual],[AS_HELP_STRING([--with-conceptual@<:@=DIR@:>@],
+                        [location of Conceptual installation])])
+if test "x${with_conceptual}" != "x" ; then
+  AC_CHECK_FILES([${with_conceptual}/lib/libncptl.a],
+    AM_CONDITIONAL(USE_CONC, true),
+    AC_MSG_ERROR(Could not find Conceptual libraries libncptl.a))
+  CONCEPTUAL_CFLAGS="-I${with_conceptual}/include"
+  CONCEPTUAL_LIBS="-L${with_conceptual}/lib/ -lncptl"
+  AC_SUBST(CONCEPTUAL_LIBS)
+  AC_SUBST(CONCEPTUAL_CFLAGS)
+else
+  AM_CONDITIONAL(USE_CONC, false)
+fi
+
 
 # check for Recorder
 AM_CONDITIONAL(USE_RECORDER, true)

@@ -97,8 +97,9 @@ nobase_include_HEADERS = \
 	codes/net/simplep2p.h \
 	codes/net/express-mesh.h \
 	codes/net/torus.h \
-  codes/codes-mpi-replay.h \
-	codes/configfile.h
+    codes/codes-mpi-replay.h \
+	codes/configfile.h \
+    codes/codes-conc-addon.h
 
 
 #codes/codes-nw-workload.h
@@ -144,6 +145,7 @@ src_libcodes_la_SOURCES =  \
 	src/util/codes-mapping-context.c \
   	src/util/codes-comm.c \
     src/workload/codes-workload.c \
+    src/workload/codes-conc-addon.c \
     src/workload/methods/codes-iolang-wrkld.c \
     src/workload/methods/codes-checkpoint-wrkld.c \
     src/workload/methods/test-workload-method.c \
