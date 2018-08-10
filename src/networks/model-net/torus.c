@@ -2018,7 +2018,9 @@ struct model_net_method torus_method =
    .mn_sample_fn = NULL,
    .mn_sample_rc_fn = NULL,
    .mn_sample_init_fn = NULL,
-   .mn_sample_fini_fn = NULL
+   .mn_sample_fini_fn = NULL,
+   .mn_model_stat_register = NULL, // for ROSS instrumentation
+   .mn_get_model_stat_types = NULL // for ROSS instrumentation
 };
 
 /* user-facing modelnet functions */

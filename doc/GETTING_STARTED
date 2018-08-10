@@ -187,6 +187,10 @@ TODO...
 
 === Network
 
+There has been an addition of online workload generator that replays calls
+similar to MPI on the network models. The SWM workloads are closed-source right
+now but integration with conceptual communication library is in progress.
+
 Our primary network workload generator is via the DUMPI tool
 (http://sst.sandia.gov/about_dumpi.html). DUMPI collects and reads events from
 MPI applications. See the DUMPI documentation for how to generate traces. There

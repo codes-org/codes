@@ -108,8 +108,6 @@ tw_lptype svr_lp = {
 };
 
 /* setup for the ROSS event tracing
- * can have a different function for  rbev_trace_f and ev_trace_f
- * but right now it is set to the same function for both
  */
 void svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
@@ -132,13 +130,14 @@ void svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
 }
 
 st_model_types svr_model_types[] = {
-    {(rbev_trace_f) svr_event_collect,
-     sizeof(int),
-     (ev_trace_f) svr_event_collect,
+    {(ev_trace_f) svr_event_collect,
      sizeof(int),
      (model_stat_f) svr_model_stat_collect,
+     0,
+     NULL,
+     NULL,
      0},
-    {NULL, 0, NULL, 0, NULL, 0}
+    {NULL, 0, NULL, 0, NULL, NULL, 0}
 };
 
 static const st_model_types  *svr_get_model_stat_types(void)
@@ -274,7 +273,7 @@ static void handle_kickoff_event(
 //   codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest / num_servers_per_rep, local_dest % num_servers_per_rep, &global_dest);
    global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
    ns->msg_sent_count++;
-   model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+   m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
 
    issue_event(ns, lp);
    return;
@@ -408,6 +407,11 @@ int main(
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
+#ifdef USE_RDAMARIS
+    if(g_st_ross_rank)
+    { // keep damaris ranks from running code between here up until tw_end()
+#endif
+    codes_comm_update();
 
     if(argc < 2)
     {
@@ -416,15 +420,15 @@ int main(
             return 0;
     }
 
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Comm_rank(MPI_COMM_CODES, &rank);
+    MPI_Comm_size(MPI_COMM_CODES, &nprocs);
 
-    configuration_load(argv[2], MPI_COMM_WORLD, &config);
+    configuration_load(argv[2], MPI_COMM_CODES, &config);
 
     model_net_register();
     svr_add_lp_type();
 
-    if (g_st_ev_trace || g_st_model_stats)
+    if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
         svr_register_model_types();
 
     codes_mapping_setup();
@@ -458,15 +462,18 @@ int main(
     {
         do_lp_io = 1;
         int flags = lp_io_use_suffix ? LP_IO_UNIQ_SUFFIX : 0;
-        int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_WORLD);
+        int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_CODES);
         assert(ret == 0 || !"lp_io_prepare failure");
     }
     tw_run();
     if (do_lp_io){
-        int ret = lp_io_flush(io_handle, MPI_COMM_WORLD);
+        int ret = lp_io_flush(io_handle, MPI_COMM_CODES);
         assert(ret == 0 || !"lp_io_flush failure");
     }
     model_net_report_stats(net_id);
+#ifdef USE_RDAMARIS
+    } // end if(g_st_ross_rank)
+#endif
     tw_end();
     return 0;
 }

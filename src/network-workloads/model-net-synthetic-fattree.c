@@ -123,8 +123,6 @@ tw_lptype svr_lp = {
 };
 
 /* setup for the ROSS event tracing
- * can have a different function for  rbev_trace_f and ev_trace_f
- * but right now it is set to the same function for both
  */
 void ft_svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
@@ -150,13 +148,14 @@ void ft_svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
 }
 
 st_model_types ft_svr_model_types[] = {
-    {(rbev_trace_f) ft_svr_event_collect,
-     sizeof(int),
-     (ev_trace_f) ft_svr_event_collect,
+    {(ev_trace_f) ft_svr_event_collect,
      sizeof(int),
      (model_stat_f) ft_svr_model_stat_collect,
+     0,
+     NULL,
+     NULL,
      0},
-    {NULL, 0, NULL, 0, NULL, 0}
+    {NULL, 0, NULL, 0, NULL, NULL, 0}
 };
 
 static const st_model_types  *ft_svr_get_model_stat_types(void)
@@ -308,7 +307,7 @@ static void handle_kickoff_event(
 
    ns->msg_sent_count++;
 
-   model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+   m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
 
    //printf("LP:%d localID:%d Here\n",(int)lp->gid, (int)local_dest);
    issue_event(ns, lp);
@@ -437,6 +436,11 @@ int main(
     tw_opt_add(app_opt);
 
     tw_init(&argc, &argv);
+#ifdef USE_RDAMARIS
+    if(g_st_ross_rank)
+    { // keep damaris ranks from running code between here up until tw_end()
+#endif
+    codes_comm_update();
 
     offset = 1;
 
@@ -447,16 +451,16 @@ int main(
             return 0;
     }
 
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Comm_rank(MPI_COMM_CODES, &rank);
+    MPI_Comm_size(MPI_COMM_CODES, &nprocs);
 
-    configuration_load(argv[2], MPI_COMM_WORLD, &config);
+    configuration_load(argv[2], MPI_COMM_CODES, &config);
 
     model_net_register();
 
     svr_add_lp_type();
 
-    if (g_st_ev_trace)
+    if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
         ft_svr_register_model_stats();
 
     codes_mapping_setup();
@@ -485,7 +489,7 @@ int main(
 
     printf("num_nodes:%d \n",num_nodes);
 
-    if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
+    if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_CODES) < 0)
     {
         return(-1);
     }
@@ -517,11 +521,13 @@ int main(
     }
 #endif
 
-    if(lp_io_flush(handle, MPI_COMM_WORLD) < 0)
+    if(lp_io_flush(handle, MPI_COMM_CODES) < 0)
     {
         return(-1);
     }
-
+#ifdef USE_RDAMARIS
+    } // end if(g_st_ross_rank)
+#endif
     tw_end();
 
 #if PARAMS_LOG

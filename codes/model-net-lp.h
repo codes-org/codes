@@ -6,11 +6,11 @@
 
 /* This is the base model-net LP that all events pass through before
  * performing any topology-specific work. Packet scheduling, dealing with
- * packet loss (potentially), etc. happens here. 
- * Additionally includes wrapper event "send" function that all 
+ * packet loss (potentially), etc. happens here.
+ * Additionally includes wrapper event "send" function that all
  * events for underlying models must go through */
 
-#ifndef MODEL_NET_LP_H  
+#ifndef MODEL_NET_LP_H
 #define MODEL_NET_LP_H
 
 #ifdef __cplusplus
@@ -23,6 +23,7 @@ extern "C" {
 #include "model-net-sched.h"
 #include "net/dragonfly.h"
 #include "net/dragonfly-custom.h"
+#include "net/dragonfly-plus.h"
 #include "net/slimfly.h"
 #include "net/fattree.h"
 #include "net/loggp.h"
@@ -43,10 +44,10 @@ void model_net_base_configure();
 /// model developers
 
 // Construct a model-net-specific event, analagous to a tw_event_new and
-// codes_event_new. The difference here is that we return pointers to 
+// codes_event_new. The difference here is that we return pointers to
 // both the message data (to be cast into the appropriate type) and the
 // pointer to the end of the event struct.
-// 
+//
 // This function is expected to be called within each specific model-net
 // method - strange and disturbing things will happen otherwise
 tw_event * model_net_method_event_new(
@@ -131,6 +132,7 @@ typedef struct model_net_wrap_msg {
         model_net_base_msg      m_base;  // base lp
         terminal_message        m_dfly;  // dragonfly
         terminal_custom_message        m_custom_dfly;  // dragonfly-custom
+        terminal_plus_message        m_dfly_plus;  // dragonfly plus
         slim_terminal_message   m_slim;  // slimfly
 	fattree_message		m_fat;   // fattree
         loggp_message           m_loggp; // loggp

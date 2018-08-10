@@ -249,6 +249,7 @@ void update_compute_time(const dumpi_time* time, rank_mpi_context* my_ctx)
         wrkld_per_rank.start_time = my_ctx->last_op_time;
         wrkld_per_rank.end_time = start;
         wrkld_per_rank.u.delay.seconds = (start - my_ctx->last_op_time) / 1e9;
+        wrkld_per_rank.u.delay.nsecs = (start - my_ctx->last_op_time);
         dumpi_insert_next_op(my_ctx->dumpi_mpi_array, &wrkld_per_rank); 
     }
     my_ctx->last_op_time = stop;

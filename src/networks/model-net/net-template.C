@@ -401,22 +401,22 @@ static void local_report_stats()
   long total_gen, total_fin;
 
   MPI_Reduce( &total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0,
-      MPI_COMM_WORLD);
+      MPI_COMM_CODES);
   MPI_Reduce( &N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG,
-      MPI_SUM, 0, MPI_COMM_WORLD);
+      MPI_SUM, 0, MPI_COMM_CODES);
   MPI_Reduce( &N_finished_msgs, &total_finished_msgs, 1, MPI_LONG_LONG, MPI_SUM,
-      0, MPI_COMM_WORLD);
+      0, MPI_COMM_CODES);
   MPI_Reduce( &N_finished_chunks, &total_finished_chunks, 1, MPI_LONG_LONG,
-      MPI_SUM, 0, MPI_COMM_WORLD);
+      MPI_SUM, 0, MPI_COMM_CODES);
   MPI_Reduce( &total_msg_sz, &final_msg_sz, 1, MPI_LONG_LONG, MPI_SUM, 0,
-      MPI_COMM_WORLD);
+      MPI_COMM_CODES);
   MPI_Reduce( &local_total_time, &avg_time, 1,MPI_DOUBLE, MPI_SUM, 0,
-      MPI_COMM_WORLD);
+      MPI_COMM_CODES);
   MPI_Reduce( &local_max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0,
-      MPI_COMM_WORLD);
+      MPI_COMM_CODES);
 
-  MPI_Reduce( &packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-  MPI_Reduce( &packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Reduce( &packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+  MPI_Reduce( &packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
 
   /* print statistics */
   if(!g_tw_mynode)
@@ -726,8 +726,6 @@ static void packet_generate(terminal_state * s, tw_bf * bf, LOCAL_MSG_STRUCT * m
   } else {
     bf->c11 = 1;
     s->issueIdle = 1;
-    msg->saved_busy_time = s->last_buf_full;
-    s->last_buf_full = tw_now(lp);
   }
 
   if(s->in_send_loop == 0) {
@@ -777,7 +775,6 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, LOCAL_MSG_STRUCT 
   }
   if(bf->c11) {
     s->issueIdle = 0;
-    s->last_buf_full = msg->saved_busy_time;
   }
   if(bf->c5) {
     codes_local_latency_reverse(lp);
@@ -801,23 +798,41 @@ static void packet_send(terminal_state * s, tw_bf * bf, LOCAL_MSG_STRUCT * msg,
   tw_lpid router_id;
 
   std::vector<VC_Entry> entries;
+  bool noEmptyVC = false;
 
   for(int i = 0; i < s->params->num_vcs; i++) {
-    if(s->terminal_msgs[0][i] != NULL &&
-      s->vc_occupancy[0][i] + s->params->chunk_size <= s->params->cn_vc_size) {
-      VC_Entry tmp;
-      tmp.vc = i; tmp.entry = s->terminal_msgs[0][i];
-      entries.push_back(tmp);
+    if(s->terminal_msgs[0][i] != NULL) {
+      if(s->vc_occupancy[0][i] + s->params->chunk_size <= s->params->cn_vc_size) {
+        VC_Entry tmp;
+        tmp.vc = i; tmp.entry = s->terminal_msgs[0][i];
+        entries.push_back(tmp);
+      } else {
+        noEmptyVC = true;
+      }
     }
   }
 
   if(entries.size() == 0) {
     bf->c1 = 1;
     s->in_send_loop = 0;
-
-    msg->saved_busy_time = s->last_buf_full;
-    s->last_buf_full = tw_now(lp);
+    if(noEmptyVC && !s->last_buf_full) {
+      bf->c3 = 1;
+      msg->saved_busy_time = s->last_buf_full;
+      s->last_buf_full = tw_now(lp);
+    }
     return;
+  }
+  
+  if(s->last_buf_full > 0.0)
+  {
+    bf->c4 = 1;
+    msg->saved_total_time = s->busy_time;
+    msg->saved_busy_time = s->last_buf_full;
+    msg->saved_sample_time = s->busy_time_sample;
+
+    s->busy_time += (tw_now(lp) - s->last_buf_full);
+    s->busy_time_sample += (tw_now(lp) - s->last_buf_full);
+    s->last_buf_full = 0.0;
   }
 
   //CHANGE: randomly pick the VC to send on (by default only VC 0 is filed); can be changed.
@@ -894,18 +909,6 @@ static void packet_send(terminal_state * s, tw_bf * bf, LOCAL_MSG_STRUCT * msg,
     s->issueIdle = 0;
     ts += tw_rand_unif(lp->rng);
     model_net_method_idle_event(ts, 0, lp);
-
-    if(s->last_buf_full > 0.0)
-    {
-      bf->c6 = 1;
-      msg->saved_total_time = s->busy_time;
-      msg->saved_busy_time = s->last_buf_full;
-      msg->saved_sample_time = s->busy_time_sample;
-
-      s->busy_time += (tw_now(lp) - s->last_buf_full);
-      s->busy_time_sample += (tw_now(lp) - s->last_buf_full);
-      s->last_buf_full = 0.0;
-    }
   }
   return;
 }
@@ -915,8 +918,17 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, LOCAL_MSG_STRUCT * ms
 {
   if(bf->c1) {
     s->in_send_loop = 1;
-    s->last_buf_full = msg->saved_busy_time;
+    if(bf->c3) {
+      s->last_buf_full = msg->saved_busy_time;
+    }
     return;
+  }
+    
+  if(bf->c4)
+  {
+    s->busy_time = msg->saved_total_time;
+    s->last_buf_full = msg->saved_busy_time;
+    s->busy_time_sample = msg->saved_sample_time;
   }
 
   tw_rand_reverse_unif(lp->rng);
@@ -942,12 +954,6 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, LOCAL_MSG_STRUCT * ms
   {
     tw_rand_reverse_unif(lp->rng);
     s->issueIdle = 1;
-    if(bf->c6)
-    {
-      s->busy_time = msg->saved_total_time;
-      s->last_buf_full = msg->saved_busy_time;
-      s->busy_time_sample = msg->saved_sample_time;
-    }
   }
   return;
 }
@@ -1466,8 +1472,6 @@ router_packet_receive( router_state * s,
     append_to_message_list(s->queued_msgs[next_port],
         s->queued_msgs_tail[next_port], next_vc, cur_chunk);
     s->queued_count[next_port] += s->params->chunk_size;
-    msg->saved_busy_time = s->last_buf_full[next_port];
-    s->last_buf_full[next_port] = tw_now(lp);
   }
 
   msg->saved_vc = next_port;
@@ -1500,7 +1504,6 @@ static void router_packet_receive_rc(router_state * s,
     message_list *tail = return_tail(s->queued_msgs[next_port],
           s->queued_msgs_tail[next_port], next_vc);
     s->queued_count[next_port] -= s->params->chunk_size;
-    s->last_buf_full[next_port] = msg->saved_busy_time;
     delete_message_list(tail);
   }
 }
@@ -1529,7 +1532,23 @@ router_packet_send( router_state * s,
   if(entries.size() == 0) {
     bf->c1 = 1;
     s->in_send_loop[output_port] = 0;
+    if(!s->queued_count[output_port] && !s->last_buf_full[output_port]) {
+      bf->c2 = 1;
+      msg->saved_busy_time = s->last_buf_full[output_port];
+      s->last_buf_full[output_port] = tw_now(lp);
+    }
     return;
+  }
+  
+  if(s->last_buf_full[output_port])
+  {
+    bf->c3 = 1;
+    msg->saved_rcv_time = s->busy_time[output_port];
+    msg->saved_busy_time = s->last_buf_full[output_port];
+    msg->saved_sample_time = s->busy_time_sample[output_port];
+    s->busy_time[output_port] += (tw_now(lp) - s->last_buf_full[output_port]);
+    s->busy_time_sample[output_port] += (tw_now(lp) - s->last_buf_full[output_port]);
+    s->last_buf_full[output_port] = 0.0;
   }
 
   //CHANGE: no priorities among VCs; can be changed.
@@ -1642,7 +1661,17 @@ static void router_packet_send_rc(router_state * s,
 
   if(bf->c1) {
     s->in_send_loop[output_port] = 1;
+    if(bf->c2) {
+      s->last_buf_full[output_port] = msg->saved_busy_time;
+    }
     return;
+  }
+  
+  if(bf->c3)
+  {
+    s->busy_time[output_port] = msg->saved_rcv_time;
+    s->busy_time_sample[output_port] = msg->saved_sample_time;
+    s->last_buf_full[output_port] = msg->saved_busy_time;
   }
 
   tw_rand_reverse_unif(lp->rng);
@@ -1676,17 +1705,6 @@ static void router_buf_update(router_state * s, tw_bf * bf, LOCAL_MSG_STRUCT * m
   int indx = msg->vc_index;
   int output_chan = msg->output_chan;
   s->vc_occupancy[indx][output_chan] -= s->params->chunk_size;
-
-  if(s->last_buf_full[indx])
-  {
-    bf->c3 = 1;
-    msg->saved_rcv_time = s->busy_time[indx];
-    msg->saved_busy_time = s->last_buf_full[indx];
-    msg->saved_sample_time = s->busy_time_sample[indx];
-    s->busy_time[indx] += (tw_now(lp) - s->last_buf_full[indx]);
-    s->busy_time_sample[indx] += (tw_now(lp) - s->last_buf_full[indx]);
-    s->last_buf_full[indx] = 0.0;
-  }
 
   int max_vc_size = s->params->vc_size;
   if(indx < s->params->num_cn) {
@@ -1729,12 +1747,6 @@ static void router_buf_update_rc(router_state * s,
   int indx = msg->vc_index;
   int output_chan = msg->output_chan;
   s->vc_occupancy[indx][output_chan] += s->params->chunk_size;
-  if(bf->c3)
-  {
-    s->busy_time[indx] = msg->saved_rcv_time;
-    s->busy_time_sample[indx] = msg->saved_sample_time;
-    s->last_buf_full[indx] = msg->saved_busy_time;
-  }
   if(bf->c1) {
     message_list* head = return_tail(s->pending_msgs[indx],
         s->pending_msgs_tail[indx], output_chan);
@@ -2174,7 +2186,9 @@ struct model_net_method NETWORK_method  =
   NULL,//(event_f)local_sample_fn,
   NULL,//(revent_f)local_sample_rc_fn,
   (init_f)local_sample_init,
-  NULL//(final_f)local_sample_fin,
+  NULL,//(final_f)local_sample_fin,
+  NULL, // for ROSS instrumentation
+  NULL  // for ROSS instrumentation
 };
 
 struct model_net_method NETWORK_router_method =
@@ -2194,7 +2208,9 @@ struct model_net_method NETWORK_router_method =
   NULL,//(event_f)local_rsample_fn,
   NULL,//(revent_f)local_rsample_rc_fn,
   (init_f)local_rsample_init,
-  NULL//(final_f)local_rsample_fin,
+  NULL,//(final_f)local_rsample_fin,
+  NULL, // for ROSS instrumentation
+  NULL  // for ROSS instrumentation
 };
 
 }

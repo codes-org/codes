@@ -13,6 +13,8 @@ EXTRA_PROGRAMS =
 CLEANFILES = $(bin_SCRIPTS)
 EXTRA_DIST =
 BUILT_SOURCES =
+AM_LDFLAGS =
+
 
 # pkgconfig files
 pkgconfigdir = $(libdir)/pkgconfig
@@ -47,7 +49,7 @@ endif
 
 if USE_DARSHAN
 AM_CPPFLAGS += ${DARSHAN_CFLAGS} -DUSE_DARSHAN=1
-src_libcodes_la_SOURCES += src/workload/methods/codes-darshan-io-wrkld.c
+src_libcodes_la_SOURCES += src/workload/methods/codes-darshan3-io-wrkld.c
 LDADD += ${DARSHAN_LIBS}
 TESTS += tests/workload/darshan-dump.sh
 endif
@@ -91,3 +93,7 @@ endif
 LDADD += ${DUMPI_LIBS}
 endif
 
+if USE_RDAMARIS
+AM_CPPFLAGS += ${ROSS_Damaris_CFLAGS} -DUSE_RDAMARIS=1
+LDADD += ${ROSS_Damaris_LIBS}
+endif

@@ -1,6 +1,9 @@
 import sys
 import random
+
 alloc_file = 'allocation.conf'
+if len(sys.argv) > 2:
+    alloc_file = sys.argv[2]
 
 def contiguous_alloc(job_ranks, total_nodes):
     f = open(alloc_file,'w')

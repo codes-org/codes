@@ -2,8 +2,12 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.67])
-AC_INIT([codes], [0.6.0], [http://trac.mcs.anl.gov/projects/codes/newticket],[],[http://www.mcs.anl.gov/projects/codes/])
+AC_INIT([codes], [1.0.0], [http://trac.mcs.anl.gov/projects/codes/newticket],[],[http://www.mcs.anl.gov/projects/codes/])
 LT_INIT
+
+
+#WRAP SOME OPTION AROUND THIS - IT'S NOT REQUIRED FOR 99% OF CODES
+AX_BOOST_BASE([1.66])
 
 AC_CANONICAL_TARGET
 AC_CANONICAL_SYSTEM
@@ -26,6 +30,7 @@ AC_PROG_CC
 AM_PROG_CC_C_O
 AC_PROG_CXX
 AC_PROG_CXXCPP
+AX_CXX_COMPILE_STDCXX(11, noext, mandatory)
 AC_PROG_RANLIB
 
 PKG_PROG_PKG_CONFIG
@@ -84,6 +89,16 @@ AC_TRY_COMPILE([#include <mpi.h>], [int ret = MPI_Init(0, (void*)0)],
 PKG_CHECK_MODULES_STATIC([ROSS], [ross], [],
                   [AC_MSG_ERROR([Could not find working ross installation via pkg-config])])
 
+#check for Damaris
+AC_ARG_WITH([damaris],[AS_HELP_STRING([--with-damaris],
+                        [build with ROSS-Damaris in situ analysis support])],
+                        [use_rdamaris=yes],[use_rdamaris=no])
+if test "x${use_rdamaris}" = xyes ; then
+    PKG_CHECK_MODULES_STATIC([ROSS_Damaris], [ross-damaris], [],
+                             [AC_MSG_ERROR([Could not find working ROSS-Damaris installation via pkg-config])])
+fi
+AM_CONDITIONAL(USE_RDAMARIS, [test "x${use_rdamaris}" = xyes])
+
 # check for enable-g
 AC_ARG_ENABLE([g],[AS_HELP_STRING([--enable-g],
 			[Build with GDB symbols])],
@@ -108,7 +123,7 @@ AM_CONDITIONAL(USE_DARSHAN, [test "x${use_darshan}" = xyes])
 AC_ARG_WITH([online],[AS_HELP_STRING([--with-online@<:@=DIR@:>@],
                         [Build with the online workloads and argobots support])],
                       [use_online=yes],[use_online=no])
-if test "x${use_online}" != "x" ; then
+if test "x${use_online}" != "xno" ; then
     AM_CONDITIONAL(USE_ONLINE, true)
     PKG_CHECK_MODULES_STATIC([ARGOBOTS], [argobots], [],
                       [AC_MSG_ERROR([Could not find working argobots installation via pkg-config])])

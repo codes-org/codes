@@ -23,6 +23,8 @@ extern struct model_net_method simplep2p_method;
 extern struct model_net_method torus_method;
 extern struct model_net_method dragonfly_method;
 extern struct model_net_method dragonfly_custom_method;
+extern struct model_net_method dragonfly_plus_method;
+extern struct model_net_method dragonfly_plus_router_method;
 extern struct model_net_method slimfly_method;
 extern struct model_net_method fattree_method;
 extern struct model_net_method dragonfly_router_method;
@@ -45,7 +47,7 @@ char * model_net_method_names[] = {
 
 /* Global array initialization, terminated with a NULL entry */
 #define X(a,b,c,d) d,
-struct model_net_method* method_array[] = { 
+struct model_net_method* method_array[] = {
     NETWORK_DEF
 };
 #undef X
@@ -75,7 +77,7 @@ void model_net_register(){
         for (int lpt = 0; lpt < lpgroup->lptypes_count; lpt++){
             char const *nm = lpgroup->lptypes[lpt].name.ptr;
             for (int n = 0; n < MAX_NETS; n++){
-                if (!do_config_nets[n] && 
+                if (!do_config_nets[n] &&
                         strcmp(model_net_lp_config_names[n], nm) == 0){
                     do_config_nets[n] = 1;
                     break;
@@ -140,7 +142,7 @@ int* model_net_configure(int *id_count){
     // init the per-msg params here
     memset(is_msg_params_set, 0,
             MAX_MN_MSG_PARAM_TYPES*sizeof(*is_msg_params_set));
-  
+
     ret = configuration_get_value_double(&config, "PARAMS", "intra_bandwidth", NULL,
             &cn_bandwidth);
     if(ret && !g_tw_mynode) {
@@ -152,7 +154,7 @@ int* model_net_configure(int *id_count){
     if(!g_tw_mynode) {
         printf("within node transfer per byte delay is %f\n", codes_cn_delay);
     }
-    
+
     ret = configuration_get_value_int(&config, "PARAMS", "node_eager_limit", NULL,
             &codes_node_eager_limit);
     if(ret && !g_tw_mynode) {
@@ -180,7 +182,7 @@ void model_net_write_stats(tw_lpid lpid, struct mn_stats* stat)
     char data[1024];
 
     sprintf(id, "model-net-category-%s", stat->category);
-    sprintf(data, "lp:%ld\tsend_count:%ld\tsend_bytes:%ld\tsend_time:%f\t" 
+    sprintf(data, "lp:%ld\tsend_count:%ld\tsend_bytes:%ld\tsend_time:%f\t"
         "recv_count:%ld\trecv_bytes:%ld\trecv_time:%f\tmax_event_size:%ld\n",
         (long)lpid,
         stat->send_count,
@@ -301,9 +303,9 @@ static model_net_event_return model_net_event_impl_base(
         int net_id,
         struct codes_mctx const * send_map_ctx,
         struct codes_mctx const * recv_map_ctx,
-        char const * category, 
-        tw_lpid final_dest_lp, 
-        uint64_t message_size, 
+        char const * category,
+        tw_lpid final_dest_lp,
+        uint64_t message_size,
         int is_pull,
         tw_stime offset,
         int remote_event_size,
@@ -312,7 +314,7 @@ static model_net_event_return model_net_event_impl_base(
         void const * self_event,
         tw_lp *sender) {
 
-    if (remote_event_size + self_event_size + sizeof(model_net_wrap_msg) 
+    if (remote_event_size + self_event_size + sizeof(model_net_wrap_msg)
             > g_tw_msg_sz){
         tw_error(TW_LOC, "Error: model_net trying to transmit an event of size "
                          "%d but ROSS is configured for events of size %zd\n",
@@ -343,7 +345,7 @@ static model_net_event_return model_net_event_impl_base(
     model_net_wrap_msg *m = tw_event_data(e);
     msg_set_header(model_net_base_magic, MN_BASE_NEW_MSG, sender->gid, &m->h);
 
-    // set the request struct 
+    // set the request struct
     model_net_request *r = &m->msg.m_base.req;
     r->final_dest_lp = final_dest_lp;
     r->dest_mn_lp = dest_mn_lp;
@@ -377,14 +379,14 @@ static model_net_event_return model_net_event_impl_base(
         m->msg.m_base.sched_params = sched_params;
     else // set the default
         model_net_sched_set_default_params(&m->msg.m_base.sched_params);
-    // once params are set, clear the flags 
+    // once params are set, clear the flags
     memset(is_msg_params_set, 0,
             MAX_MN_MSG_PARAM_TYPES*sizeof(*is_msg_params_set));
 
     void *e_msg = (m+1);
     if (remote_event_size > 0){
         memcpy(e_msg, remote_event, remote_event_size);
-        e_msg = (char*)e_msg + remote_event_size; 
+        e_msg = (char*)e_msg + remote_event_size;
     }
     if (self_event_size > 0){
         memcpy(e_msg, self_event, self_event_size);
@@ -401,9 +403,9 @@ static void model_net_event_impl_base_rc(tw_lp *sender){
 
 model_net_event_return model_net_event(
     int net_id,
-    char const * category, 
-    tw_lpid final_dest_lp, 
-    uint64_t message_size, 
+    char const * category,
+    tw_lpid final_dest_lp,
+    uint64_t message_size,
     tw_stime offset,
     int remote_event_size,
     void const * remote_event,
@@ -420,9 +422,9 @@ model_net_event_return model_net_event(
 model_net_event_return model_net_event_annotated(
         int net_id,
         char const * annotation,
-        char const * category, 
-        tw_lpid final_dest_lp, 
-        uint64_t message_size, 
+        char const * category,
+        tw_lpid final_dest_lp,
+        uint64_t message_size,
         tw_stime offset,
         int remote_event_size,
         void const * remote_event,
@@ -439,9 +441,9 @@ model_net_event_return model_net_event_mctx(
         int net_id,
         struct codes_mctx const * send_map_ctx,
         struct codes_mctx const * recv_map_ctx,
-        char const * category, 
-        tw_lpid final_dest_lp, 
-        uint64_t message_size, 
+        char const * category,
+        tw_lpid final_dest_lp,
+        uint64_t message_size,
         tw_stime offset,
         int remote_event_size,
         void const * remote_event,
@@ -629,6 +631,8 @@ const tw_lptype* model_net_get_lp_type(int net_id)
 
 const st_model_types* model_net_get_model_stat_type(int net_id)
 {
+    if (!method_array[net_id]->mn_get_model_stat_types)
+        tw_error(TW_LOC, "mn_get_model_stat_types not defined for network model with net_id: %d\n", net_id);
    return method_array[net_id]->mn_get_model_stat_types();
 }
 

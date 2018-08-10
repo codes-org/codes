@@ -32,8 +32,11 @@
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
 
+static unsigned long perm_switch_thresh = 8388608;
+
 /* NOTE: Message tracking works in sequential mode only! */
 static int debug_cols = 0;
+static int synthetic_pattern = 1;
 /* Turning on this option slows down optimistic mode substantially. Only turn
  * on if you get issues with wait-all completion with traces. */
 static int preserve_wait_ordering = 0;
@@ -150,7 +153,8 @@ enum TRAFFIC
     UNIFORM = 1, /* sends message to a randomly selected node */
     NEAREST_NEIGHBOR = 2, /* sends message to the next node (potentially connected to the same router) */
     ALLTOALL = 3, /* sends message to all other nodes */
-    STENCIL = 4  /* sends message to 4 nearby neighbors */
+    STENCIL = 4, /* sends message to 4 nearby neighbors */
+    PERMUTATION = 5
 };
 struct mpi_workload_sample
 {
@@ -279,7 +283,11 @@ struct nw_state
 
     unsigned long syn_data;
     unsigned long gen_data;
-    
+  
+    unsigned long prev_switch;
+    unsigned long saved_perm_dest;
+    unsigned long rc_perm;
+
     /* For sampling data */
     int sampling_indx;
     int max_arr_size;
@@ -326,6 +334,7 @@ struct nw_message
        double saved_delay;
        int64_t saved_num_bytes;
        int saved_syn_length;
+       unsigned long saved_prev_switch;
    } rc;
 };
 
@@ -609,6 +618,16 @@ static void gen_synthetic_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp 
     if(bf->c0)
         return;
 
+    if(bf->c1)
+    {
+        tw_rand_reverse_unif(lp->rng);
+    }
+    if(bf->c2)
+    {
+        s->prev_switch = m->rc.saved_prev_switch;
+        s->saved_perm_dest = s->rc_perm;
+        tw_rand_reverse_unif(lp->rng);
+    }
     int i;
     for (i=0; i < m->rc.saved_syn_length; i++){
         model_net_event_rc2(lp, &m->event_rc);
@@ -645,11 +664,34 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
     {
         case UNIFORM:
         {
+            bf->c1 = 1;
             length = 1;
             dest_svr = (int*) calloc(1, sizeof(int));
             dest_svr[0] = tw_rand_integer(lp->rng, 0, num_clients - 1);
             if(dest_svr[0] == s->local_rank)
                 dest_svr[0] = (s->local_rank + 1) % num_clients;
+        }
+        break;
+
+        case PERMUTATION:
+        {
+            m->rc.saved_prev_switch = s->prev_switch; //for reverse computation
+
+            length = 1;
+            dest_svr = (int*) calloc(1, sizeof(int));
+            if(s->gen_data - s->prev_switch >= perm_switch_thresh)
+            {
+                // printf("%d - %d >= %d\n",s->gen_data,s->prev_switch,perm_switch_thresh);
+                bf->c2 = 1;
+                s->prev_switch = s->gen_data; //Amount of data pushed at time when switch initiated
+                dest_svr[0] = tw_rand_integer(lp->rng, 0, num_clients - 1);
+                if(dest_svr[0] == s->local_rank)
+                    dest_svr[0] = (s->local_rank + num_clients/2) % num_clients;
+                s->rc_perm = s->saved_perm_dest;
+                s->saved_perm_dest = dest_svr[0];
+            }
+            else
+                dest_svr[0] = s->saved_perm_dest;
         }
         break;
         case NEAREST_NEIGHBOR:
@@ -1867,6 +1909,8 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->num_reduce = 0;
    s->reduce_time = 0;
    s->all_reduce_time = 0;
+   s->prev_switch = 0;
+
    char type_name[512];
 
    if(!num_net_traces)
@@ -1977,9 +2021,8 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 
    if(strncmp(file_name_of_job[lid.job], "synthetic", 9) == 0)
    {
-        int synthetic_pattern;
         sscanf(file_name_of_job[lid.job], "synthetic%d", &synthetic_pattern);
-        if(synthetic_pattern <=0 || synthetic_pattern > 4)
+        if(synthetic_pattern <=0 || synthetic_pattern > 5)
         {
             printf("\n Undefined synthetic pattern: setting to uniform random ");
             s->synthetic_pattern = 1;
@@ -1991,7 +2034,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 
         tw_event * e;
         nw_message * m_new;
-        tw_stime ts = tw_rand_exponential(lp->rng, mean_interval/1000);
+        tw_stime ts = tw_rand_exponential(lp->rng, noise);
         e = tw_event_new(lp->gid, ts, lp);
         m_new = (nw_message*)tw_event_data(e);
         m_new->msg_type = CLI_BCKGND_GEN;
@@ -2019,9 +2062,6 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 
 void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-	if(s->app_id < 0)
-        printf("\n msg type %d ", m->msg_type);
-
     assert(s->app_id >= 0 && s->local_rank >= 0);
 
     //*(int *)bf = (int)0;
@@ -2576,6 +2616,7 @@ const tw_optdef app_opt [] =
     TWOPT_UINT("debug_cols", debug_cols, "completion time of collective operations (currently MPI_AllReduce)"),
     TWOPT_UINT("enable_mpi_debug", enable_debug, "enable debugging of MPI sim layer (works with sync=1 only)"),
     TWOPT_UINT("sampling_interval", sampling_interval, "sampling interval for MPI operations"),
+    TWOPT_UINT("perm-thresh", perm_switch_thresh, "threshold for random permutation operations"),
 	TWOPT_UINT("enable_sampling", enable_sampling, "enable sampling (only works in sequential mode)"),
     TWOPT_STIME("mean_interval", mean_interval, "mean interval for generating background traffic"),
     TWOPT_STIME("sampling_end_time", sampling_end_time, "sampling_end_time"),
@@ -2612,8 +2653,6 @@ static void nw_add_lp_type()
 }
 
 /* setup for the ROSS event tracing
- * can have a different function for  rbev_trace_f and ev_trace_f
- * but right now it is set to the same function for both
  */
 void nw_lp_event_collect(nw_message *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
@@ -2638,13 +2677,14 @@ void nw_lp_model_stat_collect(nw_state *s, tw_lp *lp, char *buffer)
 }
 
 st_model_types nw_lp_model_types[] = {
-    {(rbev_trace_f) nw_lp_event_collect,
-     sizeof(int),
-     (ev_trace_f) nw_lp_event_collect,
+    {(ev_trace_f) nw_lp_event_collect,
      sizeof(int),
      (model_stat_f) nw_lp_model_stat_collect,
+     0,
+     NULL,
+     NULL,
      0},
-    {NULL, 0, NULL, 0, NULL, 0}
+    {NULL, 0, NULL, 0, NULL, NULL, 0}
 };
 
 static const st_model_types  *nw_lp_get_model_stat_types(void)
@@ -2685,6 +2725,11 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
   workload_type[0]='\0';
   tw_opt_add(app_opt);
   tw_init(argc, argv);
+#ifdef USE_RDAMARIS
+    if(g_st_ross_rank)
+    { // keep damaris ranks from running code between here up until tw_end()
+#endif
+  codes_comm_update();
 
   if(strcmp(workload_type, "dumpi") != 0 && strcmp(workload_type, "online") != 0)
     {
@@ -2739,6 +2784,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
             }
                 i++;
         }
+        printf("\n num_net_traces %d ", num_net_traces);
         fclose(name_file);
         assert(strlen(alloc_file) != 0);
         alloc_spec = 1;
@@ -2769,7 +2815,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    nw_add_lp_type();
    model_net_register();
 
-    if (g_st_ev_trace || g_st_model_stats)
+    if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
         nw_lp_register_model();
 
    net_ids = model_net_configure(&num_nets);
@@ -2868,11 +2914,12 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    MPI_Reduce(&max_recv_time, &total_max_recv_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_CODES);
    MPI_Reduce(&avg_wait_time, &total_avg_wait_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
    MPI_Reduce(&avg_send_time, &total_avg_send_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
-   MPI_Reduce(&total_syn_data, &g_total_syn_data, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);  
+   MPI_Reduce(&total_syn_data, &g_total_syn_data, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);  
 
    assert(num_net_traces);
 
    if(!g_tw_mynode)
+   {
 	printf("\n Total bytes sent %lld recvd %lld \n max runtime %lf ns avg runtime %lf \n max comm time %lf avg comm time %lf \n max send time %lf avg send time %lf \n max recv time %lf avg recv time %lf \n max wait time %lf avg wait time %lf \n", 
             total_bytes_sent, 
             total_bytes_recvd,
@@ -2881,6 +2928,10 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 			total_max_send_time, total_avg_send_time/num_net_traces,
 			total_max_recv_time, total_avg_recv_time/num_net_traces,
 			total_max_wait_time, total_avg_wait_time/num_net_traces);
+    
+    if(synthetic_pattern == PERMUTATION)
+        printf("\n Threshold for random permutation %ld ", perm_switch_thresh);
+   }
     if (do_lp_io){
         int ret = lp_io_flush(io_handle, MPI_COMM_CODES);
         assert(ret == 0 || !"lp_io_flush failure");
@@ -2897,6 +2948,9 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    if(alloc_spec)
        codes_jobmap_destroy(jobmap_ctx);
 
+#ifdef USE_RDAMARIS
+    } // end if(g_st_ross_rank)
+#endif
    tw_end();
 
   return 0;

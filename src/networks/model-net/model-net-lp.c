@@ -122,8 +122,6 @@ tw_lptype model_net_base_lp = {
 };
 
 /* setup for the ROSS event tracing
- * can have a different function for  rbev_trace_f and ev_trace_f
- * but right now it is set to the same function for both
  */
 void mn_event_collect(model_net_wrap_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
@@ -140,16 +138,17 @@ void mn_event_collect(model_net_wrap_msg *m, tw_lp *lp, char *buffer, int *colle
             type = 9001;
             memcpy(buffer, &type, sizeof(type));
             break;
-        case MN_BASE_SAMPLE: 
+        case MN_BASE_SAMPLE:
             type = 9002;
             memcpy(buffer, &type, sizeof(type));
             break;
         case MN_BASE_PASS:
             sub_msg = ((char*)m)+msg_offsets[((model_net_base_state*)lp->cur_state)->net_id];
-            if (g_st_ev_trace == RB_TRACE || g_st_ev_trace == COMMIT_TRACE)
-                (((model_net_base_state*)lp->cur_state)->sub_model_type->rbev_trace)(sub_msg, lp, buffer, collect_flag);
-            else if (g_st_ev_trace == FULL_TRACE)
-                (((model_net_base_state*)lp->cur_state)->sub_model_type->ev_trace)(sub_msg, lp, buffer, collect_flag);
+            if (((model_net_base_state*)lp->cur_state)->sub_model_type)
+            {
+                if (g_st_ev_trace)
+                    (((model_net_base_state*)lp->cur_state)->sub_model_type->ev_trace)(sub_msg, lp, buffer, collect_flag);
+            }
             break;
         default:  // this shouldn't happen, but can help detect an issue
             type = 9004;
@@ -160,18 +159,32 @@ void mn_event_collect(model_net_wrap_msg *m, tw_lp *lp, char *buffer, int *colle
 void mn_model_stat_collect(model_net_base_state *s, tw_lp *lp, char *buffer)
 {
     // need to call the model level stats collection fn
-    (*s->sub_model_type->model_stat_fn)(s->sub_state, lp, buffer);
+    if (s->sub_model_type)
+        (*s->sub_model_type->model_stat_fn)(s->sub_state, lp, buffer);
     return;
+}
+
+void mn_sample_event(model_net_base_state *s, tw_bf * bf, tw_lp * lp, void *sample)
+{
+    if (s->sub_model_type)
+        (*s->sub_model_type->sample_event_fn)(s->sub_state, bf, lp, sample);
+}
+
+void mn_sample_rc_event(model_net_base_state *s, tw_bf * bf, tw_lp * lp, void *sample)
+{
+    if (s->sub_model_type)
+        (*s->sub_model_type->sample_revent_fn)(s->sub_state, bf, lp, sample);
 }
 
 st_model_types mn_model_types[MAX_NETS];
 
 st_model_types mn_model_base_type = {
-    (rbev_trace_f) mn_event_collect,
-     sizeof(int),
      (ev_trace_f) mn_event_collect,
      sizeof(int),
      (model_stat_f) mn_model_stat_collect,
+     0,
+     (sample_event_f) mn_sample_event,
+     (sample_revent_f) mn_sample_rc_event,
      0
 };
 
@@ -213,14 +226,15 @@ void model_net_base_register(int *do_config_nets){
                         &model_net_base_lp);
             else
                 method_array[i]->mn_register(&model_net_base_lp);
-            if (g_st_ev_trace || g_st_model_stats) // for ROSS event tracing
+            if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps) // for ROSS event tracing
             {
-                memcpy(&mn_model_types[i], &mn_model_base_type, sizeof(st_model_types));
-
-                if (method_array[i]->mn_model_stat_register == NULL)
-                    st_model_type_register(model_net_lp_config_names[i], &mn_model_types[i]);
-                else
+                if (method_array[i]->mn_model_stat_register != NULL)
+                //    st_model_type_register(model_net_lp_config_names[i], &mn_model_types[i]);
+                //else
+                {
+                    memcpy(&mn_model_types[i], &mn_model_base_type, sizeof(st_model_types));
                     method_array[i]->mn_model_stat_register(&mn_model_types[i]);
+                }
             }
         }
     }
@@ -237,6 +251,24 @@ static void base_read_config(const char * anno, model_net_base_params *p){
     configuration_get_value_longint(&config, "PARAMS", "packet_size", anno,
             &packet_size_l);
     packet_size = packet_size_l;
+
+    if (ret > 0){
+        int i;
+        for (i = 0; i < MAX_SCHEDS; i++){
+            if (strcmp(sched_names[i], sched) == 0){
+                p->sched_params.type = i;
+                break;
+            }
+        }
+        if (i == MAX_SCHEDS){
+            tw_error(TW_LOC,"Unknown value for PARAMS:modelnet-scheduler : "
+                    "%s", sched);
+        }
+    }
+    else{
+        // default: FCFS
+        p->sched_params.type = MN_SCHED_FCFS;
+    }
 
     p->num_queues = 1;
     ret = configuration_get_value_int(&config, "PARAMS", "num_injection_queues", anno,
@@ -262,24 +294,6 @@ static void base_read_config(const char * anno, model_net_base_params *p){
                 "setting to %d\n", p->node_copy_queues);
     }
 
-    if (ret > 0){
-        int i;
-        for (i = 0; i < MAX_SCHEDS; i++){
-            if (strcmp(sched_names[i], sched) == 0){
-                p->sched_params.type = i;
-                break;
-            }
-        }
-        if (i == MAX_SCHEDS){
-            tw_error(TW_LOC,"Unknown value for PARAMS:modelnet-scheduler : "
-                    "%s", sched);
-        }
-    }
-    else{
-        // default: FCFS
-        p->sched_params.type = MN_SCHED_FCFS;
-    }
-
     // get scheduler-specific parameters
     if (p->sched_params.type == MN_SCHED_PRIO){
         // prio scheduler uses default parameters
@@ -293,7 +307,7 @@ static void base_read_config(const char * anno, model_net_base_params *p){
 
         ret = configuration_get_value(&config, "PARAMS",
                 "prio-sched-sub-sched", anno, sched, MAX_NAME_LENGTH);
-        if (ret == 0)
+        if (ret <= 0)
             *sub_stype = MN_SCHED_FCFS;
         else{
             int i;
@@ -357,6 +371,10 @@ void model_net_base_configure(){
         offsetof(model_net_wrap_msg, msg.m_custom_dfly);
     msg_offsets[DRAGONFLY_CUSTOM_ROUTER] =
         offsetof(model_net_wrap_msg, msg.m_custom_dfly);
+    msg_offsets[DRAGONFLY_PLUS] =
+        offsetof(model_net_wrap_msg, msg.m_dfly_plus);
+    msg_offsets[DRAGONFLY_PLUS_ROUTER] =
+        offsetof(model_net_wrap_msg, msg.m_dfly_plus);
     msg_offsets[SLIMFLY] =
         offsetof(model_net_wrap_msg, msg.m_slim);
     msg_offsets[FATTREE] =
@@ -439,10 +457,10 @@ void model_net_base_lp_init(
             break;
         }
     }
-    
+
     ns->nics_per_router = codes_mapping_get_lp_count(group, 1,
             lp_type_name, NULL, 1);
-    
+
     ns->msg_id = 0;
     ns->next_available_time = 0;
     ns->node_copy_next_available_time = (tw_stime*)malloc(ns->params->node_copy_queues * sizeof(tw_stime));
@@ -465,10 +483,14 @@ void model_net_base_lp_init(
     ns->sub_type = model_net_get_lp_type(ns->net_id);
 
     /* some ROSS instrumentation setup */
-    if (g_st_ev_trace || g_st_model_stats)
+    if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
     {
         ns->sub_model_type = model_net_get_model_stat_type(ns->net_id);
-        mn_model_types[ns->net_id].mstat_sz = ns->sub_model_type->mstat_sz;
+        if (ns->sub_model_type)
+        {
+            mn_model_types[ns->net_id].mstat_sz = ns->sub_model_type->mstat_sz;
+            mn_model_types[ns->net_id].sample_struct_sz = ns->sub_model_type->sample_struct_sz;
+        }
     }
 
     // NOTE: some models actually expect LP state to be 0 initialized...
@@ -596,7 +618,7 @@ void handle_new_msg(
         char const *sender_lpname;
         int rep_id, offset;
         model_net_request *r = &m->msg.m_base.req;
-        codes_mapping_get_lp_info2(r->src_lp, &sender_group, &sender_lpname, 
+        codes_mapping_get_lp_info2(r->src_lp, &sender_group, &sender_lpname,
                 NULL, &rep_id, &offset);
         num_servers = codes_mapping_get_lp_count(sender_group, 1,
                 sender_lpname, NULL, 1);
@@ -607,10 +629,10 @@ void handle_new_msg(
         if(!g_tw_mynode) {
             fprintf(stdout, "Set num_servers per router %d, servers per "
                 "injection queue per router %d, servers per node copy queue "
-                "per node %d\n", num_servers, servers_per_node, 
+                "per node %d\n", num_servers, servers_per_node,
                 servers_per_node_queue);
         }
-    } 
+    }
 
     if(lp->gid == m->msg.m_base.req.dest_mn_lp) {
         model_net_request *r = &m->msg.m_base.req;
@@ -618,7 +640,7 @@ void handle_new_msg(
         codes_mapping_get_lp_info2(r->src_lp, NULL, NULL, NULL, &rep_id, &offset);
         int queue = offset/ns->nics_per_router/servers_per_node_queue;
         m->msg.m_base.save_ts = ns->node_copy_next_available_time[queue];
-        tw_stime exp_time = ((ns->node_copy_next_available_time[queue] 
+        tw_stime exp_time = ((ns->node_copy_next_available_time[queue]
                             > tw_now(lp)) ? ns->node_copy_next_available_time[queue] : tw_now(lp));
         exp_time += r->msg_size * codes_cn_delay;
         exp_time -= tw_now(lp);
@@ -632,7 +654,7 @@ void handle_new_msg(
             tw_event *e = tw_event_new(r->final_dest_lp, exp_time, lp);
             memcpy(tw_event_data(e), e_msg, remote_event_size);
             tw_event_send(e);
-            e_msg = (char*)e_msg + remote_event_size; 
+            e_msg = (char*)e_msg + remote_event_size;
         }
         if (self_event_size > 0) {
             exp_time += delay;
@@ -658,8 +680,8 @@ void handle_new_msg(
         int self_event_size = r->self_event_size;
         if (remote_event_size > 0){
             memcpy(e_new_msg, e_msg, remote_event_size);
-            e_msg = (char*)e_msg + remote_event_size; 
-            e_new_msg = (char*)e_new_msg + remote_event_size; 
+            e_msg = (char*)e_msg + remote_event_size;
+            e_new_msg = (char*)e_new_msg + remote_event_size;
         }
         if (self_event_size > 0){
             memcpy(e_new_msg, e_msg, self_event_size);
@@ -667,7 +689,7 @@ void handle_new_msg(
         m_new->msg.m_base.isQueueReq = 0;
         tw_event_send(e);
         return;
-    } 
+    }
     // simply pass down to the scheduler
     model_net_request *r = &m->msg.m_base.req;
     // don't forget to set packet size, now that we're responsible for it!
@@ -689,7 +711,7 @@ void handle_new_msg(
         if(num_servers == -1) {
             char const *sender_group;
             char const *sender_lpname;
-            codes_mapping_get_lp_info2(r->src_lp, &sender_group, &sender_lpname, 
+            codes_mapping_get_lp_info2(r->src_lp, &sender_group, &sender_lpname,
                     NULL, &rep_id, &offset);
             num_servers = codes_mapping_get_lp_count(sender_group, 1,
                     sender_lpname, NULL, 1);
@@ -893,7 +915,7 @@ void model_net_method_idle_event(tw_stime offset_ts, int is_recv_queue,
     model_net_method_idle_event2(offset_ts, is_recv_queue, 0, lp);
 }
 
-void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue, 
+void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue,
         int queue_offset, tw_lp * lp){
     tw_event *e = tw_event_new(lp->gid, offset_ts, lp);
     model_net_wrap_msg *m_wrap = tw_event_data(e);

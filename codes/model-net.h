@@ -41,7 +41,7 @@ extern "C" {
 /* HACK: there is currently no scheduling fidelity across multiple
  * model_net_event calls. Hence, problems arise when some LP sends multiple
  * messages as part of an event and expects FCFS ordering. A proper fix which
- * involves model-net LP-level scheduling of requests is ideal, but not 
+ * involves model-net LP-level scheduling of requests is ideal, but not
  * feasible for now (would basically have to redesign model-net), so expose
  * explicit start-sequence and stop-sequence markers as a workaround
  */
@@ -74,6 +74,8 @@ typedef struct mn_stats mn_stats;
     X(LOGGP,     "modelnet_loggp",     "loggp",     &loggp_method)\
     X(EXPRESS_MESH, "modelnet_express_mesh", "express_mesh", &express_mesh_method)\
     X(EXPRESS_MESH_ROUTER, "modelnet_express_mesh_router", "express_mesh_router", &express_mesh_router_method)\
+    X(DRAGONFLY_PLUS, "modelnet_dragonfly_plus", "dragonfly_plus", &dragonfly_plus_method)\
+    X(DRAGONFLY_PLUS_ROUTER, "modelnet_dragonfly_plus_router", "dragonfly_plus_router", &dragonfly_plus_router_method)\
     X(MAX_NETS,  NULL,                 NULL,        NULL)
 
 #define X(a,b,c,d) a,
@@ -144,7 +146,7 @@ struct mn_stats
     long max_event_size;
 };
 
-/* Registers all model-net LPs in ROSS. Should be called after 
+/* Registers all model-net LPs in ROSS. Should be called after
  * configuration_load, but before codes_mapping_setup */
 void model_net_register();
 
@@ -166,8 +168,8 @@ void model_net_enable_sampling(tw_stime interval, tw_stime end);
 int model_net_sampling_enabled(void);
 
 /* Initialize/configure the network(s) based on the CODES configuration.
- * returns an array of the network ids, indexed in the order given by the 
- * modelnet_order configuration parameter 
+ * returns an array of the network ids, indexed in the order given by the
+ * modelnet_order configuration parameter
  * OUTPUT id_count - the output number of networks */
 int* model_net_set_params(int *id_count);
 
@@ -189,7 +191,7 @@ void model_net_event_collective_rc(
         int message_size,
         tw_lp *sender);
 
-/* allocate and transmit a new event that will pass through model_net to 
+/* allocate and transmit a new event that will pass through model_net to
  * arrive at its destination:
  *
  * - net_id: the type of network to send this message through. The set of
@@ -231,9 +233,9 @@ void model_net_event_collective_rc(
 // first argument becomes the network ID
 model_net_event_return model_net_event(
     int net_id,
-    char const * category, 
-    tw_lpid final_dest_lp, 
-    uint64_t message_size, 
+    char const * category,
+    tw_lpid final_dest_lp,
+    uint64_t message_size,
     tw_stime offset,
     int remote_event_size,
     void const * remote_event,
@@ -251,9 +253,9 @@ model_net_event_return model_net_event(
 model_net_event_return model_net_event_annotated(
         int net_id,
         char const * annotation,
-        char const * category, 
-        tw_lpid final_dest_lp, 
-        uint64_t message_size, 
+        char const * category,
+        tw_lpid final_dest_lp,
+        uint64_t message_size,
         tw_stime offset,
         int remote_event_size,
         void const * remote_event,
@@ -270,9 +272,9 @@ model_net_event_return model_net_event_mctx(
         int net_id,
         struct codes_mctx const * send_map_ctx,
         struct codes_mctx const * recv_map_ctx,
-        char const * category, 
-        tw_lpid final_dest_lp, 
-        uint64_t message_size, 
+        char const * category,
+        tw_lpid final_dest_lp,
+        uint64_t message_size,
         tw_stime offset,
         int remote_event_size,
         void const * remote_event,
@@ -309,7 +311,7 @@ int model_net_get_msg_sz(int net_id);
  *   identical to the sender argument to tw_event_new().
  */
 /* NOTE: we may end up needing additoinal arguments here to track state for
- * reverse computation; add as needed 
+ * reverse computation; add as needed
  */
 DEPRECATED
 void model_net_event_rc(
@@ -333,7 +335,7 @@ void model_net_event_rc2(
  * Parameters are largely the same as model_net_event, with the following
  * exceptions:
  * - final_dest_lp is the lp to pull data from
- * - self_event_size, self_event are applied at the requester upon receipt of 
+ * - self_event_size, self_event are applied at the requester upon receipt of
  *   the payload from the dest
  */
 model_net_event_return model_net_pull_event(
@@ -383,7 +385,7 @@ void model_net_pull_event_rc(
  * model-net implementation (currently implemented as a set of translation-unit
  * globals). Upon a subsequent model_net_*event* call, the context is consumed
  * and reset to an unused state.
- * 
+ *
  * NOTE: this call MUST be placed in the same calling context as the subsequent
  * model_net_*event* call. Otherwise, the parameters are not guaranteed to work
  * on the intended event, and may possibly be consumed by another, unrelated

@@ -120,6 +120,49 @@ tw_lptype svr_lp = {
     sizeof(svr_state),
 };
 
+/* setup for the ROSS event tracing
+ */
+void svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
+{
+    (void)lp;
+    (void)collect_flag;
+    int type = (int) m->svr_event_type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+/* can add in any model level data to be collected along with simulation engine data
+ * in the ROSS instrumentation.  Will need to update the last field in 
+ * svr_model_types[0] for the size of the data to save in each function call
+ */
+void svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
+{
+    (void)s;
+    (void)lp;
+    (void)buffer;
+    return;
+}
+
+st_model_types svr_model_types[] = {
+    {(ev_trace_f) svr_event_collect,
+     sizeof(int),
+     (model_stat_f) svr_model_stat_collect,
+     0,
+     NULL,
+     NULL,
+     0},
+    {NULL, 0, NULL, 0, NULL, NULL, 0}
+};
+
+static const st_model_types  *svr_get_model_stat_types(void)
+{
+    return(&svr_model_types[0]);
+}
+
+void svr_register_model_types()
+{
+    st_model_type_register("server", svr_get_model_stat_types());
+}
+
 const tw_optdef app_opt [] =
 {
         TWOPT_GROUP("Model net synthetic traffic " ),
@@ -327,7 +370,7 @@ static void handle_kickoff_event(
 //printf("2local_dest:%d global_dest:%d num_nodes:%d\n", local_dest, global_dest, num_nodes);
 
    ns->msg_sent_count++;
-   model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+   m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
    issue_event(ns, lp);
    return;
 }
@@ -451,6 +494,11 @@ int main(
  
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
+#ifdef USE_RDAMARIS
+    if(g_st_ross_rank)
+    { // keep damaris ranks from running code between here up until tw_end()
+#endif
+    codes_comm_update();
 
     if(argc < 2)
     {
@@ -459,12 +507,16 @@ int main(
             return 0;
     }
 
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Comm_rank(MPI_COMM_CODES, &rank);
+    MPI_Comm_size(MPI_COMM_CODES, &nprocs);
 
-    configuration_load(argv[2], MPI_COMM_WORLD, &config);
+    configuration_load(argv[2], MPI_COMM_CODES, &config);
     model_net_register();
     svr_add_lp_type();
+    
+    if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
+        svr_register_model_types();
+
     codes_mapping_setup();
     net_ids = model_net_configure(&num_nets);
 //    assert(num_nets==1);
@@ -479,7 +531,7 @@ int main(
     num_nodes_per_grp = num_routers_per_grp * num_servers_per_rep;
     total_routers = num_routers_per_grp * num_routers_per_grp * 2;
 
-/*    if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
+/*    if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_CODES) < 0)
     {
         return(-1);
     }
@@ -489,7 +541,7 @@ int main(
     {
         do_lp_io = 1;
         int flags = lp_io_use_suffix ? LP_IO_UNIQ_SUFFIX : 0;
-        int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_WORLD);
+        int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_CODES);
         assert(ret == 0 || !"lp_io_prepare failure");
     }
 
@@ -511,7 +563,7 @@ int main(
 
  
    if (do_lp_io){
-       int ret = lp_io_flush(io_handle, MPI_COMM_WORLD);
+       int ret = lp_io_flush(io_handle, MPI_COMM_CODES);
        assert(ret == 0 || !"lp_io_flush failure");
    }
 
@@ -531,12 +583,15 @@ int main(
 #endif
     }
 
-/*    if(lp_io_flush(handle, MPI_COMM_WORLD) < 0)
+/*    if(lp_io_flush(handle, MPI_COMM_CODES) < 0)
     {
         assert(ret == 0 || !"lp_io_flush failure");
         return(-1);
     }
 */
+#ifdef USE_RDAMARIS
+    } // end if(g_st_ross_rank)
+#endif
     tw_end();
 
     if(rank == 0)
