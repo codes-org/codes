@@ -78,6 +78,10 @@ struct terminal_custom_message
 
    /* for reverse computation */   
    int path_type;
+   short last_saved_qos;
+   short saved_qos_status;
+   int saved_qos_data;
+
    tw_stime saved_available_time;
    tw_stime saved_avg_time;
    tw_stime saved_rcv_time;
