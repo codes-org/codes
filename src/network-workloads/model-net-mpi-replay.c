@@ -1656,14 +1656,14 @@ static tw_stime ns_to_s(tw_stime ns)
 static void update_completed_queue_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
 
-    if(bf->c0)
+    if(bf->c30)
     {
        struct qlist_head * ent = qlist_pop(&s->completed_reqs);
 
         completed_requests * req = qlist_entry(ent, completed_requests, ql);
        free(req);
     }
-    else if(bf->c1)
+    else if(bf->c31)
     {
        struct pending_waits* wait_elem = (struct pending_waits*)rc_stack_pop(s->processed_wait_op);
        s->wait_op = wait_elem;
@@ -1681,8 +1681,8 @@ static void update_completed_queue(nw_state* s,
         tw_lp * lp,
         dumpi_req_id req_id)
 {
-    bf->c0 = 0;
-    bf->c1 = 0;
+    bf->c30 = 0;
+    bf->c31 = 0;
     m->fwd.num_matched = 0;
 
     int waiting = 0;
@@ -1690,7 +1690,7 @@ static void update_completed_queue(nw_state* s,
 
     if(!waiting)
     {
-        bf->c0 = 1;
+        bf->c30 = 1;
         completed_requests * req = (completed_requests*)malloc(sizeof(completed_requests));
         req->req_id = req_id;
         qlist_add(&req->ql, &s->completed_reqs);
@@ -1703,7 +1703,7 @@ static void update_completed_queue(nw_state* s,
     }
     else
      {
-            bf->c1 = 1;
+            bf->c31 = 1;
             m->fwd.num_matched = clear_completed_reqs(s, lp, s->wait_op->req_ids, s->wait_op->count);
     
             m->rc.saved_wait_time = s->wait_time;
@@ -1793,8 +1793,8 @@ static void update_arrival_queue_rc(nw_state* s,
         if(bf->c12)
 	        s->recv_time = m->rc.saved_recv_time;
         
-        if(bf->c10)
-            send_ack_back_rc(s, bf, m, lp);
+        //if(bf->c10)
+        //    send_ack_back_rc(s, bf, m, lp);
         if(bf->c9)
             update_completed_queue_rc(s, bf, m, lp);
         if(bf->c8)
