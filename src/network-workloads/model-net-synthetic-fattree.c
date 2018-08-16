@@ -253,9 +253,12 @@ static void handle_kickoff_rev_event(
 {
     (void)b;
     (void)m;
-	ns->msg_sent_count--;
-	model_net_event_rc2(lp, &m->event_rc);
-    tw_rand_reverse_unif(lp->rng);
+    ns->msg_sent_count--;
+    model_net_event_rc2(lp, &m->event_rc);
+    tw_rand_reverse_unif(lp->rng); // reversing RNG in issue_event
+    
+    if (traffic == UNIFORM)
+        tw_rand_reverse_unif(lp->rng);
 }	
 static void handle_kickoff_event(
 	    svr_state * ns,

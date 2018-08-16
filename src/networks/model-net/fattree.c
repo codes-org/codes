@@ -1900,7 +1900,7 @@ void switch_packet_receive_rc(switch_state * s,
 	s_arrive_r++;
 #endif
     int output_port = msg->saved_vc;
-    if(s->params->routing != STATIC) {
+    if(s->params->routing != STATIC && !bf->c10) {
       tw_rand_reverse_unif(lp->rng);
     }
     if(bf->c1)
@@ -2669,6 +2669,7 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
     tw_lp * lp, int *out_off) {
   (void)bf;
   (void)lp;
+  bf->c10 = 0;
   int outport = -1;
   int start_port, end_port;
   fattree_param *p = s->params;
@@ -2694,6 +2695,7 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
     if(dest_term_local_id >= s->start_lneigh && dest_term_local_id < s->end_lneigh) {
       outport = dest_term_local_id - s->start_lneigh;
       *out_off = 0;
+      bf->c10 = 1;
       return outport;
     } else { //go up the least congested path
       start_port = s->num_lcons;
