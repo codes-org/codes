@@ -840,7 +840,7 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 	}*/
 	}
     m->rc.saved_send_time = s->send_time;
-    if(tw_now(lp) - m->fwd.sim_start_time > s->max_time)
+    if((tw_now(lp) - m->fwd.sim_start_time) > s->max_time)
         s->max_time = tw_now(lp) - m->fwd.sim_start_time;
 
     s->send_time += (tw_now(lp) - m->fwd.sim_start_time);

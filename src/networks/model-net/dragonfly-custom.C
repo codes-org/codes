@@ -1892,7 +1892,7 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_custom_messa
         tw_lp * lp)
 {
       int num_qos_levels = s->params->num_qos_levels;
-      int vcg = 0;
+      int vcg = msg->saved_vc;
       
       if(bf->c1) {
         s->in_send_loop = 1;
@@ -1915,9 +1915,6 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_custom_messa
 
       terminal_custom_message_list* cur_entry = (terminal_custom_message_list *)rc_stack_pop(s->st);
       
-      if(num_qos_levels > 1)
-         vcg = get_vcg_from_category(msg);
-
       prepend_to_terminal_custom_message_list(s->terminal_msgs, 
               s->terminal_msgs_tail, vcg, cur_entry);
       if(bf->c3) {
@@ -1968,6 +1965,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
     return;
   }
 
+  msg->saved_vc = vcg;
   terminal_custom_message_list* cur_entry = s->terminal_msgs[vcg];
   int data_size = s->params->chunk_size;
   uint64_t num_chunks = cur_entry->msg.packet_size/s->params->chunk_size;
@@ -3720,6 +3718,10 @@ static void router_packet_receive_rc(router_state * s,
     int output_port = msg->saved_vc;
     int output_chan = msg->saved_channel;
 
+    if(bf->c1)
+    {
+        s->is_monitoring_bw = 1;
+    }
     if(bf->c15)
     {
         tw_rand_reverse_unif(lp->rng);
@@ -3805,6 +3807,7 @@ router_packet_receive( router_state * s,
   {
      if(s->is_monitoring_bw == 0)
      {
+        bf->c1 = 1;
         tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
         terminal_custom_message * m;
         tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp, 
