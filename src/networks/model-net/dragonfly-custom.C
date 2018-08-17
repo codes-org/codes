@@ -1542,9 +1542,20 @@ static void router_credit_send(router_state * s, terminal_custom_message * msg,
 
 static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_custom_message * msg, tw_lp * lp)
 {
+   int num_qos_levels = s->params->num_qos_levels;
+   if(bf->c1)
+     s->is_monitoring_bw = 0;
+   
    s->packet_gen--;
    packet_gen--;
    s->packet_counter--;
+
+   if(bf->c2)
+       num_local_packets_sr--;
+   if(bf->c3)
+       num_local_packets_sg--;
+   if(bf->c4)
+       num_remote_packets--;
 
    tw_rand_reverse_unif(lp->rng);
 
@@ -1554,6 +1565,13 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_custom_m
 
    int i;
    int vcg = 0;
+   if(num_qos_levels > 1)
+   {
+       vcg = get_vcg_from_category(msg); 
+       assert(vcg == Q_HIGH || vcg == Q_MEDIUM);
+   }
+   assert(vcg < num_qos_levels);
+
    for(i = 0; i < num_chunks; i++) {
         delete_terminal_custom_message_list(return_tail(s->terminal_msgs, 
           s->terminal_msgs_tail, vcg));
@@ -1589,6 +1607,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
             s->router_id / num_routers_per_mgrp, s->router_id % num_routers_per_mgrp, &router_id);
        if(s->is_monitoring_bw == 0)
         {
+            bf->c1 = 1;
             /* Issue an event on both terminal and router to monitor bandwidth */
             tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
             terminal_custom_message * m;
@@ -1632,12 +1651,19 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
   if(src_grp_id == dest_grp_id)
   {
       if(dest_router_id == s->router_id)
+      {
+          bf->c2 = 1;
           num_local_packets_sr++;
+      }
       else
+      {
+          bf->c3 = 1;
           num_local_packets_sg++;
+      }
   }
   else
   {
+      bf->c4 = 1;
       num_remote_packets++;
   }
   nic_ts = g_tw_lookahead + (num_chunks * cn_delay) + tw_rand_unif(lp->rng);
@@ -1867,7 +1893,6 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_custom_messa
 {
       int num_qos_levels = s->params->num_qos_levels;
       int vcg = 0;
-
       
       if(bf->c1) {
         s->in_send_loop = 1;

@@ -258,6 +258,8 @@ struct nw_state
 	double compute_time;
 	/* time spent in message send/isend */
 	double send_time;
+    /* max time for synthetic traffic message */
+    double max_time;
 	/* time spent in message receive */
 	double recv_time;
 	/* time spent in wait operation */
@@ -813,6 +815,7 @@ void arrive_syn_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
     s->syn_data -= data;
     num_syn_bytes_recvd -= data;
     s->num_bytes_recvd -= data;
+    s->send_time = m->rc.saved_send_time;
 }
 void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
@@ -836,6 +839,10 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 		upper_threshold += 1048576;
 	}*/
 	}
+    m->rc.saved_send_time = s->send_time;
+    if(tw_now(lp) - m->fwd.sim_start_time > s->max_time)
+        s->max_time = tw_now(lp) - m->fwd.sim_start_time;
+
     s->send_time += (tw_now(lp) - m->fwd.sim_start_time);
     s->num_recvs++;
     int data = m->fwd.num_bytes;
@@ -1951,6 +1958,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->all_reduce_time = 0;
    s->prev_switch = 0;
    s->saved_perm_dest = -1;
+   s->max_time = 0;
 
    char type_name[512];
 
@@ -2466,9 +2474,6 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 
     int written = 0;
     double avg_msg_time = 0;
-    if(!s->nw_id)
-        written = sprintf(s->output_buf, "# Format <LP ID> <Terminal ID> <Job ID> <Rank ID> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time> <Job ID>");
-
     /*if(s->wait_op)
     {
         lprintf("\n Incomplete wait operation Rank %llu ", s->nw_id);
@@ -2530,10 +2535,10 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
         written = 0;
     
         if(!s->nw_id)
-            written = sprintf(s->output_buf, "# Format <LP ID> <Terminal ID> <Job ID> <Local Rank> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time> <Avg msg time>");
+            written = sprintf(s->output_buf, "# Format <LP ID> <Terminal ID> <Job ID> <Local Rank> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time> <Avg msg time> <Max Msg Time>");
 
-        written += sprintf(s->output_buf + written, "\n %llu %llu %d %d %ld %ld %ld %ld %lf %lf %lf %lf", LLU(lp->gid), LLU(s->nw_id), s->app_id, s->local_rank, s->num_sends, s->num_recvs, s->num_bytes_sent,
-                s->num_bytes_recvd, s->send_time, s->elapsed_time - s->compute_time, s->compute_time, avg_msg_time);
+        written += sprintf(s->output_buf + written, "\n %llu %llu %d %d %ld %ld %ld %ld %lf %lf %lf %lf %lf", LLU(lp->gid), LLU(s->nw_id), s->app_id, s->local_rank, s->num_sends, s->num_recvs, s->num_bytes_sent,
+                s->num_bytes_recvd, s->send_time, s->elapsed_time - s->compute_time, s->compute_time, avg_msg_time, s->max_time);
         lp_io_write(lp->gid, (char*)"mpi-replay-stats", written, s->output_buf);
 
 		if(s->elapsed_time - s->compute_time > max_comm_time)
