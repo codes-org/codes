@@ -356,7 +356,7 @@ static void codes_exec_mpi_recv_rc(
         nw_state* s, tw_bf * bf, nw_message* m, tw_lp* lp);
 /* execute the computational delay */
 static void codes_exec_comp_delay(
-        nw_state* s, nw_message * m, tw_lp* lp, struct codes_workload_op * mpi_op);
+        nw_state* s, tw_bf *bf, nw_message * m, tw_lp* lp, struct codes_workload_op * mpi_op);
 /* gets the next MPI operation from the network-workloads API. */
 static void get_next_mpi_operation(
         nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp);
@@ -1327,7 +1327,7 @@ static int rm_matching_send(nw_state * ns,
         
         if(qitem->op_type == CODES_WK_IRECV && !is_rend)
         {
-            bf->c9 = 1;
+            bf->c29 = 1;
             update_completed_queue(ns, bf, m, lp, qitem->req_id);
         }
         else
@@ -1369,8 +1369,9 @@ static void codes_issue_next_event(tw_lp* lp)
 
 /* Simulate delays between MPI operations */
 static void codes_exec_comp_delay(
-        nw_state* s, nw_message * m, tw_lp* lp, struct codes_workload_op * mpi_op)
+        nw_state* s, tw_bf *bf, nw_message * m, tw_lp* lp, struct codes_workload_op * mpi_op)
 {
+    bf->c28 = 0;
 	tw_event* e;
 	tw_stime ts;
 	nw_message* msg;
@@ -1379,7 +1380,10 @@ static void codes_exec_comp_delay(
     s->compute_time += mpi_op->u.delay.nsecs;
     ts = mpi_op->u.delay.nsecs;
     if(ts <= g_tw_lookahead)
+    {
+        bf->c28 = 1;
         ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
+    }
 
 	//ts += g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
     assert(ts > 0);
@@ -1403,6 +1407,8 @@ static void codes_exec_mpi_recv_rc(
     if(bf->c11)
         codes_issue_next_event_rc(lp);
 
+    if(bf->c6)
+        codes_issue_next_event_rc(lp);
 	if(m->fwd.found_match >= 0)
 	  {
 		ns->recv_time = m->rc.saved_recv_time;
@@ -1430,12 +1436,10 @@ static void codes_exec_mpi_recv_rc(
                index++;
             }
         }
-        if(bf->c9)
+        if(bf->c29)
         {
             update_completed_queue_rc(ns, bf, m, lp);
         }
-        if(bf->c6)
-            codes_issue_next_event_rc(lp);
       }
 	else if(m->fwd.found_match < 0)
 	    {
@@ -1523,7 +1527,12 @@ static void codes_exec_mpi_send_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_
         if(bf->c15 || bf->c16)
             s->num_sends--;
 
-        model_net_event_rc2(lp, &m->event_rc);
+        if (bf->c15)
+            model_net_event_rc2(lp, &m->event_rc);
+        if (bf->c16)
+            model_net_event_rc2(lp, &m->event_rc);
+        if (bf->c17)
+            model_net_event_rc2(lp, &m->event_rc);
 
         if(bf->c4)
             codes_issue_next_event_rc(lp);
@@ -1645,6 +1654,7 @@ static void codes_exec_mpi_send(nw_state* s,
     }
     else if(is_rend == 1)
     {
+        bf->c17 = 1;
         /* initiate the actual data transfer, local completion message is sent
          * for any blocking sends. */
        local_m.fwd.sim_start_time = mpi_op->sim_start_time;
@@ -2277,14 +2287,15 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
                 codes_issue_next_event_rc(lp);
             else
             {
-                tw_rand_reverse_unif(lp->rng);
+                if (bf->c28)
+                    tw_rand_reverse_unif(lp->rng);
                 s->compute_time = m->rc.saved_delay;
             }
 		}
 		break;
 		case CODES_WK_ALLREDUCE:
         {
-            if(bf->c1)
+            if(bf->c27)
             {
                 s->num_all_reduce--;
                 s->col_time = m->rc.saved_send_time; 
@@ -2400,7 +2411,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
                 if(disable_delay)
                     codes_issue_next_event(lp);
                 else
-				    codes_exec_comp_delay(s, m, lp, mpi_op);
+				    codes_exec_comp_delay(s, bf, m, lp, mpi_op);
 			  }
 			break;
 
@@ -2434,7 +2445,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 				s->num_cols++;
                 if(s->col_time > 0)
                 {
-                    bf->c1 = 1;
+                    bf->c27 = 1;
                     m->rc.saved_delay = s->all_reduce_time;
                     s->all_reduce_time += (tw_now(lp) - s->col_time);
                     m->rc.saved_send_time = s->col_time;
