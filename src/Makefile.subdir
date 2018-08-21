@@ -99,11 +99,12 @@ nobase_include_HEADERS = \
 	codes/net/slimfly.h \
 	codes/net/fattree.h \
 	codes/net/loggp.h \
+	codes/net/network-graph.h \
 	codes/net/simplenet-upd.h \
 	codes/net/simplep2p.h \
 	codes/net/express-mesh.h \
 	codes/net/torus.h \
-    codes/codes-mpi-replay.h \
+  codes/codes-mpi-replay.h \
 	codes/configfile.h
 
 
@@ -166,6 +167,7 @@ src_libcodes_la_SOURCES =  \
 	src/networks/model-net/dragonfly-plus.C \
 	src/networks/model-net/slimfly.c \
 	src/networks/model-net/fattree.c \
+	src/networks/model-net/network-graph.c \
 	src/networks/model-net/loggp.c \
 	src/networks/model-net/simplep2p.c \
 	src/networks/model-net/model-net-lp.c \

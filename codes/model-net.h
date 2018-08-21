@@ -74,6 +74,8 @@ typedef struct mn_stats mn_stats;
     X(LOGGP,     "modelnet_loggp",     "loggp",     &loggp_method)\
     X(EXPRESS_MESH, "modelnet_express_mesh", "express_mesh", &express_mesh_method)\
     X(EXPRESS_MESH_ROUTER, "modelnet_express_mesh_router", "express_mesh_router", &express_mesh_router_method)\
+    X(NETWORK_GRAPH, "modelnet_network_graph", "network_graph", &network_graph_method)\
+    X(NETWORK_GRAPH_ROUTER, "modelnet_network_graph_router", "network_graph_router", &network_graph_router_method)\
     X(DRAGONFLY_PLUS, "modelnet_dragonfly_plus", "dragonfly_plus", &dragonfly_plus_method)\
     X(DRAGONFLY_PLUS_ROUTER, "modelnet_dragonfly_plus_router", "dragonfly_plus_router", &dragonfly_plus_router_method)\
     X(MAX_NETS,  NULL,                 NULL,        NULL)

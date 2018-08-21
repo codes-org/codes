@@ -41,6 +41,8 @@ include $(top_srcdir)/src/Makefile.subdir
 include $(top_srcdir)/tests/Makefile.subdir
 include $(top_srcdir)/doc/Makefile.subdir
 
+LDADD += -lcgraph
+
 if USE_DEBUG
 AM_CPPFLAGS += -g
 AM_CFLAGS   += -g

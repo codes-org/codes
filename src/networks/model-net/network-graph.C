@@ -15,8 +15,11 @@
 #include "codes/quickhash.h"
 #include "codes/rc-stack.h"
 #include <vector>
+#include <string>
+#include <map>
 #include <graphviz/cgraph.h>
 #include <cstdio>
+#include <search.h>
 
 #define CREDIT_SZ 8
 #define HASH_TABLE_SIZE 4999
@@ -79,19 +82,21 @@ class End {
   int id;
   bool isTerm;
 
+  End() { }
+
   End(int _port, int _id, bool _isTerm) {
     port = _port;
     id = _id;
     isTerm = _isTerm;
   }
-}
+};
 
 class Switch_info {
   public:
   std::string name;
   long long guid;
   int radix;
-  vector<End> ports;
+  std::vector<End> ports;
 };
 
 class Terminal_info {
@@ -99,7 +104,7 @@ class Terminal_info {
   std::string name;
   long long guid;
   int radix;
-  vector<End> ports;
+  std::vector<End> ports;
 };
 
 struct local_param
@@ -120,10 +125,10 @@ struct local_param
 
   //CHANGE: add network specific data here
   int num_switches, num_terminals;
-  vector<Switch_info> switch_id_to_info;
-  vector<Terminal_info> terminal_id_to_info;
-  map<long long, int> switch_guid_to_id, terminal_guid_to_id;
-  map<std::string, int> switch_name_to_id, terminal_name_to_id;
+  std::vector<Switch_info> switch_id_to_info;
+  std::vector<Terminal_info> term_id_to_info;
+  std::map<long long, int> switch_guid_to_id, term_guid_to_id;
+  std::map<std::string, int> switch_name_to_id, term_name_to_id;
 };
 
 struct local_router_sample
@@ -143,7 +148,7 @@ struct local_cn_sample
   long data_size_sample;
   double fin_hops_sample;
   tw_stime fin_chunks_time;
-  tw_stime busy_time_sample;
+  tw_stime *busy_time_sample;
   tw_stime end_time;
   long fwd_events;
   long rev_events;
@@ -163,7 +168,7 @@ struct terminal_state
   int radix; //my radix
 
   //which router I am connected to
-  vector<tw_lpid> conn_gids;
+  std::vector<tw_lpid> conn_gids;
 
   // Each terminal will have input/output channel(s) with the router
   int** vc_occupancy; // NUM_VC
@@ -255,7 +260,7 @@ struct router_state
 
   //CHANGE: may need to be changed if linear storage is not desired
   //array/linked list based storage of info about ports/vcs
-  vector<tw_lpid> conn_gids;
+  std::vector<tw_lpid> conn_gids;
   tw_stime* next_output_available_time;
   message_list ***pending_msgs;
   message_list ***pending_msgs_tail;
@@ -394,7 +399,7 @@ static void local_read_config(const char * anno, local_param *params){
       &p->num_terminals);
   
   p->switch_id_to_info.resize(p->num_switches);
-  p->terminal_id_to_info.resize(p->num_terminals);
+  p->term_id_to_info.resize(p->num_terminals);
 
   configuration_get_value(&config, "PARAMS", "network_graph_file", anno,
       network_graph_file, MAX_NAME_LENGTH);
@@ -404,31 +409,32 @@ static void local_read_config(const char * anno, local_param *params){
   int num_switches = 0, num_terminals = 0;
 
   Agnode_t *g_node;
+  Agedge_t    *e;
 
-  for(g_node = agfstnode(input_graph); g_node; g_node = agnxtnode(input_graph, g_nodes)) {
+  for(g_node = agfstnode(input_graph); g_node; g_node = agnxtnode(input_graph, g_node)) {
     char *name = agnameof(g_node);
     if(name[0] == 'S') {
-      switch_info next_switch;
+      Switch_info next_switch;
       next_switch.name = std::string(name);
-      switch_name_to_id[next_switch.name] = num_switches;
+      p->switch_name_to_id[next_switch.name] = num_switches;
       char * comment = agget(g_node, "comment"); 
       sscanf(comment, "%x,radix=%d", &next_switch.guid, &next_switch.radix);
-      switch_id_to_info[num_switches] = next_switch;
-      switch_id_to_info[num_switches].ports.resize(next_switch.radix);
-      switch_guid_to_id[next_switch.guid] = num_switches;
+      p->switch_id_to_info[num_switches] = next_switch;
+      p->switch_id_to_info[num_switches].ports.resize(next_switch.radix);
+      p->switch_guid_to_id[next_switch.guid] = num_switches;
       num_switches++;
     }
     if(name[0] == 'T') {
-      terminal_id_to_info next_term;
+      Terminal_info next_term;
       next_term.name = std::string(name);
       int term_id;
       sscanf(name, "T<%d", &term_id);
-      term_name_to_id[next_term.name] = term_id;
+      p->term_name_to_id[next_term.name] = term_id;
       char * comment = agget(g_node, "comment"); 
       sscanf(comment, "%x,radix=%d", &next_term.guid, &next_term.radix);
-      term_id_to_info[term_id] = next_term;
-      term_id_to_info[term_id].ports.resize(next_term.radix);
-      term_guid_to_id[next_term.guid] = term_id;
+      p->term_id_to_info[term_id] = next_term;
+      p->term_id_to_info[term_id].ports.resize(next_term.radix);
+      p->term_guid_to_id[next_term.guid] = term_id;
       if(term_id > num_terminals) num_terminals = term_id;
     }
   }
@@ -436,31 +442,31 @@ static void local_read_config(const char * anno, local_param *params){
   assert(num_terminals == p->num_terminals);
   assert(num_switches == p->num_switches);
       
-  for(g_node = agfstnode(input_graph); g_node; g_node = agnxtnode(input_graph, g_nodes)) {
+  for(g_node = agfstnode(input_graph); g_node; g_node = agnxtnode(input_graph, g_node)) {
     char *name = agnameof(g_node);
     int index_in_info;
     if(name[0] == 'S') {
-      index_in_info = switch_name_to_id[std::string(name)];
+      index_in_info = p->switch_name_to_id[std::string(name)];
     } else {
-      index_in_info = term_name_to_id[std::string(name)];
+      index_in_info = p->term_name_to_id[std::string(name)];
     }
-    for (e = agfstedge(g,g_node); e; e = agnxtedge(g,e,g_node)) {
+    for (e = agfstedge(input_graph,g_node); e; e = agnxtedge(input_graph,e,g_node)) {
       char *partner = agnameof(e->node);
       char *edge_comment = agget(e, "comment");
       int srcPort, dstPort;
       sscanf(edge_comment, "P%d->P%d", &srcPort, &dstPort);
       int dstId; bool isTerm;
       if(partner[0] == 'S') {
-        dstId = switch_name_to_id[std::string(partner)];
+        dstId = p->switch_name_to_id[std::string(partner)];
         isTerm = false; 
       } else {
-        dstId = term_name_to_id[std::string(partner)];
+        dstId = p->term_name_to_id[std::string(partner)];
         isTerm = true;
       }
       if(name[0] == 'S') {
-       switch_id_to_info[index_in_info].ports[srcPort] = End(dstPort, dstId, isTerm);
+       p->switch_id_to_info[index_in_info].ports[srcPort] = End(dstPort, dstId, isTerm);
       } else {
-       term_id_to_info[index_in_info].ports[srcPort] = End(dstPort, dstId, isTerm);
+       p->term_id_to_info[index_in_info].ports[srcPort] = End(dstPort, dstId, isTerm);
       }
     }
   }
@@ -564,7 +570,7 @@ static int cmp_guids(const void *g1, const void *g2)
     return 1;
 }
 
-static int read_static_lft(long long guid, int & *lft, local_param * params)
+static int read_static_lft(long long guid, int * &lft, const local_param * params)
 {
   char dir_name[512];
   char file_name[512];
@@ -583,9 +589,9 @@ static int read_static_lft(long long guid, int & *lft, local_param * params)
 
   int num_added = 0;
   //temp storage for the entire table
-  guid_port_combi_t *tmpLFT = calloc(params->num_terminals + params->num_switches, sizeof(guid_port_combi_t));
+  guid_port_combi_t *tmpLFT = (guid_port_combi_t*)calloc(params->num_terminals + params->num_switches, sizeof(guid_port_combi_t));
   //storage for port to take for the destination terminal
-  lft = malloc(params->num_terminals * sizeof(int));
+  lft = (int*)malloc(params->num_terminals * sizeof(int));
   /* init all with -1 so that we find missing routing entries */
   for (int i = 0; i < params->num_terminals; i++) lft[i] = -1;
 
@@ -622,12 +628,10 @@ static int read_static_lft(long long guid, int & *lft, local_param * params)
    * convert the read lft, which might contain entries for switches
    * or is permutated, into the correct format
    */
-  ft_terminal_state tmpTerm;
   for (int dest_num = 0; dest_num < params->num_terminals; dest_num++) {
-    tmpTerm.terminal_id = dest_num;
-    uint64_t key = term_id_to_info[dest_num].guid;
+    uint64_t key = params->term_id_to_info[dest_num].guid;
     size_t size = params->num_terminals + params->num_switches;
-    guid_port_combi_t *elem = lfind(&key, tmpLFT, &size,
+    guid_port_combi_t *elem = (guid_port_combi_t*)lfind(&key, tmpLFT, &size,
           sizeof(guid_port_combi_t), cmp_guids);
     assert(elem);
     lft[dest_num] = elem->port - 1;
@@ -668,19 +672,15 @@ static void terminal_init( terminal_state * s, tw_lp * lp )
   int num_lps = codes_mapping_get_lp_count(lp_group_name, 0, LP_CONFIG_NM_TERM,
       s->anno, 0);
 
-  if(num_lps != s->params->total_terminals) {
-    tw_error(TW_LOC, "Number of terminals LP does not match number of nodes\n");
-  }
-
   s->terminal_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
 
-  Terminal_info &my_info = terminal_id_to_info[s->terminal_id]; 
-  s->radix = my_info->radix;
-  conn_gids.resize(s->radix);
+  const Terminal_info &my_info = s->params->term_id_to_info[s->terminal_id]; 
+  s->radix = my_info.radix;
+  s->conn_gids.resize(s->radix);
   
   for(int port = 0; port < s->radix; port++) {
-    End &next_port = my_info.ports[port];
-    if(End.isTerm) {
+    const End &next_port = my_info.ports[port];
+    if(next_port.isTerm) {
       s->conn_gids[port] = codes_mapping_get_lpid_from_relative(next_port.id, 
           NULL, LP_CONFIG_NM_TERM, s->anno, 1);
     } else {
@@ -712,7 +712,7 @@ static void terminal_init( terminal_state * s, tw_lp * lp )
   s->terminal_msgs_tail = (message_list ***)malloc(s->radix * sizeof(message_list**));
   s->vc_occupancy = (int **)malloc(s->radix * sizeof(int*));
   s->total_terminal_length = (int *)malloc(s->radix * sizeof(int));
-  s->terminal_length = (int *)malloc(s->radix * sizeof(int));
+  s->terminal_length = (int **)malloc(s->radix * sizeof(int*));
   s->in_send_loop = (int *)malloc(s->radix * sizeof(int));
   s->terminal_available_time = (tw_stime*)malloc(s->radix * sizeof(tw_stime));
   s->last_buf_full = (tw_stime*)malloc(s->radix * sizeof(tw_stime));
@@ -749,7 +749,7 @@ void post_terminal_init(terminal_state *s, tw_lp *lp)
    * algorithm, e.g., through the use of opensm\
    */
   if(s->params->routing == STATIC) {
-   if(0 != read_static_lft(terminal_id_to_info[s->terminal_id].guid, s->lft, s->params)) {
+   if(0 != read_static_lft(s->params->term_id_to_info[s->terminal_id].guid, s->lft, s->params)) {
      tw_error(TW_LOC, "Error while reading the routing table for terminal");
    }
   }
@@ -759,15 +759,15 @@ void post_terminal_init(terminal_state *s, tw_lp *lp)
 //specific data structures
 static void create_router_connections(router_state * r, tw_lp * lp) {
   local_param *p = (local_param *)r->params;
-  Switch_info &my_info = switch_id_to_info[r->router_id];
+  Switch_info &my_info = p->switch_id_to_info[r->router_id];
   for(int port = 0; port < r->radix; port++) {
     End &next_port = my_info.ports[port];
-    if(End.isTerm) {
+    if(next_port.isTerm) {
       r->conn_gids[port] = codes_mapping_get_lpid_from_relative(next_port.id, 
-          NULL, LP_CONFIG_NM_TERM, s->anno, 1);
+          NULL, LP_CONFIG_NM_TERM, r->anno, 1);
     } else {
       r->conn_gids[port] = codes_mapping_get_lpid_from_relative(next_port.id, 
-          NULL, LP_CONFIG_NM_ROUT, s->anno, 1);
+          NULL, LP_CONFIG_NM_ROUT, r->anno, 1);
     }
   }
 }
@@ -791,7 +791,7 @@ static void router_setup(router_state * r, tw_lp * lp)
 
 
   r->router_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
-  Switch_info &my_info = switch_id_to_info[r->router_id];
+  Switch_info &my_info = p->switch_id_to_info[r->router_id];
   r->radix = my_info.radix;
 
   r->fwd_events = 0;
@@ -817,7 +817,7 @@ static void router_setup(router_state * r, tw_lp * lp)
   r->busy_time_sample = (tw_stime*)malloc(r->radix * sizeof(tw_stime));
 
   rc_stack_create(&r->st);
-  for(int i = 0; i < p->radix; i++)
+  for(int i = 0; i < r->radix; i++)
   {
     // Set credit & router occupancy
     r->last_buf_full[i] = 0.0;
@@ -855,8 +855,8 @@ void post_router_init(router_state *r, tw_lp *lp)
   /* read any LFTs which might have been generated by an external routing
    * algorithm, e.g., through the use of opensm\
    */
-  if(s->params->routing == STATIC) {
-   if(0 != read_static_lft(switch_id_to_info[r->router_id].guid, r->lft, r->params)) {
+  if(r->params->routing == STATIC) {
+   if(0 != read_static_lft(r->params->switch_id_to_info[r->router_id].guid, r->lft, r->params)) {
      tw_error(TW_LOC, "Error while reading the routing table for switch");
    }
   }
@@ -896,7 +896,7 @@ static tw_stime local_packet_event(
   msg->type = T_GENERATE;
   msg->dest_terminal_id = req->dest_mn_lp;
   msg->dest_terminal = codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0);
-  sg->message_id = req->msg_id;
+  msg->message_id = req->msg_id;
   msg->is_pull = req->is_pull;
   msg->pull_size = req->pull_size;
   msg->magic = terminal_magic_num;
@@ -953,7 +953,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, LOCAL_MSG_STRUCT * m
   msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
   msg->my_N_hop = 0;
 
-  int output_port = -1, out_vc = 0;
+  int output_port = -1, use_vc = 0;
   //find the next port by looking up the lft
   if(s->params->routing == STATIC) {
     output_port = s->lft[msg->dest_terminal];
@@ -1667,10 +1667,10 @@ get_next_stop(router_state * s,
     tw_error(TW_LOC, "Only static routing supported in this topology\n");
   }
   int use_vc = 0;
-  int min_vc_length = s->terminal_length[output_port][use_vc];
+  int min_vc_length = s->vc_occupancy[output_port][use_vc];
   for(int vc = 1; vc < s->params->num_vcs; vc++) {
     if(s->vc_occupancy[output_port][vc] < min_vc_length) {
-      min_vc_length = s->terminal_length[output_port][vc];
+      min_vc_length = s->vc_occupancy[output_port][vc];
       use_vc = vc;
     }
   }
@@ -1751,7 +1751,7 @@ router_packet_receive( router_state * s,
   }
 
   int max_vc_size = s->params->vc_size;
-  if(switch_id_to_info[s->router_id].ports[next_port].isTerm) {
+  if(s->params->switch_id_to_info[s->router_id].ports[next_port].isTerm) {
     max_vc_size = s->params->cn_vc_size;
   }
 
@@ -1871,7 +1871,7 @@ router_packet_send( router_state * s,
   int to_terminal = 0;
   double delay = s->params->link_delay;
 
-  if(switch_id_to_info[s->router_id].ports[next_port].isTerm) {
+  if(s->params->switch_id_to_info[s->router_id].ports[output_port].isTerm) {
     to_terminal = 1;
     delay = s->params->cn_delay;
   }
@@ -2018,7 +2018,7 @@ static void router_buf_update(router_state * s, tw_bf * bf, LOCAL_MSG_STRUCT * m
   s->vc_occupancy[indx][output_chan] -= s->params->chunk_size;
 
   int max_vc_size = s->params->vc_size;
-  if(indx < s->params->num_cn) {
+  if(s->params->switch_id_to_info[s->router_id].ports[indx].isTerm) {
     max_vc_size = s->params->cn_vc_size;
   }
 
@@ -2034,7 +2034,7 @@ static void router_buf_update(router_state * s, tw_bf * bf, LOCAL_MSG_STRUCT * m
     s->queued_count[indx] -= s->params->chunk_size;
   }
 
-  if(s->in_send_loop[indx] == 0 && (s->pending_msgs[indx][output_chan] != NULL))
+  if(s->in_send_loop[indx] == 0 && (s->pending_msgs[indx][output_chan] != NULL)) {
     bf->c2 = 1;
     LOCAL_MSG_STRUCT *m;
     tw_stime ts = codes_local_latency(lp);
@@ -2125,7 +2125,7 @@ static void router_final(router_state * s,
     tw_lp * lp)
 {
   int i, j;
-  for(i = 0; i < s->params->radix; i++) {
+  for(i = 0; i < s->radix; i++) {
     for(j = 0; j < s->params->num_vcs; j++) {
       if(s->queued_msgs[i][j] != NULL) {
         printf("[%llu] leftover queued messages %d %d %d\n", LLU(lp->gid), i, j,
@@ -2148,7 +2148,7 @@ static void router_final(router_state * s,
   written += sprintf(s->output_buf + written, "\n %llu %d ",
       LLU(lp->gid),
       s->router_id);
-  for(int d = 0; d < p->radix; d++)
+  for(int d = 0; d < s->radix; d++)
     written += sprintf(s->output_buf + written, " %lf", s->busy_time[d]);
 
   lp_io_write(lp->gid, (char*)"router-stats", written, s->output_buf);
@@ -2162,7 +2162,7 @@ static void router_final(router_state * s,
       LLU(lp->gid),
       s->router_id);
 
-  for(int d = 0; d < p->radix; d++)
+  for(int d = 0; d < s->radix; d++)
     written += sprintf(s->output_buf2 + written, " %lld", LLD(s->link_traffic[d]));
 
   assert(written < 4096);
@@ -2176,14 +2176,14 @@ static void local_rsample_init(router_state * s,
   int i = 0;
   const local_param * p = s->params;
 
-  assert(p->radix);
+  assert(s->radix);
 
   s->max_arr_size = MAX_STATS;
   s->rsamples = (struct local_router_sample *)malloc(MAX_STATS * sizeof(struct local_router_sample));
   for(; i < s->max_arr_size; i++)
   {
-    s->rsamples[i].busy_time = (tw_stime *)malloc(sizeof(tw_stime) * p->radix);
-    s->rsamples[i].link_traffic_sample = (int64_t *)malloc(sizeof(int64_t) * p->radix);
+    s->rsamples[i].busy_time = (tw_stime *)malloc(sizeof(tw_stime) * s->radix);
+    s->rsamples[i].link_traffic_sample = (int64_t *)malloc(sizeof(int64_t) * s->radix);
   }
 }
 
@@ -2203,13 +2203,13 @@ void local_rsample_rc_fn(router_state * s,
   const local_param * p = s->params;
   int i =0;
 
-  for(; i < p->radix; i++)
+  for(; i < s->radix; i++)
   {
     s->busy_time_sample[i] = stat.busy_time[i];
     s->link_traffic_sample[i] = stat.link_traffic_sample[i];
   }
 
-  for( i = 0; i < p->radix; i++)
+  for( i = 0; i < s->radix; i++)
   {
     stat.busy_time[i] = 0;
     stat.link_traffic_sample[i] = 0;
@@ -2246,7 +2246,7 @@ static void local_rsample_fn(router_state * s,
   s->rsamples[cur_indx].fwd_events = s->fwd_events;
   s->rsamples[cur_indx].rev_events = s->rev_events;
 
-  for(; i < p->radix; i++)
+  for(; i < s->radix; i++)
   {
     s->rsamples[cur_indx].busy_time[i] = s->busy_time_sample[i];
     s->rsamples[cur_indx].link_traffic_sample[i] = s->link_traffic_sample[i];
@@ -2258,7 +2258,7 @@ static void local_rsample_fn(router_state * s,
   s->fwd_events = 0;
   s->rev_events = 0;
 
-  for( i = 0; i < p->radix; i++)
+  for( i = 0; i < s->radix; i++)
   {
     s->busy_time_sample[i] = 0;
     s->link_traffic_sample[i] = 0;
@@ -2281,9 +2281,8 @@ static void local_rsample_fin(router_state * s,
     FILE * fp = fopen(meta_fname, "w");
     fprintf(fp, "Router sample struct format: \nrouter_id (tw_lpid) \nbusy time for each of the %d links (double) \n"
         "link traffic for each of the %d links (int64_t) \nsample end time (double) forward events per sample \nreverse events per sample ",
-        p->radix, p->radix);
-    fprintf(fp, "\n\nOrdering of links \n%d local (router-router same group) channels \n%d global (router-router remote group)"
-        " channels \n%d terminal channels", p->radix/2, p->radix/4, p->radix/4);
+        s->radix, s->radix);
+    fprintf(fp, "\n\nOrdering of links not available \n");
     fclose(fp);
   }
   char rt_fn[MAX_NAME_LENGTH];
@@ -2294,15 +2293,15 @@ static void local_rsample_fin(router_state * s,
 
   int i = 0;
 
-  int size_sample = sizeof(tw_lpid) + p->radix * (sizeof(int64_t) + sizeof(tw_stime)) + sizeof(tw_stime) + 2 * sizeof(long);
+  int size_sample = sizeof(tw_lpid) + s->radix * (sizeof(int64_t) + sizeof(tw_stime)) + sizeof(tw_stime) + 2 * sizeof(long);
   FILE * fp = fopen(rt_fn, "a");
   fseek(fp, sample_rtr_bytes_written, SEEK_SET);
 
   for(; i < s->op_arr_size; i++)
   {
     fwrite((void*)&(s->rsamples[i].router_id), sizeof(tw_lpid), 1, fp);
-    fwrite(s->rsamples[i].busy_time, sizeof(tw_stime), p->radix, fp);
-    fwrite(s->rsamples[i].link_traffic_sample, sizeof(int64_t), p->radix, fp);
+    fwrite(s->rsamples[i].busy_time, sizeof(tw_stime), s->radix, fp);
+    fwrite(s->rsamples[i].link_traffic_sample, sizeof(int64_t), s->radix, fp);
     fwrite((void*)&(s->rsamples[i].end_time), sizeof(tw_stime), 1, fp);
     fwrite((void*)&(s->rsamples[i].fwd_events), sizeof(long), 1, fp);
     fwrite((void*)&(s->rsamples[i].rev_events), sizeof(long), 1, fp);
@@ -2315,16 +2314,20 @@ static void local_sample_init(terminal_state * s,
     tw_lp * lp)
 {
   (void)lp;
+  int i = 0;
   s->fin_chunks_sample = 0;
   s->data_size_sample = 0;
   s->fin_hops_sample = 0;
   s->fin_chunks_time = 0;
-  s->busy_time_sample = 0;
 
   s->op_arr_size = 0;
   s->max_arr_size = MAX_STATS;
 
   s->sample_stat = (struct local_cn_sample *)malloc(MAX_STATS * sizeof(struct local_cn_sample));
+  for(; i < s->max_arr_size; i++)
+  {
+    s->sample_stat[i].busy_time_sample = (tw_stime *)malloc(sizeof(tw_stime) * s->radix);
+  }
 }
 
 void local_sample_rc_fn(terminal_state * s,
@@ -2335,7 +2338,8 @@ void local_sample_rc_fn(terminal_state * s,
   (void)lp;
   (void)bf;
   (void)msg;
-
+  
+  int i = 0;
   s->op_arr_size--;
   int cur_indx = s->op_arr_size;
   struct local_cn_sample stat = s->sample_stat[cur_indx];
@@ -2346,8 +2350,16 @@ void local_sample_rc_fn(terminal_state * s,
   s->fin_chunks_sample = stat.fin_chunks_sample;
   s->fwd_events = stat.fwd_events;
   s->rev_events = stat.rev_events;
+  
+  for(; i < s->radix; i++)
+  {
+    s->busy_time_sample[i] = stat.busy_time_sample[i];
+  }
 
-  stat.busy_time_sample = 0;
+  for( i = 0; i < s->radix; i++)
+  {
+    stat.busy_time_sample[i] = 0;
+  }
   stat.fin_chunks_time = 0;
   stat.fin_hops_sample = 0;
   stat.data_size_sample = 0;
@@ -2367,6 +2379,7 @@ static void local_sample_fn(terminal_state * s,
   (void)msg;
   (void)bf;
 
+  int i = 0;
   if(s->op_arr_size >= s->max_arr_size)
   {
     /* In the worst case, copy array to a new memory location, its very
@@ -2385,10 +2398,14 @@ static void local_sample_fn(terminal_state * s,
   s->sample_stat[cur_indx].data_size_sample = s->data_size_sample;
   s->sample_stat[cur_indx].fin_hops_sample = s->fin_hops_sample;
   s->sample_stat[cur_indx].fin_chunks_time = s->fin_chunks_time;
-  s->sample_stat[cur_indx].busy_time_sample = s->busy_time_sample;
   s->sample_stat[cur_indx].end_time = tw_now(lp);
   s->sample_stat[cur_indx].fwd_events = s->fwd_events;
   s->sample_stat[cur_indx].rev_events = s->rev_events;
+  
+  for(; i < s->radix; i++)
+  {
+    s->sample_stat[cur_indx].busy_time_sample[i] = s->busy_time_sample[i];
+  }
 
   s->op_arr_size++;
   s->fin_chunks_sample = 0;
@@ -2398,6 +2415,10 @@ static void local_sample_fn(terminal_state * s,
   s->rev_events = 0;
   s->fin_chunks_time = 0;
   s->busy_time_sample = 0;
+  for( i = 0; i < s->radix; i++)
+  {
+    s->busy_time_sample[i] = 0;
+  }
 }
 
 static void local_sample_fin(terminal_state * s,
@@ -2434,7 +2455,7 @@ static void local_sample_fin(terminal_state * s,
 
 
 /* compute node and router LP types */
-tw_lptype local_lps[] =
+static tw_lptype local_lps[] =
 {
   // Terminal handling functions
   {
@@ -2480,7 +2501,7 @@ static void router_register(tw_lptype *base_type) {
 
 extern "C" {
 //CHANGE: use network specific struct names
-struct model_net_method NETWORK_method  =
+struct model_net_method network_graph_method  =
 {
   0,
   local_configure,
@@ -2497,10 +2518,12 @@ struct model_net_method NETWORK_method  =
   NULL,//(event_f)local_sample_fn,
   NULL,//(revent_f)local_sample_rc_fn,
   (init_f)local_sample_init,
-  NULL//(final_f)local_sample_fin,
+  NULL,//(final_f)local_sample_fin,
+  NULL,
+  NULL
 };
 
-struct model_net_method NETWORK_router_method =
+struct model_net_method network_graph_router_method =
 {
   0,
   NULL,
@@ -2517,7 +2540,9 @@ struct model_net_method NETWORK_router_method =
   NULL,//(event_f)local_rsample_fn,
   NULL,//(revent_f)local_rsample_rc_fn,
   (init_f)local_rsample_init,
-  NULL//(final_f)local_rsample_fin,
+  NULL,//(final_f)local_rsample_fin,
+  NULL,
+  NULL
 };
 
 }

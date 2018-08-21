@@ -32,6 +32,10 @@ extern struct model_net_method dragonfly_custom_router_method;
 extern struct model_net_method loggp_method;
 extern struct model_net_method express_mesh_method;
 extern struct model_net_method express_mesh_router_method;
+extern struct model_net_method express_mesh_method;
+extern struct model_net_method express_mesh_router_method;
+extern struct model_net_method network_graph_method;
+extern struct model_net_method network_graph_router_method;
 
 #define X(a,b,c,d) b,
 char * model_net_lp_config_names[] = {

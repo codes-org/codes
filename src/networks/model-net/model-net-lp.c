@@ -385,6 +385,10 @@ void model_net_base_configure(){
         offsetof(model_net_wrap_msg, msg.m_em);
     msg_offsets[EXPRESS_MESH_ROUTER] =
         offsetof(model_net_wrap_msg, msg.m_em);
+    msg_offsets[NETWORK_GRAPH] =
+        offsetof(model_net_wrap_msg, msg.m_ng);
+    msg_offsets[NETWORK_GRAPH_ROUTER] =
+        offsetof(model_net_wrap_msg, msg.m_ng);
 
     // perform the configuration(s)
     // This part is tricky, as we basically have to look up all annotations that
@@ -406,7 +410,7 @@ void model_net_base_configure(){
                     }
                 }
                 if (a == num_params){
-                    // found a new annotation
+                    // found a new annotatio
                     annos[num_params++] = amap->annotations[n].ptr;
                 }
             }
