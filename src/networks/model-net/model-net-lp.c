@@ -645,7 +645,7 @@ void handle_new_msg(
         exp_time += r->msg_size * codes_cn_delay;
         exp_time -= tw_now(lp);
         tw_stime delay = codes_local_latency(lp);
-        ns->node_copy_next_available_time[queue] = exp_time;
+        ns->node_copy_next_available_time[queue] = tw_now(lp) + exp_time;
         int remote_event_size = r->remote_event_size;
         int self_event_size = r->self_event_size;
         void *e_msg = (m+1);

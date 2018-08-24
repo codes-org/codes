@@ -817,7 +817,7 @@ static void fattree_read_config(const char * anno, fattree_param *p){
   p->l0_term_size = (p->tapering_ratio - 1)*(p->switch_radix[0]/p->tapering_ratio);
 
   if(p->num_levels == 2) {
-    p->num_switches[1] = p->num_switches[0]/p->tapering_ratio/2;
+    p->num_switches[1] = p->num_switches[0]/p->tapering_ratio;
     p->switch_radix[1] = p->switch_radix[0];
     p->l1_set_size =  p->num_switches[1];
     p->l1_term_size = num_terminals;
