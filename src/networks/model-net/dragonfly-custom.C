@@ -46,7 +46,7 @@
 #define LP_METHOD_NM_ROUT (model_net_method_names[DRAGONFLY_CUSTOM_ROUTER])
 
 static int debug_cnt = 0;
-
+static int num_rc_windows = 100;
 static int max_lvc_src_g = 1;
 static int max_lvc_intm_g = 3;
 static int min_gvc_src_g = 0;
@@ -129,7 +129,8 @@ static int terminal_magic_num = 0;
 static int num_intra_nonmin_hops = 4;
 static int num_intra_min_hops = 2;
 
-static FILE * dragonfly_log = NULL;
+static FILE * dragonfly_rtr_bw_log = NULL;
+static FILE * dragonfly_term_bw_log = NULL;
 
 static int sample_bytes_written = 0;
 static int sample_rtr_bytes_written = 0;
@@ -264,6 +265,11 @@ struct terminal_state
 
    int * qos_status;
    int * qos_data;
+
+   int rc_index;
+   int** last_qos_status;
+   int** last_qos_data;
+
    int last_qos_lvl;
    int is_monitoring_bw;
 
@@ -379,6 +385,7 @@ struct router_state
    int group_id;
    int op_arr_size;
    int max_arr_size;
+   int rc_index;
 
    int* global_channel; 
    
@@ -406,6 +413,9 @@ struct router_state
    int* last_qos_lvl;
    int** qos_status;
    int** qos_data;
+   /* for reverse handler */
+   int*** last_qos_status;
+   int*** last_qos_data;
 
    const char * anno;
    const dragonfly_param *params;
@@ -534,6 +544,15 @@ static void free_tmp(void * ptr)
         free(dfly);
 }
 
+int get_vcg_from_category(terminal_custom_message * msg)
+{
+   if(strcmp(msg->category, "high") == 0)
+       return Q_HIGH;
+   else if(strcmp(msg->category, "medium") == 0)
+       return Q_MEDIUM;
+   else
+       tw_error(TW_LOC, "\n priority needs to be specified with qos_levels>1 %d", msg->category);
+}
 static void append_to_terminal_custom_message_list(  
         terminal_custom_message_list ** thisq,
         terminal_custom_message_list ** thistail,
@@ -625,15 +644,6 @@ static int get_rtr_bandwidth_consumption(router_state * s, int qos_lvl, int outp
 
 }
 
-int get_vcg_from_category(terminal_custom_message * msg)
-{
-   if(strcmp(msg->category, "high") == 0)
-       return Q_HIGH;
-   else if(strcmp(msg->category, "medium") == 0)
-       return Q_MEDIUM;
-   else
-       tw_error(TW_LOC, "\n priority needs to be specified with qos_levels>1 %d", msg->category);
-}
 void dragonfly_print_params(const dragonfly_param *p)
 {
     int myRank;
@@ -1102,11 +1112,19 @@ void dragonfly_custom_report_stats()
 void issue_bw_monitor_event_rc(terminal_state * s, tw_bf * bf, terminal_custom_message * msg, tw_lp * lp)
 {
     int num_qos_levels = s->params->num_qos_levels;
+    int rc_index = 0;
+    if(s->rc_index > 0)
+        rc_index = s->rc_index - 1;
+
     for(int k = 0; k < num_qos_levels; k++)
     {
-        s->qos_status[k] = msg->saved_qos_status;
-        s->qos_data[k] = msg->saved_qos_data;
+        s->qos_status[k] = s->last_qos_status[rc_index][k];
+        s->qos_data[k] = s->last_qos_data[rc_index][k];
+        s->last_qos_status[rc_index][k] = 0;
+        s->last_qos_data[rc_index][k] = 0;
     }
+    s->rc_index--;
+
     codes_local_latency_reverse(lp); 
 }
 /* resets the bandwidth numbers recorded so far */
@@ -1114,15 +1132,25 @@ void issue_bw_monitor_event(terminal_state * s, tw_bf * bf, terminal_custom_mess
 {
     
     int num_qos_levels = s->params->num_qos_levels;
+    int rc_index = s->rc_index;
     /* Reset the qos status and bandwidth consumption. */
     for(int k = 0; k < num_qos_levels; k++)
     {
-//        m->saved_qos_status = s->qos_status[k];
-//        m->saved_qos_data = s->qos_data[k];
+        s->last_qos_status[rc_index][k] = s->qos_status[k];
+        s->last_qos_data[rc_index][k] = s->qos_data[k];
         s->qos_status[k] = Q_ACTIVE;
         s->qos_data[k] = 0;
     }
+        
+    s->rc_index++;
+    assert(s->rc_index < num_rc_windows); 
 
+    if(s->router_id == 0)
+    {
+       fprintf(dragonfly_term_bw_log, "\n %d %lf %lf ", s->terminal_id, tw_now(lp), s->busy_time_sample);
+       s->busy_time_sample = 0;
+    }
+    
     if(tw_now(lp) > max_qos_monitor)
         return;
 
@@ -1138,28 +1166,56 @@ void issue_bw_monitor_event(terminal_state * s, tw_bf * bf, terminal_custom_mess
 void issue_rtr_bw_monitor_event_rc(router_state * s, tw_bf * bf, terminal_custom_message * msg, tw_lp * lp)
 {
     int num_qos_levels = s->params->num_qos_levels; 
+    int rc_index = 0;
+    if(s->rc_index > 0)
+        rc_index = s->rc_index - 1;
+
     for(int j = 0; j < s->params->radix; j++)
     {
         for(int k = 0; k < num_qos_levels; k++)  
         {
-            s->qos_status[j][k] = msg->saved_qos_status;
-            s->qos_data[j][k] = msg->saved_qos_data;
+            s->qos_status[j][k] = s->last_qos_status[rc_index][j][k];
+            s->qos_data[j][k] = s->last_qos_data[rc_index][j][k];
+            s->last_qos_status[rc_index][j][k] = 0;
+            s->last_qos_data[rc_index][j][k] = 0;
         }
     }
+    s->rc_index--;
+
+    if(bf->c1)
+        return;
+
     codes_local_latency_reverse(lp);
 }
 void issue_rtr_bw_monitor_event(router_state * s, tw_bf * bf, terminal_custom_message * msg, tw_lp * lp)
 {
 
     int num_qos_levels = s->params->num_qos_levels;
+    int rc_index = s->rc_index;
 
+    for(int j = 0; j < s->params->radix; j++)
+    {
+        for(int k = 0; k < num_qos_levels; k++)
+        {
+            s->last_qos_status[rc_index][j][k] = s->qos_status[j][k];
+            s->last_qos_data[rc_index][j][k] = s->qos_data[j][k];
+            assert(s->rc_index < num_rc_windows);
+        }
+    }
+            
+    s->rc_index++;
     for(int j = 0; j < s->params->radix; j++)
     {
         for(int k = 0; k < num_qos_levels; k++)
         {
             int bw_consumed = get_rtr_bandwidth_consumption(s, k, j);
             if(s->router_id == 1)
-                fprintf(dragonfly_log, "\n %d %f %d %d %d %d %d", s->router_id, tw_now(lp), j, k, bw_consumed, s->qos_status[j][k], s->qos_data[j][k]);
+            {
+                fprintf(dragonfly_rtr_bw_log, "\n %d %f %d %d %d %d %d %f", s->router_id, tw_now(lp), j, k, bw_consumed, s->qos_status[j][k], s->qos_data[j][k], s->busy_time_sample[j]);
+            
+                if(s->busy_time_sample[j] != 0)
+                    printf("\n Busy time %lf ", s->busy_time_sample[j]);
+            }
         }
     }
     for(int j = 0; j < s->params->radix; j++)
@@ -1170,11 +1226,14 @@ void issue_rtr_bw_monitor_event(router_state * s, tw_bf * bf, terminal_custom_me
             s->qos_status[j][k] = Q_ACTIVE;
             s->qos_data[j][k] = 0;
         }
+        //s->busy_time_sample[j] = 0;
     }
     
     if(tw_now(lp) > max_qos_monitor)
+    {
+        bf->c1 = 1;
         return;
-    
+    }
     tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
     terminal_custom_message *m;
     tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp,
@@ -1182,6 +1241,46 @@ void issue_rtr_bw_monitor_event(router_state * s, tw_bf * bf, terminal_custom_me
     m->type = R_BANDWIDTH;
     m->magic = router_magic_num;
     tw_event_send(e);
+}
+
+void reset_rtr_bw_counters(router_state * s,
+		tw_bf * bf, 
+		terminal_custom_message * msg, 
+        tw_lp * lp)
+{
+    if(msg->type == R_BANDWIDTH && s->rc_index > 0)
+    {
+        s->rc_index = 0;
+        for(int k = 0; k < num_rc_windows; k++)
+        {   
+            for(int i = 0; i < s->params->radix; i++)
+            {
+                for(int j = 0; j < s->params->num_qos_levels; j++)
+            {
+                s->last_qos_status[k][i][j] = 0;
+                s->last_qos_data[k][i][j] = 0;
+            }
+            }
+        }
+    }
+}
+void reset_bw_counters(terminal_state * s,
+		tw_bf * bf, 
+		terminal_custom_message * msg, 
+        tw_lp * lp)
+{
+   if(msg->type == T_BANDWIDTH && s->rc_index > 0)
+   {
+        s->rc_index = 0; 
+        for(int i = 0; i < num_rc_windows; i++)
+        {
+            for(int j = 0; j < s->params->num_qos_levels; j++)
+            {
+                s->last_qos_status[i][j] = 0;
+                s->last_qos_data[i][j] = 0;
+            }
+        }
+   }
 }
 /* initialize a dragonfly compute node terminal */
 void 
@@ -1192,7 +1291,7 @@ terminal_custom_init( terminal_state * s,
     s->packet_fin = 0;
     s->is_monitoring_bw = 0;
 
-    
+
     int i;
     char anno[MAX_NAME_LENGTH];
 
@@ -1240,10 +1339,19 @@ terminal_custom_init( terminal_state * s,
 
    /* Whether the virtual channel group is active or over-bw*/
    s->qos_status = (int*)calloc(num_qos_levels, sizeof(int));
+   
    /* How much data has been transmitted on the virtual channel group within
     * the window */
    s->qos_data = (int*)calloc(num_qos_levels, sizeof(int));
 
+   /* for reverse handlers */
+   s->last_qos_status = (int**)calloc(num_rc_windows, sizeof(int*));
+   s->last_qos_data = (int**)calloc(num_rc_windows, sizeof(int*));
+   for(int i = 0; i < num_rc_windows; i++)
+   {
+        s->last_qos_status[i] = (int*)calloc(num_qos_levels, sizeof(int));
+        s->last_qos_data[i] = (int*)calloc(num_qos_levels, sizeof(int));
+   }
    for(i = 0; i < num_qos_levels; i++)
    {
        s->qos_data[i] = 0;
@@ -1266,6 +1374,13 @@ terminal_custom_init( terminal_state * s,
    s->in_send_loop = 0;
    s->issueIdle = 0;
 
+    if(s->terminal_id == 0)
+    {
+        char term_bw_log[64];
+        sprintf(term_bw_log, "terminal-bw-tracker");
+        dragonfly_term_bw_log = fopen(term_bw_log, "w");
+        fprintf(dragonfly_term_bw_log, "\n term-id time-stamp port-id busy-time");
+    }
    return;
 }
 
@@ -1305,11 +1420,12 @@ void router_custom_setup(router_state * r, tw_lp * lp)
    {
         char rtr_bw_log[64];
         sprintf(rtr_bw_log, "router-bw-tracker");
-        dragonfly_log = fopen(rtr_bw_log, "w");
-        fprintf(dragonfly_log, "\n router-id time-stamp port-id qos-level bw-consumed qos-status");
+        dragonfly_rtr_bw_log = fopen(rtr_bw_log, "w");
+        fprintf(dragonfly_rtr_bw_log, "\n router-id time-stamp port-id qos-level bw-consumed qos-status qos-data busy-time");
    }
    //printf("\n Local router id %d global id %d ", r->router_id, lp->gid);
 
+   r->rc_index = 0;
    r->is_monitoring_bw = 0;
    r->fwd_events = 0;
    r->rev_events = 0;
@@ -1319,6 +1435,24 @@ void router_custom_setup(router_state * r, tw_lp * lp)
 
    int num_qos_levels = p->num_qos_levels;
 
+   /* history window for bandwidth reverse computation */
+   r->last_qos_status = (int***)calloc(num_rc_windows, sizeof(int**));
+   r->last_qos_data = (int***)calloc(num_rc_windows, sizeof(int**));
+   for(int k = 0; k < num_rc_windows; k++)
+   {
+        r->last_qos_status[k] = (int**)calloc(p->radix, sizeof(int*));
+        r->last_qos_data[k] = (int**)calloc(p->radix, sizeof(int*));
+        for(int j = 0; j < p->radix; j++)
+        {
+            r->last_qos_status[k][j] = (int*)calloc(num_qos_levels, sizeof(int));
+            r->last_qos_data[k][j] = (int*)calloc(num_qos_levels, sizeof(int));
+            for(int i = 0; i < num_qos_levels; i++)
+            {
+                r->last_qos_status[k][j][i] = 0;
+                r->last_qos_data[k][j][i] = 0;
+            }
+        }
+   }
    r->global_channel = (int*)calloc(p->num_global_channels, sizeof(int));
    r->next_output_available_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
    r->cur_hist_start_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
@@ -1544,8 +1678,10 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_custom_m
 {
    int num_qos_levels = s->params->num_qos_levels;
    if(bf->c1)
+   {
      s->is_monitoring_bw = 0;
-   
+     codes_local_latency_reverse(lp);
+   }
    s->packet_gen--;
    packet_gen--;
    s->packet_counter--;
@@ -1753,16 +1889,6 @@ static int get_term_bandwidth_consumption(terminal_state * s, int qos_lvl)
 //    printf("\n At terminal %lf max bytes %d percent %d ", max_bytes_per_win, s->qos_data[qos_lvl], percent_bw);
     return percent_bw;
 }
-
-static void get_next_router_vcg_rc(router_state * s, tw_bf * bf, terminal_custom_message * msg, tw_lp * lp)
-{
-    int output_port = msg->vc_index;
-
-    if(bf->c29)
-    {
-       s->last_qos_lvl[output_port] = msg->last_saved_qos; 
-    }
-}
 static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_custom_message * msg, tw_lp * lp)
 {
   int num_qos_levels = s->params->num_qos_levels;
@@ -1785,6 +1911,11 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_custom_mes
             if(bw_consumption[k] > s->params->qos_bandwidths[k]) 
         {
 //            printf("\n Router %d QoS %d exceeded allowed bandwidth %d ", s->router_id, k, bw_consumption[k]);
+            if(k == 0)
+                msg->qos_reset1 = 1;   
+            else if(k == 1)
+                msg->qos_reset2 = 1;
+
             s->qos_status[output_port][k] = Q_OVERBW;
         }
       }
@@ -1808,9 +1939,6 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_custom_mes
         }
    }
   }
-
-
-   //bf->c29 = 1;
        
    /* All vcgs are exceeding their bandwidth limits*/
    msg->last_saved_qos = s->last_qos_lvl[output_port];
@@ -1818,14 +1946,15 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_custom_mes
 
    for(int i = 0; i < num_qos_levels; i++)
    {
-        s->last_qos_lvl[output_port] = next_rr_vcg;
         base_limit = next_rr_vcg * vcs_per_qos; 
         for(int k = base_limit; k < base_limit + vcs_per_qos; k++)
         {
             if(s->pending_msgs[output_port][k] != NULL)
             {
-                //if(s->router_id == 0)
-                //    printf("\n next rr vcg %d ", next_rr_vcg);
+                if(msg->last_saved_qos < 0)
+                    msg->last_saved_qos = s->last_qos_lvl[output_port]; 
+
+                s->last_qos_lvl[output_port] = next_rr_vcg;
                 return k;
             }
         }
@@ -1856,7 +1985,14 @@ static int get_next_vcg(terminal_state * s, tw_bf * bf, terminal_custom_message 
     {
         bw_consumption[k] = get_term_bandwidth_consumption(s, k);
         if(bw_consumption[k] > s->params->qos_bandwidths[k]) 
+        {
+            if(k == 0)
+                msg->qos_reset1 = 1;
+            else if(k == 1)
+                msg->qos_reset2 = 1;
+
             s->qos_status[k] = Q_OVERBW;
+        }
     }
   }
   /* TODO: If none of the vcg is exceeding bandwidth limit then select high
@@ -1878,11 +2014,16 @@ static int get_next_vcg(terminal_state * s, tw_bf * bf, terminal_custom_message 
    /* All vcgs are exceeding their bandwidth limits*/
    for(int i = 0; i < num_qos_levels; i++)
    {
-        s->last_qos_lvl = next_rr_vcg;
-
         if(s->terminal_msgs[i] != NULL && s->vc_occupancy[i] + s->params->chunk_size <= s->params->cn_vc_size)
+        {
+            bf->c2 = 1;
+            
+            if(msg->last_saved_qos < 0)
+                msg->last_saved_qos = s->last_qos_lvl;
+            
+            s->last_qos_lvl = next_rr_vcg;
             return i;
-
+        }
         next_rr_vcg = (next_rr_vcg + 1) % num_qos_levels;
    }
    return -1;
@@ -1892,32 +2033,45 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_custom_messa
         tw_lp * lp)
 {
       int num_qos_levels = s->params->num_qos_levels;
-      int vcg = msg->saved_vc;
+    
+      if(msg->qos_reset1)
+          s->qos_status[0] = Q_ACTIVE;
+      if(msg->qos_reset2)
+          s->qos_status[1] = Q_ACTIVE;
       
+      if(msg->last_saved_qos)
+          s->last_qos_lvl = msg->last_saved_qos;
+
       if(bf->c1) {
         s->in_send_loop = 1;
         if(bf->c3)
-        {
          s->last_buf_full = msg->saved_busy_time;
-        }
+        
         return;
       }
-      
+     
+      int vcg = msg->saved_vc;
       tw_rand_reverse_unif(lp->rng);
       s->terminal_available_time = msg->saved_available_time;
       if(bf->c2) {
         codes_local_latency_reverse(lp);
       }
-     
+   
       s->terminal_length[vcg] += s->params->chunk_size;
       /*TODO: MM change this to the vcg */
       s->vc_occupancy[vcg] -= s->params->chunk_size;
 
       terminal_custom_message_list* cur_entry = (terminal_custom_message_list *)rc_stack_pop(s->st);
       
+      int data_size = s->params->chunk_size;
+      if(cur_entry->msg.packet_size < s->params->chunk_size)
+          data_size = cur_entry->msg.packet_size % s->params->chunk_size;
+
+      s->qos_data[vcg] -= data_size;
+
       prepend_to_terminal_custom_message_list(s->terminal_msgs, 
               s->terminal_msgs_tail, vcg, cur_entry);
-      if(bf->c3) {
+      if(bf->c26) {
         tw_rand_reverse_unif(lp->rng);
       }
       if(bf->c4) {
@@ -1948,12 +2102,16 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
   tw_lpid router_id;
   int vcg = 0;
   int num_qos_levels = s->params->num_qos_levels;
-  
+ 
+  msg->last_saved_qos = -1;
+  msg->qos_reset1 = -1;
+  msg->qos_reset2 = -1;
+
   vcg = get_next_vcg(s, bf, msg, lp);
   /* For a terminal to router connection, there would be as many VCGs as number
    * of VCs*/
 
-    if(vcg == -1) {
+  if(vcg == -1) {
     bf->c1 = 1;
     s->in_send_loop = 0;
     if(!s->last_buf_full)
@@ -2045,7 +2203,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
   /* if there is another packet inline then schedule another send event */
   if(cur_entry != NULL &&
     s->vc_occupancy[next_vcg] + s->params->chunk_size <= s->params->cn_vc_size) {
-    bf->c3 = 1;
+    bf->c26 = 1;
     terminal_custom_message *m_new;
     ts += tw_rand_unif(lp->rng);
     e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_CUSTOM, 
@@ -2891,6 +3049,7 @@ dragonfly_custom_terminal_final( terminal_state * s,
     
     if(s->terminal_id == 0)
     {
+        fclose(dragonfly_term_bw_log);
         char meta_filename[64];
         sprintf(meta_filename, "dragonfly-cn-stats.meta");
 
@@ -2939,7 +3098,7 @@ void dragonfly_custom_router_final(router_state * s,
     }
 
     if(s->router_id == 0)
-        fclose(dragonfly_log);
+        fclose(dragonfly_rtr_bw_log);
 
     rc_stack_destroy(s->st);
     
@@ -3714,13 +3873,14 @@ static void router_packet_receive_rc(router_state * s,
 {
     router_rev_ecount++;
 	router_ecount--;
-      
+  
     int output_port = msg->saved_vc;
     int output_chan = msg->saved_channel;
 
     if(bf->c1)
     {
         s->is_monitoring_bw = 1;
+        codes_local_latency_reverse(lp);
     }
     if(bf->c15)
     {
@@ -3819,7 +3979,6 @@ router_packet_receive( router_state * s,
      }
   }
   int vcg = 0;
-  
   if(num_qos_levels > 1)
       vcg = get_vcg_from_category(msg);
 
@@ -4068,9 +4227,18 @@ static void router_packet_send_rc(router_state * s,
 {
     router_ecount--;
     router_rev_ecount++;
-    
+    int num_qos_levels = s->params->num_qos_levels;
+   
     int output_port = msg->saved_vc;
-    int output_chan = msg->saved_channel;
+      
+    if(msg->qos_reset1)
+          s->qos_status[output_port][0] = Q_ACTIVE;
+     if(msg->qos_reset2)
+          s->qos_status[output_port][1] = Q_ACTIVE;
+    
+    if(msg->last_saved_qos)
+       s->last_qos_lvl[output_port] = msg->last_saved_qos; 
+     
     if(bf->c1) {
         s->in_send_loop[output_port] = 1;
         if(bf->c2) {
@@ -4078,6 +4246,7 @@ static void router_packet_send_rc(router_state * s,
         }
         return;  
     }
+    int output_chan = msg->saved_channel;
   if(bf->c8)
   {
     s->busy_time[output_port] = msg->saved_rcv_time;
@@ -4089,7 +4258,15 @@ static void router_packet_send_rc(router_state * s,
       
     terminal_custom_message_list * cur_entry = (terminal_custom_message_list *)rc_stack_pop(s->st);
     assert(cur_entry);
-    
+ 
+    int vcg = get_vcg_from_category(&(cur_entry->msg));
+
+    int msg_size = s->params->chunk_size;
+    if(cur_entry->msg.packet_size < s->params->chunk_size)
+        msg_size = cur_entry->msg.packet_size;
+
+    s->qos_data[output_port][vcg] -= msg_size;
+
     if(bf->c11)
     {
         s->link_traffic[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size;
@@ -4109,13 +4286,12 @@ static void router_packet_send_rc(router_state * s,
     prepend_to_terminal_custom_message_list(s->pending_msgs[output_port],
             s->pending_msgs_tail[output_port], output_chan, cur_entry);
 
-    if(bf->c3) {
-        tw_rand_reverse_unif(lp->rng);
-      }
-      
     if(bf->c4) {
         s->in_send_loop[output_port] = 1;
+        return;
       }
+    tw_rand_reverse_unif(lp->rng);
+      
 }
 /* routes the current packet to the next stop */
 static void 
@@ -4132,8 +4308,16 @@ router_packet_send( router_state * s,
   int is_local = 0;
   terminal_custom_message_list *cur_entry = NULL;
 
+  /* reset qos rc handler before incrementing it */
+  msg->last_saved_qos = -1;
+  msg->qos_reset1 = -1;
+  msg->qos_reset2 = -1;
+
   int num_qos_levels = s->params->num_qos_levels;
   int output_chan = get_next_router_vcg(s, bf, msg, lp);
+  
+  msg->saved_vc = output_port;
+  msg->saved_channel = output_chan;
   
   if(output_chan < 0) {
     bf->c1 = 1;
@@ -4150,8 +4334,6 @@ router_packet_send( router_state * s,
   cur_entry = s->pending_msgs[output_port][output_chan];
  
   assert(cur_entry != NULL);
-  msg->saved_vc = output_port;
-  msg->saved_channel = output_chan;
 
   if(s->last_buf_full[output_port]) 
   {
@@ -4182,7 +4364,7 @@ router_packet_send( router_state * s,
   }
 
   uint64_t num_chunks = cur_entry->msg.packet_size / s->params->chunk_size;
-  if(msg->packet_size < s->params->chunk_size)
+  if(cur_entry->msg.packet_size < s->params->chunk_size)
       num_chunks++;
 
   double bytetime = delay;
@@ -4284,7 +4466,6 @@ router_packet_send( router_state * s,
   cur_entry = s->pending_msgs[output_port][next_output_chan];
   assert(cur_entry != NULL); 
 
-  bf->c3 = 1;
   terminal_custom_message *m_new;
   ts += g_tw_lookahead + tw_rand_unif(lp->rng);
   e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_CUSTOM_ROUTER,
@@ -4403,8 +4584,8 @@ void router_custom_event(router_state * s, tw_bf * bf, terminal_custom_message *
       break;
 
     case R_BANDWIDTH:
-      issue_rtr_bw_monitor_event(s, bf, msg, lp);
-      break;
+        issue_rtr_bw_monitor_event(s, bf, msg, lp);
+     break;
     
     default:
       printf("\n (%lf) [Router %d] Router Message type not supported %d dest " 
@@ -4467,7 +4648,7 @@ void router_custom_rc_event_handler(router_state * s, tw_bf * bf,
     break;
     
     case R_BANDWIDTH:
-      issue_rtr_bw_monitor_event_rc(s, bf, msg, lp);
+        issue_rtr_bw_monitor_event_rc(s, bf, msg, lp);
       break;
   }
 }
@@ -4482,7 +4663,7 @@ tw_lptype dragonfly_custom_lps[] =
     (pre_run_f) NULL,
     (event_f) terminal_custom_event,
     (revent_f) terminal_custom_rc_event_handler,
-    (commit_f) NULL,
+    (commit_f) reset_bw_counters,
     (final_f) dragonfly_custom_terminal_final,
     (map_f) codes_mapping,
     sizeof(terminal_state)
@@ -4492,7 +4673,7 @@ tw_lptype dragonfly_custom_lps[] =
      (pre_run_f) NULL,
      (event_f) router_custom_event,
      (revent_f) router_custom_rc_event_handler,
-     (commit_f) NULL,
+     (commit_f) reset_rtr_bw_counters,
      (final_f) dragonfly_custom_router_final,
      (map_f) codes_mapping,
      sizeof(router_state),

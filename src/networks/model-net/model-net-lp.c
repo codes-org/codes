@@ -108,6 +108,11 @@ static void handle_sched_next_rc(
         tw_bf *b,
         model_net_wrap_msg * m,
         tw_lp * lp);
+static void model_net_commit_event(
+        model_net_base_state * ns,
+        tw_bf *b,
+        model_net_wrap_msg * m,
+        tw_lp * lp);
 
 /* ROSS function pointer table for this LP */
 tw_lptype model_net_base_lp = {
@@ -115,12 +120,23 @@ tw_lptype model_net_base_lp = {
     (pre_run_f) NULL,
     (event_f) model_net_base_event,
     (revent_f) model_net_base_event_rc,
-    (commit_f) NULL,
+    (commit_f) model_net_commit_event,
     (final_f)  model_net_base_finalize,
     (map_f) codes_mapping,
     sizeof(model_net_base_state),
 };
 
+static void model_net_commit_event(model_net_base_state * ns, tw_bf *b,  model_net_wrap_msg * m, tw_lp * lp)
+{
+    if(m->h.event_type == MN_BASE_PASS)
+    {
+        void * sub_msg;
+        sub_msg = ((char*)m)+msg_offsets[ns->net_id];
+    
+        if(ns->sub_type->commit != NULL)
+            ns->sub_type->commit(ns->sub_state, b, sub_msg, lp);
+    }
+}
 /* setup for the ROSS event tracing
  */
 void mn_event_collect(model_net_wrap_msg *m, tw_lp *lp, char *buffer, int *collect_flag)

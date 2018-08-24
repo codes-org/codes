@@ -770,7 +770,7 @@ static void workload_caller(void * arg)
        NearestNeighborSWMUserCode * nn_swm = static_cast<NearestNeighborSWMUserCode*>(sctx->swm_obj);
        nn_swm->call();
     }
-    else if(strcmp(sctx->workload_name, "incast") == 0)
+    else if(strcmp(sctx->workload_name, "incast") == 0 || strcmp(sctx->workload_name, "incast1") == 0 || strcmp(sctx->workload_name, "incast2") == 0)
     {
        AllToOneSWMUserCode * incast_swm = static_cast<AllToOneSWMUserCode*>(sctx->swm_obj);
        incast_swm->call();
@@ -816,9 +816,18 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     {
         path.append("/incast.json"); 
     }
+    else if(strcmp(o_params->workload_name, "incast1") == 0)
+    {
+        path.append("/incast1.json"); 
+    }
+    else if(strcmp(o_params->workload_name, "incast2") == 0)
+    {
+        path.append("/incast2.json"); 
+    }
     else
         tw_error(TW_LOC, "\n Undefined workload type %s ", o_params->workload_name);
 
+    printf("\n file path %s ", path.c_str());
     try {
         std::ifstream jsonFile(path.c_str());
         boost::property_tree::json_parser::read_json(jsonFile, root);
@@ -845,7 +854,7 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
         NearestNeighborSWMUserCode * nn_swm = new NearestNeighborSWMUserCode(root, generic_ptrs);
         my_ctx->sctx.swm_obj = (void*)nn_swm;
     }
-    else if(strcmp(o_params->workload_name, "incast") == 0)
+    else if(strcmp(o_params->workload_name, "incast") == 0 || strcmp(o_params->workload_name, "incast1") == 0 || strcmp(o_params->workload_name, "incast2") == 0)
     {
         AllToOneSWMUserCode * incast_swm = new AllToOneSWMUserCode(root, generic_ptrs);
         my_ctx->sctx.swm_obj = (void*)incast_swm;
