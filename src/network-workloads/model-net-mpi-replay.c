@@ -776,7 +776,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
             remote_m.fwd.src_rank = s->local_rank;
 
             // printf("\nAPP %d SRC %d Dest %d (twid %llu)", jid.job, s->local_rank, dest_svr[i], global_dest_id);
-            m->event_rc = model_net_event(net_id, "medium", global_dest_id, payload_sz, 0.0, 
+            m->event_rc = model_net_event(net_id, "high", global_dest_id, payload_sz, 0.0, 
                     sizeof(nw_message), (const void*)&remote_m, 
                     0, NULL, lp);
             
@@ -2914,20 +2914,21 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
            MPI_Finalize();
            return -1;
        }
-   }
-   char agg_log_name[512];
-   sprintf(agg_log_name, "%s/mpi-aggregate-logs-%d.bin", sampling_dir, rank);
-   workload_agg_log = fopen(agg_log_name, "w+");
-   workload_meta_log = fopen("mpi-workload-meta-log", "w+");
+      char agg_log_name[512];
+      sprintf(agg_log_name, "%s/mpi-aggregate-logs-%d.bin", sampling_dir, rank);
+      workload_agg_log = fopen(agg_log_name, "w+");
+      workload_meta_log = fopen("mpi-workload-meta-log", "w+");
    
-   group_ratio = codes_mctx_set_group_ratio(NULL, true);
 
-   if(!workload_agg_log || !workload_meta_log)
-   {
+     if(!workload_agg_log || !workload_meta_log)
+     {
        printf("\n Error logging MPI operations... quitting ");
        MPI_Finalize();
        return -1;
+     }
    }
+   
+   group_ratio = codes_mctx_set_group_ratio(NULL, true);
    if(enable_sampling)
        model_net_enable_sampling(sampling_interval, sampling_end_time);
 

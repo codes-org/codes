@@ -130,7 +130,7 @@ static int num_intra_nonmin_hops = 4;
 static int num_intra_min_hops = 2;
 
 static FILE * dragonfly_rtr_bw_log = NULL;
-static FILE * dragonfly_term_bw_log = NULL;
+//static FILE * dragonfly_term_bw_log = NULL;
 
 static int sample_bytes_written = 0;
 static int sample_rtr_bytes_written = 0;
@@ -1145,12 +1145,12 @@ void issue_bw_monitor_event(terminal_state * s, tw_bf * bf, terminal_custom_mess
     s->rc_index++;
     assert(s->rc_index < num_rc_windows); 
 
-    if(s->router_id == 0)
+/*    if(s->router_id == 0)
     {
        fprintf(dragonfly_term_bw_log, "\n %d %lf %lf ", s->terminal_id, tw_now(lp), s->busy_time_sample);
        s->busy_time_sample = 0;
     }
-    
+  */  
     if(tw_now(lp) > max_qos_monitor)
         return;
 
@@ -1209,12 +1209,10 @@ void issue_rtr_bw_monitor_event(router_state * s, tw_bf * bf, terminal_custom_me
         for(int k = 0; k < num_qos_levels; k++)
         {
             int bw_consumed = get_rtr_bandwidth_consumption(s, k, j);
-            if(s->router_id == 1)
+            if(s->router_id == 0)
             {
                 fprintf(dragonfly_rtr_bw_log, "\n %d %f %d %d %d %d %d %f", s->router_id, tw_now(lp), j, k, bw_consumed, s->qos_status[j][k], s->qos_data[j][k], s->busy_time_sample[j]);
             
-                if(s->busy_time_sample[j] != 0)
-                    printf("\n Busy time %lf ", s->busy_time_sample[j]);
             }
         }
     }
@@ -1374,13 +1372,13 @@ terminal_custom_init( terminal_state * s,
    s->in_send_loop = 0;
    s->issueIdle = 0;
 
-    if(s->terminal_id == 0)
+    /*if(s->terminal_id == 0)
     {
         char term_bw_log[64];
         sprintf(term_bw_log, "terminal-bw-tracker");
         dragonfly_term_bw_log = fopen(term_bw_log, "w");
         fprintf(dragonfly_term_bw_log, "\n term-id time-stamp port-id busy-time");
-    }
+    }*/
    return;
 }
 
@@ -1420,8 +1418,11 @@ void router_custom_setup(router_state * r, tw_lp * lp)
    {
         char rtr_bw_log[64];
         sprintf(rtr_bw_log, "router-bw-tracker");
+        
         dragonfly_rtr_bw_log = fopen(rtr_bw_log, "w");
-        fprintf(dragonfly_rtr_bw_log, "\n router-id time-stamp port-id qos-level bw-consumed qos-status qos-data busy-time");
+       
+        if(dragonfly_rtr_bw_log != NULL)
+            fprintf(dragonfly_rtr_bw_log, "\n router-id time-stamp port-id qos-level bw-consumed qos-status qos-data busy-time");
    }
    //printf("\n Local router id %d global id %d ", r->router_id, lp->gid);
 
@@ -3049,12 +3050,15 @@ dragonfly_custom_terminal_final( terminal_state * s,
     
     if(s->terminal_id == 0)
     {
-        fclose(dragonfly_term_bw_log);
-        char meta_filename[64];
+        //fclose(dragonfly_term_bw_log);
+        char meta_filename[128];
         sprintf(meta_filename, "dragonfly-cn-stats.meta");
 
-        FILE * fp = fopen(meta_filename, "w+");
-        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
+        FILE * fp = NULL;
+        fp = fopen(meta_filename, "w+");
+        if(fp)
+          fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
+        fclose(fp);
     }
    
     written = 0;
