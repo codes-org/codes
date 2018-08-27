@@ -28,7 +28,7 @@
 #define DUMP_CONNECTIONS 0
 #define PRINT_CONFIG 1
 #define CREDIT_SIZE 8
-#define DFLY_HASH_TABLE_SIZE 100000
+#define DFLY_HASH_TABLE_SIZE 4999
 // debugging parameters
 #define BW_MONITOR 1
 #define DEBUG_LP 892
@@ -1125,6 +1125,9 @@ void issue_bw_monitor_event_rc(terminal_state * s, tw_bf * bf, terminal_custom_m
     }
     s->rc_index--;
 
+    if(bf->c1)
+        return;
+
     codes_local_latency_reverse(lp); 
 }
 /* resets the bandwidth numbers recorded so far */
@@ -1152,8 +1155,10 @@ void issue_bw_monitor_event(terminal_state * s, tw_bf * bf, terminal_custom_mess
     }
   */  
     if(tw_now(lp) > max_qos_monitor)
+    {
+        bf->c1 = 1;
         return;
-
+    }
     terminal_custom_message * m; 
     tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
     tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp, DRAGONFLY_CUSTOM,
@@ -1269,7 +1274,6 @@ void reset_bw_counters(terminal_state * s,
 {
    if(msg->type == T_BANDWIDTH && s->rc_index > 0)
    {
-        s->rc_index = 0; 
         for(int i = 0; i < num_rc_windows; i++)
         {
             for(int j = 0; j < s->params->num_qos_levels; j++)
@@ -1278,6 +1282,7 @@ void reset_bw_counters(terminal_state * s,
                 s->last_qos_data[i][j] = 0;
             }
         }
+        s->rc_index = 0; 
    }
 }
 /* initialize a dragonfly compute node terminal */
@@ -2303,8 +2308,12 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_custom_mes
        if(bf->c7)
         {
             //assert(!hash_link);
-            if(bf->c8) 
+            if(bf->c8)
+            {
               tw_rand_reverse_unif(lp->rng);
+              if(bf->c4)
+                model_net_event_rc2(lp, &msg->event_rc);
+            }
             N_finished_msgs--;
             s->finished_msgs--;
             total_msg_sz -= msg->total_size;
@@ -2323,8 +2332,6 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_custom_mes
             hash_link = &(d_entry_pop->hash_link);
             tmp = d_entry_pop; 
 
-            if(bf->c4)
-                model_net_event_rc2(lp, &msg->event_rc);
         }
       
        assert(tmp);
@@ -3883,11 +3890,13 @@ static void router_packet_receive_rc(router_state * s,
 
     if(bf->c1)
     {
-        s->is_monitoring_bw = 1;
+        s->is_monitoring_bw = 0;
         codes_local_latency_reverse(lp);
     }
-    if(bf->c15)
+    if(bf->c8)
     {
+        tw_rand_reverse_unif(lp->rng);
+        tw_rand_reverse_unif(lp->rng);
         tw_rand_reverse_unif(lp->rng);
     }
     if(bf->c18)
@@ -3895,10 +3904,8 @@ static void router_packet_receive_rc(router_state * s,
         tw_rand_reverse_unif(lp->rng);
         tw_rand_reverse_unif(lp->rng);
     }
-    if(bf->c3)
+    if(bf->c15)
     {
-        tw_rand_reverse_unif(lp->rng);
-        tw_rand_reverse_unif(lp->rng);
         tw_rand_reverse_unif(lp->rng);
     }
 
@@ -3932,8 +3939,8 @@ static void router_packet_receive_rc(router_state * s,
     if(bf->c21)
         tw_rand_reverse_unif(lp->rng);
 
-
     tw_rand_reverse_unif(lp->rng);
+
     if(bf->c2) {
         tw_rand_reverse_unif(lp->rng);
         terminal_custom_message_list * tail = return_tail(s->pending_msgs[output_port], s->pending_msgs_tail[output_port], output_chan);
@@ -4016,7 +4023,7 @@ router_packet_receive( router_state * s,
   {
       if(cur_chunk->msg.my_l_hop == max_lvc_src_g)
       {
-        bf->c3 = 1;
+        bf->c8 = 1;
         vector<int> direct_rtrs = get_indirect_conns(s, lp, dest_grp_id);
         assert(direct_rtrs.size() > 0);
         int indxa = tw_rand_integer(lp->rng, 0, direct_rtrs.size() - 1); 
@@ -4517,7 +4524,6 @@ static void router_buf_update(router_state * s, tw_bf * bf, terminal_custom_mess
   int indx = msg->vc_index;
   int output_chan = msg->output_chan;
   s->vc_occupancy[indx][output_chan] -= s->params->chunk_size;
- 
 
   if(s->last_buf_full[indx] > 0.0)
   {
