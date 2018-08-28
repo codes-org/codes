@@ -1111,6 +1111,9 @@ void dragonfly_custom_report_stats()
 
 void issue_bw_monitor_event_rc(terminal_state * s, tw_bf * bf, terminal_custom_message * msg, tw_lp * lp)
 {
+    for(int i = 0 ; i < msg->num_cll; i++)
+        codes_local_latency_reverse(lp);
+    
     int num_qos_levels = s->params->num_qos_levels;
     int rc_index = 0;
     if(s->rc_index > 0)
@@ -1125,15 +1128,13 @@ void issue_bw_monitor_event_rc(terminal_state * s, tw_bf * bf, terminal_custom_m
     }
     s->rc_index--;
 
-    if(bf->c1)
-        return;
-
-    codes_local_latency_reverse(lp); 
 }
 /* resets the bandwidth numbers recorded so far */
 void issue_bw_monitor_event(terminal_state * s, tw_bf * bf, terminal_custom_message * msg, tw_lp * lp)
 {
-    
+   
+    msg->num_cll = 0;
+    msg->num_rngs = 0;
     int num_qos_levels = s->params->num_qos_levels;
     int rc_index = s->rc_index;
     /* Reset the qos status and bandwidth consumption. */
@@ -1155,10 +1156,9 @@ void issue_bw_monitor_event(terminal_state * s, tw_bf * bf, terminal_custom_mess
     }
   */  
     if(tw_now(lp) > max_qos_monitor)
-    {
-        bf->c1 = 1;
         return;
-    }
+    
+    msg->num_cll++;
     terminal_custom_message * m; 
     tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
     tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp, DRAGONFLY_CUSTOM,
@@ -1175,6 +1175,9 @@ void issue_rtr_bw_monitor_event_rc(router_state * s, tw_bf * bf, terminal_custom
     if(s->rc_index > 0)
         rc_index = s->rc_index - 1;
 
+    for(int i = 0 ; i < msg->num_cll; i++)
+        codes_local_latency_reverse(lp);
+    
     for(int j = 0; j < s->params->radix; j++)
     {
         for(int k = 0; k < num_qos_levels; k++)  
@@ -1186,14 +1189,11 @@ void issue_rtr_bw_monitor_event_rc(router_state * s, tw_bf * bf, terminal_custom
         }
     }
     s->rc_index--;
-
-    if(bf->c1)
-        return;
-
-    codes_local_latency_reverse(lp);
 }
 void issue_rtr_bw_monitor_event(router_state * s, tw_bf * bf, terminal_custom_message * msg, tw_lp * lp)
 {
+    msg->num_cll = 0;
+    msg->num_rngs = 0;
 
     int num_qos_levels = s->params->num_qos_levels;
     int rc_index = s->rc_index;
@@ -1233,10 +1233,9 @@ void issue_rtr_bw_monitor_event(router_state * s, tw_bf * bf, terminal_custom_me
     }
     
     if(tw_now(lp) > max_qos_monitor)
-    {
-        bf->c1 = 1;
         return;
-    }
+    
+    msg->num_cll++;
     tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
     terminal_custom_message *m;
     tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp,
@@ -1614,7 +1613,7 @@ static void dragonfly_custom_packet_event_rc(tw_lp *sender)
 
 /*When a packet is sent from the current router and a buffer slot becomes available, a credit is sent back to schedule another packet event*/
 static void router_credit_send(router_state * s, terminal_custom_message * msg, 
-  tw_lp * lp, int sq) {
+  tw_lp * lp, int sq, short* rng_counter) {
   tw_event * buf_e;
   tw_stime ts;
   terminal_custom_message * buf_msg;
@@ -1637,6 +1636,7 @@ static void router_credit_send(router_state * s, terminal_custom_message * msg,
   } else
     printf("\n Invalid message type");
 
+  (*rng_counter)++;
   ts = g_tw_lookahead + p->credit_delay +  tw_rand_unif(lp->rng);
 
   if (is_terminal) {
@@ -1684,10 +1684,8 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_custom_m
 {
    int num_qos_levels = s->params->num_qos_levels;
    if(bf->c1)
-   {
      s->is_monitoring_bw = 0;
-     codes_local_latency_reverse(lp);
-   }
+   
    s->packet_gen--;
    packet_gen--;
    s->packet_counter--;
@@ -1699,7 +1697,11 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_custom_m
    if(bf->c4)
        num_remote_packets--;
 
-   tw_rand_reverse_unif(lp->rng);
+   for(int i = 0; i < msg->num_rngs; i++)
+    tw_rand_reverse_unif(lp->rng);
+
+   for(int i = 0; i < msg->num_cll; i++)
+       codes_local_latency_reverse(lp);
 
    int num_chunks = msg->packet_size/s->params->chunk_size;
    if(msg->packet_size < s->params->chunk_size)
@@ -1720,7 +1722,6 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_custom_m
         s->terminal_length[vcg] -= s->params->chunk_size;
    }
     if(bf->c5) {
-        codes_local_latency_reverse(lp);
         s->in_send_loop = 0;
     }
       if(bf->c11) {
@@ -1736,7 +1737,10 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_custom_m
 /* generates packet at the current dragonfly compute node */
 static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_message * msg, 
   tw_lp * lp) {
- 
+
+    msg->num_rngs = 0;
+    msg->num_cll = 0;
+
     packet_gen++;
     int num_qos_levels = s->params->num_qos_levels;
 
@@ -1751,6 +1755,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
         {
             bf->c1 = 1;
             /* Issue an event on both terminal and router to monitor bandwidth */
+            msg->num_cll++;
             tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
             terminal_custom_message * m;
             tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp, DRAGONFLY_CUSTOM,
@@ -1808,6 +1813,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
       bf->c4 = 1;
       num_remote_packets++;
   }
+  msg->num_rngs++;
   nic_ts = g_tw_lookahead + (num_chunks * cn_delay) + tw_rand_unif(lp->rng);
   
   msg->packet_ID = s->packet_counter;
@@ -1856,6 +1862,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
   
   if(s->in_send_loop == 0) {
     bf->c5 = 1;
+    msg->num_cll++;
     ts = codes_local_latency(lp);
     terminal_custom_message *m;
     tw_event* e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_CUSTOM, 
@@ -2057,12 +2064,16 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_custom_messa
       }
      
       int vcg = msg->saved_vc;
-      tw_rand_reverse_unif(lp->rng);
       s->terminal_available_time = msg->saved_available_time;
-      if(bf->c2) {
+      
+      for(int i = 0; i < msg->num_cll; i++) {
         codes_local_latency_reverse(lp);
       }
-   
+  
+      for(int i = 0; i < msg->num_rngs; i++)
+      {
+        tw_rand_reverse_unif(lp->rng);
+      }
       s->terminal_length[vcg] += s->params->chunk_size;
       /*TODO: MM change this to the vcg */
       s->vc_occupancy[vcg] -= s->params->chunk_size;
@@ -2077,15 +2088,11 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_custom_messa
 
       prepend_to_terminal_custom_message_list(s->terminal_msgs, 
               s->terminal_msgs_tail, vcg, cur_entry);
-      if(bf->c26) {
-        tw_rand_reverse_unif(lp->rng);
-      }
       if(bf->c4) {
         s->in_send_loop = 1;
       }
       if(bf->c5)
       {
-          tw_rand_reverse_unif(lp->rng);
           s->issueIdle = 1;
           if(bf->c6)
           {
@@ -2112,6 +2119,8 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
   msg->last_saved_qos = -1;
   msg->qos_reset1 = -1;
   msg->qos_reset2 = -1;
+  msg->num_rngs = 0;
+  msg->num_cll = 0;
 
   vcg = get_next_vcg(s, bf, msg, lp);
   /* For a terminal to router connection, there would be as many VCGs as number
@@ -2146,7 +2155,10 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
   s->qos_data[vcg] += data_size;
   
   msg->saved_available_time = s->terminal_available_time;
+  
+  msg->num_rngs++;
   ts = g_tw_lookahead + delay + tw_rand_unif(lp->rng);
+  
   s->terminal_available_time = maxd(s->terminal_available_time, tw_now(lp));
   s->terminal_available_time += ts;
 
@@ -2185,7 +2197,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
 
   if(cur_entry->msg.chunk_id == num_chunks - 1 && 
       (cur_entry->msg.local_event_size_bytes > 0)) {
-    bf->c2 = 1;
+    msg->num_cll++;
     tw_stime local_ts = codes_local_latency(lp); 
     tw_event *e_new = tw_event_new(cur_entry->msg.sender_lp, local_ts, lp);
     void * m_new = tw_event_data(e_new);
@@ -2209,8 +2221,8 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
   /* if there is another packet inline then schedule another send event */
   if(cur_entry != NULL &&
     s->vc_occupancy[next_vcg] + s->params->chunk_size <= s->params->cn_vc_size) {
-    bf->c26 = 1;
     terminal_custom_message *m_new;
+    msg->num_rngs++;
     ts += tw_rand_unif(lp->rng);
     e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_CUSTOM, 
       (void**)&m_new, NULL);
@@ -2225,6 +2237,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
   if(s->issueIdle) {
     bf->c5 = 1;
     s->issueIdle = 0;
+    msg->num_rngs++;
     ts += tw_rand_unif(lp->rng);
     model_net_method_idle_event(ts, 0, lp);
    
@@ -2247,12 +2260,19 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
 
 static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_custom_message * msg, tw_lp * lp)
 {
-    if(bf->c31)
-    {
-      s->packet_fin--;
-      packet_fin--;
-    }
-      tw_rand_reverse_unif(lp->rng);
+
+      for(int i = 0; i < msg->num_rngs; i++)
+        tw_rand_reverse_unif(lp->rng);
+
+      for(int i = 0; i < msg->num_cll; i++)
+       codes_local_latency_reverse(lp);
+      
+      if(bf->c31)
+      {
+        s->packet_fin--;
+        packet_fin--;
+      }
+
       if(msg->path_type == MINIMAL)
         minimal_count--;
       if(msg->path_type == NON_MINIMAL)
@@ -2308,12 +2328,9 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_custom_mes
        if(bf->c7)
         {
             //assert(!hash_link);
-            if(bf->c8)
-            {
-              tw_rand_reverse_unif(lp->rng);
-              if(bf->c4)
-                model_net_event_rc2(lp, &msg->event_rc);
-            }
+            if(bf->c4)
+              model_net_event_rc2(lp, &msg->event_rc);
+            
             N_finished_msgs--;
             s->finished_msgs--;
             total_msg_sz -= msg->total_size;
@@ -2348,8 +2365,10 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_custom_mes
 static void send_remote_event(terminal_state * s, terminal_custom_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
 {
         void * tmp_ptr = model_net_method_get_edata(DRAGONFLY_CUSTOM, msg);
-        //tw_stime ts = g_tw_lookahead + bytes_to_ns(msg->remote_event_size_bytes, (1/s->params->cn_bandwidth));
+       
+        msg->num_rngs++;
         tw_stime ts = g_tw_lookahead + mpi_soft_overhead + tw_rand_unif(lp->rng);
+
         if (msg->is_pull){
             bf->c4 = 1;
             struct codes_mctx mc_dst =
@@ -2383,6 +2402,9 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
 
     // NIC aggregation - should this be a separate function?
     // Trigger an event on receiving server
+
+    msg->num_rngs = 0;
+    msg->num_cll = 0;
 
     if(!s->rank_tbl)
         s->rank_tbl = qhash_init(dragonfly_rank_hash_compare, dragonfly_hash_func, DFLY_HASH_TABLE_SIZE);
@@ -2420,7 +2442,8 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
 
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
         printf("\n Packet %llu arrived at lp %llu hops %d ", msg->sender_lp, LLU(lp->gid), msg->my_N_hop);
-  
+ 
+  msg->num_rngs++;
   tw_stime ts = g_tw_lookahead + s->params->credit_delay + tw_rand_unif(lp->rng);
 
   // no method_event here - message going to router
@@ -2584,7 +2607,6 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
         
         //assert(tmp->remote_event_data && tmp->remote_event_size > 0);
         if(tmp->remote_event_data && tmp->remote_event_size > 0) {
-          bf->c8 = 1;
           send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
         }
         /* Remove the hash entry */
@@ -2954,11 +2976,13 @@ static void terminal_buf_update_rc(terminal_state * s,
       int vcg = 0;
       int num_qos_levels = s->params->num_qos_levels;
 
+      for(int i = 0; i < msg->num_cll; i++)
+          codes_local_latency_reverse(lp);
+
       if(num_qos_levels > 1)
         vcg = get_vcg_from_category(msg);
       
       s->vc_occupancy[vcg] += s->params->chunk_size;
-      codes_local_latency_reverse(lp);
       if(bf->c1) {
         s->in_send_loop = 0;
       }
@@ -2972,6 +2996,9 @@ terminal_buf_update(terminal_state * s,
 		    terminal_custom_message * msg, 
 		    tw_lp * lp)
 {
+  msg->num_cll = 0;
+  msg->num_rngs = 0;
+
   bf->c1 = 0;
   bf->c2 = 0;
   bf->c3 = 0;
@@ -2982,6 +3009,7 @@ terminal_buf_update(terminal_state * s,
   if(num_qos_levels > 1)
      vcg = get_vcg_from_category(msg);
 
+  msg->num_cll++;
   tw_stime ts = codes_local_latency(lp);
   s->vc_occupancy[vcg] -= s->params->chunk_size;
   
@@ -3255,7 +3283,8 @@ get_next_stop(router_state * s,
 		      int dest_router_id,
               int adap_chan,
               int do_chan_selection, 
-              int get_direct_con)
+              int get_direct_con,
+              short* rng_counter)
 {
    int dest_lp;
    tw_lpid router_dest_id;
@@ -3276,10 +3305,10 @@ get_next_stop(router_state * s,
    /* If the packet has arrived at the destination group */
    if(s->group_id == dest_group_id)
    {
-       bf->c19 = 1;
        vector<int> next_stop = get_intra_router(s, local_router_id, dest_router_id, s->params->num_routers);
        assert(!next_stop.empty());
        assert(next_stop.size() == 1);
+       (*rng_counter)++;
        select_chan = tw_rand_integer(lp->rng, 0, next_stop.size() - 1);
 
        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, next_stop[select_chan] / num_routers_per_mgrp,
@@ -3313,7 +3342,7 @@ get_next_stop(router_state * s,
             }
             else
             {
-                bf->c16 = 1;
+                (*rng_counter)++;
                 select_chan = tw_rand_integer(lp->rng, 0, connectionList[my_grp_id][dest_group_id].size() - 1);
             }
         }
@@ -3327,7 +3356,7 @@ get_next_stop(router_state * s,
 
   if(s->router_id == msg->saved_src_dest)
   {
-        bf->c17 = 1;
+        (*rng_counter)++;
         select_chan = tw_rand_integer(lp->rng, 0, interGroupLinks[s->router_id][dest_group_id].size() - 1);
         bLink bl = interGroupLinks[s->router_id][dest_group_id][select_chan];
         dest_lp = bl.dest;
@@ -3338,6 +3367,7 @@ get_next_stop(router_state * s,
       bf->c21 = 1;
       vector<int> dests = get_intra_router(s, local_router_id, msg->saved_src_dest, s->params->num_routers);
       assert(!dests.empty());
+      (*rng_counter)++;
       select_chan = tw_rand_integer(lp->rng, 0, dests.size() - 1);
        
        /* If there is a direct connection */
@@ -3356,7 +3386,8 @@ get_output_port( router_state * s,
 		terminal_custom_message * msg, 
         tw_lp * lp, 
         tw_bf * bf,
-		int next_stop)
+		int next_stop, 
+        short* rng_counter)
 {
   int output_port = -1;
   int rand_offset = -1;
@@ -3370,6 +3401,7 @@ get_output_port( router_state * s,
   if((tw_lpid)next_stop == msg->dest_terminal_id)
    {
       /* Make a random number selection (only for reverse computation) */
+      (*rng_counter)++;
       int rand_sel = tw_rand_integer(lp->rng, 0, terminal_id);
       output_port = p->intra_grp_radix + p->num_global_channels + ( terminal_id % p->num_cn);
     }
@@ -3388,6 +3420,7 @@ get_output_port( router_state * s,
 
          assert(interGroupLinks[src_router][intm_grp_id].size() > 0);
 
+         (*rng_counter)++;
          rand_offset = tw_rand_integer(lp->rng, 0, interGroupLinks[src_router][intm_grp_id].size()-1);
 
          assert(rand_offset >= 0 && rand_offset < s->params->num_global_channels);
@@ -3410,6 +3443,7 @@ get_output_port( router_state * s,
 
        if(src_row == dest_row)
         {
+            (*rng_counter)++;
             int offset = tw_rand_integer(lp->rng, 0, p->num_row_chans -1);
             output_port = dest_col * p->num_row_chans + offset;   
             assert(output_port < (s->params->num_router_cols * p->num_row_chans));
@@ -3417,6 +3451,7 @@ get_output_port( router_state * s,
         else if(src_col == dest_col)
         {
             assert(0);
+            (*rng_counter)++;
             int offset = tw_rand_integer(lp->rng, 0, p->num_col_chans -1);
             output_port = (p->num_router_cols * p->num_row_chans) + dest_row * p->num_col_chans + offset;
             assert(output_port < p->intra_grp_radix);
@@ -3437,7 +3472,8 @@ static void do_local_adaptive_routing(router_state * s,
         terminal_custom_message * msg,
         tw_bf * bf,
         int dest_router_id,
-        int intm_router_id)
+        int intm_router_id,
+        short* rng_counter)
 {
   tw_lpid min_rtr_id, nonmin_rtr_id; 
   int min_port, nonmin_port;
@@ -3454,7 +3490,9 @@ static void do_local_adaptive_routing(router_state * s,
   vector<int> next_min_stops = get_intra_router(s, s->router_id, dest_router_id, s->params->num_routers);
   vector<int> next_nonmin_stops = get_intra_router(s, s->router_id, intm_router_id, s->params->num_routers);
 
+   (*rng_counter)++;
    min_chan = tw_rand_integer(lp->rng, 0, next_min_stops.size() - 1);
+   (*rng_counter)++;
    nonmin_chan = tw_rand_integer(lp->rng, 0, next_nonmin_stops.size() - 1);
   
    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, next_min_stops[min_chan] / num_routers_per_mgrp,
@@ -3462,8 +3500,8 @@ static void do_local_adaptive_routing(router_state * s,
   codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, next_nonmin_stops[nonmin_chan] / num_routers_per_mgrp,
           next_nonmin_stops[nonmin_chan] % num_routers_per_mgrp, &nonmin_rtr_id);
 
-  min_port = get_output_port(s, msg, lp, bf, min_rtr_id);
-  nonmin_port = get_output_port(s, msg, lp, bf, nonmin_rtr_id);
+  min_port = get_output_port(s, msg, lp, bf, min_rtr_id, rng_counter);
+  nonmin_port = get_output_port(s, msg, lp, bf, nonmin_rtr_id, rng_counter);
 
   int min_port_count = 0, nonmin_port_count = 0;
 
@@ -3493,12 +3531,13 @@ static void do_local_adaptive_routing(router_state * s,
 }
 /* This function gets a randomly selected router from a group with which the
  * current router has direct connections... */
-static vector<int> get_indirect_conns(router_state * s, tw_lp * lp, int dest_grp_id)
+static vector<int> get_indirect_conns(router_state * s, tw_lp * lp, int dest_grp_id, short* rng_counter)
 {
     map< int, vector<bLink> >  &curMap = interGroupLinks[s->router_id];
     map< int, vector<bLink> >::iterator it = curMap.begin();
     vector<int> nonmin_ports; 
     int num_routers = s->params->num_routers;
+    (*rng_counter)++;
     int dest_idx = tw_rand_integer(lp->rng, 0, num_routers - 1);
     
     for(; it != curMap.end(); it++) {
@@ -3539,7 +3578,8 @@ static int do_global_adaptive_routing( router_state * s,
                  tw_bf * bf,
 				 int dest_router_id,
                  int intm_id_a,
-                 int intm_id_b) {
+                 int intm_id_b,
+                 short* rng_counter) {
   int next_chan = -1;
   // decide which routing to take
   // get the queue occupancy of both the minimal and non-minimal output ports 
@@ -3576,6 +3616,7 @@ static int do_global_adaptive_routing( router_state * s,
   bool noIntraA, noIntraB;
 
   /* two possible routes to minimal destination */
+  (*rng_counter) += 2;
   min_chan_a = tw_rand_integer(lp->rng, 0, num_min_chans - 1);
   min_chan_b = tw_rand_integer(lp->rng, 0, num_min_chans - 1);
 
@@ -3623,25 +3664,26 @@ static int do_global_adaptive_routing( router_state * s,
           min_rtr_b = direct_intra[min_chan_b];
   }
   int dest_rtr_b_sel;
+  (*rng_counter)++;
   int dest_rtr_a_sel = tw_rand_integer(lp->rng, 0, dest_rtr_as.size() - 1);
 
   codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_as[dest_rtr_a_sel] / num_routers_per_mgrp,
           dest_rtr_as[dest_rtr_a_sel] % num_routers_per_mgrp, &min_rtr_a_id); 
 
-  min_port_a = get_output_port(s, msg, lp, bf, min_rtr_a_id);
+  min_port_a = get_output_port(s, msg, lp, bf, min_rtr_a_id, rng_counter);
 
   if(num_min_chans > 1)
   {
-    bf->c10 = 1;
     if(noIntraB) {
       dest_rtr_bs.push_back(min_rtr_b);
     } else {
       dest_rtr_bs = get_intra_router(s, s->router_id, min_rtr_b, s->params->num_routers);
     }
+    (*rng_counter)++;
     dest_rtr_b_sel = tw_rand_integer(lp->rng, 0, dest_rtr_bs.size() - 1);
     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_bs[dest_rtr_b_sel] / num_routers_per_mgrp,
           dest_rtr_bs[dest_rtr_b_sel] % num_routers_per_mgrp, &min_rtr_b_id); 
-    min_port_b = get_output_port(s, msg, lp, bf, min_rtr_b_id);
+    min_port_b = get_output_port(s, msg, lp, bf, min_rtr_b_id, rng_counter);
   }
 
   /* if a direct global channel exists for non-minimal route in the source group then give a priority to that. */
@@ -3653,6 +3695,7 @@ static int do_global_adaptive_routing( router_state * s,
     assert(nonmin_chan_a >= 0 && nonmin_chan_b >= 0);
   }
   /* two possible nonminimal routes */
+  (*rng_counter) += 2;
   int rand_a = tw_rand_integer(lp->rng, 0, num_nonmin_chans_a - 1);
   int rand_b = tw_rand_integer(lp->rng, 0, num_nonmin_chans_b - 1);
 
@@ -3697,11 +3740,12 @@ static int do_global_adaptive_routing( router_state * s,
   } else {
     dest_rtr_as = get_intra_router(s, s->router_id, nonmin_rtr_a, s->params->num_routers);  
   }
+  (*rng_counter)++;
   dest_rtr_a_sel = tw_rand_integer(lp->rng, 0, dest_rtr_as.size() - 1);
   
   codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_as[dest_rtr_a_sel] / num_routers_per_mgrp,
           dest_rtr_as[dest_rtr_a_sel] % num_routers_per_mgrp, &nonmin_rtr_a_id); 
-  nonmin_port_a = get_output_port(s, msg, lp, bf, nonmin_rtr_a_id); 
+  nonmin_port_a = get_output_port(s, msg, lp, bf, nonmin_rtr_a_id, rng_counter); 
 
   assert(nonmin_port_a >= 0);
 
@@ -3714,10 +3758,11 @@ static int do_global_adaptive_routing( router_state * s,
     } else {
       dest_rtr_bs = get_intra_router(s, s->router_id, nonmin_rtr_b, s->params->num_routers);  
     }
+    (*rng_counter)++;
     dest_rtr_b_sel = tw_rand_integer(lp->rng, 0, dest_rtr_bs.size() - 1);
     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_bs[dest_rtr_b_sel] / num_routers_per_mgrp,
           dest_rtr_bs[dest_rtr_b_sel] % num_routers_per_mgrp, &nonmin_rtr_b_id); 
-    nonmin_port_b = get_output_port(s, msg, lp, bf, nonmin_rtr_b_id);
+    nonmin_port_b = get_output_port(s, msg, lp, bf, nonmin_rtr_b_id, rng_counter);
     assert(nonmin_port_b >= 0);
   }
   int min_port_a_count = 0, min_port_b_count = 0;
@@ -3888,66 +3933,20 @@ static void router_packet_receive_rc(router_state * s,
     int output_port = msg->saved_vc;
     int output_chan = msg->saved_channel;
 
-    if(bf->c1)
-    {
-        s->is_monitoring_bw = 0;
+    for(int i = 0 ; i < msg->num_cll; i++)
         codes_local_latency_reverse(lp);
-    }
-    if(bf->c8)
-    {
-        tw_rand_reverse_unif(lp->rng);
-        tw_rand_reverse_unif(lp->rng);
-        tw_rand_reverse_unif(lp->rng);
-    }
-    if(bf->c18)
-    {
-        tw_rand_reverse_unif(lp->rng);
-        tw_rand_reverse_unif(lp->rng);
-    }
-    if(bf->c15)
-    {
-        tw_rand_reverse_unif(lp->rng);
-    }
 
-    if(bf->c20)
-    {
-        for(int i = 0; i < 8; i++)
-            tw_rand_reverse_unif(lp->rng);
-            
-        if(bf->c10)
-        {
-            tw_rand_reverse_unif(lp->rng);
-            tw_rand_reverse_unif(lp->rng);
-        }
-        if(bf->c11)
-        {
-            tw_rand_reverse_unif(lp->rng);
-            tw_rand_reverse_unif(lp->rng);
-        }
-    }
-    if(bf->c6)
-    {
-        for(int i = 0; i < 4; i++)
-            tw_rand_reverse_unif(lp->rng);
-    }
-    if(bf->c19)
-        tw_rand_reverse_unif(lp->rng);
-    if(bf->c16)
-        tw_rand_reverse_unif(lp->rng);
-    if(bf->c17)
-        tw_rand_reverse_unif(lp->rng);
-    if(bf->c21)
+    for(int i = 0; i < msg->num_rngs; i++)
         tw_rand_reverse_unif(lp->rng);
 
-    tw_rand_reverse_unif(lp->rng);
+    if(bf->c1)
+      s->is_monitoring_bw = 0;
 
     if(bf->c2) {
-        tw_rand_reverse_unif(lp->rng);
         terminal_custom_message_list * tail = return_tail(s->pending_msgs[output_port], s->pending_msgs_tail[output_port], output_chan);
         delete_terminal_custom_message_list(tail);
         s->vc_occupancy[output_port][output_chan] -= s->params->chunk_size;
         if(bf->c3) {
-          codes_local_latency_reverse(lp);
           s->in_send_loop[output_port] = 0;
         }
       }
@@ -3965,6 +3964,9 @@ router_packet_receive( router_state * s,
 			terminal_custom_message * msg, 
 			tw_lp * lp )
 {
+  msg->num_cll = 0;
+  msg->num_rngs = 0;
+
   router_verify_valid_receipt(s, bf, msg, lp);
 
   router_ecount++;
@@ -3979,6 +3981,7 @@ router_packet_receive( router_state * s,
      if(s->is_monitoring_bw == 0)
      {
         bf->c1 = 1;
+        msg->num_cll++;
         tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
         terminal_custom_message * m;
         tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp, 
@@ -4023,11 +4026,12 @@ router_packet_receive( router_state * s,
   {
       if(cur_chunk->msg.my_l_hop == max_lvc_src_g)
       {
-        bf->c8 = 1;
-        vector<int> direct_rtrs = get_indirect_conns(s, lp, dest_grp_id);
+        vector<int> direct_rtrs = get_indirect_conns(s, lp, dest_grp_id, &(msg->num_rngs));
         assert(direct_rtrs.size() > 0);
+        msg->num_rngs++;
         int indxa = tw_rand_integer(lp->rng, 0, direct_rtrs.size() - 1); 
         intm_router_id = direct_rtrs[indxa];
+        msg->num_rngs++;
         int indxb = tw_rand_integer(lp->rng, 0, direct_rtrs.size() - 1); 
         intm_router_id_b = direct_rtrs[indxb];
         assert(intm_router_id / num_routers != local_grp_id);
@@ -4035,7 +4039,7 @@ router_packet_receive( router_state * s,
       }
       else
       {
-          bf->c18 = 1;
+          msg->num_rngs += 2;
           intm_router_id = tw_rand_integer(lp->rng, 0, total_routers - 1);
           intm_router_id_b = tw_rand_integer(lp->rng, 0, total_routers - 1); 
           if((intm_router_id/num_routers) == local_grp_id)
@@ -4052,7 +4056,7 @@ router_packet_receive( router_state * s,
   }
   else
   {
-     bf->c15 = 1;
+    msg->num_rngs++;
     intm_router_id = (src_grp_id * num_routers) + 
                       (((s->router_id % num_routers) + 
                        tw_rand_integer(lp->rng, 1, num_routers - 1)) % num_routers);
@@ -4071,8 +4075,7 @@ router_packet_receive( router_state * s,
 //              && s->router_id != dest_router_id)))
             && local_grp_id == src_grp_id)))
   {
-       bf->c20 = 1;
-       adap_chan = do_global_adaptive_routing(s, lp, &(cur_chunk->msg), bf, dest_router_id, intm_router_id, intm_router_id_b);
+       adap_chan = do_global_adaptive_routing(s, lp, &(cur_chunk->msg), bf, dest_router_id, intm_router_id, intm_router_id_b, &(msg->num_rngs));
   }
   /* If destination router is in the same group then local adaptive routing is
    * triggered */
@@ -4084,9 +4087,7 @@ router_packet_receive( router_state * s,
           (routing == ADAPTIVE || routing == PROG_ADAPTIVE) 
           && cur_chunk->msg.last_hop == TERMINAL)
   {
-      
-        bf->c6 = 1;
-        do_local_adaptive_routing(s, lp, &(cur_chunk->msg), bf, dest_router_id, intm_router_id);
+        do_local_adaptive_routing(s, lp, &(cur_chunk->msg), bf, dest_router_id, intm_router_id, &(msg->num_rngs));
   }
 
   next_path_type = cur_chunk->msg.path_type;
@@ -4132,12 +4133,12 @@ if(cur_chunk->msg.path_type == NON_MINIMAL)
   if(routing == PROG_ADAPTIVE && prev_path_type != next_path_type && s->group_id == src_grp_id)
       do_chan_selection = 1;
   
-  next_stop = get_next_stop(s, lp, bf, &(cur_chunk->msg), dest_router_id, adap_chan, do_chan_selection, get_direct_con);
+  next_stop = get_next_stop(s, lp, bf, &(cur_chunk->msg), dest_router_id, adap_chan, do_chan_selection, get_direct_con, &(msg->num_rngs));
 
   if(cur_chunk->msg.packet_ID == LLU(TRACK_PKT) && cur_chunk->msg.src_terminal_id == T_ID)
     printf("\n Packet %llu arrived at router %u next stop %d final stop %d local hops %d global hops %d", cur_chunk->msg.packet_ID, s->router_id, next_stop, dest_router_id, cur_chunk->msg.my_l_hop, cur_chunk->msg.my_g_hop);
 
-  output_port = get_output_port(s, &(cur_chunk->msg), lp, bf, next_stop); 
+  output_port = get_output_port(s, &(cur_chunk->msg), lp, bf, next_stop, &(msg->num_rngs)); 
   assert(output_port >= 0);
   int max_vc_size = s->params->cn_vc_size;
 
@@ -4198,7 +4199,7 @@ if(cur_chunk->msg.path_type == NON_MINIMAL)
       <= max_vc_size) {
     bf->c2 = 1;
     assert(output_chan < s->params->num_vcs && output_port < s->params->radix);
-    router_credit_send(s, msg, lp, -1);
+    router_credit_send(s, msg, lp, -1, &(msg->num_rngs));
   
     append_to_terminal_custom_message_list( s->pending_msgs[output_port], 
       s->pending_msgs_tail[output_port], output_chan, cur_chunk);
@@ -4206,6 +4207,7 @@ if(cur_chunk->msg.path_type == NON_MINIMAL)
     if(s->in_send_loop[output_port] == 0) {
       bf->c3 = 1;
       terminal_custom_message *m;
+      msg->num_cll++;
       ts = codes_local_latency(lp); 
       tw_event *e = model_net_method_event_new(lp->gid, ts, lp,
               DRAGONFLY_CUSTOM_ROUTER, (void**)&m, NULL);
@@ -4257,15 +4259,20 @@ static void router_packet_send_rc(router_state * s,
         }
         return;  
     }
-    int output_chan = msg->saved_channel;
-  if(bf->c8)
-  {
-    s->busy_time[output_port] = msg->saved_rcv_time;
-    s->busy_time_sample[output_port] = msg->saved_sample_time;
-    s->last_buf_full[output_port] = msg->saved_busy_time;
+   
+    for(int i = 0; i < msg->num_rngs; i++)
+        tw_rand_reverse_unif(lp->rng);
+
+   for(int i = 0; i < msg->num_cll; i++)
+       codes_local_latency_reverse(lp);
+   
+   int output_chan = msg->saved_channel;
+   if(bf->c8)
+    {
+        s->busy_time[output_port] = msg->saved_rcv_time;
+        s->busy_time_sample[output_port] = msg->saved_sample_time;
+        s->last_buf_full[output_port] = msg->saved_busy_time;
   }
-      
-    tw_rand_reverse_unif(lp->rng);
       
     terminal_custom_message_list * cur_entry = (terminal_custom_message_list *)rc_stack_pop(s->st);
     assert(cur_entry);
@@ -4277,6 +4284,7 @@ static void router_packet_send_rc(router_state * s,
         msg_size = cur_entry->msg.packet_size;
 
     s->qos_data[output_port][vcg] -= msg_size;
+    s->next_output_available_time[output_port] = msg->saved_available_time;
 
     if(bf->c11)
     {
@@ -4292,7 +4300,6 @@ static void router_packet_send_rc(router_state * s,
         s->ross_rsample.link_traffic_sample[output_port] -= s->params->chunk_size;
         s->link_traffic_ross_sample[output_port] -= s->params->chunk_size;
     }
-    s->next_output_available_time[output_port] = msg->saved_available_time;
 
     prepend_to_terminal_custom_message_list(s->pending_msgs[output_port],
             s->pending_msgs_tail[output_port], output_chan, cur_entry);
@@ -4301,8 +4308,6 @@ static void router_packet_send_rc(router_state * s,
         s->in_send_loop[output_port] = 1;
         return;
       }
-    tw_rand_reverse_unif(lp->rng);
-      
 }
 /* routes the current packet to the next stop */
 static void 
@@ -4323,6 +4328,8 @@ router_packet_send( router_state * s,
   msg->last_saved_qos = -1;
   msg->qos_reset1 = -1;
   msg->qos_reset2 = -1;
+  msg->num_cll = 0;
+  msg->num_rngs = 0;
 
   int num_qos_levels = s->params->num_qos_levels;
   int output_chan = get_next_router_vcg(s, bf, msg, lp);
@@ -4385,7 +4392,8 @@ router_packet_send( router_state * s,
 
   if((cur_entry->msg.packet_size < s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
       bytetime = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, bandwidth); 
-  
+
+  msg->num_rngs++;
   ts = g_tw_lookahead + tw_rand_unif( lp->rng) + bytetime + s->params->router_delay;
 
   msg->saved_available_time = s->next_output_available_time[output_port];
@@ -4478,6 +4486,7 @@ router_packet_send( router_state * s,
   assert(cur_entry != NULL); 
 
   terminal_custom_message *m_new;
+  msg->num_rngs++;
   ts += g_tw_lookahead + tw_rand_unif(lp->rng);
   e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_CUSTOM_ROUTER,
             (void**)&m_new, NULL);
@@ -4496,6 +4505,13 @@ static void router_buf_update_rc(router_state * s,
       int indx = msg->vc_index;
       int output_chan = msg->output_chan;
       s->vc_occupancy[indx][output_chan] += s->params->chunk_size;
+   
+      for(int i = 0; i < msg->num_rngs; i++)
+        tw_rand_reverse_unif(lp->rng);
+
+      for(int i = 0; i < msg->num_cll; i++)
+       codes_local_latency_reverse(lp);
+      
       if(bf->c3)
       {
         s->busy_time[indx] = msg->saved_rcv_time;
@@ -4507,20 +4523,21 @@ static void router_buf_update_rc(router_state * s,
       if(bf->c1) {
         terminal_custom_message_list* head = return_tail(s->pending_msgs[indx],
             s->pending_msgs_tail[indx], output_chan);
-        tw_rand_reverse_unif(lp->rng);
         prepend_to_terminal_custom_message_list(s->queued_msgs[indx], 
             s->queued_msgs_tail[indx], output_chan, head);
         s->vc_occupancy[indx][output_chan] -= s->params->chunk_size;
         s->queued_count[indx] += s->params->chunk_size;
       }
       if(bf->c2) {
-        codes_local_latency_reverse(lp);
         s->in_send_loop[indx] = 0;
       }
 }
 /* Update the buffer space associated with this router LP */
 static void router_buf_update(router_state * s, tw_bf * bf, terminal_custom_message * msg, tw_lp * lp)
 {
+  msg->num_cll = 0;
+  msg->num_rngs = 0;
+
   int indx = msg->vc_index;
   int output_chan = msg->output_chan;
   s->vc_occupancy[indx][output_chan] -= s->params->chunk_size;
@@ -4551,7 +4568,7 @@ static void router_buf_update(router_state * s, tw_bf * bf, terminal_custom_mess
             tw_error(TW_LOC, "\n invalid output chan %d last-hop %d", head->msg.saved_channel, head->msg.last_hop);
      }
     }*/
-    router_credit_send(s, &head->msg, lp, 1); 
+    router_credit_send(s, &head->msg, lp, 1, &(msg->num_rngs)); 
     append_to_terminal_custom_message_list(s->pending_msgs[indx], 
       s->pending_msgs_tail[indx], output_chan, head);
     s->vc_occupancy[indx][output_chan] += s->params->chunk_size;
@@ -4560,6 +4577,7 @@ static void router_buf_update(router_state * s, tw_bf * bf, terminal_custom_mess
   if(s->in_send_loop[indx] == 0 && s->pending_msgs[indx][output_chan] != NULL) {
     bf->c2 = 1;
     terminal_custom_message *m;
+    msg->num_cll++;
     tw_stime ts = codes_local_latency(lp);
     tw_event *e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_CUSTOM_ROUTER,
             (void**)&m, NULL);
