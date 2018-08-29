@@ -60,7 +60,7 @@ static long num_ops = 0;
 static int upper_threshold = 1048576;
 static int alloc_spec = 0;
 static tw_stime self_overhead = 10.0;
-static tw_stime mean_interval = 100;
+static tw_stime mean_interval = 100000;
 static int payload_sz = 1024;
 
 /* Doing LP IO*/
