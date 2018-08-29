@@ -54,7 +54,7 @@ char offset_file[8192];
 static int wrkld_id;
 static int num_net_traces = 0;
 static int num_dumpi_traces = 0;
-static int64_t EAGER_THRESHOLD = INT_MAX;
+static int64_t EAGER_THRESHOLD = 8192;
 
 static long num_ops = 0;
 static int upper_threshold = 1048576;
@@ -2380,7 +2380,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
                 return;
              }
 
-             //notify_neighbor(s, lp, bf, m);
+               //notify_neighbor(s, lp, bf, m);
 //             printf("Client rank %llu completed workload, local rank %d .\n", s->nw_id, s->local_rank);
 
              return;
