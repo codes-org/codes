@@ -21,7 +21,6 @@
 #define MN_LP_NM "modelnet_dragonfly_custom"
 #define CONTROL_MSG_SZ 64
 #define TRACE -1
-#define MAX_SYN_SENDS 10
 #define MAX_WAIT_REQS 1024
 #define CS_LP_DBG 1
 #define RANK_HASH_TABLE_SZ 2000
@@ -43,6 +42,7 @@ static int synthetic_pattern = 1;
 static int preserve_wait_ordering = 0;
 static int enable_msg_tracking = 0;
 static int is_synthetic = 0;
+static int max_gen_data = 1310720;
 tw_lpid TRACK_LP = -1;
 int nprocs = 0;
 static double total_syn_data = 0;
@@ -796,7 +796,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
     m_new->msg_type = CLI_BCKGND_GEN;
     tw_event_send(e);
     
-    if(s->num_sends == MAX_SYN_SENDS)
+    if(s->gen_data == max_gen_data)
     {
         bf->c5 = 1;
         s->is_finished = 1;
@@ -2670,6 +2670,7 @@ const tw_optdef app_opt [] =
 	TWOPT_CHAR("workload_conf_file", workloads_conf_file, "workload config file name"),
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
 	TWOPT_UINT("payload_sz", payload_sz, "size of payload for synthetic traffic "),
+	TWOPT_UINT("max_gen_data", max_gen_data, "maximum data to be generated for synthetic traffic "),
 	TWOPT_UINT("eager_threshold", EAGER_THRESHOLD, "the transition point for eager/rendezvous protocols (Default 8192)"),
     TWOPT_UINT("disable_compute", disable_delay, "disable compute simulation"),
     TWOPT_UINT("payload_sz", payload_sz, "size of the payload for synthetic traffic"),

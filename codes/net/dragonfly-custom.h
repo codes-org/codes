@@ -81,11 +81,10 @@ struct terminal_custom_message
    short num_rngs;
    short num_cll;
 
+   int qos_index;
    short last_saved_qos;
    short qos_reset1;
    short qos_reset2;
-   int saved_qos_data;
-   short saved_qos_status;
 
    tw_stime saved_available_time;
    tw_stime saved_avg_time;
