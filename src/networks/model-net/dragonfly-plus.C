@@ -92,6 +92,7 @@ static long packet_gen = 0, packet_fin = 0;
 /* bw monitoring time in nanosecs */
 static int bw_reset_window = 5000000;
 
+static FILE * dragonfly_rtr_bw_log = NULL;
 #define indexer3d(_ptr, _x, _y, _z, _maxx, _maxy, _maxz) \
         ((_ptr) + _z * (_maxx * _maxz) + _y * (_maxx) + _x)
 
@@ -1246,6 +1247,8 @@ void terminal_plus_init(terminal_state *s, tw_lp *lp)
     s->packet_gen = 0;
     s->packet_fin = 0;
 
+    s->num_term_rc_windows = 100;
+
     int i;
     char anno[MAX_NAME_LENGTH];
 
@@ -1301,6 +1304,7 @@ void terminal_plus_init(terminal_state *s, tw_lp *lp)
     /* How much data has been transmitted on the virtual channel group within
     * the window */
     s->qos_data = (int*)calloc(num_qos_levels, sizeof(int));
+    s->vc_occupancy = (int*)calloc(s->num_vcs, sizeof(int));
 
     /* for reverse handlers */
     s->last_qos_status = (int*)calloc(s->num_term_rc_windows * num_qos_levels, sizeof(int));
@@ -1313,10 +1317,9 @@ void terminal_plus_init(terminal_state *s, tw_lp *lp)
     }
 
     s->last_qos_lvl = 0;
-    s->last_buf_full = (tw_stime *) calloc(s->num_vcs, sizeof(tw_stime));
+    s->last_buf_full = 0;
 
     for (i = 0; i < s->num_vcs; i++) {
-        s->last_buf_full[i] = 0.0;
         s->vc_occupancy[i] = 0;
     }
 
@@ -1394,6 +1397,17 @@ void router_plus_setup(router_state *r, tw_lp *lp)
         assert(router_type_map[r->router_id] == LEAF);
         // printf("%lu: %i is a LEAF\n",lp->gid, r->router_id);
     }
+   
+    if(r->router_id == 0)
+    {
+        char rtr_bw_log[128];
+        sprintf(rtr_bw_log, "router-bw-tracker");
+        
+        dragonfly_rtr_bw_log = fopen(rtr_bw_log, "w");
+       
+        if(dragonfly_rtr_bw_log != NULL)
+           fprintf(dragonfly_rtr_bw_log, "\n router-id time-stamp port-id qos-level bw-consumed qos-status qos-data busy-time");
+    } 
 
     r->connMan = &connManagerList[r->router_id];
 
@@ -1581,18 +1595,18 @@ void issue_rtr_bw_monitor_event(router_state * s, tw_bf * bf, terminal_plus_mess
     msg->qos_index = s->rc_index;
     s->rc_index++;
     
-    /*for(int j = 0; j < s->params->radix; j++)
+    for(int j = 0; j < s->params->radix; j++)
     {
         for(int k = 0; k < num_qos_levels; k++)
         {
             int bw_consumed = get_rtr_bandwidth_consumption(s, k, j);
             if(s->router_id == 0)
             {
-                //fprintf(dragonfly_rtr_bw_log, "\n %d %f %d %d %d %d %d %f", s->router_id, tw_now(lp), j, k, bw_consumed, s->qos_status[j][k], s->qos_data[j][k], s->busy_time_sample[j]);
+                fprintf(dragonfly_rtr_bw_log, "\n %d %f %d %d %d %d %d %f", s->router_id, tw_now(lp), j, k, bw_consumed, s->qos_status[j][k], s->qos_data[j][k], s->busy_time_sample[j]);
             
             }
         }
-    }*/
+    }
     for(int j = 0; j < s->params->radix; j++)
     {
         /* Reset the qos status and bandwidth consumption. */
@@ -2984,6 +2998,8 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
     //     printf("]\n");
     // }
 
+    if(s->router_id == 0)
+        fclose(dragonfly_rtr_bw_log);
 
     free(s->global_channel);
     int i, j;
