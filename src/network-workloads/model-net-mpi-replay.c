@@ -61,7 +61,7 @@ static int upper_threshold = 1048576;
 static int alloc_spec = 0;
 static tw_stime self_overhead = 10.0;
 static tw_stime mean_interval = 100000;
-static int payload_sz = 1024;
+static int payload_sz = 1024000;
 
 /* Doing LP IO*/
 static char * params = NULL;
@@ -796,7 +796,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
     m_new->msg_type = CLI_BCKGND_GEN;
     tw_event_send(e);
     
-    if(s->gen_data == max_gen_data)
+    if(s->gen_data >= max_gen_data)
     {
         bf->c5 = 1;
         s->is_finished = 1;
@@ -825,7 +825,7 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 //    printf("\n Data arrived %d total data %ld ", m->fwd.num_bytes, s->syn_data);
     if(s->local_rank == 0)
      {
-//    	printf("\n Data arrived %lld rank %llu total data %ld ", m->fwd.num_bytes, s->nw_id, s->syn_data);
+    	printf("\n Data arrived %lld rank %llu total data %ld ", m->fwd.num_bytes, s->nw_id, s->syn_data);
 /*	if(s->syn_data > upper_threshold)
     if(s->local_rank == 0)
      {
