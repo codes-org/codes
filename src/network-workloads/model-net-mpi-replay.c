@@ -2949,14 +2949,15 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
     }
    tw_run();
 
-    fclose(workload_agg_log);
-    fclose(workload_meta_log);
-
     if(enable_debug)
         fclose(workload_log);
 
-    if(enable_msg_tracking)
+    if(enable_msg_tracking) {
         fclose(msg_size_log);
+        fclose(workload_agg_log);
+        fclose(workload_meta_log);
+    }
+
     long long total_bytes_sent, total_bytes_recvd;
     double max_run_time, avg_run_time;
    double max_comm_run_time, avg_comm_run_time;
