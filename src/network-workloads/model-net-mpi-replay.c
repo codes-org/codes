@@ -61,7 +61,7 @@ static int upper_threshold = 1048576;
 static int alloc_spec = 0;
 static tw_stime self_overhead = 10.0;
 static tw_stime mean_interval = 100000;
-static int payload_sz = 1024000;
+static int payload_sz = 1024;
 
 /* Doing LP IO*/
 static char * params = NULL;
@@ -776,7 +776,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
             remote_m.fwd.src_rank = s->local_rank;
 
             // printf("\nAPP %d SRC %d Dest %d (twid %llu)", jid.job, s->local_rank, dest_svr[i], global_dest_id);
-            m->event_rc = model_net_event(net_id, "high", global_dest_id, payload_sz, 0.0, 
+            m->event_rc = model_net_event(net_id, "medium", global_dest_id, payload_sz, 0.0, 
                     sizeof(nw_message), (const void*)&remote_m, 
                     0, NULL, lp);
             
