@@ -83,6 +83,16 @@ struct terminal_plus_message
    int is_pull;
    uint32_t pull_size;
 
+   /* for counting reverse calls */
+   short num_rngs;
+   short num_cll;
+
+   /* qos related attributes */   
+   int qos_index;
+   short last_saved_qos;
+   short qos_reset1;
+   short qos_reset2;
+
    /* for reverse computation */
    int path_type;
    tw_stime saved_available_time;

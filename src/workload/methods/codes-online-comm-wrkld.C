@@ -827,7 +827,6 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     else
         tw_error(TW_LOC, "\n Undefined workload type %s ", o_params->workload_name);
 
-    printf("\n file path %s ", path.c_str());
     try {
         std::ifstream jsonFile(path.c_str());
         boost::property_tree::json_parser::read_json(jsonFile, root);
