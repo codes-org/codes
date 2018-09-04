@@ -2931,6 +2931,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    }
    
    group_ratio = codes_mctx_set_group_ratio(NULL, true);
+
    if(enable_sampling)
        model_net_enable_sampling(sampling_interval, sampling_end_time);
 

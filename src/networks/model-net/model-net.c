@@ -330,7 +330,6 @@ static model_net_event_return model_net_event_impl_base(
 
     if ( src_mn_lp == dest_mn_lp && message_size < (uint64_t)codes_node_eager_limit)
     {
-        printf("\n Calling model-net noop event! %d %d %s", src_mn_lp, dest_mn_lp, category);
         return model_net_noop_event(final_dest_lp, is_pull, offset, message_size,
                 remote_event_size, remote_event, self_event_size, self_event,
                 sender);

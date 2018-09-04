@@ -1144,7 +1144,7 @@ void issue_bw_monitor_event(terminal_state * s, tw_bf * bf, terminal_custom_mess
     int num_term_rc_wins = s->num_term_rc_windows;
 
     /* dynamically reallocate array if index has reached max-size */
-    if(s->rc_index == s->num_term_rc_windows)
+    if(s->rc_index >= s->num_term_rc_windows)
     {
         s->num_term_rc_windows *= 2;
         int * tmp1 = (int*)calloc(s->num_term_rc_windows * num_qos_levels, sizeof(int));
@@ -1225,7 +1225,7 @@ void issue_rtr_bw_monitor_event(router_state * s, tw_bf * bf, terminal_custom_me
     int num_rtr_rc_windows = s->num_rtr_rc_windows;
 
     /* dynamically reallocate the array.. */
-    if(s->rc_index == s->num_rtr_rc_windows)
+    if(s->rc_index >= s->num_rtr_rc_windows)
     {
         s->num_rtr_rc_windows *= 2;
         int * tmp1 = (int*)calloc(s->num_rtr_rc_windows * s->params->radix * num_qos_levels, sizeof(int));
@@ -1269,7 +1269,7 @@ void issue_rtr_bw_monitor_event(router_state * s, tw_bf * bf, terminal_custom_me
             int bw_consumed = get_rtr_bandwidth_consumption(s, k, j);
             if(s->router_id == 0)
             {
-                //fprintf(dragonfly_rtr_bw_log, "\n %d %f %d %d %d %d %d %f", s->router_id, tw_now(lp), j, k, bw_consumed, s->qos_status[j][k], s->qos_data[j][k], s->busy_time_sample[j]);
+                fprintf(dragonfly_rtr_bw_log, "\n %d %f %d %d %d %d %d %f", s->router_id, tw_now(lp), j, k, bw_consumed, s->qos_status[j][k], s->qos_data[j][k], s->busy_time_sample[j]);
             
             }
         }
@@ -1699,22 +1699,6 @@ static void router_credit_send(router_state * s, terminal_custom_message * msg,
   strcpy(buf_msg->category, msg->category); 
   buf_msg->type = type;
 
-  if(strcmp(msg->category, "medium") == 0)
-  {
-     if(is_terminal == 0)
-     {
-        if(buf_msg->output_chan < 4 || buf_msg->output_chan >= 8)
-     {
-            printf("\n Router medium prio arrived packet-id %d rid %d sq %d", msg->packet_ID, msg->origin_router_id, sq);
-         tw_error(TW_LOC, "\n port %d output chan %d dest %d ", buf_msg->vc_index, buf_msg->output_chan, is_terminal);
-     }
-     }
-     else
-     {
-        if(buf_msg->output_chan < 1)
-            printf("\n Incorrect terminal vc %d ", buf_msg->output_chan);
-     }
-  }
   tw_event_send(buf_e);
   return;
 }
@@ -2257,7 +2241,9 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
   rc_stack_push(lp, cur_entry, delete_terminal_custom_message_list, s->st);
   s->terminal_length[vcg] -= s->params->chunk_size;
 
-  cur_entry = s->terminal_msgs[next_vcg];
+  cur_entry = NULL;
+  if(next_vcg >= 0)
+    cur_entry = s->terminal_msgs[next_vcg];
 
   /* if there is another packet inline then schedule another send event */
   if(cur_entry != NULL &&
