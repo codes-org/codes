@@ -28,6 +28,7 @@
 #define lprintf(_fmt, ...) \
         do {if (CS_LP_DBG) printf(_fmt, __VA_ARGS__);} while (0)
 #define MAX_STATS 65536
+#define COL_TAG 1235
 
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
@@ -53,6 +54,7 @@ char workload_file[8192];
 char offset_file[8192];
 static int wrkld_id;
 static int num_net_traces = 0;
+static int priority_type = 0;
 static int num_dumpi_traces = 0;
 static int64_t EAGER_THRESHOLD = 8192;
 
@@ -1557,12 +1559,26 @@ static void codes_exec_mpi_send(nw_state* s,
     bf->c4 = 0;
     
     char prio[12];
-    if(s->app_id == 0) 
-      strcpy(prio, "high");
-    else if(s->app_id == 1)
-       strcpy(prio, "medium");
+    if(priority_type == 0)
+    {
+        if(s->app_id == 0) 
+          strcpy(prio, "high");
+        else if(s->app_id == 1)
+          strcpy(prio, "medium");
+        else
+          tw_error(TW_LOC, "\n Invalid app id");
+    }
+    else if(priority_type == 1)
+    {
+        if(mpi_op->u.send.tag == COL_TAG)
+        {
+            strcpy(prio, "high");
+        }
+        else
+            strcpy(prio, "medium");
+    }
     else
-       tw_error(TW_LOC, "\n Invalid app id");
+        tw_error(TW_LOC, "\n Invalid priority type %d", priority_type);
 
     int is_eager = 0;
 	/* model-net event */
@@ -2670,6 +2686,7 @@ const tw_optdef app_opt [] =
 	TWOPT_CHAR("alloc_file", alloc_file, "allocation file name"),
 	TWOPT_CHAR("workload_conf_file", workloads_conf_file, "workload config file name"),
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
+	TWOPT_UINT("priority_type", priority_type, "Priority type (zero): high priority to foreground traffic and low to background/2nd job, (one): high priority to collective operations "),
 	TWOPT_UINT("payload_sz", payload_sz, "size of payload for synthetic traffic "),
 	TWOPT_UINT("max_gen_data", max_gen_data, "maximum data to be generated for synthetic traffic "),
 	TWOPT_UINT("eager_threshold", EAGER_THRESHOLD, "the transition point for eager/rendezvous protocols (Default 8192)"),
