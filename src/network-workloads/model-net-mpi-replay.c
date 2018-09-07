@@ -107,6 +107,7 @@ static int num_syn_clients;
 static int syn_type = 0;
 
 FILE * workload_log = NULL;
+FILE * data_log = NULL;
 FILE * msg_size_log = NULL;
 FILE * workload_agg_log = NULL;
 FILE * workload_meta_log = NULL;
@@ -125,8 +126,8 @@ double avg_time = 0, avg_comm_time = 0, avg_wait_time = 0, avg_send_time = 0, av
 
 /* runtime option for disabling computation time simulation */
 static int disable_delay = 0;
-static int enable_sampling = 0;
-static double sampling_interval = 5000000;
+static int enable_sampling = 1;
+static double sampling_interval = 1000000;
 static double sampling_end_time = 3000000000;
 static int enable_debug = 0;
 
@@ -277,6 +278,9 @@ struct nw_state
     /* Pending wait operation */
     struct pending_waits * wait_op;
 
+    /* data sent per rank */
+    double * data_sent_per_rank;
+
     /* Message size latency information */
     struct qhash_table * msg_sz_table;
     struct qlist_head msg_sz_list;
@@ -296,7 +300,7 @@ struct nw_state
     /* For sampling data */
     int sampling_indx;
     int max_arr_size;
-    struct mpi_workload_sample * mpi_wkld_samples;
+    struct mpi_workload_sample* mpi_wkld_samples;
     char output_buf[512];
     char col_stats[64];
 };
@@ -1580,6 +1584,10 @@ static void codes_exec_mpi_send(nw_state* s,
     else
         tw_error(TW_LOC, "\n Invalid priority type %d", priority_type);
 
+    struct codes_jobmap_id jid; 
+    jid = codes_jobmap_to_local_id(s->nw_id, jobmap_ctx);
+    int num_ranks = codes_jobmap_get_num_ranks(jid.job, jobmap_ctx);
+    
     int is_eager = 0;
 	/* model-net event */
     int global_dest_rank = mpi_op->u.send.dest_rank;
@@ -1604,6 +1612,13 @@ static void codes_exec_mpi_send(nw_state* s,
             s->mpi_wkld_samples[indx].nw_id = s->nw_id;
             s->mpi_wkld_samples[indx].app_id = s->app_id;
             s->mpi_wkld_samples[indx].sample_end_time = s->cur_interval_end;
+
+            for(int i = 0; i < num_ranks; i++) 
+            {
+                if(s->data_sent_per_rank[i] > 0)
+                    fprintf(data_log, "\n %lf %d %d %d %lf", s->cur_interval_end, s->app_id, s->local_rank, i, s->data_sent_per_rank[i]);
+                s->data_sent_per_rank[i] = 0;
+            }
             s->sampling_indx++;
             s->cur_interval_end += sampling_interval;
         }
@@ -1618,6 +1633,7 @@ static void codes_exec_mpi_send(nw_state* s,
         int indx = s->sampling_indx;
         s->mpi_wkld_samples[indx].num_sends_sample++;
         s->mpi_wkld_samples[indx].num_bytes_sample += mpi_op->u.send.num_bytes;
+        s->data_sent_per_rank[mpi_op->u.send.dest_rank] += mpi_op->u.send.num_bytes;
     }
 	nw_message local_m;
 	nw_message remote_m;
@@ -2056,10 +2072,10 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        params = (char*)&oc_params;
        strcpy(type_name, "online_comm_workload");
    }
-       
+
+   s->data_sent_per_rank = (double*)calloc(num_traces_of_job[lid.job], sizeof(double));
    s->app_id = lid.job;
    s->local_rank = lid.rank;
-
 
    double overhead;
    int rc = configuration_get_value_double(&config, "PARAMS", "self_msg_overhead", NULL, &overhead);
@@ -2126,11 +2142,11 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    {
        s->max_arr_size = MAX_STATS;
        s->cur_interval_end = sampling_interval;
-       if(!g_tw_mynode && !s->nw_id)
+       /*if(!g_tw_mynode && !s->nw_id)
        {
            fprintf(workload_meta_log, "\n mpi_proc_id app_id num_waits "
                    " num_sends num_bytes_sent sample_end_time");
-       }
+       }*/
    }
    return;
 }
@@ -2581,8 +2597,8 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
         }
         if(enable_sampling)
         {
-            fseek(workload_agg_log, sample_bytes_written, SEEK_SET);
-            fwrite(s->mpi_wkld_samples, sizeof(struct mpi_workload_sample), s->sampling_indx + 1, workload_agg_log);
+            //fseek(workload_agg_log, sample_bytes_written, SEEK_SET);
+            //fwrite(s->mpi_wkld_samples, sizeof(struct mpi_workload_sample), s->sampling_indx + 1, workload_agg_log);
         }
         sample_bytes_written += (s->sampling_indx * sizeof(struct mpi_workload_sample));
 		if(s->wait_time > max_wait_time)
@@ -2595,6 +2611,9 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 			max_recv_time = s->recv_time;
 
         written = 0;
+
+        if(data_log != NULL)
+            fclose(data_log);
 
         if(debug_cols)
             written += sprintf(s->col_stats + written, "%llu \t %lf \n", LLU(s->nw_id), ns_to_s(s->all_reduce_time / s->num_all_reduce));
@@ -2904,6 +2923,16 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    net_id = *net_ids;
    free(net_ids);
 
+   if(enable_sampling)
+   {
+        data_log = fopen("data-exchange-log", "w+");
+        if(!data_log)
+        {
+            printf("\n Error! unable to open data log");
+            MPI_Finalize();
+            return -1;
+        }
+   }
    if(enable_debug)
    {
        workload_log = fopen("mpi-op-logs", "w+");
@@ -2949,8 +2978,8 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    
    group_ratio = codes_mctx_set_group_ratio(NULL, true);
 
-   if(enable_sampling)
-       model_net_enable_sampling(sampling_interval, sampling_end_time);
+//   if(enable_sampling)
+//       model_net_enable_sampling(sampling_interval, sampling_end_time);
 
    codes_mapping_setup();
 

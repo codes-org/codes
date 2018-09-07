@@ -25,7 +25,7 @@
 #include <cortex/topology.h>
 #endif
 
-#define DUMP_CONNECTIONS 0
+#define DUMP_CONNECTIONS 1
 #define PRINT_CONFIG 1
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
@@ -55,13 +55,13 @@ static int BIAS_MIN = 1;
 static int DF_DALLY = 0;
 static int adaptive_threshold = 1024;
 
-static tw_stime max_qos_monitor = 5000000000;
+static tw_stime max_qos_monitor = 3000000000;
 static long num_local_packets_sr = 0;
 static long num_local_packets_sg = 0;
 static long num_remote_packets = 0;
 
 /* time in nanosecs */
-static int bw_reset_window = 5000000;
+static int bw_reset_window = 1000000;
 
 #define indexer3d(_ptr, _x, _y, _z, _maxx, _maxy, _maxz) \
         ((_ptr) + _z * (_maxx * _maxz) + _y * (_maxx) + _x)
@@ -135,7 +135,7 @@ static int num_intra_nonmin_hops = 4;
 static int num_intra_min_hops = 2;
 
 static FILE * dragonfly_rtr_bw_log = NULL;
-//static FILE * dragonfly_term_bw_log = NULL;
+static FILE * dragonfly_term_bw_log = NULL;
 
 static int sample_bytes_written = 0;
 static int sample_rtr_bytes_written = 0;
@@ -1142,6 +1142,12 @@ void issue_bw_monitor_event(terminal_state * s, tw_bf * bf, terminal_custom_mess
     int num_qos_levels = s->params->num_qos_levels;
     int rc_index = s->rc_index;
     int num_term_rc_wins = s->num_term_rc_windows;
+      
+    if(s->qos_data[0] > 0)
+        fprintf(dragonfly_term_bw_log, "\n %lf %d %d %lf ", tw_now(lp), s->terminal_id, s->qos_data[0], s->busy_time_sample);
+       
+    s->busy_time_sample = 0;
+    
 
     /* dynamically reallocate array if index has reached max-size */
     if(s->rc_index >= s->num_term_rc_windows)
@@ -1177,12 +1183,6 @@ void issue_bw_monitor_event(terminal_state * s, tw_bf * bf, terminal_custom_mess
     s->rc_index++;
     assert(s->rc_index < s->num_term_rc_windows); 
     
-/*    if(s->router_id == 0)
-    {
-       fprintf(dragonfly_term_bw_log, "\n %d %lf %lf ", s->terminal_id, tw_now(lp), s->busy_time_sample);
-       s->busy_time_sample = 0;
-    }
-  */  
     if(tw_now(lp) > max_qos_monitor)
         return;
     
@@ -1267,10 +1267,15 @@ void issue_rtr_bw_monitor_event(router_state * s, tw_bf * bf, terminal_custom_me
         for(int k = 0; k < num_qos_levels; k++)
         {
             int bw_consumed = get_rtr_bandwidth_consumption(s, k, j);
-            if(s->router_id == 0)
+/*            if(s->router_id == 0)
             {
                 fprintf(dragonfly_rtr_bw_log, "\n %d %f %d %d %d %d %d %f", s->router_id, tw_now(lp), j, k, bw_consumed, s->qos_status[j][k], s->qos_data[j][k], s->busy_time_sample[j]);
             
+            }*/
+            if(s->link_traffic_sample[j] > 0)
+            {
+                fprintf(dragonfly_rtr_bw_log, "\n %f %d %d %llu %lf ", tw_now(lp), s->router_id, j, s->link_traffic_sample[j], s->busy_time_sample[j]);
+                //printf("\n %f %d %d %llu %lf ", tw_now(lp), s->router_id, j, s->link_traffic_sample[j], s->busy_time_sample[j]);
             }
         }
     }
@@ -1282,7 +1287,8 @@ void issue_rtr_bw_monitor_event(router_state * s, tw_bf * bf, terminal_custom_me
             s->qos_status[j][k] = Q_ACTIVE;
             s->qos_data[j][k] = 0;
         }
-        //s->busy_time_sample[j] = 0;
+        s->busy_time_sample[j] = 0;
+        s->link_traffic_sample[j] = 0;
     }
     
     if(tw_now(lp) > max_qos_monitor)
@@ -1428,13 +1434,12 @@ terminal_custom_init( terminal_state * s,
    s->in_send_loop = 0;
    s->issueIdle = 0;
 
-    /*if(s->terminal_id == 0)
+    if(s->terminal_id == 0)
     {
-        char term_bw_log[64];
-        sprintf(term_bw_log, "terminal-bw-tracker");
-        dragonfly_term_bw_log = fopen(term_bw_log, "w");
-        fprintf(dragonfly_term_bw_log, "\n term-id time-stamp port-id busy-time");
-    }*/
+        dragonfly_term_bw_log = fopen("terminal_bw_tracker", "w+");
+        if(dragonfly_term_bw_log == NULL)
+            tw_error(TW_LOC, "\n Unable to open file");
+    }
    return;
 }
 
@@ -1767,7 +1772,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
     packet_gen++;
     int num_qos_levels = s->params->num_qos_levels;
 
-   if(num_qos_levels > 1)
+//   if(num_qos_levels > 1)
    {
           tw_lpid router_id;
           codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
@@ -3112,7 +3117,7 @@ dragonfly_custom_terminal_final( terminal_state * s,
     
     if(s->terminal_id == 0)
     {
-        //fclose(dragonfly_term_bw_log);
+        fclose(dragonfly_term_bw_log);
         char meta_filename[128];
         sprintf(meta_filename, "dragonfly-cn-stats.meta");
 
@@ -4003,7 +4008,7 @@ router_packet_receive( router_state * s,
   int num_qos_levels = s->params->num_qos_levels;
   int vcs_per_qos = s->params->num_vcs / num_qos_levels;
 
-  if(num_qos_levels > 1)
+//  if(num_qos_levels > 1)
   {
      if(s->is_monitoring_bw == 0)
      {
