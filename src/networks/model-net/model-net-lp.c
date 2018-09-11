@@ -734,13 +734,8 @@ void handle_new_msg(
 
     if (*in_sched_loop == 0){
         b->c31 = 1;
-        /* No need to issue an extra sched-next event if we're currently idle */
         *in_sched_loop = 1;
-        /* NOTE: we can do this because the sched rc struct in the event is
-         * *very* lightly used (there's harmless overlap in usage for the
-         * priority scheduler) */
-        handle_sched_next(ns, b, m, lp);
-        assert(*in_sched_loop); // we shouldn't have fallen out of the loop
+        model_net_method_idle_event2(codes_local_latency(lp), is_from_remote, queue_offset, lp);
     }
 }
 
@@ -770,7 +765,7 @@ void handle_new_msg_rc(
         &ns->in_sched_recv_loop : &ns->in_sched_send_loop[r->queue_offset];
 
     if (b->c31) {
-        handle_sched_next_rc(ns, b, m, lp);
+        codes_local_latency_reverse(lp);
         *in_sched_loop = 0;
     }
     model_net_sched_add_rc(ss, &m->msg.m_base.rc, lp);
