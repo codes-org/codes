@@ -297,8 +297,8 @@ static void base_read_config(const char * anno, model_net_base_params *p){
     // get scheduler-specific parameters
     if (p->sched_params.type == MN_SCHED_PRIO){
         // prio scheduler uses default parameters
-        int             * num_prios = &p->sched_params.u.prio.num_prios;
-        enum sched_type * sub_stype = &p->sched_params.u.prio.sub_stype;
+        int             * num_prios = &p->sched_params.prio.num_prios;
+        enum sched_type * sub_stype = &p->sched_params.prio.sub_stype;
         // number of priorities to allocate
         ret = configuration_get_value_int(&config, "PARAMS",
                 "prio-sched-num-prios", anno, num_prios);
@@ -307,7 +307,7 @@ static void base_read_config(const char * anno, model_net_base_params *p){
 
         ret = configuration_get_value(&config, "PARAMS",
                 "prio-sched-sub-sched", anno, sched, MAX_NAME_LENGTH);
-        if (ret <= 0)
+        if (ret != 0)
             *sub_stype = MN_SCHED_FCFS;
         else{
             int i;
@@ -328,10 +328,39 @@ static void base_read_config(const char * anno, model_net_base_params *p){
             }
         }
     }
+    
+    if (p->sched_params.type == MN_SCHED_EP ||
+            (p->sched_params.type == MN_SCHED_PRIO &&
+             p->sched_params.prio.sub_stype == MN_SCHED_EP)) {
+        int * num_ep = &p->sched_params.ep.ep_num_queues;
+        // number of ep queues to allocate
+        ret = configuration_get_value_int(&config, "PARAMS",
+                "ep-sched-num-queues", anno, num_ep);
+        if(ret != 0) {
+            *num_ep = 1;
+        }
+        
+        EP_type * ep_type = &p->sched_params.ep.ep_type;
+        char ep_type_string[MAX_NAME_LENGTH];     
+        ret = configuration_get_value(&config, "PARAMS",
+                "ep-sched-type", anno, ep_type_string, MAX_NAME_LENGTH);
+        if (ret != 0) {
+            *ep_type = DST_NODE_BASED;
+        } else {
+            if (strcmp("src-based", sched) == 0){
+                *ep_type = SRC_RANK_BASED;
+            } else if(strcmp("dst-based", sched) == 0){ 
+                *ep_type = DST_NODE_BASED;
+            } else {
+                tw_error(TW_LOC, "Unknown value for "
+                        "PARAMS:ep-sched-type; accepted values: src-based, dst-based");
+            }
+        }
+    }
 
     if (p->sched_params.type == MN_SCHED_FCFS_FULL ||
             (p->sched_params.type == MN_SCHED_PRIO &&
-             p->sched_params.u.prio.sub_stype == MN_SCHED_FCFS_FULL)){
+             p->sched_params.prio.sub_stype == MN_SCHED_FCFS_FULL)){
         // override packet size to something huge (leave a bit in the unlikely
         // case that an op using packet size causes overflow)
         packet_size = 1ull << 62;
@@ -339,7 +368,7 @@ static void base_read_config(const char * anno, model_net_base_params *p){
     else if (!packet_size &&
             (p->sched_params.type != MN_SCHED_FCFS_FULL ||
              (p->sched_params.type == MN_SCHED_PRIO &&
-              p->sched_params.u.prio.sub_stype != MN_SCHED_FCFS_FULL))){
+              p->sched_params.prio.sub_stype != MN_SCHED_FCFS_FULL))){
         packet_size = 512;
         fprintf(stderr, "WARNING, no packet size specified, setting packet "
                 "size to %llu\n", LLU(packet_size));

@@ -30,6 +30,7 @@ typedef struct mn_sched_params_s mn_sched_params;
     X(MN_SCHED_FCFS_FULL, "fcfs-full",   &fcfs_tab) \
     X(MN_SCHED_RR,        "round-robin", &rr_tab) \
     X(MN_SCHED_PRIO,      "priority",    &prio_tab) \
+    X(MN_SCHED_EP,      "endpoint-based",  &ep_tab) \
     X(MAX_SCHEDS,         NULL,          NULL)
 
 #define X(a,b,c) a,
@@ -39,25 +40,35 @@ enum sched_type {
 #undef X
 
 /// scheduler decls
+typedef enum EP_type {
+    SRC_RANK_BASED = 0,
+    DST_NODE_BASED
+} EP_type;
 
 typedef struct model_net_sched_s model_net_sched;
 typedef struct model_net_sched_rc_s model_net_sched_rc;
 
-// priority scheduler configurtion parameters
+// priority scheduler configuration parameters
 typedef struct mn_prio_params_s {
     int num_prios; // number of priorities
     // sub-scheduler to use. can be any but prio
     enum sched_type sub_stype;
 } mn_prio_params;
 
+// ep scheduler configuration parameters
+typedef struct mn_ep_params_s {
+    int ep_num_queues; // number of EP queues
+    enum EP_type ep_type;
+} mn_ep_params;
+
 // TODO: other scheduler config params
 
 // initialization parameter set
 typedef struct model_net_sched_cfg_params_s {
     enum sched_type type;
-    union {
-        mn_prio_params prio;
-    } u;
+    //no union because multiple may be enabled simulatenously
+    mn_prio_params prio; //params for priority sched
+    mn_ep_params ep; //params for endpoint-based 
 } model_net_sched_cfg_params;
 
 typedef struct mn_sched_cfg_params {
@@ -107,6 +118,7 @@ typedef struct model_net_sched_interface {
     int  (*next)(
             tw_stime              * poffset,
             void                  * sched,
+            void                  * sched_info,
             // NOTE: copy here when deleting remote/local events for rc
             void                  * rc_event_save,
             model_net_sched_rc    * rc,
@@ -117,6 +129,8 @@ typedef struct model_net_sched_interface {
             const void               * rc_event_save,
             const model_net_sched_rc * rc,
             tw_lp                    * lp);
+    int (*isEmpty)(
+            void                     * sched);
 } model_net_sched_interface;
 
 /// overall scheduler struct - type puns the actual data structure
@@ -141,7 +155,7 @@ struct model_net_sched_rc_s {
     model_net_request req; // request gets deleted...
     mn_sched_params sched_params; // along with msg params
     int rtn; // return code from a sched_next 
-    int prio; // prio when doing priority queue events
+    int prio_used_queue, ep_used_queue; //which queue gave us the next message/packet
 };
 
 // initialize the scheduler

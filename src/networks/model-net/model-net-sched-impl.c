@@ -51,6 +51,13 @@ typedef struct mn_sched_prio {
     mn_sched_queue ** sub_scheds; // one for each params.num_prios
 } mn_sched_prio;
 
+// ep scheduler consists of a bunch of fcfs queues
+typedef struct mn_sched_ep {
+    mn_ep_params params;
+    const model_net_sched_interface *sub_sched_iface;
+    mn_sched_queue ** sub_scheds; // one for each params.ep_num_queues
+} mn_sched_ep;
+
 /// scheduler-specific function decls and tables
 
 /// FCFS
@@ -75,6 +82,7 @@ static void fcfs_add_rc(void *sched, const model_net_sched_rc *rc, tw_lp *lp);
 static int  fcfs_next(
         tw_stime              * poffset,
         void                  * sched,
+        void                  * sched_info,
         void                  * rc_event_save,
         model_net_sched_rc    * rc,
         tw_lp                 * lp);
@@ -83,6 +91,8 @@ static void fcfs_next_rc(
         const void               * rc_event_save,
         const model_net_sched_rc * rc,
         tw_lp                    * lp);
+static int fcfs_isEmpty(
+        void                     * sched);
 
 // ROUND-ROBIN
 static void rr_init (
@@ -105,6 +115,7 @@ static void rr_add_rc(void *sched, const model_net_sched_rc *rc, tw_lp *lp);
 static int  rr_next(
         tw_stime              * poffset,
         void                  * sched,
+        void                  * sched_info,
         void                  * rc_event_save,
         model_net_sched_rc    * rc,
         tw_lp                 * lp);
@@ -113,6 +124,10 @@ static void rr_next_rc (
         const void               * rc_event_save,
         const model_net_sched_rc * rc,
         tw_lp                    * lp);
+static int rr_isEmpty(
+        void                     * sched);
+
+//priority queue
 static void prio_init (
         const struct model_net_method     * method, 
         const model_net_sched_cfg_params  * params,
@@ -133,6 +148,7 @@ static void prio_add_rc(void *sched, const model_net_sched_rc *rc, tw_lp *lp);
 static int  prio_next(
         tw_stime              * poffset,
         void                  * sched,
+        void                  * sched_info,
         void                  * rc_event_save,
         model_net_sched_rc    * rc,
         tw_lp                 * lp);
@@ -141,14 +157,51 @@ static void prio_next_rc (
         const void               * rc_event_save,
         const model_net_sched_rc * rc,
         tw_lp                    * lp);
+static int prio_isEmpty(
+        void                     * sched);
+
+//ep queue
+static void ep_init (
+        const struct model_net_method     * method, 
+        const model_net_sched_cfg_params  * params,
+        int                                 is_recv_queue,
+        void                             ** sched);
+static void ep_destroy (void *sched);
+static void ep_add (
+        const model_net_request * req,
+        const mn_sched_params   * sched_params,
+        int                       remote_event_size,
+        void                    * remote_event,
+        int                       local_event_size,
+        void                    * local_event,
+        void                    * sched,
+        model_net_sched_rc      * rc,
+        tw_lp                   * lp);
+static void ep_add_rc(void *sched, const model_net_sched_rc *rc, tw_lp *lp);
+static int  ep_next(
+        tw_stime              * poffset,
+        void                  * sched,
+        void                  * sched_info,
+        void                  * rc_event_save,
+        model_net_sched_rc    * rc,
+        tw_lp                 * lp);
+static void ep_next_rc (
+        void                     * sched,
+        const void               * rc_event_save,
+        const model_net_sched_rc * rc,
+        tw_lp                    * lp);
+static int ep_isEmpty(
+        void                     * sched);
 
 /// function tables (names defined by X macro in model-net-sched.h)
 static const model_net_sched_interface fcfs_tab = 
-{ &fcfs_init, &fcfs_destroy, &fcfs_add, &fcfs_add_rc, &fcfs_next, &fcfs_next_rc};
+{ &fcfs_init, &fcfs_destroy, &fcfs_add, &fcfs_add_rc, &fcfs_next, &fcfs_next_rc, &fcfs_isEmpty};
 static const model_net_sched_interface rr_tab = 
-{ &rr_init, &rr_destroy, &rr_add, &rr_add_rc, &rr_next, &rr_next_rc};
+{ &rr_init, &rr_destroy, &rr_add, &rr_add_rc, &rr_next, &rr_next_rc, &rr_isEmpty};
 static const model_net_sched_interface prio_tab =
-{ &prio_init, &prio_destroy, &prio_add, &prio_add_rc, &prio_next, &prio_next_rc};
+{ &prio_init, &prio_destroy, &prio_add, &prio_add_rc, &prio_next, &prio_next_rc, &prio_isEmpty};
+static const model_net_sched_interface ep_tab =
+{ &ep_init, &ep_destroy, &ep_add, &ep_add_rc, &ep_next, &ep_next_rc, &ep_isEmpty};
 
 #define X(a,b,c) c,
 const model_net_sched_interface * sched_interfaces[] = {
@@ -228,6 +281,7 @@ void fcfs_add_rc(void *sched, const model_net_sched_rc *rc, tw_lp *lp){
 int fcfs_next(
         tw_stime              * poffset,
         void                  * sched,
+        void                  * sched_info,
         void                  * rc_event_save,
         model_net_sched_rc    * rc,
         tw_lp                 * lp){
@@ -361,6 +415,12 @@ void fcfs_next_rc(
     }
 }
 
+int fcfs_isEmpty(
+        void                     * sched) {
+    mn_sched_queue *s = sched;
+    return qlist_empty(&s->reqs);
+}
+
 void rr_init (
         const struct model_net_method     * method, 
         const model_net_sched_cfg_params  * params,
@@ -396,10 +456,11 @@ void rr_add_rc(void *sched, const model_net_sched_rc *rc, tw_lp *lp){
 int rr_next(
         tw_stime              * poffset,
         void                  * sched,
+        void                  * sched_info,
         void                  * rc_event_save,
         model_net_sched_rc    * rc,
         tw_lp                 * lp){
-    int ret = fcfs_next(poffset, sched, rc_event_save, rc, lp);
+    int ret = fcfs_next(poffset, sched, sched_info, rc_event_save, rc, lp);
     // if error in fcfs or the request was finished & removed, then nothing to
     // do here
     if (ret == -1 || ret == 1)
@@ -426,6 +487,11 @@ void rr_next_rc (
     fcfs_next_rc(sched, rc_event_save, rc, lp);
 }
 
+int rr_isEmpty(
+        void                     * sched) {
+    return fcfs_isEmpty(sched);
+}
+
 void prio_init (
         const struct model_net_method     * method, 
         const model_net_sched_cfg_params  * params,
@@ -433,7 +499,7 @@ void prio_init (
         void                             ** sched){
     *sched = malloc(sizeof(mn_sched_prio));
     mn_sched_prio *ss = *sched;
-    ss->params = params->u.prio;
+    ss->params = params->prio;
     ss->sub_scheds = malloc(ss->params.num_prios*sizeof(mn_sched_queue*));
     ss->sub_sched_iface = sched_interfaces[ss->params.sub_stype];
     for (int i = 0; i < ss->params.num_prios; i++){
@@ -476,19 +542,20 @@ void prio_add (
     ss->sub_sched_iface->add(req, sched_params, remote_event_size,
             remote_event, local_event_size, local_event, ss->sub_scheds[prio],
             rc, lp);
-    rc->prio = prio;
+    rc->prio_used_queue = prio;
 }
 
 void prio_add_rc(void * sched, const model_net_sched_rc *rc, tw_lp *lp){
     // just call the sub scheduler's add_rc
     mn_sched_prio *ss = sched;
-    dprintf("%llu (mn): rc adding with prio %d\n", LLU(lp->gid), rc->prio);
-    ss->sub_sched_iface->add_rc(ss->sub_scheds[rc->prio], rc, lp);
+    dprintf("%llu (mn): rc adding with prio %d\n", LLU(lp->gid), rc->prio_used_queue);
+    ss->sub_sched_iface->add_rc(ss->sub_scheds[rc->prio_used_queue], rc, lp);
 }
 
 int prio_next(
         tw_stime              * poffset,
         void                  * sched,
+        void                  * sched_info,
         void                  * rc_event_save,
         model_net_sched_rc    * rc,
         tw_lp                 * lp){
@@ -497,13 +564,13 @@ int prio_next(
     for (int i = 0; i < ss->params.num_prios; i++){
         // TODO: this works for now while the other schedulers have the same
         // internal representation
-        if (!qlist_empty(&ss->sub_scheds[i]->reqs)){
-            rc->prio = i;
+        if (!ss->sub_sched_iface->isEmpty(ss->sub_scheds[i])) {
+            rc->prio_used_queue = i;
             return ss->sub_sched_iface->next(
-                    poffset, ss->sub_scheds[i], rc_event_save, rc, lp);
+                    poffset, ss->sub_scheds[i], sched_info, rc_event_save, rc, lp);
         }
     }
-    rc->prio = -1;
+    rc->prio_used_queue = -1;
     return -1; // all sub schedulers had no work 
 }
 
@@ -512,13 +579,118 @@ void prio_next_rc (
         const void               * rc_event_save,
         const model_net_sched_rc * rc,
         tw_lp                    * lp){
-    if (rc->prio != -1){
+    if (rc->prio_used_queue != -1){
         // we called a next somewhere
         mn_sched_prio *ss = sched;
-        ss->sub_sched_iface->next_rc(ss->sub_scheds[rc->prio], rc_event_save,
+        ss->sub_sched_iface->next_rc(ss->sub_scheds[rc->prio_used_queue], rc_event_save,
                 rc, lp);
     }
     // else, no-op
+}
+
+int prio_isEmpty(
+        void                     * sched) {
+    mn_sched_prio *ss = sched;
+    for (int i = 0; i < ss->params.num_prios; i++){
+        if (!ss->sub_sched_iface->isEmpty(ss->sub_scheds[i])) return 1;
+    }
+    return 0;
+}
+
+void ep_init (
+        const struct model_net_method     * method, 
+        const model_net_sched_cfg_params  * params,
+        int                                 is_recv_queue,
+        void                             ** sched){
+    *sched = malloc(sizeof(mn_sched_ep));
+    mn_sched_ep *ss = *sched;
+    ss->params = params->ep;
+    ss->sub_scheds = malloc(ss->params.ep_num_queues * sizeof(mn_sched_queue*));
+    ss->sub_sched_iface = sched_interfaces[MN_SCHED_FCFS];
+    for (int i = 0; i < ss->params.ep_num_queues; i++){
+        ss->sub_sched_iface->init(method, params, is_recv_queue,
+                (void**)&ss->sub_scheds[i]);
+    }
+}
+
+void ep_destroy (void *sched){
+    mn_sched_ep *ss = sched;
+    for (int i = 0; i < ss->params.ep_num_queues; i++){
+        ss->sub_sched_iface->destroy(ss->sub_scheds[i]);
+        free(ss->sub_scheds);
+        free(ss);
+    }
+}
+
+void ep_add (
+        const model_net_request * req,
+        const mn_sched_params   * sched_params,
+        int                       remote_event_size,
+        void                    * remote_event,
+        int                       local_event_size,
+        void                    * local_event,
+        void                    * sched,
+        model_net_sched_rc      * rc,
+        tw_lp                   * lp){
+    // sched_msg_params is simply an int
+    mn_sched_ep *ss = sched;
+    int prio = sched_params->prio;
+    ss->sub_sched_iface->add(req, sched_params, remote_event_size,
+            remote_event, local_event_size, local_event, ss->sub_scheds[prio],
+            rc, lp);
+    rc->prio_used_queue = prio;
+}
+
+void ep_add_rc(void * sched, const model_net_sched_rc *rc, tw_lp *lp){
+    // just call the sub scheduler's add_rc
+    mn_sched_ep *ss = sched;
+    dprintf("%llu (mn): rc adding with prio %d\n", LLU(lp->gid), rc->prio_used_queue);
+    ss->sub_sched_iface->add_rc(ss->sub_scheds[rc->prio_used_queue], rc, lp);
+}
+
+int ep_next(
+        tw_stime              * poffset,
+        void                  * sched,
+        void                  * sched_info,
+        void                  * rc_event_save,
+        model_net_sched_rc    * rc,
+        tw_lp                 * lp){
+    // check each priority, first one that's non-empty gets the next
+    mn_sched_ep *ss = sched;
+    for (int i = 0; i < ss->params.ep_num_queues; i++){
+        // TODO: this works for now while the other schedulers have the same
+        // internal representation
+        if (!qlist_empty(&ss->sub_scheds[i]->reqs)){
+            rc->prio_used_queue = i;
+            return ss->sub_sched_iface->next(
+                    poffset, ss->sub_scheds[i], sched_info, rc_event_save, rc, lp);
+        }
+    }
+    rc->prio_used_queue = -1;
+    return -1; // all sub schedulers had no work 
+}
+
+void ep_next_rc (
+        void                     * sched,
+        const void               * rc_event_save,
+        const model_net_sched_rc * rc,
+        tw_lp                    * lp){
+    if (rc->prio_used_queue != -1){
+        // we called a next somewhere
+        mn_sched_ep *ss = sched;
+        ss->sub_sched_iface->next_rc(ss->sub_scheds[rc->prio_used_queue], rc_event_save,
+                rc, lp);
+    }
+    // else, no-op
+}
+
+int ep_isEmpty(
+        void                     * sched) {
+    mn_sched_ep *ss = sched;
+    for (int i = 0; i < ss->params.ep_num_queues; i++){
+        if (!ss->sub_sched_iface->isEmpty(ss->sub_scheds[i])) return 1;
+    }
+    return 0;
 }
 
 /*

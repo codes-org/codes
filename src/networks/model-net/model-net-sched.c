@@ -44,7 +44,7 @@ int model_net_sched_next(
         void *rc_event_save,
         model_net_sched_rc *sched_rc,
         tw_lp *lp){
-    return sched->impl->next(poffset, sched->dat, rc_event_save, sched_rc, lp);
+    return sched->impl->next(poffset, sched->dat, NULL, rc_event_save, sched_rc, lp);
 }
 
 void model_net_sched_next_rc(
