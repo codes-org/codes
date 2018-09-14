@@ -96,6 +96,8 @@ AC_ARG_WITH([damaris],[AS_HELP_STRING([--with-damaris],
 if test "x${use_rdamaris}" = xyes ; then
     PKG_CHECK_MODULES_STATIC([ROSS_Damaris], [ross-damaris], [],
                              [AC_MSG_ERROR([Could not find working ROSS-Damaris installation via pkg-config])])
+    PKG_CHECK_MODULES([rdplugins], [ross-damaris], [],
+                             [AC_MSG_ERROR([Could not find the rdplugins library from ROSS-Damaris via pkg-config])])
 fi
 AM_CONDITIONAL(USE_RDAMARIS, [test "x${use_rdamaris}" = xyes])
 
