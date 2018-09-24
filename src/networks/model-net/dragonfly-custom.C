@@ -1904,6 +1904,27 @@ static void ross_custom_dragonfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp
     const dragonfly_param * p = s->params; 
     int i = 0;
 
+#ifdef USE_RDAMARIS
+    if (g_st_damaris_enabled)
+    {
+        // when using damaris, the bit field and sample are both null
+        // need to use one of the st_damaris_save_model_variable_* calls for each variable that needs to be tracked
+
+        //void st_damaris_save_model_variable_int(int lpid, const char* lp_type, const char* var_name, int *data, size_t num_elements)
+        st_damaris_save_model_variable_double(lp->gid, "dfly_custom_router", "busy_time", s->ross_rsample.busy_time, p->radix);
+        st_damaris_save_model_variable_long(lp->gid, "dfly_custom_router", "link_traffic", s->ross_rsample.link_traffic_sample, p->radix);
+
+        /* clear up the current router stats */
+        for( i = 0; i < p->radix; i++)
+        {
+            s->ross_rsample.busy_time[i] = 0;
+            s->ross_rsample.link_traffic_sample[i] = 0;
+        }
+        memset(&s->ross_rsample, 0, sizeof(s->ross_rsample));
+        return;
+    }
+#endif
+
     sample->router_id = s->router_id;
     sample->end_time = tw_now(lp);
     sample->fwd_events = s->ross_rsample.fwd_events;
@@ -1951,6 +1972,24 @@ static void ross_custom_dragonfly_sample_fn(terminal_state * s, tw_bf * bf, tw_l
     (void)lp;
     (void)bf;
     
+#ifdef USE_RDAMARIS
+    if (g_st_damaris_enabled)
+    {
+        // when using damaris, the bit field and sample are both null
+        // need to use one of the st_damaris_save_model_variable_* calls for each variable that needs to be tracked
+
+        //void st_damaris_save_model_variable_int(int lpid, const char* lp_type, const char* var_name, int *data, size_t num_elements)
+        st_damaris_save_model_variable_long(lp->gid, "dfly_custom_terminal", "fin_chunks", &s->ross_sample.fin_chunks_sample, 1);
+        st_damaris_save_model_variable_long(lp->gid, "dfly_custom_terminal", "data_size", &s->ross_sample.data_size_sample, 1);
+        st_damaris_save_model_variable_double(lp->gid, "dfly_custom_terminal", "fin_hops", &s->ross_sample.fin_hops_sample, 1);
+        st_damaris_save_model_variable_double(lp->gid, "dfly_custom_terminal", "fin_chunks_time", &s->ross_sample.fin_chunks_time, 1);
+        st_damaris_save_model_variable_double(lp->gid, "dfly_custom_terminal", "busy_time", &s->ross_sample.busy_time_sample, 1);
+
+        memset(&s->ross_sample, 0, sizeof(s->ross_sample));
+        return;
+    }
+#endif
+
     sample->terminal_id = s->terminal_id;
     sample->fin_chunks_sample = s->ross_sample.fin_chunks_sample;
     sample->data_size_sample = s->ross_sample.data_size_sample;
