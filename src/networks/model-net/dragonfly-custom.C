@@ -1060,9 +1060,11 @@ void router_custom_setup(router_state * r, tw_lp * lp)
    r->link_traffic_ross_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
    r->busy_time_ross_sample = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
    if (g_st_model_stats)
+   {
        lp->model_types->mstat_sz = sizeof(tw_lpid) + (sizeof(int64_t) + sizeof(tw_stime)) * p->radix;
-   if (g_st_use_analysis_lps && g_st_model_stats)
+       //if (g_st_use_analysis_lps && g_st_model_stats)
        lp->model_types->sample_struct_sz = sizeof(struct dfly_router_sample) + (sizeof(tw_stime) + sizeof(int64_t)) * p->radix;
+   }
    r->ross_rsample.busy_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
    r->ross_rsample.link_traffic_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
 
@@ -1920,7 +1922,7 @@ static void ross_custom_dragonfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp
             s->ross_rsample.busy_time[i] = 0;
             s->ross_rsample.link_traffic_sample[i] = 0;
         }
-        memset(&s->ross_rsample, 0, sizeof(s->ross_rsample));
+        //memset(&s->ross_rsample, 0, sizeof(s->ross_rsample));
         return;
     }
 #endif
