@@ -142,6 +142,7 @@ int* model_net_configure(int *id_count){
     // init the per-msg params here
     memset(is_msg_params_set, 0,
             MAX_MN_MSG_PARAM_TYPES*sizeof(*is_msg_params_set));
+    model_net_sched_set_default_params(&sched_params);
 
     ret = configuration_get_value_double(&config, "PARAMS", "intra_bandwidth", NULL,
             &cn_bandwidth);
@@ -382,6 +383,7 @@ static model_net_event_return model_net_event_impl_base(
     // once params are set, clear the flags
     memset(is_msg_params_set, 0,
             MAX_MN_MSG_PARAM_TYPES*sizeof(*is_msg_params_set));
+    model_net_sched_set_default_params(&sched_params);
 
     void *e_msg = (m+1);
     if (remote_event_size > 0){

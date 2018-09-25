@@ -49,7 +49,6 @@ typedef struct mn_sched_prio {
     mn_prio_params params;
     const model_net_sched_interface *sub_sched_iface;
     mn_sched_queue ** sub_scheds; // one for each params.num_prios
-    int last_used_queue;
 } mn_sched_prio;
 
 // ep scheduler consists of a bunch of fcfs queues
@@ -57,6 +56,7 @@ typedef struct mn_sched_ep {
     mn_ep_params params;
     const model_net_sched_interface *sub_sched_iface;
     mn_sched_queue ** sub_scheds; // one for each params.ep_num_queues
+    int last_used_queue;
 } mn_sched_ep;
 
 /// scheduler-specific function decls and tables
@@ -607,6 +607,8 @@ void ep_init (
     ss->sub_scheds = malloc(ss->params.ep_num_queues * sizeof(mn_sched_queue*));
     ss->sub_sched_iface = sched_interfaces[MN_SCHED_FCFS];
     ss->last_used_queue = -1;
+    dprintf("Initializing endpoint-base queue with %d queues.\n",
+            ss->params.ep_num_queues);
     for (int i = 0; i < ss->params.ep_num_queues; i++){
         ss->sub_sched_iface->init(method, params, is_recv_queue,
                 (void**)&ss->sub_scheds[i]);
@@ -638,6 +640,8 @@ void ep_add (
     if(ep_q < 0) {
         tw_error(TW_LOC, "queue not set for the selected policy\n");
     }
+    dprintf("%llu (mn):    adding request to %d ep-queue.\n",
+            LLU(lp->gid), ep_q);
     ss->sub_sched_iface->add(req, sched_params, remote_event_size,
             remote_event, local_event_size, local_event, ss->sub_scheds[ep_q],
             rc, lp);
@@ -647,7 +651,7 @@ void ep_add (
 void ep_add_rc(void * sched, const model_net_sched_rc *rc, tw_lp *lp){
     // just call the sub scheduler's add_rc
     mn_sched_ep *ss = sched;
-    dprintf("%llu (mn): rc adding with prio %d\n", LLU(lp->gid), rc->ep_used_queue);
+    dprintf("%llu (mn): rc adding with ep %d\n", LLU(lp->gid), rc->ep_used_queue);
     ss->sub_sched_iface->add_rc(ss->sub_scheds[rc->ep_used_queue], rc, lp);
 }
 
@@ -682,9 +686,9 @@ void ep_next_rc (
         const void               * rc_event_save,
         const model_net_sched_rc * rc,
         tw_lp                    * lp){
+    mn_sched_ep *ss = sched;
     if (ss->last_used_queue != -1){
         // we called a next somewhere
-        mn_sched_ep *ss = sched;
         ss->sub_sched_iface->next_rc(ss->sub_scheds[ss->last_used_queue], rc_event_save,
                 rc, lp);
     }

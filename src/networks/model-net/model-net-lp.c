@@ -268,6 +268,10 @@ static void base_read_config(const char * anno, model_net_base_params *p){
     else{
         // default: FCFS
         p->sched_params.type = MN_SCHED_FCFS;
+        if(!g_tw_mynode) {
+            fprintf(stdout, "modelnet_scheduler not specified, "
+                    "setting to fcfs\n");
+        }
     }
 
     p->num_queues = 1;
@@ -302,13 +306,23 @@ static void base_read_config(const char * anno, model_net_base_params *p){
         // number of priorities to allocate
         ret = configuration_get_value_int(&config, "PARAMS",
                 "prio-sched-num-prios", anno, num_prios);
-        if (ret != 0)
+        if (ret != 0) {
             *num_prios = 10;
+            if(!g_tw_mynode) {
+                fprintf(stdout, "prio-sched-num-prios not specified, "
+                    "setting to %d\n", *num_prios);
+            }
+        }
 
         ret = configuration_get_value(&config, "PARAMS",
                 "prio-sched-sub-sched", anno, sched, MAX_NAME_LENGTH);
-        if (ret != 0)
+        if (ret <= 0) {
             *sub_stype = MN_SCHED_FCFS;
+            if(!g_tw_mynode) {
+                fprintf(stdout, "prio-sched-sub-sched not specified, "
+                    "setting to fcfs\n");
+            }
+        }
         else{
             int i;
             for (i = 0; i < MAX_SCHEDS; i++){
@@ -338,18 +352,26 @@ static void base_read_config(const char * anno, model_net_base_params *p){
                 "ep-sched-num-queues", anno, num_ep);
         if(ret != 0) {
             *num_ep = 1;
+            if(!g_tw_mynode) {
+                fprintf(stdout, "ep-sched-num-queues not specified, "
+                    "setting to %d\n", *num_ep);
+            }
         }
         
         EP_type * ep_type = &p->sched_params.ep.ep_type;
         char ep_type_string[MAX_NAME_LENGTH];     
         ret = configuration_get_value(&config, "PARAMS",
                 "ep-sched-type", anno, ep_type_string, MAX_NAME_LENGTH);
-        if (ret != 0) {
+        if (ret <= 0) {
             *ep_type = DST_NODE_BASED;
+            if(!g_tw_mynode) {
+                fprintf(stdout, "ep-sched-type not specified, "
+                    "setting to dst-based\n");
+            }
         } else {
-            if (strcmp("src-based", sched) == 0){
+            if (strcmp("src-based", ep_type_string) == 0){
                 *ep_type = SRC_RANK_BASED;
-            } else if(strcmp("dst-based", sched) == 0){ 
+            } else if(strcmp("dst-based", ep_type_string) == 0){ 
                 *ep_type = DST_NODE_BASED;
             } else {
                 tw_error(TW_LOC, "Unknown value for "
