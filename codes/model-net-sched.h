@@ -84,6 +84,7 @@ enum sched_msg_param_type {
 // scheduler-specific parameter definitions must go here
 struct mn_sched_params_s {
     int prio; // MN_SCHED_PARAM_PRIO (currently the only one)
+    int ep_q; 
 } ;
 
 /// interface to be implemented by schedulers

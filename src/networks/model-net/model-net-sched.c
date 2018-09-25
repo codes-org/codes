@@ -78,6 +78,7 @@ void model_net_sched_add_rc(
 
 void model_net_sched_set_default_params(mn_sched_params *sched_params){
     sched_params->prio = -1;
+    sched_params->ep_q = -1;
 }
 
 /*
