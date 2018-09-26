@@ -111,6 +111,11 @@ typedef int model_net_event_return;
 extern char * model_net_lp_config_names[];
 extern char * model_net_method_names[];
 
+typedef struct queue_spec {
+    int port;
+    int queue;
+} queue_spec;
+
 // request structure that gets passed around (by the model-net implementation,
 // not the user)
 typedef struct model_net_request {
@@ -127,7 +132,7 @@ typedef struct model_net_request {
     uint64_t msg_id;
     int      net_id;
     int      is_pull;
-    int      queue_offset;
+    queue_spec      queue_info;
     int      remote_event_size;
     int      self_event_size;
     char     category[CATEGORY_NAME_MAX];

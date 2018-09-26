@@ -92,8 +92,8 @@ void model_net_method_send_msg_recv_event_rc(tw_lp *sender);
 // method - strange and disturbing things will happen otherwise
 void model_net_method_idle_event(tw_stime offset_ts, int is_recv_queue,
         tw_lp * lp);
-void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue,
-        int queue_offset, tw_lp * lp);
+void model_net_method_idle_event_with_q(tw_stime offset_ts, int is_recv_queue,
+        queue_spec queue_info, tw_lp * lp);
 
 // Get a ptr to past the message struct area, where the self/remote events
 // are located, given the type of network.

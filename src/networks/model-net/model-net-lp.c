@@ -773,7 +773,7 @@ void handle_new_msg(
         }
         queue_offset = offset/servers_per_node;
     }
-    r->queue_offset = queue_offset;
+    r->queue_info.port = queue_offset;
 
     // set message-specific params
     int is_from_remote = m->msg.m_base.is_from_remote;
@@ -786,7 +786,7 @@ void handle_new_msg(
     if (*in_sched_loop == 0){
         b->c31 = 1;
         *in_sched_loop = 1;
-        model_net_method_idle_event2(codes_local_latency(lp), is_from_remote, queue_offset, lp);
+        model_net_method_idle_event_with_q(codes_local_latency(lp), is_from_remote, r->queue_info, lp);
     }
 }
 
@@ -811,9 +811,9 @@ void handle_new_msg_rc(
     }
     model_net_request *r = &m->msg.m_base.req;
     int is_from_remote = m->msg.m_base.is_from_remote;
-    model_net_sched *ss = is_from_remote ? ns->sched_recv : ns->sched_send[r->queue_offset];
+    model_net_sched *ss = is_from_remote ? ns->sched_recv : ns->sched_send[r->queue_info.port];
     int *in_sched_loop = is_from_remote  ?
-        &ns->in_sched_recv_loop : &ns->in_sched_send_loop[r->queue_offset];
+        &ns->in_sched_recv_loop : &ns->in_sched_send_loop[r->queue_info.port];
 
     if (b->c31) {
         codes_local_latency_reverse(lp);
@@ -832,9 +832,9 @@ void handle_sched_next(
     tw_stime poffset;
     model_net_request *r = &m->msg.m_base.req;
     int is_from_remote = m->msg.m_base.is_from_remote;
-    model_net_sched * ss = is_from_remote ? ns->sched_recv : ns->sched_send[r->queue_offset];
+    model_net_sched * ss = is_from_remote ? ns->sched_recv : ns->sched_send[r->queue_info.port];
     int *in_sched_loop = is_from_remote ?
-        &ns->in_sched_recv_loop : &ns->in_sched_send_loop[r->queue_offset];
+        &ns->in_sched_recv_loop : &ns->in_sched_send_loop[r->queue_info.port];
     int ret = model_net_sched_next(&poffset, ss, m+1, &m->msg.m_base.rc, lp);
     // we only need to know whether scheduling is finished or not - if not,
     // go to the 'next iteration' of the loop
@@ -854,7 +854,7 @@ void handle_sched_next(
         msg_set_header(model_net_base_magic, MN_BASE_SCHED_NEXT, lp->gid,
                 &m_wrap->h);
         m_wrap->msg.m_base.is_from_remote = is_from_remote;
-        r_wrap->queue_offset = r->queue_offset;
+        r_wrap->queue_info.port = r->queue_info.port;
         // no need to set m_base here
         tw_event_send(e);
     }
@@ -867,9 +867,9 @@ void handle_sched_next_rc(
         tw_lp * lp){
     model_net_request *r = &m->msg.m_base.req;
     int is_from_remote = m->msg.m_base.is_from_remote;
-    model_net_sched * ss = is_from_remote ? ns->sched_recv : ns->sched_send[r->queue_offset];
+    model_net_sched * ss = is_from_remote ? ns->sched_recv : ns->sched_send[r->queue_info.port];
     int *in_sched_loop = is_from_remote ?
-        &ns->in_sched_recv_loop : &ns->in_sched_send_loop[r->queue_offset];
+        &ns->in_sched_recv_loop : &ns->in_sched_send_loop[r->queue_info.port];
 
     model_net_sched_next_rc(ss, m+1, &m->msg.m_base.rc, lp);
     if (b->c0){
@@ -958,18 +958,20 @@ void model_net_method_send_msg_recv_event_rc(tw_lp *sender){
 
 void model_net_method_idle_event(tw_stime offset_ts, int is_recv_queue,
         tw_lp * lp){
-    model_net_method_idle_event2(offset_ts, is_recv_queue, 0, lp);
+    queue_spec queue_info;
+    queue_info.port = queue_info.queue = 0;
+    model_net_method_idle_event_with_q(offset_ts, is_recv_queue, queue_info, lp);
 }
 
-void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue,
-        int queue_offset, tw_lp * lp){
+void model_net_method_idle_event_with_q(tw_stime offset_ts, int is_recv_queue,
+         queue_spec queue_info, tw_lp * lp){
     tw_event *e = tw_event_new(lp->gid, offset_ts, lp);
     model_net_wrap_msg *m_wrap = tw_event_data(e);
     model_net_request *r_wrap = &m_wrap->msg.m_base.req;
     msg_set_header(model_net_base_magic, MN_BASE_SCHED_NEXT, lp->gid,
             &m_wrap->h);
     m_wrap->msg.m_base.is_from_remote = is_recv_queue;
-    r_wrap->queue_offset = queue_offset;
+    r_wrap->queue_info = queue_info;
     tw_event_send(e);
 }
 

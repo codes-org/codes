@@ -1554,7 +1554,7 @@ static tw_stime fattree_packet_event(
   msg->local_event_size_bytes = 0;
   msg->type = T_GENERATE;
   msg->dest_terminal_id = req->dest_mn_lp;
-  msg->rail_id = req->queue_offset;
+  msg->rail_id = req->queue_info.port;
   msg->message_id = req->msg_id;
   msg->is_pull = req->is_pull;
   msg->pull_size = req->pull_size;
@@ -1701,7 +1701,10 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
   }
 
   if(s->terminal_length[target_queue] < s->params->cn_vc_size) {
-    model_net_method_idle_event2(nic_ts, 0, msg->rail_id, lp);
+    queue_spec queue_info;
+    queue_info.port = msg->rail_id;
+    queue_info.queue = 0;
+    model_net_method_idle_event_with_q(nic_ts, 0, queue_info, lp);
   } else {
     bf->c11 = 1;
     s->issueIdle[msg->rail_id] = 1;
@@ -1885,7 +1888,10 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   if(s->issueIdle[msg->vc_index]) {
     bf->c5 = 1;
     s->issueIdle[msg->vc_index] = 0;
-    model_net_method_idle_event2(codes_local_latency(lp), 0, msg->vc_index, lp);
+    queue_spec queue_info;
+    queue_info.port = msg->vc_index;
+    queue_info.queue = 0;
+    model_net_method_idle_event_with_q(codes_local_latency(lp), 0, queue_info, lp);
   }
 
   return;
