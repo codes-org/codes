@@ -329,10 +329,14 @@ static model_net_event_return model_net_event_impl_base(
     tw_lpid dest_mn_lp = model_net_find_local_device_mctx(net_id, recv_map_ctx,
             final_dest_lp);
 
-    if (src_mn_lp == dest_mn_lp && message_size < (uint64_t)codes_node_eager_limit)
+    if (src_mn_lp == dest_mn_lp && message_size < (uint64_t)codes_node_eager_limit) {
+        // params not used for local events
+        memset(is_msg_params_set, 0, MAX_MN_MSG_PARAM_TYPES*sizeof(*is_msg_params_set));
+        model_net_sched_set_default_params(&sched_params);
         return model_net_noop_event(final_dest_lp, is_pull, offset, message_size,
                 remote_event_size, remote_event, self_event_size, self_event,
                 sender);
+    }
 
     tw_stime poffset = codes_local_latency(sender);
     if (mn_in_sequence){

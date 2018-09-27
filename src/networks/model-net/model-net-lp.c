@@ -27,7 +27,7 @@ static int msg_offsets[MAX_NETS];
 typedef struct model_net_base_params_s {
     model_net_sched_cfg_params sched_params;
     uint64_t packet_size;
-    int num_queues;
+    int num_injection_ports;
     int use_recv_queue;
     tw_stime nic_seq_delay;
     int node_copy_queues;
@@ -274,12 +274,12 @@ static void base_read_config(const char * anno, model_net_base_params *p){
         }
     }
 
-    p->num_queues = 1;
+    p->num_injection_ports = 1;
     ret = configuration_get_value_int(&config, "PARAMS", "num_injection_queues", anno,
-            &p->num_queues);
+            &p->num_injection_ports);
     if(ret && !g_tw_mynode) {
         fprintf(stdout, "NIC num injection port not specified, "
-                "setting to %d\n", p->num_queues);
+                "setting to %d\n", p->num_injection_ports);
     }
 
     p->nic_seq_delay = 10;
@@ -341,6 +341,8 @@ static void base_read_config(const char * anno, model_net_base_params *p){
                         "(PARAMS:prio-sched-sub-sched)");
             }
         }
+    } else {
+        p->sched_params.prio.num_prios = 0;
     }
     
     if (p->sched_params.type == MN_SCHED_EP ||
@@ -369,15 +371,17 @@ static void base_read_config(const char * anno, model_net_base_params *p){
                     "setting to dst-based\n");
             }
         } else {
-            if (strcmp("src-based", ep_type_string) == 0){
+            if (strcmp("src-rank-based", ep_type_string) == 0){
                 *ep_type = SRC_RANK_BASED;
-            } else if(strcmp("dst-based", ep_type_string) == 0){ 
+            } else if(strcmp("dst-node-based", ep_type_string) == 0){ 
                 *ep_type = DST_NODE_BASED;
             } else {
                 tw_error(TW_LOC, "Unknown value for "
                         "PARAMS:ep-sched-type; accepted values: src-based, dst-based");
             }
         }
+    } else {
+        p->sched_params.ep.ep_num_queues = 0;
     }
 
     if (p->sched_params.type == MN_SCHED_FCFS_FULL ||
@@ -519,9 +523,9 @@ void model_net_base_lp_init(
         ns->node_copy_next_available_time[i] = 0;
     }
 
-    ns->in_sched_send_loop = (int *)malloc(ns->params->num_queues * sizeof(int));
-    ns->sched_send = (model_net_sched**)malloc(ns->params->num_queues * sizeof(model_net_sched*));
-    for(int i = 0; i < ns->params->num_queues; i++) {
+    ns->in_sched_send_loop = (int *)malloc(ns->params->num_injection_ports * sizeof(int));
+    ns->sched_send = (model_net_sched**)malloc(ns->params->num_injection_ports * sizeof(model_net_sched*));
+    for(int i = 0; i < ns->params->num_injection_ports; i++) {
         ns->sched_send[i] = (model_net_sched*)malloc(sizeof(model_net_sched));
         model_net_sched_init(&ns->params->sched_params, 0, method_array[ns->net_id],
                 ns->sched_send[i]);
@@ -663,7 +667,8 @@ void handle_new_msg(
         model_net_wrap_msg * m,
         tw_lp * lp){
     static int num_servers = -1;
-    static int servers_per_node = -1;
+    static int servers_per_port_per_router = -1;
+    static int servers_per_ep_queue = -1;
     if(num_servers == -1) {
         char const *sender_group;
         char const *sender_lpname;
@@ -673,14 +678,18 @@ void handle_new_msg(
                 NULL, &rep_id, &offset);
         num_servers = codes_mapping_get_lp_count(sender_group, 1,
                 sender_lpname, NULL, 1);
-        servers_per_node = num_servers/ns->params->num_queues; //this is for entire switch
-        if(servers_per_node == 0) servers_per_node = 1;
+        servers_per_port_per_router = num_servers/ns->params->num_injection_ports; //this is for entire switch
+        if(servers_per_port_per_router == 0) servers_per_port_per_router = 1;
         servers_per_node_queue = num_servers/ns->nics_per_router/ns->params->node_copy_queues;
         if(servers_per_node_queue == 0) servers_per_node_queue = 1;
+        if(ns->params->sched_params.ep.ep_num_queues > 0) {
+            servers_per_ep_queue = servers_per_port_per_router/ns->nics_per_router/ns->params->sched_params.ep.ep_num_queues;
+            if(servers_per_ep_queue == 0) servers_per_ep_queue = 1;
+        } 
         if(!g_tw_mynode) {
             fprintf(stdout, "Set num_servers per router %d, servers per "
                 "injection queue per router %d, servers per node copy queue "
-                "per node %d\n", num_servers, servers_per_node,
+                "per node %d\n", num_servers, servers_per_port_per_router,
                 servers_per_node_queue);
         }
     }
@@ -756,30 +765,34 @@ void handle_new_msg(
         local = m_data;
     }
 
-    int queue_offset = 0;
-    if(!m->msg.m_base.is_from_remote && ns->params->num_queues != 1) {
+    int inj_port = 0;
+    if(!m->msg.m_base.is_from_remote && ns->params->num_injection_ports > 1) {
         int rep_id, offset;
-        if(num_servers == -1) {
-            char const *sender_group;
-            char const *sender_lpname;
-            codes_mapping_get_lp_info2(r->src_lp, &sender_group, &sender_lpname,
-                    NULL, &rep_id, &offset);
-            num_servers = codes_mapping_get_lp_count(sender_group, 1,
-                    sender_lpname, NULL, 1);
-            servers_per_node = num_servers/ns->params->num_queues;
-            if(servers_per_node == 0) servers_per_node = 1;
-        } else {
-            codes_mapping_get_lp_info2(r->src_lp, NULL, NULL, NULL, &rep_id, &offset);
-        }
-        queue_offset = offset/servers_per_node;
+        codes_mapping_get_lp_info2(r->src_lp, NULL, NULL, NULL, &rep_id, &offset);
+        inj_port = offset/servers_per_port_per_router;
     }
-    r->queue_info.port = queue_offset;
+    r->queue_info.port = inj_port;
+   
+    int queue = 0;
+    if(!m->msg.m_base.is_from_remote && ns->params->sched_params.ep.ep_num_queues > 1) {
+        int rep_id, offset;
+        if(ns->params->sched_params.ep.ep_type == SRC_RANK_BASED) {
+            codes_mapping_get_lp_info2(r->src_lp, NULL, NULL, NULL, &rep_id, &offset);
+            queue = (offset % servers_per_port_per_router)/ns->nics_per_router/servers_per_ep_queue;
+        }
+        if(ns->params->sched_params.ep.ep_type == DST_NODE_BASED) {
+            offset = codes_mapping_get_lp_relative_id(r->dest_mn_lp, 0, 0);
+            queue = offset % ns->params->sched_params.ep.ep_num_queues;
+        }
+    }
+    r->queue_info.queue = queue;
+    m->msg.m_base.sched_params.ep_q = queue;
 
     // set message-specific params
     int is_from_remote = m->msg.m_base.is_from_remote;
-    model_net_sched *ss = is_from_remote ? ns->sched_recv : ns->sched_send[queue_offset];
+    model_net_sched *ss = is_from_remote ? ns->sched_recv : ns->sched_send[inj_port];
     int *in_sched_loop = is_from_remote  ?
-        &ns->in_sched_recv_loop : &ns->in_sched_send_loop[queue_offset];
+        &ns->in_sched_recv_loop : &ns->in_sched_send_loop[inj_port];
     model_net_sched_add(r, &m->msg.m_base.sched_params, r->remote_event_size,
             remote, r->self_event_size, local, ss, &m->msg.m_base.rc, lp);
 
@@ -835,7 +848,7 @@ void handle_sched_next(
     model_net_sched * ss = is_from_remote ? ns->sched_recv : ns->sched_send[r->queue_info.port];
     int *in_sched_loop = is_from_remote ?
         &ns->in_sched_recv_loop : &ns->in_sched_send_loop[r->queue_info.port];
-    int ret = model_net_sched_next(&poffset, ss, m+1, &m->msg.m_base.rc, lp);
+    int ret = model_net_sched_next(&poffset, ss, &r->queue_info.queue, m+1, &m->msg.m_base.rc, lp);
     // we only need to know whether scheduling is finished or not - if not,
     // go to the 'next iteration' of the loop
     if (ret == -1){

@@ -179,6 +179,7 @@ void model_net_sched_init(
 int model_net_sched_next(
         tw_stime *poffset,
         model_net_sched *sched,
+        void * sched_info,
         void *rc_event_save,
         model_net_sched_rc *sched_rc,
         tw_lp *lp);
