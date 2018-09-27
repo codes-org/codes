@@ -377,7 +377,7 @@ static void base_read_config(const char * anno, model_net_base_params *p){
                 *ep_type = DST_NODE_BASED;
             } else {
                 tw_error(TW_LOC, "Unknown value for "
-                        "PARAMS:ep-sched-type; accepted values: src-based, dst-based");
+                        "PARAMS:ep-sched-type; accepted values: src-rank-based, dst-node-based");
             }
         }
     } else {
