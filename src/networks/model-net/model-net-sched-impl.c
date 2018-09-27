@@ -591,9 +591,9 @@ int prio_isEmpty(
         void                     * sched) {
     mn_sched_prio *ss = sched;
     for (int i = 0; i < ss->params.num_prios; i++){
-        if (!ss->sub_sched_iface->isEmpty(ss->sub_scheds[i])) return 1;
+        if (!ss->sub_sched_iface->isEmpty(ss->sub_scheds[i])) return 0;
     }
-    return 0;
+    return 1;
 }
 
 void ep_init (
@@ -666,17 +666,19 @@ int ep_next(
     mn_sched_ep *ss = sched;
     int base_q = (ss->last_used_queue + 1) % ss->params.ep_num_queues;
     if(sched_info != NULL) {
-        base_q = *(int *)sched;
+        base_q = *(int *)sched_info;
     }
     rc->ep_used_queue = ss->last_used_queue;
+    dprintf("%llu (mn): ep : next invoked with %d\n", LLU(lp->gid),  *(int *)sched);
     for (int i = 0; i < ss->params.ep_num_queues; i++){
         int next_q = (base_q + i) % ss->params.ep_num_queues;
-        if (!qlist_empty(&ss->sub_scheds[next_q]->reqs)){
+        if (!ss->sub_sched_iface->isEmpty(ss->sub_scheds[next_q])) {
             ss->last_used_queue = next_q;
             return ss->sub_sched_iface->next(
                     poffset, ss->sub_scheds[next_q], sched_info, rc_event_save, rc, lp);
         }
     }
+    dprintf("%llu (mn): ep : no request found in next \n", LLU(lp->gid));
     ss->last_used_queue = -1;
     return -1; // all sub schedulers had no work 
 }
@@ -700,9 +702,9 @@ int ep_isEmpty(
         void                     * sched) {
     mn_sched_ep *ss = sched;
     for (int i = 0; i < ss->params.ep_num_queues; i++){
-        if (!ss->sub_sched_iface->isEmpty(ss->sub_scheds[i])) return 1;
+        if (!ss->sub_sched_iface->isEmpty(ss->sub_scheds[i])) return 0;
     }
-    return 0;
+    return 1;
 }
 
 /*
