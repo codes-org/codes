@@ -1134,18 +1134,15 @@ int dragonfly_plus_get_assigned_router_id(int terminal_id, const dragonfly_plus_
     // currently supports symmetrical bipartite spine/leaf router configurations
     // first half of routers in a given group are leafs which have terminals
     // second half of routers in a given group are spines which have no terminals
-
     int num_groups = p->num_groups;            // number of groups of routers in the network
     int num_routers = p->num_routers;          // num routers per group
     int num_router_leaf = p->num_router_leaf;  // num leaf routers per group
     int num_cn = p->num_cn;                    // num compute nodes per leaf router
+    int num_cn_per_group = (num_router_leaf * num_cn);
 
-    int group_id = terminal_id / (num_router_leaf * num_cn);
-    int local_router_id = terminal_id % (num_router_leaf * num_cn) / num_router_leaf;
-
+    int group_id = terminal_id / num_cn_per_group;
+    int local_router_id = (terminal_id / num_cn) % num_router_leaf;
     int router_id = (group_id * num_routers) + local_router_id;
-    // printf("Terminal %d: assigned to group %d, local router id %d, global router id %d\n",terminal_id,
-    // group_id, local_router_id, router_id);
 
     return router_id;
 }
