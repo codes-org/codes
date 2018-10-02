@@ -255,22 +255,34 @@ void ConnectionManager::add_connection(int dest_gid, ConnectionType type)
     switch (type)
     {
         case CONN_LOCAL:
-            conn.port = this->get_used_ports_for(CONN_LOCAL);
-            intraGroupConnections[conn.dest_lid].push_back(conn);
-            _used_intra_ports++;
+            if (intraGroupConnections.size() < _max_intra_ports) {
+                conn.port = this->get_used_ports_for(CONN_LOCAL);
+                intraGroupConnections[conn.dest_lid].push_back(conn);
+                _used_intra_ports++;
+            }
+            else
+                tw_error(TW_LOC,"Attempting to add too many local connections per router - exceeding configuration value: %d",_max_intra_ports);
             break;
 
         case CONN_GLOBAL:
-            conn.port = _max_intra_ports + this->get_used_ports_for(CONN_GLOBAL);
-            globalConnections[conn.dest_gid].push_back(conn);
-            _used_inter_ports++;
+            if(globalConnections.size() < _max_inter_ports) {
+                conn.port = _max_intra_ports + this->get_used_ports_for(CONN_GLOBAL);
+                globalConnections[conn.dest_gid].push_back(conn);
+                _used_inter_ports++;
+            }
+            else
+                tw_error(TW_LOC,"Attempting to add too many global connections per router - exceeding configuration value: %d",_max_inter_ports);
             break;
 
         case CONN_TERMINAL:
-            conn.port = _max_intra_ports + _max_inter_ports + this->get_used_ports_for(CONN_TERMINAL);
-            conn.dest_group_id = _source_group;
-            terminalConnections[conn.dest_gid].push_back(conn);
-            _used_terminal_ports++;
+            if(terminalConnections.size() < _max_terminal_ports){
+                conn.port = _max_intra_ports + _max_inter_ports + this->get_used_ports_for(CONN_TERMINAL);
+                conn.dest_group_id = _source_group;
+                terminalConnections[conn.dest_gid].push_back(conn);
+                _used_terminal_ports++;
+            }
+            else
+                tw_error(TW_LOC,"Attempting to add too many terminal connections per router - exceeding configuration value: %d",_max_terminal_ports);
             break;
 
         default:
@@ -534,18 +546,19 @@ void ConnectionManager::print_connections()
         int group_id = it->second.dest_group_id;
 
         int id,gid;
-        if( get_port_type(port_num) == CONN_LOCAL )
-        {
+        if( get_port_type(port_num) == CONN_LOCAL ) {
             id = it->second.dest_lid;
             gid = it->second.dest_gid;
-            printf("  %d   ->   (%d,%d)        :  %d  \n", port_num, id, gid, group_id);
+            printf("  %d   ->   (%d,%d)        :  %d     -  LOCAL\n", port_num, id, gid, group_id);
 
-        }
-            
-        else {
+        } 
+        else if (get_port_type(port_num) == CONN_GLOBAL) {
             id = it->second.dest_gid;
-            printf("  %d   ->   %d        :  %d  \n", port_num, id, group_id);
-
+            printf("  %d   ->   %d        :  %d     -  GLOBAL\n", port_num, id, group_id);
+        }
+        else if (get_port_type(port_num) == CONN_TERMINAL) {
+            id = it->second.dest_gid;
+            printf("  %d   ->   %d        :  %d     -  TERMINAL\n", port_num, id, group_id);
         }
             
         ports_printed++;
