@@ -1960,7 +1960,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 	strcpy(params_d.cortex_gen, cortex_gen);
 #endif
    }
-   else if(strcmp(workload_type, "online") == 0){
+   else if(strcmp(workload_type, "swm-online") == 0){
            
        online_comm_params oc_params;
        
@@ -1973,15 +1973,34 @@ void nw_test_init(nw_state* s, tw_lp* lp)
             strcpy(oc_params.workload_name, file_name_of_job[lid.job]);
        
        }
-
        //assert(strcmp(oc_params.workload_name, "lammps") == 0 || strcmp(oc_params.workload_name, "nekbone") == 0);
        /*TODO: nprocs is different for dumpi and online workload. for
         * online, it is the number of ranks to be simulated. */
        oc_params.nprocs = num_traces_of_job[lid.job]; 
        params = (char*)&oc_params;
-       strcpy(type_name, "online_comm_workload");
+       strcpy(type_name, "swm_online_comm_workload");
    }
+   else if(strcmp(workload_type, "conc-online") == 0){
+           
+       online_comm_params oc_params;
        
+       if(strlen(workload_name) > 0)
+       {
+           strcpy(oc_params.workload_name, workload_name); 
+       }
+       else if(strlen(workloads_conf_file) > 0)
+       {
+            strcpy(oc_params.workload_name, file_name_of_job[lid.job]);
+       
+       }
+       //assert(strcmp(oc_params.workload_name, "lammps") == 0 || strcmp(oc_params.workload_name, "nekbone") == 0);
+       /*TODO: nprocs is different for dumpi and online workload. for
+        * online, it is the number of ranks to be simulated. */
+       oc_params.nprocs = num_traces_of_job[lid.job]; 
+       params = (char*)&oc_params;
+       strcpy(type_name, "conc_online_comm_workload");
+   }
+   
    s->app_id = lid.job;
    s->local_rank = lid.rank;
 
@@ -2446,8 +2465,10 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
         if(s->nw_id >= (tw_lpid)num_net_traces)
             return;
     }
-    if(strcmp(workload_type, "online") == 0) 
-        codes_workload_finalize("online_comm_workload", params, s->app_id, s->local_rank);
+    if(strcmp(workload_type, "swm-online") == 0) 
+        codes_workload_finalize("swm-online_comm_workload", params, s->app_id, s->local_rank);
+    if(strcmp(workload_type, "conc-online") == 0) 
+        codes_workload_finalize("conc-online_comm_workload", params, s->app_id, s->local_rank);
 
         struct msg_size_info * tmp_msg = NULL; 
         struct qlist_head * ent = NULL;
@@ -2731,7 +2752,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 #endif
   codes_comm_update();
 
-  if(strcmp(workload_type, "dumpi") != 0 && strcmp(workload_type, "online") != 0)
+  if(strcmp(workload_type, "dumpi") != 0 && strcmp(workload_type, "swm-online") != 0 && strcmp(workload_type, "conc-online") != 0)
     {
 	if(tw_ismaster())
 		printf("Usage: mpirun -np n ./modelnet-mpi-replay --sync=1/3"

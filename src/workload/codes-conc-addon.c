@@ -10,14 +10,16 @@
 
 
 /* list of available benchmarks begin */
+extern struct codes_conceptual_bench latencyall_bench;
 extern struct codes_conceptual_bench latency_bench;
 /* list of available benchmarks end */
 
 static struct codes_conceptual_bench const * bench_array_default[] =
 {
     /* default benchmarks begin */
+    &latencyall_bench,
     &latency_bench,
-    /* default benchmark end */
+    /* default benchmarks end */
     NULL
 };
 
@@ -52,8 +54,8 @@ static void init_bench_methods(void)
 
 int codes_conc_bench_load(
         const char *program,
-        int* argc, 
-        const char *argv[])
+        int argc, 
+        char *argv[])
 {
     init_bench_methods();
 
@@ -73,7 +75,7 @@ int codes_conc_bench_load(
             return(i);
         }
     }
-    fprintf(stderr, "Error: failed to find workload generator %s\n", program);
+    fprintf(stderr, "Error: failed to find benchmark program %s\n", program);
     return(-1);
 }
 
@@ -94,7 +96,6 @@ void codes_conceptual_add_bench(struct codes_conceptual_bench const * bench)
                 bench_array_cap * sizeof(*bench_array));
         assert(bench_array);
     }
-
     bench_array[num_user_benchs++] = bench;
 }
 

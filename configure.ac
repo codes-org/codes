@@ -121,16 +121,30 @@ AM_CONDITIONAL(USE_DARSHAN, [test "x${use_darshan}" = xyes])
 
 # check for Argobots
 AC_ARG_WITH([online],[AS_HELP_STRING([--with-online@<:@=DIR@:>@],
-                        [Build with the online workloads and argobots support])],
-                      [use_online=yes],[use_online=no])
-if test "x${use_online}" != "xno" ; then
+                        [Build with the online workloads and argobots support])])
+if test "x${with_online}" != "x" ; then
     AM_CONDITIONAL(USE_ONLINE, true)
     PKG_CHECK_MODULES_STATIC([ARGOBOTS], [argobots], [],
                       [AC_MSG_ERROR([Could not find working argobots installation via pkg-config])])
-    AC_DEFINE_UNQUOTED([SWM_DATAROOTDIR], ["${use_online}"], [if using json
-                        data files])
+    AC_DEFINE_UNQUOTED([ONLINE_CONFIGDIR], ["$with_online"], [if using json data files, 
+                    specify config directory])
 else
     AM_CONDITIONAL(USE_ONLINE, false)
+fi
+
+#check for SWM
+AC_ARG_WITH([swm],[AS_HELP_STRING([--with-swm@<:@=DIR@:>@],
+                        [location of SWM installation])])
+if test "x${with_swm}" != "x" ; then
+    AM_CONDITIONAL(USE_SWM, true)
+    PKG_CHECK_MODULES_STATIC([SWM], [swm], [],
+                      [AC_MSG_ERROR([Could not find working swm installation via pkg-config])])
+    PKG_CHECK_VAR([SWM_DATAROOTDIR], [swm], [datarootdir], [],
+              [AC_MSG_ERROR[Could not find shared directory in SWM]])
+    AC_DEFINE_UNQUOTED([SWM_DATAROOTDIR], ["$SWM_DATAROOTDIR"], [if using json
+                    data files])
+else
+  AM_CONDITIONAL(USE_SWM, false)
 fi
 
 #check for Conceptual
