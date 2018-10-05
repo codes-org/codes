@@ -2466,9 +2466,9 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
             return;
     }
     if(strcmp(workload_type, "swm-online") == 0) 
-        codes_workload_finalize("swm-online_comm_workload", params, s->app_id, s->local_rank);
+        codes_workload_finalize("swm_online_comm_workload", params, s->app_id, s->local_rank);
     if(strcmp(workload_type, "conc-online") == 0) 
-        codes_workload_finalize("conc-online_comm_workload", params, s->app_id, s->local_rank);
+        codes_workload_finalize("conc_online_comm_workload", params, s->app_id, s->local_rank);
 
         struct msg_size_info * tmp_msg = NULL; 
         struct qlist_head * ent = NULL;
