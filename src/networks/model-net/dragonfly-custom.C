@@ -1936,8 +1936,8 @@ static void ross_custom_dragonfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp
 
     for(; i < p->radix; i++)
     {
-        sample->busy_time[i] = s->ross_rsample.busy_time[i]; 
-        sample->link_traffic_sample[i] = s->ross_rsample.link_traffic_sample[i]; 
+        sample->busy_time[i] = s->ross_rsample.busy_time[i];
+        sample->link_traffic_sample[i] = s->ross_rsample.link_traffic_sample[i];
     }
 
     /* clear up the current router stats */
@@ -1955,9 +1955,21 @@ static void ross_custom_dragonfly_rsample_rc_fn(router_state * s, tw_bf * bf, tw
 {
     (void)lp;
     (void)bf;
-    
+
     const dragonfly_param * p = s->params;
     int i =0;
+
+#ifdef USE_RDAMARIS
+    if (g_st_damaris_enabled)
+    {
+        size_t num_elements;
+        const double *rc_busy_time = st_damaris_get_model_variable_double(lp->gid, "dfly_custom_router", "busy_time", &num_elements);
+        memcpy(s->ross_rsample.busy_time, rc_busy_time, num_elements * sizeof(double));
+        const long *rc_link_traffic = st_damaris_get_model_variable_long(lp->gid, "dfly_custom_router", "link_traffic", &num_elements);
+        memcpy(s->ross_rsample.link_traffic_sample, rc_link_traffic, num_elements * sizeof(long));
+        return;
+    }
+#endif
 
     for(; i < p->radix; i++)
     {
@@ -1973,7 +1985,7 @@ static void ross_custom_dragonfly_sample_fn(terminal_state * s, tw_bf * bf, tw_l
 {
     (void)lp;
     (void)bf;
-    
+
 #ifdef USE_RDAMARIS
     if (g_st_damaris_enabled)
     {
@@ -2015,6 +2027,24 @@ static void ross_custom_dragonfly_sample_rc_fn(terminal_state * s, tw_bf * bf, t
 {
     (void)lp;
     (void)bf;
+#ifdef USE_RDAMARIS
+    if (g_st_damaris_enabled)
+    {
+        size_t num_elements;
+        const long* fin_chunks = st_damaris_get_model_variable_long(lp->gid, "dfly_custom_terminal", "fin_chunks", &num_elements);
+        memcpy(&(s->ross_sample.fin_chunks_sample), fin_chunks, num_elements * sizeof(long));
+        const long* data_size = st_damaris_get_model_variable_long(lp->gid, "dfly_custom_terminal", "data_size", &num_elements);
+        memcpy(&(s->ross_sample.data_size_sample), data_size, num_elements * sizeof(long));
+        const double* fin_hops = st_damaris_get_model_variable_double(lp->gid, "dfly_custom_terminal", "fin_hops", &num_elements);
+        memcpy(&(s->ross_sample.fin_hops_sample), fin_hops, num_elements * sizeof(double));
+        const double* fin_chunks_time = st_damaris_get_model_variable_double(lp->gid, "dfly_custom_terminal", "fin_chunks_time", &num_elements);
+        memcpy(&(s->ross_sample.fin_chunks_time), fin_chunks_time, num_elements * sizeof(double));
+        const double* busy_time = st_damaris_get_model_variable_double(lp->gid, "dfly_custom_terminal", "busy_time", &num_elements);
+        memcpy(&(s->ross_sample.busy_time_sample), busy_time, num_elements * sizeof(double));
+
+        return;
+    }
+#endif
 
     s->ross_sample.busy_time_sample = sample->busy_time_sample;
     s->ross_sample.fin_chunks_time = sample->fin_chunks_time;
