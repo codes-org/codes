@@ -230,4 +230,7 @@ AC_CONFIG_FILES([Makefile])
 
 AC_OUTPUT([maint/codes.pc])
 AC_OUTPUT([src/network-workloads/conf/dragonfly-custom/modelnet-test-dragonfly-1728-nodes.conf])
+AC_OUTPUT([src/network-workloads/conf/dragonfly-plus/modelnet-test-dragonfly-plus.conf])
+AC_OUTPUT([src/network-workloads/conf/dragonfly-dally/modelnet-test-dragonfly-dally.conf])
+
 

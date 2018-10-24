@@ -13,6 +13,8 @@ check_PROGRAMS += tests/lp-io-test \
  src/network-workloads/model-net-synthetic-fattree \
  src/network-workloads/model-net-synthetic-slimfly \
  src/network-workloads/model-net-synthetic-custom-dfly \
+ src/network-workloads/model-net-synthetic-dfly-plus \
+ src/network-workloads/model-net-synthetic-dally-dfly \
  src/network-workloads/model-net-mpi-replay	\
  tests/concurrent-msg-recv tests/modelnet-simplep2p-test \
  tests/modelnet-test-collective \
@@ -35,6 +37,8 @@ TESTS += tests/lp-io-test.sh \
  tests/modelnet-test-slimfly.sh \
  tests/modelnet-test-dragonfly-synthetic.sh \
  tests/modelnet-test-dragonfly-custom-synthetic.sh \
+ tests/modelnet-test-dragonfly-plus-synthetic.sh \
+ tests/modelnet-test-dragonfly-dally-synthetic.sh \
  tests/modelnet-test-fattree-synthetic.sh \
  tests/modelnet-test-slimfly-synthetic.sh \
  tests/modelnet-p2p-bw-loggp.sh \
@@ -67,6 +71,8 @@ EXTRA_DIST += tests/download-traces.sh \
  tests/modelnet-test-dragonfly-traces.sh \
  tests/modelnet-test-dragonfly-custom-synthetic.sh \
  tests/modelnet-test-dragonfly-custom-traces.sh \
+ tests/modelnet-test-dragonfly-plus-synthetic.sh \
+ tests/modelnet-test-dragonfly-dally-synthetic.sh \
  tests/modelnet-test-em.sh \
  tests/modelnet-test-fattree-synthetic.sh \
  tests/modelnet-test-slimfly.sh \
@@ -93,6 +99,12 @@ EXTRA_DIST += tests/download-traces.sh \
  src/network-workloads/conf/modelnet-mpi-test-dfly-amg-216.conf	\
  src/network-workloads/conf/dragonfly-custom/intra-theta	\
  src/network-workloads/conf/dragonfly-custom/inter-theta	\
+ src/network-workloads/conf/dragonfly-plus/dfp_8k.conf    \
+ src/network-workloads/conf/dragonfly-plus/dfp_8k_intra    \
+ src/network-workloads/conf/dragonfly-plus/dfp_8k_inter    \
+ src/network-workloads/conf/dragonfly-dally/dfdally_8k.conf    \
+ src/network-workloads/conf/dragonfly-dally/dfdally_8k_intra    \
+ src/network-workloads/conf/dragonfly-dally/dfdally_8k_inter    \
  tests/README_MN_TEST.txt
 
 tests_lp_io_test_SOURCES = tests/lp-io-test.c

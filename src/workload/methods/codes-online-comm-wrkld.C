@@ -23,6 +23,7 @@
 #include "lammps.h"
 #include "nekbone_swm_user_code.h"
 #include "nearest_neighbor_swm_user_code.h"
+// #include "all_to_one_swm_user_code.h"
 
 #define ALLREDUCE_SHORT_MSG_SIZE 2048
 
@@ -754,7 +755,6 @@ static void workload_caller(void * arg)
 {
     shared_context* sctx = static_cast<shared_context*>(arg);
 
-    //printf("\n workload name %s ", sctx->workload_name);
     if(strcmp(sctx->workload_name, "lammps") == 0)
     {
         LAMMPS_SWM * lammps_swm = static_cast<LAMMPS_SWM*>(sctx->swm_obj);
@@ -770,6 +770,11 @@ static void workload_caller(void * arg)
        NearestNeighborSWMUserCode * nn_swm = static_cast<NearestNeighborSWMUserCode*>(sctx->swm_obj);
        nn_swm->call();
     }
+    // else if(strcmp(sctx->workload_name, "incast") == 0 || strcmp(sctx->workload_name, "incast1") == 0 || strcmp(sctx->workload_name, "incast2") == 0)
+    // {
+    //    AllToOneSWMUserCode * incast_swm = static_cast<AllToOneSWMUserCode*>(sctx->swm_obj);
+    //    incast_swm->call();
+    // }
 }
 static int comm_online_workload_load(const char * params, int app_id, int rank)
 {
@@ -807,10 +812,21 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     {
         path.append("/skeleton.json"); 
     }
+    // else if(strcmp(o_params->workload_name, "incast") == 0)
+    // {
+    //     path.append("/incast.json"); 
+    // }
+    // else if(strcmp(o_params->workload_name, "incast1") == 0)
+    // {
+    //     path.append("/incast1.json"); 
+    // }
+    // else if(strcmp(o_params->workload_name, "incast2") == 0)
+    // {
+    //     path.append("/incast2.json"); 
+    // }
     else
         tw_error(TW_LOC, "\n Undefined workload type %s ", o_params->workload_name);
 
-    //printf("\n path %s ", path.c_str());
     try {
         std::ifstream jsonFile(path.c_str());
         boost::property_tree::json_parser::read_json(jsonFile, root);
@@ -837,6 +853,11 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
         NearestNeighborSWMUserCode * nn_swm = new NearestNeighborSWMUserCode(root, generic_ptrs);
         my_ctx->sctx.swm_obj = (void*)nn_swm;
     }
+    // else if(strcmp(o_params->workload_name, "incast") == 0 || strcmp(o_params->workload_name, "incast1") == 0 || strcmp(o_params->workload_name, "incast2") == 0)
+    // {
+    //     AllToOneSWMUserCode * incast_swm = new AllToOneSWMUserCode(root, generic_ptrs);
+    //     my_ctx->sctx.swm_obj = (void*)incast_swm;
+    // }
 
     if(global_prod_thread == NULL)
     {
