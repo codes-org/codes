@@ -26,7 +26,6 @@
 // #include "all_to_one_swm_user_code.h"
 
 #define ALLREDUCE_SHORT_MSG_SIZE 2048
-#define DBG_COMM
 
 
 //#define DBG_COMM 0
