@@ -47,9 +47,9 @@ PARAMS
 # number of global channels per router
    num_global_connections="16";
 # network config file for intra-group connections
-   intra-group-connections="../src/network-workloads/conf/dragonfly-plus/dfp_8k_intra";
+   intra-group-connections="@abs_srcdir@/dfp_8k_intra";
 # network config file for inter-group connections
-   inter-group-connections="../src/network-workloads/conf/dragonfly-plus/dfp_8k_inter";
+   inter-group-connections="@abs_srcdir@/dfp_8k_inter";
 # routing protocol to be used - 'minimal', 'non-minimal-spine', 'non-minimal-leaf', 'prog-adaptive'
    routing="prog-adaptive";
 # route scoring protocol to be used - options are 'alpha', 'beta', or 'delta' - 'gamma' has been deprecated

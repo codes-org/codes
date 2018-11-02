@@ -51,9 +51,9 @@ PARAMS
 # number of global channels per router
    num_global_channels="8";
 # network config file for intra-group connections
-   intra-group-connections="../src/network-workloads/conf/dragonfly-dally/dfdally_8k_intra";
+   intra-group-connections="@abs_srcdir@/dfdally_8k_intra";
 # network config file for inter-group connections
-   inter-group-connections="../src/network-workloads/conf/dragonfly-dally/dfdally_8k_inter";
+   inter-group-connections="@abs_srcdir@/dfdally_8k_inter";
 # routing protocol to be used
    routing="prog-adaptive";
    adaptive_threshold="131072";
