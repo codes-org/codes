@@ -27,6 +27,7 @@
 
 #define ALLREDUCE_SHORT_MSG_SIZE 2048
 
+
 //#define DBG_COMM 0
 
 using namespace std;
@@ -36,7 +37,7 @@ static int rank_tbl_pop = 0;
 static int total_rank_cnt = 0;
 ABT_thread global_prod_thread = NULL;
 ABT_xstream self_es;
-long cpu_freq = 1.0;
+double cpu_freq = 1.0;
 long num_allreduce = 0;
 long num_isends = 0;
 long num_irecvs = 0;
@@ -324,17 +325,22 @@ void SWM_Irecv(SWM_PEER peer,
 
 void SWM_Compute(long cycle_count)
 {
+    //NM: noting that cpu_frequency has been loaded in comm_online_workload_load() as GHz, e.g. cpu_freq = 2.0 means 2.0GHz
     if(!cpu_freq)
         cpu_freq = 2.0;
     /* Add an event in the shared queue and then yield */
     struct codes_workload_op wrkld_per_rank;
 
+    double cpu_freq_hz = cpu_freq * 1000.0 * 1000.0 * 1000.0;
+    double delay_in_seconds = cycle_count / cpu_freq_hz;
+    double delay_in_ns = delay_in_seconds * 1000.0 * 1000.0 * 1000.0;
+
     wrkld_per_rank.op_type = CODES_WK_DELAY;
     /* TODO: Check how to convert cycle count into delay? */
-    wrkld_per_rank.u.delay.nsecs = cycle_count;
-    wrkld_per_rank.u.delay.seconds = (cycle_count) / (1000.0 * 1000.0 * 1000.0);
+    wrkld_per_rank.u.delay.nsecs = delay_in_ns;
+    wrkld_per_rank.u.delay.seconds = delay_in_seconds;
 #ifdef DBG_COMM
-    printf("\n compute op delay: %ld ", cycle_count);
+    printf("\n compute op delay: %ld ", delay_in_ns);
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
