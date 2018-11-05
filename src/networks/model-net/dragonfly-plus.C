@@ -1643,6 +1643,7 @@ void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_plus_messag
             s->qos_data[i][j] = 0;
         }
         s->busy_time_sample[i] = 0;
+        s->ross_rsample.busy_time[i] = 0;
     }
 
     if(tw_now(lp) > max_qos_monitor)
@@ -2297,6 +2298,7 @@ static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg
 
             s->busy_time += (tw_now(lp) - s->last_buf_full);
             s->busy_time_sample += (tw_now(lp) - s->last_buf_full);
+            s->ross_sample.busy_time_sample += (tw_now(lp) - s->last_buf_full);
             s->last_buf_full = 0.0;
         }
     }
@@ -2737,7 +2739,7 @@ void dragonfly_plus_rsample_fin(router_state *s, tw_lp *lp)
     if (s->router_id == 0) {
         /* write metadata file */
         char meta_fname[64];
-        sprintf(meta_fname, "dragonfly-plus-router-sampling.meta");
+        sprintf(meta_fname, "dragonfly-router-sampling.meta");
 
         FILE *fp = fopen(meta_fname, "w");
         fprintf(fp,
@@ -2750,7 +2752,7 @@ void dragonfly_plus_rsample_fin(router_state *s, tw_lp *lp)
     }
     char rt_fn[MAX_NAME_LENGTH];
     if (strcmp(router_sample_file, "") == 0)
-        sprintf(rt_fn, "dragonfly-plus-router-sampling-%ld.bin", g_tw_mynode);
+        sprintf(rt_fn, "dragonfly-router-sampling-%ld.bin", g_tw_mynode);
     else
         sprintf(rt_fn, "%s-%ld.bin", router_sample_file, g_tw_mynode);
 
@@ -4168,6 +4170,7 @@ static void router_packet_send_rc(router_state *s, tw_bf *bf, terminal_plus_mess
     {
         s->busy_time[output_port] = msg->saved_rcv_time;
         s->busy_time_sample[output_port] = msg->saved_sample_time;
+        s->ross_rsample.busy_time[output_port] = msg->saved_sample_time;
         s->last_buf_full[output_port] = msg->saved_busy_time;
    }
 
@@ -4256,6 +4259,7 @@ static void router_packet_send(router_state *s, tw_bf *bf, terminal_plus_message
       msg->saved_sample_time = s->busy_time_sample[output_port];  
       s->busy_time[output_port] += (tw_now(lp) - s->last_buf_full[output_port]); 
       s->busy_time_sample[output_port] += (tw_now(lp) - s->last_buf_full[output_port]);
+      s->ross_rsample.busy_time[output_port] += (tw_now(lp) - s->last_buf_full[output_port]);
       s->last_buf_full[output_port] = 0.0;
     }
 
@@ -4330,6 +4334,7 @@ static void router_packet_send(router_state *s, tw_bf *bf, terminal_plus_message
         bf->c11 = 1;
         s->link_traffic[output_port] += (cur_entry->msg.packet_size % s->params->chunk_size);
         s->link_traffic_sample[output_port] += (cur_entry->msg.packet_size % s->params->chunk_size);
+        s->ross_rsample.link_traffic_sample[output_port] += (cur_entry->msg.packet_size % s->params->chunk_size);
         msg_size = cur_entry->msg.packet_size % s->params->chunk_size;
     }
     else {
@@ -4399,6 +4404,7 @@ static void router_buf_update_rc(router_state *s, tw_bf *bf, terminal_plus_messa
     if (bf->c3) {
         s->busy_time[indx] = msg->saved_rcv_time;
         s->busy_time_sample[indx] = msg->saved_sample_time;
+        s->ross_rsample.busy_time[indx] = msg->saved_sample_time;
         s->last_buf_full[indx] = msg->saved_busy_time;
     }
     if (bf->c1) {
@@ -4430,6 +4436,7 @@ static void router_buf_update(router_state *s, tw_bf *bf, terminal_plus_message 
         msg->saved_sample_time = s->busy_time_sample[indx];
         s->busy_time[indx] += (tw_now(lp) - s->last_buf_full[indx]);
         s->busy_time_sample[indx] += (tw_now(lp) - s->last_buf_full[indx]);
+        s->ross_rsample.busy_time[indx] += (tw_now(lp) - s->last_buf_full[indx]);
         s->last_buf_full[indx] = 0.0;
     }
     if (s->queued_msgs[indx][output_chan] != NULL) {
