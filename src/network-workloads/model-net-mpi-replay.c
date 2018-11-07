@@ -226,6 +226,9 @@ struct ross_model_sample
     double recv_time;
     double wait_time;
     double compute_time;
+    double comm_time;
+    double max_time;
+    double avg_msg_time;
 };
 
 typedef struct mpi_msgs_queue mpi_msgs_queue;
@@ -363,6 +366,7 @@ struct nw_message
        int64_t saved_num_bytes;
        int saved_syn_length;
        unsigned long saved_prev_switch;
+       double saved_prev_max_time;
    } rc;
 };
 
@@ -848,6 +852,11 @@ void arrive_syn_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
     s->ross_sample.num_bytes_recvd -= data;
     s->send_time = m->rc.saved_send_time;
     s->ross_sample.send_time = m->rc.saved_send_time_sample;
+    if((tw_now(lp) - m->fwd.sim_start_time) > s->max_time)
+    {
+        s->max_time = m->rc.saved_prev_max_time;
+        s->ross_sample.max_time = m->rc.saved_prev_max_time;
+    }
 }
 void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
@@ -874,7 +883,11 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
     m->rc.saved_send_time = s->send_time;
     m->rc.saved_send_time_sample = s->ross_sample.send_time;
     if((tw_now(lp) - m->fwd.sim_start_time) > s->max_time)
+    {
+        m->rc.saved_prev_max_time = s->max_time;
         s->max_time = tw_now(lp) - m->fwd.sim_start_time;
+        s->ross_sample.max_time = tw_now(lp) - m->fwd.sim_start_time;
+    }
 
     s->send_time += (tw_now(lp) - m->fwd.sim_start_time);
     s->ross_sample.send_time += (tw_now(lp) - m->fwd.sim_start_time);
@@ -2839,6 +2852,15 @@ void ross_nw_lp_sample_fn(nw_state * s, tw_bf * bf, tw_lp * lp, struct ross_mode
     sample->nw_id = s->nw_id;
     sample->app_id = s->app_id;
     sample->local_rank = s->local_rank;
+    sample->comm_time = s->elapsed_time - s->compute_time;
+    if (alloc_spec == 1)
+    {
+        struct codes_jobmap_id lid;
+        lid = codes_jobmap_to_local_id(s->nw_id, jobmap_ctx);
+
+        if(strncmp(file_name_of_job[lid.job], "synthetic", 9) == 0)
+            sample->avg_msg_time = (s->send_time / s->num_recvs);
+    }
     memset(&s->ross_sample, 0, sizeof(s->ross_sample));
 }
 
