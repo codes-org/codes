@@ -1655,7 +1655,7 @@ static void codes_exec_mpi_send(nw_state* s,
         remote_m = local_m;
         remote_m.msg_type = MPI_SEND_ARRIVED;
     	m->event_rc = model_net_event_mctx(net_id, &mapping_context, &mapping_context, 
-            "test", dest_rank, mpi_op->u.send.num_bytes, (self_overhead + copy_overhead + soft_delay_mpi + nic_delay),
+            prio, dest_rank, mpi_op->u.send.num_bytes, (self_overhead + copy_overhead + soft_delay_mpi + nic_delay),
 	    sizeof(nw_message), (const void*)&remote_m, sizeof(nw_message), (const void*)&local_m, lp);
     }
     else if (is_rend == 0)
@@ -1675,7 +1675,7 @@ static void codes_exec_mpi_send(nw_state* s,
         remote_m.fwd.app_id = s->app_id;
 
     	m->event_rc = model_net_event_mctx(net_id, &mapping_context, &mapping_context, 
-            "test", dest_rank, CONTROL_MSG_SZ, (self_overhead + soft_delay_mpi + nic_delay),
+            prio, dest_rank, CONTROL_MSG_SZ, (self_overhead + soft_delay_mpi + nic_delay),
 	    sizeof(nw_message), (const void*)&remote_m, 0, NULL, lp);
     }
     else if(is_rend == 1)
@@ -1689,7 +1689,7 @@ static void codes_exec_mpi_send(nw_state* s,
        remote_m.msg_type = MPI_REND_ARRIVED;
     	
        m->event_rc = model_net_event_mctx(net_id, &mapping_context, &mapping_context, 
-            "test", dest_rank, mpi_op->u.send.num_bytes, (self_overhead + soft_delay_mpi + nic_delay),
+            prio, dest_rank, mpi_op->u.send.num_bytes, (self_overhead + soft_delay_mpi + nic_delay),
 	    sizeof(nw_message), (const void*)&remote_m, sizeof(nw_message), (const void*)&local_m, lp);
     }
     if(enable_debug && !is_rend)
