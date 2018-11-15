@@ -132,7 +132,17 @@ static double sampling_end_time = 3000000000;
 static int enable_debug = 0;
 
 /* set group context */
-struct codes_mctx group_ratio;
+struct codes_mctx mapping_context;
+enum MAPPING_CONTEXTS
+{
+    GROUP_RATIO=1,
+    GROUP_RATIO_REVERSE,
+    GROUP_DIRECT,
+    GROUP_MODULO,
+    GROUP_MODULO_REVERSE,
+    UNKNOWN
+};
+static int map_ctxt = GROUP_MODULO;
 
 /* MPI_OP_GET_NEXT is for getting next MPI operation when the previous operation completes.
 * MPI_SEND_ARRIVED is issued when a MPI message arrives at its destination (the message is transported by model-net and an event is invoked when it arrives.
@@ -1644,8 +1654,8 @@ static void codes_exec_mpi_send(nw_state* s,
 
         remote_m = local_m;
         remote_m.msg_type = MPI_SEND_ARRIVED;
-    	m->event_rc = model_net_event_mctx(net_id, &group_ratio, &group_ratio, 
-            prio, dest_rank, mpi_op->u.send.num_bytes, (self_overhead + copy_overhead + soft_delay_mpi + nic_delay),
+    	m->event_rc = model_net_event_mctx(net_id, &mapping_context, &mapping_context, 
+            "test", dest_rank, mpi_op->u.send.num_bytes, (self_overhead + copy_overhead + soft_delay_mpi + nic_delay),
 	    sizeof(nw_message), (const void*)&remote_m, sizeof(nw_message), (const void*)&local_m, lp);
     }
     else if (is_rend == 0)
@@ -1664,8 +1674,8 @@ static void codes_exec_mpi_send(nw_state* s,
         remote_m.fwd.req_id = mpi_op->u.send.req_id;  
         remote_m.fwd.app_id = s->app_id;
 
-    	m->event_rc = model_net_event_mctx(net_id, &group_ratio, &group_ratio, 
-            prio, dest_rank, CONTROL_MSG_SZ, (self_overhead + soft_delay_mpi + nic_delay),
+    	m->event_rc = model_net_event_mctx(net_id, &mapping_context, &mapping_context, 
+            "test", dest_rank, CONTROL_MSG_SZ, (self_overhead + soft_delay_mpi + nic_delay),
 	    sizeof(nw_message), (const void*)&remote_m, 0, NULL, lp);
     }
     else if(is_rend == 1)
@@ -1678,8 +1688,8 @@ static void codes_exec_mpi_send(nw_state* s,
        remote_m = local_m; 
        remote_m.msg_type = MPI_REND_ARRIVED;
     	
-       m->event_rc = model_net_event_mctx(net_id, &group_ratio, &group_ratio, 
-            prio, dest_rank, mpi_op->u.send.num_bytes, (self_overhead + soft_delay_mpi + nic_delay),
+       m->event_rc = model_net_event_mctx(net_id, &mapping_context, &mapping_context, 
+            "test", dest_rank, mpi_op->u.send.num_bytes, (self_overhead + soft_delay_mpi + nic_delay),
 	    sizeof(nw_message), (const void*)&remote_m, sizeof(nw_message), (const void*)&local_m, lp);
     }
     if(enable_debug && !is_rend)
@@ -1833,7 +1843,7 @@ static void send_ack_back(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp, m
     else
        tw_error(TW_LOC, "\n Invalid app id");
     
-    m->event_rc = model_net_event_mctx(net_id, &group_ratio, &group_ratio, 
+    m->event_rc = model_net_event_mctx(net_id, &mapping_context, &mapping_context,
         prio, dest_rank, CONTROL_MSG_SZ, (self_overhead + soft_delay_mpi + nic_delay),
     sizeof(nw_message), (const void*)&remote_m, 0, NULL, lp);
 
@@ -2949,15 +2959,32 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
       workload_meta_log = fopen("mpi-workload-meta-log", "w+");
    
 
-     if(!workload_agg_log || !workload_meta_log)
-     {
+   switch(map_ctxt)
+   {
+       case GROUP_RATIO:
+           mapping_context = codes_mctx_set_group_ratio(NULL, true);
+           break;
+       case GROUP_RATIO_REVERSE:
+           mapping_context = codes_mctx_set_group_ratio_reverse(NULL, true);
+           break;
+       case GROUP_DIRECT:
+           mapping_context = codes_mctx_set_group_direct(1,NULL, true);
+           break;
+       case GROUP_MODULO:
+           mapping_context = codes_mctx_set_group_modulo(NULL, true);
+           break;
+       case GROUP_MODULO_REVERSE:
+           mapping_context = codes_mctx_set_group_modulo_reverse(NULL, true);
+           break;
+   }
+
+   if(!workload_agg_log || !workload_meta_log)
+   {
        printf("\n Error logging MPI operations... quitting ");
        MPI_Finalize();
        return -1;
      }
    }
-   
-   group_ratio = codes_mctx_set_group_ratio(NULL, true);
 
    if(enable_sampling)
        model_net_enable_sampling(sampling_interval, sampling_end_time);
