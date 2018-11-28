@@ -45,6 +45,7 @@ static int preserve_wait_ordering = 0;
 static int enable_msg_tracking = 0;
 static int is_synthetic = 0;
 static unsigned long long max_gen_data = 1310720;
+static int num_qos_levels;
 tw_lpid TRACK_LP = -1;
 int nprocs = 0;
 static double total_syn_data = 0;
@@ -829,11 +830,13 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
     m_new->msg_type = CLI_BCKGND_GEN;
     tw_event_send(e);
     
-    if(s->gen_data >= max_gen_data)
-    {
-        bf->c5 = 1;
-        s->is_finished = 1;
+    if(num_qos_levels > 1) { //instead of using notify neighbor with QoS, ranks constantly check to see if they have exceeded the hard limit on data - if they have, then they're finished.
+        if(s->gen_data >= max_gen_data) {
+            bf->c5 = 1;
+            s->is_finished = 1;
+        }
     }
+
     free(dest_svr);
 }
 
@@ -2140,12 +2143,16 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        params = (char*)&oc_params;
        strcpy(type_name, "online_comm_workload");
    }
+
+   int rc = configuration_get_value_int(&config, "PARAMS", "num_qos_levels", NULL, &num_qos_levels);
+   if(rc)
+       num_qos_levels = 1; 
        
    s->app_id = lid.job;
    s->local_rank = lid.rank;
 
    double overhead;
-   int rc = configuration_get_value_double(&config, "PARAMS", "self_msg_overhead", NULL, &overhead);
+   rc = configuration_get_value_double(&config, "PARAMS", "self_msg_overhead", NULL, &overhead);
 
    if(rc == 0)
        self_overhead = overhead;
@@ -2484,7 +2491,8 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
                 return;
              }
 
-               //notify_neighbor(s, lp, bf, m);
+            if(num_qos_levels == 1) //notify neighbor isn't really compatible with QoS, so notify_neighbor is only called if num_qos_levels == 1 (QoS off)
+                notify_neighbor(s, lp, bf, m);
 //             printf("Client rank %llu completed workload, local rank %d .\n", s->nw_id, s->local_rank);
 
              return;
