@@ -2937,54 +2937,54 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    }
    if(enable_msg_tracking)
    {
-       char log_name[512];
-       sprintf(log_name, "%s/mpi-msg-sz-logs-%s-syn-sz-%d-mean-%f-%d",
-	       mpi_msg_dir,
-               file_name_of_job[0],
-               payload_sz,
-               mean_interval,
-	       rand());
+        char log_name[512];
+        sprintf(log_name, "%s/mpi-msg-sz-logs-%s-syn-sz-%d-mean-%f-%d",
+            mpi_msg_dir,
+            file_name_of_job[0],
+            payload_sz,
+            mean_interval,
+            rand());
 
-       msg_size_log = fopen(log_name, "w+");
+        msg_size_log = fopen(log_name, "w+");
 
-       if(!msg_size_log)
-       {
-           printf("\n Error logging MPI operations... quitting ");
-           MPI_Finalize();
-           return -1;
-       }
-      char agg_log_name[512];
-      sprintf(agg_log_name, "%s/mpi-aggregate-logs-%d.bin", sampling_dir, rank);
-      workload_agg_log = fopen(agg_log_name, "w+");
-      workload_meta_log = fopen("mpi-workload-meta-log", "w+");
+        if(!msg_size_log)
+        {
+            printf("\n Error logging MPI operations... quitting ");
+            MPI_Finalize();
+            return -1;
+        }
+        char agg_log_name[512];
+        sprintf(agg_log_name, "%s/mpi-aggregate-logs-%d.bin", sampling_dir, rank);
+        workload_agg_log = fopen(agg_log_name, "w+");
+        workload_meta_log = fopen("mpi-workload-meta-log", "w+");
    
 
-   switch(map_ctxt)
-   {
-       case GROUP_RATIO:
+        if(!workload_agg_log || !workload_meta_log)
+        {
+            printf("\n Error logging MPI operations... quitting ");
+            MPI_Finalize();
+            return -1;
+        }
+    }
+
+    switch(map_ctxt)
+    {
+        case GROUP_RATIO:
            mapping_context = codes_mctx_set_group_ratio(NULL, true);
            break;
-       case GROUP_RATIO_REVERSE:
+        case GROUP_RATIO_REVERSE:
            mapping_context = codes_mctx_set_group_ratio_reverse(NULL, true);
            break;
-       case GROUP_DIRECT:
+        case GROUP_DIRECT:
            mapping_context = codes_mctx_set_group_direct(1,NULL, true);
            break;
-       case GROUP_MODULO:
+        case GROUP_MODULO:
            mapping_context = codes_mctx_set_group_modulo(NULL, true);
            break;
-       case GROUP_MODULO_REVERSE:
+        case GROUP_MODULO_REVERSE:
            mapping_context = codes_mctx_set_group_modulo_reverse(NULL, true);
            break;
-   }
-
-   if(!workload_agg_log || !workload_meta_log)
-   {
-       printf("\n Error logging MPI operations... quitting ");
-       MPI_Finalize();
-       return -1;
-     }
-   }
+    }
 
    if(enable_sampling)
        model_net_enable_sampling(sampling_interval, sampling_end_time);
