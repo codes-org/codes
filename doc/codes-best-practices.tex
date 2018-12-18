@@ -121,7 +121,7 @@ xleftmargin=6ex
 % IEEEtran.cls handling of captions and this will result in nonIEEE style
 % figure/table captions. To prevent this problem, be sure and preload
 % caption.sty with its "caption=false" package option. This is will preserve
-% IEEEtran.cls handing of captions. Version 1.3 (2005/06/28) and later 
+% IEEEtran.cls handing of captions. Version 1.3 (2005/06/28) and later
 % (recommended due to many improvements over 1.2) of subfig.sty supports
 % the caption=false option directly:
 %\usepackage[caption=false,font=footnotesize]{subfig}
@@ -188,7 +188,7 @@ easily shared and reused.  It also includes a few tips to help avoid common
 simulation bugs.
 
 For more information, ROSS has a bunch of documentation available in their
-repository/wiki - see \url{https://github.com/carothersc/ROSS}.
+repository/wiki - see \url{https://github.com/ross-org/ROSS}.
 \end{abstract}
 
 \section{CODES: modularizing models}
@@ -394,7 +394,7 @@ action upon the completion of them. More generally, the problem is: an event
 issuance (an ack to the client) is based on the completion of more than one
 asynchronous/parallel events (local write on primary server, forwarding write to
 replica server). Further complicating the matter for storage simulations, there
-can be any number of outstanding requests, each waiting on multiple events. 
+can be any number of outstanding requests, each waiting on multiple events.
 
 In ROSS's sequential and conservative parallel modes, the necessary state can
 easily be stored in the LP as a queue of statuses for each set of events,
@@ -488,7 +488,7 @@ Most core ROSS examples are design to intentionally hit
 the end timestamp for the simulation (i.e. they are modeling a continuous,
 steady state system). This isn't necessarily true for other models. Quite
 simply, set g\_tw\_ts\_end to an arbitrary large number when running simulations
-that have a well-defined end-point in terms of events processed. 
+that have a well-defined end-point in terms of events processed.
 
 Within the LP finalize function, do not call tw\_now. The time returned may not
 be consistent in the case of an optimistic simulation.
@@ -515,7 +515,7 @@ section(s).
         \item generating multiple concurrent events makes rollback more difficult
     \end{enumerate}
 
-    \item use dummy events to work around "event-less" advancement of simulation time 
+    \item use dummy events to work around "event-less" advancement of simulation time
 
     \item add a small amount of time "noise" to events to prevent ties
 
