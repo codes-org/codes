@@ -1,0 +1,26 @@
+# Virtual ring "hot potato" test
+
+Require language version "1.5".
+
+trials is "Number of trials to perform" and comes from "--trials" or
+  "-t" with default 100000.
+
+Assert that "the hot-potato test requires at least two tasks" with num_tasks>=2.
+
+Let len be 0 while {
+  for each task_count in {2, ..., num_tasks} {
+    task 0 outputs "Performing " and trials and " " and
+		   task_count and "-task runs...." then
+    for trials repetitions plus 5 warmup repetitions and a synchronization {
+      task 0 resets its counters then
+      task 0 sends a len byte message to unsuspecting task 1 then
+      task (n+1) mod task_count receives a len byte message from task n such that n<task_count then
+      task n such that n>0 /\ n<task_count sends a len byte message to unsuspecting task (n+1) mod task_count then
+      task 0 logs the task_count as "# of tasks" and
+		  the minimum of elapsed_usecs/task_count as "Latency (usecs)" and
+		  the mean of elapsed_usecs/task_count as "Latency (usecs)" and
+		  the variance of elapsed_usecs/task_count as "Latency (usecs)"
+    } then
+    task 0 computes aggregates
+  }
+}

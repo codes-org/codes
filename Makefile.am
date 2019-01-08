@@ -71,6 +71,9 @@ if USE_CONC
 src_libcodes_la_SOURCES += src/workload/methods/codes-conc-online-comm-wrkld.C
 AM_CPPFLAGS += ${CONCEPTUAL_CFLAGS} -DUSE_CONC=1
 LDADD += ${CONCEPTUAL_LIBS}
+src_libcodes_la_SOURCES += src/workload/conceputal-skeleton-apps/conc-bisect.c
+src_libcodes_la_SOURCES += src/workload/conceputal-skeleton-apps/conc-cosmoflow.c
+src_libcodes_la_SOURCES += src/workload/conceputal-skeleton-apps/conc-hotpotato.c
 src_libcodes_la_SOURCES += src/workload/conceputal-skeleton-apps/conc-latencyall.c
 src_libcodes_la_SOURCES += src/workload/conceputal-skeleton-apps/conc-latency.c
 endif

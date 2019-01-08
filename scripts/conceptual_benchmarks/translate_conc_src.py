@@ -15,10 +15,7 @@ def eliminate_logging(inLines):
                 inLines[idx+i] = "//"+inLines[idx+i]  
         elif 'ncptl_free (logfile_uuid)' in line:
             for i in range(0, 12):
-                inLines[idx-i] = "//"+inLines[idx-i]
-        elif 'case 1' in line:
-            for i in range(5, 9):
-                inLines[idx+i] = "//"+inLines[idx+i]      
+                inLines[idx-i] = "//"+inLines[idx-i]    
         elif 'int mpiresult' in line:
             for i in range(0,30):
                 inLines[idx+i] = "//"+inLines[idx+i] 

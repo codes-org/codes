@@ -10,6 +10,9 @@
 
 
 /* list of available benchmarks begin */
+extern struct codes_conceptual_bench bisect_bench;
+extern struct codes_conceptual_bench cosmoflow_bench;
+extern struct codes_conceptual_bench hotpotato_bench;
 extern struct codes_conceptual_bench latencyall_bench;
 extern struct codes_conceptual_bench latency_bench;
 /* list of available benchmarks end */
@@ -17,6 +20,9 @@ extern struct codes_conceptual_bench latency_bench;
 static struct codes_conceptual_bench const * bench_array_default[] =
 {
     /* default benchmarks begin */
+    &bisect_bench,
+    &cosmoflow_bench,
+    &hotpotato_bench,
     &latencyall_bench,
     &latency_bench,
     /* default benchmarks end */

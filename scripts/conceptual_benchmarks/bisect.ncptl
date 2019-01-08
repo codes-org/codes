@@ -1,0 +1,27 @@
+###################################################
+# Measure random bisection-bandwidth patterns     #
+# By Scott Pakin <pakin@lanl.gov>                 #
+#                                                 #
+# Inspired by Hoefler, Schneider, and Lumsdaine's #
+# "Multistage Switches are not Crossbars" paper   #
+###################################################
+
+Require language version "1.5".
+
+nummsgs is "Number of messages per trial" and comes from "--nummsgs" or "-n" with default 100.
+wups is "Number of warmup messages" and comes from "--wups" or "-w" with default 3.
+msgsize is "Message size in bytes" and comes from "--bytes" or "-b" with default 1M.
+numtrials is "Number of bisection patterns" and comes from "--trials" or "-t" with default 5000.
+rounding is "Round measurements to the nearest N" and comes from "--round" or "-r" with default 5.
+
+For each trial in {1, ..., numtrials} {
+  task 0 is assigned to processor 0 then
+  task 0 outputs "Testing random bisection pattern " and trial and "/" and numtrials then
+  all tasks are assigned to a random processor then
+  tasks src such that src is even send wups msgsize-byte messages to task src+1 then
+  all tasks synchronize then
+  all tasks reset their counters then
+  tasks src such that src is even send nummsgs msgsize-byte messages to task src+1 then
+  all tasks synchronize then
+  all tasks log a histogram of rounding*round(total_bytes*1E6/(elapsed_usecs*1M)/rounding) as "Bandwidth (MiB/s)"
+}

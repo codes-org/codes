@@ -122,9 +122,9 @@ void CODES_MPI_Finalize()
     struct shared_context * sctx = static_cast<shared_context*>(arg);
     sctx->fifo.push_back(&wrkld_per_rank);
 
-    // printf("\n finalize workload for rank %d num_sends %ld num_recvs %ld num_isends %ld num_irecvs %ld num_allreduce %ld num_barrier %ld num_waitalls %ld\n", 
+    // printf("\n rank %d finalize workload: num_sends %ld num_recvs %ld num_isends %ld num_irecvs %ld num_allreduce %ld num_barrier %ld num_waitalls %ld\n", 
     //         sctx->my_rank, num_sends, num_recvs, num_isends, num_irecvs, num_allreduce, num_barriers, num_waitalls);
-
+    // printf("Rank %d yield to CODES thread: %p\n", sctx->my_rank, global_prod_thread);
     ABT_thread_yield_to(global_prod_thread);
 }
 
@@ -139,11 +139,14 @@ void CODES_MPI_Send(const void *buf,
     //    printf("\n Sending to rank %d ", comm_id);
     struct codes_workload_op wrkld_per_rank;
 
+    int datatypesize;
+    MPI_Type_size(datatype, &datatypesize);
+
     wrkld_per_rank.op_type = CODES_WK_SEND;
     wrkld_per_rank.u.send.tag = tag;
     wrkld_per_rank.u.send.count = count;
     wrkld_per_rank.u.send.data_type = datatype;
-    wrkld_per_rank.u.send.num_bytes = count * sizeof(datatype);
+    wrkld_per_rank.u.send.num_bytes = count * datatypesize;
     wrkld_per_rank.u.send.dest_rank = dest;
 
     /* Retreive the shared context state */
@@ -156,8 +159,8 @@ void CODES_MPI_Send(const void *buf,
     struct shared_context * sctx = static_cast<shared_context*>(arg);
     wrkld_per_rank.u.send.source_rank = sctx->my_rank;
     sctx->fifo.push_back(&wrkld_per_rank);
-    // printf("Rank %d Send Event to dest %d: %d * %lu = %lld, fifo size: %lu\n", sctx->my_rank, dest, count, 
-    //         sizeof(datatype), wrkld_per_rank.u.send.num_bytes, sctx->fifo.size());
+    // printf("Rank %d Send Event to dest %d: %lld, fifo size: %lu\n", sctx->my_rank, dest,
+    //         wrkld_per_rank.u.send.num_bytes, sctx->fifo.size());
 
     // printf("Rank %d yield to CODES thread: %p\n", sctx->my_rank, global_prod_thread);
     int rc = ABT_thread_yield_to(global_prod_thread);
@@ -175,12 +178,15 @@ void CODES_MPI_Recv(void *buf,
     /* Add an event in the shared queue and then yield */
     struct codes_workload_op wrkld_per_rank;
 
+    int datatypesize;
+    MPI_Type_size(datatype, &datatypesize);
+
     wrkld_per_rank.op_type = CODES_WK_RECV;
     wrkld_per_rank.u.recv.tag = tag;
     wrkld_per_rank.u.recv.source_rank = source;
     wrkld_per_rank.u.recv.data_type = datatype;
     wrkld_per_rank.u.recv.count = count;
-    wrkld_per_rank.u.recv.num_bytes = count * sizeof(datatype);
+    wrkld_per_rank.u.recv.num_bytes = count * datatypesize;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -192,7 +198,7 @@ void CODES_MPI_Recv(void *buf,
     struct shared_context * sctx = static_cast<shared_context*>(arg);
     wrkld_per_rank.u.recv.dest_rank = sctx->my_rank;
     sctx->fifo.push_back(&wrkld_per_rank);
-    // printf("Rank %d Recv event from %d count %d fifo size %lu\n",  sctx->my_rank, source, wrkld_per_rank.u.recv.count, sctx->fifo.size());
+    // printf("Rank %d Recv event from %d bytes %d fifo size %lu\n",  sctx->my_rank, source, wrkld_per_rank.u.recv.num_bytes, sctx->fifo.size());
 
     // printf("Rank %d yield to CODES thread: %p\n", sctx->my_rank, global_prod_thread);
     ABT_thread_yield_to(global_prod_thread);
@@ -215,11 +221,15 @@ void CODES_MPI_Sendrecv(const void *sendbuf,
     /* sendrecv events */
     struct codes_workload_op send_op;
 
+    int datatypesize1, datatypesize2;
+    MPI_Type_size(sendtype, &datatypesize1);
+    MPI_Type_size(recvtype, &datatypesize2);
+
     send_op.op_type = CODES_WK_SEND;
     send_op.u.send.tag = sendtag;
     send_op.u.send.count = sendcount;
     send_op.u.send.data_type = sendtype;
-    send_op.u.send.num_bytes = sendcount * sizeof(sendtype);
+    send_op.u.send.num_bytes = sendcount * datatypesize1;
     send_op.u.send.dest_rank = dest;
 
     struct codes_workload_op recv_op;
@@ -229,7 +239,7 @@ void CODES_MPI_Sendrecv(const void *sendbuf,
     recv_op.u.recv.source_rank = source;
     recv_op.u.recv.count = recvcount;
     recv_op.u.recv.data_type = recvtype;
-    recv_op.u.recv.num_bytes = recvcount * sizeof(recvtype);
+    recv_op.u.recv.num_bytes = recvcount * datatypesize2;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -293,11 +303,14 @@ void CODES_MPI_Isend(const void *buf,
     //    printf("\n Sending to rank %d ", comm_id);
     struct codes_workload_op wrkld_per_rank;
 
+    int datatypesize;
+    MPI_Type_size(datatype, &datatypesize);
+
     wrkld_per_rank.op_type = CODES_WK_ISEND;
     wrkld_per_rank.u.send.tag = tag;    
     wrkld_per_rank.u.send.count = count;
     wrkld_per_rank.u.send.data_type = datatype;
-    wrkld_per_rank.u.send.num_bytes = count * sizeof(datatype);
+    wrkld_per_rank.u.send.num_bytes = count * datatypesize;
     wrkld_per_rank.u.send.dest_rank = dest;
 
     /* Retreive the shared context state */
@@ -330,12 +343,15 @@ void CODES_MPI_Irecv(void *buf,
     /* Add an event in the shared queue and then yield */
     struct codes_workload_op wrkld_per_rank;
 
+    int datatypesize;
+    MPI_Type_size(datatype, &datatypesize);
+
     wrkld_per_rank.op_type = CODES_WK_IRECV;
     wrkld_per_rank.u.recv.tag = tag;
     wrkld_per_rank.u.recv.source_rank = source;
     wrkld_per_rank.u.recv.count = count;
     wrkld_per_rank.u.recv.data_type = datatype;
-    wrkld_per_rank.u.recv.num_bytes = count * sizeof(datatype);
+    wrkld_per_rank.u.recv.num_bytes = count * datatypesize;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -403,7 +419,146 @@ void CODES_MPI_Allreduce(const void *sendbuf,
             MPI_Op op, 
             MPI_Comm comm)
 {
-    //todo
+    int comm_size, rank, type_size, i, send_idx, recv_idx, last_idx, send_cnt, recv_cnt;
+    int pof2, mask, rem, newrank, newdst, dst, *cnts, *disps;
+
+    CODES_MPI_Comm_size(comm, &comm_size);
+    CODES_MPI_Comm_rank(comm, &rank);
+    MPI_Type_size(datatype, &type_size);
+
+    cnts = disps = NULL;
+    
+    pof2 = 1;
+    while (pof2 <= comm_size) pof2 <<= 1;
+    pof2 >>=1;
+
+    rem = comm_size - pof2;
+
+    /* In the non-power-of-two case, all even-numbered
+       processes of rank < 2*rem send their data to
+       (rank+1). These even-numbered processes no longer
+       participate in the algorithm until the very end. The
+       remaining processes form a nice power-of-two. */
+    if (rank < 2*rem) {
+        if (rank % 2 == 0) { /* even */
+            CODES_MPI_Send(NULL, count, datatype, rank+1, -1002, comm);
+            newrank = -1;
+        } else { /* odd */
+            CODES_MPI_Recv(NULL, count, datatype, rank-1, -1002, comm, NULL);
+            newrank = rank / 2;
+        }
+    } else {
+        newrank = rank - rem;
+    }
+
+    /* If op is user-defined or count is less than pof2, use
+       recursive doubling algorithm. Otherwise do a reduce-scatter
+       followed by allgather. (If op is user-defined,
+       derived datatypes are allowed and the user could pass basic
+       datatypes on one process and derived on another as long as
+       the type maps are the same. Breaking up derived
+       datatypes to do the reduce-scatter is tricky, therefore
+       using recursive doubling in that case.) */
+    if (newrank != -1) { 
+        if ((count*type_size <= 81920 ) || (count < pof2)) {
+            mask = 0x1;
+            while (mask < pof2) {
+                newdst = newrank ^ mask;
+                dst = (newdst < rem) ? newdst*2 + 1 : newdst + rem;
+
+                CODES_MPI_Sendrecv(NULL, count, datatype, dst, -1002, NULL, count, datatype, dst, -1002, comm, NULL);
+                mask <<= 1;
+            }
+        } else {
+            /* do a reduce-scatter followed by allgather */
+            /* for the reduce-scatter, calculate the count that
+            each process receives and the displacement within
+            the buffer */
+
+            cnts = (int*)malloc(pof2*sizeof(int));
+            disps = (int*)malloc(pof2*sizeof(int));
+            
+            for (i=0; i<(pof2-1); i++)
+                cnts[i] = count/pof2;
+            cnts[pof2-1] = count - (count/pof2)*(pof2-1);
+            
+            disps[0] = 0;
+            for (i=1; i<pof2; i++)
+                disps[i] = disps[i-1] + cnts[i-1];
+
+            mask = 0x1;
+            send_idx = recv_idx = 0;
+            last_idx = pof2;
+            while (mask < pof2) {
+                newdst = newrank ^ mask;
+                dst = (newdst < rem) ? newdst*2 + 1 : newdst + rem;
+                send_cnt = recv_cnt = 0;
+                if (newrank < newdst) {
+                    send_idx = recv_idx + pof2/(mask*2);
+                    for (i=send_idx; i<last_idx; i++)
+                        send_cnt += cnts[i];
+                    for (i=recv_idx; i<send_idx; i++)
+                        recv_cnt += cnts[i];
+                } else {
+                    recv_idx = send_idx + pof2/(mask*2);
+                    for (i=send_idx; i<recv_idx; i++)
+                        send_cnt += cnts[i];
+                    for (i=recv_idx; i<last_idx; i++)
+                        recv_cnt += cnts[i];
+                }
+
+                CODES_MPI_Sendrecv(NULL, send_cnt, datatype, dst, -1002, NULL, recv_cnt, datatype, dst, -1002, comm, NULL);
+
+                send_idx = recv_idx;
+                mask <<= 1;
+    
+                if(mask < pof2)
+                    last_idx = recv_idx + pof2/mask;
+            }
+        
+            /* now do the allgather */
+            mask >>= 1;
+            while (mask > 0) {
+                newdst = newrank ^ mask;
+                /* find real rank of dest */
+                dst = (newdst < rem) ? newdst*2 + 1 : newdst + rem;
+
+                send_cnt = recv_cnt = 0;
+                if (newrank < newdst) {
+                    if (mask != pof2/2)
+                        last_idx = last_idx + pof2/(mask*2);
+                
+                    recv_idx = send_idx + pof2/(mask*2);
+                    for (i=send_idx; i<recv_idx; i++)
+                        send_cnt += cnts[i];
+                    for (i=recv_idx; i<last_idx; i++)
+                        recv_cnt += cnts[i];
+                } else {
+                    recv_idx = send_idx - pof2/(mask*2);
+                    for (i=send_idx; i<last_idx; i++)
+                        send_cnt += cnts[i];
+                    for (i=recv_idx; i<send_idx; i++)
+                        recv_cnt += cnts[i];
+                }
+
+                CODES_MPI_Sendrecv(NULL, send_cnt, datatype, dst, -1002, NULL, recv_cnt, datatype, dst, -1002, comm, NULL);
+
+                if (newrank > newdst) send_idx = recv_idx;
+                mask >>= 1;
+            }
+        }
+    } 
+
+    if(rank < 2*rem) {
+        if(rank % 2) {/* odd */
+            CODES_MPI_Send(NULL, count, datatype, rank-1, -1002, comm);
+        } else {
+            CODES_MPI_Recv(NULL, count, datatype, rank+1, -1002, comm, NULL);
+        }
+    }
+
+    if(cnts) free(cnts);
+    if(disps) free(disps);    
 }
 
 void CODES_MPI_Bcast(void *buffer, 
@@ -423,7 +578,18 @@ void CODES_MPI_Alltoall(const void *sendbuf,
             MPI_Datatype recvtype, 
             MPI_Comm comm)
 {
-    //todo
+    int *sendcounts, *sdispls, *recvcounts, *rdispls;
+    int i, comm_size;
+
+    CODES_MPI_Comm_size(comm, &comm_size);
+ 
+    for (i=0; i<comm_size; i++) {
+        sendcounts[i] = sendcount;
+        recvcounts[i] = recvcount;
+        rdispls[i] = i * recvcount;
+        sdispls[i] = i * sendcount;
+    }
+    CODES_MPI_Alltoallv(sendbuf, sendcounts, sdispls, sendtype, recvbuf, recvcounts, rdispls, recvtype, comm);
 }
 
 void CODES_MPI_Alltoallv(const void *sendbuf, 
@@ -436,7 +602,46 @@ void CODES_MPI_Alltoallv(const void *sendbuf,
             MPI_Datatype recvtype, 
             MPI_Comm comm)
 {
-    //todo
+    int comm_size, i, j;
+    int dst, rank, req_cnt, req_num = 1;
+    int ii, ss, bblock;
+    int type_size;
+
+    bblock = 32; //equivalent of MPIR_CVAR_ALLTOALL_THROTTLE in Mpich
+
+    MPI_Status starray[2*bblock];
+    MPI_Request reqarray[2*bblock];
+
+    CODES_MPI_Comm_size(comm, &comm_size);
+    CODES_MPI_Comm_rank(comm, &rank);
+
+
+    for(ii=0; ii<comm_size; ii+=bblock) {
+
+        req_cnt = 0;
+        ss = comm_size-ii < bblock ? comm_size-ii : bblock;
+
+        for ( i=0; i<ss; i++ ) {
+            dst = (rank+i+ii) % comm_size;
+            if (recvcounts[dst]) {
+                req_num++; // hopefuly the program is not doing other requests at the same time...
+                reqarray[req_cnt] = req_num;
+                CODES_MPI_Irecv(NULL, recvcounts[dst], recvtype, dst, -1003, comm, &req_num);
+                req_cnt++;
+            }
+        }
+
+        for ( i=0; i<ss; i++ ) {
+            dst = (rank-i-ii+comm_size) % comm_size;
+            if (sendcounts[dst]) {
+                req_num++;
+                reqarray[req_cnt] = req_num;
+                CODES_MPI_Isend(NULL, sendcounts[dst], sendtype, dst, -1003, comm, &req_num);
+                req_cnt++;
+            }
+        }
+        CODES_MPI_Waitall(req_cnt, reqarray, starray);
+    } 
 }
 
 static int hash_rank_compare(void *key, struct qhash_head *link)
@@ -581,6 +786,7 @@ static void comm_online_workload_get_next(int app_id, int rank, struct codes_wor
     }
     struct codes_workload_op * front_op = temp_data->sctx.fifo.front();
     assert(front_op);
+    // printf("Pop op %d to CODES\n", front_op->op_type);
     *op = *front_op;
     temp_data->sctx.fifo.pop_front();
     return;
