@@ -94,8 +94,9 @@ nobase_include_HEADERS = \
 	codes/connection-manager.h	\
 	codes/net/common-net.h \
 	codes/net/dragonfly.h \
-	codes/net/dragonfly-plus.h	\
 	codes/net/dragonfly-custom.h \
+	codes/net/dragonfly-dally.h \
+	codes/net/dragonfly-plus.h \
 	codes/net/slimfly.h \
 	codes/net/fattree.h \
 	codes/net/loggp.h \
@@ -166,6 +167,7 @@ src_libcodes_la_SOURCES =  \
 	src/networks/model-net/dragonfly.c \
 	src/networks/model-net/dragonfly-custom.C \
 	src/networks/model-net/dragonfly-plus.C \
+	src/networks/model-net/dragonfly-dally.C \
 	src/networks/model-net/slimfly.c \
 	src/networks/model-net/fattree.c \
 	src/networks/model-net/loggp.c \
@@ -200,6 +202,7 @@ bin_PROGRAMS += src/network-workloads/model-net-synthetic-custom-dfly
 bin_PROGRAMS += src/network-workloads/model-net-synthetic-slimfly
 bin_PROGRAMS += src/network-workloads/model-net-synthetic-fattree
 bin_PROGRAMS += src/network-workloads/model-net-synthetic-dfly-plus
+bin_PROGRAMS += src/network-workloads/model-net-synthetic-dally-dfly
 
 
 src_workload_codes_workload_dump_SOURCES = \
@@ -214,6 +217,7 @@ src_network_workloads_model_net_mpi_replay_CFLAGS = $(AM_CFLAGS)
 src_network_workloads_model_net_synthetic_SOURCES = src/network-workloads/model-net-synthetic.c
 src_network_workloads_model_net_synthetic_custom_dfly_SOURCES = src/network-workloads/model-net-synthetic-custom-dfly.c
 src_network_workloads_model_net_synthetic_dfly_plus_SOURCES = src/network-workloads/model-net-synthetic-dfly-plus.c
+src_network_workloads_model_net_synthetic_dally_dfly_SOURCES = src/network-workloads/model-net-synthetic-dally-dfly.c
 src_networks_model_net_topology_test_SOURCES = src/networks/model-net/topology-test.c
 
 #bin_PROGRAMS += src/network-workload/codes-nw-test

@@ -23,8 +23,10 @@
 #include "lammps.h"
 #include "nekbone_swm_user_code.h"
 #include "nearest_neighbor_swm_user_code.h"
+#include "all_to_one_swm_user_code.h"
 
 #define ALLREDUCE_SHORT_MSG_SIZE 2048
+
 
 //#define DBG_COMM 0
 
@@ -35,7 +37,7 @@ static int rank_tbl_pop = 0;
 static int total_rank_cnt = 0;
 ABT_thread global_prod_thread = NULL;
 ABT_xstream self_es;
-long cpu_freq = 1.0;
+double cpu_freq = 1.0;
 long num_allreduce = 0;
 long num_isends = 0;
 long num_irecvs = 0;
@@ -323,17 +325,22 @@ void SWM_Irecv(SWM_PEER peer,
 
 void SWM_Compute(long cycle_count)
 {
+    //NM: noting that cpu_frequency has been loaded in comm_online_workload_load() as GHz, e.g. cpu_freq = 2.0 means 2.0GHz
     if(!cpu_freq)
         cpu_freq = 2.0;
     /* Add an event in the shared queue and then yield */
     struct codes_workload_op wrkld_per_rank;
 
+    double cpu_freq_hz = cpu_freq * 1000.0 * 1000.0 * 1000.0;
+    double delay_in_seconds = cycle_count / cpu_freq_hz;
+    double delay_in_ns = delay_in_seconds * 1000.0 * 1000.0 * 1000.0;
+
     wrkld_per_rank.op_type = CODES_WK_DELAY;
     /* TODO: Check how to convert cycle count into delay? */
-    wrkld_per_rank.u.delay.nsecs = cycle_count;
-    wrkld_per_rank.u.delay.seconds = (cycle_count) / (1000.0 * 1000.0 * 1000.0);
+    wrkld_per_rank.u.delay.nsecs = delay_in_ns;
+    wrkld_per_rank.u.delay.seconds = delay_in_seconds;
 #ifdef DBG_COMM
-    printf("\n compute op delay: %ld ", cycle_count);
+    printf("\n compute op delay: %ld ", delay_in_ns);
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -754,7 +761,6 @@ static void workload_caller(void * arg)
 {
     shared_context* sctx = static_cast<shared_context*>(arg);
 
-    //printf("\n workload name %s ", sctx->workload_name);
     if(strcmp(sctx->workload_name, "lammps") == 0)
     {
         LAMMPS_SWM * lammps_swm = static_cast<LAMMPS_SWM*>(sctx->swm_obj);
@@ -769,6 +775,11 @@ static void workload_caller(void * arg)
     {
        NearestNeighborSWMUserCode * nn_swm = static_cast<NearestNeighborSWMUserCode*>(sctx->swm_obj);
        nn_swm->call();
+    }
+    else if(strcmp(sctx->workload_name, "incast") == 0 || strcmp(sctx->workload_name, "incast1") == 0 || strcmp(sctx->workload_name, "incast2") == 0)
+    {
+       AllToOneSWMUserCode * incast_swm = static_cast<AllToOneSWMUserCode*>(sctx->swm_obj);
+       incast_swm->call();
     }
 }
 static int comm_online_workload_load(const char * params, int app_id, int rank)
@@ -807,10 +818,21 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     {
         path.append("/skeleton.json"); 
     }
+    else if(strcmp(o_params->workload_name, "incast") == 0)
+    {
+        path.append("/incast.json"); 
+    }
+    else if(strcmp(o_params->workload_name, "incast1") == 0)
+    {
+        path.append("/incast1.json"); 
+    }
+    else if(strcmp(o_params->workload_name, "incast2") == 0)
+    {
+        path.append("/incast2.json"); 
+    }
     else
         tw_error(TW_LOC, "\n Undefined workload type %s ", o_params->workload_name);
 
-    //printf("\n path %s ", path.c_str());
     try {
         std::ifstream jsonFile(path.c_str());
         boost::property_tree::json_parser::read_json(jsonFile, root);
@@ -836,6 +858,11 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     {
         NearestNeighborSWMUserCode * nn_swm = new NearestNeighborSWMUserCode(root, generic_ptrs);
         my_ctx->sctx.swm_obj = (void*)nn_swm;
+    }
+    else if(strcmp(o_params->workload_name, "incast") == 0 || strcmp(o_params->workload_name, "incast1") == 0 || strcmp(o_params->workload_name, "incast2") == 0)
+    {
+        AllToOneSWMUserCode * incast_swm = new AllToOneSWMUserCode(root, generic_ptrs);
+        my_ctx->sctx.swm_obj = (void*)incast_swm;
     }
 
     if(global_prod_thread == NULL)

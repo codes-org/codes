@@ -11,15 +11,8 @@ import sys
 from enum import Enum
 import struct
 import numpy as np
-argv = sys.argv
 import random
-import os
-import copy
-
-class RandomError(Exception):
-    def __init__(self, message):
-        self.message = message
-        super().__init__(message)
+argv = sys.argv
 
 class Loudness(Enum):
     DEBUG = 0 #prints all output
@@ -32,6 +25,7 @@ global DRYRUN
 global LOUDNESS
 global SHOW_ADJACENCY
 global NO_OUTPUT_FILE
+global TRUE_RANDOM
 
 LOUDNESS = Loudness.STANDARD
 DRYRUN = 0
@@ -164,31 +158,34 @@ class DragonflyPlusNetwork(object):
 
     def generateGlobalGroupConnections(self):
         log("Dragonfly Plus Network: Generating Global Group Connections", Loudness.STANDARD)
-        
+
+        pair_set = set()
+        for i in range(self.num_groups):
+            for j in range(self.num_groups):
+                if i != j:
+                    pair_set.add(frozenset((i,j)))
+
+        for pair in pair_set:
+            groups = [-1,-1]
+            for i,group_id in enumerate(pair):
+                groups[i] = group_id
+
+            if groups[0] == -1 or groups[1] == -1:
+                raise Exception("DragonflyPlusNetwork: Bad Generation of Group Pairs")
+            
+            group1 = self.groups[groups[0]]
+            group2 = self.groups[groups[1]]
+
+            for i in range(self.num_global_links_between_groups):
+                the_group_connection = GroupConnection(group1,group2)
+                group1.addGlobalConnection(the_group_connection)
+                group2.addGlobalConnection(the_group_connection)
+
         for group in self.groups:
-            other_groups = group.getOtherGroupIDsStartingAfterMe(self.num_groups)
-            for ogid in other_groups:
-                og = self.groups[ogid]
-                gcb = GroupConnectionBundle(group, og, self.num_global_links_between_groups)
-                group.groupConnBundles[ogid] = gcb
+            group.assignRoutersToGlobalConnections()
 
-        group_copy = copy.deepcopy(self.groups)
-
-        tries = 0
-        success = False
-        while success is False:
-            try:
-                for group in self.groups:
-                    group.assignGlobalConnectionsToRouters()
-                success = True
-            except RandomError:
-                tries += 1
-                self.groups = copy.deepcopy(group_copy)
-                if tries%20 == 0:
-                    log("Failed after %d tries, trying again..."%tries, Loudness.STANDARD)
-                else:
-                    log("Failed after %d tries, trying again..."%tries, Loudness.LOUD)
-
+        for group in self.groups:
+            group.bakeGlobalConnections()
 
 
     def getNumGlobalConnsPerSpine(self):
@@ -279,19 +276,15 @@ class DragonflyPlusNetwork(object):
             if glob is not glob_conns:
                 failed = True
 
+        log("Verifying Dragonfly Nature...", Loudness.STANDARD)
+
+
         if failed:
             raise Exception("DragonflyPlusNetwork: Failed Verification: Fairness")
 
-        log("Verifying Dragonfly Nature...", Loudness.STANDARD)
-
-        for g in self.groups:
-            for gcb in g.groupConnBundles.values():
-                if gcb.assigned_num_gc_between != self.num_global_links_between_groups:
-                    raise Exception("DragonflyPlusNetwork: Invalid number of connections between groups")
-
         for g in self.groups:
             if len(set(g.groupConns)) != self.num_global_links_pg:
-                raise Exception("DragonflyPlusNetwork: Not Enough Group Connections for Group %d  (%d != %d)"%(g.group_id,len(set(g.groupConns)), self.num_global_links_pg))
+                raise Exception("DragonflyPlusNetwork: Not Enough Group Connections")
 
         log("Verifying Inter Group Connection Uniformity...", Loudness.STANDARD)
         num_gc_between_0_1 = len(self.groups[0].getConnectionsToGroup(1))
@@ -299,7 +292,18 @@ class DragonflyPlusNetwork(object):
             other_groups = g.getOtherGroupIDsStartingAfterMe(self.num_groups)
             for other_group_id in other_groups:
                 if len(g.getConnectionsToGroup(other_group_id)) != num_gc_between_0_1:
-                    raise Exception("DragonflyPlusNetwork: Failed Verification: InterGroup Connection Uniformity")
+                    raise Exception("DragonflyPlusNetwork: Failed Verification: InterGroup Connection Uniformity: %d != %d")
+
+
+        log("Verifying Number of Links Generated...", Loudness.STANDARD)
+        link_sum = 0
+        for row in A:
+            for item in row:
+                link_sum += item
+            
+        if link_sum != (self.router_radix * ((self.num_leaf_pg + self.num_spine_pg)*self.num_groups)) - (self.num_leaf_pg * self.num_hosts_per_leaf * self.num_groups):  #number of links per router - number of terminals (because those links weren't generated)
+            raise Exception("DragonflyPlusNetwork: Failed Verification: Number of links generated doesn't match expected")
+
 
     def commitConnection(self,conn, connType):
         if connType is ConnType.LOCAL:
@@ -365,13 +369,20 @@ class Group(object):
         self.network = network
 
         self.groupConns = []
-        self.groupConnBundles = {}
 
 
     def addRouter(self,router):
         self.group_routers.append(router)
         self.used_radix += router.inter_radix
 
+    def addGlobalConnection(self, group_conn):
+        if group_conn.src_group == self:
+            other_group_id = group_conn.dest_group.group_id
+        else:
+            other_group_id = group_conn.src_group.group_id
+
+        log("Group %d -> Group %d" % (self.group_id, other_group_id), Loudness.LOUD)
+        self.groupConns.append(group_conn)
 
     def getSpineRouters(self):
         return [r for r in self.group_routers if r.routerType is RouterType.SPINE]
@@ -379,45 +390,13 @@ class Group(object):
     def getLeafRouters(self):
         return [r for r in self.group_routers if r.routerType is RouterType.LEAF]
 
-    def getRoutersWithOpenPorts(self,routerType, connType):
-        if routerType is RouterType.SPINE:
-            if connType is ConnType.GLOBAL:
-                return [r for r in self.group_routers if (r.routerType is RouterType.SPINE) if (len(r.global_connections) < r.inter_radix) ]
-            else:
-                return [r for r in self.group_routers if (r.routerType is RouterType.SPINE) if (len(r.local_connections) < r.intra_radix)  ]
-
-        else:
-            if connType is ConnType.GLOBAL:
-                return [r for r in self.group_routers if (r.routerType is RouterType.LEAF) if (len(r.global_connections) < r.inter_radix) ]
-            else:
-                return [r for r in self.group_routers if (r.routerType is RouterType.LEAF) if (len(r.local_connections) < r.intra_radix)  ]
-
-    def getRandomOpenRouter(self, routerType, connType, exceptions=None):
-        avail_routers = self.getRoutersWithOpenPorts(routerType, connType)
-
-        if exceptions == None:
-            if (len(avail_routers) == 0):
-                raise RandomError("Randomized Dead End (exceptions == none)!")
-            rand_sel = random.randint(0,len(avail_routers)-1)
-            return avail_routers[rand_sel]
-        else:
-            avail_routers_set = set(avail_routers)
-            exception_set = set(exceptions)
-            remaining_routers = list(avail_routers_set - exception_set)
-
-            if (len(remaining_routers) == 0):
-                raise RandomError("Randomized Dead End! (exceptions == something)")
-
-            rand_sel = random.randint(0, len(remaining_routers) -1 )
-            return remaining_routers[rand_sel]
-
     def getOtherGroupIDsStartingAfterMe(self,num_groups):
         my_group_id = self.group_id
         all_group_ids = [i for i in range(num_groups) if i != my_group_id]
         return np.roll(all_group_ids, -1*my_group_id)
 
     def getConnectionsToGroup(self,other_group_id):
-        return [conn for conn in self.groupConns if conn.dest_router.group_id == other_group_id]
+        return [conn for conn in self.groupConns if conn.dest_group.group_id == other_group_id or conn.src_group.group_id == other_group_id]
 
     def generateLocalConnections(self):
         log("Group %d: generating local connections" % self.group_id, Loudness.LOUD)
@@ -429,23 +408,34 @@ class Group(object):
             for lrtr in leaf_routers:
                 srtr.connectTo(lrtr, ConnType.LOCAL)
 
-    def assignGlobalConnectionsToRouters(self):
+    def assignRoutersToGlobalConnections(self):
         log("Group %d: assigning global connections" % self.group_id, Loudness.LOUD)
 
-        for gcb in self.groupConnBundles.values():
-            for i in range(gcb.num_gc_between):
-                if (gcb.assigned_num_gc_between < gcb.num_gc_between):
-                    src_rtr = gcb.src_group.getRandomOpenRouter(RouterType.SPINE, ConnType.GLOBAL)
-                    dest_rtr = gcb.dest_group.getRandomOpenRouter(RouterType.SPINE, ConnType.GLOBAL, exceptions=src_rtr.getRoutersIConnectTo(ConnType.GLOBAL)) #TODO this exceptions prevents parallel connections from being valid
+        my_spine_routers = self.getSpineRouters()
 
-                    (src_conn, dest_conn ) = src_rtr.connectTo(dest_rtr, ConnType.GLOBAL)
-                    self.groupConns.append(src_conn)
-                    gcb.dest_group.groupConns.append(dest_conn)
+        if TRUE_RANDOM:
+            random.shuffle(self.groupConns)
 
-                    dest_gcb = gcb.dest_group.groupConnBundles[self.group_id] #the group connection bundle from dest to src
-                    gcb.assignConnection(src_conn)
-                    dest_gcb.assignConnection(dest_conn)
-                
+        group_conns_used = 0
+        while (group_conns_used < len(self.groupConns)):
+            my_spine_routers = random.sample(my_spine_routers, len(my_spine_routers))
+            for router in my_spine_routers:
+                router.num_unbaked_global_connections += 1
+                self.groupConns[group_conns_used].setEndpoint(router)
+                group_conns_used += 1
+
+    def bakeGlobalConnections(self):
+        log("Group %d: baking global connections" % self.group_id, Loudness.LOUD)
+
+        for i, group_conn in enumerate(self.groupConns):
+            if group_conn.routers[0].group_id == self.group_id:
+                group_conn.routers[0].connectToOneWay(group_conn.routers[1], ConnType.GLOBAL)
+            elif group_conn.routers[1].group_id == self.group_id:
+                group_conn.routers[1].connectToOneWay(group_conn.routers[0], ConnType.GLOBAL)
+            else:
+                raise Exception("BakeGlobalConnections: Something went wrong...")
+
+
 
 
 class Router(object):
@@ -458,9 +448,19 @@ class Router(object):
         self.routerType = routerType
         self.local_connections = []
         self.global_connections = []
+        self.num_unbaked_global_connections = 0
         self.network = network
 
         log("New Router: GID: %d    LID: %d    Group %d" % (self.gid, self.local_id, self.group_id), Loudness.DEBUG)
+
+        # local_spinal_id = self.local_id - self.network.num_leaf_pg #what is my ID in terms of num spine
+        # other_groups = self.network.groups[group_id].getOtherGroupIDsStartingAfterMe(self.network.num_groups)
+        # other_groups_i_connect_to_std = [g for i,g in enumerate(other_groups) if i]
+        # other_groups_i_connect_to_start_index_std = (local_spinal_id * self.network.num_spine_pg) % len(other_groups)
+        # other_groups_i_connect_to_start_index_addtl_gc = (other_groups_i_connect_to_start_index_std - (self.network.num_global_links_per_spine - self.network.num_spine_pg)) % len(other_groups)
+
+
+
 
     def connectTo(self, other_rtr, connType):
         if connType is ConnType.GLOBAL:
@@ -471,8 +471,6 @@ class Router(object):
 
         self.addConnection(conn, connType)
         other_rtr.addConnection(oconn, connType)
-
-        return (conn, oconn)
 
     def connectToOneWay(self, other_rtr, connType): #connects without connecting backward - for use if you know your loop will double count
         if connType is ConnType.GLOBAL:
@@ -497,25 +495,6 @@ class Router(object):
             raise Exception("Invalid Connection Type")
 
         self.network.commitConnection(conn, conntype)
-
-    def getRoutersIConnectTo(self, connType):
-        other_routers = []
-        if connType is ConnType.GLOBAL:
-            other_routers.extend([conn.dest_router for conn in self.global_connections])
-        if connType is ConnType.LOCAL:
-            other_routers.extend([conn.dest_router for conn in self.local_connections])
-
-        return other_routers
-
-    def getGroupsIConnectTo(self):
-        other_groups = set()
-        for gc in self.global_connections:
-            if gc.dest_group not in other_groups:
-                other_groups.add(gc.dest_group)
-        return other_groups
-
-    def __hash__(self):
-        return self.gid
 
 
 class Connection(object):
@@ -543,29 +522,29 @@ class Connection(object):
         else:
             raise KeyError("Connection: Invalid __getitem__() key")
 
-class GroupConnectionBundle(object):
-    def __init__(self, src_group, dest_group, num_gc_between):
-        for i in range(num_gc_between):
-            log("Group %d -> Group %d" % (src_group.group_id, dest_group.group_id), Loudness.LOUD)
-
+class GroupConnection(object):
+    def __init__(self, src_group, dest_group):
         self.src_group = src_group
         self.dest_group = dest_group
-        self.num_gc_between = num_gc_between
-        self.assigned_num_gc_between = 0
-        self.assigned_conns = []
-    
-    def assignConnection(self, src_conn):
-        self.assigned_num_gc_between += 1
-        self.assigned_conns.append(src_conn)
-        if (len(self.assigned_conns) > self.num_gc_between):
-            raise Exception("GroupConnectionBundle: assigning too many connections!")
+        self.routers = []
 
+    def setEndpoint(self, rtr):
+        if len(self.routers) == 2:
+            raise Exception("GroupConnection: Can't supply more than 2 endpoints to a group connection")
+        
+        self.routers.append(rtr)
 
 def parseOptionArguments():
     global DRYRUN
     global LOUDNESS
     global SHOW_ADJACENCY
     global NO_OUTPUT_FILE
+    global TRUE_RANDOM
+
+    if "--true-random" in argv:
+        TRUE_RANDOM = True
+    else:
+        TRUE_RANDOM = False
 
     if "--debug" in argv:
         LOUDNESS = Loudness.DEBUG
@@ -651,6 +630,38 @@ def mainV3():
         A = dfp_network.getAdjacencyMatrix(AdjacencyType.ALL_CONNS)
         print(A.astype(int))
 
+
+# def mainV2():
+#     if(len(argv) < 8):
+#         raise Exception("Correct usage:  python %s <num_groups> <num_spine_pg> <num_leaf_pg> <router_radix> <terminals-per-leaf> <intra-file> <inter-file>" % sys.argv[0])
+
+#     num_groups = int(argv[1])
+#     num_spine_pg = int(argv[2])
+#     num_leaf_pg = int(argv[3])
+#     router_radix = int(argv[4])
+#     term_per_leaf = int(argv[5])
+#     intra_filename = argv[6]
+#     inter_filename = argv[7]
+
+#     parseOptionArguments()
+
+#     dfp_network = DragonflyPlusNetwork(num_groups, num_spine_pg, num_leaf_pg, router_radix, num_hosts_per_leaf=term_per_leaf)
+
+#     if not DRYRUN:
+#         dfp_network.writeIntraconnectionFile(intra_filename)
+#         dfp_network.writeInterconnectionFile(inter_filename)
+
+#     if LOUDNESS is not Loudness.QUIET:
+#         print("\nNOTE: THIS STILL CAN'T DO THE MED-LARGE TOPOLOGY RIGHT\n")
+
+#         print(dfp_network.getSummary())
+
+#     if SHOW_ADJACENCY == 1:
+#         print("\nPrinting Adjacency Matrix:")
+
+#         np.set_printoptions(linewidth=400,threshold=10000,edgeitems=200)
+#         A = dfp_network.getAdjacencyMatrix(AdjacencyType.ALL_CONNS)
+#         print(A.astype(int))
 
 if __name__ == '__main__':
     mainV3()

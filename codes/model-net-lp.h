@@ -24,6 +24,7 @@ extern "C" {
 #include "net/dragonfly.h"
 #include "net/dragonfly-custom.h"
 #include "net/dragonfly-plus.h"
+#include "net/dragonfly-dally.h"
 #include "net/slimfly.h"
 #include "net/fattree.h"
 #include "net/loggp.h"
@@ -133,6 +134,7 @@ typedef struct model_net_wrap_msg {
         terminal_message        m_dfly;  // dragonfly
         terminal_custom_message        m_custom_dfly;  // dragonfly-custom
         terminal_plus_message        m_dfly_plus;  // dragonfly plus
+        terminal_dally_message        m_dally_dfly;  // dragonfly dally
         slim_terminal_message   m_slim;  // slimfly
 	fattree_message		m_fat;   // fattree
         loggp_message           m_loggp; // loggp

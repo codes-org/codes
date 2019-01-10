@@ -375,7 +375,7 @@ static int write_id(char* directory, char* identifier, MPI_Comm comm)
             i--;
             buf = buf->next;
         }
-        MPI_Type_hindexed(id->buffers_count, lengths, displacements,
+        MPI_Type_create_hindexed(id->buffers_count, lengths, displacements,
             MPI_BYTE, &mtype);
         MPI_Type_commit(&mtype);
         free(lengths);

@@ -16,7 +16,7 @@ per compute node or one multi-port NIC per node.
 
 Adding a generic template for building new network models. For simplest case,
 only 2 functions and premable changes should suffice to add a new network.
-Updated Express Mesh network model to serve as an example. For details, see 
+Updated Express Mesh network model to serve as an example. For details, see
 
 Darshan workload generator has been updated to use Darshan version 3.x.
 
@@ -28,11 +28,11 @@ https://xgitlab.cels.anl.gov/codes/codes/wikis/Using-ROSS-Instrumentation-with-C
 Compatible with ROSS version that enables statistics collection of simulation
 performance. For details see:
 
-http://carothersc.github.io/ROSS/instrumentation/instrumentation.html
+http://ross-org.github.io/instrumentation/instrumentation.html
 
 Online workload replay functionality has been added that allows SWM workloads
 to be simulated insitu on the network models. WIP to integrate Conceptual
-domain specific language for network communication.  
+domain specific language for network communication.
 
 Multiple traffic patterns were added in the background traffic generation
 including stencil, all-to-all and random permutation.
@@ -93,7 +93,7 @@ Background network communication using uniform random workload can now be
 generated. The traffic generation gets automatically shut off when the main workload
 finishes.
 
-Collectives can now be translated into point to point using the CoRTex library. 
+Collectives can now be translated into point to point using the CoRTex library.
 
 Performance of MPI_AllReduce is reported when debug_cols option is enabled.
 

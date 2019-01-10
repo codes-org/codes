@@ -25,6 +25,8 @@ extern struct model_net_method dragonfly_method;
 extern struct model_net_method dragonfly_custom_method;
 extern struct model_net_method dragonfly_plus_method;
 extern struct model_net_method dragonfly_plus_router_method;
+extern struct model_net_method dragonfly_dally_method;
+extern struct model_net_method dragonfly_dally_router_method;
 extern struct model_net_method slimfly_method;
 extern struct model_net_method fattree_method;
 extern struct model_net_method dragonfly_router_method;
@@ -271,12 +273,12 @@ static model_net_event_return model_net_noop_event(
     model_net_event_return num_rng_calls = 0;
     tw_stime poffset = mn_in_sequence ? mn_msg_offset : 0.0;
     tw_stime delay = codes_local_latency(sender);
+    num_rng_calls++; // rng call is in codes_local_latency
 
     tw_stime sendTime = message_size * codes_cn_delay;
 
     if (self_event_size && self_event != NULL) {
         poffset += delay;
-        num_rng_calls++;
         tw_event *e = tw_event_new(sender->gid, poffset+offset+sendTime, sender);
         memcpy(tw_event_data(e), self_event, self_event_size);
         tw_event_send(e);
@@ -284,7 +286,6 @@ static model_net_event_return model_net_noop_event(
 
     if (remote_event_size && remote_event != NULL) {
         poffset += delay;
-        num_rng_calls++;
         /* special case - in a "pull" event, the "remote" message is actually
          * to self */
         tw_event *e = tw_event_new(is_pull ? sender->gid : final_dest_lp,
@@ -314,6 +315,7 @@ static model_net_event_return model_net_event_impl_base(
         void const * self_event,
         tw_lp *sender) {
 
+    
     if (remote_event_size + self_event_size + sizeof(model_net_wrap_msg)
             > g_tw_msg_sz){
         tw_error(TW_LOC, "Error: model_net trying to transmit an event of size "
@@ -328,11 +330,12 @@ static model_net_event_return model_net_event_impl_base(
     tw_lpid dest_mn_lp = model_net_find_local_device_mctx(net_id, recv_map_ctx,
             final_dest_lp);
 
-    if (src_mn_lp == dest_mn_lp && message_size < (uint64_t)codes_node_eager_limit)
+    if ( src_mn_lp == dest_mn_lp && message_size < (uint64_t)codes_node_eager_limit)
+    {
         return model_net_noop_event(final_dest_lp, is_pull, offset, message_size,
                 remote_event_size, remote_event, self_event_size, self_event,
                 sender);
-
+    }
     tw_stime poffset = codes_local_latency(sender);
     if (mn_in_sequence){
         tw_stime tmp = mn_msg_offset;
