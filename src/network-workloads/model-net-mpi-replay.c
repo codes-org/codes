@@ -2097,7 +2097,6 @@ static void update_message_time_rc(
 void nw_test_init(nw_state* s, tw_lp* lp)
 {
    /* initialize the LP's and load the data */
-
    memset(s, 0, sizeof(*s));
    s->nw_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
    s->mpi_wkld_samples = (struct mpi_workload_sample*)calloc(MAX_STATS, sizeof(struct mpi_workload_sample));
@@ -2688,7 +2687,7 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
         
         if(strcmp(workload_type, "swm-online") == 0) 
             codes_workload_finalize("swm_online_comm_workload", params, s->app_id, s->local_rank);
-        if(strcmp(workload_type, "conc-online") == 0) {
+        if(strcmp(workload_type, "conc-online") == 0)
             codes_workload_finalize("conc_online_comm_workload", params, s->app_id, s->local_rank);        
     }
 
@@ -3017,6 +3016,10 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
                 " for instructions on how to run the models with network traces ");
 	tw_end();
 	return -1;
+    }
+    /* Currently rendezvous protocol cannot work with Conceptual */
+    if(strcmp(workload_type, "conc-online") == 0) {
+        EAGER_THRESHOLD = INT64_MAX;
     }
 
 	jobmap_ctx = NULL; // make sure it's NULL if it's not used
