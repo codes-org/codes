@@ -18,6 +18,7 @@ argobots_libs=@ARGOBOTS_LIBS@
 argobots_cflags=@ARGOBOTS_CFLAGS@
 swm_libs=@SWM_LIBS@
 swm_cflags=@SWM_CFLAGS@
+swm_datarootdir=@SWM_DATAROOTDIR@
 
 Name: codes-base
 Description: Base functionality for CODES storage simulation
@@ -25,4 +26,4 @@ Version: @PACKAGE_VERSION@
 URL: http://trac.mcs.anl.gov/projects/CODES
 Requires:
 Libs: -L${libdir} -lcodes ${ross_libs} ${argobots_libs} ${swm_libs} ${darshan_libs} ${dumpi_libs} ${cortex_libs}
-Cflags: -I${includedir} ${swm_datarootdir} ${ross_cflags} ${darshan_cflags} ${swm_cflags} ${argobots_cflags} ${dumpi_cflags} ${cortex_cflags}
+Cflags: -I${includedir} -I${swm_datarootdir} ${ross_cflags} ${darshan_cflags} ${swm_cflags} ${argobots_cflags} ${dumpi_cflags} ${cortex_cflags}
