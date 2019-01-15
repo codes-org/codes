@@ -209,6 +209,8 @@ differentiation and prioritization. The models support quality of service by
 directing the network traffic on separate class of virtual channels. Additional
 documentation on using traffic classes can be found at the wiki link:
 
+https://xgitlab.cels.anl.gov/codes/codes/wikis/Quality-of-Service
+
 === Workload generator helpers
 
 The codes-jobmap API (codes/codes-jobmap.h) specifies mechanisms to initialize
