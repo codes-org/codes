@@ -950,10 +950,10 @@ static int comm_online_workload_finalize(const char* params, int app_id, int ran
 }
 extern "C" {
 /* workload method name and function pointers for the CODES workload API */
-struct codes_workload_method online_comm_workload_method =
+struct codes_workload_method swm_online_comm_workload_method =
 {
     //.method_name =
-    (char*)"online_comm_workload",
+    (char*)"swm_online_comm_workload",
     //.codes_workload_read_config = 
     NULL,
     //.codes_workload_load = 

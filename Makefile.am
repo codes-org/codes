@@ -61,8 +61,22 @@ endif
 
 if USE_ONLINE
 AM_CPPFLAGS += ${ARGOBOTS_CFLAGS} ${SWM_CFLAGS} -DUSE_ONLINE=1
-LDADD += ${SWM_LIBS} ${ARGOBOTS_LIBS}
+LDADD += ${ARGOBOTS_LIBS}
+if USE_SWM
+AM_CPPFLAGS += -DUSE_SWM=1
+LDADD += ${SWM_LIBS}
 src_libcodes_la_SOURCES += src/workload/methods/codes-online-comm-wrkld.C
+endif
+if USE_CONC
+src_libcodes_la_SOURCES += src/workload/methods/codes-conc-online-comm-wrkld.C
+AM_CPPFLAGS += ${CONCEPTUAL_CFLAGS} -DUSE_CONC=1
+LDADD += ${CONCEPTUAL_LIBS}
+src_libcodes_la_SOURCES += src/workload/conceputal-skeleton-apps/conc-bisect.c
+src_libcodes_la_SOURCES += src/workload/conceputal-skeleton-apps/conc-cosmoflow.c
+src_libcodes_la_SOURCES += src/workload/conceputal-skeleton-apps/conc-hotpotato.c
+src_libcodes_la_SOURCES += src/workload/conceputal-skeleton-apps/conc-latencyall.c
+src_libcodes_la_SOURCES += src/workload/conceputal-skeleton-apps/conc-latency.c
+endif
 endif
 
 if USE_DUMPI

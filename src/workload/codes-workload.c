@@ -34,9 +34,14 @@ extern struct codes_workload_method darshan_mpi_io_workload_method;
 #ifdef USE_RECORDER
 extern struct codes_workload_method recorder_io_workload_method;
 #endif
-#ifdef USE_ONLINE
-extern struct codes_workload_method online_comm_workload_method;
+
+#ifdef USE_SWM
+extern struct codes_workload_method swm_online_comm_workload_method;
 #endif
+#ifdef USE_CONC
+extern struct codes_workload_method conc_online_comm_workload_method;
+#endif
+
 extern struct codes_workload_method checkpoint_workload_method;
 extern struct codes_workload_method iomock_workload_method;
 
@@ -58,9 +63,13 @@ static struct codes_workload_method const * method_array_default[] =
 #endif
 
 #endif
-#ifdef USE_ONLINE
-    &online_comm_workload_method,
+#ifdef USE_SWM
+    &swm_online_comm_workload_method,
 #endif
+#ifdef USE_CONC
+    &conc_online_comm_workload_method,
+#endif
+
 #ifdef USE_RECORDER
     &recorder_io_workload_method,
 #endif

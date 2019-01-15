@@ -1,0 +1,23 @@
+# An all-pairs ping-pong latency test written in coNCePTuaL
+# By Scott Pakin <pakin@lanl.gov>
+
+Require language version "1.5".
+
+# Parse the command line.
+reps is "Number of repetitions of each message size" and comes from "--reps" or "-r" with default 1000.
+maxbytes is "Maximum number of bytes to transmit" and comes from "--maxbytes" or "-m" with default 1M.
+
+# Ensure that we have a peer with whom to communicate.
+Assert that "the latency test requires at least two tasks" with num_tasks>=2.
+
+# Perform the benchmark.
+For each msgsize in {0}, {1, 2, 4, ..., maxbytes} {
+  for reps repetitions {
+    tasks ev such that ev is even reset their counters then
+    tasks ev such that ev is even send a msgsize byte message to task ev+1 then
+    tasks od such that od is odd send a msgsize byte message to task od-1 then
+    tasks ev such that ev is even log the msgsize as "Bytes" and
+                                      the median of elapsed_usecs/2 as "1/2 RTT (usecs)"
+  } then
+  tasks ev such that ev is even compute aggregates
+}
