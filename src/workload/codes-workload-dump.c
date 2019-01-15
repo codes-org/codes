@@ -215,7 +215,7 @@ int main(int argc, char *argv[])
             wparams = (char*)&d_params;
         }
     }
-    else if(strcmp(type, "swm_online_comm_workload") == 0 || strcmp(type, "conc_online_comm_workload") == 0){
+    else if(strcmp(type, "online_comm_workload") == 0){
         if (n == -1){
             fprintf(stderr,
                     "Expected \"--num-ranks\" argument for online workload\n");
@@ -448,7 +448,7 @@ int main(int argc, char *argv[])
             }
         } while (op.op_type != CODES_WK_END);
 
-    if(strcmp(type, "swm_online_comm_workload") == 0 || strcmp(type, "conc_online_comm_workload") == 0)
+    if(strcmp(type, "online_comm_workload") == 0)
     {
         codes_workload_finalize(type, wparams, 0, i);
     }
