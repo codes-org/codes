@@ -202,6 +202,13 @@ should be everything up to the rank number. E.g., if the dumpi files are of the
 form "dumpi-YYYY.MM.DD.HH.MM.SS-XXXX.bin", then the input should be
 "dumpi-YYYY.MM.DD.HH.MM.SS-"
 
+=== Quality of Service
+
+Two models (dragonfly-dally.C and dragonfly-plus.C) can now support traffic 
+differentiation and prioritization. The models support quality of service by
+directing the network traffic on separate class of virtual channels. Additional
+documentation on using traffic classes can be found at the wiki link:
+
 === Workload generator helpers
 
 The codes-jobmap API (codes/codes-jobmap.h) specifies mechanisms to initialize
