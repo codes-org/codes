@@ -6,7 +6,8 @@ Contributors to date (in chronological order, with current affiliations)
 - Shane Snyder, Argonne National Labs
 - Jonathan P. Jenkins
 - Noah Wolfe, RPI
-- Nikhil Jain, Lawrence Livermore Labs
+- Nikhil Jain, Nvidia
+- Giorgis Georgakoudis, Lawrence Livermore Labs
 - Matthieu Dorier, Argonne National Labs
 - Caitlin Ross, RPI
 - Xu Yang, Amazon
