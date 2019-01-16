@@ -42,6 +42,8 @@ Notes on how to release a new version of CODES
   (replace the release tag as appropriate)
 
 4. Upload the release tarball
+- For release versions 1.1.0 and onwards, we have started uploading the tarballs directly at the CODES website instead of mounting on the FTP server.
+- For previous releases, we uploaded them on the ftp server. See notes below.
 - Our release directory is at ftp.mcs.anl.gov/pub/CODES/releases . There's no
   web interface, so you have to get onto an MCS workstation and copy the
   release in that way (the ftp server is mounted at /homes/ftp).
