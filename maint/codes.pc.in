@@ -16,16 +16,16 @@ boost_cflags=@BOOST_CFLAGS@
 boost_libs=@BOOST_LIBS@
 argobots_libs=@ARGOBOTS_LIBS@
 argobots_cflags=@ARGOBOTS_CFLAGS@
-conceptual_libs=@CONCEPTUAL_LIBS@
-conceptual_cflags=@CONCEPTUAL_CFLAGS@
 swm_libs=@SWM_LIBS@
 swm_cflags=@SWM_CFLAGS@
 swm_datarootdir=@SWM_DATAROOTDIR@
+conceptual_libs=@CONCEPTUAL_LIBS@
+conceptual_cflags=@CONCEPTUAL_CFLAGS@
 
 Name: codes-base
 Description: Base functionality for CODES storage simulation
 Version: @PACKAGE_VERSION@
 URL: http://trac.mcs.anl.gov/projects/CODES
 Requires:
-Libs: -L${libdir} -lcodes ${ross_libs} ${argobots_libs} ${conceptual_libs} ${swm_libs} ${darshan_libs} ${dumpi_libs} ${cortex_libs}
-Cflags: -I${includedir} ${swm_datarootdir} ${ross_cflags} ${darshan_cflags} ${swm_cflags} ${argobots_cflags} ${conceptual_cflags} ${dumpi_cflags} ${cortex_cflags}
+Libs: -L${libdir} -lcodes ${ross_libs} ${argobots_libs} ${swm_libs} ${darshan_libs} ${dumpi_libs} ${cortex_libs}
+Cflags: -I${includedir} -I${swm_datarootdir} ${ross_cflags} ${darshan_cflags} ${swm_cflags} ${argobots_cflags} ${dumpi_cflags} ${cortex_cflags}

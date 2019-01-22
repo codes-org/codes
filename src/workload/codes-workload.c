@@ -69,7 +69,6 @@ static struct codes_workload_method const * method_array_default[] =
 #ifdef USE_CONC
     &conc_online_comm_workload_method,
 #endif
-
 #ifdef USE_RECORDER
     &recorder_io_workload_method,
 #endif
