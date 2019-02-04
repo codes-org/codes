@@ -486,13 +486,13 @@ static void slimfly_read_config(const char * anno, slimfly_param *params){
     // shorthand
     slimfly_param *p = params;
 
-    p->sf_type = 1;
+    p->sf_type = 0;
     configuration_get_value_int(&config, "PARAMS", "sf_type", anno, &p->sf_type);
     if(!g_tw_mynode) printf("SF type is %d\n", p->sf_type);
 
     p->num_rails = 1;
     configuration_get_value_int(&config, "PARAMS", "num_rails", anno, &p->num_rails);
-    if(!g_tw_mynode) printf("FT num rails is %d\n", p->num_rails);
+    if(!g_tw_mynode) printf("SF num rails is %d\n", p->num_rails);
 
     p->ports_per_nic = 1;
     if(p->num_rails > 1)
