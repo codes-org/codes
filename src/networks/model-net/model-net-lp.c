@@ -15,6 +15,7 @@
 
 #define MN_NAME "model_net_base"
 
+#define DEBUG 0
 /**** BEGIN SIMULATION DATA STRUCTURES ****/
 
 int model_net_base_magic;
@@ -553,7 +554,7 @@ void model_net_base_event(
         tw_lp * lp){
 
     if(m->h.magic != model_net_base_magic)
-        printf("\n LP ID mismatched %llu %d ", lp->gid);
+        printf("\n LP ID mismatched %llu\n", lp->gid);
 
     assert(m->h.magic == model_net_base_magic);
 
@@ -632,6 +633,9 @@ void handle_new_msg(
         tw_bf *b,
         model_net_wrap_msg * m,
         tw_lp * lp){
+#if DEBUG
+    printf("%llu Entered handle_new_msg()\n",LLU(tw_now(lp)));
+#endif
     static int num_servers = -1;
     static int servers_per_node = -1;
     if(num_servers == -1) {
@@ -650,8 +654,8 @@ void handle_new_msg(
         if(!g_tw_mynode) {
             fprintf(stdout, "Set num_servers per router %d, servers per "
                 "injection queue per router %d, servers per node copy queue "
-                "per node %d\n", num_servers, servers_per_node,
-                servers_per_node_queue);
+                "per node %d, num nics %d\n", num_servers, servers_per_node,
+                servers_per_node_queue, ns->nics_per_router);
         }
     }
 
@@ -667,6 +671,7 @@ void handle_new_msg(
         exp_time -= tw_now(lp);
         tw_stime delay = codes_local_latency(lp);
         ns->node_copy_next_available_time[queue] = tw_now(lp) + exp_time;
+        // ns->node_copy_next_available_time[queue] = exp_time;
         int remote_event_size = r->remote_event_size;
         int self_event_size = r->self_event_size;
         void *e_msg = (m+1);
@@ -709,6 +714,9 @@ void handle_new_msg(
         }
         m_new->msg.m_base.isQueueReq = 0;
         tw_event_send(e);
+#if DEBUG
+        printf("%llu isQueueReq and dropping outof handle_new_msg(\n",LLU(tw_now(lp)));
+#endif
         return;
     }
     // simply pass down to the scheduler
@@ -741,10 +749,20 @@ void handle_new_msg(
         } else {
             codes_mapping_get_lp_info2(r->src_lp, NULL, NULL, NULL, &rep_id, &offset);
         }
-        queue_offset = offset/servers_per_node;
+#if DEBUG
+        printf("r->src_lp:%llu, num_servers:%d num_queues:%d, offset:%d servers_per_node:%d\n",LLU(r->src_lp), num_servers, ns->params->num_queues, offset, servers_per_node);
+#endif
+        queue_offset = (offset/servers_per_node) % ns->params->num_queues;
     }
     r->queue_offset = queue_offset;
+#if DEBUG
+    printf("queue_offset:%d\n",queue_offset);
+#endif
+    //printf("num_queues:%d q0_loop:%d q1_loop:%d\n",ns->params->num_queues,ns->in_sched_send_loop[0], ns->in_sched_send_loop[1]);
 
+    //for(int j=0; j<ns->params->num_queues; j++){
+    //    queue_offset = j;
+    //    r->queue_offset = j;
     // set message-specific params
     int is_from_remote = m->msg.m_base.is_from_remote;
     model_net_sched *ss = is_from_remote ? ns->sched_recv : ns->sched_send[queue_offset];
@@ -760,6 +778,9 @@ void handle_new_msg(
         /* NOTE: we can do this because the sched rc struct in the event is
          * *very* lightly used (there's harmless overlap in usage for the
          * priority scheduler) */
+#if DEBUG
+        printf("%llu handle_shed_next() from handle_new_msg()\n",LLU(tw_now(lp)));
+#endif
         handle_sched_next(ns, b, m, lp);
         assert(*in_sched_loop); // we shouldn't have fallen out of the loop
     }
@@ -804,6 +825,9 @@ void handle_sched_next(
         tw_bf *b,
         model_net_wrap_msg * m,
         tw_lp * lp){
+#if DEBUG
+    printf("%llu handle sched_next function\n",LLU(tw_now(lp)));
+#endif
     tw_stime poffset;
     model_net_request *r = &m->msg.m_base.req;
     int is_from_remote = m->msg.m_base.is_from_remote;
@@ -813,6 +837,9 @@ void handle_sched_next(
     int ret = model_net_sched_next(&poffset, ss, m+1, &m->msg.m_base.rc, lp);
     // we only need to know whether scheduling is finished or not - if not,
     // go to the 'next iteration' of the loop
+#if DEBUG
+    printf("return value from model_net_sched_next(): %d in_sched_loop changing from %d to 0\n",ret,*in_sched_loop);
+#endif
     if (ret == -1){
         b->c0 = 1;
         *in_sched_loop = 0;
@@ -941,6 +968,9 @@ void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue,
     tw_event *e = tw_event_new(lp->gid, offset_ts, lp);
     model_net_wrap_msg *m_wrap = tw_event_data(e);
     model_net_request *r_wrap = &m_wrap->msg.m_base.req;
+#if DEBUG
+    printf("%llu handle_sched_next() from model_net_method_idle_event2()\n",LLU(tw_now(lp)));
+#endif
     msg_set_header(model_net_base_magic, MN_BASE_SCHED_NEXT, lp->gid,
             &m_wrap->h);
     m_wrap->msg.m_base.is_from_remote = is_recv_queue;
