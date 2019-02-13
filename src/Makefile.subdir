@@ -198,6 +198,7 @@ bin_PROGRAMS += src/network-workloads/model-net-dumpi-traces-dump
 bin_PROGRAMS += src/network-workloads/model-net-synthetic
 bin_PROGRAMS += src/network-workloads/model-net-synthetic-custom-dfly
 bin_PROGRAMS += src/network-workloads/model-net-synthetic-slimfly
+bin_PROGRAMS += src/network-workloads/model-net-synthetic-all
 bin_PROGRAMS += src/network-workloads/model-net-synthetic-fattree
 bin_PROGRAMS += src/network-workloads/model-net-synthetic-dfly-plus
 bin_PROGRAMS += src/network-workloads/model-net-synthetic-dally-dfly
