@@ -1449,7 +1449,6 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
     tw_event *e;
     slim_terminal_message *m;
 
-    //printf("%llu packet_send()\n",LLU(tw_now(lp)));
 
     slim_terminal_message_list* cur_entry = s->terminal_msgs[msg->vc_index];
   if(s->vc_occupancy[msg->vc_index] + s->params->chunk_size > s->params->cn_vc_size)
@@ -3611,7 +3610,6 @@ void slim_router_event(router_state * s, tw_bf * bf, slim_terminal_message * msg
 /* Reverse computation handler for a terminal event */
 void slim_terminal_rc_event_handler(terminal_state * s, tw_bf * bf,
         slim_terminal_message * msg, tw_lp * lp) {
-
     switch(msg->type)
     {
         case T_GENERATE:
@@ -3692,7 +3690,6 @@ void slimfly_event_collect(slim_terminal_message *m, tw_lp *lp, char *buffer, in
 {
     (void)lp;
     (void)collect_flag;
-
     int type = (int) m->type;
     memcpy(buffer, &type, sizeof(type));
 }

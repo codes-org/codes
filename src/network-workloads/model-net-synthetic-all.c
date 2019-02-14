@@ -51,7 +51,7 @@ static char lp_type_name[MAX_NAME_LENGTH];
 static int group_index, lp_type_index, rep_id, offset;
 
 /* 2D rank communication heat map */
-static int **comm_map;
+// static int **comm_map;
 
 /* Function for computing local and global connections for a given router id */
 static void get_router_connections(int src_router_id, int* local_channels, int* global_channels);
@@ -539,7 +539,6 @@ static void issue_event(
         printf("MEAN_INTERVAL:%f\n",MEAN_INTERVAL);
         printf("kickoff_time:%f\n",kickoff_time);
     }*/
-
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
     m->svr_event_type = KICKOFF;
@@ -550,13 +549,16 @@ static void svr_init(
         svr_state * ns,
         tw_lp * lp)
 {
+    int myRank;
+    MPI_Comm_rank(MPI_COMM_CODES, &myRank);
+
     // Initiailize comm_map 2D array
-    if(!lp->gid){
-        comm_map = (int**)malloc(num_nodes*sizeof(int*));
-        for(int i=0; i<num_nodes; i++){
-            comm_map[i] = (int*)calloc(num_nodes,sizeof(int));
-        }
-    }
+    // if(!lp->gid){
+    //     comm_map = (int**)malloc(num_nodes*sizeof(int*));
+    //     for(int i=0; i<num_nodes; i++){
+    //         comm_map[i] = (int*)calloc(num_nodes,sizeof(int));
+    //     }
+    // }
 
     ns->msg_send_times = (int*)calloc(num_msgs*2,sizeof(int));
     ns->msg_recvd_times = (int*)calloc(num_msgs*2,sizeof(int));
@@ -591,7 +593,6 @@ static void handle_kickoff_event(
         tw_lp * lp)
 {
     (void)m;
-
     if(traffic == SCATTER){
         if(ns->msg_sent_count/(num_nodes-1) >= num_msgs){
             m->incremented_flag = 1;
@@ -621,7 +622,7 @@ static void handle_kickoff_event(
 
     codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
 
-    int num_server_lps = codes_mapping_get_lp_count(group_name, 1, "server", NULL, 0);
+    int num_server_lps = codes_mapping_get_lp_count(group_name, 1, "nw-lp", NULL, 0);
 
     int src_terminal_id, src_router_id, dst_router_id;
 
@@ -776,7 +777,7 @@ static void handle_kickoff_event(
         // Get global/lp ID of the destination
         codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest[i] / num_servers_per_rep, local_dest[i] % num_servers_per_rep, &global_dest);
         // Increment send count in communication heat map
-        comm_map[server_id][local_dest[i]]++;
+        // comm_map[server_id][local_dest[i]]++;
         // Increment send count
         ns->msg_sent_count++;
         // Issue event
@@ -784,7 +785,7 @@ static void handle_kickoff_event(
             ns->msg_send_times[ns->msg_sent_count-1] = (int)(tw_now(lp));
             printf("\x1b[35m(%lf) Sending Message %d from server\x1b[0m\n",tw_now(lp),ns->msg_sent_count-1);
         }
-        model_net_event(net_id, "test", global_dest, payload_size, i*0.2, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+        m->event_rc = model_net_event(net_id, "test", global_dest, payload_size, i*0.2, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
         //printf("%llu kickoff_event() with ts offset: %f\n",LLU(tw_now(lp)),i*0.2);
     }
     issue_event(ns, lp);
@@ -862,7 +863,7 @@ static void svr_finalize(
 
     if(lp->gid == 0){
         written = sprintf(ns->output_buf, "# Format <LP id> <Msgs Sent> <Msgs Recvd> <Bytes Sent> <Bytes Recvd> <Offered Load [GBps]> <Observed Load [GBps]> <End Time [ns]> <Observed Load Time [ns]>\n");
-        written2 = sprintf(ns->output_buf2, "# Format <server ID> <sends to svr 0> <sends to svr 1> ... <sends to svr N>\n");
+        // written2 = sprintf(ns->output_buf2, "# Format <server ID> <sends to svr 0> <sends to svr 1> ... <sends to svr N>\n");
         written3 = sprintf(ns->output_buf3, "# Format <Server ID> <Msg ID> <Send Time> <Recv Time>\n");
     }
 
@@ -877,12 +878,12 @@ static void svr_finalize(
     codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
     // Compute current server's local/relative ID
     int server_id = rep_id * num_server_lps + offset;
-    written2 += sprintf(ns->output_buf2 + written2, "%d ", server_id);
-    for(int j=0; j<num_nodes; j++){
-        written2 += sprintf(ns->output_buf2 + written2, "%d ", comm_map[server_id][j]);
-    }
-    written2 += sprintf(ns->output_buf2 + written2, "\n");
-    lp_io_write(lp->gid, "communication-map", written2, ns->output_buf2);
+    // written2 += sprintf(ns->output_buf2 + written2, "%d ", server_id);
+    // for(int j=0; j<num_nodes; j++){
+    //     written2 += sprintf(ns->output_buf2 + written2, "%d ", comm_map[server_id][j]);
+    // }
+    // written2 += sprintf(ns->output_buf2 + written2, "\n");
+    // lp_io_write(lp->gid, "communication-map", written2, ns->output_buf2);
 
     if(traffic == PING){
         for(int j=0; j<num_msgs*2; j++)
@@ -952,6 +953,7 @@ int main(
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
 
+    codes_comm_update();
     if(argc < 2)
     {
         printf("\n Usage: mpirun <args> --sync=2/3 mapping_file_name.conf (optional --nkp) ");
@@ -959,10 +961,10 @@ int main(
         return 0;
     }
 
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Comm_rank(MPI_COMM_CODES, &rank);
+    MPI_Comm_size(MPI_COMM_CODES, &nprocs);
 
-    configuration_load(argv[2], MPI_COMM_WORLD, &config);
+    configuration_load(argv[2], MPI_COMM_CODES, &config);
     model_net_register();
     svr_add_lp_type();
 
@@ -998,7 +1000,7 @@ int main(
     {
         do_lp_io = 1;
         int flags = lp_io_use_suffix ? LP_IO_UNIQ_SUFFIX : 0;
-        int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_WORLD);
+        int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_CODES);
         assert(ret == 0 || !"lp_io_prepare failure");
     }
 
@@ -1068,12 +1070,10 @@ int main(
 
     tw_run();
 
-
     if (do_lp_io){
-        int ret = lp_io_flush(io_handle, MPI_COMM_WORLD);
+        int ret = lp_io_flush(io_handle, MPI_COMM_CODES);
         assert(ret == 0 || !"lp_io_flush failure");
     }
-
     model_net_report_stats(net_id);
 
     tw_end();
