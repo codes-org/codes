@@ -782,7 +782,7 @@ void handle_new_msg(
         printf("%llu handle_shed_next() from handle_new_msg()\n",LLU(tw_now(lp)));
 #endif
         handle_sched_next(ns, b, m, lp);
-        // assert(*in_sched_loop); // we shouldn't have fallen out of the loop - Note: TODO this was commented out to allow for injection above 100% bandwidth
+        assert(*in_sched_loop); // we shouldn't have fallen out of the loop - Note: TODO this was commented out to allow for injection above 100% bandwidth
     }
 }
 
@@ -840,7 +840,7 @@ void handle_sched_next(
 #if DEBUG
     printf("return value from model_net_sched_next(): %d in_sched_loop changing from %d to 0\n",ret,*in_sched_loop);
 #endif
-    if (ret == -1 || ret == 1){ //Note TODO: this ret == 1 was included to allow for injection above 100% bandwidth
+    if (ret == -1){
         b->c0 = 1;
         *in_sched_loop = 0;
     }
