@@ -560,6 +560,12 @@ static void svr_init(
     //     }
     // }
 
+    ns->msg_sent_count = 0;
+    ns->msg_recvd_count = 0;
+    ns->local_recvd_count = 0;
+    ns->start_ts = 0.0;
+    ns->end_ts = 0.0;
+
     ns->msg_send_times = (int*)calloc(num_msgs*2,sizeof(int));
     ns->msg_recvd_times = (int*)calloc(num_msgs*2,sizeof(int));
 
@@ -581,10 +587,10 @@ static void handle_kickoff_rev_event(
         if(b->c1)
             tw_rand_reverse_unif(lp->rng);
 
-    ns->msg_sent_count--;
+    ns->msg_sent_count--; //NM: TODO: this doesn't take into account when num_transfers isn't 1
     model_net_event_rc2(lp, &m->event_rc);
 
-    tw_rand_reverse_unif(lp->rng);
+    // tw_rand_reverse_unif(lp->rng); //NM: I can't find the corresponding rand call for this
 }	
 static void handle_kickoff_event(
         svr_state * ns,
@@ -785,10 +791,12 @@ static void handle_kickoff_event(
             ns->msg_send_times[ns->msg_sent_count-1] = (int)(tw_now(lp));
             printf("\x1b[35m(%lf) Sending Message %d from server\x1b[0m\n",tw_now(lp),ns->msg_sent_count-1);
         }
+        //TODO this event_rc should be an array or something maybe since there are a number of transfers possibly greater than 1. 
         m->event_rc = model_net_event(net_id, "test", global_dest, payload_size, i*0.2, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
         //printf("%llu kickoff_event() with ts offset: %f\n",LLU(tw_now(lp)),i*0.2);
     }
     issue_event(ns, lp);
+    free(local_dest);
     return;
 }
 
