@@ -1359,6 +1359,14 @@ void slim_packet_generate(terminal_state * s, tw_bf * bf, slim_terminal_message 
         s->terminal_length[target_queue] += s->params->chunk_size;
     }
 
+    // if(s->terminal_length[target_queue] < s->params->cn_vc_size) {
+    //     model_net_method_idle_event2(nic_ts, 0, msg->rail_id, lp);
+    // } else {
+    //     bf->c11 = 1;
+    //     s->issueIdle[msg->rail_id] = 1;
+    //     msg->saved_busy_time = s->last_buf_full[msg->rail_id];
+    //     s->last_buf_full[msg->rail_id] = tw_now(lp);
+    // }
     for(int j=0; j<s->params->ports_per_nic; j++){
         if(s->terminal_length[j] < s->params->cn_vc_size)
         {
@@ -1744,7 +1752,7 @@ void slim_packet_arrive(terminal_state * s, tw_bf * bf, slim_terminal_message * 
     // no method_event here - message going to router
     tw_event * buf_e;
     slim_terminal_message * buf_msg;
-    buf_e = tw_event_new(msg->intm_lp_id, ts, lp);
+    buf_e = tw_event_new(s->router_lp[msg->rail_id], ts, lp);
     buf_msg = tw_event_data(buf_e);
     buf_msg->magic = slim_router_magic_num;
     buf_msg->vc_index = msg->vc_index;
@@ -1842,8 +1850,11 @@ void slim_packet_arrive(terminal_state * s, tw_bf * bf, slim_terminal_message * 
         s->rank_tbl_pop++;
 
         hash_link = &(d_entry->hash_link);
-        tmp = d_entry;
+        // tmp = d_entry;
     }
+
+    if(hash_link)
+        tmp = qhash_entry(hash_link, struct sfly_qhash_entry, hash_link);
 
     assert(tmp);
     tmp->num_chunks++;
@@ -1909,7 +1920,7 @@ void slim_terminal_buf_update_rc(terminal_state * s,
     s->vc_occupancy[msg->vc_index] += s->params->chunk_size;
     codes_local_latency_reverse(lp);
     if(bf->c1) {
-        s->in_send_loop = 0;
+        s->in_send_loop[msg->vc_index] = 0;
     }
     return;
 }
