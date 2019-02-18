@@ -38,8 +38,10 @@
 #define SLIMFLY_CONNECTIONS 1
 #define MSG_TIMES 0       //Collects msg send times and outputs lp-io-dir
 
-#define LP_CONFIG_NM (model_net_lp_config_names[SLIMFLY])
-#define LP_METHOD_NM (model_net_method_names[SLIMFLY])
+#define LP_CONFIG_NM_TERM (model_net_lp_config_names[SLIMFLY])
+#define LP_METHOD_NM_TERM (model_net_method_names[SLIMFLY])
+#define LP_CONFIG_NM_ROUT (model_net_lp_config_names[SLIMFLY_ROUTER])
+#define LP_METHOD_NM_ROUT (model_net_method_names[SLIMFLY_ROUTER])
 
 /* Begin Visualization Piece */
 #define TERMINAL_SENDS_RECVS_LOG 0
@@ -479,10 +481,10 @@ static slim_terminal_message_list* return_tail(
 
 static void slimfly_read_config(const char * anno, slimfly_param *params){
     uint32_t h1 = 0, h2 = 0;
-    bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
-    slim_terminal_magic_num = h1 + h2;
-    bj_hashlittle2(LP_METHOD_NM, strlen(LP_METHOD_NM), &h1, &h2);
+    bj_hashlittle2(LP_METHOD_NM_ROUT, strlen(LP_METHOD_NM_ROUT), &h1, &h2);
     slim_router_magic_num = h1 + h2;
+    bj_hashlittle2(LP_METHOD_NM_TERM, strlen(LP_METHOD_NM_TERM), &h1, &h2);
+    slim_terminal_magic_num = h1 + h2;
     // shorthand
     slimfly_param *p = params;
 
@@ -665,7 +667,7 @@ static void slimfly_read_config(const char * anno, slimfly_param *params){
 }
 
 static void slimfly_configure(){
-    anno_map = codes_mapping_get_lp_anno_map(LP_CONFIG_NM);
+    anno_map = codes_mapping_get_lp_anno_map(LP_CONFIG_NM_TERM);
     assert(anno_map);
     num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
     all_params = malloc(num_params * sizeof(*all_params));
@@ -853,12 +855,11 @@ void slim_terminal_init( terminal_state * s,
         s->params = &all_params[id];
     }
 
-    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
+    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
             s->anno, 0);
 
-    int num_routers = codes_mapping_get_lp_count(lp_group_name, 0 ,"slimfly_router",
+    int num_routers = codes_mapping_get_lp_count(lp_group_name, 0 ,"modelnet_slimfly_router",
             s->anno, 0);
-
 #if MSG_TIMES
     s->msg_send_times = (int*)calloc(200,sizeof(int));
     s->msg_rail_select = (int*)calloc(200,sizeof(int));
@@ -868,7 +869,7 @@ void slim_terminal_init( terminal_state * s,
     s->router_id=(int)s->terminal_id / (num_lps);
     s->router_lp=(tw_lpid*)calloc(s->params->ports_per_nic, sizeof(tw_lpid));
     //Assign router from first rail
-    codes_mapping_get_lp_id(lp_group_name, "slimfly_router", NULL, 1,
+    codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1,
             s->router_id, 0, &s->router_lp[0]);
     //s->router_lp[0] = codes_mapping_get_lpid_from_relative(s->router_id,
     //    lp_group_name, "slimfly_router", NULL, 0);
@@ -878,7 +879,7 @@ void slim_terminal_init( terminal_state * s,
 #endif
     //Assign router from second rail
     if(s->params->sf_type == 1){
-        codes_mapping_get_lp_id(lp_group_name, "slimfly_router", NULL, 1,
+        codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1,
             (num_routers-1) - s->router_id - (num_routers/2), 1, &s->router_lp[1]);
 #if SLIMFLY_CONNECTIONS
         written += sprintf(s->output_buf + written, "%d, %d, ", s->terminal_id, s->params->slim_total_terminals + (num_routers-1) - s->router_id);
@@ -1189,8 +1190,7 @@ void slim_router_credit_send(router_state * s, slim_terminal_message * msg, tw_l
                 (void**)&buf_msg, NULL);
         buf_msg->magic = slim_terminal_magic_num;
     } else {
-        buf_e = tw_event_new(dest, ts , lp);
-        buf_msg = tw_event_data(buf_e);
+        buf_e = model_net_method_event_new(dest, ts, lp, SLIMFLY_ROUTER, (void**)&buf_msg, NULL);
         buf_msg->magic = slim_router_magic_num;
     }
 
@@ -1297,7 +1297,7 @@ void slim_packet_generate(terminal_state * s, tw_bf * bf, slim_terminal_message 
                 &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id,
                 &mapping_offset);
         // Get number of terminal LPs per repetition so we can calculate local/relative router ID for the destination terminal
-        int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
+        int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
                 s->anno, 0);
         // Compute relative id of router in the first rail that is connected to the destination terminal
         int rail_one_dest_router_rel_id = (mapping_offset + (mapping_rep_id * num_lps)) / s->params->num_cn;
@@ -1513,13 +1513,14 @@ void slim_packet_send(terminal_state * s, tw_bf * bf, slim_terminal_message * ms
     codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
             &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
     // we are sending an event to the router, so no method_event here
-    e = tw_event_new(s->router_lp[msg->vc_index], ts, lp);
-    m = tw_event_data(e);
+    void *remote_event;
+    e = model_net_method_event_new(s->router_lp[msg->vc_index], ts, lp, SLIMFLY_ROUTER, (void**)&m, &remote_event);
     memcpy(m, &cur_entry->msg, sizeof(slim_terminal_message));
     if (m->remote_event_size_bytes)
-    {
-        memcpy(model_net_method_get_edata(SLIMFLY, m), cur_entry->event_data,
-                m->remote_event_size_bytes);
+    {   
+        memcpy(remote_event, cur_entry->event_data, m->remote_event_size_bytes);
+        // memcpy(model_net_method_get_edata(SLIMFLY, m), cur_entry->event_data,
+        //         m->remote_event_size_bytes);
     }
 
     //if((int)lp->gid == 49)
@@ -1723,7 +1724,7 @@ void slim_send_remote_event(terminal_state * s, slim_terminal_message * msg, tw_
             codes_mctx_set_global_direct(msg->sender_mn_lp);
         struct codes_mctx mc_src =
             codes_mctx_set_global_direct(lp->gid);
-        int net_id = model_net_get_id(LP_METHOD_NM);
+        int net_id = model_net_get_id(LP_METHOD_NM_TERM);
 
         model_net_set_msg_param(MN_MSG_PARAM_START_TIME, MN_MSG_PARAM_START_TIME_VAL, &(msg->msg_start_time));
 
@@ -1752,8 +1753,7 @@ void slim_packet_arrive(terminal_state * s, tw_bf * bf, slim_terminal_message * 
     // no method_event here - message going to router
     tw_event * buf_e;
     slim_terminal_message * buf_msg;
-    buf_e = tw_event_new(s->router_lp[msg->rail_id], ts, lp);
-    buf_msg = tw_event_data(buf_e);
+    buf_e = model_net_method_event_new(s->router_lp[msg->rail_id], ts, lp, SLIMFLY_ROUTER, (void**)&buf_msg, NULL);
     buf_msg->magic = slim_router_magic_num;
     buf_msg->vc_index = msg->vc_index;
     buf_msg->output_chan = msg->output_chan;
@@ -2835,9 +2835,9 @@ tw_lpid slim_get_next_stop(router_state * s,
         msg->intm_router_id = intm_id;
         next_stop_rel_id=getMinimalRouterFromEquations(msg, msg->intm_router_id, s);
         if(next_stop_rel_id > s->params->slim_total_routers-1)
-            codes_mapping_get_lp_id(lp_group_name, "slimfly_router", NULL, 1, next_stop_rel_id - s->params->slim_total_routers, 1, &next_stop_lp_id);
+            codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, next_stop_rel_id - s->params->slim_total_routers, 1, &next_stop_lp_id);
         else
-            codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, next_stop_rel_id, 0, &next_stop_lp_id);
+            codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", s->anno, 0, next_stop_rel_id, 0, &next_stop_lp_id);
 #if TRACK_OUTPUT
         //if( msg->packet_ID == TRACK )
         {
@@ -2862,9 +2862,9 @@ tw_lpid slim_get_next_stop(router_state * s,
     {
         next_stop_rel_id=getMinimalRouterFromEquations(msg, msg->intm_router_id, s);
         if(next_stop_rel_id > s->params->slim_total_routers-1)
-            codes_mapping_get_lp_id(lp_group_name, "slimfly_router", NULL, 1, next_stop_rel_id - s->params->slim_total_routers, 1, &next_stop_lp_id);
+            codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, next_stop_rel_id - s->params->slim_total_routers, 1, &next_stop_lp_id);
         else
-            codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, next_stop_rel_id, 0, &next_stop_lp_id);
+            codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", s->anno, 0, next_stop_rel_id, 0, &next_stop_lp_id);
 #if TRACK_OUTPUT
         //if( msg->packet_ID == TRACK )
         {
@@ -2878,9 +2878,9 @@ tw_lpid slim_get_next_stop(router_state * s,
     {
         next_stop_rel_id=getMinimalRouterFromEquations(msg, dest_router_rel_id, s);
         if(next_stop_rel_id > s->params->slim_total_routers-1)
-            codes_mapping_get_lp_id(lp_group_name, "slimfly_router", NULL, 1, next_stop_rel_id - s->params->slim_total_routers, 1, &next_stop_lp_id);
+            codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, next_stop_rel_id - s->params->slim_total_routers, 1, &next_stop_lp_id);
         else
-            codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, next_stop_rel_id, 0, &next_stop_lp_id);
+            codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", s->anno, 0, next_stop_rel_id, 0, &next_stop_lp_id);
 #if TRACK_OUTPUT
         //if( msg->packet_ID == TRACK )
         {
@@ -2896,9 +2896,9 @@ tw_lpid slim_get_next_stop(router_state * s,
     }
 
     if(next_stop_rel_id > s->params->slim_total_routers-1)
-        codes_mapping_get_lp_id(lp_group_name, "slimfly_router", NULL, 1, next_stop_rel_id - s->params->slim_total_routers, 1, &next_stop_lp_id);
+        codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, next_stop_rel_id - s->params->slim_total_routers, 1, &next_stop_lp_id);
     else
-        codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, next_stop_rel_id, 0, &next_stop_lp_id);
+        codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", s->anno, 0, next_stop_rel_id, 0, &next_stop_lp_id);
     //printf("next_stop_rel_id:%d, next_stop_lp_id:%llu\n",next_stop_rel_id,LLU(next_stop_lp_id));
 
 #if TRACK_OUTPUT
@@ -2928,7 +2928,7 @@ int slim_get_output_port( router_state * s,
     codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name,
             &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id,
             &mapping_offset);
-    int num_lps = codes_mapping_get_lp_count(lp_group_name,1,LP_CONFIG_NM,s->anno,0);
+    int num_lps = codes_mapping_get_lp_count(lp_group_name,1,LP_CONFIG_NM_TERM,s->anno,0);
     terminal_id = (mapping_rep_id * num_lps) + mapping_offset;
 
     if(next_stop_lp_id == msg->dest_terminal_id)
@@ -2987,9 +2987,9 @@ static int do_adaptive_routing( router_state * s,
     //Compute the next stop on the minimal path and get port number
     int minimal_next_stop_rel_id = getMinimalRouterFromEquations(msg, dest_router_rel_id, s);
     if(minimal_next_stop_rel_id > s->params->slim_total_routers-1)
-        codes_mapping_get_lp_id(lp_group_name, "slimfly_router", NULL, 1, minimal_next_stop_rel_id - s->params->slim_total_routers, 1, &minimal_next_stop_lp_id);
+        codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, minimal_next_stop_rel_id - s->params->slim_total_routers, 1, &minimal_next_stop_lp_id);
     else
-        codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, minimal_next_stop_rel_id, 0, &minimal_next_stop_lp_id);
+        codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", s->anno, 0, minimal_next_stop_rel_id, 0, &minimal_next_stop_lp_id);
     minimal_out_port = slim_get_output_port(s, msg, lp, minimal_next_stop_lp_id);
 
     //Compute the next stop on the non-minimal paths and get port number
@@ -2999,9 +2999,9 @@ static int do_adaptive_routing( router_state * s,
         nonmin_next_stop_rel_id = getMinimalRouterFromEquations(msg, intm_id[i], s);
         //codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, nonmin_next_stop_rel_id, 0, &nonmin_next_stop_lp_id[i]);
         if(nonmin_next_stop_rel_id > s->params->slim_total_routers-1)
-            codes_mapping_get_lp_id(lp_group_name, "slimfly_router", NULL, 1, nonmin_next_stop_rel_id - s->params->slim_total_routers, 1, &nonmin_next_stop_lp_id[i]);
+            codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, nonmin_next_stop_rel_id - s->params->slim_total_routers, 1, &nonmin_next_stop_lp_id[i]);
         else
-            codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, nonmin_next_stop_rel_id, 0, &nonmin_next_stop_lp_id[i]);
+            codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", s->anno, 0, nonmin_next_stop_rel_id, 0, &nonmin_next_stop_lp_id[i]);
         nonmin_out_port[i] = slim_get_output_port(s, msg, lp, nonmin_next_stop_lp_id[i]);
     }
 
@@ -3141,7 +3141,7 @@ slim_router_packet_receive( router_state * s,
     codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name,
             &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id,
             &mapping_offset);
-    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM,
+    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
             s->anno, 0);
     // Compute relative id of router in the first rail that is connected to the destination node
     int rail_one_dest_router_rel_id = (mapping_offset + (mapping_rep_id * num_lps)) /
@@ -3225,7 +3225,7 @@ slim_router_packet_receive( router_state * s,
     assert(cur_chunk->msg.path_type == MINIMAL || cur_chunk->msg.path_type == NON_MINIMAL);
     if(msg->remote_event_size_bytes > 0)
     {
-        void *m_data_src = model_net_method_get_edata(SLIMFLY, msg);
+        void *m_data_src = model_net_method_get_edata(SLIMFLY_ROUTER, msg);
         cur_chunk->event_data = (char*)calloc(1,msg->remote_event_size_bytes);
         memcpy(cur_chunk->event_data, m_data_src, msg->remote_event_size_bytes);
     }
@@ -3303,8 +3303,7 @@ slim_router_packet_receive( router_state * s,
             bf->c3 = 1;
             slim_terminal_message *m;
             ts = codes_local_latency(lp);
-            tw_event *e = tw_event_new(lp->gid, ts, lp);
-            m = tw_event_data(e);
+            tw_event *e = model_net_method_event_new(lp->gid, ts, lp, SLIMFLY_ROUTER, (void**)&m, NULL);
             m->type = R_SEND;
             m->magic = slim_router_magic_num;
             m->vc_index = output_port;
@@ -3471,10 +3470,8 @@ slim_router_packet_send( router_state * s,
     }
     else
     {
-        e = tw_event_new(cur_entry->msg.next_stop,
-                s->next_output_available_time[output_port] - tw_now(lp), lp);
-        m = tw_event_data(e);
-        m_data = model_net_method_get_edata(SLIMFLY, m);
+        e = model_net_method_event_new(cur_entry->msg.next_stop, s->next_output_available_time[output_port] - tw_now(lp), lp,
+            SLIMFLY_ROUTER, (void**)&m, &m_data);
     }
     memcpy(m, &cur_entry->msg, sizeof(slim_terminal_message));
     if (m->remote_event_size_bytes){
@@ -3532,8 +3529,7 @@ slim_router_packet_send( router_state * s,
         bf->c3 = 1;
         slim_terminal_message *m_new;
         ts = ts + g_tw_lookahead * tw_rand_unif(lp->rng);
-        tw_event *e_new = tw_event_new(lp->gid, ts, lp);
-        m_new = tw_event_data(e_new);
+        tw_event *e_new = model_net_method_event_new(lp->gid, ts, lp, SLIMFLY_ROUTER, (void**)&m_new, NULL);
         m_new->type = R_SEND;
         m_new->magic = slim_router_magic_num;
         m_new->vc_index = output_port;
@@ -3627,8 +3623,7 @@ void slim_router_buf_update(router_state * s, tw_bf * bf, slim_terminal_message 
         bf->c2 = 1;
         slim_terminal_message *m;
         tw_stime ts = codes_local_latency(lp);
-        tw_event *e = tw_event_new(lp->gid, ts, lp);
-        m = tw_event_data(e);
+        tw_event *e = model_net_method_event_new(lp->gid, ts, lp, SLIMFLY_ROUTER, (void**)&m, NULL);
         m->type = R_SEND;
         m->vc_index = indx;
         m->magic = slim_router_magic_num;
@@ -3733,16 +3728,7 @@ tw_lptype slimfly_lps[] =
     {NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0},
 };
 
-/* returns the slimfly lp type for lp registration */
-static const tw_lptype* slimfly_get_cn_lp_type(void)
-{
-    return(&slimfly_lps[0]);
-}
 
-static void slimfly_register(tw_lptype *base_type) {
-    lp_type_register(LP_CONFIG_NM, base_type);
-    lp_type_register("slimfly_router", &slimfly_lps[1]);
-}
 
 /* For ROSS Instrumentation */
 void slimfly_event_collect(slim_terminal_message *m, tw_lp *lp, char *buffer, int *collect_flag)
@@ -3826,25 +3812,102 @@ static const st_model_types *slimfly_get_cn_model_types()
     return(&slimfly_model_types[0]);
 }
 
+static const st_model_types *slimfly_get_router_model_types()
+{
+    return(&slimfly_model_types[1]);
+}
+
 static void slimfly_register_model_types(st_model_types *base_type)
 {
-    st_model_type_register(LP_CONFIG_NM, base_type);
-    st_model_type_register("slimfly_router", &slimfly_model_types[1]);
+    st_model_type_register(LP_CONFIG_NM_TERM, base_type);
 }
+
+static void slimfly_router_register_model_types(st_model_types *base_type)
+{
+    st_model_type_register(LP_CONFIG_NM_ROUT, base_type);
+}
+/***  END of ROSS Instrumentation support */
+
+
+/* returns the slimfly lp type for lp registration */
+static const tw_lptype* slimfly_cn_get_lp_type(void)
+{
+    return(&slimfly_lps[0]);
+}
+
+static const tw_lptype* slimfly_router_get_lp_type(void)
+{
+    return(&slimfly_lps[1]);
+}
+
+static void slimfly_register(tw_lptype *base_type) {
+    lp_type_register(LP_CONFIG_NM_TERM, base_type);
+}
+
+static void slimfly_router_register(tw_lptype *base_type) {
+    lp_type_register(LP_CONFIG_NM_ROUT, base_type);
+}
+
 /*** END of ROSS event tracing additions */
 
 /* data structure for slimfly statistics */
-struct model_net_method slimfly_method =
+struct model_net_method slimfly_method = 
 {
-    .mn_configure = slimfly_configure,
-    .mn_register = slimfly_register,
-    .model_net_method_packet_event = slimfly_packet_event,
-    .model_net_method_packet_event_rc = slimfly_packet_event_rc,
-    .model_net_method_recv_msg_event = NULL,
-    .model_net_method_recv_msg_event_rc = NULL,
-    .mn_get_lp_type = slimfly_get_cn_lp_type,
-    .mn_get_msg_sz = slimfly_get_msg_sz,
-    .mn_report_stats = slimfly_report_stats,
-    .mn_model_stat_register = slimfly_register_model_types,
-    .mn_get_model_stat_types = slimfly_get_cn_model_types
+    0,
+    slimfly_configure,
+    slimfly_register,
+    slimfly_packet_event,
+    slimfly_packet_event_rc,
+    NULL,
+    NULL,
+    slimfly_cn_get_lp_type,
+    slimfly_get_msg_sz,
+    slimfly_report_stats,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    slimfly_register_model_types,
+    slimfly_get_cn_model_types,
 };
+
+struct model_net_method slimfly_router_method =
+{
+    0,
+    NULL,
+    slimfly_router_register,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    slimfly_router_get_lp_type,
+    slimfly_get_msg_sz,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    slimfly_router_register_model_types,
+    slimfly_get_router_model_types,
+};
+
+
+// struct model_net_method slimfly_method =
+// {
+//     .mn_configure = slimfly_configure,
+//     .mn_register = slimfly_register,
+//     .model_net_method_packet_event = slimfly_packet_event,
+//     .model_net_method_packet_event_rc = slimfly_packet_event_rc,
+//     .model_net_method_recv_msg_event = NULL,
+//     .model_net_method_recv_msg_event_rc = NULL,
+//     .mn_get_lp_type = slimfly_get_cn_lp_type,
+//     .mn_get_msg_sz = slimfly_get_msg_sz,
+//     .mn_report_stats = slimfly_report_stats,
+//     .mn_model_stat_register = slimfly_register_model_types,
+//     .mn_get_model_stat_types = slimfly_get_cn_model_types
+// };
+
