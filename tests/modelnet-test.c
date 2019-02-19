@@ -185,7 +185,7 @@ int main(
 
     if(net_id == SLIMFLY)
     {
-      strcpy(router_name, "slimfly_router");
+      strcpy(router_name, "modelnet_slimfly_router");
     }
     
     if(net_id == EXPRESS_MESH)
