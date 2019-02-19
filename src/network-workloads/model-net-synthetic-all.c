@@ -189,7 +189,7 @@ const tw_optdef app_opt [] =
     TWOPT_UINT("payload_size", payload_size, "Size of data to be sent per terminal "),
     TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
     TWOPT_STIME("warm_up_time", warm_up_time, "Time delay before starting stats collection. For generating accurate observed bandwidth calculations"),
-    TWOPT_STIME("load", load, "percentage of packet inter-arrival rate to simulate"), 
+    TWOPT_STIME("load_per_svr", load, "percentage of packet inter-arrival rate to simulate per server"),
     TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
     TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
     TWOPT_END(),
@@ -219,6 +219,627 @@ static tw_stime bytes_to_ns(uint64_t bytes, double GB_p_s)
 
     return(time);
 }
+
+
+static void issue_event(
+        svr_state * ns,
+        tw_lp * lp)
+{
+    (void)ns;
+    tw_event *e;
+    svr_msg *m;
+    tw_stime kickoff_time;
+
+    /* each server sends a dummy event to itself that will kick off the real
+     * simulation
+     */
+
+    configuration_get_value_double(&config, "PARAMS", "cn_bandwidth", NULL, &link_bandwidth);
+    if(!link_bandwidth) {
+        link_bandwidth = 4.7;
+        fprintf(stderr, "Bandwidth of channels not specified, setting to %lf\n", link_bandwidth);
+    }
+
+    if(arrival_time!=0)
+    {
+        MEAN_INTERVAL = arrival_time;
+    }
+    else if(load != 0)
+    {
+        MEAN_INTERVAL = bytes_to_ns(payload_size, load*link_bandwidth);
+        if(traffic == NEAREST_NEIGHBOR_1D){
+            MEAN_INTERVAL = MEAN_INTERVAL * 2; //Because we are injecting two messages each interval
+        }else if(traffic == NEAREST_NEIGHBOR_2D){
+            MEAN_INTERVAL = MEAN_INTERVAL * 4;
+        }else if(traffic == NEAREST_NEIGHBOR_3D){
+            MEAN_INTERVAL = MEAN_INTERVAL * 6;
+        }else if(traffic == SCATTER){
+            MEAN_INTERVAL = MEAN_INTERVAL * (num_nodes - 1);
+        }else if(traffic == GATHER){
+            MEAN_INTERVAL = MEAN_INTERVAL * (num_nodes - 1);
+        }else if(traffic == ALL2ALL){
+            MEAN_INTERVAL = MEAN_INTERVAL * (num_nodes - 1);
+        }
+    }
+    else
+    {
+        load = .1;
+        MEAN_INTERVAL = bytes_to_ns(payload_size, load*link_bandwidth);
+    }
+
+    //kickoff_time = g_tw_lookahead + tw_rand_normal_sd(lp->rng, MEAN_INTERVAL, MEAN_INTERVAL*0.05, &rng_calls);
+    //kickoff_time = g_tw_lookahead + tw_rand_normal_sd(lp->rng, MEAN_INTERVAL, MEAN_INTERVAL*0.00001, &rng_calls);
+    // kickoff_time = g_tw_lookahead + MEAN_INTERVAL;
+    kickoff_time = g_tw_lookahead + tw_rand_exponential(lp->rng, MEAN_INTERVAL);
+
+
+    /*if(lp->gid == 0){
+        printf("MEAN_INTERVAL:%f\n",MEAN_INTERVAL);
+        printf("kickoff_time:%f\n",kickoff_time);
+    }*/
+    e = tw_event_new(lp->gid, kickoff_time, lp);
+    m = tw_event_data(e);
+    m->svr_event_type = KICKOFF;
+    tw_event_send(e);
+}
+
+static void svr_init(
+        svr_state * ns,
+        tw_lp * lp)
+{
+    int myRank;
+    MPI_Comm_rank(MPI_COMM_CODES, &myRank);
+
+    // Initiailize comm_map 2D array
+    // if(!lp->gid){
+    //     comm_map = (int**)malloc(num_nodes*sizeof(int*));
+    //     for(int i=0; i<num_nodes; i++){
+    //         comm_map[i] = (int*)calloc(num_nodes,sizeof(int));
+    //     }
+    // }
+
+    ns->msg_sent_count = 0;
+    ns->msg_recvd_count = 0;
+    ns->local_recvd_count = 0;
+    ns->start_ts = 0.0;
+    ns->end_ts = 0.0;
+
+    ns->msg_send_times = (int*)calloc(num_msgs*2,sizeof(int));
+    ns->msg_recvd_times = (int*)calloc(num_msgs*2,sizeof(int));
+
+    issue_event(ns, lp);
+    return;
+}
+
+static void handle_kickoff_rev_event(
+        svr_state * ns,
+        tw_bf * b,
+        svr_msg * m,
+        tw_lp * lp)
+{
+    (void)b;
+    (void)m;
+    (void)lp;
+
+    ns->msg_sent_count--;
+    if(b->c2)
+        m->incremented_flag = 0;
+
+    if(b->c1) //uniform random traffic
+        tw_rand_reverse_unif(lp->rng);
+
+    model_net_event_rc2(lp, &m->event_rc);
+
+    tw_rand_reverse_unif(lp->rng); //mean interval dither
+}	
+
+//TODO: Multi rail injection only valid with uniform random as num_nodes != num_servers
+static void handle_kickoff_event(
+        svr_state * ns,
+        tw_bf * b,
+        svr_msg * m,
+        tw_lp * lp)
+{
+    (void)m;
+    if(traffic == SCATTER) {
+        if(ns->msg_sent_count/(num_nodes-1) >= num_msgs){
+            m->incremented_flag = 1;
+            return;
+        }
+    }
+    else {
+        if(ns->msg_sent_count >= num_msgs)
+        {
+            b->c2 = 1;
+            m->incremented_flag = 1;
+            return;
+        }
+    }
+    m->incremented_flag = 0;
+
+    char anno[MAX_NAME_LENGTH];
+
+    svr_msg * m_local = malloc(sizeof(svr_msg));
+    svr_msg * m_remote = malloc(sizeof(svr_msg));
+
+    m_local->svr_event_type = LOCAL;
+    m_local->src = lp->gid;
+
+    memcpy(m_remote, m_local, sizeof(svr_msg));
+    m_remote->svr_event_type = REMOTE;
+
+    ns->start_ts = tw_now(lp);
+
+    codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
+
+    int num_server_lps = codes_mapping_get_lp_count(group_name, 1, "nw-lp", NULL, 0);
+
+    int src_terminal_id, src_router_id, dst_router_id;
+
+    int num_transfers = 0;
+    int *local_dest;
+    tw_lpid global_dest = -1;
+
+    // Compute current server's local/relative ID
+    int server_id = rep_id * num_server_lps + offset;
+
+    /* in case of uniform random traffic, send to a random destination. */
+    if(traffic == UNIFORM)
+    {
+        b->c1 = 1;
+        num_transfers = 1;
+        local_dest = (int*)malloc(num_transfers*sizeof(int));
+        local_dest[0] = tw_rand_integer(lp->rng, 0, num_servers - 1);
+    }
+    else if(traffic == WORST_CASE)
+    {
+        num_transfers = 1;
+        local_dest = (int*)malloc(num_transfers*sizeof(int));
+
+        // Compute local id of source terminal (same local id as current server, assuming one server per terminal)
+        src_terminal_id = (rep_id * num_server_lps) + offset;  
+        // Compute loacl id of source router
+        src_router_id = src_terminal_id / (num_server_lps);
+        // Only send messages if we have a worst-case pairing
+        if(worst_dest[src_router_id] < 0)
+            return;
+        // Get local id of destination router from precomputed worst-case mapping
+        dst_router_id = worst_dest[src_router_id];
+        // Get local id of destination terminal (same offset connection from dest router as src terminal from src router)
+        local_dest[0] = (dst_router_id * num_server_lps) + offset;
+    }
+    else if(traffic == NEAREST_NEIGHBOR_1D)
+    {
+        num_transfers = 2;
+        local_dest = (int*)malloc(num_transfers*sizeof(int));
+
+        // Neighbors in the first dimension
+        local_dest[0] =  (server_id - 1);
+        if(local_dest[0] < 0)
+            local_dest[0] = num_nodes - 1;
+        local_dest[1] =  (server_id + 1) % num_nodes;
+    }
+    else if(traffic == NEAREST_NEIGHBOR_2D)
+    {
+        num_transfers = 4;
+        local_dest = (int*)malloc(num_transfers*sizeof(int));
+
+        // Neighbors in the first dimension
+        local_dest[0] =  (server_id - 1);
+        if(local_dest[0] < 0)
+            local_dest[0] = num_nodes - 1;
+        local_dest[1] =  (server_id + 1) % num_nodes;
+        // Neighbors in the second dimension
+        local_dest[2] = (server_id + num_nodes/6) % num_nodes;
+        local_dest[3] = (server_id - num_nodes/6) % num_nodes;
+        if(local_dest[3] < 0)
+            local_dest[3] = num_nodes + local_dest[3];
+    }
+    else if(traffic == NEAREST_NEIGHBOR_3D)
+    {
+        num_transfers = 6;
+        if(net_id == DRAGONFLY_CUSTOM){
+            // For Dragonfly the division doesn't work out evenly so we can't use the last 3 nodes
+            if(server_id >= num_nodes-3){
+                num_transfers = 0;
+            }
+        }
+        num_transfers = 6;
+        local_dest = (int*)malloc(num_transfers*sizeof(int));
+
+        // Neighbors in the first dimension
+        local_dest[0] =  (server_id - 1);
+        if(local_dest[0] < 0)
+            local_dest[0] = num_nodes - 1;
+        local_dest[1] =  (server_id + 1) % num_nodes;
+        // Neighbors in the second dimension
+        local_dest[2] = (server_id + num_nodes/3) % num_nodes;
+        local_dest[3] = (server_id - num_nodes/3) % num_nodes;
+        if(local_dest[3] < 0)
+            local_dest[3] = num_nodes + local_dest[3];
+        // Neighbors in the third dimension
+        local_dest[4] = (server_id + num_nodes/3) % num_nodes;
+        local_dest[5] = (server_id - num_nodes/3) % num_nodes;
+        if(local_dest[5] < 0)
+            local_dest[5] = num_nodes + local_dest[5];
+    }
+    else if(traffic == GATHER)
+    {
+        num_transfers = 0;
+        if(server_id != 1234){
+            num_transfers = 1;
+            local_dest = (int*)malloc(num_transfers*sizeof(int));
+            local_dest[0] = 1234;
+        }else{
+            m->incremented_flag = 1;
+            return;
+        }
+    }
+    else if(traffic == SCATTER)
+    {
+        num_transfers = 0;
+        if(server_id == 1234){
+            num_transfers = num_nodes - 1;
+            local_dest = (int*)malloc(num_transfers*sizeof(int));
+            for(int i=0; i<1234; i++)
+                local_dest[i] = i;
+            for(int i=1235; i<num_nodes; i++)
+                local_dest[i-1] = i;
+        }else{
+            m->incremented_flag = 1;
+            return;
+        }
+    }
+    else if(traffic == BISECTION)
+    {
+        num_transfers = 0;
+        if(server_id <num_nodes){
+            num_transfers = 1;
+            local_dest = (int*)malloc(num_transfers*sizeof(int));
+            local_dest[0] = (server_id + (int)(num_nodes/2)) % num_nodes;
+        }
+    }
+    else if(traffic == ALL2ALL)
+    {
+        num_transfers = num_nodes - 1;
+        local_dest = (int*)malloc(num_transfers*sizeof(int));
+        for(int i=0; i<server_id; i++)
+            local_dest[i] = i;
+        for(int i=server_id; i<num_nodes; i++)
+            local_dest[i-1] = i;
+    }
+    else if(traffic == PING)
+    {
+        num_transfers = 0;
+        if(server_id == 0){
+            num_transfers = 1;
+            local_dest = (int*)malloc(num_transfers*sizeof(int));
+            local_dest[0] = 1;
+        }else{
+            m->incremented_flag = 1;
+            return;
+        }
+    }
+
+    for(int i=0; i<num_transfers; i++){
+        // Verify local/relative ID of the destination is a valid option
+        assert(local_dest[i] < num_servers);
+        // Get global/lp ID of the destination
+        codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest[i] / num_servers_per_rep, local_dest[i] % num_servers_per_rep, &global_dest);
+        // Increment send count in communication heat map
+        // comm_map[server_id][local_dest[i]]++;
+        // Increment send count
+        ns->msg_sent_count++;
+        // Issue event
+        if( traffic == PING ){
+            ns->msg_send_times[ns->msg_sent_count-1] = (int)(tw_now(lp));
+            printf("\x1b[35m(%lf) Sending Message %d from server\x1b[0m\n",tw_now(lp),ns->msg_sent_count-1);
+        }
+        //TODO this event_rc should be an array or something maybe since there are a number of transfers possibly greater than 1. 
+        m->event_rc = model_net_event(net_id, "test", global_dest, payload_size, i*0.2, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+        //printf("%llu kickoff_event() with ts offset: %f\n",LLU(tw_now(lp)),i*0.2);
+    }
+    issue_event(ns, lp);
+    free(local_dest);
+    return;
+}
+
+static void handle_remote_rev_event(
+        svr_state * ns,     
+        tw_bf * b,
+        svr_msg * m,
+        tw_lp * lp)
+{
+    (void)b;
+    (void)m;
+    (void)lp;
+    if (b->c3)
+        ns->msg_recvd_count--;
+}
+
+static void handle_remote_event(
+        svr_state * ns,
+        tw_bf * b,
+        svr_msg * m,
+        tw_lp * lp)
+{
+    (void)b;
+    (void)m;
+    (void)lp;
+    if (tw_now(lp) >= warm_up_time) {
+        b->c3 = 1;
+        ns->msg_recvd_count++;
+    }
+    if( traffic == PING ){
+        ns->msg_recvd_times[ns->msg_recvd_count-1] = (int)(tw_now(lp));
+        //printf("\x1b[33m(%lf) Received Message %d at server\x1b[0m\n",tw_now(lp),ns->msg_recvd_count);
+    }
+}
+
+static void handle_local_rev_event(
+        svr_state * ns,
+        tw_bf * b,
+        svr_msg * m,
+        tw_lp * lp)
+{
+    (void)b;
+    (void)m;
+    (void)lp;
+    
+    if (b->c4)
+        ns->local_recvd_count--;
+}
+
+static void handle_local_event(
+        svr_state * ns,
+        tw_bf * b,
+        svr_msg * m,
+        tw_lp * lp)
+{
+    (void)b;
+    (void)m;
+    (void)lp;
+
+    if (tw_now(lp) >= warm_up_time) {
+        b->c4 = 1;
+        ns->local_recvd_count++;
+    }
+}
+
+static void svr_finalize(
+        svr_state * ns,
+        tw_lp * lp)
+{
+    ns->end_ts = tw_now(lp);
+
+    double observed_load_time = ((double)ns->end_ts-warm_up_time);
+    double observed_load = ((double)payload_size*(double)ns->msg_recvd_count)/((double)ns->end_ts-warm_up_time);
+    observed_load = observed_load * (double)(1000*1000*1000);
+    observed_load = observed_load / (double)(1024*1024*1024);
+    int written = 0;
+    int written2 =0;
+    int written3 =0;
+
+    if(lp->gid == 0){
+        written = sprintf(ns->output_buf, "# Format <LP id> <Msgs Sent> <Msgs Recvd> <Bytes Sent> <Bytes Recvd> <Offered Load [GBps]> <Observed Load [GBps]> <End Time [ns]> <Observed Load Time [ns]>\n");
+        // written2 = sprintf(ns->output_buf2, "# Format <server ID> <sends to svr 0> <sends to svr 1> ... <sends to svr N>\n");
+        written3 = sprintf(ns->output_buf3, "# Format <Server ID> <Msg ID> <Send Time> <Recv Time>\n");
+    }
+
+    written += sprintf(ns->output_buf + written, "%llu %d %d %d %d %f %f %f %f\n",LLU(lp->gid), ns->msg_sent_count, ns->msg_recvd_count,
+            payload_size*ns->msg_sent_count, payload_size*ns->msg_recvd_count, load*link_bandwidth, observed_load, ns->end_ts, observed_load_time);
+
+    lp_io_write(lp->gid, "synthetic-stats", written, ns->output_buf);
+
+    // Get server mapping info
+    char anno[MAX_NAME_LENGTH];
+    int num_server_lps = codes_mapping_get_lp_count(group_name, 1, "nw-lp", NULL, 0);
+    codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
+    // Compute current server's local/relative ID
+    int server_id = rep_id * num_server_lps + offset;
+    // written2 += sprintf(ns->output_buf2 + written2, "%d ", server_id);
+    // for(int j=0; j<num_nodes; j++){
+    //     written2 += sprintf(ns->output_buf2 + written2, "%d ", comm_map[server_id][j]);
+    // }
+    // written2 += sprintf(ns->output_buf2 + written2, "\n");
+    // lp_io_write(lp->gid, "communication-map", written2, ns->output_buf2);
+
+    if(traffic == PING){
+        for(int j=0; j<num_msgs*2; j++)
+            written3 += sprintf(ns->output_buf3 + written3, "%d %d %d %d\n", server_id, j, ns->msg_send_times[j], ns->msg_recvd_times[j]);
+        lp_io_write(lp->gid, "server-msg-times", written3, ns->output_buf3);
+    }
+
+    return;
+}
+
+static void svr_rev_event(
+        svr_state * ns,
+        tw_bf * b,
+        svr_msg * m,
+        tw_lp * lp)
+{
+    switch (m->svr_event_type)
+    {
+        case REMOTE:
+            handle_remote_rev_event(ns, b, m, lp);
+            break;
+        case LOCAL:
+            handle_local_rev_event(ns, b, m, lp);
+            break;
+        case KICKOFF:
+            handle_kickoff_rev_event(ns, b, m, lp);
+            break;
+        default:
+            assert(0);
+            break;
+    }
+}
+
+static void svr_event(
+        svr_state * ns,
+        tw_bf * b,
+        svr_msg * m,
+        tw_lp * lp)
+{
+    switch (m->svr_event_type)
+    {
+        case REMOTE:
+            handle_remote_event(ns, b, m, lp);
+            break;
+        case LOCAL:
+            handle_local_event(ns, b, m, lp);
+            break;
+        case KICKOFF:
+            handle_kickoff_event(ns, b, m, lp);
+            break;
+        default:
+            printf("\n Invalid message type %d ", m->svr_event_type);
+            assert(0);
+            break;
+    }
+}
+
+int main(
+        int argc,
+        char **argv)
+{
+    int nprocs;
+    int rank;
+    int num_nets;
+    int *net_ids;
+
+    tw_opt_add(app_opt);
+    tw_init(&argc, &argv);
+
+    codes_comm_update();
+    if(argc < 2)
+    {
+        printf("\n Usage: mpirun <args> --sync=2/3 mapping_file_name.conf (optional --nkp) ");
+        MPI_Finalize();
+        return 0;
+    }
+
+    MPI_Comm_rank(MPI_COMM_CODES, &rank);
+    MPI_Comm_size(MPI_COMM_CODES, &nprocs);
+
+    configuration_load(argv[2], MPI_COMM_CODES, &config);
+    model_net_register();
+    svr_add_lp_type();
+
+    if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
+        svr_register_model_types();
+
+    codes_mapping_setup();
+    net_ids = model_net_configure(&num_nets);
+    net_id = *net_ids;
+    free(net_ids);
+
+    /*if(num_nets != 1)
+    {
+        printf("\n The test works with only one network model configured");
+        MPI_Finalize();
+        return 0;
+    }*/
+
+    if(net_id == SLIMFLY){
+        num_nodes = codes_mapping_get_lp_count("MODELNET_GRP", 0, "modelnet_slimfly", NULL, 1);
+        configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers_per_grp);
+        total_routers = num_routers_per_grp * num_routers_per_grp * 2;
+    }
+    else if(net_id == DRAGONFLY_CUSTOM)
+        num_nodes = codes_mapping_get_lp_count("MODELNET_GRP", 0, "modelnet_dragonfly_custom", NULL, 1);
+    else if(net_id == FATTREE)
+        num_nodes = codes_mapping_get_lp_count("MODELNET_GRP", 0, "modelnet_fattree", NULL, 1);
+
+    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "nw-lp", NULL, 1);
+    num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp", NULL, 1);
+
+    if(lp_io_dir[0])
+    {
+        do_lp_io = 1;
+        int flags = lp_io_use_suffix ? LP_IO_UNIQ_SUFFIX : 0;
+        int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_CODES);
+        assert(ret == 0 || !"lp_io_prepare failure");
+    }
+
+    //WORST_CASE Initialization array
+    if(traffic == WORST_CASE)
+    {
+        if(net_id != SLIMFLY)
+        {
+            printf("\n The worst-case workload is currently only supported for the slim fly model");
+            MPI_Finalize();
+            return 0;
+        }
+        configuration_get_value_int(&config, "PARAMS", "local_channels", NULL, &num_local_channels);
+        if(!num_local_channels) {
+            num_local_channels = 2;
+            fprintf(stderr, "Number of Local channels not specified, setting to %d\n", num_local_channels);
+        }
+
+        configuration_get_value_int(&config, "PARAMS", "global_channels", NULL, &num_global_channels);
+        if(!num_global_channels) {
+            num_global_channels = 2;
+            fprintf(stderr, "Number of Global channels not specified, setting to %d\n", num_global_channels);
+        }
+
+        char       **values;
+        size_t       length;
+        int ret = configuration_get_multivalue(&config, "PARAMS", "generator_set_X", NULL, &values, &length);
+        if (ret != 1)
+            tw_error(TW_LOC, "unable to read PARAMS:generator_set_X\n");
+        if (length < 2)
+            fprintf(stderr, "generator set X less than 2 elements\n");
+
+        X = (int*)malloc(sizeof(int)*length);
+        for (size_t i = 0; i < length; i++)
+        {
+            X[i] = atoi(values[i]);
+        }
+        free(values);
+
+        ret = configuration_get_multivalue(&config, "PARAMS", "generator_set_X_prime", NULL, &values, &length);
+        if (ret != 1)
+            tw_error(TW_LOC, "unable to read PARAMS:generator_set_X_prime\n");
+        if (length < 2)
+            fprintf(stderr, "generator set  X_prime less than 2 elements\n");
+
+        X_size = length;
+        X_prime = (int*)malloc(sizeof(int)*length);
+        for (size_t i = 0; i < length; i++)
+        {
+            X_prime[i] = atoi(values[i]);
+        }
+        free(values);
+
+        worst_dest = (int*)malloc(total_routers*sizeof(int));
+        for(int i=0; i<total_routers; i++){
+            worst_dest[i] = -1;
+        }
+        init_worst_case_mapping();
+#if PRINT_WORST_CASE_MATCH
+        int l;
+        for(l=0; l<total_routers; l++)
+        {
+            printf("match %d->%d\n",l,worst_dest[l]);
+        }
+#endif
+    }
+
+    tw_run();
+
+    if (do_lp_io){
+        int ret = lp_io_flush(io_handle, MPI_COMM_CODES);
+        assert(ret == 0 || !"lp_io_flush failure");
+    }
+    model_net_report_stats(net_id);
+
+    tw_end();
+
+    return 0;
+}
+
 
 /** Function checks to see if the provided src and dst routers are two hops away from one another and if they are, sets
  *  the intm input variable to the id of the intermediate router.
@@ -486,607 +1107,6 @@ void old_init_worst_case_mapping()
         worst_dest[r2] = r1;
         //		printf("%d->%d, %d->%d\n",r1,worst_dest[r1],r2,worst_dest[r2]);
     }
-}
-
-static void issue_event(
-        svr_state * ns,
-        tw_lp * lp)
-{
-    (void)ns;
-    tw_event *e;
-    svr_msg *m;
-    tw_stime kickoff_time;
-
-    /* each server sends a dummy event to itself that will kick off the real
-     * simulation
-     */
-
-    configuration_get_value_double(&config, "PARAMS", "cn_bandwidth", NULL, &link_bandwidth);
-    if(!link_bandwidth) {
-        link_bandwidth = 4.7;
-        fprintf(stderr, "Bandwidth of channels not specified, setting to %lf\n", link_bandwidth);
-    }
-
-    if(arrival_time!=0)
-    {
-        MEAN_INTERVAL = arrival_time;
-    }
-    if(load != 0)
-    {
-        MEAN_INTERVAL = bytes_to_ns(payload_size, load*link_bandwidth);
-        if(traffic == NEAREST_NEIGHBOR_1D){
-            MEAN_INTERVAL = MEAN_INTERVAL * 2; //Because we are injecting two messages each interval
-        }else if(traffic == NEAREST_NEIGHBOR_2D){
-            MEAN_INTERVAL = MEAN_INTERVAL * 4;
-        }else if(traffic == NEAREST_NEIGHBOR_3D){
-            MEAN_INTERVAL = MEAN_INTERVAL * 6;
-        }else if(traffic == SCATTER){
-            MEAN_INTERVAL = MEAN_INTERVAL * (num_nodes - 1);
-        }else if(traffic == GATHER){
-            MEAN_INTERVAL = MEAN_INTERVAL * (num_nodes - 1);
-        }else if(traffic == ALL2ALL){
-            MEAN_INTERVAL = MEAN_INTERVAL * (num_nodes - 1);
-        }
-
-    }
-
-    unsigned int rng_calls = 0;
-    //kickoff_time = g_tw_lookahead + tw_rand_normal_sd(lp->rng, MEAN_INTERVAL, MEAN_INTERVAL*0.05, &rng_calls);
-    //kickoff_time = g_tw_lookahead + tw_rand_normal_sd(lp->rng, MEAN_INTERVAL, MEAN_INTERVAL*0.00001, &rng_calls);
-    kickoff_time = g_tw_lookahead + MEAN_INTERVAL;
-
-    /*if(lp->gid == 0){
-        printf("MEAN_INTERVAL:%f\n",MEAN_INTERVAL);
-        printf("kickoff_time:%f\n",kickoff_time);
-    }*/
-    e = tw_event_new(lp->gid, kickoff_time, lp);
-    m = tw_event_data(e);
-    m->svr_event_type = KICKOFF;
-    tw_event_send(e);
-}
-
-static void svr_init(
-        svr_state * ns,
-        tw_lp * lp)
-{
-    int myRank;
-    MPI_Comm_rank(MPI_COMM_CODES, &myRank);
-
-    // Initiailize comm_map 2D array
-    // if(!lp->gid){
-    //     comm_map = (int**)malloc(num_nodes*sizeof(int*));
-    //     for(int i=0; i<num_nodes; i++){
-    //         comm_map[i] = (int*)calloc(num_nodes,sizeof(int));
-    //     }
-    // }
-
-    ns->msg_sent_count = 0;
-    ns->msg_recvd_count = 0;
-    ns->local_recvd_count = 0;
-    ns->start_ts = 0.0;
-    ns->end_ts = 0.0;
-
-    ns->msg_send_times = (int*)calloc(num_msgs*2,sizeof(int));
-    ns->msg_recvd_times = (int*)calloc(num_msgs*2,sizeof(int));
-
-    issue_event(ns, lp);
-    return;
-}
-
-static void handle_kickoff_rev_event(
-        svr_state * ns,
-        tw_bf * b,
-        svr_msg * m,
-        tw_lp * lp)
-{
-    (void)b;
-    (void)m;
-    (void)lp;
-    if(m->incremented_flag)
-
-        if(b->c1)
-            tw_rand_reverse_unif(lp->rng);
-
-    ns->msg_sent_count--; //NM: TODO: this doesn't take into account when num_transfers isn't 1
-    model_net_event_rc2(lp, &m->event_rc);
-
-    // tw_rand_reverse_unif(lp->rng); //NM: I can't find the corresponding rand call for this
-}	
-static void handle_kickoff_event(
-        svr_state * ns,
-        tw_bf * b,
-        svr_msg * m,
-        tw_lp * lp)
-{
-    (void)m;
-    if(traffic == SCATTER){
-        if(ns->msg_sent_count/(num_nodes-1) >= num_msgs){
-            m->incremented_flag = 1;
-            return;
-        }
-    }else{
-        if(ns->msg_sent_count >= num_msgs)
-        {
-            m->incremented_flag = 1;
-            return;
-        }
-    }
-    m->incremented_flag = 0;
-
-    char anno[MAX_NAME_LENGTH];
-
-    svr_msg * m_local = malloc(sizeof(svr_msg));
-    svr_msg * m_remote = malloc(sizeof(svr_msg));
-
-    m_local->svr_event_type = LOCAL;
-    m_local->src = lp->gid;
-
-    memcpy(m_remote, m_local, sizeof(svr_msg));
-    m_remote->svr_event_type = REMOTE;
-
-    ns->start_ts = tw_now(lp);
-
-    codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
-
-    int num_server_lps = codes_mapping_get_lp_count(group_name, 1, "nw-lp", NULL, 0);
-
-    int src_terminal_id, src_router_id, dst_router_id;
-
-    int num_transfers = 0;
-    int *local_dest;
-    tw_lpid global_dest = -1;
-
-    // Compute current server's local/relative ID
-    int server_id = rep_id * num_server_lps + offset;
-
-    /* in case of uniform random traffic, send to a random destination. */
-    if(traffic == UNIFORM)
-    {
-        b->c1 = 1;
-        num_transfers = 1;
-        local_dest = (int*)malloc(num_transfers*sizeof(int));
-        local_dest[0] = tw_rand_integer(lp->rng, 0, num_nodes - 1);
-    }
-    else if(traffic == WORST_CASE)
-    {
-        num_transfers = 1;
-        local_dest = (int*)malloc(num_transfers*sizeof(int));
-
-        // Compute local id of source terminal (same local id as current server, assuming one server per terminal)
-        src_terminal_id = (rep_id * num_server_lps) + offset;  
-        // Compute loacl id of source router
-        src_router_id = src_terminal_id / (num_server_lps);
-        // Only send messages if we have a worst-case pairing
-        if(worst_dest[src_router_id] < 0)
-            return;
-        // Get local id of destination router from precomputed worst-case mapping
-        dst_router_id = worst_dest[src_router_id];
-        // Get local id of destination terminal (same offset connection from dest router as src terminal from src router)
-        local_dest[0] = (dst_router_id * num_server_lps) + offset;
-    }
-    else if(traffic == NEAREST_NEIGHBOR_1D)
-    {
-        num_transfers = 2;
-        local_dest = (int*)malloc(num_transfers*sizeof(int));
-
-        // Neighbors in the first dimension
-        local_dest[0] =  (server_id - 1);
-        if(local_dest[0] < 0)
-            local_dest[0] = num_nodes - 1;
-        local_dest[1] =  (server_id + 1) % num_nodes;
-    }
-    else if(traffic == NEAREST_NEIGHBOR_2D)
-    {
-        num_transfers = 4;
-        local_dest = (int*)malloc(num_transfers*sizeof(int));
-
-        // Neighbors in the first dimension
-        local_dest[0] =  (server_id - 1);
-        if(local_dest[0] < 0)
-            local_dest[0] = num_nodes - 1;
-        local_dest[1] =  (server_id + 1) % num_nodes;
-        // Neighbors in the second dimension
-        local_dest[2] = (server_id + num_nodes/6) % num_nodes;
-        local_dest[3] = (server_id - num_nodes/6) % num_nodes;
-        if(local_dest[3] < 0)
-            local_dest[3] = num_nodes + local_dest[3];
-    }
-    else if(traffic == NEAREST_NEIGHBOR_3D)
-    {
-        num_transfers = 6;
-        if(net_id == DRAGONFLY_CUSTOM){
-            // For Dragonfly the division doesn't work out evenly so we can't use the last 3 nodes
-            if(server_id >= num_nodes-3){
-                num_transfers = 0;
-            }
-        }
-        num_transfers = 6;
-        local_dest = (int*)malloc(num_transfers*sizeof(int));
-
-        // Neighbors in the first dimension
-        local_dest[0] =  (server_id - 1);
-        if(local_dest[0] < 0)
-            local_dest[0] = num_nodes - 1;
-        local_dest[1] =  (server_id + 1) % num_nodes;
-        // Neighbors in the second dimension
-        local_dest[2] = (server_id + num_nodes/3) % num_nodes;
-        local_dest[3] = (server_id - num_nodes/3) % num_nodes;
-        if(local_dest[3] < 0)
-            local_dest[3] = num_nodes + local_dest[3];
-        // Neighbors in the third dimension
-        local_dest[4] = (server_id + num_nodes/3) % num_nodes;
-        local_dest[5] = (server_id - num_nodes/3) % num_nodes;
-        if(local_dest[5] < 0)
-            local_dest[5] = num_nodes + local_dest[5];
-    }
-    else if(traffic == GATHER)
-    {
-        num_transfers = 0;
-        if(server_id != 1234){
-            num_transfers = 1;
-            local_dest = (int*)malloc(num_transfers*sizeof(int));
-            local_dest[0] = 1234;
-        }else{
-            m->incremented_flag = 1;
-            return;
-        }
-    }
-    else if(traffic == SCATTER)
-    {
-        num_transfers = 0;
-        if(server_id == 1234){
-            num_transfers = num_nodes - 1;
-            local_dest = (int*)malloc(num_transfers*sizeof(int));
-            for(int i=0; i<1234; i++)
-                local_dest[i] = i;
-            for(int i=1235; i<num_nodes; i++)
-                local_dest[i-1] = i;
-        }else{
-            m->incremented_flag = 1;
-            return;
-        }
-    }
-    else if(traffic == BISECTION)
-    {
-        num_transfers = 0;
-        if(server_id <num_nodes){
-            num_transfers = 1;
-            local_dest = (int*)malloc(num_transfers*sizeof(int));
-            local_dest[0] = (server_id + (int)(num_nodes/2)) % num_nodes;
-        }
-    }
-    else if(traffic == ALL2ALL)
-    {
-        num_transfers = num_nodes - 1;
-        local_dest = (int*)malloc(num_transfers*sizeof(int));
-        for(int i=0; i<server_id; i++)
-            local_dest[i] = i;
-        for(int i=server_id; i<num_nodes; i++)
-            local_dest[i-1] = i;
-    }
-    else if(traffic == PING)
-    {
-        num_transfers = 0;
-        if(server_id == 0){
-            num_transfers = 1;
-            local_dest = (int*)malloc(num_transfers*sizeof(int));
-            local_dest[0] = 1;
-        }else{
-            m->incremented_flag = 1;
-            return;
-        }
-    }
-
-    for(int i=0; i<num_transfers; i++){
-        // Verify local/relative ID of the destination is a valid option
-        assert(local_dest[i] < num_nodes);
-        // Get global/lp ID of the destination
-        codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest[i] / num_servers_per_rep, local_dest[i] % num_servers_per_rep, &global_dest);
-        // Increment send count in communication heat map
-        // comm_map[server_id][local_dest[i]]++;
-        // Increment send count
-        ns->msg_sent_count++;
-        // Issue event
-        if( traffic == PING ){
-            ns->msg_send_times[ns->msg_sent_count-1] = (int)(tw_now(lp));
-            printf("\x1b[35m(%lf) Sending Message %d from server\x1b[0m\n",tw_now(lp),ns->msg_sent_count-1);
-        }
-        //TODO this event_rc should be an array or something maybe since there are a number of transfers possibly greater than 1. 
-        m->event_rc = model_net_event(net_id, "test", global_dest, payload_size, i*0.2, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
-        //printf("%llu kickoff_event() with ts offset: %f\n",LLU(tw_now(lp)),i*0.2);
-    }
-    issue_event(ns, lp);
-    free(local_dest);
-    return;
-}
-
-static void handle_remote_rev_event(
-        svr_state * ns,     
-        tw_bf * b,
-        svr_msg * m,
-        tw_lp * lp)
-{
-    (void)b;
-    (void)m;
-    (void)lp;
-    ns->msg_recvd_count--;
-}
-
-static void handle_remote_event(
-        svr_state * ns,
-        tw_bf * b,
-        svr_msg * m,
-        tw_lp * lp)
-{
-    (void)b;
-    (void)m;
-    (void)lp;
-    if( tw_now(lp) >= warm_up_time )
-        ns->msg_recvd_count++;
-    if( traffic == PING ){
-        ns->msg_recvd_times[ns->msg_recvd_count-1] = (int)(tw_now(lp));
-        //printf("\x1b[33m(%lf) Received Message %d at server\x1b[0m\n",tw_now(lp),ns->msg_recvd_count);
-    }
-}
-
-static void handle_local_rev_event(
-        svr_state * ns,
-        tw_bf * b,
-        svr_msg * m,
-        tw_lp * lp)
-{
-    (void)b;
-    (void)m;
-    (void)lp;
-    ns->local_recvd_count--;
-}
-
-static void handle_local_event(
-        svr_state * ns,
-        tw_bf * b,
-        svr_msg * m,
-        tw_lp * lp)
-{
-    (void)b;
-    (void)m;
-    (void)lp;
-    ns->local_recvd_count++;
-}
-
-int index_mine = 0;
-
-static void svr_finalize(
-        svr_state * ns,
-        tw_lp * lp)
-{
-    ns->end_ts = tw_now(lp);
-
-    double observed_load_time = ((double)ns->end_ts-warm_up_time);
-    double observed_load = ((double)payload_size*(double)ns->msg_recvd_count)/((double)ns->end_ts-warm_up_time);
-    observed_load = observed_load * (double)(1000*1000*1000);
-    observed_load = observed_load / (double)(1024*1024*1024);
-    int written = 0;
-    int written2 =0;
-    int written3 =0;
-
-    if(lp->gid == 0){
-        written = sprintf(ns->output_buf, "# Format <LP id> <Msgs Sent> <Msgs Recvd> <Bytes Sent> <Bytes Recvd> <Offered Load [GBps]> <Observed Load [GBps]> <End Time [ns]> <Observed Load Time [ns]>\n");
-        // written2 = sprintf(ns->output_buf2, "# Format <server ID> <sends to svr 0> <sends to svr 1> ... <sends to svr N>\n");
-        written3 = sprintf(ns->output_buf3, "# Format <Server ID> <Msg ID> <Send Time> <Recv Time>\n");
-    }
-
-    written += sprintf(ns->output_buf + written, "%llu %d %d %d %d %f %f %f %f\n",LLU(lp->gid), ns->msg_sent_count, ns->msg_recvd_count,
-            payload_size*ns->msg_sent_count, payload_size*ns->msg_recvd_count, load*link_bandwidth, observed_load, ns->end_ts, observed_load_time);
-
-    lp_io_write(lp->gid, "synthetic-stats", written, ns->output_buf);
-
-    // Get server mapping info
-    char anno[MAX_NAME_LENGTH];
-    int num_server_lps = codes_mapping_get_lp_count(group_name, 1, "nw-lp", NULL, 0);
-    codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
-    // Compute current server's local/relative ID
-    int server_id = rep_id * num_server_lps + offset;
-    // written2 += sprintf(ns->output_buf2 + written2, "%d ", server_id);
-    // for(int j=0; j<num_nodes; j++){
-    //     written2 += sprintf(ns->output_buf2 + written2, "%d ", comm_map[server_id][j]);
-    // }
-    // written2 += sprintf(ns->output_buf2 + written2, "\n");
-    // lp_io_write(lp->gid, "communication-map", written2, ns->output_buf2);
-
-    if(traffic == PING){
-        for(int j=0; j<num_msgs*2; j++)
-            written3 += sprintf(ns->output_buf3 + written3, "%d %d %d %d\n", server_id, j, ns->msg_send_times[j], ns->msg_recvd_times[j]);
-        lp_io_write(lp->gid, "server-msg-times", written3, ns->output_buf3);
-    }
-
-    return;
-}
-
-static void svr_rev_event(
-        svr_state * ns,
-        tw_bf * b,
-        svr_msg * m,
-        tw_lp * lp)
-{
-    switch (m->svr_event_type)
-    {
-        case REMOTE:
-            handle_remote_rev_event(ns, b, m, lp);
-            break;
-        case LOCAL:
-            handle_local_rev_event(ns, b, m, lp);
-            break;
-        case KICKOFF:
-            handle_kickoff_rev_event(ns, b, m, lp);
-            break;
-        default:
-            assert(0);
-            break;
-    }
-}
-
-static void svr_event(
-        svr_state * ns,
-        tw_bf * b,
-        svr_msg * m,
-        tw_lp * lp)
-{
-    switch (m->svr_event_type)
-    {
-        case REMOTE:
-            handle_remote_event(ns, b, m, lp);
-            break;
-        case LOCAL:
-            handle_local_event(ns, b, m, lp);
-            break;
-        case KICKOFF:
-            handle_kickoff_event(ns, b, m, lp);
-            break;
-        default:
-            printf("\n Invalid message type %d ", m->svr_event_type);
-            assert(0);
-            break;
-    }
-}
-
-int main(
-        int argc,
-        char **argv)
-{
-    int nprocs;
-    int rank;
-    int num_nets;
-    int *net_ids;
-
-    tw_opt_add(app_opt);
-    tw_init(&argc, &argv);
-
-    codes_comm_update();
-    if(argc < 2)
-    {
-        printf("\n Usage: mpirun <args> --sync=2/3 mapping_file_name.conf (optional --nkp) ");
-        MPI_Finalize();
-        return 0;
-    }
-
-    MPI_Comm_rank(MPI_COMM_CODES, &rank);
-    MPI_Comm_size(MPI_COMM_CODES, &nprocs);
-
-    configuration_load(argv[2], MPI_COMM_CODES, &config);
-    model_net_register();
-    svr_add_lp_type();
-
-    if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
-        svr_register_model_types();
-
-    codes_mapping_setup();
-    net_ids = model_net_configure(&num_nets);
-    net_id = *net_ids;
-    free(net_ids);
-
-    /*if(num_nets != 1)
-    {
-        printf("\n The test works with only one network model configured");
-        MPI_Finalize();
-        return 0;
-    }*/
-
-    if(net_id == SLIMFLY){
-        num_nodes = codes_mapping_get_lp_count("MODELNET_GRP", 0, "modelnet_slimfly", NULL, 1);
-        configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers_per_grp);
-        total_routers = num_routers_per_grp * num_routers_per_grp * 2;
-    }
-    else if(net_id == DRAGONFLY_CUSTOM)
-        num_nodes = codes_mapping_get_lp_count("MODELNET_GRP", 0, "modelnet_dragonfly_custom", NULL, 1);
-    else if(net_id == FATTREE)
-        num_nodes = codes_mapping_get_lp_count("MODELNET_GRP", 0, "modelnet_fattree", NULL, 1);
-
-    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "nw-lp", NULL, 1);
-    num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp", NULL, 1);
-
-    if(lp_io_dir[0])
-    {
-        do_lp_io = 1;
-        int flags = lp_io_use_suffix ? LP_IO_UNIQ_SUFFIX : 0;
-        int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_CODES);
-        assert(ret == 0 || !"lp_io_prepare failure");
-    }
-
-    //WORST_CASE Initialization array
-    if(traffic == WORST_CASE)
-    {
-        if(net_id != SLIMFLY)
-        {
-            printf("\n The worst-case workload is currently only supported for the slim fly model");
-            MPI_Finalize();
-            return 0;
-        }
-        configuration_get_value_int(&config, "PARAMS", "local_channels", NULL, &num_local_channels);
-        if(!num_local_channels) {
-            num_local_channels = 2;
-            fprintf(stderr, "Number of Local channels not specified, setting to %d\n", num_local_channels);
-        }
-
-        configuration_get_value_int(&config, "PARAMS", "global_channels", NULL, &num_global_channels);
-        if(!num_global_channels) {
-            num_global_channels = 2;
-            fprintf(stderr, "Number of Global channels not specified, setting to %d\n", num_global_channels);
-        }
-
-        char       **values;
-        size_t       length;
-        int ret = configuration_get_multivalue(&config, "PARAMS", "generator_set_X", NULL, &values, &length);
-        if (ret != 1)
-            tw_error(TW_LOC, "unable to read PARAMS:generator_set_X\n");
-        if (length < 2)
-            fprintf(stderr, "generator set X less than 2 elements\n");
-
-        X = (int*)malloc(sizeof(int)*length);
-        for (size_t i = 0; i < length; i++)
-        {
-            X[i] = atoi(values[i]);
-        }
-        free(values);
-
-        ret = configuration_get_multivalue(&config, "PARAMS", "generator_set_X_prime", NULL, &values, &length);
-        if (ret != 1)
-            tw_error(TW_LOC, "unable to read PARAMS:generator_set_X_prime\n");
-        if (length < 2)
-            fprintf(stderr, "generator set  X_prime less than 2 elements\n");
-
-        X_size = length;
-        X_prime = (int*)malloc(sizeof(int)*length);
-        for (size_t i = 0; i < length; i++)
-        {
-            X_prime[i] = atoi(values[i]);
-        }
-        free(values);
-
-        worst_dest = (int*)malloc(total_routers*sizeof(int));
-        for(int i=0; i<total_routers; i++){
-            worst_dest[i] = -1;
-        }
-        init_worst_case_mapping();
-#if PRINT_WORST_CASE_MATCH
-        int l;
-        for(l=0; l<total_routers; l++)
-        {
-            printf("match %d->%d\n",l,worst_dest[l]);
-        }
-#endif
-    }
-
-    tw_run();
-
-    if (do_lp_io){
-        int ret = lp_io_flush(io_handle, MPI_COMM_CODES);
-        assert(ret == 0 || !"lp_io_flush failure");
-    }
-    model_net_report_stats(net_id);
-
-    tw_end();
-
-    return 0;
 }
 
 /** Get the local and global router connections for the given source router
