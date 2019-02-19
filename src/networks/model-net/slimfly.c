@@ -1392,8 +1392,10 @@ void slim_packet_generate(terminal_state * s, tw_bf * bf, slim_terminal_message 
         {
 #if DEBUG
             printf("(%lf) packet_generate() idle_event2 time offset:%lf\n",tw_now(lp),nic_ts);
-#endif
-            model_net_method_idle_event2(nic_ts, 0, j, lp);
+#endif   
+            double dither = .0001 * tw_rand_unif(lp->rng);
+            msg->rng_calls++;
+            model_net_method_idle_event2(nic_ts+dither, 0, j, lp);
         }
         else
         {
