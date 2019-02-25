@@ -912,7 +912,7 @@ void slim_terminal_init( terminal_state * s,
     s->router_id=(int)s->terminal_id / (num_term_lps); //this is the id for the default rail 0
     s->router_lp=(tw_lpid*)calloc(s->params->ports_per_nic, sizeof(tw_lpid));
     
-    printf("Terminal: %d",s->terminal_id);
+    // printf("Terminal: %d",s->terminal_id);
 
     if (s->params->sf_type == 1) { //fitfly
         //Assign Routers on each rail:
@@ -920,27 +920,15 @@ void slim_terminal_init( terminal_state * s,
         {
             if (i%2 == 0) { //even rails have normal mapping
                 codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 1, s->router_id, i, &s->router_lp[i]);
-                printf("  - Rail %d = %d",i, codes_mapping_get_lp_relative_id(s->router_lp[i],0,0));
+                // printf("  - Rail %d = %d",i, codes_mapping_get_lp_relative_id(s->router_lp[i],0,0));
             }
             else { //odd rails have reverse mapping
                 int rep_id = num_routers_per_rail - s->router_id - 1;
-                // int rep_id = (num_routers -1) - s->router_id - (num_routers/2);
                 codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 1, rep_id, i, &s->router_lp[i]);
-
-                // int even_rel_id = codes_mapping_get_lp_relative_id(s->router_lp[0], 0, 0);
-                // int odd_rel_id = (num_routers - 1) - s->router_id  - (i/2) 
-
-
-                // int odd_router_rel_id = num_routers_per_rail * i + odd_router_rel_to_rail;
-
-                printf("  - Rail %d = %d",i, codes_mapping_get_lp_relative_id(s->router_lp[i],0,0));
-
-                // tw_lpid odd_router_gid = codes_mapping_get_lpid_from_relative(odd_router_rel_id, lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0);
-
-                // s->router_lp[i] = odd_router_gid;
+                // printf("  - Rail %d = %d",i, codes_mapping_get_lp_relative_id(s->router_lp[i],0,0));
             }
         }
-        printf("\n");
+        // printf("\n");
     }
     else { //default slimfly
         codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1,
@@ -3126,10 +3114,14 @@ static int do_adaptive_routing( router_state * s,
     tw_lpid *nonmin_next_stop_lp_id = (tw_lpid *)malloc(num_indirect_routes * sizeof(tw_lpid));
     tw_lpid minimal_next_stop_lp_id;
 
+    int rail_id = msg->rail_id;
+    int actual_total_num_routers = codes_mapping_get_lp_count(lp_group_name, 0 ,"modelnet_slimfly_router", s->anno, 0);
+    int rpr = actual_total_num_routers / s->params->num_rails; //number routers per rail
+
     //Compute the next stop on the minimal path and get port number
     int minimal_next_stop_rel_id = getMinimalRouterFromEquations(msg, dest_router_rel_id, s);
     if(minimal_next_stop_rel_id > s->params->slim_total_routers-1)
-        codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, minimal_next_stop_rel_id - s->params->slim_total_routers, 1, &minimal_next_stop_lp_id);
+        codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, minimal_next_stop_rel_id - (rpr * rail_id), rail_id, &minimal_next_stop_lp_id);
     else
         codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", s->anno, 0, minimal_next_stop_rel_id, 0, &minimal_next_stop_lp_id);
     minimal_out_port = slim_get_output_port(s, msg, lp, minimal_next_stop_lp_id);
@@ -3141,7 +3133,7 @@ static int do_adaptive_routing( router_state * s,
         nonmin_next_stop_rel_id = getMinimalRouterFromEquations(msg, intm_id[i], s);
         //codes_mapping_get_lp_id(lp_group_name, "slimfly_router", s->anno, 0, nonmin_next_stop_rel_id, 0, &nonmin_next_stop_lp_id[i]);
         if(nonmin_next_stop_rel_id > s->params->slim_total_routers-1)
-            codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, nonmin_next_stop_rel_id - s->params->slim_total_routers, 1, &nonmin_next_stop_lp_id[i]);
+            codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, nonmin_next_stop_rel_id - (rpr * rail_id), rail_id, &nonmin_next_stop_lp_id[i]);
         else
             codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", s->anno, 0, nonmin_next_stop_rel_id, 0, &nonmin_next_stop_lp_id[i]);
         nonmin_out_port[i] = slim_get_output_port(s, msg, lp, nonmin_next_stop_lp_id[i]);
