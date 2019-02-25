@@ -331,7 +331,7 @@ static void ross_slimfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, st
 static void ross_slimfly_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_router_sample *sample);
 int get_path_length_from_terminal(int src, int dest, const slimfly_param *p);
 void get_router_connections(int src_router_id, int num_global_channels, int num_local_channels,
-        int total_routers, int* local_channels, int* global_channels, int sf_type);
+        int total_routers, int* local_channels, int* global_channels, int sf_type, slimfly_param * p);
 
 st_model_types slimfly_model_types[] = {
     {(ev_trace_f) slimfly_event_collect,
@@ -510,7 +510,7 @@ static void slimfly_read_config(const char * anno, slimfly_param *params){
 
     p->ports_per_nic = 1;
     if(p->num_rails > 1)
-        p->ports_per_nic = 2;
+        p->ports_per_nic = p->num_rails; //TODO: should ports_per_nic == num rails?
 
     configuration_get_value_int(&config, "PARAMS", "num_routers", anno,
             &p->num_routers);
@@ -844,6 +844,32 @@ static void slimfly_report_stats()
     return;
 }
 
+//This method returns the relative router ID of the router attached to the Terminal term_id on rail rail_id.
+int slim_get_associated_router_id_from_terminal(int term_gid, int rail_id, int num_rails)
+{
+    int term_rel_id = codes_mapping_get_lp_relative_id(term_gid,0,0);
+
+    int num_term_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM, NULL, 0); // number of terminals per rep
+    int num_routers = codes_mapping_get_lp_count(lp_group_name, 0 ,LP_CONFIG_NM_ROUT, NULL, 0);
+
+    int default_router_id = term_rel_id / num_term_lps; // the router id that is assigned to the given terminal by default - relative.
+
+    int num_routers_per_rail = num_routers / num_rails;
+
+    tw_lpid router_lpgid;
+    if (rail_id%2 == 0) { //even rails have normal mapping
+        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 1, default_router_id, rail_id, &router_lpgid);
+    }
+    else { //odd rails have reverse mapping
+        int rep_id = num_routers_per_rail - default_router_id - 1;
+        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 1, rep_id, rail_id, &router_lpgid);
+    }
+
+    int router_id = codes_mapping_get_lp_relative_id(router_lpgid, 0, 0); //get the router ID from the lpid
+
+    return router_id;
+}
+
 /* initialize a slimfly compute node terminal */
 void slim_terminal_init( terminal_state * s,
         tw_lp * lp )
@@ -867,36 +893,75 @@ void slim_terminal_init( terminal_state * s,
         s->params = &all_params[id];
     }
 
-    int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
-            s->anno, 0);
+    int num_term_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
+            s->anno, 0); //keep in mind that this is the number of terminals per rep!
 
     int num_routers = codes_mapping_get_lp_count(lp_group_name, 0 ,"modelnet_slimfly_router",
             s->anno, 0);
+
+    int num_routers_per_rep = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_ROUT, s->anno, 0);
+
+    int num_routers_per_rail = num_routers / s->params->ports_per_nic;
+
 #if MSG_TIMES
     s->msg_send_times = (int*)calloc(200,sizeof(int));
     s->msg_rail_select = (int*)calloc(200,sizeof(int));
 #endif
 
     s->terminal_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);  
-    s->router_id=(int)s->terminal_id / (num_lps);
+    s->router_id=(int)s->terminal_id / (num_term_lps); //this is the id for the default rail 0
     s->router_lp=(tw_lpid*)calloc(s->params->ports_per_nic, sizeof(tw_lpid));
-    //Assign router from first rail
-    codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1,
+    
+    printf("Terminal: %d",s->terminal_id);
+
+    if (s->params->sf_type == 1) { //fitfly
+        //Assign Routers on each rail:
+        for (int i = 0; i < s->params->ports_per_nic; i++)
+        {
+            if (i%2 == 0) { //even rails have normal mapping
+                codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 1, s->router_id, i, &s->router_lp[i]);
+                printf("  - Rail %d = %d",i, codes_mapping_get_lp_relative_id(s->router_lp[i],0,0));
+            }
+            else { //odd rails have reverse mapping
+                int rep_id = num_routers_per_rail - s->router_id - 1;
+                // int rep_id = (num_routers -1) - s->router_id - (num_routers/2);
+                codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 1, rep_id, i, &s->router_lp[i]);
+
+                // int even_rel_id = codes_mapping_get_lp_relative_id(s->router_lp[0], 0, 0);
+                // int odd_rel_id = (num_routers - 1) - s->router_id  - (i/2) 
+
+
+                // int odd_router_rel_id = num_routers_per_rail * i + odd_router_rel_to_rail;
+
+                printf("  - Rail %d = %d",i, codes_mapping_get_lp_relative_id(s->router_lp[i],0,0));
+
+                // tw_lpid odd_router_gid = codes_mapping_get_lpid_from_relative(odd_router_rel_id, lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0);
+
+                // s->router_lp[i] = odd_router_gid;
+            }
+        }
+        printf("\n");
+    }
+    else { //default slimfly
+        codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1,
             s->router_id, 0, &s->router_lp[0]);
-    //s->router_lp[0] = codes_mapping_get_lpid_from_relative(s->router_id,
-    //    lp_group_name, "slimfly_router", NULL, 0);
+    }
+
 #if SLIMFLY_CONNECTIONS
     int written = 0;
     written += sprintf(s->output_buf + written, "%d, %d, ", s->terminal_id, s->params->slim_total_terminals + s->router_id);
 #endif
-    //Assign router from second rail
-    if(s->params->sf_type == 1){
-        codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1,
-            (num_routers-1) - s->router_id - (num_routers/2), 1, &s->router_lp[1]);
-#if SLIMFLY_CONNECTIONS
-        written += sprintf(s->output_buf + written, "%d, %d, ", s->terminal_id, s->params->slim_total_terminals + (num_routers-1) - s->router_id);
-#endif
-    }
+
+// TODO: Reintroduce fitfly multi rail connection output
+//     //Assign router from second rail
+//     if(s->params->sf_type == 1){
+//         codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1,
+//             (num_routers-1) - s->router_id - (num_routers/2), 1, &s->router_lp[1]);
+// #if SLIMFLY_CONNECTIONS
+//         written += sprintf(s->output_buf + written, "%d, %d, ", s->terminal_id, s->params->slim_total_terminals + (num_routers-1) - s->router_id);
+// #endif
+//     }
+
 #if SLIMFLY_CONNECTIONS
     lp_io_write(lp->gid, "slimfly-config-terminal-connections", written, s->output_buf);
 #endif
@@ -1066,7 +1131,7 @@ void slim_router_setup(router_state * r, tw_lp * lp)
     fclose(MMS_input_file);
 #else
     get_router_connections(r->router_id, p->num_global_channels, p->num_local_channels,
-        p->slim_total_routers, r->local_channel, r->global_channel, p->sf_type);
+        p->slim_total_routers, r->local_channel, r->global_channel, p->sf_type, p);
 #endif
 
 #if SLIMFLY_CONNECTIONS
@@ -1311,32 +1376,59 @@ void slim_packet_generate(terminal_state * s, tw_bf * bf, slim_terminal_message 
     int target_queue = msg->rail_id;
     int path_tie = 0;
 
-    if(s->params->rail_select == RAIL_PATH){
-        // Set starting rail to the first rail (rail 0)
+    if (s->params->rail_select == RAIL_PATH) {
+        // set starting rail to first rail (rail 0)
         target_queue = 0;
-        // Get information on destination terminal from its LP ID
-        codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name,
-                &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id,
-                &mapping_offset);
-        // Get number of terminal LPs per repetition so we can calculate local/relative router ID for the destination terminal
-        int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
-                s->anno, 0);
-        // Compute relative id of router in the first rail that is connected to the destination terminal
-        int rail_one_dest_router_rel_id = (mapping_offset + (mapping_rep_id * num_lps)) / s->params->num_cn;
-        // Get path length from rail 1 source router to rail 1 dest router
-        int path_length_rail1 = get_path_length_from_terminal(s->router_id, rail_one_dest_router_rel_id, p);
-        // Compute relative id of router in the second rail connected to destination compute terminal
-        int rail_two_dest_router_rel_id = s->params->slim_total_routers - 1 - rail_one_dest_router_rel_id;
-        // Get path length from rail 2 src router to rail 2 dest router
-        int path_length_rail2 = get_path_length_from_terminal(s->params->slim_total_routers - 1 - s->router_id, rail_two_dest_router_rel_id, p);
-        // Compare rail path lengths
-        if( path_length_rail2 < path_length_rail1 ){
-            target_queue = 1;
-        }else if( path_length_rail2 == path_length_rail1 ){
-            // Set path tie so we can break the tie with the RAIL_CONGESTION method below
-            path_tie = 1;
+
+        int path_lengths[s->params->ports_per_nic];
+        int min_len = 999999;
+        for(int rail_id = 0; rail_id < s->params->ports_per_nic; rail_id++)
+        {
+            //get the router relative ID connected to the destination terminal on this rail
+            int dest_router_rel_id = slim_get_associated_router_id_from_terminal(msg->dest_terminal_id, rail_id, s->params->ports_per_nic);
+
+            //get the router relative ID connected to this terminal on this rail
+            int src_router_rel_id = codes_mapping_get_lp_relative_id(s->router_lp[rail_id],0,0);
+            path_lengths[rail_id] = get_path_length_from_terminal(src_router_rel_id, dest_router_rel_id, p);
+
+            if (path_lengths[rail_id] < min_len) {
+                min_len = path_lengths[rail_id];
+                target_queue = rail_id;
+                path_tie = 0; //reset as we found a new min
+            }
+            else if (path_lengths[rail_id] == min_len) {
+                path_tie = 1; //this was the same as the current min, tie.
+            }
         }
     }
+
+    // if(s->params->rail_select == RAIL_PATH){
+    //     // Set starting rail to the first rail (rail 0)
+    //     target_queue = 0;
+    //     // Get information on destination terminal from its LP ID
+    //     codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name,
+    //             &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id,
+    //             &mapping_offset);
+    //     // Get number of terminal LPs per repetition so we can calculate local/relative router ID for the destination terminal
+    //     int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
+    //             s->anno, 0);
+    //     // Compute relative id of router in the first rail that is connected to the destination terminal
+    //     int rail_one_dest_router_rel_id = (mapping_offset + (mapping_rep_id * num_lps)) / s->params->num_cn;
+    //     // Get path length from rail 1 source router to rail 1 dest router
+    //     int path_length_rail1 = get_path_length_from_terminal(s->router_id, rail_one_dest_router_rel_id, p);
+    //     // Compute relative id of router in the second rail connected to destination compute terminal
+    //     int rail_two_dest_router_rel_id = s->params->slim_total_routers - 1 - rail_one_dest_router_rel_id;
+    //     // Get path length from rail 2 src router to rail 2 dest router
+    //     int path_length_rail2 = get_path_length_from_terminal(s->params->slim_total_routers - 1 - s->router_id, rail_two_dest_router_rel_id, p);
+    //     // Compare rail path lengths
+    //     if( path_length_rail2 < path_length_rail1 ){
+    //         target_queue = 1;
+    //     }else if( path_length_rail2 == path_length_rail1 ){
+    //         // Set path tie so we can break the tie with the RAIL_CONGESTION method below
+    //         path_tie = 1;
+    //     }
+    // }
+
     if(s->params->rail_select == RAIL_CONGESTION || path_tie) {
         bf->c1 = 1;
         target_queue = tw_rand_integer(lp->rng,0,p->ports_per_nic-1);
@@ -2145,15 +2237,22 @@ void slimfly_router_final(router_state * s,
  *  @param[in] *global_channels         Integer array pointer for storing the global connections
  */
 void get_router_connections(int src_router_id, int num_global_channels, int num_local_channels,
-        int total_routers, int* local_channels, int* global_channels, int sf_type){
+        int total_routers, int* local_channels, int* global_channels, int sf_type, slimfly_param *p){
     //Compute MMS router layout/connection graph
     int rid_s = src_router_id;	// ID for source router
-    if(sf_type == 1)
-        //Convert source ID for second rail of Fit Fly to be in reverse order of the first rail
+    int num_rails = 1;
+    int routers_per_rail = total_routers;
+    int rail_id = 0;
+    if(sf_type == 1) {
+        num_rails = p->num_rails;
+        routers_per_rail = total_routers; //dumb name
+        rail_id = (src_router_id/routers_per_rail);
+        //Convert source ID for second rail of Fit Fly to be in reverse order of the first rail - that was commented out
         if (rid_s >= total_routers){
-            rid_s = rid_s % total_routers;
+            rid_s = rid_s % routers_per_rail;
             //rid_s = (total_routers - 1) - rid_s;
         }
+    }
 
     int rid_d;						// ID for dest. router
     int s_s,s_d;					// subgraph location for source and destination routers
@@ -2200,8 +2299,8 @@ void get_router_connections(int src_router_id, int num_global_channels, int num_
                 {
                     if(abs(j_s-j_d)==X[k])
                     {
-                        if(src_router_id >= total_routers)
-                            local_channels[local_idx++] = rid_d + total_routers;
+                        if(src_router_id >= total_routers) //greater than a single rail?
+                            local_channels[local_idx++] = rid_d + routers_per_rail*rail_id;
                         else
                             local_channels[local_idx++] = rid_d;
                     }
@@ -2214,7 +2313,7 @@ void get_router_connections(int src_router_id, int num_global_channels, int num_
             if(j_s == (i_d*i_s + j_d) % num_global_channels)							// equation (3) y=mx+c
             {
                 if(src_router_id >= total_routers)
-                    global_channels[global_idx++] = rid_d + total_routers;
+                    global_channels[global_idx++] = rid_d + routers_per_rail*rail_id;
                 else
                     global_channels[global_idx++] = rid_d;
             }
@@ -2259,7 +2358,7 @@ void get_router_connections(int src_router_id, int num_global_channels, int num_
                     if(abs(j_s-j_d)==X_prime[k])
                     {
                         if(src_router_id >= total_routers)
-                            local_channels[local_idx++] = rid_d + total_routers;
+                            local_channels[local_idx++] = rid_d + routers_per_rail*rail_id;
                         else
                             local_channels[local_idx++] = rid_d;
                     }
@@ -2272,7 +2371,7 @@ void get_router_connections(int src_router_id, int num_global_channels, int num_
             if(j_d == (i_s*i_d + j_s) %  num_global_channels)							// equation (3) y=mx+c
             {
                 if(src_router_id >= total_routers)
-                    global_channels[global_idx++] = rid_d + total_routers;
+                    global_channels[global_idx++] = rid_d + routers_per_rail*rail_id;
                 else
                     global_channels[global_idx++] = rid_d;
             }
@@ -2293,7 +2392,7 @@ int get_path_length_from_terminal(int src, int dest, const slimfly_param *p)
     int *local_channel = (int*) calloc(p->num_local_channels,sizeof(int)); //NM TODO: DYNAMIC ALLOCS ARE TIME EXPENSIVE - this function is called every packet generate?!
     int *global_channel = (int*) calloc(p->num_global_channels,sizeof(int));
     get_router_connections(src, p->num_global_channels, p->num_local_channels,
-            p->slim_total_routers, local_channel, global_channel, p->sf_type);
+            p->slim_total_routers, local_channel, global_channel, p->sf_type,p);
     int i, num_hops=2;
     for(i=0;i<p->num_global_channels;i++)
     {
@@ -2856,6 +2955,10 @@ tw_lpid slim_get_next_stop(router_state * s,
 
     int local_router_rel_id = s->router_id;
 
+    int rail_id = msg->rail_id;
+    int actual_total_num_routers = codes_mapping_get_lp_count(lp_group_name, 0 ,"modelnet_slimfly_router", s->anno, 0);
+    int rpr = actual_total_num_routers / s->params->num_rails; //number routers per rail
+
     /* If the packet has arrived at the destination router */
     if(dest_router_rel_id == local_router_rel_id)
     {
@@ -2874,7 +2977,7 @@ tw_lpid slim_get_next_stop(router_state * s,
         msg->intm_router_id = intm_id;
         next_stop_rel_id=getMinimalRouterFromEquations(msg, msg->intm_router_id, s);
         if(next_stop_rel_id > s->params->slim_total_routers-1)
-            codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, next_stop_rel_id - s->params->slim_total_routers, 1, &next_stop_lp_id);
+            codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, next_stop_rel_id - (rpr * rail_id), rail_id, &next_stop_lp_id);
         else
             codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", s->anno, 0, next_stop_rel_id, 0, &next_stop_lp_id);
 #if TRACK_OUTPUT
@@ -2901,7 +3004,7 @@ tw_lpid slim_get_next_stop(router_state * s,
     {
         next_stop_rel_id=getMinimalRouterFromEquations(msg, msg->intm_router_id, s);
         if(next_stop_rel_id > s->params->slim_total_routers-1)
-            codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, next_stop_rel_id - s->params->slim_total_routers, 1, &next_stop_lp_id);
+            codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, next_stop_rel_id - (rpr * rail_id), rail_id, &next_stop_lp_id);
         else
             codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", s->anno, 0, next_stop_rel_id, 0, &next_stop_lp_id);
 #if TRACK_OUTPUT
@@ -2917,7 +3020,7 @@ tw_lpid slim_get_next_stop(router_state * s,
     {
         next_stop_rel_id=getMinimalRouterFromEquations(msg, dest_router_rel_id, s);
         if(next_stop_rel_id > s->params->slim_total_routers-1)
-            codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, next_stop_rel_id - s->params->slim_total_routers, 1, &next_stop_lp_id);
+            codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, next_stop_rel_id - (rpr * rail_id), rail_id, &next_stop_lp_id);
         else
             codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", s->anno, 0, next_stop_rel_id, 0, &next_stop_lp_id);
 #if TRACK_OUTPUT
@@ -2935,7 +3038,7 @@ tw_lpid slim_get_next_stop(router_state * s,
     }
 
     if(next_stop_rel_id > s->params->slim_total_routers-1)
-        codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, next_stop_rel_id - s->params->slim_total_routers, 1, &next_stop_lp_id);
+        codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", NULL, 1, next_stop_rel_id - (rpr * rail_id), rail_id, &next_stop_lp_id);
     else
         codes_mapping_get_lp_id(lp_group_name, "modelnet_slimfly_router", s->anno, 0, next_stop_rel_id, 0, &next_stop_lp_id);
     //printf("next_stop_rel_id:%d, next_stop_lp_id:%llu\n",next_stop_rel_id,LLU(next_stop_lp_id));
@@ -3182,19 +3285,21 @@ slim_router_packet_receive( router_state * s,
     int next_stop = -1, output_port = -1, output_chan = -1;
     int dest_router_rel_id;
 
+    int rail_id = msg->rail_id;
+
     codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name,
             &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id,
             &mapping_offset);
     int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
             s->anno, 0);
     // Compute relative id of router in the first rail that is connected to the destination node
-    int rail_one_dest_router_rel_id = (mapping_offset + (mapping_rep_id * num_lps)) /
+    int default_rail_dest_router_rel_id = (mapping_offset + (mapping_rep_id * num_lps)) /
             s->params->num_cn;
     if(s->router_id > s->params->slim_total_routers -1)
         // Compute relative id of router in the second rail connected to destination compute node
-        dest_router_rel_id = 2 * s->params->slim_total_routers - 1 - rail_one_dest_router_rel_id;
+        dest_router_rel_id = (rail_id+1) * s->params->slim_total_routers - 1 - default_rail_dest_router_rel_id;
     else
-        dest_router_rel_id = rail_one_dest_router_rel_id;
+        dest_router_rel_id = default_rail_dest_router_rel_id;
 
     int intm_id = -1;
     int *intm_router;		//Array version of intm_id for use in Adaptive routing
@@ -3227,7 +3332,7 @@ slim_router_packet_receive( router_state * s,
 
         // If in the second rail, adjust the relative router id of the intermediate router accordingly to be in the second rail
         if(s->router_id >= s->params->slim_total_routers)
-            intm_id += s->params->slim_total_routers;
+            intm_id += s->params->slim_total_routers*rail_id;
     }
     if(msg->last_hop == TERMINAL && routing == ADAPTIVE)
     {
@@ -3243,19 +3348,19 @@ slim_router_packet_receive( router_state * s,
                 intm_router[i] = tw_rand_integer(lp->rng, 0, s->params->slim_total_routers-1);
                 msg->rng_calls++;
                 if(dest_router_rel_id >= s->params->slim_total_routers)
-                    intm_router[i] += s->params->slim_total_routers;
+                    intm_router[i] += s->params->slim_total_routers*rail_id;
 
                 if(intm_router[i] == dest_router_rel_id)	//Check if same as dest_router
                 {
                     intm_router[i] = (intm_router[i]+1) % (s->params->slim_total_routers-1);
                     if(dest_router_rel_id >= s->params->slim_total_routers)
-                        intm_router[i] += s->params->slim_total_routers;
+                        intm_router[i] += s->params->slim_total_routers*rail_id;
                 }
                 if(intm_router[i] == (int)lp->gid)			//Check if same as source router
                 {
                     intm_router[i] = (intm_router[i]+1) % (s->params->slim_total_routers-1);
                     if(dest_router_rel_id >= s->params->slim_total_routers)
-                        intm_router[i] += s->params->slim_total_routers;
+                        intm_router[i] += s->params->slim_total_routers*rail_id;
                 }
             }
             next_stop = do_adaptive_routing(s, &(cur_chunk->msg), lp, dest_router_rel_id, intm_router);
