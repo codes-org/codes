@@ -270,7 +270,9 @@ static void issue_event(
     //kickoff_time = g_tw_lookahead + tw_rand_normal_sd(lp->rng, MEAN_INTERVAL, MEAN_INTERVAL*0.05, &rng_calls);
     //kickoff_time = g_tw_lookahead + tw_rand_normal_sd(lp->rng, MEAN_INTERVAL, MEAN_INTERVAL*0.00001, &rng_calls);
     // kickoff_time = g_tw_lookahead + MEAN_INTERVAL;
-    kickoff_time = g_tw_lookahead + tw_rand_exponential(lp->rng, MEAN_INTERVAL);
+    // kickoff_time = g_tw_lookahead + tw_rand_exponential(lp->rng, MEAN_INTERVAL);
+    double dither = tw_rand_unif(lp->rng)*.00001;
+    kickoff_time = g_tw_lookahead + MEAN_INTERVAL + dither;
 
 
     /*if(lp->gid == 0){
