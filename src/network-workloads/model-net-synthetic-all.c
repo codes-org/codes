@@ -38,9 +38,12 @@ static int num_msgs = 20;
 
 static int num_servers_per_rep = 0;
 static int num_routers_per_grp = 0;
+static int num_servers_per_node = 0;
 
 static int num_nodes = 0;   // Number of terminals/compute nodes
 static int num_servers = 0; // Number of servers/MPI processes
+
+static double pe_total_offered_load, pe_total_observed_load;
 
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
@@ -89,6 +92,7 @@ enum TRAFFIC
 struct svr_state
 {
     int msg_sent_count;   /* requests sent */
+    int warm_msg_sent_count;
     int msg_recvd_count;  /* requests recvd */
     int* msg_send_times;  /* send time of all messages */
     int* msg_recvd_times; /* recv time of all messages */
@@ -301,6 +305,7 @@ static void svr_init(
     // }
 
     ns->msg_sent_count = 0;
+    ns->warm_msg_sent_count = 0;
     ns->msg_recvd_count = 0;
     ns->local_recvd_count = 0;
     ns->start_ts = 0.0;
@@ -323,6 +328,7 @@ static void handle_kickoff_rev_event(
     (void)m;
     (void)lp;
 
+    
     ns->msg_sent_count--;
     if(b->c2)
         m->incremented_flag = 0;
@@ -331,6 +337,9 @@ static void handle_kickoff_rev_event(
         tw_rand_reverse_unif(lp->rng);
 
     model_net_event_rc2(lp, &m->event_rc);
+
+    if(b->c5 == 1)
+        ns->warm_msg_sent_count--;
 
     tw_rand_reverse_unif(lp->rng); //mean interval dither
 }	
@@ -532,6 +541,12 @@ static void handle_kickoff_event(
         // comm_map[server_id][local_dest[i]]++;
         // Increment send count
         ns->msg_sent_count++;
+        
+        if (tw_now(lp) >= warm_up_time) {
+            b->c5 = 1;
+            ns->warm_msg_sent_count++;
+        }
+
         // Issue event
         if( traffic == PING ){
             ns->msg_send_times[ns->msg_sent_count-1] = (int)(tw_now(lp));
@@ -622,6 +637,14 @@ static void svr_finalize(
     int written2 =0;
     int written3 =0;
 
+    double offered_load_time = ((double)ns->end_ts-warm_up_time);
+    double offered_load = ((double)payload_size*(double)ns->warm_msg_sent_count)/((double)ns->end_ts-warm_up_time);
+    offered_load = offered_load * (double)(1000*1000*1000);
+    offered_load = offered_load / (double)(1024*1024*1024);
+
+    pe_total_offered_load+= offered_load;
+    pe_total_observed_load+= observed_load;
+
     if(lp->gid == 0){
         written = sprintf(ns->output_buf, "# Format <LP id> <Msgs Sent> <Msgs Recvd> <Bytes Sent> <Bytes Recvd> <Offered Load [GBps]> <Observed Load [GBps]> <End Time [ns]> <Observed Load Time [ns]>\n");
         // written2 = sprintf(ns->output_buf2, "# Format <server ID> <sends to svr 0> <sends to svr 1> ... <sends to svr N>\n");
@@ -702,6 +725,22 @@ static void svr_event(
     }
 }
 
+static void aggregate_svr_stats(int myrank)
+{
+
+    double agg_offered_load, agg_observed_load;
+    MPI_Reduce(&pe_total_offered_load, &agg_offered_load, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
+    MPI_Reduce(&pe_total_observed_load, &agg_observed_load, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
+
+    double avg_offered_load = agg_offered_load / num_servers * num_servers_per_node;
+    double avg_observed_load = agg_observed_load / num_servers * num_servers_per_node;
+
+    if (myrank == 0) {
+        printf("\nSynthetic-All Stats ---\n");
+        printf("AVG OFFERED LOAD = %.2f     |     AVG OBSERVED LOAD = %.2f\n",avg_offered_load, avg_observed_load);
+    }
+}
+
 int main(
         int argc,
         char **argv)
@@ -756,6 +795,8 @@ int main(
 
     num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "nw-lp", NULL, 1);
     num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp", NULL, 1);
+
+    num_servers_per_node = num_servers/num_nodes;
 
     if(lp_io_dir[0])
     {
@@ -836,6 +877,8 @@ int main(
         assert(ret == 0 || !"lp_io_flush failure");
     }
     model_net_report_stats(net_id);
+
+    aggregate_svr_stats(rank);
 
     tw_end();
 
