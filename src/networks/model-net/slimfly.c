@@ -671,7 +671,7 @@ static void slimfly_read_config(const char * anno, slimfly_param *params){
                 p->radix, p->num_local_channels, p->num_global_channels);
     }
 
-    p->cn_delay = bytes_to_ns(p->chunk_size, p->cn_bandwidth);
+    p->cn_delay = bytes_to_ns(p->chunk_size, p->cn_bandwidth*p->num_rails);
     p->local_delay = bytes_to_ns(p->chunk_size, p->local_bandwidth);
     p->global_delay = bytes_to_ns(p->chunk_size, p->global_bandwidth);
     p->credit_delay = bytes_to_ns(8.0, p->local_bandwidth); //assume 8 bytes packet
