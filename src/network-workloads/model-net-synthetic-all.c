@@ -109,6 +109,7 @@ struct svr_msg
     enum svr_event svr_event_type;
     tw_lpid src;          /* source of this request or ack */
     int incremented_flag; /* helper for reverse computation */
+    tw_stime saved_end_time;
     model_net_event_return event_rc;
 };
 
@@ -571,7 +572,10 @@ static void handle_remote_rev_event(
     (void)m;
     (void)lp;
     if (b->c3)
+    {
         ns->msg_recvd_count--;
+        ns->end_ts = m->saved_end_time;
+    }
 }
 
 static void handle_remote_event(
@@ -586,6 +590,8 @@ static void handle_remote_event(
     if (tw_now(lp) >= warm_up_time) {
         b->c3 = 1;
         ns->msg_recvd_count++;
+        m->saved_end_time = ns->end_ts;
+        ns->end_ts = tw_now(lp);
     }
     if( traffic == PING ){
         ns->msg_recvd_times[ns->msg_recvd_count-1] = (int)(tw_now(lp));
@@ -627,7 +633,6 @@ static void svr_finalize(
         svr_state * ns,
         tw_lp * lp)
 {
-    ns->end_ts = tw_now(lp);
 
     double observed_load_time = ((double)ns->end_ts-warm_up_time);
     double observed_load = ((double)payload_size*(double)ns->msg_recvd_count)/((double)ns->end_ts-warm_up_time);
