@@ -299,31 +299,186 @@ struct slimfly_router_sample
    tw_stime end_time;
 };
 
-void slimfly_event_collect(slim_terminal_message *m, tw_lp *lp, char *buffer, int *collect_flag);
-void slimfly_model_stat_collect(terminal_state *s, tw_lp *lp, char *buffer);
-static void ross_slimfly_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_cn_sample *sample);
-static void ross_slimfly_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_cn_sample *sample);
-static void ross_slimfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_router_sample *sample);
-static void ross_slimfly_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_router_sample *sample);
+/***** ROSS model instrumentation *****/
+void slimfly_event_trace(slim_terminal_message *m, tw_lp *lp, char *buffer, int *collect_flag);
+void slimfly_rt_sample_fn(terminal_state *s, tw_lp *lp);
+void slimfly_router_rt_sample_fn(router_state *s, tw_lp *lp);
+static void slimfly_vt_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp);
+static void slimfly_vt_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp);
+static void slimfly_vt_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp);
+static void slimfly_vt_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp);
+
+char sfly_router_lp_name[] = "sfly_router\0";
+char sfly_terminal_lp_name[] = "sfly_terminal\0";
+char* sfly_rvar_names[] = {
+    "router_id\0",
+    "vc_occupancy\0"
+};
+char* sfly_tvar_names[] = {
+    "terminal_id\0",
+    "vc_occupancy\0"
+};
+
+st_model_var sfly_router_vars[] = {
+    {"",
+     MODEL_INT,
+     1},
+    {"",
+     MODEL_INT,
+     0} //updated in slim_router_setup() since it's based on the radix 
+};
+
+st_model_var sfly_terminal_vars[] = {
+    {"",
+     MODEL_INT,
+     1},
+    {"",
+     MODEL_INT,
+     1}
+};
+
+#define sfly_num_tvars 2
+#define sfly_num_rvars 2
 
 st_model_types slimfly_model_types[] = {
-    {(ev_trace_f) slimfly_event_collect,
-     sizeof(int),
-     (model_stat_f) slimfly_model_stat_collect,
-     0, // update this when changing slimfly_model_stat_collect
-     (sample_event_f) ross_slimfly_sample_fn,
-     (sample_revent_f) ross_slimfly_sample_rc_fn,
-     sizeof(struct slimfly_cn_sample) } , 
-    {(ev_trace_f) slimfly_event_collect,
-     sizeof(int),
-     (model_stat_f) slimfly_model_stat_collect,
-     0, // update this when changing slimfly_model_stat_collect
-     (sample_event_f) ross_slimfly_rsample_fn,
-     (sample_revent_f) ross_slimfly_rsample_rc_fn,
-     0 } , //updated in slim_router_setup() since it's based on the radix 
-    {NULL, 0, NULL, 0, NULL, NULL, 0}
+    {sfly_terminal_lp_name,
+     sfly_terminal_vars,
+     sfly_num_tvars,
+     (vts_event_f) slimfly_vt_sample_fn,
+     (vts_revent_f) slimfly_vt_sample_rc_fn,
+     (rt_event_f) slimfly_rt_sample_fn,
+     (ev_trace_f) slimfly_event_trace,
+     sizeof(int)},
+    {sfly_router_lp_name,
+     sfly_router_vars,
+     sfly_num_rvars,
+     (vts_event_f) slimfly_vt_rsample_fn,
+     (vts_revent_f) slimfly_vt_rsample_rc_fn,
+     (rt_event_f) slimfly_router_rt_sample_fn,
+     (ev_trace_f) slimfly_event_trace,
+     sizeof(int)},
+    {0}
 };
-/* End of ROSS model stats collection */
+
+void sfly_terminal_init_model_vars()
+{
+    int i;
+    for (i = 0; i < sfly_num_tvars; i++)
+    {
+        sfly_terminal_vars[i].var_name = sfly_tvar_names[i];
+    }
+}
+
+void sfly_router_init_model_vars(int radix)
+{
+    int i;
+    for (i = 0; i < sfly_num_rvars; i++)
+    {
+        sfly_router_vars[i].var_name = sfly_rvar_names[i];
+        if (i > 0)
+            sfly_router_vars[i].num_elems = radix;
+    }
+}
+
+void slimfly_event_trace(slim_terminal_message *m, tw_lp *lp, char *buffer, int* collect_flag)
+{
+    (void)lp;
+    (void)collect_flag;
+
+    int type = (int) m->type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+void slimfly_rt_sample_fn(terminal_state *s, tw_lp *lp)
+{
+    (void)lp;
+
+    int terminal_id = (int)s->terminal_id;
+    st_save_model_variable(lp, sfly_tvar_names[0], &terminal_id);
+
+    int i, vc_occupancy = 0;
+    for (i = 0; i < s->num_vcs; i++)
+        vc_occupancy += s->vc_occupancy[i];
+    st_save_model_variable(lp, sfly_tvar_names[1], &vc_occupancy);
+}
+
+void slimfly_router_rt_sample_fn(router_state *s, tw_lp *lp)
+{
+    (void)lp;
+
+    int router_id = (int)s->router_id;
+    st_save_model_variable(lp, sfly_rvar_names[0], &router_id);
+    st_save_model_variable(lp, sfly_rvar_names[1], &s->vc_occupancy[0]);
+}
+
+static void slimfly_vt_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp)
+{
+    (void)lp;
+    (void)bf;
+
+    int terminal_id = (int)s->terminal_id;
+    st_save_model_variable(lp, sfly_tvar_names[0], &terminal_id);
+
+    int i, vc_occupancy = 0;
+    for (i = 0; i < s->num_vcs; i++)
+        vc_occupancy += s->vc_occupancy[i];
+    st_save_model_variable(lp, sfly_tvar_names[1], &vc_occupancy);
+}
+
+static void slimfly_vt_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp)
+{
+    (void)lp;
+    (void)bf;
+    (void)s;
+    // state not changed in forward handler so nothing to do here
+}
+
+static void slimfly_vt_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp)
+{
+    (void)lp;
+    (void)bf;
+    (void)s;
+
+    const slimfly_param * p = s->params;
+    int router_id = (int)s->router_id;
+    st_save_model_variable(lp, sfly_rvar_names[0], &router_id);
+
+    // static variable so should only be allocated on first call
+    static int *vc_occupancy = NULL;
+    if (!vc_occupancy)
+        vc_occupancy = calloc(p->radix, sizeof(int));
+
+    // sum vc occupancy for each port
+    int i, j;
+    for(i = 0; i < p->radix; i++)
+    {
+        vc_occupancy[i] = 0;
+        for (j = 0; j < p->num_vcs; j++)
+            vc_occupancy[i] += s->vc_occupancy[i][j];
+    }
+    st_save_model_variable(lp, sfly_rvar_names[1], vc_occupancy);
+}
+
+static void slimfly_vt_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp)
+{
+    (void)lp;
+    (void)bf;
+    (void)s;
+    // state not changed in forward handler so nothing to do here
+}
+
+static const st_model_types *slimfly_get_cn_model_types()
+{
+    return(&slimfly_model_types[0]);
+}
+
+static void slimfly_register_model_types(st_model_types *base_type)
+{
+    st_model_type_register(LP_CONFIG_NM, base_type);
+    st_model_type_register("slimfly_router", &slimfly_model_types[1]);
+}
+
+/***** End of ROSS Instrumentation *****/
 
 static short routing = MINIMAL;
 
@@ -902,8 +1057,7 @@ void slim_router_setup(router_state * r, tw_lp * lp)
     r->busy_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
 
     // ROSS Instrumentation
-    if (g_st_use_analysis_lps && g_st_model_stats)
-        lp->model_types->sample_struct_sz = sizeof(struct slimfly_router_sample) + sizeof(int) * p->radix;
+    sfly_router_init_model_vars(p->radix);
 
     rc_stack_create(&r->st);
 
@@ -3417,96 +3571,6 @@ static void slimfly_register(tw_lptype *base_type) {
     lp_type_register(LP_CONFIG_NM, base_type);
     lp_type_register("slimfly_router", &slimfly_lps[1]);
 }
-
-/* For ROSS Instrumentation */
-void slimfly_event_collect(slim_terminal_message *m, tw_lp *lp, char *buffer, int *collect_flag)
-{
-    (void)lp;
-    (void)collect_flag;
-
-    int type = (int) m->type;
-    memcpy(buffer, &type, sizeof(type));
-}
-
-void slimfly_model_stat_collect(terminal_state *s, tw_lp *lp, char *buffer)
-{
-    (void)lp;
-    (void)s;
-    (void)buffer;
-
-    return;
-}
-
-static void ross_slimfly_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_cn_sample *sample)
-{
-    (void)bf;
-
-    sample->terminal_id = s->terminal_id;
-    sample->end_time = tw_now(lp);
-    sample->vc_occupancy = 0;
-
-    // sum vc_occupancy
-    int i;
-    for (i = 0; i < s->num_vcs; i++)
-        sample->vc_occupancy += s->vc_occupancy[i];
-
-    return;
-}
-
-static void ross_slimfly_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_cn_sample *sample)
-{
-    (void)lp;
-    (void)bf;
-    (void)s;
-    (void)sample;
-    
-    return;
-}
-
-static void ross_slimfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_router_sample *sample)
-{
-    (void)bf;
-
-    const slimfly_param * p = s->params; 
-    int i, j, total;
-
-    sample->router_id = s->router_id;
-    sample->end_time = tw_now(lp);
-    sample->vc_occupancy = (int*)((&sample->end_time) + 1);
-
-    // sum vc occupancy for each port
-    for(i = 0; i < p->radix; i++)
-    {
-        total = 0;
-        for (j = 0; j < p->num_vcs; j++)
-            total += s->vc_occupancy[i][j];
-        sample->vc_occupancy[i] = total;
-    }
-
-    return;
-}
-
-static void ross_slimfly_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_router_sample *sample)
-{
-    (void)lp;
-    (void)bf;
-    (void)s;
-    (void)sample;
-    
-    return;
-}
-
-static const st_model_types *slimfly_get_cn_model_types()
-{
-    return(&slimfly_model_types[0]);
-}
-
-static void slimfly_register_model_types(st_model_types *base_type)
-{
-    st_model_type_register(LP_CONFIG_NM, base_type);
-    st_model_type_register("slimfly_router", &slimfly_model_types[1]);
-}
-/*** END of ROSS event tracing additions */
 
 /* data structure for slimfly statistics */
 struct model_net_method slimfly_method =

@@ -110,6 +110,65 @@ tw_lptype svr_lp = {
     sizeof(svr_state),
 };
 
+/***** ROSS model instrumentation *****/
+void svr_vt_sample_fn(svr_state *s, tw_bf *bf, tw_lp *lp);
+void svr_vt_sample_rc_fn(svr_state *s, tw_bf *bf, tw_lp *lp);
+void svr_rt_sample_fn(svr_state *s, tw_lp *lp);
+void svr_event_trace(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag);
+
+char svr_name[] = "dfly_plus_server\0";
+
+st_model_types svr_model_types[] = {
+    {svr_name,
+     NULL,
+     0,
+     (vts_event_f) svr_vt_sample_fn,
+     (vts_revent_f) svr_vt_sample_rc_fn,
+     (rt_event_f) svr_rt_sample_fn,
+     (ev_trace_f) svr_event_trace,
+     sizeof(int)},
+    {0}
+};
+
+void svr_vt_sample_fn(svr_state *s, tw_bf *bf, tw_lp *lp)
+{
+    (void)s;
+    (void)bf;
+    (void)lp;
+}
+
+void svr_vt_sample_rc_fn(svr_state *s, tw_bf *bf, tw_lp *lp)
+{
+    (void)s;
+    (void)bf;
+    (void)lp;
+}
+
+void svr_rt_sample_fn(svr_state *s, tw_lp *lp)
+{
+    (void)s;
+    (void)lp;
+}
+
+void svr_event_trace(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
+{
+    (void)lp;
+    (void)collect_flag;
+    int type = (int) m->svr_event_type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+static const st_model_types  *svr_get_model_stat_types(void)
+{
+    return(&svr_model_types[0]);
+}
+
+void svr_register_model_types()
+{
+    st_model_type_register("server", svr_get_model_stat_types());
+}
+
+/***** End of ROSS Instrumentation *****/
 const tw_optdef app_opt [] =
 {
         TWOPT_GROUP("Model net synthetic traffic " ),
@@ -436,6 +495,9 @@ int main(
 
     model_net_register();
     svr_add_lp_type();
+
+    if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
+        svr_register_model_types();
 
     codes_mapping_setup();
 

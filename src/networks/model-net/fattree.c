@@ -296,12 +296,12 @@ struct switch_state
   int *lft;
 };
 
-/* ROSS Instrumentation Support */
+/***** ROSS model instrumentation *****/
 struct fattree_cn_sample
 {
     tw_lpid terminal_id;
     tw_stime end_time;
-    int vc_occupancy; 
+    int vc_occupancy;
 };
 
 struct fattree_switch_sample
@@ -311,31 +311,162 @@ struct fattree_switch_sample
    tw_stime end_time;
 };
 
-void fattree_event_collect(fattree_message *m, tw_lp *lp, char *buffer, int *collect_flag);
-void fattree_model_stat_collect(ft_terminal_state *s, tw_lp *lp, char *buffer);
-static void ross_fattree_sample_fn(ft_terminal_state * s, tw_bf * bf, tw_lp * lp, struct fattree_cn_sample *sample);
-static void ross_fattree_sample_rc_fn(ft_terminal_state * s, tw_bf * bf, tw_lp * lp, struct fattree_cn_sample *sample);
-static void ross_fattree_ssample_fn(switch_state * s, tw_bf * bf, tw_lp * lp, struct fattree_switch_sample *sample);
-static void ross_fattree_ssample_rc_fn(switch_state * s, tw_bf * bf, tw_lp * lp, struct fattree_switch_sample *sample);
+void fattree_event_trace(fattree_message *m, tw_lp *lp, char *buffer, int *collect_flag);
+void fattree_rt_sample_fn(ft_terminal_state *s, tw_lp *lp);
+void fattree_switch_rt_sample_fn(switch_state *s, tw_lp *lp);
+static void fattree_vt_sample_fn(ft_terminal_state * s, tw_bf * bf, tw_lp * lp);
+static void fattree_vt_sample_rc_fn(ft_terminal_state * s, tw_bf * bf, tw_lp * lp);
+static void fattree_vt_ssample_fn(switch_state * s, tw_bf * bf, tw_lp * lp);
+static void fattree_vt_ssample_rc_fn(switch_state * s, tw_bf * bf, tw_lp * lp);
+
+char ftree_switch_lp_name[] = "ftree_switch\0";
+char ftree_terminal_lp_name[] = "ftree_terminal\0";
+char* ftree_svar_names[] = {
+    "switch_id\0",
+    "vc_occupancy\0"
+};
+char* ftree_tvar_names[] = {
+    "terminal_id\0",
+    "vc_occupancy\0"
+};
+
+st_model_var ftree_switch_vars[] = {
+    {"",
+     MODEL_INT,
+     1},
+    {"",
+     MODEL_INT,
+     0}
+};
+
+st_model_var ftree_terminal_vars[] = {
+    {"",
+     MODEL_INT,
+     1},
+    {"",
+     MODEL_INT,
+     1}
+};
+
+#define ftree_num_tvars 2
+#define ftree_num_svars 2
 
 st_model_types fattree_model_types[] = {
-    {(ev_trace_f) fattree_event_collect,
-     sizeof(int),
-     (model_stat_f) fattree_model_stat_collect,
-     0, // update when changing fattree_model_stat_collect
-     (sample_event_f) ross_fattree_sample_fn,
-     (sample_revent_f) ross_fattree_sample_rc_fn,
-     sizeof(struct fattree_cn_sample) } , 
-    {(ev_trace_f) fattree_event_collect,
-     sizeof(int),
-     (model_stat_f) fattree_model_stat_collect,
-     0, // update when changing fattree_model_stat_collect
-     (sample_event_f) ross_fattree_ssample_fn,
-     (sample_revent_f) ross_fattree_ssample_rc_fn,
-     0 } , // updated in switch_init() 
-    {NULL, 0, NULL, 0, NULL, NULL, 0}
+    {ftree_terminal_lp_name,
+     ftree_terminal_vars,
+     ftree_num_tvars,
+     (vts_event_f) fattree_vt_sample_fn,
+     (vts_revent_f) fattree_vt_sample_rc_fn,
+     (rt_event_f) fattree_rt_sample_fn,
+     (ev_trace_f) fattree_event_trace,
+     sizeof(int)},
+    {ftree_switch_lp_name,
+     ftree_switch_vars,
+     ftree_num_svars,
+     (vts_event_f) fattree_vt_ssample_fn,
+     (vts_revent_f) fattree_vt_ssample_rc_fn,
+     (rt_event_f) fattree_switch_rt_sample_fn,
+     (ev_trace_f) fattree_event_trace,
+     sizeof(int)},
+    {0}
 };
-/* End of ROSS model stats collection */
+
+void ftree_terminal_init_model_vars()
+{
+    int i;
+    for (i = 0; i < ftree_num_tvars; i++)
+    {
+        ftree_terminal_vars[i].var_name = ftree_tvar_names[i];
+    }
+}
+
+void ftree_switch_init_model_vars(int radix)
+{
+    int i;
+    for (i = 0; i < ftree_num_svars; i++)
+    {
+        ftree_switch_vars[i].var_name = ftree_svar_names[i];
+        if (i > 0)
+            ftree_switch_vars[i].num_elems = radix;
+    }
+}
+
+void fattree_event_trace(fattree_message *m, tw_lp *lp, char *buffer, int* collect_flag)
+{
+    (void)lp;
+    (void)collect_flag;
+
+    int type = (int) m->type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+void fattree_rt_sample_fn(ft_terminal_state *s, tw_lp *lp)
+{
+    (void)lp;
+
+    int terminal_id = (int)s->terminal_id;
+    st_save_model_variable(lp, ftree_tvar_names[0], &terminal_id);
+    st_save_model_variable(lp, ftree_tvar_names[1], &s->vc_occupancy[0]);
+}
+
+void fattree_switch_rt_sample_fn(switch_state *s, tw_lp *lp)
+{
+    (void)lp;
+
+    int switch_id = (int)s->switch_id;
+    st_save_model_variable(lp, ftree_svar_names[0], &switch_id);
+    st_save_model_variable(lp, ftree_svar_names[1], &s->vc_occupancy[0]);
+}
+
+static void fattree_vt_sample_fn(ft_terminal_state * s, tw_bf * bf, tw_lp * lp)
+{
+    (void)bf;
+    (void)lp;
+    (void)s;
+
+    int terminal_id = (int)s->terminal_id;
+    st_save_model_variable(lp, ftree_tvar_names[0], &terminal_id);
+    st_save_model_variable(lp, ftree_tvar_names[1], &s->vc_occupancy[0]);
+}
+
+static void fattree_vt_sample_rc_fn(ft_terminal_state * s, tw_bf * bf, tw_lp * lp)
+{
+    (void)lp;
+    (void)bf;
+    (void)s;
+    // state doesn't change in forward handler so nothing to do here
+}
+
+static void fattree_vt_ssample_fn(switch_state * s, tw_bf * bf, tw_lp * lp)
+{
+    (void)lp;
+    (void)bf;
+
+    int switch_id = (int)s->switch_id;
+    st_save_model_variable(lp, ftree_svar_names[0], &switch_id);
+    st_save_model_variable(lp, ftree_svar_names[1], &s->vc_occupancy[0]);
+}
+
+static void fattree_vt_ssample_rc_fn(switch_state * s, tw_bf * bf, tw_lp * lp)
+{
+    (void)lp;
+    (void)bf;
+    (void)s;
+    // state doesn't change in forward handler so nothing to do here
+}
+
+static const st_model_types  *fattree_get_cn_model_stat_types(void)
+{
+    return(&fattree_model_types[0]);
+}
+
+static void fattree_register_model_stats(st_model_types *base_type)
+{
+    st_model_type_register(LP_CONFIG_NM, base_type);
+    st_model_type_register("fattree_switch", &fattree_model_types[1]);
+}
+
+/***** End of ROSS Instrumentation *****/
 
 static tw_stime         fattree_total_time = 0;
 static tw_stime         fattree_max_latency = 0;
@@ -1174,8 +1305,7 @@ void switch_init(switch_state * r, tw_lp * lp)
   r->busy_time_sample = (tw_stime*)malloc(r->radix * sizeof(tw_stime));
 
   // ROSS Instrumentation
-  if (g_st_use_analysis_lps && g_st_model_stats)
-    lp->model_types->sample_struct_sz = sizeof(struct fattree_switch_sample) + sizeof(int) * r->radix;
+  ftree_switch_init_model_vars(r->radix);
 
   rc_stack_create(&r->st);
 
@@ -3030,82 +3160,6 @@ static void fattree_register(tw_lptype *base_type) {
     lp_type_register("fattree_switch", &fattree_lps[1]);
 }
 
-/* For ROSS Instrumentation */
-void fattree_event_collect(fattree_message *m, tw_lp *lp, char *buffer, int *collect_flag)
-{
-    (void)lp;
-    (void)collect_flag;
-
-    int type = (int) m->type;
-    memcpy(buffer, &type, sizeof(type));
-}
-
-void fattree_model_stat_collect(ft_terminal_state *s, tw_lp *lp, char *buffer)
-{
-    (void)lp;
-    (void)s;
-    (void)buffer;
-
-    return;
-}
-
-static void ross_fattree_sample_fn(ft_terminal_state * s, tw_bf * bf, tw_lp * lp, struct fattree_cn_sample *sample)
-{
-    (void)bf;
-
-    sample->terminal_id = s->terminal_id;
-    sample->end_time = tw_now(lp);
-    sample->vc_occupancy = s->vc_occupancy[0];
-    return;
-}
-
-static void ross_fattree_sample_rc_fn(ft_terminal_state * s, tw_bf * bf, tw_lp * lp, struct fattree_cn_sample *sample)
-{
-    (void)lp;
-    (void)bf;
-    (void)s;
-    (void)sample;
-    
-    return;
-}
-
-static void ross_fattree_ssample_fn(switch_state * s, tw_bf * bf, tw_lp * lp, struct fattree_switch_sample *sample)
-{
-    (void)bf;
-    
-    int i;
-    sample->switch_id = s->switch_id;
-    sample->end_time = tw_now(lp);
-    sample->vc_occupancy = (int*)((&sample->end_time) + 1);
-
-    for (i = 0; i < s->radix; i++)
-        sample->vc_occupancy[i] = s->vc_occupancy[i];
-
-
-    return;
-}
-
-static void ross_fattree_ssample_rc_fn(switch_state * s, tw_bf * bf, tw_lp * lp, struct fattree_switch_sample *sample)
-{
-    (void)lp;
-    (void)bf;
-    (void)s;
-    (void)sample;
-
-    return;
-}
-
-static const st_model_types  *fattree_get_cn_model_stat_types(void)
-{
-    return(&fattree_model_types[0]);
-}
-
-static void fattree_register_model_stats(st_model_types *base_type)
-{
-    st_model_type_register(LP_CONFIG_NM, base_type);
-    st_model_type_register("fattree_switch", &fattree_model_types[1]);
-}
-/*** END of ROSS event tracing additions */
 
 struct model_net_method fattree_method =
 {

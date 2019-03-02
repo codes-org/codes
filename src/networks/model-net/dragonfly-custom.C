@@ -200,7 +200,7 @@ struct dfly_cn_sample
    tw_lpid terminal_id;
    long fin_chunks_sample;
    long data_size_sample;
-   double fin_hops_sample;
+   long fin_hops_sample;
    tw_stime fin_chunks_time;
    tw_stime busy_time_sample;
    tw_stime end_time;
@@ -272,7 +272,7 @@ struct terminal_state
    /* For sampling */
    long fin_chunks_sample;
    long data_size_sample;
-   double fin_hops_sample;
+   long fin_hops_sample;
    tw_stime fin_chunks_time;
    tw_stime busy_time_sample;
 
@@ -380,33 +380,218 @@ struct router_state
    struct dfly_router_sample ross_rsample;
 };
 
-/* ROSS model instrumentation */
-void custom_dragonfly_event_collect(terminal_custom_message *m, tw_lp *lp, char *buffer, int *collect_flag);
-void custom_dragonfly_model_stat_collect(terminal_state *s, tw_lp *lp, char *buffer);
-void custom_dfly_router_model_stat_collect(router_state *s, tw_lp *lp, char *buffer);
-static void ross_custom_dragonfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dfly_router_sample *sample);
-static void ross_custom_dragonfly_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dfly_router_sample *sample);
-static void ross_custom_dragonfly_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample);
-static void ross_custom_dragonfly_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample);
+/***** ROSS model instrumentation *****/
+void custom_dragonfly_event_trace(terminal_custom_message *m, tw_lp *lp, char *buffer, int *collect_flag);
+void custom_dragonfly_rt_sample_fn(terminal_state *s, tw_lp *lp);
+void custom_dfly_router_rt_sample_fn(router_state *s, tw_lp *lp);
+static void custom_dragonfly_vt_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp);
+static void custom_dragonfly_vt_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp);
+static void custom_dragonfly_vt_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp);
+static void custom_dragonfly_vt_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp);
+
+static char router_lp_name[] = "dfly_custom_router\0";
+static char terminal_lp_name[] = "dfly_custom_terminal\0";
+static const char* rvar_names[] = {
+    "router_id\0",
+    "busy_time\0",
+    "link_traffic\0"
+};
+static const char* tvar_names[] = {
+    "terminal_id\0",
+    "fin_chunks\0",
+    "data_size\0",
+    "fin_hops\0",
+    "fin_chunks_time\0",
+    "busy_time\0"
+};
+
+static st_model_var router_vars[] = {
+    {rvar_names[0],
+     MODEL_INT,
+     1},
+    {rvar_names[1],
+     MODEL_DOUBLE,
+     0}, // update in router_custom_setup() since it's based on the radix
+    {rvar_names[2],
+     MODEL_LONG,
+     0} // update in router_custom_setup() since it's based on the radix
+};
+
+static st_model_var terminal_vars[] = {
+    {tvar_names[0],
+     MODEL_INT,
+     1},
+    {tvar_names[1],
+     MODEL_LONG,
+     1},
+    {tvar_names[2],
+     MODEL_LONG,
+     1},
+    {tvar_names[3],
+     MODEL_LONG,
+     1},
+    {tvar_names[4],
+     MODEL_DOUBLE,
+     1},
+    {tvar_names[5],
+     MODEL_DOUBLE,
+     1}
+};
+
+#define custom_dfly_num_tvars 6
+#define custom_dfly_num_rvars 3
 
 st_model_types custom_dragonfly_model_types[] = {
-    {(ev_trace_f) custom_dragonfly_event_collect,
-     sizeof(int),
-     (model_stat_f) custom_dragonfly_model_stat_collect,
-     sizeof(tw_lpid) + sizeof(long) * 2 + sizeof(double) + sizeof(tw_stime) *2,
-     (sample_event_f) ross_custom_dragonfly_sample_fn,
-     (sample_revent_f) ross_custom_dragonfly_sample_rc_fn,
-     sizeof(struct dfly_cn_sample) } , 
-    {(ev_trace_f) custom_dragonfly_event_collect,
-     sizeof(int),
-     (model_stat_f) custom_dfly_router_model_stat_collect,
-     0, //updated in router_custom_setup() since it's based on the radix
-     (sample_event_f) ross_custom_dragonfly_rsample_fn,
-     (sample_revent_f) ross_custom_dragonfly_rsample_rc_fn,
-     0 } , //updated in router_custom_setup() since it's based on the radix    
-    {NULL, 0, NULL, 0, NULL, NULL, 0}
-};
-/* End of ROSS model stats collection */
+    {terminal_lp_name,
+     terminal_vars,
+     custom_dfly_num_tvars,
+     (vts_event_f) custom_dragonfly_vt_sample_fn,
+     (vts_revent_f) custom_dragonfly_vt_sample_rc_fn,
+     (rt_event_f) custom_dragonfly_rt_sample_fn,
+     (ev_trace_f) custom_dragonfly_event_trace,
+     sizeof(int)},
+    {router_lp_name,
+     router_vars,
+     custom_dfly_num_rvars,
+     (vts_event_f) custom_dragonfly_vt_rsample_fn,
+     (vts_revent_f) custom_dragonfly_vt_rsample_rc_fn,
+     (rt_event_f) custom_dfly_router_rt_sample_fn,
+     (ev_trace_f) custom_dragonfly_event_trace,
+     sizeof(int)},
+    {0}};
+
+static void custom_dragonfly_vt_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp)
+{
+    (void)lp;
+    (void)bf;
+
+    const dragonfly_param * p = s->params;
+    int i = 0;
+
+    int router_id = (int)s->router_id;
+    st_save_model_variable(lp, rvar_names[0], &router_id);
+    st_save_model_variable(lp, rvar_names[1], s->ross_rsample.busy_time);
+    st_save_model_variable(lp, rvar_names[2], s->ross_rsample.link_traffic_sample);
+
+    /* clear up the current router stats */
+    for( i = 0; i < p->radix; i++)
+    {
+        s->ross_rsample.busy_time[i] = 0;
+        s->ross_rsample.link_traffic_sample[i] = 0;
+    }
+}
+
+static void custom_dragonfly_vt_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp)
+{
+    (void)lp;
+    (void)bf;
+
+    size_t data_size;
+    double *rc_busy_time = (double*)st_get_model_variable(lp, rvar_names[1], &data_size);
+    memcpy(s->ross_rsample.busy_time, rc_busy_time, data_size);
+    long *rc_link_traffic = (long*)st_get_model_variable(lp, rvar_names[2], &data_size);
+    memcpy(s->ross_rsample.link_traffic_sample, rc_link_traffic, data_size);
+}
+
+static void custom_dragonfly_vt_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp)
+{
+    (void)bf;
+
+    int terminal_id = (int)s->terminal_id;
+    st_save_model_variable(lp, tvar_names[0], &terminal_id);
+    st_save_model_variable(lp, tvar_names[1], &s->ross_sample.fin_chunks_sample);
+    st_save_model_variable(lp, tvar_names[2], &s->ross_sample.data_size_sample);
+    st_save_model_variable(lp, tvar_names[3], &s->ross_sample.fin_hops_sample);
+    st_save_model_variable(lp, tvar_names[4], &s->ross_sample.fin_chunks_time);
+    st_save_model_variable(lp, tvar_names[5], &s->ross_sample.busy_time_sample);
+
+    memset(&s->ross_sample, 0, sizeof(s->ross_sample));
+}
+
+static void custom_dragonfly_vt_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp)
+{
+    (void)lp;
+    (void)bf;
+
+    size_t data_size;
+    s->ross_sample.fin_chunks_sample = *(long*)st_get_model_variable(lp, tvar_names[1], &data_size);
+    s->ross_sample.data_size_sample = *(long*)st_get_model_variable(lp, tvar_names[2], &data_size);
+    s->ross_sample.fin_hops_sample = *(long*)st_get_model_variable(lp, tvar_names[3], &data_size);
+    s->ross_sample.fin_chunks_time = *(double*)st_get_model_variable(lp, tvar_names[4], &data_size);
+    s->ross_sample.busy_time_sample = *(double*)st_get_model_variable(lp, tvar_names[5], &data_size);
+}
+
+void custom_dragonfly_event_trace(terminal_custom_message *m, tw_lp *lp, char *buffer, int *collect_flag)
+{
+    (void)lp;
+    (void)collect_flag;
+
+    int type = (int) m->type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+// GVT-based and real time sampling callback for terminals
+void custom_dragonfly_rt_sample_fn(terminal_state *s, tw_lp *lp)
+{
+    (void)lp;
+
+    int terminal_id = (int)s->terminal_id;
+    st_save_model_variable(lp, tvar_names[0], &terminal_id);
+    st_save_model_variable(lp, tvar_names[1], &s->fin_chunks_ross_sample);
+    st_save_model_variable(lp, tvar_names[2], &s->data_size_ross_sample);
+    st_save_model_variable(lp, tvar_names[3], &s->fin_hops_ross_sample);
+    st_save_model_variable(lp, tvar_names[4], &s->fin_chunks_time_ross_sample);
+    st_save_model_variable(lp, tvar_names[5], &s->busy_time_ross_sample);
+
+    s->fin_chunks_ross_sample = 0;
+    s->data_size_ross_sample = 0;
+    s->fin_hops_ross_sample = 0;
+    s->fin_chunks_time_ross_sample = 0;
+    s->busy_time_ross_sample = 0;
+}
+
+// GVT-based and real time sampling callback for routers
+void custom_dfly_router_rt_sample_fn(router_state *s, tw_lp *lp)
+{
+    (void)lp;
+
+    const dragonfly_param * p = s->params;
+    int i;
+
+    int router_id = (int)s->router_id;
+    st_save_model_variable(lp, rvar_names[0], &router_id);
+    st_save_model_variable(lp, rvar_names[1], &s->busy_time_ross_sample[0]);
+    st_save_model_variable(lp, rvar_names[2], &s->link_traffic_ross_sample[0]);
+
+    /* clear up the current router stats */
+    for( i = 0; i < p->radix; i++)
+    {
+        s->busy_time_ross_sample[i] = 0;
+        s->link_traffic_ross_sample[i] = 0;
+    }
+}
+
+static const st_model_types  *custom_dragonfly_get_model_types(void)
+{
+    return(&custom_dragonfly_model_types[0]);
+}
+
+static const st_model_types  *custom_dfly_router_get_model_types(void)
+{
+    return(&custom_dragonfly_model_types[1]);
+}
+
+static void custom_dragonfly_register_model_types(st_model_types *base_type)
+{
+    st_model_type_register(LP_CONFIG_NM_TERM, base_type);
+}
+
+static void custom_router_register_model_types(st_model_types *base_type)
+{
+    st_model_type_register(LP_CONFIG_NM_ROUT, base_type);
+}
+
+/***** End of ROSS Instrumentation *****/
 
 static short routing = MINIMAL;
 
@@ -1056,14 +1241,13 @@ void router_custom_setup(router_state * r, tw_lp * lp)
    r->busy_time = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
    r->busy_time_sample = (tw_stime*)malloc(p->radix * sizeof(tw_stime));
 
-   /* set up for ROSS stats sampling */
+   /* set up for ROSS Instrumentation */
    r->link_traffic_ross_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
    r->busy_time_ross_sample = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
    if (g_st_model_stats)
    {
-       lp->model_types->mstat_sz = sizeof(tw_lpid) + (sizeof(int64_t) + sizeof(tw_stime)) * p->radix;
-       //if (g_st_use_analysis_lps && g_st_model_stats)
-       lp->model_types->sample_struct_sz = sizeof(struct dfly_router_sample) + (sizeof(tw_stime) + sizeof(int64_t)) * p->radix;
+       lp->model_types->model_vars[1].num_elems = p->radix;
+       lp->model_types->model_vars[2].num_elems = p->radix;
    }
    r->ross_rsample.busy_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
    r->ross_rsample.link_traffic_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
@@ -1896,163 +2080,6 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
         s->rank_tbl_pop--;
    }
   return;
-}
-
-static void ross_custom_dragonfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dfly_router_sample *sample)
-{
-    (void)lp;
-    (void)bf;
-
-    const dragonfly_param * p = s->params; 
-    int i = 0;
-
-#ifdef USE_RDAMARIS
-    if (g_st_damaris_enabled)
-    {
-        // when using damaris, the bit field and sample are both null
-        // need to use one of the st_damaris_save_model_variable_* calls for each variable that needs to be tracked
-
-        //void st_damaris_save_model_variable_int(int lpid, const char* lp_type, const char* var_name, int *data, size_t num_elements)
-        st_damaris_save_model_variable_double(lp->gid, "dfly_custom_router", "busy_time", s->ross_rsample.busy_time, p->radix);
-        st_damaris_save_model_variable_long(lp->gid, "dfly_custom_router", "link_traffic", s->ross_rsample.link_traffic_sample, p->radix);
-
-        /* clear up the current router stats */
-        for( i = 0; i < p->radix; i++)
-        {
-            s->ross_rsample.busy_time[i] = 0;
-            s->ross_rsample.link_traffic_sample[i] = 0;
-        }
-        //memset(&s->ross_rsample, 0, sizeof(s->ross_rsample));
-        return;
-    }
-#endif
-
-    sample->router_id = s->router_id;
-    sample->end_time = tw_now(lp);
-    sample->fwd_events = s->ross_rsample.fwd_events;
-    sample->rev_events = s->ross_rsample.rev_events;
-    sample->busy_time = (tw_stime*)((&sample->rev_events) + 1);
-    sample->link_traffic_sample = (int64_t*)((&sample->busy_time[0]) + p->radix);
-
-    for(; i < p->radix; i++)
-    {
-        sample->busy_time[i] = s->ross_rsample.busy_time[i];
-        sample->link_traffic_sample[i] = s->ross_rsample.link_traffic_sample[i];
-    }
-
-    /* clear up the current router stats */
-    s->ross_rsample.fwd_events = 0;
-    s->ross_rsample.rev_events = 0;
-
-    for( i = 0; i < p->radix; i++)
-    {
-        s->ross_rsample.busy_time[i] = 0;
-        s->ross_rsample.link_traffic_sample[i] = 0;
-    }
-}
-
-static void ross_custom_dragonfly_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dfly_router_sample *sample)
-{
-    (void)lp;
-    (void)bf;
-
-    const dragonfly_param * p = s->params;
-    int i =0;
-
-#ifdef USE_RDAMARIS
-    if (g_st_damaris_enabled)
-    {
-        size_t num_elements;
-        const double *rc_busy_time = st_damaris_get_model_variable_double(lp->gid, "dfly_custom_router", "busy_time", &num_elements);
-        memcpy(s->ross_rsample.busy_time, rc_busy_time, num_elements * sizeof(double));
-        const long *rc_link_traffic = st_damaris_get_model_variable_long(lp->gid, "dfly_custom_router", "link_traffic", &num_elements);
-        memcpy(s->ross_rsample.link_traffic_sample, rc_link_traffic, num_elements * sizeof(long));
-        return;
-    }
-#endif
-
-    for(; i < p->radix; i++)
-    {
-        s->ross_rsample.busy_time[i] = sample->busy_time[i];
-        s->ross_rsample.link_traffic_sample[i] = sample->link_traffic_sample[i];
-    }
-
-    s->ross_rsample.fwd_events = sample->fwd_events;
-    s->ross_rsample.rev_events = sample->rev_events;
-}
-
-static void ross_custom_dragonfly_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample)
-{
-    (void)lp;
-    (void)bf;
-
-#ifdef USE_RDAMARIS
-    if (g_st_damaris_enabled)
-    {
-        // when using damaris, the bit field and sample are both null
-        // need to use one of the st_damaris_save_model_variable_* calls for each variable that needs to be tracked
-
-        //void st_damaris_save_model_variable_int(int lpid, const char* lp_type, const char* var_name, int *data, size_t num_elements)
-        st_damaris_save_model_variable_long(lp->gid, "dfly_custom_terminal", "fin_chunks", &s->ross_sample.fin_chunks_sample, 1);
-        st_damaris_save_model_variable_long(lp->gid, "dfly_custom_terminal", "data_size", &s->ross_sample.data_size_sample, 1);
-        st_damaris_save_model_variable_double(lp->gid, "dfly_custom_terminal", "fin_hops", &s->ross_sample.fin_hops_sample, 1);
-        st_damaris_save_model_variable_double(lp->gid, "dfly_custom_terminal", "fin_chunks_time", &s->ross_sample.fin_chunks_time, 1);
-        st_damaris_save_model_variable_double(lp->gid, "dfly_custom_terminal", "busy_time", &s->ross_sample.busy_time_sample, 1);
-
-        memset(&s->ross_sample, 0, sizeof(s->ross_sample));
-        return;
-    }
-#endif
-
-    sample->terminal_id = s->terminal_id;
-    sample->fin_chunks_sample = s->ross_sample.fin_chunks_sample;
-    sample->data_size_sample = s->ross_sample.data_size_sample;
-    sample->fin_hops_sample = s->ross_sample.fin_hops_sample;
-    sample->fin_chunks_time = s->ross_sample.fin_chunks_time;
-    sample->busy_time_sample = s->ross_sample.busy_time_sample;
-    sample->end_time = tw_now(lp);
-    sample->fwd_events = s->ross_sample.fwd_events;
-    sample->rev_events = s->ross_sample.rev_events;
-
-    s->ross_sample.fin_chunks_sample = 0;
-    s->ross_sample.data_size_sample = 0;
-    s->ross_sample.fin_hops_sample = 0;
-    s->ross_sample.fwd_events = 0;
-    s->ross_sample.rev_events = 0;
-    s->ross_sample.fin_chunks_time = 0;
-    s->ross_sample.busy_time_sample = 0;
-}
-
-static void ross_custom_dragonfly_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample)
-{
-    (void)lp;
-    (void)bf;
-#ifdef USE_RDAMARIS
-    if (g_st_damaris_enabled)
-    {
-        size_t num_elements;
-        const long* fin_chunks = st_damaris_get_model_variable_long(lp->gid, "dfly_custom_terminal", "fin_chunks", &num_elements);
-        memcpy(&(s->ross_sample.fin_chunks_sample), fin_chunks, num_elements * sizeof(long));
-        const long* data_size = st_damaris_get_model_variable_long(lp->gid, "dfly_custom_terminal", "data_size", &num_elements);
-        memcpy(&(s->ross_sample.data_size_sample), data_size, num_elements * sizeof(long));
-        const double* fin_hops = st_damaris_get_model_variable_double(lp->gid, "dfly_custom_terminal", "fin_hops", &num_elements);
-        memcpy(&(s->ross_sample.fin_hops_sample), fin_hops, num_elements * sizeof(double));
-        const double* fin_chunks_time = st_damaris_get_model_variable_double(lp->gid, "dfly_custom_terminal", "fin_chunks_time", &num_elements);
-        memcpy(&(s->ross_sample.fin_chunks_time), fin_chunks_time, num_elements * sizeof(double));
-        const double* busy_time = st_damaris_get_model_variable_double(lp->gid, "dfly_custom_terminal", "busy_time", &num_elements);
-        memcpy(&(s->ross_sample.busy_time_sample), busy_time, num_elements * sizeof(double));
-
-        return;
-    }
-#endif
-
-    s->ross_sample.busy_time_sample = sample->busy_time_sample;
-    s->ross_sample.fin_chunks_time = sample->fin_chunks_time;
-    s->ross_sample.fin_hops_sample = sample->fin_hops_sample;
-    s->ross_sample.data_size_sample = sample->data_size_sample;
-    s->ross_sample.fin_chunks_sample = sample->fin_chunks_sample;
-    s->ross_sample.fwd_events = sample->fwd_events;
-    s->ross_sample.rev_events = sample->rev_events;
 }
 
 void dragonfly_custom_rsample_init(router_state * s,
@@ -3706,111 +3733,6 @@ tw_lptype dragonfly_custom_lps[] =
    {NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0},
 };
 }
-
-/* ROSS Instrumentation layer */
-// event tracing callback - used router and terminal LPs
-void custom_dragonfly_event_collect(terminal_custom_message *m, tw_lp *lp, char *buffer, int *collect_flag)
-{
-    (void)lp;
-    (void)collect_flag;
-
-    int type = (int) m->type;
-    memcpy(buffer, &type, sizeof(type));
-}
-
-// GVT-based and real time sampling callback for terminals
-void custom_dragonfly_model_stat_collect(terminal_state *s, tw_lp *lp, char *buffer)
-{
-    (void)lp;
-
-    int index = 0;
-    tw_lpid id = 0;
-    long tmp = 0;
-    tw_stime tmp2 = 0;
-    
-    id = s->terminal_id;
-    memcpy(&buffer[index], &id, sizeof(id));
-    index += sizeof(id);
-
-    tmp = s->fin_chunks_ross_sample;
-    memcpy(&buffer[index], &tmp, sizeof(tmp));
-    index += sizeof(tmp);
-    s->fin_chunks_ross_sample = 0;
-
-    tmp = s->data_size_ross_sample;
-    memcpy(&buffer[index], &tmp, sizeof(tmp));
-    index += sizeof(tmp);
-    s->data_size_ross_sample = 0;
-
-    tmp = s->fin_hops_ross_sample;
-    memcpy(&buffer[index], &tmp, sizeof(tmp));
-    index += sizeof(tmp);
-    s->fin_hops_ross_sample = 0;
-
-    tmp2 = s->fin_chunks_time_ross_sample;
-    memcpy(&buffer[index], &tmp2, sizeof(tmp2));
-    index += sizeof(tmp2);
-    s->fin_chunks_time_ross_sample = 0;
-
-    tmp2 = s->busy_time_ross_sample;
-    memcpy(&buffer[index], &tmp2, sizeof(tmp2));
-    index += sizeof(tmp2);
-    s->busy_time_ross_sample = 0;
-
-    return;
-}
-
-// GVT-based and real time sampling callback for routers
-void custom_dfly_router_model_stat_collect(router_state *s, tw_lp *lp, char *buffer)
-{
-    (void)lp;
-
-    const dragonfly_param * p = s->params; 
-    int i, index = 0;
-
-    tw_lpid id = 0;
-    tw_stime tmp = 0;
-    int64_t tmp2 = 0;
-
-    id = s->router_id;
-    memcpy(&buffer[index], &id, sizeof(id));
-    index += sizeof(id);
-
-    for(i = 0; i < p->radix; i++)
-    {
-        tmp = s->busy_time_ross_sample[i];
-        memcpy(&buffer[index], &tmp, sizeof(tmp));
-        index += sizeof(tmp);
-        s->busy_time_ross_sample[i] = 0; 
-
-        tmp2 = s->link_traffic_ross_sample[i];
-        memcpy(&buffer[index], &tmp2, sizeof(tmp2));
-        index += sizeof(tmp2);
-        s->link_traffic_ross_sample[i] = 0; 
-    }
-    return;
-}
-
-static const st_model_types  *custom_dragonfly_get_model_types(void)
-{
-    return(&custom_dragonfly_model_types[0]);
-}
-
-static const st_model_types  *custom_dfly_router_get_model_types(void)
-{
-    return(&custom_dragonfly_model_types[1]);
-}
-
-static void custom_dragonfly_register_model_types(st_model_types *base_type)
-{
-    st_model_type_register(LP_CONFIG_NM_TERM, base_type);
-}
-
-static void custom_router_register_model_types(st_model_types *base_type)
-{
-    st_model_type_register(LP_CONFIG_NM_ROUT, base_type);
-}
-/*** END of ROSS Instrumentation support */
 
 /* returns the dragonfly lp type for lp registration */
 static const tw_lptype* dragonfly_custom_get_cn_lp_type(void)

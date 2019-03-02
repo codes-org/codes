@@ -120,38 +120,53 @@ tw_lptype svr_lp = {
     sizeof(svr_state),
 };
 
-/* setup for the ROSS event tracing
- */
-void svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
+/***** ROSS model instrumentation *****/
+void svr_vt_sample_fn(svr_state *s, tw_bf *bf, tw_lp *lp);
+void svr_vt_sample_rc_fn(svr_state *s, tw_bf *bf, tw_lp *lp);
+void svr_rt_sample_fn(svr_state *s, tw_lp *lp);
+void svr_event_trace(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag);
+
+char svr_name[] = "sfly_server\0";
+
+st_model_types svr_model_types[] = {
+    {svr_name,
+     NULL,
+     0,
+     (vts_event_f) svr_vt_sample_fn,
+     (vts_revent_f) svr_vt_sample_rc_fn,
+     (rt_event_f) svr_rt_sample_fn,
+     (ev_trace_f) svr_event_trace,
+     sizeof(int)},
+    {0}
+};
+
+void svr_vt_sample_fn(svr_state *s, tw_bf *bf, tw_lp *lp)
+{
+    (void)s;
+    (void)bf;
+    (void)lp;
+}
+
+void svr_vt_sample_rc_fn(svr_state *s, tw_bf *bf, tw_lp *lp)
+{
+    (void)s;
+    (void)bf;
+    (void)lp;
+}
+
+void svr_rt_sample_fn(svr_state *s, tw_lp *lp)
+{
+    (void)s;
+    (void)lp;
+}
+
+void svr_event_trace(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
     (void)lp;
     (void)collect_flag;
     int type = (int) m->svr_event_type;
     memcpy(buffer, &type, sizeof(type));
 }
-
-/* can add in any model level data to be collected along with simulation engine data
- * in the ROSS instrumentation.  Will need to update the last field in 
- * svr_model_types[0] for the size of the data to save in each function call
- */
-void svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
-{
-    (void)s;
-    (void)lp;
-    (void)buffer;
-    return;
-}
-
-st_model_types svr_model_types[] = {
-    {(ev_trace_f) svr_event_collect,
-     sizeof(int),
-     (model_stat_f) svr_model_stat_collect,
-     0,
-     NULL,
-     NULL,
-     0},
-    {NULL, 0, NULL, 0, NULL, NULL, 0}
-};
 
 static const st_model_types  *svr_get_model_stat_types(void)
 {
@@ -162,6 +177,8 @@ void svr_register_model_types()
 {
     st_model_type_register("server", svr_get_model_stat_types());
 }
+
+/***** End of ROSS Instrumentation *****/
 
 const tw_optdef app_opt [] =
 {

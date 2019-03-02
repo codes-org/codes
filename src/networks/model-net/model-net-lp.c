@@ -121,8 +121,7 @@ tw_lptype model_net_base_lp = {
     sizeof(model_net_base_state),
 };
 
-/* setup for the ROSS event tracing
- */
+/* setup for the ROSS Instrumentation */
 void mn_event_collect(model_net_wrap_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
     // assigning large numbers to message types to make it easier to
@@ -150,42 +149,45 @@ void mn_event_collect(model_net_wrap_msg *m, tw_lp *lp, char *buffer, int *colle
                     (((model_net_base_state*)lp->cur_state)->sub_model_type->ev_trace)(sub_msg, lp, buffer, collect_flag);
             }
             break;
-        default:  // this shouldn't happen, but can help detect an issue
-            type = 9004;
+        default:  // this shouldn't happen
+            tw_error(TW_LOC, "error in event type received at model net base LP (for instrumentation)");
             break;
     }
 }
 
-void mn_model_stat_collect(model_net_base_state *s, tw_lp *lp, char *buffer)
+void mn_model_stat_collect(model_net_base_state *s, tw_lp *lp)
 {
     // need to call the model level stats collection fn
     if (s->sub_model_type)
-        (*s->sub_model_type->model_stat_fn)(s->sub_state, lp, buffer);
+        (*s->sub_model_type->rt_event_fn)(s->sub_state, lp);
     return;
 }
 
-void mn_sample_event(model_net_base_state *s, tw_bf * bf, tw_lp * lp, void *sample)
+void mn_sample_event(model_net_base_state *s, tw_bf * bf, tw_lp * lp)
 {
     if (s->sub_model_type)
-        (*s->sub_model_type->sample_event_fn)(s->sub_state, bf, lp, sample);
+        (*s->sub_model_type->vts_event_fn)(s->sub_state, bf, lp);
 }
 
-void mn_sample_rc_event(model_net_base_state *s, tw_bf * bf, tw_lp * lp, void *sample)
+void mn_sample_rc_event(model_net_base_state *s, tw_bf * bf, tw_lp * lp)
 {
     if (s->sub_model_type)
-        (*s->sub_model_type->sample_revent_fn)(s->sub_state, bf, lp, sample);
+        (*s->sub_model_type->vts_revent_fn)(s->sub_state, bf, lp);
 }
 
 st_model_types mn_model_types[MAX_NETS];
 
+static const char mn_base_name[] = "model_net_base\0";
+
 st_model_types mn_model_base_type = {
-     (ev_trace_f) mn_event_collect,
-     sizeof(int),
-     (model_stat_f) mn_model_stat_collect,
+     mn_base_name,
+     NULL,
      0,
-     (sample_event_f) mn_sample_event,
-     (sample_revent_f) mn_sample_rc_event,
-     0
+     (vts_event_f) mn_sample_event,
+     (vts_revent_f) mn_sample_rc_event,
+     (rt_event_f) mn_model_stat_collect,
+     (ev_trace_f) mn_event_collect,
+     sizeof(int)
 };
 
 /**** END LP, EVENT PROCESSING FUNCTION DECLS ****/
@@ -488,8 +490,8 @@ void model_net_base_lp_init(
         ns->sub_model_type = model_net_get_model_stat_type(ns->net_id);
         if (ns->sub_model_type)
         {
-            mn_model_types[ns->net_id].mstat_sz = ns->sub_model_type->mstat_sz;
-            mn_model_types[ns->net_id].sample_struct_sz = ns->sub_model_type->sample_struct_sz;
+            mn_model_types[ns->net_id].model_vars = ns->sub_model_type->model_vars;
+            mn_model_types[ns->net_id].num_vars = ns->sub_model_type->num_vars;
         }
     }
 

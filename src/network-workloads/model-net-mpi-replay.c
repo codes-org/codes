@@ -2652,9 +2652,41 @@ static void nw_add_lp_type()
   lp_type_register("nw-lp", nw_get_lp_type());
 }
 
-/* setup for the ROSS event tracing
- */
-void nw_lp_event_collect(nw_message *m, tw_lp *lp, char *buffer, int *collect_flag)
+/***** ROSS model instrumentation *****/
+void nw_lp_vt_sample_fn(nw_state *s, tw_bf *bf, tw_lp *lp);
+void nw_lp_vt_sample_rc_fn(nw_state *s, tw_bf *bf, tw_lp *lp);
+void nw_lp_rt_sample_fn(nw_state *s, tw_lp *lp);
+void nw_lp_event_trace(nw_message *m, tw_lp *lp, char *buffer, int *collect_flag);
+
+char nw_lp_name[] = "nw_server\0";
+
+st_model_types nw_lp_model_types[] = {
+    {nw_lp_name,
+     NULL,
+     0,
+     (vts_event_f) nw_lp_vt_sample_fn,
+     (vts_revent_f) nw_lp_vt_sample_rc_fn,
+     (rt_event_f) nw_lp_rt_sample_fn,
+     (ev_trace_f) nw_lp_event_trace,
+     sizeof(int)},
+    {0}
+};
+
+void nw_lp_vt_sample_fn(nw_state *s, tw_bf *bf, tw_lp *lp)
+{
+    (void)s;
+    (void)bf;
+    (void)lp;
+}
+
+void nw_lp_vt_sample_rc_fn(nw_state *s, tw_bf *bf, tw_lp *lp)
+{
+    (void)s;
+    (void)bf;
+    (void)lp;
+}
+
+void nw_lp_event_trace(nw_message *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
     (void)lp;
     (void)collect_flag;
@@ -2663,29 +2695,11 @@ void nw_lp_event_collect(nw_message *m, tw_lp *lp, char *buffer, int *collect_fl
     memcpy(buffer, &type, sizeof(type));
 }
 
-/* can add in any model level data to be collected along with simulation engine data
- * in the ROSS instrumentation.  Will need to update the last field in 
- * nw_lp_model_types[0] for the size of the data to save in each function call
- */
-void nw_lp_model_stat_collect(nw_state *s, tw_lp *lp, char *buffer)
+void nw_lp_rt_sample_fn(nw_state *s, tw_lp *lp)
 {
     (void)s;
     (void)lp;
-    (void)buffer;
-
-    return;
 }
-
-st_model_types nw_lp_model_types[] = {
-    {(ev_trace_f) nw_lp_event_collect,
-     sizeof(int),
-     (model_stat_f) nw_lp_model_stat_collect,
-     0,
-     NULL,
-     NULL,
-     0},
-    {NULL, 0, NULL, 0, NULL, NULL, 0}
-};
 
 static const st_model_types  *nw_lp_get_model_stat_types(void)
 {
@@ -2696,7 +2710,7 @@ void nw_lp_register_model()
 {
     st_model_type_register("nw-lp", nw_lp_get_model_stat_types());
 }
-/* end of ROSS event tracing setup */
+/***** End of ROSS Instrumentation *****/
 
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link)
