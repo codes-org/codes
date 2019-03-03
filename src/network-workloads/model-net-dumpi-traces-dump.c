@@ -365,7 +365,7 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 		total_delays += s->num_delays;
 		total_collectives += s->num_cols;
 		
-		printf("\n LP %llu total sends %ld receives %ld wait_alls %ld waits %ld ", lp->gid, s->num_sends,s->num_recvs, s->num_waitall, s->num_wait);
+		printf("\n LP %lu total sends %ld receives %ld wait_alls %ld waits %ld ", lp->gid, s->num_sends,s->num_recvs, s->num_waitall, s->num_wait);
 	        avg_time += s->total_time;
 		avg_compute_time += s->compute_time;
                 avg_comm_time += (s->total_time - s->compute_time);

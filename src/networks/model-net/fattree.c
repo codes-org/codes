@@ -2073,6 +2073,7 @@ void switch_packet_receive( switch_state * s, tw_bf * bf,
 
   int max_vc_size = s->params->vc_size;
   int to_terminal = 0;
+  (void) to_terminal;
 
   //If going to terminal, use a different max
   if(s->switch_level == 0 && output_port < s->num_lcons) {
@@ -2923,7 +2924,7 @@ void fattree_terminal_final( ft_terminal_state * s, tw_lp * lp )
     if(!s->terminal_id && !s->rail_id)
         written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Rail ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time>\n");
 
-    written += sprintf(s->output_buf + written, "%llu %u %u %llu %lf %ld %lf %lf\n",
+    written += sprintf(s->output_buf + written, "%llu %u %u %lu %lf %ld %lf %lf\n",
             LLU(lp->gid), s->terminal_id, s->rail_id, s->total_msg_size, s->total_time,
             s->finished_packets, (double)s->total_hops/s->finished_chunks,
             s->busy_time[0]);

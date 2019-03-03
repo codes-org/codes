@@ -2605,7 +2605,7 @@ void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
     if (s->terminal_id == 0) {
         written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <dest_id> < dest_type>  <link_type> <link_traffic> <link_saturation>");
     }
-    written += sprintf(s->output_buf + written, "\n%u %s %llu %s %s %llu %lf",
+    written += sprintf(s->output_buf + written, "\n%u %s %u %s %s %llu %lf",
         s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time);
 
     lp_io_write(lp->gid, (char*)"dragonfly-plus-link-stats", written, s->output_buf);
@@ -2620,7 +2620,7 @@ void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
     }
    
     written = 0;
-    written += sprintf(s->output_buf2 + written, "%llu %llu %lf %lf %lf %lf %llu %lf\n", 
+    written += sprintf(s->output_buf2 + written, "%lu %u %lf %lf %lf %lf %lu %lf\n", 
             lp->gid, s->terminal_id, s->total_time/s->finished_chunks, 
             s->busy_time, s->max_latency, s->min_latency,
             s->finished_packets, (double)s->total_hops/s->finished_chunks);
@@ -2688,7 +2688,7 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
     {
         if (d != src_rel_id) {
             int dest_ab_id = local_grp_id * p->num_routers + d;
-            written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf",
+            written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %ld %lf",
                 s->router_id,
                 "R",
                 dest_ab_id,
@@ -2707,7 +2707,7 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
         int dest_rtr_id = it->dest_gid;
         int port_no = it->port;
         assert(port_no >= 0 && port_no < p->radix);
-        written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf",
+        written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %ld %lf",
             s->router_id,
             "R",
             dest_rtr_id,

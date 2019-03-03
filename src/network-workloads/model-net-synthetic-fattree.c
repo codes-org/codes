@@ -577,7 +577,7 @@ int main(
 	int idx = 0;
         int gvt_computations;
 	long long total_events, rollbacks, net_events;
-        float running_time, efficiency, event_rate;
+        float running_time = 0, efficiency = 0, event_rate = 0;
 	while (pch != NULL)
 	{
 		pch = strtok (NULL, ",");

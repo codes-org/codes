@@ -328,7 +328,7 @@ static void handle_kickoff_event(
         int rand_node_intra_id = tw_rand_integer(lp->rng, 0, num_nodes_per_grp-1);
 
         local_dest = (rand_group * num_nodes_per_grp) + rand_node_intra_id;
-        printf("\n LP %ld sending to %ld num nodes %d ", local_id, local_dest, num_nodes);
+        printf("\n LP %d sending to %ld num nodes %llu ", local_id, local_dest, num_nodes);
 
    }
    assert(local_dest < num_nodes);

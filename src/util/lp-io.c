@@ -102,7 +102,7 @@ int lp_io_write(tw_lpid gid, char* identifier, int size, void* buffer)
 }
 
 int lp_io_write_rev(tw_lpid gid, char* identifier){
-    struct identifier* id, *id_prev;
+    struct identifier* id, *id_prev = NULL;
     struct io_buffer *buf, *buf_prev;
 
     /* find given identifier */

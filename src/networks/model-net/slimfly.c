@@ -2095,7 +2095,7 @@ void slimfly_terminal_final( terminal_state * s,
     lp_io_write(lp->gid, "slimfly-msg-stats", written, s->output_buf);
 
     if(s->terminal_msgs[0] != NULL)
-      printf("[%llu] leftover terminal messages \n", lp->gid);
+      printf("[%lu] leftover terminal messages \n", lp->gid);
 
         if(!s->terminal_id)
         {
@@ -2130,11 +2130,11 @@ void slimfly_router_final(router_state * s,
     for(i = 0; i < s->params->radix; i++) {
         for(j = 0; j < s->params->num_vcs; j++) {
             if(s->queued_msgs[i][j] != NULL) {
-              printf("[%llu] leftover queued messages %d %d %d\n", lp->gid, i, j,
+              printf("[%lu] leftover queued messages %d %d %d\n", lp->gid, i, j,
                      s->vc_occupancy[i][j]);
             }
             if(s->pending_msgs[i][j] != NULL) {
-              printf("[%llu] lefover pending messages %d %d\n", lp->gid, i, j);
+              printf("[%lu] leftover pending messages %d %d\n", lp->gid, i, j);
             }
         }
     }

@@ -55,8 +55,8 @@ static int num_net_traces = 0;
 static int num_dumpi_traces = 0;
 static int64_t EAGER_THRESHOLD = 8192;
 
-static long num_ops = 0;
-static int upper_threshold = 1048576;
+//static long num_ops = 0;
+//static int upper_threshold = 1048576;
 static int alloc_spec = 0;
 static tw_stime self_overhead = 10.0;
 static tw_stime mean_interval = 100000;
@@ -801,7 +801,7 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 //    printf("\n Data arrived %d total data %ld ", m->fwd.num_bytes, s->syn_data);
     if(s->local_rank == 0)
      {
-    	printf("\n Data arrived %lld rank %llu total data %ld ", m->fwd.num_bytes, s->nw_id, s->syn_data);
+    	printf("\n Data arrived %ld rank %lu total data %ld ", m->fwd.num_bytes, s->nw_id, s->syn_data);
 /*	if(s->syn_data > upper_threshold)
     if(s->local_rank == 0)
      {
@@ -836,6 +836,7 @@ static void print_msgs_queue(struct qlist_head * head, int is_send)
 
     struct qlist_head * ent = NULL;
     mpi_msgs_queue * current = NULL;
+    (void)current;
     qlist_for_each(ent, head)
        {
             current = qlist_entry(ent, mpi_msgs_queue, ql);
