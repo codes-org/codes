@@ -86,7 +86,8 @@ enum TRAFFIC
     SCATTER             = 7, /* sends messages from rank 0 to all other ranks */
     BISECTION           = 8, /* sends messages between paired nodes in opposing bisection partitions */
     ALL2ALL             = 9, /* sends messages from each rank to all other ranks */
-    PING                = 10 /* sends messages from rank 0 to rank 1 */
+    PING                = 10, /* sends messages from rank 0 to rank 1 */
+    ALL2ALLSLOW         = 11
 };
 
 struct svr_state
@@ -99,6 +100,7 @@ struct svr_state
     int local_recvd_count; /* number of local messages received */
     tw_stime start_ts;    /* time that we started sending requests */
     tw_stime end_ts;      /* time that we ended sending requests */
+    int cur_dest_server_id;   /* id of the last server sent to for all2allslow */
     char output_buf[512]; /* buffer space for lp-io output data */
     char output_buf2[65536]; /* buffer space for lp-io output data */
     char output_buf3[65536]; /* buffer space for msg timing output data */
@@ -311,6 +313,7 @@ static void svr_init(
     ns->local_recvd_count = 0;
     ns->start_ts = 0.0;
     ns->end_ts = 0.0;
+    ns->cur_dest_server_id = 0; //id of the last server sent to for all 2 all slow
 
     ns->msg_send_times = (int*)calloc(num_msgs*2,sizeof(int));
     ns->msg_recvd_times = (int*)calloc(num_msgs*2,sizeof(int));
@@ -336,6 +339,18 @@ static void handle_kickoff_rev_event(
 
     if(b->c1) //uniform random traffic
         tw_rand_reverse_unif(lp->rng);
+    if(b->c7)
+    {
+        codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, NULL, &rep_id, &offset);
+
+        int num_server_lps = codes_mapping_get_lp_count(group_name, 1, "nw-lp", NULL, 0);
+        int server_id = rep_id * num_server_lps + offset;
+
+        ns->cur_dest_server_id--;
+        if (ns->cur_dest_server_id == server_id)
+            ns->cur_dest_server_id--;
+    }
+
 
     model_net_event_rc2(lp, &m->event_rc);
 
@@ -532,6 +547,24 @@ static void handle_kickoff_event(
             return;
         }
     }
+    else if (traffic = ALL2ALLSLOW)
+    {
+        b->c7 = 1;
+        num_transfers = 1;
+        if (ns->cur_dest_server_id == server_id)
+            ns->cur_dest_server_id++;
+        
+        local_dest = (int*)malloc(sizeof(int));
+        local_dest[0] = ns->cur_dest_server_id;
+
+        ns->cur_dest_server_id++;
+
+        if (local_dest[0] >= num_servers)
+        {
+            m->incremented_flag = 1;
+            return;
+        }
+    }
 
     for(int i=0; i<num_transfers; i++){
         // Verify local/relative ID of the destination is a valid option
@@ -633,7 +666,8 @@ static void svr_finalize(
         svr_state * ns,
         tw_lp * lp)
 {
-
+    ns->end_ts = tw_now(lp);
+    
     double observed_load_time = ((double)ns->end_ts-warm_up_time);
     double observed_load = ((double)payload_size*(double)ns->msg_recvd_count)/((double)ns->end_ts-warm_up_time);
     observed_load = observed_load * (double)(1000*1000*1000);
@@ -874,6 +908,9 @@ int main(
         }
 #endif
     }
+
+    if (traffic == ALL2ALLSLOW)
+        num_msgs = num_servers;
 
     tw_run();
 

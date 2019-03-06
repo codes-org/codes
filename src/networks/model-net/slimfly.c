@@ -129,6 +129,7 @@ struct slimfly_param
     int sf_type;
     int num_rails;
     int ports_per_nic;
+    int num_injection_queues;
     int rail_select;        /*Selection of rail routing method*/
     // configuration parameters
     int num_routers; 		/*NUM_ROUTER Number of routers in a group*/
@@ -272,7 +273,8 @@ enum RAIL_SELECTION_ALGO
 {
     RAIL_CONGESTION=1,  // Selects rail with minimal injection congestion
     RAIL_PATH,          // Selects the rail that provides minimal path congestion is tie breaker
-    RAIL_DEDICATED      // Selects a specific rail
+    RAIL_DEDICATED,      // Selects a specific rail
+    RAIL_RAND
 };
 
 struct router_state
@@ -508,6 +510,11 @@ static void slimfly_read_config(const char * anno, slimfly_param *params){
     configuration_get_value_int(&config, "PARAMS", "num_rails", anno, &p->num_rails);
     if(!g_tw_mynode) printf("SF num rails is %d\n", p->num_rails);
 
+    p->num_injection_queues = 1;
+    configuration_get_value_int(&config, "PARAMS", "num_injection_queues", anno, &p->num_injection_queues);
+    if(!p->num_injection_queues)
+        p->num_injection_queues = 1;
+
     p->ports_per_nic = 1;
     if(p->num_rails > 1)
         p->ports_per_nic = p->num_rails; //TODO: should ports_per_nic == num rails?
@@ -648,9 +655,13 @@ static void slimfly_read_config(const char * anno, slimfly_param *params){
         p->rail_select = RAIL_CONGESTION;
     else if(strcmp(rail_select_str, "path")==0)
         p->rail_select = RAIL_PATH;
+    else if(strcmp(rail_select_str, "rand")==0)
+        p->rail_select = RAIL_RAND;
     else {
         p->rail_select = RAIL_DEDICATED;
     }
+    if (p->sf_type == 0)
+        p->rail_select = RAIL_DEDICATED;
     if(!g_tw_mynode) printf("SF rail selection is %d\n", p->rail_select);
 
     TEMP_RADIX = p->num_local_channels + p->num_global_channels + p->num_cn;
@@ -1312,7 +1323,7 @@ void slim_packet_generate_rc(terminal_state * s, tw_bf * bf, slim_terminal_messa
     }
 
     tw_stime* bts = rc_stack_pop(s->st);
-    for(int j = 0; j < s->params->ports_per_nic; j++) 
+    for(int j = 0; j < s->params->num_injection_queues; j++) 
     {
         s->last_buf_full[j] = bts[j];
         if (s->terminal_length[j] >= s->params->cn_vc_size)
@@ -1364,58 +1375,66 @@ void slim_packet_generate(terminal_state * s, tw_bf * bf, slim_terminal_message 
     int target_queue = msg->rail_id;
     int path_tie = 0;
 
-    if (s->params->rail_select == RAIL_PATH) {
-        // set starting rail to first rail (rail 0)
-        target_queue = 0;
 
-        int path_lengths[s->params->ports_per_nic];
-        int min_len = 999999;
-        for(int rail_id = 0; rail_id < s->params->ports_per_nic; rail_id++)
-        {
-            //get the router relative ID connected to the destination terminal on this rail
-            int dest_router_rel_id = slim_get_associated_router_id_from_terminal(msg->dest_terminal_id, rail_id, s->params->ports_per_nic);
-
-            //get the router relative ID connected to this terminal on this rail
-            int src_router_rel_id = codes_mapping_get_lp_relative_id(s->router_lp[rail_id],0,0);
-            path_lengths[rail_id] = get_path_length_from_terminal(src_router_rel_id, dest_router_rel_id, p);
-
-            if (path_lengths[rail_id] < min_len) {
-                min_len = path_lengths[rail_id];
-                target_queue = rail_id;
-                path_tie = 0; //reset as we found a new min
-            }
-            else if (path_lengths[rail_id] == min_len) {
-                path_tie = 1; //this was the same as the current min, tie.
-            }
-        }
-    }
-
-    // if(s->params->rail_select == RAIL_PATH){
-    //     // Set starting rail to the first rail (rail 0)
+    // This for some reason is innaccurate - use old one below but it is hardcoded for 2 rails
+    // if (s->params->rail_select == RAIL_PATH) {
+    //     // set starting rail to first rail (rail 0)
     //     target_queue = 0;
-    //     // Get information on destination terminal from its LP ID
-    //     codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name,
-    //             &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id,
-    //             &mapping_offset);
-    //     // Get number of terminal LPs per repetition so we can calculate local/relative router ID for the destination terminal
-    //     int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
-    //             s->anno, 0);
-    //     // Compute relative id of router in the first rail that is connected to the destination terminal
-    //     int rail_one_dest_router_rel_id = (mapping_offset + (mapping_rep_id * num_lps)) / s->params->num_cn;
-    //     // Get path length from rail 1 source router to rail 1 dest router
-    //     int path_length_rail1 = get_path_length_from_terminal(s->router_id, rail_one_dest_router_rel_id, p);
-    //     // Compute relative id of router in the second rail connected to destination compute terminal
-    //     int rail_two_dest_router_rel_id = s->params->slim_total_routers - 1 - rail_one_dest_router_rel_id;
-    //     // Get path length from rail 2 src router to rail 2 dest router
-    //     int path_length_rail2 = get_path_length_from_terminal(s->params->slim_total_routers - 1 - s->router_id, rail_two_dest_router_rel_id, p);
-    //     // Compare rail path lengths
-    //     if( path_length_rail2 < path_length_rail1 ){
-    //         target_queue = 1;
-    //     }else if( path_length_rail2 == path_length_rail1 ){
-    //         // Set path tie so we can break the tie with the RAIL_CONGESTION method below
-    //         path_tie = 1;
+
+    //     int path_lengths[s->params->ports_per_nic];
+    //     int min_len = 999999;
+    //     for(int rail_id = 0; rail_id < s->params->ports_per_nic; rail_id++)
+    //     {
+    //         //get the router relative ID connected to the destination terminal on this rail
+    //         int dest_router_rel_id = slim_get_associated_router_id_from_terminal(msg->dest_terminal_id, rail_id, s->params->ports_per_nic);
+
+    //         //get the router relative ID connected to this terminal on this rail
+    //         int src_router_rel_id = codes_mapping_get_lp_relative_id(s->router_lp[rail_id],0,0);
+    //         path_lengths[rail_id] = get_path_length_from_terminal(src_router_rel_id, dest_router_rel_id, p);
+
+    //         if (path_lengths[rail_id] < min_len) {
+    //             min_len = path_lengths[rail_id];
+    //             target_queue = rail_id;
+    //             path_tie = 0; //reset as we found a new min
+    //         }
+    //         else if (path_lengths[rail_id] == min_len) {
+    //             path_tie = 1; //this was the same as the current min, tie.
+    //         }
     //     }
     // }
+    // else if (s->params->rail_select == RAIL_RAND) {
+    //     target_queue = tw_rand_integer(lp->rng, 0,p->num_rails-1);
+    //     msg->rng_calls++;
+    // }
+
+    if(s->params->rail_select == RAIL_PATH){
+        if (s->params->num_rails > 2)
+            tw_error(TW_LOC,"This rail path selection method doesn't support greater than 2 rails. see notes in slim_packet_generate()\n");
+        // Set starting rail to the first rail (rail 0)
+        target_queue = 0;
+        // Get information on destination terminal from its LP ID
+        codes_mapping_get_lp_info(msg->dest_terminal_id, lp_group_name,
+                &mapping_grp_id, NULL, &mapping_type_id, NULL, &mapping_rep_id,
+                &mapping_offset);
+        // Get number of terminal LPs per repetition so we can calculate local/relative router ID for the destination terminal
+        int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM,
+                s->anno, 0);
+        // Compute relative id of router in the first rail that is connected to the destination terminal
+        int rail_one_dest_router_rel_id = (mapping_offset + (mapping_rep_id * num_lps)) / s->params->num_cn;
+        // Get path length from rail 1 source router to rail 1 dest router
+        int path_length_rail1 = get_path_length_from_terminal(s->router_id, rail_one_dest_router_rel_id, p);
+        // Compute relative id of router in the second rail connected to destination compute terminal
+        int rail_two_dest_router_rel_id = s->params->slim_total_routers - 1 - rail_one_dest_router_rel_id;
+        // Get path length from rail 2 src router to rail 2 dest router
+        int path_length_rail2 = get_path_length_from_terminal(s->params->slim_total_routers - 1 - s->router_id, rail_two_dest_router_rel_id, p);
+        // Compare rail path lengths
+        if( path_length_rail2 < path_length_rail1 ){
+            target_queue = 1;
+        }else if( path_length_rail2 == path_length_rail1 ){
+            // Set path tie so we can break the tie with the RAIL_CONGESTION method below
+            path_tie = 1;
+        }   
+    }
 
     if(s->params->rail_select == RAIL_CONGESTION || path_tie) {
         bf->c1 = 1;
@@ -1466,7 +1485,7 @@ void slim_packet_generate(terminal_state * s, tw_bf * bf, slim_terminal_message 
     tw_stime *bts = buff_time_storage_create(s); //mallocs space to push onto the rc stack -- free'd in rc
     
     //TODO: Inspect this and verify that we should be looking at each port always
-    for(int j=0; j<s->params->ports_per_nic; j++){
+    for(int j=0; j<s->params->num_injection_queues; j++){
         bts[j] = s->last_buf_full[j];
         if(s->terminal_length[j] < s->params->cn_vc_size)
         {
@@ -2122,7 +2141,7 @@ void slimfly_terminal_final( terminal_state * s,
         written = sprintf(s->output_buf, "# Format <LP id> <Terminal ID> <Total Data Size> <Total Packet Latency> <# Flits/Packets finished> <Packets Generated> <Avg hops> <Busy Time>\n");
 
     tw_stime final_terminal_busy_time = 0;
-    for(int i=0; i<s->params->ports_per_nic;i++){
+    for(int i=0; i<s->params->num_injection_queues;i++){
         final_terminal_busy_time += s->busy_time[i];
     }
 
@@ -3289,7 +3308,10 @@ slim_router_packet_receive( router_state * s,
             s->params->num_cn;
     if(s->router_id > s->params->slim_total_routers -1)
         // Compute relative id of router in the second rail connected to destination compute node
-        dest_router_rel_id = (rail_id+1) * s->params->slim_total_routers - 1 - default_rail_dest_router_rel_id;
+        if (rail_id % 2 == 0)
+            dest_router_rel_id = (rail_id)*s->params->slim_total_routers + default_rail_dest_router_rel_id;
+        else
+            dest_router_rel_id = (rail_id+1) * s->params->slim_total_routers - 1 - default_rail_dest_router_rel_id;
     else
         dest_router_rel_id = default_rail_dest_router_rel_id;
 
