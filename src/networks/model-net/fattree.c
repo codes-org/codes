@@ -1211,6 +1211,9 @@ void ft_terminal_init( ft_terminal_state * s, tw_lp * lp )
    s->total_time = 0.0;
    s->total_msg_size = 0;
 
+   // for ROSS Instrumentation
+   ftree_terminal_init_model_vars();
+
 #if FATTREE_DEBUG
    printf("I am terminal %d (%llu), connected to switch %d in rail id %d\n", s->terminal_id,
        LLU(lp->gid), s->switch_id, s->rail_id);
@@ -1265,6 +1268,8 @@ void switch_init(switch_state * r, tw_lp * lp)
   fattree_param *p = r->params;
   if(mapping_rep_id >= p->num_switches[mapping_offset % p->num_levels]) {
     r->unused = 1;
+    // for ROSS instrumentation, only necessary in fat tree because some switches are unused
+    lp->model_types = NULL;
     return;
   }
 

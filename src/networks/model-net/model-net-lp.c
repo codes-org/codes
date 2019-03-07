@@ -490,6 +490,7 @@ void model_net_base_lp_init(
         ns->sub_model_type = model_net_get_model_stat_type(ns->net_id);
         if (ns->sub_model_type)
         {
+            mn_model_types[ns->net_id].lp_name = ns->sub_model_type->lp_name;
             mn_model_types[ns->net_id].model_vars = ns->sub_model_type->model_vars;
             mn_model_types[ns->net_id].num_vars = ns->sub_model_type->num_vars;
         }

@@ -1008,6 +1008,9 @@ void slim_terminal_init( terminal_state * s,
     s->in_send_loop = 0;
     s->issueIdle = 0;
 
+    // for ROSS Instrumentation
+    sfly_terminal_init_model_vars();
+
     return;
 }
 
