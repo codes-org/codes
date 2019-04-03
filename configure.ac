@@ -89,17 +89,17 @@ AC_TRY_COMPILE([#include <mpi.h>], [int ret = MPI_Init(0, (void*)0)],
 PKG_CHECK_MODULES_STATIC([ROSS], [ross], [],
                   [AC_MSG_ERROR([Could not find working ross installation via pkg-config])])
 
-#check for Damaris
-AC_ARG_WITH([damaris],[AS_HELP_STRING([--with-damaris],
-                        [build with ROSS-Damaris in situ analysis support])],
-                        [use_rdamaris=yes],[use_rdamaris=no])
-if test "x${use_rdamaris}" = xyes ; then
-    PKG_CHECK_MODULES_STATIC([ROSS_Damaris], [ross-damaris], [],
-                             [AC_MSG_ERROR([Could not find working ROSS-Damaris installation via pkg-config])])
-    PKG_CHECK_MODULES([rdplugins], [ross-damaris], [],
-                             [AC_MSG_ERROR([Could not find the rdplugins library from ROSS-Damaris via pkg-config])])
+#check for RISA
+AC_ARG_WITH([risa],[AS_HELP_STRING([--with-risa],
+                        [build with RISA (ROSS in situ analysis) support])],
+                        [use_risa=yes],[use_risa=no])
+if test "x${use_risa}" = xyes ; then
+    PKG_CHECK_MODULES_STATIC([RISA], [risa], [],
+                             [AC_MSG_ERROR([Could not find working RISA installation via pkg-config])])
+#    PKG_CHECK_MODULES([RISA_PLUGINS], [risa], [],
+#                             [AC_MSG_ERROR([Could not find the RISAplugins library from RISA via pkg-config])])
 fi
-AM_CONDITIONAL(USE_RDAMARIS, [test "x${use_rdamaris}" = xyes])
+AM_CONDITIONAL(USE_RDAMARIS, [test "x${use_risa}" = xyes])
 
 # check for enable-g
 AC_ARG_ENABLE([g],[AS_HELP_STRING([--enable-g],
