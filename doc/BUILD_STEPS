@@ -2,12 +2,12 @@ NOTE: see bottom of this file for suggested configurations on particular ANL
 machines.
 
 0 - Checkout, build, and install the trunk version of ROSS
-(https://github.com/carothersc/ROSS). At the time of
+(https://github.com/ross-org/ROSS). At the time of
 release (0.6.0), ROSS's latest commit hash was 10d7a06b2d, so this revision is
 "safe" in the unlikely case incompatible changes come along in the future. If
 working from the CODES master branches, use the ROSS master branch.
 
-    git clone http://github.com/carothersc/ROSS.git
+    git clone http://github.com/ross-org/ROSS.git
     # if using 0.5.2 release: git checkout d3bdc07
     cd ROSS
     mkdir build
@@ -22,7 +22,7 @@ working from the CODES master branches, use the ROSS master branch.
     ROSS/install/ directory>
 
     For more details on installing ROSS, go to
-    https://github.com/carothersc/ROSS/blob/master/README.md .
+    https://github.com/ross-org/ROSS/blob/master/README.md .
 
     If using ccmake to configure, don't forget to set CMAKE_C_COMPILER and
     CMAKE_CXX_COMPILER to mpicc/mpicxx

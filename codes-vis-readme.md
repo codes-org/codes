@@ -1,14 +1,14 @@
 ## README for using ROSS instrumentation with CODES
 
-For details about the ROSS instrumentation, see the [ROSS Instrumentation blog post](http://carothersc.github.io/ROSS/instrumentation/instrumentation.html) 
+For details about the ROSS instrumentation, see the [ROSS Instrumentation blog post](http://ross-org.github.io/instrumentation/instrumentation.html)
 on the ROSS webpage.
- 
+
 
 There are currently 4 types of instrumentation: GVT-based, real time sampling, virtual time sampling, and event tracing.
 See the ROSS documentation for more info on the specific options or use `--help` with your model.
 To collect data about the simulation engine, no changes are needed to model code for any of the instrumentation modes.
 Some additions to the model code is needed in order to turn on any model-level data collection.
-See the "Model-level data sampling" section on [ROSS Instrumentation blog post](http://carothersc.github.io/ROSS/instrumentation/instrumentation.html).
+See the "Model-level data sampling" section on [ROSS Instrumentation blog post](http://ross-org.github.io/instrumentation/instrumentation.html).
 Here we describe CODES specific details.
 
 ### Register Instrumentation Callback Functions
@@ -37,13 +37,13 @@ The second pointer is for the data to be sampled at the GVT or real time samplin
 In this case the LPs have different function pointers since we want to collect different types of data for the two LP types.
 For the terminal, I set the appropriate size of the data to be collected, but for the router, the size of the data is dependent on the radix for the dragonfly configuration being used, which isn't known until runtime.
 
-*Note*: You can only reuse the function for event tracing for LPs that use the same type of message struct.  
+*Note*: You can only reuse the function for event tracing for LPs that use the same type of message struct.
 For example, the dragonfly terminal and router LPs both use the `terminal_message` struct, so they can
-use the same functions for event tracing.  
-However the model net base LP uses the `model_net_wrap_msg` struct, so it gets its own event collection function and `st_trace_type` struct, in order to read the event type correctly from the model. 
+use the same functions for event tracing.
+However the model net base LP uses the `model_net_wrap_msg` struct, so it gets its own event collection function and `st_trace_type` struct, in order to read the event type correctly from the model.
 
-In the ROSS instrumentation documentation, there are two methods provided for letting ROSS know about these `st_model_types` structs.  
-In CODES, this step is a little different, as `codes_mapping_setup()` calls `tw_lp_settype()`.  
+In the ROSS instrumentation documentation, there are two methods provided for letting ROSS know about these `st_model_types` structs.
+In CODES, this step is a little different, as `codes_mapping_setup()` calls `tw_lp_settype()`.
 Instead, you add a function to return this struct for each of your LP types:
 ```C
 static const st_model_types *dragonfly_get_model_types(void)
@@ -73,7 +73,7 @@ static void router_register_model_types(st_model_types *base_type)
 At this point, there are two different steps to follow depending on whether the model is one of the model-net models or not.
 
 ##### Model-net Models
-In the `model_net_method` struct, two fields have been added: `mn_model_stat_register` and `mn_get_model_stat_types`.  
+In the `model_net_method` struct, two fields have been added: `mn_model_stat_register` and `mn_get_model_stat_types`.
 You need to set these to the functions described above.  For example:
 
 ```C
@@ -115,21 +115,21 @@ static void svr_register_model_types()
 int main(int argc, char **argv)
 {
     // ... some set up removed for brevity
-    
+
     model_net_register();
     svr_add_lp_type();
-    
+
     if (g_st_ev_trace || g_st_model_stats)
         svr_register_model_types();
-        
+
     codes_mapping_setup();
-    
+
     //...
 }
 ```
 
 `g_st_ev_trace` is a ROSS flag for determining if event tracing is turned on and `g_st_model_stats` determines if the GVT-based or real time instrumentation
-modes are collecting model-level data as well.  
+modes are collecting model-level data as well.
 
 
 ### CODES LPs that currently have event type collection implemented:
@@ -144,4 +144,3 @@ If you're using any of the following CODES models, you don't have to add anythin
 - slimfly router and terminal LPs (slimfly.c)
 - fat tree switch and terminal LPs (fat-tree.c)
 - model-net-base-lp (model-net-lp.c)
- 

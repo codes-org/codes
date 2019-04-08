@@ -4,7 +4,7 @@
 # In hindsight this was a lot more complicated than I intended. It was looking to solve a complex problem that turned out to be invalid from the beginning.
 
 ### USAGE ###
-# Correct usage: python3 script.py <num_groups> <num_spine_pg> <num_leaf_pg> <router_radix> <num_terminal_per_leaf> <intra-file> <inter-file>
+# Correct usage:  python3 dragonfly-plus-topo-gen-v2.py <router_radix> <num_gc_between_groups> <intra-file> <inter-file>
 ###       ###
 
 import sys
@@ -573,37 +573,37 @@ def mainV3():
         print(A.astype(int))
 
 
-def mainV2():
-    if(len(argv) < 8):
-        raise Exception("Correct usage:  python %s <num_groups> <num_spine_pg> <num_leaf_pg> <router_radix> <terminals-per-leaf> <intra-file> <inter-file>" % sys.argv[0])
+# def mainV2():
+#     if(len(argv) < 8):
+#         raise Exception("Correct usage:  python %s <num_groups> <num_spine_pg> <num_leaf_pg> <router_radix> <terminals-per-leaf> <intra-file> <inter-file>" % sys.argv[0])
 
-    num_groups = int(argv[1])
-    num_spine_pg = int(argv[2])
-    num_leaf_pg = int(argv[3])
-    router_radix = int(argv[4])
-    term_per_leaf = int(argv[5])
-    intra_filename = argv[6]
-    inter_filename = argv[7]
+#     num_groups = int(argv[1])
+#     num_spine_pg = int(argv[2])
+#     num_leaf_pg = int(argv[3])
+#     router_radix = int(argv[4])
+#     term_per_leaf = int(argv[5])
+#     intra_filename = argv[6]
+#     inter_filename = argv[7]
 
-    parseOptionArguments()
+#     parseOptionArguments()
 
-    dfp_network = DragonflyPlusNetwork(num_groups, num_spine_pg, num_leaf_pg, router_radix, num_hosts_per_leaf=term_per_leaf)
+#     dfp_network = DragonflyPlusNetwork(num_groups, num_spine_pg, num_leaf_pg, router_radix, num_hosts_per_leaf=term_per_leaf)
 
-    if not DRYRUN:
-        dfp_network.writeIntraconnectionFile(intra_filename)
-        dfp_network.writeInterconnectionFile(inter_filename)
+#     if not DRYRUN:
+#         dfp_network.writeIntraconnectionFile(intra_filename)
+#         dfp_network.writeInterconnectionFile(inter_filename)
 
-    if LOUDNESS is not Loudness.QUIET:
-        print("\nNOTE: THIS STILL CAN'T DO THE MED-LARGE TOPOLOGY RIGHT\n")
+#     if LOUDNESS is not Loudness.QUIET:
+#         print("\nNOTE: THIS STILL CAN'T DO THE MED-LARGE TOPOLOGY RIGHT\n")
 
-        print(dfp_network.getSummary())
+#         print(dfp_network.getSummary())
 
-    if SHOW_ADJACENCY == 1:
-        print("\nPrinting Adjacency Matrix:")
+#     if SHOW_ADJACENCY == 1:
+#         print("\nPrinting Adjacency Matrix:")
 
-        np.set_printoptions(linewidth=400,threshold=10000,edgeitems=200)
-        A = dfp_network.getAdjacencyMatrix(AdjacencyType.ALL_CONNS)
-        print(A.astype(int))
+#         np.set_printoptions(linewidth=400,threshold=10000,edgeitems=200)
+#         A = dfp_network.getAdjacencyMatrix(AdjacencyType.ALL_CONNS)
+#         print(A.astype(int))
 
 if __name__ == '__main__':
     mainV3()

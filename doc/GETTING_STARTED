@@ -14,7 +14,7 @@ https://lists.mcs.anl.gov/mailman/listinfo/codes-ross-users
 
 == CODES
 
-* main site: http://www.mcs.anl.gov/projects/codes/ 
+* main site: http://www.mcs.anl.gov/projects/codes/
 * repositories:
   * "base" (this repository): git.mcs.anl.gov:radix/codes-base
   * codes-net (networking component of CODES): git.mcs.anl.gov:radix/codes-net
@@ -22,11 +22,11 @@ https://lists.mcs.anl.gov/mailman/listinfo/codes-ross-users
 
 == ROSS
 
-* main site, repository, etc.: https://github.com/carothersc/ROSS
+* main site, repository, etc.: https://github.com/ross-org/ROSS
   * both the site and repository contain good documentation as well - refer to
     it for an in-depth introduction and overview of ROSS proper
 
-= Components of CODES 
+= Components of CODES
 
 == Configuration
 
@@ -36,7 +36,7 @@ structured configuration file. The configuration format allows categories, and
 optionally subgroups within the category, of key-value pairs for configuration.
 The LPGROUPS category defines the LP configuration. The PARAMS category is
 currently used for networking and ROSS-specific parameters. User-defined
-categories can also be used. 
+categories can also be used.
 
 The configuration system additionally allows LP specialization via the usage of
 "annotations". This allows two otherwise identical LPs to have different
@@ -125,7 +125,7 @@ The format of the metadata file is a set of lines containing:
   <group ID> <start ID> <end ID inclusive> <kernel file>
 where:
 * <group ID> is the ID of this group (see restrictions)
-* <start ID> and <end ID> form the range of logical client IDs that will 
+* <start ID> and <end ID> form the range of logical client IDs that will
   perform the given workload. Note that the end ID is inclusive, so a start,
   end pair of 0, 3 will include IDs 0, 1, 2, and 3. An <end ID> of -1 indicates
   to use the remaining number of clients as specified by the user.
@@ -201,6 +201,15 @@ Note on trace reading - the input file prefix to the dumpi workload generator
 should be everything up to the rank number. E.g., if the dumpi files are of the
 form "dumpi-YYYY.MM.DD.HH.MM.SS-XXXX.bin", then the input should be
 "dumpi-YYYY.MM.DD.HH.MM.SS-"
+
+=== Quality of Service
+
+Two models (dragonfly-dally.C and dragonfly-plus.C) can now support traffic 
+differentiation and prioritization. The models support quality of service by
+directing the network traffic on separate class of virtual channels. Additional
+documentation on using traffic classes can be found at the wiki link:
+
+https://xgitlab.cels.anl.gov/codes/codes/wikis/Quality-of-Service
 
 === Workload generator helpers
 
@@ -288,7 +297,7 @@ lsm
 }
 
 The API can be found at codes/local-storage-model.h and example usage can be
-seen in tests/local-storage-model-test.c and tests/conf/lsm-test.conf. 
+seen in tests/local-storage-model-test.c and tests/conf/lsm-test.conf.
 
 The queueing policy of LSM is currently FIFO, and the default mode uses an
 implicit queue, simply incrementing counters and scheduling future events when
@@ -359,7 +368,7 @@ model-net LPs, like any other LP in CODES/ROSS, require specification in the
 configuration file as well as LP-specific parameters. To identify model-net LPs
 to CODES, we use the naming scheme of prefixing model-net LP names with the
 string "modelnet_". For example, the "simplenet" LP (see "model-net models")
-would be specified in the LPGROUPS section as "modelnet_simplenet". 
+would be specified in the LPGROUPS section as "modelnet_simplenet".
 
 Currently, model-net LPs expect their configuration values in the PARAMS
 section. This is due to historical precedent and may be changed in the future
@@ -389,7 +398,7 @@ program, they will be printed to the specified directory.
 = model-net models
 
 Currently, model-net contains a combination of analytical models and specific
-models for high-performance networking, with an HPC bent. 
+models for high-performance networking, with an HPC bent.
 
 Configuration files for each model can be found in tests/conf, under the name
 "model-net-test*.conf".
@@ -402,7 +411,7 @@ infinite packet buffering when routing. These are best used for models that
 require little fidelity out of the network performance. SimpleP2P is the same
 model as Simplenet, except it provides heterogeneous link capacities from point
 to point. Rather than a single entry, it requires files containing a matrix of
-point-to-point bandwidths and latencies. 
+point-to-point bandwidths and latencies.
 
 Simplenet models require two configuration parameters: "net_startup_ns" and
 "net_bw_mbps", which define the startup and bandwidth costs in nanoseconds and
@@ -426,7 +435,7 @@ The only configuration entry the LogGP model requires is
 configuration file.
 
 For more details on gathering parameters for the LogGP model, as well as it's
-usage and caveats, see the document src/model-net/doc/README.loggp.txt. 
+usage and caveats, see the document src/model-net/doc/README.loggp.txt.
 
 == Torus
 
@@ -454,7 +463,7 @@ The configuration parameters are a little trickier here, as additional LPs
 other than the "modelnet_dragonfly" LP must be specified. "modelnet_dragonfly"
 represent the node LPs (terminals), while a second type "dragonfly_router"
 represents a physical router. At least one "dragonfly_router" LP must be
-present in every LP group with a "modelnet_dragonfly" LP. 
+present in every LP group with a "modelnet_dragonfly" LP.
 
 Further configuration and model setup can be found at
 src/model-net/doc/README.dragonfly.txt.
@@ -509,7 +518,7 @@ section of the example.conf config file.
 == Server state and event handlers
 
 The server LP state maintains a count of the number of remote messages it has
-sent and received as well as the number of local completion messages.   
+sent and received as well as the number of local completion messages.
 
 For the server event message, we have four message types: KICKOFF, REQ, ACK and
 LOCAL. With a KICKOFF event, each LP sends a message to itself to begin the
@@ -517,7 +526,7 @@ simulation proper. To avoid event ties, we add a small amount of random noise
 using codes_local_latency. The REQ message is sent by a server to its
 neighboring server and when received, neighboring server sends back a message
 of type ACK. We've shown a hard-coded direct communication method which
-directly computes the LP ID, and a codes-mapping API-based method. 
+directly computes the LP ID, and a codes-mapping API-based method.
 
 == Server reverse computation
 
@@ -533,19 +542,19 @@ conservative modes, so reverse computation may not be necessary if the
 simulation is not compute- or memory-intensive.
 
 For our example program, recall the "forward" event handlers. They perform the
-following: 
+following:
 * Kickoff: send a message to the peer server, and increment sender LP's
     count of sent messages.
 * Request (received from peer server): increment receiver count of
     received messages, and send an acknowledgement to the sender.
 * Acknowledgement (received from message receiver): send the next
     message to the receiver and increment messages sent count. Set a flag
-    indicating whether a message has been sent.  
+    indicating whether a message has been sent.
 * Local model-net callback: increment the local model-net
     received messages count.
 
 In terms of LP state, the four operations are simply modifying counts. Hence,
-the "reverse" event handlers need to merely roll back those changes: 
+the "reverse" event handlers need to merely roll back those changes:
 * Kickoff: decrement sender LP's count of sent messages.
 * Request (received from peer server): decrement receiver count of
     received messages.
