@@ -63,6 +63,9 @@ static int **comm_map;
 /* Function for computing local and global connections for a given router id */
 static void get_router_connections(int src_router_id, int* local_channels, int* global_channels);
 
+//declare prior to usage to make certain compilers happy
+void init_worst_case_mapping();
+
 /* Global variables for worst-case workload pairing */
 static int num_local_channels;
 static int num_global_channels;
