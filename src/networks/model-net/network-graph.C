@@ -82,13 +82,13 @@ class End {
   int id;
   bool isTerm;
 
-  End() { }
-
+  End() {}
   End(int _port, int _id, bool _isTerm) {
     port = _port;
     id = _id;
     isTerm = _isTerm;
   }
+  ~End() {}
 };
 
 class Switch_info {
@@ -97,6 +97,7 @@ class Switch_info {
   long long guid;
   int radix;
   std::vector<End> ports;
+  ~Switch_info() {}
 };
 
 class Terminal_info {
@@ -105,6 +106,7 @@ class Terminal_info {
   long long guid;
   int radix;
   std::vector<End> ports;
+  ~Terminal_info() {}
 };
 
 struct local_param
@@ -288,6 +290,7 @@ struct router_state
 
   //CHANGE: add network specific data here
   int *lft;
+  int unused;
 };
 
 struct VC_Entry {
@@ -378,7 +381,7 @@ static void local_read_config(const char * anno, local_param *params){
 
   if(routing_folder[0] == '\0') {
     if(p->routing == STATIC) {
-      tw_error(TW_LOC, "routing_folder has to be provided with dump_topo || static routing");
+      tw_error(TW_LOC, "routing_folder has to be provided with static routing");
     }
   }
 
@@ -390,7 +393,7 @@ static void local_read_config(const char * anno, local_param *params){
       local_cn_sample_file, MAX_NAME_LENGTH);
   configuration_get_value(&config, "PARAMS", "rt_sample_file", anno,
       local_rtr_sample_file, MAX_NAME_LENGTH);
-
+  
   //CHANGE: add network specific parameters here
   rc = configuration_get_value_int(&config, "PARAMS", "num_switches", anno,
       &p->num_switches);
@@ -398,11 +401,15 @@ static void local_read_config(const char * anno, local_param *params){
   rc = configuration_get_value_int(&config, "PARAMS", "num_terminals", anno,
       &p->num_terminals);
   
+  printf("s %d t %d\n", p->num_switches, p->num_terminals);
+  
   p->switch_id_to_info.resize(p->num_switches);
   p->term_id_to_info.resize(p->num_terminals);
 
   configuration_get_value(&config, "PARAMS", "network_graph_file", anno,
       network_graph_file, MAX_NAME_LENGTH);
+  printf("Open %s\n", network_graph_file);
+  fflush(stdout);
   FILE *input_file = fopen(network_graph_file, "r");
   Agraph_t *input_graph = agread(input_file, NULL);
 
@@ -411,34 +418,50 @@ static void local_read_config(const char * anno, local_param *params){
   Agnode_t *g_node;
   Agedge_t    *e;
 
+  printf("About to read %s\n", network_graph_file);
+  fflush(stdout);
   for(g_node = agfstnode(input_graph); g_node; g_node = agnxtnode(input_graph, g_node)) {
     char *name = agnameof(g_node);
     if(name[0] == 'S') {
       Switch_info next_switch;
       next_switch.name = std::string(name);
       p->switch_name_to_id[next_switch.name] = num_switches;
-      char * comment = agget(g_node, "comment"); 
-      sscanf(comment, "%x,radix=%d", &next_switch.guid, &next_switch.radix);
+      char * comment = agget(g_node, "comment");
+      std::string  comment_str(comment);
+      if(comment_str.find("root_switch") == std::string::npos ||
+        (comment_str.find("root_switch") > comment_str.find("radix")))  {
+        sscanf(comment, "%x,radix=%d", &next_switch.guid, &next_switch.radix);
+      } else {
+        sscanf(comment, "%x,root_switch,radix=%d", &next_switch.guid, &next_switch.radix);
+      }
       p->switch_id_to_info[num_switches] = next_switch;
       p->switch_id_to_info[num_switches].ports.resize(next_switch.radix);
       p->switch_guid_to_id[next_switch.guid] = num_switches;
       num_switches++;
     }
-    if(name[0] == 'T') {
+    if(name[0] == 'H') {
       Terminal_info next_term;
       next_term.name = std::string(name);
       int term_id;
-      sscanf(name, "T<%d", &term_id);
+      sscanf(name, "H<%d", &term_id);
       p->term_name_to_id[next_term.name] = term_id;
       char * comment = agget(g_node, "comment"); 
-      sscanf(comment, "%x,radix=%d", &next_term.guid, &next_term.radix);
+      std::string  comment_str(comment);
+      if(comment_str.find("radix") == std::string::npos)  {
+        sscanf(comment, "%x", &next_term.guid);
+        next_term.radix = 1;
+      } else {
+        sscanf(comment, "%x,radix=%d", &next_term.guid, &next_term.radix);
+      }
       p->term_id_to_info[term_id] = next_term;
       p->term_id_to_info[term_id].ports.resize(next_term.radix);
       p->term_guid_to_id[next_term.guid] = term_id;
       if(term_id > num_terminals) num_terminals = term_id;
     }
   }
-
+  
+  printf("Read %s\n", network_graph_file);
+  fflush(stdout);
   assert(num_terminals == p->num_terminals);
   assert(num_switches == p->num_switches);
       
@@ -464,9 +487,9 @@ static void local_read_config(const char * anno, local_param *params){
         isTerm = true;
       }
       if(name[0] == 'S') {
-       p->switch_id_to_info[index_in_info].ports[srcPort] = End(dstPort, dstId, isTerm);
+       p->switch_id_to_info[index_in_info].ports[srcPort-1] = End(dstPort-1, dstId, isTerm);
       } else {
-       p->term_id_to_info[index_in_info].ports[srcPort] = End(dstPort, dstId, isTerm);
+       p->term_id_to_info[index_in_info].ports[srcPort-1] = End(dstPort-1, dstId, isTerm);
       }
     }
   }
@@ -791,6 +814,14 @@ static void router_setup(router_state * r, tw_lp * lp)
 
 
   r->router_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
+
+  if(r->router_id >= p->num_switches) {
+    r->unused = 1;
+    return;
+  }
+
+  r->unused = 0;
+
   Switch_info &my_info = p->switch_id_to_info[r->router_id];
   r->radix = my_info.radix;
 
@@ -2124,6 +2155,7 @@ static void router_rc_event_handler(router_state * s, tw_bf * bf,
 static void router_final(router_state * s,
     tw_lp * lp)
 {
+  if(s->unused) return;
   int i, j;
   for(i = 0; i < s->radix; i++) {
     for(j = 0; j < s->params->num_vcs; j++) {
