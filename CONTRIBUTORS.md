@@ -1,7 +1,5 @@
-Contributors to date (in chronological order, with affiliations at time of contribution)
+Contributors to date (with affiliations at time of contribution)
 
-- Ning Liu, Rensselaer Polytechnic Institute
-- Jason Cope, Argonne National Laboratory
 - Philip Carns, Argonne National Laboratory
 - Misbah Mubarak, Argonne National Laboratory
 - Shane Snyder, Argonne National Laboratory
@@ -20,6 +18,8 @@ Contributors to date (in chronological order, with affiliations at time of contr
 - Justin M. Wozniak, Argonne National Laboratory
 - Robert B. Ross, Argonne National Laboratory
 - Lee Savoie, Univ. of Arizona 
+- Ning Liu, Rensselaer Polytechnic Institute
+- Jason Cope, Argonne National Laboratory
 
 Contributions (listed in chronological order):
 
