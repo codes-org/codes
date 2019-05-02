@@ -21,7 +21,7 @@ Contributors to date (with affiliations at time of contribution)
 - Ning Liu, Rensselaer Polytechnic Institute
 - Jason Cope, Argonne National Laboratory
 
-Contributions (listed in chronological order):
+Contributions:
 
 Misbah Mubarak (ANL)
     - Introduced 1-D dragonfly and enhanced torus network model.
