@@ -170,7 +170,7 @@ struct terminal_state
   int radix; //my radix
 
   //which router I am connected to
-  std::vector<tw_lpid> conn_gids;
+  tw_lpid* conn_gids;
 
   // Each terminal will have input/output channel(s) with the router
   int** vc_occupancy; // NUM_VC
@@ -262,7 +262,7 @@ struct router_state
 
   //CHANGE: may need to be changed if linear storage is not desired
   //array/linked list based storage of info about ports/vcs
-  std::vector<tw_lpid> conn_gids;
+  tw_lpid* conn_gids;
   tw_stime* next_output_available_time;
   message_list ***pending_msgs;
   message_list ***pending_msgs_tail;
@@ -401,15 +401,11 @@ static void local_read_config(const char * anno, local_param *params){
   rc = configuration_get_value_int(&config, "PARAMS", "num_terminals", anno,
       &p->num_terminals);
   
-  printf("s %d t %d\n", p->num_switches, p->num_terminals);
-  
   p->switch_id_to_info.resize(p->num_switches);
   p->term_id_to_info.resize(p->num_terminals);
 
   configuration_get_value(&config, "PARAMS", "network_graph_file", anno,
       network_graph_file, MAX_NAME_LENGTH);
-  printf("Open %s\n", network_graph_file);
-  fflush(stdout);
   FILE *input_file = fopen(network_graph_file, "r");
   Agraph_t *input_graph = agread(input_file, NULL);
 
@@ -418,8 +414,6 @@ static void local_read_config(const char * anno, local_param *params){
   Agnode_t *g_node;
   Agedge_t    *e;
 
-  printf("About to read %s\n", network_graph_file);
-  fflush(stdout);
   for(g_node = agfstnode(input_graph); g_node; g_node = agnxtnode(input_graph, g_node)) {
     char *name = agnameof(g_node);
     if(name[0] == 'S') {
@@ -430,9 +424,9 @@ static void local_read_config(const char * anno, local_param *params){
       std::string  comment_str(comment);
       if(comment_str.find("root_switch") == std::string::npos ||
         (comment_str.find("root_switch") > comment_str.find("radix")))  {
-        sscanf(comment, "%x,radix=%d", &next_switch.guid, &next_switch.radix);
+        sscanf(comment, "%llx,radix=%d", &next_switch.guid, &next_switch.radix);
       } else {
-        sscanf(comment, "%x,root_switch,radix=%d", &next_switch.guid, &next_switch.radix);
+        sscanf(comment, "%llx,root_switch,radix=%d", &next_switch.guid, &next_switch.radix);
       }
       p->switch_id_to_info[num_switches] = next_switch;
       p->switch_id_to_info[num_switches].ports.resize(next_switch.radix);
@@ -456,15 +450,13 @@ static void local_read_config(const char * anno, local_param *params){
       p->term_id_to_info[term_id] = next_term;
       p->term_id_to_info[term_id].ports.resize(next_term.radix);
       p->term_guid_to_id[next_term.guid] = term_id;
-      if(term_id > num_terminals) num_terminals = term_id;
+      if(term_id + 1 > num_terminals) num_terminals = term_id + 1;
     }
   }
   
-  printf("Read %s\n", network_graph_file);
-  fflush(stdout);
   assert(num_terminals == p->num_terminals);
   assert(num_switches == p->num_switches);
-      
+  
   for(g_node = agfstnode(input_graph); g_node; g_node = agnxtnode(input_graph, g_node)) {
     char *name = agnameof(g_node);
     int index_in_info;
@@ -473,7 +465,7 @@ static void local_read_config(const char * anno, local_param *params){
     } else {
       index_in_info = p->term_name_to_id[std::string(name)];
     }
-    for (e = agfstedge(input_graph,g_node); e; e = agnxtedge(input_graph,e,g_node)) {
+    for (e = agfstout(input_graph,g_node); e; e = agnxtout(input_graph,e)) {
       char *partner = agnameof(e->node);
       char *edge_comment = agget(e, "comment");
       int srcPort, dstPort;
@@ -487,16 +479,16 @@ static void local_read_config(const char * anno, local_param *params){
         isTerm = true;
       }
       if(name[0] == 'S') {
-       p->switch_id_to_info[index_in_info].ports[srcPort-1] = End(dstPort-1, dstId, isTerm);
+        p->switch_id_to_info[index_in_info].ports[srcPort-1] = End(dstPort-1, dstId, isTerm);
       } else {
-       p->term_id_to_info[index_in_info].ports[srcPort-1] = End(dstPort-1, dstId, isTerm);
+        p->term_id_to_info[index_in_info].ports[srcPort-1] = End(dstPort-1, dstId, isTerm);
       }
     }
   }
 
   agclose(input_graph);
   fclose(input_file);
-
+  
   //CHANGE: derived parameters often are computed based on network specifics
 
   //general derived parameters
@@ -517,7 +509,8 @@ static void local_configure(){
   anno_map = codes_mapping_get_lp_anno_map(LP_CONFIG_NM_TERM);
   assert(anno_map);
   num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
-  all_params = (local_param *)malloc(num_params * sizeof(*all_params));
+  //all_params = (local_param *)malloc(num_params * sizeof(*all_params));
+  all_params = new local_param[num_params];
 
   for (int i = 0; i < anno_map->num_annos; i++){
     const char * anno = anno_map->annotations[i].ptr;
@@ -603,8 +596,11 @@ static int read_static_lft(long long guid, int * &lft, const local_param * param
 
   sprintf(file_name, "%s/0x%016"PRIx64".lft", dir_name, guid);
   FILE *file = NULL;
-  if (!(file = fopen(file_name, "r")))
+  if (!(file = fopen(file_name, "r"))) {
+    printf("Coudn't open file %s\n", file_name);
+    fflush(stdout);
     return -1;
+  }
 
   char line[UINT8_MAX];
   char *p = NULL, *e = NULL;
@@ -699,7 +695,7 @@ static void terminal_init( terminal_state * s, tw_lp * lp )
 
   const Terminal_info &my_info = s->params->term_id_to_info[s->terminal_id]; 
   s->radix = my_info.radix;
-  s->conn_gids.resize(s->radix);
+  s->conn_gids = (tw_lpid *)malloc(s->radix * sizeof(tw_lpid));
   
   for(int port = 0; port < s->radix; port++) {
     const End &next_port = my_info.ports[port];
@@ -718,9 +714,6 @@ static void terminal_init( terminal_state * s, tw_lp * lp )
   s->finished_packets = 0;
   s->total_time = 0.0;
   s->total_msg_size = 0;
-
-
-
   s->fwd_events = 0;
   s->rev_events = 0;
 
@@ -783,6 +776,7 @@ void post_terminal_init(terminal_state *s, tw_lp *lp)
 static void create_router_connections(router_state * r, tw_lp * lp) {
   local_param *p = (local_param *)r->params;
   Switch_info &my_info = p->switch_id_to_info[r->router_id];
+  r->conn_gids = (tw_lpid *)malloc(r->radix * sizeof(tw_lpid));
   for(int port = 0; port < r->radix; port++) {
     End &next_port = my_info.ports[port];
     if(next_port.isTerm) {
@@ -886,7 +880,7 @@ void post_router_init(router_state *r, tw_lp *lp)
   /* read any LFTs which might have been generated by an external routing
    * algorithm, e.g., through the use of opensm\
    */
-  if(r->params->routing == STATIC) {
+  if(r->params->routing == STATIC && !r->unused) {
    if(0 != read_static_lft(r->params->switch_id_to_info[r->router_id].guid, r->lft, r->params)) {
      tw_error(TW_LOC, "Error while reading the routing table for switch");
    }
@@ -987,7 +981,8 @@ static void packet_generate(terminal_state * s, tw_bf * bf, LOCAL_MSG_STRUCT * m
   int output_port = -1, use_vc = 0;
   //find the next port by looking up the lft
   if(s->params->routing == STATIC) {
-    output_port = s->lft[msg->dest_terminal];
+    //TODO support routing tables from terminals also
+    output_port = 0; //s->lft[msg->dest_terminal];
     /* assert should only fail if read LFT is incomplete -> broken routing */
     assert(output_port >= 0);
   } else {
@@ -2492,7 +2487,7 @@ static tw_lptype local_lps[] =
   // Terminal handling functions
   {
     (init_f)terminal_init,
-    (pre_run_f) post_terminal_init,
+    (pre_run_f) NULL, //post_terminal_init,
     (event_f) terminal_event,
     (revent_f) terminal_event_rc,
     (commit_f) NULL,

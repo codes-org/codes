@@ -73,6 +73,9 @@ typedef struct model_net_base_state {
 static void model_net_base_lp_init(
         model_net_base_state * ns,
         tw_lp * lp);
+static void model_net_base_prerun(
+        model_net_base_state * ns,
+        tw_lp * lp);
 static void model_net_base_event(
         model_net_base_state * ns,
         tw_bf * b,
@@ -112,7 +115,7 @@ static void handle_sched_next_rc(
 /* ROSS function pointer table for this LP */
 tw_lptype model_net_base_lp = {
     (init_f) model_net_base_lp_init,
-    (pre_run_f) NULL,
+    (pre_run_f) model_net_base_prerun,
     (event_f) model_net_base_event,
     (revent_f) model_net_base_event_rc,
     (commit_f) NULL,
@@ -526,6 +529,14 @@ void model_net_base_lp_init(
                 sinit(ns->sub_state, lp);
             issue_sample_event(lp);
         }
+    }
+}
+
+void model_net_base_prerun(
+        model_net_base_state * ns,
+        tw_lp * lp) {
+    if(ns->sub_type->pre_run != NULL) {
+        ns->sub_type->pre_run(ns->sub_state, lp);
     }
 }
 
