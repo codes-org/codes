@@ -147,7 +147,7 @@ int main(int argc, char *argv[])
     }
 
     resource_lp_init();
-    lp_type_register("server", &s_lp);
+    lp_type_register("nw-lp", &s_lp);
 
     codes_mapping_setup();
 

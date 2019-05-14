@@ -161,7 +161,7 @@ int main(
     net_id = *net_ids;
     free(net_ids);
 
-    num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "server",
+    num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp",
             NULL, 1);
     if(net_id == DRAGONFLY)
     {
@@ -194,7 +194,7 @@ const tw_lptype* svr_get_lp_type()
 
 static void svr_add_lp_type()
 {
-  lp_type_register("server", svr_get_lp_type());
+  lp_type_register("nw-lp", svr_get_lp_type());
 }
 
 static void svr_init(
@@ -317,7 +317,7 @@ static void handle_kickoff_event(
     ns->start_ts = tw_now(lp);
 
     num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1,
-            "server", NULL, 1);
+            "nw-lp", NULL, 1);
     num_routers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1,
             "dragonfly_router", NULL, 1);
 

@@ -69,7 +69,7 @@ int main(
   
     if((NUM_SERVERS + NUM_CLIENTS) % nprocs)
     {
-        fprintf(stderr, "Error: number of server LPs (%d total) is not evenly divisible by the number of MPI processes (%d)\n", NUM_SERVERS+NUM_CLIENTS, nprocs);
+        fprintf(stderr, "Error: number of server (or nw-lp) LPs (%d total) is not evenly divisible by the number of MPI processes (%d)\n", NUM_SERVERS+NUM_CLIENTS, nprocs);
         exit(-1);
     }
 
