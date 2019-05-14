@@ -1036,7 +1036,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, LOCAL_MSG_STRUCT * m
     s->issueIdle = 1;
   }
 
-  if(s->in_send_loop == 0) {
+  if(s->in_send_loop[output_port] == 0) {
     bf->c5 = 1;
     ts = codes_local_latency(lp);
     LOCAL_MSG_STRUCT *m;
@@ -1185,7 +1185,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, LOCAL_MSG_STRUCT * msg,
 
   m->type = R_ARRIVE;
   m->src_terminal_id = lp->gid;
-  m->vc_index = 0;
+  m->vc_index = output_port;
   m->output_chan = use_vc;
   m->last_hop = TERMINAL;
   m->magic = router_magic_num;
@@ -1215,6 +1215,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, LOCAL_MSG_STRUCT * msg,
   e = model_net_method_event_new(lp->gid, ts, lp, LOCAL_NETWORK_NAME,
       (void**)&m_new, NULL);
   m_new->type = T_SEND;
+  m_new->vc_index = output_port;
   m_new->magic = terminal_magic_num;
   tw_event_send(e);
 
@@ -1688,7 +1689,7 @@ get_next_stop(router_state * s,
   if(s->params->routing == STATIC) {
     output_port = s->lft[msg->dest_terminal];
     /* assert should only fail if read LFT is incomplete -> broken routing */
-    assert(*port >= 0);
+    assert(output_port >= 0);
   } else {
     tw_error(TW_LOC, "Only static routing supported in this topology\n");
   }
