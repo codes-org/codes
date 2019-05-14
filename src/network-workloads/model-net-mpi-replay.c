@@ -46,6 +46,7 @@ static int enable_msg_tracking = 0;
 static int is_synthetic = 0;
 static unsigned long long max_gen_data = 1310720;
 static int num_qos_levels;
+static double compute_time_speedup;
 tw_lpid TRACK_LP = -1;
 int nprocs = 0;
 static double total_syn_data = 0;
@@ -1444,8 +1445,8 @@ static void codes_exec_comp_delay(
 
     m->rc.saved_delay = s->compute_time;
     m->rc.saved_delay_sample = s->ross_sample.compute_time;
-    s->compute_time += mpi_op->u.delay.nsecs;
-    s->ross_sample.compute_time += mpi_op->u.delay.nsecs;
+    s->compute_time += (mpi_op->u.delay.nsecs/compute_time_speedup);
+    s->ross_sample.compute_time += (mpi_op->u.delay.nsecs/compute_time_speedup);
     ts = mpi_op->u.delay.nsecs;
     if(ts <= g_tw_lookahead)
     {
@@ -2921,6 +2922,19 @@ static int msg_size_hash_compare(
 
     return 0;
 }
+
+/* Method to organize all mpi_replay specific configuration parameters
+to be specified in the loaded .conf file*/
+void modelnet_mpi_replay_read_config()
+{
+    // Load the factor by which the compute time is sped up by. e.g. If compute_time_speedup = 2, all compute time delay is halved.
+    int rc = configuration_get_value_double(&config, "PARAMS", "compute_time_speedup", NULL, &compute_time_speedup);
+    if (rc) {
+        compute_time_speedup = 1;
+    }
+}
+
+
 int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 {
   int rank;
@@ -3033,6 +3047,8 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 //   assert(num_nets == 1);
    net_id = *net_ids;
    free(net_ids);
+
+   modelnet_mpi_replay_read_config();
 
    if(enable_debug)
    {
