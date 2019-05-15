@@ -73,7 +73,7 @@ generator sets. This configuration can be specified in the config file in the fo
 MODELNET_GRP
 {
 	repetitions="50";
-	server="3";
+	nw-lp="3";
 	modelnet_slimfly="3";
 	slimfly_router="1";
 }
@@ -88,7 +88,7 @@ PARAMS
 }
 
 The first section, MODELNET_GRP specified the number of LPs and the layout of
-LPs. In the above case, there are 50 repetitions of 3 server LPs, 3 slim fly
+LPs. In the above case, there are 50 repetitions of 3 server LPs (nw-lp), 3 slim fly
 network node LPs and 1  slim fly router LP, which makes a total of 50 routers,
 150 network nodes and 150 servers in the network.  The second section, PARAMS
 uses 'num_routers' for the  slim fly topology lay out and sets up the

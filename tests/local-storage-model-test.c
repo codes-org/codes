@@ -143,7 +143,7 @@ int main(
         return(-1);
     }
 
-    lp_type_register("server", &svr_lp);
+    lp_type_register("nw-lp", &svr_lp);
     lsm_register();
 
     codes_mapping_setup();
