@@ -1447,7 +1447,7 @@ static void codes_exec_comp_delay(
     m->rc.saved_delay_sample = s->ross_sample.compute_time;
     s->compute_time += (mpi_op->u.delay.nsecs/compute_time_speedup);
     s->ross_sample.compute_time += (mpi_op->u.delay.nsecs/compute_time_speedup);
-    ts = mpi_op->u.delay.nsecs;
+    ts = (mpi_op->u.delay.nsecs/compute_time_speedup);
     if(ts <= g_tw_lookahead)
     {
         bf->c28 = 1;
