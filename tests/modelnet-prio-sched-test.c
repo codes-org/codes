@@ -137,7 +137,7 @@ int main(
 
     assert(net_id == SIMPLENET);
     assert(NUM_SERVERS == codes_mapping_get_lp_count("MODELNET_GRP", 0,
-                "server", NULL, 1));
+                "nw-lp", NULL, 1));
 
     tw_run();
 
@@ -147,7 +147,7 @@ int main(
 
 static void svr_add_lp_type()
 {
-  lp_type_register("server", &svr_lp);
+  lp_type_register("nw-lp", &svr_lp);
 }
 
 static void svr_init(

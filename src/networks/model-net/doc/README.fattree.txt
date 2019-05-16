@@ -8,7 +8,7 @@ bare-minimum example config file:
 MODELNET_GRP
 {
 	repetitions="12";
-	server="4";
+	nw-lp="4";
 	modelnet_fattree="4";
 	fattree_switch="3";
 } 
@@ -24,7 +24,7 @@ PARAMS
 
 The first section, MODELNET_GRP specifies the LP types, number of LPs per type
 and their configuration. In the above case, there are 12 repetitions each with 4
-server LPs, 4 fat tree network node/terminal LPs and 3 fat tree switch LPs. Each
+server LPs (nw-lp), 4 fat tree network node/terminal LPs and 3 fat tree switch LPs. Each
 repetition represents a leaf level switch, nodes connected to it, and higher
 level switches that may be needed to construct the fat-tree. The
 'fattree_switch' parameter indicates there are 3 levels to this fat tree and

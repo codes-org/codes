@@ -58,7 +58,7 @@ p*a*g=8*4*33). This configuration can be specified in the config file in the fol
 MODELNET_GRP
 {
 	repetitions="264";
-	server="4";
+	nw-lp="4";
 	modelnet_dragonfly="4";
 	dragonfly_router="1";
 } 
@@ -70,7 +70,7 @@ PARAMS
 }
 
 The first section, MODELNET_GRP specified the number of LPs and the layout of
-LPs. In the above case, there are 264 repetitions of 4 server LPs, 4 dragonfly
+LPs. In the above case, there are 264 repetitions of 4 server LPs (nw-lp), 4 dragonfly
 network node LPs and 1 dragonfly router LP, which makes a total of 264 routers,
 1056 network nodes and 1056 servers in the network.  The second section, PARAMS
 uses 'num_routers' for the dragonfly topology lay out and setsup the

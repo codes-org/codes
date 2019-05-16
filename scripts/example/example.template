@@ -3,14 +3,14 @@
 # of application- and codes-specific key-value pairs. 
 LPGROUPS
 {
-   # in our simulation, we simply have a set of servers, each with 
+   # in our simulation, we simply have a set of servers (nw-lp), each with 
    # point-to-point access to each other
    SERVERS
    {
       # required: number of times to repeat the following key-value pairs
       repetitions="C_NUM_SERVERS"; 
       # application-specific: parsed in main
-      server="1";
+      nw-lp="1";
       # model-net-specific field defining the network backend. In this example, 
       # each server has one NIC, and each server are point-to-point connected
       modelnet_simplenet="1";
