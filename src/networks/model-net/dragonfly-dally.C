@@ -1783,6 +1783,10 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     }
       if(bf->c11) {
         s->issueIdle = 0;
+        if(bf->c8)
+        {
+            s->last_buf_full = msg->saved_busy_time;
+        }
       }
      struct mn_stats* stat;
      stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
@@ -1915,6 +1919,15 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
   } else {
     bf->c11 = 1;
     s->issueIdle = 1;
+
+      //this block was missing from when QOS was added - readded 5-21-19
+      if(s->last_buf_full == 0.0)
+      {
+        bf->c8 = 1;
+        msg->saved_busy_time = s->last_buf_full;
+        /* TODO: Assumes a single vc from terminal to router */
+        s->last_buf_full = tw_now(lp);
+      }
   }
   
   if(s->in_send_loop == 0) {
@@ -2179,8 +2192,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
   msg->num_rngs = 0;
   msg->num_cll = 0;
 
-  if(num_qos_levels > 1)
-    vcg = get_next_vcg(s, bf, msg, lp);
+  vcg = get_next_vcg(s, bf, msg, lp);
   
   /* For a terminal to router connection, there would be as many VCGs as number
    * of VCs*/
@@ -2312,6 +2324,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
         s->busy_time += (tw_now(lp) - s->last_buf_full);
         s->busy_time_sample += (tw_now(lp) - s->last_buf_full);
         s->ross_sample.busy_time_sample += (tw_now(lp) - s->last_buf_full);
+        msg->saved_busy_time_ross = s->busy_time_ross_sample;
         s->busy_time_ross_sample += (tw_now(lp) - s->last_buf_full);
         s->last_buf_full = 0.0;
     }
@@ -4012,6 +4025,10 @@ static void router_packet_receive_rc(router_state * s,
         }
       }
       if(bf->c4) {
+          if(bf->c22)
+          {
+            s->last_buf_full[output_port] = msg->saved_busy_time;
+          }
       delete_terminal_dally_message_list(return_tail(s->queued_msgs[output_port], 
           s->queued_msgs_tail[output_port], output_chan));
       s->queued_count[output_port] -= s->params->chunk_size; 
@@ -4288,6 +4305,20 @@ if(cur_chunk->msg.path_type == NON_MINIMAL)
     append_to_terminal_dally_message_list( s->queued_msgs[output_port], 
       s->queued_msgs_tail[output_port], output_chan, cur_chunk);
     s->queued_count[output_port] += s->params->chunk_size;
+
+
+//THIS WAS REMOVED WHEN QOS WAS INSTITUTED - READDED 5/20/19
+    /* a check for pending msgs is non-empty then we dont set anything. If
+     * that is empty then we check if last_buf_full is set or not. If already
+     * set then we don't overwrite it. If two packets arrive next to each other
+     * then the first person should be setting it. */
+    if(s->pending_msgs[output_port][output_chan] == NULL && s->last_buf_full[output_port] == 0.0)
+          {
+            bf->c22 = 1;
+            msg->saved_busy_time = s->last_buf_full[output_port];
+            s->last_buf_full[output_port] = tw_now(lp);
+          }
+
   }
 
   msg->saved_vc = output_port;
@@ -4395,7 +4426,7 @@ router_packet_send( router_state * s,
   msg->num_rngs = 0;
 
   int num_qos_levels = s->params->num_qos_levels;
-  int output_chan = get_next_router_vcg(s, bf, msg, lp);
+  int output_chan = get_next_router_vcg(s, bf, msg, lp); //includes default output_chan setting functionality if qos not enabled
   
   msg->saved_vc = output_port;
   msg->saved_channel = output_chan;
@@ -4403,7 +4434,7 @@ router_packet_send( router_state * s,
   if(output_chan < 0) {
     bf->c1 = 1;
     s->in_send_loop[output_port] = 0;
-    if(s->queued_count[output_port] && !s->last_buf_full[output_port]) 
+    if(s->queued_count[output_port] && !s->last_buf_full[output_port])  //5-21-19, not sure why this was added here with the qos stuff
     {
         bf->c2 = 1; 
         msg->saved_busy_time = s->last_buf_full[output_port];
@@ -4416,7 +4447,7 @@ router_packet_send( router_state * s,
  
   assert(cur_entry != NULL);
 
-  if(s->last_buf_full[output_port]) 
+  if(s->last_buf_full[output_port]) //5-12-19, same here as above comment
   {
     bf->c8 = 1;
     msg->saved_rcv_time = s->busy_time[output_port]; 
