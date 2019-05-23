@@ -687,6 +687,9 @@ static void gen_synthetic_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp 
 
      if(bf->c5)
          s->is_finished = 0;
+        
+    if(bf->c7)
+        tw_rand_reverse_unif(lp->rng);
 }
 
 /* generate synthetic traffic */
@@ -730,6 +733,16 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
 
             length = 1;
             dest_svr = (int*) calloc(1, sizeof(int));
+            if(s->gen_data == 0)
+            {
+                /*initialize the perm destination to something that is nonzero and thus preventing 
+                  possible attempt at self message*/
+                bf->c7 = 1;
+                s->saved_perm_dest = tw_rand_integer(lp->rng, 0, num_clients - 1);
+                if (s->saved_perm_dest == s->local_rank)
+                    s->saved_perm_dest = (s->local_rank + num_clients/2) % num_clients;
+            }
+
             if(s->gen_data - s->prev_switch >= perm_switch_thresh)
             {
                 // printf("%d - %d >= %d\n",s->gen_data,s->prev_switch,perm_switch_thresh);
