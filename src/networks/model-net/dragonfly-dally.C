@@ -415,6 +415,8 @@ struct router_state
    tw_stime* busy_time;
    tw_stime* busy_time_sample;
 
+   unsigned long* stalled_chunks; //Counter for when a packet is put into queued messages instead of routing
+
    terminal_dally_message_list ***pending_msgs;
    terminal_dally_message_list ***pending_msgs_tail;
    terminal_dally_message_list ***queued_msgs;
@@ -1538,7 +1540,9 @@ void router_dally_setup(router_state * r, tw_lp * lp)
    r->link_traffic_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
    r->cur_hist_num = (int*)calloc(p->radix, sizeof(int));
    r->prev_hist_num = (int*)calloc(p->radix, sizeof(int));
-  
+
+   r->stalled_chunks = (unsigned long*)calloc(p->radix, sizeof(unsigned long));
+
    r->last_sent_chan = (int*) calloc(p->num_router_rows, sizeof(int));
    r->vc_occupancy = (int**)calloc(p->radix , sizeof(int*));
    r->in_send_loop = (int*)calloc(p->radix, sizeof(int));
@@ -1781,13 +1785,14 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     if(bf->c5) {
         s->in_send_loop = 0;
     }
-      if(bf->c11) {
+
+    if (bf->c11) {
         s->issueIdle = 0;
-        if(bf->c8)
-        {
+
+        if(bf->c8) {
             s->last_buf_full = msg->saved_busy_time;
         }
-      }
+    }
      struct mn_stats* stat;
      stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
      stat->send_count--;
@@ -3149,11 +3154,11 @@ dragonfly_dally_terminal_final( terminal_state * s,
   
     if(s->terminal_id == 0)
     {
-        written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <dest_id> < dest_type>  <link_type> <link_traffic> <link_saturation>");
+        written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <dest_id> < dest_type>  <link_type> <link_traffic> <link_saturation> <stalled_chunks>");
 //        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
     }
-    written += sprintf(s->output_buf + written, "\n%u %s %llu %s %s %llu %lf",
-            s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time); 
+    written += sprintf(s->output_buf + written, "\n%u %s %llu %s %s %llu %lf %d",
+            s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time, -1); //note that terminals don't have stalled chuncks because of model net scheduling only gives a terminal what it can handle (-1 to show N/A)
 
     lp_io_write(lp->gid, (char*)"dragonfly-link-stats", written, s->output_buf); 
     
@@ -3224,36 +3229,40 @@ void dragonfly_dally_router_final(router_state * s,
         if(d != src_rel_id)
         {
             int dest_ab_id = local_grp_id * p->num_routers + d;
-            written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf", 
+            written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf %lu", 
                 s->router_id,
                 "R",
                 dest_ab_id,
                 "R",
                 "L",
                 s->link_traffic[d],
-                s->busy_time[d]);
+                s->busy_time[d],
+                s->stalled_chunks[d]);
         }
     }
-        map< int, vector<bLink> >  &curMap = interGroupLinks[s->router_id];
-        map< int, vector<bLink> >::iterator it = curMap.begin();
-        for(; it != curMap.end(); it++)
-        {
-            /* TODO: Works only for single global connections right now. Make it functional
-             * for a 2-D dragonfly. */
-            for(int l = 0; l < it->second.size(); l++) {
-                int dest_rtr_id = it->second[l].dest;
-                int offset = it->second[l].offset;
-                assert(offset >= 0 && offset < p->num_global_channels);
-                written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf", 
-                    s->router_id,
-                    "R",
-                    dest_rtr_id,
-                    "R",
-                    "G",
-                    s->link_traffic[offset],
-                    s->busy_time[offset]);
-            }
+
+    map< int, vector<bLink> >  &curMap = interGroupLinks[s->router_id];
+    map< int, vector<bLink> >::iterator it = curMap.begin();
+    for(; it != curMap.end(); it++)
+    {
+        /* TODO: Works only for single global connections right now. Make it functional
+            * for a 2-D dragonfly. */
+        for(int l = 0; l < it->second.size(); l++) {
+            int dest_rtr_id = it->second[l].dest;
+            int offset = it->second[l].offset;
+            assert(offset >= 0 && offset < p->num_global_channels);
+            written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf %lu", 
+                s->router_id,
+                "R",
+                dest_rtr_id,
+                "R",
+                "G",
+                s->link_traffic[offset],
+                s->busy_time[offset],
+                s->stalled_chunks[offset]);
         }
+    }    
+    
     sprintf(s->output_buf + written, "\n");
     lp_io_write(lp->gid, (char*)"dragonfly-link-stats", written, s->output_buf);
 
@@ -4025,6 +4034,7 @@ static void router_packet_receive_rc(router_state * s,
         }
       }
       if(bf->c4) {
+          s->stalled_chunks[output_port]--;
           if(bf->c22)
           {
             s->last_buf_full[output_port] = msg->saved_busy_time;
@@ -4299,6 +4309,7 @@ if(cur_chunk->msg.path_type == NON_MINIMAL)
   } else {
 
     bf->c4 = 1;
+    s->stalled_chunks[output_port]++;
     cur_chunk->msg.saved_vc = msg->vc_index;
     cur_chunk->msg.saved_channel = msg->output_chan;
     assert(output_chan < s->params->num_vcs && output_port < s->params->radix);
