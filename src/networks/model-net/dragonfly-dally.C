@@ -3157,8 +3157,9 @@ dragonfly_dally_terminal_final( terminal_state * s,
         written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <dest_id> < dest_type>  <link_type> <link_traffic> <link_saturation> <stalled_chunks>");
 //        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
     }
-    written += sprintf(s->output_buf + written, "\n%u %s %llu %s %s %llu %lf %d",
-            s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time, -1); //note that terminals don't have stalled chuncks because of model net scheduling only gives a terminal what it can handle (-1 to show N/A)
+    //since LLU(s->total_msg_size) is total message size a terminal received from a router so source is router and destination is terminal
+    written += sprintf(s->output_buf + written, "\n%llu %s %u %s %s %llu %lf %d",
+                       s->router_id, "R",s->terminal_id, "T", "CN", LLU(s->total_msg_size), s->busy_time, -1); //note that terminals don't have stalled chuncks because of model net scheduling only gives a terminal what it can handle (-1 to show N/A)
 
     lp_io_write(lp->gid, (char*)"dragonfly-link-stats", written, s->output_buf); 
     
@@ -3257,9 +3258,9 @@ void dragonfly_dally_router_final(router_state * s,
                 dest_rtr_id,
                 "R",
                 "G",
-                s->link_traffic[offset],
-                s->busy_time[offset],
-                s->stalled_chunks[offset]);
+                s->link_traffic[p->intra_grp_radix+offset],
+                s->busy_time[p->intra_grp_radix+offset],
+                s->stalled_chunks[p->intra_grp_radix+offset]);
         }
     }    
     
