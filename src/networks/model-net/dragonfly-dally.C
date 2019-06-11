@@ -2154,6 +2154,7 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_dally_messag
       s->terminal_length[vcg] += s->params->chunk_size;
       /*TODO: MM change this to the vcg */
       s->vc_occupancy[vcg] -= s->params->chunk_size;
+    s->link_traffic-=s->params->chunk_size;
 
       terminal_dally_message_list* cur_entry = (terminal_dally_message_list *)rc_stack_pop(s->st);
       
@@ -4346,9 +4347,7 @@ if(cur_chunk->msg.path_type == NON_MINIMAL)
             msg->saved_busy_time = s->last_buf_full[output_port];
             s->last_buf_full[output_port] = tw_now(lp);
           }
-
   }
-
   msg->saved_vc = output_port;
   msg->saved_channel = output_chan;
   return;
