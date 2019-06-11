@@ -309,6 +309,7 @@ struct terminal_state
 
    tw_stime last_buf_full;
    tw_stime busy_time;
+   int64_t link_traffic;
    
    tw_stime max_latency;
    tw_stime min_latency;
@@ -1422,6 +1423,7 @@ terminal_dally_init( terminal_state * s,
    s->total_msg_size = 0;
 
    s->busy_time = 0.0;
+   s->link_traffic=0.0;
 
    s->fwd_events = 0;
    s->rev_events = 0;
@@ -2291,6 +2293,8 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
   cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, vcg); 
   rc_stack_push(lp, cur_entry, delete_terminal_dally_message_list, s->st);
   s->terminal_length[vcg] -= s->params->chunk_size;
+  //adds link traffic of terminal to router
+  s->link_traffic+=s->params->chunk_size;
 
   cur_entry = NULL;
   if(next_vcg >= 0)
@@ -3159,7 +3163,7 @@ dragonfly_dally_terminal_final( terminal_state * s,
     }
     //since LLU(s->total_msg_size) is total message size a terminal received from a router so source is router and destination is terminal
     written += sprintf(s->output_buf + written, "\n%llu %s %u %s %s %llu %lf %d",
-                       s->router_id, "R",s->terminal_id, "T", "CN", LLU(s->total_msg_size), s->busy_time, -1); //note that terminals don't have stalled chuncks because of model net scheduling only gives a terminal what it can handle (-1 to show N/A)
+                       s->terminal_id, "T",s->router_id, "R","CN", s->link_traffic, s->busy_time, -1); //note that terminals don't have stalled chuncks because of model net scheduling only gives a terminal what it can handle (-1 to show N/A)
 
     lp_io_write(lp->gid, (char*)"dragonfly-link-stats", written, s->output_buf); 
     
@@ -3262,8 +3266,20 @@ void dragonfly_dally_router_final(router_state * s,
                 s->busy_time[p->intra_grp_radix+offset],
                 s->stalled_chunks[p->intra_grp_radix+offset]);
         }
-    }    
-    
+    }
+
+    for(int d = 0; d < p->num_cn; d++)
+    {
+        written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf %lu",
+                           s->router_id,
+                           "R",
+                           ((s->router_id)*(p->num_cn))+d,
+                           "T",
+                           "CN",
+                            s->link_traffic[p->intra_grp_radix+p->num_global_channels+d],
+                            s->busy_time[p->intra_grp_radix+p->num_global_channels+d],
+                            s->stalled_chunks[p->intra_grp_radix+p->num_global_channels+d]);
+    }
     sprintf(s->output_buf + written, "\n");
     lp_io_write(lp->gid, (char*)"dragonfly-link-stats", written, s->output_buf);
 
