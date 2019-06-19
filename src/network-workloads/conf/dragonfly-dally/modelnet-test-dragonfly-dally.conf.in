@@ -21,10 +21,7 @@ PARAMS
 # divided into chunks)
    chunk_size="4096";
    # modelnet_scheduler="round-robin";
-
-   num_router_rows="1";
-   # intra-group columns for routers
-   num_router_cols="16";
+   num_routers="16";
    # number of groups in the network
    num_groups="65";
 # buffer size in bytes for local virtual channels
@@ -39,10 +36,6 @@ PARAMS
    global_bandwidth="2.0";
 # bandwidth in GiB/s for compute node-router channels
    cn_bandwidth="2.0";
-# Number of row channels
-   num_row_chans="1";
-# Number of column channels
-   num_col_chans="1";
 # ROSS message size
    message_size="656";
 # number of compute nodes connected to router, dictated by dragonfly config

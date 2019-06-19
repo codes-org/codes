@@ -72,6 +72,7 @@ struct svr_state
     int local_recvd_count; /* number of local messages received */
     tw_stime start_ts;    /* time that we started sending requests */
     tw_stime end_ts;      /* time that we ended sending requests */
+    int svr_id;
     int dest_id;
 };
 
@@ -206,6 +207,7 @@ static void svr_init(
 {
     ns->start_ts = 0.0;
     ns->dest_id = -1;
+    ns->svr_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
 
     issue_event(ns, lp);
     return;
@@ -270,6 +272,7 @@ static void handle_kickoff_event(
    {
     b->c1 = 1;
    	local_dest = tw_rand_integer(lp->rng, 0, num_nodes - 1);
+    local_dest = (ns->svr_id + local_dest) % num_nodes;
    }
    else if(traffic == NEAREST_GROUP)
    {
@@ -491,12 +494,15 @@ int main(
     }
     num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "nw-lp",
             NULL, 1);
-    configuration_get_value_int(&config, "PARAMS", "num_router_rows", NULL, &num_router_rows);
-    configuration_get_value_int(&config, "PARAMS", "num_router_cols", NULL, &num_router_cols);
+
+    int num_routers;
+
+    configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers);
+
     configuration_get_value_int(&config, "PARAMS", "num_groups", NULL, &num_groups);
     configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", NULL, &num_nodes_per_cn);
 
-    num_routers_per_grp = num_router_rows * num_router_cols;
+    num_routers_per_grp = num_routers;
 
     num_nodes = num_groups * num_routers_per_grp * num_nodes_per_cn;
     num_nodes_per_grp = num_routers_per_grp * num_nodes_per_cn;

@@ -37,6 +37,7 @@ struct terminal_dally_message
   tw_lpid sender_mn_lp; // source modelnet id
  /* destination terminal ID of the dragonfly */
   tw_lpid dest_terminal_id;
+  int dfdally_dest_terminal_id; //this is the terminal id in the dfdally network in range [0-total_num_terminals)
   /* source terminal ID of the dragonfly */
   unsigned int src_terminal_id;
   /* message originating router id. MM: Can we calculate it through
@@ -51,13 +52,13 @@ struct terminal_dally_message
 
   int next_stop;
 
-  short nonmin_done;
   /* Intermediate LP ID from which this message is coming */
   unsigned int intm_lp_id;
   /* last hop of the message, can be a terminal, local router or global router */
   short last_hop;
    /* For routing */
-  int intm_rtr_id;
+  short is_intm_grp_visited;
+  int intm_grp_id;
   int saved_src_dest;
   int saved_src_chan;
 
