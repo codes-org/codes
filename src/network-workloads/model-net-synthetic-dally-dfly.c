@@ -271,7 +271,7 @@ static void handle_kickoff_event(
    if(traffic == UNIFORM)
    {
     b->c1 = 1;
-   	local_dest = tw_rand_integer(lp->rng, 0, num_nodes - 1);
+    local_dest = tw_rand_integer(lp->rng, 1, num_nodes - 2);
     local_dest = (ns->svr_id + local_dest) % num_nodes;
    }
    else if(traffic == NEAREST_GROUP)
