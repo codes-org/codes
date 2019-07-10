@@ -276,7 +276,7 @@ static void svr_init(
         ns->local_rank=ns->svr_id;
     }
 
-    if(app_traffic[ns->app_id] == ND_BROADCAST || app_traffic[ns->app_id] == ND_BACKGROUND_NOISE3 || app_traffic[ns->app_id] == ND_Large_BACKGROUND_NOISE3)
+    if(app_traffic[ns->app_id] == ND_BROADCAST || app_traffic[ns->app_id] == ND_BACKGROUND_NOISE3)
         issue_event_non_delay(ns, lp);    
     else
         issue_event(ns, lp);  
