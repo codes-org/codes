@@ -916,9 +916,6 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
             fprintf(stderr,"Number of router columns not specified, setting to 16\n");
         p->num_router_cols = 16;
     }
-    p->intra_grp_radix = (p->num_router_cols * p->num_row_chans);
-    if(p->num_router_rows > 1)
-        p->intra_grp_radix += (p->num_router_rows * p->num_col_chans);
 
     p->num_routers = p->num_router_rows * p->num_router_cols;
     
@@ -935,6 +932,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params){
             fprintf(stderr,"Number of global channels per router not specified, setting to 10\n");
         p->num_global_channels = 10;
     }
+    p->intra_grp_radix = p->num_routers - 1;
     p->radix = p->intra_grp_radix + p->num_global_channels + p->num_cn;
     p->total_routers = p->num_groups * p->num_routers;
     p->total_terminals = p->total_routers * p->num_cn;
@@ -3224,7 +3222,7 @@ void dragonfly_dally_router_final(router_state * s,
     int written = 0;
     int src_rel_id = s->router_id % p->num_routers;
     int local_grp_id = s->router_id / p->num_routers;
-    for(int d = 0; d < p->intra_grp_radix; d++) 
+    for(int d = 0; d <= p->intra_grp_radix; d++) 
     {
         if(d != src_rel_id)
         {
@@ -3488,7 +3486,7 @@ get_output_port( router_state * s,
       int rand_sel = tw_rand_integer(lp->rng, 0, terminal_id);
       output_port = p->intra_grp_radix + p->num_global_channels + ( terminal_id % p->num_cn);
     }
-    else
+  else
     {
      int intm_grp_id = local_router_id / p->num_routers;
      int rand_offset = -1;
@@ -3518,33 +3516,15 @@ get_output_port( router_state * s,
         int intra_rtr_id = (local_router_id % p->num_routers);
         int intragrp_rtr_id = s->router_id % p->num_routers;
 
-        int src_col = intragrp_rtr_id % p->num_router_cols;
-        int src_row = intragrp_rtr_id / p->num_router_cols;
+        vector< Link > &intra_vec = intraGroupLinks[intragrp_rtr_id][intra_rtr_id];
 
-        int dest_col = intra_rtr_id % p->num_router_cols;
-        int dest_row = intra_rtr_id / p->num_router_cols;
+        rand_offset = tw_rand_integer(lp->rng, 0, intra_vec.size()-1);
 
-       if(src_row == dest_row)
-        {
-            (*rng_counter)++;
-            int offset = tw_rand_integer(lp->rng, 0, p->num_row_chans -1);
-            output_port = dest_col * p->num_row_chans + offset;   
-            assert(output_port < (s->params->num_router_cols * p->num_row_chans));
-        }
-        else if(src_col == dest_col)
-        {
-            assert(0);
-            (*rng_counter)++;
-            int offset = tw_rand_integer(lp->rng, 0, p->num_col_chans -1);
-            output_port = (p->num_router_cols * p->num_row_chans) + dest_row * p->num_col_chans + offset;
-            assert(output_port < p->intra_grp_radix);
-        }
-         else
-            {
-                tw_error(TW_LOC, "\n Invalid dragonfly connectivity src row %d dest row %d src col %d dest col %d src %d dest %d",
-                        src_row, dest_row, src_col, dest_col, intragrp_rtr_id, intra_rtr_id);
-            }
+        Link lin = intra_vec[rand_offset];
+        int channel_id = lin.offset;
 
+        output_port = channel_id;
+        // printf("output port intra = %d\n", output_port);
        }
     }
     return output_port;
@@ -3819,6 +3799,7 @@ static int do_global_adaptive_routing( router_state * s,
 
   if(noIntraA) {
     dest_rtr_as.clear();
+    nonmin_rtr_a = interGroupLinks[s->router_id][intm_grp_id_a][0].dest;
     dest_rtr_as.push_back(nonmin_rtr_a);
   } else {
     dest_rtr_as = get_intra_router(s, s->router_id, nonmin_rtr_a, s->params->num_routers);  
@@ -3837,6 +3818,7 @@ static int do_global_adaptive_routing( router_state * s,
     bf->c11 = 1;
     if(noIntraB) {
       dest_rtr_bs.clear();
+      nonmin_rtr_b = interGroupLinks[s->router_id][intm_grp_id_b][0].dest;
       dest_rtr_bs.push_back(nonmin_rtr_b);
     } else {
       dest_rtr_bs = get_intra_router(s, s->router_id, nonmin_rtr_b, s->params->num_routers);  
@@ -3982,7 +3964,7 @@ static void router_verify_valid_receipt(router_state *s, tw_bf *bf, terminal_dal
         int rel_id;
 
         try {
-            rel_id = rel_id = codes_mapping_get_lp_relative_id(msg->intm_lp_id,0,0);
+            rel_id = codes_mapping_get_lp_relative_id(msg->intm_lp_id,0,0);
         }
         catch (...) {
             tw_error(TW_LOC, "\nRouter Receipt Verify: Codes Mapping Get LP Rel ID Failure - Global");
@@ -3996,7 +3978,7 @@ static void router_verify_valid_receipt(router_state *s, tw_bf *bf, terminal_dal
             has_valid_connection = false;
         
         if (!has_valid_connection) {
-            tw_error(TW_LOC, "\nRouter received packet from non-existent connection - Global\n");
+            tw_error(TW_LOC, "\nRouter %d (group %d) received packet from non-existent connection - Global;  msg->intm_lp_id = %d   rel_id = %d    rel_id_grp_id = %d\n", s->router_id, s->router_id/s->params->num_routers, msg->intm_lp_id, rel_id, rel_id_grp_id);
         }
     }
     else {
@@ -4270,8 +4252,8 @@ if(cur_chunk->msg.path_type == NON_MINIMAL)
   cur_chunk->msg.output_chan = output_chan;
   cur_chunk->msg.my_N_hop++;
 
-  if(output_port >= s->params->radix)
-      tw_error(TW_LOC, "\n Output port greater than router radix %d ", output_port);
+  if(output_port > s->params->radix)
+      tw_error(TW_LOC, "\n Output port %d greater than router radix %d ", output_port, s->params->radix);
   
   if(output_chan >= s->params->num_vcs || output_chan < 0)
     tw_error(TW_LOC, "\n Output channel %d great than available VCs %d", output_chan, s->params->num_vcs - 1);
