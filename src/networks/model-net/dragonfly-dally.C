@@ -37,7 +37,7 @@
 #include <cortex/topology.h>
 #endif
 
-#define DUMP_CONNECTIONS 1
+#define DUMP_CONNECTIONS 0
 #define PRINT_CONFIG 1
 #define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
@@ -2007,7 +2007,7 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
       }
   }
   int vc_size = s->params->global_vc_size;
-  if(output_port <= s->params->intra_grp_radix)
+  if(output_port < s->params->intra_grp_radix)
       vc_size = s->params->local_vc_size;
 
   /* TODO: If none of the vcg is exceeding bandwidth limit then select high
@@ -3395,8 +3395,8 @@ get_next_stop(router_state * s,
        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, next_stop[select_chan] / num_routers_per_mgrp,
           next_stop[select_chan] % num_routers_per_mgrp, &router_dest_id);
   
-    //    if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
-            // printf("\n Next stop is %ld ", next_stop[select_chan]);
+       if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
+            printf("\n Next stop is %ld ", next_stop[select_chan]);
        
        return router_dest_id;
    }
@@ -3454,8 +3454,8 @@ get_next_stop(router_state * s,
        /* If there is a direct connection */
       dest_lp = dests[select_chan];
   }
-//   if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
-    //   printf("\n Next stop is %ld ", dest_lp);
+  if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
+      printf("\n Next stop is %ld ", dest_lp);
    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_lp / num_routers_per_mgrp,
       dest_lp % num_routers_per_mgrp, &router_dest_id);
     
