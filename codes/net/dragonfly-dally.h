@@ -82,10 +82,16 @@ struct terminal_dally_message
    short num_rngs;
    short num_cll;
 
-   int qos_index;
+   /* qos related attributes */
    short last_saved_qos;
    short qos_reset1;
    short qos_reset2;
+
+   /* new qos rc - These are calloced in forward events, free'd in RC or commit_f */
+   /* note: dynamic memory here is OK since it's only accessed by the LP that alloced it in the first place. */
+   short rc_is_qos_set;
+   unsigned long long * rc_qos_data;
+   int * rc_qos_status;
 
    tw_stime saved_available_time;
    tw_stime saved_avg_time;
