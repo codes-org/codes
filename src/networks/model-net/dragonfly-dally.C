@@ -1301,9 +1301,9 @@ void issue_bw_monitor_event(terminal_state * s, tw_bf * bf, terminal_dally_messa
         return;
     
     msg->num_cll++;
-    terminal_plus_message * m; 
+    terminal_dally_message * m; 
     tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
-    tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp, DRAGONFLY_PLUS,
+    tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp, DRAGONFLY_DALLY,
             (void**)&m, NULL); 
     m->type = T_BANDWIDTH;
     m->magic = terminal_magic_num; 
@@ -1396,9 +1396,9 @@ void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_dally_messa
     
     msg->num_cll++;
     tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
-    terminal_plus_message *m;
+    terminal_dally_message *m;
     tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp,
-            DRAGONFLY_PLUS_ROUTER, (void**)&m, NULL);
+            DRAGONFLY_DALLY_ROUTER, (void**)&m, NULL);
     m->type = R_BANDWIDTH;
     m->magic = router_magic_num;
     tw_event_send(e);
@@ -3176,7 +3176,7 @@ dragonfly_dally_terminal_final( terminal_state * s,
         written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <dest_id> < dest_type>  <link_type> <link_traffic> <link_saturation> <stalled_chunks>\n");
 //        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
     }
-    written += sprintf(s->output_buf + written, "%u %s %llu %s %s %llu %lf %d",
+    written += sprintf(s->output_buf + written, "\n%u %s %llu %s %s %llu %lf %d",
             s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time, -1); //note that terminals don't have stalled chuncks because of model net scheduling only gives a terminal what it can handle (-1 to show N/A)
 
     lp_io_write(lp->gid, (char*)"dragonfly-link-stats", written, s->output_buf); 
@@ -3711,6 +3711,10 @@ static Connection dfdally_prog_adaptive_routing(router_state *s, tw_bf *bf, term
     
     // The check for detination group local routing has already been completed - we can assume we're not in the destination group
 
+    // are we in the intermediate group?
+    if (my_group_id == msg->intm_grp_id)
+        msg->is_intm_grp_visited = 1;
+
     Connection nextStopConn;
     vector< Connection > poss_min_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
     vector< Connection > poss_nonmin_next_stops = get_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
@@ -3739,6 +3743,11 @@ static Connection dfdally_prog_adaptive_routing(router_state *s, tw_bf *bf, term
 
     int min_score = dfdally_score_connection(s, bf, msg, lp, best_min_conn, C_MIN);
     int nonmin_score = dfdally_score_connection(s, bf, msg, lp, best_nonmin_conn, C_NONMIN);
+
+    if ((msg->path_type == NON_MINIMAL) && (msg->is_intm_grp_visited != 1)) { //if we're nonminimal and haven't reached the intermediate group yet
+        //must pick non-minimal (if we have visited, we can pick minimal then as nonminimal will be an empty vector)
+        return best_nonmin_conn;
+    }
 
     if (min_score <= adaptive_threshold)
         return best_min_conn;
