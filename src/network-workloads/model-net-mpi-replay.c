@@ -2249,6 +2249,16 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    return;
 }
 
+void nw_test_pre_run(nw_state *s, tw_bf *bf, nw_message *m, tw_lp *lp)
+{
+    //spread is_synthetic around to make sure every PE knows that there are synthetic ranks
+    if (lp->id == 0) {
+        int is_any_synthetic;
+        MPI_Allreduce(&is_synthetic, &is_any_synthetic, 1, MPI_INT, MPI_LOR, MPI_COMM_CODES);
+        is_synthetic = is_any_synthetic;
+    }
+}
+
 void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
     assert(s->app_id >= 0 && s->local_rank >= 0);
@@ -2835,7 +2845,7 @@ const tw_optdef app_opt [] =
 
 tw_lptype nw_lp = {
     (init_f) nw_test_init,
-    (pre_run_f) NULL,
+    (pre_run_f) nw_test_pre_run,
     (event_f) nw_test_event_handler,
     (revent_f) nw_test_event_handler_rc,
     (commit_f) NULL,
@@ -3159,7 +3169,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
     double total_avg_send_time, total_max_send_time;
      double total_avg_wait_time, total_max_wait_time;
      double total_avg_recv_time, total_max_recv_time;
-     double g_total_syn_data;
+     double g_total_syn_data = 0;
 
     MPI_Reduce(&num_bytes_sent, &total_bytes_sent, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
     MPI_Reduce(&num_bytes_recvd, &total_bytes_recvd, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
@@ -3197,7 +3207,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
         assert(ret == 0 || !"lp_io_flush failure");
     }
     if(is_synthetic)
-        printf("\n Synthetic traffic stats: data received per proc %lf bytes \n", g_total_syn_data/num_syn_clients);
+        printf("\n PE%d: Synthetic traffic stats: data received per proc %lf bytes \n",rank, g_total_syn_data/num_syn_clients);
 
    model_net_report_stats(net_id);
    
