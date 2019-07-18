@@ -44,7 +44,7 @@ static int synthetic_pattern = 1;
 static int preserve_wait_ordering = 0;
 static int enable_msg_tracking = 0;
 static int is_synthetic = 0;
-static unsigned long long max_gen_data = 1310720;
+static unsigned long long max_gen_data = 0;
 static int num_qos_levels;
 static double compute_time_speedup;
 tw_lpid TRACK_LP = -1;
@@ -854,7 +854,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
     m_new->msg_type = CLI_BCKGND_GEN;
     tw_event_send(e);
     
-    if(num_qos_levels > 1) { //instead of using notify neighbor with QoS, ranks constantly check to see if they have exceeded the hard limit on data - if they have, then they're finished.
+    if (max_gen_data != 0) { //max_gen_data is by default 0 (off). If it's on, then we use it to determine when to finish synth ranks
         if(s->gen_data >= max_gen_data) {
             bf->c5 = 1;
             s->is_finished = 1;
@@ -2809,7 +2809,7 @@ const tw_optdef app_opt [] =
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
 	TWOPT_UINT("priority_type", priority_type, "Priority type (zero): high priority to foreground traffic and low to background/2nd job, (one): high priority to collective operations "),
 	TWOPT_UINT("payload_sz", payload_sz, "size of payload for synthetic traffic "),
-	TWOPT_ULONGLONG("max_gen_data", max_gen_data, "maximum data to be generated for synthetic traffic "),
+	TWOPT_ULONGLONG("max_gen_data", max_gen_data, "maximum data to be generated for synthetic traffic (Default 0 (OFF))"),
 	TWOPT_UINT("eager_threshold", EAGER_THRESHOLD, "the transition point for eager/rendezvous protocols (Default 8192)"),
     TWOPT_UINT("disable_compute", disable_delay, "disable compute simulation"),
     TWOPT_UINT("payload_sz", payload_sz, "size of the payload for synthetic traffic"),
