@@ -2249,16 +2249,6 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    return;
 }
 
-void nw_test_pre_run(nw_state *s, tw_bf *bf, nw_message *m, tw_lp *lp)
-{
-    //spread is_synthetic around to make sure every PE knows that there are synthetic ranks
-    if (lp->id == 0) {
-        int is_any_synthetic;
-        MPI_Allreduce(&is_synthetic, &is_any_synthetic, 1, MPI_INT, MPI_LOR, MPI_COMM_CODES);
-        is_synthetic = is_any_synthetic;
-    }
-}
-
 void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
     assert(s->app_id >= 0 && s->local_rank >= 0);
@@ -2845,7 +2835,7 @@ const tw_optdef app_opt [] =
 
 tw_lptype nw_lp = {
     (init_f) nw_test_init,
-    (pre_run_f) nw_test_pre_run,
+    (pre_run_f) NULL,
     (event_f) nw_test_event_handler,
     (revent_f) nw_test_event_handler_rc,
     (commit_f) NULL,
@@ -3021,6 +3011,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
             {
               num_syn_clients = num_traces_of_job[i];
               num_net_traces += num_traces_of_job[i];
+              is_synthetic = 1;
             }
             else if(ref!=EOF)
             {
