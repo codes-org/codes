@@ -3619,7 +3619,6 @@ static Connection get_connection_compare_T(router_state *s, tw_bf *bf, terminal_
     tw_rand_integer(lp->rng,0,1);
     tw_rand_integer(lp->rng,0,1);
 
-    //Yao:
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
     int my_group_id = s->router_id / s->params->num_routers;
 
@@ -3635,7 +3634,6 @@ static Connection get_connection_compare_T(router_state *s, tw_bf *bf, terminal_
     int scores[num_to_compare];
     int best_score_index = 0;
 
-    //Yao:
     vector<int> best_indexes;
 
     if (scoring_preference == LOWER) {
@@ -3645,7 +3643,6 @@ static Connection get_connection_compare_T(router_state *s, tw_bf *bf, terminal_
                 if (scores[i] <= threshold)
                     best_indexes.push_back(i);
 
-                //if(my_group_id==0 && s->dfp_router_type==SPINE && conns[i].port > 23)
                 //if(my_group_id==0 && s->dfp_router_type==SPINE && num_to_compare == 2) printf("\tCompare T: Router %d, to port: %d, score %d\n", s->router_id, conns[i].port, scores[i]);
             }
             if (best_indexes.size() > 0) {
@@ -3659,7 +3656,7 @@ static Connection get_connection_compare_T(router_state *s, tw_bf *bf, terminal_
             }
     }
     else 
-        tw_error(TW_LOC, "Higher scoring preference not implemented for PFAR");
+        tw_error(TW_LOC, "Higher scoring preference currently not implemented for PFAR");
 
 
     //if(origin_group_id==0 && s->dfp_router_type==SPINE) printf("\t\tCompare T: Router %d, among size %lu, choose index: %d \n", s->router_id, best_indexes.size(), best_score_index);
@@ -3920,7 +3917,7 @@ static Connection do_dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, termi
 
 
 // Fully Progressive Adaptive Routing (FPAR)
-// Shpiner, Alexander, et al. "Dragonfly+: Low cost topology for scaling datacenters." 2017 (HiPINEB). IEEE, 2017.
+// Shpiner, Alexander, et al. "Dragonfly+: Low cost topology for scaling datacenters." HiPINEB 2017
 static Connection do_dfp_FPAR(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
 {
     int my_router_id = s->router_id;
@@ -3933,7 +3930,7 @@ static Connection do_dfp_FPAR(router_state *s, tw_bf *bf, terminal_plus_message 
     bool outside_source_group = (my_group_id != origin_group_id);
     int adaptive_threshold = s->params->adaptive_threshold;
 
-    bool use_priority = false;
+    bool use_priority = false; 
     bool priority_High = true;
 
     //The check for dest group local routing has already been completed at this point
@@ -3978,10 +3975,21 @@ static Connection do_dfp_FPAR(router_state *s, tw_bf *bf, terminal_plus_message 
     }
     
     if (s->dfp_router_type == LEAF) {
-        assert(!use_priority);
+        // assert(!use_priority);
         if (in_src_group) {
             assert(msg->dfp_upward_channel_flag == 0);
-            nextStopConn = best_min_conn;
+
+            if(!use_priority)
+                nextStopConn = best_min_conn;
+            else {
+                if (priority_High) {
+                    nextStopConn = high_priority_conn;
+                    msg->path_type = MINIMAL;
+                } else {
+                    nextStopConn = low_priority_conn;
+                    msg->path_type = NON_MINIMAL;
+                }
+            }
 
         } else if (in_intermediate_group) {
             assert(msg->dfp_upward_channel_flag == 0);
@@ -4045,9 +4053,7 @@ static Connection do_dfp_FPAR(router_state *s, tw_bf *bf, terminal_plus_message 
     if (nextStopConn.port == -1){
         tw_error(TW_LOC, "DFP Prog Adaptive Routing: No valid next hop was chosen\n packetId %llu [MSG: %d (T_ID %u) => %d ] on router %d, upward %d? \n", msg->packet_ID, msg->dfp_src_terminal_id, msg->src_terminal_id, msg->dfp_dest_terminal_id, s->router_id, msg->dfp_upward_channel_flag);
     }
-
     return nextStopConn;
-
 }
 
 
