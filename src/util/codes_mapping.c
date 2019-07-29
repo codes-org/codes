@@ -462,7 +462,7 @@ static void codes_mapping_init(void)
 
      /* have 16 kps per pe, this is the optimized configuration for ROSS custom mapping */
      for(kpid = 0; kpid < nkp_per_pe; kpid++)
-	tw_kp_onpe(kpid, g_tw_pe[0]);
+	tw_kp_onpe(kpid, g_tw_pe);
 
      tw_lpid lp_start =
          g_tw_mynode * lps_per_pe_floor + mini(g_tw_mynode,lps_leftover);
@@ -474,7 +474,7 @@ static void codes_mapping_init(void)
 	 ross_gid = lpid;
 	 ross_lid = lpid - lp_start;
 	 kpid = ross_lid % g_tw_nkp;
-	 pe = tw_getpe(kpid % g_tw_npe);
+	 pe = g_tw_pe;
 	 codes_mapping_get_lp_info(ross_gid, NULL, &grp_id, lp_type_name,
                  &lpt_id, NULL, &rep_id, &offset);
 #if CODES_MAPPING_DEBUG

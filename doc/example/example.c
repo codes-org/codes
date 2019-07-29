@@ -246,7 +246,7 @@ int main(
 
     /* calculate the number of servers in this simulation,
      * ignoring annotations */
-    num_servers = codes_mapping_get_lp_count(group_name, 0, "server", NULL, 1);
+    num_servers = codes_mapping_get_lp_count(group_name, 0, "nw-lp", NULL, 1);
 
     /* for this example, we read from a separate configuration group for
      * server message parameters. Since they are constant for all LPs,
@@ -273,7 +273,7 @@ static void svr_add_lp_type()
 {
     /* lp_type_register should be called exactly once per process per
      * LP type */
-    lp_type_register("server", svr_get_lp_type());
+    lp_type_register("nw-lp", svr_get_lp_type());
 }
 
 static void svr_init(

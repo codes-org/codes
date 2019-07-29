@@ -109,7 +109,7 @@ st_model_types svr_model_types[] = {
 
 static void svr_register_model_types()
 {
-    st_model_type_register("server", &svr_model_types[0]);
+    st_model_type_register("ns-lp", &svr_model_types[0]);
 }
 
 int main(int argc, char **argv)

@@ -12,13 +12,13 @@ LPGROUPS
    MODELNET_GRP
    {
       repetitions="16";
-      server="1";
+      nw-lp="1";
       example_net="1";
    }
 }
 ------------------------------------------------------------------------------
 In this config file, there are multiple LP types defined in a single LP group (As we will see in a later
-example, there can be multiple LP groups in a config file too). There is 1 server LP and 1 example_net
+example, there can be multiple LP groups in a config file too). There is 1 server LP (nw-lp) and 1 example_net
 LP type in a group and this combination is repeated 16 time (repetitions="16"). ROSS will assign the 
 LPs to the PEs (PEs is an abstraction for MPI rank in ROSS) by placing 1 server LP then 1 example_net
 LP a total of 16 times. This configuration is useful if there is some form of communication involved
@@ -33,7 +33,7 @@ LPGROUPS
    MODELNET_GRP
    {
       repetitions="16";
-      server="1";
+      nw-lp="1";
       example_net="2";
    }
 }
@@ -51,7 +51,7 @@ Following is an example function that registers 'server' lp type.
 
 static void svr_add_lp_type()
 {
-  lp_type_register("server", svr_get_lp_type());
+  lp_type_register("nw-lp", svr_get_lp_type());
 }
 
 Step 4: Call to codes_mapping_setup that sets up the LPs of each registered LP type as specified in the config
@@ -67,7 +67,7 @@ The second argument indicates whether to include the number of repetitions into
 the count or not (the NULL, 0 arguments will be discussed later). For example,
 to query the number of server LPs in example-test2.conf file, calling
 
-num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 1, "server", NULL, 0);
+num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 1, "nw-lp", NULL, 0);
  
 will return 2.
 
