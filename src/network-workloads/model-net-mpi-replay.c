@@ -30,7 +30,7 @@
 #define MAX_STATS 65536
 #define COL_TAG 1235
 #define BAR_TAG 1234
-#define PRINT_SYNTH_TRAFFIC 0
+#define PRINT_SYNTH_TRAFFIC 1
 
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
