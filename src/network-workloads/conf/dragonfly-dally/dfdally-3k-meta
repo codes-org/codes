@@ -1,0 +1,17 @@
+neil@MIMAS-L:~/RossDev/codes/scripts/dragonfly-dally$ python3 dragonfly-dally-topo-gen.py 36 9 dfdally-3k-intra dfdally-3k-inter                                                                                                                fitfly-neil!?
+
+Dragonfly (Dally) Network:
+	Number of Groups:            19
+	Router Radix:                36
+	Number Routers Per Group:    18
+	Number Terminal Per Router:  9
+
+	Number GC per Router:        9
+	Number GC per Group:         162
+	Number GC between Groups:    9
+
+	Total Routers:               342
+	Total Number Terminals:      3078
+	
+Verifying Radix Usage...
+Verifying Group Interconnection Counts...
