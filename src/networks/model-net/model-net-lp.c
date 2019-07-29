@@ -784,7 +784,7 @@ void handle_new_msg(
         printf("%llu handle_shed_next() from handle_new_msg()\n",LLU(tw_now(lp)));
 #endif
         handle_sched_next(ns, b, m, lp);
-        assert(*in_sched_loop); // we shouldn't have fallen out of the loop - Note: TODO this was commented out to allow for injection above 100% bandwidth
+        assert(*in_sched_loop);
     }
 }
 
