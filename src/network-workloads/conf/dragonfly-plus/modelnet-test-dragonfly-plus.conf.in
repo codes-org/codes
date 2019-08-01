@@ -2,59 +2,61 @@ LPGROUPS
 {
    MODELNET_GRP
    {
-      repetitions="1056";
+      repetitions="5";
 # name of this lp changes according to the model
-      nw-lp="8";
+      nw-lp="16";
 # these lp names will be the same for dragonfly-custom model
-      modelnet_dragonfly_plus="8";
-      modelnet_dragonfly_plus_router="1";
+      modelnet_dragonfly_plus="16";
+      modelnet_dragonfly_plus_router="8";
    }
 }
 PARAMS
 {
 # packet size in the network
-   packet_size="4096";
-# order of LPs, mapping for modelnet grp
+   packet_size="1024";
    modelnet_order=( "dragonfly_plus","dragonfly_plus_router" );
-# scheduler options
+   # scheduler options
    modelnet_scheduler="fcfs";
-# chunk size in the network (when chunk size = packet size, packets will not be divided into chunks)
-   chunk_size="4096";
-# number of spine routers per group
-   num_router_spine="16";
-# number of leaf routers per group
-   num_router_leaf="16";
-# number of links connecting between group levels per router
+# chunk size in the network (when chunk size = packet size, packets will not be
+# divided into chunks)
+   chunk_size="1024";
+   # modelnet_scheduler="round-robin";
+   # number of routers within each group
+   # each router row corresponds to a chassis in Cray systems
+   num_router_spine="4";
+   # each router column corresponds to a slot in a chassis
+   num_router_leaf="4";
+   # number of links connecting between group levels per router
    num_level_chans="1";
-# number of groups in the network
-   num_groups="33";
+   # number of groups in the network
+   num_groups="5";
 # buffer size in bytes for local virtual channels
-   local_vc_size="32768";
-# buffer size in bytes for global virtual channels
-   global_vc_size="32768";
-# buffer size in bytes for compute node virtual channels
-   cn_vc_size="32768";
-# bandwidth in GiB/s for local channels
-   local_bandwidth="25.0";
+   local_vc_size="8192";
+#buffer size in bytes for global virtual channels
+   global_vc_size="16384";
+#buffer size in bytes for compute node virtual channels
+   cn_vc_size="8192";
+#bandwidth in GiB/s for local channels
+   local_bandwidth="5.25";
 # bandwidth in GiB/s for global channels
-   global_bandwidth="25.0";
+   global_bandwidth="1.5";
 # bandwidth in GiB/s for compute node-router channels
-   cn_bandwidth="25.0";
+   cn_bandwidth="8.0";
 # ROSS message size
-   message_size="640";
-# number of compute nodes connected to router, dictated by dragonfly config file
-   num_cns_per_router="16";
+   message_size="608";
+# number of compute nodes connected to router, dictated by dragonfly config
+# file
+   num_cns_per_router="4";
 # number of global channels per router
-   num_global_connections="16";
+   num_global_connections="4";
 # network config file for intra-group connections
-   intra-group-connections="@abs_srcdir@/dfp_8k_intra";
+   intra-group-connections="@abs_srcdir@/dfp-test-intra";
 # network config file for inter-group connections
-   inter-group-connections="@abs_srcdir@/dfp_8k_inter";
-# routing protocol to be used - 'minimal', 'non-minimal-spine', 'non-minimal-leaf', 'prog-adaptive'
+   inter-group-connections="@abs_srcdir@/dfp-test-inter";
+# routing protocol to be used
+#    routing="minimal";
    routing="prog-adaptive";
-# route scoring protocol to be used - options are 'alpha', 'beta', or 'delta' - 'gamma' has been deprecated
+# route scoring protocol to be used - options are 'alpha' or 'beta'
    route_scoring_metric="delta";
-# minimal route threshold before considering non-minimal paths
-   adaptive_threshold="131072"; #1/16 of 32768
-}
 
+}
