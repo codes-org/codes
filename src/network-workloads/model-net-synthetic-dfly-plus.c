@@ -48,7 +48,10 @@ static char lp_type_name[MAX_NAME_LENGTH];
 static int group_index, lp_type_index, rep_id, offset;
 
 /* for multi synthetic workloads */ 
-typedef tw_stime twoDarray[10][7000];
+#define max_app 5               // maximum number of workload, increase if more is required
+#define max_msg 1000000         // maximum number of message can be recorded for latency
+
+typedef tw_stime twoDarray[max_app][max_msg];
 
 struct codes_jobmap_ctx *jobmap_ctx;
 struct codes_jobmap_params_list jobmap_p;
@@ -59,13 +62,13 @@ static int num_syn_clients=0;
 
 static char workloads_file[8192];              
 static char alloc_file[8192];
-static char app_job_name[5][8192]; //should all be synthetic
-static int app_job_nodes[5];
-static int app_traffic[5];
-static double app_arrival_time[5]; 
-static int app_payload_sz[5];
-static int app_num_msgs[5];
-static int app_msg_chunk_ratio[5];
+static char app_job_name[max_app][8192]; //should all be synthetic
+static int app_job_nodes[max_app];
+static int app_traffic[max_app];
+static double app_arrival_time[max_app]; 
+static int app_payload_sz[max_app];
+static int app_num_msgs[max_app];
+static int app_msg_chunk_ratio[max_app];
 
 
 /* type of events */
@@ -112,9 +115,8 @@ struct svr_state
     int group_id;
     int app_id;
     int local_rank; //rank relative to job
-    twoDarray *comm_time;   // comm_time[app_id][msg comm_time]
+    twoDarray *comm_time;   // comm_time[app_id][msg_id]
     int *num_msg_recvd;     // num_msg_recvd[app_id]
-    tw_stime total_comm_time;
     char output_buf0[512];
     char output_buf1[512];
 };
@@ -231,7 +233,7 @@ static void issue_event_non_delay(
     tw_event *e;
     svr_msg *m;
 
-    e = tw_event_new(lp->gid, 0, lp);
+    e = tw_event_new(lp->gid, tw_rand_unif(lp->rng)*0.0001, lp);
     m = tw_event_data(e);
     m->svr_event_type = KICKOFF;
     tw_event_send(e);
@@ -245,12 +247,11 @@ static void svr_init(
     ns->dest_id = -1;
 
     //message latency recording
-    ns->total_comm_time =0.0;
-    ns->comm_time = calloc(10*7000, sizeof(tw_stime));
-    ns->num_msg_recvd = calloc(10*1, sizeof(int));
+    ns->comm_time = calloc(max_app*max_msg , sizeof(tw_stime));
+    ns->num_msg_recvd = calloc(max_app, sizeof(int));
 
     if(!ns->comm_time || !ns->num_msg_recvd){
-        printf("calloc failed for svr\n");
+        printf("calloc failed for svr %llu\n", ns->svr_id);
         assert(0);
     }
 
@@ -345,23 +346,10 @@ static void handle_kickoff_event(
     char anno[MAX_NAME_LENGTH];
     tw_lpid local_dest = -1, global_dest = -1;
 
-    /*
-    svr_msg * m_local = malloc(sizeof(svr_msg));
-    svr_msg * m_remote = malloc(sizeof(svr_msg));
-
-    m_local->svr_event_type = LOCAL;
-    m_local->src = lp->gid;
-
-    memcpy(m_remote, m_local, sizeof(svr_msg));
-    m_remote->svr_event_type = REMOTE;
-
-    */
-
     assert(net_id == DRAGONFLY || net_id == DRAGONFLY_PLUS || net_id == DRAGONFLY_CUSTOM); /* only supported for dragonfly model right now. */
     ns->start_ts = tw_now(lp);
     codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
     int local_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
-
 
     //fot multi workload
     tw_lpid intm_dest_id=-1;
@@ -546,17 +534,13 @@ static void handle_kickoff_event(
         //printf("KICKOFF: intm_dest_id is %llu, global_id is %llu\n", LLU(intm_dest_id), LLU(global_dest));
 
         ns->msg_sent_count++;
-
-        //yao: modified placment
         svr_msg * m_local = malloc(sizeof(svr_msg));
         svr_msg * m_remote = malloc(sizeof(svr_msg));
 
         m_local->svr_event_type = LOCAL;
         m_local->src = lp->gid;
-        //Yao:
         m_local->app_id = ns->app_id;
         m_local->dest = local_dest;
-        //m_local->syn_pattern = pattern;
         m_local->issued_time = tw_now(lp);
 
         memcpy(m_remote, m_local, sizeof(svr_msg));
@@ -573,6 +557,7 @@ static void handle_kickoff_event(
         free(m_remote);
     }
     else {
+
         //newly added synthetic pattern all follows the same format: use local_dest_s, dest_num=1 if only 1 destination 
         assert(dest_num);
         assert(multi_syn_job);
@@ -590,15 +575,11 @@ static void handle_kickoff_event(
             assert(intm_dest_id < num_nodes);
             global_dest = codes_mapping_get_lpid_from_relative(intm_dest_id, group_name, lp_type_name, NULL, 0); //node lpid
             
-
-            //repeat same process from if case
-            //yao: modified placment
             svr_msg * m_local = malloc(sizeof(svr_msg));
             svr_msg * m_remote = malloc(sizeof(svr_msg));
 
             m_local->svr_event_type = LOCAL;
             m_local->src = lp->gid;
-            //Yao:
             m_local->app_id = ns->app_id;
             m_local->dest = intm_dest_id;
             m_local->issued_time = tw_now(lp);
@@ -632,14 +613,11 @@ static void handle_remote_rev_event(
         (void)lp;
         ns->msg_recvd_count--;
 
-        ns->total_comm_time -= (m->arrive_time - m->issued_time);
         int index = -- ns->num_msg_recvd[m->app_id];
 
         if(app_traffic[m->app_id] < BACKGROUND_NOISE3) {
-            //int index = -- ns->num_msg_recvd[m->app_id];
             if((*ns->comm_time)[m->app_id][index] ==  (m->arrive_time - m->issued_time) ){
                 (*ns->comm_time)[m->app_id][index] = 0.0;
-                //ns->total_comm_time -= (m->arrive_time - m->issued_time);
             } else {
                 tw_error(TW_LOC, "Error:remote reverse calculatioin failed \n svr %llu found travel time %lf but record %lf at index %d\n", ns->svr_id, m->arrive_time - m->issued_time, (*ns->comm_time)[m->app_id][index], index);
             }
@@ -661,14 +639,13 @@ static void handle_remote_event(
         tw_error(TW_LOC, "Error: msg issued by %llu at time %lfns should arrive at %llu but reached %llu\n", (unsigned long long)m->src, m->issued_time , (unsigned long long) m->dest, (unsigned long long) ns->svr_id);
 
     m->arrive_time = tw_now(lp);
-    ns->total_comm_time += (m->arrive_time - m->issued_time);
 
     int index = ns->num_msg_recvd[m->app_id]++;
 
     //Non-noise application
     if(app_traffic[m->app_id] < BACKGROUND_NOISE3) {
-        if(index >= 7000) 
-            tw_error(TW_LOC, "\n msg pattern %d, No more than 7000 msgs \n ", app_traffic[m->app_id]);
+        if(index > max_msg) 
+            tw_error(TW_LOC, "\n More than %d msgs received. Increase 'max_msg' value\n ", max_msg);
 
         (*ns->comm_time)[m->app_id][index] = m->arrive_time - m->issued_time;
     }
@@ -717,13 +694,9 @@ static void svr_finalize(
 
     int i,j;
     int total_receive_verify = 0;
-    tw_stime total_comm_time_verify = 0.0;
     int written = 0; 
     int index = 0; 
     int result;
-
-    //sometimes svr has really big id number
-    assert(ns->svr_id < num_nodes);
 
     if (multi_syn_job){
         for (i = 0; i < num_apps; ++i)
@@ -735,7 +708,7 @@ static void svr_finalize(
             if(app_traffic[i] >= BACKGROUND_NOISE3)
                 continue;
 
-            char file[512] ;
+            char file[512];
             sprintf(file, "application_%d", i);
             written = 0;
 
@@ -750,31 +723,20 @@ static void svr_finalize(
 
                 written = sprintf(ns->output_buf0, "\n%lf %lf",  (*ns->comm_time)[i][j], (*ns->comm_time)[i][j]/app_msg_chunk_ratio[i]);
                 //printf("app[%d][%d]comm.time %lf, buf is %s\n", i, j, (*ns->comm_time)[i][j], ns->output_buf0);
-                total_comm_time_verify += (*ns->comm_time)[i][j];
                 result=lp_io_write(lp->gid, file, written, ns->output_buf0);
                 
                 if(result!=0)
                     tw_error(TW_LOC, "\nERROR: lpio result %d, svr %llu, lpgid %llu, writting %s failed, written %d, buf %s, index %d\n", result, LLU(ns->svr_id), LLU(lp->gid), file, written, ns->output_buf0, j);
             } 
         }
-
-        // if(app_traffic[ns->app_id] < BACKGROUND_NOISE3) {
-        //     if(total_receive_verify != ns->msg_recvd_count){
-        //         tw_error(TW_LOC, "Error: svr %llu, total_receive_verify %ld != ns->msg_recvd_count %ld,\n", LLU(ns->svr_id), total_receive_verify, ns->msg_recvd_count);
-        //     }  
-
-        //     if(fabs(total_comm_time_verify - ns->total_comm_time) > 0.01 ){
-        //         tw_error(TW_LOC, "Total comm. time %lf != total_comm_time_vefify %lf, difference is %lf \n", ns->total_comm_time, total_comm_time_verify, fabs(total_comm_time_verify - ns->total_comm_time));
-        //     }
-        // }
     }
 
     written=0;
     if(ns->svr_id == 0)
-        written = sprintf(ns->output_buf1, "#<LP ID> <Terminal ID> <Job ID> <Local Rank> <Total sends> <Total Recvs> <Local count> <Total Comm. time> <Avg. msg comm time> <lp running time>");
+        written = sprintf(ns->output_buf1, "#<LP ID> <Terminal ID> <Job ID> <Local Rank> <Total sends> <Total Recvs> <Local count> <lp running time>");
 
     written += sprintf(ns->output_buf1 + written, "\n %llu %llu %d %d %d %d %d %lf %lf %lf", 
-        LLU(lp->gid), LLU(ns->svr_id), ns->app_id, ns->local_rank, ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count,  ns->total_comm_time, ns->total_comm_time/ns->msg_recvd_count, ns->end_ts - ns->start_ts);
+        LLU(lp->gid), LLU(ns->svr_id), ns->app_id, ns->local_rank, ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count, ns->end_ts - ns->start_ts);
 
     result = lp_io_write(lp->gid, (char*)"mpi-synthetic-stats", written, ns->output_buf1);
     if( result != 0)
@@ -917,8 +879,8 @@ int main(
         char ref = '\n';
         while(!feof(name_file))
         {
-            if(i>4)
-                tw_error(TW_LOC, "\n Support no more than 5 jobs\n");
+            if(i>max_app)
+                tw_error(TW_LOC, "\n Support no more than %d jobs, increase 'max_app' value\n", max_app);
 
             ref = fscanf(name_file, "%d %s %d %lf %d %d", &app_job_nodes[i], app_job_name[i], &app_traffic[i], &app_arrival_time[i], &app_payload_sz[i], &app_num_msgs[i]);
 
@@ -954,7 +916,6 @@ int main(
 
     }
 
-
     if(lp_io_dir[0])
     {
         do_lp_io = 1;
@@ -963,9 +924,9 @@ int main(
         assert(ret == 0 || !"lp_io_prepare failure");
     }
 
+    assert(num_apps <= max_app);
     if(rank==0) 
         printf("\nIntotal of %d applications, begin simulation\n", num_apps);
-
 
     tw_run();
     if (do_lp_io){
