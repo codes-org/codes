@@ -3530,6 +3530,7 @@ static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf
         }
 
         if (best_indexes.size() > 1) {
+            msg->num_rngs++;
             best_score_index = best_indexes[tw_rand_ulong(lp->rng, 0, best_indexes.size()-1)];
         }
     }
@@ -3608,11 +3609,6 @@ static Connection get_best_connection_from_conns(router_state *s, tw_bf *bf, ter
 static Connection get_connection_compare_T(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector<Connection> conns, int threshold)
 {
     assert(threshold>=0 && threshold<=100);
-
-    msg->num_rngs+=2;
-    tw_rand_integer(lp->rng,0,1);
-    tw_rand_integer(lp->rng,0,1);
-
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
     int my_group_id = s->router_id / s->params->num_routers;
 
@@ -3640,6 +3636,7 @@ static Connection get_connection_compare_T(router_state *s, tw_bf *bf, terminal_
                 //if(my_group_id==0 && s->dfp_router_type==SPINE && num_to_compare == 2) printf("\tCompare T: Router %d, to port: %d, score %d\n", s->router_id, conns[i].port, scores[i]);
             }
             if (best_indexes.size() > 0) {
+                msg->num_rngs++;
                 best_score_index = best_indexes[tw_rand_ulong(lp->rng, 0, best_indexes.size()-1)];
             } else {
                 //no high priority queue < T
