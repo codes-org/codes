@@ -1266,10 +1266,6 @@ int dragonfly_plus_get_router_type(int router_id, const dragonfly_plus_param *p)
     int num_groups = p->num_groups;
     int num_routers = p->num_routers;
     int num_router_leaf = p->num_router_leaf;
-
-    // int group_id = router_id / num_groups;
-    int group_id = router_id / num_routers;
-
     int router_local_id = router_id % num_routers;
 
     if (router_local_id < num_router_leaf)
@@ -3389,10 +3385,6 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
             return 0;
     }
 
-    //FPAR is implemented only working with ALPHA score
-    if ((routing == FULLY_PROG_ADAPTIVE) && (scoring != ALPHA))
-        tw_error(TW_LOC, "Error: FULLY_PROG_ADAPTIVE only works with ALPHA scoring\n");
-
     switch(conn.conn_type) {
         case CONN_LOCAL:
             vc_size = s->params->local_vc_size;
@@ -3402,7 +3394,9 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
             vc_size = s->params->global_vc_size;
             break;
 
+        //TODO: allow scoring of terminal connections
         case CONN_TERMINAL:
+            tw_error(TW_LOC, "Terminal scoring in progressive...");
         default:
             tw_error(TW_LOC, "Error connection type");
     }
@@ -3933,7 +3927,15 @@ static Connection do_dfp_FPAR(router_state *s, tw_bf *bf, terminal_plus_message 
     bool use_priority = false; 
     bool priority_High = true;
 
-    //The check for dest group local routing has already been completed at this point
+    // check FPAR validity: 
+    // 1) should use ALPHA scoring, for now
+    // 2) threshold within [0-100]
+    if (scoring != ALPHA)
+        tw_error(TW_LOC, "Using FPAR as routing: currently only works with ALPHA scoring, consider setting route_scoring_metric to alpha in modelnet config file\n");
+    if (adaptive_threshold<0 || adaptive_threshold>100)
+        tw_error(TW_LOC, "Using FPAR as routing: adaptive threshold is a percentage of router buffer size, consider setting adaptive_threshold an int value between [0--100] in modelnet config file\n");
+
+    // The check for dest group local routing has already been completed at this point
     Connection nextStopConn;
     vector< Connection > poss_min_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
     vector< Connection > poss_intm_next_stops = get_legal_nonminimal_stops(s, bf, msg, lp, poss_min_next_stops, fdest_router_id);
