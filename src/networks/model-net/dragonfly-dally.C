@@ -52,7 +52,10 @@
 #define TRACK_MSG -1
 #define DEBUG 0
 #define MAX_STATS 65536
-#define SHOW_ADAP_STATS 1
+#define SHOW_ADAP_STATS 1\
+// maximum number of characters allowed to represent the routing algorithm as a string
+#define MAX_ROUTING_CHARS 32
+
 
 //Routing Defines
 //NONMIN_INCLUDE_SOURCE_DEST: Do we allow source and destination groups to be viable choces for indirect group (i.e. do we allow nonminimal routing to sometimes be minimal?)
@@ -87,21 +90,6 @@ static int bw_reset_window = 5000000;
         ((_ptr) + _y * (_maxx) + _x)
 
 using namespace std;
-struct Link {
-    int offset, type;
-};
-struct bLink {
-    int offset, dest;
-};
-// /* Each entry in the vector is for a router id
-//  * against each router id, there is a map of links (key of the map is the dest
-//  * router id)
-//  * link has information on type (green or black) and offset (number of links
-//  * between that particular source and dest router ID)*/
-// static vector< map< int, vector<Link> > > intraGroupLinks;
-// /* contains mapping between source router and destination group via link (link
-//  * has dest ID)*/
-// static vector< map< int, vector<bLink> > > interGroupLinks;
 
 /*MM: Maintains a list of routers connecting the source and destination groups */
 static vector< vector< vector<int> > > connectionList;
@@ -280,7 +268,6 @@ struct terminal_state
     unsigned int router_id;
     unsigned int terminal_id;
 
-    // Each terminal will have an input and output channel with the router
     int* vc_occupancy; // NUM_VC
     tw_stime terminal_available_time;
     terminal_dally_message_list **terminal_msgs;
@@ -314,6 +301,8 @@ struct terminal_state
     tw_stime last_buf_full;
     tw_stime busy_time;
     
+    unsigned long* stalled_chunks; //Counter for when a packet cannot be immediately routed
+
     tw_stime max_latency;
     tw_stime min_latency;
 
@@ -374,7 +363,7 @@ typedef enum route_scoring_metric_t
     ALPHA = 1, //Count queue lengths and pending messages for a port
     BETA, //Expected Hops to Destination * (Count queue lengths and pending messages) for a port
     GAMMA,
-    DELTA
+    DELTA //count queue lengths and pending messages for a port, biased 2x against nonminimal conns
 } route_scoring_metric_t;
 
 /* terminal event type (1-4) */
@@ -409,12 +398,41 @@ enum ROUTING_ALGO
     MINIMAL = 1,
     NON_MINIMAL,
     ADAPTIVE,
-    PROG_ADAPTIVE
+    PROG_ADAPTIVE,
+    PROG_ADAPTIVE_LEGACY
 };
+
+
+static char* get_routing_alg_chararray(int routing_alg_int)
+{
+    char* rt_alg = (char*) calloc(MAX_ROUTING_CHARS, sizeof(char));
+    switch (routing_alg_int)
+    {
+        case MINIMAL:
+            strcpy(rt_alg, "MINIMAL");
+        break;
+        case NON_MINIMAL:
+            strcpy(rt_alg, "NON_MINIMAL");
+        break;
+        case ADAPTIVE:
+            strcpy(rt_alg, "ADAPTIVE");
+        break;
+        case PROG_ADAPTIVE:
+            strcpy(rt_alg, "PROG_ADAPTIVE");
+        break;
+        case PROG_ADAPTIVE_LEGACY:
+            strcpy(rt_alg, "PROG_ADAPTIVE_LEGACY");
+        break;
+        default:
+            tw_error(TW_LOC, "Routing Algorithm is UNDEFINED - did you call get_routing_alg_string() before setting the static global variable: 'routing'?");
+        break;
+    }
+    return rt_alg;
+}
 
 static bool isRoutingAdaptive(int alg)
 {
-    if (alg == ADAPTIVE || alg == PROG_ADAPTIVE)
+    if (alg == ADAPTIVE || alg == PROG_ADAPTIVE || alg == PROG_ADAPTIVE_LEGACY)
         return true;
     else
         return false;
@@ -523,6 +541,7 @@ st_model_types custom_dally_dragonfly_model_types[] = {
 static short routing = MINIMAL;
 static short scoring = ALPHA;
 
+static Connection dfdally_prog_adaptive_legacy_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id);
 
 static tw_stime         dragonfly_total_time = 0;
 static tw_stime         dragonfly_max_latency = 0;
@@ -737,7 +756,7 @@ void dragonfly_print_params(const dragonfly_param *p)
         printf("\tglobal_delay =           %.2f\n",p->global_delay);
         printf("\tcredit_delay =           %.2f\n",p->credit_delay);
         printf("\trouter_delay =           %.2f\n",p->router_delay);
-        printf("\trouting =                %d\n",routing);
+        printf("\trouting =                %s\n",get_routing_alg_chararray(routing));
         printf("\tadaptive_threshold =     %d\n",p->adaptive_threshold);
         printf("\tmax hops notification =  %d\n",p->max_hops_notify);
         printf("------------------------------------------------------\n\n");
@@ -883,6 +902,8 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         routing = ADAPTIVE;
     else if (strcmp(routing_str, "prog-adaptive") == 0)
 	    routing = PROG_ADAPTIVE;
+    else if (strcmp(routing_str, "prog-adaptive-legacy") == 0)
+	    routing = PROG_ADAPTIVE_LEGACY;
     else
     {
         if(!myRank)
@@ -918,17 +939,6 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         p->max_hops_notify = INT_MAX;
     }
 
-    // rc = configuration_get_value_int(&config, "PARAMS", "num_vcs_override", anno, &p->num_vcs);
-    // if(rc) {
-    //     if(routing == PROG_ADAPTIVE)
-    //         p->num_vcs = 10;
-    //     else
-    //         p->num_vcs = 8;
-    // }
-    // else {
-    //     printf("Overriding num_vcs: p->num_vcs=%d\n",p->num_vcs);
-    // }
-   
     p->num_vcs = 4;
     
     if(p->num_qos_levels > 1)
@@ -1006,22 +1016,6 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     }
     fclose(groupFile);
 
-    // {
-    //     vector< int > offsets;
-    //     offsets.resize(p->num_routers, 0);
-    //     intraGroupLinks.resize(p->num_routers);
-    //     IntraGroupLink newLink;
-
-    //   while(fread(&newLink, sizeof(IntraGroupLink), 1, groupFile) != 0) {
-    //         Link tmpLink;
-    //         tmpLink.type = newLink.type;
-    //         tmpLink.offset = offsets[newLink.src]++;
-    //         intraGroupLinks[newLink.src][newLink.dest].push_back(tmpLink);
-    //   }
-    // }
-
-    // fclose(groupFile);
-
     //terminal assignment
     for(int i = 0; i < p->total_terminals; i++)
     {
@@ -1079,93 +1073,8 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         }
     }
 
-    // {
-    //     vector< int > offsets;
-    //     offsets.resize(p->total_routers, 0);
-    //     interGroupLinks.resize(p->total_routers);
-    //     connectionList.resize(p->num_groups);
-    //     for(int g = 0; g < connectionList.size(); g++) {
-    //         connectionList[g].resize(p->num_groups);
-    //     }
-      
-    //     InterGroupLink newLink;
-
-    //     while(fread(&newLink, sizeof(InterGroupLink), 1, systemFile) != 0) {
-    //         bLink tmpLink;
-    //         tmpLink.dest = newLink.dest;
-    //         int srcG = newLink.src / p->num_routers;
-    //         int destG = newLink.dest / p->num_routers;
-    //         tmpLink.offset = offsets[newLink.src]++;
-    //         interGroupLinks[newLink.src][destG].push_back(tmpLink);
-    //         int r;
-    //         for(r = 0; r < connectionList[srcG][destG].size(); r++) {
-    //         if(connectionList[srcG][destG][r] == newLink.src) break;
-    //         }
-    //         if(r == connectionList[srcG][destG].size()) {
-    //         connectionList[srcG][destG].push_back(newLink.src);
-    //         }
-    //     }
-    // }
-
     fclose(systemFile);
 
-// #if DUMP_CONNECTIONS == 1
-// if(!myRank) {
-//     printf("Dumping intra-group connections\n");
-//     for(int a = 0; a < intraGroupLinks.size(); a++) {
-//         printf("Connections for router %d\n", a);
-//         map< int, vector<Link> >  &curMap = intraGroupLinks[a];
-//         map< int, vector<Link> >::iterator it = curMap.begin();
-//         for(; it != curMap.end(); it++) {
-//             printf(" ( %d - ", it->first);
-//             for(int l = 0; l < it->second.size(); l++) {
-//                 // offset is number of local connections
-//                 // type is black or green according to Cray architecture 
-//                 printf("%d,%d ", it->second[l].offset, it->second[l].type);
-//             }
-//             printf(")");
-//         }
-//         printf("\n");
-//     }
-// }
-// #endif
-// #if DUMP_CONNECTIONS == 1
-// if(!myRank) {
-//     printf("Dumping inter-group connections\n");
-//     for(int a = 0; a < interGroupLinks.size(); a++) {
-//         printf("Connections for router %d\n", a);
-//         map< int, vector<bLink> >  &curMap = interGroupLinks[a];
-//         map< int, vector<bLink> >::iterator it = curMap.begin();
-//         for(; it != curMap.end(); it++) {
-//             // dest group ID 
-//             printf(" ( %d - ", it->first);
-//             for(int l = 0; l < it->second.size(); l++) {
-//                 // dest is dest router ID
-//                 // offset is number of global connections
-//                 printf("%d,%d ", it->second[l].offset, it->second[l].dest);
-//             }
-//             printf(")");
-//         }
-//         printf("\n");
-//     }
-// }
-// #endif
-
-// #if DUMP_CONNECTIONS == 1
-// if(!myRank) {
-//     printf("Dumping source aries for global connections\n");
-//     for(int g = 0; g < p->num_groups; g++) {
-//         for(int g1 = 0; g1 < p->num_groups; g1++) {
-//             printf(" ( ");
-//             for(int l = 0; l < connectionList[g][g1].size(); l++) {
-//                 printf("%d ", connectionList[g][g1][l]);
-//             }
-//             printf(")");
-//         }
-//         printf("\n");
-//     }
-// }
-// #endif
     if(!myRank) {
         printf("\n Total nodes %d routers %d groups %d routers per group %d radix %d\n",
                 p->num_cn * p->total_routers, p->total_routers, p->num_groups,
@@ -1221,14 +1130,14 @@ void dragonfly_dally_report_stats()
     
     MPI_Reduce( &packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
     MPI_Reduce(&packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
-        MPI_Reduce( &num_local_packets_sr, &total_local_packets_sr, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
-        MPI_Reduce( &num_local_packets_sg, &total_local_packets_sg, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+    MPI_Reduce( &num_local_packets_sr, &total_local_packets_sr, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+    MPI_Reduce( &num_local_packets_sg, &total_local_packets_sg, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
     MPI_Reduce( &num_remote_packets, &total_remote_packets, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
-    if(routing == ADAPTIVE || routing == PROG_ADAPTIVE || SHOW_ADAP_STATS)
-        {
+    if(routing == ADAPTIVE || routing == PROG_ADAPTIVE || routing == PROG_ADAPTIVE_LEGACY || SHOW_ADAP_STATS)
+    {
         MPI_Reduce(&minimal_count, &total_minimal_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
         MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
-        }
+    }
 
     /* print statistics */
     if(!g_tw_mynode)
@@ -1238,7 +1147,7 @@ void dragonfly_dally_report_stats()
 
         printf("\nAverage number of hops traversed %f average chunk latency %lf us maximum chunk latency %lf us avg message size %lf bytes finished messages %lld finished chunks %lld\n", 
                 (float)avg_hops/total_finished_chunks, (float) avg_time/total_finished_chunks/1000, max_time/1000, (float)final_msg_sz/total_finished_msgs, total_finished_msgs, total_finished_chunks);
-        if(routing == ADAPTIVE || routing == PROG_ADAPTIVE || SHOW_ADAP_STATS)
+        if(routing == ADAPTIVE || routing == PROG_ADAPTIVE || routing == PROG_ADAPTIVE_LEGACY || SHOW_ADAP_STATS)
                 printf("\nADAPTIVE ROUTING STATS: %d chunks routed minimally %d chunks routed non-minimally completed packets %lld \n", 
                         total_minimal_packets, total_nonmin_packets, total_finished_chunks);
     
@@ -1702,8 +1611,8 @@ static tw_stime dragonfly_dally_packet_event(
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
     msg->type = T_GENERATE;
-    msg->dest_terminal_id = req->dest_mn_lp;
-    msg->dfdally_dest_terminal_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_id,0,0);
+    msg->dest_terminal_lpid = req->dest_mn_lp;
+    msg->dfdally_dest_terminal_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_lpid,0,0);
     msg->message_id = req->msg_id;
     msg->is_pull = req->is_pull;
     msg->pull_size = req->pull_size;
@@ -1841,7 +1750,7 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
 
         if (bf->c11) {
             s->issueIdle = 0;
-
+            s->stalled_chunks--;
             if(bf->c8) {
                 s->last_buf_full = msg->saved_busy_time;
             }
@@ -1889,7 +1798,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
 
     tw_stime ts, nic_ts;
 
-    assert(lp->gid != msg->dest_terminal_id);
+    assert(lp->gid != msg->dest_terminal_lpid);
     const dragonfly_param *p = s->params;
 
     int vcg = 0;
@@ -1910,7 +1819,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     if(msg->packet_size < s->params->chunk_size)
         cn_delay = bytes_to_ns(msg->packet_size % s->params->chunk_size, s->params->cn_bandwidth);
 
-    int dest_router_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0) / s->params->num_cn;
+    int dest_router_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_lpid, 0, 0) / s->params->num_cn;
     int dest_grp_id = dest_router_id / s->params->num_routers; 
     int src_grp_id = s->router_id / s->params->num_routers; 
 
@@ -1977,6 +1886,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     } else {
         bf->c11 = 1;
         s->issueIdle = 1;
+        s->stalled_chunks++;
 
         //this block was missing from when QOS was added - readded 5-21-19
         if(s->last_buf_full == 0.0)
@@ -2315,14 +2225,15 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     m->magic = router_magic_num;
     m->path_type = -1;
     m->local_event_size_bytes = 0;
-    m->is_intm_grp_visited = 0;
+    m->is_intm_visited = 0;
     m->intm_grp_id = -1;
+    m->intm_rtr_id = -1; //for legacy prog-adaptive
     tw_event_send(e);
 
 
     if(cur_entry->msg.packet_ID == LLU(TRACK_PKT) && lp->gid == T_ID)
         printf("\n Packet %llu generated at terminal %d dest %llu size %llu num chunks %llu router-id %d %llu", 
-                cur_entry->msg.packet_ID, s->terminal_id, LLU(cur_entry->msg.dest_terminal_id),
+                cur_entry->msg.packet_ID, s->terminal_id, LLU(cur_entry->msg.dest_terminal_lpid),
                 LLU(cur_entry->msg.packet_size), LLU(num_chunks), s->router_id, router_id);
 
     if(cur_entry->msg.chunk_id == num_chunks - 1 && (cur_entry->msg.local_event_size_bytes > 0)) 
@@ -2573,7 +2484,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
            return;
         }
     }*/
-    assert(lp->gid == msg->dest_terminal_id);
+    assert(lp->gid == msg->dest_terminal_lpid);
 
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
         printf("\n Packet %llu arrived at lp %llu hops %d ", msg->sender_lp, LLU(lp->gid), msg->my_N_hop);
@@ -3177,7 +3088,7 @@ dragonfly_dally_terminal_final( terminal_state * s,
 //        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
     }
     written += sprintf(s->output_buf + written, "\n%u %s %llu %s %s %llu %lf %d",
-            s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time, -1); //note that terminals don't have stalled chuncks because of model net scheduling only gives a terminal what it can handle (-1 to show N/A)
+            s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time, s->stalled_chunks);
 
     lp_io_write(lp->gid, (char*)"dragonfly-link-stats", written, s->output_buf); 
     
@@ -3281,29 +3192,6 @@ void dragonfly_dally_router_final(router_state * s, tw_lp * lp)
             s->stalled_chunks[port_no]);
     }
 
-    // map< int, vector<bLink> >  &curMap = interGroupLinks[s->router_id];
-    // map< int, vector<bLink> >::iterator it = curMap.begin();
-    // for(; it != curMap.end(); it++)
-    // {
-    //     /* TODO: Works only for single global connections right now. Make it functional
-    //         * for a 2-D dragonfly. */
-    //     for(int l = 0; l < it->second.size(); l++) 
-    //     {
-    //         int dest_rtr_id = it->second[l].dest;
-    //         int offset = it->second[l].offset;
-    //         assert(offset >= 0 && offset < p->num_global_channels);
-    //         written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf %lu", 
-    //             s->router_id,
-    //             "R",
-    //             dest_rtr_id,
-    //             "R",
-    //             "G",
-    //             s->link_traffic[offset],
-    //             s->busy_time[offset],
-    //             s->stalled_chunks[offset]);
-    //     }
-    // }    
-    
     sprintf(s->output_buf + written, "\n");
     lp_io_write(lp->gid, (char*)"dragonfly-link-stats", written, s->output_buf);
 
@@ -3422,6 +3310,7 @@ static void dfdally_select_intermediate_group(router_state *s, tw_bf *bf, termin
     }
 }
 
+//Now returns random selection from tied best connections.
 static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, vector< Connection > conns)
 {
     if (conns.size() == 0) { //passed no connections to this but we got to return something - return negative filled conn to force a break if not caught
@@ -3436,20 +3325,29 @@ static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf
 
     int num_to_compare = conns.size();
     int scores[num_to_compare];
-    int best_score_index = 0;
-
+    vector < Connection > best_conns;
     int best_score = INT_MAX;
+
     for(int i = 0; i < num_to_compare; i++)
     {
         scores[i] = dfdally_score_connection(s, bf, msg, lp, conns[i], C_MIN);
 
-        if (scores[i] < best_score) {
-            best_score = scores[i];
-            best_score_index = i;
+        if (scores[i] <= best_score) {
+            if (scores[i] < best_score) {
+                best_score = scores[i];
+                best_conns.clear();
+                best_conns.push_back(conns[i]);
+            }
+            else {
+                best_conns.push_back(conns[i]);
+            }         
         }
     }
 
-    return conns[best_score_index];
+    assert(best_conns.size() > 0);
+    
+    msg->num_rngs++;
+    return best_conns[tw_rand_integer(lp->rng, 0, best_conns.size()-1)];
 }
 
 //when using this function, you should assume that the self router is NOT the destination. That should be handled elsewhere.
@@ -3546,14 +3444,6 @@ static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *b
     }
 }
 
-//This will return stops that would legally connect to an intermediate router that explicitly do not intersect with possible minimal stops
-static vector< Connection > get_legal_explicitly_nonminimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, vector< Connection > poss_minimal_next_stops, int fdest_router_id)
-{
-    vector< Connection > empty;
-    return empty;
-}
-
-
 static Connection dfdally_minimal_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
 {
     vector< Connection > poss_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
@@ -3586,16 +3476,16 @@ static Connection dfdally_nonminimal_routing(router_state *s, tw_bf *bf, termina
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
 
     assert(msg->intm_grp_id != -1); // This needs to have already been set.
-    //The setting of intm_grp_id is kept out of this function so that other routing algorithms can utilize this routing function
-    //and set it themselves based on the context. This helps avoid an instance like: prog-adaptive routing, second router in path decides
-    //to take non-minimal routing but the pre-selected intermediate group ID isn't accessible to it and would require re-routing and 
-    //thus take extra hops. Possible illegal move and could cause deadlock.
+    // //The setting of intm_grp_id is kept out of this function so that other routing algorithms can utilize this routing function
+    // //and set it themselves based on the context. This helps avoid an instance like: prog-adaptive routing, second router in path decides
+    // //to take non-minimal routing but the pre-selected intermediate group ID isn't accessible to it and would require re-routing and 
+    // //thus take extra hops. Possible illegal move and could cause deadlock.
 
     if (my_group_id == msg->intm_grp_id) //then we've visited the intermediate group by definition
-        msg->is_intm_grp_visited = 1;
+        msg->is_intm_visited = 1;
 
     int next_dest_group_id; //The ID of the group that we are aiming for next - either intermediate group or fdest group
-    if (msg->is_intm_grp_visited == 1) // Then we need to route to the fdest group
+    if (msg->is_intm_visited == 1) // Then we need to route to the fdest group
         next_dest_group_id = fdest_group_id;
     else // Then we haven't visited the intermediate group yet and need to route there first
         next_dest_group_id = msg->intm_grp_id;
@@ -3632,21 +3522,11 @@ static vector< Connection > dfdally_poll_k_connections(router_state *s, tw_bf *b
     vector< Connection > k_conns;
     if (conns.size() == 0)
     {
-        // msg->num_rngs += k;
-        // for(int i = 0; i < k; i++)
-        // {
-        //     tw_rand_integer(lp->rng,0,1);
-        // }
         return k_conns;
     }
 
     if (conns.size() == 1)
     {
-        // msg->num_rngs += k;
-        // for(int i = 0; i < k; i++)
-        // {
-        //     tw_rand_integer(lp->rng,0,1);
-        // }
         k_conns.push_back(conns[0]);
         return k_conns;
     }
@@ -3656,7 +3536,7 @@ static vector< Connection > dfdally_poll_k_connections(router_state *s, tw_bf *b
 
         int rand_sel_1, rand_sel_2, rand_sel_2_offset;
         rand_sel_1 = tw_rand_integer(lp->rng, 0, conns.size()-1);
-        rand_sel_2_offset = tw_rand_integer(lp->rng, 0, conns.size()-1);
+        rand_sel_2_offset = tw_rand_integer(lp->rng, 1, conns.size()-1);
         rand_sel_2 = (rand_sel_1 + rand_sel_2_offset) % conns.size();
 
         k_conns.push_back(conns[rand_sel_1]);
@@ -3713,7 +3593,7 @@ static Connection dfdally_prog_adaptive_routing(router_state *s, tw_bf *bf, term
 
     // are we in the intermediate group?
     if (my_group_id == msg->intm_grp_id)
-        msg->is_intm_grp_visited = 1;
+        msg->is_intm_visited = 1;
 
     Connection nextStopConn;
     vector< Connection > poss_min_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
@@ -3744,7 +3624,7 @@ static Connection dfdally_prog_adaptive_routing(router_state *s, tw_bf *bf, term
     int min_score = dfdally_score_connection(s, bf, msg, lp, best_min_conn, C_MIN);
     int nonmin_score = dfdally_score_connection(s, bf, msg, lp, best_nonmin_conn, C_NONMIN);
 
-    if ((msg->path_type == NON_MINIMAL) && (msg->is_intm_grp_visited != 1)) { //if we're nonminimal and haven't reached the intermediate group yet
+    if ((msg->path_type == NON_MINIMAL) && (msg->is_intm_visited != 1)) { //if we're nonminimal and haven't reached the intermediate group yet
         //must pick non-minimal (if we have visited, we can pick minimal then as nonminimal will be an empty vector)
         return best_nonmin_conn;
     }
@@ -3768,31 +3648,45 @@ static Connection do_dfdally_routing(router_state *s, tw_bf *bf, terminal_dally_
     int fdest_group_id = fdest_router_id / s->params->num_routers;
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
     
-    // Local Destination Group Routing --------------
-    if (my_router_id == fdest_router_id) { //destination router reached, next dest = final terminal destination
-        vector< Connection > poss_next_stops = s->connMan->get_connections_to_gid(msg->dfdally_dest_terminal_id, CONN_TERMINAL);
-        if (poss_next_stops.size() < 1)
-            tw_error(TW_LOC, "Destination Router %d: No connection to destination terminal %d\n", s->router_id, msg->dfdally_dest_terminal_id); //shouldn't happen unless math was wrong
-        Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
-        return best_min_conn;
-    }
-    else if (my_group_id == fdest_group_id) { //Then we're already in the destination group and should just route to the fdest router
-        vector< Connection > conns_to_fdest = s->connMan->get_connections_to_gid(fdest_router_id, CONN_LOCAL);
-        if (conns_to_fdest.size() < 1)
-            tw_error(TW_LOC, "Destination Group %d: No connection to destination router %d\n", s->router_id, fdest_router_id); //shouldn't happen unless the connections weren't set up / loaded correctly
+    // Legacy progressive adaptive routing has its own ways of doing this. These should probably be moved
+    // into their own function as "default behavior" that is then called when needed by the other routing
+    // functions individually.
+    // TODO: put the local destination group routing into its own function for "default" behavior.
+    if (routing != PROG_ADAPTIVE_LEGACY)
+    {
+        // // Local Destination Group Routing --------------
+        if (my_router_id == fdest_router_id) { //destination router reached, next dest = final terminal destination
+            vector< Connection > poss_next_stops = s->connMan->get_connections_to_gid(msg->dfdally_dest_terminal_id, CONN_TERMINAL);
+            if (poss_next_stops.size() < 1)
+                tw_error(TW_LOC, "Destination Router %d: No connection to destination terminal %d\n", s->router_id, msg->dfdally_dest_terminal_id); //shouldn't happen unless math was wrong
+            Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+            return best_min_conn;
+        }
+        else if (my_group_id == fdest_group_id) { //Then we're already in the destination group and should just route to the fdest router
+            vector< Connection > conns_to_fdest = s->connMan->get_connections_to_gid(fdest_router_id, CONN_LOCAL);
+            if (conns_to_fdest.size() < 1)
+                tw_error(TW_LOC, "Destination Group %d: No connection to destination router %d\n", s->router_id, fdest_router_id); //shouldn't happen unless the connections weren't set up / loaded correctly
 
-        if (isRoutingAdaptive(routing)) { // Pick the best connection
-            Connection best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, conns_to_fdest);
-            return best_conn;
+            if (isRoutingAdaptive(routing)) { // Pick the best connection
+                Connection best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, conns_to_fdest);
+                return best_conn;
+            }
+            else { //Randomize the next legal stop
+                msg->num_rngs++;
+                int rand_sel = tw_rand_integer(lp->rng, 0, conns_to_fdest.size()-1);
+                Connection next_conn = conns_to_fdest[rand_sel];
+                return next_conn;
+            }
         }
-        else { //Randomize the next legal stop
-            msg->num_rngs++;
-            int rand_sel = tw_rand_integer(lp->rng, 0, conns_to_fdest.size()-1);
-            Connection next_conn = conns_to_fdest[rand_sel];
-            return next_conn;
+        // // End Local Destination Group Routing -------------
+
+        if(msg->last_hop == TERMINAL) //This is used by dfdally_nonminimal_routing and dfdally_prog_adaptive_routing
+        {
+            if (msg->intm_grp_id == -1)
+                dfdally_select_intermediate_group(s, bf, msg, lp, fdest_router_id);
         }
     }
-    // End Local Destination Group Routing -------------
+
 
     Connection next_stop_conn;
     switch (routing)
@@ -3801,7 +3695,7 @@ static Connection do_dfdally_routing(router_state *s, tw_bf *bf, terminal_dally_
             next_stop_conn = dfdally_minimal_routing(s, bf, msg, lp, fdest_router_id);
             break;
         case NON_MINIMAL:
-            msg->path_type = NON_MINIMAL;
+            msg->path_type = NON_MINIMAL;            
             next_stop_conn = dfdally_nonminimal_routing(s, bf, msg, lp, fdest_router_id);
             break;
         case ADAPTIVE:
@@ -3810,6 +3704,9 @@ static Connection do_dfdally_routing(router_state *s, tw_bf *bf, terminal_dally_
         case PROG_ADAPTIVE:
             next_stop_conn = dfdally_prog_adaptive_routing(s, bf, msg, lp, fdest_router_id);
             break;
+        case PROG_ADAPTIVE_LEGACY:
+            next_stop_conn = dfdally_prog_adaptive_legacy_routing(s, bf, msg, lp, fdest_router_id);
+            break;
         default:
             tw_error(TW_LOC, "Error: No valid routing algorithm specified");
             break;
@@ -3817,15 +3714,6 @@ static Connection do_dfdally_routing(router_state *s, tw_bf *bf, terminal_dally_
 
     return next_stop_conn;
 }
-
-//commented out cus this is handled by router_packet_receive_rc();
-// static Connection do_dfdally_routing_rc(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp)
-// {
-//     for(int i = 0; i < msg->num_rngs; i++)
-//     {
-//         tw_rand_reverse_unif(lp->rng);
-//     }
-// }
 
 static void router_verify_valid_receipt(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp)
 {
@@ -3966,7 +3854,7 @@ static void router_packet_receive( router_state * s,
     int total_routers = s->params->total_routers;
 
     int next_stop = -1, output_port = -1, output_chan = -1, adap_chan = -1;
-    int dest_router_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0) / s->params->num_cn;
+    int dest_router_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_lpid, 0, 0) / s->params->num_cn;
     int local_grp_id = s->router_id / num_routers;
     int src_grp_id = msg->origin_router_id / num_routers;
     int dest_grp_id = dest_router_id / num_routers;
@@ -3976,14 +3864,8 @@ static void router_packet_receive( router_state * s,
     terminal_dally_message_list * cur_chunk = (terminal_dally_message_list*)calloc(1, sizeof(terminal_dally_message_list));
     init_terminal_dally_message_list(cur_chunk, msg);
     
-    if(cur_chunk->msg.last_hop == TERMINAL) { // We are first router in the path
+    if(cur_chunk->msg.last_hop == TERMINAL) // We are first router in the path
         cur_chunk->msg.path_type = MINIMAL; // Route always starts as minimal
-
-        if (msg->intm_grp_id == -1)
-        {
-            dfdally_select_intermediate_group(s, bf, &(cur_chunk->msg), lp, dest_router_id);
-        }
-    }
 
     Connection next_stop_conn = do_dfdally_routing(s, bf, &(cur_chunk->msg), lp, dest_router_id);
     msg->num_rngs += (cur_chunk->msg).num_rngs; //make sure we're counting the rngs called during do_dfdally_routing()
@@ -4000,7 +3882,7 @@ static void router_packet_receive( router_state * s,
         next_stop = router_dest_id;
     }
     else {
-        next_stop = cur_chunk->msg.dest_terminal_id;
+        next_stop = cur_chunk->msg.dest_terminal_lpid;
     }
 
     //From here the output port is known and output_chan is determined shortly
@@ -4285,10 +4167,10 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     // dest can be a router or a terminal, so we must check
     void * m_data;
     if (to_terminal) {
-        // printf("\n next stop %d dest term id %d ", cur_entry->msg.next_stop, cur_entry->msg.dest_terminal_id);
-        if(cur_entry->msg.next_stop != cur_entry->msg.dest_terminal_id)
+        // printf("\n next stop %d dest term id %d ", cur_entry->msg.next_stop, cur_entry->msg.dest_terminal_lpid);
+        if(cur_entry->msg.next_stop != cur_entry->msg.dest_terminal_lpid)
         printf("\n intra-group radix %d output port %d next stop %d", s->params->intra_grp_radix, output_port, cur_entry->msg.next_stop);
-        assert(cur_entry->msg.next_stop == cur_entry->msg.dest_terminal_id);
+        assert(cur_entry->msg.next_stop == cur_entry->msg.dest_terminal_lpid);
         e = model_net_method_event_new(cur_entry->msg.next_stop, 
             s->next_output_available_time[output_port] - tw_now(lp), lp,
             DRAGONFLY_DALLY, (void**)&m, &m_data);
@@ -4507,7 +4389,7 @@ void router_dally_event(router_state * s, tw_bf * bf, terminal_dally_message * m
         default:
             printf("\n (%lf) [Router %d] Router Message type not supported %d dest " 
                 "terminal id %d packet ID %d ", tw_now(lp), (int)lp->gid, msg->type, 
-                (int)msg->dest_terminal_id, (int)msg->packet_ID);
+                (int)msg->dest_terminal_lpid, (int)msg->packet_ID);
             tw_error(TW_LOC, "Msg type not supported");
         break;
     }	   
@@ -4758,6 +4640,695 @@ static void dragonfly_dally_register(tw_lptype *base_type) {
 
 static void router_dally_register(tw_lptype *base_type) {
     lp_type_register(LP_CONFIG_NM_ROUT, base_type);
+}
+
+/*
+LEGACY DRAGONFLY DALLY ROUTING - Sept. 2019, the state of dragonfly routing became difficult to maintain.
+There is little documentation to justify decisions in the code and consequently it is near impossible to tell
+the difference between intended behavior and a bug. This is not sustainable and lowers confidence in the model.
+Getting the routing functions all up to date with the latest updates to the model was very challenging and
+the decision was made to rewrite the routing from the ground up. We didn't want to completely scrap what had
+been done previously as we wanted to still be able to recreate experiments with the same routing strategy as
+before. So the old routing functions have been preserved with minimal modifications to work with the latest
+data structures used by the model. Specify: routing="prog-adaptive-legacy" in the configuration file to use.
+USE AT OWN RISK. One should consider support for this routing algorithm ended. From thorough analysis, I believe
+that there are bugs and unintended behavior in this code but I do not have proper documentation to say for
+certain. Thanks, -NM
+LAST SHA FOR ORIGINAL CODE: 
+*/
+
+//This is utilized by prog_adaptive_legacy routing - returns the first channel number from the conneciton list taht features a given router to the specified group
+int find_chan_legacy(int router_id, int dest_grp_id, int num_routers)
+{
+    int my_grp_id = router_id / num_routers;
+    for(int i = 0; i < connectionList[my_grp_id][dest_grp_id].size(); i++)
+    {
+        if(connectionList[my_grp_id][dest_grp_id][i] == router_id)
+            return i;
+    }
+    return -1;
+}
+
+static int get_port_score_legacy(router_state * s,
+        int port,
+        int bias)
+{
+    int port_count = 0;
+
+    if(port <= 0)
+       return INT_MAX;
+    
+    for(int k = 0; k < s->params->num_vcs; k++)
+    {
+        port_count += s->vc_occupancy[port][k];
+    }
+    port_count += s->queued_count[port];
+
+    if(bias)
+        port_count = port_count * 2;
+    return port_count;
+}
+
+
+static void do_local_adaptive_routing_legacy(router_state * s,
+        tw_lp * lp,
+        terminal_dally_message * msg,
+        tw_bf * bf,
+        int dest_router_id,
+        int intm_router_id,
+        short* rng_counter)
+{
+
+        //this is an adaptation of the do_local_adaptive_routing() from the original dragonfly-dally model found below   
+        int next_min_stop = dest_router_id; //was a vector of one in original - this is equivalent to what it did
+        int next_nonmin_stop = intm_router_id; //was a vector of one
+        
+        Connection min_conn = s->connMan->get_connections_to_gid(next_min_stop, CONN_LOCAL)[0];
+        Connection nonmin_conn = s->connMan->get_connections_to_gid(next_nonmin_stop, CONN_LOCAL)[0];
+
+        int min_score = dfdally_score_connection(s, bf, msg, lp, min_conn, C_MIN);
+        int nonmin_score = dfdally_score_connection(s, bf, msg, lp, nonmin_conn, C_NONMIN);
+
+        if (min_score > s->params->adaptive_threshold && min_score > nonmin_score)
+        {
+            msg->path_type = NON_MINIMAL;
+        }
+        else
+            msg->path_type = MINIMAL;
+        
+// Old version
+//     tw_lpid min_rtr_id, nonmin_rtr_id; 
+//     int min_port, nonmin_port;
+
+//     int dest_grp_id = dest_router_id / s->params->num_routers;
+//     int intm_grp_id = intm_router_id / s->params->num_routers;
+//     int my_grp_id = s->router_id / s->params->num_routers;
+
+//     if(my_grp_id != dest_grp_id || my_grp_id != intm_grp_id)
+//         tw_error(TW_LOC, "\n Invalid local routing my grp id %d dest_gid %d intm_gid %d intm rid %d",
+//                 my_grp_id, dest_grp_id, intm_grp_id, intm_router_id);
+
+//     int min_chan=-1, nonmin_chan=-1;
+//     vector<int> next_min_stops = get_intra_router(s, s->router_id, dest_router_id, s->params->num_routers);
+//     vector<int> next_nonmin_stops = get_intra_router(s, s->router_id, intm_router_id, s->params->num_routers);
+
+//     (*rng_counter)++;
+//     min_chan = tw_rand_integer(lp->rng, 0, next_min_stops.size() - 1);
+//     (*rng_counter)++;
+//     nonmin_chan = tw_rand_integer(lp->rng, 0, next_nonmin_stops.size() - 1);
+  
+//     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, next_min_stops[min_chan] / num_routers_per_mgrp,
+//           next_min_stops[min_chan] % num_routers_per_mgrp, &min_rtr_id);
+//     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, next_nonmin_stops[nonmin_chan] / num_routers_per_mgrp,
+//           next_nonmin_stops[nonmin_chan] % num_routers_per_mgrp, &nonmin_rtr_id);
+
+//     min_port = get_output_port(s, msg, lp, bf, min_rtr_id, rng_counter);
+//     nonmin_port = get_output_port(s, msg, lp, bf, nonmin_rtr_id, rng_counter);
+
+//     int min_port_count = 0, nonmin_port_count = 0;
+
+//     for(int k = 0; k < s->params->num_vcs; k++)
+//         min_port_count += s->vc_occupancy[min_port][k];
+//     min_port_count += s->queued_count[min_port];
+
+//     for(int k = 0; k < s->params->num_vcs; k++)
+//         nonmin_port_count += s->vc_occupancy[nonmin_port][k];
+//     nonmin_port_count += s->queued_count[nonmin_port];
+
+//     int local_stop = -1;
+//     tw_lpid global_stop;
+
+//     if(BIAS_MIN == 1)
+//     {
+//         nonmin_port_count = nonmin_port_count * 2;
+//     }
+
+//     msg->path_type = MINIMAL;
+
+// //  if(nonmin_port_count * num_intra_nonmin_hops > min_port_count * num_intra_min_hops)
+//     if(min_port_count > adaptive_threshold && min_port_count > nonmin_port_count)
+//     {
+//         msg->path_type = NON_MINIMAL;
+//     }
+// end old version
+}
+
+
+static int get_output_port_legacy(router_state *s, terminal_dally_message *msg, tw_lp *lp, tw_bf *bf, int next_stop, short *rng_counter)
+{
+    int output_port = -1;
+    int rand_offset = -1;
+    int terminal_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_lpid, 0, 0);
+    const dragonfly_param *p = s->params;
+        
+    int local_router_id = codes_mapping_get_lp_relative_id(next_stop, 0, 0);
+    int src_router = s->router_id;
+
+    if((tw_lpid)next_stop == msg->dest_terminal_lpid)
+    {
+        Connection term_conn = s->connMan->get_connections_to_gid(msg->dfdally_dest_terminal_id, CONN_TERMINAL)[0];
+        output_port = term_conn.port;
+    }
+    else
+    {
+        int intm_grp_id = local_router_id / p->num_routers;
+        int rand_offset = -1;
+
+        if(intm_grp_id != s->group_id)
+        {
+            /* traversing a global channel */
+            vector< Connection > conns_to_intm_grp = s->connMan->get_connections_to_group(intm_grp_id);
+
+            if (conns_to_intm_grp.size() == 0)
+                printf("\n Source router %d intm_grp_id %d ", src_router, intm_grp_id);
+
+            assert(conns_to_intm_grp.size() > 0);
+
+            (*rng_counter)++;
+            rand_offset = tw_rand_integer(lp->rng, 0, conns_to_intm_grp.size()-1);
+
+            assert(rand_offset >= 0 && rand_offset < s->params->num_global_channels);
+
+            Connection global_conn = conns_to_intm_grp[rand_offset];
+
+            output_port = global_conn.port;
+        }
+        else
+        {
+            vector< Connection > conns_to_local_router = s->connMan->get_connections_to_gid(local_router_id, CONN_LOCAL);
+            
+            (*rng_counter)++;
+            rand_offset = tw_rand_integer(lp->rng, 0, conns_to_local_router.size()-1);
+
+            Connection local_conn = conns_to_local_router[rand_offset];
+
+            output_port = local_conn.port;
+        }
+    }
+    return output_port;
+}
+
+//This is a 1:1 port of the get_next_stop from the old dfdally model. All bugs left as is, use at own risk.
+static tw_lpid get_next_stop_legacy(router_state *s, tw_lp *lp, tw_bf *bf, terminal_dally_message *msg, int dest_router_id, int adap_chan, int do_chan_selection, int get_direct_con, short* rng_counter)
+{
+    int dest_lp;
+    tw_lpid router_dest_id;
+    int dest_group_id;
+
+    int local_router_id = s->router_id;
+    int my_grp_id = s->router_id / s->params->num_routers;
+    dest_group_id = dest_router_id / s->params->num_routers;
+    int origin_grp_id = msg->origin_router_id / s->params->num_routers;
+
+    int select_chan = -1;
+    /* If the packet has arrived at the destination router */
+    if(dest_router_id == local_router_id)
+    {
+        dest_lp = msg->dest_terminal_lpid;
+        return dest_lp;
+    }
+    /* If the packet has arrived at the destination group */
+    if(s->group_id == dest_group_id)
+    {
+        int next_stop = dest_router_id; //trimmed down from old as the old had a lot of superflouous code to poll randomly from a vector of one.
+        
+        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, next_stop / num_routers_per_mgrp,
+            next_stop % num_routers_per_mgrp, &router_dest_id);
+    
+        if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
+                printf("\n Next stop is %ld ", next_stop);
+        
+        return router_dest_id;
+    }
+
+    /* If the packet is at the source router then select a global channel among
+        * the many global channels available (unless one already specified by
+        * adaptive routing). do_chan_selection is turned on in case prog-adaptive
+        * routing has just decided to take a non-minimal route. */
+    //modified a little to work with connection manager
+    if(msg->last_hop == TERMINAL 
+            || s->router_id == msg->intm_rtr_id
+            || (routing == PROG_ADAPTIVE_LEGACY && do_chan_selection))
+    {
+        if(adap_chan >= 0) //
+            select_chan = adap_chan;
+        else
+        {
+            /* Only for non-minimal routes, direct connections are preferred
+            * (global ports) */
+            if(get_direct_con)
+            {
+                if(s->connMan->get_connections_to_group(dest_group_id).size() > 1) //NTODO - this looks like maybe it should be >= 1
+                    select_chan = find_chan_legacy(s->router_id, dest_group_id, s->params->num_routers);
+                else
+                {
+                    printf("Trying to find channel to group %d from router %d in group %d\n", dest_group_id, s->router_id, my_grp_id);
+                    assert(select_chan >= 0);
+                }
+            }
+            else
+            {
+                (*rng_counter)++;
+                select_chan = tw_rand_integer(lp->rng, 0, connectionList[my_grp_id][dest_group_id].size() - 1);
+            }
+        }
+        dest_lp = connectionList[my_grp_id][dest_group_id][select_chan];
+        //printf("\n my grp %d dest router %d dest_lp %d rid %d chunk id %d", my_grp_id, dest_router_id, dest_lp, s->router_id, msg->chunk_id);
+        msg->saved_src_dest = dest_lp;
+    }
+
+    if(s->router_id == msg->saved_src_dest)
+    {
+        vector< Connection > conns_to_dest_group = s->connMan->get_connections_to_group(dest_group_id);
+        (*rng_counter)++;
+        select_chan = tw_rand_integer(lp->rng, 0, conns_to_dest_group.size() - 1);
+        dest_lp = conns_to_dest_group[select_chan].dest_gid;
+    }
+    else
+    {
+        /* Connection within the group */
+        int dests = msg->saved_src_dest; //trimmed down from old as the old had a lot of superflouous code to poll randomly from a vector of one.
+
+        /* If there is a direct connection */
+        dest_lp = dests;
+    }
+
+    if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
+        printf("\n Next stop is %ld ", dest_lp);
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_lp / num_routers_per_mgrp,
+        dest_lp % num_routers_per_mgrp, &router_dest_id);
+
+
+   return router_dest_id;
+}
+
+static int do_global_adaptive_routing_legacy(router_state *s, tw_lp *lp, terminal_dally_message *msg, tw_bf *bf, int dest_router_id, int intm_id_a, int intm_id_b, short* rng_counter)
+{
+    int next_chan = -1;
+    // decide which routing to take
+    // get the queue occupancy of both the minimal and non-minimal output ports 
+
+    bool local_min = false;
+    int num_routers = s->params->num_routers;
+    int dest_grp_id = dest_router_id / num_routers;
+    int intm_grp_id_a = intm_id_a / num_routers;
+    int intm_grp_id_b = intm_id_b / num_routers;
+    
+    assert(intm_grp_id_a >= 0 && intm_grp_id_b >=0);
+
+    int my_grp_id = s->router_id / num_routers;
+
+    int num_min_chans;
+    vector<int> direct_intra;
+    if(my_grp_id == dest_grp_id)
+    {
+        local_min = true;
+        direct_intra.push_back(dest_router_id); //Shortened from original but equivalent
+        num_min_chans = direct_intra.size();
+    }
+    else
+    {
+        num_min_chans = connectionList[my_grp_id][dest_grp_id].size();
+    }
+    int num_nonmin_chans_a = connectionList[my_grp_id][intm_grp_id_a].size();
+    int num_nonmin_chans_b = connectionList[my_grp_id][intm_grp_id_b].size();
+    int min_chan_a = -1, min_chan_b = -1, nonmin_chan_a = -1, nonmin_chan_b = -1;
+    int min_rtr_a, min_rtr_b, nonmin_rtr_a, nonmin_rtr_b;
+    vector<int> dest_rtr_as, dest_rtr_bs;
+    int min_port_a, min_port_b, nonmin_port_a, nonmin_port_b;
+    tw_lpid min_rtr_a_id, min_rtr_b_id, nonmin_rtr_a_id, nonmin_rtr_b_id;
+    bool noIntraA, noIntraB;
+
+
+
+    /* two possible routes to minimal destination */
+    (*rng_counter) += 2;
+    min_chan_a = tw_rand_integer(lp->rng, 0, num_min_chans - 1);
+    min_chan_b = tw_rand_integer(lp->rng, 0, num_min_chans - 1);
+
+    if(min_chan_a == min_chan_b && num_min_chans > 1)
+        min_chan_b = (min_chan_a + 1) % num_min_chans;
+
+    int chana1 = 0;
+
+    assert(min_chan_a >= 0);
+    if(!local_min)
+    {
+        min_rtr_a = connectionList[my_grp_id][dest_grp_id][min_chan_a];
+        noIntraA = false;
+        if(min_rtr_a == s->router_id) {
+            noIntraA = true;
+            min_rtr_a = s->connMan->get_connections_to_group(dest_grp_id)[0].dest_gid;
+        }
+        if(num_min_chans > 1) {
+            assert(min_chan_b >= 0);
+            noIntraB = false;
+            min_rtr_b = connectionList[my_grp_id][dest_grp_id][min_chan_b];
+        
+            if(min_rtr_b == s->router_id) {
+                noIntraB = true;
+                min_rtr_b = s->connMan->get_connections_to_group(dest_grp_id)[0].dest_gid;
+            }
+        }
+
+        dest_rtr_as.push_back(min_rtr_a); //shortened from original but equivalent
+    }
+    else
+    {
+        noIntraA = true;
+        noIntraB = true;
+
+        assert(direct_intra.size() > 0);
+        min_rtr_a = direct_intra[min_chan_a]; 
+        dest_rtr_as.push_back(min_rtr_a);
+
+        if(num_min_chans > 1)
+            min_rtr_b = direct_intra[min_chan_b];
+    }
+        int dest_rtr_b_sel;
+    (*rng_counter)++;
+    int dest_rtr_a_sel = tw_rand_integer(lp->rng, 0, dest_rtr_as.size() - 1);
+
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_as[dest_rtr_a_sel] / num_routers_per_mgrp,
+            dest_rtr_as[dest_rtr_a_sel] % num_routers_per_mgrp, &min_rtr_a_id); 
+
+    min_port_a = get_output_port_legacy(s, msg, lp, bf, min_rtr_a_id, rng_counter);
+
+    if(num_min_chans > 1)
+    {
+        dest_rtr_bs.push_back(min_rtr_b); //shortened but equivalent
+
+        (*rng_counter)++;
+        dest_rtr_b_sel = tw_rand_integer(lp->rng, 0, dest_rtr_bs.size() - 1);
+        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_bs[dest_rtr_b_sel] / num_routers_per_mgrp,
+            dest_rtr_bs[dest_rtr_b_sel] % num_routers_per_mgrp, &min_rtr_b_id); 
+        min_port_b = get_output_port_legacy(s, msg, lp, bf, min_rtr_b_id, rng_counter);
+    }
+
+    /* if a direct global channel exists for non-minimal route in the source group then give a priority to that. */
+    if(msg->my_l_hop == max_lvc_src_g)
+    {
+        assert(routing == PROG_ADAPTIVE_LEGACY);
+        nonmin_chan_a = find_chan_legacy(s->router_id, intm_grp_id_a, num_routers);
+        nonmin_chan_b = find_chan_legacy(s->router_id, intm_grp_id_b, num_routers);
+        assert(nonmin_chan_a >= 0 && nonmin_chan_b >= 0);
+    }
+    /* two possible nonminimal routes */
+    (*rng_counter) += 2;
+    int rand_a = tw_rand_integer(lp->rng, 0, num_nonmin_chans_a - 1);
+    int rand_b = tw_rand_integer(lp->rng, 0, num_nonmin_chans_b - 1);
+
+    noIntraA = false;
+    if(nonmin_chan_a != -1) {
+        /* TODO: For a 2-D dragonfly, this can be more than one link. */
+        noIntraA = true;
+        nonmin_rtr_a = s->connMan->get_connections_to_group(intm_grp_id_a)[0].dest_gid;
+    }
+    else
+    {
+        assert(rand_a >= 0);
+        nonmin_chan_a = rand_a;
+        nonmin_rtr_a = connectionList[my_grp_id][intm_grp_id_a][rand_a];
+        if(nonmin_rtr_a == s->router_id) 
+        {
+            noIntraA = true;
+            nonmin_rtr_a = s->connMan->get_connections_to_group(intm_grp_id_a)[0].dest_gid; //NOTE: This line did not exist in the original but I believe this was what was supposed to happen and it won't work without it, otherwise nonmin_rtr_* is THIS ROUTER
+        }
+
+    }
+    assert(nonmin_chan_a >= 0);
+    
+    if(num_nonmin_chans_b > 0) {
+        noIntraB = false;
+        if(nonmin_chan_b != -1) {
+            bf->c26=1;
+            noIntraB = true;
+            nonmin_rtr_b = s->connMan->get_connections_to_group(intm_grp_id_b)[0].dest_gid;
+        }
+        else
+        {
+            assert(rand_b >= 0);
+            nonmin_chan_b = rand_b;
+            nonmin_rtr_b = connectionList[my_grp_id][intm_grp_id_b][rand_b];
+            if(nonmin_rtr_b == s->router_id)
+            {
+                noIntraB = true;
+                nonmin_rtr_b = s->connMan->get_connections_to_group(intm_grp_id_b)[0].dest_gid; //NOTE: This line did not exist in the original but I believe this was what was supposed to happen and it won't work without it, otherwise nonmin_rtr_* is THIS ROUTER
+            }
+        }
+        assert(nonmin_chan_b >= 0);
+    }
+
+    dest_rtr_as.clear();
+    dest_rtr_as.push_back(nonmin_rtr_a); //shortened from original but equivalent
+
+    (*rng_counter)++;
+    dest_rtr_a_sel = tw_rand_integer(lp->rng, 0, dest_rtr_as.size() - 1);
+  
+    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_as[dest_rtr_a_sel] / num_routers_per_mgrp,
+            dest_rtr_as[dest_rtr_a_sel] % num_routers_per_mgrp, &nonmin_rtr_a_id); 
+    nonmin_port_a = get_output_port_legacy(s, msg, lp, bf, nonmin_rtr_a_id, rng_counter);
+
+    assert(nonmin_port_a >= 0);
+
+    if(num_nonmin_chans_b > 0)
+    {
+        dest_rtr_bs.clear();
+        dest_rtr_bs.push_back(nonmin_rtr_b); //shortened from original but equvalent
+
+        (*rng_counter)++;
+        dest_rtr_b_sel = tw_rand_integer(lp->rng, 0, dest_rtr_bs.size() - 1);
+        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_rtr_bs[dest_rtr_b_sel] / num_routers_per_mgrp,
+            dest_rtr_bs[dest_rtr_b_sel] % num_routers_per_mgrp, &nonmin_rtr_b_id); 
+        nonmin_port_b = get_output_port_legacy(s, msg, lp, bf, nonmin_rtr_b_id, rng_counter);
+        assert(nonmin_port_b >= 0);
+    }
+
+    int min_port_a_count = 0, min_port_b_count = 0;
+    int nonmin_port_a_count = 0, nonmin_port_b_count = 0;
+
+    min_port_a_count = get_port_score_legacy(s, min_port_a, 0);
+    
+    if(num_min_chans > 1)
+    {
+        min_port_b_count = get_port_score_legacy(s, min_port_b, 0);
+    }
+    
+    nonmin_port_a_count = get_port_score_legacy(s, nonmin_port_a, 1);
+
+    if(num_nonmin_chans_b > 0)
+    {
+        assert(nonmin_port_b >= 0);
+        nonmin_port_b_count += get_port_score_legacy(s, nonmin_port_b, 1);
+    }
+    int next_min_stop = -1, next_nonmin_stop = -1;
+    int next_min_count = -1, next_nonmin_count = -1;
+
+    /* First compare which of the nonminimal ports has less congestions */
+    int sel_nonmin = 0;
+    if(num_nonmin_chans_b > 0 && nonmin_port_a_count > nonmin_port_b_count)
+    {
+        next_nonmin_count = nonmin_port_b_count;
+        next_nonmin_stop = nonmin_chan_b;
+        sel_nonmin = 1;
+    }
+    else
+    {
+        next_nonmin_count = nonmin_port_a_count;
+        next_nonmin_stop = nonmin_chan_a;
+    }
+    /* do the same for minimal ports */
+    if(num_min_chans > 1 && min_port_a_count > min_port_b_count)
+    {
+        next_min_count = min_port_b_count;
+        next_min_stop = min_chan_b;
+    }
+    else
+    {
+        next_min_count = min_port_a_count;
+        next_min_stop = min_chan_a;
+    }
+
+    /* Now compare the least congested minimal and non-minimal routes */
+    if(next_min_count > s->params->adaptive_threshold && next_min_count > next_nonmin_count)
+    {
+    //      printf("\n Minimal chan %d occupancy %d non-min %d occupancy %d ", next_min_stop, next_min_count, next_nonmin_stop, next_nonmin_count);
+        next_chan = next_nonmin_stop;
+        msg->path_type = NON_MINIMAL;
+
+        if(sel_nonmin)
+            msg->intm_rtr_id = intm_id_b;
+        else
+            msg->intm_rtr_id = intm_id_a;
+    }
+    else
+    {
+        next_chan = next_min_stop;
+        msg->path_type = MINIMAL;
+    }
+    return next_chan;
+
+
+}
+
+static Connection dfdally_prog_adaptive_legacy_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
+{
+    int num_routers = s->params->num_routers;
+    int num_groups = s->params->num_groups;
+    int total_routers = s->params->total_routers;
+    int next_stop = -1, output_port = -1, output_chan = -1, adap_chan = -1;
+    int dest_router_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_lpid, 0, 0) / s->params->num_cn;
+    int my_group_id = s->router_id / num_routers;
+    int src_grp_id = msg->origin_router_id / num_routers;
+    int dest_grp_id = dest_router_id / num_routers;
+    int intm_rtr_a, intm_rtr_b;
+
+    short prev_path_type = 0, next_path_type = 0;
+
+    /* for prog-adaptive routing, record the current route of packet */
+    int get_direct_con = 0;
+    prev_path_type = msg->path_type;
+
+    /* Here we check for local or global adaptive routing. If destination router
+    * is in the same group then we do a local adaptive routing by selecting an
+    * intermediate router ID which is in the same group. */
+    if(src_grp_id != dest_grp_id)
+    {
+        if(msg->my_l_hop == max_lvc_src_g)
+        {
+            vector<int> direct_rtrs;
+            int dest_idx = tw_rand_integer(lp->rng, 0, num_routers - 1); //local intra id of routers
+            msg->num_rngs++;
+            vector<int> groups_i_connect_to = s->connMan->get_connected_group_ids();
+            vector<int>::iterator it = groups_i_connect_to.begin();
+            for (; it != groups_i_connect_to.end(); it++)
+            {
+                int begin = *it * num_routers; //first router index of this group
+                int gid = begin + dest_idx;
+
+                int num_conns_to_group = s->connMan->get_connections_to_group(*it).size();
+                for (int i = 0; i < num_conns_to_group; i++) //old version adds same router the order of the number of connections to said group //NTODO this is probably an error in the original
+                {
+                    direct_rtrs.push_back(gid);
+                }
+            }
+            assert(direct_rtrs.size() > 0);
+            int indxa = tw_rand_integer(lp->rng, 0, direct_rtrs.size() - 1);
+            int indxb = tw_rand_integer(lp->rng, 0, direct_rtrs.size() - 1);
+            msg->num_rngs += 2;
+
+            intm_rtr_a = direct_rtrs[indxa];
+            intm_rtr_b = direct_rtrs[indxb];
+            assert(intm_rtr_a / num_routers != my_group_id);
+            assert(intm_rtr_b / num_routers != my_group_id);
+        }
+        else
+        {
+            msg->num_rngs += 2;
+            intm_rtr_a = tw_rand_integer(lp->rng, 0, total_routers -1);
+            intm_rtr_b = tw_rand_integer(lp->rng, 0, total_routers -1);
+
+            if ((intm_rtr_a/num_routers) == my_group_id)
+                intm_rtr_a = (intm_rtr_a + num_routers) % total_routers;
+            if ((intm_rtr_b/num_routers) == my_group_id)
+                intm_rtr_b = (intm_rtr_b + num_routers) % total_routers;
+            
+            assert(intm_rtr_a / num_routers != my_group_id);
+            assert(intm_rtr_b / num_routers != my_group_id);
+        }
+    }
+    else
+    {
+        msg->num_rngs++;
+        intm_rtr_a = (src_grp_id * num_routers) + 
+                        (((s->router_id % num_routers) + 
+                        tw_rand_integer(lp->rng, 1, num_routers - 1)) % num_routers);
+    }
+    
+    if(routing == NON_MINIMAL)
+        msg->path_type = NON_MINIMAL;
+    
+    /* progressive adaptive routing is only triggered when packet has to traverse a
+    * global channel. It doesn't make sense to use it within a group */
+    if(dest_grp_id != src_grp_id && 
+            ((msg->last_hop == TERMINAL 
+                && routing == ADAPTIVE) 
+            || (msg->path_type == MINIMAL 
+                && routing == PROG_ADAPTIVE_LEGACY
+             // && s->router_id != dest_router_id)))
+                && my_group_id == src_grp_id))) 
+    {
+        adap_chan = do_global_adaptive_routing_legacy(s, lp, msg, bf, dest_router_id, intm_rtr_a, intm_rtr_b, &(msg->num_rngs));
+    }
+    
+    /* If destination router is in the same group then local adaptive routing is
+    * triggered */
+    if(msg->origin_router_id == dest_router_id)
+        msg->path_type = MINIMAL;
+
+    if(dest_grp_id == src_grp_id &&
+            dest_router_id != s->router_id &&
+            (routing == ADAPTIVE || routing == PROG_ADAPTIVE_LEGACY) 
+            && msg->last_hop == TERMINAL) 
+    {
+            do_local_adaptive_routing_legacy(s, lp, msg, bf, dest_router_id, intm_rtr_a, &(msg->num_rngs));
+    }
+
+    next_path_type = msg->path_type;
+
+    if(msg->path_type != MINIMAL && msg->path_type != NON_MINIMAL)
+        tw_error(TW_LOC, "\n packet src %d dest %d intm %d src grp %d dest grp %d", s->router_id, dest_router_id, intm_rtr_a, src_grp_id, dest_grp_id);
+
+    assert(msg->path_type == MINIMAL || msg->path_type == NON_MINIMAL);
+    
+    /* If non-minimal, set the random destination */
+    if(msg->last_hop == TERMINAL 
+            && msg->path_type == NON_MINIMAL
+            && msg->intm_rtr_id == -1)
+    {
+        msg->is_intm_visited = 0;
+        msg->intm_rtr_id = intm_rtr_a;
+    }
+
+    if(msg->path_type == NON_MINIMAL)
+    {
+        /* If non-minimal route has completed, mark the packet.
+        * If not, set the non-minimal destination.*/
+        if(s->router_id == msg->intm_rtr_id)
+        {
+            msg->is_intm_visited = 1;
+        }
+        else if(msg->is_intm_visited == 0)
+        {
+            //printf("\n Setting intm router id to %d %d", dest_router_id, msg->intm_rtr_id);
+            dest_router_id = msg->intm_rtr_id;
+        }
+    }
+
+    if(msg->path_type == NON_MINIMAL)
+    {
+        if((msg->my_l_hop == max_lvc_src_g && msg->my_g_hop == min_gvc_src_g)
+    || (msg->my_l_hop == max_lvc_intm_g && msg->my_g_hop == min_gvc_intm_g))
+        get_direct_con = 1;
+    }
+    
+    /* If the packet route has just changed to non-minimal with prog-adaptive
+    * routing, we have to compute the next stop based on that */
+    int do_chan_selection = 0;
+    if(routing == PROG_ADAPTIVE_LEGACY && prev_path_type != next_path_type && s->group_id == src_grp_id)
+        do_chan_selection = 1;
+  
+    next_stop = get_next_stop_legacy(s, lp, bf, msg, dest_router_id, adap_chan, do_chan_selection, get_direct_con, &(msg->num_rngs));
+
+    if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
+        printf("\n Packet %llu arrived at router %u next stop %d final stop %d local hops %d global hops %d", msg->packet_ID, s->router_id, next_stop, dest_router_id, msg->my_l_hop, msg->my_g_hop);
+
+    output_port = get_output_port_legacy(s, msg, lp, bf, next_stop, &(msg->num_rngs)); 
+    assert(output_port >= 0);
+
+    Connection return_conn = s->connMan->get_connection_on_port(output_port);
+
+    return return_conn;
 }
 
 extern "C" {
