@@ -198,6 +198,35 @@ vector< T > set_difference_vectors(vector<T> vec1, vector<T> vec2)
     return retVec;
 }
 
+template <class InputIterator1, class InputIterator2, class OutputIterator>
+OutputIterator _set_common (InputIterator1 first1, InputIterator1 last1,
+                                 InputIterator2 first2, InputIterator2 last2,
+                                 OutputIterator result)
+{
+  while (first1!=last1 && first2!=last2)
+  {
+
+    // if(*first1==*first2){ *result = *first1; ++result; ++first1; ++first2;} // yao compile error???
+    if (*first1<*first2) ++first1;
+    else if (*first2<*first1) ++first2;
+    else { *result = *first1; ++result; ++first1; ++first2;}
+  }
+  return result;
+}
+
+template <class T>
+vector< T > set_common_vectors(vector<T> vec1, vector<T> vec2)
+{
+    int max_len = std::max(vec1.size(), vec2.size());
+    vector< T > retVec(max_len);
+    typename vector< T >::iterator retIt;
+
+    retIt = _set_common(vec1.begin(), vec1.end(), vec2.begin(), vec2.end(), retVec.begin());
+
+    retVec.resize(retIt - retVec.begin());
+
+    return retVec;
+}
 
 struct dragonfly_plus_param
 {
@@ -3655,6 +3684,30 @@ static Connection get_connection_compare_T(router_state *s, tw_bf *bf, terminal_
     return conns[best_score_index];
 }
 
+//give the vector of all routers attached with global link(s) in current group, used by get_legal_nonminimal_stops
+static vector< Connection > get_router_with_global_links(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
+{
+    vector< Connection> spine_with_global_link;
+    set<int> poss_router_id_set_to_group;
+    int my_group_id = s->router_id / s->params->num_routers;
+
+    for(int desg=0; desg< s->params->num_groups; desg++) {
+        for(int i = 0; i < connectionList[my_group_id][desg].size(); i++)
+        {
+            int poss_router_id = connectionList[my_group_id][desg][i];
+            // printf("%d\n",poss_router_id);
+            if (poss_router_id_set_to_group.count(poss_router_id) == 0) { //if we haven't added the connections from poss_router_id yet
+                vector< Connection > conns = s->connMan->get_connections_to_gid(poss_router_id, CONN_LOCAL);
+                poss_router_id_set_to_group.insert(poss_router_id);
+                spine_with_global_link.insert(spine_with_global_link.end(), conns.begin(), conns.end());
+            }
+        }
+
+    }
+
+    return spine_with_global_link;
+}
+
 
 //Returns a vector of connections that are legal dragonfly plus routes that specifically would not allow for a minimal connection to the specific router specified in get_possible_stops_to_specific_router()
 //Be very wary of using this method, results may not make sense if possible_minimal_stops is not a vector of minimal next stops to fdest_rotuer_id
@@ -3674,6 +3727,10 @@ static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *b
         if (s->dfp_router_type == LEAF) { //then any connections to spines that are not in possible_minimal_stops should be included
             vector< Connection > conns_to_spines = s->connMan->get_connections_by_type(CONN_LOCAL);
             possible_nonminimal_stops = set_difference_vectors(conns_to_spines, possible_minimal_stops); //get the complement of possible_minimal_stops
+
+            // for the case that not all spine routers have global link
+            vector< Connection > spine_with_global_link = get_router_with_global_links(s, bf, msg, lp);
+            possible_nonminimal_stops = set_common_vectors(possible_nonminimal_stops, spine_with_global_link);
         }
         else if (s->dfp_router_type == SPINE) { //then we have to send via global connections that aren't to the dest group
             vector< Connection > conns_to_other_groups = s->connMan->get_connections_by_type(CONN_GLOBAL);
@@ -3921,9 +3978,6 @@ static Connection do_dfp_FPAR(router_state *s, tw_bf *bf, terminal_plus_message 
     bool outside_source_group = (my_group_id != origin_group_id);
     int adaptive_threshold = s->params->adaptive_threshold;
 
-    bool use_priority = false; 
-    bool priority_High = true;
-
     // check FPAR validity: 
     // 1) should use ALPHA scoring, for now
     // 2) threshold within [0-100]
@@ -3938,7 +3992,7 @@ static Connection do_dfp_FPAR(router_state *s, tw_bf *bf, terminal_plus_message 
     vector< Connection > poss_intm_next_stops = get_legal_nonminimal_stops(s, bf, msg, lp, poss_min_next_stops, fdest_router_id);
 
     if ( (poss_min_next_stops.size() == 0) && (poss_intm_next_stops.size() == 0))
-        tw_error(TW_LOC, "No possible next stops!!!");
+        tw_error(TW_LOC, "No possible next stops on router %d", my_router_id);
 
     Connection best_min_conn, best_intm_conn;
 
@@ -3948,46 +4002,48 @@ static Connection do_dfp_FPAR(router_state *s, tw_bf *bf, terminal_plus_message 
     ConnectionType conn_type_of_mins, conn_type_of_intms;
 
     best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_min_next_stops);
+    best_intm_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_intm_next_stops);
 
-    //Routing begin here, differentiate leaf router and spine router
-    //may be should differentiate bad case where poss_min_next_stops is empty and really all greater than T
     high_priority_conn = get_connection_compare_T(s, bf, msg, lp, poss_min_next_stops, adaptive_threshold);
     low_priority_conn = get_connection_compare_T(s, bf, msg, lp, poss_intm_next_stops, adaptive_threshold);
 
-    //no min or interm conn
-    if ( (poss_min_next_stops.size() > 0) && (poss_intm_next_stops.size() > 0)) {
-        use_priority = true;
-    }
+    int minimally_forwarded = 3;  // 0 -- no <=> intermediate path, 1 -- yes <=> min path, >1 report error
 
-    if(use_priority) {
+    if ( (poss_min_next_stops.size() > 0) && (poss_intm_next_stops.size() > 0)) {
         if (high_priority_conn.port == -2) {
             if(low_priority_conn.port == -2) {
-                priority_High = true;
-                assert(best_min_conn.port != -1);
-                high_priority_conn = best_min_conn;
+                assert(best_min_conn.port >= 0);
+                nextStopConn = best_min_conn;
+                minimally_forwarded = 1;
             }
-            else
-                priority_High = false;
+            else{
+                nextStopConn = low_priority_conn;
+                minimally_forwarded = 0;
+            }
         } else {
-            priority_High = true;
+            nextStopConn = high_priority_conn;
+            minimally_forwarded = 1;
         }
     }
-    
-    if (s->dfp_router_type == LEAF) {
-        // assert(!use_priority);
-        if (in_src_group) {
-            assert(msg->dfp_upward_channel_flag == 0);
+    else if ( poss_min_next_stops.size() > 0 ) {
+        nextStopConn = best_min_conn;
+        minimally_forwarded = 1;
+    }
+    else if ( poss_intm_next_stops.size() > 0 ) {
+        nextStopConn = best_intm_conn;
+        minimally_forwarded = 0;
+    }
+    else {
+        tw_error(TW_LOC, "DFP Prog Adaptive Routing: router %d cannot find any forwarding path\n", s->router_id);
+    }
+    assert(minimally_forwarded < 2);
 
-            if(!use_priority)
-                nextStopConn = best_min_conn;
-            else {
-                if (priority_High) {
-                    nextStopConn = high_priority_conn;
-                    msg->path_type = MINIMAL;
-                } else {
-                    nextStopConn = low_priority_conn;
-                    msg->path_type = NON_MINIMAL;
-                }
+    if (s->dfp_router_type == LEAF) {
+        if (in_src_group) {
+            if (minimally_forwarded) {
+                msg->path_type = MINIMAL;
+            } else {
+                msg->path_type = NON_MINIMAL;
             }
 
         } else if (in_intermediate_group) {
@@ -4008,36 +4064,25 @@ static Connection do_dfp_FPAR(router_state *s, tw_bf *bf, terminal_plus_message 
 
     } else if (s->dfp_router_type == SPINE) {
         if (in_src_group) {
-            assert(use_priority);
             assert(msg->dfp_upward_channel_flag == 0);
-            if (priority_High) {
-                nextStopConn = high_priority_conn;
+
+            if (minimally_forwarded) {
                 msg->path_type = MINIMAL;
             } else {
-                nextStopConn = low_priority_conn;
                 msg->path_type = NON_MINIMAL;
             }
 
         } else if (in_intermediate_group) {
+            
             if(msg->path_type != NON_MINIMAL) {
                 printf("Error In FPAR: [MSG: %d => %d ]: router %d, type %d, group %d, nextStopgid %d, nextStop_group_id %d\n", msg->dfp_src_terminal_id, msg->dfp_dest_terminal_id, s->router_id, s->dfp_router_type, my_group_id, nextStopConn.dest_gid, nextStopConn.dest_group_id);
             } 
 
-            assert(msg->path_type == NON_MINIMAL);
-            if(msg->dfp_upward_channel_flag == 0) {
-                assert(use_priority);
-                if (priority_High) {
-                    nextStopConn = high_priority_conn;
-                    msg->dfp_upward_channel_flag = 1;
-
-                } else {
-                    nextStopConn = low_priority_conn;
-                }
-
-            } else {
-                //nextStopConn = high_priority_conn;
+            if(msg->dfp_upward_channel_flag != 0) {
                 nextStopConn=best_min_conn;
             }
+
+
 
         } else if (in_dest_group) {
             tw_error(TW_LOC, "Routing in Dest group on Spine is taking cared by do_dfp_routing funciton");
@@ -4049,12 +4094,11 @@ static Connection do_dfp_FPAR(router_state *s, tw_bf *bf, terminal_plus_message 
         tw_error(TW_LOC, "FPAR unkown router type");
 
 
-    if (nextStopConn.port == -1){
+    if (nextStopConn.port < 0){
         tw_error(TW_LOC, "DFP Prog Adaptive Routing: No valid next hop was chosen\n packetId %llu [MSG: %d (T_ID %u) => %d ] on router %d, upward %d? \n", msg->packet_ID, msg->dfp_src_terminal_id, msg->src_terminal_id, msg->dfp_dest_terminal_id, s->router_id, msg->dfp_upward_channel_flag);
     }
     return nextStopConn;
 }
-
 
 static Connection do_dfp_routing(router_state *s,
                                 tw_bf *bf,
