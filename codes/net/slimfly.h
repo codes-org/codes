@@ -63,6 +63,7 @@ struct  slim_terminal_message
 
   // For buffer message
    short vc_index;
+   short rail_id;
    int sender_radix;
    int output_chan;
    model_net_event_return event_rc;
@@ -74,12 +75,15 @@ struct  slim_terminal_message
    tw_stime saved_available_time;
    tw_stime saved_avg_time;
    tw_stime saved_rcv_time;
-   tw_stime saved_busy_time; 
+   tw_stime saved_busy_time;
    tw_stime saved_total_time;
+   int saved_send_loop;
 //   tw_stime saved_credit_time;
 //   tw_stime saved_collective_init_time;  
    tw_stime saved_hist_start_time;
    tw_stime msg_start_time;
+
+   int rng_calls; //counter for rng calls so they can be rolled back in a single loop
 
    short saved_completed_chunks;
    int saved_hist_num;
