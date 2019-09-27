@@ -36,7 +36,8 @@ struct terminal_dally_message
   tw_lpid sender_lp;
   tw_lpid sender_mn_lp; // source modelnet id
  /* destination terminal ID of the dragonfly */
-  tw_lpid dest_terminal_id;
+  tw_lpid dest_terminal_lpid;
+  int dfdally_dest_terminal_id; //this is the terminal id in the dfdally network in range [0-total_num_terminals)
   /* source terminal ID of the dragonfly */
   unsigned int src_terminal_id;
   /* message originating router id. MM: Can we calculate it through
@@ -51,13 +52,14 @@ struct terminal_dally_message
 
   int next_stop;
 
-  short nonmin_done;
   /* Intermediate LP ID from which this message is coming */
   unsigned int intm_lp_id;
   /* last hop of the message, can be a terminal, local router or global router */
   short last_hop;
    /* For routing */
+  short is_intm_visited;
   int intm_rtr_id;
+  int intm_grp_id;
   int saved_src_dest;
   int saved_src_chan;
 
@@ -81,10 +83,16 @@ struct terminal_dally_message
    short num_rngs;
    short num_cll;
 
-   int qos_index;
+   /* qos related attributes */
    short last_saved_qos;
    short qos_reset1;
    short qos_reset2;
+
+   /* new qos rc - These are calloced in forward events, free'd in RC or commit_f */
+   /* note: dynamic memory here is OK since it's only accessed by the LP that alloced it in the first place. */
+   short rc_is_qos_set;
+   unsigned long long * rc_qos_data;
+   int * rc_qos_status;
 
    tw_stime saved_available_time;
    tw_stime saved_avg_time;

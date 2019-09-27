@@ -8,13 +8,15 @@
 #ifndef CODES_H
 #define CODES_H
 
+#include <mpi.h>
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #include <ross.h>
 #include <assert.h>
-#include <mpi.h>
 
 extern MPI_Comm MPI_COMM_CODES;
 
