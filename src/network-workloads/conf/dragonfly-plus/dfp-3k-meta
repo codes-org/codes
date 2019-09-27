@@ -1,0 +1,29 @@
+New Dragonfly Plus Network
+Dragonfly Plus Network: Generating Local Group Connections
+Dragonfly Plus Network: Generating Global Group Connections
+Verifying Symmetry...
+Verifying Radix Usage...
+Verifying Fairness...
+Verifying Dragonfly Nature...
+Verifying Inter Group Connection Uniformity...
+
+Writing out IntraConnection File 'dfp-3k-intra': 
+
+Writing out InterConnection File 'dfp-3k-inter': 
+
+Dragonfly Plus Network:
+	Number of Groups:          10
+	Router Radix:              36
+	Number Spine Per Group:    18
+	Number Leaf Per Group:     18
+	Number Terminal Per Leaf:  18
+
+	Number GC per Spine:       18
+	Number GC per Group:       324
+	Number GC between Groups:  36
+
+	Total Spine:               180
+	Total Leaf:                180
+	Total Routers:             360
+	Total Number Terminals:    3240
+	

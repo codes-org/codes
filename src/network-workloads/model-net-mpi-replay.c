@@ -30,6 +30,7 @@
 #define MAX_STATS 65536
 #define COL_TAG 1235
 #define BAR_TAG 1234
+#define PRINT_SYNTH_TRAFFIC 1
 
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
@@ -890,23 +891,24 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
     (void)bf;
     (void)lp;
 
-//    printf("\n Data arrived %d total data %ld ", m->fwd.num_bytes, s->syn_data);
-    if(s->local_rank == 0)
-     {
-    	printf("\n Data arrived %lld rank %llu total data %ld ", m->fwd.num_bytes, s->nw_id, s->syn_data);
-/*	if(s->syn_data > upper_threshold)
-    if(s->local_rank == 0)
-     {
-    	printf("\n Data arrived %lld rank %llu total data %ld ", m->fwd.num_bytes, s->nw_id, s->syn_data);
-	if(s->syn_data > upper_threshold)
-	{ 
-        	struct rusage mem_usage;
-		int who = RUSAGE_SELF;
-		int err = getrusage(who, &mem_usage);
-		printf("\n Memory usage %lf gigabytes", ((double)mem_usage.ru_maxrss / (1024.0 * 1024.0)));
-		upper_threshold += 1048576;
-	}*/
-	}
+    if(PRINT_SYNTH_TRAFFIC) {
+        if(s->local_rank == 0)
+        {
+            printf("\n Data arrived %lld rank %llu total data %ld ", m->fwd.num_bytes, s->nw_id, s->syn_data);
+    /*	if(s->syn_data > upper_threshold)
+        if(s->local_rank == 0)
+        {
+            printf("\n Data arrived %lld rank %llu total data %ld ", m->fwd.num_bytes, s->nw_id, s->syn_data);
+        if(s->syn_data > upper_threshold)
+        { 
+                struct rusage mem_usage;
+            int who = RUSAGE_SELF;
+            int err = getrusage(who, &mem_usage);
+            printf("\n Memory usage %lf gigabytes", ((double)mem_usage.ru_maxrss / (1024.0 * 1024.0)));
+            upper_threshold += 1048576;
+        }*/
+        }
+    }
     m->rc.saved_send_time = s->send_time;
     m->rc.saved_send_time_sample = s->ross_sample.send_time;
     if((tw_now(lp) - m->fwd.sim_start_time) > s->max_time)

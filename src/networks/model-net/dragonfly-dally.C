@@ -3156,7 +3156,7 @@ void dragonfly_dally_router_final(router_state * s, tw_lp * lp)
     int written = 0;
     int src_rel_id = s->router_id % p->num_routers;
     int local_grp_id = s->router_id / p->num_routers;
-    for(int d = 0; d < p->intra_grp_radix; d++) 
+    for(int d = 0; d <= p->intra_grp_radix; d++) 
     {
         if(d != src_rel_id)
         {
@@ -3258,7 +3258,6 @@ static int dfdally_score_connection(router_state *s, tw_bf *bf, terminal_dally_m
     return score;
 }
 
-
 static void dfdally_select_intermediate_group(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
 {
     int fdest_group_id = fdest_router_id / s->params->num_routers;
@@ -3331,7 +3330,6 @@ static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf
     for(int i = 0; i < num_to_compare; i++)
     {
         scores[i] = dfdally_score_connection(s, bf, msg, lp, conns[i], C_MIN);
-
         if (scores[i] <= best_score) {
             if (scores[i] < best_score) {
                 best_score = scores[i];
@@ -3686,7 +3684,6 @@ static Connection do_dfdally_routing(router_state *s, tw_bf *bf, terminal_dally_
                 dfdally_select_intermediate_group(s, bf, msg, lp, fdest_router_id);
         }
     }
-
 
     Connection next_stop_conn;
     switch (routing)
