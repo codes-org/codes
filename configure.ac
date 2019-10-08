@@ -30,7 +30,6 @@ AC_PROG_CC
 AM_PROG_CC_C_O
 AC_PROG_CXX
 AC_PROG_CXXCPP
-AX_CXX_COMPILE_STDCXX(11, noext, mandatory)
 AC_PROG_RANLIB
 
 PKG_PROG_PKG_CONFIG
@@ -125,6 +124,7 @@ AC_ARG_WITH([online],[AS_HELP_STRING([--with-online@<:@=DIR@:>@],
                       [use_online=yes],[use_online=no])
 if test "x${use_online}" != "xno" ; then
     AM_CONDITIONAL(USE_ONLINE, true)
+    AX_CXX_COMPILE_STDCXX(11, noext, mandatory)
     PKG_CHECK_MODULES_STATIC([ARGOBOTS], [argobots], [],
                       [AC_MSG_ERROR([Could not find working argobots installation via pkg-config])])
     PKG_CHECK_MODULES_STATIC([SWM], [swm], [],
