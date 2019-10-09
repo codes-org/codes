@@ -1,19 +1,17 @@
 /*
- * Copyright (C) 2013 University of Chicago.
- * See COPYRIGHT notice in top-level directory.
+ * Copyright (C) 2019, UChicago Argonne and co.
+ * See LICENSE in top-level directory
+ * 
+ * Originally written by Misbah Mubarak
+ * Updated by Neil McGlohon
  *  
  * A 1D specific dragonfly custom model - diverged from dragonfly-custom.C
  * Differs from dragonfly.C in that it allows for the custom features typically found in
  * dragonfly-custom.C.
  * 
- * This is not intended to be a long term solution, but enough changes had been made that merging
- * into dragonfly-custom.C wasn't feasible at the time. And we needed to have this work introduced
- * to the repo.
- * 
- * DO NOT USE THIS MODEL AS A STARTING POINT FOR NEW MODELS
- * It has lots of "fossils" leftover from dragonfly custom that depending on how its used, are bad.
- * The orthogonally new changes will hopefully be merged into dragonfly custom. But I'm not familiar
- * enough with either dragonfly custom or this model in order to confidently make the merge safe for both.
+ * This was not intended to be a long term solution, but enough changes had been made that merging
+ * into dragonfly-custom.C wasn't feasible at the time of creation. Today, there is enough differences
+ * in the two models that there is currently no plan to re-merge the two.
  */
 
 #include <ross.h>
