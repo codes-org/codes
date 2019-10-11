@@ -1491,7 +1491,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
 
 
   if(cur_entry->msg.packet_ID == LLU(TRACK_PKT) && lp->gid == T_ID)
-    printf("\n Packet %llu generated at terminal %d dest %llu size %llu num chunks %llu router-id %d %d", 
+    printf("\n Packet %llu generated at terminal %d dest %llu size %llu num chunks %llu router-id %d %llu", 
             cur_entry->msg.packet_ID, s->terminal_id, LLU(cur_entry->msg.dest_terminal_id),
             LLU(cur_entry->msg.packet_size), LLU(num_chunks), s->router_id, router_id);
 
@@ -1720,7 +1720,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
     assert(lp->gid == msg->dest_terminal_id);
 
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
-        printf("\n Packet %d arrived at lp %llu hops %d ", msg->sender_lp, LLU(lp->gid), msg->my_N_hop);
+        printf("\n Packet %llu arrived at lp %llu hops %d ", msg->sender_lp, LLU(lp->gid), msg->my_N_hop);
   
   tw_stime ts = g_tw_lookahead + s->params->credit_delay + tw_rand_unif(lp->rng);
 
@@ -2509,7 +2509,7 @@ get_next_stop(router_state * s,
           next_stop[select_chan] % num_routers_per_mgrp, &router_dest_id);
   
        if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
-            printf("\n Next stop is %ld ", next_stop[select_chan]);
+            printf("\n Next stop is %d ", next_stop[select_chan]);
        
        return router_dest_id;
    }
@@ -2556,7 +2556,7 @@ get_next_stop(router_state * s,
       dest_lp = dests[select_chan];
   }
   if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
-      printf("\n Next stop is %ld ", dest_lp);
+      printf("\n Next stop is %d ", dest_lp);
    codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_lp / num_routers_per_mgrp,
       dest_lp % num_routers_per_mgrp, &router_dest_id);
     
