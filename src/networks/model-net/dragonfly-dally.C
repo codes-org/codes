@@ -305,7 +305,7 @@ struct terminal_state
     tw_stime last_buf_full;
     tw_stime busy_time;
     
-    unsigned long* stalled_chunks; //Counter for when a packet cannot be immediately routed
+    unsigned long stalled_chunks; //Counter for when a packet cannot be immediately routed
 
     tw_stime max_latency;
     tw_stime min_latency;
@@ -2152,6 +2152,7 @@ terminal_dally_init( terminal_state * s,
     s->total_time = 0.0;
     s->total_msg_size = 0;
 
+    s->stalled_chunks = 0;
     s->busy_time = 0.0;
 
     s->fwd_events = 0;
@@ -3285,8 +3286,8 @@ dragonfly_dally_terminal_final( terminal_state * s,
         written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <dest_id> < dest_type>  <link_type> <link_traffic> <link_saturation> <stalled_chunks>\n");
 //        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
     }
-    written += sprintf(s->output_buf + written, "\n%u %s %u %s %s %llu %lf %d",
-            s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time, s->stalled_chunks); //TODO fix terminal stalled chunks - currently an array and uninitialized, needs to be just an unsigned int
+    written += sprintf(s->output_buf + written, "\n%u %s %u %s %s %llu %lf %lu",
+            s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time, s->stalled_chunks);
 
     lp_io_write(lp->gid, (char*)"dragonfly-link-stats", written, s->output_buf); 
     
