@@ -860,10 +860,11 @@ static vector< Connection > dfdally_poll_k_connections(router_state *s, tw_bf *b
     msg->num_rngs += k; // we only used the rng k times
 
     // use random k set to create vector of k connections
-    for (int index : rand_sels)
+    for(set<int>:: iterator it = rand_sels.begin() ; it != rand_sels.end() ; it++)
     {
-        k_conns.push_back(conns[index]);
+        k_conns.push_back(conns[*it]);
     }
+
     return k_conns;
 }
 
@@ -4387,7 +4388,8 @@ static void dfdally_select_intermediate_group(router_state *s, tw_bf *bf, termin
 
         set< int > valid_intm_groups;
         vector< Connection > global_conns = s->connMan->get_connections_by_type(CONN_GLOBAL);
-        for (Connection conn : global_conns) {
+        for (vector<Connection>::iterator it = global_conns.begin(); it != global_conns.end(); it ++) {
+            Connection conn = *it;
             if (NONMIN_INCLUDE_SOURCE_DEST) //then any group I connect to is valid
             {
                 valid_intm_groups.insert(conn.dest_group_id);
