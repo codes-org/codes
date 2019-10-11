@@ -62,8 +62,7 @@ static int priority_type = 0;
 static int num_dumpi_traces = 0;
 static int64_t EAGER_THRESHOLD = 8192;
 
-static long num_ops = 0;
-static int upper_threshold = 1048576;
+// static int upper_threshold = 1048576;
 static int alloc_spec = 0;
 static tw_stime self_overhead = 10.0;
 static tw_stime mean_interval = 100000;
@@ -633,7 +632,7 @@ void finish_bckgnd_traffic(
         (void)b;
         (void)msg;
         ns->is_finished = 1;
-        lprintf("\n LP %llu completed sending data %lu completed at time %lf ", LLU(lp->gid), ns->gen_data, tw_now(lp));
+        lprintf("\n LP %llu completed sending data %llu completed at time %lf ", LLU(lp->gid), ns->gen_data, tw_now(lp));
         
         return;
 }
@@ -894,7 +893,7 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
     if(PRINT_SYNTH_TRAFFIC) {
         if(s->local_rank == 0)
         {
-            printf("\n Data arrived %lld rank %llu total data %ld ", m->fwd.num_bytes, s->nw_id, s->syn_data);
+            printf("\n Data arrived %lld rank %llu total data %llu ", m->fwd.num_bytes, s->nw_id, s->syn_data);
     /*	if(s->syn_data > upper_threshold)
         if(s->local_rank == 0)
         {
@@ -2509,7 +2508,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
             
             /* Notify ranks from other job that checkpoint traffic has
              * completed */
-             printf("\n Network node %d Rank %d finished at %lf ", s->local_rank, s->nw_id, tw_now(lp));
+             printf("\n Network node %d Rank %llu finished at %lf ", s->local_rank, s->nw_id, tw_now(lp));
             int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx); 
              if(num_jobs <= 1 || is_synthetic == 0)
              {
@@ -2686,7 +2685,7 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
         if(!s->nw_id)
             written = sprintf(s->output_buf, "# Format <LP ID> <Terminal ID> <Job ID> <Local Rank> <Total sends> <Total Recvs> <Bytes sent> <Bytes recvd> <Send time> <Comm. time> <Compute time> <Avg msg time> <Max Msg Time>");
 
-        written += sprintf(s->output_buf + written, "\n %llu %llu %d %d %ld %ld %ld %ld %lf %lf %lf %lf %lf", LLU(lp->gid), LLU(s->nw_id), s->app_id, s->local_rank, s->num_sends, s->num_recvs, s->num_bytes_sent,
+        written += sprintf(s->output_buf + written, "\n %llu %llu %d %d %ld %ld %llu %llu %lf %lf %lf %lf %lf", LLU(lp->gid), LLU(s->nw_id), s->app_id, s->local_rank, s->num_sends, s->num_recvs, s->num_bytes_sent,
                 s->num_bytes_recvd, s->send_time, s->elapsed_time - s->compute_time, s->compute_time, avg_msg_time, s->max_time);
         lp_io_write(lp->gid, (char*)"mpi-replay-stats", written, s->output_buf);
 
@@ -2882,6 +2881,8 @@ void nw_lp_model_stat_collect(nw_state *s, tw_lp *lp, char *buffer)
 
 void ross_nw_lp_sample_fn(nw_state * s, tw_bf * bf, tw_lp * lp, struct ross_model_sample *sample)
 {
+    (void)bf;
+    (void)lp;
     memcpy(sample, &s->ross_sample, sizeof(s->ross_sample));
     sample->nw_id = s->nw_id;
     sample->app_id = s->app_id;
@@ -2900,6 +2901,8 @@ void ross_nw_lp_sample_fn(nw_state * s, tw_bf * bf, tw_lp * lp, struct ross_mode
 
 void ross_nw_lp_sample_rc_fn(nw_state * s, tw_bf * bf, tw_lp * lp, struct ross_model_sample *sample)
 {
+    (void)bf;
+    (void)lp;
     memcpy(&s->ross_sample, sample, sizeof(*sample));
 }
 
