@@ -2234,7 +2234,7 @@ void router_dally_init(router_state * r, tw_lp * lp)
     r->group_id=r->router_id/p->num_routers;
     
     char rtr_bw_log[128];
-    sprintf(rtr_bw_log, "router-bw-tracker-%d", g_tw_mynode);
+    sprintf(rtr_bw_log, "router-bw-tracker-%lu", g_tw_mynode);
 
     if(dragonfly_rtr_bw_log == NULL)
     {
@@ -3284,8 +3284,8 @@ dragonfly_dally_terminal_final( terminal_state * s,
         written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <dest_id> < dest_type>  <link_type> <link_traffic> <link_saturation> <stalled_chunks>\n");
 //        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
     }
-    written += sprintf(s->output_buf + written, "\n%u %s %llu %s %s %llu %lf %d",
-            s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time, s->stalled_chunks);
+    written += sprintf(s->output_buf + written, "\n%u %s %u %s %s %llu %lf %d",
+            s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time, s->stalled_chunks); //TODO fix terminal stalled chunks - currently an array and uninitialized, needs to be just an unsigned int
 
     lp_io_write(lp->gid, (char*)"dragonfly-link-stats", written, s->output_buf); 
     
@@ -3307,9 +3307,9 @@ dragonfly_dally_terminal_final( terminal_state * s,
     {
         written += sprintf(s->output_buf2 + written, "# Format <LP id> <Terminal ID> <Total Data Sent> <Total Data Received> <Avg packet latency> <Max packet Latency> <Min packet Latency> <# Packets finished> <Avg Hops> <Busy Time>\n");
     }
-    written += sprintf(s->output_buf2 + written, "%llu %llu %llu %llu %lf %lf %lf %llu %lf %lf\n", 
+    written += sprintf(s->output_buf2 + written, "%llu %u %d %llu %lf %lf %lf %ld %lf %lf\n", 
             lp->gid, s->terminal_id, s->total_gen_size, s->total_msg_size, s->total_time/s->finished_chunks, s->max_latency, s->min_latency,
-            s->finished_packets, (double)s->total_hops/s->finished_chunks), s->busy_time;
+            s->finished_packets, (double)s->total_hops/s->finished_chunks, s->busy_time);
 
     if(s->terminal_msgs[0] != NULL) 
       printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
@@ -4455,7 +4455,6 @@ static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *b
     bool in_intermediate_group = (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
     int preset_intm_group_id = msg->intm_grp_id;
 
-
     if (my_group_id == origin_group_id) {
         vector< Connection > conns_to_intm_group = s->connMan->get_connections_to_group(preset_intm_group_id);
 
@@ -4496,6 +4495,12 @@ static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *b
     else if (my_group_id == fdest_group_id)
     {
         //same as intermediate, force minimal choices
+        vector< Connection > empty;
+        return empty;
+    }
+    else
+    {
+        tw_error(TW_LOC, "Invalid group somehow: not origin, not intermediate, and not fdest group\n");
         vector< Connection > empty;
         return empty;
     }
@@ -4847,7 +4852,7 @@ static tw_lpid get_next_stop_legacy(router_state *s, tw_lp *lp, tw_bf *bf, termi
             next_stop % num_routers_per_mgrp, &router_dest_id);
     
         if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
-                printf("\n Next stop is %ld ", next_stop);
+                printf("\n Next stop is %d ", next_stop);
         
         return router_dest_id;
     }
@@ -4905,7 +4910,7 @@ static tw_lpid get_next_stop_legacy(router_state *s, tw_lp *lp, tw_bf *bf, termi
     }
 
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
-        printf("\n Next stop is %ld ", dest_lp);
+        printf("\n Next stop is %d ", dest_lp);
     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_lp / num_routers_per_mgrp,
         dest_lp % num_routers_per_mgrp, &router_dest_id);
 
