@@ -5,10 +5,6 @@ AC_PREREQ([2.67])
 AC_INIT([codes], [1.1.1], [http://trac.mcs.anl.gov/projects/codes/newticket],[],[http://www.mcs.anl.gov/projects/codes/])
 LT_INIT
 
-
-#WRAP SOME OPTION AROUND THIS - IT'S NOT REQUIRED FOR 99% OF CODES
-AX_BOOST_BASE([1.66])
-
 AC_CANONICAL_TARGET
 AC_CANONICAL_SYSTEM
 AC_CANONICAL_HOST
@@ -124,6 +120,7 @@ AC_ARG_WITH([online],[AS_HELP_STRING([--with-online@<:@=DIR@:>@],
                       [use_online=yes],[use_online=no])
 if test "x${use_online}" != "xno" ; then
     AM_CONDITIONAL(USE_ONLINE, true)
+    AX_BOOST_BASE([1.66])
     AX_CXX_COMPILE_STDCXX(11, noext, mandatory)
     PKG_CHECK_MODULES_STATIC([ARGOBOTS], [argobots], [],
                       [AC_MSG_ERROR([Could not find working argobots installation via pkg-config])])
