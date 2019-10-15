@@ -556,7 +556,7 @@ void model_net_base_event(
         tw_lp * lp){
 
     if(m->h.magic != model_net_base_magic)
-        printf("\n LP ID mismatched %llu\n", lp->gid);
+        printf("\n LP ID mismatched %llu\n", LLU(lp->gid));
 
     assert(m->h.magic == model_net_base_magic);
 

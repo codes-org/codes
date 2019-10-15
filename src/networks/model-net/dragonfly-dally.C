@@ -2783,7 +2783,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     if(cur_entry->msg.packet_ID == LLU(TRACK_PKT) && lp->gid == T_ID)
         printf("\n Packet %llu generated at terminal %d dest %llu size %llu num chunks %llu router-id %d %llu", 
                 cur_entry->msg.packet_ID, s->terminal_id, LLU(cur_entry->msg.dest_terminal_lpid),
-                LLU(cur_entry->msg.packet_size), LLU(num_chunks), s->router_id, router_id);
+                LLU(cur_entry->msg.packet_size), LLU(num_chunks), s->router_id, LLU(router_id));
 
     if(cur_entry->msg.chunk_id == num_chunks - 1 && (cur_entry->msg.local_event_size_bytes > 0)) 
     {
@@ -3037,7 +3037,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     assert(lp->gid == msg->dest_terminal_lpid);
 
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
-        printf("\n Packet %llu arrived at lp %llu hops %d ", msg->sender_lp, LLU(lp->gid), msg->my_N_hop);
+        printf("\n Packet %llu arrived at lp %llu hops %d ", LLU(msg->sender_lp), LLU(lp->gid), msg->my_N_hop);
     
     msg->num_rngs++;
     tw_stime ts = g_tw_lookahead + s->params->credit_delay + tw_rand_unif(lp->rng);
@@ -3310,7 +3310,7 @@ dragonfly_dally_terminal_final( terminal_state * s,
         written += sprintf(s->output_buf2 + written, "# Format <LP id> <Terminal ID> <Total Data Sent> <Total Data Received> <Avg packet latency> <Max packet Latency> <Min packet Latency> <# Packets finished> <Avg Hops> <Busy Time>\n");
     }
     written += sprintf(s->output_buf2 + written, "%llu %u %d %llu %lf %lf %lf %ld %lf %lf\n", 
-            lp->gid, s->terminal_id, s->total_gen_size, s->total_msg_size, s->total_time/s->finished_chunks, s->max_latency, s->min_latency,
+            LLU(lp->gid), s->terminal_id, s->total_gen_size, LLU(s->total_msg_size), s->total_time/s->finished_chunks, s->max_latency, s->min_latency,
             s->finished_packets, (double)s->total_hops/s->finished_chunks, s->busy_time);
 
     if(s->terminal_msgs[0] != NULL) 
@@ -3366,7 +3366,7 @@ void dragonfly_dally_router_final(router_state * s, tw_lp * lp)
                 dest_ab_id,
                 "R",
                 "L",
-                s->link_traffic[d],
+                LLU(s->link_traffic[d]),
                 s->busy_time[d],
                 s->stalled_chunks[d]);
         }
@@ -3386,7 +3386,7 @@ void dragonfly_dally_router_final(router_state * s, tw_lp * lp)
             dest_rtr_id,
             "R",
             "G",
-            s->link_traffic[port_no],
+            LLU(s->link_traffic[port_no]),
             s->busy_time[port_no],
             s->stalled_chunks[port_no]);
     }

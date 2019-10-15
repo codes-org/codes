@@ -893,7 +893,7 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
     if(PRINT_SYNTH_TRAFFIC) {
         if(s->local_rank == 0)
         {
-            printf("\n Data arrived %lld rank %llu total data %llu ", m->fwd.num_bytes, s->nw_id, s->syn_data);
+            printf("\n Data arrived %llu rank %llu total data %llu ", LLU(m->fwd.num_bytes), LLU(s->nw_id), s->syn_data);
     /*	if(s->syn_data > upper_threshold)
         if(s->local_rank == 0)
         {
@@ -2508,7 +2508,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
             
             /* Notify ranks from other job that checkpoint traffic has
              * completed */
-             printf("\n Network node %d Rank %llu finished at %lf ", s->local_rank, s->nw_id, tw_now(lp));
+             printf("\n Network node %d Rank %llu finished at %lf ", s->local_rank, LLU(s->nw_id), tw_now(lp));
             int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx); 
              if(num_jobs <= 1 || is_synthetic == 0)
              {
@@ -2677,8 +2677,8 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 		if(count_irecv > 0 || count_isend > 0)
         {
             unmatched = 1;
-            printf("\n nw-id %lld unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf",
-			    s->nw_id, count_irecv, count_isend, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->send_time, s->wait_time);
+            printf("\n nw-id %llu unmatched irecvs %d unmatched sends %d Total sends %ld receives %ld collectives %ld delays %ld wait alls %ld waits %ld send time %lf wait %lf",
+			    LLU(s->nw_id) , count_irecv, count_isend, s->num_sends, s->num_recvs, s->num_cols, s->num_delays, s->num_waitall, s->num_wait, s->send_time, s->wait_time);
         }
         written = 0;
     

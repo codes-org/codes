@@ -1493,7 +1493,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_custom_message 
   if(cur_entry->msg.packet_ID == LLU(TRACK_PKT) && lp->gid == T_ID)
     printf("\n Packet %llu generated at terminal %d dest %llu size %llu num chunks %llu router-id %d %llu", 
             cur_entry->msg.packet_ID, s->terminal_id, LLU(cur_entry->msg.dest_terminal_id),
-            LLU(cur_entry->msg.packet_size), LLU(num_chunks), s->router_id, router_id);
+            LLU(cur_entry->msg.packet_size), LLU(num_chunks), s->router_id, LLU(router_id));
 
   if(cur_entry->msg.chunk_id == num_chunks - 1 && 
       (cur_entry->msg.local_event_size_bytes > 0)) {
@@ -1720,7 +1720,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
     assert(lp->gid == msg->dest_terminal_id);
 
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
-        printf("\n Packet %llu arrived at lp %llu hops %d ", msg->sender_lp, LLU(lp->gid), msg->my_N_hop);
+        printf("\n Packet %llu arrived at lp %llu hops %d ", LLU(msg->sender_lp), LLU(lp->gid), msg->my_N_hop);
   
   tw_stime ts = g_tw_lookahead + s->params->credit_delay + tw_rand_unif(lp->rng);
 

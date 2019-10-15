@@ -2993,7 +2993,7 @@ void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
    
     written = 0;
     written += sprintf(s->output_buf2 + written, "%llu %u %lf %lf %lf %lf %ld %lf\n", 
-            lp->gid, s->terminal_id, s->total_time/s->finished_chunks, 
+            LLU(lp->gid), s->terminal_id, s->total_time/s->finished_chunks, 
             s->busy_time, s->max_latency, s->min_latency,
             s->finished_packets, (double)s->total_hops/s->finished_chunks);
 
@@ -3097,7 +3097,7 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
                 dest_ab_id,
                 "R",
                 "L",
-                s->link_traffic[d],
+                LLU(s->link_traffic[d]),
                 s->busy_time[d] );
         }
     }
@@ -3116,7 +3116,7 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
             dest_rtr_id,
             "R",
             "G",
-            s->link_traffic[port_no],
+            LLU(s->link_traffic[port_no]),
             s->busy_time[port_no] );
     }
 
