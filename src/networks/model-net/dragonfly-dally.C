@@ -1302,10 +1302,31 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
                 p->num_routers, p->radix);
     }
 
-    p->cn_delay = bytes_to_ns(p->chunk_size, p->cn_bandwidth);
-    p->local_delay = bytes_to_ns(p->chunk_size, p->local_bandwidth);
-    p->global_delay = bytes_to_ns(p->chunk_size, p->global_bandwidth);
-    p->credit_delay = bytes_to_ns(CREDIT_SIZE, p->local_bandwidth); //assume 8 bytes packet
+    rc = configuration_get_value_double(&config, "PARAMS", "cn_delay", anno, &p->cn_delay);
+    if (rc) {
+        p->cn_delay = bytes_to_ns(p->chunk_size, p->cn_bandwidth);
+        if(!myRank)
+            fprintf(stderr, "cn_delay not specified, using default calculation: %.2f\n", p->cn_delay);
+    }
+
+    rc = configuration_get_value_double(&config, "PARAMS", "local_delay", anno, &p->local_delay);
+    if (rc) {
+        p->local_delay = bytes_to_ns(p->chunk_size, p->local_bandwidth);
+        if(!myRank)
+            fprintf(stderr, "local_delay not specified, using default calculation: %.2f\n", p->local_delay);
+    }
+    rc = configuration_get_value_double(&config, "PARAMS", "global_delay", anno, &p->global_delay);
+    if (rc) {
+        p->global_delay = bytes_to_ns(p->chunk_size, p->global_bandwidth);
+        if(!myRank)
+            fprintf(stderr, "global_delay not specified, using default calculation: %.2f\n", p->global_delay);
+    }
+    rc = configuration_get_value_double(&config, "PARAMS", "credit_delay", anno, &p->credit_delay);
+    if (rc) {
+        p->credit_delay = bytes_to_ns(CREDIT_SIZE, p->local_bandwidth);
+        if(!myRank)
+            fprintf(stderr, "credit_delay not specified, using default calculation: %.2f\n", p->credit_delay);
+    }
 
     if (PRINT_CONFIG) 
         dragonfly_print_params(p);
