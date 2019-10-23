@@ -16,8 +16,8 @@ m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 AC_CONFIG_SRCDIR([doc/BUILD_STEPS])
 AC_CONFIG_HEADERS([codes_config.h])
 
-AX_PROG_BISON([],[AC_MSG_WARN([Could not find bison])])
-AX_PROG_FLEX([],[AC_MSG_WARN([Could not find flex])])
+AX_PROG_BISON([],[AC_MSG_ERROR([could not find required package bison])])
+AX_PROG_FLEX([],[AC_MSG_ERROR([could not find required package flex])])
 AC_SUBST([BISON])
 AC_SUBST([FLEX])
 
