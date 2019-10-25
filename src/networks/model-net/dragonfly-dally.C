@@ -2960,10 +2960,6 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
         N_finished_packets--;
         s->finished_packets--;
     }
-    if(bf->c3)
-    {
-        dragonfly_max_latency = msg->saved_available_time;
-    }
     
     if(bf->c22)
 	{
@@ -3194,13 +3190,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     if(s->min_latency > tw_now(lp) - msg->travel_start_time) {
 		s->min_latency = tw_now(lp) - msg->travel_start_time;	
 	}
-    
-    if (dragonfly_max_latency < tw_now( lp ) - msg->travel_start_time) {
-        bf->c3 = 1;
-        msg->saved_available_time = dragonfly_max_latency;
-        dragonfly_max_latency = tw_now( lp ) - msg->travel_start_time;
-        s->max_latency = tw_now(lp) - msg->travel_start_time;
-    }
+
 	if(s->max_latency < tw_now( lp ) - msg->travel_start_time) {
         bf->c22 = 1;
         msg->saved_available_time = s->max_latency;
@@ -3297,6 +3287,10 @@ dragonfly_dally_terminal_final( terminal_state * s,
 {
     // printf("terminal id %d\n",s->terminal_id);
     dragonfly_total_time += s->total_time; //increment the PE level time counter
+    
+    if (s->max_latency > dragonfly_max_latency)
+        dragonfly_max_latency = s->max_latency; //get maximum latency across all LPs on this PE
+
 
 	model_net_print_stats(lp->gid, s->dragonfly_stats_array);
     int written = 0;
