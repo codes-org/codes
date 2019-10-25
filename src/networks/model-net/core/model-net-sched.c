@@ -11,7 +11,7 @@
 
 #include "codes/model-net-sched.h"
 #include "codes/model-net-lp.h"
-#include "model-net-sched-impl.h"
+#include "codes/model-net-sched-impl.h"
 #include "codes/quicklist.h"
 
 #define X(a,b,c) b,

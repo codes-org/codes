@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#include "model-net-sched-impl.h"
+#include <codes/model-net-sched-impl.h>
 #include <codes/model-net-sched.h>
 #include <codes/model-net-method.h>
 #include <codes/quicklist.h>
