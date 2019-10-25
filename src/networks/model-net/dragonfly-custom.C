@@ -1357,7 +1357,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_custom_mess
     s->terminal_length += s->params->chunk_size;
   }
 
-  if(s->terminal_length < 2 * s->params->cn_vc_size) {
+  if(s->terminal_length < 2 * s->params->cn_vc_size) { //TODO This hardcoded 2 * s->params->cn_vc_size seems dubious
     model_net_method_idle_event(nic_ts, 0, lp);
   } else {
     bf->c11 = 1;
