@@ -473,7 +473,7 @@ typedef enum route_scoring_preference_t
     HIGHER
 } route_scoring_preference_t;
 
-bool isRoutingAdaptive(int alg)
+static bool isRoutingAdaptive(int alg)
 {
     if (alg == PROG_ADAPTIVE || alg == FULLY_PROG_ADAPTIVE)
         return true;
@@ -481,7 +481,7 @@ bool isRoutingAdaptive(int alg)
         return false;
 }
 
-bool isRoutingMinimal(int alg)
+static bool isRoutingMinimal(int alg)
 {
     if (alg == MINIMAL)
         return true;
@@ -489,7 +489,7 @@ bool isRoutingMinimal(int alg)
         return false;
 }
 
-bool isRoutingNonminimalExplicit(int alg)
+static bool isRoutingNonminimalExplicit(int alg)
 {
     if (alg == NON_MINIMAL_LEAF || alg == NON_MINIMAL_SPINE)
         return true;
