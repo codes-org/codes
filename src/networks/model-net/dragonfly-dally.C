@@ -50,7 +50,7 @@
 #define TRACK_MSG -1
 #define DEBUG 0
 #define MAX_STATS 65536
-#define SHOW_ADAP_STATS 1\
+#define SHOW_ADAP_STATS 1
 // maximum number of characters allowed to represent the routing algorithm as a string
 #define MAX_ROUTING_CHARS 32
 
@@ -254,6 +254,129 @@ struct dfly_qhash_entry
     struct qhash_head hash_link;
 };
 
+typedef enum qos_priority
+{
+    Q_HIGH =0,
+    Q_MEDIUM,
+    Q_LOW,
+    Q_UNKNOWN,
+} qos_priority;
+
+typedef enum qos_status
+{
+    Q_ACTIVE = 1,
+    Q_OVERBW,
+} qos_status;
+
+// Used to denote whether a connection is one that would allow a packet to continue along a minimal path or not
+// Specifically used to clearly pass whether a connection is a minimal one through to the connection scoring function
+typedef enum conn_minimality_t
+{
+    C_MIN = 1,
+    C_NONMIN
+} conn_minimality_t;
+
+// See implementations in dfdally_score_connection()
+typedef enum route_scoring_metric_t
+{
+    ALPHA = 1, //Count queue lengths and pending messages for a port
+    BETA, //Expected Hops to Destination * (Count queue lengths and pending messages) for a port
+    GAMMA,
+    DELTA //count queue lengths and pending messages for a port, biased 2x against nonminimal conns
+} route_scoring_metric_t;
+
+/* Enumeration of types of events sent between model LPs */
+typedef enum event_t
+{
+    T_GENERATE=1,
+    T_ARRIVE,
+    T_SEND,
+    T_BUFFER,
+    R_SEND,
+    R_ARRIVE,
+    R_BUFFER,
+    R_BANDWIDTH,
+    R_BW_HALT,
+    T_BANDWIDTH,
+} event_t;
+
+/* whether the last hop of a packet was global, local or a terminal */
+enum last_hop
+{
+    GLOBAL=1,
+    LOCAL,
+    TERMINAL,
+    ROOT
+};
+
+/* Routing Algorithms Implemented:
+    Minimal - Guarantees shortest path between terminals, next stop is polled randomly from set of legal next stops
+    Non-Minimal - Valiant routing, picks random group, routes there first, then routes to destination. Next stop is poleld randomly from set of legal next stops
+    Adaptive - UGAL, not yet implmented TODO: Implement
+    Prog-adaptive - PAR
+    Prog-adaptive Legacy - Old implementation of PAR (use at own risk)
+*/
+enum ROUTING_ALGO
+{
+    MINIMAL = 1,
+    NON_MINIMAL,
+    ADAPTIVE,
+    PROG_ADAPTIVE,
+    PROG_ADAPTIVE_LEGACY
+};
+
+
+static char* get_routing_alg_chararray(int routing_alg_int)
+{
+    char* rt_alg = (char*) calloc(MAX_ROUTING_CHARS, sizeof(char));
+    switch (routing_alg_int)
+    {
+        case MINIMAL:
+            strcpy(rt_alg, "MINIMAL");
+        break;
+        case NON_MINIMAL:
+            strcpy(rt_alg, "NON_MINIMAL");
+        break;
+        case ADAPTIVE:
+            strcpy(rt_alg, "ADAPTIVE");
+        break;
+        case PROG_ADAPTIVE:
+            strcpy(rt_alg, "PROG_ADAPTIVE");
+        break;
+        case PROG_ADAPTIVE_LEGACY:
+            strcpy(rt_alg, "PROG_ADAPTIVE_LEGACY");
+        break;
+        default:
+            tw_error(TW_LOC, "Routing Algorithm is UNDEFINED - did you call get_routing_alg_string() before setting the static global variable: 'routing'?");
+        break;
+    }
+    return rt_alg;
+}
+
+static bool isRoutingAdaptive(int alg)
+{
+    if (alg == ADAPTIVE || alg == PROG_ADAPTIVE || alg == PROG_ADAPTIVE_LEGACY)
+        return true;
+    else
+        return false;
+}
+
+static bool isRoutingMinimal(int alg)
+{
+    if (alg == MINIMAL)
+        return true;
+    else
+        return false;
+}
+
+static bool isRoutingNonminimalExplicit(int alg)
+{
+    if (alg == NON_MINIMAL)
+        return true;
+    else
+        return false;
+}
+
 /* handles terminal and router events like packet generate/send/receive/buffer */
 typedef struct terminal_state terminal_state;
 typedef struct router_state router_state;
@@ -390,128 +513,7 @@ struct router_state
     struct dfly_router_sample ross_rsample;
 };
 
-typedef enum qos_priority
-{
-    Q_HIGH =0,
-    Q_MEDIUM,
-    Q_LOW,
-    Q_UNKNOWN,
-} qos_priority;
 
-typedef enum qos_status
-{
-    Q_ACTIVE = 1,
-    Q_OVERBW,
-} qos_status;
-
-// Used to denote whether a connection is one that would allow a packet to continue along a minimal path or not
-// Specifically used to clearly pass whether a connection is a minimal one through to the connection scoring function
-typedef enum conn_minimality_t
-{
-    C_MIN = 1,
-    C_NONMIN
-} conn_minimality_t;
-
-// See implementations in dfdally_score_connection()
-typedef enum route_scoring_metric_t
-{
-    ALPHA = 1, //Count queue lengths and pending messages for a port
-    BETA, //Expected Hops to Destination * (Count queue lengths and pending messages) for a port
-    GAMMA,
-    DELTA //count queue lengths and pending messages for a port, biased 2x against nonminimal conns
-} route_scoring_metric_t;
-
-/* Enumeration of types of events sent between model LPs */
-typedef enum event_t
-{
-    T_GENERATE=1,
-    T_ARRIVE,
-    T_SEND,
-    T_BUFFER,
-    R_SEND,
-    R_ARRIVE,
-    R_BUFFER,
-    R_BANDWIDTH,
-    R_BW_HALT,
-    T_BANDWIDTH,
-} event_t;
-
-/* whether the last hop of a packet was global, local or a terminal */
-enum last_hop
-{
-    GLOBAL=1,
-    LOCAL,
-    TERMINAL,
-    ROOT
-};
-
-/* Routing Algorithms Implemented:
-    Minimal - Guarantees shortest path between terminals, next stop is polled randomly from set of legal next stops
-    Non-Minimal - Valiant routing, picks random group, routes there first, then routes to destination. Next stop is poleld randomly from set of legal next stops
-    Adaptive - UGAL, not yet implmented TODO: Implement
-    Prog-adaptive - PAR
-    Prog-adaptive Legacy - Old implementation of PAR (use at own risk)
-*/
-enum ROUTING_ALGO
-{
-    MINIMAL = 1,
-    NON_MINIMAL,
-    ADAPTIVE,
-    PROG_ADAPTIVE,
-    PROG_ADAPTIVE_LEGACY
-};
-
-
-static char* get_routing_alg_chararray(int routing_alg_int)
-{
-    char* rt_alg = (char*) calloc(MAX_ROUTING_CHARS, sizeof(char));
-    switch (routing_alg_int)
-    {
-        case MINIMAL:
-            strcpy(rt_alg, "MINIMAL");
-        break;
-        case NON_MINIMAL:
-            strcpy(rt_alg, "NON_MINIMAL");
-        break;
-        case ADAPTIVE:
-            strcpy(rt_alg, "ADAPTIVE");
-        break;
-        case PROG_ADAPTIVE:
-            strcpy(rt_alg, "PROG_ADAPTIVE");
-        break;
-        case PROG_ADAPTIVE_LEGACY:
-            strcpy(rt_alg, "PROG_ADAPTIVE_LEGACY");
-        break;
-        default:
-            tw_error(TW_LOC, "Routing Algorithm is UNDEFINED - did you call get_routing_alg_string() before setting the static global variable: 'routing'?");
-        break;
-    }
-    return rt_alg;
-}
-
-static bool isRoutingAdaptive(int alg)
-{
-    if (alg == ADAPTIVE || alg == PROG_ADAPTIVE || alg == PROG_ADAPTIVE_LEGACY)
-        return true;
-    else
-        return false;
-}
-
-static bool isRoutingMinimal(int alg)
-{
-    if (alg == MINIMAL)
-        return true;
-    else
-        return false;
-}
-
-static bool isRoutingNonminimalExplicit(int alg)
-{
-    if (alg == NON_MINIMAL)
-        return true;
-    else
-        return false;
-}
 
 /* had to pull some of the ROSS model stats collection stuff up here */
 void custom_dally_dragonfly_event_collect(terminal_dally_message *m, tw_lp *lp, char *buffer, int *collect_flag);
@@ -643,6 +645,356 @@ static void custom_dally_router_register_model_types(st_model_types *base_type)
 }
 /*** END of ROSS event tracing additions */
 
+static void ross_dally_dragonfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dfly_router_sample *sample)
+{
+    (void)lp;
+    (void)bf;
+
+    const dragonfly_param * p = s->params; 
+    int i = 0;
+
+    sample->router_id = s->router_id;
+    sample->end_time = tw_now(lp);
+    sample->fwd_events = s->ross_rsample.fwd_events;
+    sample->rev_events = s->ross_rsample.rev_events;
+    sample->busy_time = (tw_stime*)((&sample->rev_events) + 1);
+    sample->link_traffic_sample = (int64_t*)((&sample->busy_time[0]) + p->radix);
+
+    for(; i < p->radix; i++)
+    {
+        sample->busy_time[i] = s->ross_rsample.busy_time[i]; 
+        sample->link_traffic_sample[i] = s->ross_rsample.link_traffic_sample[i]; 
+    }
+
+    /* clear up the current router stats */
+    s->ross_rsample.fwd_events = 0;
+    s->ross_rsample.rev_events = 0;
+
+    for( i = 0; i < p->radix; i++)
+    {
+        s->ross_rsample.busy_time[i] = 0;
+        s->ross_rsample.link_traffic_sample[i] = 0;
+    }
+}
+
+static void ross_dally_dragonfly_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dfly_router_sample *sample)
+{
+    (void)lp;
+    (void)bf;
+    
+    const dragonfly_param * p = s->params;
+    int i =0;
+
+    for(; i < p->radix; i++)
+    {
+        s->ross_rsample.busy_time[i] = sample->busy_time[i];
+        s->ross_rsample.link_traffic_sample[i] = sample->link_traffic_sample[i];
+    }
+
+    s->ross_rsample.fwd_events = sample->fwd_events;
+    s->ross_rsample.rev_events = sample->rev_events;
+}
+
+static void ross_dally_dragonfly_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample)
+{
+    (void)lp;
+    (void)bf;
+    
+    sample->terminal_id = s->terminal_id;
+    sample->fin_chunks_sample = s->ross_sample.fin_chunks_sample;
+    sample->data_size_sample = s->ross_sample.data_size_sample;
+    sample->fin_hops_sample = s->ross_sample.fin_hops_sample;
+    sample->fin_chunks_time = s->ross_sample.fin_chunks_time;
+    sample->busy_time_sample = s->ross_sample.busy_time_sample;
+    sample->end_time = tw_now(lp);
+    sample->fwd_events = s->ross_sample.fwd_events;
+    sample->rev_events = s->ross_sample.rev_events;
+
+    s->ross_sample.fin_chunks_sample = 0;
+    s->ross_sample.data_size_sample = 0;
+    s->ross_sample.fin_hops_sample = 0;
+    s->ross_sample.fwd_events = 0;
+    s->ross_sample.rev_events = 0;
+    s->ross_sample.fin_chunks_time = 0;
+    s->ross_sample.busy_time_sample = 0;
+}
+
+static void ross_dally_dragonfly_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample)
+{
+    (void)lp;
+    (void)bf;
+
+    s->ross_sample.busy_time_sample = sample->busy_time_sample;
+    s->ross_sample.fin_chunks_time = sample->fin_chunks_time;
+    s->ross_sample.fin_hops_sample = sample->fin_hops_sample;
+    s->ross_sample.data_size_sample = sample->data_size_sample;
+    s->ross_sample.fin_chunks_sample = sample->fin_chunks_sample;
+    s->ross_sample.fwd_events = sample->fwd_events;
+    s->ross_sample.rev_events = sample->rev_events;
+}
+
+void dragonfly_dally_rsample_init(router_state * s,
+        tw_lp * lp)
+{
+    (void)lp;
+    int i = 0;
+    const dragonfly_param * p = s->params;
+
+    assert(p->radix);
+
+    s->max_arr_size = MAX_STATS;
+    s->rsamples = (struct dfly_router_sample*)calloc(MAX_STATS, sizeof(struct dfly_router_sample)); 
+    for(; i < s->max_arr_size; i++)
+    {
+        s->rsamples[i].busy_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime)); 
+        s->rsamples[i].link_traffic_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
+    }
+}
+
+void dragonfly_dally_rsample_rc_fn(router_state * s,
+        tw_bf * bf,
+        terminal_dally_message * msg, 
+        tw_lp * lp)
+{
+    (void)bf;
+    (void)lp;
+    (void)msg;
+
+    s->op_arr_size--;
+    int cur_indx = s->op_arr_size;
+    struct dfly_router_sample stat = s->rsamples[cur_indx];
+
+    const dragonfly_param * p = s->params;
+    int i =0;
+
+    for(; i < p->radix; i++)
+    {
+        s->busy_time_sample[i] = stat.busy_time[i];
+        s->link_traffic_sample[i] = stat.link_traffic_sample[i];
+    }
+
+    for( i = 0; i < p->radix; i++)
+    {
+        stat.busy_time[i] = 0;
+        stat.link_traffic_sample[i] = 0;
+    }
+    s->fwd_events = stat.fwd_events;
+    s->rev_events = stat.rev_events;
+}
+
+void dragonfly_dally_rsample_fn(router_state * s,
+        tw_bf * bf,
+        terminal_dally_message * msg, 
+        tw_lp * lp)
+{
+    (void)bf;
+    (void)lp;
+    (void)msg;
+
+    const dragonfly_param * p = s->params; 
+
+    if(s->op_arr_size >= s->max_arr_size) 
+    {
+        struct dfly_router_sample * tmp = (dfly_router_sample *)calloc((MAX_STATS + s->max_arr_size), sizeof(struct dfly_router_sample));
+        memcpy(tmp, s->rsamples, s->op_arr_size * sizeof(struct dfly_router_sample));
+        free(s->rsamples);
+        s->rsamples = tmp;
+        s->max_arr_size += MAX_STATS;
+    }
+
+    int i = 0;
+    int cur_indx = s->op_arr_size; 
+
+    s->rsamples[cur_indx].router_id = s->router_id;
+    s->rsamples[cur_indx].end_time = tw_now(lp);
+    s->rsamples[cur_indx].fwd_events = s->fwd_events;
+    s->rsamples[cur_indx].rev_events = s->rev_events;
+
+    for(; i < p->radix; i++)
+    {
+        s->rsamples[cur_indx].busy_time[i] = s->busy_time_sample[i]; 
+        s->rsamples[cur_indx].link_traffic_sample[i] = s->link_traffic_sample[i]; 
+    }
+
+    s->op_arr_size++;
+
+    /* clear up the current router stats */
+    s->fwd_events = 0;
+    s->rev_events = 0;
+
+    for( i = 0; i < p->radix; i++)
+    {
+        s->busy_time_sample[i] = 0;
+        s->link_traffic_sample[i] = 0;
+    }
+}
+
+//TODO redo this
+void dragonfly_dally_rsample_fin(router_state * s,
+        tw_lp * lp)
+{
+    (void)lp;
+    const dragonfly_param * p = s->params;
+
+    if(s->router_id == 0)
+    {
+        /* write metadata file */
+        char meta_fname[64];
+        sprintf(meta_fname, "dragonfly-router-sampling.meta");
+
+        FILE * fp = fopen(meta_fname, "w");
+        fprintf(fp, "Router sample struct format: \nrouter_id (tw_lpid) \nbusy time for each of the %d links (double) \n"
+                "link traffic for each of the %d links (int64_t) \nsample end time (double) forward events per sample \nreverse events per sample ",
+                p->radix, p->radix);
+        // fprintf(fp, "\n\nOrdering of links \n%d green (router-router same row) channels \n %d black (router-router same column) channels \n %d global (router-router remote group)"
+        //         " channels \n %d terminal channels", p->num_router_cols * p->num_row_chans, p->num_router_rows * p->num_col_chans, p->num_global_channels, p->num_cn);
+        fclose(fp);
+    }
+        char rt_fn[MAX_NAME_LENGTH];
+        if(strcmp(router_sample_file, "") == 0)
+            sprintf(rt_fn, "dragonfly-router-sampling-%ld.bin", g_tw_mynode); 
+        else
+            sprintf(rt_fn, "%s-%ld.bin", router_sample_file, g_tw_mynode);
+        
+        int i = 0;
+
+        int size_sample = sizeof(tw_lpid) + p->radix * (sizeof(int64_t) + sizeof(tw_stime)) + sizeof(tw_stime) + 2 * sizeof(long);
+        FILE * fp = fopen(rt_fn, "a");
+        fseek(fp, sample_rtr_bytes_written, SEEK_SET);
+
+        for(; i < s->op_arr_size; i++)
+        {
+            fwrite((void*)&(s->rsamples[i].router_id), sizeof(tw_lpid), 1, fp);
+            fwrite(s->rsamples[i].busy_time, sizeof(tw_stime), p->radix, fp);
+            fwrite(s->rsamples[i].link_traffic_sample, sizeof(int64_t), p->radix, fp);
+            fwrite((void*)&(s->rsamples[i].end_time), sizeof(tw_stime), 1, fp);
+            fwrite((void*)&(s->rsamples[i].fwd_events), sizeof(long), 1, fp);
+            fwrite((void*)&(s->rsamples[i].rev_events), sizeof(long), 1, fp);
+        }
+        sample_rtr_bytes_written += (s->op_arr_size * size_sample);
+        fclose(fp);
+}
+void dragonfly_dally_sample_init(terminal_state * s,
+        tw_lp * lp)
+{
+    (void)lp;
+    s->fin_chunks_sample = 0;
+    s->data_size_sample = 0;
+    s->fin_hops_sample = 0;
+    s->fin_chunks_time = 0;
+    s->busy_time_sample = 0;
+
+    s->op_arr_size = 0;
+    s->max_arr_size = MAX_STATS;
+
+    s->sample_stat = (dfly_cn_sample *)calloc(MAX_STATS, sizeof(struct dfly_cn_sample));
+    
+}
+void dragonfly_dally_sample_rc_fn(terminal_state * s,
+        tw_bf * bf,
+        terminal_dally_message * msg, 
+        tw_lp * lp)
+{
+    (void)lp;
+    (void)bf;
+    (void)msg;
+
+    s->op_arr_size--;
+    int cur_indx = s->op_arr_size;
+    struct dfly_cn_sample stat = s->sample_stat[cur_indx];
+    s->busy_time_sample = stat.busy_time_sample;
+    s->fin_chunks_time = stat.fin_chunks_time;
+    s->fin_hops_sample = stat.fin_hops_sample;
+    s->data_size_sample = stat.data_size_sample;
+    s->fin_chunks_sample = stat.fin_chunks_sample;
+    s->fwd_events = stat.fwd_events;
+    s->rev_events = stat.rev_events;
+
+    stat.busy_time_sample = 0;
+    stat.fin_chunks_time = 0;
+    stat.fin_hops_sample = 0;
+    stat.data_size_sample = 0;
+    stat.fin_chunks_sample = 0;
+    stat.end_time = 0;
+    stat.terminal_id = 0;
+    stat.fwd_events = 0;
+    stat.rev_events = 0;
+}
+
+void dragonfly_dally_sample_fn(terminal_state * s,
+        tw_bf * bf,
+        terminal_dally_message * msg,
+        tw_lp * lp)
+{
+    (void)lp;
+    (void)msg;
+    (void)bf;
+    
+    if(s->op_arr_size >= s->max_arr_size)
+    {
+        /* In the worst case, copy array to a new memory location, its very
+         * expensive operation though */
+        struct dfly_cn_sample * tmp = (dfly_cn_sample *)calloc((MAX_STATS + s->max_arr_size), sizeof(struct dfly_cn_sample));
+        memcpy(tmp, s->sample_stat, s->op_arr_size * sizeof(struct dfly_cn_sample));
+        free(s->sample_stat);
+        s->sample_stat = tmp;
+        s->max_arr_size += MAX_STATS;
+    }
+    
+    int cur_indx = s->op_arr_size;
+
+    s->sample_stat[cur_indx].terminal_id = s->terminal_id;
+    s->sample_stat[cur_indx].fin_chunks_sample = s->fin_chunks_sample;
+    s->sample_stat[cur_indx].data_size_sample = s->data_size_sample;
+    s->sample_stat[cur_indx].fin_hops_sample = s->fin_hops_sample;
+    s->sample_stat[cur_indx].fin_chunks_time = s->fin_chunks_time;
+    s->sample_stat[cur_indx].busy_time_sample = s->busy_time_sample;
+    s->sample_stat[cur_indx].end_time = tw_now(lp);
+    s->sample_stat[cur_indx].fwd_events = s->fwd_events;
+    s->sample_stat[cur_indx].rev_events = s->rev_events;
+
+    s->op_arr_size++;
+    s->fin_chunks_sample = 0;
+    s->data_size_sample = 0;
+    s->fin_hops_sample = 0;
+    s->fwd_events = 0;
+    s->rev_events = 0;
+    s->fin_chunks_time = 0;
+    s->busy_time_sample = 0;
+}
+
+void dragonfly_dally_sample_fin(terminal_state * s,
+        tw_lp * lp)
+{
+    (void)lp;
+ 
+    if(!g_tw_mynode)
+    {
+    
+        /* write metadata file */
+        char meta_fname[64];
+        sprintf(meta_fname, "dragonfly-cn-sampling.meta");
+
+        FILE * fp = fopen(meta_fname, "w");
+        fprintf(fp, "Compute node sample format\nterminal_id (tw_lpid) \nfinished chunks (long)"
+                "\ndata size per sample (long) \nfinished hops (double) \ntime to finish chunks (double)"
+                "\nbusy time (double)\nsample end time(double) \nforward events (long) \nreverse events (long)");
+        fclose(fp);
+    }
+
+        char rt_fn[MAX_NAME_LENGTH];
+        if(strncmp(cn_sample_file, "", 10) == 0)
+            sprintf(rt_fn, "dragonfly-cn-sampling-%ld.bin", g_tw_mynode); 
+        else
+            sprintf(rt_fn, "%s-%ld.bin", cn_sample_file, g_tw_mynode);
+
+        FILE * fp = fopen(rt_fn, "a");
+        fseek(fp, sample_bytes_written, SEEK_SET);
+        fwrite(s->sample_stat, sizeof(struct dfly_cn_sample), s->op_arr_size, fp);
+        fclose(fp);
+
+        sample_bytes_written += (s->op_arr_size * sizeof(struct dfly_cn_sample));
+}
 
 static short routing = MINIMAL;
 static short scoring = ALPHA;
@@ -1408,6 +1760,23 @@ int get_vcg_from_category(terminal_dally_message * msg)
        tw_error(TW_LOC, "\n priority needs to be specified with qos_levels>1 %d", msg->category);
 }
 
+static int get_term_bandwidth_consumption(terminal_state * s, int qos_lvl)
+{
+    assert(qos_lvl >= Q_HIGH && qos_lvl <= Q_LOW);
+
+    //tw_stime reset_window_s = ns_to_s(bw_reset_window); 
+    //double bw_gib = bytes_to_gigabytes(s->qos_data[qos_lvl]);
+
+    //double bw_consumed = ((double)bw_gib / (double)reset_window_s);
+    double max_bw = s->params->cn_bandwidth * 1024.0 * 1024.0 * 1024.0;
+    double max_bw_per_ns = max_bw / (1000.0 * 1000.0 * 1000.0);
+    double max_bytes_per_win = max_bw_per_ns * bw_reset_window;
+//    int percent_bw = (bw_consumed / s->params->cn_bandwidth) * 100;
+    int percent_bw = (((double)s->qos_data[qos_lvl]) / max_bytes_per_win) * 100;
+//    printf("\n At terminal %lf max bytes %d percent %d ", max_bytes_per_win, s->qos_data[qos_lvl], percent_bw);
+    return percent_bw;
+}
+
 /* TODO: Differentiate between local and global bandwidths. */
 static int get_rtr_bandwidth_consumption(router_state * s, int qos_lvl, int output_port)
 {
@@ -1432,7 +1801,6 @@ static int get_rtr_bandwidth_consumption(router_state * s, int qos_lvl, int outp
     int percent_bw = (((double)s->qos_data[output_port][qos_lvl]) / max_bytes_per_win) * 100;
 //    printf("\n percent bw consumed by qos_lvl %d is %d bytes transferred %d max_bw %lf ", qos_lvl, percent_bw, s->qos_data[output_port][qos_lvl], max_bw_per_ns);
     return percent_bw;
-
 }
 
 void issue_bw_monitor_event_rc(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
@@ -1592,22 +1960,71 @@ void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_dally_messa
     tw_event_send(e);
 }
 
-static int get_term_bandwidth_consumption(terminal_state * s, int qos_lvl)
+static int get_next_vcg(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
 {
-    assert(qos_lvl >= Q_HIGH && qos_lvl <= Q_LOW);
+    int num_qos_levels = s->params->num_qos_levels;
+    
+    if(num_qos_levels == 1)
+    {
+        if(s->terminal_msgs[0] == NULL || s->vc_occupancy[0] + s->params->chunk_size > s->params->cn_vc_size)
+            return -1;
+        else
+            return 0;
+    }
 
-    //tw_stime reset_window_s = ns_to_s(bw_reset_window); 
-    //double bw_gib = bytes_to_gigabytes(s->qos_data[qos_lvl]);
+    int bw_consumption[num_qos_levels];
 
-    //double bw_consumed = ((double)bw_gib / (double)reset_window_s);
-    double max_bw = s->params->cn_bandwidth * 1024.0 * 1024.0 * 1024.0;
-    double max_bw_per_ns = max_bw / (1000.0 * 1000.0 * 1000.0);
-    double max_bytes_per_win = max_bw_per_ns * bw_reset_window;
-//    int percent_bw = (bw_consumed / s->params->cn_bandwidth) * 100;
-    int percent_bw = (((double)s->qos_data[qos_lvl]) / max_bytes_per_win) * 100;
-//    printf("\n At terminal %lf max bytes %d percent %d ", max_bytes_per_win, s->qos_data[qos_lvl], percent_bw);
-    return percent_bw;
+    /* First make sure the bandwidth consumptions are up to date. */
+    for(int k = 0; k < num_qos_levels; k++)
+    {
+        if(s->qos_status[k] != Q_OVERBW)
+        {
+            bw_consumption[k] = get_term_bandwidth_consumption(s, k);
+            if(bw_consumption[k] > s->params->qos_bandwidths[k]) 
+            {
+                if(k == 0)
+                    msg->qos_reset1 = 1;
+                else if(k == 1)
+                    msg->qos_reset2 = 1;
+
+                s->qos_status[k] = Q_OVERBW;
+            }
+        }
+    }
+    /* TODO: If none of the vcg is exceeding bandwidth limit then select high
+    * priority traffic first. */
+    if(BW_MONITOR == 1)
+    {
+        for(int i = 0; i < num_qos_levels; i++)
+        {
+            if(s->qos_status[i] == Q_ACTIVE)
+            {
+                if(s->terminal_msgs[i] != NULL && s->vc_occupancy[i] + s->params->chunk_size <= s->params->cn_vc_size)
+                    return i;
+            }
+        }
+    }
+
+
+    int next_rr_vcg = (s->last_qos_lvl + 1) % num_qos_levels;
+    /* All vcgs are exceeding their bandwidth limits*/
+    for(int i = 0; i < num_qos_levels; i++)
+    {
+        if(s->terminal_msgs[i] != NULL && s->vc_occupancy[i] + s->params->chunk_size <= s->params->cn_vc_size)
+        {
+            bf->c2 = 1;
+            
+            if(msg->last_saved_qos < 0)
+                msg->last_saved_qos = s->last_qos_lvl;
+            
+            s->last_qos_lvl = next_rr_vcg;
+            return i;
+        }
+        next_rr_vcg = (next_rr_vcg + 1) % num_qos_levels;
+    }
+    return -1;
 }
+
 static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
 {
     int num_qos_levels = s->params->num_qos_levels;
@@ -1683,429 +2100,12 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
     return -1;
 }
 
-static int get_next_vcg(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
-{
-    int num_qos_levels = s->params->num_qos_levels;
-    
-    if(num_qos_levels == 1)
-    {
-        if(s->terminal_msgs[0] == NULL || s->vc_occupancy[0] + s->params->chunk_size > s->params->cn_vc_size)
-            return -1;
-        else
-            return 0;
-    }
-
-    int bw_consumption[num_qos_levels];
-
-    /* First make sure the bandwidth consumptions are up to date. */
-    for(int k = 0; k < num_qos_levels; k++)
-    {
-        if(s->qos_status[k] != Q_OVERBW)
-        {
-            bw_consumption[k] = get_term_bandwidth_consumption(s, k);
-            if(bw_consumption[k] > s->params->qos_bandwidths[k]) 
-            {
-                if(k == 0)
-                    msg->qos_reset1 = 1;
-                else if(k == 1)
-                    msg->qos_reset2 = 1;
-
-                s->qos_status[k] = Q_OVERBW;
-            }
-        }
-    }
-    /* TODO: If none of the vcg is exceeding bandwidth limit then select high
-    * priority traffic first. */
-    if(BW_MONITOR == 1)
-    {
-        for(int i = 0; i < num_qos_levels; i++)
-        {
-            if(s->qos_status[i] == Q_ACTIVE)
-            {
-                if(s->terminal_msgs[i] != NULL && s->vc_occupancy[i] + s->params->chunk_size <= s->params->cn_vc_size)
-                    return i;
-            }
-        }
-    }
-
-
-    int next_rr_vcg = (s->last_qos_lvl + 1) % num_qos_levels;
-    /* All vcgs are exceeding their bandwidth limits*/
-    for(int i = 0; i < num_qos_levels; i++)
-    {
-        if(s->terminal_msgs[i] != NULL && s->vc_occupancy[i] + s->params->chunk_size <= s->params->cn_vc_size)
-        {
-            bf->c2 = 1;
-            
-            if(msg->last_saved_qos < 0)
-                msg->last_saved_qos = s->last_qos_lvl;
-            
-            s->last_qos_lvl = next_rr_vcg;
-            return i;
-        }
-        next_rr_vcg = (next_rr_vcg + 1) % num_qos_levels;
-    }
-    return -1;
-}
-
-
-static void ross_dally_dragonfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dfly_router_sample *sample)
-{
-    (void)lp;
-    (void)bf;
-
-    const dragonfly_param * p = s->params; 
-    int i = 0;
-
-    sample->router_id = s->router_id;
-    sample->end_time = tw_now(lp);
-    sample->fwd_events = s->ross_rsample.fwd_events;
-    sample->rev_events = s->ross_rsample.rev_events;
-    sample->busy_time = (tw_stime*)((&sample->rev_events) + 1);
-    sample->link_traffic_sample = (int64_t*)((&sample->busy_time[0]) + p->radix);
-
-    for(; i < p->radix; i++)
-    {
-        sample->busy_time[i] = s->ross_rsample.busy_time[i]; 
-        sample->link_traffic_sample[i] = s->ross_rsample.link_traffic_sample[i]; 
-    }
-
-    /* clear up the current router stats */
-    s->ross_rsample.fwd_events = 0;
-    s->ross_rsample.rev_events = 0;
-
-    for( i = 0; i < p->radix; i++)
-    {
-        s->ross_rsample.busy_time[i] = 0;
-        s->ross_rsample.link_traffic_sample[i] = 0;
-    }
-}
-
-static void ross_dally_dragonfly_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dfly_router_sample *sample)
-{
-    (void)lp;
-    (void)bf;
-    
-    const dragonfly_param * p = s->params;
-    int i =0;
-
-    for(; i < p->radix; i++)
-    {
-        s->ross_rsample.busy_time[i] = sample->busy_time[i];
-        s->ross_rsample.link_traffic_sample[i] = sample->link_traffic_sample[i];
-    }
-
-    s->ross_rsample.fwd_events = sample->fwd_events;
-    s->ross_rsample.rev_events = sample->rev_events;
-}
-
-static void ross_dally_dragonfly_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample)
-{
-    (void)lp;
-    (void)bf;
-    
-    sample->terminal_id = s->terminal_id;
-    sample->fin_chunks_sample = s->ross_sample.fin_chunks_sample;
-    sample->data_size_sample = s->ross_sample.data_size_sample;
-    sample->fin_hops_sample = s->ross_sample.fin_hops_sample;
-    sample->fin_chunks_time = s->ross_sample.fin_chunks_time;
-    sample->busy_time_sample = s->ross_sample.busy_time_sample;
-    sample->end_time = tw_now(lp);
-    sample->fwd_events = s->ross_sample.fwd_events;
-    sample->rev_events = s->ross_sample.rev_events;
-
-    s->ross_sample.fin_chunks_sample = 0;
-    s->ross_sample.data_size_sample = 0;
-    s->ross_sample.fin_hops_sample = 0;
-    s->ross_sample.fwd_events = 0;
-    s->ross_sample.rev_events = 0;
-    s->ross_sample.fin_chunks_time = 0;
-    s->ross_sample.busy_time_sample = 0;
-}
-
-static void ross_dally_dragonfly_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample)
-{
-    (void)lp;
-    (void)bf;
-
-    s->ross_sample.busy_time_sample = sample->busy_time_sample;
-    s->ross_sample.fin_chunks_time = sample->fin_chunks_time;
-    s->ross_sample.fin_hops_sample = sample->fin_hops_sample;
-    s->ross_sample.data_size_sample = sample->data_size_sample;
-    s->ross_sample.fin_chunks_sample = sample->fin_chunks_sample;
-    s->ross_sample.fwd_events = sample->fwd_events;
-    s->ross_sample.rev_events = sample->rev_events;
-}
-
-void dragonfly_dally_rsample_init(router_state * s,
-        tw_lp * lp)
-{
-    (void)lp;
-    int i = 0;
-    const dragonfly_param * p = s->params;
-
-    assert(p->radix);
-
-    s->max_arr_size = MAX_STATS;
-    s->rsamples = (struct dfly_router_sample*)calloc(MAX_STATS, sizeof(struct dfly_router_sample)); 
-    for(; i < s->max_arr_size; i++)
-    {
-        s->rsamples[i].busy_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime)); 
-        s->rsamples[i].link_traffic_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
-    }
-}
-
-void dragonfly_dally_rsample_rc_fn(router_state * s,
-        tw_bf * bf,
-        terminal_dally_message * msg, 
-        tw_lp * lp)
-{
-    (void)bf;
-    (void)lp;
-    (void)msg;
-
-    s->op_arr_size--;
-    int cur_indx = s->op_arr_size;
-    struct dfly_router_sample stat = s->rsamples[cur_indx];
-
-    const dragonfly_param * p = s->params;
-    int i =0;
-
-    for(; i < p->radix; i++)
-    {
-        s->busy_time_sample[i] = stat.busy_time[i];
-        s->link_traffic_sample[i] = stat.link_traffic_sample[i];
-    }
-
-    for( i = 0; i < p->radix; i++)
-    {
-        stat.busy_time[i] = 0;
-        stat.link_traffic_sample[i] = 0;
-    }
-    s->fwd_events = stat.fwd_events;
-    s->rev_events = stat.rev_events;
-}
-
-void dragonfly_dally_rsample_fn(router_state * s,
-        tw_bf * bf,
-        terminal_dally_message * msg, 
-        tw_lp * lp)
-{
-    (void)bf;
-    (void)lp;
-    (void)msg;
-
-    const dragonfly_param * p = s->params; 
-
-    if(s->op_arr_size >= s->max_arr_size) 
-    {
-        struct dfly_router_sample * tmp = (dfly_router_sample *)calloc((MAX_STATS + s->max_arr_size), sizeof(struct dfly_router_sample));
-        memcpy(tmp, s->rsamples, s->op_arr_size * sizeof(struct dfly_router_sample));
-        free(s->rsamples);
-        s->rsamples = tmp;
-        s->max_arr_size += MAX_STATS;
-    }
-
-    int i = 0;
-    int cur_indx = s->op_arr_size; 
-
-    s->rsamples[cur_indx].router_id = s->router_id;
-    s->rsamples[cur_indx].end_time = tw_now(lp);
-    s->rsamples[cur_indx].fwd_events = s->fwd_events;
-    s->rsamples[cur_indx].rev_events = s->rev_events;
-
-    for(; i < p->radix; i++)
-    {
-        s->rsamples[cur_indx].busy_time[i] = s->busy_time_sample[i]; 
-        s->rsamples[cur_indx].link_traffic_sample[i] = s->link_traffic_sample[i]; 
-    }
-
-    s->op_arr_size++;
-
-    /* clear up the current router stats */
-    s->fwd_events = 0;
-    s->rev_events = 0;
-
-    for( i = 0; i < p->radix; i++)
-    {
-        s->busy_time_sample[i] = 0;
-        s->link_traffic_sample[i] = 0;
-    }
-}
-
-//TODO redo this
-void dragonfly_dally_rsample_fin(router_state * s,
-        tw_lp * lp)
-{
-    (void)lp;
-    const dragonfly_param * p = s->params;
-
-    if(s->router_id == 0)
-    {
-        /* write metadata file */
-        char meta_fname[64];
-        sprintf(meta_fname, "dragonfly-router-sampling.meta");
-
-        FILE * fp = fopen(meta_fname, "w");
-        fprintf(fp, "Router sample struct format: \nrouter_id (tw_lpid) \nbusy time for each of the %d links (double) \n"
-                "link traffic for each of the %d links (int64_t) \nsample end time (double) forward events per sample \nreverse events per sample ",
-                p->radix, p->radix);
-        // fprintf(fp, "\n\nOrdering of links \n%d green (router-router same row) channels \n %d black (router-router same column) channels \n %d global (router-router remote group)"
-        //         " channels \n %d terminal channels", p->num_router_cols * p->num_row_chans, p->num_router_rows * p->num_col_chans, p->num_global_channels, p->num_cn);
-        fclose(fp);
-    }
-        char rt_fn[MAX_NAME_LENGTH];
-        if(strcmp(router_sample_file, "") == 0)
-            sprintf(rt_fn, "dragonfly-router-sampling-%ld.bin", g_tw_mynode); 
-        else
-            sprintf(rt_fn, "%s-%ld.bin", router_sample_file, g_tw_mynode);
-        
-        int i = 0;
-
-        int size_sample = sizeof(tw_lpid) + p->radix * (sizeof(int64_t) + sizeof(tw_stime)) + sizeof(tw_stime) + 2 * sizeof(long);
-        FILE * fp = fopen(rt_fn, "a");
-        fseek(fp, sample_rtr_bytes_written, SEEK_SET);
-
-        for(; i < s->op_arr_size; i++)
-        {
-            fwrite((void*)&(s->rsamples[i].router_id), sizeof(tw_lpid), 1, fp);
-            fwrite(s->rsamples[i].busy_time, sizeof(tw_stime), p->radix, fp);
-            fwrite(s->rsamples[i].link_traffic_sample, sizeof(int64_t), p->radix, fp);
-            fwrite((void*)&(s->rsamples[i].end_time), sizeof(tw_stime), 1, fp);
-            fwrite((void*)&(s->rsamples[i].fwd_events), sizeof(long), 1, fp);
-            fwrite((void*)&(s->rsamples[i].rev_events), sizeof(long), 1, fp);
-        }
-        sample_rtr_bytes_written += (s->op_arr_size * size_sample);
-        fclose(fp);
-}
-void dragonfly_dally_sample_init(terminal_state * s,
-        tw_lp * lp)
-{
-    (void)lp;
-    s->fin_chunks_sample = 0;
-    s->data_size_sample = 0;
-    s->fin_hops_sample = 0;
-    s->fin_chunks_time = 0;
-    s->busy_time_sample = 0;
-
-    s->op_arr_size = 0;
-    s->max_arr_size = MAX_STATS;
-
-    s->sample_stat = (dfly_cn_sample *)calloc(MAX_STATS, sizeof(struct dfly_cn_sample));
-    
-}
-void dragonfly_dally_sample_rc_fn(terminal_state * s,
-        tw_bf * bf,
-        terminal_dally_message * msg, 
-        tw_lp * lp)
-{
-    (void)lp;
-    (void)bf;
-    (void)msg;
-
-    s->op_arr_size--;
-    int cur_indx = s->op_arr_size;
-    struct dfly_cn_sample stat = s->sample_stat[cur_indx];
-    s->busy_time_sample = stat.busy_time_sample;
-    s->fin_chunks_time = stat.fin_chunks_time;
-    s->fin_hops_sample = stat.fin_hops_sample;
-    s->data_size_sample = stat.data_size_sample;
-    s->fin_chunks_sample = stat.fin_chunks_sample;
-    s->fwd_events = stat.fwd_events;
-    s->rev_events = stat.rev_events;
-
-    stat.busy_time_sample = 0;
-    stat.fin_chunks_time = 0;
-    stat.fin_hops_sample = 0;
-    stat.data_size_sample = 0;
-    stat.fin_chunks_sample = 0;
-    stat.end_time = 0;
-    stat.terminal_id = 0;
-    stat.fwd_events = 0;
-    stat.rev_events = 0;
-}
-
-void dragonfly_dally_sample_fn(terminal_state * s,
-        tw_bf * bf,
-        terminal_dally_message * msg,
-        tw_lp * lp)
-{
-    (void)lp;
-    (void)msg;
-    (void)bf;
-    
-    if(s->op_arr_size >= s->max_arr_size)
-    {
-        /* In the worst case, copy array to a new memory location, its very
-         * expensive operation though */
-        struct dfly_cn_sample * tmp = (dfly_cn_sample *)calloc((MAX_STATS + s->max_arr_size), sizeof(struct dfly_cn_sample));
-        memcpy(tmp, s->sample_stat, s->op_arr_size * sizeof(struct dfly_cn_sample));
-        free(s->sample_stat);
-        s->sample_stat = tmp;
-        s->max_arr_size += MAX_STATS;
-    }
-    
-    int cur_indx = s->op_arr_size;
-
-    s->sample_stat[cur_indx].terminal_id = s->terminal_id;
-    s->sample_stat[cur_indx].fin_chunks_sample = s->fin_chunks_sample;
-    s->sample_stat[cur_indx].data_size_sample = s->data_size_sample;
-    s->sample_stat[cur_indx].fin_hops_sample = s->fin_hops_sample;
-    s->sample_stat[cur_indx].fin_chunks_time = s->fin_chunks_time;
-    s->sample_stat[cur_indx].busy_time_sample = s->busy_time_sample;
-    s->sample_stat[cur_indx].end_time = tw_now(lp);
-    s->sample_stat[cur_indx].fwd_events = s->fwd_events;
-    s->sample_stat[cur_indx].rev_events = s->rev_events;
-
-    s->op_arr_size++;
-    s->fin_chunks_sample = 0;
-    s->data_size_sample = 0;
-    s->fin_hops_sample = 0;
-    s->fwd_events = 0;
-    s->rev_events = 0;
-    s->fin_chunks_time = 0;
-    s->busy_time_sample = 0;
-}
-
-void dragonfly_dally_sample_fin(terminal_state * s,
-        tw_lp * lp)
-{
-    (void)lp;
- 
-    if(!g_tw_mynode)
-    {
-    
-        /* write metadata file */
-        char meta_fname[64];
-        sprintf(meta_fname, "dragonfly-cn-sampling.meta");
-
-        FILE * fp = fopen(meta_fname, "w");
-        fprintf(fp, "Compute node sample format\nterminal_id (tw_lpid) \nfinished chunks (long)"
-                "\ndata size per sample (long) \nfinished hops (double) \ntime to finish chunks (double)"
-                "\nbusy time (double)\nsample end time(double) \nforward events (long) \nreverse events (long)");
-        fclose(fp);
-    }
-
-        char rt_fn[MAX_NAME_LENGTH];
-        if(strncmp(cn_sample_file, "", 10) == 0)
-            sprintf(rt_fn, "dragonfly-cn-sampling-%ld.bin", g_tw_mynode); 
-        else
-            sprintf(rt_fn, "%s-%ld.bin", cn_sample_file, g_tw_mynode);
-
-        FILE * fp = fopen(rt_fn, "a");
-        fseek(fp, sample_bytes_written, SEEK_SET);
-        fwrite(s->sample_stat, sizeof(struct dfly_cn_sample), s->op_arr_size, fp);
-        fclose(fp);
-
-        sample_bytes_written += (s->op_arr_size * sizeof(struct dfly_cn_sample));
-}
-
-void router_dally_commit(router_state * s,
+void terminal_dally_commit(terminal_state * s,
 		tw_bf * bf, 
 		terminal_dally_message * msg, 
         tw_lp * lp)
 {
-    if(msg->type == R_BANDWIDTH)
+    if(msg->type == T_BANDWIDTH)
     {
         if(msg->rc_is_qos_set == 1) {
             free(msg->rc_qos_data);
@@ -2114,12 +2114,13 @@ void router_dally_commit(router_state * s,
         }
     }
 }
-void terminal_dally_commit(terminal_state * s,
+
+void router_dally_commit(router_state * s,
 		tw_bf * bf, 
 		terminal_dally_message * msg, 
         tw_lp * lp)
 {
-    if(msg->type == T_BANDWIDTH)
+    if(msg->type == R_BANDWIDTH)
     {
         if(msg->rc_is_qos_set == 1) {
             free(msg->rc_qos_data);
@@ -2358,6 +2359,12 @@ void router_dally_init(router_state * r, tw_lp * lp)
     return;
 }	
 
+/* dragonfly packet event reverse handler */
+static void dragonfly_dally_packet_event_rc(tw_lp *sender)
+{
+	codes_local_latency_reverse(sender);
+	return;
+}
 
 /* dragonfly packet event , generates a dragonfly packet on the compute node */
 static tw_stime dragonfly_dally_packet_event(
@@ -2419,13 +2426,6 @@ static tw_stime dragonfly_dally_packet_event(
 	   //printf("\n dragonfly remote event %d local event %d last packet %d %lf ", msg->remote_event_size_bytes, msg->local_event_size_bytes, is_last_pckt, xfer_to_nic_time);
     tw_event_send(e_new);
     return xfer_to_nic_time;
-}
-
-/* dragonfly packet event reverse handler */
-static void dragonfly_dally_packet_event_rc(tw_lp *sender)
-{
-	codes_local_latency_reverse(sender);
-	return;
 }
 
 static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
@@ -3256,8 +3256,7 @@ static void terminal_buf_update_rc(terminal_state * s,
     return;
 }
 /* update the compute node-router channel buffer */
-static void 
-terminal_buf_update(terminal_state * s, 
+static void terminal_buf_update(terminal_state * s, 
 		    tw_bf * bf, 
 		    terminal_dally_message * msg, 
 		    tw_lp * lp)
@@ -4235,38 +4234,6 @@ terminal_dally_event( terminal_state * s,
         }
 }
 
-/* Reverse computation handler for a terminal event */
-void terminal_dally_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) 
-{
-    s->rev_events++;
-    s->ross_sample.rev_events++;
-    switch(msg->type)
-    {
-        case T_GENERATE:
-            packet_generate_rc(s, bf, msg, lp); 
-            break;
-
-        case T_SEND:
-            packet_send_rc(s, bf, msg, lp);
-            break;
-
-        case T_ARRIVE:
-            packet_arrive_rc(s, bf, msg, lp);
-            break;
-
-        case T_BUFFER:
-            terminal_buf_update_rc(s, bf, msg, lp); 
-            break;
-
-        case T_BANDWIDTH:
-            issue_bw_monitor_event_rc(s,bf, msg, lp);
-            break;
-
-        default:
-            tw_error(TW_LOC, "\n Invalid terminal event type %d ", msg->type);
-    }
-}
-
 void router_dally_event(router_state * s, tw_bf * bf, terminal_dally_message * msg, 
     tw_lp * lp) 
 {
@@ -4304,6 +4271,38 @@ void router_dally_event(router_state * s, tw_bf * bf, terminal_dally_message * m
             tw_error(TW_LOC, "Msg type not supported");
         break;
     }	   
+}
+
+/* Reverse computation handler for a terminal event */
+void terminal_dally_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) 
+{
+    s->rev_events++;
+    s->ross_sample.rev_events++;
+    switch(msg->type)
+    {
+        case T_GENERATE:
+            packet_generate_rc(s, bf, msg, lp); 
+            break;
+
+        case T_SEND:
+            packet_send_rc(s, bf, msg, lp);
+            break;
+
+        case T_ARRIVE:
+            packet_arrive_rc(s, bf, msg, lp);
+            break;
+
+        case T_BUFFER:
+            terminal_buf_update_rc(s, bf, msg, lp); 
+            break;
+
+        case T_BANDWIDTH:
+            issue_bw_monitor_event_rc(s,bf, msg, lp);
+            break;
+
+        default:
+            tw_error(TW_LOC, "\n Invalid terminal event type %d ", msg->type);
+    }
 }
 
 /* Reverse computation handler for a router event */
