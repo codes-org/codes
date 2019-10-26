@@ -360,22 +360,22 @@ static void handle_kickoff_event(
     int num_clients = codes_jobmap_get_num_ranks(jid.job, jobmap_ctx);
 
     /* in case of uniform random traffic, send to a random destination. */
-    if(traffic == UNIFORM)
+    if(pattern == UNIFORM)
     {
         b->c1 = 1;
         local_dest = tw_rand_integer(lp->rng, 0, num_nodes - 1);
     }
-    else if(traffic == NEAREST_GROUP)
+    else if(pattern == NEAREST_GROUP)
     {
         local_dest = (local_id + num_nodes_per_grp) % num_nodes;
         //printf("\n LP %ld sending to %ld num nodes %d ", local_id, local_dest, num_nodes);
     }
-    else if(traffic == NEAREST_NEIGHBOR)
+    else if(pattern == NEAREST_NEIGHBOR)
     {
         local_dest =  (local_id + 1) % num_nodes;
     //	 printf("\n LP %ld sending to %ld num nodes %d ", rep_id * 2 + offset, local_dest, num_nodes);
     }
-   else if(traffic == RAND_PERM)
+   else if(pattern == RAND_PERM)
    {
        if(ns->dest_id == -1)
        {
@@ -388,7 +388,7 @@ static void handle_kickoff_event(
         local_dest = ns->dest_id; 
        }
    }
-    else if(traffic == RANDOM_OTHER_GROUP)
+    else if(pattern == RANDOM_OTHER_GROUP)
     {
         int my_group_id = local_id / num_nodes_per_grp;
 
