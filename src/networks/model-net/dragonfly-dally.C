@@ -428,7 +428,7 @@ struct terminal_state
     tw_stime last_buf_full;
     tw_stime busy_time;
     
-    unsigned long stalled_chunks; //Counter for when a packet cannot be immediately routed
+    unsigned long stalled_chunks; //Counter for when a packet cannot be immediately routed due to full VC
 
     tw_stime max_latency;
     tw_stime min_latency;
@@ -478,7 +478,7 @@ struct router_state
     tw_stime* busy_time;
     tw_stime* busy_time_sample;
 
-    unsigned long* stalled_chunks; //Counter for when a packet is put into queued messages instead of routing
+    unsigned long* stalled_chunks; //Counter for when a packet is put into queued messages instead of routing due to full VC
 
     terminal_dally_message_list ***pending_msgs;
     terminal_dally_message_list ***pending_msgs_tail;
@@ -2131,9 +2131,7 @@ void router_dally_commit(router_state * s,
 }
 
 /* initialize a dragonfly compute node terminal */
-void 
-terminal_dally_init( terminal_state * s, 
-	       tw_lp * lp )
+void terminal_dally_init( terminal_state * s, tw_lp * lp )
 {
     s->packet_gen = 0;
     s->packet_fin = 0;
@@ -2466,26 +2464,25 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     assert(vcg < num_qos_levels);
 
     for(i = 0; i < num_chunks; i++) {
-            delete_terminal_dally_message_list(return_tail(s->terminal_msgs, 
-            s->terminal_msgs_tail, vcg));
+            delete_terminal_dally_message_list(return_tail(s->terminal_msgs, s->terminal_msgs_tail, vcg));
             s->terminal_length[vcg] -= s->params->chunk_size;
     }
-        if(bf->c5) {
-            s->in_send_loop = 0;
-        }
+    if(bf->c5) {
+        s->in_send_loop = 0;
+    }
 
-        if (bf->c11) {
-            s->issueIdle = 0;
-            s->stalled_chunks--;
-            if(bf->c8) {
-                s->last_buf_full = msg->saved_busy_time;
-            }
+    if (bf->c11) {
+        s->issueIdle = 0;
+        s->stalled_chunks--;
+        if(bf->c8) {
+            s->last_buf_full = msg->saved_busy_time;
         }
-        struct mn_stats* stat;
-        stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
-        stat->send_count--;
-        stat->send_bytes -= msg->packet_size;
-        stat->send_time -= (1/s->params->cn_bandwidth) * msg->packet_size;
+    }
+    struct mn_stats* stat;
+    stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+    stat->send_count--;
+    stat->send_bytes -= msg->packet_size;
+    stat->send_time -= (1/s->params->cn_bandwidth) * msg->packet_size;
 }
 
 /* generates packet at the current dragonfly compute node */
@@ -2496,6 +2493,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
 
     packet_gen++;
     int num_qos_levels = s->params->num_qos_levels;
+    int vcg = 0;
 
     if(num_qos_levels > 1)
     {
@@ -2518,7 +2516,11 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
             s->is_monitoring_bw = 1;
             tw_event_send(e);
         }
+        vcg = get_vcg_from_category(msg);
+        assert(vcg == Q_HIGH || vcg == Q_MEDIUM);
     }
+    assert(vcg < num_qos_levels);
+
     s->packet_gen++;
     s->total_gen_size += msg->packet_size;
 
@@ -2526,14 +2528,6 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
 
     assert(lp->gid != msg->dest_terminal_lpid);
     const dragonfly_param *p = s->params;
-
-    int vcg = 0;
-    if(num_qos_levels > 1)
-    {
-        vcg = get_vcg_from_category(msg);
-        assert(vcg == Q_HIGH || vcg == Q_MEDIUM);
-    }
-    assert(vcg < num_qos_levels);
 
     int total_event_size;
     uint64_t num_chunks = msg->packet_size / p->chunk_size;
@@ -2817,28 +2811,27 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
         memcpy(m_new, local_event, cur_entry->msg.local_event_size_bytes);
         tw_event_send(e_new);
     }
-    int next_vcg = 0; 
-  
-    if(num_qos_levels > 1)
-        next_vcg = get_next_vcg(s, bf, msg, lp);
     
     s->vc_occupancy[vcg] += s->params->chunk_size;
     cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, vcg); 
     rc_stack_push(lp, cur_entry, delete_terminal_dally_message_list, s->st);
     s->terminal_length[vcg] -= s->params->chunk_size;
 
+    int next_vcg = 0;
+
+    if(num_qos_levels > 1) //I think this one is OK since the default is that terminals have only 1 VC anyway so leaving vcg as 
+        next_vcg = get_next_vcg(s, bf, msg, lp);
+
     cur_entry = NULL;
     if(next_vcg >= 0)
         cur_entry = s->terminal_msgs[next_vcg];
 
     /* if there is another packet inline then schedule another send event */
-    if(cur_entry != NULL &&
-        s->vc_occupancy[next_vcg] + s->params->chunk_size <= s->params->cn_vc_size) {
+    if(cur_entry != NULL && s->vc_occupancy[next_vcg] + s->params->chunk_size <= s->params->cn_vc_size) {
         terminal_dally_message *m_new;
         msg->num_rngs++;
         ts += tw_rand_unif(lp->rng);
-        e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_DALLY, 
-        (void**)&m_new, NULL);
+        e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_DALLY, (void**)&m_new, NULL);
         m_new->type = T_SEND;
         m_new->magic = terminal_magic_num;
         tw_event_send(e);
@@ -3300,7 +3293,7 @@ dragonfly_dally_terminal_final( terminal_state * s,
         written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <dest_id> < dest_type>  <link_type> <link_traffic> <link_saturation> <stalled_chunks>\n");
 //        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
     }
-    written += sprintf(s->output_buf + written, "\n%u %s %u %s %s %llu %lf %lu",
+    written += sprintf(s->output_buf + written, "%u %s %u %s %s %llu %lf %lu\n",
             s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time, s->stalled_chunks);
 
     lp_io_write(lp->gid, (char*)"dragonfly-link-stats", written, s->output_buf); 
@@ -3646,7 +3639,7 @@ static void router_packet_receive_rc(router_state * s,
         s->stalled_chunks[output_port]--;
         if(bf->c22)
         {
-        s->last_buf_full[output_port] = msg->saved_busy_time;
+            s->last_buf_full[output_port] = msg->saved_busy_time;
         }
     delete_terminal_dally_message_list(return_tail(s->queued_msgs[output_port], 
         s->queued_msgs_tail[output_port], output_chan));
@@ -3863,6 +3856,7 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
     {
         s->busy_time[output_port] = msg->saved_rcv_time;
         s->busy_time_sample[output_port] = msg->saved_sample_time;
+        s->ross_rsample.busy_time[output_port] = msg->saved_sample_time;
         s->last_buf_full[output_port] = msg->saved_busy_time;
     }
       
@@ -3900,7 +3894,6 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
 
     if(bf->c4) {
         s->in_send_loop[output_port] = 1;
-        return;
     }
 }
 /* routes the current packet to the next stop */
@@ -3951,6 +3944,7 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
         msg->saved_sample_time = s->busy_time_sample[output_port];  
         s->busy_time[output_port] += (tw_now(lp) - s->last_buf_full[output_port]); 
         s->busy_time_sample[output_port] += (tw_now(lp) - s->last_buf_full[output_port]);
+        s->ross_rsample.busy_time[output_port] += (tw_now(lp) - s->last_buf_full[output_port]);
         s->last_buf_full[output_port] = 0.0;
     }
 
@@ -4026,17 +4020,12 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     m->magic = router_magic_num;
 
     int msg_size = s->params->chunk_size;
-
     if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1)) {
         bf->c11 = 1;
-        s->link_traffic[output_port] +=  (cur_entry->msg.packet_size %
-                s->params->chunk_size); 
-        s->link_traffic_sample[output_port] += (cur_entry->msg.packet_size % 
-                s->params->chunk_size);
-        s->ross_rsample.link_traffic_sample[output_port] += (cur_entry->msg.packet_size % 
-                s->params->chunk_size);
-        s->link_traffic_ross_sample[output_port] += (cur_entry->msg.packet_size % 
-                s->params->chunk_size);
+        s->link_traffic[output_port] +=  (cur_entry->msg.packet_size % s->params->chunk_size); 
+        s->link_traffic_sample[output_port] += (cur_entry->msg.packet_size % s->params->chunk_size);
+        s->ross_rsample.link_traffic_sample[output_port] += (cur_entry->msg.packet_size % s->params->chunk_size);
+        s->link_traffic_ross_sample[output_port] += (cur_entry->msg.packet_size % s->params->chunk_size);
         msg_size = cur_entry->msg.packet_size % s->params->chunk_size;
     } 
     else {
