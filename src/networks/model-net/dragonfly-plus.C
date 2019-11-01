@@ -426,6 +426,8 @@ struct terminal_state
     int packet_gen;
     int packet_fin;
 
+    int total_gen_size;
+
     // Dragonfly specific parameters
     unsigned int router_id;
     unsigned int terminal_id;
@@ -464,6 +466,8 @@ struct terminal_state
 
     tw_stime last_buf_full;
     tw_stime busy_time;
+
+    unsigned long stalled_chunks; //Counter for when a packet cannot be immediately routed due to full VC
 
     tw_stime max_latency;
     tw_stime min_latency;
@@ -524,6 +528,8 @@ struct router_state
 
     tw_stime *busy_time;
     tw_stime *busy_time_sample;
+
+    unsigned long* stalled_chunks; //Coutner for when a packet is put into queued messages instead of routing due to full VC
 
     terminal_plus_message_list ***pending_msgs;
     terminal_plus_message_list ***pending_msgs_tail;
@@ -2301,6 +2307,7 @@ void terminal_plus_init(terminal_state *s, tw_lp *lp)
     // printf("%d: Terminal Init()\n",lp->gid);
     s->packet_gen = 0;
     s->packet_fin = 0;
+    s->total_gen_size = 0;
     s->is_monitoring_bw = 0;
 
     int i;
@@ -2341,6 +2348,7 @@ void terminal_plus_init(terminal_state *s, tw_lp *lp)
     s->total_time = 0.0;
     s->total_msg_size = 0;
 
+    s->stalled_chunks = 0;
     s->busy_time = 0.0;
 
     s->fwd_events = 0;
@@ -2470,6 +2478,8 @@ void router_plus_init(router_state *r, tw_lp *lp)
     r->next_output_available_time = (tw_stime *) calloc(p->radix, sizeof(tw_stime));
     r->link_traffic = (int64_t *) calloc(p->radix, sizeof(int64_t));
     r->link_traffic_sample = (int64_t *) calloc(p->radix, sizeof(int64_t));
+
+    r->stalled_chunks = (unsigned long*)calloc(p->radix, sizeof(unsigned long));
 
     r->vc_occupancy = (int **) calloc(p->radix, sizeof(int *));
     r->qos_data = (unsigned long long**)calloc(p->radix, sizeof(unsigned long long*));
@@ -2615,6 +2625,7 @@ static tw_stime dragonfly_plus_packet_event(model_net_request const *req,
 
 static void packet_generate_rc(terminal_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
 {
+    s->total_gen_size -= msg->packet_size;
     s->packet_gen--;
     packet_gen--;
     s->packet_counter--;
@@ -2652,6 +2663,10 @@ static void packet_generate_rc(terminal_state *s, tw_bf *bf, terminal_plus_messa
     }
     if (bf->c11) {
         s->issueIdle = 0;
+        s->stalled_chunks--;
+        if(bf->c8) {
+            s->last_buf_full = msg->saved_busy_time;
+        }
     }
     struct mn_stats *stat;
     stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
@@ -2668,6 +2683,7 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
     
     packet_gen++;
     s->packet_gen++;
+    s->total_gen_size += msg->packet_size;
     
     int num_qos_levels = s->params->num_qos_levels;
     int vcg = 0; //by default there's only one VC for terminals, VC0. There can be more based on the number of QoS levels
@@ -2774,6 +2790,16 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
     else {
         bf->c11 = 1;
         s->issueIdle = 1;
+        s->stalled_chunks++;
+
+        //this block was missing from when QOS was added - readded 10-31-19
+        if(s->last_buf_full == 0.0)
+        {
+            bf->c8 = 1;
+            msg->saved_busy_time = s->last_buf_full;
+            /* TODO: Assumes a single vc from terminal to router */
+            s->last_buf_full = tw_now(lp);
+        }
     }
 
     if (s->in_send_loop == 0) {
@@ -2878,8 +2904,7 @@ static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg
     msg->num_rngs = 0;
     msg->num_cll = 0;
   
-    if(num_qos_levels > 1)
-        vcg = get_next_vcg(s, bf, msg, lp);
+    vcg = get_next_vcg(s, bf, msg, lp);
   
     /* For a terminal to router connection, there would be as many VCGs as number
     * of VCs*/
@@ -2895,11 +2920,9 @@ static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg
         return;
     }
     
-
-    int data_size = s->params->chunk_size;
     msg->saved_vc = vcg;
     terminal_plus_message_list* cur_entry = s->terminal_msgs[vcg];
-    
+    int data_size = s->params->chunk_size;
     uint64_t num_chunks = cur_entry->msg.packet_size / s->params->chunk_size;
     if (cur_entry->msg.packet_size < s->params->chunk_size)
         num_chunks++;
@@ -2911,9 +2934,12 @@ static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg
     }
 
     s->qos_data[vcg] += data_size;
+
     msg->saved_available_time = s->terminal_available_time;
+
     msg->num_rngs++;
     ts = g_tw_lookahead + delay + tw_rand_unif(lp->rng);
+
     s->terminal_available_time = maxd(s->terminal_available_time, tw_now(lp));
     s->terminal_available_time += ts;
 
@@ -2967,7 +2993,6 @@ static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg
       next_vcg = get_next_vcg(s, bf, msg, lp);
 
     cur_entry = NULL;
-    
     if(next_vcg >= 0)
         cur_entry = s->terminal_msgs[next_vcg];
 
@@ -3002,6 +3027,8 @@ static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg
             s->busy_time += (tw_now(lp) - s->last_buf_full);
             s->busy_time_sample += (tw_now(lp) - s->last_buf_full);
             s->ross_sample.busy_time_sample += (tw_now(lp) - s->last_buf_full);
+            msg->saved_busy_time_ross = s->busy_time_ross_sample;
+            s->busy_time_ross_sample += (tw_now(lp) - s->last_buf_full);
             s->last_buf_full = 0.0;
         }
     }
@@ -3406,27 +3433,36 @@ void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
 
     int written = 0;
     if (s->terminal_id == 0) {
-        written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <dest_id> < dest_type>  <link_type> <link_traffic> <link_saturation>");
+        written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <dest_id> < dest_type>  <link_type> <link_traffic> <link_saturation> <stalled_chunks>\n");
     }
-    written += sprintf(s->output_buf + written, "\n%u %s %u %s %s %llu %lf",
-        s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time);
+    written += sprintf(s->output_buf + written, "%u %s %u %s %s %llu %lf %lu\n",
+        s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time, s->stalled_chunks);
 
     lp_io_write(lp->gid, (char*)"dragonfly-plus-link-stats", written, s->output_buf);
 
+    // if (s->terminal_id == 0) {
+    //     char meta_filename[64];
+    //     sprintf(meta_filename, "dragonfly-plus-cn-stats.meta");
 
-    if (s->terminal_id == 0) {
-        char meta_filename[64];
-        sprintf(meta_filename, "dragonfly-plus-cn-stats.meta");
+    //     FILE * fp = fopen(meta_filename, "w+");
+    //     fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
+    // }
 
-        FILE * fp = fopen(meta_filename, "w+");
-        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
-    }
-   
     written = 0;
-    written += sprintf(s->output_buf2 + written, "%llu %u %lf %lf %lf %lf %ld %lf\n", 
-            LLU(lp->gid), s->terminal_id, s->total_time/s->finished_chunks, 
-            s->busy_time, s->max_latency, s->min_latency,
-            s->finished_packets, (double)s->total_hops/s->finished_chunks);
+    if(s->terminal_id == 0)
+    {
+        written += sprintf(s->output_buf2 + written, "# Format <LP id> <Terminal ID> <Total Data Sent> <Total Data Received> <Avg packet latency> <Max packet Latency> <Min packet Latency> <# Packets finished> <Avg Hops> <Busy Time>\n");
+    }
+    written += sprintf(s->output_buf2 + written, "%llu %u %d %llu %lf %lf %lf %ld %lf %lf\n", 
+            LLU(lp->gid), s->terminal_id, s->total_gen_size, LLU(s->total_msg_size), s->total_time/s->finished_chunks, s->max_latency, s->min_latency,
+            s->finished_packets, (double)s->total_hops/s->finished_chunks, s->busy_time);
+
+   
+    // written = 0;
+    // written += sprintf(s->output_buf2 + written, "%llu %u %lf %lf %lf %lf %ld %lf\n", 
+    //         LLU(lp->gid), s->terminal_id, s->total_time/s->finished_chunks, 
+    //         s->busy_time, s->max_latency, s->min_latency,
+    //         s->finished_packets, (double)s->total_hops/s->finished_chunks);
 
 
     lp_io_write(lp->gid, (char*)"dragonfly-plus-cn-stats", written, s->output_buf2); 
@@ -3522,14 +3558,15 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
     {
         if (d != src_rel_id) {
             int dest_ab_id = local_grp_id * p->num_routers + d;
-            written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf",
+            written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf %lu",
                 s->router_id,
                 "R",
                 dest_ab_id,
                 "R",
                 "L",
                 LLU(s->link_traffic[d]),
-                s->busy_time[d] );
+                s->busy_time[d],
+                s->stalled_chunks[d]);
         }
     }
 
@@ -3541,14 +3578,15 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
         int dest_rtr_id = it->dest_gid;
         int port_no = it->port;
         assert(port_no >= 0 && port_no < p->radix);
-        written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf",
+        written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf %lu",
             s->router_id,
             "R",
             dest_rtr_id,
             "R",
             "G",
             LLU(s->link_traffic[port_no]),
-            s->busy_time[port_no] );
+            s->busy_time[port_no],
+            s->stalled_chunks[port_no]);
     }
 
     sprintf(s->output_buf + written, "\n");
@@ -3608,6 +3646,13 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
     // }
 
     // lp_io_write(lp->gid, (char *) "dragonfly-plus-router-traffic", written, s->output_buf2);
+
+    if (!g_tw_mynode) {
+        if (s->router_id == 0) {
+            if (PRINT_CONFIG) 
+                dragonfly_plus_print_params(s->params);
+        }
+    }
 }
 
 static Connection do_dfp_routing(router_state *s,
@@ -3874,6 +3919,11 @@ static void router_packet_receive_rc(router_state *s, tw_bf *bf, terminal_plus_m
         }
     }
     if (bf->c4) {
+        s->stalled_chunks[output_port]--;
+        if(bf->c22)
+        {
+            s->last_buf_full[output_port] = msg->saved_busy_time;
+        }
         delete_terminal_plus_message_list(
             return_tail(s->queued_msgs[output_port], s->queued_msgs_tail[output_port], output_chan));
         s->queued_count[output_port] -= s->params->chunk_size;
@@ -4036,11 +4086,24 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
     }
     else {
         bf->c4 = 1;
+        s->stalled_chunks[output_port]++;
         cur_chunk->msg.saved_vc = msg->vc_index;
         cur_chunk->msg.saved_channel = msg->output_chan;
         append_to_terminal_plus_message_list(s->queued_msgs[output_port], s->queued_msgs_tail[output_port],
                                              output_chan, cur_chunk);
         s->queued_count[output_port] += s->params->chunk_size;
+
+        //THIS WAS REMOVED WHEN QOS WAS INSTITUTED - READDED 5/20/19
+        /* a check for pending msgs is non-empty then we dont set anything. If
+        * that is empty then we check if last_buf_full is set or not. If already
+        * set then we don't overwrite it. If two packets arrive next to each other
+        * then the first person should be setting it. */
+        if(s->pending_msgs[output_port][output_chan] == NULL && s->last_buf_full[output_port] == 0.0)
+        {
+            bf->c22 = 1;
+            msg->saved_busy_time = s->last_buf_full[output_port];
+            s->last_buf_full[output_port] = tw_now(lp);
+        }
     }
 
     msg->saved_vc = output_port;
@@ -4143,7 +4206,7 @@ static void router_packet_send(router_state *s, tw_bf *bf, terminal_plus_message
     msg->num_rngs = 0;
 
     int num_qos_levels = s->params->num_qos_levels;
-    int output_chan = get_next_router_vcg(s, bf, msg, lp);
+    int output_chan = get_next_router_vcg(s, bf, msg, lp); //includes default output_chan setting functionality
 
     msg->saved_vc = output_port;
     msg->saved_channel = output_chan;
@@ -4151,7 +4214,7 @@ static void router_packet_send(router_state *s, tw_bf *bf, terminal_plus_message
     if(output_chan < 0) {
       bf->c1 = 1;
       s->in_send_loop[output_port] = 0;
-      if(s->queued_count[output_port] && !s->last_buf_full[output_port]) 
+      if(s->queued_count[output_port] && !s->last_buf_full[output_port]) //10-31-19, not sure why this was added here with the qos stuff
       {
         bf->c2 = 1; 
         msg->saved_busy_time = s->last_buf_full[output_port];
@@ -4164,7 +4227,7 @@ static void router_packet_send(router_state *s, tw_bf *bf, terminal_plus_message
  
     assert(cur_entry != NULL);
   
-    if(s->last_buf_full[output_port]) 
+    if(s->last_buf_full[output_port]) //10-31-19, same here as above comment
     {
       bf->c8 = 1;
       msg->saved_rcv_time = s->busy_time[output_port]; 
@@ -4318,6 +4381,7 @@ static void router_buf_update_rc(router_state *s, tw_bf *bf, terminal_plus_messa
         s->busy_time[indx] = msg->saved_rcv_time;
         s->busy_time_sample[indx] = msg->saved_sample_time;
         s->ross_rsample.busy_time[indx] = msg->saved_sample_time;
+        s->busy_time_ross_sample[indx] = msg->saved_busy_time_ross;
         s->last_buf_full[indx] = msg->saved_busy_time;
     }
     if (bf->c1) {
@@ -4347,9 +4411,11 @@ static void router_buf_update(router_state *s, tw_bf *bf, terminal_plus_message 
         msg->saved_rcv_time = s->busy_time[indx];
         msg->saved_busy_time = s->last_buf_full[indx];
         msg->saved_sample_time = s->busy_time_sample[indx];
+        msg->saved_busy_time_ross = s->busy_time_ross_sample[indx];
         s->busy_time[indx] += (tw_now(lp) - s->last_buf_full[indx]);
         s->busy_time_sample[indx] += (tw_now(lp) - s->last_buf_full[indx]);
         s->ross_rsample.busy_time[indx] += (tw_now(lp) - s->last_buf_full[indx]);
+        s->busy_time_ross_sample[indx] += (tw_now(lp) - s->last_buf_full[indx]);
         s->last_buf_full[indx] = 0.0;
     }
     if (s->queued_msgs[indx][output_chan] != NULL) {
