@@ -197,11 +197,13 @@ bin_PROGRAMS += src/networks/model-net/topology-test
 bin_PROGRAMS += src/network-workloads/model-net-mpi-replay
 bin_PROGRAMS += src/network-workloads/model-net-dumpi-traces-dump
 bin_PROGRAMS += src/network-workloads/model-net-synthetic
-bin_PROGRAMS += src/network-workloads/model-net-synthetic-custom-dfly
 bin_PROGRAMS += src/network-workloads/model-net-synthetic-slimfly
 bin_PROGRAMS += src/network-workloads/model-net-synthetic-fattree
-bin_PROGRAMS += src/network-workloads/model-net-synthetic-dfly-plus
-bin_PROGRAMS += src/network-workloads/model-net-synthetic-dally-dfly
+bin_PROGRAMS += src/network-workloads/model-net-synthetic-dragonfly-all
+bin_PROGRAMS += src/network-workloads/archived/model-net-synthetic-custom-dfly
+bin_PROGRAMS += src/network-workloads/archived/model-net-synthetic-dfly-plus
+bin_PROGRAMS += src/network-workloads/archived/model-net-synthetic-dally-dfly
+
 
 
 src_workload_codes_workload_dump_SOURCES = \
@@ -214,9 +216,10 @@ src_network_workloads_model_net_mpi_replay_SOURCES = \
   src/network-workloads/model-net-mpi-replay-main.c
 src_network_workloads_model_net_mpi_replay_CFLAGS = $(AM_CFLAGS)
 src_network_workloads_model_net_synthetic_SOURCES = src/network-workloads/model-net-synthetic.c
-src_network_workloads_model_net_synthetic_custom_dfly_SOURCES = src/network-workloads/model-net-synthetic-custom-dfly.c
-src_network_workloads_model_net_synthetic_dfly_plus_SOURCES = src/network-workloads/model-net-synthetic-dfly-plus.c
-src_network_workloads_model_net_synthetic_dally_dfly_SOURCES = src/network-workloads/model-net-synthetic-dally-dfly.c
+src_network_workloads_model_net_synthetic_custom_dfly_SOURCES = src/network-workloads/archived/model-net-synthetic-custom-dfly.c
+src_network_workloads_model_net_synthetic_dfly_plus_SOURCES = src/network-workloads/archived/model-net-synthetic-dfly-plus.c
+src_network_workloads_model_net_synthetic_dally_dfly_SOURCES = src/network-workloads/archived/model-net-synthetic-dally-dfly.c
+src_network_workloads_model_net_synthetic_dragonfly_all_SOURCES = src/network-workloads/model-net-synthetic-dragonfly-all.c
 src_networks_model_net_topology_test_SOURCES = src/networks/model-net/topology-test.c
 
 #bin_PROGRAMS += src/network-workload/codes-nw-test
