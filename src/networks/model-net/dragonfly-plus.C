@@ -1179,10 +1179,6 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
 
 static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector<Connection> conns)
 {
-    msg->num_rngs+=2;
-    tw_rand_integer(lp->rng,0,1);
-    tw_rand_integer(lp->rng,0,1);
-
     if (conns.size() == 0) {
         Connection bad_conn;
         bad_conn.src_gid = -1;
@@ -1227,12 +1223,9 @@ static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf
     return conns[best_score_index];
 }
 
-static vector< Connection > dfp_select_two_connections(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector< Connection > conns, short* rng_counter)
+static vector< Connection > dfp_select_two_connections(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector< Connection > conns)
 {
     if(conns.size() < 2) {
-        (*rng_counter)+=2;
-        tw_rand_integer(lp->rng,0,2); //ensure this function always uses two rngs
-        tw_rand_integer(lp->rng,0,2);
         if(conns.size() == 1)
             return conns;
         if(conns.size() == 0)
@@ -1243,7 +1236,7 @@ static vector< Connection > dfp_select_two_connections(router_state *s, tw_bf *b
 
     int num_conns = conns.size();
 
-    (*rng_counter)+=2;
+    msg->num_rngs +=2;
     rand_sel_1 = tw_rand_integer(lp->rng, 0, num_conns-1);
     rand_sel_2_offset = tw_rand_integer(lp->rng, 0, num_conns-1); //number of indices to count up from the previous selected one. Avoids selecting same one twice
     int rand_sel_2 = (rand_sel_1 + rand_sel_2_offset) % num_conns;
@@ -1260,22 +1253,16 @@ static vector< Connection > dfp_select_two_connections(router_state *s, tw_bf *b
 static Connection get_best_connection_from_conns(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector<Connection> conns)
 {
     if (conns.size() == 0) {
-        msg->num_rngs+=2;
-        tw_rand_integer(lp->rng, 0, 2);
-        tw_rand_integer(lp->rng, 0, 2);
         Connection bad_conn;
         bad_conn.src_gid = -1;
         bad_conn.port = -1;
         return bad_conn;
     }
     if (conns.size() < 2) {
-        msg->num_rngs+=2;
-        tw_rand_integer(lp->rng, 0, 2);
-        tw_rand_integer(lp->rng, 0, 2);
         return conns[0];
     }
     int num_to_compare = 2; //TODO make this a configurable
-    vector< Connection > selected_conns = dfp_select_two_connections(s, bf, msg, lp, conns, &(msg->num_rngs));
+    vector< Connection > selected_conns = dfp_select_two_connections(s, bf, msg, lp, conns);
 
     int scores[num_to_compare];
     int best_score_index = 0;
@@ -2629,6 +2616,13 @@ static void packet_generate_rc(terminal_state *s, tw_bf *bf, terminal_plus_messa
     s->packet_gen--;
     packet_gen--;
     s->packet_counter--;
+
+    if(bf->c2)
+        num_local_packets_sr--;
+    if(bf->c3)
+        num_local_packets_sg--;
+    if(bf->c4)
+        num_remote_packets--;
    
     for(int i = 0; i < msg->num_rngs; i++)
         tw_rand_reverse_unif(lp->rng);
@@ -2723,17 +2717,25 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
     int dest_router_id = dragonfly_plus_get_assigned_router_id(msg->dfp_dest_terminal_id, s->params);
     int dest_grp_id = dest_router_id / s->params->num_routers;
     int src_grp_id = s->router_id / s->params->num_routers;
-
+    
     if(src_grp_id == dest_grp_id)
     {
-      if(dest_router_id == s->router_id)
-          //TODO: add RC stuff like in dragonfly-custom.C
-          num_local_packets_sr++;
-      else
-          num_local_packets_sg++;
+        if(dest_router_id == s->router_id)
+        {
+            bf->c2 = 1;
+            num_local_packets_sr++;
+        }
+        else
+        {
+            bf->c3 = 1;
+            num_local_packets_sg++;
+        }
     }
     else
-      num_remote_packets++;
+    {
+        bf->c4 = 1;
+        num_remote_packets++;
+    }
 
     if (msg->packet_size < s->params->chunk_size)
         num_chunks++;
@@ -3092,7 +3094,6 @@ static void packet_arrive_rc(terminal_state *s, tw_bf *bf, terminal_plus_message
     s->fin_hops_sample -= msg->my_N_hop;
     s->ross_sample.fin_hops_sample -= msg->my_N_hop;
     s->fin_hops_ross_sample -= msg->my_N_hop;
-    dragonfly_total_time = msg->saved_total_time;
     s->fin_chunks_time = msg->saved_sample_time;
     s->ross_sample.fin_chunks_time = msg->saved_sample_time;
     s->fin_chunks_time_ross_sample = msg->saved_fin_chunks_ross;
@@ -3117,9 +3118,6 @@ static void packet_arrive_rc(terminal_state *s, tw_bf *bf, terminal_plus_message
         stat->recv_bytes -= msg->packet_size;
         N_finished_packets--;
         s->finished_packets--;
-    }
-    if (bf->c3) {
-        dragonfly_max_latency = msg->saved_available_time;
     }
 
     if (bf->c22) {
@@ -3274,9 +3272,6 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
     /* save the total time per LP */
     msg->saved_avg_time = s->total_time;
     s->total_time += (tw_now(lp) - msg->travel_start_time);
-
-    msg->saved_total_time = dragonfly_total_time;
-    dragonfly_total_time += tw_now(lp) - msg->travel_start_time;
     total_hops += msg->my_N_hop;
     s->total_hops += msg->my_N_hop;
     s->fin_hops_sample += msg->my_N_hop;
@@ -3341,12 +3336,7 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
     if (s->min_latency > tw_now(lp) - msg->travel_start_time) {
         s->min_latency = tw_now(lp) - msg->travel_start_time;
     }
-    if (dragonfly_max_latency < tw_now(lp) - msg->travel_start_time) {
-        bf->c3 = 1;
-        msg->saved_available_time = dragonfly_max_latency;
-        dragonfly_max_latency = tw_now(lp) - msg->travel_start_time;
-        s->max_latency = tw_now(lp) - msg->travel_start_time;
-    }
+
     if (s->max_latency < tw_now(lp) - msg->travel_start_time) {
         bf->c22 = 1;
         msg->saved_available_time = s->max_latency;
@@ -3429,6 +3419,11 @@ static void terminal_buf_update(terminal_state *s, tw_bf *bf, terminal_plus_mess
 
 void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
 {
+    dragonfly_total_time += s->total_time; //increment the PE level time counter
+
+    if (s->max_latency > dragonfly_max_latency)
+        dragonfly_max_latency = s->max_latency; //get maximum latency across all LPs on this PE
+
     model_net_print_stats(lp->gid, s->dragonfly_stats_array);
 
     int written = 0;
@@ -3985,6 +3980,7 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
     }
 
     Connection next_stop_conn = do_dfp_routing(s, bf, &(cur_chunk->msg), lp, dest_router_id);
+    msg->num_rngs += (cur_chunk->msg).num_rngs; //make sure we're counting the rngs called during do_dfp_routing()
 
     if (s->connMan->is_any_connection_to(next_stop_conn.dest_gid) == false)
         tw_error(TW_LOC, "Router %d does not have a connection to chosen destination %d\n", s->router_id, next_stop_conn.dest_gid);
