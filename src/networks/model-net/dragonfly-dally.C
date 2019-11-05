@@ -39,7 +39,6 @@
 
 #define DUMP_CONNECTIONS 0
 #define PRINT_CONFIG 1
-#define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
 // debugging parameters
 #define BW_MONITOR 1
@@ -207,7 +206,10 @@ struct dragonfly_param
     double cn_delay;
     double local_delay;
     double global_delay;
-    double credit_delay;
+    int credit_size;
+    double local_credit_delay;
+    double global_credit_delay;
+    double cn_credit_delay;
     double router_delay;
 
     int max_hops_notify; //maximum number of hops allowed before notifying via printout
@@ -306,7 +308,6 @@ enum last_hop
     GLOBAL=1,
     LOCAL,
     TERMINAL,
-    ROOT
 };
 
 /* Routing Algorithms Implemented:
@@ -1302,39 +1303,40 @@ static terminal_dally_message_list* return_tail(
     return tail;
 }
 
-void dragonfly_print_params(const dragonfly_param *p)
+void dragonfly_print_params(const dragonfly_param *p, _IO_FILE * st)
 {
-    int myRank;
-    MPI_Comm_rank(MPI_COMM_CODES, &myRank);
-    if (!myRank) { 
-        printf("\n------------------ Dragonfly Dally Parameters ---------\n");
-        printf("\tnum_routers =            %d\n",p->num_routers);
-        printf("\tlocal_bandwidth =        %.2f\n",p->local_bandwidth);
-        printf("\tglobal_bandwidth =       %.2f\n",p->global_bandwidth);
-        printf("\tcn_bandwidth =           %.2f\n",p->cn_bandwidth);
-        printf("\tnum_vcs =                %d\n",p->num_vcs);
-        printf("\tnum_qos_levels =         %d\n",p->num_qos_levels);
-        printf("\tlocal_vc_size =          %d\n",p->local_vc_size);
-        printf("\tglobal_vc_size =         %d\n",p->global_vc_size);
-        printf("\tcn_vc_size =             %d\n",p->cn_vc_size);
-        printf("\tchunk_size =             %d\n",p->chunk_size);
-        printf("\tnum_cn =                 %d\n",p->num_cn);
-        printf("\tintra_grp_radix =        %d\n",p->intra_grp_radix);
-        printf("\tnum_groups =             %d\n",p->num_groups);
-        printf("\tvirtual radix =          %d\n",p->radix);
-        printf("\ttotal_routers =          %d\n",p->total_routers);
-        printf("\ttotal_terminals =        %d\n",p->total_terminals);
-        printf("\tnum_global_channels =    %d\n",p->num_global_channels);
-        printf("\tcn_delay =               %.2f\n",p->cn_delay);
-        printf("\tlocal_delay =            %.2f\n",p->local_delay);
-        printf("\tglobal_delay =           %.2f\n",p->global_delay);
-        printf("\tcredit_delay =           %.2f\n",p->credit_delay);
-        printf("\trouter_delay =           %.2f\n",p->router_delay);
-        printf("\trouting =                %s\n",get_routing_alg_chararray(routing));
-        printf("\tadaptive_threshold =     %d\n",p->adaptive_threshold);
-        printf("\tmax hops notification =  %d\n",p->max_hops_notify);
-        printf("------------------------------------------------------\n\n");
-    }
+    if(!st)
+        st = stdout;
+
+    fprintf(st,"\n------------------ Dragonfly Dally Parameters ---------\n");
+    fprintf(st,"\tnum_routers =            %d\n",p->num_routers);
+    fprintf(st,"\tlocal_bandwidth =        %.2f\n",p->local_bandwidth);
+    fprintf(st,"\tglobal_bandwidth =       %.2f\n",p->global_bandwidth);
+    fprintf(st,"\tcn_bandwidth =           %.2f\n",p->cn_bandwidth);
+    fprintf(st,"\tnum_vcs =                %d\n",p->num_vcs);
+    fprintf(st,"\tnum_qos_levels =         %d\n",p->num_qos_levels);
+    fprintf(st,"\tlocal_vc_size =          %d\n",p->local_vc_size);
+    fprintf(st,"\tglobal_vc_size =         %d\n",p->global_vc_size);
+    fprintf(st,"\tcn_vc_size =             %d\n",p->cn_vc_size);
+    fprintf(st,"\tchunk_size =             %d\n",p->chunk_size);
+    fprintf(st,"\tnum_cn =                 %d\n",p->num_cn);
+    fprintf(st,"\tintra_grp_radix =        %d\n",p->intra_grp_radix);
+    fprintf(st,"\tnum_groups =             %d\n",p->num_groups);
+    fprintf(st,"\tvirtual radix =          %d\n",p->radix);
+    fprintf(st,"\ttotal_routers =          %d\n",p->total_routers);
+    fprintf(st,"\ttotal_terminals =        %d\n",p->total_terminals);
+    fprintf(st,"\tnum_global_channels =    %d\n",p->num_global_channels);
+    fprintf(st,"\tcn_delay =               %.2f\n",p->cn_delay);
+    fprintf(st,"\tlocal_delay =            %.2f\n",p->local_delay);
+    fprintf(st,"\tglobal_delay =           %.2f\n",p->global_delay);
+    fprintf(st,"\tlocal credit_delay =     %.2f\n",p->local_credit_delay);
+    fprintf(st,"\tglobal credit_delay =    %.2f\n",p->global_credit_delay);
+    fprintf(st,"\tcn credit_delay =        %.2f\n",p->cn_credit_delay);
+    fprintf(st,"\trouter_delay =           %.2f\n",p->router_delay);
+    fprintf(st,"\trouting =                %s\n",get_routing_alg_chararray(routing));
+    fprintf(st,"\tadaptive_threshold =     %d\n",p->adaptive_threshold);
+    fprintf(st,"\tmax hops notification =  %d\n",p->max_hops_notify);
+    fprintf(st,"------------------------------------------------------\n\n");
 }
 
 static void dragonfly_read_config(const char * anno, dragonfly_param *params)
@@ -1508,7 +1510,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     rc = configuration_get_value_int(&config, "PARAMS", "notification_on_hops_greater_than", anno, &p->max_hops_notify);
     if (rc) {
         if(!myRank)
-            printf("Maximum hops for notifying not specified, setting to INT MAX\n");
+            fprintf(stderr, "Maximum hops for notifying not specified, setting to INT MAX\n");
         p->max_hops_notify = INT_MAX;
     }
 
@@ -1570,7 +1572,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         tw_error(TW_LOC, "intra-group file not found ");
 
     if (!myRank)
-      printf("Reading intra-group connectivity file: %s\n", intraFile);
+      fprintf(stderr, "Reading intra-group connectivity file: %s\n", intraFile);
 
     IntraGroupLink newLink;
     while (fread(&newLink, sizeof(IntraGroupLink), 1, groupFile) != 0 ) {
@@ -1608,8 +1610,8 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     FILE *systemFile = fopen(interFile, "rb");
     if(!myRank)
     {
-        printf("Reading inter-group connectivity file: %s\n", interFile);
-        printf("\n Total routers %d total groups %d ", p->total_routers, p->num_groups);
+        fprintf(stderr, "Reading inter-group connectivity file: %s\n", interFile);
+        fprintf(stderr, "\n Total routers %d total groups %d ", p->total_routers, p->num_groups);
     }
 
     connectionList.resize(p->num_groups);
@@ -1649,7 +1651,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     fclose(systemFile);
 
     if(!myRank) {
-        printf("\n Total nodes %d routers %d groups %d routers per group %d radix %d\n",
+        fprintf(stderr, "\n Total nodes %d routers %d groups %d routers per group %d radix %d\n\n",
                 p->num_cn * p->total_routers, p->total_routers, p->num_groups,
                 p->num_routers, p->radix);
     }
@@ -1673,15 +1675,82 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         if(!myRank)
             fprintf(stderr, "global_delay not specified, using default calculation: %.2f\n", p->global_delay);
     }
-    rc = configuration_get_value_double(&config, "PARAMS", "credit_delay", anno, &p->credit_delay);
+
+    //CREDIT DELAY CONFIGURATION LOGIC ------------
+    rc = configuration_get_value_int(&config, "PARAMS", "credit_size", anno, &p->credit_size);
     if (rc) {
-        p->credit_delay = bytes_to_ns(CREDIT_SIZE, p->local_bandwidth);
+        p->credit_size = 8;
         if(!myRank)
-            fprintf(stderr, "credit_delay not specified, using default calculation: %.2f\n", p->credit_delay);
+            fprintf(stderr, "credit_size not specified, using default: %d\n", p->credit_size);
     }
 
-    if (PRINT_CONFIG) 
-        dragonfly_print_params(p);
+    double general_credit_delay;
+    int credit_delay_unset = configuration_get_value_double(&config, "PARAMS", "credit_delay", anno, &general_credit_delay); 
+    int local_credit_delay_unset = configuration_get_value_double(&config, "PARAMS", "local_credit_delay", anno, &p->local_credit_delay);
+    int global_credit_delay_unset = configuration_get_value_double(&config, "PARAMS", "global_credit_delay", anno, &p->global_credit_delay);
+    int cn_credit_delay_unset = configuration_get_value_double(&config, "PARAMS", "cn_credit_delay", anno, &p->cn_credit_delay);
+
+    int auto_credit_delay_flag;
+    rc = configuration_get_value_int(&config, "PARAMS", "auto_credit_delay", anno, &auto_credit_delay_flag);
+    if (rc) {
+        auto_credit_delay_flag = 0;
+    }
+    else {
+        if(!myRank && auto_credit_delay_flag)
+            fprintf(stderr, "auto_credit_delay flag enabled. All credit delays will be calculated based on their respective bandwidths\n");
+    }
+
+    //If the user specifies a general "credit_delay" AND any of the more specific credit delays, throw an error to make sure they correct their configuration
+    if (!credit_delay_unset && !(local_credit_delay_unset || global_credit_delay_unset || cn_credit_delay_unset))
+        tw_error(TW_LOC, "\nCannot set both a general credit delay and specific (local/global/cn) credit delays. Check configuration file.");
+    
+    //If the user specifies ANY credit delays general or otherwise AND has the auto credit delay flag enabled, throw an error to make sure they correct the conflicting configuration
+    if ((!credit_delay_unset || !local_credit_delay_unset || !global_credit_delay_unset || !cn_credit_delay_unset) && auto_credit_delay_flag)
+        tw_error(TW_LOC, "\nCannot set both a credit delay (general or specific) and also enable auto credit delay calculation. Check Configuration file.");
+
+    //If the user doesn't specify either general or specific credit delays - calculate credit delay based on local bandwidth.
+    //This is old legacy behavior that is left in to make sure that the credit delay configurations of old aren't semantically different
+    //Other possible way to program this would be to make each credit delay be set based on their respective bandwidths but this semantically
+    //changes the behavior of old configuration files. (although it would be more accurate)
+    if (credit_delay_unset && local_credit_delay_unset && global_credit_delay_unset && cn_credit_delay_unset && !auto_credit_delay_flag) {
+        p->local_credit_delay = bytes_to_ns(p->credit_size, p->local_bandwidth);
+        p->global_credit_delay = p->local_credit_delay;
+        p->cn_credit_delay = p->local_credit_delay;
+        if(!myRank)
+            fprintf(stderr, "no credit_delay specified - all credit delays set to %.2f\n",p->local_credit_delay);
+    }
+    //If the user doesn't specify a general credit delay but leaves any of the specific credit delay values unset, then we need to set those (the above conditional handles if none of them had been set)
+    else if (credit_delay_unset) {
+        if (local_credit_delay_unset) {
+            p->local_credit_delay = bytes_to_ns(p->credit_size, p->local_bandwidth);
+            if(!myRank && !auto_credit_delay_flag) //if the auto credit delay flag is true then we've already printed what we're going to do
+                fprintf(stderr, "local_credit_delay not specified, using calculation based on local bandwidth: %.2f\n", p->local_credit_delay);
+        }
+        if (global_credit_delay_unset) {
+            p->global_credit_delay = bytes_to_ns(p->credit_size, p->global_bandwidth);
+            if(!myRank && !auto_credit_delay_flag)
+                fprintf(stderr, "global_credit_delay not specified, using calculation based on global bandwidth: %.2f\n", p->global_credit_delay);   
+        }
+        if (cn_credit_delay_unset) {
+            p->cn_credit_delay = bytes_to_ns(p->credit_size, p->cn_bandwidth);
+            if(!myRank && !auto_credit_delay_flag)
+                fprintf(stderr, "cn_credit_delay not specified, using calculation based on cn bandwidth: %.2f\n", p->cn_credit_delay);
+        }
+    }
+    //If the user specifies a general credit delay (but didn't specify any specific credit delays) then we set all specific credit delays to the general
+    else if (!credit_delay_unset) {
+        p->local_credit_delay = general_credit_delay;
+        p->global_credit_delay = general_credit_delay;
+        p->cn_credit_delay = general_credit_delay;
+        
+        if(!myRank)
+            fprintf(stderr, "general credit_delay specified - all credit delays set to %.2f\n",general_credit_delay);
+    }
+    //END CREDIT DELAY CONFIGURATION LOGIC ----------------
+
+    if (PRINT_CONFIG && !myRank) {
+        dragonfly_print_params(p,stderr);
+    }
 
     stored_params = p;
 }
@@ -1737,7 +1806,7 @@ void dragonfly_dally_report_stats()
     if(!g_tw_mynode)
     {	
         if (PRINT_CONFIG) 
-            dragonfly_print_params(stored_params);
+            dragonfly_print_params(stored_params, NULL);
 
         printf("\nAverage number of hops traversed %f average chunk latency %lf us maximum chunk latency %lf us avg message size %lf bytes finished messages %lld finished chunks %lld\n", 
                 (float)avg_hops/total_finished_chunks, (float) avg_time/total_finished_chunks/1000, max_time/1000, (float)final_msg_sz/total_finished_msgs, total_finished_msgs, total_finished_chunks);
@@ -3050,7 +3119,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
         printf("\n Packet %llu arrived at lp %llu hops %d ", LLU(msg->sender_lp), LLU(lp->gid), msg->my_N_hop);
     
     msg->num_rngs++;
-    tw_stime ts = g_tw_lookahead + s->params->credit_delay + tw_rand_unif(lp->rng);
+    tw_stime ts = g_tw_lookahead + s->params->cn_credit_delay + tw_rand_unif(lp->rng);
 
     // no method_event here - message going to router
     tw_event * buf_e;
@@ -3417,12 +3486,12 @@ void dragonfly_dally_router_final(router_state * s, tw_lp * lp)
 
     lp_io_write(lp->gid, (char*)"dragonfly-router-traffic", written, s->output_buf2);
     */
-    if (!g_tw_mynode) {
-        if (s->router_id == 0) {
-            if (PRINT_CONFIG) 
-                dragonfly_print_params(s->params);
-        }
-    }
+    // if (!g_tw_mynode) {
+    //     if (s->router_id == 0) {
+    //         if (PRINT_CONFIG) 
+    //             dragonfly_print_params(s->params);
+    //     }
+    // }
 }
 
 static Connection do_dfdally_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
@@ -3563,6 +3632,7 @@ static void router_credit_send(router_state * s, terminal_dally_message * msg,
 
     int dest = 0,  type = R_BUFFER;
     int is_terminal = 0;
+    double credit_delay;
 
     const dragonfly_param *p = s->params;
     
@@ -3571,18 +3641,21 @@ static void router_credit_send(router_state * s, terminal_dally_message * msg,
         dest = msg->src_terminal_id;
         type = T_BUFFER;
         is_terminal = 1;
+        credit_delay = p->cn_credit_delay;
     } 
-    else if(msg->last_hop == GLOBAL 
-            || msg->last_hop == LOCAL
-            || msg->last_hop == ROOT)
-    {
+    else if(msg->last_hop == GLOBAL) {
         dest = msg->intm_lp_id;
+        credit_delay = p->global_credit_delay;
+    }
+    else if(msg->last_hop == LOCAL) {
+        dest = msg->intm_lp_id;
+        credit_delay = p->local_credit_delay;
     } 
     else
         printf("\n Invalid message type");
 
     (*rng_counter)++;
-    ts = g_tw_lookahead + p->credit_delay +  tw_rand_unif(lp->rng);
+    ts = g_tw_lookahead + credit_delay +  tw_rand_unif(lp->rng);
 
     if (is_terminal) {
         buf_e = model_net_method_event_new(dest, ts, lp, DRAGONFLY_DALLY, 
@@ -3976,7 +4049,7 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     double bytetime = delay;
     
     if(cur_entry->msg.packet_size == 0)
-        bytetime = bytes_to_ns(CREDIT_SIZE, bandwidth);
+        bytetime = bytes_to_ns(s->params->credit_size, bandwidth);
 
     if((cur_entry->msg.packet_size < s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
         bytetime = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, bandwidth); 

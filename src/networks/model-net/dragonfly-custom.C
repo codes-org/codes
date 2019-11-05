@@ -26,7 +26,6 @@
 #endif
 
 #define DUMP_CONNECTIONS 0
-#define CREDIT_SIZE 8
 #define DFLY_HASH_TABLE_SIZE 4999
 // debugging parameters
 #define DEBUG_LP 892
@@ -175,7 +174,10 @@ struct dragonfly_param
     double cn_delay;
     double local_delay;
     double global_delay;
-    double credit_delay;
+    int credit_size;
+    double local_credit_delay;
+    double global_credit_delay;
+    double cn_credit_delay;
     double router_delay;
 };
 
@@ -312,7 +314,6 @@ enum last_hop
    GLOBAL=1,
    LOCAL,
    TERMINAL,
-   ROOT
 };
 
 /* three forms of routing algorithms available, adaptive routing is not
@@ -871,12 +872,79 @@ else
         if(!myRank)
             fprintf(stderr, "global_delay not specified, using default calculation: %.2f\n", p->global_delay);
     }
-    rc = configuration_get_value_double(&config, "PARAMS", "credit_delay", anno, &p->credit_delay);
+
+  //CREDIT DELAY CONFIGURATION LOGIC ------------
+    rc = configuration_get_value_int(&config, "PARAMS", "credit_size", anno, &p->credit_size);
     if (rc) {
-        p->credit_delay = bytes_to_ns(CREDIT_SIZE, p->local_bandwidth);
+        p->credit_size = 8;
         if(!myRank)
-            fprintf(stderr, "credit_delay not specified, using default calculation: %.2f\n", p->credit_delay);
+            fprintf(stderr, "credit_size not specified, using default: %d\n", p->credit_size);
     }
+
+    double general_credit_delay;
+    int credit_delay_unset = configuration_get_value_double(&config, "PARAMS", "credit_delay", anno, &general_credit_delay); 
+    int local_credit_delay_unset = configuration_get_value_double(&config, "PARAMS", "local_credit_delay", anno, &p->local_credit_delay);
+    int global_credit_delay_unset = configuration_get_value_double(&config, "PARAMS", "global_credit_delay", anno, &p->global_credit_delay);
+    int cn_credit_delay_unset = configuration_get_value_double(&config, "PARAMS", "cn_credit_delay", anno, &p->cn_credit_delay);
+
+    int auto_credit_delay_flag;
+    rc = configuration_get_value_int(&config, "PARAMS", "auto_credit_delay", anno, &auto_credit_delay_flag);
+    if (rc) {
+        auto_credit_delay_flag = 0;
+    }
+    else {
+        if(!myRank && auto_credit_delay_flag)
+            fprintf(stderr, "auto_credit_delay flag enabled. All credit delays will be calculated based on their respective bandwidths\n");
+    }
+
+    //If the user specifies a general "credit_delay" AND any of the more specific credit delays, throw an error to make sure they correct their configuration
+    if (!credit_delay_unset && !(local_credit_delay_unset || global_credit_delay_unset || cn_credit_delay_unset))
+        tw_error(TW_LOC, "\nCannot set both a general credit delay and specific (local/global/cn) credit delays. Check configuration file.");
+    
+    //If the user specifies ANY credit delays general or otherwise AND has the auto credit delay flag enabled, throw an error to make sure they correct the conflicting configuration
+    if ((!credit_delay_unset || !local_credit_delay_unset || !global_credit_delay_unset || !cn_credit_delay_unset) && auto_credit_delay_flag)
+        tw_error(TW_LOC, "\nCannot set both a credit delay (general or specific) and also enable auto credit delay calculation. Check Configuration file.");
+
+    //If the user doesn't specify either general or specific credit delays - calculate credit delay based on local bandwidth.
+    //This is old legacy behavior that is left in to make sure that the credit delay configurations of old aren't semantically different
+    //Other possible way to program this would be to make each credit delay be set based on their respective bandwidths but this semantically
+    //changes the behavior of old configuration files. (although it would be more accurate)
+    if (credit_delay_unset && local_credit_delay_unset && global_credit_delay_unset && cn_credit_delay_unset && !auto_credit_delay_flag) {
+        p->local_credit_delay = bytes_to_ns(p->credit_size, p->local_bandwidth);
+        p->global_credit_delay = p->local_credit_delay;
+        p->cn_credit_delay = p->local_credit_delay;
+        if(!myRank)
+            fprintf(stderr, "no credit_delay specified - all credit delays set to %.2f\n",p->local_credit_delay);
+    }
+    //If the user doesn't specify a general credit delay but leaves any of the specific credit delay values unset, then we need to set those (the above conditional handles if none of them had been set)
+    else if (credit_delay_unset) {
+        if (local_credit_delay_unset) {
+            p->local_credit_delay = bytes_to_ns(p->credit_size, p->local_bandwidth);
+            if(!myRank && !auto_credit_delay_flag) //if the auto credit delay flag is true then we've already printed what we're going to do
+                fprintf(stderr, "local_credit_delay not specified, using calculation based on local bandwidth: %.2f\n", p->local_credit_delay);
+        }
+        if (global_credit_delay_unset) {
+            p->global_credit_delay = bytes_to_ns(p->credit_size, p->global_bandwidth);
+            if(!myRank && !auto_credit_delay_flag) //if the auto credit delay flag is true then we've already printed what we're going to do
+                fprintf(stderr, "global_credit_delay not specified, using calculation based on global bandwidth: %.2f\n", p->global_credit_delay);   
+        }
+        if (cn_credit_delay_unset) {
+            p->cn_credit_delay = bytes_to_ns(p->credit_size, p->cn_bandwidth);
+            if(!myRank && !auto_credit_delay_flag) //if the auto credit delay flag is true then we've already printed what we're going to do
+                fprintf(stderr, "cn_credit_delay not specified, using calculation based on cn bandwidth: %.2f\n", p->cn_credit_delay);
+        }
+    }
+    //If the user specifies a general credit delay (but didn't specify any specific credit delays) then we set all specific credit delays to the general
+    else if (!credit_delay_unset) {
+        p->local_credit_delay = general_credit_delay;
+        p->global_credit_delay = general_credit_delay;
+        p->cn_credit_delay = general_credit_delay;
+        
+        if(!myRank)
+            fprintf(stderr, "general credit_delay specified - all credit delays set to %.2f\n",general_credit_delay);
+    }
+    //END CREDIT DELAY CONFIGURATION LOGIC ----------------
+
 }
 
 void dragonfly_custom_configure(){
@@ -1205,6 +1273,7 @@ static void router_credit_send(router_state * s, terminal_custom_message * msg,
 
   int dest = 0,  type = R_BUFFER;
   int is_terminal = 0;
+  double credit_delay;
 
   const dragonfly_param *p = s->params;
  
@@ -1213,15 +1282,20 @@ static void router_credit_send(router_state * s, terminal_custom_message * msg,
     dest = msg->src_terminal_id;
     type = T_BUFFER;
     is_terminal = 1;
-  } else if(msg->last_hop == GLOBAL 
-          || msg->last_hop == LOCAL
-          || msg->last_hop == ROOT)
-  {
+    credit_delay = p->cn_credit_delay;
+  } 
+  else if(msg->last_hop == GLOBAL) {
     dest = msg->intm_lp_id;
-  } else
+    credit_delay = p->global_credit_delay;
+  }
+  else if(msg->last_hop == LOCAL) {
+    dest = msg->intm_lp_id;
+    credit_delay = p->local_credit_delay;
+  } 
+  else
     printf("\n Invalid message type");
 
-  ts = g_tw_lookahead + p->credit_delay +  tw_rand_unif(lp->rng);
+  ts = g_tw_lookahead + credit_delay +  tw_rand_unif(lp->rng);
 	
   if (is_terminal) {
     buf_e = model_net_method_event_new(dest, ts, lp, DRAGONFLY_CUSTOM, 
@@ -1743,7 +1817,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_custom_messag
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
         printf("\n Packet %llu arrived at lp %llu hops %d ", LLU(msg->sender_lp), LLU(lp->gid), msg->my_N_hop);
   
-  tw_stime ts = g_tw_lookahead + s->params->credit_delay + tw_rand_unif(lp->rng);
+  tw_stime ts = g_tw_lookahead + s->params->cn_credit_delay + tw_rand_unif(lp->rng);
 
   // no method_event here - message going to router
   tw_event * buf_e;
@@ -3368,7 +3442,7 @@ router_packet_send( router_state * s,
   double bytetime = delay;
  
   if(cur_entry->msg.packet_size == 0)
-      bytetime = bytes_to_ns(CREDIT_SIZE, bandwidth);
+      bytetime = bytes_to_ns(s->params->credit_size, bandwidth);
 
   if((cur_entry->msg.packet_size < s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
       bytetime = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, bandwidth); 
