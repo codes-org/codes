@@ -90,7 +90,6 @@ nobase_include_HEADERS = \
 	codes/model-net-method.h \
 	codes/model-net-lp.h \
 	codes/model-net-sched.h \
-	codes/model-net-sched-impl.h \
 	codes/model-net-inspect.h \
 	codes/connection-manager.h	\
 	codes/net/common-net.h \
@@ -159,7 +158,7 @@ src_libcodes_la_SOURCES =  \
 	src/workload/methods/codes-iomock-wrkld.c \
 	codes/rc-stack.h \
 	src/util/rc-stack.c \
-	src/networks/model-net/core/model-net.c \
+	src/networks/model-net/model-net.c \
 	src/networks/model-net/common-net.c \
 	src/networks/model-net/simplenet-upd.c \
 	src/networks/model-net/torus.c \
@@ -172,9 +171,10 @@ src_libcodes_la_SOURCES =  \
 	src/networks/model-net/fattree.c \
 	src/networks/model-net/loggp.c \
 	src/networks/model-net/simplep2p.c \
-	src/networks/model-net/core/model-net-lp.c \
-	src/networks/model-net/core/model-net-sched.c \
-	src/networks/model-net/core/model-net-sched-impl.c
+	src/networks/model-net/model-net-lp.c \
+	src/networks/model-net/model-net-sched.c \
+	src/networks/model-net/model-net-sched-impl.h \
+	src/networks/model-net/model-net-sched-impl.c
 
 src_libcodes_mpi_replay_la_SOURCES = \
   src/network-workloads/model-net-mpi-replay.c
@@ -197,13 +197,11 @@ bin_PROGRAMS += src/networks/model-net/topology-test
 bin_PROGRAMS += src/network-workloads/model-net-mpi-replay
 bin_PROGRAMS += src/network-workloads/model-net-dumpi-traces-dump
 bin_PROGRAMS += src/network-workloads/model-net-synthetic
+bin_PROGRAMS += src/network-workloads/model-net-synthetic-custom-dfly
 bin_PROGRAMS += src/network-workloads/model-net-synthetic-slimfly
 bin_PROGRAMS += src/network-workloads/model-net-synthetic-fattree
-bin_PROGRAMS += src/network-workloads/model-net-synthetic-dragonfly-all
-bin_PROGRAMS += src/network-workloads/archived/model-net-synthetic-custom-dfly
-bin_PROGRAMS += src/network-workloads/archived/model-net-synthetic-dfly-plus
-bin_PROGRAMS += src/network-workloads/archived/model-net-synthetic-dally-dfly
-
+bin_PROGRAMS += src/network-workloads/model-net-synthetic-dfly-plus
+bin_PROGRAMS += src/network-workloads/model-net-synthetic-dally-dfly
 
 
 src_workload_codes_workload_dump_SOURCES = \
@@ -216,10 +214,9 @@ src_network_workloads_model_net_mpi_replay_SOURCES = \
   src/network-workloads/model-net-mpi-replay-main.c
 src_network_workloads_model_net_mpi_replay_CFLAGS = $(AM_CFLAGS)
 src_network_workloads_model_net_synthetic_SOURCES = src/network-workloads/model-net-synthetic.c
-src_network_workloads_model_net_synthetic_custom_dfly_SOURCES = src/network-workloads/archived/model-net-synthetic-custom-dfly.c
-src_network_workloads_model_net_synthetic_dfly_plus_SOURCES = src/network-workloads/archived/model-net-synthetic-dfly-plus.c
-src_network_workloads_model_net_synthetic_dally_dfly_SOURCES = src/network-workloads/archived/model-net-synthetic-dally-dfly.c
-src_network_workloads_model_net_synthetic_dragonfly_all_SOURCES = src/network-workloads/model-net-synthetic-dragonfly-all.c
+src_network_workloads_model_net_synthetic_custom_dfly_SOURCES = src/network-workloads/model-net-synthetic-custom-dfly.c
+src_network_workloads_model_net_synthetic_dfly_plus_SOURCES = src/network-workloads/model-net-synthetic-dfly-plus.c
+src_network_workloads_model_net_synthetic_dally_dfly_SOURCES = src/network-workloads/model-net-synthetic-dally-dfly.c
 src_networks_model_net_topology_test_SOURCES = src/networks/model-net/topology-test.c
 
 #bin_PROGRAMS += src/network-workload/codes-nw-test

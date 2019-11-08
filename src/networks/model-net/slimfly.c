@@ -333,7 +333,7 @@ static void ross_slimfly_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, st
 static void ross_slimfly_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct slimfly_router_sample *sample);
 int get_path_length_from_terminal(int src, int dest, const slimfly_param *p);
 void get_router_connections(int src_router_id, int num_global_channels, int num_local_channels,
-        int total_routers, int* local_channels, int* global_channels, int sf_type, const slimfly_param * p);
+        int total_routers, int* local_channels, int* global_channels, int sf_type, slimfly_param * p);
 
 st_model_types slimfly_model_types[] = {
     {(ev_trace_f) slimfly_event_collect,
@@ -909,6 +909,8 @@ void slim_terminal_init( terminal_state * s,
 
     int num_routers = codes_mapping_get_lp_count(lp_group_name, 0 ,"modelnet_slimfly_router",
             s->anno, 0);
+
+    int num_routers_per_rep = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_ROUT, s->anno, 0);
 
     int num_routers_per_rail = num_routers / s->params->ports_per_nic;
 
@@ -2242,7 +2244,7 @@ void slimfly_router_final(router_state * s,
  *  @param[in] *global_channels         Integer array pointer for storing the global connections
  */
 void get_router_connections(int src_router_id, int num_global_channels, int num_local_channels,
-        int total_routers, int* local_channels, int* global_channels, int sf_type, const slimfly_param *p){
+        int total_routers, int* local_channels, int* global_channels, int sf_type, slimfly_param *p){
     //Compute MMS router layout/connection graph
     int rid_s = src_router_id;	// ID for source router
     int num_rails = 1;
@@ -2951,7 +2953,7 @@ tw_lpid slim_get_next_stop(router_state * s,
         int intm_id)
 {
     // printf("slim get next stop\n");
-    (void)lp;
+
     (void)msg;
     (void)bf;
 

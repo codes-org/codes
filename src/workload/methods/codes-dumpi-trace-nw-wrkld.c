@@ -36,7 +36,7 @@
 #define UNDUMPI_CLOSE undumpi_close
 #endif
 
-#define MAX_LENGTH_FILE 1024
+#define MAX_LENGTH_FILE 512
 #define MAX_OPERATIONS 32768
 #define DUMPI_IGNORE_DELAY 100
 

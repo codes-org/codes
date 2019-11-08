@@ -1,11 +1,7 @@
 ************** Copyright © 2019, UChicago Argonne, LLC ***************
-
 All Rights Reserved
-
 Software Name: CO-Design of Exascale Storage and Network Architectures (CODES)
-
 By: Argonne National Laboratory, Rensselaer Polytechnic Institute, Lawrence Livermore National Laboratory, and Illinois Institute of Technology
-
 OPEN SOURCE LICENSE
 
 Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
