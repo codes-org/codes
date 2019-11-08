@@ -75,7 +75,7 @@ static void init(state *ns, tw_lp *lp){
 
 
     // output-based check - print out IDs, compare against expected
-    char tmp[128];
+    char tmp[512];
     if (ns->anno[0]=='\0')
         tmp[0] = '\0';
     else
