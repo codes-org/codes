@@ -300,6 +300,7 @@ struct terminal_state
 
     tw_stime last_buf_full;
     tw_stime busy_time;
+    uint64_t link_traffic;
     
     unsigned long* stalled_chunks; //Counter for when a packet cannot be immediately routed
 
@@ -1380,6 +1381,7 @@ terminal_dally_init( terminal_state * s,
     s->min_latency = INT_MAX;
     s->max_latency = 0;  
 
+    s->link_traffic=0.0;
     s->finished_msgs = 0;
     s->finished_chunks = 0;
     s->finished_packets = 0;
@@ -2115,6 +2117,7 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_dally_messag
     s->terminal_length[vcg] += s->params->chunk_size;
     /*TODO: MM change this to the vcg */
     s->vc_occupancy[vcg] -= s->params->chunk_size;
+    s->link_traffic-=s->params->chunk_size;
 
     terminal_dally_message_list* cur_entry = (terminal_dally_message_list *)rc_stack_pop(s->st);
     
@@ -2256,6 +2259,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, vcg); 
     rc_stack_push(lp, cur_entry, delete_terminal_dally_message_list, s->st);
     s->terminal_length[vcg] -= s->params->chunk_size;
+    s->link_traffic += s->params->chunk_size;
 
     cur_entry = NULL;
     if(next_vcg >= 0)
@@ -3087,8 +3091,9 @@ dragonfly_dally_terminal_final( terminal_state * s,
         written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <dest_id> < dest_type>  <link_type> <link_traffic> <link_saturation> <stalled_chunks>\n");
 //        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
     }
+    //since LLU(s->total_msg_size) is total message size a terminal received from a router so source is router and destination is terminal
     written += sprintf(s->output_buf + written, "\n%u %s %llu %s %s %llu %lf %d",
-            s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time, s->stalled_chunks);
+                       s->terminal_id, "T",s->router_id, "R","CN", LLU(s->link_traffic), s->busy_time, s->stalled_chunks);
 
     lp_io_write(lp->gid, (char*)"dragonfly-link-stats", written, s->output_buf); 
     
@@ -3175,7 +3180,6 @@ void dragonfly_dally_router_final(router_state * s, tw_lp * lp)
 
     vector< Connection > my_global_links = s->connMan->get_connections_by_type(CONN_GLOBAL);
     vector< Connection >::iterator it = my_global_links.begin();
-
     for(; it != my_global_links.end(); it++)
     {
         int dest_rtr_id = it->dest_gid;
@@ -3190,6 +3194,24 @@ void dragonfly_dally_router_final(router_state * s, tw_lp * lp)
             s->link_traffic[port_no],
             s->busy_time[port_no],
             s->stalled_chunks[port_no]);
+    }
+
+    vector< Connection > my_terminal_links = s->connMan->get_connections_by_type(CONN_TERMINAL);
+    it = my_terminal_links.begin()
+    for(; it != my_terminal_links.end(); it++)
+    for(int d = 0; d < p->num_cn; d++)
+    {
+        int dest_term_id = it->dest_gid;
+        int port_no = it->port;
+        written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf %lu",
+                           s->router_id,
+                           "R",
+                           dest_term_id,
+                           "T",
+                           "CN",
+                            s->link_traffic[port_no],
+                            s->busy_time[port_no],
+                            s->stalled_chunks[port_no]);
     }
 
     sprintf(s->output_buf + written, "\n");
