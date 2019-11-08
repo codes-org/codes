@@ -3197,9 +3197,8 @@ void dragonfly_dally_router_final(router_state * s, tw_lp * lp)
     }
 
     vector< Connection > my_terminal_links = s->connMan->get_connections_by_type(CONN_TERMINAL);
-    it = my_terminal_links.begin()
+    it = my_terminal_links.begin();
     for(; it != my_terminal_links.end(); it++)
-    for(int d = 0; d < p->num_cn; d++)
     {
         int dest_term_id = it->dest_gid;
         int port_no = it->port;
