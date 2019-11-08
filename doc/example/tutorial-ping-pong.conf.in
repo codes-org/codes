@@ -45,11 +45,9 @@ PARAMS
 # number of global channels per router
    num_global_channels="2";
 # network config file for intra-group connections
-   intra-group-connections="../src/network-workloads/conf/dragonfly-dally/dfdally-72-intra";
+   intra-group-connections="@abs_srcdir@/../../src/network-workloads/conf/dragonfly-dally/dfdally-72-intra";
 # network config file for inter-group connections
-   inter-group-connections="../src/network-workloads/conf/dragonfly-dally/dfdally-72-inter";
+   inter-group-connections="@abs_srcdir@/../../src/network-workloads/conf/dragonfly-dally/dfdally-72-inter";
 # routing protocol to be used
-   routing="minimal";
-   minimal-bias="1";
-   df-dally-vc = "1";
+   routing="prog-adaptive";
 }

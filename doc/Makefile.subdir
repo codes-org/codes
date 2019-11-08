@@ -2,8 +2,11 @@ noinst_PROGRAMS += \
  doc/example/example \
  doc/example_heterogeneous/example
 
+bin_PROGRAMS += doc/example/tutorial-synthetic-ping-pong
+
 doc_example_example_SOURCES = doc/example/example.c
 doc_example_heterogeneous_example_SOURCES = doc/example_heterogeneous/example.c
+doc_example_tutorial_synthetic_ping_pong_SOURCES = doc/example/tutorial-synthetic-ping-pong.c
 
 EXTRA_DIST += \
  doc/BUILD_STEPS \
@@ -15,6 +18,7 @@ EXTRA_DIST += \
  doc/codes-best-practices.tex \
  doc/Makefile \
  doc/example/example.conf \
+ doc/example/tutorial-ping-pong.conf \
  doc/example_heterogeneous/example.conf \
  doc/example_heterogeneous/example_torus.conf \
  doc/example_heterogeneous/README \

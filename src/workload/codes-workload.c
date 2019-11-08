@@ -420,7 +420,6 @@ void codes_workload_print_op(
         case CODES_WK_SEND:
             fprintf(f, "op: app:%d rank:%d type:send "
                     "src:%d dst:%d bytes:%"PRIu64" type:%d count:%d tag:%d "
-                    "src:%d dst:%d bytes:%d type:%d count:%d tag:%d "
                     "start:%.5e end:%.5e\n",
                     app_id, rank,
                     op->u.send.source_rank, op->u.send.dest_rank,
