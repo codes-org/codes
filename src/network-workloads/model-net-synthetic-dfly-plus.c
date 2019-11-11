@@ -911,6 +911,7 @@ int main(
         multi_syn_job = 0;
         num_apps = 1;
         num_syn_clients = num_nodes;
+        jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_IDENTITY, &jobmap_p);
         if(!rank)
             printf("Synthetic Job %d for whole system \n", traffic);
 
