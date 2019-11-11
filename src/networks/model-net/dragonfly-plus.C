@@ -3089,11 +3089,8 @@ void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
     if (s->terminal_id == 0) {
         written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <dest_id> < dest_type>  <link_type> <link_traffic> <link_saturation>");
     }
-
-    //writing file only when there is traffic or busy
-    if (s->total_msg_size ||  s->busy_time)
-        written += sprintf(s->output_buf + written, "\n%u %s %llu %s %s %llu %lf",
-            s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time);
+    written += sprintf(s->output_buf + written, "\n%u %s %llu %s %s %llu %lf",
+        s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time);
 
     lp_io_write(lp->gid, (char*)"dragonfly-plus-local-link-stats", written, s->output_buf);
 
@@ -3219,16 +3216,14 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
             dest_ab_id = local_grp_id * p->num_routers + d;
         }
 
-        if (s->link_traffic[d] || s->busy_time[d]) {
-            written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %lld %lf",
-                s->router_id,
-                "R",
-                dest_ab_id,
-                "R",
-                "L",
-                LLD(s->link_traffic[d]),
-                s->busy_time[d]);
-        }  
+        written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %lld %lf",
+            s->router_id,
+            "R",
+            dest_ab_id,
+            "R",
+            "L",
+            LLD(s->link_traffic[d]),
+            s->busy_time[d]);
     }
 
     sprintf(s->output_buf + written, "\n");
@@ -3248,18 +3243,16 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
         assert(port_no >= 0 && port_no < p->radix);
         assert(dragonfly_plus_get_router_type(dest_rtr_id, p) == SPINE);
 
-        if (s->link_traffic[port_no] || s->busy_time[port_no]) {
-            written1 += sprintf(s->output_buf2 + written1, "\n%d %s G%d || %d %s G%d, %s %lld %lf",
-                s->router_id,
-                "R",
-                s->group_id,
-                dest_rtr_id,
-                "R",
-                dest_rtr_id/s->params->num_routers,
-                "G",
-                LLD(s->link_traffic[port_no]),
-                s->busy_time[port_no]);
-        }
+        written1 += sprintf(s->output_buf2 + written1, "\n%d %s G%d || %d %s G%d, %s %lld %lf",
+            s->router_id,
+            "R",
+            s->group_id,
+            dest_rtr_id,
+            "R",
+            dest_rtr_id/s->params->num_routers,
+            "G",
+            LLD(s->link_traffic[port_no]),
+            s->busy_time[port_no]);
     }
 
     sprintf(s->output_buf2 + written1, "\n");
