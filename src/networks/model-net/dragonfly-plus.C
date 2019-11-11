@@ -3411,14 +3411,12 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
         case CONN_LOCAL:
             vc_size = s->params->local_vc_size;
             break;
-
         case CONN_GLOBAL:
             vc_size = s->params->global_vc_size;
             break;
-
-        //TODO: allow scoring of terminal connections
         case CONN_TERMINAL:
-            tw_error(TW_LOC, "Terminal scoring in progressive...");
+            vc_size = s->params->cn_vc_size;
+            break;
         default:
             tw_error(TW_LOC, "Error connection type");
     }
