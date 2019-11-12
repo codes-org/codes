@@ -1273,6 +1273,10 @@ static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf
             scores[i] = dfp_score_connection(s, bf, msg, lp, conns[i], C_MIN);
 
             if (scores[i] <= best_score) {
+                if (scores[i] < best_score) {
+                    best_indexes.clear(); //we found a better one so we need to clear it
+                }
+                best_score_index = i;
                 best_score = scores[i];
                 best_indexes.push_back(i);
             }
@@ -1286,6 +1290,10 @@ static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf
             scores[i] = dfp_score_connection(s, bf, msg, lp, conns[i], C_MIN);
 
             if (scores[i] >= best_score) {
+                if (scores[i] > best_score) {
+                    best_indexes.clear(); //we found a better one so we need to clear it
+                }
+                best_score_index = i;
                 best_score = scores[i];
                 best_indexes.push_back(i);
             }
@@ -1343,6 +1351,7 @@ static Connection get_best_connection_from_conns(router_state *s, tw_bf *bf, ter
 
     int scores[num_to_compare];
     int best_score_index = 0;
+    vector<int> best_indexes; //in case multiple ports are equally best, choose a random one
     if (scoring_preference == LOWER) {
         
         int best_score = INT_MAX;
@@ -1350,9 +1359,13 @@ static Connection get_best_connection_from_conns(router_state *s, tw_bf *bf, ter
         {
             scores[i] = dfp_score_connection(s, bf, msg, lp, selected_conns[i], C_MIN);
 
-            if (scores[i] < best_score) {
-                best_score = scores[i];
+            if (scores[i] <= best_score) {
+                if (scores[i] < best_score) {
+                    best_indexes.clear(); //we found a better one so we need to clear it
+                }
                 best_score_index = i;
+                best_score = scores[i];
+                best_indexes.push_back(i);
             }
         }
     }
@@ -1363,11 +1376,20 @@ static Connection get_best_connection_from_conns(router_state *s, tw_bf *bf, ter
         {
             scores[i] = dfp_score_connection(s, bf, msg, lp, selected_conns[i], C_MIN);
 
-            if (scores[i] > best_score) {
-                best_score = scores[i];
+            if (scores[i] >= best_score) {
+                if (scores[i] > best_score) {
+                    best_indexes.clear(); //we found a better one so we need to clear it
+                }
                 best_score_index = i;
+                best_score = scores[i];
+                best_indexes.push_back(i);
             }
         }
+    }
+
+    if (best_indexes.size() > 1) {
+        msg->num_rngs++;
+        best_score_index = best_indexes[tw_rand_ulong(lp->rng, 0, best_indexes.size()-1)];
     }
 
     return selected_conns[best_score_index];
