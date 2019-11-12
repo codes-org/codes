@@ -2,12 +2,8 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.67])
-AC_INIT([codes], [1.1.0], [http://trac.mcs.anl.gov/projects/codes/newticket],[],[http://www.mcs.anl.gov/projects/codes/])
+AC_INIT([codes], [1.1.1], [http://trac.mcs.anl.gov/projects/codes/newticket],[],[http://www.mcs.anl.gov/projects/codes/])
 LT_INIT
-
-
-#WRAP SOME OPTION AROUND THIS - IT'S NOT REQUIRED FOR 99% OF CODES
-AX_BOOST_BASE([1.66])
 
 AC_CANONICAL_TARGET
 AC_CANONICAL_SYSTEM
@@ -20,8 +16,8 @@ m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 AC_CONFIG_SRCDIR([doc/BUILD_STEPS])
 AC_CONFIG_HEADERS([codes_config.h])
 
-AX_PROG_BISON([],[AC_MSG_WARN([Could not find bison])])
-AX_PROG_FLEX([],[AC_MSG_WARN([Could not find flex])])
+AX_PROG_BISON([],[AC_MSG_ERROR([could not find required package bison])])
+AX_PROG_FLEX([],[AC_MSG_ERROR([could not find required package flex])])
 AC_SUBST([BISON])
 AC_SUBST([FLEX])
 
@@ -124,6 +120,7 @@ AC_ARG_WITH([online],[AS_HELP_STRING([--with-online@<:@=DIR@:>@],
                       [use_online=yes],[use_online=no])
 if test "x${use_online}" != "xno" ; then
     AM_CONDITIONAL(USE_ONLINE, true)
+    AX_BOOST_BASE([1.66])
     AX_CXX_COMPILE_STDCXX(11, noext, mandatory)
     PKG_CHECK_MODULES_STATIC([ARGOBOTS], [argobots], [],
                       [AC_MSG_ERROR([Could not find working argobots installation via pkg-config])])
@@ -232,5 +229,6 @@ AC_OUTPUT([maint/codes.pc])
 AC_OUTPUT([src/network-workloads/conf/dragonfly-custom/modelnet-test-dragonfly-1728-nodes.conf])
 AC_OUTPUT([src/network-workloads/conf/dragonfly-plus/modelnet-test-dragonfly-plus.conf])
 AC_OUTPUT([src/network-workloads/conf/dragonfly-dally/modelnet-test-dragonfly-dally.conf])
+AC_OUTPUT([doc/example/tutorial-ping-pong.conf])
 
 

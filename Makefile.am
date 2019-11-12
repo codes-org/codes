@@ -22,7 +22,7 @@ pkgconfig_DATA = maint/codes.pc
 $(pkgconfig_DATA): config.status
 
 EXTRA_DIST += \
-  prepare.sh COPYRIGHT configure.ac uc-codes.cfg reformat.sh \
+  prepare.sh LICENSE.md configure.ac uc-codes.cfg reformat.sh \
   misc/README misc/ptrn_loggp-2.4.6.patch CONTRIBUTORS.md \
   README.md
 

@@ -1,13 +1,7 @@
 /*
- * Copyright (C) 2015 University of Chicago.
- * See COPYRIGHT notice in top-level directory.
- *
+ * Copyright (C) 2019 Neil McGlohon
+ * See LICENSE notice in top-level directory
  */
-
-/*
-* The test program generates some synthetic traffic patterns for the model-net network models.
-* currently it only support the dragonfly network model uniform random and nearest neighbor traffic patterns.
-*/
 
 #include "codes/model-net.h"
 #include "codes/lp-io.h"
@@ -22,13 +16,21 @@ static int traffic = 1;
 static double arrival_time = 1000.0;
 static int PAYLOAD_SZ = 2048;
 
-/* whether to pull instead of push */
 static int num_servers_per_rep = 0;
 static int num_routers_per_grp = 0;
 static int num_nodes_per_grp = 0;
-static int num_nodes_per_cn = 0;
+static int num_nodes_per_router = 0;
 static int num_groups = 0;
 static unsigned long long num_nodes = 0;
+
+//Dragonfly Custom Specific values
+int num_router_rows, num_router_cols;
+
+//Dragonfly Plus Specific Values
+int num_router_leaf, num_router_spine;
+
+//Dragonfly Dally Specific Values
+int num_routers; //also used by original Dragonfly
 
 static char lp_io_dir[256] = {'\0'};
 static lp_io_handle io_handle;
@@ -72,6 +74,7 @@ struct svr_state
     int local_recvd_count; /* number of local messages received */
     tw_stime start_ts;    /* time that we started sending requests */
     tw_stime end_ts;      /* time that we ended sending requests */
+    int svr_id;
     int dest_id;
 };
 
@@ -79,7 +82,7 @@ struct svr_msg
 {
     enum svr_event svr_event_type;
     tw_lpid src;          /* source of this request or ack */
-    int incremented_flag; /* helper for reverse computation */
+    int completed_sends; /* helper for reverse computation */
     model_net_event_return event_rc;
 };
 
@@ -111,9 +114,7 @@ tw_lptype svr_lp = {
     sizeof(svr_state),
 };
 
-/* setup for the ROSS event tracing
- */
-void custom_svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
+void dragonfly_svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_flag)
 {
     (void)lp;
     (void)collect_flag;
@@ -125,7 +126,7 @@ void custom_svr_event_collect(svr_msg *m, tw_lp *lp, char *buffer, int *collect_
  * in the ROSS instrumentation.  Will need to update the last field in 
  * svr_model_types[0] for the size of the data to save in each function call
  */
-void custom_svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
+void dragonfly_svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
 {
     (void)s;
     (void)lp;
@@ -133,10 +134,10 @@ void custom_svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
     return;
 }
 
-st_model_types custom_svr_model_types[] = {
-    {(ev_trace_f) custom_svr_event_collect,
+st_model_types dragonfly_svr_model_types[] = {
+    {(ev_trace_f) dragonfly_svr_event_collect,
      sizeof(int),
-     (model_stat_f) custom_svr_model_stat_collect,
+     (model_stat_f) dragonfly_svr_model_stat_collect,
      0,
      NULL,
      NULL,
@@ -144,14 +145,14 @@ st_model_types custom_svr_model_types[] = {
     {NULL, 0, NULL, 0, NULL, NULL, 0}
 };
 
-static const st_model_types  *custom_svr_get_model_stat_types(void)
+static const st_model_types  *dragonfly_svr_get_model_stat_types(void)
 {
-    return(&custom_svr_model_types[0]);
+    return(&dragonfly_svr_model_types[0]);
 }
 
-void custom_svr_register_model_types()
+void dragonfly_svr_register_model_types()
 {
-    st_model_type_register("nw-lp", custom_svr_get_model_stat_types());
+    st_model_type_register("nw-lp", dragonfly_svr_get_model_stat_types());
 }
 
 const tw_optdef app_opt [] =
@@ -206,6 +207,7 @@ static void svr_init(
 {
     ns->start_ts = 0.0;
     ns->dest_id = -1;
+    ns->svr_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
 
     issue_event(ns, lp);
     return;
@@ -217,7 +219,7 @@ static void handle_kickoff_rev_event(
             svr_msg * m,
             tw_lp * lp)
 {
-    if(m->incremented_flag)
+    if(m->completed_sends)
         return;
 
     if(b->c1)
@@ -242,11 +244,11 @@ static void handle_kickoff_event(
 {
     if(ns->msg_sent_count >= num_msgs)
     {
-        m->incremented_flag = 1;
+        m->completed_sends = 1;
         return;
     }
 
-    m->incremented_flag = 0;
+    m->completed_sends = 0;
 
     char anno[MAX_NAME_LENGTH];
     tw_lpid local_dest = -1, global_dest = -1;
@@ -260,7 +262,6 @@ static void handle_kickoff_event(
     memcpy(m_remote, m_local, sizeof(svr_msg));
     m_remote->svr_event_type = REMOTE;
 
-    assert(net_id == DRAGONFLY || net_id == DRAGONFLY_CUSTOM); /* only supported for dragonfly model right now. */
     ns->start_ts = tw_now(lp);
     codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
     int local_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
@@ -269,7 +270,8 @@ static void handle_kickoff_event(
    if(traffic == UNIFORM)
    {
     b->c1 = 1;
-   	local_dest = tw_rand_integer(lp->rng, 0, num_nodes - 1);
+    local_dest = tw_rand_integer(lp->rng, 1, num_nodes - 2);
+    local_dest = (ns->svr_id + local_dest) % num_nodes;
    }
    else if(traffic == NEAREST_GROUP)
    {
@@ -311,7 +313,7 @@ static void handle_kickoff_event(
         int rand_node_intra_id = tw_rand_integer(lp->rng, 0, num_nodes_per_grp-1);
 
         local_dest = (rand_group * num_nodes_per_grp) + rand_node_intra_id;
-        printf("\n LP %ld sending to %ld num nodes %d ", local_id, local_dest, num_nodes);
+        printf("\n LP %d sending to %llu num nodes %llu ", local_id, LLU(local_dest), num_nodes);
 
    }
    assert(local_dest < num_nodes);
@@ -370,11 +372,6 @@ static void handle_local_event(
         (void)m;
         (void)lp;
     ns->local_recvd_count++;
-}
-/* convert ns to seconds */
-static tw_stime ns_to_s(tw_stime ns)
-{
-    return(ns / (1000.0 * 1000.0 * 1000.0));
 }
 
 /* convert seconds to ns */
@@ -449,19 +446,20 @@ int main(
     int rank;
     int num_nets;
     int *net_ids;
-    int num_router_rows, num_router_cols;
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
+
 #ifdef USE_RDAMARIS
     if(g_st_ross_rank)
     { // keep damaris ranks from running code between here up until tw_end()
 #endif
     codes_comm_update();
 
+
     if(argc < 2)
     {
-            printf("\n Usage: mpirun <args> --sync=2/3 mapping_file_name.conf (optional --nkp) ");
+            printf("\n Usage: mpirun <args> --sync=1/2/3 -- <config_file.conf> ");
             MPI_Finalize();
             return 0;
     }
@@ -475,7 +473,7 @@ int main(
     svr_add_lp_type();
 
     if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
-        custom_svr_register_model_types();
+        dragonfly_svr_register_model_types();
 
     codes_mapping_setup();
 
@@ -488,23 +486,56 @@ int main(
     g_tw_ts_end = s_to_ns(5 * 24 * 60 * 60);
     model_net_enable_sampling(sampling_interval, sampling_end_time);
 
-    if(net_id != DRAGONFLY && net_id != DRAGONFLY_CUSTOM)
+    if(!(net_id == DRAGONFLY_DALLY || net_id == DRAGONFLY_PLUS || net_id == DRAGONFLY_CUSTOM || net_id == DRAGONFLY))
     {
-	printf("\n The test works with dragonfly model configuration only! %d %d ", DRAGONFLY_CUSTOM, net_id);
+	printf("\n The workload generator is designed to only work with Dragonfly based model (Dally, Plus, Custom, Original) configuration only! %d %d ", DRAGONFLY_DALLY, net_id);
         MPI_Finalize();
         return 0;
     }
     num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "nw-lp",
             NULL, 1);
-    configuration_get_value_int(&config, "PARAMS", "num_router_rows", NULL, &num_router_rows);
-    configuration_get_value_int(&config, "PARAMS", "num_router_cols", NULL, &num_router_cols);
-    configuration_get_value_int(&config, "PARAMS", "num_groups", NULL, &num_groups);
-    configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", NULL, &num_nodes_per_cn);
 
-    num_routers_per_grp = num_router_rows * num_router_cols;
+    int num_routers_with_cns_per_group;
 
-    num_nodes = num_groups * num_routers_per_grp * num_nodes_per_cn;
-    num_nodes_per_grp = num_routers_per_grp * num_nodes_per_cn;
+    if (net_id == DRAGONFLY_DALLY) {
+        if (!rank)
+            printf("Synthetic Generator: Detected Dragonfly Dally\n");
+        configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers);
+        configuration_get_value_int(&config, "PARAMS", "num_groups", NULL, &num_groups);
+        configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", NULL, &num_nodes_per_router);
+        num_routers_with_cns_per_group = num_routers;
+    }
+    else if (net_id == DRAGONFLY_PLUS) {
+        if (!rank)
+            printf("Synthetic Generator: Detected Dragonfly Plus\n");
+        configuration_get_value_int(&config, "PARAMS", "num_router_leaf", NULL, &num_router_leaf);
+        configuration_get_value_int(&config, "PARAMS", "num_router_spine", NULL, &num_router_spine);
+        configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers);
+        configuration_get_value_int(&config, "PARAMS", "num_groups", NULL, &num_groups);
+        configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", NULL, &num_nodes_per_router);
+        num_routers_with_cns_per_group = num_router_leaf;
+
+    }
+    else if (net_id == DRAGONFLY_CUSTOM) {
+        if (!rank)
+            printf("Synthetic Generator: Detected Dragonfly Custom\n");
+        configuration_get_value_int(&config, "PARAMS", "num_router_rows", NULL, &num_router_rows);
+        configuration_get_value_int(&config, "PARAMS", "num_router_cols", NULL, &num_router_cols);
+        configuration_get_value_int(&config, "PARAMS", "num_groups", NULL, &num_groups);
+        configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", NULL, &num_nodes_per_router);
+        num_routers_with_cns_per_group = num_router_rows * num_router_cols;
+    }
+    else if (net_id == DRAGONFLY) {
+        if (!rank)
+            printf("Synthetic Generator: Detected Dragonfly Original 1D\n");
+        configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers);
+        num_nodes_per_router = num_routers/2;
+        num_routers_with_cns_per_group = num_routers;
+        num_groups = num_routers * num_nodes_per_router + 1;
+    }
+
+    num_nodes = num_groups * num_routers_with_cns_per_group * num_nodes_per_router;
+    num_nodes_per_grp = num_routers_with_cns_per_group * num_nodes_per_router;
 
     assert(num_nodes);
 
