@@ -67,6 +67,7 @@ struct terminal_plus_message
   short dfp_upward_channel_flag;
 
   int dfp_dest_terminal_id; //this is the terminal id in the dfp network in range [0-total_num_terminals)
+  int dfp_src_terminal_id;
 
    uint32_t chunk_id;
    uint32_t packet_size;
@@ -109,6 +110,11 @@ struct terminal_plus_message
    tw_stime msg_start_time;
    tw_stime saved_busy_time_ross;
    tw_stime saved_fin_chunks_ross;
+
+   //counting msg app id
+   int app_id;
+   tw_stime last_received_time;
+   tw_stime last_sent_time;
 };
 
 #ifdef __cplusplus

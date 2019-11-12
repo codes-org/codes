@@ -134,6 +134,10 @@ typedef struct model_net_request {
     int      remote_event_size;
     int      self_event_size;
     char     category[CATEGORY_NAME_MAX];
+
+    //for counting msg app id
+    int     app_id;
+
 } model_net_request;
 
 /* data structure for tracking network statistics */
