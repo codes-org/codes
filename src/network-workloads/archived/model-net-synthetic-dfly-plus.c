@@ -251,7 +251,7 @@ static void svr_init(
     ns->num_msg_recvd = calloc(max_app, sizeof(int));
 
     if(!ns->comm_time || !ns->num_msg_recvd){
-        printf("calloc failed for svr %llu\n", ns->svr_id);
+        printf("calloc failed for svr %lu\n", ns->svr_id);
         assert(0);
     }
 
@@ -730,7 +730,7 @@ static void svr_finalize(
     if(ns->svr_id == 0)
         written = sprintf(ns->output_buf1, "#<LP ID> <Terminal ID> <Job ID> <Local Rank> <Total sends> <Total Recvs> <Local count> <lp running time>");
 
-    written += sprintf(ns->output_buf1 + written, "\n %llu %llu %d %d %d %d %d %lf %lf %lf", 
+    written += sprintf(ns->output_buf1 + written, "\n %llu %llu %d %d %d %d %d %lf", 
         LLU(lp->gid), LLU(ns->svr_id), ns->app_id, ns->local_rank, ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count, ns->end_ts - ns->start_ts);
 
     result = lp_io_write(lp->gid, (char*)"mpi-synthetic-stats", written, ns->output_buf1);

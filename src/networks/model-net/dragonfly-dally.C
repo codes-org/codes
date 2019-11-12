@@ -3367,7 +3367,7 @@ dragonfly_dally_terminal_final( terminal_state * s,
 //        fprintf(fp, "# Format <LP id> <Terminal ID> <Total Data Size> <Avg packet latency> <# Flits/Packets finished> <Avg hops> <Busy Time> <Max packet Latency> <Min packet Latency >\n");
     }
     //since LLU(s->total_msg_size) is total message size a terminal received from a router so source is router and destination is terminal
-    written += sprintf(s->output_buf + written, "\n%u %s %llu %s %s %llu %lf %d",
+    written += sprintf(s->output_buf + written, "\n%u %s %u %s %s %llu %lf %lu",
                        s->terminal_id, "T",s->router_id, "R","CN", LLU(s->link_traffic), s->busy_time, s->stalled_chunks);
 
     lp_io_write(lp->gid, (char*)"dragonfly-link-stats", written, s->output_buf); 
@@ -3466,7 +3466,7 @@ void dragonfly_dally_router_final(router_state * s, tw_lp * lp)
             dest_rtr_id,
             "R",
             "G",
-            s->link_traffic[port_no],
+            LLU(s->link_traffic[port_no]),
             s->busy_time[port_no],
             s->stalled_chunks[port_no]);
     }
@@ -3483,7 +3483,7 @@ void dragonfly_dally_router_final(router_state * s, tw_lp * lp)
                            dest_term_id,
                            "T",
                            "CN",
-                            s->link_traffic[port_no],
+                            LLU(s->link_traffic[port_no]),
                             s->busy_time[port_no],
                             s->stalled_chunks[port_no]);
     }
