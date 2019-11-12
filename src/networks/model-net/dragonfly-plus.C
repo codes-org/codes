@@ -1928,7 +1928,7 @@ static tw_stime dragonfly_plus_packet_event(model_net_request const *req,
     msg->msg_start_time = req->msg_start_time;
 
     //for message app id tracking
-    msg->dfp_src_terminal_id = codes_mapping_get_lp_relative_id(msg->sender_mn_lp,0,0);
+    msg->dfp_src_terminal_id = 0;
     msg->app_id = req->app_id;
 
     if (is_last_pckt) /* Its the last packet so pass in remote and local event information*/
@@ -2144,6 +2144,7 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
         terminal_plus_message_list *cur_chunk =
             (terminal_plus_message_list *) calloc(1, sizeof(terminal_plus_message_list));
         msg->origin_router_id = s->router_id;
+        msg->dfp_src_terminal_id = s->terminal_id;
         init_terminal_plus_message_list(cur_chunk, msg);
 
         if (msg->remote_event_size_bytes + msg->local_event_size_bytes > 0) {
