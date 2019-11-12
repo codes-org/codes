@@ -58,7 +58,7 @@ static char lp_type_name[MAX_NAME_LENGTH];
 static int group_index, lp_type_index, rep_id, offset;
 
 /* 2D rank communication heat map */
-static int **comm_map;
+// static int **comm_map; //NM: this was implemented in a way that wouldn't work in parallel execution
 
 /* Function for computing local and global connections for a given router id */
 static void get_router_connections(int src_router_id, int* local_channels, int* global_channels);

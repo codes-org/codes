@@ -674,11 +674,6 @@ static void handle_local_event(
         (void)lp;
     ns->local_recvd_count++;
 }
-/* convert ns to seconds */
-static tw_stime ns_to_s(tw_stime ns)
-{
-    return(ns / (1000.0 * 1000.0 * 1000.0));
-}
 
 /* convert seconds to ns */
 static tw_stime s_to_ns(tw_stime ns)
