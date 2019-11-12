@@ -205,7 +205,6 @@ OutputIterator _set_common (InputIterator1 first1, InputIterator1 last1,
 {
   while (first1!=last1 && first2!=last2)
   {
-
     // if(*first1==*first2){ *result = *first1; ++result; ++first1; ++first2;} // yao compile error???
     if (*first1<*first2) ++first1;
     else if (*first2<*first1) ++first2;
@@ -575,11 +574,8 @@ struct router_state
     struct dfly_router_sample ross_rsample;
 
     //GC occupancy report usage
-    char output_buf3[4096]; 
     //for msg app id counting rec
     char output_buf4[4096]; 
-    //for msg id send
-    char output_buf5[4096]; 
     int **msg_counting;
     int **msg_counting_out;
     //counting total number of packets received during all counting windows, used to verify correct reverse computation
@@ -1935,8 +1931,6 @@ static tw_stime dragonfly_plus_packet_event(model_net_request const *req,
     msg->dfp_src_terminal_id = codes_mapping_get_lp_relative_id(msg->sender_mn_lp,0,0);
     msg->app_id = req->app_id;
 
-
-
     if (is_last_pckt) /* Its the last packet so pass in remote and local event information*/
     {
         if (req->remote_event_size > 0) {
@@ -3082,9 +3076,6 @@ void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
 {
     model_net_print_stats(lp->gid, s->dragonfly_stats_array);
 
-    assert(s->terminal_id < s->params->total_terminals);
-    assert(s->router_id < s->params->total_routers);
-
     int written = 0;
     if (s->terminal_id == 0) {
         written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <dest_id> < dest_type>  <link_type> <link_traffic> <link_saturation>");
@@ -3198,14 +3189,11 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
     int written = 0;   //local link
     int written1 = 0;  //global link
     int written2 = 0;  //msg app id rec
-    int written3 = 0;  //msg app id send
-
     int src_rel_id = s->router_id % p->num_routers;
     int local_grp_id = s->router_id / p->num_routers;
 
     int dest_ab_id = -1;
     int total_packet_verify = 0;
-    int total_packet_verify_out = 0;
 
     for( int d = 0; d < p->intra_grp_radix; d++)
     {
@@ -3515,8 +3503,6 @@ static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf
     tw_rand_integer(lp->rng,0,1);
     tw_rand_integer(lp->rng,0,1);
 
-
-
     if (conns.size() == 0) {
         Connection bad_conn;
         bad_conn.src_gid = -1;
@@ -3531,10 +3517,7 @@ static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf
 
     int scores[num_to_compare];
     int best_score_index = 0;
-
-    //in case multiple ports are equally best, choose a random one
-    vector<int> best_indexes;
-
+    vector<int> best_indexes; //in case multiple ports are equally best, choose a random one
     if (scoring_preference == LOWER) {
         
         int best_score = INT_MAX;
@@ -3652,7 +3635,6 @@ static Connection get_connection_compare_T(router_state *s, tw_bf *bf, terminal_
                 scores[i] = dfp_score_connection(s, bf, msg, lp, conns[i], C_MIN);
                 if (scores[i] <= threshold)
                     best_indexes.push_back(i);
-
                 //if(my_group_id==0 && s->dfp_router_type==SPINE && num_to_compare == 2) printf("\tCompare T: Router %d, to port: %d, score %d\n", s->router_id, conns[i].port, scores[i]);
             }
             if (best_indexes.size() > 0) {
@@ -3668,7 +3650,6 @@ static Connection get_connection_compare_T(router_state *s, tw_bf *bf, terminal_
     }
     else 
         tw_error(TW_LOC, "Higher scoring preference currently not implemented for PFAR");
-
 
     //if(origin_group_id==0 && s->dfp_router_type==SPINE) printf("\t\tCompare T: Router %d, among size %lu, choose index: %d \n", s->router_id, best_indexes.size(), best_score_index);
 
@@ -3693,12 +3674,9 @@ static vector< Connection > get_router_with_global_links(router_state *s, tw_bf 
                 spine_with_global_link.insert(spine_with_global_link.end(), conns.begin(), conns.end());
             }
         }
-
     }
-
     return spine_with_global_link;
 }
-
 
 //Returns a vector of connections that are legal dragonfly plus routes that specifically would not allow for a minimal connection to the specific router specified in get_possible_stops_to_specific_router()
 //Be very wary of using this method, results may not make sense if possible_minimal_stops is not a vector of minimal next stops to fdest_rotuer_id
@@ -4072,18 +4050,13 @@ static Connection do_dfp_FPAR(router_state *s, tw_bf *bf, terminal_plus_message 
             if(msg->dfp_upward_channel_flag != 0) {
                 nextStopConn=best_min_conn;
             }
-
-
-
         } else if (in_dest_group) {
             tw_error(TW_LOC, "Routing in Dest group on Spine is taking cared by do_dfp_routing funciton");
-
         } else
             tw_error(TW_LOC, "Msg not in any group type");
 
     } else
         tw_error(TW_LOC, "FPAR unkown router type");
-
 
     if (nextStopConn.port < 0){
         tw_error(TW_LOC, "DFP Prog Adaptive Routing: No valid next hop was chosen\n packetId %llu [MSG: %d (T_ID %u) => %d ] on router %d, upward %d? \n", msg->packet_ID, msg->dfp_src_terminal_id, msg->src_terminal_id, msg->dfp_dest_terminal_id, s->router_id, msg->dfp_upward_channel_flag);
@@ -4129,11 +4102,9 @@ static Connection do_dfp_routing(router_state *s,
     if (isRoutingAdaptive(routing)) {
         if (routing == PROG_ADAPTIVE)
             nextStopConn = do_dfp_prog_adaptive_routing(s, bf, msg, lp, fdest_router_id);
-
         else if (routing == FULLY_PROG_ADAPTIVE){
             nextStopConn = do_dfp_FPAR(s, bf, msg, lp, fdest_router_id);
         }
-
         return nextStopConn;
     }
 
@@ -4377,7 +4348,6 @@ static void router_packet_receive_rc(router_state *s, tw_bf *bf, terminal_plus_m
         //printf("msg app id counting rc\n");
         s->msg_counting[window][msg->app_id]--;
     }
-
     for(int i = 0 ; i < msg->num_cll; i++)
         codes_local_latency_reverse(lp);
 
@@ -4412,9 +4382,6 @@ static void router_packet_receive_rc(router_state *s, tw_bf *bf, terminal_plus_m
 /* Packet arrives at the router and a credit is sent back to the sending terminal/router */
 static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
 {
-    
-    int my_group_id = s->router_id / s->params->num_routers;
-
     msg->num_cll = 0;
     msg->num_rngs = 0;
     
@@ -4444,12 +4411,13 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
       vcg = get_vcg_from_category(msg);
 
 
+    //MSG COUNTING SPECIFIC -------
     //If spine router, count how many packets I have received & identify their app id 
     msg->last_received_time = tw_now(lp);
 
-    int dest_gid = msg->dfp_dest_terminal_id / (s->params->total_terminals / s->params->num_groups);
+    int fdest_group_id = msg->dfp_dest_terminal_id / (s->params->total_terminals / s->params->num_groups);
     int inter_group_transmit = 0;
-    if(dest_gid != s->group_id)
+    if(fdest_group_id != s->group_id)
         inter_group_transmit = 1;
 
     //printf("msg [%d ==> %d] of App %d: Received on router %d(type %d) in group %d, at time %.5f\n", msg->dfp_src_terminal_id, msg->dfp_dest_terminal_id, msg->app_id ,s->router_id, s->dfp_router_type, s->group_id, msg->last_received_time);
@@ -4463,7 +4431,7 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
             tw_error(TW_LOC, "Router %d, will access window %d, greater than max %d\n", s->router_id, window, s->params->counting_windows);
         s->msg_counting[window][msg->app_id]++;
     }
-
+    //MSG COUNTING SPECIFIC END -------
 
     int next_stop = -1, output_port = -1, output_chan = -1, adap_chan = -1;
     int dfp_dest_terminal_id = msg->dfp_dest_terminal_id;
