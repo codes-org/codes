@@ -5,8 +5,8 @@
  */
 
 /*
-* The test program generates some synthetic traffic patterns for the model-net network models.
-* currently it only support the dragonfly network model uniform random and nearest neighbor traffic patterns.
+    This workload generator has been modified to support multiple synthetic workloads at once
+    the SHA for the version just prior to this change is: 7be9d65e14f2c5c132bed80b88960f9001458e19
 */
 
 #include "codes/model-net.h"
