@@ -9,6 +9,7 @@
 #include "codes/codes_mapping.h"
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
+#include "codes/congestion-controller.h"
 
 
 static int net_id = 0;
@@ -201,6 +202,20 @@ static void issue_event(
     tw_event_send(e);
 }
 
+static void notify_workload_complete(svr_state *ns, tw_bf *bf, tw_lp *lp)
+{
+    if (g_congestion_control_enabled) {
+        tw_event *e;
+        congestion_control_message *m;
+        tw_stime noise = tw_rand_unif(lp->rng) *.00001;
+        bf->c2 = 1;
+        e = tw_event_new(g_cc_supervisory_controller_gid, noise, lp);
+        m = tw_event_data(e);
+        m->type = CC_WORKLOAD_RANK_COMPLETE;
+        tw_event_send(e);
+    }
+}
+
 static void svr_init(
     svr_state * ns,
     tw_lp * lp)
@@ -219,8 +234,11 @@ static void handle_kickoff_rev_event(
             svr_msg * m,
             tw_lp * lp)
 {
-    if(m->completed_sends)
+    if(m->completed_sends) {
+        if (b->c2)
+            tw_rand_reverse_unif(lp->rng); //notify workload complete rng call
         return;
+    }
 
     if(b->c1)
         tw_rand_reverse_unif(lp->rng);
@@ -245,6 +263,7 @@ static void handle_kickoff_event(
     if(ns->msg_sent_count >= num_msgs)
     {
         m->completed_sends = 1;
+        notify_workload_complete(ns, b, lp);
         return;
     }
 
