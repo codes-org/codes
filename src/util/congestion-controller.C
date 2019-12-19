@@ -25,9 +25,9 @@ typedef struct cc_param
     unsigned int total_ports;
     tw_stime measurement_period;
     int congestion_enabled;
-    string router_lp_name;
-    string terminal_lp_name;
-    string workload_lp_name;
+    char router_lp_name[MAX_NAME_LENGTH];
+    char terminal_lp_name[MAX_NAME_LENGTH];
+    char workload_lp_name[MAX_NAME_LENGTH];
 
     //NIC ALPHA criterion values
     double node_congestion_percent_threshold;
@@ -39,8 +39,23 @@ typedef struct cc_param
     set< nic_congestion_criterion > *nic_congestion_criterion_set;
     set< port_congestion_criterion > *port_congestion_criterion_set;
 
-    string pattern_set_filepath;
+
 }cc_param;
+
+//specific to local controller parameters
+typedef struct cc_local_param
+{
+    int router_radix;
+
+    //NIC STALL ALPHA values
+    double node_stall_to_pass_ratio_threshold; //if meet or exceed ratio, then the node is STALLED
+
+    //PORT STALL ALPHA values
+    double port_stall_to_pass_ratio_threshold; //if meet or exceed ratio, then the port is STALLED
+
+    set< nic_stall_criterion > *nic_stall_criterion_set;
+    set< port_stall_criterion > *port_stall_criterion_set;
+}cc_local_param;
 
 typedef struct sc_state
 {
@@ -48,8 +63,8 @@ typedef struct sc_state
 
     map< unsigned int, unsigned int > *router_port_stallcount_map; //maps router ID to a vector of its ports indicating their reported congestion
     map< unsigned int, congestion_status > *node_stall_map; // maps nic ID to whether it reports congestion
-    map< unsigned int, int > *node_to_job_map; //TODO: This should consider multiple jobs per node as well
-    map< unsigned long long, congestion_status > *node_period_congestion_map; // maps an epoch to a status of whether the nic congestion threshold was met //TODO make into a sliding window as optimization by culling stale data
+    // map< unsigned int, int > *node_to_job_map; //TODO: This should consider multiple jobs per node as well
+    map< unsigned long long, congestion_status > *node_period_congestion_map; // maps an epoch to a status of whether the nic congestion threshold was met //TODO make into a sliding window as optimization by culling stale data (can be done via pruning during a commit_f on a heartbeat event)
     map< unsigned long long, congestion_status > *port_period_congestion_map; //maps an epoch to a status of whether the port congestion threshold was 
     unsigned long long num_completed_workload_ranks;
 
@@ -64,6 +79,61 @@ typedef struct sc_state
     bool is_abatement_active;
     bool is_all_workloads_complete;
 }sc_state;
+
+
+typedef struct rlc_state
+{
+    cc_local_param *local_params;
+
+    unsigned long long current_epoch;
+
+    // maps an epoch to a count of stalled ports on the router
+    // TODO: add pruning functionality for a commit_f function
+    map< unsigned long long, int > *port_period_stall_map;
+
+    //PORT STALL ALPHA ------
+
+    // pointer to array of unsigned longs
+    // representing "stalled_chunks" on the router. ptr makes RC easier
+    unsigned long *stalled_chunks_ptr;
+
+    // pointer to array of unsigned longs
+    // representing "total_chunks" on the router
+    unsigned long *total_chunks_ptr;
+    
+    // array of unsigned longs representing the number of 
+    // stalled chunks on each port the last time the measurement
+    // period was incremented. This is so that we can see how many
+    // stalled chunks were observed during THIS epoch.
+    unsigned long *stalled_chunks_at_last_epoch;
+
+    unsigned long *total_chunks_at_last_epoch;
+
+} rlc_state;
+
+typedef struct tlc_state
+{
+    cc_local_param *local_params;
+
+    unsigned long long current_epoch;
+
+        // maps an epoch to whether the nic was stalled
+    // TODO: add pruning functionality for a commit_f function
+    map<unsigned long long, stall_status > *nic_period_stall_map;
+
+    // pointer to counter of stalled chunks on the terminal
+    unsigned long* stalled_chunks_ptr;
+
+    // pointer to counter of total chunks processed on the terminal
+    // representing "total_chunks" on the router
+    unsigned long *total_chunks_ptr;
+
+    // counter of stalled chunks at the last turn of the epoch
+    unsigned long stalled_chunks_at_last_epoch;
+
+    unsigned long total_chunks_at_last_epoch;
+
+} tlc_state;
 
 //sc lptype function declarations
 void cc_supervisor_init(sc_state *s, tw_lp *lp);
@@ -87,10 +157,15 @@ static map< tw_lpid, int > router_lpid_to_id_map = map<tw_lpid, int>();
 static map< tw_lpid, int > terminal_lpid_to_id_map = map<tw_lpid, int>();
 static map< int, tw_lpid > router_id_to_lpid_map = map<int, tw_lpid>();
 static map< int, tw_lpid > terminal_id_to_lpid_map = map<int, tw_lpid>();
+
+
+
+static string pattern_set_filepath;
 static unordered_set<unsigned long> pattern_set = unordered_set<unsigned long>();
 
 /************* PROTOTYPES *****************************************/
 
+// ----------- Supervisory Controller --------------
 void cc_supervisor_process_heartbeat(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 void cc_supervisor_process_heartbeat_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 void cc_supervisor_send_heartbeat(sc_state *s, tw_lp *lp);
@@ -103,7 +178,7 @@ void cc_supervisor_start_new_epoch_rc(sc_state *s); //implemented
 void cc_supervisor_congestion_control_detect(sc_state *s); //implemented
 bool cc_supervisor_check_nic_congestion_criterion(sc_state *s); //implemented
 bool cc_supervisor_check_port_congestion_criterion(sc_state *s); //implemented
-bool sc_check_nic_congestion_patterns(sc_state *s); //implemented
+bool cc_supervisor_check_nic_congestion_patterns(sc_state *s); //implemented
 bool cc_supervisor_check_port_congestion_patterns(sc_state *s); //implemented
 void cc_supervisor_request_performance_information(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 void cc_supervisor_process_performance_response(sc_state *s);
@@ -112,7 +187,21 @@ bool sc_check_abatement_criterion();
 void sc_congestion_control_causation();
 void sc_identify_suspect_jobs();
 void sc_check_for_guilty_jobs();
-void sc_load_pattern_set(sc_state *s);
+void cc_supervisor_load_pattern_set(sc_state *s);
+
+
+// ------------ Local controllers -----------------------
+void cc_router_local_controller_init(rlc_state *s, tw_lp *lp);
+void cc_router_local_get_port_stall_count(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+void cc_router_local_send_performance(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+
+
+void cc_terminal_local_controller_init(tlc_state *s, tw_lp *lp);
+void cc_terminal_local_get_nic_stall_count(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+void cc_terminal_local_send_performance(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+
+
+
 
 
 /************* LP Definition **************************************/
@@ -131,7 +220,7 @@ void congestion_control_register_lp_type()
 
 void cc_load_configuration(sc_state *s)
 {
-    s->params = (cc_param*)calloc(1, sizeof(cc_param));
+    s->params = (cc_param*)calloc(1,sizeof(cc_param));
     cc_param *p = s->params;
 
     p->congestion_enabled = g_congestion_control_enabled;
@@ -139,45 +228,33 @@ void cc_load_configuration(sc_state *s)
     if (!p->congestion_enabled)
         tw_error(TW_LOC, "Congestion Control: Supervisory controller attempted init but congestion management wasn't enabled\n");
 
-    char router_name[MAX_NAME_LENGTH];
-    router_name[0] = '\0';
+    p->router_lp_name[0] = '\0';
     bool is_router_controller_specified = true;
-    int rc = configuration_get_value(&config, "PARAMS", "cc_router_lp_name", NULL, router_name, MAX_NAME_LENGTH);
+    int rc = configuration_get_value(&config, "PARAMS", "cc_router_lp_name", NULL, p->router_lp_name, MAX_NAME_LENGTH);
     if (rc == 0) {
         is_router_controller_specified = false;
     }
-    else {
-        p->router_lp_name = router_name;
-    }
 
-    char terminal_name[MAX_NAME_LENGTH];
-    terminal_name[0] = '\0';
+    p->terminal_lp_name[0] = '\0';
     bool is_terminal_controller_specified = true;
-    rc = configuration_get_value(&config, "PARAMS", "cc_terminal_lp_name", NULL, terminal_name, MAX_NAME_LENGTH);
+    rc = configuration_get_value(&config, "PARAMS", "cc_terminal_lp_name", NULL, p->terminal_lp_name, MAX_NAME_LENGTH);
     if (rc == 0) {
         is_terminal_controller_specified = false;
     }
-    else {
-        p->terminal_lp_name = terminal_name;
-    }
+
     if (p->congestion_enabled && (!(is_router_controller_specified || is_terminal_controller_specified)))
         tw_error(TW_LOC, "Congestion was enabled but neither router nor terminal LP names specified. (cc_router_lp_name and/or cc_terminal_lp_name)");
 
-    char wl_name[MAX_NAME_LENGTH];
-    wl_name[0] = '\0';
-    configuration_get_value(&config, "PARAMS", "ccworkloadpname", NULL, wl_name, MAX_NAME_LENGTH);
-    if (strlen(wl_name) <= 0) {
+    p->workload_lp_name[0] = '\0';
+    configuration_get_value(&config, "PARAMS", "ccworkloadpname", NULL, p->workload_lp_name, MAX_NAME_LENGTH);
+    if (strlen(p->workload_lp_name) <= 0) {
         printf("Congestion Control: Assuming default workload LP name of: 'nw-lp'\n");
-        p->workload_lp_name = "nw-lp";
-        strcpy(wl_name, "nw-lp");
-    }
-    else {
-        p->workload_lp_name = wl_name;
+        strcpy(p->workload_lp_name, "nw-lp");
     }
 
-    p->total_routers = codes_mapping_get_lp_count(NULL, 0, router_name, NULL, 0);
-    p->total_terminals = codes_mapping_get_lp_count(NULL, 0, terminal_name, NULL, 0);
-    p->total_workload_ranks = codes_mapping_get_lp_count(NULL, 0, wl_name, NULL,0);
+    p->total_routers = codes_mapping_get_lp_count(NULL, 0, p->router_lp_name, NULL, 0);
+    p->total_terminals = codes_mapping_get_lp_count(NULL, 0, p->terminal_lp_name, NULL, 0);
+    p->total_workload_ranks = codes_mapping_get_lp_count(NULL, 0, p->workload_lp_name, NULL,0);
 
     int radix;
     rc = configuration_get_value_int(&config, "PARAMS", "cc_radix", NULL, &radix);
@@ -199,8 +276,8 @@ void cc_load_configuration(sc_state *s)
     p->port_congestion_criterion_set = new set<port_congestion_criterion>();
 
 
-    p->nic_congestion_criterion_set->insert(NIC_ALPHA); //TODO add configurability to this
-    p->port_congestion_criterion_set->insert(PORT_ALPHA); //TODO add configurability to this
+    p->nic_congestion_criterion_set->insert(NIC_CONGESTION_ALPHA); //TODO add configurability to this
+    p->port_congestion_criterion_set->insert(PORT_CONGESTION_ALPHA); //TODO add configurability to this
 
     p->node_congestion_percent_threshold = 75.0; //TODO add configurability to this
     p->port_congestion_percent_threshold = 75.0;
@@ -209,8 +286,8 @@ void cc_load_configuration(sc_state *s)
     if (strlen(pattern_path) <= 0) {
         tw_error(TW_LOC, "Congestion Control: No pattern set filepath specified. Congestion control requires");
     }
-    p->pattern_set_filepath = pattern_path;
-        // pattern_set_filepath = "/home/neil/RossDev/codes/scripts/congestion-control/ex_pattern.txt"; //TODO configurability
+    
+    pattern_set_filepath = pattern_path;
 }
 
 //Supervisory Controller
@@ -221,7 +298,7 @@ void cc_supervisor_init(sc_state *s, tw_lp *lp)
 
     s->router_port_stallcount_map = new map<unsigned int, unsigned int>();
     s->node_stall_map = new map<unsigned int, congestion_status>();
-    s->node_to_job_map = new map<unsigned int, int>();
+    // s->node_to_job_map = new map<unsigned int, int>();
     s->node_period_congestion_map = new map<unsigned long long, congestion_status>();
     s->port_period_congestion_map = new map<unsigned long long, congestion_status>();
     s->num_completed_workload_ranks = 0;
@@ -242,7 +319,7 @@ void cc_supervisor_init(sc_state *s, tw_lp *lp)
     for(int router_rel_id = 0; router_rel_id < p->total_routers; router_rel_id++)
     {
         tw_lpid router_lpid;
-        router_lpid = codes_mapping_get_lpid_from_relative(router_rel_id, NULL, p->router_lp_name.c_str(), NULL, 0);
+        router_lpid = codes_mapping_get_lpid_from_relative(router_rel_id, NULL, p->router_lp_name, NULL, 0);
         router_lpid_to_id_map[router_lpid] = router_rel_id;
         router_id_to_lpid_map[router_rel_id] = router_lpid;
     }
@@ -250,7 +327,7 @@ void cc_supervisor_init(sc_state *s, tw_lp *lp)
     for(int terminal_rel_id = 0; terminal_rel_id < p->total_terminals; terminal_rel_id++)
     {
         tw_lpid terminal_lpid;
-        terminal_lpid = codes_mapping_get_lpid_from_relative(terminal_rel_id, NULL, p->terminal_lp_name.c_str(), NULL, 0);
+        terminal_lpid = codes_mapping_get_lpid_from_relative(terminal_rel_id, NULL, p->terminal_lp_name, NULL, 0);
         terminal_lpid_to_id_map[terminal_lpid] = terminal_rel_id;
         terminal_id_to_lpid_map[terminal_rel_id] = terminal_lpid;
     }
@@ -259,7 +336,7 @@ void cc_supervisor_init(sc_state *s, tw_lp *lp)
     s->is_network_congested = false;
     s->is_abatement_active = false;
     s->is_all_workloads_complete = false;
-    sc_load_pattern_set(s);
+    cc_supervisor_load_pattern_set(s);
     cc_supervisor_send_heartbeat(s, lp);
 }
 
@@ -390,7 +467,7 @@ bool cc_supervisor_check_nic_congestion_criterion(sc_state *s)
         nic_congestion_criterion criterion = *it;
         switch (criterion)
         {
-            case NIC_ALPHA: //if a percentage of nics are congested, then nics are considered congested for this period
+            case NIC_CONGESTION_ALPHA: //if a percentage of nics are congested, then nics are considered congested for this period
             {    
                 unsigned int num_stalled_nics = 0;
                 map<unsigned int, congestion_status>::iterator it2 = s->node_stall_map->begin();
@@ -411,7 +488,7 @@ bool cc_supervisor_check_nic_congestion_criterion(sc_state *s)
         }
     }
 
-    bool is_congested = sc_check_nic_congestion_patterns(s); //TODO do something with this
+    bool is_congested = cc_supervisor_check_nic_congestion_patterns(s); //TODO do something with this
 }
 
 bool cc_supervisor_check_port_congestion_criterion(sc_state *s)
@@ -422,7 +499,7 @@ bool cc_supervisor_check_port_congestion_criterion(sc_state *s)
         port_congestion_criterion criterion = *it;
         switch (criterion)
         {
-            case PORT_ALPHA: //if a percentage of ports are congested, then the ports are considerd congested for this period
+            case PORT_CONGESTION_ALPHA: //if a percentage of ports are congested, then the ports are considerd congested for this period
             {    
                 unsigned int num_stalled_ports = 0;
                 map<unsigned int, unsigned int>::iterator it2 = s->router_port_stallcount_map->begin();
@@ -452,7 +529,7 @@ bool cc_supervisor_check_port_congestion_criterion(sc_state *s)
     bool is_congested = cc_supervisor_check_port_congestion_patterns(s); //TODO do something with this
 }
 
-bool sc_check_nic_congestion_patterns(sc_state *s)
+bool cc_supervisor_check_nic_congestion_patterns(sc_state *s)
 {
     //get last congestion statuses for last MAX_PATTERN_LEN
     char cur_pattern[MAX_PATTERN_LEN];
@@ -524,11 +601,11 @@ void cc_supervisor_request_performance_information(sc_state *s, tw_bf *bf, conge
     }
 }
 
-void sc_load_pattern_set(sc_state *s)
+void cc_supervisor_load_pattern_set(sc_state *s)
 {
     //attempting to be more portable than GNU's getline()
-    char filepath[s->params->pattern_set_filepath.length()+1];
-    strcpy(filepath, s->params->pattern_set_filepath.c_str());
+    char filepath[pattern_set_filepath.length()+1];
+    strcpy(filepath, pattern_set_filepath.c_str());
 
     FILE *file = fopen(filepath, "r");
     if (file != NULL)
@@ -543,22 +620,144 @@ void sc_load_pattern_set(sc_state *s)
     }
     else
     {
-        tw_error(TW_LOC, "Congestion Controller: Failed to open pattern set file %s\n", s->params->pattern_set_filepath); /* why didn't the file open? */
+        tw_error(TW_LOC, "Congestion Controller: Failed to open pattern set file %s\n", pattern_set_filepath); /* why didn't the file open? */
     }
 }    
 
 
+
+void cc_router_local_get_port_stall_count(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+void cc_router_local_send_performance(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+void cc_router_local_check_port_stall_pattern(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+
+void cc_terminal_local_get_nic_stall_count(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+void cc_terminal_local_send_performance(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+void cc_terminal_local_check_port_stall_pattern(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+
+
+
+
 //Router Local Controller
+void cc_router_local_controller_init(rlc_state *s)
+{
+    s->local_params = (cc_local_param*)calloc(1, sizeof(cc_local_param));
+    cc_local_param *p = s->local_params;
+
+    int radix;
+    int rc = configuration_get_value_int(&config, "PARAMS", "cc_radix", NULL, &radix);
+    if (rc) {
+        tw_error(TW_LOC,"Congestion Control: Congestion management enabled but no 'cc_radix' configuration value specified.");
+    }
+    p->router_radix = radix;
+
+    p->port_stall_criterion_set = new set<port_stall_criterion>();
+    p->port_stall_criterion_set->insert(PORT_STALL_ALPHA);
+    p->port_stall_to_pass_ratio_threshold = 3.0;
+
+    s->current_epoch = 0;
+
+    s->port_period_stall_map = new map<unsigned long long, int>();
+}
+
+void cc_router_local_controller_setup_stall_alpha(rlc_state *s, int radix, unsigned long *stalled_chunks_ptr, unsigned long *total_chunks_ptr)
+{
+    s->stalled_chunks_at_last_epoch = (unsigned long *)calloc(s->local_params->router_radix, sizeof(unsigned long));
+    s->total_chunks_at_last_epoch = (unsigned long *)calloc(s->local_params->router_radix, sizeof(unsigned long));
+    s->stalled_chunks_ptr = stalled_chunks_ptr;
+    s->total_chunks_ptr = total_chunks_ptr;
+}
+
+void cc_router_local_get_port_stall_count(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    int max_stalled_ports = 0;
+
+    set< port_stall_criterion>::iterator it = s->local_params->port_stall_criterion_set->begin();
+    for(; it != s->local_params->port_stall_criterion_set->end(); it++)
+    {
+        switch(*it)
+        {
+            case PORT_STALL_ALPHA:
+            {
+                int stalled_ports = 0;
+                for (int i = 0; i < s->local_params->router_radix; i++)
+                {
+                    int packets_stalled_since_last = s->stalled_chunks_ptr[i] - s->stalled_chunks_at_last_epoch[i];
+                    int packets_passed_since_last = s->total_chunks_ptr[i] - s->total_chunks_at_last_epoch[i];
+                    if (((double)packets_stalled_since_last)/((double)packets_passed_since_last) >= s->local_params->port_stall_to_pass_ratio_threshold)
+                        stalled_ports++;
+                }
+
+                if (stalled_ports > max_stalled_ports)
+                    max_stalled_ports = stalled_ports;
+            }    
+            break;
+            default:
+                tw_error(TW_LOC, "Invalid port stall criterion option\n");
+        }
+    }
+
+    (*s->port_period_stall_map)[s->current_epoch] = max_stalled_ports;
+}
 
 
+void cc_router_local_send_performance(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
 
-
-
-
-
+}
 
 
 //Node Local Controller
+void cc_terminal_local_controller_init(tlc_state *s, tw_lp *lp)
+{
+    s->local_params = (cc_local_param*)calloc(1,sizeof(cc_local_param));
+    cc_local_param *p = s->local_params;
+
+    p->nic_stall_criterion_set = new set<nic_stall_criterion>();
+    p->nic_stall_criterion_set->insert(NIC_STALL_ALPHA);
+    p->node_stall_to_pass_ratio_threshold = 3.0;
+
+    s->current_epoch = 0;
+
+    s->nic_period_stall_map = new map<unsigned long long, stall_status>();
+}
+
+void cc_terminal_local_controller_setup_stall_alpha(tlc_state *s, unsigned long *stalled_chunks_ptr, unsigned long *total_chunks_ptr)
+{
+    s->stalled_chunks_at_last_epoch = 0;
+    s->total_chunks_at_last_epoch = 0;
+    s->stalled_chunks_ptr = stalled_chunks_ptr;
+    s->total_chunks_ptr = total_chunks_ptr;
+}
+
+void cc_terminal_local_get_nic_stall_count(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    stall_status is_stalled = NOT_STALLED;
+
+    set< nic_stall_criterion>::iterator it = s->local_params->nic_stall_criterion_set->begin();
+    for(; it != s->local_params->nic_stall_criterion_set->end(); it++)
+    {
+        switch(*it)
+        {
+            case NIC_STALL_ALPHA:
+            {
+                int packets_stalled_since_last = *(s->stalled_chunks_ptr) - s->stalled_chunks_at_last_epoch;
+                int packets_passed_since_last = *(s->total_chunks_ptr) - s->total_chunks_at_last_epoch;
+                
+                if (((double)packets_stalled_since_last)/((double)packets_passed_since_last) >= s->local_params->node_stall_to_pass_ratio_threshold)
+                    is_stalled = STALLED;                
+            }    
+            break;
+            default:
+                tw_error(TW_LOC, "Invalid port stall criterion option\n");
+        }
+    }
+
+    (*s->nic_period_stall_map)[s->current_epoch] = is_stalled;
+}
 
 
-/************* CRITERION IMPLEMENTATIONS **************/
+
+void cc_terminal_local_send_performance(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    
+}
