@@ -9,7 +9,7 @@
 #include "codes/codes_mapping.h"
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
-#include "codes/congestion-controller.h"
+#include "codes/congestion-controller-core.h"
 
 
 static int net_id = 0;
@@ -54,7 +54,8 @@ enum svr_event
 {
     KICKOFF,	   /* kickoff event */
     REMOTE,        /* remote event */
-    LOCAL      /* local event */
+    LOCAL,      /* local event */
+    ACK /*pdes acknowledgement of received message*/
 };
 
 /* type of synthetic traffic */
@@ -77,6 +78,7 @@ struct svr_state
     tw_stime end_ts;      /* time that we ended sending requests */
     int svr_id;
     int dest_id;
+    int msg_complete_count; //number of messages that successfully made it to their dest svr
 };
 
 struct svr_msg
@@ -207,7 +209,7 @@ static void notify_workload_complete(svr_state *ns, tw_bf *bf, tw_lp *lp)
     if (g_congestion_control_enabled) {
         tw_event *e;
         congestion_control_message *m;
-        tw_stime noise = tw_rand_unif(lp->rng) *.00001;
+        tw_stime noise = tw_rand_unif(lp->rng) *.001;
         bf->c2 = 1;
         e = tw_event_new(g_cc_supervisory_controller_gid, noise, lp);
         m = tw_event_data(e);
@@ -235,8 +237,6 @@ static void handle_kickoff_rev_event(
             tw_lp * lp)
 {
     if(m->completed_sends) {
-        if (b->c2)
-            tw_rand_reverse_unif(lp->rng); //notify workload complete rng call
         return;
     }
 
@@ -263,7 +263,6 @@ static void handle_kickoff_event(
     if(ns->msg_sent_count >= num_msgs)
     {
         m->completed_sends = 1;
-        notify_workload_complete(ns, b, lp);
         return;
     }
 
@@ -345,6 +344,24 @@ static void handle_kickoff_event(
    return;
 }
 
+static void handle_ack_event(svr_state * ns, tw_bf *bf, svr_msg *m, tw_lp *lp)
+{
+    ns->msg_complete_count++;
+    if (ns->msg_complete_count >= num_msgs)
+    {
+        notify_workload_complete(ns, bf, lp);
+        bf->c2 = 1;
+    }
+    
+}
+
+static void handle_ack_event_rc(svr_state * ns, tw_bf *bf, svr_msg *m, tw_lp *lp)
+{
+    ns->msg_complete_count--;
+    if (bf->c2)
+        tw_rand_reverse_unif(lp->rng);
+}
+
 static void handle_remote_rev_event(
             svr_state * ns,
             tw_bf * b,
@@ -355,6 +372,8 @@ static void handle_remote_rev_event(
         (void)m;
         (void)lp;
         ns->msg_recvd_count--;
+
+        tw_rand_reverse_unif(lp->rng);
 }
 
 static void handle_remote_event(
@@ -367,6 +386,15 @@ static void handle_remote_event(
         (void)m;
         (void)lp;
 	ns->msg_recvd_count++;
+
+    tw_stime noise = tw_rand_unif(lp->rng) * .001;
+
+    tw_event *e;
+    svr_msg *new_msg;
+    e = tw_event_new(m->src, noise, lp);
+    new_msg = tw_event_data(e);
+    new_msg->svr_event_type = ACK;
+    tw_event_send(e);
 }
 
 static void handle_local_rev_event(
@@ -427,6 +455,9 @@ static void svr_rev_event(
 	case KICKOFF:
 		handle_kickoff_rev_event(ns, b, m, lp);
 		break;
+    case ACK:
+        handle_ack_event_rc(ns, b, m, lp);
+        break;
 	default:
 		assert(0);
 		break;
@@ -447,9 +478,12 @@ static void svr_event(
         case LOCAL:
             handle_local_event(ns, b, m, lp);
             break;
-	case KICKOFF:
-	    handle_kickoff_event(ns, b, m, lp);
-	    break;
+	    case KICKOFF:
+	        handle_kickoff_event(ns, b, m, lp);
+	        break;
+        case ACK:
+            handle_ack_event(ns, b, m, lp);
+            break;
         default:
             printf("\n Invalid message type %d ", m->svr_event_type);
             assert(0);
