@@ -1,5 +1,5 @@
-#ifndef CONGESTION_CONTROLLER_H
-#define CONGESTION_CONTROLLER_H
+#ifndef CONGESTION_CONTROLLER_CORE_H
+#define CONGESTION_CONTROLLER_CORE_H
 
 /**
  * congestion-controller.h -- Organizing state and behavior for congestion management
@@ -8,13 +8,12 @@
  * Copyright (c) 2019 Rensselaer Polytechnic Institute
  */
 #include <ross.h>
+#define MAX_PATTERN_LEN 16
+#define MAX_PORT_COUNT 256
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#define MAX_PATTERN_LEN 16
-#define MAX_PORT_COUNT 256
 
 // Defines congestion (aggregate of stall)
 typedef enum congestion_status
@@ -23,12 +22,25 @@ typedef enum congestion_status
     CONGESTED = 1
 } congestion_status;
 
+typedef enum congestion_change
+{
+    TO_DECONGESTION = 0,
+    TO_CONGESTION = 1
+} congestion_change;
+
 // Like congestion but on a per port or NIC basis
 typedef enum stall_status
 {
     NOT_STALLED = 0,
     STALLED = 1
 } stalled_status;
+
+typedef enum controller_type
+{
+    CC_SUPERVISOR = 0,
+    CC_ROUTER = 1,
+    CC_TERMINAL = 2
+} controller_type;
 
 /* Enumeration of types of events sent between congestion controllers */
 typedef enum cc_event_t
@@ -72,15 +84,15 @@ typedef struct congestion_control_message
 {
     short type; //type of event
     tw_lpid sender_lpid; //lpid of the sender
-    unsigned int stalled_port_count; //used by both routers and terminals, if router then is is the number of port stalled, if terminal nonzero implies congestion
+    unsigned int stalled_count; //used by both routers and terminals, if router then is is the number of port stalled, if terminal nonzero implies congestion
     unsigned long long current_epoch; //the measurement period that these numbers apply to
     unsigned long long rc_value; //rc value storage - dependent on context
+    void *rc_ptr; //pointer to dynamic data - dependent on context - NOT FOR USE OUTSIDE OF LP THAT ALLOC'D IT, free'd in either RC or Commit
+    void *rc_ptr2;
 } congestion_control_message;
 
-const tw_lptype* sc_get_lp_type();
-void congestion_control_register_lp_type();
-
-
+extern const tw_lptype* sc_get_lp_type();
+extern void congestion_control_register_lp_type();
 
 
 // /**

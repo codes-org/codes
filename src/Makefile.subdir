@@ -93,7 +93,8 @@ nobase_include_HEADERS = \
 	codes/model-net-sched-impl.h \
 	codes/model-net-inspect.h \
 	codes/connection-manager.h	\
-	codes/congestion-controller.h \
+	codes/congestion-controller-core.h \
+	codes/congestion-controller-model.h \
 	codes/net/common-net.h \
 	codes/net/dragonfly.h \
 	codes/net/dragonfly-custom.h \

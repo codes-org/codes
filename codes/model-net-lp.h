@@ -32,7 +32,7 @@ extern "C" {
 #include "net/simplep2p.h"
 #include "net/torus.h"
 #include "net/express-mesh.h"
-#include "codes/congestion-controller.h"
+#include "codes/congestion-controller-core.h"
 
 extern int model_net_base_magic;
 

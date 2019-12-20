@@ -31,6 +31,7 @@
 #include <set>
 
 #include "codes/connection-manager.h"
+#include "codes/congestion-controller-model.h"
 
 #ifdef ENABLE_CORTEX
 #include <cortex/cortex.h>
@@ -431,6 +432,7 @@ struct terminal_state
     uint64_t link_traffic;
     
     unsigned long stalled_chunks; //Counter for when a packet cannot be immediately routed due to full VC
+    unsigned long total_chunks; //counter for when a packet is sent
 
     tw_stime max_latency;
     tw_stime min_latency;
@@ -473,7 +475,8 @@ struct router_state
     int* global_channel; 
 
     ConnectionManager *connMan; //manages and organizes connections from this router
-    
+    rlc_state *local_congestion_controller;
+
     tw_stime* next_output_available_time;
     tw_stime* last_buf_full;
 
@@ -481,6 +484,7 @@ struct router_state
     tw_stime* busy_time_sample;
 
     unsigned long* stalled_chunks; //Counter for when a packet is put into queued messages instead of routing due to full VC
+    unsigned long* total_chunks; //Counter for when a packet is sent - per port
 
     terminal_dally_message_list ***pending_msgs;
     terminal_dally_message_list ***pending_msgs_tail;
@@ -1820,6 +1824,41 @@ void dragonfly_dally_report_stats()
     return;
 }
 
+static void dragonfly_dally_terminal_congestion_request(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    // printf("GOT REQUEST TERMINAL\n");
+
+}
+
+static void dragonfly_dally_terminal_congestion_request_rc(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    // printf("GOT REQUEST RC TERMINAL\n");
+}
+
+static void dragonfly_dally_terminal_congestion_request_commit(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    
+}
+
+static void dragonfly_dally_router_congestion_request(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    cc_router_local_get_port_stall_count(s->local_congestion_controller, bf, msg, lp);
+    cc_router_local_send_performance(s->local_congestion_controller, bf, msg, lp);
+    cc_router_local_new_epoch(s->local_congestion_controller, bf, msg, lp);
+}
+
+static void dragonfly_dally_router_congestion_request_rc(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    cc_router_local_new_epoch_rc(s->local_congestion_controller, bf, msg, lp);
+    cc_router_local_send_performance_rc(s->local_congestion_controller, bf, msg, lp);
+    cc_router_local_get_port_stall_count_rc(s->local_congestion_controller, bf, msg, lp);
+}
+
+static void dragonfly_dally_router_congestion_request_commit(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    cc_router_local_new_epoch_commit(s->local_congestion_controller, bf, msg, lp);
+}
+
 int get_vcg_from_category(terminal_dally_message * msg)
 {
    if(strcmp(msg->category, "high") == 0)
@@ -2244,6 +2283,7 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
     s->total_msg_size = 0;
 
     s->stalled_chunks = 0;
+    s->total_chunks = 0;
     s->busy_time = 0.0;
 
     s->fwd_events = 0;
@@ -2354,6 +2394,7 @@ void router_dally_init(router_state * r, tw_lp * lp)
     r->link_traffic_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
 
     r->stalled_chunks = (unsigned long*)calloc(p->radix, sizeof(unsigned long));
+    r->total_chunks = (unsigned long*)calloc(p->radix, sizeof(unsigned long));
 
     r->vc_occupancy = (int**)calloc(p->radix , sizeof(int*));
     r->in_send_loop = (int*)calloc(p->radix, sizeof(int));
@@ -2424,6 +2465,12 @@ void router_dally_init(router_state * r, tw_lp * lp)
     }
 
     r->connMan->solidify_connections();
+
+    if (g_congestion_control_enabled) {
+        r->local_congestion_controller = (rlc_state*)calloc(1,sizeof(rlc_state));
+        cc_router_local_controller_init(r->local_congestion_controller);
+        cc_router_local_controller_setup_stall_alpha(r->local_congestion_controller, p->radix, r->stalled_chunks, r->total_chunks);
+    }
 
     return;
 }	
@@ -2762,6 +2809,9 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_dally_messag
 
     prepend_to_terminal_dally_message_list(s->terminal_msgs, 
             s->terminal_msgs_tail, vcg, cur_entry);
+    if(bf->c9) {
+        s->total_chunks--;
+    }
     if(bf->c4) {
         s->in_send_loop = 1;
     }
@@ -2908,6 +2958,8 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
         m_new->type = T_SEND;
         m_new->magic = terminal_magic_num;
         tw_event_send(e);
+        bf->c9 = 1;
+        s->total_chunks++;
     } else {
         /* If not then the LP will wait for another credit or packet generation */
         bf->c4 = 1;
@@ -3413,6 +3465,16 @@ dragonfly_dally_terminal_final( terminal_state * s,
 
 void dragonfly_dally_router_final(router_state * s, tw_lp * lp)
 {
+    // unsigned long total_stalled_chunks = 0;
+    // unsigned long total_total_chunks = 0;
+    // for (int i = 0; i < s->params->radix; i++)
+    // {
+    //     total_stalled_chunks += s->stalled_chunks[i];
+    //     total_total_chunks += s->total_chunks[i];
+    // }
+
+    // printf("%lu: stalled chunks %lu    total_chunks %lu\n", lp->gid, total_stalled_chunks, total_total_chunks);
+
     free(s->global_channel);
     int i, j;
     for(i = 0; i < s->params->radix; i++) {
@@ -3983,6 +4045,8 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
         s->link_traffic_ross_sample[output_port] -= s->params->chunk_size;
     }
 
+    s->total_chunks[output_port]--;
+
     prepend_to_terminal_dally_message_list(s->pending_msgs[output_port],
             s->pending_msgs_tail[output_port], output_chan, cur_entry);
 
@@ -4129,6 +4193,8 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
         s->ross_rsample.link_traffic_sample[output_port] += s->params->chunk_size;
         s->link_traffic_ross_sample[output_port] += s->params->chunk_size;
     }
+
+    s->total_chunks[output_port]++;
 
     if(cur_entry->msg.packet_ID == LLU(TRACK_PKT) && cur_entry->msg.src_terminal_id == T_ID)
         printf("\n Queuing at the router %d ", s->router_id);
@@ -5449,6 +5515,9 @@ struct model_net_method dragonfly_dally_method =
     NULL,//(final_f)dragonfly_dally_sample_fin
     custom_dally_dragonfly_register_model_types,
     custom_dally_dragonfly_get_model_types,
+    (event_f)dragonfly_dally_terminal_congestion_request,
+    (revent_f)dragonfly_dally_terminal_congestion_request_rc,
+    (commit_f)dragonfly_dally_terminal_congestion_request_commit,
 };
 
 struct model_net_method dragonfly_dally_router_method =
@@ -5471,6 +5540,9 @@ struct model_net_method dragonfly_dally_router_method =
     NULL,//(final_f)dragonfly_dally_rsample_fin
     custom_dally_router_register_model_types,
     custom_dally_dfly_router_get_model_types,
+    (event_f)dragonfly_dally_router_congestion_request,
+    (revent_f)dragonfly_dally_router_congestion_request_rc,
+    (commit_f)dragonfly_dally_router_congestion_request_commit,
 };
 
 // #ifdef ENABLE_CORTEX

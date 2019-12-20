@@ -137,6 +137,15 @@ static void model_net_commit_event(model_net_base_state * ns, tw_bf *b,  model_n
         if(ns->sub_type->commit != NULL)
             ns->sub_type->commit(ns->sub_state, b, sub_msg, lp);
     }
+
+    if(m->h.event_type == MN_CONGESTION_REQ)
+    {
+        void * sub_msg;
+        sub_msg = ((char*)m)+msg_offsets[SUPERVISORY_CONTROLLER];
+        commit_f con_req_commit = method_array[ns->net_id]->cc_congestion_request_commit_fn;
+        if(con_req_commit != NULL)
+            con_req_commit(ns->sub_state, b, sub_msg, lp);
+    }
 }
 /* setup for the ROSS event tracing
  */

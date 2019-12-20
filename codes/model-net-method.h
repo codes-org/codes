@@ -67,6 +67,7 @@ struct model_net_method
     const st_model_types* (*mn_get_model_stat_types)();
     event_f cc_congestion_request_fn;
     revent_f cc_congestion_request_rc_fn;
+    commit_f cc_congestion_request_commit_fn;
 };
 
 extern struct model_net_method * method_array[];
