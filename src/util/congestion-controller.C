@@ -212,7 +212,7 @@ void cc_supervisor_event(sc_state *s, tw_bf *bf, congestion_control_message *msg
             cc_supervisor_process_heartbeat(s, bf, msg, lp);
         break;
         case CC_R_PERF_RESPONSE:
-            // if (msg->current_epoch == s->current_epoch)
+            if (msg->current_epoch == s->current_epoch)
                 cc_supervisor_process_performance_response(s, bf, msg, lp);
         break;
         case CC_N_PERF_RESPONSE:
@@ -235,7 +235,7 @@ void cc_supervisor_event_rc(sc_state *s, tw_bf *bf, congestion_control_message *
             cc_supervisor_process_heartbeat_rc(s, bf, msg, lp);
         break;
         case CC_R_PERF_RESPONSE:
-            // if (msg->current_epoch == s->current_epoch)
+            if (msg->current_epoch == s->current_epoch)
                 cc_supervisor_process_performance_response_rc(s, bf, msg, lp);
         break;
         case CC_N_PERF_RESPONSE:
@@ -258,7 +258,7 @@ void cc_supervisor_finalize(sc_state *s, tw_lp *lp)
 
 void cc_supervisor_process_heartbeat(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    cc_supervisor_congestion_control_detect(s, bf);
+    cc_supervisor_congestion_control_detect(s, bf, lp);
     s->congested_epochs += (int) s->is_network_congested;
 
     cc_supervisor_request_performance_information(s, bf, msg, lp);
@@ -273,7 +273,7 @@ void cc_supervisor_process_heartbeat_rc(sc_state *s, tw_bf *bf, congestion_contr
     cc_supervisor_request_performance_information_rc(s, bf, msg, lp);
 
     s->congested_epochs -= (int) s->is_network_congested;
-    cc_supervisor_congestion_control_detect_rc(s, bf);
+    cc_supervisor_congestion_control_detect_rc(s, bf, lp);
 }
 
 void cc_supervisor_send_heartbeat(sc_state *s, tw_bf *bf, tw_lp *lp)
@@ -363,7 +363,7 @@ void cc_supervisor_start_new_epoch_rc(sc_state *s)
     s->current_epoch--;
 }
 
-void cc_supervisor_congestion_control_detect(sc_state *s, tw_bf *bf)
+void cc_supervisor_congestion_control_detect(sc_state *s, tw_bf *bf, tw_lp *lp)
 {
     cc_supervisor_check_nic_congestion_criterion(s, bf);
     cc_supervisor_check_port_congestion_criterion(s, bf);
@@ -376,7 +376,7 @@ void cc_supervisor_congestion_control_detect(sc_state *s, tw_bf *bf)
         if (to_congestion) {
             bf->c1 = 1;
             s->is_network_congested = true;
-            printf("CONGESTION DETECTED\n");
+            printf("%lu CONGESTION DETECTED\n", s->current_epoch);
         }
     }
     else { //Network is congested, we need to see if we are no longer congested
@@ -387,12 +387,12 @@ void cc_supervisor_congestion_control_detect(sc_state *s, tw_bf *bf)
         if (to_decongestion) {
             bf->c2 = 1;
             s->is_network_congested = false;
-            printf("CONGESTION ABATED\n");
+            printf("%lu CONGESTION ABATED\n", s->current_epoch);
         }
     }
 }
 
-void cc_supervisor_congestion_control_detect_rc(sc_state *s, tw_bf *bf)
+void cc_supervisor_congestion_control_detect_rc(sc_state *s, tw_bf *bf, tw_lp *lp)
 {
     cc_supervisor_check_nic_congestion_criterion_rc(s, bf);
     cc_supervisor_check_port_congestion_criterion_rc(s, bf);
@@ -723,6 +723,7 @@ void cc_router_local_new_epoch(rlc_state *s, tw_bf *bf, congestion_control_messa
     }
 }
 
+// verified correct RC
 void cc_router_local_new_epoch_rc(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
     s->current_epoch--;
@@ -730,7 +731,6 @@ void cc_router_local_new_epoch_rc(rlc_state *s, tw_bf *bf, congestion_control_me
     memcpy(s->total_chunks_at_last_epoch, msg->rc_ptr2,  s->local_params->router_radix * sizeof(unsigned long));
     free(msg->rc_ptr);
     free(msg->rc_ptr2);
-
 }
 
 void cc_router_local_new_epoch_commit(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)

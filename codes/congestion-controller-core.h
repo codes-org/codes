@@ -89,6 +89,7 @@ typedef struct congestion_control_message
     unsigned long long rc_value; //rc value storage - dependent on context
     void *rc_ptr; //pointer to dynamic data - dependent on context - NOT FOR USE OUTSIDE OF LP THAT ALLOC'D IT, free'd in either RC or Commit
     void *rc_ptr2;
+    int check_sum;
 } congestion_control_message;
 
 extern const tw_lptype* sc_get_lp_type();

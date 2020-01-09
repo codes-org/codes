@@ -152,8 +152,8 @@ extern void cc_supervisor_receive_wl_completion(sc_state *s, tw_bf *bf, congesti
 extern void cc_supervisor_receive_wl_completion_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_supervisor_start_new_epoch(sc_state *s); //implemented
 extern void cc_supervisor_start_new_epoch_rc(sc_state *s); //implemented
-extern void cc_supervisor_congestion_control_detect(sc_state *s, tw_bf *bf); //implemented
-extern void cc_supervisor_congestion_control_detect_rc(sc_state *s, tw_bf *bf); //implemented
+extern void cc_supervisor_congestion_control_detect(sc_state *s, tw_bf *bf, tw_lp *lp); //implemented
+extern void cc_supervisor_congestion_control_detect_rc(sc_state *s, tw_bf *bf, tw_lp *lp); //implemented
 extern void cc_supervisor_check_nic_congestion_criterion(sc_state *s, tw_bf *bf); //implemented
 extern void cc_supervisor_check_port_congestion_criterion(sc_state *s, tw_bf *bf); //implemented
 extern void cc_supervisor_check_nic_congestion_criterion_rc(sc_state *s, tw_bf *bf); //implemented
