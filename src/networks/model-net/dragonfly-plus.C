@@ -1493,7 +1493,7 @@ static terminal_plus_message_list *return_tail(terminal_plus_message_list **this
     return tail;
 }
 
-void dragonfly_plus_print_params(const dragonfly_plus_param *p, _IO_FILE * st)
+void dragonfly_plus_print_params(const dragonfly_plus_param *p, FILE * st)
 {
     if (!st)
         st = stdout;

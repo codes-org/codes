@@ -1304,7 +1304,7 @@ static terminal_dally_message_list* return_tail(
     return tail;
 }
 
-void dragonfly_print_params(const dragonfly_param *p, _IO_FILE * st)
+void dragonfly_print_params(const dragonfly_param *p, FILE * st)
 {
     if(!st)
         st = stdout;
