@@ -77,7 +77,9 @@ class ConnectionManager {
     map< int, Connection > _portMap; //Mapper for ports to connections
 
     vector< int > _other_groups_i_connect_to;
+    vector< int > _other_groups_i_connect_to_after_fails;
     set< int > _other_groups_i_connect_to_set;
+    set< int > _other_groups_i_connect_to_set_after_fails;
 
     map< int, vector< Connection > > _connections_to_groups_map; //maps group ID to connections to said group
     map< int, vector< Connection > > _all_conns_by_type_map;
@@ -95,11 +97,17 @@ class ConnectionManager {
     int _used_inter_ports; //number of used ports for inter connections
     int _used_terminal_ports; //number of used ports for terminal connections
 
+    int _failed_intra_ports; //number of failed ports for intra connections
+    int _failed_inter_ports; //number of failed ports for inter connections
+    int _failed_terminal_ports; //number of failed ports for terminal connections
+
     int _max_intra_ports; //maximum number of ports for intra connecitons
     int _max_inter_ports; //maximum number of ports for inter connections
     int _max_terminal_ports; //maximum number of ports for terminal connections.
 
     int _num_routers_per_group; //number of routers per group - used for turning global ID into local and back
+
+    bool is_solidified; //flag for whether or not solidification has taken place so that this can be checked at the end of router init
 
 public:
     ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int num_router_per_group);
@@ -117,6 +125,12 @@ public:
      * @param type the type of the connection that will fail
      */
     void fail_connection(int dest_gid, ConnectionType type);
+
+    /**
+     * @brief returns a count of the number of failed links from a vector of connections
+     * @param conns a vector of connections that the function will iterate over to count failed links
+     */
+    int get_failed_count_from_vector(vector<Connection> conns);
 
     // /**
     //  * @brief adds knowledge of what next hop routers have connections to specific groups
@@ -149,8 +163,22 @@ public:
      * @brief get the port(s) associated with a specific destination ID
      * @param dest_id the ID (local or global depending on type) of the destination
      * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
+     * @param include_failed whether or not to include failed links in query
+     */
+    vector<int> get_ports(int dest_id, ConnectionType type, bool include_failed);
+
+    /**
+     * @brief get the port(s) associated with a specific destination ID
+     * @param dest_id the ID (local or global depending on type) of the destination
+     * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
      */
     vector<int> get_ports(int dest_id, ConnectionType type);
+
+    /**
+     * @brief get the connection associated with a specific port number
+     * @param port the enumeration of the port in question
+     */
+    Connection get_connection_on_port(int port, bool include_failed);
 
     /**
      * @brief get the connection associated with a specific port number
@@ -162,9 +190,27 @@ public:
      * @brief returns true if a connection exists in the manager from the source to the specified destination ID BY TYPE
      * @param dest_id the ID of the destination depending on the type
      * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
+     * @param include_failed boolean whether or not to include failed links as possible connections
+     * @note Will not return true if dest_id is within own group and type is CONN_GLOBAL, see is_any_connection_to()
+     */
+    bool is_connected_to_by_type(int dest_id, ConnectionType type, bool include_failed);
+
+    /**
+     * @brief returns true if a connection exists in the manager from the source to the specified destination ID BY TYPE - will not return true if only existing links are failed
+     * @param dest_id the ID of the destination depending on the type
+     * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
      * @note Will not return true if dest_id is within own group and type is CONN_GLOBAL, see is_any_connection_to()
      */
     bool is_connected_to_by_type(int dest_id, ConnectionType type);
+
+    /**
+     * @brief returns true if any connection exists in the manager from the soruce to the specified global destination ID
+     * @param dest_global_id the global id of the destination
+     * @param include_failed whether or not to include failed links in query
+     * @note This is meant to allow for a developer to determine connectivity just from the global ID, even if the two entities
+     *       are connected by a local or terminal connection.
+     */
+    bool is_any_connection_to(int dest_global_id, bool include_failed);
 
     /**
      * @brief returns true if any connection exists in the manager from the soruce to the specified global destination ID
@@ -176,8 +222,21 @@ public:
 
     /**
      * @brief returns the total number of used ports by the owner of the manager
+     * @param account_for_failed do we adjust the count due to failed links?
+     */
+    int get_total_used_ports(bool account_for_failed);
+
+    /**
+     * @brief returns the total number of used ports by the owner of the manager
      */
     int get_total_used_ports();
+
+    /**
+     * @brief returns the number of used ports for a specific connection type
+     * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
+     * @param account_for_failed do we adjust the count due to failed links?
+     */
+    int get_used_ports_for(ConnectionType type, bool account_for_failed);
 
     /**
      * @brief returns the number of used ports for a specific connection type
@@ -192,11 +251,31 @@ public:
     ConnectionType get_port_type(int port_num);
 
     /**
+     * @brief returns the boolean status of whether or not the specified port has failed
+     * @param port_num the number of the port in question
+     */
+    bool get_port_failed_status(int port_num);
+
+    /**
+     * @brief returns a vector of connections to the destination ID based on the connection type
+     * @param dest_id the ID of the destination depending on the type
+     * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
+     */
+    vector< Connection > get_connections_to_gid(int dest_id, ConnectionType type, bool include_failed);
+
+    /**
      * @brief returns a vector of connections to the destination ID based on the connection type
      * @param dest_id the ID of the destination depending on the type
      * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
      */
     vector< Connection > get_connections_to_gid(int dest_id, ConnectionType type);
+
+    /**
+     * @brief returns a vector of connections to the destination group. connections will be of type CONN_GLOBAL
+     * @param dest_group_id the id of the destination group
+     * @param include_failed whether or not to include failed links in query
+     */
+    vector< Connection > get_connections_to_group(int dest_group_id, bool include_failed);
 
     /**
      * @brief returns a vector of connections to the destination group. connections will be of type CONN_GLOBAL
@@ -207,9 +286,24 @@ public:
     /**
      * @brief returns a vector of all connections to routers via type specified.
      * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
+     * @param include_failed whether or not to include failed links in query
+     * @note this will return connections to same destination on different ports as individual connections
+     */
+    vector< Connection > get_connections_by_type(ConnectionType type, bool include_failed);
+
+    /**
+     * @brief returns a vector of all connections to routers via type specified.
+     * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
      * @note this will return connections to same destination on different ports as individual connections
      */
     vector< Connection > get_connections_by_type(ConnectionType type);
+
+    /**
+     * @brief returns a vector of all group IDs that the router has a global connection to
+     * @param include_failed whether or not to include failed links in query
+     * @note this does not include the router's own group as that is a given
+     */
+    vector< int > get_connected_group_ids(bool include_failed);
 
     /**
      * @brief returns a vector of all group IDs that the router has a global connection to
@@ -218,10 +312,15 @@ public:
     vector< int > get_connected_group_ids();
 
     /**
-    *
+    * @brief function to populate various optimized data structures with various connections
+    * @note must be executed before simulation start
     */
     void solidify_connections();
 
+    /**
+     * @brief returns true if manager has been solidified - should be run in router init
+     */
+    bool check_is_solidified();
     /**
      * @brief prints out the state of the connection manager
      */
