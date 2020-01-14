@@ -48,6 +48,12 @@ static char group_name[MAX_NAME_LENGTH];
 static char lp_type_name[MAX_NAME_LENGTH];
 static int group_index, lp_type_index, rep_id, offset;
 
+/* statistic values for final output */
+static tw_stime max_global_server_latency = 0.0;
+static tw_stime sum_global_server_latency = 0.0;
+static long long sum_global_messages_received = 0;
+static tw_stime mean_global_server_latency = 0.0;
+
 /* type of events */
 enum svr_event
 {
@@ -76,13 +82,18 @@ struct svr_state
     tw_stime end_ts;      /* time that we ended sending requests */
     int svr_id;
     int dest_id;
+
+    tw_stime max_server_latency; /* maximum measured packet latency observed by server */
+    tw_stime sum_server_latency; /* running sum of measured latencies observed by server for calc of mean */
 };
 
 struct svr_msg
 {
     enum svr_event svr_event_type;
     tw_lpid src;          /* source of this request or ack */
+    tw_stime msg_start_time;
     int completed_sends; /* helper for reverse computation */
+    tw_stime saved_time; /* helper for reverse computation */
     model_net_event_return event_rc;
 };
 
@@ -208,6 +219,8 @@ static void svr_init(
     ns->start_ts = 0.0;
     ns->dest_id = -1;
     ns->svr_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
+    ns->max_server_latency = 0.0;
+    ns->sum_server_latency = 0.0;
 
     issue_event(ns, lp);
     return;
@@ -258,6 +271,7 @@ static void handle_kickoff_event(
 
     m_local->svr_event_type = LOCAL;
     m_local->src = lp->gid;
+    m_local->msg_start_time = tw_now(lp);
 
     memcpy(m_remote, m_local, sizeof(svr_msg));
     m_remote->svr_event_type = REMOTE;
@@ -336,6 +350,12 @@ static void handle_remote_rev_event(
         (void)m;
         (void)lp;
         ns->msg_recvd_count--;
+
+        tw_stime packet_latency = tw_now(lp) - m->msg_start_time;
+        ns->sum_server_latency -= packet_latency;
+        if (b->c2)
+            ns->max_server_latency = m->saved_time;
+
 }
 
 static void handle_remote_event(
@@ -348,6 +368,15 @@ static void handle_remote_event(
         (void)m;
         (void)lp;
 	ns->msg_recvd_count++;
+
+    tw_stime packet_latency = tw_now(lp) - m->msg_start_time;
+    ns->sum_server_latency += packet_latency;
+    if (packet_latency > ns->max_server_latency) {
+        b->c2 = 1;
+        m->saved_time = ns->max_server_latency;
+        ns->max_server_latency = packet_latency;
+    }
+
 }
 
 static void handle_local_rev_event(
@@ -385,6 +414,18 @@ static void svr_finalize(
     tw_lp * lp)
 {
     ns->end_ts = tw_now(lp);
+
+    //add to the global running sums
+    sum_global_server_latency += ns->sum_server_latency;
+    sum_global_messages_received += ns->msg_recvd_count;
+
+    //compare to global maximum
+    if (ns->max_server_latency > max_global_server_latency)
+        max_global_server_latency = ns->max_server_latency;
+
+    //this server's mean
+    // tw_stime mean_packet_latency = ns->sum_server_latency/ns->msg_recvd_count;
+
 
     //printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s(ns->end_ts-ns->start_ts),
     //    ((double)(PAYLOAD_SZ*ns->msg_sent_count)/(double)(1024*1024)/ns_to_s(ns->end_ts-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
@@ -437,6 +478,27 @@ static void svr_event(
         break;
     }
 }
+
+// does MPI reduces across PEs to generate stats based on the global static variables in this file
+static void svr_report_stats()
+{
+    long long total_received_messages;
+    tw_stime total_sum_latency, max_latency, mean_latency;
+    
+
+    MPI_Reduce( &sum_global_messages_received, &total_received_messages, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+    MPI_Reduce( &sum_global_server_latency, &total_sum_latency, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
+    MPI_Reduce( &max_global_server_latency, &max_latency, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_CODES);
+
+    mean_latency = total_sum_latency / total_received_messages;
+
+    if(!g_tw_mynode)
+    {	
+        printf("\nSynthetic Workload LP Stats: Mean Message Latency: %lf us,  Maximum Message Latency: %lf us,  Total Messages Received: %lld\n",
+                (float)mean_latency / 1000, (float)max_latency / 1000, total_received_messages);
+    }
+}
+
 
 int main(
     int argc,
@@ -552,6 +614,7 @@ int main(
         assert(ret == 0 || !"lp_io_flush failure");
     }
     model_net_report_stats(net_id);
+    svr_report_stats();
 #ifdef USE_RDAMARIS
     } // end if(g_st_ross_rank)
 #endif
