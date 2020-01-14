@@ -40,6 +40,7 @@ struct Connection
     int dest_lid; //local id of the destination
     int dest_gid; //global id of the destination
     int dest_group_id; //group id of the destination
+    int is_failed; //boolean value for whether or not the link is considered failed
     ConnectionType conn_type; //type of the connection: CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
 };
 
@@ -109,6 +110,13 @@ public:
      * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
      */
     void add_connection(int dest_gid, ConnectionType type);
+
+    /**
+     * @brief Marks a connection to dest_gid from the local router as failed if one exists, error if not enough links remain unfailed
+     * @param dest_gid the gid of the dest
+     * @param type the type of the connection that will fail
+     */
+    void fail_connection(int dest_gid, ConnectionType type);
 
     // /**
     //  * @brief adds knowledge of what next hop routers have connections to specific groups
@@ -221,5 +229,6 @@ public:
 };
 
 //implementation found in util/connection-manager.C
+
 
 #endif /* end of include guard:*/

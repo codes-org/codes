@@ -29,6 +29,7 @@ void ConnectionManager::add_connection(int dest_gid, ConnectionType type)
     conn.dest_lid = dest_gid % _num_routers_per_group;
     conn.dest_gid = dest_gid;
     conn.dest_group_id = dest_gid / _num_routers_per_group;
+    conn.is_failed = 0;
 
     switch (type)
     {
@@ -72,6 +73,76 @@ void ConnectionManager::add_connection(int dest_gid, ConnectionType type)
         _other_groups_i_connect_to_set.insert(conn.dest_group_id);
 
     _portMap[conn.port] = conn;
+}
+
+void fail_connection(int dest_gid, ConnectionType type)
+{
+    switch(type)
+    {
+        case CONN_LOCAL:
+            vector<Connection> conns_to_gid = intraGroupConnections[dest_gid%_num_routers_per_group];
+            int num_failed_already = get_failed_count_from_vector(conns_to_gid);
+            if (num_failed_already == conns_to_gid.size())
+                tw_error(TW_LOC, "Attempting to fail more Local links from Router gid %d to Router gid %d than exist. Already Failed %d\n", _source_id_global, dest_gid, num_failed_already);
+
+            vector<Connection> iterator it = intraGroupConnections[dest_gid%_num_routers_per_group].begin();
+            for(; it != intraGroupConnections[dest_gid%_num_routers_per_group].end(); it++)
+            {
+                if(!it->is_failed)
+                {
+                    it->is_failed = 1;
+                    break;
+                }
+            }
+        break;
+        case CONN_GLOBAL:
+            vector<Connection> conns_to_gid = interGroupConnections[dest_gid];
+            int num_failed_already = get_failed_count_from_vector(conns_to_gid);
+            if (num_failed_already == conns_to_gid.size())
+                tw_error(TW_LOC, "Attempting to fail more Global links from Router gid %d to Router gid %d than exist. Already Failed %d\n", _source_id_global, dest_gid, num_failed_already);
+            
+            vector<Connection> iterator it = interGroupConnections[dest_gid].begin();
+            for(; it != interGroupConnections[dest_gid].end(); it++)
+            {
+                if(!it->is_failed)
+                {
+                    it->is_failed = 1;
+                    break;
+                }
+            }
+        break;
+        case CONN_TERMINAL:
+            tw_error(TW_LOC, "Failure of terminal links not yet supported - need to remove links from terminal side too before allowing.\n")
+            vector<Connection> conns_to_gid = terminalConnections[dest_gid];
+            int num_failed_already = get_failed_count_from_vector(conns_to_gid);
+            if (num_failed_already == conns_to_gid.size())
+                tw_error(TW_LOC, "Attempting to fail more Terminal links from Router gid %d to Terminal gid %d than exist. Already Failed %d\n", _source_id_global, dest_gid, num_failed_already);
+            
+            vector<Connection> iterator it = terminalConnections[dest_gid].begin();
+            for(; it != terminalConnections[dest_gid].end(); it++)
+            {
+                if(!it->is_failed)
+                {
+                    it->is_failed = 1;
+                    break;
+                }
+            }
+        break;
+        default:
+            assert(false);
+    }
+}
+
+int get_failed_count_from_vector(vector<Connection> conns)
+{
+    int count = 0;
+    vector<Connection>::iterator it = conns.begin();
+    for(; it != conns.end(); it++)
+    {
+        if (it->is_failed)
+            count++
+    }
+    return count;
 }
 
 // void ConnectionManager::add_route_to_group(Connection conn, int dest_group_id)
