@@ -21,10 +21,15 @@ ConnectionManager::ConnectionManager(int src_id_local, int src_id_global, int sr
     _max_terminal_ports = max_term;
 
     _num_routers_per_group = num_router_per_group;
+
+    is_solidified = false;
 }
 
 void ConnectionManager::add_connection(int dest_gid, ConnectionType type)
 {
+    if (is_solidified)
+        tw_error(TW_LOC,"ConnectionManager: Attempting to add connections after manager has been solidified!\n");
+
     Connection conn;
     conn.src_lid = _source_id_local;
     conn.src_gid = _source_id_global;
@@ -81,6 +86,9 @@ void ConnectionManager::add_connection(int dest_gid, ConnectionType type)
 
 void ConnectionManager::fail_connection(int dest_gid, ConnectionType type)
 {
+    if (is_solidified)
+        tw_error(TW_LOC,"ConnectionManager: Attempting to fail connections after manager has been solidified!\n");
+
     switch(type)
     {
         case CONN_LOCAL:
@@ -503,9 +511,15 @@ void ConnectionManager::solidify_connections()
             retVec.insert(retVec.end(), (*it).second.begin(), (*it).second.end());
         }
         _all_conns_by_type_map[enum_int] = retVec;
-    }    
+    }
+
+    is_solidified = true;
 }
 
+bool ConnectionManager::check_is_solidified()
+{
+    return is_solidified;
+}
 
 void ConnectionManager::print_connections()
 {

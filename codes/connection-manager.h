@@ -107,6 +107,8 @@ class ConnectionManager {
 
     int _num_routers_per_group; //number of routers per group - used for turning global ID into local and back
 
+    bool is_solidified; //flag for whether or not solidification has taken place so that this can be checked at the end of router init
+
 public:
     ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int num_router_per_group);
 
@@ -310,10 +312,15 @@ public:
     vector< int > get_connected_group_ids();
 
     /**
-    *
+    * @brief function to populate various optimized data structures with various connections
+    * @note must be executed before simulation start
     */
     void solidify_connections();
 
+    /**
+     * @brief returns true if manager has been solidified - should be run in router init
+     */
+    bool check_is_solidified();
     /**
      * @brief prints out the state of the connection manager
      */

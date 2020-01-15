@@ -1932,6 +1932,11 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         }
     }
 
+    for(int i = 0; i < connManagerList.size(); i++)
+    {
+        connManagerList[i].solidify_connections();
+    }
+
     for(int i = 0; i < p->total_routers; i++){
         int loc_id = i % p->num_routers;
         if (loc_id < p->num_router_leaf)
@@ -2753,7 +2758,8 @@ void router_plus_init(router_state *r, tw_lp *lp)
         }
     }
 
-    r->connMan->solidify_connections();
+    if (!r->connMan->check_is_solidified())
+        tw_error(TW_LOC, "Connection Manager not solidified - should be performed after loading topology");
 
     return;
 }
