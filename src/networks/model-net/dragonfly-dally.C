@@ -1620,6 +1620,12 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         connectionList[g].resize(p->num_groups);
     }
 
+    vector< vector< vector<int> > > connectionListEnumerated; //this one will have one final item for EACH link, not just to show existence of some unknown amount of links
+    connectionListEnumerated.resize(p->num_groups);
+    for(int g = 0; g < connectionListEnumerated.size(); g++) {
+        connectionListEnumerated[g].resize(p->num_groups);
+    }
+
     InterGroupLink newInterLink;
     while (fread(&newInterLink, sizeof(InterGroupLink), 1, systemFile) != 0) {
         int src_id_global = newInterLink.src;
@@ -1628,6 +1634,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         int dest_group_id = dest_id_global / p->num_routers;
 
         connManagerList[src_id_global].add_connection(dest_id_global, CONN_GLOBAL);
+        connectionListEnumerated[src_group_id][dest_group_id].push_back(newInterLink.src);
 
         int r;
         for (r = 0; r < connectionList[src_group_id][dest_group_id].size(); r++) {
@@ -1636,6 +1643,27 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         }
         if (r == connectionList[src_group_id][dest_group_id].size()) {
             connectionList[src_group_id][dest_group_id].push_back(newInterLink.src);
+        }
+    }
+
+    //now loop over this connection list and add its information into respective connection managers
+    for (int src_grp = 0; src_grp < p->num_groups; src_grp++)
+    {
+        for (int dest_grp = 0; dest_grp < p->num_groups; dest_grp++)
+        {
+            if (src_grp == dest_grp)
+                continue;
+            
+            //for each router gid in the source group
+            for (int src_gid = (src_grp * p->num_routers); src_gid < ((src_grp * p->num_routers) + p->num_routers); src_gid++)
+            {
+                vector<int>::iterator it = connectionListEnumerated[src_grp][dest_grp].begin();
+                for(; it != connectionListEnumerated[src_grp][dest_grp].end(); it++)
+                {
+                    connManagerList[src_gid].add_interconnection_information(*it, src_grp, dest_grp);
+                }
+            }
+            
         }
     }
 

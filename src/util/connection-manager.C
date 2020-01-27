@@ -81,7 +81,16 @@ void ConnectionManager::add_connection(int dest_gid, ConnectionType type)
     if(conn.dest_group_id != conn.src_group_id)
         _other_groups_i_connect_to_set.insert(conn.dest_group_id);
 
-    _portMap[conn.port] = conn;
+    _portMap[conn.port] = &conn;
+}
+
+void ConnectionManager::add_interconnection_information(int connecting_source_gid, int source_group_id, int dest_group_id)
+{
+    if (_source_group != source_group_id)
+        tw_error(TW_LOC, "ConnectionManager: Attempting to add interconnection information but source group ID doesn't match connection manager's group\n");
+
+    _interconnection_route_info_map[dest_group_id].push_back(connecting_source_gid);
+    printf("Router %dL %dG: Router %d in my local group %d has a connection to group %d\n", _source_id_local, _source_id_global, connecting_source_gid, source_group_id, dest_group_id);
 }
 
 void ConnectionManager::fail_connection(int dest_gid, ConnectionType type)
@@ -154,6 +163,15 @@ void ConnectionManager::fail_connection(int dest_gid, ConnectionType type)
     }
 }
 
+void ConnectionManager::add_interconnection_failure_information(int connecting_source_gid, int source_group_id, int dest_group_id)
+{
+    if (_source_group != source_group_id)
+        tw_error(TW_LOC, "ConnectionManager: Attempting to add failure interconnection information but source group ID doesn't match connection manager's group\n");
+
+    _interconnection_failure_info_map[dest_group_id].push_back(connecting_source_gid);
+    printf("Router %dL %dG: Router %d in my local group %d has a FAILED connection to group %d\n", _source_id_local, _source_id_global, connecting_source_gid, source_group_id, dest_group_id);
+}
+
 int ConnectionManager::get_failed_count_from_vector(vector<Connection> conns)
 {
     int count = 0;
@@ -223,7 +241,7 @@ vector<int> ConnectionManager::get_ports(int dest_id, ConnectionType type)
 
 Connection ConnectionManager::get_connection_on_port(int port, bool include_failed)
 {
-    Connection conn = _portMap[port];
+    Connection conn = *_portMap[port];
     if (conn.is_failed == 0 || include_failed)
         return conn;
     else
@@ -328,12 +346,12 @@ int ConnectionManager::get_used_ports_for(ConnectionType type)
 
 ConnectionType ConnectionManager::get_port_type(int port_num)
 {
-    return _portMap[port_num].conn_type;
+    return _portMap[port_num]->conn_type;
 }
 
 bool ConnectionManager::get_port_failed_status(int port_num)
 {
-    return _portMap[port_num].is_failed;
+    return _portMap[port_num]->is_failed;
 }
 
 vector< Connection > ConnectionManager::get_connections_to_gid(int dest_gid, ConnectionType type)
@@ -484,6 +502,37 @@ void ConnectionManager::solidify_connections()
         _connections_to_groups_map[dest_group_id] = conns_to_group;
     }
 
+    // //--interconnection route information
+    // map<int, vector< int > >::iterator info_it = _interconnection_route_info_map.begin();
+    // for(; info_it != _interconnection_route_info_map.end(); info_it++)
+    // {
+    //     int dest_group_id = info_it->first;
+    //     vector<int> gid_list = info_it->second;
+    //     int num_
+
+
+
+    //     vector<int>::iterator gid_it = gid_list.begin();
+    //     set<int> added_gids;
+    //     for(; gid_it != gid_list.end(); gid_it++)
+    //     {   
+    //         int gid = *gid_it;
+    //         if (!added_gids.find(gid)) { //if we haven't already added its connections to the map
+    //             vector<Connection> conns_to_gid = get_connections_to_gid(gid, CONN_LOCAL, true);
+    //             _interconnection_route_map[dest_group_id].insert(_interconnection_route_map[dest_group_id].end(), conns_to_gid.begin(), conns_to_gid.end());
+    //             added_gids.insert(gid);
+    //         }
+    //     }
+    // }
+
+    // for(info_it = _interconnection_route_info_map.begin(); info_it != _interconnection_route_info_map.end(); info_it++)
+    // {
+    //     int dest_group_id = info_it->first;
+    //     vector<int> gid_list = info_it->second;
+        
+    // }
+
+
     //--get connections by type
 
     map< int, vector< Connection > > theMap;
@@ -526,7 +575,7 @@ void ConnectionManager::print_connections()
     printf("Connections for Router: %d ---------------------------------------\n",_source_id_global);
 
     int ports_printed = 0;
-    map<int,Connection>::iterator it = _portMap.begin();
+    map<int,Connection*>::iterator it = _portMap.begin();
     for(; it != _portMap.end(); it++)
     {
         if ( (ports_printed == 0) && (_used_intra_ports > 0) )
@@ -546,21 +595,21 @@ void ConnectionManager::print_connections()
         }
 
         int port_num = it->first;
-        int group_id = it->second.dest_group_id;
+        int group_id = it->second->dest_group_id;
 
         int id,gid;
         if( get_port_type(port_num) == CONN_LOCAL ) {
-            id = it->second.dest_lid;
-            gid = it->second.dest_gid;
+            id = it->second->dest_lid;
+            gid = it->second->dest_gid;
             printf("  %d   ->   (%d,%d)        :  %d     -  LOCAL\n", port_num, id, gid, group_id);
 
         } 
         else if (get_port_type(port_num) == CONN_GLOBAL) {
-            id = it->second.dest_gid;
+            id = it->second->dest_gid;
             printf("  %d   ->   %d        :  %d     -  GLOBAL\n", port_num, id, group_id);
         }
         else if (get_port_type(port_num) == CONN_TERMINAL) {
-            id = it->second.dest_gid;
+            id = it->second->dest_gid;
             printf("  %d   ->   %d        :  %d     -  TERMINAL\n", port_num, id, group_id);
         }
             
