@@ -74,7 +74,7 @@ class ConnectionManager {
     map< int, vector< Connection > > globalConnections; //direct connections between routers not in same group - IDs are global router IDs - maps global id to list of connections to it
     map< int, vector< Connection > > terminalConnections; //direct connections between this router and its compute node terminals - maps terminal id to connections to it
 
-    map< int, Connection > _portMap; //Mapper for ports to connections
+    map< int, Connection* > _portMap; //Mapper for ports to connections
 
     vector< int > _other_groups_i_connect_to;
     vector< int > _other_groups_i_connect_to_after_fails;
@@ -83,6 +83,12 @@ class ConnectionManager {
 
     map< int, vector< Connection > > _connections_to_groups_map; //maps group ID to connections to said group
     map< int, vector< Connection > > _all_conns_by_type_map;
+
+    map< int, vector< int > > _interconnection_failure_info_map; // maps group ID to source GID of routers within current local group that go to specified group ID but failed link
+    map< int, vector< int > > _interconnection_route_info_map; // maps group ID to source GID of routers within current local group that go to specified group ID
+    
+    map< int, vector< Connection > > _interconnection_route_map; //maps group ID to connections WITHIN LOCAL GROUP THAT LEAD TO SPECIFIED GROUP ID - this type should be used after solidification as optimization
+    map< int, vector< Connection > > _interconnection_router_map_after_fails;
 
     // map< int, vector< Connection > > intermediateRouterToGroupMap; //maps group id to list of routers that connect to it.
     //                                                                //ex: intermediateRouterToGroupMap[3] returns a vector
@@ -120,11 +126,19 @@ public:
     void add_connection(int dest_gid, ConnectionType type);
 
     /**
+     * @brief Adds information about connecitons to a specific group
+     */
+    void add_interconnection_information(int connecting_source_gid, int source_group_id, int dest_group_id);
+
+    /**
      * @brief Marks a connection to dest_gid from the local router as failed if one exists, error if not enough links remain unfailed
      * @param dest_gid the gid of the dest
      * @param type the type of the connection that will fail
      */
     void fail_connection(int dest_gid, ConnectionType type);
+
+    void add_interconnection_failure_information(int connecting_source_gid, int source_group_id, int dest_group_id);
+
 
     /**
      * @brief returns a count of the number of failed links from a vector of connections
