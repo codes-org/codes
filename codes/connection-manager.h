@@ -16,6 +16,9 @@
 
 using namespace std;
 
+class ConnectionManager;
+class NetworkManager;
+
 /**
  * @brief Enum differentiating local router connection types from global.
  * Local connections will have router IDs ranging from [0,num_router_per_group)
@@ -29,7 +32,17 @@ enum ConnectionType
 };
 
 /**
- * @brief Struct for connection information.
+ * @brief Struct for basic link information for loading network
+ */
+struct Link_Info
+{
+    int src_gid;
+    int dest_gid;
+    ConnectionType conn_type;
+};
+
+/**
+ * @brief Struct for complete connection information
  */
 struct Connection
 {
@@ -50,6 +63,67 @@ inline bool operator<(const Connection& lhs, const Connection& rhs)
 }
 
 /**
+ * @class NetworkManager
+ * 
+ * @brief
+ * This class is meant to organize the connections that form the network as a whole
+ * and also stores all connection managers.
+ * 
+ * @note
+ * This class was designed with dragonfly type topologies in mind (local groups of routers)
+ * Certain parts may not make sense for other topologies, they might work fine, but no guarantees.
+ */
+class NetworkManager {
+    int _total_routers;
+    int _num_routers_per_group;
+    int _num_groups;
+    int _num_lc_pr; //num local conns per router
+    int _num_gc_pr; //num global conns per router
+    int _num_cn_pr; //num cn conns per router
+
+
+    int _num_router_conns; //total number of router-router links
+    int _num_router_terminal_conns; //total number of terminal links
+    int _num_failed_router_conns;
+    int _num_failed_router_terminal_conns;
+
+    map< int, vector<Link_Info> > _router_link_failure_lists; //maps router ID to a vector of Link Infos that contain dest router GIDs that it has a FAILED connection to, one item for each failed connection
+    map< int, vector<Link_Info> > _router_terminal_link_failure_lists; //maps router ID to a vector of Link Infos that contain dest terminal GIDs that it has a FAILED connection to, one item for each failed connection
+
+    //storage maps - these are the 'owners' of the connections contained.
+    map< int, vector< Connection* > > _router_connections_map; //maps router ID to a vector of all connections that that router has
+    map< int, vector< Connection* > > _router_terminal_connections_map; //maps router ID to a vector of all terminal connections that that router has    
+    
+    //useful maps - helpful ways of organizing the connection pointers stored above
+    map< pair<int,int>, vector< Connection* > > _router_to_router_connection_map; //maps pair(src_gid, dest_gid) to a vector of connection pointers that go from src gid to dest gid
+    map< pair<int,int>, vector< Connection* > > _router_to_terminal_connection_map; //maps pair(src_gid, dest_term_gid) to a vector of connection pointers taht go from src gid router to dest_term id
+    map< pair<int,int>, vector< Connection* > > _global_connection_map; //maps pair(src group id, dest group id) to a vector of connection pointers that match that pattern
+    
+    vector< ConnectionManager > _connection_manager_list; //list of all connection managers in the network
+
+    bool _is_solidified;
+
+public:
+    NetworkManager();
+
+    NetworkManager(int total_routers, int num_routers_per_group, int num_lc_per_router, int num_gc_per_router, int num_cn_per_router);
+
+    ConnectionManager& get_connection_manager_for_router(int router_gid);
+
+    void add_link(Link_Info link);
+
+    void add_link_failure_info(Link_Info failed_link);
+
+    void fail_connection(Link_Info failed_link);
+
+    int get_failed_count_from_vector(vector<Connection*> conns);
+
+    void add_conns_to_connection_managers();
+
+    void solidify_network();
+};
+
+/**
  * @class ConnectionManager
  *
  * @brief
@@ -62,11 +136,6 @@ inline bool operator<(const Connection& lhs, const Connection& rhs)
  * make sense for other types of topologies, they might work fine, but no guarantees.
  *
  * @note
- * There is the property intermediateRouterToGroupMap and related methods that are implemented but the
- * logistics to get this information from input file is more complicated than its worth so I have commented
- * them out.
- *
- * @note
  * This class assumes that each router group has the same number of routers in it: _num_routers_per_group.
  */
 class ConnectionManager {
@@ -74,7 +143,7 @@ class ConnectionManager {
     map< int, vector< Connection > > globalConnections; //direct connections between routers not in same group - IDs are global router IDs - maps global id to list of connections to it
     map< int, vector< Connection > > terminalConnections; //direct connections between this router and its compute node terminals - maps terminal id to connections to it
 
-    map< int, Connection* > _portMap; //Mapper for ports to connections
+    map< int, Connection > _portMap; //Mapper for ports to connection references
 
     vector< int > _other_groups_i_connect_to;
     vector< int > _other_groups_i_connect_to_after_fails;
@@ -119,32 +188,41 @@ public:
     ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int num_router_per_group);
 
     /**
-     * @brief Adds a connection to the manager
+     * @brief Adds a connection to the manager, returns a reference to it
      * @param dest_gid the global ID of the destination router
      * @param type the type of the connection, CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
+     * @return returns the port number that it was added to
+
      */
-    void add_connection(int dest_gid, ConnectionType type);
+    int add_connection(int dest_gid, ConnectionType type);
+
+    /**
+     * @brief Adds a reference to a connection to the manager
+     * @param conn reference to a connection created by the NetworkManager
+     * @return returns the port number that it was added to
+     */
+    int add_connection(Connection conn);
 
     /**
      * @brief Adds information about connecitons to a specific group
      */
     void add_interconnection_information(int connecting_source_gid, int source_group_id, int dest_group_id);
 
-    /**
-     * @brief Marks a connection to dest_gid from the local router as failed if one exists, error if not enough links remain unfailed
-     * @param dest_gid the gid of the dest
-     * @param type the type of the connection that will fail
-     */
-    void fail_connection(int dest_gid, ConnectionType type);
+    // /**
+    //  * @brief Marks a connection to dest_gid from the local router as failed if one exists, error if not enough links remain unfailed
+    //  * @param dest_gid the gid of the dest
+    //  * @param type the type of the connection that will fail
+    //  */
+    // void fail_connection(int dest_gid, ConnectionType type);
 
-    void add_interconnection_failure_information(int connecting_source_gid, int source_group_id, int dest_group_id);
+    // void add_interconnection_failure_information(int connecting_source_gid, int source_group_id, int dest_group_id);
 
 
-    /**
-     * @brief returns a count of the number of failed links from a vector of connections
-     * @param conns a vector of connections that the function will iterate over to count failed links
-     */
-    int get_failed_count_from_vector(vector<Connection> conns);
+    // /**
+    //  * @brief returns a count of the number of failed links from a vector of connections
+    //  * @param conns a vector of connections that the function will iterate over to count failed links
+    //  */
+    // int get_failed_count_from_vector(vector<Connection> conns);
 
     // /**
     //  * @brief adds knowledge of what next hop routers have connections to specific groups

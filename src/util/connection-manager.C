@@ -1,5 +1,194 @@
 #include "codes/connection-manager.h"
 
+//*******************    Network Manager Implementation **********************************************
+NetworkManager::NetworkManager()
+{
+    _total_routers = 0;
+    _num_routers_per_group = 0;
+    _num_groups = 0;
+    _num_lc_pr = 0;
+    _num_gc_pr = 0;
+    _num_cn_pr = 0;
+    _is_solidified = false;
+}
+
+
+NetworkManager::NetworkManager(int total_routers, int num_routers_per_group, int num_lc_per_router, int num_gc_per_router, int num_cn_per_router)
+{
+    _total_routers = total_routers;
+    _num_routers_per_group = num_routers_per_group;
+    _num_groups = total_routers / num_routers_per_group;
+    _num_lc_pr = num_lc_per_router;
+    _num_gc_pr = num_gc_per_router;
+    _num_cn_pr = num_cn_per_router;
+
+    _num_router_conns = 0;
+    _num_router_terminal_conns = 0;
+    _num_failed_router_conns = 0;
+    _num_failed_router_terminal_conns = 0;
+
+    // _num_router_router_conns_created = 0;
+    // _num_router_terminal_conns_created = 0;
+    
+    if (total_routers % num_routers_per_group != 0)
+        tw_error(TW_LOC, "NetworkManager: total routers \% num routers per group is not evenly divisible, non-uniform groups\n");
+
+
+    for(int i = 0; i < _total_routers; i++)
+    {
+        int src_id_global = i;
+        int src_id_local = i % _num_routers_per_group;
+        int src_group = i / _num_routers_per_group;
+
+        ConnectionManager conn_man = ConnectionManager(src_id_local, src_id_global, src_group, _num_lc_pr, _num_gc_pr, _num_cn_pr, _num_routers_per_group);
+        _connection_manager_list.push_back(conn_man);
+    }
+    _is_solidified = false;
+}
+
+ConnectionManager& NetworkManager::get_connection_manager_for_router(int router_gid)
+{
+    return _connection_manager_list[router_gid];
+}
+
+void NetworkManager::add_link(Link_Info link)
+{
+    Connection *conn = (Connection*)malloc(sizeof(Connection));
+    conn->port = -1; //will be set by the Connection Manager of the router (src_gid) and defined in add_cons_to_connectoin_managers
+    conn->src_lid = link.src_gid % _num_routers_per_group;
+    conn->src_gid = link.src_gid;
+    conn->src_group_id = link.src_gid / _num_routers_per_group;
+    conn->dest_lid = link.dest_gid % _num_routers_per_group;
+    conn->dest_gid = link.dest_gid;
+    conn->dest_group_id = link.dest_gid / _num_routers_per_group;
+    conn->conn_type = link.conn_type;
+    conn->is_failed = 0;
+
+    if (link.conn_type != CONN_TERMINAL)
+    {
+        _num_router_conns++;
+
+        //put the conn into its owning structure
+        _router_connections_map[link.src_gid].push_back(conn);
+
+        //put into useful maps
+        _router_to_router_connection_map[make_pair(conn->src_gid,conn->dest_gid)].push_back(conn);
+
+        if (conn->conn_type == CONN_GLOBAL)
+            _global_connection_map[make_pair(conn->src_group_id, conn->dest_group_id)].push_back(conn);
+    }
+    else //CONN TERMINAL
+    {
+        _num_router_terminal_conns++;
+
+        conn->dest_group_id = conn->src_group_id;
+        conn->dest_lid = conn->dest_gid % _num_cn_pr;
+        //put conn into owning structure
+        _router_terminal_connections_map[link.src_gid].push_back(conn);
+
+        //put into useful maps
+        _router_to_terminal_connection_map[make_pair(conn->src_gid,conn->dest_gid)].push_back(conn);
+    }
+}
+
+void NetworkManager::add_link_failure_info(Link_Info link)
+{
+    if (link.conn_type != CONN_TERMINAL)
+    {
+        _router_link_failure_lists[link.src_gid].push_back(link);
+        _num_failed_router_conns++;
+    }
+    else
+    {
+        _router_terminal_link_failure_lists[link.src_gid].push_back(link);
+        _num_failed_router_terminal_conns++;
+    }
+}
+
+
+void NetworkManager::fail_connection(Link_Info link)
+{
+    if (link.conn_type != CONN_TERMINAL)
+    {
+        vector<Connection*> conns_to_gid = _router_to_router_connection_map[make_pair(link.src_gid,link.dest_gid)];
+        int num_failed_already = get_failed_count_from_vector(conns_to_gid);
+        if (num_failed_already == conns_to_gid.size())
+            tw_error(TW_LOC, "Attempting to fail more links from Router GID %d to Router GID %d than exist. Already Failed %d\n", link.src_gid, link.dest_gid, num_failed_already);
+
+        vector<Connection*>:: iterator it = _router_to_router_connection_map[make_pair(link.src_gid,link.dest_gid)].begin();
+        for(; it != _router_to_router_connection_map[make_pair(link.src_gid,link.dest_gid)].end(); it++)
+        {
+            if(!(*it)->is_failed)
+            {
+                (*it)->is_failed = 1;
+            }
+        }
+    }
+    else
+    {
+        vector<Connection*> conns_to_term_gid = _router_to_terminal_connection_map[make_pair(link.src_gid,link.dest_gid)];
+        int num_failed_already = get_failed_count_from_vector(conns_to_term_gid);
+        if (num_failed_already == conns_to_term_gid.size())
+            tw_error(TW_LOC, "Attempting to fail more links from Router GID %d to Terminal GID %d than exist. Already Failed %d\n", link.src_gid, link.dest_gid, num_failed_already);
+
+        vector<Connection*>:: iterator it = _router_to_terminal_connection_map[make_pair(link.src_gid,link.dest_gid)].begin();
+        for(; it != _router_to_terminal_connection_map[make_pair(link.src_gid,link.dest_gid)].end(); it++)
+        {
+            if(!(*it)->is_failed)
+            {
+                (*it)->is_failed = 1;
+            }
+        }
+    }
+}
+
+int NetworkManager::get_failed_count_from_vector(vector<Connection*> conns)
+{
+    int count = 0;
+    vector<Connection*>::iterator it = conns.begin();
+    for(; it != conns.end(); it++)
+    {
+        if ((*it)->is_failed)
+            count++;
+    }
+    return count;
+}
+
+void NetworkManager::add_conns_to_connection_managers()
+{
+    for(int i = 0; i < _total_routers; i++)
+    {
+        vector<Connection*> conn_vec = _router_connections_map[i];
+        for(int j = 0; j < conn_vec.size(); j++)
+        {
+            int port_no = _connection_manager_list[i].add_connection(*conn_vec[j]);
+            conn_vec[j]->port = port_no;
+        }
+    }
+
+    for(int i = 0; i < _total_routers; i++)
+    {
+        vector<Connection*> conn_vec = _router_terminal_connections_map[i];
+        for(int j = 0; j < conn_vec.size(); j++)
+        {
+            int port_no = _connection_manager_list[i].add_connection(*conn_vec[j]);
+            conn_vec[j]->port = port_no;
+        }
+    }
+}
+
+void NetworkManager::solidify_network()
+{
+
+
+    //add copies of all of the connections to the connection managers
+    add_conns_to_connection_managers();
+    for(vector<ConnectionManager>::iterator it = _connection_manager_list.begin(); it != _connection_manager_list.end(); it++)
+    {
+        it->solidify_connections(); //solidify those connection managers
+    }
+    _is_solidified = true; //the network is now solidified
+}
 
 //*******************    Connection Manager Implementation *******************************************
 ConnectionManager::ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int num_router_per_group)
@@ -25,7 +214,7 @@ ConnectionManager::ConnectionManager(int src_id_local, int src_id_global, int sr
     is_solidified = false;
 }
 
-void ConnectionManager::add_connection(int dest_gid, ConnectionType type)
+int ConnectionManager::add_connection(int dest_gid, ConnectionType type)
 {
     if (is_solidified)
         tw_error(TW_LOC,"ConnectionManager: Attempting to add connections after manager has been solidified!\n");
@@ -40,10 +229,19 @@ void ConnectionManager::add_connection(int dest_gid, ConnectionType type)
     conn.dest_group_id = dest_gid / _num_routers_per_group;
     conn.is_failed = 0;
 
-    switch (type)
+    add_connection(conn);
+    return conn.port;
+}
+
+int ConnectionManager::add_connection(Connection conn)
+{
+    if (is_solidified)
+        tw_error(TW_LOC,"ConnectionManager: Attempting to add connections after manager has been solidified!\n");
+
+    switch (conn.conn_type)
     {
         case CONN_LOCAL:
-            if (intraGroupConnections.size() < _max_intra_ports) {
+            if (_used_intra_ports < _max_intra_ports){
                 conn.port = this->get_used_ports_for(CONN_LOCAL);
                 intraGroupConnections[conn.dest_lid].push_back(conn);
                 _used_intra_ports++;
@@ -51,9 +249,8 @@ void ConnectionManager::add_connection(int dest_gid, ConnectionType type)
             else
                 tw_error(TW_LOC,"Attempting to add too many local connections per router - exceeding configuration value: %d",_max_intra_ports);
             break;
-
         case CONN_GLOBAL:
-            if(globalConnections.size() < _max_inter_ports) {
+            if(_used_inter_ports < _max_inter_ports) {
                 conn.port = _max_intra_ports + this->get_used_ports_for(CONN_GLOBAL);
                 globalConnections[conn.dest_gid].push_back(conn);
                 _used_inter_ports++;
@@ -61,9 +258,8 @@ void ConnectionManager::add_connection(int dest_gid, ConnectionType type)
             else
                 tw_error(TW_LOC,"Attempting to add too many global connections per router - exceeding configuration value: %d",_max_inter_ports);
             break;
-
         case CONN_TERMINAL:
-            if(terminalConnections.size() < _max_terminal_ports){
+            if(_used_terminal_ports < _max_terminal_ports){
                 conn.port = _max_intra_ports + _max_inter_ports + this->get_used_ports_for(CONN_TERMINAL);
                 conn.dest_group_id = _source_group;
                 terminalConnections[conn.dest_gid].push_back(conn);
@@ -72,17 +268,17 @@ void ConnectionManager::add_connection(int dest_gid, ConnectionType type)
             else
                 tw_error(TW_LOC,"Attempting to add too many terminal connections per router - exceeding configuration value: %d",_max_terminal_ports);
             break;
-
         default:
             assert(false);
-            // TW_ERROR(TW_LOC, "add_connection(dest_id, type): Undefined connection type\n");
     }
 
     if(conn.dest_group_id != conn.src_group_id)
         _other_groups_i_connect_to_set.insert(conn.dest_group_id);
 
-    _portMap[conn.port] = &conn;
+    _portMap[conn.port] = conn;
+    return conn.port;
 }
+
 
 void ConnectionManager::add_interconnection_information(int connecting_source_gid, int source_group_id, int dest_group_id)
 {
@@ -92,120 +288,6 @@ void ConnectionManager::add_interconnection_information(int connecting_source_gi
     _interconnection_route_info_map[dest_group_id].push_back(connecting_source_gid);
     printf("Router %dL %dG: Router %d in my local group %d has a connection to group %d\n", _source_id_local, _source_id_global, connecting_source_gid, source_group_id, dest_group_id);
 }
-
-void ConnectionManager::fail_connection(int dest_gid, ConnectionType type)
-{
-    if (is_solidified)
-        tw_error(TW_LOC,"ConnectionManager: Attempting to fail connections after manager has been solidified!\n");
-
-    switch(type)
-    {
-        case CONN_LOCAL:
-        {
-            vector<Connection> conns_to_gid = intraGroupConnections[dest_gid%_num_routers_per_group];
-            int num_failed_already = get_failed_count_from_vector(conns_to_gid);
-            if (num_failed_already == conns_to_gid.size())
-                tw_error(TW_LOC, "Attempting to fail more Local links from Router gid %d to Router gid %d than exist. Already Failed %d\n", _source_id_global, dest_gid, num_failed_already);
-
-            vector<Connection>::iterator it = intraGroupConnections[dest_gid%_num_routers_per_group].begin();
-            for(; it != intraGroupConnections[dest_gid%_num_routers_per_group].end(); it++)
-            {
-                if(!it->is_failed)
-                {
-                    it->is_failed = 1;
-                    _failed_intra_ports++;
-                    break;
-                }
-            }
-        }
-        break;
-        case CONN_GLOBAL:
-        {
-            vector<Connection> conns_to_gid = globalConnections[dest_gid];
-            int num_failed_already = get_failed_count_from_vector(conns_to_gid);
-            if (num_failed_already == conns_to_gid.size())
-                tw_error(TW_LOC, "Attempting to fail more Global links from Router gid %d to Router gid %d than exist. Already Failed %d\n", _source_id_global, dest_gid, num_failed_already);
-            
-            vector<Connection>::iterator it = globalConnections[dest_gid].begin();
-            for(; it != globalConnections[dest_gid].end(); it++)
-            {
-                if(!it->is_failed)
-                {
-                    it->is_failed = 1;
-                    _failed_inter_ports++;
-                    break;
-                }
-            }
-        }
-        break;
-        case CONN_TERMINAL:
-        {
-            tw_error(TW_LOC, "Failure of terminal links not yet supported - need to remove links from terminal side too before allowing.\n");
-            vector<Connection> conns_to_gid = terminalConnections[dest_gid];
-            int num_failed_already = get_failed_count_from_vector(conns_to_gid);
-            if (num_failed_already == conns_to_gid.size())
-                tw_error(TW_LOC, "Attempting to fail more Terminal links from Router gid %d to Terminal gid %d than exist. Already Failed %d\n", _source_id_global, dest_gid, num_failed_already);
-            
-            vector<Connection>::iterator it = terminalConnections[dest_gid].begin();
-            for(; it != terminalConnections[dest_gid].end(); it++)
-            {
-                if(!it->is_failed)
-                {
-                    it->is_failed = 1;
-                    _failed_terminal_ports++;
-                    break;
-                }
-            }
-        }
-        break;
-        default:
-            assert(false);
-    }
-}
-
-void ConnectionManager::add_interconnection_failure_information(int connecting_source_gid, int source_group_id, int dest_group_id)
-{
-    if (_source_group != source_group_id)
-        tw_error(TW_LOC, "ConnectionManager: Attempting to add failure interconnection information but source group ID doesn't match connection manager's group\n");
-
-    _interconnection_failure_info_map[dest_group_id].push_back(connecting_source_gid);
-    printf("Router %dL %dG: Router %d in my local group %d has a FAILED connection to group %d\n", _source_id_local, _source_id_global, connecting_source_gid, source_group_id, dest_group_id);
-}
-
-int ConnectionManager::get_failed_count_from_vector(vector<Connection> conns)
-{
-    int count = 0;
-    vector<Connection>::iterator it = conns.begin();
-    for(; it != conns.end(); it++)
-    {
-        if (it->is_failed)
-            count++;
-    }
-    return count;
-}
-
-// void ConnectionManager::add_route_to_group(Connection conn, int dest_group_id)
-// {
-//     intermediateRouterToGroupMap[dest_group_id].push_back(conn);
-// }
-
-// vector< Connection > ConnectionManager::get_intm_conns_to_group(int dest_group_id)
-// {
-//     return intermediateRouterToGroupMap[dest_group_id];
-// }
-
-// vector< int > ConnectionManager::get_intm_routers_to_group(int dest_group_id)
-// {
-//     vector< Connection > intm_router_conns = get_intm_conns_to_group(dest_group_id);
-
-//     vector< int > loc_intm_router_ids;
-//     vector< Connection >::iterator it;
-//     for(it = intm_router_conns.begin(); it != intm_router_conns.end(); it++)
-//     {
-//         loc_intm_router_ids.push_back((*it).other_id);
-//     }
-//     return loc_intm_router_ids;
-// }
 
 int ConnectionManager::get_source_id(ConnectionType type)
 {
@@ -241,7 +323,7 @@ vector<int> ConnectionManager::get_ports(int dest_id, ConnectionType type)
 
 Connection ConnectionManager::get_connection_on_port(int port, bool include_failed)
 {
-    Connection conn = *_portMap[port];
+    Connection conn = _portMap[port];
     if (conn.is_failed == 0 || include_failed)
         return conn;
     else
@@ -346,12 +428,12 @@ int ConnectionManager::get_used_ports_for(ConnectionType type)
 
 ConnectionType ConnectionManager::get_port_type(int port_num)
 {
-    return _portMap[port_num]->conn_type;
+    return _portMap[port_num].conn_type;
 }
 
 bool ConnectionManager::get_port_failed_status(int port_num)
 {
-    return _portMap[port_num]->is_failed;
+    return _portMap[port_num].is_failed;
 }
 
 vector< Connection > ConnectionManager::get_connections_to_gid(int dest_gid, ConnectionType type)
@@ -575,7 +657,7 @@ void ConnectionManager::print_connections()
     printf("Connections for Router: %d ---------------------------------------\n",_source_id_global);
 
     int ports_printed = 0;
-    map<int,Connection*>::iterator it = _portMap.begin();
+    map<int,Connection>::iterator it = _portMap.begin();
     for(; it != _portMap.end(); it++)
     {
         if ( (ports_printed == 0) && (_used_intra_ports > 0) )
@@ -595,21 +677,21 @@ void ConnectionManager::print_connections()
         }
 
         int port_num = it->first;
-        int group_id = it->second->dest_group_id;
+        int group_id = it->second.dest_group_id;
 
         int id,gid;
         if( get_port_type(port_num) == CONN_LOCAL ) {
-            id = it->second->dest_lid;
-            gid = it->second->dest_gid;
+            id = it->second.dest_lid;
+            gid = it->second.dest_gid;
             printf("  %d   ->   (%d,%d)        :  %d     -  LOCAL\n", port_num, id, gid, group_id);
 
         } 
         else if (get_port_type(port_num) == CONN_GLOBAL) {
-            id = it->second->dest_gid;
+            id = it->second.dest_gid;
             printf("  %d   ->   %d        :  %d     -  GLOBAL\n", port_num, id, group_id);
         }
         else if (get_port_type(port_num) == CONN_TERMINAL) {
-            id = it->second->dest_gid;
+            id = it->second.dest_gid;
             printf("  %d   ->   %d        :  %d     -  TERMINAL\n", port_num, id, group_id);
         }
             
