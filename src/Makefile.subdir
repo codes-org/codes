@@ -92,7 +92,7 @@ nobase_include_HEADERS = \
 	codes/model-net-sched.h \
 	codes/model-net-sched-impl.h \
 	codes/model-net-inspect.h \
-	codes/connection-manager.h	\
+	codes/network-manager.h	\
 	codes/net/common-net.h \
 	codes/net/dragonfly.h \
 	codes/net/dragonfly-custom.h \
@@ -151,7 +151,7 @@ src_libcodes_la_SOURCES =  \
 	src/util/jobmap-impl/jobmap-identity.c\
 	src/util/codes-mapping-context.c \
   	src/util/codes-comm.c \
-	src/util/connection-manager.C \
+	src/util/network-manager.C \
     src/workload/codes-workload.c \
     src/workload/methods/codes-iolang-wrkld.c \
     src/workload/methods/codes-checkpoint-wrkld.c \
