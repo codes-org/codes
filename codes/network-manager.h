@@ -2,7 +2,7 @@
 #define CONNECTION_MANAGER_H
 
 /**
- * connection-manager.h -- Simple, Readable, Connection management interface
+ * network-manager.h -- Simple, Readable, Connection management interface
  * Neil McGlohon
  *
  * Copyright (c) 2018 Rensselaer Polytechnic Institute
@@ -383,7 +383,7 @@ public:
     void print_connections();
 };
 
-//implementation found in util/connection-manager.C
+//implementation found in util/network-manager.C
 
 
 #endif /* end of include guard:*/

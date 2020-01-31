@@ -24,7 +24,7 @@
 #include "codes/rc-stack.h"
 #include "sys/file.h"
 
-#include "codes/connection-manager.h"
+#include "codes/network-manager.h"
 
 #ifdef ENABLE_CORTEX
 #include <cortex/cortex.h>

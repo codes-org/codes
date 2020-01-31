@@ -30,7 +30,7 @@
 #include <map>
 #include <set>
 
-#include "codes/connection-manager.h"
+#include "codes/network-manager.h"
 
 #ifdef ENABLE_CORTEX
 #include <cortex/cortex.h>
