@@ -1668,42 +1668,18 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         }
     }
 
-    //now loop over this connection list and add its information into respective connection managers
-    for (int src_grp = 0; src_grp < p->num_groups; src_grp++)
+    netMan.solidify_network(); //burn the network links into the connection managers and finalize link failures
+
+    if (DUMP_CONNECTIONS)
     {
-        for (int dest_grp = 0; dest_grp < p->num_groups; dest_grp++)
-        {
-            if (src_grp == dest_grp)
-                continue;
-            
-            //for each router gid in the source group
-            for (int src_gid = (src_grp * p->num_routers); src_gid < ((src_grp * p->num_routers) + p->num_routers); src_gid++)
+        if(!myRank) {
+            for (int i = 0; i < p->total_routers; i++)
             {
-                vector<int>::iterator it = connectionListEnumerated[src_grp][dest_grp].begin();
-                for(; it != connectionListEnumerated[src_grp][dest_grp].end(); it++)
-                {
-                    // connManagerList[src_gid].add_interconnection_information(*it, src_grp, dest_grp);
-                }
+                netMan.get_connection_manager_for_router(i).print_connections();
             }
-            
         }
     }
 
-    // if (DUMP_CONNECTIONS)
-    // {
-    //     if (!myRank) {
-    //         for (int i = 0; i < connManagerList.size(); i++)
-    //         {
-    //             connManagerList[i].print_connections();
-    //         }
-    //     }
-    // }
-
-    // for(int i = 0; i < connManagerList.size(); i++)
-    // {
-    //     connManagerList[i].solidify_connections();
-    // }
-    netMan.solidify_network();
 
     fclose(systemFile);
 
