@@ -84,6 +84,7 @@ class NetworkManager {
 
     int _num_router_conns; //total number of router-router links
     int _num_router_terminal_conns; //total number of terminal links
+    bool _link_failures_enabled;
     int _num_failed_router_conns;
     int _num_failed_router_terminal_conns;
 
@@ -108,6 +109,10 @@ public:
     NetworkManager();
 
     NetworkManager(int total_routers, int num_routers_per_group, int num_lc_per_router, int num_gc_per_router, int num_cn_per_router);
+
+    void enable_link_failures();
+
+    bool is_link_failures_enabled();
 
     ConnectionManager& get_connection_manager_for_router(int router_gid);
 

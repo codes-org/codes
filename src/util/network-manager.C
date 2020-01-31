@@ -33,6 +33,7 @@ NetworkManager::NetworkManager(int total_routers, int num_routers_per_group, int
 
     _num_router_conns = 0;
     _num_router_terminal_conns = 0;
+    _link_failures_enabled = false;
     _num_failed_router_conns = 0;
     _num_failed_router_terminal_conns = 0;
 
@@ -53,6 +54,16 @@ NetworkManager::NetworkManager(int total_routers, int num_routers_per_group, int
         _connection_manager_list.push_back(conn_man);
     }
     _is_solidified = false;
+}
+
+void NetworkManager::enable_link_failures()
+{
+    _link_failures_enabled = true;
+}
+
+bool NetworkManager::is_link_failures_enabled()
+{
+    return _link_failures_enabled;
 }
 
 ConnectionManager& NetworkManager::get_connection_manager_for_router(int router_gid)
@@ -104,6 +115,9 @@ void NetworkManager::add_link(Link_Info link)
 
 void NetworkManager::add_link_failure_info(Link_Info link)
 {
+    if(_link_failures_enabled == false)
+        tw_error(TW_LOC,"Network Manager: attempting to add link failure info but link failure has not been enabled via NetworkManager.allow_link_failures()\n");
+
     if (link.conn_type != CONN_TERMINAL)
     {
         _router_link_failure_lists[link.src_gid].push_back(link);
@@ -119,6 +133,9 @@ void NetworkManager::add_link_failure_info(Link_Info link)
 
 void NetworkManager::fail_connection(Link_Info link)
 {
+    if(_link_failures_enabled == false)
+        tw_error(TW_LOC,"Network Manager: attempting to fail link but link failure has not been enabled via NetworkManager.allow_link_failures()\n");
+
     if (link.conn_type != CONN_TERMINAL)
     {
         vector<Connection*> conns_to_gid = _router_to_router_connection_map[make_pair(link.src_gid,link.dest_gid)];
@@ -209,6 +226,28 @@ void NetworkManager::add_conns_to_connection_managers()
 
 void NetworkManager::solidify_network()
 {
+    map<int, vector<Link_Info> >::iterator it;
+    //fail the router router connections
+    for(it = _router_link_failure_lists.begin(); it != _router_link_failure_lists.end(); it++)
+    {
+        //iterate over vector of link info
+        for(int i = 0; i < it->second.size(); i++)
+        {
+            Link_Info link = it->second[i];
+            fail_connection(link);
+        }
+    }
+
+    //fail the router terminal connections
+    for(it = _router_terminal_link_failure_lists.begin(); it != _router_terminal_link_failure_lists.end(); it++)
+    {
+        //iterate over vector of link info
+        for(int i = 0; i < it->second.size(); i++)
+        {
+            Link_Info link = it->second[i];
+            fail_connection(link);
+        }
+    }
 
 
     //add copies of all of the connections to the connection managers

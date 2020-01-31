@@ -17,7 +17,7 @@ COMPONENTS = 0
 
 
 class LinkType(Enum):
-    INTRA = 1,
+    INTRA = 1
     INTER = 2
 
 
@@ -216,8 +216,8 @@ def main():
         with open(argv[4],"rb") as inter:
             loadInter(params, inter, net)
 
-        net.fail_links(LinkType.INTRA, .5)
-        net.fail_links(LinkType.INTER, .5)
+        net.fail_links(LinkType.INTRA, .1)
+        net.fail_links(LinkType.INTER, .1)
 
         print(net)
 
@@ -285,9 +285,10 @@ def writeFailed(params, fd, net):
     for link in failed_links:
         src_gid = link.src_gid
         dest_gid = link.dest_gid
+        link_type = link.link_type
 
-        fd.write(struct.pack("2i",src_gid, dest_gid))    
-        print("%d <-> %d  Failed"%(src_gid, dest_gid))   
+        fd.write(struct.pack("3i",src_gid, dest_gid, link_type.value))
+        print("%d <-> %d   type=%s   Failed"%(src_gid, dest_gid, link_type))
 
     print("Written %d failed bidirectional links"%len(failed_links)) 
 
