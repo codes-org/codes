@@ -1,4 +1,13 @@
 #include "codes/connection-manager.h"
+#include <algorithm>
+
+void add_as_if_set_int(int value, vector<int>& vec)
+{
+    vector<int>::iterator it;
+    it = std::find(vec.begin(), vec.end(), value);
+    if (it == vec.end()) //then it's not in the vector yet - else do nothing
+        vec.push_back(value);
+}
 
 //*******************    Network Manager Implementation **********************************************
 NetworkManager::NetworkManager()
@@ -75,7 +84,9 @@ void NetworkManager::add_link(Link_Info link)
         _router_to_router_connection_map[make_pair(conn->src_gid,conn->dest_gid)].push_back(conn);
 
         if (conn->conn_type == CONN_GLOBAL)
-            _global_connection_map[make_pair(conn->src_group_id, conn->dest_group_id)].push_back(conn);
+            _global_group_connection_map[make_pair(conn->src_group_id, conn->dest_group_id)].push_back(conn);
+
+        _router_to_group_connection_map[make_pair(conn->src_gid, conn->dest_group_id)].push_back(conn);
     }
     else //CONN TERMINAL
     {
@@ -175,6 +186,25 @@ void NetworkManager::add_conns_to_connection_managers()
             conn_vec[j]->port = port_no;
         }
     }
+
+    for(int i = 0; i < _total_routers; i++)
+    {
+        int src_grp_id = i / _num_routers_per_group;
+
+        map< int, vector< Connection > > map_for_this_router_to_groups;
+        for(int j = 0; j < _num_groups; j++)
+        {
+            int dest_grp_id = j;
+            pair<int,int> group_pair = make_pair(src_grp_id, dest_grp_id);
+            vector<Connection> derefd_vec;
+            for(vector<Connection*>::iterator it = _global_group_connection_map[group_pair].begin(); it!= _global_group_connection_map[group_pair].end(); it++)
+            {
+                derefd_vec.push_back(*(*it));
+            }
+            map_for_this_router_to_groups[dest_grp_id] = derefd_vec;
+        }
+        _connection_manager_list[i].set_routed_connections_to_groups(map_for_this_router_to_groups);
+    }
 }
 
 void NetworkManager::solidify_network()
@@ -229,8 +259,8 @@ int ConnectionManager::add_connection(int dest_gid, ConnectionType type)
     conn.dest_group_id = dest_gid / _num_routers_per_group;
     conn.is_failed = 0;
 
-    add_connection(conn);
-    return conn.port;
+    int port = add_connection(conn);
+    return port;
 }
 
 int ConnectionManager::add_connection(Connection conn)
@@ -272,21 +302,13 @@ int ConnectionManager::add_connection(Connection conn)
             assert(false);
     }
 
-    if(conn.dest_group_id != conn.src_group_id)
-        _other_groups_i_connect_to_set.insert(conn.dest_group_id);
-
     _portMap[conn.port] = conn;
     return conn.port;
 }
 
-
-void ConnectionManager::add_interconnection_information(int connecting_source_gid, int source_group_id, int dest_group_id)
+void ConnectionManager::set_routed_connections_to_groups(map<int, vector<Connection> > conn_map)
 {
-    if (_source_group != source_group_id)
-        tw_error(TW_LOC, "ConnectionManager: Attempting to add interconnection information but source group ID doesn't match connection manager's group\n");
-
-    _interconnection_route_info_map[dest_group_id].push_back(connecting_source_gid);
-    printf("Router %dL %dG: Router %d in my local group %d has a connection to group %d\n", _source_id_local, _source_id_global, connecting_source_gid, source_group_id, dest_group_id);
+    _routed_connections_to_group_map = conn_map;
 }
 
 int ConnectionManager::get_source_id(ConnectionType type)
@@ -335,7 +357,7 @@ Connection ConnectionManager::get_connection_on_port(int port, bool include_fail
 
 Connection ConnectionManager::get_connection_on_port(int port)
 {
-    return get_connection_on_port(port, false);
+    return get_connection_on_port(port, true);
 }
 
 bool ConnectionManager::is_connected_to_by_type(int dest_id, ConnectionType type)
@@ -348,28 +370,34 @@ bool ConnectionManager::is_connected_to_by_type(int dest_id, ConnectionType type
     map<int, vector<Connection> > the_map;
     map<int, vector<Connection> >::iterator map_it;
 
-    if (type == CONN_LOCAL)
-        the_map = intraGroupConnections;
-    else if (type == CONN_GLOBAL)
-        the_map = globalConnections;
-    else if (type == CONN_TERMINAL)
-        the_map = terminalConnections;
-    else
-        assert(false);
+    if (include_failed)
+    {
+        if (type == CONN_LOCAL)
+            the_map = intraGroupConnections;
+        else if (type == CONN_GLOBAL)
+            the_map = globalConnections;
+        else if (type == CONN_TERMINAL)
+            the_map = terminalConnections;
+        else
+            assert(false);
+    }
+    else {
+        if (type == CONN_LOCAL)
+            the_map = intraGroupConnections_nofail;
+        else if (type == CONN_GLOBAL)
+            the_map = globalConnections_nofail;
+        else if (type == CONN_TERMINAL)
+            the_map = terminalConnections_nofail;
+        else
+            assert(false);
+    }
 
     vector<Connection>::iterator vec_it;
     map_it = the_map.find(dest_id);
     if (map_it != the_map.end())
     {
-        if (include_failed) //then simply successfully finding the connection in the map means true
+        if (map_it->second.size() > 0) //verify that there is at least one connection - empty vector shouldn't count
             return true;
-
-        vec_it = map_it->second.begin();
-        for(; vec_it != map_it->second.end(); vec_it++)
-        {
-            if (vec_it->is_failed == 0)
-                return true;
-        }
     }
     return false;
 }
@@ -444,35 +472,47 @@ vector< Connection > ConnectionManager::get_connections_to_gid(int dest_gid, Con
 vector< Connection > ConnectionManager::get_connections_to_gid(int dest_gid, ConnectionType type, bool include_failed)
 {
     vector<Connection> conn_vec;
-    switch (type)
+    try {
+        if (include_failed) 
+        {
+            switch (type)
+            {
+                case CONN_LOCAL:
+                        return intraGroupConnections.at(dest_gid%_num_routers_per_group);
+                break;
+                case CONN_GLOBAL:
+                        return globalConnections.at(dest_gid);
+                break;
+                case CONN_TERMINAL:
+                        return terminalConnections.at(dest_gid);
+                break;
+                default:
+                    assert(false);
+                    // TW_ERROR(TW_LOC, "get_connections(type): Undefined connection type\n");
+            }
+        }
+        else 
+        {
+            switch (type)
+            {
+                case CONN_LOCAL:
+                        return intraGroupConnections_nofail.at(dest_gid%_num_routers_per_group);
+                break;
+                case CONN_GLOBAL:
+                        return globalConnections_nofail.at(dest_gid);
+                break;
+                case CONN_TERMINAL:
+                        return terminalConnections_nofail.at(dest_gid);
+                break;
+                default:
+                    assert(false);
+                    // TW_ERROR(TW_LOC, "get_connections(type): Undefined connection type\n");
+            }
+        }
+    } catch (exception e)
     {
-        case CONN_LOCAL:
-            if (include_failed)
-                return intraGroupConnections[dest_gid%_num_routers_per_group];
-            conn_vec = intraGroupConnections[dest_gid%_num_routers_per_group];
-        break;
-        case CONN_GLOBAL:
-            if (include_failed)
-                return globalConnections[dest_gid];
-            conn_vec = globalConnections[dest_gid];
-        break;
-        case CONN_TERMINAL:
-            if (include_failed)
-                return terminalConnections[dest_gid];
-            conn_vec = terminalConnections[dest_gid];
-        break;
-        default:
-            assert(false);
-            // TW_ERROR(TW_LOC, "get_connections(type): Undefined connection type\n");
+        return vector<Connection>(); //so we don't accidentally add a key with []
     }
-    vector<Connection> ret_vec;
-    vector<Connection>:: iterator it = conn_vec.begin();
-    for(; it != conn_vec.end(); it++)
-    {
-        if (it->is_failed == 0 || include_failed)
-            ret_vec.push_back(*it);
-    }
-    return ret_vec;
 }
 
 vector< Connection > ConnectionManager::get_connections_to_group(int dest_group_id)
@@ -482,15 +522,18 @@ vector< Connection > ConnectionManager::get_connections_to_group(int dest_group_
 
 vector< Connection > ConnectionManager::get_connections_to_group(int dest_group_id, bool include_failed)
 {
-    vector<Connection> retVec;
-    vector<Connection>::iterator it = _connections_to_groups_map[dest_group_id].begin();
-    for(; it != _connections_to_groups_map[dest_group_id].end(); it++)
-    {
-        if (it->is_failed == 0 || include_failed)
-            retVec.push_back(*it);
+    try {
+        if(include_failed)
+        {
+            return _connections_to_groups_map.at(dest_group_id);
+        }
+        else
+        {
+            return _connections_to_groups_map_nofail.at(dest_group_id);
+        }
+    } catch (exception e) {
+        return vector<Connection>(); //so we don't accidentally add a key with []
     }
-
-    return retVec;
 }
 
 vector< Connection > ConnectionManager::get_connections_by_type(ConnectionType type)
@@ -500,30 +543,14 @@ vector< Connection > ConnectionManager::get_connections_by_type(ConnectionType t
 
 vector< Connection > ConnectionManager::get_connections_by_type(ConnectionType type, bool include_failed)
 {
-    vector<Connection> conn_vec;
-    switch (type)
-        {
-            case CONN_LOCAL:
-                conn_vec = _all_conns_by_type_map[CONN_LOCAL];
-                break;
-            case CONN_GLOBAL:
-                conn_vec = _all_conns_by_type_map[CONN_GLOBAL];
-                break;
-            case CONN_TERMINAL:
-                conn_vec = _all_conns_by_type_map[CONN_TERMINAL];
-                break;
-            default:
-                tw_error(TW_LOC, "Bad enum type\n");
-        }
-
-    vector<Connection> retVec;
-    vector<Connection>::iterator it = conn_vec.begin();
-    for(; it != conn_vec.end(); it++)
-    {
-        if (it->is_failed == 0 || include_failed)
-            retVec.push_back(*it);
+    try {
+        if(include_failed)
+            return _all_conns_by_type_map.at(type);
+        else
+            return _all_conns_by_type_map_nofail.at(type);
+    } catch (exception e) {
+        return vector<Connection>(); //so we don't accidentally add a key with []
     }
-    return retVec;
 }
 
 vector< int > ConnectionManager::get_connected_group_ids()
@@ -536,87 +563,32 @@ vector< int > ConnectionManager::get_connected_group_ids(bool include_failed)
     if (include_failed)
         return _other_groups_i_connect_to;
     else
-        return _other_groups_i_connect_to_after_fails;
+        return _other_groups_i_connect_to_nofail;
 }
 
 void ConnectionManager::solidify_connections()
 {
-    //-- other groups connect to
-    set< int >::iterator it;
-    for(it = _other_groups_i_connect_to_set.begin(); it != _other_groups_i_connect_to_set.end(); it++)
-    {
-        _other_groups_i_connect_to.push_back(*it);
-    }
-
-    if (_failed_inter_ports > 0)
-    {
-
-        map<int, vector<Connection> >::iterator it2 = globalConnections.begin();
-        for(; it2 != globalConnections.end(); it2++)
-        {
-            _other_groups_i_connect_to_set_after_fails.insert((it2->second[0]).dest_group_id);
-        }
-
-        for(it = _other_groups_i_connect_to_set_after_fails.begin(); it != _other_groups_i_connect_to_set_after_fails.end(); it++)
-        {
-            _other_groups_i_connect_to_after_fails.push_back(*it);
-        }
-    }
-
     //--connections to group
-    for(it = _other_groups_i_connect_to_set.begin(); it != _other_groups_i_connect_to_set.end(); it++)
-    {
-        int dest_group_id = *it;
-
-        vector< Connection > conns_to_group;
-        map< int, vector< Connection > >::iterator itg = globalConnections.begin();
-        for(; itg != globalConnections.end(); itg++) //iterate over each router that is connected to source
+    for(map<int, vector<Connection> >::iterator it = globalConnections.begin(); it != globalConnections.end(); it++)
+    {   
+        vector< Connection >::iterator vec_it = it->second.begin();
+        for(; vec_it != it->second.end(); vec_it++)
         {
-            vector< Connection >::iterator conns_to_router;
-            for(conns_to_router = (itg->second).begin(); conns_to_router != (itg->second).end(); conns_to_router++) //iterate over each connection to a specific router
-            {
-                if ((*conns_to_router).dest_group_id == dest_group_id) {
-                    conns_to_group.push_back(*conns_to_router);
-                }
-            }
+            int dest_group_id = vec_it->dest_group_id;
+            _connections_to_groups_map[dest_group_id].push_back(*vec_it);
         }
 
-        _connections_to_groups_map[dest_group_id] = conns_to_group;
     }
 
-    // //--interconnection route information
-    // map<int, vector< int > >::iterator info_it = _interconnection_route_info_map.begin();
-    // for(; info_it != _interconnection_route_info_map.end(); info_it++)
-    // {
-    //     int dest_group_id = info_it->first;
-    //     vector<int> gid_list = info_it->second;
-    //     int num_
-
-
-
-    //     vector<int>::iterator gid_it = gid_list.begin();
-    //     set<int> added_gids;
-    //     for(; gid_it != gid_list.end(); gid_it++)
-    //     {   
-    //         int gid = *gid_it;
-    //         if (!added_gids.find(gid)) { //if we haven't already added its connections to the map
-    //             vector<Connection> conns_to_gid = get_connections_to_gid(gid, CONN_LOCAL, true);
-    //             _interconnection_route_map[dest_group_id].insert(_interconnection_route_map[dest_group_id].end(), conns_to_gid.begin(), conns_to_gid.end());
-    //             added_gids.insert(gid);
-    //         }
-    //     }
-    // }
-
-    // for(info_it = _interconnection_route_info_map.begin(); info_it != _interconnection_route_info_map.end(); info_it++)
-    // {
-    //     int dest_group_id = info_it->first;
-    //     vector<int> gid_list = info_it->second;
-        
-    // }
+    //other groups i connect to
+    for(map<int, vector<Connection> >::iterator it = _connections_to_groups_map.begin(); it != _connections_to_groups_map.end(); it++)
+    {
+        if(it->second.size() > 0) //empty vectors can be inserted if [] is used on a non-exist key
+            _other_groups_i_connect_to.push_back(it->first);
+    }
 
 
     //--get connections by type
-
     map< int, vector< Connection > > theMap;
     for ( int enum_int = CONN_LOCAL; enum_int != CONN_TERMINAL + 1; enum_int++ )
     {
@@ -642,6 +614,106 @@ void ConnectionManager::solidify_connections()
             retVec.insert(retVec.end(), (*it).second.begin(), (*it).second.end());
         }
         _all_conns_by_type_map[enum_int] = retVec;
+    }
+
+
+    // make copies of data structures but without failed links -----------------------------------------
+    map< int, vector< Connection > >::iterator it;
+    for(it = intraGroupConnections.begin(); it != intraGroupConnections.end(); it++)
+    {
+        int id = it->first;
+        vector<Connection> conns_to_id = it->second;
+        vector< Connection >::iterator vec_it;
+        for(vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++)
+        {
+            if(vec_it->is_failed == 0)
+                intraGroupConnections_nofail[id].push_back(*vec_it);
+        }
+    }
+
+    for(it = globalConnections.begin(); it != globalConnections.end(); it++)
+    {
+        int id = it->first;
+        vector<Connection> conns_to_id = it->second;
+        vector< Connection >::iterator vec_it;
+        for(vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++)
+        {
+            if(vec_it->is_failed == 0)
+                globalConnections_nofail[id].push_back(*vec_it);
+        }
+    }
+        
+    for(it = terminalConnections.begin(); it != terminalConnections.end(); it++)
+    {
+        int id = it->first;
+        vector<Connection> conns_to_id = it->second;
+        vector< Connection >::iterator vec_it;
+        for(vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++)
+        {
+            if(vec_it->is_failed == 0)
+                terminalConnections_nofail[id].push_back(*vec_it);
+        }
+    }
+
+    for(it = _connections_to_groups_map.begin(); it != _connections_to_groups_map.end(); it++)
+    {
+        int id = it->first;
+        vector<Connection> conns_to_id = it->second;
+        vector< Connection >::iterator vec_it;
+        for(vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++)
+        {
+            if(vec_it->is_failed == 0)
+                _connections_to_groups_map_nofail[id].push_back(*vec_it);
+        }
+    }
+
+    for(it = _connections_to_groups_map_nofail.begin(); it != _connections_to_groups_map_nofail.end(); it++)
+    {
+        if(it->second.size() > 0) //empty vectors can be inserted if [] is used on a non-exist key
+        {
+            add_as_if_set_int(it->first, _other_groups_i_connect_to_nofail);
+        }
+    }
+
+
+    for(it = _all_conns_by_type_map.begin(); it != _all_conns_by_type_map.end(); it++)
+    {
+        int id = it->first;
+        vector<Connection> conns_to_id = it->second;
+        vector< Connection >::iterator vec_it;
+        for(vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++)
+        {
+            if(vec_it->is_failed == 0)
+                _all_conns_by_type_map_nofail[id].push_back(*vec_it);
+        }
+    }
+
+    for(it = _routed_connections_to_group_map.begin(); it != _routed_connections_to_group_map.end(); it++)
+    {
+        int group_id = it->first;
+        vector<Connection> conns_to_group = it->second;
+        vector<Connection>::iterator vec_it;
+        for(vec_it = conns_to_group.begin(); vec_it != conns_to_group.end(); vec_it++)
+        {
+            if(vec_it->is_failed == 0)
+                _routed_connections_to_group_map_nofail[group_id].push_back(*vec_it);
+        }
+    }
+
+    for(it = _routed_connections_to_group_map.begin(); it != _routed_connections_to_group_map.end(); it++)
+    {
+        int group_id = it->first;
+        vector<Connection> conns_to_group = it->second;
+        vector<Connection>::iterator vec_it;
+        for(vec_it = conns_to_group.begin(); vec_it != conns_to_group.end(); vec_it++)
+        {
+            int src_gid = vec_it->src_gid;
+            add_as_if_set_int(src_gid, _routed_router_gids_to_group_map[group_id]);
+
+            if (vec_it->is_failed == 0) {
+                add_as_if_set_int(src_gid, _routed_router_gids_to_group_map_nofail[group_id]);
+            }
+        }
     }
 
     is_solidified = true;

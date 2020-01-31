@@ -97,7 +97,8 @@ class NetworkManager {
     //useful maps - helpful ways of organizing the connection pointers stored above
     map< pair<int,int>, vector< Connection* > > _router_to_router_connection_map; //maps pair(src_gid, dest_gid) to a vector of connection pointers that go from src gid to dest gid
     map< pair<int,int>, vector< Connection* > > _router_to_terminal_connection_map; //maps pair(src_gid, dest_term_gid) to a vector of connection pointers taht go from src gid router to dest_term id
-    map< pair<int,int>, vector< Connection* > > _global_connection_map; //maps pair(src group id, dest group id) to a vector of connection pointers that match that pattern
+    map< pair<int,int>, vector< Connection* > > _router_to_group_connection_map; //maps pair(src_gid, dest_group_id) to a vector of connections that go from src_gid to any router in the dest group
+    map< pair<int,int>, vector< Connection* > > _global_group_connection_map; //maps pair(src group id, dest group id) to a vector of connection pointers that match that pattern
     
     vector< ConnectionManager > _connection_manager_list; //list of all connection managers in the network
 
@@ -139,31 +140,33 @@ public:
  * This class assumes that each router group has the same number of routers in it: _num_routers_per_group.
  */
 class ConnectionManager {
+    map< int, Connection > _portMap; //Mapper for ports to connection references - includes failed connections
+
+    // includes failed connections
     map< int, vector< Connection > > intraGroupConnections; //direct connections within a group - IDs are group local - maps local id to list of connections to it
     map< int, vector< Connection > > globalConnections; //direct connections between routers not in same group - IDs are global router IDs - maps global id to list of connections to it
     map< int, vector< Connection > > terminalConnections; //direct connections between this router and its compute node terminals - maps terminal id to connections to it
 
-    map< int, Connection > _portMap; //Mapper for ports to connection references
-
-    vector< int > _other_groups_i_connect_to;
-    vector< int > _other_groups_i_connect_to_after_fails;
-    set< int > _other_groups_i_connect_to_set;
-    set< int > _other_groups_i_connect_to_set_after_fails;
 
     map< int, vector< Connection > > _connections_to_groups_map; //maps group ID to connections to said group
+    vector< int > _other_groups_i_connect_to;
     map< int, vector< Connection > > _all_conns_by_type_map;
+    map< int, vector< Connection > > _routed_connections_to_group_map; //maps group ID to connections within local group that go to specified group
+    map< int, vector<int> > _routed_router_gids_to_group_map; //maps group ID to a vector of Router GIDs within current group that have a connection to the group ID
 
-    map< int, vector< int > > _interconnection_failure_info_map; // maps group ID to source GID of routers within current local group that go to specified group ID but failed link
-    map< int, vector< int > > _interconnection_route_info_map; // maps group ID to source GID of routers within current local group that go to specified group ID
-    
-    map< int, vector< Connection > > _interconnection_route_map; //maps group ID to connections WITHIN LOCAL GROUP THAT LEAD TO SPECIFIED GROUP ID - this type should be used after solidification as optimization
-    map< int, vector< Connection > > _interconnection_router_map_after_fails;
+    // doesn't include failed connections - these are copies with the failed links removed for optimized getter performance
+    map< int, vector< Connection > > intraGroupConnections_nofail;
+    map< int, vector< Connection > > globalConnections_nofail;
+    map< int, vector< Connection > > terminalConnections_nofail;
 
-    // map< int, vector< Connection > > intermediateRouterToGroupMap; //maps group id to list of routers that connect to it.
-    //                                                                //ex: intermediateRouterToGroupMap[3] returns a vector
-    //                                                                //of connections from this router to routers that have
-    //                                                                //direct connections to group 3
+    map< int, vector< Connection > > _connections_to_groups_map_nofail;
+    vector< int > _other_groups_i_connect_to_nofail;
+    map< int, vector< Connection > > _all_conns_by_type_map_nofail;
+    map< int, vector< Connection > > _routed_connections_to_group_map_nofail; //maps group ID to connections within local group that go to specified group
+    map< int, vector<int> > _routed_router_gids_to_group_map_nofail; //maps group ID to a vector of Router GIDs within current group that have a connection to the group ID
 
+
+    // other information
     int _source_id_local; //local id (within group) of owner of this connection manager
     int _source_id_global; //global id (not lp gid) of owner of this connection manager
     int _source_group; //group id of the owner of this connection manager
@@ -198,52 +201,13 @@ public:
 
     /**
      * @brief Adds a reference to a connection to the manager
-     * @param conn reference to a connection created by the NetworkManager
+     * @param conn connection to a connection created by the NetworkManager
      * @return returns the port number that it was added to
      */
     int add_connection(Connection conn);
 
-    /**
-     * @brief Adds information about connecitons to a specific group
-     */
-    void add_interconnection_information(int connecting_source_gid, int source_group_id, int dest_group_id);
 
-    // /**
-    //  * @brief Marks a connection to dest_gid from the local router as failed if one exists, error if not enough links remain unfailed
-    //  * @param dest_gid the gid of the dest
-    //  * @param type the type of the connection that will fail
-    //  */
-    // void fail_connection(int dest_gid, ConnectionType type);
-
-    // void add_interconnection_failure_information(int connecting_source_gid, int source_group_id, int dest_group_id);
-
-
-    // /**
-    //  * @brief returns a count of the number of failed links from a vector of connections
-    //  * @param conns a vector of connections that the function will iterate over to count failed links
-    //  */
-    // int get_failed_count_from_vector(vector<Connection> conns);
-
-    // /**
-    //  * @brief adds knowledge of what next hop routers have connections to specific groups
-    //  * @param local_intm_id the local intra group id of the router that has the connection to dest_group_id
-    //  * @param dest_group_id the id of the group that the connection goes to
-    //  */
-    // void add_route_to_group(int local_intm_id, int dest_group_id);
-
-    // /**
-    //  * @brief returns a vector of connections to routers that have direct connections to the specified group id
-    //  * @param dest_group_id the id of the destination group that all connections returned have a direct connection to
-    //  */
-    // vector< Connection > get_intm_conns_to_group(int dest_group_id);
-
-    // /**
-    //  * @brief returns a vector of local router ids that have direct connections to the specified group id
-    //  * @param dest_group_id the id of the destination group that all routers returned have a direct connection to
-    //  * @note if a router has multiple intra group connections to a single router and that router has a connection
-    //  *      to the dest group then that router will appear multiple times in the returned vector.
-    //  */
-    // vector< int > get_intm_routers_to_group(int dest_group_id)
+    void set_routed_connections_to_groups(map<int, vector<Connection> > conn_map);
 
     /**
      * @brief get the source ID of the owner of the manager
