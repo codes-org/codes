@@ -66,6 +66,7 @@ static tw_stime start_time_param; // MN_MSG_PARAM_START_TIME
 static double cn_bandwidth = 20;
 tw_stime codes_cn_delay;
 static int codes_node_eager_limit = 16000;
+static int codes_noop_bypass = 0;
 
 // global listing of lp types found by model_net_register
 // - needs to be held between the register and configure calls
@@ -163,6 +164,12 @@ int* model_net_configure(int *id_count){
     if(ret && !g_tw_mynode) {
         fprintf(stderr, "Within-node eager limit (node_eager_limit) not specified, "
                 "setting to %d\n", codes_node_eager_limit);
+    }
+
+    ret = configuration_get_value_int(&config, "PARAMS", "codes_noop_bypass",NULL,
+            &codes_noop_bypass);
+    if(!ret && !g_tw_mynode) {
+        printf("CODES No-op method bypass enabled\n");
     }
 
     return ids;
@@ -331,7 +338,7 @@ static model_net_event_return model_net_event_impl_base(
     tw_lpid dest_mn_lp = model_net_find_local_device_mctx(net_id, recv_map_ctx,
             final_dest_lp);
 
-    if ( src_mn_lp == dest_mn_lp && message_size < (uint64_t)codes_node_eager_limit)
+    if ( src_mn_lp == dest_mn_lp && message_size < (uint64_t)codes_node_eager_limit && !codes_noop_bypass)
     {
         return model_net_noop_event(final_dest_lp, is_pull, offset, message_size,
                 remote_event_size, remote_event, self_event_size, self_event,

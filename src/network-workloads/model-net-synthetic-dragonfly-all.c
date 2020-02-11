@@ -333,6 +333,7 @@ static void handle_kickoff_event(
    assert(local_dest < num_nodes);
 //   codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest / num_servers_per_rep, local_dest % num_servers_per_rep, &global_dest);
    global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
+
    ns->msg_sent_count++;
    m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
 
@@ -596,8 +597,11 @@ int main(
         num_groups = num_routers * num_nodes_per_router + 1;
     }
 
-    num_nodes = num_groups * num_routers_with_cns_per_group * num_nodes_per_router;
-    num_nodes_per_grp = num_routers_with_cns_per_group * num_nodes_per_router;
+    int num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp",
+            NULL, 1);
+    num_nodes = num_servers;
+    // num_nodes = num_groups * num_routers_with_cns_per_group * num_nodes_per_router;
+    num_nodes_per_grp = (num_nodes / num_groups);
 
     assert(num_nodes);
 
