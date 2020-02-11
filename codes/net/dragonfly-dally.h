@@ -58,6 +58,7 @@ struct terminal_dally_message
   short last_hop;
    /* For routing */
   short is_intm_visited;
+  int minimal_intermediate_flag; //flag for when the minimal route will be equivalent to a valiant one
   int intm_rtr_id;
   int intm_grp_id;
   int saved_src_dest;
@@ -73,6 +74,7 @@ struct terminal_dally_message
 
   // For buffer message
    short vc_index;
+   short rail_id;
    int output_chan;
    model_net_event_return event_rc;
    int is_pull;

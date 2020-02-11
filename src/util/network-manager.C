@@ -24,13 +24,14 @@ NetworkManager::NetworkManager()
 }
 
 
-NetworkManager::NetworkManager(int total_routers, int total_terminals, int num_routers_per_group, int num_lc_per_router, int num_gc_per_router, int num_cn_conns_per_router, int num_rails)
+NetworkManager::NetworkManager(int total_routers, int total_terminals, int num_routers_per_group, int num_lc_per_router, int num_gc_per_router, int num_cn_conns_per_router, int num_rails, int num_planes)
 {
     _total_routers = total_routers;
     _total_terminals = total_terminals;
     _num_rails = num_rails;
+    _num_planes = num_planes;
     _num_routers_per_group = num_routers_per_group;
-    _num_groups = total_routers / num_routers_per_group;
+    _num_groups = total_routers / num_routers_per_group / num_planes;
     _num_lc_pr = num_lc_per_router;
     _num_gc_pr = num_gc_per_router;
     _num_cn_pr = num_cn_conns_per_router;
@@ -53,9 +54,9 @@ NetworkManager::NetworkManager(int total_routers, int total_terminals, int num_r
     {
         int src_id_global = i;
         int src_id_local = i % _num_routers_per_group;
-        int src_group = i / _num_routers_per_group;
+        int src_group = i / _num_routers_per_group / _num_planes;
 
-        ConnectionManager conn_man = ConnectionManager(src_id_local, src_id_global, src_group, _num_lc_pr, _num_gc_pr, _num_cn_pr, 0, _num_routers_per_group, MAN_ROUTER);
+        ConnectionManager conn_man = ConnectionManager(src_id_local, src_id_global, src_group, _num_lc_pr, _num_gc_pr, _num_cn_pr, 0, _num_routers_per_group, _num_groups, _num_planes, MAN_ROUTER);
         _connection_manager_list.push_back(conn_man);
     }
 
@@ -65,7 +66,7 @@ NetworkManager::NetworkManager(int total_routers, int total_terminals, int num_r
         int src_id_local = src_id_global % num_cn_conns_per_router;
         int src_group = -1;
 
-        ConnectionManager conn_man = ConnectionManager(src_id_local, src_id_global, src_group, 0, 0, 0, num_rails, _num_routers_per_group, MAN_TERMINAL);
+        ConnectionManager conn_man = ConnectionManager(src_id_local, src_id_global, src_group, 0, 0, 0, num_rails, _num_routers_per_group, _num_groups, _num_planes, MAN_TERMINAL);
         _terminal_connection_manager_list.push_back(conn_man);
     }
 
@@ -96,12 +97,12 @@ void NetworkManager::add_link(Link_Info link)
 {
     Connection *conn = (Connection*)malloc(sizeof(Connection));
     conn->port = -1; //will be set by the Connection Manager of the router (src_gid) and defined in add_cons_to_connectoin_managers
-    conn->src_lid = link.src_gid % _num_routers_per_group;
+    conn->src_lid = (link.src_gid) % _num_routers_per_group;
     conn->src_gid = link.src_gid;
-    conn->src_group_id = link.src_gid / _num_routers_per_group;
-    conn->dest_lid = link.dest_gid % _num_routers_per_group;
+    conn->src_group_id = link.src_gid / _num_routers_per_group % _num_groups;
+    conn->dest_lid = (link.dest_gid) % _num_routers_per_group;
     conn->dest_gid = link.dest_gid;
-    conn->dest_group_id = link.dest_gid / _num_routers_per_group;
+    conn->dest_group_id = link.dest_gid / _num_routers_per_group % _num_groups;
     conn->conn_type = link.conn_type;
     conn->rail_or_planar_id = link.rail_id;
     conn->is_failed = false;
@@ -364,7 +365,7 @@ void NetworkManager::add_conns_to_connection_managers()
 
     for(int i = 0; i < _total_routers; i++)
     {
-        int src_grp_id = i / _num_routers_per_group;
+        int src_grp_id = i / _num_routers_per_group % _num_groups;
 
         map< int, vector< Connection > > map_for_this_router_to_groups;
         for(int j = 0; j < _num_groups; j++)
@@ -458,12 +459,12 @@ void NetworkManager::solidify_network()
 }
 
 //*******************    Connection Manager Implementation *******************************************
-ConnectionManager::ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int num_router_per_group)
+ConnectionManager::ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int num_router_per_group, int num_groups)
 {
-    ConnectionManager(src_id_local, src_id_global, src_group, max_intra, max_inter, max_term, 0, num_router_per_group, MAN_ROUTER);
+    ConnectionManager(src_id_local, src_id_global, src_group, max_intra, max_inter, max_term, 0, num_router_per_group, num_groups, 1, MAN_ROUTER);
 }
 
-ConnectionManager::ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int max_injection, int num_router_per_group, ManagerType manType)
+ConnectionManager::ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int max_injection, int num_router_per_group, int num_groups, int num_planes, ManagerType manType)
 {
     _manType = manType;
 
@@ -487,6 +488,8 @@ ConnectionManager::ConnectionManager(int src_id_local, int src_id_global, int sr
     _max_injection_ports = max_injection;
 
     _num_routers_per_group = num_router_per_group;
+    _num_planes = num_planes;
+    _num_groups = num_groups;
 
     is_solidified = false;
 }
@@ -503,7 +506,7 @@ int ConnectionManager::add_connection(int dest_gid, ConnectionType type)
     conn.conn_type = type;
     conn.dest_lid = dest_gid % _num_routers_per_group;
     conn.dest_gid = dest_gid;
-    conn.dest_group_id = dest_gid / _num_routers_per_group;
+    conn.dest_group_id = dest_gid / _num_routers_per_group % _num_groups;
     conn.is_failed = 0;
 
     int port = add_connection(conn);
@@ -529,6 +532,8 @@ int ConnectionManager::add_connection(Connection conn)
                 tw_error(TW_LOC,"Attempting to add too many local connections per router - exceeding configuration value: %d",_max_intra_ports);
             break;
         case CONN_GLOBAL:
+            printf("R%d P%d: Global Add to %d\n", _source_id_global, conn.rail_or_planar_id, conn.dest_gid);
+
             if (_manType == MAN_TERMINAL)
                 tw_error(TW_LOC, "Attempting to add global connections to a terminal connection manager\n");
             if(_used_inter_ports < _max_inter_ports) {
