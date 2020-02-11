@@ -19,6 +19,7 @@ COMPONENTS = 0
 class LinkType(Enum):
     INTRA = 1
     INTER = 2
+    TERMINAL = 3
 
 
 class Network(object):
@@ -26,11 +27,17 @@ class Network(object):
         self.link_list = []
         self.link_map = {}
         self.adj_map = {}
+
+        self.term_link_list = []
+        self.term_link_map = {}
+
         self.num_intra_links = 0
         self.num_inter_links = 0
+        self.num_terminal_links = 0
 
         self.num_intra_failed = 0
         self.num_inter_failed = 0
+        self.num_terminal_failed = 0
 
         self.params = params
 
@@ -39,7 +46,7 @@ class Network(object):
         
         if id_set not in self.link_map:
             # print("New Link %d -> %d"%(src_gid,dest_gid))
-            new_link = Link(src_gid, dest_gid, link_type)
+            new_link = Link(src_gid, dest_gid, 0, link_type)
             self.link_map[id_set] = [new_link]
             self.link_list.append(new_link)
         elif id_set in self.link_map:
@@ -52,12 +59,31 @@ class Network(object):
                     break
                 if not done:
                     # print("New Link %d -> %d"%(src_gid,dest_gid))
-                    new_link = Link(src_gid, dest_gid, link_type)
+                    new_link = Link(src_gid, dest_gid, 0, link_type)
                     self.link_map[id_set].append(new_link)
                     self.link_list.append(new_link)
 
         self.num_intra_links = len([link for link in self.link_list if link.link_type == LinkType.INTRA])
         self.num_inter_links = len([link for link in self.link_list if link.link_type == LinkType.INTER])
+
+    def add_term_link(self, router_gid, terminal_gid):
+        id_set = frozenset([router_gid, terminal_gid, LinkType.TERMINAL])
+        num_existing_links = 0
+        if id_set in self.term_link_map:
+            num_existing_links = len(self.term_link_map[id_set])
+
+        new_link = Link(router_gid, terminal_gid, num_existing_links, LinkType.TERMINAL)
+
+        if id_set not in self.term_link_map:
+            self.term_link_map[id_set] = [new_link]
+        else:
+            self.term_link_map[id_set].append(new_link)
+
+        print("New Term Link r%d -> t%d"%(router_gid,terminal_gid), end=' ')
+        print(id_set)
+
+        self.term_link_list.append(new_link)
+        self.num_terminal_links += 1
 
     def fail_links(self, link_type, percent_to_fail):
         links_to_consider = [link for link in self.link_list if link.link_type == link_type]    
@@ -69,8 +95,26 @@ class Network(object):
             link.is_failed = True
             if link_type is LinkType.INTRA:
                 self.num_intra_failed += 1
-            else:
+            elif link_type is LinkType.INTER:
                 self.num_inter_failed += 1
+            else:
+                self.num_terminal_failed += 1
+
+    def fail_term_links_safe(self, percent_to_fail):
+        if self.params.num_planes == 1: #then all rails on a router go to same terminal
+            for router_id in range(self.params.total_routers):
+                for tlid in range(self.params.num_hosts_per_router):
+                    for i in range(self.params.num_injection_rails-1): #will always leave one rail untouched
+                        fail_roll = random.random()
+                        if fail_roll > percent_to_fail:
+                            term_gid = self.params.num_hosts_per_router * router_id + tlid
+
+                            id_set = frozenset([router_id, term_gid, LinkType.TERMINAL])
+                            for link in self.term_link_map[id_set]:
+                                if link.is_failed == 0:
+                                    link.is_failed = 1
+                                    self.num_terminal_failed += 1
+                                    break
 
     def get_adjacency_matrix(self, include_failed_links=False):
         A = np.zeros((self.params.total_routers, self.params.total_routers))
@@ -142,43 +186,49 @@ class Network(object):
         return the_str
 
 class Params(object):
-    def __init__(self, radix, num_conn_between_groups, failure_mode):
+    def __init__(self, radix, num_conn_between_groups, total_terminals, num_injection_rails, num_planes, failure_mode):
         self.router_radix = radix
         self.num_conn_between_groups = num_conn_between_groups
+        self.total_terminals = total_terminals
+        self.num_injection_rails = num_injection_rails
+        self.num_planes = num_planes
 
         self.num_routers_per_group = int((radix + 1)/2) #a = (radix + 1)/2
-        self.num_hosts_per_router = int(self.num_routers_per_group // 2)
         self.num_gc_per_router = int(self.num_routers_per_group // 2)
         self.num_gc_per_group = self.num_gc_per_router * self.num_routers_per_group
 
         num_gc_per_group = self.num_gc_per_router * self.num_routers_per_group
         self.num_groups = int((num_gc_per_group / self.num_conn_between_groups)) + 1
         self.total_routers = self.num_routers_per_group * self.num_groups
+        self.num_hosts_per_router = int(total_terminals / self.total_routers)
         
         self.failure_mode = failure_mode
 
 
     def getSummary(self):
             outStr = "\nDragonfly (Dally) Network:\n"
-            outStr += "\tNumber of Groups:            %d\n" % self.num_groups
-            outStr += "\tRouter Radix:                %d\n" % self.router_radix
-            outStr += "\tNumber Routers Per Group:    %d\n" % self.num_routers_per_group
-            outStr += "\tNumber Terminal Per Router:  %d\n" % self.num_hosts_per_router
+            outStr += "\tNumber of Groups:             %d\n" % self.num_groups
+            outStr += "\tRouter Radix:                 %d\n" % self.router_radix
+            outStr += "\tNumber Routers Per Group:     %d\n" % self.num_routers_per_group
+            outStr += "\tNumber Terminal Per Router:   %d\n" % self.num_hosts_per_router
             outStr += "\n"
-            outStr += "\tNumber GC per Router:        %d\n" % self.num_gc_per_router
-            outStr += "\tNumber GC per Group:         %d\n" % self.num_gc_per_group
-            outStr += "\tNumber GC between Groups:    %d\n" % self.num_conn_between_groups
+            outStr += "\tNumber Term Links per Router: %d\n" % (self.num_injection_rails*self.num_hosts_per_router)
             outStr += "\n"
-            outStr += "\tTotal Routers:               %d\n" % self.total_routers
-            outStr += "\tTotal Number Terminals:      %d\n" % (self.num_routers_per_group * self.num_hosts_per_router * self.num_groups)
+            outStr += "\tNumber GC per Router:         %d\n" % self.num_gc_per_router
+            outStr += "\tNumber GC per Group:          %d\n" % self.num_gc_per_group
+            outStr += "\tNumber GC between Groups:     %d\n" % self.num_conn_between_groups
+            outStr += "\n"
+            outStr += "\tTotal Routers:                %d\n" % self.total_routers
+            outStr += "\tTotal Number Terminals:       %d\n" % (self.total_terminals)
             outStr += "\t"
             return outStr
 
 class Link(object):
-    def __init__(self, src_gid, dest_gid, link_type):
+    def __init__(self, src_gid, dest_gid, rail_id, link_type):
         self.src_gid = src_gid
         self.dest_gid = dest_gid
         self.link_type = link_type
+        self.rail_id = rail_id
         self.is_failed = False
         self.bi_link_added = False # so I can keep track of parallel links, if this is true, and we try to add a link that matches this one, then a new one must be created
 
@@ -196,35 +246,41 @@ def main():
     if "--components" in argv:
         COMPONENTS = 1
 
-    if(len(argv) < 6):
-        raise Exception("Correct usage:  python %s <router_radix> <num_conn_between_groups> <intra-file> <inter-file> <output-fail-file>" % sys.argv[0])
+    if(len(argv) < 9):
+        raise Exception("Correct usage:  python %s <router_radix> <num_conn_between_groups> <num_terminals> <num_injection_rails> <num_planes> <intra-file> <inter-file> <output-fail-file>" % sys.argv[0])
 
     router_radix = int(argv[1])
     num_conn_between_groups = int(argv[2])
+    num_terminals = int(argv[3])
+    num_injection_rails = int(argv[4])
+    num_planes = int(argv[5])
 
 
-
-    params = Params(router_radix, num_conn_between_groups, 1)
+    params = Params(router_radix, num_conn_between_groups, num_terminals, num_injection_rails, num_planes, 1)
     net = Network(params)
 
     print(params.getSummary())
 
 
     if not DRYRUN:
-        with open(argv[3],"rb") as intra:
+        with open(argv[6],"rb") as intra:
             loadIntra(params, intra, net)
-        with open(argv[4],"rb") as inter:
+        with open(argv[7],"rb") as inter:
             loadInter(params, inter, net)
 
-        net.fail_links(LinkType.INTRA, .1)
-        net.fail_links(LinkType.INTER, .1)
+        add_terminal_links(params, net)
+
+        net.fail_links(LinkType.INTRA, 0)
+        net.fail_links(LinkType.INTER, 0)
+        net.fail_term_links_safe(.5)
 
         print(net)
 
         print("Number Intra Failed %d/%d"%(net.num_intra_failed, net.num_intra_links))
         print("Number Inter Failed %d/%d"%(net.num_inter_failed, net.num_inter_links))
+        print("Number Term Failed  %d/%d"%(net.num_terminal_failed, net.num_terminal_links))
 
-        with open(argv[5],"wb") as failfd:
+        with open(argv[8],"wb") as failfd:
             writeFailed(params, failfd, net)
 
         is_connected = net.is_connected()
@@ -278,19 +334,47 @@ def loadInter(params, fd, net):
         
         net.add_link(src_gid, dest_gid, LinkType.INTER)
 
+def add_terminal_links(params, net):
+    total_routers = params.total_routers
+    total_terminals = params.total_terminals
+    unique_terms_per_router = params.num_hosts_per_router
+    num_rails = params.num_injection_rails
+    num_planes = params.num_planes
+
+    if num_planes == 1:
+        for tgid in range(total_terminals):
+            for rail_id in range(num_rails):
+                router_gid = int(tgid / unique_terms_per_router)
+                net.add_term_link(router_gid, tgid)
+
+        # for router_id in range(total_routers):
+        #     for tlid in range(unique_terms_per_router):
+        #         for rail_id in range(num_rails):
+        #             net.add_term_link(router_id, tlid)
+
+    else:
+        raise(Exception("Multi Planar not implemented"))
+
+
 
 def writeFailed(params, fd, net):
     failed_links = [link for link in net.link_list if link.is_failed]
+    failed_terms = [link for link in net.term_link_list if link.is_failed]
+    failed_links.extend(failed_terms)
 
     for link in failed_links:
         src_gid = link.src_gid
         dest_gid = link.dest_gid
+        rail_id = link.rail_id
         link_type = link.link_type
 
-        fd.write(struct.pack("3i",src_gid, dest_gid, link_type.value))
-        print("%d <-> %d   type=%s   Failed"%(src_gid, dest_gid, link_type))
 
-    print("Written %d failed bidirectional links"%len(failed_links)) 
+        fd.write(struct.pack("4i",src_gid, dest_gid, rail_id, link_type.value))
+        if link_type is not LinkType.TERMINAL: #terminal link bidirectional is handled by the model
+            fd.write(struct.pack("4i",dest_gid, src_gid, rail_id, link_type.value))
+        print("%d <-> %d  rail=%d  type=%s   Failed"%(src_gid, dest_gid, rail_id, link_type))
+
+    print("Written %d failed bidirectional links (%d total written links)"%(len(failed_links),len(failed_links)*2)) 
 
 
 if __name__ == "__main__":
