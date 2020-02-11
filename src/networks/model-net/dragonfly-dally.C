@@ -1793,6 +1793,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
 
     //read link failure file
     char failureFileName[MAX_NAME_LENGTH];
+    failureFileName[0] = '\0';
     configuration_get_value(&config, "PARAMS", "link-failure-file", 
         anno, failureFileName, MAX_NAME_LENGTH);
     if (strlen(failureFileName) > 0) {
