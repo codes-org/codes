@@ -1852,7 +1852,7 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         int src_id_local = i % p->num_routers;
         int src_group = i / p->num_routers;
 
-        ConnectionManager conman = ConnectionManager(src_id_local, src_id_global, src_group, p->intra_grp_radix, p->num_global_connections, p->num_cn, p->num_routers);
+        ConnectionManager conman = ConnectionManager(src_id_local, src_id_global, src_group, p->intra_grp_radix, p->num_global_connections, p->num_cn, p->num_routers, p->num_groups);
         connManagerList.push_back(conman);
     }
 

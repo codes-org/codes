@@ -200,6 +200,7 @@ struct dragonfly_param
     int rail_select; // method by which rails are selected
     // derived parameters
     int num_rails_per_plane;
+    int num_routers_per_plane;
     int num_cn;
     int cn_radix;
     int intra_grp_radix;
@@ -488,6 +489,7 @@ struct router_state
 {
     unsigned int router_id;
     int group_id;
+    int plane_id;
     int op_arr_size;
     int max_arr_size;
 
@@ -1124,7 +1126,7 @@ static void free_tmp(void * ptr)
         free(dfly);
 }
 
-static int dfdally_get_associated_router_id_from_terminal(const dragonfly_param *params, int term_gid, int rail_id)
+static int dfdally_get_assigned_router_id_from_terminal(const dragonfly_param *params, int term_gid, int rail_id)
 {
     int num_planes = params->num_planes;
     int num_rails = params->num_rails;
@@ -1142,6 +1144,15 @@ static int dfdally_get_associated_router_id_from_terminal(const dragonfly_param 
             return term_gid / num_cn_per_router; // all rails go to same router - perhaps change this
         }
     }
+    else
+    {
+        int routers_per_plane = total_routers / num_planes;
+        if(num_planes == num_rails)
+        {
+            return (term_gid / num_cn_per_router) + (rail_id * routers_per_plane);
+        }
+    }
+    
 }
 
 static int dfdally_score_connection(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, Connection conn, conn_minimality_t c_minimality)
@@ -1569,13 +1580,14 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     p->num_planes = 1;
     rc = configuration_get_value_int(&config, "PARAMS", "num_planes", anno, &p->num_planes);
     if (!rc) {
-        tw_error(TW_LOC, "Multi Planar Dragonfly not implemented yet\n");
+        if (!myRank)
+            printf("num_planes set to %d\n",p->num_planes);
+        // tw_error(TW_LOC, "Multi Planar Dragonfly not implemented yet\n");
     }
 
     p->num_rails_per_plane = p->num_rails / p->num_planes;
     if (p->num_rails % p->num_planes != 0)
         tw_error(TW_LOC, "Number of rails not evenly divisible by number of planes!\n");
-
 
     char rail_select_str[MAX_NAME_LENGTH];
     rc = configuration_get_value(&config, "PARAMS", "rail_select", anno, rail_select_str,
@@ -1661,13 +1673,15 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     p->intra_grp_radix = p->num_routers -1; //TODO allow for parallel connections
     p->cn_radix = (p->num_cn * p->num_rails) / p->num_planes; //number of CNs per router times number of rails taht each CN has, divided by how many planes those CNs are shared across
     p->radix = p->intra_grp_radix + p->num_global_channels + p->cn_radix;
-    p->total_routers = p->num_groups * p->num_routers;
-    p->total_terminals = p->total_routers * p->num_cn;
+    p->total_routers = p->num_groups * p->num_routers * p->num_planes;
+    p->total_terminals = p->total_routers * p->num_cn / p->num_planes;
+    p->num_routers_per_plane = p->total_routers / p->num_planes;
+
     
 
 
     //Setup NetworkManager
-    netMan = NetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->num_global_channels, p->cn_radix, p->num_rails);
+    netMan = NetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->num_global_channels, p->cn_radix, p->num_rails, p->num_planes);
 
     // //setup Connection Managers for each router
     // for(int i = 0; i < p->total_routers; i++)
@@ -1700,18 +1714,19 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         int src_id_local = newLink.src;
         int dest_id_local = newLink.dest;
 
-        for(int i = 0; i < p->total_routers; i++)
+        for(int i = 0; i < p->total_routers; i++) //handles all routers in network, including multi planar
         {
-            int group_id = i/p->num_routers;
+            int group_id = i/p->num_routers % p->num_groups;
             if (i % p->num_routers == src_id_local)
             {
-                int dest_id_global = group_id * p->num_routers + dest_id_local;
+                int planar_id = i / p->num_routers_per_plane;
+                int dest_gid_global = (group_id * p->num_routers + dest_id_local) + (planar_id * p->num_routers_per_plane);
 
                 Link_Info new_link;
                 new_link.src_gid = i;
-                new_link.dest_gid = dest_id_global;
+                new_link.dest_gid = dest_gid_global;
                 new_link.conn_type = CONN_LOCAL;
-                new_link.rail_id = 0;
+                new_link.rail_id = planar_id;
                 netMan.add_link(new_link);
                 // connManagerList[i].add_connection(dest_id_gloabl, CONN_LOCAL);
             }
@@ -1724,7 +1739,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     {
         for(int j = 0; j < p->num_rails; j++)
         {
-            int assigned_router_id = dfdally_get_associated_router_id_from_terminal(p, i, j);
+            int assigned_router_id = dfdally_get_assigned_router_id_from_terminal(p, i, j);
             // int assigned_router_id = (int) i / p->num_cn;
             // int assigned_group_id = assigned_router_id / p->num_routers;
             Link_Info new_link;
@@ -1732,6 +1747,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
             new_link.dest_gid = i;
             new_link.conn_type = CONN_TERMINAL;
             new_link.rail_id = j;
+            // printf("R%d <-> T%d   P%d\n",new_link.src_gid, new_link.dest_gid, new_link.rail_id);
             netMan.add_link(new_link);
             // connManagerList[assigned_router_id].add_connection(i, CONN_TERMINAL);
         }
@@ -1766,27 +1782,40 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
 
     InterGroupLink newInterLink;
     while (fread(&newInterLink, sizeof(InterGroupLink), 1, systemFile) != 0) {
-        int src_id_global = newInterLink.src;
-        int src_group_id = src_id_global / p->num_routers;
-        int dest_id_global = newInterLink.dest;
-        int dest_group_id = dest_id_global / p->num_routers;
 
-        Link_Info new_link;
-        new_link.src_gid = src_id_global;
-        new_link.dest_gid = dest_id_global;
-        new_link.conn_type = CONN_GLOBAL;
-        new_link.rail_id = 0;
-        netMan.add_link(new_link);
-        // connManagerList[src_id_global].add_connection(dest_id_global, CONN_GLOBAL);
-        connectionListEnumerated[src_group_id][dest_group_id].push_back(newInterLink.src);
+        for(int i = 0; i < p->num_planes; i++)
+        {
+            int read_src_id_global = newInterLink.src;
+            int read_src_group_id = read_src_id_global / p->num_routers;
+            int read_dest_id_global = newInterLink.dest;
+            int read_dest_group_id = read_dest_id_global / p->num_routers;
 
-        int r;
-        for (r = 0; r < connectionList[src_group_id][dest_group_id].size(); r++) {
-            if (connectionList[src_group_id][dest_group_id][r] == newInterLink.src)
-                break;
-        }
-        if (r == connectionList[src_group_id][dest_group_id].size()) {
-            connectionList[src_group_id][dest_group_id].push_back(newInterLink.src);
+            int mapped_src_gid = read_src_id_global + (i*p->num_routers_per_plane);
+            int mapped_dest_gid = read_dest_id_global + (i*p->num_routers_per_plane);
+
+            Link_Info new_link;
+            new_link.src_gid = mapped_src_gid;
+            new_link.dest_gid = mapped_dest_gid;
+            new_link.conn_type = CONN_GLOBAL;
+            new_link.rail_id = i;
+            // printf("R%d G-> R%d   P%d\n",new_link.src_gid, new_link.dest_gid, new_link.rail_id);
+            netMan.add_link(new_link);
+
+            if( i == 0) //only need to do this once, not every plane
+            {
+                // connManagerList[src_id_global].add_connection(dest_id_global, CONN_GLOBAL);
+                connectionListEnumerated[read_src_group_id][read_dest_group_id].push_back(newInterLink.src);
+
+                int r;
+                for (r = 0; r < connectionList[read_src_group_id][read_dest_group_id].size(); r++) {
+                    if (connectionList[read_src_group_id][read_dest_group_id][r] == newInterLink.src)
+                        break;
+                }
+                if (r == connectionList[read_src_group_id][read_dest_group_id].size()) {
+                    connectionList[read_src_group_id][read_dest_group_id].push_back(newInterLink.src);
+                }
+            }
+
         }
     }
 
@@ -2431,17 +2460,13 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
 
     s->connMan = netMan.get_connection_manager_for_terminal(s->terminal_id);
 
-    if (p->num_planes > 1)
+
+    for(i = 0; i < p->num_rails; i++)
     {
-        tw_error(TW_LOC, "Multi Planar Dragonfly not yet implemented\n");
-    }
-    else //then all router IDs and LPIDs are to the same router
-    {
-        for(i = 0; i < p->num_rails; i++)
-        {
-            s->router_id[i] = dfdally_get_associated_router_id_from_terminal(s->params,s->terminal_id,i);
-            codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 1, s->router_id[i], 0, &s->router_lp[i]);
-        }
+        s->router_id[i] = dfdally_get_assigned_router_id_from_terminal(s->params,s->terminal_id,i);
+        num_routers_per_mgrp = codes_mapping_get_lp_count (lp_group_name, 1, "modelnet_dragonfly_dally_router",
+            NULL, 0);
+        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 1, s->router_id[i] / num_routers_per_mgrp, s->router_id[i] % num_routers_per_mgrp, &s->router_lp[i]);
     }
     
     // s->router_id=(int)s->terminal_id / (s->params->num_cn);
@@ -2558,6 +2583,7 @@ void router_dally_init(router_state * r, tw_lp * lp)
                 p->num_routers, p->total_routers, num_grp_reps * num_routers_per_mgrp);
 
     r->router_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
+    r->plane_id = r->router_id / p->num_routers_per_plane;
     r->group_id=r->router_id/p->num_routers;
     
     char rtr_bw_log[128];
@@ -2864,8 +2890,8 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         for(; it != injection_connections.end(); it++)
         {
             int rail_id = it->rail_or_planar_id;
-            int dest_router_id = dfdally_get_associated_router_id_from_terminal(s->params, msg->dfdally_dest_terminal_id, rail_id);
-            int src_router_id = dfdally_get_associated_router_id_from_terminal(s->params, s->terminal_id, rail_id);
+            int dest_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, msg->dfdally_dest_terminal_id, rail_id);
+            int src_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, s->terminal_id, rail_id);
 
             path_lens[index] = netMan.get_shortest_dist_between_routers(src_router_id, dest_router_id);
             if (path_lens[index] < min_len) {
@@ -2933,7 +2959,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
 
     msg->rail_id = target_rail_connection.rail_or_planar_id;
 
-    int dest_router_id = dfdally_get_associated_router_id_from_terminal(p, msg->dest_terminal_lpid, msg->rail_id);
+    int dest_router_id = dfdally_get_assigned_router_id_from_terminal(p, msg->dest_terminal_lpid, msg->rail_id);
     int dest_grp_id = dest_router_id / s->params->num_routers; 
     int src_grp_id = s->router_id[msg->rail_id] / s->params->num_routers; 
 
@@ -4203,7 +4229,7 @@ static void router_packet_receive( router_state * s,
     int total_routers = s->params->total_routers;
 
     int next_stop = -1, output_port = -1, output_chan = -1;
-    int dest_router_id = dfdally_get_associated_router_id_from_terminal(s->params, msg->dfdally_dest_terminal_id, msg->rail_id);
+    int dest_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, msg->dfdally_dest_terminal_id, msg->rail_id);
     // int dest_router_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_lpid, 0, 0) / s->params->num_cn;
 
     terminal_dally_message_list * cur_chunk = (terminal_dally_message_list*)calloc(1, sizeof(terminal_dally_message_list));
@@ -4940,12 +4966,13 @@ static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, 
 {
     int my_router_id = s->router_id;
     int my_group_id = s->group_id;
-    int origin_group_id = msg->origin_router_id / s->params->num_routers;
-    int fdest_group_id = fdest_router_id / s->params->num_routers;
+    int origin_group_id = msg->origin_router_id / s->params->num_routers % s->params->num_groups;
+    int fdest_group_id = fdest_router_id / s->params->num_routers % s->params->num_groups;
 
     if (my_group_id != fdest_group_id) { //we're in origin group or intermediate group - either way we need to route to fdest group minimally
         vector< Connection > conns_to_dest_group = s->connMan.get_connections_to_group(fdest_group_id);
         if (conns_to_dest_group.size() > 0) { //then we have a direct connection to dest group
+            printf("woo\n");
             return conns_to_dest_group; // --------- return direct connection
         }
         // else { //we don't have a direct connection to group and need list of routers in our group that do
@@ -4953,17 +4980,20 @@ static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, 
         //     // --------- return non-direct connection (still minimal though)        
         // }
         else { //we don't have a direct connection to group and need list of routers in our group that do
-            vector< Connection > poss_next_conns_to_group;
-            set< int > poss_router_id_set_to_group; //TODO this might be a source of non-determinism(?)
-            for(int i = 0; i < connectionList[my_group_id][fdest_group_id].size(); i++)
-            {
-                int poss_router_id = connectionList[my_group_id][fdest_group_id][i];
-                if (poss_router_id_set_to_group.count(poss_router_id) == 0) { //we only want to consider a single router id once (we look at all connections to it using the conn man)
-                    vector< Connection > conns = s->connMan.get_connections_to_gid(poss_router_id, CONN_LOCAL);
-                    poss_router_id_set_to_group.insert(poss_router_id);
-                    poss_next_conns_to_group.insert(poss_next_conns_to_group.end(), conns.begin(), conns.end());
-                }
-            }
+            vector<Connection> poss_next_conns_to_group = s->connMan.get_routed_connections_to_group(fdest_group_id, true);
+
+            // vector< Connection > poss_next_conns_to_group;
+            // set< int > poss_router_id_set_to_group; //TODO this might be a source of non-determinism(?)
+            // for(int i = 0; i < connectionList[my_group_id][fdest_group_id].size(); i++)
+            // {
+            //     int poss_router_id = connectionList[my_group_id][fdest_group_id][i];
+            //     if (poss_router_id_set_to_group.count(poss_router_id) == 0) { //we only want to consider a single router id once (we look at all connections to it using the conn man)
+            //         vector< Connection > conns = s->connMan.get_connections_to_gid(poss_router_id, CONN_LOCAL);
+            //         poss_router_id_set_to_group.insert(poss_router_id);
+            //         poss_next_conns_to_group.insert(poss_next_conns_to_group.end(), conns.begin(), conns.end());
+            //     }
+            // }
+            printf("woo2\n");
             return poss_next_conns_to_group; 
         }
     }
@@ -4972,6 +5002,7 @@ static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, 
         assert(my_router_id != fdest_router_id); //this should be handled outside of this function
 
         vector< Connection > conns_to_fdest_router = s->connMan.get_connections_to_gid(fdest_router_id, CONN_LOCAL);
+        printf("woo3\n");
         return conns_to_fdest_router;
     }
 }
@@ -5042,7 +5073,7 @@ static Connection dfdally_minimal_routing(router_state *s, tw_bf *bf, terminal_d
 {
     vector< Connection > poss_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
     if (poss_next_stops.size() < 1)
-        tw_error(TW_LOC, "MINIMAL DEAD END\n");
+        tw_error(TW_LOC, "%d: MINIMAL DEAD END to %d in group %d\n", s->router_id, fdest_router_id, fdest_router_id / s->params->num_routers % s->params->num_groups);
 
     ConnectionType conn_type = poss_next_stops[0].conn_type; //TODO this assumes that all possible next stops are of same type - OK for now, but remember this
     if (conn_type == CONN_GLOBAL) { //TOOD should we really only randomize global and not local? should we really do light adaptive for nonglobal?

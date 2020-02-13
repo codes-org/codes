@@ -86,6 +86,7 @@ class NetworkManager {
     int _total_routers;
     int _total_terminals;
     int _num_rails;
+    int _num_planes;
     int _num_routers_per_group;
     int _num_groups;
     int _num_lc_pr; //num local conns per router
@@ -130,7 +131,7 @@ class NetworkManager {
 public:
     NetworkManager();
 
-    NetworkManager(int total_routers, int total_terminals, int num_routers_per_group, int num_lc_per_router, int num_gc_per_router, int num_cn_conns_per_router, int num_rails);
+    NetworkManager(int total_routers, int total_terminals, int num_routers_per_group, int num_lc_per_router, int num_gc_per_router, int num_cn_conns_per_router, int num_rails, int num_planes);
 
     void enable_link_failures();
 
@@ -224,12 +225,15 @@ class ConnectionManager {
     int _max_injection_ports; //maximum number of ports for packet injection into the network
 
     int _num_routers_per_group; //number of routers per group - used for turning global ID into local and back
+    int _num_planes;
+    int _num_groups;
+    int _source_plane;
 
     bool is_solidified; //flag for whether or not solidification has taken place so that this can be checked at the end of router init
 
 public:
-    ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int num_router_per_group);
-    ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int max_injection, int num_router_per_group, ManagerType manType);
+    ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int num_router_per_group, int num_groups);
+    ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int max_injection, int num_router_per_group, int num_groups, int num_planes, ManagerType manType);
     /**
      * @brief Adds a connection to the manager, returns a reference to it
      * @param dest_gid the global ID of the destination router
