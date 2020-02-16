@@ -56,7 +56,7 @@
 using namespace std;
 
 /*MM: Maintains a list of routers connecting the source and destination groups */
-static vector< vector< vector< int > > > connectionList;
+// static vector< vector< vector< int > > > connectionList;
 
 static NetworkManager netMan;
 // static vector< ConnectionManager > connManagerList;
@@ -267,6 +267,7 @@ struct dragonfly_plus_param
     // dfp params end
 
     int num_groups;
+    int total_groups;
     int radix;
     int total_routers;
     int total_terminals;
@@ -1454,7 +1455,7 @@ int dragonfly_plus_get_assigned_router_id(const dragonfly_plus_param *p, int ter
     // currently supports symmetrical bipartite spine/leaf router configurations
     // first half of routers in a given group are leafs which have terminals
     // second half of routers in a given group are spines which have no terminals
-    int num_groups = p->num_groups;            // number of groups of routers in the network
+    int num_groups = p->num_groups;            // number of groups of routers in a plane
     int num_routers = p->num_routers;          // num routers per group
     int num_router_leaf = p->num_router_leaf;  // num leaf routers per group
     int num_cn = p->num_cn;                    // num compute nodes per leaf router
@@ -1463,11 +1464,11 @@ int dragonfly_plus_get_assigned_router_id(const dragonfly_plus_param *p, int ter
     int num_rails = p->num_rails;
     int total_routers = p->total_routers;
     int total_terminals = p->total_terminals;
-    int num_cn_per_rotuer = p->num_cn;
     
     int group_id = terminal_id / num_cn_per_group;
+    int planar_group_id = group_id % num_groups;
     int local_router_id = (terminal_id / num_cn) % num_router_leaf;
-    int router_id_on_plane_0 = (group_id * num_routers) + local_router_id;
+    int router_id_on_plane_0 = (planar_group_id * num_routers) + local_router_id;
 
     if (num_planes == 1)
     {
@@ -1591,13 +1592,14 @@ void dragonfly_plus_print_params(const dragonfly_plus_param *p, FILE * st)
     fprintf(st,"\tnum_router_leaf =             %d\n",p->num_router_leaf);
     fprintf(st,"\tmax_port_score =              %ld\n",p->max_port_score);
     fprintf(st,"\tnum_groups =                  %d\n",p->num_groups);
+    fprintf(st,"\ttotal_groups =                %d\n",p->total_groups);
     fprintf(st,"\tvirtual radix =               %d\n",p->radix);
     fprintf(st,"\ttotal_routers =               %d\n",p->total_routers);
     fprintf(st,"\ttotal_terminals =             %d\n",p->total_terminals);
     fprintf(st,"\tnum_global_connections =      %d\n",p->num_global_connections);
-    fprintf(st,"\tnum_injection_queues =   %d\n",p->num_injection_queues);
-    fprintf(st,"\tnum_rails =              %d\n",p->num_rails);
-    fprintf(st,"\tnum_planes =             %d\n",p->num_planes);
+    fprintf(st,"\tnum_injection_queues =        %d\n",p->num_injection_queues);
+    fprintf(st,"\tnum_rails =                   %d\n",p->num_rails);
+    fprintf(st,"\tnum_planes =                  %d\n",p->num_planes);
     fprintf(st,"\tcn_delay =                    %.2f\n",p->cn_delay);
     fprintf(st,"\tlocal_delay =                 %.2f\n",p->local_delay);
     fprintf(st,"\tglobal_delay =                %.2f\n",p->global_delay);
@@ -1911,8 +1913,9 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
 
     p->cn_radix = (p->num_cn * p->num_rails) / p->num_planes; //number of CNs per router times number of rails taht each CN has, divided by how many planes those CNs are shared across
     p->radix = p->intra_grp_radix + p->num_global_connections + p->cn_radix;
+    p->total_groups = p->num_groups * p->num_planes;
     p->total_routers = p->num_groups * p->num_routers * p->num_planes;
-    p->total_terminals = ((p->num_groups * p->num_router_leaf) * p->num_cn) / p->num_planes;
+    p->total_terminals = ((p->total_groups * p->num_router_leaf) * p->num_cn) / p->num_planes;
     p->num_routers_per_plane = p->total_routers / p->num_planes;
 
     char scoring_str[MAX_NAME_LENGTH];
@@ -1991,11 +1994,11 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         int dest_id_local = newLink.dest;
         for(int i = 0; i < p->total_routers; i++) //handles all routers in network, including multi planar
         {
-            int group_id = i/p->num_routers % p->num_groups;
+            int group_id = i/p->num_routers;
             if (i % p->num_routers == src_id_local)
             {
                 int planar_id = i / p->num_routers_per_plane;
-                int dest_gid_global = (group_id * p->num_routers + dest_id_local) + (planar_id * p->num_routers_per_plane);
+                int dest_gid_global = (group_id * p->num_routers + dest_id_local);
 
                 Link_Info new_link;
                 new_link.src_gid = i;
@@ -2045,10 +2048,10 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         printf("\nTotal routers: %d; total groups: %d \n", p->total_routers, p->num_groups);
     }
 
-    connectionList.resize(p->num_groups);
-    for (int g = 0; g < connectionList.size(); g++) {
-        connectionList[g].resize(p->num_groups);
-    }
+    // connectionList.resize(p->num_groups);
+    // for (int g = 0; g < connectionList.size(); g++) {
+    //     connectionList[g].resize(p->num_groups);
+    // }
 
     InterGroupLink newInterLink;
     while (fread(&newInterLink, sizeof(InterGroupLink), 1, systemFile) != 0) {
@@ -2071,20 +2074,20 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
             // printf("R%d G-> R%d   P%d\n",new_link.src_gid, new_link.dest_gid, new_link.rail_id);
             netMan.add_link(new_link);
 
-            if( i == 0) //only need to do this once, not every plane
-            {
-                // connManagerList[src_id_global].add_connection(dest_id_global, CONN_GLOBAL);
-                // connectionListEnumerated[read_src_group_id][read_dest_group_id].push_back(newInterLink.src);
+            // if( i == 0) //only need to do this once, not every plane
+            // {
+            //     // connManagerList[src_id_global].add_connection(dest_id_global, CONN_GLOBAL);
+            //     // connectionListEnumerated[read_src_group_id][read_dest_group_id].push_back(newInterLink.src);
 
-                int r;
-                for (r = 0; r < connectionList[read_src_group_id][read_dest_group_id].size(); r++) {
-                    if (connectionList[read_src_group_id][read_dest_group_id][r] == newInterLink.src)
-                        break;
-                }
-                if (r == connectionList[read_src_group_id][read_dest_group_id].size()) {
-                    connectionList[read_src_group_id][read_dest_group_id].push_back(newInterLink.src);
-                }
-            }
+            //     int r;
+            //     for (r = 0; r < connectionList[read_src_group_id][read_dest_group_id].size(); r++) {
+            //         if (connectionList[read_src_group_id][read_dest_group_id][r] == newInterLink.src)
+            //             break;
+            //     }
+            //     if (r == connectionList[read_src_group_id][read_dest_group_id].size()) {
+            //         connectionList[read_src_group_id][read_dest_group_id].push_back(newInterLink.src);
+            //     }
+            // }
 
         }
     }
@@ -4587,7 +4590,7 @@ static void router_packet_receive_rc(router_state *s, tw_bf *bf, terminal_plus_m
     
     int output_port = msg->saved_vc;
     int output_chan = msg->saved_channel;
-    int dest_gid = msg->dfp_dest_terminal_id / (s->params->total_terminals / s->params->num_groups);
+    int dest_gid = msg->dfp_dest_terminal_id / (s->params->total_terminals / s->params->total_groups);
     int inter_group_transmit = 0;
     
     //rc for msg app id counting
@@ -4676,7 +4679,7 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
     //If spine router, count how many packets I have received & identify their app id 
     msg->last_received_time = tw_now(lp);
 
-    int fdest_group_id = msg->dfp_dest_terminal_id / (s->params->total_terminals / s->params->num_groups);
+    int fdest_group_id = msg->dfp_dest_terminal_id / (s->params->total_terminals / s->params->total_groups);
     int inter_group_transmit = 0;
     if(fdest_group_id != s->group_id)
         inter_group_transmit = 1;
@@ -5444,10 +5447,12 @@ static vector< Connection > get_router_with_global_links(router_state *s, tw_bf 
     set<int> poss_router_id_set_to_group;
     int my_group_id = s->router_id / s->params->num_routers;
 
-    for(int desg=0; desg< s->params->num_groups; desg++) {
-        for(int i = 0; i < connectionList[my_group_id][desg].size(); i++)
+    for(int desg=0; desg< s->params->total_groups; desg++) {
+        vector<int> global_connected_gids = s->connMan.get_router_gids_with_global_to_group(desg);
+
+        for(int i = 0; i < global_connected_gids.size(); i++)
         {
-            int poss_router_id = connectionList[my_group_id][desg][i];
+            int poss_router_id = global_connected_gids[i];
             // printf("%d\n",poss_router_id);
             if (poss_router_id_set_to_group.count(poss_router_id) == 0) { //if we haven't added the connections from poss_router_id yet
                 vector< Connection > conns = s->connMan.get_connections_to_gid(poss_router_id, CONN_LOCAL);
@@ -5556,8 +5561,8 @@ static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, 
 {
     int my_router_id = s->router_id;
     int my_group_id = s->router_id / s->params->num_routers;
-    int origin_group_id = msg->origin_router_id / s->params->num_routers % s->params->num_groups;
-    int fdest_group_id = fdest_router_id / s->params->num_routers % s->params->num_groups;
+    int origin_group_id = msg->origin_router_id / s->params->num_routers;
+    int fdest_group_id = fdest_router_id / s->params->num_routers;
 
     if (my_group_id != fdest_group_id) { //then we're in the source or the intermediate group.
         if (s->dfp_router_type == LEAF) {
