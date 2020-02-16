@@ -79,6 +79,7 @@ struct terminal_plus_message
 
   // For buffer message
    short vc_index;
+   short rail_id;
    int output_chan;
    model_net_event_return event_rc;
    int is_pull;
