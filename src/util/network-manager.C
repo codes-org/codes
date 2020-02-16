@@ -28,10 +28,11 @@ NetworkManager::NetworkManager(int total_routers, int total_terminals, int num_r
 {
     _total_routers = total_routers;
     _total_terminals = total_terminals;
+    _total_groups = total_routers / num_routers_per_group;
     _num_rails = num_rails;
     _num_planes = num_planes;
     _num_routers_per_group = num_routers_per_group;
-    _num_groups = total_routers / num_routers_per_group / num_planes;
+    _num_groups = _total_groups / num_planes;
     _num_lc_pr = num_lc_per_router;
     _num_gc_pr = num_gc_per_router;
     _num_cn_pr = num_cn_conns_per_router;
@@ -54,7 +55,7 @@ NetworkManager::NetworkManager(int total_routers, int total_terminals, int num_r
     {
         int src_id_global = i;
         int src_id_local = i % _num_routers_per_group;
-        int src_group = i / _num_routers_per_group / _num_planes;
+        int src_group = i / _num_routers_per_group;
 
         ConnectionManager conn_man = ConnectionManager(src_id_local, src_id_global, src_group, _num_lc_pr, _num_gc_pr, _num_cn_pr, 0, _num_routers_per_group, _num_groups, _num_planes, MAN_ROUTER);
         _connection_manager_list.push_back(conn_man);
@@ -99,10 +100,10 @@ void NetworkManager::add_link(Link_Info link)
     conn->port = -1; //will be set by the Connection Manager of the router (src_gid) and defined in add_cons_to_connectoin_managers
     conn->src_lid = (link.src_gid) % _num_routers_per_group;
     conn->src_gid = link.src_gid;
-    conn->src_group_id = link.src_gid / _num_routers_per_group % _num_groups;
+    conn->src_group_id = link.src_gid / _num_routers_per_group;
     conn->dest_lid = (link.dest_gid) % _num_routers_per_group;
     conn->dest_gid = link.dest_gid;
-    conn->dest_group_id = link.dest_gid / _num_routers_per_group % _num_groups;
+    conn->dest_group_id = link.dest_gid / _num_routers_per_group;
     conn->conn_type = link.conn_type;
     conn->rail_or_planar_id = link.rail_id;
     conn->is_failed = false;
@@ -365,10 +366,10 @@ void NetworkManager::add_conns_to_connection_managers()
 
     for(int i = 0; i < _total_routers; i++)
     {
-        int src_grp_id = i / _num_routers_per_group % _num_groups;
+        int src_grp_id = i / _num_routers_per_group;
 
         map< int, vector< Connection > > map_for_this_router_to_groups;
-        for(int j = 0; j < _num_groups; j++)
+        for(int j = 0; j < _total_groups; j++)
         {
             int dest_grp_id = j;
             pair<int,int> group_pair = make_pair(src_grp_id, dest_grp_id);
@@ -489,6 +490,7 @@ ConnectionManager::ConnectionManager(int src_id_local, int src_id_global, int sr
 
     _num_routers_per_group = num_router_per_group;
     _num_planes = num_planes;
+    _total_groups = num_groups * num_planes;
     _num_groups = num_groups;
 
     is_solidified = false;
@@ -506,7 +508,7 @@ int ConnectionManager::add_connection(int dest_gid, ConnectionType type)
     conn.conn_type = type;
     conn.dest_lid = dest_gid % _num_routers_per_group;
     conn.dest_gid = dest_gid;
-    conn.dest_group_id = dest_gid / _num_routers_per_group % _num_groups;
+    conn.dest_group_id = dest_gid / _num_routers_per_group;
     conn.is_failed = 0;
 
     int port = add_connection(conn);
@@ -634,6 +636,23 @@ vector< Connection > ConnectionManager::get_routed_connections_to_group(int grou
     return get_routed_connections_to_group(group_id, get_next_hop, false);
 }
 
+vector< int > ConnectionManager::get_router_gids_with_global_to_group(int group_id)
+{
+    return get_router_gids_with_global_to_group(group_id, false);
+}
+
+vector< int > ConnectionManager::get_router_gids_with_global_to_group(int group_id, bool include_failed)
+{
+    try {
+        if (include_failed)
+            return _routed_router_gids_to_group_map.at(group_id);
+        else
+            return _routed_router_gids_to_group_map_nofail.at(group_id);
+    } catch (exception e) {
+        return vector<int>();
+    }
+}
+
 // vector< Connection > ConnectionManager::get_routed_connections_in_group(int dest_lid, bool include_failed)
 // {
 
@@ -646,10 +665,15 @@ vector< Connection > ConnectionManager::get_routed_connections_to_group(int grou
 
 vector< int > ConnectionManager::get_groups_that_connect_to_group(int dest_group, bool include_failed)
 {
-    if (include_failed)
-        return _group_group_connection_map[dest_group];
-    else
-        return _group_group_connection_map_nofail[dest_group];
+    try{
+        if (include_failed)
+            return _group_group_connection_map.at(dest_group);
+        else
+            return _group_group_connection_map_nofail.at(dest_group);
+    } catch (exception e) {
+        return vector<int>();
+    }
+
 }
 
 vector< int > ConnectionManager::get_groups_that_connect_to_group(int dest_group)

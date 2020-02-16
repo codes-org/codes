@@ -85,6 +85,7 @@ inline bool operator<(const Connection& lhs, const Connection& rhs)
 class NetworkManager {
     int _total_routers;
     int _total_terminals;
+    int _total_groups;
     int _num_rails;
     int _num_planes;
     int _num_routers_per_group;
@@ -226,6 +227,7 @@ class ConnectionManager {
 
     int _num_routers_per_group; //number of routers per group - used for turning global ID into local and back
     int _num_planes;
+    int _total_groups;
     int _num_groups;
     int _source_plane;
 
@@ -258,6 +260,10 @@ public:
 
     vector< Connection > get_routed_connections_to_group(int group_id, bool force_next_hop);
 
+    vector< int > get_router_gids_with_global_to_group(int group_id);
+
+    vector< int > get_router_gids_with_global_to_group(int group_id, bool include_failed);
+    
     // vector< Connection > get_routed_connections_in_group(int dest_lid, bool include_failed);
 
     // vector< Connection > get_routed_connections_in_group(int dest_lid);
