@@ -205,6 +205,7 @@ struct dragonfly_param
     int cn_radix;
     int intra_grp_radix;
     int num_groups;
+    int total_groups;
     int radix;
     int total_routers;
     int total_terminals;
@@ -1407,6 +1408,7 @@ void dragonfly_print_params(const dragonfly_param *p, FILE * st)
     fprintf(st,"\tcn_radix =               %d\n",p->cn_radix);
     fprintf(st,"\tintra_grp_radix =        %d\n",p->intra_grp_radix);
     fprintf(st,"\tnum_groups =             %d\n",p->num_groups);
+    fprintf(st,"\ttotal_groups =           %d\n",p->total_groups);
     fprintf(st,"\tvirtual radix =          %d\n",p->radix);
     fprintf(st,"\ttotal_routers =          %d\n",p->total_routers);
     fprintf(st,"\ttotal_terminals =        %d\n",p->total_terminals);
@@ -1676,12 +1678,10 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     p->intra_grp_radix = p->num_routers -1; //TODO allow for parallel connections
     p->cn_radix = (p->num_cn * p->num_rails) / p->num_planes; //number of CNs per router times number of rails taht each CN has, divided by how many planes those CNs are shared across
     p->radix = p->intra_grp_radix + p->num_global_channels + p->cn_radix;
-    p->total_routers = p->num_groups * p->num_routers * p->num_planes;
+    p->total_groups = p->num_groups * p->num_planes;
+    p->total_routers = p->total_groups * p->num_routers;
     p->total_terminals = p->total_routers * p->num_cn / p->num_planes;
     p->num_routers_per_plane = p->total_routers / p->num_planes;
-
-    
-
 
     //Setup NetworkManager
     netMan = NetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->num_global_channels, p->cn_radix, p->num_rails, p->num_planes);
@@ -1719,11 +1719,11 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
 
         for(int i = 0; i < p->total_routers; i++) //handles all routers in network, including multi planar
         {
-            int group_id = i/p->num_routers % p->num_groups;
+            int group_id = i/p->num_routers;
             if (i % p->num_routers == src_id_local)
             {
                 int planar_id = i / p->num_routers_per_plane;
-                int dest_gid_global = (group_id * p->num_routers + dest_id_local) + (planar_id * p->num_routers_per_plane);
+                int dest_gid_global = (group_id * p->num_routers + dest_id_local);
 
                 Link_Info new_link;
                 new_link.src_gid = i;
@@ -1769,7 +1769,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     if(!myRank)
     {
         fprintf(stderr, "Reading inter-group connectivity file: %s\n", interFile);
-        fprintf(stderr, "\n Total routers %d total groups %d ", p->total_routers, p->num_groups);
+        fprintf(stderr, "\n Total routers %d total groups %d ", p->total_routers, p->total_groups);
     }
 
     connectionList.resize(p->num_groups);
@@ -1869,7 +1869,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
 
     if(!myRank) {
         fprintf(stderr, "\n Total nodes %d routers %d groups %d routers per group %d radix %d\n\n",
-                p->num_cn * p->total_routers, p->total_routers, p->num_groups,
+                p->num_cn * p->total_routers, p->total_routers, p->total_groups,
                 p->num_routers, p->radix);
     }
 
@@ -4972,8 +4972,8 @@ static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, 
 {
     int my_router_id = s->router_id;
     int my_group_id = s->group_id;
-    int origin_group_id = msg->origin_router_id / s->params->num_routers % s->params->num_groups;
-    int fdest_group_id = fdest_router_id / s->params->num_routers % s->params->num_groups;
+    int origin_group_id = msg->origin_router_id / s->params->num_routers;
+    int fdest_group_id = fdest_router_id / s->params->num_routers;
 
     if (my_group_id != fdest_group_id) { //we're in origin group or intermediate group - either way we need to route to fdest group minimally
         vector< Connection > conns_to_dest_group = s->connMan.get_connections_to_group(fdest_group_id);
@@ -5076,7 +5076,7 @@ static Connection dfdally_minimal_routing(router_state *s, tw_bf *bf, terminal_d
 {
     vector< Connection > poss_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
     if (poss_next_stops.size() < 1)
-        tw_error(TW_LOC, "%d: MINIMAL DEAD END to %d in group %d\n", s->router_id, fdest_router_id, fdest_router_id / s->params->num_routers % s->params->num_groups);
+        tw_error(TW_LOC, "%d: MINIMAL DEAD END to %d in group %d\n", s->router_id, fdest_router_id, fdest_router_id / s->params->num_routers);
 
     ConnectionType conn_type = poss_next_stops[0].conn_type; //TODO this assumes that all possible next stops are of same type - OK for now, but remember this
     if (conn_type == CONN_GLOBAL) { //TOOD should we really only randomize global and not local? should we really do light adaptive for nonglobal?
