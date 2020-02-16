@@ -747,7 +747,7 @@ static void ross_dally_dragonfly_sample_fn(terminal_state * s, tw_bf * bf, tw_lp
     s->ross_sample.rev_events = 0;
     s->ross_sample.fin_chunks_time = 0;
     for(int i = 0; i < s->params->num_rails; i++)
-        s->ross_sample.busy_time_sample = 0;
+        s->ross_sample.busy_time_sample[i] = 0;
 }
 
 static void ross_dally_dragonfly_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample)
@@ -939,7 +939,8 @@ void dragonfly_dally_sample_rc_fn(terminal_state * s,
     s->op_arr_size--;
     int cur_indx = s->op_arr_size;
     struct dfly_cn_sample stat = s->sample_stat[cur_indx];
-    s->busy_time_sample[cur_indx] = stat.busy_time_sample[cur_indx];
+    for(int i = 0; i < s->params->num_rails; i++)
+        s->busy_time_sample[i] = stat.busy_time_sample[i];
     s->fin_chunks_time = stat.fin_chunks_time;
     s->fin_hops_sample = stat.fin_hops_sample;
     s->data_size_sample = stat.data_size_sample;
@@ -947,7 +948,8 @@ void dragonfly_dally_sample_rc_fn(terminal_state * s,
     s->fwd_events = stat.fwd_events;
     s->rev_events = stat.rev_events;
 
-    stat.busy_time_sample = 0;
+    for(int i = 0; i < s->params->num_rails; i++)
+        stat.busy_time_sample[i] = 0;
     stat.fin_chunks_time = 0;
     stat.fin_hops_sample = 0;
     stat.data_size_sample = 0;
@@ -1299,13 +1301,14 @@ static Connection dfdally_get_best_from_k_connections(router_state *s, tw_bf *bf
     return get_absolute_best_connection_from_conns(s, bf, msg, lp, k_conns);
 }
 
-tw_stime* buff_time_storage_create(terminal_state *s)
+//helper functions for busy time reverse computation - creates pointer to push onto rc stack
+static tw_stime* buff_time_storage_create(terminal_state *s)
 {
     tw_stime* storage = (tw_stime*)malloc(s->params->num_rails * sizeof(tw_stime));
     return storage;
 }
 
-void buff_time_storage_delete(void * ptr)
+static void buff_time_storage_delete(void * ptr)
 {
     if (ptr)
         free(ptr);
@@ -2959,8 +2962,8 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
 
     msg->rail_id = target_rail_connection.rail_or_planar_id;
 
-    int dest_router_id = dfdally_get_assigned_router_id_from_terminal(p, msg->dest_terminal_lpid, msg->rail_id);
-    int dest_grp_id = dest_router_id / s->params->num_routers; 
+    int dest_router_id = dfdally_get_assigned_router_id_from_terminal(p, msg->dfdally_dest_terminal_id, msg->rail_id);
+    int dest_grp_id = dest_router_id / s->params->num_routers;
     int src_grp_id = s->router_id[msg->rail_id] / s->params->num_routers; 
 
     if(src_grp_id == dest_grp_id)
@@ -3829,6 +3832,7 @@ dragonfly_dally_terminal_final( terminal_state * s,
         qhash_finalize(s->rank_tbl);
     
     rc_stack_destroy(s->st);
+    //TODO FREE THESE CORRECTLY
     free(s->vc_occupancy);
     free(s->terminal_msgs);
     free(s->terminal_msgs_tail);
@@ -3959,24 +3963,26 @@ static Connection do_dfdally_routing(router_state *s, tw_bf *bf, terminal_dally_
             vector< Connection > poss_next_stops = s->connMan.get_connections_to_gid(msg->dfdally_dest_terminal_id, CONN_TERMINAL);
             if (poss_next_stops.size() < 1)
                 tw_error(TW_LOC, "Destination Router %d: No connection to destination terminal %d\n", s->router_id, msg->dfdally_dest_terminal_id); //shouldn't happen unless math was wrong
-            if (poss_next_stops.size() > 1)
-            {
-                vector< Connection > conns_on_rail;
-                for(int i = 0; i < poss_next_stops.size(); i++)
-                {
-                    if(poss_next_stops[i].rail_or_planar_id == msg->rail_id)
-                        conns_on_rail.push_back(poss_next_stops[i]);
-                }
-                if(conns_on_rail.size() < 1)
-                    tw_error(TW_LOC, "Destination Router %d: No connection to destination terminal %d on specified rail %d\n",s->router_id, msg->dfdally_dest_terminal_id, msg->rail_id);
+            //Not exactly sure why I did this //TODO Address
+            // if (poss_next_stops.size() > 1)
+            // {
+            //     vector< Connection > conns_on_rail;
+            //     for(int i = 0; i < poss_next_stops.size(); i++)
+            //     {
+            //         if(poss_next_stops[i].rail_or_planar_id == msg->rail_id)
+            //             conns_on_rail.push_back(poss_next_stops[i]);
+            //     }
+            //     if(conns_on_rail.size() < 1)
+            //         tw_error(TW_LOC, "Destination Router %d: No connection to destination terminal %d on specified rail %d\n",s->router_id, msg->dfdally_dest_terminal_id, msg->rail_id);
 
-                Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, conns_on_rail);
-                return best_min_conn;
-            }
-            else
-                return poss_next_stops[0];
+            //     Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, conns_on_rail);
+            //     return best_min_conn;
+            // }
+            // else
+            //     return poss_next_stops[0];
             
-
+        Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+        return best_min_conn;
         }
         else if (my_group_id == fdest_group_id) { //Then we're already in the destination group and should just route to the fdest router
             vector< Connection > conns_to_fdest = s->connMan.get_connections_to_gid(fdest_router_id, CONN_LOCAL);
@@ -4972,7 +4978,6 @@ static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, 
     if (my_group_id != fdest_group_id) { //we're in origin group or intermediate group - either way we need to route to fdest group minimally
         vector< Connection > conns_to_dest_group = s->connMan.get_connections_to_group(fdest_group_id);
         if (conns_to_dest_group.size() > 0) { //then we have a direct connection to dest group
-            printf("woo\n");
             return conns_to_dest_group; // --------- return direct connection
         }
         // else { //we don't have a direct connection to group and need list of routers in our group that do
@@ -4993,7 +4998,6 @@ static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, 
             //         poss_next_conns_to_group.insert(poss_next_conns_to_group.end(), conns.begin(), conns.end());
             //     }
             // }
-            printf("woo2\n");
             return poss_next_conns_to_group; 
         }
     }
@@ -5002,7 +5006,6 @@ static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, 
         assert(my_router_id != fdest_router_id); //this should be handled outside of this function
 
         vector< Connection > conns_to_fdest_router = s->connMan.get_connections_to_gid(fdest_router_id, CONN_LOCAL);
-        printf("woo3\n");
         return conns_to_fdest_router;
     }
 }

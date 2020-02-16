@@ -75,7 +75,6 @@ struct terminal_dally_message
   // For buffer message
    short vc_index;
    short rail_id;
-   short plane_id; //unimplemented but for distinction from rails
    int output_chan;
    model_net_event_return event_rc;
    int is_pull;
