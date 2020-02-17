@@ -36,7 +36,7 @@ NetworkManager::NetworkManager(int total_routers, int total_terminals, int num_r
     _num_lc_pr = num_lc_per_router;
     _num_gc_pr = num_gc_per_router;
     _num_cn_pr = num_cn_conns_per_router;
-    _num_unique_term_pr = num_cn_conns_per_router / num_rails;
+    // _num_unique_term_pr = num_cn_conns_per_router / num_rails;
 
     _num_router_conns = 0;
     _num_router_terminal_conns = 0;
@@ -128,7 +128,7 @@ void NetworkManager::add_link(Link_Info link)
         _num_router_terminal_conns++;
 
         conn->dest_group_id = conn->src_group_id;
-        conn->dest_lid = conn->dest_gid % _num_unique_term_pr;
+        conn->dest_lid = conn->dest_gid % _num_cn_pr;
         //put conn into owning structure
         _router_terminal_connections_map[link.src_gid].push_back(conn);
 
@@ -534,7 +534,7 @@ int ConnectionManager::add_connection(Connection conn)
                 tw_error(TW_LOC,"Attempting to add too many local connections per router - exceeding configuration value: %d",_max_intra_ports);
             break;
         case CONN_GLOBAL:
-            printf("R%d P%d: Global Add to %d\n", _source_id_global, conn.rail_or_planar_id, conn.dest_gid);
+            // printf("R%d P%d: Global Add to %d\n", _source_id_global, conn.rail_or_planar_id, conn.dest_gid);
 
             if (_manType == MAN_TERMINAL)
                 tw_error(TW_LOC, "Attempting to add global connections to a terminal connection manager\n");
