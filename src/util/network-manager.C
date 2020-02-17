@@ -243,12 +243,19 @@ int NetworkManager::get_failed_count_from_vector(vector<Connection*> conns)
 
 void NetworkManager::calculate_floyd_warshall_shortest_paths()
 {
+    if(!g_tw_mynode)
+        printf("\nNetwork Manager: Performing Shortest Path Calculations...\n");
+
     _shortest_path_vals = (int**)calloc(_total_routers, sizeof(int*));
     _next = (int**)calloc(_total_routers, sizeof(int*));
+    int** costMat = (int**)malloc(_total_routers* sizeof(int*));
+    int** dist = (int**)malloc(_total_routers* sizeof(int*));
     for(int i = 0; i < _total_routers; i++)
     {
         _shortest_path_vals[i] = (int*)calloc(_total_routers, sizeof(int));
         _next[i] = (int*)calloc(_total_routers, sizeof(int));
+        costMat[i] = (int*)calloc(_total_routers, sizeof(int));
+        dist[i] = (int*)calloc(_total_routers, sizeof(int));
         for(int j = 0; j < _total_routers; j++)
         {
             _shortest_path_nexts[make_pair(i,j)] = vector<int>();
@@ -257,7 +264,7 @@ void NetworkManager::calculate_floyd_warshall_shortest_paths()
 
 
     //set up cost matrix
-    int costMat[_total_routers][_total_routers];
+    // int costMat[_total_routers][_total_routers];
     for(int i = 0; i < _total_routers; i++)
     {
         for(int j = 0; j <_total_routers; j++)
@@ -276,7 +283,7 @@ void NetworkManager::calculate_floyd_warshall_shortest_paths()
         // printf("\n");
     }
 
-    int dist[_total_routers][_total_routers];
+    // int dist[_total_routers][_total_routers];
     for(int i = 0; i < _total_routers; i++)
     {
         for(int j = 0; j < _total_routers; j++)
@@ -326,6 +333,14 @@ void NetworkManager::calculate_floyd_warshall_shortest_paths()
             _shortest_path_vals[i][j] = dist[i][j];
         }
     }
+
+    for(int i = 0; i < _total_routers; i++)
+    {
+        free(dist[i]);
+        free(costMat[i]);
+    }
+    free(dist);
+    free(costMat);
 }
 
 int NetworkManager::get_shortest_dist_between_routers(int src_gid, int dest_gid)
