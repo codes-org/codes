@@ -37,7 +37,7 @@
 #include <cortex/topology.h>
 #endif
 
-#define DUMP_CONNECTIONS 1
+#define DUMP_CONNECTIONS 0
 #define PRINT_CONFIG 1
 #define DFLY_HASH_TABLE_SIZE 4999
 // debugging parameters
@@ -1300,19 +1300,6 @@ static Connection dfdally_get_best_from_k_connections(router_state *s, tw_bf *bf
 {
     vector< Connection > k_conns = dfdally_poll_k_connections(s, bf, msg, lp, conns, k);
     return get_absolute_best_connection_from_conns(s, bf, msg, lp, k_conns);
-}
-
-//helper functions for busy time reverse computation - creates pointer to push onto rc stack
-static tw_stime* buff_time_storage_create(terminal_state *s)
-{
-    tw_stime* storage = (tw_stime*)malloc(s->params->num_rails * sizeof(tw_stime));
-    return storage;
-}
-
-static void buff_time_storage_delete(void * ptr)
-{
-    if (ptr)
-        free(ptr);
 }
 
 static void append_to_terminal_dally_message_list(  
@@ -2808,24 +2795,12 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
         s->in_send_loop[msg->rail_id] = 0;
     }
 
-    tw_stime *bts = (tw_stime*)rc_stack_pop(s->st);
-    for(int j = 0; j < s->params->num_injection_queues; j++)
-    {
-        s->last_buf_full[j] = bts[j];
-        if(bf->c11) {
-            s->issueIdle[j] = 0;
-            s->stalled_chunks[j]--;
-        }
+    if (bf->c11) {
+        s->issueIdle[msg->rail_id] = 0;
+        s->stalled_chunks[msg->rail_id]--;
+        if(bf->c8)
+            s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
     }
-    buff_time_storage_delete(bts);
-
-    // if (bf->c11) {
-    //     s->issueIdle[msg->rail_id] = 0;
-    //     s->stalled_chunks--;
-    //     if(bf->c8) {
-    //         s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
-    //     }
-    // }
     struct mn_stats* stat;
     stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
     stat->send_count--;
@@ -3051,47 +3026,21 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         s->terminal_length[msg->rail_id][vcg] += s->params->chunk_size;
     }
 
-    tw_stime *bts = buff_time_storage_create(s); //mallocs space to push onto the rc stack -- free'd in rc
-    for(int j = 0; j < s->params->num_injection_queues; j++)
-    {
-        bts[j] = s->last_buf_full[j];
-        if(s->terminal_length[j][vcg] < s->params->cn_vc_size)
+    if(s->terminal_length[msg->rail_id][vcg] < s->params->cn_vc_size) {
+        model_net_method_idle_event2(nic_ts, 0, msg->rail_id, lp);
+    } else {
+        bf->c11 = 1;
+        s->issueIdle[msg->rail_id] = 1;
+        s->stalled_chunks[msg->rail_id]++;
+
+        //this block was missing from when QOS was added - readded 5-21-19
+        if(s->last_buf_full[msg->rail_id] == 0)
         {
-            tw_stime dither = .0001 * tw_rand_unif(lp->rng);
-            msg->num_rngs++;
-            model_net_method_idle_event2(nic_ts+dither, 0, j, lp);
-        }
-        else
-        {
-            bf->c11 = 1;
-            s->issueIdle[j] = 1;
-            s->stalled_chunks[j]++;
-            if(s->last_buf_full[j] == 0)
-            {
-                bf->c8 = 1;
-                s->last_buf_full[j] = tw_now(lp);
-            }
+            bf->c8 = 1;
+            msg->saved_busy_time = s->last_buf_full[msg->rail_id];
+            s->last_buf_full[msg->rail_id] = tw_now(lp);
         }
     }
-    rc_stack_push(lp, bts, buff_time_storage_delete, s->st);
-
-    //commented out when multi-rail added
-    // if(s->terminal_length[target_rail][vcg] < s->params->cn_vc_size) {
-    //     model_net_method_idle_event(nic_ts, 0, lp);
-    // } else {
-    //     bf->c11 = 1;
-    //     s->issueIdle[target_rail] = 1;
-    //     s->stalled_chunks++;
-
-    //     //this block was missing from when QOS was added - readded 5-21-19
-    //     if(s->last_buf_full[target_rail] == 0.0)
-    //     {
-    //         bf->c8 = 1;
-    //         msg->saved_busy_time = s->last_buf_full[target_rail];
-    //         /* TODO: Assumes a single vc from terminal to router */
-    //         s->last_buf_full[target_rail] = tw_now(lp);
-    //     }
-    // }
     
     if(s->in_send_loop[msg->rail_id] == 0) {
         bf->c5 = 1;
@@ -4926,10 +4875,10 @@ static void dfdally_select_intermediate_group(router_state *s, tw_bf *bf, termin
         msg->num_rngs++;
         int rand_group_id;
         if (NONMIN_INCLUDE_SOURCE_DEST) //then any group is a valid intermediate group
-            rand_group_id = tw_rand_integer(lp->rng, 0, s->params->num_groups-1);
+            rand_group_id = tw_rand_integer(lp->rng, s->params->num_groups*s->plane_id, (s->params->num_groups*(s->plane_id+1))-1);
         else { //then we don't consider source or dest groups as valid intermediate groups
             vector<int> group_list;
-            for (int i = 0; i < s->params->num_groups; i++)
+            for (int i = s->params->num_groups*s->plane_id; i < s->params->num_groups*(s->plane_id+1); i++)
             {
                 if ((i != origin_group_id) && (i != fdest_group_id)) {
                     group_list.push_back(i);
@@ -5031,14 +4980,15 @@ static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *b
                 return conns_to_intm_group;
             }
             else { //no - route within group to router that DOES have a connection to intm group
-                vector<int> connecting_router_ids = connectionList[my_group_id][preset_intm_group_id];
-                vector< Connection > conns_to_connecting_routers;
-                for (int i = 0; i < connecting_router_ids.size(); i++)
-                {
-                    int poss_router_id = connecting_router_ids[i];
-                    vector< Connection > candidate_conns = s->connMan.get_connections_to_gid(poss_router_id, CONN_LOCAL);
-                    conns_to_connecting_routers.insert(conns_to_connecting_routers.end(), candidate_conns.begin(), candidate_conns.end());
-                }
+                vector<Connection> conns_to_connecting_routers = s->connMan.get_routed_connections_to_group(preset_intm_group_id, true);
+                // vector<int> connecting_router_ids = connectionList[my_group_id][preset_intm_group_id];
+                // vector< Connection > conns_to_connecting_routers;
+                // for (int i = 0; i < connecting_router_ids.size(); i++)
+                // {
+                //     int poss_router_id = connecting_router_ids[i];
+                //     vector< Connection > candidate_conns = s->connMan.get_connections_to_gid(poss_router_id, CONN_LOCAL);
+                //     conns_to_connecting_routers.insert(conns_to_connecting_routers.end(), candidate_conns.begin(), candidate_conns.end());
+                // }
                 return conns_to_connecting_routers;
             }
         }
@@ -5127,18 +5077,24 @@ static Connection dfdally_nonminimal_routing(router_state *s, tw_bf *bf, termina
         return next_conn;
     }
     else { // I need to route to a router in my group that does have a direct connection to the intermediate group
-        vector<int> connecting_router_ids = connectionList[my_group_id][next_dest_group_id];
-        assert(connecting_router_ids.size() > 0);
-        msg->num_rngs++;
-        int rand_sel = tw_rand_integer(lp->rng, 0, connecting_router_ids.size()-1);
-        int conn_router_id = connecting_router_ids[rand_sel];
+        vector<Connection> connections_toward_next_group = s->connMan.get_routed_connections_to_group(next_dest_group_id, true);
+        // vector<int> connecting_router_ids = connectionList[my_group_id][next_dest_group_id];
+        // assert(connecting_router_ids.size() > 0);
+        // msg->num_rngs++;
+        // int rand_sel = tw_rand_integer(lp->rng, 0, connecting_router_ids.size()-1);
+        // int conn_router_id = connecting_router_ids[rand_sel];
 
-        //There may be parallel connections to the same router - randomly select from them
-        vector< Connection > conns_to_next_router = s->connMan.get_connections_to_gid(conn_router_id, CONN_LOCAL);
-        assert(conns_to_next_router.size() > 0);
+        // //There may be parallel connections to the same router - randomly select from them
+        // vector< Connection > conns_to_next_router = s->connMan.get_connections_to_gid(conn_router_id, CONN_LOCAL);
+        // assert(conns_to_next_router.size() > 0);
+        // msg->num_rngs++;
+        // rand_sel = tw_rand_integer(lp->rng, 0, conns_to_next_router.size()-1);
+        // Connection next_conn = conns_to_next_router[rand_sel];
+        
+        int rand_sel = tw_rand_integer(lp->rng, 0, connections_toward_next_group.size()-1);
         msg->num_rngs++;
-        rand_sel = tw_rand_integer(lp->rng, 0, conns_to_next_router.size()-1);
-        Connection next_conn = conns_to_next_router[rand_sel];
+        Connection next_conn = connections_toward_next_group[rand_sel];
+        
         return next_conn;
     }
 }
@@ -5253,67 +5209,67 @@ static vector< Connection > get_smart_legal_minimal_stops(router_state *s, tw_bf
     }
 }
 
-//Note that this is different than Dragonfly Plus's implementation, this isn't the converse of minimal, these are any
-//connections that could lead to the intermediate group or a new one if necessary
-static vector< Connection > get_smart_legal_nonminimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
-{
-    int my_router_id = s->router_id;
-    int my_group_id = s->group_id;
-    int origin_group_id = msg->origin_router_id / s->params->num_routers;
-    int fdest_group_id = fdest_router_id / s->params->num_routers;
-    bool in_intermediate_group = (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
-    int preset_intm_group_id = msg->intm_grp_id;
+// //Note that this is different than Dragonfly Plus's implementation, this isn't the converse of minimal, these are any
+// //connections that could lead to the intermediate group or a new one if necessary
+// static vector< Connection > get_smart_legal_nonminimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
+// {
+//     int my_router_id = s->router_id;
+//     int my_group_id = s->group_id;
+//     int origin_group_id = msg->origin_router_id / s->params->num_routers;
+//     int fdest_group_id = fdest_router_id / s->params->num_routers;
+//     bool in_intermediate_group = (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
+//     int preset_intm_group_id = msg->intm_grp_id;
 
-    if (my_group_id == origin_group_id) {
-        vector< Connection > conns_to_intm_group = s->connMan.get_connections_to_group(preset_intm_group_id);
+//     if (my_group_id == origin_group_id) {
+//         vector< Connection > conns_to_intm_group = s->connMan.get_connections_to_group(preset_intm_group_id);
 
-        //are we the originating router
-        if (my_router_id == msg->origin_router_id) { //then we are able to route within our own group if necessary
-            // Do we have direct connection to intermediate group?
-            if (conns_to_intm_group.size() > 0) { //yes
-                return conns_to_intm_group;
-            }
-            else { //no - route within group to router that DOES have a connection to intm group
-                vector<int> connecting_router_ids = connectionList[my_group_id][preset_intm_group_id];
-                vector< Connection > conns_to_connecting_routers;
-                for (int i = 0; i < connecting_router_ids.size(); i++)
-                {
-                    int poss_router_id = connecting_router_ids[i];
-                    vector< Connection > candidate_conns = s->connMan.get_connections_to_gid(poss_router_id, CONN_LOCAL);
-                    conns_to_connecting_routers.insert(conns_to_connecting_routers.end(), candidate_conns.begin(), candidate_conns.end());
-                }
-                return conns_to_connecting_routers;
-            }
-        }
-        else { //then we can't afford to reroute within our group, we must route to the int group if possible - pick a new one if not
-            if (conns_to_intm_group.size() > 0) {
-                return conns_to_intm_group; //route there directly
-            }
-            else { //pick a new one!
-                dfdally_select_intermediate_group(s, bf, msg, lp, fdest_router_id);
-                conns_to_intm_group = s->connMan.get_connections_to_group(msg->intm_grp_id); //new intm group id
-                return conns_to_intm_group;
-            }
-        }
-    }
-    else if (in_intermediate_group) {
-        //if we're in the intermediate group then we're just going to default to routing minimally, return an empty vector.
-        vector< Connection > empty;
-        return empty;
-    }
-    else if (my_group_id == fdest_group_id)
-    {
-        //same as intermediate, force minimal choices
-        vector< Connection > empty;
-        return empty;
-    }
-    else
-    {
-        tw_error(TW_LOC, "Invalid group somehow: not origin, not intermediate, and not fdest group\n");
-        vector< Connection > empty;
-        return empty;
-    }
-}
+//         //are we the originating router
+//         if (my_router_id == msg->origin_router_id) { //then we are able to route within our own group if necessary
+//             // Do we have direct connection to intermediate group?
+//             if (conns_to_intm_group.size() > 0) { //yes
+//                 return conns_to_intm_group;
+//             }
+//             else { //no - route within group to router that DOES have a connection to intm group
+//                 vector<int> connecting_router_ids = connectionList[my_group_id][preset_intm_group_id];
+//                 vector< Connection > conns_to_connecting_routers;
+//                 for (int i = 0; i < connecting_router_ids.size(); i++)
+//                 {
+//                     int poss_router_id = connecting_router_ids[i];
+//                     vector< Connection > candidate_conns = s->connMan.get_connections_to_gid(poss_router_id, CONN_LOCAL);
+//                     conns_to_connecting_routers.insert(conns_to_connecting_routers.end(), candidate_conns.begin(), candidate_conns.end());
+//                 }
+//                 return conns_to_connecting_routers;
+//             }
+//         }
+//         else { //then we can't afford to reroute within our group, we must route to the int group if possible - pick a new one if not
+//             if (conns_to_intm_group.size() > 0) {
+//                 return conns_to_intm_group; //route there directly
+//             }
+//             else { //pick a new one!
+//                 dfdally_select_intermediate_group(s, bf, msg, lp, fdest_router_id);
+//                 conns_to_intm_group = s->connMan.get_connections_to_group(msg->intm_grp_id); //new intm group id
+//                 return conns_to_intm_group;
+//             }
+//         }
+//     }
+//     else if (in_intermediate_group) {
+//         //if we're in the intermediate group then we're just going to default to routing minimally, return an empty vector.
+//         vector< Connection > empty;
+//         return empty;
+//     }
+//     else if (my_group_id == fdest_group_id)
+//     {
+//         //same as intermediate, force minimal choices
+//         vector< Connection > empty;
+//         return empty;
+//     }
+//     else
+//     {
+//         tw_error(TW_LOC, "Invalid group somehow: not origin, not intermediate, and not fdest group\n");
+//         vector< Connection > empty;
+//         return empty;
+//     }
+// }
 
 // static Connection dfdally_smart_minimal_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
 // {
@@ -5336,6 +5292,7 @@ static vector< Connection > get_smart_legal_nonminimal_stops(router_state *s, tw
 //     }
 // }
 
+//not working - was designed to be wary of failed links
 static Connection dfdally_smart_prog_adaptive_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
 {
     int my_router_id = s->router_id;
