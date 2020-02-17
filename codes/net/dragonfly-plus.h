@@ -62,7 +62,7 @@ struct terminal_plus_message
 
   //DFP Specific Routing
   int intm_rtr_id; //Router ID of the intermediate router for nonminimal routes
-  int intm_group_id; //Group ID of the intermediate router for nonminimal routes
+  int intm_grp_id; //Group ID of the intermediate router for nonminimal routes
 
   short dfp_upward_channel_flag;
 
