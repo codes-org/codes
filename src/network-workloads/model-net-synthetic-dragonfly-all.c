@@ -718,6 +718,7 @@ int main(
         configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers);
         configuration_get_value_int(&config, "PARAMS", "num_groups", NULL, &num_groups);
         configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", NULL, &num_nodes_per_router);
+        total_terminals = codes_mapping_get_lp_count("MODELNET_GRP", 0, "modelnet_dragonfly_plus", NULL, 1);
         num_routers_with_cns_per_group = num_router_leaf;
 
     }
@@ -728,6 +729,7 @@ int main(
         configuration_get_value_int(&config, "PARAMS", "num_router_cols", NULL, &num_router_cols);
         configuration_get_value_int(&config, "PARAMS", "num_groups", NULL, &num_groups);
         configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", NULL, &num_nodes_per_router);
+        total_terminals = codes_mapping_get_lp_count("MODELNET_GRP", 0, "modelnet_dragonfly_custom", NULL, 1);
         num_routers_with_cns_per_group = num_router_rows * num_router_cols;
     }
     else if (net_id == DRAGONFLY) {
