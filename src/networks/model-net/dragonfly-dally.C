@@ -1378,6 +1378,31 @@ static terminal_dally_message_list* return_tail(
     return tail;
 }
 
+static tw_stime* buff_time_storage_create(terminal_state *s)
+{
+    tw_stime* storage = (tw_stime*)malloc(s->params->num_rails * sizeof(tw_stime));
+    return storage;
+}
+
+static void buff_time_storage_delete(void * ptr)
+{
+    if (ptr)
+        free(ptr);
+}
+
+static int* int_storage_create(terminal_state *s)
+{
+    int* storage = (int*)malloc(s->params->num_rails * sizeof(int));
+    return storage;
+}
+
+static void int_storage_delete(void * ptr)
+{
+    if (ptr)
+        free(ptr);
+}
+
+
 void dragonfly_print_params(const dragonfly_param *p, FILE * st)
 {
     if(!st)
@@ -2798,12 +2823,27 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
         s->in_send_loop[msg->rail_id] = 0;
     }
 
-    if (bf->c11) {
-        s->issueIdle[msg->rail_id] = 0;
-        s->stalled_chunks[msg->rail_id]--;
-        if(bf->c8)
-            s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
+
+    int* scs = (int*)rc_stack_pop(s->st);
+    int* iis = (int*)rc_stack_pop(s->st);
+    tw_stime* bts = (tw_stime*)rc_stack_pop(s->st);
+    
+    for(int j = 0; j < s->params->num_injection_queues; j++) 
+    {
+        s->last_buf_full[j] = bts[j];
+        s->issueIdle[j] = iis[j];
+        s->stalled_chunks[j] = scs[j];
     }
+    buff_time_storage_delete(bts);
+    int_storage_delete(iis);
+    int_storage_delete(scs);
+
+    // if (bf->c11) {
+    //     s->issueIdle[msg->rail_id] = 0;
+    //     s->stalled_chunks[msg->rail_id]--;
+    //     if(bf->c8)
+    //         s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
+    // }
     struct mn_stats* stat;
     stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
     stat->send_count--;
@@ -3047,21 +3087,52 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         s->terminal_length[msg->rail_id][vcg] += s->params->chunk_size;
     }
 
-    if(s->terminal_length[msg->rail_id][vcg] < s->params->cn_vc_size) {
-        model_net_method_idle_event2(nic_ts, 0, msg->rail_id, lp);
-    } else {
-        bf->c11 = 1;
-        s->issueIdle[msg->rail_id] = 1;
-        s->stalled_chunks[msg->rail_id]++;
+    tw_stime *bts = buff_time_storage_create(s); //mallocs space to push onto the rc stack -- free'd in rc
+    int *iis = int_storage_create(s);
+    int *scs = int_storage_create(s);
 
-        //this block was missing from when QOS was added - readded 5-21-19
-        if(s->last_buf_full[msg->rail_id] == 0)
+    //TODO: Inspect this and verify that we should be looking at each port always
+    for(int j=0; j<s->params->num_injection_queues; j++){
+        bts[j] = s->last_buf_full[j];
+        iis[j] = s->issueIdle[j];
+        scs[j] = s->stalled_chunks[j];
+
+        if(s->terminal_length[j][vcg] < s->params->cn_vc_size)
         {
-            bf->c8 = 1;
-            msg->saved_busy_time = s->last_buf_full[msg->rail_id];
-            s->last_buf_full[msg->rail_id] = tw_now(lp);
+            double dither = .0001 * tw_rand_unif(lp->rng);
+            msg->num_rngs++;
+            model_net_method_idle_event2(nic_ts+dither, 0, j, lp);
+        }
+        else
+        {
+            s->issueIdle[j] = 1;
+            s->stalled_chunks[j]++;
+            if(s->last_buf_full[j] == 0.0)
+            {
+                s->last_buf_full[j] = tw_now(lp);;
+            }
         }
     }
+    rc_stack_push(lp, bts, buff_time_storage_delete, s->st);
+    rc_stack_push(lp, iis, int_storage_delete, s->st);
+    rc_stack_push(lp, scs, int_storage_delete, s->st);
+
+
+    // if(s->terminal_length[msg->rail_id][vcg] < s->params->cn_vc_size) {
+    //     model_net_method_idle_event2(nic_ts, 0, msg->rail_id, lp);
+    // } else {
+    //     bf->c11 = 1;
+    //     s->issueIdle[msg->rail_id] = 1;
+    //     s->stalled_chunks[msg->rail_id]++;
+
+    //     //this block was missing from when QOS was added - readded 5-21-19
+    //     if(s->last_buf_full[msg->rail_id] == 0)
+    //     {
+    //         bf->c8 = 1;
+    //         msg->saved_busy_time = s->last_buf_full[msg->rail_id];
+    //         s->last_buf_full[msg->rail_id] = tw_now(lp);
+    //     }
+    // }
     
     if(s->in_send_loop[msg->rail_id] == 0) {
         bf->c5 = 1;
