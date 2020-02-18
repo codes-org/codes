@@ -456,8 +456,6 @@ bool NetworkManager::is_valid_path_between_bfs(int src_gid, int dest_gid, int ma
 //toward the destination with an upper bound on local and global hops from said source
 bool NetworkManager::is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global, set<int> visited)
 {
-    // if(src_gid == 58 && dest_gid == 56)
-    //     printf("UGH\n");
     // if((src_gid / (_total_routers/_num_planes)) != (dest_gid / (_total_routers/_num_planes)))
     //     return false; //different planes have no valid path between them
 
@@ -513,8 +511,8 @@ bool NetworkManager::is_valid_path_between(int src_gid, int dest_gid, int max_lo
 
 bool NetworkManager::is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global)
 {
-    // set<int> visited;
-    return is_valid_path_between_bfs(src_gid, dest_gid, max_local, max_global);
+    set<int> visited;
+    return is_valid_path_between(src_gid, dest_gid, max_local, max_global, visited);
 
 }
 
@@ -664,7 +662,7 @@ void NetworkManager::solidify_network()
                 int dest_gid = j + (p*rpp);
                 if (_router_ids_with_terminals.count(src_gid) > 0 && _router_ids_with_terminals.count(dest_gid) > 0) {
                     bool is_valid = is_valid_path_between(src_gid,dest_gid,_max_local_hops_per_group,_max_global_hops);
-                    // _valid_connection_map[make_tuple(src_gid,dest_gid,_max_local_hops_per_group,_max_global_hops)] = is_valid;
+                    _valid_connection_map[make_tuple(src_gid,dest_gid,_max_local_hops_per_group,_max_global_hops)] = is_valid;
                     // printf("%d - - > %d  == %d\n",src_gid,dest_gid, is_valid);
                 }
             }
