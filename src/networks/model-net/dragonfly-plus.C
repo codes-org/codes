@@ -3163,10 +3163,22 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
         int rail_id = injection_connections[i].rail_or_planar_id;
         int dest_router_id = dragonfly_plus_get_assigned_router_id(s->params, msg->dfp_dest_terminal_id, rail_id);
         int src_router_id = dragonfly_plus_get_assigned_router_id(s->params, s->terminal_id, rail_id);
+        int src_group_id = src_router_id / s->params->num_routers;
+        int dest_group_id = dest_router_id / s->params->num_routers;
 
         if (routing == MINIMAL) {
-            if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,1)) //max global hops for minimal path == 1
-                valid_rails.push_back(injection_connections[i]);
+            if (src_group_id == dest_group_id) {
+                bool has_valid_path = netMan.is_valid_path_between_bfs(src_router_id, dest_router_id, 2, 1);
+                // printf("%d - - > %d  == %d\n",src_router_id,dest_router_id, has_valid_path);
+                if(has_valid_path)
+                    valid_rails.push_back(injection_connections[i]);
+            }
+            else {
+                bool has_valid_path = netMan.is_valid_path_between_bfs(src_router_id, dest_router_id, 1, 1);
+                // printf("%d - - > %d  == %d\n",src_router_id,dest_router_id, has_valid_path);
+                if(has_valid_path)
+                    valid_rails.push_back(injection_connections[i]);
+            }
         }
         else
         {
@@ -3174,6 +3186,7 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
                 valid_rails.push_back(injection_connections[i]);
         }
     }
+
 
     vector< Connection > tied_rails;
 
@@ -4375,7 +4388,7 @@ static Connection do_dfp_routing(router_state *s,
     else if (my_group_id == fdest_group_id) { //then we just route minimally
         vector< Connection > poss_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
         if (poss_next_stops.size() < 1)
-            tw_error(TW_LOC, "DEAD END WHEN ROUTING LOCALLY - My Router ID: %d    FDest Router ID: %d\n", my_router_id, fdest_router_id);
+            tw_error(TW_LOC, "DEAD END WHEN ROUTING LOCALLY - My Router ID: %d    FDest Router ID: %d (origin router ID: %d)\n", my_router_id, fdest_router_id, msg->origin_router_id);
         
         Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
         return best_min_conn;
@@ -4402,7 +4415,7 @@ static Connection do_dfp_routing(router_state *s,
     else if (isRoutingMinimal(routing)) {
         vector< Connection > poss_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
         if (poss_next_stops.size() < 1)
-            tw_error(TW_LOC, "MINIMAL DEAD END\n");
+            tw_error(TW_LOC, "%d group %d: MINIMAL DEAD END to %d in group %d - (s%d -> d%d)\n", s->router_id, s->group_id, fdest_router_id, fdest_router_id / s->params->num_routers, msg->origin_router_id, fdest_router_id);
 
         // int rand_sel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1 );
         // return poss_next_stops[rand_sel];
@@ -5722,7 +5735,19 @@ static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, 
             
             if (my_router_id != fdest_router_id) { //then we're also the source group and we need to send to any spine in our group
                 assert(my_group_id == origin_group_id);
-                return s->connMan.get_connections_by_type(CONN_LOCAL);
+                if(netMan.is_link_failures_enabled()) {
+                    vector<Connection> conns = s->connMan.get_connections_by_type(CONN_LOCAL);
+                    vector<Connection> good_conns;
+                    for(int i = 0; i < conns.size(); i++)
+                    {
+                        int next_src_gid = conns[i].dest_gid;
+                        if(netMan.get_connection_manager_for_router(next_src_gid).is_any_connection_to(fdest_router_id))
+                            good_conns.push_back(conns[i]);
+                    }
+                    return good_conns;
+                }
+                else
+                    return s->connMan.get_connections_by_type(CONN_LOCAL);
             }
             else { //then we're the dest router
                 assert(my_router_id == fdest_router_id);
