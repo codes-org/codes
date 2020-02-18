@@ -1054,6 +1054,8 @@ static Connection dfdally_smart_prog_adaptive_routing(router_state *s, tw_bf *bf
 
 /*Routing Helper Declarations*/
 static void dfdally_select_intermediate_group(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id);
+static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id);
+
 
 static tw_stime         dragonfly_total_time = 0;
 static tw_stime         dragonfly_max_latency = 0;
@@ -2884,118 +2886,126 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         tw_error(TW_LOC, "Packet Generation Failure: No non-failed injection connections available on terminal %d\n", s->terminal_id);
 
     vector< Connection > valid_rails;
-    for (int i = 0; i < injection_connections.size(); i++)
+    if (netMan.is_link_failures_enabled())
     {
-        int rail_id = injection_connections[i].rail_or_planar_id;
-        int dest_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, msg->dfdally_dest_terminal_id, rail_id);
-        int src_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, s->terminal_id, rail_id);
-
-        if (routing == MINIMAL) {
-            if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,1)) //max global hops for minimal path == 1
-                valid_rails.push_back(injection_connections[i]);
-        }
-        else
+        for (int i = 0; i < injection_connections.size(); i++)
         {
-            if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,max_global_hops))
-                valid_rails.push_back(injection_connections[i]);
+            int rail_id = injection_connections[i].rail_or_planar_id;
+            int dest_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, msg->dfdally_dest_terminal_id, rail_id);
+            int src_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, s->terminal_id, rail_id);
+
+            if (routing == MINIMAL) {
+                if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,1)) //max global hops for minimal path == 1
+                    valid_rails.push_back(injection_connections[i]);
+            }
+            else
+            {
+                if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,max_global_hops))
+                    valid_rails.push_back(injection_connections[i]);
+            }
         }
+    }
+    else {
+        valid_rails = injection_connections;
     }
     
     vector< Connection > tied_rails;
 
     //determine rail
-    Connection target_rail_connection;
-    bool congestion_fallback = false;
+    Connection target_rail_connection = valid_rails[0];
+    if (valid_rails.size() > 1)
+    {
+        bool congestion_fallback = false;
 
-    if (s->params->rail_select == RAIL_DEDICATED) { //then attempt to inject on rail based on the injection queue from the workload
-        Connection specific_injection_conn = s->connMan.get_connection_on_port(msg->rail_id, true);
-        if (specific_injection_conn.port == - 1)
-            tw_error(TW_LOC, "Packet Generation Failure: No connection on specified rail\n");
-        if (specific_injection_conn.is_failed)
-            congestion_fallback = true;
-        else
-        {
-            target_rail_connection = specific_injection_conn;
-        }
-
-    }
-    
-    if (s->params->rail_select == RAIL_PATH) {
-        int path_lens[valid_rails.size()];
-        int min_len = 99999;
-        int path_tie = 0;
-        int index = 0;
-        vector< Connection >::iterator it = valid_rails.begin();
-        for(; it != valid_rails.end(); it++)
-        {
-            int rail_id = it->rail_or_planar_id;
-            int dest_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, msg->dfdally_dest_terminal_id, rail_id);
-            int src_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, s->terminal_id, rail_id);
-
-            path_lens[index] = netMan.get_shortest_dist_between_routers(src_router_id, dest_router_id);
-            if (path_lens[index] < min_len) {
-                min_len = path_lens[index];
-                target_rail_connection = *it;
-                tied_rails.clear();
-                tied_rails.push_back(*it);
-                path_tie = 0;
-            }
-            else if (path_lens[rail_id] == min_len)
+        if (s->params->rail_select == RAIL_DEDICATED) { //then attempt to inject on rail based on the injection queue from the workload
+            Connection specific_injection_conn = s->connMan.get_connection_on_port(msg->rail_id, true);
+            if (specific_injection_conn.port == - 1)
+                tw_error(TW_LOC, "Packet Generation Failure: No connection on specified rail\n");
+            if (specific_injection_conn.is_failed)
+                congestion_fallback = true;
+            else
             {
-                path_tie = 1;
-                tied_rails.push_back(*it);
+                target_rail_connection = specific_injection_conn;
             }
-            index++;
+
+        }
+        
+        if (s->params->rail_select == RAIL_PATH) {
+            int path_lens[valid_rails.size()];
+            int min_len = 99999;
+            int path_tie = 0;
+            int index = 0;
+            vector< Connection >::iterator it = valid_rails.begin();
+            for(; it != valid_rails.end(); it++)
+            {
+                int rail_id = it->rail_or_planar_id;
+                int dest_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, msg->dfdally_dest_terminal_id, rail_id);
+                int src_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, s->terminal_id, rail_id);
+
+                path_lens[index] = netMan.get_shortest_dist_between_routers(src_router_id, dest_router_id);
+                if (path_lens[index] < min_len) {
+                    min_len = path_lens[index];
+                    target_rail_connection = *it;
+                    tied_rails.clear();
+                    tied_rails.push_back(*it);
+                    path_tie = 0;
+                }
+                else if (path_lens[rail_id] == min_len)
+                {
+                    path_tie = 1;
+                    tied_rails.push_back(*it);
+                }
+                index++;
+            }
+
+            if(path_tie == 1)
+            {
+                int rand_sel = tw_rand_integer(lp->rng, 0, tied_rails.size()-1);
+                msg->num_rngs++;
+                target_rail_connection = tied_rails[rand_sel];
+            }
         }
 
-        if(path_tie == 1)
-        {
-            int rand_sel = tw_rand_integer(lp->rng, 0, tied_rails.size()-1);
+        if(s->params->rail_select == RAIL_RAND) {
+            int target_rail_sel = tw_rand_integer(lp->rng, 0, valid_rails.size()-1);
+            target_rail_connection = valid_rails[target_rail_sel];
             msg->num_rngs++;
-            target_rail_connection = tied_rails[rand_sel];
         }
-    }
 
-    if(s->params->rail_select == RAIL_RAND) {
-        int target_rail_sel = tw_rand_integer(lp->rng, 0, valid_rails.size()-1);
-        target_rail_connection = valid_rails[target_rail_sel];
-        msg->num_rngs++;
-    }
+        if(s->params->rail_select == RAIL_CONGESTION || congestion_fallback) {
+            int min_score = INT_MAX;
+            int path_tie = 0;
 
-    if(s->params->rail_select == RAIL_CONGESTION || congestion_fallback) {
-        int min_score = INT_MAX;
-        int path_tie = 0;
-
-        vector<Connection>::iterator it = valid_rails.begin();
-        for(; it != valid_rails.end(); it++)
-        {
-            int sum = 0;
-            for(int j = 0; j < p->num_qos_levels; j++)
+            vector<Connection>::iterator it = valid_rails.begin();
+            for(; it != valid_rails.end(); it++)
             {
-                int port_no = it->port;
-                sum += s->vc_occupancy[port_no][j];
+                int sum = 0;
+                for(int j = 0; j < p->num_qos_levels; j++)
+                {
+                    int port_no = it->port;
+                    sum += s->vc_occupancy[port_no][j];
+                }
+                if (sum < min_score) {
+                    min_score = sum;
+                    target_rail_connection = *it;
+                    tied_rails.clear();
+                    tied_rails.push_back(*it);
+                    path_tie = 0;
+                }
+                else if (sum == min_score)
+                {
+                    path_tie = 1;
+                    tied_rails.push_back(*it);
+                }
             }
-            if (sum < min_score) {
-                min_score = sum;
-                target_rail_connection = *it;
-                tied_rails.clear();
-                tied_rails.push_back(*it);
-                path_tie = 0;
-            }
-            else if (sum == min_score)
+            if (path_tie == 1)
             {
-                path_tie = 1;
-                tied_rails.push_back(*it);
+                int rand_sel = tw_rand_integer(lp->rng, 0, tied_rails.size() -1);
+                msg->num_rngs++;
+                target_rail_connection = tied_rails[rand_sel];
             }
-        }
-        if (path_tie == 1)
-        {
-            int rand_sel = tw_rand_integer(lp->rng, 0, tied_rails.size() -1);
-            msg->num_rngs++;
-            target_rail_connection = tied_rails[rand_sel];
         }
     }
-
     msg->rail_id = target_rail_connection.rail_or_planar_id;
 
     int dest_router_id = dfdally_get_assigned_router_id_from_terminal(p, msg->dfdally_dest_terminal_id, msg->rail_id);
@@ -4028,7 +4038,13 @@ static Connection do_dfdally_routing(router_state *s, tw_bf *bf, terminal_dally_
         else if (my_group_id == fdest_group_id) { //Then we're already in the destination group and should just route to the fdest router
             vector< Connection > conns_to_fdest = s->connMan.get_connections_to_gid(fdest_router_id, CONN_LOCAL);
             if (conns_to_fdest.size() < 1)
-                tw_error(TW_LOC, "Destination Group %d: No connection to destination router %d\n", s->router_id, fdest_router_id); //shouldn't happen unless the connections weren't set up / loaded correctly
+            {
+                vector< Connection > poss_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
+                if(poss_next_stops.size() < 1)
+                    tw_error(TW_LOC, "Destination Group %d: No connection to destination router %d\n", s->router_id, fdest_router_id); //shouldn't happen unless the connections weren't set up / loaded correctly
+                conns_to_fdest = poss_next_stops;
+            }
+                
 
             if (isRoutingAdaptive(routing)) { // Pick the best connection
                 Connection best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, conns_to_fdest);
@@ -5045,6 +5061,18 @@ static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, 
     else { //then we're in the final destination group, also we assume that we're not the fdest router
         assert(my_group_id == fdest_group_id);
         assert(my_router_id != fdest_router_id); //this should be handled outside of this function
+
+        if(netMan.is_link_failures_enabled()) {
+            vector<Connection> conns = s->connMan.get_connections_by_type(CONN_LOCAL);
+            vector<Connection> good_conns;
+            for(int i = 0; i < conns.size(); i++)
+            {
+                int next_src_gid = conns[i].dest_gid;
+                if(netMan.get_connection_manager_for_router(next_src_gid).is_any_connection_to(fdest_router_id))
+                    good_conns.push_back(conns[i]);
+            }
+            return good_conns;
+        }
 
         vector< Connection > conns_to_fdest_router = s->connMan.get_connections_to_gid(fdest_router_id, CONN_LOCAL);
         return conns_to_fdest_router;
