@@ -95,6 +95,9 @@ class NetworkManager {
     int _num_cn_pr; //num cn conns per router
     int _num_unique_term_pr; //num unique terminals per router
 
+    int _max_local_hops_per_group;
+    int _max_global_hops;
+
 
     int _num_router_conns; //total number of router-router links
     int _num_router_terminal_conns; //total number of terminal links
@@ -111,14 +114,19 @@ class NetworkManager {
     map< int, vector< Connection* > > _terminal_router_connections_map;
 
     //useful maps - helpful ways of organizing the connection pointers stored above
+    map< int, vector<Connection*> > _router_to_router_global_conn_map;
+    map< int, vector<Connection*> > _router_to_router_local_conn_map;
     map< pair<int,int>, vector< Connection* > > _router_to_router_connection_map; //maps pair(src_gid, dest_gid) to a vector of connection pointers that go from src gid to dest gid
     map< pair<int,int>, vector< Connection* > > _router_to_terminal_connection_map; //maps pair(src_gid, dest_term_gid) to a vector of connection pointers taht go from src gid router to dest_term id
     map< pair<int,int>, vector< Connection* > > _terminal_to_router_connection_map;
     map< pair<int,int>, vector< Connection* > > _router_to_group_connection_map; //maps pair(src_gid, dest_group_id) to a vector of connections that go from src_gid to any router in the dest group
     map< pair<int,int>, vector< Connection* > > _global_group_connection_map; //maps pair(src group id, dest group id) to a vector of connection pointers that match that pattern
     
-    int** adjacency_matrix; //total_routers x total_routers in size, 1 for if any connection exists 0 for if no connection exists
-    int** adjacency_matrix_nofail;
+    map< tuple<int,int,int,int>, bool> _valid_connection_map; //memoization for whether a path that fits <src_gid,dest_gid,max_local_hops,max_global_hops> exists
+    map< tuple<int,int,int,int>, vector<set<int>> > _valid_path_map;
+
+    int*** adjacency_matrix; //total_routers x total_routers in size, 1 for if any connection exists 0 for if no connection exists
+    int*** adjacency_matrix_nofail;
 
     int** _shortest_path_vals;
     map<pair<int,int>, vector<int> > _shortest_path_nexts;
@@ -132,7 +140,7 @@ class NetworkManager {
 public:
     NetworkManager();
 
-    NetworkManager(int total_routers, int total_terminals, int num_routers_per_group, int num_lc_per_router, int num_gc_per_router, int num_cn_conns_per_router, int num_rails, int num_planes);
+    NetworkManager(int total_routers, int total_terminals, int num_routers_per_group, int num_lc_per_router, int num_gc_per_router, int num_cn_conns_per_router, int num_rails, int num_planes, int max_local_hops, int max_global_hops);
 
     void enable_link_failures();
 
@@ -153,6 +161,14 @@ public:
     void calculate_floyd_warshall_shortest_paths();
 
     int get_shortest_dist_between_routers(int src_gid, int dest_gid);
+
+    void DFS_rec_helper(int v, bool visited[]);
+
+    void DFS(int v);
+
+    bool is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global, set<int>visited);
+
+    bool is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global);
 
     void add_conns_to_connection_managers();
 
