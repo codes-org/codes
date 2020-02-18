@@ -69,6 +69,9 @@ static int max_lvc_intm_g = 3;
 static int min_gvc_src_g = 0;
 static int min_gvc_intm_g = 1;
 
+static int max_hops_per_group = 1;
+static int max_global_hops = 2;
+
 static tw_stime max_qos_monitor = 5000000000;
 static long num_local_packets_sr = 0;
 static long num_local_packets_sg = 0;
@@ -1671,7 +1674,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     p->num_routers_per_plane = p->total_routers / p->num_planes;
 
     //Setup NetworkManager
-    netMan = NetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->num_global_channels, p->cn_radix, p->num_rails, p->num_planes);
+    netMan = NetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->num_global_channels, p->cn_radix, p->num_rails, p->num_planes, max_hops_per_group, max_global_hops);
 
     // //setup Connection Managers for each router
     // for(int i = 0; i < p->total_routers; i++)
@@ -2840,6 +2843,24 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     if(injection_connections.size() < 1)
         tw_error(TW_LOC, "Packet Generation Failure: No non-failed injection connections available on terminal %d\n", s->terminal_id);
 
+    vector< Connection > valid_rails;
+    for (int i = 0; i < injection_connections.size(); i++)
+    {
+        int rail_id = injection_connections[i].rail_or_planar_id;
+        int dest_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, msg->dfdally_dest_terminal_id, rail_id);
+        int src_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, s->terminal_id, rail_id);
+
+        if (routing == MINIMAL) {
+            if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,1)) //max global hops for minimal path == 1
+                valid_rails.push_back(injection_connections[i]);
+        }
+        else
+        {
+            if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,max_global_hops))
+                valid_rails.push_back(injection_connections[i]);
+        }
+    }
+    
     vector< Connection > tied_rails;
 
     //determine rail
@@ -2860,12 +2881,12 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     }
     
     if (s->params->rail_select == RAIL_PATH) {
-        int path_lens[injection_connections.size()];
+        int path_lens[valid_rails.size()];
         int min_len = 99999;
         int path_tie = 0;
         int index = 0;
-        vector< Connection >::iterator it = injection_connections.begin();
-        for(; it != injection_connections.end(); it++)
+        vector< Connection >::iterator it = valid_rails.begin();
+        for(; it != valid_rails.end(); it++)
         {
             int rail_id = it->rail_or_planar_id;
             int dest_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, msg->dfdally_dest_terminal_id, rail_id);
@@ -2896,8 +2917,8 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     }
 
     if(s->params->rail_select == RAIL_RAND) {
-        int target_rail_sel = tw_rand_integer(lp->rng, 0, injection_connections.size()-1);
-        target_rail_connection = injection_connections[target_rail_sel];
+        int target_rail_sel = tw_rand_integer(lp->rng, 0, valid_rails.size()-1);
+        target_rail_connection = valid_rails[target_rail_sel];
         msg->num_rngs++;
     }
 
@@ -2905,8 +2926,8 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         int min_score = INT_MAX;
         int path_tie = 0;
 
-        vector<Connection>::iterator it = injection_connections.begin();
-        for(; it != injection_connections.end(); it++)
+        vector<Connection>::iterator it = valid_rails.begin();
+        for(; it != valid_rails.end(); it++)
         {
             int sum = 0;
             for(int j = 0; j < p->num_qos_levels; j++)
@@ -4184,7 +4205,7 @@ static void router_packet_receive( router_state * s,
     int total_routers = s->params->total_routers;
 
     int next_stop = -1, output_port = -1, output_chan = -1;
-    int dest_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, msg->dfdally_dest_terminal_id, msg->rail_id);
+    int dest_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, msg->dfdally_dest_terminal_id, s->plane_id);
     // int dest_router_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_lpid, 0, 0) / s->params->num_cn;
 
     terminal_dally_message_list * cur_chunk = (terminal_dally_message_list*)calloc(1, sizeof(terminal_dally_message_list));
@@ -5026,7 +5047,7 @@ static Connection dfdally_minimal_routing(router_state *s, tw_bf *bf, terminal_d
 {
     vector< Connection > poss_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
     if (poss_next_stops.size() < 1)
-        tw_error(TW_LOC, "%d: MINIMAL DEAD END to %d in group %d\n", s->router_id, fdest_router_id, fdest_router_id / s->params->num_routers);
+        tw_error(TW_LOC, "%d group %d: MINIMAL DEAD END to %d in group %d - (s%d -> d%d)\n", s->router_id, s->group_id, fdest_router_id, fdest_router_id / s->params->num_routers, msg->origin_router_id, fdest_router_id);
 
     ConnectionType conn_type = poss_next_stops[0].conn_type; //TODO this assumes that all possible next stops are of same type - OK for now, but remember this
     if (conn_type == CONN_GLOBAL) { //TOOD should we really only randomize global and not local? should we really do light adaptive for nonglobal?
