@@ -258,19 +258,19 @@ void NetworkManager::calculate_floyd_warshall_shortest_paths()
         printf("\nNetwork Manager: Performing Shortest Path Calculations...\n");
 
     _shortest_path_vals = (int**)calloc(_total_routers, sizeof(int*));
-    _next = (int**)calloc(_total_routers, sizeof(int*));
+    // _next = (int**)calloc(_total_routers, sizeof(int*));
     int** costMat = (int**)malloc(_total_routers* sizeof(int*));
     int** dist = (int**)malloc(_total_routers* sizeof(int*));
     for(int i = 0; i < _total_routers; i++)
     {
         _shortest_path_vals[i] = (int*)calloc(_total_routers, sizeof(int));
-        _next[i] = (int*)calloc(_total_routers, sizeof(int));
+        // _next[i] = (int*)calloc(_total_routers, sizeof(int));
         costMat[i] = (int*)calloc(_total_routers, sizeof(int));
         dist[i] = (int*)calloc(_total_routers, sizeof(int));
-        for(int j = 0; j < _total_routers; j++)
-        {
-            _shortest_path_nexts[make_pair(i,j)] = vector<int>();
-        }
+        // for(int j = 0; j < _total_routers; j++)
+        // {
+        //     _shortest_path_nexts[make_pair(i,j)] = vector<int>();
+        // }
     }
 
 
@@ -303,16 +303,16 @@ void NetworkManager::calculate_floyd_warshall_shortest_paths()
             dist[i][j] = costMat[i][j];
             if(dist[i][j] == 1)
             {
-                _next[i][j] = j;
-                _shortest_path_nexts[make_pair(i,j)].push_back(j);
+                // _next[i][j] = j;
+                // _shortest_path_nexts[make_pair(i,j)].push_back(j);
             }
         }
     }
     for(int i = 0; i < _total_routers; i++)
     {
         dist[i][i] = 0;
-        _next[i][i] = i;
-        _shortest_path_nexts[make_pair(i,i)].push_back(i);
+        // _next[i][i] = i;
+        // _shortest_path_nexts[make_pair(i,i)].push_back(i);
     }
 
     int rpp = _total_routers / _num_planes;
@@ -327,15 +327,15 @@ void NetworkManager::calculate_floyd_warshall_shortest_paths()
                     if(dist[i][j] > dist[i][k] + dist[k][j])
                     {
                         dist[i][j] = dist[i][k] + dist[k][j];
-                        _shortest_path_nexts[make_pair(i,j)].clear();
-                        _shortest_path_nexts[make_pair(i,j)].push_back(_next[i][k]);
-                        _next[i][j] = _next[i][k];
+                        // _shortest_path_nexts[make_pair(i,j)].clear();
+                        // _shortest_path_nexts[make_pair(i,j)].push_back(_next[i][k]);
+                        // _next[i][j] = _next[i][k];
 
                     }
-                    else if (dist[i][k] + dist[k][j] == dist[i][j] && dist[i][j] != MAX_PATH_VAL && k != j && k != i)
-                    {
-                        _shortest_path_nexts[make_pair(i,j)].push_back(k);
-                    }
+                    // else if (dist[i][k] + dist[k][j] == dist[i][j] && dist[i][j] != MAX_PATH_VAL && k != j && k != i)
+                    // {
+                    //     _shortest_path_nexts[make_pair(i,j)].push_back(k);
+                    // }
                 }
             }
         }
@@ -456,8 +456,6 @@ bool NetworkManager::is_valid_path_between_bfs(int src_gid, int dest_gid, int ma
 //toward the destination with an upper bound on local and global hops from said source
 bool NetworkManager::is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global, set<int> visited)
 {
-    // if(src_gid == 58 && dest_gid == 56)
-    //     printf("UGH\n");
     // if((src_gid / (_total_routers/_num_planes)) != (dest_gid / (_total_routers/_num_planes)))
     //     return false; //different planes have no valid path between them
 
@@ -513,8 +511,8 @@ bool NetworkManager::is_valid_path_between(int src_gid, int dest_gid, int max_lo
 
 bool NetworkManager::is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global)
 {
-    // set<int> visited;
-    return is_valid_path_between_bfs(src_gid, dest_gid, max_local, max_global);
+    set<int> visited;
+    return is_valid_path_between(src_gid, dest_gid, max_local, max_global, visited);
 
 }
 
@@ -652,20 +650,23 @@ void NetworkManager::solidify_network()
         it->solidify_connections();
     }
 
-    printf("Network Manager: calculating valid paths\n");
-    int rpp = _total_routers / _num_planes;
-    for(int p = 0; p < _num_planes; p++)
+    if (is_link_failures_enabled())
     {
-        for(int i = 0; i < rpp;i++)
+        printf("Network Manager: calculating valid paths\n");
+        int rpp = _total_routers / _num_planes;
+        for(int p = 0; p < _num_planes; p++)
         {
-            for(int j = 0; j < rpp;j++)
+            for(int i = 0; i < rpp;i++)
             {
-                int src_gid = i + (p*rpp);
-                int dest_gid = j + (p*rpp);
-                if (_router_ids_with_terminals.count(src_gid) > 0 && _router_ids_with_terminals.count(dest_gid) > 0) {
-                    bool is_valid = is_valid_path_between(src_gid,dest_gid,_max_local_hops_per_group,_max_global_hops);
-                    // _valid_connection_map[make_tuple(src_gid,dest_gid,_max_local_hops_per_group,_max_global_hops)] = is_valid;
-                    // printf("%d - - > %d  == %d\n",src_gid,dest_gid, is_valid);
+                for(int j = 0; j < rpp;j++)
+                {
+                    int src_gid = i + (p*rpp);
+                    int dest_gid = j + (p*rpp);
+                    if (_router_ids_with_terminals.count(src_gid) > 0 && _router_ids_with_terminals.count(dest_gid) > 0) {
+                        bool is_valid = is_valid_path_between(src_gid,dest_gid,_max_local_hops_per_group,_max_global_hops);
+                        _valid_connection_map[make_tuple(src_gid,dest_gid,_max_local_hops_per_group,_max_global_hops)] = is_valid;
+                        // printf("%d - - > %d  == %d\n",src_gid,dest_gid, is_valid);
+                    }
                 }
             }
         }
