@@ -99,8 +99,8 @@ class Network(object):
         else:
             self.term_link_map[id_set].append(new_link)
 
-        print("New Term Link r%d -> t%d"%(router_gid,terminal_gid), end=' ')
-        print(id_set)
+        # print("New Term Link r%d -> t%d"%(router_gid,terminal_gid), end=' ')
+        # print(id_set)
 
         self.term_link_list.append(new_link)
         self.num_terminal_links += 1
@@ -289,6 +289,8 @@ def main():
     num_terminals = int(argv[3])
     num_injection_rails = int(argv[4])
     num_planes = int(argv[5])
+    percent_intra_fail = float(argv[6])
+    percent_inter_fail = float(argv[7])
 
 
     params = Params(router_radix, num_conn_between_groups, num_terminals, num_injection_rails, num_planes, 1)
@@ -298,25 +300,27 @@ def main():
 
 
     if not DRYRUN:
-        with open(argv[6],"rb") as intra:
+        with open(argv[8],"rb") as intra:
             loadIntra(params, intra, net)
-        with open(argv[7],"rb") as inter:
+        with open(argv[9],"rb") as inter:
             loadInter(params, inter, net)
 
         add_terminal_links(params, net)
 
-        net.fail_links(LinkType.INTRA, .2, 0)
-        net.fail_links(LinkType.INTER, .2, 0)
+        net.fail_links(LinkType.INTRA, percent_intra_fail, 0)
+        net.fail_links(LinkType.INTER, percent_inter_fail, 0)
         # net.fail_term_links_safe(.5)
 
-        print(net)
+        # print(net)
 
-        print("Number Intra Failed %d/%d"%(net.num_intra_failed, net.num_intra_links))
-        print("Number Inter Failed %d/%d"%(net.num_inter_failed, net.num_inter_links))
-        print("Number Term Failed  %d/%d"%(net.num_terminal_failed, net.num_terminal_links))
+        meta_content = ""
+        meta_content += params.getSummary() + '\n'
+        meta_content += "Number Intra Failed %d/%d\n"%(net.num_intra_failed, net.num_intra_links)
+        meta_content += "Number Inter Failed %d/%d\n"%(net.num_inter_failed, net.num_inter_links)
+        meta_content += "Number Term Failed  %d/%d\n"%(net.num_terminal_failed, net.num_terminal_links)
 
-        with open(argv[8],"wb") as failfd:
-            writeFailed(params, failfd, net)
+        with open(argv[10],"wb") as failfd:
+            meta_content += writeFailed(params, failfd, net) + "\n"
 
         net.calc_adjacency_map()
         for p in range(params.num_planes):
@@ -324,13 +328,16 @@ def main():
             is_connected = net.is_connected(p)
 
             if is_connected:
-                print("Plane %d is Connected,"%p,end=' ')
+                outstr = "Plane %d is Connected "%p
+                meta_content += outstr
             else:
-                print("Plane %d is Disconnected,"%p,end=' ')
+                outstr = "Plane %d is Disconnected "%p
+                meta_content += outstr
 
             if (COMPONENTS):
                 n_components = csgraph.connected_components(net.get_adjacency_matrix(plane_id=p), return_labels=False)
-                print("calculated %d components,"%(n_components),end=' ')
+                outstr = "calculated %d components, "%(n_components)
+                meta_content += outstr
     
 
             if (SPECTRAL):
@@ -338,8 +345,16 @@ def main():
                 eigs = la.eigvals(L)
                 eigs = sorted(eigs)
                 connectivity = np.real(eigs[1])
-                print("and %.9f 2nd lowest eigenvalue (real-part)"%connectivity)
+                outstr = "calculated %.9f 2nd lowest eigenvalue (real-part) "%connectivity
+                meta_content += outstr
+            
+            meta_content += "\n"
 
+        print(meta_content)
+
+        metafilename = argv[10] + "-meta"
+        with open(metafilename,"w") as metafd:
+            metafd.write(meta_content)
 
 
 def loadIntra(params, fd, net):
@@ -412,8 +427,9 @@ def writeFailed(params, fd, net):
             fd.write(struct.pack("4i",dest_gid, src_gid, rail_id, link_type.value))
         print("%d <-> %d  rail=%d  type=%s   Failed"%(src_gid, dest_gid, rail_id, link_type))
 
-    print("Written %d failed bidirectional links (%d total written links)"%(len(failed_links),len(failed_links)*2)) 
-
+    outstr = "Written %d failed bidirectional links (%d total written links)"%(len(failed_links),len(failed_links)*2)
+    print(outstr)
+    return outstr 
 
 if __name__ == "__main__":
     main()
