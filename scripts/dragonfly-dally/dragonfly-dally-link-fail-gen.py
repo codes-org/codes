@@ -10,9 +10,29 @@ import scipy.sparse as sps
 import scipy.linalg as la
 from scipy.sparse import csgraph
 argv = sys.argv
+import math
 DRYRUN = 0
 SPECTRAL = 0
 COMPONENTS = 0
+
+
+def get_assigned_router_id_from_terminal(params, term_gid, rail_id):
+    num_planes = params.num_planes
+    num_rails = params.num_injection_rails
+
+    num_cn_conns_per_router = params.total_terminals / params.routers_per_plane
+
+    if num_planes == 1:
+        if num_rails == 1:
+            return math.floor(term_gid / num_cn_conns_per_router)
+        else: #now just all rails go to same router - possibly change this later
+            return math.floor(term_gid / num_cn_conns_per_router)
+    else:
+        if num_planes == num_rails:
+            return math.floor((term_gid / num_cn_conns_per_router) + (rail_id * params.routers_per_plane))
+        else:
+            print("different rails per plane not allowed - only rails == planes")
+            exit(0)
 
 
 
@@ -41,12 +61,12 @@ class Network(object):
 
         self.params = params
 
-    def add_link(self, src_gid, dest_gid, link_type):
+    def add_link(self, src_gid, dest_gid, plane_id, link_type):
         id_set = frozenset([src_gid, dest_gid, link_type])
         
         if id_set not in self.link_map:
             # print("New Link %d -> %d"%(src_gid,dest_gid))
-            new_link = Link(src_gid, dest_gid, 0, link_type)
+            new_link = Link(src_gid, dest_gid, plane_id, link_type)
             self.link_map[id_set] = [new_link]
             self.link_list.append(new_link)
         elif id_set in self.link_map:
@@ -59,20 +79,20 @@ class Network(object):
                     break
                 if not done:
                     # print("New Link %d -> %d"%(src_gid,dest_gid))
-                    new_link = Link(src_gid, dest_gid, 0, link_type)
+                    new_link = Link(src_gid, dest_gid, plane_id, link_type)
                     self.link_map[id_set].append(new_link)
                     self.link_list.append(new_link)
 
         self.num_intra_links = len([link for link in self.link_list if link.link_type == LinkType.INTRA])
         self.num_inter_links = len([link for link in self.link_list if link.link_type == LinkType.INTER])
 
-    def add_term_link(self, router_gid, terminal_gid):
+    def add_term_link(self, router_gid, terminal_gid, rail_id):
         id_set = frozenset([router_gid, terminal_gid, LinkType.TERMINAL])
-        num_existing_links = 0
-        if id_set in self.term_link_map:
-            num_existing_links = len(self.term_link_map[id_set])
+        # num_existing_links = 0
+        # if id_set in self.term_link_map:
+        #     num_existing_links = len(self.term_link_map[id_set])
 
-        new_link = Link(router_gid, terminal_gid, num_existing_links, LinkType.TERMINAL)
+        new_link = Link(router_gid, terminal_gid, rail_id, LinkType.TERMINAL)
 
         if id_set not in self.term_link_map:
             self.term_link_map[id_set] = [new_link]
@@ -85,8 +105,12 @@ class Network(object):
         self.term_link_list.append(new_link)
         self.num_terminal_links += 1
 
-    def fail_links(self, link_type, percent_to_fail):
-        links_to_consider = [link for link in self.link_list if link.link_type == link_type]    
+    def fail_links(self, link_type, percent_to_fail, plane_id = -1):
+        if plane_id is -1: #then we don't care which plane it comes from
+            links_to_consider = [link for link in self.link_list if link.link_type == link_type] 
+        else: #only fail from specific plane
+            links_to_consider = [link for link in self.link_list if link.link_type == link_type if link.rail_id == plane_id] 
+
         num_to_fail = int(len(links_to_consider)*percent_to_fail)
 
         links_to_fail = random.sample(links_to_consider, k=num_to_fail)
@@ -116,51 +140,59 @@ class Network(object):
                                     self.num_terminal_failed += 1
                                     break
 
-    def get_adjacency_matrix(self, include_failed_links=False):
-        A = np.zeros((self.params.total_routers, self.params.total_routers))
+    def get_adjacency_matrix(self, include_failed_links=False, plane_id=0):
+        A = np.zeros((self.params.routers_per_plane, self.params.routers_per_plane))
+        rpp = self.params.routers_per_plane
+
+
         for link in self.link_list:
-            if not include_failed_links:
-                if not link.is_failed:
-                    A[link.src_gid,link.dest_gid] += 1
-                    A[link.dest_gid,link.src_gid] += 1
-            else:
-                A[link.src_gid,link.dest_gid] += 1
-                A[link.dest_gid,link.src_gid] += 1
+            if link.rail_id == plane_id:
+                if not include_failed_links:
+                    if not link.is_failed:
+                        A[link.src_gid%rpp,link.dest_gid%rpp] += 1
+                        A[link.dest_gid%rpp,link.src_gid%rpp] += 1
+                else:
+                    A[link.src_gid%rpp,link.dest_gid%rpp] += 1
+                    A[link.dest_gid%rpp,link.src_gid%rpp] += 1
 
         return A
     
     def calc_adjacency_map(self, include_failed_links=False):
         for link in self.link_list:
+            plane_id = link.rail_id
             if link.is_failed:
                 continue
 
-            if link.src_gid in self.adj_map:
-                self.adj_map[link.src_gid].append(link.dest_gid)
+            if plane_id not in self.adj_map:
+                self.adj_map[plane_id] = {}
+
+            if link.src_gid in self.adj_map[plane_id]:
+                self.adj_map[plane_id][link.src_gid].append(link.dest_gid)
             else:
-                self.adj_map[link.src_gid] = [link.dest_gid]
-            if link.dest_gid in self.adj_map:
-                self.adj_map[link.dest_gid].append(link.src_gid)
+                self.adj_map[plane_id][link.src_gid] = [link.dest_gid]
+            if link.dest_gid in self.adj_map[plane_id]:
+                self.adj_map[plane_id][link.dest_gid].append(link.src_gid)
             else:
-                self.adj_map[link.dest_gid] = [link.src_gid]
+                self.adj_map[plane_id][link.dest_gid] = [link.src_gid]
         
 
-    def get_laplacian(self, include_failed_links=False):
-        A = self.get_adjacency_matrix(include_failed_links)        
+    def get_laplacian(self, include_failed_links=False, plane_id=0):
+        A = self.get_adjacency_matrix(include_failed_links, plane_id)        
         L = csgraph.laplacian(A)
         return L
 
-    def dfs_recursive(self, gid, visited):
-        visited[gid] = True
+    def dfs_recursive(self, gid, visited, plane_id):
+        visited[gid%self.params.routers_per_plane] = True
 
-        for neighbor in self.adj_map[gid]:
-            if visited[neighbor] == False:
-                self.dfs_recursive(neighbor, visited)
+        for neighbor in self.adj_map[plane_id][gid]:
+            neighbor_pgid = neighbor % self.params.routers_per_plane
+            if visited[neighbor_pgid] == False:
+                self.dfs_recursive(neighbor, visited, plane_id)
     
-    def is_connected(self):
-        visited = [False] * (self.params.total_routers)
-        self.calc_adjacency_map()
+    def is_connected(self, plane_id):
+        visited = [False] * (self.params.routers_per_plane)
         try:
-            self.dfs_recursive(0, visited)
+            self.dfs_recursive(0+(plane_id*self.params.routers_per_plane), visited, plane_id)
         except:
             return False
 
@@ -199,29 +231,32 @@ class Params(object):
 
         num_gc_per_group = self.num_gc_per_router * self.num_routers_per_group
         self.num_groups = int((num_gc_per_group / self.num_conn_between_groups)) + 1
-        self.total_routers = self.num_routers_per_group * self.num_groups
+        self.routers_per_plane = self.num_routers_per_group * self.num_groups
+        self.total_routers = self.routers_per_plane * self.num_planes
         self.num_hosts_per_router = int(total_terminals / self.total_routers)
+        self.cn_radix = num_injection_rails * self.num_hosts_per_router
         
         self.failure_mode = failure_mode
 
 
     def getSummary(self):
-            outStr = "\nDragonfly (Dally) Network:\n"
-            outStr += "\tNumber of Groups:             %d\n" % self.num_groups
-            outStr += "\tRouter Radix:                 %d\n" % self.router_radix
-            outStr += "\tNumber Routers Per Group:     %d\n" % self.num_routers_per_group
-            outStr += "\tNumber Terminal Per Router:   %d\n" % self.num_hosts_per_router
-            outStr += "\n"
-            outStr += "\tNumber Term Links per Router: %d\n" % (self.num_injection_rails*self.num_hosts_per_router)
-            outStr += "\n"
-            outStr += "\tNumber GC per Router:         %d\n" % self.num_gc_per_router
-            outStr += "\tNumber GC per Group:          %d\n" % self.num_gc_per_group
-            outStr += "\tNumber GC between Groups:     %d\n" % self.num_conn_between_groups
-            outStr += "\n"
-            outStr += "\tTotal Routers:                %d\n" % self.total_routers
-            outStr += "\tTotal Number Terminals:       %d\n" % (self.total_terminals)
-            outStr += "\t"
-            return outStr
+        outStr = "\nDragonfly (Dally) Network:\n"
+        outStr += "\tNumber of Groups (per plane): %d\n" % self.num_groups
+        outStr += "\tRouter Radix:                 %d\n" % self.router_radix
+        outStr += "\tNumber Routers Per Group:     %d\n" % self.num_routers_per_group
+        outStr += "\tNumber Terminal Per Router:   %d\n" % self.num_hosts_per_router
+        outStr += "\n"
+        outStr += "\tNumber Term Links per Router: %d\n" % self.cn_radix
+        outStr += "\n"
+        outStr += "\tNumber GC per Router:         %d\n" % self.num_gc_per_router
+        outStr += "\tNumber GC per Group:          %d\n" % self.num_gc_per_group
+        outStr += "\tNumber GC between Groups:     %d\n" % self.num_conn_between_groups
+        outStr += "\n"
+        outStr += "\tNum Routers per plane:        %d\n" % self.routers_per_plane
+        outStr += "\tTotal Routers:                %d\n" % self.total_routers
+        outStr += "\tTotal Number Terminals:       %d\n" % (self.total_terminals)
+        outStr += "\t"
+        return outStr
 
 class Link(object):
     def __init__(self, src_gid, dest_gid, rail_id, link_type):
@@ -270,9 +305,9 @@ def main():
 
         add_terminal_links(params, net)
 
-        net.fail_links(LinkType.INTRA, 0)
-        net.fail_links(LinkType.INTER, 0)
-        net.fail_term_links_safe(.5)
+        net.fail_links(LinkType.INTRA, .2, 0)
+        net.fail_links(LinkType.INTER, .2, 0)
+        # net.fail_term_links_safe(.5)
 
         print(net)
 
@@ -283,24 +318,27 @@ def main():
         with open(argv[8],"wb") as failfd:
             writeFailed(params, failfd, net)
 
-        is_connected = net.is_connected()
+        net.calc_adjacency_map()
+        for p in range(params.num_planes):
+            
+            is_connected = net.is_connected(p)
 
-        if is_connected:
-            print("Graph is Connected,",end=' ')
-        else:
-            print("Graph is Disconnected,",end=' ')
+            if is_connected:
+                print("Plane %d is Connected,"%p,end=' ')
+            else:
+                print("Plane %d is Disconnected,"%p,end=' ')
 
-        if (COMPONENTS):
-            n_components = csgraph.connected_components(net.get_adjacency_matrix(), return_labels=False)
-            print("calculated %d components,"%n_components,end=' ')
+            if (COMPONENTS):
+                n_components = csgraph.connected_components(net.get_adjacency_matrix(plane_id=p), return_labels=False)
+                print("calculated %d components,"%(n_components),end=' ')
     
 
-        if (SPECTRAL):
-            L = net.get_laplacian(include_failed_links=False)
-            eigs = la.eigvals(L)
-            eigs = sorted(eigs)
-            connectivity = np.real(eigs[1])
-            print("and %.9f 2nd lowest eigenvalue (real-part)"%connectivity)
+            if (SPECTRAL):
+                L = net.get_laplacian(include_failed_links=False,plane_id=p)
+                eigs = la.eigvals(L)
+                eigs = sorted(eigs)
+                connectivity = np.real(eigs[1])
+                print("and %.9f 2nd lowest eigenvalue (real-part)"%connectivity)
 
 
 
@@ -314,46 +352,46 @@ def loadIntra(params, fd, net):
         (src_lid, dest_lid, dummy) = struct.unpack("3i",buf)
         intra_id_pairs.append((src_lid,dest_lid))
 
-    for i in range(params.num_groups):
-        for pair in intra_id_pairs:
-            (src_lid,dest_lid) = pair
-            src_gid = i * params.num_routers_per_group + src_lid
-            dest_gid = i * params.num_routers_per_group + dest_lid
-            
-            net.add_link(src_gid, dest_gid, LinkType.INTRA)
+    for p in range(params.num_planes):
+        for i in range(params.num_groups):
+            for pair in intra_id_pairs:
+                (src_lid,dest_lid) = pair
+                src_gid = (i * params.num_routers_per_group + src_lid) + (p*params.routers_per_plane)
+                dest_gid = (i * params.num_routers_per_group + dest_lid) + (p*params.routers_per_plane)
+                
+                net.add_link(src_gid, dest_gid, p, LinkType.INTRA)
 
 
 
 def loadInter(params, fd, net):
+    inter_id_pairs = []
 
     while(True):
         buf = fd.read(8)
         if not buf:
             break
         (src_gid,dest_gid) = struct.unpack("2i",buf)
-        
-        net.add_link(src_gid, dest_gid, LinkType.INTER)
+        inter_id_pairs.append((src_gid,dest_gid))
+
+    for p in range(params.num_planes):
+        for pair in inter_id_pairs:
+            (src_pgid,dest_pgid) = pair
+            src_gid = src_pgid + (p*params.routers_per_plane)
+            dest_gid = dest_pgid + (p*params.routers_per_plane)
+
+            net.add_link(src_gid, dest_gid, p, LinkType.INTER)
 
 def add_terminal_links(params, net):
-    total_routers = params.total_routers
     total_terminals = params.total_terminals
-    unique_terms_per_router = params.num_hosts_per_router
     num_rails = params.num_injection_rails
-    num_planes = params.num_planes
+    
+    for tgid in range(total_terminals):
+        for rail_id in range(num_rails):
+            assigned_router_id = get_assigned_router_id_from_terminal(params, tgid, rail_id)
+            # print("Gen r%d -> t%d rail %d"%(assigned_router_id, tgid,rail_id))
+            net.add_term_link(assigned_router_id, tgid, rail_id)
 
-    if num_planes == 1:
-        for tgid in range(total_terminals):
-            for rail_id in range(num_rails):
-                router_gid = int(tgid / unique_terms_per_router)
-                net.add_term_link(router_gid, tgid)
-
-        # for router_id in range(total_routers):
-        #     for tlid in range(unique_terms_per_router):
-        #         for rail_id in range(num_rails):
-        #             net.add_term_link(router_id, tlid)
-
-    else:
-        raise(Exception("Multi Planar not implemented"))
+                
 
 
 
