@@ -131,9 +131,13 @@ static long num_local_packets_sr = 0;
 static long num_local_packets_sg = 0;
 static long num_remote_packets = 0;
 
+static int max_hops_per_group = 2;
+static int max_global_hops = 2;
+
 /* Hops within a group */
 static int num_intra_nonmin_hops = 4;
 static int num_intra_min_hops = 2;
+
 
 static FILE *dragonfly_log = NULL;
 
@@ -1956,7 +1960,7 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     p->max_port_score = (p->num_vcs * largest_vc_size) + largest_vc_size; //The maximum score that a port can get during the scoring metrics.
 
     //Setup NetworkManager
-    netMan = NetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->num_global_connections, p->cn_radix, p->num_rails, p->num_planes);
+    netMan = NetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->num_global_connections, p->cn_radix, p->num_rails, p->num_planes, max_hops_per_group, max_global_hops);
 
     // read intra group connections, store from a router's perspective
     // all links to the same router form a vector
@@ -3153,6 +3157,24 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
     if(injection_connections.size() < 1)
         tw_error(TW_LOC, "Packet Generation Failure: No non-failed injection connections available on terminal %d\n", s->terminal_id);
 
+    vector< Connection > valid_rails;
+    for (int i = 0; i < injection_connections.size(); i++)
+    {
+        int rail_id = injection_connections[i].rail_or_planar_id;
+        int dest_router_id = dragonfly_plus_get_assigned_router_id(s->params, msg->dfp_dest_terminal_id, rail_id);
+        int src_router_id = dragonfly_plus_get_assigned_router_id(s->params, s->terminal_id, rail_id);
+
+        if (routing == MINIMAL) {
+            if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,1)) //max global hops for minimal path == 1
+                valid_rails.push_back(injection_connections[i]);
+        }
+        else
+        {
+            if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,max_global_hops))
+                valid_rails.push_back(injection_connections[i]);
+        }
+    }
+
     vector< Connection > tied_rails;
 
     //determine rail
@@ -3173,12 +3195,12 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
     }
     
     if (s->params->rail_select == RAIL_PATH) {
-        int path_lens[injection_connections.size()];
+        int path_lens[valid_rails.size()];
         int min_len = 99999;
         int path_tie = 0;
         int index = 0;
-        vector< Connection >::iterator it = injection_connections.begin();
-        for(; it != injection_connections.end(); it++)
+        vector< Connection >::iterator it = valid_rails.begin();
+        for(; it != valid_rails.end(); it++)
         {
             int rail_id = it->rail_or_planar_id;
             int dest_router_id = dragonfly_plus_get_assigned_router_id(s->params, msg->dfp_dest_terminal_id, rail_id);
@@ -3209,8 +3231,8 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
     }
 
     if(s->params->rail_select == RAIL_RAND) {
-        int target_rail_sel = tw_rand_integer(lp->rng, 0, injection_connections.size()-1);
-        target_rail_connection = injection_connections[target_rail_sel];
+        int target_rail_sel = tw_rand_integer(lp->rng, 0, valid_rails.size()-1);
+        target_rail_connection = valid_rails[target_rail_sel];
         msg->num_rngs++;
     }
 
@@ -3218,8 +3240,8 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
         int min_score = INT_MAX;
         int path_tie = 0;
 
-        vector<Connection>::iterator it = injection_connections.begin();
-        for(; it != injection_connections.end(); it++)
+        vector<Connection>::iterator it = valid_rails.begin();
+        for(; it != valid_rails.end(); it++)
         {
             int sum = 0;
             for(int j = 0; j < p->num_qos_levels; j++)
@@ -4686,7 +4708,7 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
 
     int next_stop = -1, output_port = -1, output_chan = -1, adap_chan = -1;
     int dfp_dest_terminal_id = msg->dfp_dest_terminal_id;
-    int dest_router_id = dragonfly_plus_get_assigned_router_id(s->params, msg->dfp_dest_terminal_id, msg->rail_id);
+    int dest_router_id = dragonfly_plus_get_assigned_router_id(s->params, msg->dfp_dest_terminal_id, s->plane_id);
     // int dest_router_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0) / s->params->num_cn;
     int local_grp_id = s->router_id / s->params->num_routers;
     int src_grp_id = msg->origin_router_id / s->params->num_routers;
