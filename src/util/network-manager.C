@@ -144,6 +144,7 @@ void NetworkManager::add_link(Link_Info link)
 
         //put into useful maps
         _router_to_terminal_connection_map[make_pair(conn->src_gid,conn->dest_gid)].push_back(conn);
+        _router_ids_with_terminals.insert(conn->src_gid);
 
         //Terminals don't have their own interconnection mapping file that has both links so we need to create a
         //new connection for the terminal connection manager too that goes from the terminal to the router.
@@ -385,12 +386,80 @@ int NetworkManager::get_shortest_dist_between_routers(int src_gid, int dest_gid)
     return _shortest_path_vals[src_gid][dest_gid];
 }
 
+
+int isNotVisited(int x, vector<int>& path) 
+{ 
+    int size = path.size(); 
+    for (int i = 0; i < size; i++)  
+        if (path[i] == x)  
+            return 0;  
+    return 1; 
+} 
+
+bool NetworkManager::is_valid_path_between_bfs(int src_gid, int dest_gid, int max_local, int max_global)
+{
+    int local_hops_left = max_local;
+    int global_hops_left = max_global;
+
+    queue<tuple<vector<int>,int,int> > q;
+
+    vector<int> path;
+    path.push_back(src_gid);
+    q.push(make_tuple(path, local_hops_left, global_hops_left));
+    while (!q.empty()) 
+    {
+        tuple<vector<int>,int,int> tup = q.front();
+        path = get<0>(tup);
+        local_hops_left = get<1>(tup);
+        global_hops_left = get<2>(tup);
+        q.pop();
+        int last = path[path.size()-1];
+
+        if (last == dest_gid) {
+            // _valid_connection_map[make_tuple(src_gid, dest_gid, local_hops_left, global_hops_left)] = true;
+            return true;
+        }
+
+        vector<Connection*> local_conns_from_src = _router_to_router_local_conn_map[last];
+        vector<Connection*> global_conns_from_src = _router_to_router_global_conn_map[last];
+
+        if(local_hops_left > 0)
+        {
+            for(int i = 0; i < local_conns_from_src.size(); i++)
+            {
+                if (local_conns_from_src[i]->is_failed == false && isNotVisited(local_conns_from_src[i]->dest_gid,path))
+                {
+                    vector<int> new_path(path);
+                    new_path.push_back(local_conns_from_src[i]->dest_gid);
+                    q.push(make_tuple(new_path, local_hops_left-1, global_hops_left));
+                }
+            }
+        }
+        if(global_hops_left > 0)
+        {
+            for(int i = 0; i < global_conns_from_src.size(); i++)
+            {
+                if(global_conns_from_src[i]->is_failed == false && isNotVisited(global_conns_from_src[i]->dest_gid,path))
+                {
+                    vector<int> new_path(path);
+                    new_path.push_back(global_conns_from_src[i]->dest_gid);
+                    q.push(make_tuple(new_path, max_local, global_hops_left-1));
+                }
+            }
+        }   
+    }
+    return false;
+}
+
+
 //dynamic programming attempt at determining path validity. Depth first search on all local and global links available to the router
 //toward the destination with an upper bound on local and global hops from said source
 bool NetworkManager::is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global, set<int> visited)
 {
-    if((src_gid / (_total_routers/_num_planes)) != (dest_gid / (_total_routers/_num_planes)))
-        return false; //different planes have no valid path between them
+    // if(src_gid == 58 && dest_gid == 56)
+    //     printf("UGH\n");
+    // if((src_gid / (_total_routers/_num_planes)) != (dest_gid / (_total_routers/_num_planes)))
+    //     return false; //different planes have no valid path between them
 
     if(src_gid == dest_gid)
         return true;
@@ -444,8 +513,8 @@ bool NetworkManager::is_valid_path_between(int src_gid, int dest_gid, int max_lo
 
 bool NetworkManager::is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global)
 {
-    set<int> visited;
-    return is_valid_path_between(src_gid, dest_gid, max_local, max_global, visited);
+    // set<int> visited;
+    return is_valid_path_between_bfs(src_gid, dest_gid, max_local, max_global);
 
 }
 
@@ -593,9 +662,11 @@ void NetworkManager::solidify_network()
             {
                 int src_gid = i + (p*rpp);
                 int dest_gid = j + (p*rpp);
-                bool is_valid = is_valid_path_between(src_gid,dest_gid,_max_local_hops_per_group,_max_global_hops);
-                _valid_connection_map[make_tuple(src_gid,dest_gid,_max_local_hops_per_group,_max_global_hops)] = is_valid;
-                // printf("%d - - > %d  == %d\n",src_gid,dest_gid, is_valid);
+                if (_router_ids_with_terminals.count(src_gid) > 0 && _router_ids_with_terminals.count(dest_gid) > 0) {
+                    bool is_valid = is_valid_path_between(src_gid,dest_gid,_max_local_hops_per_group,_max_global_hops);
+                    // _valid_connection_map[make_tuple(src_gid,dest_gid,_max_local_hops_per_group,_max_global_hops)] = is_valid;
+                    // printf("%d - - > %d  == %d\n",src_gid,dest_gid, is_valid);
+                }
             }
         }
     }

@@ -9,6 +9,7 @@
  */
 #include <map>
 #include <vector>
+#include <queue>
 #include <set>
 #include "codes/codes.h"
 #include "codes/model-net.h"
@@ -121,7 +122,8 @@ class NetworkManager {
     map< pair<int,int>, vector< Connection* > > _terminal_to_router_connection_map;
     map< pair<int,int>, vector< Connection* > > _router_to_group_connection_map; //maps pair(src_gid, dest_group_id) to a vector of connections that go from src_gid to any router in the dest group
     map< pair<int,int>, vector< Connection* > > _global_group_connection_map; //maps pair(src group id, dest group id) to a vector of connection pointers that match that pattern
-    
+
+    set<int> _router_ids_with_terminals;
     map< tuple<int,int,int,int>, bool> _valid_connection_map; //memoization for whether a path that fits <src_gid,dest_gid,max_local_hops,max_global_hops> exists
     map< tuple<int,int,int,int>, vector<set<int>> > _valid_path_map;
 
@@ -165,6 +167,8 @@ public:
     void DFS_rec_helper(int v, bool visited[]);
 
     void DFS(int v);
+
+    bool is_valid_path_between_bfs(int src_gid, int dest_gid, int max_local, int max_global);
 
     bool is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global, set<int>visited);
 
