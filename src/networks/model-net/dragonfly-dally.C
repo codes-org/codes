@@ -1054,6 +1054,8 @@ static Connection dfdally_smart_prog_adaptive_routing(router_state *s, tw_bf *bf
 
 /*Routing Helper Declarations*/
 static void dfdally_select_intermediate_group(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id);
+static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id);
+
 
 static tw_stime         dragonfly_total_time = 0;
 static tw_stime         dragonfly_max_latency = 0;
@@ -4036,7 +4038,13 @@ static Connection do_dfdally_routing(router_state *s, tw_bf *bf, terminal_dally_
         else if (my_group_id == fdest_group_id) { //Then we're already in the destination group and should just route to the fdest router
             vector< Connection > conns_to_fdest = s->connMan.get_connections_to_gid(fdest_router_id, CONN_LOCAL);
             if (conns_to_fdest.size() < 1)
-                tw_error(TW_LOC, "Destination Group %d: No connection to destination router %d\n", s->router_id, fdest_router_id); //shouldn't happen unless the connections weren't set up / loaded correctly
+            {
+                vector< Connection > poss_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
+                if(poss_next_stops.size() < 1)
+                    tw_error(TW_LOC, "Destination Group %d: No connection to destination router %d\n", s->router_id, fdest_router_id); //shouldn't happen unless the connections weren't set up / loaded correctly
+                conns_to_fdest = poss_next_stops;
+            }
+                
 
             if (isRoutingAdaptive(routing)) { // Pick the best connection
                 Connection best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, conns_to_fdest);
@@ -5053,6 +5061,18 @@ static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, 
     else { //then we're in the final destination group, also we assume that we're not the fdest router
         assert(my_group_id == fdest_group_id);
         assert(my_router_id != fdest_router_id); //this should be handled outside of this function
+
+        if(netMan.is_link_failures_enabled()) {
+            vector<Connection> conns = s->connMan.get_connections_by_type(CONN_LOCAL);
+            vector<Connection> good_conns;
+            for(int i = 0; i < conns.size(); i++)
+            {
+                int next_src_gid = conns[i].dest_gid;
+                if(netMan.get_connection_manager_for_router(next_src_gid).is_any_connection_to(fdest_router_id))
+                    good_conns.push_back(conns[i]);
+            }
+            return good_conns;
+        }
 
         vector< Connection > conns_to_fdest_router = s->connMan.get_connections_to_gid(fdest_router_id, CONN_LOCAL);
         return conns_to_fdest_router;
