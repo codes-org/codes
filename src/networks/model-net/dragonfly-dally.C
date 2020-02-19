@@ -1841,17 +1841,30 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
 
 
     //read link failure file
-    char failureFileName[MAX_NAME_LENGTH];
+    char failureFileName[MAX_NAME_LENGTH];   
     failureFileName[0] = '\0';
-    configuration_get_value(&config, "PARAMS", "link-failure-file", 
-        anno, failureFileName, MAX_NAME_LENGTH);
-    if (strlen(failureFileName) > 0) {
-        netMan.enable_link_failures();
-        if(!myRank)
-            printf("Dragonfly Dally: Link Failures Feature Enabled\n");
+
+    if (strlen(g_nm_link_failure_filepath) == 0) //was this defined already via a command line argument?
+    {
+        printf("NOT SUPPLIED BY COMMAND LINE\n");
+        configuration_get_value(&config, "PARAMS", "link-failure-file", 
+            anno, failureFileName, MAX_NAME_LENGTH);
+        if (strlen(failureFileName) > 0) {
+            netMan.enable_link_failures();
+        }
     }
+    else
+    {
+        printf("SUPPLIED BY COMMAND LINE\n");
+        strcpy(failureFileName, g_nm_link_failure_filepath);
+        netMan.enable_link_failures();
+    }
+
     if(netMan.is_link_failures_enabled())
     {
+        if(!myRank)
+            printf("\nDragonfly Dally: Link Failures Feature Enabled\n");
+
         FILE *failureFile = fopen(failureFileName, "rb");
         if (!failureFile)
             tw_error(TW_LOC, "link failure file not found: %s\n",failureFileName);
