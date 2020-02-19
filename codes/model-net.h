@@ -38,6 +38,13 @@ extern "C" {
 #  endif
 #endif
 
+/* Global declarations for configurations that might want to be passed via
+ * command line in addition to configuration file. Needed a globally accessible
+ * place for these
+*/
+extern char g_nm_link_failure_filepath[]; //filepath to link failure file for use by models that use NetworkManager
+
+
 /* HACK: there is currently no scheduling fidelity across multiple
  * model_net_event calls. Hence, problems arise when some LP sends multiple
  * messages as part of an event and expects FCFS ordering. A proper fix which

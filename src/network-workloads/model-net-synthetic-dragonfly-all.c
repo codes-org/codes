@@ -190,6 +190,7 @@ const tw_optdef app_opt [] =
         TWOPT_STIME("load_per_svr", load, "percentage of packet inter-arrival rate to simulate per server"),
         TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
         TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
+        TWOPT_CHAR("link_failure_file", g_nm_link_failure_filepath, "filepath for override of link failure file from configuration for supporting models"),
         TWOPT_END()
 };
 

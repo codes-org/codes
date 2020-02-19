@@ -2807,6 +2807,7 @@ const tw_optdef app_opt [] =
 	TWOPT_CHAR("workload_file", workload_file, "workload file name"),
 	TWOPT_CHAR("alloc_file", alloc_file, "allocation file name"),
 	TWOPT_CHAR("workload_conf_file", workloads_conf_file, "workload config file name"),
+    TWOPT_CHAR("link_failure_file", g_nm_link_failure_filepath, "filepath for override of link failure file from configuration for supporting models"),
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
 	TWOPT_UINT("priority_type", priority_type, "Priority type (zero): high priority to foreground traffic and low to background/2nd job, (one): high priority to collective operations "),
 	TWOPT_UINT("payload_sz", payload_sz, "size of payload for synthetic traffic "),

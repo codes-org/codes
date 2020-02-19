@@ -36,6 +36,8 @@ extern struct model_net_method loggp_method;
 extern struct model_net_method express_mesh_method;
 extern struct model_net_method express_mesh_router_method;
 
+char g_nm_link_failure_filepath[MAX_NAME_LENGTH];
+
 #define X(a,b,c,d) b,
 char * model_net_lp_config_names[] = {
     NETWORK_DEF
