@@ -77,11 +77,11 @@ class Network(object):
                     done = True
                     # print("Complete %d <-> %d"%(src_gid,dest_gid))
                     break
-                if not done:
-                    # print("New Link %d -> %d"%(src_gid,dest_gid))
-                    new_link = Link(src_gid, dest_gid, plane_id, link_type)
-                    self.link_map[id_set].append(new_link)
-                    self.link_list.append(new_link)
+            if not done:
+                # print("New Link %d -> %d"%(src_gid,dest_gid))
+                new_link = Link(src_gid, dest_gid, plane_id, link_type)
+                self.link_map[id_set].append(new_link)
+                self.link_list.append(new_link)
 
         self.num_intra_links = len([link for link in self.link_list if link.link_type == LinkType.INTRA])
         self.num_inter_links = len([link for link in self.link_list if link.link_type == LinkType.INTER])
@@ -421,11 +421,12 @@ def writeFailed(params, fd, net):
         rail_id = link.rail_id
         link_type = link.link_type
 
-
+        outstr = ''
         fd.write(struct.pack("4i",src_gid, dest_gid, rail_id, link_type.value))
         if link_type is not LinkType.TERMINAL: #terminal link bidirectional is handled by the model
             fd.write(struct.pack("4i",dest_gid, src_gid, rail_id, link_type.value))
-        print("%d <-> %d  rail=%d  type=%s   Failed"%(src_gid, dest_gid, rail_id, link_type))
+        outstr+= "%d <-> %d  rail=%d  type=%s   Failed\n"%(src_gid, dest_gid, rail_id, link_type)
+        print(outstr,end='')
 
     outstr = "Written %d failed bidirectional links (%d total written links)"%(len(failed_links),len(failed_links)*2)
     print(outstr)
