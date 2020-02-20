@@ -83,11 +83,11 @@ class Network(object):
                     done = True
                     # print("Complete %d <-> %d"%(src_gid,dest_gid))
                     break
-                if not done:
-                    # print("New Link %d -> %d"%(src_gid,dest_gid))
-                    new_link = Link(src_gid, dest_gid, plane_id, link_type)
-                    self.link_map[id_set].append(new_link)
-                    self.link_list.append(new_link)
+            if not done:
+                # print("New Link %d -> %d"%(src_gid,dest_gid))
+                new_link = Link(src_gid, dest_gid, plane_id, link_type)
+                self.link_map[id_set].append(new_link)
+                self.link_list.append(new_link)
 
         self.num_intra_links = len([link for link in self.link_list if link.link_type == LinkType.INTRA])
         self.num_inter_links = len([link for link in self.link_list if link.link_type == LinkType.INTER])
@@ -281,6 +281,11 @@ class Link(object):
     def fail_link(self):
         self.is_failed = True
 
+    def __lt__(self, other):
+        return (self.src_gid < other.src_gid)
+
+    def __str__(self):
+        return "srcgid: %d  destgid:  %d  type:  %s   is_failed:  %d"%(self.src_gid,self.dest_gid,self.link_type,self.is_failed)
 
 
 def main():
@@ -370,11 +375,14 @@ def loadIntra(params, fd, net):
     intra_id_pairs = []
 
     while(True):
-        buf = fd.read(12)
+        buf = fd.read(8)
         if not buf:
             break
-        (src_lid, dest_lid, dummy) = struct.unpack("3i",buf)
+        (src_lid, dest_lid) = struct.unpack("2i",buf)
         intra_id_pairs.append((src_lid,dest_lid))
+
+    # print("loaded %d intra links"%len(intra_id_pairs))
+    # print(intra_id_pairs)
 
     for p in range(params.num_planes):
         for i in range(params.num_groups):
@@ -424,17 +432,21 @@ def writeFailed(params, fd, net):
     failed_terms = [link for link in net.term_link_list if link.is_failed]
     failed_links.extend(failed_terms)
 
-    for link in failed_links:
+    # for link in failed_interlinks:
+    #     print(str(link))
+
+    for link in sorted(failed_links):
         src_gid = link.src_gid
         dest_gid = link.dest_gid
         rail_id = link.rail_id
         link_type = link.link_type
 
-
+        outstr = ''
         fd.write(struct.pack("4i",src_gid, dest_gid, rail_id, link_type.value))
         if link_type is not LinkType.TERMINAL: #terminal link bidirectional is handled by the model
             fd.write(struct.pack("4i",dest_gid, src_gid, rail_id, link_type.value))
-        print("%d <-> %d  rail=%d  type=%s   Failed"%(src_gid, dest_gid, rail_id, link_type))
+        outstr+= "%d <-> %d  rail=%d  type=%s   Failed\n"%(src_gid, dest_gid, rail_id, link_type)
+        print(outstr,end='')
 
     outstr = "Written %d failed bidirectional links (%d total written links)"%(len(failed_links),len(failed_links)*2)
     print(outstr)
