@@ -1846,7 +1846,6 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
 
     if (strlen(g_nm_link_failure_filepath) == 0) //was this defined already via a command line argument?
     {
-        printf("NOT SUPPLIED BY COMMAND LINE\n");
         configuration_get_value(&config, "PARAMS", "link-failure-file", 
             anno, failureFileName, MAX_NAME_LENGTH);
         if (strlen(failureFileName) > 0) {
@@ -1855,7 +1854,6 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     }
     else
     {
-        printf("SUPPLIED BY COMMAND LINE\n");
         strcpy(failureFileName, g_nm_link_failure_filepath);
         netMan.enable_link_failures();
     }
@@ -2906,15 +2904,33 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
             int rail_id = injection_connections[i].rail_or_planar_id;
             int dest_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, msg->dfdally_dest_terminal_id, rail_id);
             int src_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, s->terminal_id, rail_id);
+            int src_group_id = src_router_id / s->params->num_routers;
+            int dest_group_id = dest_router_id / s->params->num_routers;
 
             if (routing == MINIMAL) {
-                if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,1)) //max global hops for minimal path == 1
-                    valid_rails.push_back(injection_connections[i]);
+                if (src_group_id == dest_group_id)
+                {
+                    if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,0)) //max global hops for local group routing == 0
+                        valid_rails.push_back(injection_connections[i]);
+                }
+                else
+                {
+                    if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,1)) //max global hops for minimal path == 1
+                        valid_rails.push_back(injection_connections[i]);
+                }
             }
             else
             {
-                if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,max_global_hops))
-                    valid_rails.push_back(injection_connections[i]);
+                if (src_group_id == dest_group_id)
+                {
+                    if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,0))  //max global hops for local group routing == 0
+                        valid_rails.push_back(injection_connections[i]);
+                }
+                else
+                {
+                    if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,max_global_hops)) //max global hops for nonmin path == 2
+                        valid_rails.push_back(injection_connections[i]);
+                }
             }
         }
     }

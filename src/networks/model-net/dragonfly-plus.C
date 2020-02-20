@@ -3218,23 +3218,29 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
             int dest_group_id = dest_router_id / s->params->num_routers;
 
             if (routing == MINIMAL) {
-                if (src_group_id == dest_group_id) {
-                    bool has_valid_path = netMan.is_valid_path_between_bfs(src_router_id, dest_router_id, 2, 1);
-                    // printf("%d - - > %d  == %d\n",src_router_id,dest_router_id, has_valid_path);
-                    if(has_valid_path)
+                if (src_group_id == dest_group_id)
+                {
+                    if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,0)) //max global hops for local group routing == 0
                         valid_rails.push_back(injection_connections[i]);
                 }
-                else {
-                    bool has_valid_path = netMan.is_valid_path_between_bfs(src_router_id, dest_router_id, 1, 1);
-                    // printf("%d - - > %d  == %d\n",src_router_id,dest_router_id, has_valid_path);
-                    if(has_valid_path)
+                else
+                {
+                    if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,1)) //max global hops for minimal path == 1
                         valid_rails.push_back(injection_connections[i]);
                 }
             }
             else
             {
-                if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,max_global_hops))
-                    valid_rails.push_back(injection_connections[i]);
+                if (src_group_id == dest_group_id)
+                {
+                    if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,0))  //max global hops for local group routing == 0
+                        valid_rails.push_back(injection_connections[i]);
+                }
+                else
+                {
+                    if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,max_global_hops)) //max global hops for nonmin path == 2
+                        valid_rails.push_back(injection_connections[i]);
+                }
             }
         }
     }
