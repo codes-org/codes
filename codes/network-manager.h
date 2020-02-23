@@ -13,6 +13,10 @@
 #include <set>
 #include "codes/codes.h"
 #include "codes/model-net.h"
+#include <algorithm>
+#include <unordered_set>
+#include <unordered_map>
+
 
 
 using namespace std;
@@ -65,6 +69,82 @@ struct Connection
     int is_failed; //boolean value for whether or not the link is considered failed
     int rail_or_planar_id; //rail ID if coming to/from terminal, planar ID if router-router
     ConnectionType conn_type; //type of the connection: CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
+
+    bool operator==(const Connection &other) const
+    { return (     port == other.port
+                && src_lid == other.src_lid
+                && src_gid == other.src_gid
+                && src_group_id == other.src_group_id
+                && dest_lid == other.dest_lid
+                && dest_gid == other.dest_gid
+                && dest_group_id == other.dest_group_id
+                && is_failed == other.is_failed
+                && rail_or_planar_id == other.rail_or_planar_id
+                && conn_type == other.conn_type);
+    }
+};
+
+
+template<typename T>
+inline void hash_combine(std::size_t& seed, const T& val)
+{
+    std::hash<T> hasher;
+    seed ^= hasher(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+}
+
+namespace std {
+
+  template <>
+  struct hash<Connection>
+  {
+    std::size_t operator()(const Connection& k) const
+    {
+      using std::size_t;
+      using std::hash;
+
+      // Compute individual hash values for first,
+      // second and third and combine them using XOR
+      // and bit shifting:
+
+      return ((hash<int>()(k.port)
+               ^ (hash<int>()(k.src_gid) << 1)) >> 1)
+               ^ (hash<int>()(k.dest_gid) << 1)
+               ^ (hash<int>()(k.rail_or_planar_id) << 1);
+    }
+  };
+
+  template<>
+  struct hash<pair<int,int> >
+  {
+      std::size_t operator()(const pair<int,int>& k) const
+      {
+        using std::size_t;
+        using std::hash;
+
+        size_t seed = 0;
+        hash_combine(seed, k.first);
+        hash_combine(seed, k.second);
+        return seed;
+      }
+  };
+
+  template<>
+  struct hash<tuple<int,int,int,int> >
+  {
+      std::size_t operator()(const tuple<int,int,int,int>& k) const
+      {
+        using std::size_t;
+        using std::hash;
+
+        size_t seed = 0;
+        hash_combine(seed, get<0>(k));
+        hash_combine(seed, get<1>(k));
+        hash_combine(seed, get<2>(k));
+        hash_combine(seed, get<3>(k));
+        return seed;
+      }
+  };
+
 };
 
 inline bool operator<(const Connection& lhs, const Connection& rhs)
@@ -106,40 +186,47 @@ class NetworkManager {
     int _num_failed_router_conns;
     int _num_failed_router_terminal_conns;
 
+    // Connection* self_conn_ptr;
+
     map< int, vector<Link_Info> > _router_link_failure_lists; //maps router ID to a vector of Link Infos that contain dest router GIDs that it has a FAILED connection to, one item for each failed connection
     map< int, vector<Link_Info> > _router_terminal_link_failure_lists; //maps router ID to a vector of Link Infos that contain dest terminal GIDs that it has a FAILED connection to, one item for each failed connection
 
     //storage maps - these are the 'owners' of the connections contained.
-    map< int, vector< Connection* > > _router_connections_map; //maps router ID to a vector of all router-router connections that that router has
-    map< int, vector< Connection* > > _router_terminal_connections_map; //maps router ID to a vector of all terminal connections that that router has    
-    map< int, vector< Connection* > > _terminal_router_connections_map;
+    unordered_map< int, vector< Connection* > > _router_connections_map; //maps router ID to a vector of all router-router connections that that router has
+    unordered_map< int, vector< Connection* > > _router_terminal_connections_map; //maps router ID to a vector of all terminal connections that that router has    
+    unordered_map< int, vector< Connection* > > _terminal_router_connections_map;
 
     //useful maps - helpful ways of organizing the connection pointers stored above
-    map< int, vector<Connection*> > _router_to_router_global_conn_map;
-    map< int, vector<Connection*> > _router_to_router_local_conn_map;
-    map< pair<int,int>, vector< Connection* > > _router_to_router_connection_map; //maps pair(src_gid, dest_gid) to a vector of connection pointers that go from src gid to dest gid
-    map< pair<int,int>, vector< Connection* > > _router_to_terminal_connection_map; //maps pair(src_gid, dest_term_gid) to a vector of connection pointers taht go from src gid router to dest_term id
-    map< pair<int,int>, vector< Connection* > > _terminal_to_router_connection_map;
-    map< pair<int,int>, vector< Connection* > > _router_to_group_connection_map; //maps pair(src_gid, dest_group_id) to a vector of connections that go from src_gid to any router in the dest group
+    unordered_map< int, vector<Connection*> > _router_to_router_global_conn_map;
+    unordered_map< int, vector<Connection*> > _router_to_router_local_conn_map;
+    unordered_map< pair<int,int>, vector< Connection* > > _router_to_router_connection_map; //maps pair(src_gid, dest_gid) to a vector of connection pointers that go from src gid to dest gid
+    unordered_map< pair<int,int>, vector< Connection* > > _router_to_terminal_connection_map; //maps pair(src_gid, dest_term_gid) to a vector of connection pointers taht go from src gid router to dest_term id
+    unordered_map< pair<int,int>, vector< Connection* > > _terminal_to_router_connection_map;
+    unordered_map< pair<int,int>, vector< Connection* > > _router_to_group_connection_map; //maps pair(src_gid, dest_group_id) to a vector of connections that go from src_gid to any router in the dest group
     map< pair<int,int>, vector< Connection* > > _global_group_connection_map; //maps pair(src group id, dest group id) to a vector of connection pointers that match that pattern
 
     set<int> _router_ids_with_terminals;
-    map< tuple<int,int,int,int>, bool> _valid_connection_map; //memoization for whether a path that fits <src_gid,dest_gid,max_local_hops,max_global_hops> exists
-    map< tuple<int,int,int,int>, vector<set<int>> > _valid_path_map;
+    unordered_map< tuple<int,int,int,int>, bool> _valid_connection_map; //memoization for whether a path that fits <src_gid,dest_gid,max_local_hops,max_global_hops> exists
+    unordered_map< tuple<int,int,int,int>, unordered_set<int> > _valid_next_map;
+    unordered_map< tuple<int,int,int,int>, set<Connection> > _valid_next_conn_map;
 
     int*** adjacency_matrix; //total_routers x total_routers in size, 1 for if any connection exists 0 for if no connection exists
     int*** adjacency_matrix_nofail;
 
     int** _shortest_path_vals;
-    map<pair<int,int>, vector<int> > _shortest_path_nexts;
     int** _next;
+
+    map< pair<int,int>, vector<vector<int> > > _path_enumerator;
 
     vector< ConnectionManager > _connection_manager_list; //list of all connection managers in the network
     vector< ConnectionManager > _terminal_connection_manager_list; // list of all connection mangers for TERMINALS in the network
 
     bool _is_solidified;
 
+    unordered_map<pair<int,int>, vector<int> > _shortest_path_nexts;
+
 public:
+
     NetworkManager();
 
     NetworkManager(int total_routers, int total_terminals, int num_routers_per_group, int num_lc_per_router, int num_gc_per_router, int num_cn_conns_per_router, int num_rails, int num_planes, int max_local_hops, int max_global_hops);
@@ -164,15 +251,29 @@ public:
 
     int get_shortest_dist_between_routers(int src_gid, int dest_gid);
 
+    vector<int> get_shortest_nexts(int src_gid, int dest_gid);
+
     void DFS_rec_helper(int v, bool visited[]);
 
     void DFS(int v);
 
-    bool is_valid_path_between_bfs(int src_gid, int dest_gid, int max_local, int max_global);
+    // unordered_set<int> get_valid_next_hops(int src_gid, int dest_gid, int max_local, int exact_global);
+    // unordered_set<int> get_valid_next_hops(int src_gid, int dest_gid, int max_local, int exact_global, unordered_set<int> visited);
+    set<Connection> get_valid_next_hops_conns(int src_gid, int dest_gid, int max_local, int exact_global);
 
-    bool is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global, set<int>visited);
+    // bool is_valid_path_between_bfs(int src_gid, int dest_gid, int max_local, int max_global);
 
-    bool is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global);
+    // bool is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global, set<int>visited);
+
+    // bool is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global);
+
+    // bool enumerate_all_valid_paths(int src_gid, int dest_gid, int max_local, int max_global, set<int>visited, vector<int> path);
+
+    // bool enumerate_all_valid_paths(int src_gid, int dest_gid, int max_local, int max_global);
+
+    int get_max_local_hops();
+    
+    int get_max_global_hops();
 
     void add_conns_to_connection_managers();
 
@@ -200,6 +301,7 @@ class ConnectionManager {
 
     // includes failed connections
     map< int, vector< Connection > > intraGroupConnections; //direct connections within a group - IDs are group local - maps local id to list of connections to it
+    map< int, vector< Connection > > intraGroupConnectionsGID; //direct connections within a group - IDs are global IDs
     map< int, vector< Connection > > globalConnections; //direct connections between routers not in same group - IDs are global router IDs - maps global id to list of connections to it
     map< int, vector< Connection > > terminalConnections; //direct connections between this router and its compute node terminals - maps terminal id to connections to it
     map< int, vector< Connection > > injectionConnections; //this is specific for terminal origins, maps a router ID to connections to it
@@ -213,17 +315,19 @@ class ConnectionManager {
 
     // doesn't include failed connections - these are copies with the failed links removed for optimized getter performance
     map< int, vector< Connection > > intraGroupConnections_nofail;
+    map< int, vector< Connection > > intraGroupConnectionsGID_nofail;
     map< int, vector< Connection > > globalConnections_nofail;
     map< int, vector< Connection > > terminalConnections_nofail;
     map< int, vector< Connection > > injectionConnections_nofail;
 
     map< int, vector< Connection > > _connections_to_groups_map_nofail;
     vector< int > _other_groups_i_connect_to_nofail;
+    vector< int > _accessible_group_ids_nofail; //group IDs that this router can reach directly or with one intermediate router hop within its local group
     map< int, vector< Connection > > _all_conns_by_type_map_nofail;
     map< int, vector< Connection > > _routed_connections_to_group_map_nofail; //maps group ID to connections within local group that go to specified group
     map< int, vector<int> > _routed_router_gids_to_group_map_nofail; //maps group ID to a vector of Router GIDs within current group that have a connection to the group ID
     map< int, vector<int> > _group_group_connection_map_nofail;
-
+    
 
     // other information
     int _source_id_local; //local id (within group) of owner of this connection manager
@@ -279,6 +383,8 @@ public:
     vector< Connection > get_routed_connections_to_group(int group_id, bool force_next_hop, bool include_failed);
 
     vector< Connection > get_routed_connections_to_group(int group_id, bool force_next_hop);
+
+    vector< int > get_accessible_group_ids();
 
     vector< int > get_router_gids_with_global_to_group(int group_id);
 
@@ -466,6 +572,25 @@ public:
      */
     void print_connections();
 };
+
+
+
+//functor class for filtering a vector of connections
+// class IsPathInvalid
+// {
+//     NetworkManager *netMan;
+//     int fdest_router_id;
+//     int available_local_hops_per_group;
+//     int available_global_hops;
+
+//     public:
+//         IsPathInvalid(NetworkManager *net, int final_dest_router_id, int local_hops_per_group, int global_hops);
+
+//         bool operator()(Connection conn) const;
+
+//         static vector<Connection>::iterator erase_where(vector<Connection> conns, IsPathInvalid&& f);
+
+// };
 
 //implementation found in util/network-manager.C
 
