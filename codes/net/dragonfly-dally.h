@@ -47,6 +47,7 @@ struct terminal_dally_message
   /* number of hops traversed by the packet */
   short my_N_hop;
   short my_l_hop, my_g_hop;
+  short my_hops_cur_group;
   short saved_channel;
   short saved_vc;
 
