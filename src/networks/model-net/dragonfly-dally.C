@@ -5471,6 +5471,7 @@ static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf
 
         return possible_next_dests;
     }
+    return possible_next_dests;
 }
 
 //when using this function, you should assume that the self router is NOT the destination. That should be handled elsewhere.
