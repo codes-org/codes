@@ -29,6 +29,7 @@
 #include <vector>
 #include <map>
 #include <set>
+#include <algorithm>
 
 #include "codes/network-manager.h"
 
@@ -70,7 +71,9 @@ static int min_gvc_src_g = 0;
 static int min_gvc_intm_g = 1;
 
 static int max_hops_per_group = 1;
-static int max_global_hops = 2;
+static int max_global_hops_nonminimal = 2;
+static int max_global_hops_minimal = 1;
+
 
 static tw_stime max_qos_monitor = 5000000000;
 static long num_local_packets_sr = 0;
@@ -336,6 +339,8 @@ enum ROUTING_ALGO
     ADAPTIVE,
     PROG_ADAPTIVE,
     PROG_ADAPTIVE_LEGACY,
+    SMART_MINIMAL,
+    SMART_NON_MINIMAL,
     SMART_PROG_ADAPTIVE
 };
 
@@ -370,6 +375,12 @@ static char* get_routing_alg_chararray(int routing_alg_int)
         case SMART_PROG_ADAPTIVE:
             strcpy(rt_alg, "SMART_PROG_ADAPTIVE");
         break;
+        case SMART_MINIMAL:
+            strcpy(rt_alg, "SMART_MINIMAL");
+        break;
+        case SMART_NON_MINIMAL:
+            strcpy(rt_alg, "SMART_NON_MINIMAL");
+        break;
         default:
             tw_error(TW_LOC, "Routing Algorithm is UNDEFINED - did you call get_routing_alg_string() before setting the static global variable: 'routing'?");
         break;
@@ -385,9 +396,17 @@ static bool isRoutingAdaptive(int alg)
         return false;
 }
 
+static bool isRoutingSmart(int alg)
+{
+    if (alg == SMART_MINIMAL || alg == SMART_PROG_ADAPTIVE || alg == SMART_NON_MINIMAL)
+        return true;
+    else
+        return false;    
+}
+
 static bool isRoutingMinimal(int alg)
 {
-    if (alg == MINIMAL)
+    if (alg == MINIMAL || alg == SMART_MINIMAL)
         return true;
     else
         return false;
@@ -1051,11 +1070,13 @@ static Connection dfdally_prog_adaptive_routing(router_state *s, tw_bf *bf, term
 static Connection dfdally_prog_adaptive_legacy_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id);
 static Connection dfdally_smart_minimal_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id);
 static Connection dfdally_smart_prog_adaptive_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id);
+static Connection dfdally_smart_minimal_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id);
+static Connection dfdally_smart_nonminimal_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id);
 
 /*Routing Helper Declarations*/
 static void dfdally_select_intermediate_group(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id);
 static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id);
-
+static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id, int max_global_hops_in_path);
 
 static tw_stime         dragonfly_total_time = 0;
 static tw_stime         dragonfly_max_latency = 0;
@@ -1239,6 +1260,79 @@ static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf
     
     msg->num_rngs++;
     return best_conns[tw_rand_integer(lp->rng, 0, best_conns.size()-1)];
+}
+
+//Now returns random selection from tied best connections.
+static Connection get_absolute_best_connection_from_conn_set(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, set< Connection > conns)
+{
+    if (conns.size() == 0) { //passed no connections to this but we got to return something - return negative filled conn to force a break if not caught
+        Connection bad_conn;
+        bad_conn.src_gid = -1;
+        bad_conn.port = -1;
+        return bad_conn;
+    }
+    if (conns.size() == 1) { //no need to compare singular connection
+        return (*(conns.begin()));
+    }
+
+    int num_to_compare = conns.size();
+    int scores[num_to_compare];
+    vector < Connection > best_conns;
+    int best_score = INT_MAX;
+
+    set<Connection>::iterator it;
+    int count = 0;
+    for(it = conns.begin(); it != conns.end(); it++)
+    {
+        scores[count] = dfdally_score_connection(s, bf, msg, lp, *it, C_MIN);
+        if (scores[count] < best_score) {
+            best_score = scores[count];
+            best_conns.clear();
+            best_conns.push_back(*it);
+        }
+        else if (scores[count] == best_score)
+        {
+            best_conns.push_back(*it);
+        }
+        count++;
+
+    }
+
+    assert(best_conns.size() > 0);
+    
+    msg->num_rngs++;
+    return best_conns[tw_rand_integer(lp->rng, 0, best_conns.size()-1)];
+}
+
+// note that this is somewhat expensive the larger k is in comparison to the total possible
+// consider an optimization to implement an efficient shuffle to poll k random sampling instead
+// consider an optimization for the default of 2
+static Connection dfdally_get_best_from_k_connection_set(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, set< Connection > conns, int k)
+{
+    if (conns.size() == 0)
+    {
+        Connection bad_conn;
+        bad_conn.src_gid = -1;
+        bad_conn.port = -1;
+        return bad_conn;
+    }
+    if (conns.size() == 1)
+    {
+        return *(conns.begin());
+    }
+
+    vector<Connection> k_conns;
+    set<Connection>::iterator it = conns.begin();
+    for(int i = 0; i < k; i++)
+    {
+        int offset = tw_rand_integer(lp->rng, 0, conns.size()-1);
+        msg->num_rngs++;
+        advance(it, offset);
+        k_conns.push_back(*it);
+        conns.erase(it);
+        it = conns.begin();
+    }
+    return get_absolute_best_connection_from_conns(s, bf, msg, lp, k_conns);
 }
 
 // This is not the most efficient way to do things as k approaches the size(conns).
@@ -1581,6 +1675,10 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
 	    routing = PROG_ADAPTIVE_LEGACY;
     else if (strcmp(routing_str, "smart-prog-adaptive") == 0)
         routing = SMART_PROG_ADAPTIVE;
+    else if (strcmp(routing_str, "smart-minimal") == 0)
+        routing = SMART_MINIMAL;
+    else if (strcmp(routing_str, "smart-nonminimal") == 0)
+        routing = SMART_NON_MINIMAL;
     else
     {
         if(!myRank)
@@ -1701,7 +1799,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     p->num_routers_per_plane = p->total_routers / p->num_planes;
 
     //Setup NetworkManager
-    netMan = NetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->num_global_channels, p->cn_radix, p->num_rails, p->num_planes, max_hops_per_group, max_global_hops);
+    netMan = NetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->num_global_channels, p->cn_radix, p->num_rails, p->num_planes, max_hops_per_group, max_global_hops_nonminimal);
 
     // //setup Connection Managers for each router
     // for(int i = 0; i < p->total_routers; i++)
@@ -2907,15 +3005,17 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
             int src_group_id = src_router_id / s->params->num_routers;
             int dest_group_id = dest_router_id / s->params->num_routers;
 
-            if (routing == MINIMAL) {
+            if (isRoutingMinimal(routing)) {
                 if (src_group_id == dest_group_id)
                 {
-                    if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,0)) //max global hops for local group routing == 0
+                    set<Connection> valid_next_stops = netMan.get_valid_next_hops_conns(src_router_id, dest_router_id, max_hops_per_group,0); //max global hops for local group routing == 0
+                    if (valid_next_stops.size() > 0)
                         valid_rails.push_back(injection_connections[i]);
                 }
                 else
                 {
-                    if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,1)) //max global hops for minimal path == 1
+                    set<Connection> valid_next_stops = netMan.get_valid_next_hops_conns(src_router_id, dest_router_id, max_hops_per_group,1); //max global hops for local group routing == 0
+                    if (valid_next_stops.size() > 0)
                         valid_rails.push_back(injection_connections[i]);
                 }
             }
@@ -2923,16 +3023,21 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
             {
                 if (src_group_id == dest_group_id)
                 {
-                    if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,0))  //max global hops for local group routing == 0
+                    set<Connection> valid_next_stops = netMan.get_valid_next_hops_conns(src_router_id, dest_router_id, max_hops_per_group,0); //max global hops for local group routing == 0
+                    if (valid_next_stops.size() > 0)
                         valid_rails.push_back(injection_connections[i]);
                 }
                 else
                 {
-                    if (netMan.is_valid_path_between(src_router_id, dest_router_id, max_hops_per_group,max_global_hops)) //max global hops for nonmin path == 2
+                    set<Connection> valid_next_stops = netMan.get_valid_next_hops_conns(src_router_id, dest_router_id, max_hops_per_group,max_global_hops_nonminimal); //max global hops for local group routing == 0
+                    if (valid_next_stops.size() > 0)
                         valid_rails.push_back(injection_connections[i]);
                 }
             }
         }
+        if (valid_rails.size() < 1)
+            tw_error(TW_LOC,"Invalid Connections in Network due to link failures!\n");
+            // valid_rails = injection_connections; //TODO will cause problems - deal with
     }
     else {
         valid_rails = injection_connections;
@@ -3067,6 +3172,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     msg->my_N_hop = 0;
     msg->my_l_hop = 0;
     msg->my_g_hop = 0;
+    msg->my_hops_cur_group = 0;
 
 
     //qos stuff
@@ -3561,6 +3667,15 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
 /* packet arrives at the destination terminal */
 static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) 
 {
+    if(isRoutingMinimal(routing) && msg->my_N_hop > 4)
+    {
+        printf("TERMINAL RECEIVED A NONMINIMAL LENGTH PACKET\n");
+    }
+    if(isRoutingMinimal(routing) && msg->my_g_hop > 1)
+    {
+        printf("TERMINAL RECEIVED A DOUBLE GLOBAL HOP PACKET\n");
+    }
+    // printf("%d\n",msg->my_g_hop);
 
     if (msg->my_N_hop > s->params->max_hops_notify)
     {
@@ -4029,69 +4144,56 @@ static Connection do_dfdally_routing(router_state *s, tw_bf *bf, terminal_dally_
     int fdest_group_id = fdest_router_id / s->params->num_routers;
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
     
-    // Legacy progressive adaptive routing has its own ways of doing this. These should probably be moved
-    // into their own function as "default behavior" that is then called when needed by the other routing
-    // functions individually.
-    // If link failures are enabled, then this default local destination group routing can't be considered valid
-    // as it assumes full connectivity in the local groups.
-    // TODO: put the local destination group routing into its own function for "default" behavior.
-    // if (routing != PROG_ADAPTIVE_LEGACY && !netMan.is_link_failures_enabled()) //for now when intra and interconnections aren't allowed to be failed, this is OK.
-    if (routing != PROG_ADAPTIVE_LEGACY)
+
+    if (!isRoutingSmart(routing))
     {
-        // // Local Destination Group Routing --------------
-        if (my_router_id == fdest_router_id) { //destination router reached, next dest = final terminal destination
-            vector< Connection > poss_next_stops = s->connMan.get_connections_to_gid(msg->dfdally_dest_terminal_id, CONN_TERMINAL);
-            if (poss_next_stops.size() < 1)
-                tw_error(TW_LOC, "Destination Router %d: No connection to destination terminal %d\n", s->router_id, msg->dfdally_dest_terminal_id); //shouldn't happen unless math was wrong
-            //Not exactly sure why I did this //TODO Address
-            // if (poss_next_stops.size() > 1)
-            // {
-            //     vector< Connection > conns_on_rail;
-            //     for(int i = 0; i < poss_next_stops.size(); i++)
-            //     {
-            //         if(poss_next_stops[i].rail_or_planar_id == msg->rail_id)
-            //             conns_on_rail.push_back(poss_next_stops[i]);
-            //     }
-            //     if(conns_on_rail.size() < 1)
-            //         tw_error(TW_LOC, "Destination Router %d: No connection to destination terminal %d on specified rail %d\n",s->router_id, msg->dfdally_dest_terminal_id, msg->rail_id);
-
-            //     Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, conns_on_rail);
-            //     return best_min_conn;
-            // }
-            // else
-            //     return poss_next_stops[0];
-            
-        Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
-        return best_min_conn;
-        }
-        else if (my_group_id == fdest_group_id) { //Then we're already in the destination group and should just route to the fdest router
-            vector< Connection > conns_to_fdest = s->connMan.get_connections_to_gid(fdest_router_id, CONN_LOCAL);
-            if (conns_to_fdest.size() < 1)
-            {
-                vector< Connection > poss_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
-                if(poss_next_stops.size() < 1)
-                    tw_error(TW_LOC, "Destination Group %d: No connection to destination router %d\n", s->router_id, fdest_router_id); //shouldn't happen unless the connections weren't set up / loaded correctly
-                conns_to_fdest = poss_next_stops;
-            }
-                
-
-            if (isRoutingAdaptive(routing)) { // Pick the best connection
-                Connection best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, conns_to_fdest);
-                return best_conn;
-            }
-            else { //Randomize the next legal stop
-                msg->num_rngs++;
-                int rand_sel = tw_rand_integer(lp->rng, 0, conns_to_fdest.size()-1);
-                Connection next_conn = conns_to_fdest[rand_sel];
-                return next_conn;
-            }
-        }
-        // // End Local Destination Group Routing -------------
-
-        if(msg->last_hop == TERMINAL) //This is used by dfdally_nonminimal_routing and dfdally_prog_adaptive_routing
+        // Legacy progressive adaptive routing has its own ways of doing this. These should probably be moved
+        // into their own function as "default behavior" that is then called when needed by the other routing
+        // functions individually.
+        // If link failures are enabled, then this default local destination group routing can't be considered valid
+        // as it assumes full connectivity in the local groups.
+        // TODO: put the local destination group routing into its own function for "default" behavior.
+        // if (routing != PROG_ADAPTIVE_LEGACY && !netMan.is_link_failures_enabled()) //for now when intra and interconnections aren't allowed to be failed, this is OK.
+        if (routing != PROG_ADAPTIVE_LEGACY)
         {
-            if (msg->intm_grp_id == -1)
-                dfdally_select_intermediate_group(s, bf, msg, lp, fdest_router_id);
+            // // Local Destination Group Routing --------------
+            if (my_router_id == fdest_router_id) { //destination router reached, next dest = final terminal destination
+                vector< Connection > poss_next_stops = s->connMan.get_connections_to_gid(msg->dfdally_dest_terminal_id, CONN_TERMINAL);
+                if (poss_next_stops.size() < 1)
+                    tw_error(TW_LOC, "Destination Router %d: No connection to destination terminal %d\n", s->router_id, msg->dfdally_dest_terminal_id); //shouldn't happen unless math was wrong
+                
+                Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+                return best_min_conn;
+            }
+            else if (my_group_id == fdest_group_id) { //Then we're already in the destination group and should just route to the fdest router
+                vector< Connection > conns_to_fdest = s->connMan.get_connections_to_gid(fdest_router_id, CONN_LOCAL);
+                if (conns_to_fdest.size() < 1)
+                {
+                    vector< Connection > poss_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
+                    if(poss_next_stops.size() < 1)
+                        tw_error(TW_LOC, "Destination Group %d: No connection to destination router %d\n", s->router_id, fdest_router_id); //shouldn't happen unless the connections weren't set up / loaded correctly
+                    conns_to_fdest = poss_next_stops;
+                }
+                    
+
+                if (isRoutingAdaptive(routing)) { // Pick the best connection
+                    Connection best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, conns_to_fdest);
+                    return best_conn;
+                }
+                else { //Randomize the next legal stop
+                    msg->num_rngs++;
+                    int rand_sel = tw_rand_integer(lp->rng, 0, conns_to_fdest.size()-1);
+                    Connection next_conn = conns_to_fdest[rand_sel];
+                    return next_conn;
+                }
+            }
+            // // End Local Destination Group Routing -------------
+
+            if(msg->last_hop == TERMINAL) //This is used by dfdally_nonminimal_routing and dfdally_prog_adaptive_routing
+            {
+                if (msg->intm_grp_id == -1)
+                    dfdally_select_intermediate_group(s, bf, msg, lp, fdest_router_id);
+            }
         }
     }
 
@@ -4116,6 +4218,12 @@ static Connection do_dfdally_routing(router_state *s, tw_bf *bf, terminal_dally_
             break;
         case SMART_PROG_ADAPTIVE:
             next_stop_conn = dfdally_smart_prog_adaptive_routing(s, bf, msg, lp, fdest_router_id);
+            break;
+        case SMART_MINIMAL:
+            next_stop_conn = dfdally_smart_minimal_routing(s, bf, msg, lp, fdest_router_id);
+            break;
+        case SMART_NON_MINIMAL:
+            next_stop_conn = dfdally_smart_nonminimal_routing(s, bf, msg, lp, fdest_router_id);
             break;
         default:
             tw_error(TW_LOC, "Error: No valid routing algorithm specified");
@@ -4372,12 +4480,14 @@ static void router_packet_receive( router_state * s,
  
         max_vc_size = s->params->local_vc_size;
         cur_chunk->msg.my_l_hop++;
+        cur_chunk->msg.my_hops_cur_group++;
     } 
     else if(output_port < (s->params->intra_grp_radix + 
         s->params->num_global_channels)) 
     {
         output_chan = cur_chunk->msg.my_g_hop;
         max_vc_size = s->params->global_vc_size;
+        cur_chunk->msg.my_hops_cur_group = 0; //reset this as it's going to a new group
         cur_chunk->msg.my_g_hop++;
     }
         
@@ -5091,23 +5201,39 @@ static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, 
         assert(my_group_id == fdest_group_id);
         assert(my_router_id != fdest_router_id); //this should be handled outside of this function
 
-        if(netMan.is_link_failures_enabled()) {
-            vector<Connection> conns = s->connMan.get_connections_by_type(CONN_LOCAL);
-            vector<Connection> good_conns;
-            for(int i = 0; i < conns.size(); i++)
-            {
-                int next_src_gid = conns[i].dest_gid;
-                if(netMan.get_connection_manager_for_router(next_src_gid).is_any_connection_to(fdest_router_id))
-                    good_conns.push_back(conns[i]);
-            }
-            return good_conns;
-        }
+        // if(netMan.is_link_failures_enabled()) {
+        //     vector<Connection> conns = s->connMan.get_connections_by_type(CONN_LOCAL);
+        //     vector<Connection> good_conns;
+        //     for(int i = 0; i < conns.size(); i++)
+        //     {
+        //         int next_src_gid = conns[i].dest_gid;
+        //         if(netMan.get_connection_manager_for_router(next_src_gid).is_any_connection_to(fdest_router_id))
+        //             good_conns.push_back(conns[i]);
+        //     }
+        //     return good_conns;
+        // }
 
         vector< Connection > conns_to_fdest_router = s->connMan.get_connections_to_gid(fdest_router_id, CONN_LOCAL);
         return conns_to_fdest_router;
     }
 }
 
+// //when using this function, you should assume that the self router is NOT the destination. That should be handled elsewhere.
+// static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
+// {
+//     vector<int> poss_nexts = netMan._shortest_path_nexts[make_pair(s->router_id,fdest_router_id)];
+//     vector<Connection> possible_conns;
+//     vector<int>::iterator set_it = poss_nexts.begin();
+//     for(; set_it != poss_nexts.end(); set_it++)
+//     {
+//         vector<Connection> global_conns = s->connMan.get_connections_to_gid(*set_it, CONN_GLOBAL);
+//         vector<Connection> local_conns = s->connMan.get_connections_to_gid(*set_it, CONN_LOCAL);
+
+//         possible_conns.insert(possible_conns.end(),global_conns.begin(),global_conns.end());
+//         possible_conns.insert(possible_conns.end(),local_conns.begin(),local_conns.end());
+//     }
+//     return possible_conns;
+// }
 //Note that this is different than Dragonfly Plus's implementation, this isn't the converse of minimal, these are any
 //connections that could lead to the intermediate group or a new one if necessary
 static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
@@ -5121,7 +5247,6 @@ static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *b
 
     if (my_group_id == origin_group_id) {
         vector< Connection > conns_to_intm_group = s->connMan.get_connections_to_group(preset_intm_group_id);
-
         //are we the originating router
         if (my_router_id == msg->origin_router_id) { //then we are able to route within our own group if necessary
             // Do we have direct connection to intermediate group?
@@ -5177,17 +5302,17 @@ static Connection dfdally_minimal_routing(router_state *s, tw_bf *bf, terminal_d
     if (poss_next_stops.size() < 1)
         tw_error(TW_LOC, "%d group %d: MINIMAL DEAD END to %d in group %d - (s%d -> d%d)\n", s->router_id, s->group_id, fdest_router_id, fdest_router_id / s->params->num_routers, msg->origin_router_id, fdest_router_id);
 
-    ConnectionType conn_type = poss_next_stops[0].conn_type; //TODO this assumes that all possible next stops are of same type - OK for now, but remember this
-    if (conn_type == CONN_GLOBAL) { //TOOD should we really only randomize global and not local? should we really do light adaptive for nonglobal?
+    // ConnectionType conn_type = poss_next_stops[0].conn_type; //TODO this assumes that all possible next stops are of same type - OK for now, but remember this
+    // if (conn_type == CONN_GLOBAL) { //TOOD should we really only randomize global and not local? should we really do light adaptive for nonglobal?
         msg->num_rngs++;
         int rand_sel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() - 1);
         return poss_next_stops[rand_sel];
-    }
-    else
-    {
-        Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
-        return best_min_conn;
-    }
+    // }
+    // else
+    // {
+    //     Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+    //     return best_min_conn;
+    // }
 }
 
 // Coloquially: "Valiant Group Routing"
@@ -5309,139 +5434,139 @@ static Connection dfdally_prog_adaptive_routing(router_state *s, tw_bf *bf, term
 
 
 //when using this function, you should assume that the self router is NOT the destination. That should be handled elsewhere.
-static vector< Connection > get_smart_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
+static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id, int max_global_hops_in_path)
+{
+    vector<int> shortest_path_next_gids = netMan.get_shortest_nexts(s->router_id, fdest_router_id);
+    set<Connection> possible_next_dests;
+    for(vector<int>::iterator it = shortest_path_next_gids.begin(); it != shortest_path_next_gids.end(); it++)
+    {   
+        vector<Connection> local_conns;
+        vector<Connection> global_conns;
+        if(msg->my_hops_cur_group < max_hops_per_group)
+            local_conns = s->connMan.get_connections_to_gid(*it,CONN_LOCAL);
+        if(msg->my_g_hop < max_global_hops_in_path)
+            global_conns = s->connMan.get_connections_to_gid(*it,CONN_GLOBAL);
+        
+        vector<Connection>::iterator it2;
+        for(it2 = local_conns.begin(); it2 != local_conns.end(); it2++)
+        {
+            if (netMan.get_valid_next_hops_conns(it2->dest_gid,fdest_router_id,(max_hops_per_group-(msg->my_hops_cur_group+1)), (max_global_hops_in_path-msg->my_g_hop)).size())
+                possible_next_dests.insert(*it2);
+        }
+        for(it2 = global_conns.begin(); it2 != global_conns.end(); it2++)
+        {
+            if (netMan.get_valid_next_hops_conns(it2->dest_gid,fdest_router_id,(max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_in_path-(msg->my_g_hop+1))).size())
+                possible_next_dests.insert(*it2);
+        }
+    }
+    if (possible_next_dests.size() < 1)
+    {
+        if(s->group_id == fdest_router_id / s->params->num_routers)
+        {
+            possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
+        }
+        else {
+            possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_in_path-msg->my_g_hop));
+        }
+
+        return possible_next_dests;
+    }
+    return possible_next_dests;
+}
+
+//when using this function, you should assume that the self router is NOT the destination. That should be handled elsewhere.
+static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
+{
+    return get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id, max_global_hops_minimal);
+}
+
+static set<Connection> get_smart_legal_nonminimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
+{
+    set<Connection> possible_next_dests;
+    if(s->group_id == fdest_router_id / s->params->num_routers)
+    {
+        possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
+    }
+    else {
+        possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_nonminimal-msg->my_g_hop));
+    }
+
+    return possible_next_dests;
+}
+
+static Connection dfdally_smart_minimal_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
 {
     int my_router_id = s->router_id;
     int my_group_id = s->group_id;
-    int origin_group_id = msg->origin_router_id / s->params->num_routers;
     int fdest_group_id = fdest_router_id / s->params->num_routers;
+    int origin_group_id = msg->origin_router_id / s->params->num_routers;
 
-    if(my_group_id != fdest_group_id)
+    if(s->router_id == fdest_router_id)
     {
-         //then we need to see if we have a legal connection to the destination group
-        vector< Connection > conns_to_dest_group = s->connMan.get_connections_to_group(fdest_group_id);
-        if (conns_to_dest_group.size() > 0) { //then we have a direct connection to dest group
-            return conns_to_dest_group; // --------- return direct connection
-        }
-        else
-        {
-            //then we need to check if anyone in our group has a connection to the dest group (but only if this router has a connection to one of those routers)
-            vector< Connection > conns_to_router_from_this_group_out =  s->connMan.get_routed_connections_to_group(fdest_group_id, true); //list of connections that I have that go to a router in my group that go to dest group
-            
-            // commented out - this would violate VC rules, can only spend one hop inside of a local group
-            // if (conns_to_router_from_this_group_out.size() < 1)
-            // {
-            //     msg->minimal_intermediate_flag = 1;
-            //     vector<int> groups_that_go_to_dest_group = s->connMan.get_groups_that_connect_to_group(fdest_group_id);
-            //     //first check if I have any direct connections to these groups
-            //     for(int i = 0; i < groups_that_go_to_dest_group.size(); i++)
-            //     {
-            //         int intermediate_group_id = groups_that_go_to_dest_group[i];
-            //         vector< Connection > direct_conns = s->connMan.get_connections_to_group(intermediate_group_id);
-            //         if(direct_conns.size() > 0)
-            //             conns_to_router_from_this_group_out.insert(conns_to_router_from_this_group_out.end(),direct_conns.begin(),direct_conns.end());
-            //     }
-            //     //if it's still empty, then we need to route within our group to the intermediate group
-            //     if(conns_to_router_from_this_group_out.size() < 1)
-            //     {
-            //         for(int i = 0; i < groups_that_go_to_dest_group.size(); i++)
-            //         {
-            //             int intermediate_group_id = groups_that_go_to_dest_group[i];
-            //             vector< Connection > intm_conns = s->connMan.get_routed_connections_to_group(intermediate_group_id, true);
-            //             if(intm_conns.size() > 0)
-            //                 conns_to_router_from_this_group_out.insert(conns_to_router_from_this_group_out.end(),intm_conns.begin(),intm_conns.end());
-            //         }
-            //     }             
-            // }
-            return conns_to_router_from_this_group_out;
-        }
+        vector< Connection > poss_next_stops = s->connMan.get_connections_to_gid(msg->dfdally_dest_terminal_id, CONN_TERMINAL);
+            if (poss_next_stops.size() < 1)
+                tw_error(TW_LOC, "Destination Router %d: No connection to destination terminal %d\n", s->router_id, msg->dfdally_dest_terminal_id); //shouldn't happen unless math was wrong
+        Connection best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+        return best_conn;
     }
+    //do i have a direct connection to fdest by any chance?
+    vector<Connection> direct_conns;
+    if(my_group_id != fdest_group_id)
+        direct_conns = s->connMan.get_connections_to_gid(fdest_router_id,CONN_GLOBAL);
+    else
+        direct_conns = s->connMan.get_connections_to_gid(fdest_router_id,CONN_LOCAL);
+    if (direct_conns.size() > 0) {
+        msg->num_rngs++;
+        int offset = tw_rand_integer(lp->rng,0,direct_conns.size()-1);
+        return direct_conns[offset];
+    }
+    else
+    {
+        set<Connection> possible_conns = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
+
+        if (possible_conns.size() < 1)
+            tw_error(TW_LOC, "Smart Routing: Pathfinder messed up\n");
+
+
+        msg->num_rngs++;
+        int offset = tw_rand_integer(lp->rng,0,possible_conns.size()-1);
+        set<Connection>::iterator it = possible_conns.begin();
+        advance(it, offset);
+        return *(it);
+    }    
 }
 
-// //Note that this is different than Dragonfly Plus's implementation, this isn't the converse of minimal, these are any
-// //connections that could lead to the intermediate group or a new one if necessary
-// static vector< Connection > get_smart_legal_nonminimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
-// {
-//     int my_router_id = s->router_id;
-//     int my_group_id = s->group_id;
-//     int origin_group_id = msg->origin_router_id / s->params->num_routers;
-//     int fdest_group_id = fdest_router_id / s->params->num_routers;
-//     bool in_intermediate_group = (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
-//     int preset_intm_group_id = msg->intm_grp_id;
+static Connection dfdally_smart_nonminimal_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
+{
+    int my_router_id = s->router_id;
+    int my_group_id = s->group_id;
+    int fdest_group_id = fdest_router_id / s->params->num_routers;
+    int origin_group_id = msg->origin_router_id / s->params->num_routers;
 
-//     if (my_group_id == origin_group_id) {
-//         vector< Connection > conns_to_intm_group = s->connMan.get_connections_to_group(preset_intm_group_id);
+    if(s->router_id == fdest_router_id)
+    {
+        vector< Connection > poss_next_stops = s->connMan.get_connections_to_gid(msg->dfdally_dest_terminal_id, CONN_TERMINAL);
+            if (poss_next_stops.size() < 1)
+                tw_error(TW_LOC, "Destination Router %d: No connection to destination terminal %d\n", s->router_id, msg->dfdally_dest_terminal_id); //shouldn't happen unless math was wrong
+        Connection best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+        return best_conn;
+    }
+    
+    if (my_group_id != origin_group_id && my_group_id != fdest_group_id)
+        msg->path_type = NON_MINIMAL;
+        
+    set<Connection> possible_conns = get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
 
-//         //are we the originating router
-//         if (my_router_id == msg->origin_router_id) { //then we are able to route within our own group if necessary
-//             // Do we have direct connection to intermediate group?
-//             if (conns_to_intm_group.size() > 0) { //yes
-//                 return conns_to_intm_group;
-//             }
-//             else { //no - route within group to router that DOES have a connection to intm group
-//                 vector<int> connecting_router_ids = connectionList[my_group_id][preset_intm_group_id];
-//                 vector< Connection > conns_to_connecting_routers;
-//                 for (int i = 0; i < connecting_router_ids.size(); i++)
-//                 {
-//                     int poss_router_id = connecting_router_ids[i];
-//                     vector< Connection > candidate_conns = s->connMan.get_connections_to_gid(poss_router_id, CONN_LOCAL);
-//                     conns_to_connecting_routers.insert(conns_to_connecting_routers.end(), candidate_conns.begin(), candidate_conns.end());
-//                 }
-//                 return conns_to_connecting_routers;
-//             }
-//         }
-//         else { //then we can't afford to reroute within our group, we must route to the int group if possible - pick a new one if not
-//             if (conns_to_intm_group.size() > 0) {
-//                 return conns_to_intm_group; //route there directly
-//             }
-//             else { //pick a new one!
-//                 dfdally_select_intermediate_group(s, bf, msg, lp, fdest_router_id);
-//                 conns_to_intm_group = s->connMan.get_connections_to_group(msg->intm_grp_id); //new intm group id
-//                 return conns_to_intm_group;
-//             }
-//         }
-//     }
-//     else if (in_intermediate_group) {
-//         //if we're in the intermediate group then we're just going to default to routing minimally, return an empty vector.
-//         vector< Connection > empty;
-//         return empty;
-//     }
-//     else if (my_group_id == fdest_group_id)
-//     {
-//         //same as intermediate, force minimal choices
-//         vector< Connection > empty;
-//         return empty;
-//     }
-//     else
-//     {
-//         tw_error(TW_LOC, "Invalid group somehow: not origin, not intermediate, and not fdest group\n");
-//         vector< Connection > empty;
-//         return empty;
-//     }
-// }
+    if (possible_conns.size() < 1)
+        tw_error(TW_LOC, "Smart Routing: Pathfinder messed up\n");
 
-// static Connection dfdally_smart_minimal_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
-// {
-//     vector< Connection > poss_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
-//     if (poss_next_stops.size() < 1)
-//         tw_error(TW_LOC, "Smart MINIMAL DEAD END\n");
+    msg->num_rngs++;
+    int offset = tw_rand_integer(lp->rng,0,possible_conns.size()-1);
+    set<Connection>::iterator it = possible_conns.begin();
+    advance(it, offset);
+    return *(it);
+}
 
-//     ConnectionType conn_type = poss_next_stops[0].conn_type; //TODO this assumes that all possible next stops are of same type - OK for now, but remember this
-//     if (conn_type == CONN_GLOBAL) { //TOOD should we really only randomize global and not local? should we really do light adaptive for nonglobal?
-//         msg->num_rngs++;
-//         int rand_sel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() - 1);
-//         msg->intm_grp_id = poss_next_stops[rand_sel].dest_group_id;
-//         return poss_next_stops[rand_sel];
-//     }
-//     else
-//     {
-//         Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
-//         msg->intm_grp_id = best_min_conn.dest_group_id;
-//         return best_min_conn;
-//     }
-// }
-
-//not working - was designed to be wary of failed links
 static Connection dfdally_smart_prog_adaptive_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
 {
     int my_router_id = s->router_id;
@@ -5449,57 +5574,56 @@ static Connection dfdally_smart_prog_adaptive_routing(router_state *s, tw_bf *bf
     int fdest_group_id = fdest_router_id / s->params->num_routers;
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
     int adaptive_threshold = s->params->adaptive_threshold;
-    
-    // The check for detination group local routing has already been completed - we can assume we're not in the destination group
 
-    // are we in the intermediate group?
-    if (my_group_id == msg->intm_grp_id)
+    if (my_router_id == fdest_router_id) // we're the destination, send to connected terminal
+    {
+        if(s->router_id == fdest_router_id)
+        {
+            vector< Connection > poss_next_stops = s->connMan.get_connections_to_gid(msg->dfdally_dest_terminal_id, CONN_TERMINAL);
+                if (poss_next_stops.size() < 1)
+                    tw_error(TW_LOC, "Destination Router %d: No connection to destination terminal %d\n", s->router_id, msg->dfdally_dest_terminal_id); //shouldn't happen unless math was wrong
+            Connection best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+            return best_conn;
+        }
+    }
+
+    if (my_group_id != origin_group_id && my_group_id != fdest_group_id)
         msg->is_intm_visited = 1;
 
-    Connection nextStopConn;
-    vector< Connection > poss_min_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
-    vector< Connection > poss_nonmin_next_stops = get_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
-
-    Connection best_min_conn, best_nonmin_conn;
-    ConnectionType conn_type_of_mins, conn_type_of_nonmins;
-
-    if (poss_min_next_stops.size() > 0)
+    if (msg->is_intm_visited == 1) //then we route minimally the rest of the way
     {
-        conn_type_of_mins = poss_min_next_stops[0].conn_type; // All of these in this vector should be the same...
+        set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id, max_global_hops_nonminimal);
+        return get_absolute_best_connection_from_conn_set(s, bf, msg, lp, poss_min_next_stops);
     }
-    if (poss_nonmin_next_stops.size() > 0)
+    else
     {
-        conn_type_of_nonmins = poss_nonmin_next_stops[0].conn_type;
-    }
+        if (my_group_id == origin_group_id)
+        {
+            set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
+            set<Connection> poss_non_min_next_stops = get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
 
-    if (conn_type_of_mins == CONN_GLOBAL)
-        best_min_conn = dfdally_get_best_from_k_connections(s, bf, msg, lp, poss_min_next_stops, s->params->global_k_picks);
-    else
-        best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_min_next_stops); //could use from_k_connections function but that's very expensive when k == size of input connections
-    
-    if (conn_type_of_nonmins == CONN_GLOBAL)
-        best_nonmin_conn = dfdally_get_best_from_k_connections(s, bf, msg, lp, poss_nonmin_next_stops, s->params->global_k_picks);
-    else
-        best_nonmin_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_nonmin_next_stops);
+            Connection best_min_conn = dfdally_get_best_from_k_connection_set(s,bf,msg,lp,poss_min_next_stops,s->params->global_k_picks);
+            Connection best_nonmin_conn = dfdally_get_best_from_k_connection_set(s,bf,msg,lp,poss_non_min_next_stops,s->params->global_k_picks);
 
-    int min_score = dfdally_score_connection(s, bf, msg, lp, best_min_conn, C_MIN);
-    int nonmin_score = dfdally_score_connection(s, bf, msg, lp, best_nonmin_conn, C_NONMIN);
+            int min_score = dfdally_score_connection(s, bf, msg, lp, best_min_conn, C_MIN);
+            int nonmin_score = dfdally_score_connection(s, bf, msg, lp, best_nonmin_conn, C_NONMIN);
 
-    if ((msg->path_type == NON_MINIMAL) && (msg->is_intm_visited != 1)) { //if we're nonminimal and haven't reached the intermediate group yet
-        //must pick non-minimal (if we have visited, we can pick minimal then as nonminimal will be an empty vector)
-        return best_nonmin_conn;
-    }
+            if (min_score <= adaptive_threshold)
+                return best_min_conn;
+            else if (min_score <= nonmin_score)
+                return best_min_conn;
+            else {
+                msg->path_type = NON_MINIMAL;
+                return best_nonmin_conn;
+            }
+        }
+        else {
+            set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id, max_global_hops_nonminimal);
+            return get_absolute_best_connection_from_conn_set(s, bf, msg, lp, poss_min_next_stops);
+        }
 
-    if (min_score <= adaptive_threshold)
-        return best_min_conn;
-    else if (min_score <= nonmin_score)
-        return best_min_conn;
-    else {
-        msg->path_type = NON_MINIMAL;
-        return best_nonmin_conn;
     }
 }
-
 
 /*
 LEGACY DRAGONFLY DALLY ROUTING - Sept. 2019, the state of dragonfly routing became difficult to maintain.
