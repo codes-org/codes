@@ -1167,6 +1167,8 @@ static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *b
 static void dfp_select_intermediate_group(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id);
 static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id, int max_global_hops_in_path);
 
+map<tuple<int,int,int>,bool> _accessibility_map;
+
 
 static tw_stime dragonfly_total_time = 0;
 static tw_stime dragonfly_max_latency = 0;
@@ -6375,10 +6377,22 @@ static Connection dfp_fully_prog_adaptive_routing(router_state *s, tw_bf *bf, te
 
 static bool is_accessible_by_source_and_fdest(router_state *s, terminal_plus_message *msg, int poss_intm_gid, int fdest_router_id)
 {
+    try {
+        bool memo_result = _accessibility_map.at(make_tuple(s->router_id, poss_intm_gid, fdest_router_id));
+        return memo_result;
+    }
+    catch (exception e) {
+
+    }
+
     bool is_accessible_by_source = netMan.get_valid_next_hops_conns(s->router_id, poss_intm_gid, (max_hops_per_group-(msg->my_hops_cur_group)), (max_global_hops_minimal-msg->my_g_hop)).size();
     bool is_accessible_by_dest = netMan.get_valid_next_hops_conns(poss_intm_gid, fdest_router_id, 1, 1).size(); //there will have been one local hop and one global hop
+    bool result = is_accessible_by_source && is_accessible_by_dest;
 
-    return is_accessible_by_source && is_accessible_by_dest;
+    _accessibility_map[(make_tuple(s->router_id,poss_intm_gid,fdest_router_id))] = result;
+    _accessibility_map[(make_tuple(fdest_router_id,poss_intm_gid,s->router_id))] = result;
+
+    return result;
 }
 
 static void dfp_smart_pick_intermediate_router(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
@@ -6418,13 +6432,39 @@ static void dfp_smart_pick_intermediate_router(router_state *s, tw_bf *bf, termi
 static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id, int max_global_hops_in_path)
 {
     set<Connection> possible_next_dests;
-    if(s->group_id == fdest_router_id / s->params->num_routers)
-    {
-        possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
-    }
-    else {
-        possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_in_path-msg->my_g_hop));
-    }
+
+    // vector<int> shortest_path_next_gids = netMan.get_shortest_nexts(s->router_id, fdest_router_id);
+    // for(vector<int>::iterator it = shortest_path_next_gids.begin(); it != shortest_path_next_gids.end(); it++)
+    // {   
+    //     vector<Connection> local_conns;
+    //     vector<Connection> global_conns;
+    //     if(msg->my_hops_cur_group < max_hops_per_group)
+    //         local_conns = s->connMan.get_connections_to_gid(*it,CONN_LOCAL);
+    //     if(msg->my_g_hop < max_global_hops_in_path)
+    //         global_conns = s->connMan.get_connections_to_gid(*it,CONN_GLOBAL);
+        
+    //     vector<Connection>::iterator it2;
+    //     for(it2 = local_conns.begin(); it2 != local_conns.end(); it2++)
+    //     {
+    //         if (netMan.get_valid_next_hops_conns(it2->dest_gid,fdest_router_id,(max_hops_per_group-(msg->my_hops_cur_group+1)), (max_global_hops_in_path-msg->my_g_hop)).size())
+    //             possible_next_dests.insert(*it2);
+    //     }
+    //     for(it2 = global_conns.begin(); it2 != global_conns.end(); it2++)
+    //     {
+    //         if (netMan.get_valid_next_hops_conns(it2->dest_gid,fdest_router_id,(max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_in_path-(msg->my_g_hop+1))).size())
+    //             possible_next_dests.insert(*it2);
+    //     }
+    // }
+    // if(possible_next_dests.size() < 1)
+    // {
+        if(s->group_id == fdest_router_id / s->params->num_routers)
+        {
+            possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
+        }
+        else {
+            possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_in_path-msg->my_g_hop));
+        }
+    // }
 
     return possible_next_dests;
 }
@@ -6436,40 +6476,72 @@ static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf
 
 static set<Connection> get_smart_legal_nonminimal_stops(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
 {
-    set<Connection> possible_next_dests;
-    if (msg->dfp_upward_channel_flag) //then we route to fdest!
-    {
-        if(s->group_id == fdest_router_id / s->params->num_routers)
-        {
-            possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
-        }
-        else {
-            possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_nonminimal-msg->my_g_hop));
-        }
-    }
-    else //then we route to msg->intm_rtr_id!
-    {
-        if(s->group_id == msg->intm_rtr_id / s->params->num_routers)
-        {
-            possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, msg->intm_rtr_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
-        }
-        else {
-            possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, msg->intm_rtr_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_minimal-msg->my_g_hop));
-        }
+    int my_router_id = s->router_id;
+    int my_group_id = s->group_id;
+    int fdest_group_id = fdest_router_id / s->params->num_routers;
+    int origin_group_id = msg->origin_router_id / s->params->num_routers;
+    
+    bool in_intermediate_group = (my_group_id != fdest_group_id && my_group_id != origin_group_id);
 
-        if (msg->my_g_hop == 0 && possible_next_dests.size() == 0) //then we should attempt to pick a new intermediate router that we can reach
+    // set<Connection> possible_next_dests;
+    // if (msg->dfp_upward_channel_flag) //then we route to fdest!
+    // {
+    //     if(s->group_id == fdest_router_id / s->params->num_routers)
+    //     {
+    //         possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
+    //     }
+    //     else {
+    //         possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_nonminimal-msg->my_g_hop));
+    //     }
+    // }
+    // else //then we route to msg->intm_rtr_id!
+    // {
+    //     if(s->group_id == msg->intm_rtr_id / s->params->num_routers)
+    //     {
+    //         possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, msg->intm_rtr_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
+    //     }
+    //     else {
+    //         possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, msg->intm_rtr_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_minimal-msg->my_g_hop));
+    //     }
+
+    //     if (msg->my_g_hop == 0 && possible_next_dests.size() == 0) //then we should attempt to pick a new intermediate router that we can reach
+    //     {
+    //         dfp_smart_pick_intermediate_router(s, bf, msg, lp, fdest_router_id);
+    //         //then try again
+    //         if(s->group_id == msg->intm_rtr_id / s->params->num_routers)
+    //         {
+    //             possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, msg->intm_rtr_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
+    //         }
+    //         else {
+    //             possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, msg->intm_rtr_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_minimal-msg->my_g_hop));
+    //         }
+    //     }
+    // }
+
+    set<Connection> possible_next_dests;
+    if(s->group_id == fdest_router_id / s->params->num_routers)
+    {
+        possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
+    }
+    else {
+        possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_nonminimal-msg->my_g_hop));
+        
+        //if we havent hit a leaf router yet, we aren't supposed to send along a global link to the dest group if we are in the intermediate group
+        if (msg->dfp_upward_channel_flag == 0 && s->dfp_router_type == SPINE && in_intermediate_group)
         {
-            dfp_smart_pick_intermediate_router(s, bf, msg, lp, fdest_router_id);
-            //then try again
-            if(s->group_id == msg->intm_rtr_id / s->params->num_routers)
+            set<Connection>::iterator it = possible_next_dests.begin();
+            while(it != possible_next_dests.end())
             {
-                possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, msg->intm_rtr_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
-            }
-            else {
-                possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, msg->intm_rtr_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_minimal-msg->my_g_hop));
+                if (it->conn_type == CONN_GLOBAL)
+                    it = possible_next_dests.erase(it);
+                else
+                {
+                    it++;
+                }
             }
         }
     }
+
     return possible_next_dests;
 }
 
@@ -6524,6 +6596,8 @@ static Connection dfp_smart_nonminimal_routing(router_state *s, tw_bf *bf, termi
     int fdest_group_id = fdest_router_id / s->params->num_routers;
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
 
+    bool in_intermediate_group = (my_group_id != origin_group_id && my_group_id != fdest_group_id);
+
     if(s->router_id == fdest_router_id)
     {
         vector< Connection > poss_next_stops = s->connMan.get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
@@ -6533,27 +6607,10 @@ static Connection dfp_smart_nonminimal_routing(router_state *s, tw_bf *bf, termi
         return best_conn;
     }
 
-    if(msg->intm_rtr_id == -1)
-    {
-        dfp_smart_pick_intermediate_router(s,bf,msg,lp,fdest_router_id);
-    }
-    if(msg->intm_rtr_id == -2) //then we can't reach any intermediate leaf routers that are also accessible to the fdest
-    {
-        set<Connection> possible_minimal_conns = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
-        Connection best_conn = get_absolute_best_connection_from_conn_set(s,bf, msg, lp, possible_minimal_conns);
-        return best_conn;
-        // msg->num_rngs++;
-        // int offset = tw_rand_integer(lp->rng,0,possible_minimal_conss.size()-1);
-        // set<Connection>::iterator it = possible_minimal_conss.begin();
-        // advance(it, offset);
-
-        // // printf("Nonmin %d: next dest %d with %d hops\n",s->router_id, it->dest_gid, msg->my_N_hop);
-        // return *(it);
-    }
-    if(my_router_id == msg->intm_rtr_id)
+    if(in_intermediate_group && s->dfp_router_type == LEAF)
         msg->dfp_upward_channel_flag = 1;
 
-    if (my_group_id != origin_group_id && my_group_id != fdest_group_id)
+    if (in_intermediate_group)
     {
         msg->path_type = NON_MINIMAL; //become nonminimal the moment that we're not in the source or dest group
     }
@@ -6584,6 +6641,7 @@ static Connection dfp_smart_prog_adaptive_routing(router_state *s, tw_bf *bf, te
     int fdest_group_id = fdest_router_id / s->params->num_routers;
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
     int adaptive_threshold = s->params->adaptive_threshold;
+    bool in_intermediate_group = (my_group_id != origin_group_id && my_group_id != fdest_group_id);
 
     if (my_router_id == fdest_router_id) // we're the destination, send to connected terminal
     {
@@ -6597,22 +6655,11 @@ static Connection dfp_smart_prog_adaptive_routing(router_state *s, tw_bf *bf, te
         }
     }
 
-    if(msg->intm_rtr_id == -1)
-    {
-        dfp_smart_pick_intermediate_router(s,bf,msg,lp,fdest_router_id);
-    }
-    if(msg->intm_rtr_id == -2) //then we can't reach any intermediate routers - must route minimally
-    {
-        set<Connection> possible_minimal_conns = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
-        Connection best_min_conn = dfp_get_best_from_k_connection_set(s,bf,msg,lp,possible_minimal_conns,s->params->global_k_picks);
-        return best_min_conn;
-    }
-
     if (my_group_id != origin_group_id && my_group_id != fdest_group_id)
     {
         msg->path_type = NON_MINIMAL; //become nonminimal the moment that we're not in the source or dest group
     }
-    if(my_router_id == msg->intm_rtr_id)
+    if(in_intermediate_group && s->dfp_router_type == LEAF)
         msg->dfp_upward_channel_flag = 1;
 
     if (msg->dfp_upward_channel_flag == 1) //then we route minimally the rest of the way
@@ -6624,29 +6671,36 @@ static Connection dfp_smart_prog_adaptive_routing(router_state *s, tw_bf *bf, te
     {   
         if(msg->path_type == NON_MINIMAL) //then we have no choice but to route to the intm router id
         {
-            set<Connection> poss_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, msg->intm_rtr_id);
+            set<Connection> poss_next_stops = get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
             if (poss_next_stops.size() < 1)
                 tw_error(TW_LOC, "Smart Prog Adaptive Routing: intm can't reach intm rtr");
             Connection best_conn = dfp_get_best_from_k_connection_set(s,bf,msg,lp,poss_next_stops,s->params->global_k_picks);
             return best_conn;
         }
         else {
-            set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
-            set<Connection> poss_non_min_next_stops = get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
+            if (my_group_id == origin_group_id) {
+                set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
+                set<Connection> poss_non_min_next_stops = get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
 
-            Connection best_min_conn = dfp_get_best_from_k_connection_set(s,bf,msg,lp,poss_min_next_stops,s->params->global_k_picks);
-            Connection best_nonmin_conn = dfp_get_best_from_k_connection_set(s,bf,msg,lp,poss_non_min_next_stops,s->params->global_k_picks);
+                Connection best_min_conn = dfp_get_best_from_k_connection_set(s,bf,msg,lp,poss_min_next_stops,s->params->global_k_picks);
+                Connection best_nonmin_conn = dfp_get_best_from_k_connection_set(s,bf,msg,lp,poss_non_min_next_stops,s->params->global_k_picks);
 
-            int min_score = dfp_score_connection(s, bf, msg, lp, best_min_conn, C_MIN);
-            int nonmin_score = dfp_score_connection(s, bf, msg, lp, best_nonmin_conn, C_NONMIN);
+                int min_score = dfp_score_connection(s, bf, msg, lp, best_min_conn, C_MIN);
+                int nonmin_score = dfp_score_connection(s, bf, msg, lp, best_nonmin_conn, C_NONMIN);
 
-            if (min_score <= adaptive_threshold)
+                if (min_score <= adaptive_threshold)
+                    return best_min_conn;
+                else if (min_score <= nonmin_score)
+                    return best_min_conn;
+                else {
+                    msg->path_type = NON_MINIMAL;
+                    return best_nonmin_conn;
+                }
+            } else
+            {
+                set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
+                Connection best_min_conn = dfp_get_best_from_k_connection_set(s,bf,msg,lp,poss_min_next_stops, s->params->global_k_picks);
                 return best_min_conn;
-            else if (min_score <= nonmin_score)
-                return best_min_conn;
-            else {
-                msg->path_type = NON_MINIMAL;
-                return best_nonmin_conn;
             }
         }
     }
