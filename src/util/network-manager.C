@@ -580,6 +580,7 @@ set<Connection> NetworkManager::get_valid_next_hops_conns(int src_gid, int dest_
     {
         try {
             valid_nexts = _valid_next_conn_map.at(make_tuple(src_gid,dest_gid,max_local,exact_global));
+            return valid_nexts;
         } catch (exception e) {
             // printf("<%d,%d,%d,%d>nonmemo'd\n",src_gid, dest_gid, max_local, exact_global);
         
@@ -998,13 +999,15 @@ void NetworkManager::solidify_network()
                 {
                     int src_gid = i + (p*rpp);
                     int dest_gid = j + (p*rpp);
-                    if (_router_ids_with_terminals.count(src_gid) > 0 && _router_ids_with_terminals.count(dest_gid) > 0) {
+                    // if (_router_ids_with_terminals.count(src_gid) > 0 && _router_ids_with_terminals.count(dest_gid) > 0) {
                         // printf("next from %d to %d\n",src_gid,dest_gid);
-                        set<Connection> ret_valid = get_valid_next_hops_conns(src_gid,dest_gid,_max_local_hops_per_group,2);
+                    for(int local_hops = 0; local_hops <= _max_local_hops_per_group; local_hops++) {
+                        set<Connection> ret_valid = get_valid_next_hops_conns(src_gid,dest_gid,local_hops,_max_global_hops);
                         // unordered_set<Connection*> ret_valid = get_valid_next_hops(src_gid,dest_gid,_max_local_hops_per_group,1);
-                        _valid_next_conn_map[make_tuple(src_gid,dest_gid,_max_local_hops_per_group,_max_global_hops)].insert(ret_valid.begin(), ret_valid.end());
-                        // printf("%d - - > %d  == %d\n",src_gid,dest_gid, ret_valid.size());
+                        _valid_next_conn_map[make_tuple(src_gid,dest_gid,local_hops,_max_global_hops)].insert(ret_valid.begin(), ret_valid.end());
+                        // printf("Precalc <%d,%d,%d,%d>\n",src_gid,dest_gid,local_hops,_max_global_hops);
                     }
+                    // }
                 }
             }
         }
