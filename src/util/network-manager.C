@@ -1,7 +1,9 @@
 #include "codes/network-manager.h"
 #include <algorithm>
+#include <unordered_set>
 
 #define MAX_PATH_VAL 999
+#define DEST -999
 
 void add_as_if_set_int(int value, vector<int>& vec)
 {
@@ -193,7 +195,7 @@ void NetworkManager::fail_connection(Link_Info link)
         vector<Connection*> conns_to_gid = _router_to_router_connection_map[make_pair(link.src_gid,link.dest_gid)];
         int num_failed_already = get_failed_count_from_vector(conns_to_gid);
         if (num_failed_already == conns_to_gid.size())
-            tw_error(TW_LOC, "Attempting to fail more links from Router GID %d to Router GID %d than exist. Already Failed %d\n", link.src_gid, link.dest_gid, num_failed_already);
+            tw_error(TW_LOC, "Attempting to fail more links from Router GID %d to Router GID %d than exist; Link Type %d; Already Failed %d\n", link.src_gid, link.dest_gid, link.conn_type, num_failed_already);
 
         vector<Connection*>:: iterator it = _router_to_router_connection_map[make_pair(link.src_gid,link.dest_gid)].begin();
         for(; it != _router_to_router_connection_map[make_pair(link.src_gid,link.dest_gid)].end(); it++)
@@ -258,19 +260,19 @@ void NetworkManager::calculate_floyd_warshall_shortest_paths()
         printf("\nNetwork Manager: Performing Shortest Path Calculations...\n");
 
     _shortest_path_vals = (int**)calloc(_total_routers, sizeof(int*));
-    // _next = (int**)calloc(_total_routers, sizeof(int*));
+    _next = (int**)calloc(_total_routers, sizeof(int*));
     int** costMat = (int**)malloc(_total_routers* sizeof(int*));
     int** dist = (int**)malloc(_total_routers* sizeof(int*));
     for(int i = 0; i < _total_routers; i++)
     {
         _shortest_path_vals[i] = (int*)calloc(_total_routers, sizeof(int));
-        // _next[i] = (int*)calloc(_total_routers, sizeof(int));
+        _next[i] = (int*)calloc(_total_routers, sizeof(int));
         costMat[i] = (int*)calloc(_total_routers, sizeof(int));
         dist[i] = (int*)calloc(_total_routers, sizeof(int));
-        // for(int j = 0; j < _total_routers; j++)
-        // {
-        //     _shortest_path_nexts[make_pair(i,j)] = vector<int>();
-        // }
+        for(int j = 0; j < _total_routers; j++)
+        {
+            _shortest_path_nexts[make_pair(i,j)] = vector<int>();
+        }
     }
 
 
@@ -303,16 +305,16 @@ void NetworkManager::calculate_floyd_warshall_shortest_paths()
             dist[i][j] = costMat[i][j];
             if(dist[i][j] == 1)
             {
-                // _next[i][j] = j;
-                // _shortest_path_nexts[make_pair(i,j)].push_back(j);
+                _next[i][j] = j;
+                _shortest_path_nexts[make_pair(i,j)].push_back(j);
             }
         }
     }
     for(int i = 0; i < _total_routers; i++)
     {
         dist[i][i] = 0;
-        // _next[i][i] = i;
-        // _shortest_path_nexts[make_pair(i,i)].push_back(i);
+        _next[i][i] = i;
+        _shortest_path_nexts[make_pair(i,i)].push_back(i);
     }
 
     int rpp = _total_routers / _num_planes;
@@ -327,15 +329,15 @@ void NetworkManager::calculate_floyd_warshall_shortest_paths()
                     if(dist[i][j] > dist[i][k] + dist[k][j])
                     {
                         dist[i][j] = dist[i][k] + dist[k][j];
-                        // _shortest_path_nexts[make_pair(i,j)].clear();
-                        // _shortest_path_nexts[make_pair(i,j)].push_back(_next[i][k]);
-                        // _next[i][j] = _next[i][k];
+                        _shortest_path_nexts[make_pair(i,j)].clear();
+                        _shortest_path_nexts[make_pair(i,j)].push_back(_next[i][k]);
+                        _next[i][j] = _next[i][k];
 
                     }
-                    // else if (dist[i][k] + dist[k][j] == dist[i][j] && dist[i][j] != MAX_PATH_VAL && k != j && k != i)
-                    // {
-                    //     _shortest_path_nexts[make_pair(i,j)].push_back(k);
-                    // }
+                    else if (dist[i][k] + dist[k][j] == dist[i][j] && dist[i][j] != MAX_PATH_VAL && k != j && k != i)
+                    {
+                        _shortest_path_nexts[make_pair(i,j)].push_back(k);
+                    }
                 }
             }
         }
@@ -360,6 +362,17 @@ void NetworkManager::calculate_floyd_warshall_shortest_paths()
     //     }
     //     printf("\n");
     // }
+
+    // int src = 0, dest = 17;
+    // int current = src;
+    // while (current != dest)
+    // {
+    //     vector<int> poss_nexts = _shortest_path_nexts[make_pair(current,dest)];
+    //     printf("poss min nexts from %d to %d: size:%d",current,dest,poss_nexts.size());
+    //     current = poss_nexts[0];
+    //     printf("going to %d\n",current);
+    // }
+
 
     for(int i = 0; i <_total_routers; i++)
     {
@@ -386,6 +399,18 @@ int NetworkManager::get_shortest_dist_between_routers(int src_gid, int dest_gid)
     return _shortest_path_vals[src_gid][dest_gid];
 }
 
+vector<int> NetworkManager::get_shortest_nexts(int src_gid, int dest_gid)
+{
+    if(_shortest_path_nexts[make_pair(src_gid,dest_gid)][0] == dest_gid)
+    {
+        vector<int> dest;
+        dest.push_back(dest_gid);
+        return dest;
+    }
+    else {
+        return _shortest_path_nexts[make_pair(src_gid,dest_gid)];
+    }
+}
 
 int isNotVisited(int x, vector<int>& path) 
 { 
@@ -396,124 +421,435 @@ int isNotVisited(int x, vector<int>& path)
     return 1; 
 } 
 
-bool NetworkManager::is_valid_path_between_bfs(int src_gid, int dest_gid, int max_local, int max_global)
+// bool NetworkManager::is_valid_path_between_bfs(int src_gid, int dest_gid, int max_local, int max_global)
+// {
+//     int local_hops_left = max_local;
+//     int global_hops_left = max_global;
+
+//     queue<tuple<vector<int>,int,int> > q;
+
+//     vector<int> path;
+//     path.push_back(src_gid);
+//     q.push(make_tuple(path, local_hops_left, global_hops_left));
+//     while (!q.empty()) 
+//     {
+//         tuple<vector<int>,int,int> tup = q.front();
+//         path = get<0>(tup);
+//         local_hops_left = get<1>(tup);
+//         global_hops_left = get<2>(tup);
+//         q.pop();
+//         int last = path[path.size()-1];
+
+//         if (last == dest_gid) {
+//             // _valid_connection_map[make_tuple(src_gid, dest_gid, local_hops_left, global_hops_left)] = true;
+//             return true;
+//         }
+
+//         vector<Connection*> local_conns_from_src = _router_to_router_local_conn_map[last];
+//         vector<Connection*> global_conns_from_src = _router_to_router_global_conn_map[last];
+
+//         if(local_hops_left > 0)
+//         {
+//             for(int i = 0; i < local_conns_from_src.size(); i++)
+//             {
+//                 if (local_conns_from_src[i]->is_failed == false && isNotVisited(local_conns_from_src[i]->dest_gid,path))
+//                 {
+//                     vector<int> new_path(path);
+//                     new_path.push_back(local_conns_from_src[i]->dest_gid);
+//                     q.push(make_tuple(new_path, local_hops_left-1, global_hops_left));
+//                 }
+//             }
+//         }
+//         if(global_hops_left > 0)
+//         {
+//             for(int i = 0; i < global_conns_from_src.size(); i++)
+//             {
+//                 if(global_conns_from_src[i]->is_failed == false && isNotVisited(global_conns_from_src[i]->dest_gid,path))
+//                 {
+//                     vector<int> new_path(path);
+//                     new_path.push_back(global_conns_from_src[i]->dest_gid);
+//                     q.push(make_tuple(new_path, max_local, global_hops_left-1));
+//                 }
+//             }
+//         }   
+//     }
+//     return false;
+// }
+
+
+// unordered_set<Connection*> NetworkManager::get_valid_next_hops(int src_gid, int dest_gid, int max_local, int max_global, set<int> visited)
+// {
+//     unordered_set<Connection*>valid_nexts;
+//     if((src_gid / (_total_routers/_num_planes)) != (dest_gid / (_total_routers/_num_planes)))
+//         return {}; //different planes have no valid path between them
+
+//     if(src_gid == dest_gid) {
+//         valid_nexts.insert(self_conn_ptr); //dest_gid == DEST
+//         // printf("%d",self_conn_ptr->dest_gid);
+//         return valid_nexts;
+//     }
+
+
+//     vector<Connection*> local_conns_from_src = _router_to_router_local_conn_map[src_gid];
+//     vector<Connection*> global_conns_from_src = _router_to_router_global_conn_map[src_gid];
+
+//     if (max_local > 0)
+//     {
+//         for(int i = 0; i < local_conns_from_src.size(); i++)
+//         {
+//             if (local_conns_from_src[i]->is_failed == false && visited.count(local_conns_from_src[i]->dest_gid) == 0)
+//             {
+//                 unordered_set<Connection*> ret_valid;
+//                 try {
+//                     ret_valid =_valid_next_map.at(make_tuple(local_conns_from_src[i]->dest_gid,dest_gid, max_local-1, max_global));
+//                 }catch (exception e) {
+//                     ret_valid = get_valid_next_hops(local_conns_from_src[i]->dest_gid, dest_gid, max_local-1, max_global, visited); 
+//                     if (ret_valid.size() > 0) {
+//                         // if (ret_valid[0]->dest_gid == DEST)
+                            
+//                             // _valid_next_map[make_tuple(local_conns_from_src[i]->dest_gid, dest_gid, max_local-1, max_global)].push_back(local_conns_from_src[i]);
+//                         if ((*ret_valid.begin())->dest_gid != DEST)
+//                             _valid_next_map[make_tuple(local_conns_from_src[i]->dest_gid, dest_gid, max_local-1, max_global)].insert(ret_valid.begin(),ret_valid.end());
+//                     }
+//                 }
+//                 // has_valid_path = has_valid_path || ret_valid;
+//                 if (ret_valid.size() > 0)
+//                 {
+//                     valid_nexts.insert(local_conns_from_src[i]);
+//                 }
+//             }
+//             // if (has_valid_path == true) //then we already know the answer 
+//             //     return true; //otherwise we keep searching
+//         }
+//     }
+//     if (max_global > 0)
+//     {
+//         for(int i = 0; i < global_conns_from_src.size(); i++)
+//         {
+//             if (global_conns_from_src[i]->is_failed == false && visited.count(global_conns_from_src[i]->dest_gid) == 0)
+//             {
+//                 unordered_set<Connection*> ret_valid;
+//                 try {
+//                     ret_valid =_valid_next_map.at(make_tuple(global_conns_from_src[i]->dest_gid,dest_gid, _max_local_hops_per_group, max_global-1));
+//                 }catch (exception e) {
+//                     ret_valid = get_valid_next_hops(global_conns_from_src[i]->dest_gid, dest_gid, _max_local_hops_per_group, max_global-1, visited);
+//                     if(ret_valid.size() > 0) {                        
+//                         // if (ret_valid[0]->dest_gid == DEST) //we found it so we need to add this conn ourselves
+//                             // _valid_next_map[make_tuple(global_conns_from_src[i]->dest_gid, dest_gid, _max_local_hops_per_group, max_global-1)].push_back(global_conns_from_src[i]);
+//                         if ((*ret_valid.begin())->dest_gid != DEST)
+//                             _valid_next_map[make_tuple(global_conns_from_src[i]->dest_gid, dest_gid, _max_local_hops_per_group, max_global-1)].insert(ret_valid.begin(), ret_valid.end());
+//                     }
+//                 }
+//                 if (ret_valid.size() > 0)
+//                 {
+//                     valid_nexts.insert(global_conns_from_src[i]);
+//                 }
+//             }
+//             // if (has_valid_path == true) //then we already know the answer 
+//             //     return true; //otherwise we keep searching
+//         }
+//     }
+//     // if(valid_nexts.size() < 1 && (max_local > 0 || max_global > 0))
+//     //     printf("problem\n");
+//     return valid_nexts;
+// }
+
+// unordered_set<Connection*> NetworkManager::get_valid_next_hops(int src_gid, int dest_gid, int max_local, int max_global)
+// {
+//     set<int> visited;
+//     return get_valid_next_hops(src_gid, dest_gid, max_local, max_global, visited);
+// }
+
+
+
+set<Connection> NetworkManager::get_valid_next_hops_conns(int src_gid, int dest_gid, int max_local, int exact_global)
 {
-    int local_hops_left = max_local;
-    int global_hops_left = max_global;
-
-    queue<tuple<vector<int>,int,int> > q;
-
-    vector<int> path;
-    path.push_back(src_gid);
-    q.push(make_tuple(path, local_hops_left, global_hops_left));
-    while (!q.empty()) 
+    set<Connection>valid_nexts;
+    if((src_gid / (_total_routers/_num_planes)) != (dest_gid / (_total_routers/_num_planes)))
     {
-        tuple<vector<int>,int,int> tup = q.front();
-        path = get<0>(tup);
-        local_hops_left = get<1>(tup);
-        global_hops_left = get<2>(tup);
-        q.pop();
-        int last = path[path.size()-1];
-
-        if (last == dest_gid) {
-            // _valid_connection_map[make_tuple(src_gid, dest_gid, local_hops_left, global_hops_left)] = true;
-            return true;
-        }
-
-        vector<Connection*> local_conns_from_src = _router_to_router_local_conn_map[last];
-        vector<Connection*> global_conns_from_src = _router_to_router_global_conn_map[last];
-
-        if(local_hops_left > 0)
-        {
-            for(int i = 0; i < local_conns_from_src.size(); i++)
-            {
-                if (local_conns_from_src[i]->is_failed == false && isNotVisited(local_conns_from_src[i]->dest_gid,path))
-                {
-                    vector<int> new_path(path);
-                    new_path.push_back(local_conns_from_src[i]->dest_gid);
-                    q.push(make_tuple(new_path, local_hops_left-1, global_hops_left));
-                }
-            }
-        }
-        if(global_hops_left > 0)
-        {
-            for(int i = 0; i < global_conns_from_src.size(); i++)
-            {
-                if(global_conns_from_src[i]->is_failed == false && isNotVisited(global_conns_from_src[i]->dest_gid,path))
-                {
-                    vector<int> new_path(path);
-                    new_path.push_back(global_conns_from_src[i]->dest_gid);
-                    q.push(make_tuple(new_path, max_local, global_hops_left-1));
-                }
-            }
-        }   
+        return valid_nexts; //different planes have no valid path between them
     }
-    return false;
+
+    if(src_gid == dest_gid && exact_global == 0) {
+        Connection dest_conn;
+        dest_conn.dest_gid == DEST;
+        valid_nexts.insert(dest_conn);
+        return valid_nexts;
+    }
+    if(max_local >= 0 && exact_global >=0)
+    {
+        try {
+            valid_nexts = _valid_next_conn_map.at(make_tuple(src_gid,dest_gid,max_local,exact_global));
+        } catch (exception e) {
+            // printf("<%d,%d,%d,%d>nonmemo'd\n",src_gid, dest_gid, max_local, exact_global);
+        
+            vector<Connection*> local_conns_from_src = _router_to_router_local_conn_map[src_gid];
+            vector<Connection*> global_conns_from_src = _router_to_router_global_conn_map[src_gid];
+
+            if (max_local > 0)
+            {
+                for(int i = 0; i < local_conns_from_src.size(); i++)
+                {
+                    if (local_conns_from_src[i]->is_failed == false)
+                    {
+                        set<Connection> ret_valid;
+                            ret_valid = get_valid_next_hops_conns(local_conns_from_src[i]->dest_gid, dest_gid, max_local-1, exact_global); 
+                        if (ret_valid.size() > 0)
+                        {
+                            valid_nexts.insert(*local_conns_from_src[i]);
+                        }
+                    }
+                }
+            }
+            if (exact_global > 0)
+            {
+                for(int i = 0; i < global_conns_from_src.size(); i++)
+                {
+                    if (global_conns_from_src[i]->is_failed == false)
+                    {              
+                        set<Connection> ret_valid;
+                            ret_valid = get_valid_next_hops_conns(global_conns_from_src[i]->dest_gid, dest_gid, _max_local_hops_per_group, exact_global-1); 
+                        if (ret_valid.size() > 0)
+                        {
+                            valid_nexts.insert(*global_conns_from_src[i]);
+                        }
+                    }
+                }
+            }
+            _valid_next_conn_map[make_tuple(src_gid,dest_gid,max_local,exact_global)].insert(valid_nexts.begin(),valid_nexts.end());
+        }
+    }
+    return valid_nexts;
 }
 
 
-//dynamic programming attempt at determining path validity. Depth first search on all local and global links available to the router
-//toward the destination with an upper bound on local and global hops from said source
-bool NetworkManager::is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global, set<int> visited)
+
+// unordered_set<int> NetworkManager::get_valid_next_hops(int src_gid, int dest_gid, int max_local, int exact_global, unordered_set<int> visited)
+// {
+//     // visited.insert(src_gid);
+
+//     unordered_set<int>valid_nexts;
+//     if((src_gid / (_total_routers/_num_planes)) != (dest_gid / (_total_routers/_num_planes)))
+//     {
+//         // visited.erase(src_gid);
+//         return valid_nexts; //different planes have no valid path between them
+//     }
+
+//     if(src_gid == dest_gid && exact_global == 0) {
+//         // visited.erase(src_gid);
+//         valid_nexts.insert(src_gid);
+//         return valid_nexts;
+//     }
+//     if(max_local >= 0 && exact_global >=0)
+//     {
+//         try {
+//             valid_nexts = _valid_next_map.at(make_tuple(src_gid,dest_gid,max_local,exact_global));
+//         } catch (exception e) {
+//             // printf("<%d,%d,%d,%d>nonmemo'd\n",src_gid, dest_gid, max_local, exact_global);
+        
+//             vector<Connection*> local_conns_from_src = _router_to_router_local_conn_map[src_gid];
+//             vector<Connection*> global_conns_from_src = _router_to_router_global_conn_map[src_gid];
+
+//             if (max_local > 0)
+//             {
+//                 for(int i = 0; i < local_conns_from_src.size(); i++)
+//                 {
+//                     if (local_conns_from_src[i]->is_failed == false && visited.count(local_conns_from_src[i]->dest_gid) == 0)
+//                     {
+//                         unordered_set<int> ret_valid;
+//                         // try {
+//                         //     ret_valid =_valid_next_map.at(make_tuple(local_conns_from_src[i]->dest_gid,dest_gid, max_local-1, exact_global));
+//                         // }catch (exception e) {
+//                             // printf("<%d,%d,%d,%d>nonmemo'd\n",local_conns_from_src[i]->dest_gid, dest_gid, max_local-1, exact_global);
+//                             ret_valid = get_valid_next_hops(local_conns_from_src[i]->dest_gid, dest_gid, max_local-1, exact_global, visited); 
+//                             // _valid_next_map[make_tuple(local_conns_from_src[i]->dest_gid, dest_gid, max_local-1, exact_global)].insert(ret_valid.begin(),ret_valid.end());
+//                         // }
+//                         // has_valid_path = has_valid_path || ret_valid;
+//                         if (ret_valid.size() > 0)
+//                         {
+//                             valid_nexts.insert(local_conns_from_src[i]->dest_gid);
+//                         }
+//                     }
+//                     // if (has_valid_path == true) //then we already know the answer 
+//                     //     return true; //otherwise we keep searching
+//                 }
+//             }
+//             if (exact_global > 0)
+//             {
+//                 for(int i = 0; i < global_conns_from_src.size(); i++)
+//                 {
+//                     if (global_conns_from_src[i]->is_failed == false && visited.count(global_conns_from_src[i]->dest_gid) == 0)
+//                     {              
+//                         unordered_set<int> ret_valid;
+//                         // try {
+//                         //     ret_valid =_valid_next_map.at(make_tuple(global_conns_from_src[i]->dest_gid,dest_gid, _max_local_hops_per_group, exact_global-1));
+//                         // }catch (exception e) {
+//                             // printf("<%d,%d,%d,%d>nonmemo'd\n",global_conns_from_src[i]->dest_gid, dest_gid, _max_local_hops_per_group, exact_global-1);
+//                             ret_valid = get_valid_next_hops(global_conns_from_src[i]->dest_gid, dest_gid, _max_local_hops_per_group, exact_global-1, visited); 
+//                             // _valid_next_map[make_tuple(global_conns_from_src[i]->dest_gid, dest_gid, _max_local_hops_per_group, exact_global-1)].insert(ret_valid.begin(), ret_valid.end());
+//                         // }
+//                         if (ret_valid.size() > 0)
+//                         {
+//                             valid_nexts.insert(global_conns_from_src[i]->dest_gid);
+//                         }
+//                     }
+//                     // if (has_valid_path == true) //then we already know the answer 
+//                     //     return true; //otherwise we keep searching
+//                 }
+//             }
+//             _valid_next_map[make_tuple(src_gid,dest_gid,max_local,exact_global)].insert(valid_nexts.begin(),valid_nexts.end());
+//         }
+//     }
+//     // visited.erase(src_gid);
+//     return valid_nexts;
+// }
+
+// unordered_set<int> NetworkManager::get_valid_next_hops(int src_gid, int dest_gid, int max_local, int max_global)
+// {
+//     unordered_set<int> visited;
+//     // printf("Pathfinding %d to %d with %d local and %d global hops\n",src_gid,dest_gid,max_local,max_global);
+//     return get_valid_next_hops(src_gid, dest_gid, max_local, max_global, visited);
+// }
+
+
+
+// //dynamic programming attempt at determining path validity. Depth first search on all local and global links available to the router
+// //toward the destination with an upper bound on local and global hops from said source
+// bool NetworkManager::is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global, set<int> visited)
+// {
+//     bool has_valid_path = false;
+//     // if((src_gid / (_total_routers/_num_planes)) != (dest_gid / (_total_routers/_num_planes)))
+//     //     return false; //different planes have no valid path between them
+
+//     if(src_gid == dest_gid) {
+//         return true;
+//     }
+
+
+//     vector<Connection*> local_conns_from_src = _router_to_router_local_conn_map[src_gid];
+//     vector<Connection*> global_conns_from_src = _router_to_router_global_conn_map[src_gid];
+
+//     if (max_local > 0)
+//     {
+//         for(int i = 0; i < local_conns_from_src.size(); i++)
+//         {
+//             if (local_conns_from_src[i]->is_failed == false && visited.count(local_conns_from_src[i]->dest_gid) == 0)
+//             {
+//                 bool ret_valid;
+//                 try {
+//                     ret_valid =_valid_connection_map.at(make_tuple(local_conns_from_src[i]->dest_gid,dest_gid, max_local-1, max_global));
+//                 }catch (exception e) {
+//                     ret_valid = is_valid_path_between(local_conns_from_src[i]->dest_gid, dest_gid, max_local-1, max_global, visited); 
+//                     _valid_connection_map[make_tuple(local_conns_from_src[i]->dest_gid, dest_gid, max_local-1, max_global)] = ret_valid;
+//                 }
+//                 has_valid_path = has_valid_path || ret_valid;
+//             }
+//             if (has_valid_path == true) //then we already know the answer 
+//                 return true; //otherwise we keep searching
+//         }
+//     }
+//     if (max_global > 0)
+//     {
+//         for(int i = 0; i < global_conns_from_src.size(); i++)
+//         {
+//             if (global_conns_from_src[i]->is_failed == false && visited.count(global_conns_from_src[i]->dest_gid) == 0)
+//             {
+//                 bool ret_valid;
+//                 try {
+//                     ret_valid =_valid_connection_map.at(make_tuple(global_conns_from_src[i]->dest_gid,dest_gid, _max_local_hops_per_group, max_global-1));
+//                 }catch (exception e) {
+//                     ret_valid = is_valid_path_between(global_conns_from_src[i]->dest_gid, dest_gid, _max_local_hops_per_group, max_global-1, visited); 
+//                     _valid_connection_map[make_tuple(global_conns_from_src[i]->dest_gid, dest_gid, _max_local_hops_per_group, max_global-1)] = ret_valid;
+//                 }
+//                 has_valid_path = has_valid_path || ret_valid;
+//             }
+//             if (has_valid_path == true) //then we already know the answer 
+//                 return true; //otherwise we keep searching
+//         }
+//     }
+//     return has_valid_path;
+// }
+
+// bool NetworkManager::is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global)
+// {
+//     set<int> visited;
+//     return is_valid_path_between(src_gid, dest_gid, max_local, max_global, visited);
+// }
+
+
+// //dynamic programming attempt at determining path validity. Depth first search on all local and global links available to the router
+// //toward the destination with an upper bound on local and global hops from said source
+// bool NetworkManager::enumerate_all_valid_paths(int src_gid, int dest_gid, int max_local, int max_global, set<int> visited, vector<int> path)
+// {
+//     bool has_valid_path = false;
+//     visited.insert(src_gid);
+//     path.push_back(src_gid);
+//     // if((src_gid / (_total_routers/_num_planes)) != (dest_gid / (_total_routers/_num_planes)))
+//     //     return false; //different planes have no valid path between them
+
+//     if(src_gid == dest_gid) {
+//         _path_enumerator[make_pair(path[0],dest_gid)].push_back(path);
+//         // for(int i = 0; i < path.size(); i++)
+//         // {
+//         //     printf("%d ",path[i]);
+//         // }
+//         // printf("\n");
+//         visited.erase(src_gid);
+//         path.pop_back();
+//         return true;
+//     }
+
+
+//     vector<Connection*> local_conns_from_src = _router_to_router_local_conn_map[src_gid];
+//     vector<Connection*> global_conns_from_src = _router_to_router_global_conn_map[src_gid];
+
+//     if (max_local > 0)
+//     {
+//         for(int i = 0; i < local_conns_from_src.size(); i++)
+//         {
+//             if (local_conns_from_src[i]->is_failed == false && visited.count(local_conns_from_src[i]->dest_gid) == 0)
+//             {
+
+//                 bool ret_valid = enumerate_all_valid_paths(local_conns_from_src[i]->dest_gid, dest_gid, max_local-1, max_global, visited, path); 
+//                 _valid_connection_map[make_tuple(local_conns_from_src[i]->dest_gid, dest_gid, max_local-1, max_global)] = ret_valid;
+//                 has_valid_path = has_valid_path || ret_valid;
+//             }
+//         }
+//     }
+//     if (max_global > 0)
+//     {
+//         for(int i = 0; i < global_conns_from_src.size(); i++)
+//         {
+//             if (global_conns_from_src[i]->is_failed == false && visited.count(global_conns_from_src[i]->dest_gid) == 0)
+//             {
+//                 bool ret_valid = enumerate_all_valid_paths(global_conns_from_src[i]->dest_gid, dest_gid, _max_local_hops_per_group, max_global-1, visited, path); 
+//                 _valid_connection_map[make_tuple(global_conns_from_src[i]->dest_gid, dest_gid, _max_local_hops_per_group, max_global-1)] = ret_valid;
+//                 has_valid_path = has_valid_path || ret_valid;
+//             }
+
+//         }
+//     }
+//     visited.erase(src_gid); //remove self from visited
+//     path.pop_back(); //pop self from the path
+//     return has_valid_path;
+// }
+
+
+// bool NetworkManager::enumerate_all_valid_paths(int src_gid, int dest_gid, int max_local, int max_global)
+// {
+//     set<int> visited;
+//     vector<int> path;
+//     return enumerate_all_valid_paths(src_gid, dest_gid, max_local, max_global, visited, path);
+// }
+
+int NetworkManager::get_max_local_hops()
 {
-    // if((src_gid / (_total_routers/_num_planes)) != (dest_gid / (_total_routers/_num_planes)))
-    //     return false; //different planes have no valid path between them
-
-    if(src_gid == dest_gid)
-        return true;
-
-    bool has_valid_path = false;
-    visited.insert(src_gid);
-
-    vector<Connection*> local_conns_from_src = _router_to_router_local_conn_map[src_gid];
-    vector<Connection*> global_conns_from_src = _router_to_router_global_conn_map[src_gid];
-
-    if (max_local > 0)
-    {
-        for(int i = 0; i < local_conns_from_src.size(); i++)
-        {
-            if (local_conns_from_src[i]->is_failed == false && visited.count(local_conns_from_src[i]->dest_gid) == 0)
-            {
-                bool ret_valid;
-                try {
-                    ret_valid =_valid_connection_map.at(make_tuple(local_conns_from_src[i]->dest_gid,dest_gid, max_local-1, max_global));
-                }catch (exception e) {
-                    ret_valid = is_valid_path_between(local_conns_from_src[i]->dest_gid, dest_gid, max_local-1, max_global, visited); 
-                    _valid_connection_map[make_tuple(local_conns_from_src[i]->dest_gid, dest_gid, max_local-1, max_global)] = ret_valid;
-                }
-                has_valid_path = has_valid_path || ret_valid;
-            }
-            if (has_valid_path == true) //then we already know the answer 
-                return true; //otherwise we keep searching
-        }
-    }
-    if (max_global > 0)
-    {
-        for(int i = 0; i < global_conns_from_src.size(); i++)
-        {
-            if (global_conns_from_src[i]->is_failed == false && visited.count(global_conns_from_src[i]->dest_gid) == 0)
-            {
-                bool ret_valid;
-                try {
-                    ret_valid =_valid_connection_map.at(make_tuple(global_conns_from_src[i]->dest_gid,dest_gid, _max_local_hops_per_group, max_global-1));
-                }catch (exception e) {
-                    ret_valid = is_valid_path_between(global_conns_from_src[i]->dest_gid, dest_gid, _max_local_hops_per_group, max_global-1, visited); 
-                    _valid_connection_map[make_tuple(global_conns_from_src[i]->dest_gid, dest_gid, _max_local_hops_per_group, max_global-1)] = ret_valid;
-                }
-                has_valid_path = has_valid_path || ret_valid;
-            }
-            if (has_valid_path == true) //then we already know the answer 
-                return true; //otherwise we keep searching
-        }
-    }
-    return false;
+    return _max_local_hops_per_group;
 }
 
-bool NetworkManager::is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global)
+int NetworkManager::get_max_global_hops()
 {
-    set<int> visited;
-    return is_valid_path_between(src_gid, dest_gid, max_local, max_global, visited);
-
+    return _max_global_hops;
 }
 
 void NetworkManager::add_conns_to_connection_managers()
@@ -650,9 +986,9 @@ void NetworkManager::solidify_network()
         it->solidify_connections();
     }
 
-    if (is_link_failures_enabled())
+    if(is_link_failures_enabled())
     {
-        printf("Network Manager: calculating valid paths\n");
+        printf("Network Manager: precalculating valid paths\n");
         int rpp = _total_routers / _num_planes;
         for(int p = 0; p < _num_planes; p++)
         {
@@ -663,29 +999,17 @@ void NetworkManager::solidify_network()
                     int src_gid = i + (p*rpp);
                     int dest_gid = j + (p*rpp);
                     if (_router_ids_with_terminals.count(src_gid) > 0 && _router_ids_with_terminals.count(dest_gid) > 0) {
-                        bool is_valid = is_valid_path_between(src_gid,dest_gid,_max_local_hops_per_group,_max_global_hops);
-                        _valid_connection_map[make_tuple(src_gid,dest_gid,_max_local_hops_per_group,_max_global_hops)] = is_valid;
-                        // printf("%d - - > %d  == %d\n",src_gid,dest_gid, is_valid);
+                        // printf("next from %d to %d\n",src_gid,dest_gid);
+                        set<Connection> ret_valid = get_valid_next_hops_conns(src_gid,dest_gid,_max_local_hops_per_group,2);
+                        // unordered_set<Connection*> ret_valid = get_valid_next_hops(src_gid,dest_gid,_max_local_hops_per_group,1);
+                        _valid_next_conn_map[make_tuple(src_gid,dest_gid,_max_local_hops_per_group,_max_global_hops)].insert(ret_valid.begin(), ret_valid.end());
+                        // printf("%d - - > %d  == %d\n",src_gid,dest_gid, ret_valid.size());
                     }
                 }
             }
         }
     }
 
-    // for(int p = 0; p < _num_planes; p++)
-    // {
-    //     for(int i = 0; i < rpp;i++)
-    //     {
-    //         for(int j = 0; j < rpp;j++)
-    //         {
-    //             int src_gid = i + (p*rpp);
-    //             int dest_gid = j + (p*rpp);
-    //             bool is_valid = is_valid_path_between(src_gid,dest_gid,1,1);
-    //             _valid_connection_map[make_tuple(src_gid,dest_gid,1,1)] = is_valid;
-    //             // printf("%d - - > %d  == %d MINIMAL\n",src_gid,dest_gid, is_valid);
-    //         }
-    //     }
-    // }
 
     _is_solidified = true; //the network is now solidified
 }
@@ -759,6 +1083,7 @@ int ConnectionManager::add_connection(Connection conn)
             if (_used_intra_ports < _max_intra_ports){
                 conn.port = this->get_used_ports_for(CONN_LOCAL);
                 intraGroupConnections[conn.dest_lid].push_back(conn);
+                intraGroupConnectionsGID[conn.dest_gid].push_back(conn);
                 _used_intra_ports++;
             }
             else
@@ -840,31 +1165,56 @@ vector< Connection > ConnectionManager::get_routed_connections_to_group(int grou
 {
     vector< Connection > conns;
     vector< Connection >::iterator it;
-    for(it = _routed_connections_to_group_map[group_id].begin(); it != _routed_connections_to_group_map[group_id].end(); it++)
-    {
 
-        if (get_next_hop) //then verify that we have a direct connection to the src_lid of this routed conn
+    if (include_failed == false)
+    {
+        for(it = _routed_connections_to_group_map_nofail[group_id].begin(); it != _routed_connections_to_group_map_nofail[group_id].end(); it++)
         {
-            vector< Connection > local_conns = get_connections_to_gid(it->src_gid, CONN_LOCAL, include_failed);
-            conns.insert(conns.end(), local_conns.begin(), local_conns.end());
-        }
-        else
-        {
-            if(!include_failed)
+
+            if (get_next_hop) //then verify that we have a direct connection to the src_lid of this routed conn
             {
-                if(it->is_failed == false)
-                    conns.push_back(*it);
+                vector< Connection > local_conns = get_connections_to_gid(it->src_gid, CONN_LOCAL, include_failed);
+                conns.insert(conns.end(), local_conns.begin(), local_conns.end());
             }
             else
-                conns.push_back(*it);
+            {
+                if(!include_failed)
+                {
+                    if(it->is_failed == false)
+                        conns.push_back(*it);
+                }
+                else
+                    conns.push_back(*it);
+            }
         }
     }
+    else{
+        for(it = _routed_connections_to_group_map[group_id].begin(); it != _routed_connections_to_group_map[group_id].end(); it++)
+        {
+
+            if (get_next_hop) //then verify that we have a direct connection to the src_lid of this routed conn
+            {
+                vector< Connection > local_conns = get_connections_to_gid(it->src_gid, CONN_LOCAL, include_failed);
+                conns.insert(conns.end(), local_conns.begin(), local_conns.end());
+            }
+            else
+            {
+                conns.push_back(*it);
+            }
+        }
+    }
+
     return conns;
 }
 
 vector< Connection > ConnectionManager::get_routed_connections_to_group(int group_id, bool get_next_hop)
 {
     return get_routed_connections_to_group(group_id, get_next_hop, false);
+}
+
+vector< int > ConnectionManager::get_accessible_group_ids()
+{
+    return _accessible_group_ids_nofail;
 }
 
 vector< int > ConnectionManager::get_router_gids_with_global_to_group(int group_id)
@@ -1092,7 +1442,7 @@ vector< Connection > ConnectionManager::get_connections_to_gid(int dest_gid, Con
             switch (type)
             {
                 case CONN_LOCAL:
-                        return intraGroupConnections.at(dest_gid%_num_routers_per_group);
+                        return intraGroupConnectionsGID.at(dest_gid);
                 break;
                 case CONN_GLOBAL:
                         return globalConnections.at(dest_gid);
@@ -1113,7 +1463,7 @@ vector< Connection > ConnectionManager::get_connections_to_gid(int dest_gid, Con
             switch (type)
             {
                 case CONN_LOCAL:
-                        return intraGroupConnections_nofail.at(dest_gid%_num_routers_per_group);
+                        return intraGroupConnectionsGID_nofail.at(dest_gid);
                 break;
                 case CONN_GLOBAL:
                         return globalConnections_nofail.at(dest_gid);
@@ -1252,6 +1602,18 @@ void ConnectionManager::solidify_connections()
         }
     }
 
+    for(it = intraGroupConnectionsGID.begin(); it != intraGroupConnectionsGID.end(); it++)
+    {
+        int id = it->first;
+        vector<Connection> conns_to_id = it->second;
+        vector< Connection >::iterator vec_it;
+        for(vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++)
+        {
+            if(vec_it->is_failed == 0)
+                intraGroupConnectionsGID_nofail[id].push_back(*vec_it);
+        }
+    }
+
     for(it = globalConnections.begin(); it != globalConnections.end(); it++)
     {
         int id = it->first;
@@ -1349,6 +1711,26 @@ void ConnectionManager::solidify_connections()
         }
     }
 
+    for(it = _routed_connections_to_group_map_nofail.begin(); it != _routed_connections_to_group_map_nofail.end(); it++)
+    {
+        int group_id = it->first;
+        vector<Connection> conns_to_group = it->second;
+        vector<Connection>::iterator vec_it;
+        for(vec_it = conns_to_group.begin(); vec_it != conns_to_group.end(); vec_it++)
+        {
+            if (is_connected_to_by_type(vec_it->src_gid, CONN_LOCAL))
+            {
+                _accessible_group_ids_nofail.push_back(group_id);
+                break;
+            }
+        }
+    }
+    vector<int>::iterator vec_it;
+    for(vec_it = _other_groups_i_connect_to_nofail.begin(); vec_it != _other_groups_i_connect_to_nofail.end(); vec_it++)
+    {
+        add_as_if_set_int(*vec_it,_accessible_group_ids_nofail);
+    }
+
     is_solidified = true;
 }
 
@@ -1415,3 +1797,50 @@ void ConnectionManager::print_connections()
         ports_printed++;
     }
 }
+
+// void filter_valid_nexts_from_conns(vector< Connection >& conns, int local_hops_used, int global_hops_used, int fdest_router_id)
+// {
+//     IsPathInvalid::erase_where(conns, IsPathInvalid(&netMan, fdest_router_id, local_hops_used, global_hops_used));
+// }
+
+// IsPathInvalid::IsPathInvalid(NetworkManager *net, int final_dest_router_id, int local_hops_per_group, int global_hops)
+// {
+//     netMan = net;
+//     fdest_router_id = final_dest_router_id;
+//     available_local_hops_per_group = netMan->get_max_local_hops() - local_hops_per_group;
+//     available_global_hops = netMan->get_max_global_hops() - global_hops;
+// }
+
+
+// bool IsPathInvalid::operator()(Connection conn) const {
+//             if (conn.conn_type == CONN_LOCAL) {
+//                 if (netMan->is_valid_path_between(conn.dest_gid, fdest_router_id, available_local_hops_per_group-1, available_global_hops))
+//                     return false;
+//                 return true;
+//             }
+//             else if(conn.conn_type == CONN_GLOBAL) {
+//                 if (netMan->is_valid_path_between(conn.dest_gid, fdest_router_id, netMan->get_max_local_hops(), available_global_hops-1))
+//                     return false;
+//                 return true;
+//             }
+//             else {
+//                 return false;
+//             }
+// }
+
+// vector<Connection>::iterator IsPathInvalid::erase_where(vector<Connection> conns, IsPathInvalid&& f)
+// {
+//     return conns.erase(std::remove_if(conns.begin(), 
+//                                 conns.end(),
+//                                 std::forward<IsPathInvalid>(f)),
+//                 conns.end());    
+// }
+
+// template<class F>
+// vector<Connection>::iterator IsPathInvalid::erase_where(vector<Connection> conns, F&& f)
+// {
+//     return conns.erase(std::remove_if(conns.begin(), 
+//                                   conns.end(),
+//                                   std::forward<F>(f)),
+//                    conns.end());    
+// }
