@@ -46,6 +46,8 @@ class LinkType(Enum):
     INTRA = 1
     INTER = 2
     TERMINAL = 3
+    WILDROUTER = 4
+
 
 
 class Network(object):
@@ -112,10 +114,16 @@ class Network(object):
         self.num_terminal_links += 1
 
     def fail_links(self, link_type, percent_to_fail, plane_id = -1):
-        if plane_id is -1: #then we don't care which plane it comes from
-            links_to_consider = [link for link in self.link_list if link.link_type == link_type] 
-        else: #only fail from specific plane
-            links_to_consider = [link for link in self.link_list if link.link_type == link_type if link.rail_id == plane_id] 
+        if link_type == LinkType.WILDROUTER:
+            if plane_id is -1:
+                links_to_consider = [link for link in self.link_list if link.link_type != LinkType.TERMINAL]
+            else:
+                links_to_consider = [link for link in self.link_list if link.rail_id == plane_id]
+        else:
+            if plane_id is -1: #then we don't care which plane it comes from
+                links_to_consider = [link for link in self.link_list if link.link_type == link_type] 
+            else: #only fail from specific plane
+                links_to_consider = [link for link in self.link_list if link.link_type == link_type if link.rail_id == plane_id] 
 
         num_to_fail = int(len(links_to_consider)*percent_to_fail)
 
@@ -123,9 +131,9 @@ class Network(object):
 
         for link in links_to_fail:
             link.is_failed = True
-            if link_type is LinkType.INTRA:
+            if link.link_type is LinkType.INTRA:
                 self.num_intra_failed += 1
-            elif link_type is LinkType.INTER:
+            elif link.link_type is LinkType.INTER:
                 self.num_inter_failed += 1
             else:
                 self.num_terminal_failed += 1
@@ -305,8 +313,9 @@ def main():
     num_terminals = int(argv[3])
     num_injection_rails = int(argv[4])
     num_planes = int(argv[5])
-    percent_intra_fail = float(argv[6])
-    percent_inter_fail = float(argv[7])
+    percent_to_fail = float(argv[6])
+    # percent_intra_fail = float(argv[6])
+    # percent_inter_fail = float(argv[7])
 
     params = Params(router_radix, num_conn_between_groups, num_terminals, num_injection_rails, num_planes, 1)
     net = Network(params)
@@ -315,15 +324,16 @@ def main():
 
 
     if not DRYRUN:
-        with open(argv[8],"rb") as intra:
+        with open(argv[7],"rb") as intra:
             loadIntra(params, intra, net)
-        with open(argv[9],"rb") as inter:
+        with open(argv[8],"rb") as inter:
             loadInter(params, inter, net)
 
         add_terminal_links(params, net)
 
-        net.fail_links(LinkType.INTRA, percent_intra_fail, 0)
-        net.fail_links(LinkType.INTER, percent_inter_fail, 0)
+        net.fail_links(LinkType.WILDROUTER, percent_to_fail, -1) #fail any link, with a given percentage total, from any plane
+        # net.fail_links(LinkType.INTRA, percent_intra_fail, 0)
+        # net.fail_links(LinkType.INTER, percent_inter_fail, 0)
         # net.fail_term_links_safe(.5)
 
         # print(net)
@@ -334,7 +344,7 @@ def main():
         meta_content += "Number Inter Failed %d/%d\n"%(net.num_inter_failed, net.num_inter_links)
         meta_content += "Number Term Failed  %d/%d\n"%(net.num_terminal_failed, net.num_terminal_links)
 
-        with open(argv[10],"wb") as failfd:
+        with open(argv[9],"wb") as failfd:
             meta_content += writeFailed(params, failfd, net) + "\n"
 
         net.calc_adjacency_map()
@@ -367,7 +377,7 @@ def main():
 
         print(meta_content)
 
-        metafilename = argv[10] + "-meta"
+        metafilename = argv[9] + "-meta"
         with open(metafilename,"w") as metafd:
             metafd.write(meta_content)
 
