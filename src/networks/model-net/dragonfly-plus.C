@@ -3352,22 +3352,24 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
             }
             else
             {
-                if (src_group_id == dest_group_id)
-                {
-                    set<Connection> valid_next_stops = netMan.get_valid_next_hops_conns(src_router_id, dest_router_id, max_hops_per_group,0); //max global hops for local group routing == 0
-                    if (valid_next_stops.size() > 0)
-                        valid_rails.push_back(injection_connections[i]);
-                }
-                else
-                {
+                // if (src_group_id == dest_group_id)
+                // {
+                //     set<Connection> valid_next_stops = netMan.get_valid_next_hops_conns(src_router_id, dest_router_id, max_hops_per_group,0); //max global hops for local group routing == 0
+                //     if (valid_next_stops.size() > 0)
+                //         valid_rails.push_back(injection_connections[i]);
+                // }
+                // else
+                // {
                     set<Connection> valid_next_stops = netMan.get_valid_next_hops_conns(src_router_id, dest_router_id, max_hops_per_group,max_global_hops_nonminimal); //max global hops for local group routing == 0
                     if (valid_next_stops.size() > 0)
                         valid_rails.push_back(injection_connections[i]);
-                }
+                // }
             }
         }
-        if (valid_rails.size() < 1)
+        if (valid_rails.size() < 1) { 
             tw_error(TW_LOC,"Invalid Connections in Network due to link failures!\n");
+            // valid_rails = injection_connections; //TODO will cause problems - deal with
+        }
     }
     else
     {
@@ -4414,7 +4416,7 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
     //     written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <source group> || <dest_id> < dest_type> <destination group>, <link_type> <link_traffic> <link_saturation> <stalled_chunks>");
     // }
 
-    vector< Connection > my_local_links = s->connMan.get_connections_by_type(CONN_LOCAL);
+    vector< Connection > my_local_links = s->connMan.get_connections_by_type(CONN_LOCAL,true);
     vector< Connection >::iterator it = my_local_links.begin();
 
     for(; it != my_local_links.end(); it++)
@@ -4433,7 +4435,7 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
             s->stalled_chunks[port_no]);
     }
 
-    vector< Connection > my_global_links = s->connMan.get_connections_by_type(CONN_GLOBAL);
+    vector< Connection > my_global_links = s->connMan.get_connections_by_type(CONN_GLOBAL,true);
     it = my_global_links.begin();
 
     for(; it != my_global_links.end(); it++)
@@ -4456,7 +4458,7 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
             s->stalled_chunks[port_no]);
     }
 
-    vector< Connection > my_terminal_links = s->connMan.get_connections_by_type(CONN_TERMINAL);
+    vector< Connection > my_terminal_links = s->connMan.get_connections_by_type(CONN_TERMINAL,true);
     it = my_terminal_links.begin();
     for(; it != my_terminal_links.end(); it++)
     {
@@ -6522,6 +6524,8 @@ static set<Connection> get_smart_legal_nonminimal_stops(router_state *s, tw_bf *
     if(s->group_id == fdest_router_id / s->params->num_routers)
     {
         possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
+            if (possible_next_dests.size() == 0)
+                possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_nonminimal-msg->my_g_hop));
     }
     else {
         possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_nonminimal-msg->my_g_hop));
