@@ -276,7 +276,6 @@ static void issue_event(
     // kickoff_time = g_tw_lookahead + tw_rand_exponential(lp->rng, mean_interval);
     kickoff_time = tw_rand_exponential(lp->rng, mean_interval);
 
-
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
     m->svr_event_type = KICKOFF;
@@ -509,6 +508,7 @@ static void svr_finalize(
     svr_state * ns,
     tw_lp * lp)
 {
+    tw_stime now = tw_now(lp);
     //add to the global running sums
     sum_global_server_latency += ns->sum_server_latency;
     sum_global_messages_received += ns->msg_recvd_count;
@@ -526,14 +526,14 @@ static void svr_finalize(
     
     char output_buf[1024];
 
-    double observed_load_time = ((double)ns->end_ts-warm_up_time);
+    double observed_load_time = ((double)now-warm_up_time);
     double observed_load = ((double)PAYLOAD_SZ*(double)ns->msg_recvd_count)/observed_load_time;
     observed_load = observed_load * (double)(1000*1000*1000);
     observed_load = observed_load / (double)(1024*1024*1024);
 
     // double offered_load = (double)(load*link_bandwidth);
 
-    double offered_load_time = ((double)ns->end_ts-warm_up_time);
+    double offered_load_time = ((double)now-warm_up_time);
     double offered_load = ((double)PAYLOAD_SZ*(double)ns->warm_msg_sent_count)/offered_load_time;
     offered_load = offered_load * (double)(1000*1000*1000);
     offered_load = offered_load / (double)(1024*1024*1024);
@@ -541,6 +541,7 @@ static void svr_finalize(
     int written = 0;
     int written2 = 0;
 
+    // printf("%.2f Offered | %.2f Observed locally\n",offered_load,observed_load);
 
     pe_total_offered_load+= offered_load;
     pe_total_observed_load+= observed_load;
