@@ -4336,11 +4336,11 @@ void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
 
     // lp_io_write(lp->gid, (char *) "dragonfly-msg-stats", written, s->output_buf);
 
-    for(int i = 0; i < s->params->num_rails; i++)
-    {
-        if(s->terminal_msgs[i][0] != NULL) 
-        printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
-    }
+    // for(int i = 0; i < s->params->num_rails; i++)
+    // {
+    //     if(s->terminal_msgs[i][0] != NULL) 
+    //     printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
+    // }
 
     // if(s->packet_gen != s->packet_fin)
     //    printf("\n generated %d finished %d ", s->packet_gen, s->packet_fin);
@@ -4390,17 +4390,17 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
 
     free(s->global_channel);
     int i, j;
-    for (i = 0; i < s->params->radix; i++) {
-        for (j = 0; j < s->params->num_vcs; j++) {
-            if (s->queued_msgs[i][j] != NULL) {
-                printf("[%llu] leftover queued messages %d %d %d\n", LLU(lp->gid), i, j,
-                       s->vc_occupancy[i][j]);
-            }
-            if (s->pending_msgs[i][j] != NULL) {
-                printf("[%llu] leftover pending messages %d %d\n", LLU(lp->gid), i, j);
-            }
-        }
-    }
+    // for (i = 0; i < s->params->radix; i++) {
+    //     for (j = 0; j < s->params->num_vcs; j++) {
+    //         if (s->queued_msgs[i][j] != NULL) {
+    //             printf("[%llu] leftover queued messages %d %d %d\n", LLU(lp->gid), i, j,
+    //                    s->vc_occupancy[i][j]);
+    //         }
+    //         if (s->pending_msgs[i][j] != NULL) {
+    //             printf("[%llu] leftover pending messages %d %d\n", LLU(lp->gid), i, j);
+    //         }
+    //     }
+    // }
 
     rc_stack_destroy(s->st);
 

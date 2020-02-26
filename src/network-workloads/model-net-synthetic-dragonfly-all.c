@@ -259,6 +259,7 @@ static void issue_event(
         else if (load != 0.0)
         {
             mean_interval = bytes_to_ns(PAYLOAD_SZ, load*link_bandwidth);
+            // printf("load=%.2f\n",load);
         }
         else
         {
@@ -530,6 +531,7 @@ static void svr_finalize(
     observed_load = observed_load * (double)(1000*1000*1000);
     observed_load = observed_load / (double)(1024*1024*1024);
 
+    // double offered_load = (double)(load*link_bandwidth);
 
     double offered_load_time = ((double)ns->end_ts-warm_up_time);
     double offered_load = ((double)PAYLOAD_SZ*(double)ns->warm_msg_sent_count)/offered_load_time;
@@ -688,7 +690,7 @@ int main(
     free(net_ids);
 
     /* 5 days of simulation time */
-    g_tw_ts_end = s_to_ns(5 * 24 * 60 * 60);
+    // g_tw_ts_end = s_to_ns(5 * 24 * 60 * 60);
     model_net_enable_sampling(sampling_interval, sampling_end_time);
 
     if(!(net_id == DRAGONFLY_DALLY || net_id == DRAGONFLY_PLUS || net_id == DRAGONFLY_CUSTOM || net_id == DRAGONFLY))
