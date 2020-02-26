@@ -3286,12 +3286,12 @@ static void packet_generate_rc(terminal_state *s, tw_bf *bf, terminal_plus_messa
     int_storage_delete(iis);
     int_storage_delete(scs);
 
-    if (bf->c11) {
-        s->issueIdle[msg->rail_id] = 0;
-        s->stalled_chunks[msg->rail_id]--;
-        if(bf->c8)
-            s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
-    }
+    // if (bf->c11) {1
+    //     s->issueIdle[msg->rail_id] = 0;
+    //     s->stalled_chunks[msg->rail_id]--;
+    //     if(bf->c8)
+    //         s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
+    // }
     
     struct mn_stats *stat;
     stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
@@ -3569,6 +3569,7 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
                    msg->local_event_size_bytes);
         }
 
+        cur_chunk->msg.rail_id = msg->rail_id;
         cur_chunk->msg.output_chan = vcg; //By default is 0 but QoS can mean more than just a single VC for terminals
         cur_chunk->msg.chunk_id = i;
         cur_chunk->msg.origin_router_id = s->router_id[msg->rail_id];
