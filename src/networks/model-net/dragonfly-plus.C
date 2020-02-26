@@ -3569,6 +3569,7 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
                    msg->local_event_size_bytes);
         }
 
+        cur_chunk->msg.rail_id = msg->rail_id;
         cur_chunk->msg.output_chan = vcg; //By default is 0 but QoS can mean more than just a single VC for terminals
         cur_chunk->msg.chunk_id = i;
         cur_chunk->msg.origin_router_id = s->router_id[msg->rail_id];
