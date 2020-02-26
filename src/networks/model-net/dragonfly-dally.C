@@ -4011,11 +4011,11 @@ dragonfly_dally_terminal_final( terminal_state * s,
             LLU(lp->gid), s->terminal_id, s->total_gen_size, LLU(s->total_msg_size), s->total_time/s->finished_chunks, s->max_latency, s->min_latency,
             s->finished_packets, (double)s->total_hops/s->finished_chunks, avg_busy_time);
 
-    for(int i = 0; i < s->params->num_rails; i++)
-    {
-        if(s->terminal_msgs[i][0] != NULL) 
-        printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
-    }
+    // for(int i = 0; i < s->params->num_rails; i++)
+    // {
+        // if(s->terminal_msgs[i][0] != NULL) 
+        // printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
+    // }
 
 
     lp_io_write(lp->gid, (char*)"dragonfly-cn-stats", written, s->output_buf2); 
@@ -4037,18 +4037,18 @@ dragonfly_dally_terminal_final( terminal_state * s,
 void dragonfly_dally_router_final(router_state * s, tw_lp * lp)
 {
     free(s->global_channel);
-    int i, j;
-    for(i = 0; i < s->params->radix; i++) {
-        for(j = 0; j < s->params->num_vcs; j++) {
-            if(s->queued_msgs[i][j] != NULL) {
-                printf("[%llu] leftover queued messages %d %d %d\n", LLU(lp->gid), i, j,
-                s->vc_occupancy[i][j]);
-            }
-            if(s->pending_msgs[i][j] != NULL) {
-                printf("[%llu] lefover pending messages %d %d\n", LLU(lp->gid), i, j);
-            }
-        }
-    }
+    // int i, j;
+    // for(i = 0; i < s->params->radix; i++) {
+    //     for(j = 0; j < s->params->num_vcs; j++) {
+    //         if(s->queued_msgs[i][j] != NULL) {
+    //             printf("[%llu] leftover queued messages %d %d %d\n", LLU(lp->gid), i, j,
+    //             s->vc_occupancy[i][j]);
+    //         }
+    //         if(s->pending_msgs[i][j] != NULL) {
+    //             printf("[%llu] lefover pending messages %d %d\n", LLU(lp->gid), i, j);
+    //         }
+    //     }
+    // }
 
     if(s->router_id == 0)
         fclose(dragonfly_rtr_bw_log);
