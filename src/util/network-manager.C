@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <unordered_set>
 
+#define ENABLE_SHORT_PATH_CALC 1
 #define MAX_PATH_VAL 999
 #define DEST -999
 
@@ -974,7 +975,8 @@ void NetworkManager::solidify_network()
         }
     }
 
-    calculate_floyd_warshall_shortest_paths();
+    if(ENABLE_SHORT_PATH_CALC)
+        calculate_floyd_warshall_shortest_paths();
 
     //add copies of all of the connections to the connection managers
     add_conns_to_connection_managers();
