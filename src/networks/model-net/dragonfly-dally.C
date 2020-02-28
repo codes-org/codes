@@ -5656,31 +5656,32 @@ static Connection dfdally_smart_prog_adaptive_routing(router_state *s, tw_bf *bf
             Connection best_conn = dfdally_get_best_from_k_connection_set(s,bf,msg,lp,poss_next_stops,s->params->global_k_picks);
             return best_conn;
         }
-        else if (my_group_id == origin_group_id)
-        {
-            set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
-            set<Connection> poss_non_min_next_stops = get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
+        else {
+            if (my_group_id == origin_group_id)
+            {
+                set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
+                set<Connection> poss_non_min_next_stops = get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
 
-            Connection best_min_conn = dfdally_get_best_from_k_connection_set(s,bf,msg,lp,poss_min_next_stops,s->params->global_k_picks);
-            Connection best_nonmin_conn = dfdally_get_best_from_k_connection_set(s,bf,msg,lp,poss_non_min_next_stops,s->params->global_k_picks);
+                Connection best_min_conn = dfdally_get_best_from_k_connection_set(s,bf,msg,lp,poss_min_next_stops,s->params->global_k_picks);
+                Connection best_nonmin_conn = dfdally_get_best_from_k_connection_set(s,bf,msg,lp,poss_non_min_next_stops,s->params->global_k_picks);
 
-            int min_score = dfdally_score_connection(s, bf, msg, lp, best_min_conn, C_MIN);
-            int nonmin_score = dfdally_score_connection(s, bf, msg, lp, best_nonmin_conn, C_NONMIN);
+                int min_score = dfdally_score_connection(s, bf, msg, lp, best_min_conn, C_MIN);
+                int nonmin_score = dfdally_score_connection(s, bf, msg, lp, best_nonmin_conn, C_NONMIN);
 
-            if (min_score <= adaptive_threshold)
-                return best_min_conn;
-            else if (min_score <= nonmin_score)
-                return best_min_conn;
-            else {
-                msg->path_type = NON_MINIMAL;
-                return best_nonmin_conn;
+                if (min_score <= adaptive_threshold)
+                    return best_min_conn;
+                else if (min_score <= nonmin_score)
+                    return best_min_conn;
+                else {
+                    msg->path_type = NON_MINIMAL;
+                    return best_nonmin_conn;
+                }
+            } else 
+            {
+                set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id, max_global_hops_nonminimal);
+                return dfdally_get_best_from_k_connection_set(s, bf, msg, lp, poss_min_next_stops,s->params->global_k_picks);
             }
         }
-        else {
-            set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id, max_global_hops_nonminimal);
-            return get_absolute_best_connection_from_conn_set(s, bf, msg, lp, poss_min_next_stops);
-        }
-
     }
 }
 
