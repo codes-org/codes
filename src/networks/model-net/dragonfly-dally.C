@@ -5472,31 +5472,44 @@ static Connection dfdally_prog_adaptive_routing(router_state *s, tw_bf *bf, term
 //when using this function, you should assume that the self router is NOT the destination. That should be handled elsewhere.
 static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id, int max_global_hops_in_path)
 {
-    vector<int> shortest_path_next_gids = netMan.get_shortest_nexts(s->router_id, fdest_router_id);
+    int my_router_id = s->router_id;
+    int my_group_id = s->group_id;
+    int origin_group_id = msg->origin_router_id / s->params->num_routers;
+    int fdest_group_id = fdest_router_id / s->params->num_routers;
+
     set<Connection> possible_next_dests;
-    for(vector<int>::iterator it = shortest_path_next_gids.begin(); it != shortest_path_next_gids.end(); it++)
-    {   
-        vector<Connection> local_conns;
-        vector<Connection> global_conns;
-        if(msg->my_hops_cur_group < max_hops_per_group)
-            local_conns = s->connMan.get_connections_to_gid(*it,CONN_LOCAL);
-        if(msg->my_g_hop < max_global_hops_in_path)
-            global_conns = s->connMan.get_connections_to_gid(*it,CONN_GLOBAL);
-        
-        vector<Connection>::iterator it2;
-        for(it2 = local_conns.begin(); it2 != local_conns.end(); it2++)
-        {
-            if (netMan.get_valid_next_hops_conns(it2->dest_gid,fdest_router_id,(max_hops_per_group-(msg->my_hops_cur_group+1)), (max_global_hops_in_path-msg->my_g_hop)).size())
-                possible_next_dests.insert(*it2);
-        }
-        for(it2 = global_conns.begin(); it2 != global_conns.end(); it2++)
-        {
-            if (netMan.get_valid_next_hops_conns(it2->dest_gid,fdest_router_id,(max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_in_path-(msg->my_g_hop+1))).size())
-                possible_next_dests.insert(*it2);
+
+    if (my_group_id == fdest_group_id) { //we're in origin group or intermediate group - either way we need to route to fdest group minimally
+        vector< Connection > conns_to_fdest_router = s->connMan.get_connections_to_gid(fdest_router_id, CONN_LOCAL);
+        if(conns_to_fdest_router.size() > 0) {
+            possible_next_dests.insert(conns_to_fdest_router.begin(),conns_to_fdest_router.end());
+            return possible_next_dests;
         }
     }
-    if (possible_next_dests.size() < 1)
-    {
+    // vector<int> shortest_path_next_gids = netMan.get_shortest_nexts(s->router_id, fdest_router_id);
+    // for(vector<int>::iterator it = shortest_path_next_gids.begin(); it != shortest_path_next_gids.end(); it++)
+    // {   
+    //     vector<Connection> local_conns;
+    //     vector<Connection> global_conns;
+    //     if(msg->my_hops_cur_group < max_hops_per_group)
+    //         local_conns = s->connMan.get_connections_to_gid(*it,CONN_LOCAL);
+    //     if(msg->my_g_hop < max_global_hops_in_path)
+    //         global_conns = s->connMan.get_connections_to_gid(*it,CONN_GLOBAL);
+        
+    //     vector<Connection>::iterator it2;
+    //     for(it2 = local_conns.begin(); it2 != local_conns.end(); it2++)
+    //     {
+    //         if (netMan.get_valid_next_hops_conns(it2->dest_gid,fdest_router_id,(max_hops_per_group-(msg->my_hops_cur_group+1)), (max_global_hops_in_path-msg->my_g_hop)).size())
+    //             possible_next_dests.insert(*it2);
+    //     }
+    //     for(it2 = global_conns.begin(); it2 != global_conns.end(); it2++)
+    //     {
+    //         if (netMan.get_valid_next_hops_conns(it2->dest_gid,fdest_router_id,(max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_in_path-(msg->my_g_hop+1))).size())
+    //             possible_next_dests.insert(*it2);
+    //     }
+    // }
+    // if (possible_next_dests.size() < 1)
+    // {
         if(s->group_id == fdest_router_id / s->params->num_routers)
         {
             possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
@@ -5505,8 +5518,8 @@ static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf
             possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_in_path-msg->my_g_hop));
         }
 
-        return possible_next_dests;
-    }
+        // return possible_next_dests;
+    // }
     return possible_next_dests;
 }
 
@@ -5635,31 +5648,40 @@ static Connection dfdally_smart_prog_adaptive_routing(router_state *s, tw_bf *bf
     }
     else
     {
-        if (my_group_id == origin_group_id)
+        if(msg->path_type == NON_MINIMAL)
         {
-            set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
-            set<Connection> poss_non_min_next_stops = get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
-
-            Connection best_min_conn = dfdally_get_best_from_k_connection_set(s,bf,msg,lp,poss_min_next_stops,s->params->global_k_picks);
-            Connection best_nonmin_conn = dfdally_get_best_from_k_connection_set(s,bf,msg,lp,poss_non_min_next_stops,s->params->global_k_picks);
-
-            int min_score = dfdally_score_connection(s, bf, msg, lp, best_min_conn, C_MIN);
-            int nonmin_score = dfdally_score_connection(s, bf, msg, lp, best_nonmin_conn, C_NONMIN);
-
-            if (min_score <= adaptive_threshold)
-                return best_min_conn;
-            else if (min_score <= nonmin_score)
-                return best_min_conn;
-            else {
-                msg->path_type = NON_MINIMAL;
-                return best_nonmin_conn;
-            }
+            set<Connection> poss_next_stops = get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
+            if (poss_next_stops.size() < 1)
+                tw_error(TW_LOC, "Smart Prog Adaptive Routing: intm can't reach intm rtr");
+            Connection best_conn = dfdally_get_best_from_k_connection_set(s,bf,msg,lp,poss_next_stops,s->params->global_k_picks);
+            return best_conn;
         }
         else {
-            set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id, max_global_hops_nonminimal);
-            return get_absolute_best_connection_from_conn_set(s, bf, msg, lp, poss_min_next_stops);
-        }
+            if (my_group_id == origin_group_id)
+            {
+                set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
+                set<Connection> poss_non_min_next_stops = get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
 
+                Connection best_min_conn = dfdally_get_best_from_k_connection_set(s,bf,msg,lp,poss_min_next_stops,s->params->global_k_picks);
+                Connection best_nonmin_conn = dfdally_get_best_from_k_connection_set(s,bf,msg,lp,poss_non_min_next_stops,s->params->global_k_picks);
+
+                int min_score = dfdally_score_connection(s, bf, msg, lp, best_min_conn, C_MIN);
+                int nonmin_score = dfdally_score_connection(s, bf, msg, lp, best_nonmin_conn, C_NONMIN);
+
+                if (min_score <= adaptive_threshold)
+                    return best_min_conn;
+                else if (min_score <= nonmin_score)
+                    return best_min_conn;
+                else {
+                    msg->path_type = NON_MINIMAL;
+                    return best_nonmin_conn;
+                }
+            } else 
+            {
+                set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id, max_global_hops_nonminimal);
+                return dfdally_get_best_from_k_connection_set(s, bf, msg, lp, poss_min_next_stops,s->params->global_k_picks);
+            }
+        }
     }
 }
 
