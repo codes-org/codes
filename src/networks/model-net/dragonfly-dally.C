@@ -5516,6 +5516,15 @@ static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf
         }
         else {
             possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_in_path-msg->my_g_hop));
+        
+            set<Connection> direct_globals;
+            for(set<Connection>::iterator it = possible_next_dests.begin(); it != possible_next_dests.end(); it++)
+            {
+                if(it->dest_group_id == fdest_group_id)
+                    direct_globals.insert(*it);
+            }
+            if(direct_globals.size() > 0)
+                return direct_globals;
         }
 
         // return possible_next_dests;
