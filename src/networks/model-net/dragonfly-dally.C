@@ -5472,31 +5472,31 @@ static Connection dfdally_prog_adaptive_routing(router_state *s, tw_bf *bf, term
 //when using this function, you should assume that the self router is NOT the destination. That should be handled elsewhere.
 static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id, int max_global_hops_in_path)
 {
-    vector<int> shortest_path_next_gids = netMan.get_shortest_nexts(s->router_id, fdest_router_id);
     set<Connection> possible_next_dests;
-    for(vector<int>::iterator it = shortest_path_next_gids.begin(); it != shortest_path_next_gids.end(); it++)
-    {   
-        vector<Connection> local_conns;
-        vector<Connection> global_conns;
-        if(msg->my_hops_cur_group < max_hops_per_group)
-            local_conns = s->connMan.get_connections_to_gid(*it,CONN_LOCAL);
-        if(msg->my_g_hop < max_global_hops_in_path)
-            global_conns = s->connMan.get_connections_to_gid(*it,CONN_GLOBAL);
+    // vector<int> shortest_path_next_gids = netMan.get_shortest_nexts(s->router_id, fdest_router_id);
+    // for(vector<int>::iterator it = shortest_path_next_gids.begin(); it != shortest_path_next_gids.end(); it++)
+    // {   
+    //     vector<Connection> local_conns;
+    //     vector<Connection> global_conns;
+    //     if(msg->my_hops_cur_group < max_hops_per_group)
+    //         local_conns = s->connMan.get_connections_to_gid(*it,CONN_LOCAL);
+    //     if(msg->my_g_hop < max_global_hops_in_path)
+    //         global_conns = s->connMan.get_connections_to_gid(*it,CONN_GLOBAL);
         
-        vector<Connection>::iterator it2;
-        for(it2 = local_conns.begin(); it2 != local_conns.end(); it2++)
-        {
-            if (netMan.get_valid_next_hops_conns(it2->dest_gid,fdest_router_id,(max_hops_per_group-(msg->my_hops_cur_group+1)), (max_global_hops_in_path-msg->my_g_hop)).size())
-                possible_next_dests.insert(*it2);
-        }
-        for(it2 = global_conns.begin(); it2 != global_conns.end(); it2++)
-        {
-            if (netMan.get_valid_next_hops_conns(it2->dest_gid,fdest_router_id,(max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_in_path-(msg->my_g_hop+1))).size())
-                possible_next_dests.insert(*it2);
-        }
-    }
-    if (possible_next_dests.size() < 1)
-    {
+    //     vector<Connection>::iterator it2;
+    //     for(it2 = local_conns.begin(); it2 != local_conns.end(); it2++)
+    //     {
+    //         if (netMan.get_valid_next_hops_conns(it2->dest_gid,fdest_router_id,(max_hops_per_group-(msg->my_hops_cur_group+1)), (max_global_hops_in_path-msg->my_g_hop)).size())
+    //             possible_next_dests.insert(*it2);
+    //     }
+    //     for(it2 = global_conns.begin(); it2 != global_conns.end(); it2++)
+    //     {
+    //         if (netMan.get_valid_next_hops_conns(it2->dest_gid,fdest_router_id,(max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_in_path-(msg->my_g_hop+1))).size())
+    //             possible_next_dests.insert(*it2);
+    //     }
+    // }
+    // if (possible_next_dests.size() < 1)
+    // {
         if(s->group_id == fdest_router_id / s->params->num_routers)
         {
             possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
@@ -5505,8 +5505,8 @@ static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf
             possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_in_path-msg->my_g_hop));
         }
 
-        return possible_next_dests;
-    }
+        // return possible_next_dests;
+    // }
     return possible_next_dests;
 }
 
