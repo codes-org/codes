@@ -5648,7 +5648,15 @@ static Connection dfdally_smart_prog_adaptive_routing(router_state *s, tw_bf *bf
     }
     else
     {
-        if (my_group_id == origin_group_id)
+        if(msg->path_type == NON_MINIMAL)
+        {
+            set<Connection> poss_next_stops = get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
+            if (poss_next_stops.size() < 1)
+                tw_error(TW_LOC, "Smart Prog Adaptive Routing: intm can't reach intm rtr");
+            Connection best_conn = dfdally_get_best_from_k_connection_set(s,bf,msg,lp,poss_next_stops,s->params->global_k_picks);
+            return best_conn;
+        }
+        else if (my_group_id == origin_group_id)
         {
             set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
             set<Connection> poss_non_min_next_stops = get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
