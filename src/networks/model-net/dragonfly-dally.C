@@ -4464,33 +4464,68 @@ static void router_packet_receive( router_state * s,
 
     // printf("Router %d: Output Port = %d      next stop = %d\n",s->router_id, output_port, next_stop);
 
-    //TODO double check the dfdally vc selection process
     int max_vc_size = s->params->cn_vc_size;
 
+    int my_group_id = s->group_id;
+    int src_group_id = msg->origin_router_id / num_routers;
+    int dest_group_id = dest_router_id / num_routers;
+
     output_chan = 0;
-    if(output_port < s->params->intra_grp_radix) {
-        if(cur_chunk->msg.my_g_hop == 1 && cur_chunk->msg.last_hop == GLOBAL) {
+    if (my_group_id == s->group_id)
+    {
+        if(msg->path_type == NON_MINIMAL)
             output_chan = 1;
-        } 
-        else if(cur_chunk->msg.my_g_hop == 1 && cur_chunk->msg.last_hop == LOCAL) {
-            output_chan = 2;
-        }
-        else if (cur_chunk->msg.my_g_hop == 2) {
-            output_chan = 3;
-        }
- 
+        else
+            output_chan = 0;
+    }
+    if (my_group_id != src_group_id && my_group_id != dest_group_id)
+    {
+        assert(msg->path_type == NON_MINIMAL);
+        output_chan = 2;
+    }
+    if (my_group_id == dest_group_id)
+    {
+        output_chan = 3;
+    }
+
+    if (next_stop_conn.conn_type == CONN_LOCAL)
+    {
         max_vc_size = s->params->local_vc_size;
         cur_chunk->msg.my_l_hop++;
         cur_chunk->msg.my_hops_cur_group++;
-    } 
-    else if(output_port < (s->params->intra_grp_radix + 
-        s->params->num_global_channels)) 
+    }
+    if (next_stop_conn.conn_type == CONN_GLOBAL)
     {
-        output_chan = cur_chunk->msg.my_g_hop;
         max_vc_size = s->params->global_vc_size;
         cur_chunk->msg.my_hops_cur_group = 0; //reset this as it's going to a new group
         cur_chunk->msg.my_g_hop++;
     }
+
+
+    // output_chan = 0;
+    // if(output_port < s->params->intra_grp_radix) {
+    //     if(cur_chunk->msg.my_g_hop == 1 && cur_chunk->msg.last_hop == GLOBAL) {
+    //         output_chan = 1;
+    //     }
+    //     else if(cur_chunk->msg.my_g_hop == 1 && cur_chunk->msg.last_hop == LOCAL) {
+    //         output_chan = 2;
+    //     }
+    //     else if (cur_chunk->msg.my_g_hop == 2) {
+    //         output_chan = 3;
+    //     }
+
+    //     max_vc_size = s->params->local_vc_size;
+    //     cur_chunk->msg.my_l_hop++;
+    //     cur_chunk->msg.my_hops_cur_group++;
+    // }
+    // else if(output_port < (s->params->intra_grp_radix +
+    //     s->params->num_global_channels))
+    // {
+    //     output_chan = cur_chunk->msg.my_g_hop;
+    //     max_vc_size = s->params->global_vc_size;
+    //     cur_chunk->msg.my_hops_cur_group = 0; //reset this as it's going to a new group
+    //     cur_chunk->msg.my_g_hop++;
+    // }
         
     assert(output_chan < vcs_per_qos);
     output_chan = output_chan + (vcg * vcs_per_qos);
