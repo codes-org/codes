@@ -5472,7 +5472,20 @@ static Connection dfdally_prog_adaptive_routing(router_state *s, tw_bf *bf, term
 //when using this function, you should assume that the self router is NOT the destination. That should be handled elsewhere.
 static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id, int max_global_hops_in_path)
 {
+    int my_router_id = s->router_id;
+    int my_group_id = s->group_id;
+    int origin_group_id = msg->origin_router_id / s->params->num_routers;
+    int fdest_group_id = fdest_router_id / s->params->num_routers;
+
     set<Connection> possible_next_dests;
+
+    if (my_group_id == fdest_group_id) { //we're in origin group or intermediate group - either way we need to route to fdest group minimally
+        vector< Connection > conns_to_fdest_router = s->connMan.get_connections_to_gid(fdest_router_id, CONN_LOCAL);
+        if(conns_to_fdest_router.size() > 0) {
+            possible_next_dests.insert(conns_to_fdest_router.begin(),conns_to_fdest_router.end());
+            return possible_next_dests;
+        }
+    }
     // vector<int> shortest_path_next_gids = netMan.get_shortest_nexts(s->router_id, fdest_router_id);
     // for(vector<int>::iterator it = shortest_path_next_gids.begin(); it != shortest_path_next_gids.end(); it++)
     // {   
