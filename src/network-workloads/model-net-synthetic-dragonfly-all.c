@@ -10,6 +10,7 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 
+define G_TW_END_OPT_OVERRIDE 1
 
 static int net_id = 0;
 static int traffic = 1;
@@ -273,8 +274,8 @@ static void issue_event(
      */
 
     /* skew each kickoff event slightly to help avoid event ties later on */
-    // kickoff_time = g_tw_lookahead + tw_rand_exponential(lp->rng, mean_interval);
-    kickoff_time = tw_rand_exponential(lp->rng, mean_interval);
+    kickoff_time = g_tw_lookahead + tw_rand_exponential(lp->rng, mean_interval);
+    // kickoff_time = tw_rand_exponential(lp->rng, mean_interval);
 
     e = tw_event_new(lp->gid, kickoff_time, lp);
     m = tw_event_data(e);
@@ -690,8 +691,10 @@ int main(
     net_id = *net_ids;
     free(net_ids);
 
-    /* 5 days of simulation time */
-    // g_tw_ts_end = s_to_ns(5 * 24 * 60 * 60);
+    if(G_TW_END_OPT_OVERRIDE) {
+        /* 5 days of simulation time */
+        g_tw_ts_end = s_to_ns(5 * 24 * 60 * 60);
+    }
     model_net_enable_sampling(sampling_interval, sampling_end_time);
 
     if(!(net_id == DRAGONFLY_DALLY || net_id == DRAGONFLY_PLUS || net_id == DRAGONFLY_CUSTOM || net_id == DRAGONFLY))
