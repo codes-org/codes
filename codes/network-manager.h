@@ -206,8 +206,6 @@ class NetworkManager {
     map< pair<int,int>, vector< Connection* > > _global_group_connection_map; //maps pair(src group id, dest group id) to a vector of connection pointers that match that pattern
 
     set<int> _router_ids_with_terminals;
-    unordered_map< tuple<int,int,int,int>, bool> _valid_connection_map; //memoization for whether a path that fits <src_gid,dest_gid,max_local_hops,max_global_hops> exists
-    unordered_map< tuple<int,int,int,int>, unordered_set<int> > _valid_next_map;
     unordered_map< tuple<int,int,int,int>, set<Connection> > _valid_next_conn_map;
 
     int*** adjacency_matrix; //total_routers x total_routers in size, 1 for if any connection exists 0 for if no connection exists
@@ -215,8 +213,6 @@ class NetworkManager {
 
     int** _shortest_path_vals;
     int** _next;
-
-    map< pair<int,int>, vector<vector<int> > > _path_enumerator;
 
     vector< ConnectionManager > _connection_manager_list; //list of all connection managers in the network
     vector< ConnectionManager > _terminal_connection_manager_list; // list of all connection mangers for TERMINALS in the network
@@ -253,23 +249,7 @@ public:
 
     vector<int> get_shortest_nexts(int src_gid, int dest_gid);
 
-    void DFS_rec_helper(int v, bool visited[]);
-
-    void DFS(int v);
-
-    // unordered_set<int> get_valid_next_hops(int src_gid, int dest_gid, int max_local, int exact_global);
-    // unordered_set<int> get_valid_next_hops(int src_gid, int dest_gid, int max_local, int exact_global, unordered_set<int> visited);
     set<Connection> get_valid_next_hops_conns(int src_gid, int dest_gid, int max_local, int exact_global);
-
-    // bool is_valid_path_between_bfs(int src_gid, int dest_gid, int max_local, int max_global);
-
-    // bool is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global, set<int>visited);
-
-    // bool is_valid_path_between(int src_gid, int dest_gid, int max_local, int max_global);
-
-    // bool enumerate_all_valid_paths(int src_gid, int dest_gid, int max_local, int max_global, set<int>visited, vector<int> path);
-
-    // bool enumerate_all_valid_paths(int src_gid, int dest_gid, int max_local, int max_global);
 
     int get_max_local_hops();
     
@@ -572,27 +552,6 @@ public:
      */
     void print_connections();
 };
-
-
-
-//functor class for filtering a vector of connections
-// class IsPathInvalid
-// {
-//     NetworkManager *netMan;
-//     int fdest_router_id;
-//     int available_local_hops_per_group;
-//     int available_global_hops;
-
-//     public:
-//         IsPathInvalid(NetworkManager *net, int final_dest_router_id, int local_hops_per_group, int global_hops);
-
-//         bool operator()(Connection conn) const;
-
-//         static vector<Connection>::iterator erase_where(vector<Connection> conns, IsPathInvalid&& f);
-
-// };
-
-//implementation found in util/network-manager.C
 
 
 #endif /* end of include guard:*/
