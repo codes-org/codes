@@ -74,7 +74,6 @@ static int max_hops_per_group = 1;
 static int max_global_hops_nonminimal = 2;
 static int max_global_hops_minimal = 1;
 
-
 static tw_stime max_qos_monitor = 5000000000;
 static long num_local_packets_sr = 0;
 static long num_local_packets_sg = 0;
@@ -94,7 +93,6 @@ using namespace std;
 /*MM: Maintains a list of routers connecting the source and destination groups */
 static vector< vector< vector<int> > > connectionList;
 
-// static vector< ConnectionManager > connManagerList;
 static NetworkManager netMan;
 
 /* Note: Dragonfly Dally doesn't distinguish intra links into colored "types".
@@ -1801,17 +1799,6 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     //Setup NetworkManager
     netMan = NetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->num_global_channels, p->cn_radix, p->num_rails, p->num_planes, max_hops_per_group, max_global_hops_nonminimal);
 
-    // //setup Connection Managers for each router
-    // for(int i = 0; i < p->total_routers; i++)
-    // {
-    //     int src_id_global = i;
-    //     int src_id_local = i % p->num_routers;
-    //     int src_group = i / p->num_routers;
-
-    //     ConnectionManager conman = ConnectionManager(src_id_local, src_id_global, src_group, p->intra_grp_radix, p->num_global_channels, p->num_cn, p->num_routers);
-    //     connManagerList.push_back(conman);
-    // }
-
     // read intra group connections, store from a router's perspective
     // all links to the same router form a vector
     char intraFile[MAX_NAME_LENGTH];
@@ -1846,7 +1833,6 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
                 new_link.conn_type = CONN_LOCAL;
                 new_link.rail_id = planar_id;
                 netMan.add_link(new_link);
-                // connManagerList[i].add_connection(dest_id_gloabl, CONN_LOCAL);
             }
         }
     }
@@ -1858,8 +1844,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         for(int j = 0; j < p->num_rails; j++)
         {
             int assigned_router_id = dfdally_get_assigned_router_id_from_terminal(p, i, j);
-            // int assigned_router_id = (int) i / p->num_cn;
-            // int assigned_group_id = assigned_router_id / p->num_routers;
+
             Link_Info new_link;
             new_link.src_gid = assigned_router_id;
             new_link.dest_gid = i;
@@ -1867,7 +1852,6 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
             new_link.rail_id = j;
             // printf("R%d <-> T%d   P%d\n",new_link.src_gid, new_link.dest_gid, new_link.rail_id);
             netMan.add_link(new_link);
-            // connManagerList[assigned_router_id].add_connection(i, CONN_TERMINAL);
         }
 
     }
@@ -1989,7 +1973,6 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
             }
         }
     }
-
 
     fclose(systemFile);
 
@@ -2598,7 +2581,6 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
         codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 1, s->router_id[i] / num_routers_per_mgrp, s->router_id[i] % num_routers_per_mgrp, &s->router_lp[i]);
     }
     
-    // s->router_id=(int)s->terminal_id / (s->params->num_cn);
     s->terminal_available_time = (tw_stime*)calloc(p->num_rails, sizeof(tw_stime));
     s->packet_counter = 0;
     s->min_latency = INT_MAX;
@@ -3668,14 +3650,14 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
 /* packet arrives at the destination terminal */
 static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) 
 {
-    if(isRoutingMinimal(routing) && msg->my_N_hop > 4)
-    {
-        printf("TERMINAL RECEIVED A NONMINIMAL LENGTH PACKET\n");
-    }
-    if(isRoutingMinimal(routing) && msg->my_g_hop > 1)
-    {
-        printf("TERMINAL RECEIVED A DOUBLE GLOBAL HOP PACKET\n");
-    }
+    // if(isRoutingMinimal(routing) && msg->my_N_hop > 4)
+    // {
+    //     printf("TERMINAL RECEIVED A NONMINIMAL LENGTH PACKET\n");
+    // }
+    // if(isRoutingMinimal(routing) && msg->my_g_hop > 1)
+    // {
+    //     printf("TERMINAL RECEIVED A DOUBLE GLOBAL HOP PACKET\n");
+    // }
     // printf("%d\n",msg->my_g_hop);
 
     if (msg->my_N_hop > s->params->max_hops_notify)
@@ -4011,11 +3993,11 @@ dragonfly_dally_terminal_final( terminal_state * s,
             LLU(lp->gid), s->terminal_id, s->total_gen_size, LLU(s->total_msg_size), s->total_time/s->finished_chunks, s->max_latency, s->min_latency,
             s->finished_packets, (double)s->total_hops/s->finished_chunks, avg_busy_time);
 
-    // for(int i = 0; i < s->params->num_rails; i++)
-    // {
-        // if(s->terminal_msgs[i][0] != NULL) 
-        // printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
-    // }
+    for(int i = 0; i < s->params->num_rails; i++)
+    {
+        if(s->terminal_msgs[i][0] != NULL) 
+        printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
+    }
 
 
     lp_io_write(lp->gid, (char*)"dragonfly-cn-stats", written, s->output_buf2); 
@@ -4037,18 +4019,18 @@ dragonfly_dally_terminal_final( terminal_state * s,
 void dragonfly_dally_router_final(router_state * s, tw_lp * lp)
 {
     free(s->global_channel);
-    // int i, j;
-    // for(i = 0; i < s->params->radix; i++) {
-    //     for(j = 0; j < s->params->num_vcs; j++) {
-    //         if(s->queued_msgs[i][j] != NULL) {
-    //             printf("[%llu] leftover queued messages %d %d %d\n", LLU(lp->gid), i, j,
-    //             s->vc_occupancy[i][j]);
-    //         }
-    //         if(s->pending_msgs[i][j] != NULL) {
-    //             printf("[%llu] lefover pending messages %d %d\n", LLU(lp->gid), i, j);
-    //         }
-    //     }
-    // }
+    int i, j;
+    for(i = 0; i < s->params->radix; i++) {
+        for(j = 0; j < s->params->num_vcs; j++) {
+            if(s->queued_msgs[i][j] != NULL) {
+                printf("[%llu] leftover queued messages %d %d %d\n", LLU(lp->gid), i, j,
+                s->vc_occupancy[i][j]);
+            }
+            if(s->pending_msgs[i][j] != NULL) {
+                printf("[%llu] lefover pending messages %d %d\n", LLU(lp->gid), i, j);
+            }
+        }
+    }
 
     if(s->router_id == 0)
         fclose(dragonfly_rtr_bw_log);
@@ -4501,7 +4483,7 @@ static void router_packet_receive( router_state * s,
         cur_chunk->msg.my_g_hop++;
     }
 
-
+    //this seemed outdated with current literature and was replaced with the scheme above.
     // output_chan = 0;
     // if(output_port < s->params->intra_grp_radix) {
     //     if(cur_chunk->msg.my_g_hop == 1 && cur_chunk->msg.last_hop == GLOBAL) {
@@ -5254,22 +5236,6 @@ static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, 
     }
 }
 
-// //when using this function, you should assume that the self router is NOT the destination. That should be handled elsewhere.
-// static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
-// {
-//     vector<int> poss_nexts = netMan._shortest_path_nexts[make_pair(s->router_id,fdest_router_id)];
-//     vector<Connection> possible_conns;
-//     vector<int>::iterator set_it = poss_nexts.begin();
-//     for(; set_it != poss_nexts.end(); set_it++)
-//     {
-//         vector<Connection> global_conns = s->connMan.get_connections_to_gid(*set_it, CONN_GLOBAL);
-//         vector<Connection> local_conns = s->connMan.get_connections_to_gid(*set_it, CONN_LOCAL);
-
-//         possible_conns.insert(possible_conns.end(),global_conns.begin(),global_conns.end());
-//         possible_conns.insert(possible_conns.end(),local_conns.begin(),local_conns.end());
-//     }
-//     return possible_conns;
-// }
 //Note that this is different than Dragonfly Plus's implementation, this isn't the converse of minimal, these are any
 //connections that could lead to the intermediate group or a new one if necessary
 static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
@@ -5332,6 +5298,7 @@ static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *b
     }
 }
 
+//TODO - make some way to configure whether there's any form of adaptiveness to this scheme
 static Connection dfdally_minimal_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
 {
     vector< Connection > poss_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
@@ -5468,6 +5435,8 @@ static Connection dfdally_prog_adaptive_routing(router_state *s, tw_bf *bf, term
     }
 }
 
+//SMART ROUTING: Smart routing is my term for failure aware routing. Leverages the network manager's ability to filter out invalid connections and to return only valid paths between endpoints.
+//It's significantly slower in runtime, typically, and is very experimental at this point. Use at own risk.
 
 //when using this function, you should assume that the self router is NOT the destination. That should be handled elsewhere.
 static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id, int max_global_hops_in_path)
