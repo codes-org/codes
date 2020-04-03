@@ -1496,7 +1496,6 @@ static void int_storage_delete(void * ptr)
         free(ptr);
 }
 
-
 void dragonfly_print_params(const dragonfly_param *p, FILE * st)
 {
     if(!st)

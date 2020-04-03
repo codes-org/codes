@@ -453,7 +453,7 @@ static void handle_remote_event(
         (void)b;
         (void)m;
         (void)lp;
-    
+
     if (tw_now(lp) >= warm_up_time) {
         b->c3 = 1;
         ns->msg_recvd_count++;
@@ -510,6 +510,18 @@ static void svr_finalize(
     tw_lp * lp)
 {
     tw_stime now = tw_now(lp);
+    //add to the global running sums
+    sum_global_server_latency += ns->sum_server_latency;
+    sum_global_messages_received += ns->msg_recvd_count;
+
+    //compare to global maximum
+    if (ns->max_server_latency > max_global_server_latency)
+        max_global_server_latency = ns->max_server_latency;
+
+    //this server's mean
+    // tw_stime mean_packet_latency = ns->sum_server_latency/ns->msg_recvd_count;
+
+
     //add to the global running sums
     sum_global_server_latency += ns->sum_server_latency;
     sum_global_messages_received += ns->msg_recvd_count;
@@ -628,8 +640,6 @@ static void svr_report_stats()
     }
 }
 
-
-
 static void aggregate_svr_stats(int myrank)
 {
 
@@ -645,7 +655,6 @@ static void aggregate_svr_stats(int myrank)
         printf("AVG OFFERED LOAD = %.2f     |     AVG OBSERVED LOAD = %.2f\n",avg_offered_load, avg_observed_load);
     }
 }
-
 
 int main(
     int argc,
