@@ -2595,7 +2595,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     s->packet_gen++;
     s->total_gen_size += msg->packet_size;
 
-    tw_stime ts, nic_ts;
+    tw_stime ts, injection_ts, nic_ts;
 
     assert(lp->gid != msg->dest_terminal_lpid);
     const dragonfly_param *p = s->params;
@@ -2606,9 +2606,6 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
 
     if (msg->packet_size < s->params->chunk_size) 
         num_chunks++;
-
-    if(msg->packet_size < s->params->chunk_size)
-        cn_delay = bytes_to_ns(msg->packet_size % s->params->chunk_size, s->params->cn_bandwidth);
 
     int dest_router_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_lpid, 0, 0) / s->params->num_cn;
     int dest_grp_id = dest_router_id / s->params->num_routers; 
@@ -2633,7 +2630,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         num_remote_packets++;
     }
     msg->num_rngs++;
-    nic_ts = g_tw_lookahead + (num_chunks * cn_delay) + tw_rand_unif(lp->rng);
+    //nic_ts = g_tw_lookahead + (num_chunks * cn_delay) + tw_rand_unif(lp->rng);
     
     msg->packet_ID = s->packet_counter;
     s->packet_counter++;
@@ -2671,6 +2668,10 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         vcg, cur_chunk);
         s->terminal_length[vcg] += s->params->chunk_size;
     }
+
+    // nic_ts = g_tw_lookahead + (num_chunks * cn_delay) + tw_rand_unif(lp->rng);     // Original line
+    injection_ts = bytes_to_ns(msg->packet_size, s->params->cn_bandwidth);
+    nic_ts = g_tw_lookahead + injection_ts + tw_rand_unif(lp->rng);
 
     if(s->terminal_length[vcg] < s->params->cn_vc_size) {
         model_net_method_idle_event(nic_ts, 0, lp);
@@ -3691,6 +3692,7 @@ static void router_credit_send(router_state * s, terminal_dally_message * msg,
 
     (*rng_counter)++;
     ts = g_tw_lookahead + credit_delay +  tw_rand_unif(lp->rng);
+// KB Injection delay should be added here
 
     if (is_terminal) {
         buf_e = model_net_method_event_new(dest, ts, lp, DRAGONFLY_DALLY, 
