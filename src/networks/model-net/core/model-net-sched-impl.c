@@ -8,6 +8,7 @@
 #include <assert.h>
 
 #include <codes/model-net-sched-impl.h>
+#include "../qos.h"
 #include <codes/model-net-sched.h>
 #include <codes/model-net-method.h>
 #include <codes/quicklist.h>
@@ -50,6 +51,15 @@ typedef struct mn_sched_prio {
     const model_net_sched_interface *sub_sched_iface;
     mn_sched_queue ** sub_scheds; // one for each params.num_prios
 } mn_sched_prio;
+
+// QoS scheduler builds on the prio scheduler
+typedef struct mn_sched_qos {
+    mn_sched_prio *prio;
+    size_t numSLs;
+    int * qos_table;
+    size_t qos_table_index;
+    size_t qos_table_counter;
+} mn_sched_qos;
 
 /// scheduler-specific function decls and tables
 
@@ -141,6 +151,34 @@ static void prio_next_rc (
         const void               * rc_event_save,
         const model_net_sched_rc * rc,
         tw_lp                    * lp);
+static void qos_init (
+        const struct model_net_method     * method, 
+        const model_net_sched_cfg_params  * params,
+        int                                 is_recv_queue,
+        void                             ** sched);
+static void qos_destroy (void *sched);
+static void qos_add (
+        const model_net_request * req,
+        const mn_sched_params   * sched_params,
+        int                       remote_event_size,
+        void                    * remote_event,
+        int                       local_event_size,
+        void                    * local_event,
+        void                    * sched,
+        model_net_sched_rc      * rc,
+        tw_lp                   * lp);
+static void qos_add_rc(void *sched, const model_net_sched_rc *rc, tw_lp *lp);
+static int  qos_next(
+        tw_stime              * poffset,
+        void                  * sched,
+        void                  * rc_event_save,
+        model_net_sched_rc    * rc,
+        tw_lp                 * lp);
+static void qos_next_rc (
+        void                     * sched,
+        const void               * rc_event_save,
+        const model_net_sched_rc * rc,
+        tw_lp                    * lp);
 
 /// function tables (names defined by X macro in model-net-sched.h)
 static const model_net_sched_interface fcfs_tab = 
@@ -149,6 +187,8 @@ static const model_net_sched_interface rr_tab =
 { &rr_init, &rr_destroy, &rr_add, &rr_add_rc, &rr_next, &rr_next_rc};
 static const model_net_sched_interface prio_tab =
 { &prio_init, &prio_destroy, &prio_add, &prio_add_rc, &prio_next, &prio_next_rc};
+static const model_net_sched_interface qos_tab =
+{ &qos_init, &qos_destroy, &qos_add, &qos_add_rc, &qos_next, &qos_next_rc};
 
 #define X(a,b,c) c,
 const model_net_sched_interface * sched_interfaces[] = {
@@ -427,13 +467,13 @@ void rr_next_rc (
 }
 
 void prio_init (
-        const struct model_net_method     * method, 
+        const struct model_net_method     * method,
         const model_net_sched_cfg_params  * params,
         int                                 is_recv_queue,
         void                             ** sched){
     *sched = malloc(sizeof(mn_sched_prio));
     mn_sched_prio *ss = *sched;
-    ss->params = params->u.prio;
+    ss->params = params->prio;
     ss->sub_scheds = malloc(ss->params.num_prios*sizeof(mn_sched_queue*));
     ss->sub_sched_iface = sched_interfaces[ss->params.sub_stype];
     for (int i = 0; i < ss->params.num_prios; i++){
@@ -520,6 +560,89 @@ void prio_next_rc (
     }
     // else, no-op
 }
+
+void qos_init (
+        const struct model_net_method     * method,
+        const model_net_sched_cfg_params  * params,
+        int                                 is_recv_queue,
+        void                             ** sched){
+    *sched = malloc(sizeof(mn_sched_qos));
+    mn_sched_qos *ss = *sched;
+    ss->numSLs = params->qos.numSLs;
+    ss->qos_table = params->qos.qos_table;
+    ss->qos_table_index = 0;
+    ss->qos_table_counter = 0;
+    prio_init(method, params, is_recv_queue, (void **)&ss->prio);
+}
+
+void qos_destroy (void *sched){
+    mn_sched_qos *ss = sched;
+    prio_destroy((void *)ss->prio);
+    free(ss->qos_table);
+    free(ss);
+}
+
+void qos_add (
+        const model_net_request * req,
+        const mn_sched_params   * sched_params,
+        int                       remote_event_size,
+        void                    * remote_event,
+        int                       local_event_size,
+        void                    * local_event,
+        void                    * sched,
+        model_net_sched_rc      * rc,
+        tw_lp                   * lp){
+    mn_sched_qos *ss = sched;
+    prio_add(req, sched_params, remote_event_size, remote_event, local_event_size, local_event, (void *)ss->prio, rc, lp);
+}
+
+void qos_add_rc(void * sched, const model_net_sched_rc *rc, tw_lp *lp){
+    mn_sched_qos *ss = sched;
+    prio_add_rc((void *)ss->prio, rc, lp);
+}
+
+static int qos_has_packets(void * sched, size_t sl) {
+    mn_sched_qos *ss = sched;
+    return !qlist_empty(&ss->prio->sub_scheds[sl]->reqs);
+}
+
+int qos_next(
+        tw_stime              * poffset,
+        void                  * sched,
+        void                  * rc_event_save,
+        model_net_sched_rc    * rc,
+        tw_lp                 * lp){
+    mn_sched_qos *ss = sched;
+
+    // Save parameters we need to reverse the operation
+    rc->qos_table_index = ss->qos_table_index;
+    rc->qos_table_counter = ss->qos_table_counter;
+
+    rc->prio = get_next_sl(ss->numSLs, ss->qos_table, &ss->qos_table_index, &ss->qos_table_counter, qos_has_packets, ss);
+    if (rc->prio != NO_PACKETS_TO_SEND) {
+        return ss->prio->sub_sched_iface->next(
+               poffset, ss->prio->sub_scheds[rc->prio], rc_event_save, rc, lp);
+    }
+    else {
+        // No packets were available to send
+        rc->prio = -1;
+        return -1;
+    }
+}
+
+void qos_next_rc (
+        void                     * sched,
+        const void               * rc_event_save,
+        const model_net_sched_rc * rc,
+        tw_lp                    * lp){
+    mn_sched_qos *ss = sched;
+    prio_next_rc((void *)ss->prio, rc_event_save, rc, lp);
+    if (rc->prio > -1) {
+        ss->qos_table_index = rc->qos_table_index;
+        ss->qos_table_counter = rc->qos_table_counter;
+    }
+}
+
 
 /*
  * Local variables:

@@ -279,6 +279,42 @@ int configuration_get_value_double (ConfigHandle *handle,
     return rc;
 }
 
+
+int configuration_get_multivalue_int(ConfigHandle *handle,
+                                     const char *section_name,
+                                     const char *key_name,
+                                     const char *annotation,
+                                     int **values,
+                                     size_t *len) {
+    char **valuestr;
+    int rc = 1;
+    int r;
+
+    r = configuration_get_multivalue(handle,
+                                     section_name,
+                                     key_name,
+                                     annotation,
+                                     &valuestr,
+                                     len);
+    if (r > 0)
+    {
+        int *vals = malloc(sizeof(int) * (*len));
+        //printf("Vals: %d\n", vals);
+        //printf("Len: %d\n", *len);
+        for (size_t i = 0; i < *len; ++i)
+        {
+            //printf("%s\n", valuestr[i]);
+            vals[i] = atoi(valuestr[i]);
+            //printf("%d\n", vals[i]);
+        }
+        *values = vals;
+        rc = 0;
+    }
+
+    return rc;   
+}          
+
+
 static void check_add_anno(
         int anno_offset,
         config_anno_map_t *map){

@@ -226,6 +226,26 @@ int configuration_get_value_double (ConfigHandle *handle,
                                     double *value);
 
 /*
+ * Get's the values for a give section/key pair which has multiple values
+ * and converts them to an int.
+ * Assumes the key name is a MULTIKEY configuration type.
+ * 
+ * handle - configuration handle
+ * section_name - name of the section the key is in
+ * key_name - name of the key
+ * annotation - optional annotation to look for (NULL -> no annotation)
+ * values - array of points to values (must be freed by caller)
+ * length - number of value items
+ */
+int configuration_get_multivalue_int(ConfigHandle *handle,
+                                    const char * section_name,
+                                    const char * key_name,
+                                    const char * annotation,
+                                    int **values,
+                                    size_t *length);
+
+
+/*
  * Get the LPGROUPS configuration from the config file which is stored
  * in the associated data structures.
  *
