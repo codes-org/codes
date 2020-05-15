@@ -2149,39 +2149,42 @@ void dragonfly_dally_report_stats()
     return;
 }
 
-static void dragonfly_dally_terminal_congestion_request(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+static void dragonfly_dally_terminal_congestion_event(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
     // printf("GOT REQUEST TERMINAL\n");
 
 }
 
-static void dragonfly_dally_terminal_congestion_request_rc(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+static void dragonfly_dally_terminal_congestion_event_rc(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
     // printf("GOT REQUEST RC TERMINAL\n");
 }
 
-static void dragonfly_dally_terminal_congestion_request_commit(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+static void dragonfly_dally_terminal_congestion_event_commit(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
     
 }
 
-static void dragonfly_dally_router_congestion_request(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+static void dragonfly_dally_router_congestion_event(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    cc_router_local_get_port_stall_count(s->local_congestion_controller, bf, msg, lp);
-    cc_router_local_send_performance(s->local_congestion_controller, bf, msg, lp);
-    cc_router_local_new_epoch(s->local_congestion_controller, bf, msg, lp);
+
+    // 5-15-20 just commenting these out for now as this is no longer a congestion request event handler but a general
+    //          congestion event handler that will have a switch statement breakout
+    // cc_router_local_get_port_stall_count(s->local_congestion_controller, bf, msg, lp);
+    // cc_router_local_send_performance(s->local_congestion_controller, bf, msg, lp);
+    // cc_router_local_new_epoch(s->local_congestion_controller, bf, msg, lp);
 }
 
-static void dragonfly_dally_router_congestion_request_rc(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+static void dragonfly_dally_router_congestion_event_rc(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    cc_router_local_new_epoch_rc(s->local_congestion_controller, bf, msg, lp);
-    cc_router_local_send_performance_rc(s->local_congestion_controller, bf, msg, lp);
-    cc_router_local_get_port_stall_count_rc(s->local_congestion_controller, bf, msg, lp);
+    // cc_router_local_new_epoch_rc(s->local_congestion_controller, bf, msg, lp);
+    // cc_router_local_send_performance_rc(s->local_congestion_controller, bf, msg, lp);
+    // cc_router_local_get_port_stall_count_rc(s->local_congestion_controller, bf, msg, lp);
 }
 
-static void dragonfly_dally_router_congestion_request_commit(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+static void dragonfly_dally_router_congestion_event_commit(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    cc_router_local_new_epoch_commit(s->local_congestion_controller, bf, msg, lp);
+    // cc_router_local_new_epoch_commit(s->local_congestion_controller, bf, msg, lp);
 }
 
 int get_vcg_from_category(terminal_dally_message * msg)
@@ -6434,9 +6437,9 @@ struct model_net_method dragonfly_dally_method =
     NULL,//(final_f)dragonfly_dally_sample_fin
     custom_dally_dragonfly_register_model_types,
     custom_dally_dragonfly_get_model_types,
-    (event_f)dragonfly_dally_terminal_congestion_request,
-    (revent_f)dragonfly_dally_terminal_congestion_request_rc,
-    (commit_f)dragonfly_dally_terminal_congestion_request_commit,
+    (event_f)dragonfly_dally_terminal_congestion_event,
+    (revent_f)dragonfly_dally_terminal_congestion_event_rc,
+    (commit_f)dragonfly_dally_terminal_congestion_event_commit,
 };
 
 struct model_net_method dragonfly_dally_router_method =
@@ -6459,9 +6462,9 @@ struct model_net_method dragonfly_dally_router_method =
     NULL,//(final_f)dragonfly_dally_rsample_fin
     custom_dally_router_register_model_types,
     custom_dally_dfly_router_get_model_types,
-    (event_f)dragonfly_dally_router_congestion_request,
-    (revent_f)dragonfly_dally_router_congestion_request_rc,
-    (commit_f)dragonfly_dally_router_congestion_request_commit,
+    (event_f)dragonfly_dally_router_congestion_event,
+    (revent_f)dragonfly_dally_router_congestion_event_rc,
+    (commit_f)dragonfly_dally_router_congestion_event_commit,
 };
 
 // #ifdef ENABLE_CORTEX

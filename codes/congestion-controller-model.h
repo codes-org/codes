@@ -73,8 +73,8 @@ typedef struct sc_state
     map< unsigned long long, congestion_status > *port_period_congestion_map; //maps an epoch to a status of whether the port congestion threshold was 
     unsigned long long num_completed_workload_ranks;
 
-    int received_router_performance_count; //number of CC_R_PERF_RESPONSE messages received following a request
-    int received_terminal_performance_count; //number of CC_N_PERF_RESPONSE messages received following a request
+    int received_router_performance_count; //number of CC_R_PERF_REPORT messages received following a request
+    int received_terminal_performance_count; //number of CC_N_PERF_REPORT messages received following a request
 
     set< int > suspect_job_set;
     map< int, bool> guilty_job_map;
@@ -150,6 +150,8 @@ extern void cc_supervisor_send_heartbeat(sc_state *s, tw_bf *bf, tw_lp *lp);
 extern void cc_supervisor_send_heartbeat_rc(sc_state *s, tw_bf *bf, tw_lp *lp);
 extern void cc_supervisor_receive_wl_completion(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_supervisor_receive_wl_completion_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+extern void cc_supervisor_broadcast_wl_completion(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+extern void cc_supervisor_broadcast_wl_completion_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_supervisor_start_new_epoch(sc_state *s); //implemented
 extern void cc_supervisor_start_new_epoch_rc(sc_state *s); //implemented
 extern void cc_supervisor_congestion_control_detect(sc_state *s, tw_bf *bf, tw_lp *lp); //implemented
@@ -173,7 +175,17 @@ extern void cc_supervisor_load_pattern_set(sc_state *s);
 
 // ------------ Local controllers -----------------------
 extern void cc_router_local_controller_init(rlc_state *s);
+
+extern void cc_router_local_send_heartbeat(rlc_state *s, tw_bf *bf, tw_lp *lp);
+extern void cc_router_local_send_heartbeat_rc(rlc_state *s, tw_bf *bf, tw_lp *lp);
+extern void cc_router_local_process_heartbeat(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+extern void cc_router_local_process_heartbeat_rc(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+
+extern void cc_router_local_congestion_event(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+extern void cc_router_local_congestion_event_rc(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+
 extern void cc_router_local_controller_setup_stall_alpha(rlc_state *s, int radix, unsigned long *stalled_chunks_ptr, unsigned long *total_chunks_ptr);
+
 extern int cc_router_local_get_port_stall_count(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_router_local_get_port_stall_count_rc(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_router_local_send_performance(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
@@ -183,6 +195,15 @@ extern void cc_router_local_new_epoch_rc(rlc_state *s, tw_bf *bf, congestion_con
 extern void cc_router_local_new_epoch_commit(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp); 
 
 extern void cc_terminal_local_controller_init(tlc_state *s);
+
+extern void cc_terminal_local_send_heartbeat(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+extern void cc_terminal_local_send_heartbeat_rc(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+extern void cc_terminal_local_process_heartbeat(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+extern void cc_terminal_local_process_heartbeat_rc(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+
+extern void cc_terminal_local_congestion_event(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+extern void cc_terminal_local_congestion_event_rc(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+
 extern void cc_terminal_local_get_nic_stall_count(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_terminal_local_send_performance(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 

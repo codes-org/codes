@@ -211,11 +211,11 @@ void cc_supervisor_event(sc_state *s, tw_bf *bf, congestion_control_message *msg
         case CC_SC_HEARTBEAT:
             cc_supervisor_process_heartbeat(s, bf, msg, lp);
         break;
-        case CC_R_PERF_RESPONSE:
+        case CC_R_PERF_REPORT:
             if (msg->current_epoch == s->current_epoch)
                 cc_supervisor_process_performance_response(s, bf, msg, lp);
         break;
-        case CC_N_PERF_RESPONSE:
+        case CC_N_PERF_REPORT:
             printf("SC: perf response received: TERMINAL\n");
         break;
         case CC_WORKLOAD_RANK_COMPLETE:
@@ -234,11 +234,11 @@ void cc_supervisor_event_rc(sc_state *s, tw_bf *bf, congestion_control_message *
         case CC_SC_HEARTBEAT:
             cc_supervisor_process_heartbeat_rc(s, bf, msg, lp);
         break;
-        case CC_R_PERF_RESPONSE:
+        case CC_R_PERF_REPORT:
             if (msg->current_epoch == s->current_epoch)
                 cc_supervisor_process_performance_response_rc(s, bf, msg, lp);
         break;
-        case CC_N_PERF_RESPONSE:
+        case CC_N_PERF_REPORT:
             printf("SC: perf response RC: TERMINAL\n");
         break;
         case CC_WORKLOAD_RANK_COMPLETE:
@@ -261,7 +261,7 @@ void cc_supervisor_process_heartbeat(sc_state *s, tw_bf *bf, congestion_control_
     cc_supervisor_congestion_control_detect(s, bf, lp);
     s->congested_epochs += (int) s->is_network_congested;
 
-    cc_supervisor_request_performance_information(s, bf, msg, lp);
+    // cc_supervisor_request_performance_information(s, bf, msg, lp);
     cc_supervisor_send_heartbeat(s, bf, lp);
     cc_supervisor_start_new_epoch(s);
 }
@@ -270,7 +270,7 @@ void cc_supervisor_process_heartbeat_rc(sc_state *s, tw_bf *bf, congestion_contr
 {
     cc_supervisor_start_new_epoch_rc(s);
     cc_supervisor_send_heartbeat_rc(s, bf, lp);
-    cc_supervisor_request_performance_information_rc(s, bf, msg, lp);
+    // cc_supervisor_request_performance_information_rc(s, bf, msg, lp);
 
     s->congested_epochs -= (int) s->is_network_congested;
     cc_supervisor_congestion_control_detect_rc(s, bf, lp);
@@ -306,11 +306,11 @@ void cc_supervisor_process_performance_response(sc_state *s, tw_bf *bf, congesti
 {
     switch(msg->type)
     {
-        case CC_R_PERF_RESPONSE:
+        case CC_R_PERF_REPORT:
             s->received_router_performance_count++;
             (*s->router_port_stallcount_map)[router_lpid_to_id_map[msg->sender_lpid]] = msg->stalled_count;
         break;
-        case CC_N_PERF_RESPONSE:
+        case CC_N_PERF_REPORT:
             s->received_terminal_performance_count++;
             (*s->node_stall_map)[terminal_lpid_to_id_map[msg->sender_lpid]] = msg->stalled_count;
         break;
@@ -324,11 +324,11 @@ void cc_supervisor_process_performance_response_rc(sc_state *s, tw_bf *bf, conge
 {
     switch(msg->type)
     {
-        case CC_R_PERF_RESPONSE:
+        case CC_R_PERF_REPORT:
             s->received_router_performance_count--;
             (*s->router_port_stallcount_map).erase(router_lpid_to_id_map[msg->sender_lpid]);
         break;
-        case CC_N_PERF_RESPONSE:
+        case CC_N_PERF_REPORT:
             s->received_terminal_performance_count--;
             (*s->node_stall_map).erase(terminal_lpid_to_id_map[msg->sender_lpid]);
         break;
@@ -352,6 +352,60 @@ void cc_supervisor_receive_wl_completion_rc(sc_state *s, tw_bf *bf, congestion_c
     if (s->num_completed_workload_ranks < s->params->total_workload_ranks)
         s->is_all_workloads_complete = false;
 }
+
+
+void cc_supervisor_broadcast_wl_completion(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    //Send requests to Router and Node local controllers for performance information
+    map<tw_lpid, int>::iterator it = router_lpid_to_id_map.begin();
+    for(; it != router_lpid_to_id_map.end(); it++)
+    {
+        tw_stime ts_noise = g_tw_lookahead + 1 + tw_rand_unif(lp->rng) * .0001;
+
+        congestion_control_message *m;
+        tw_event *e = model_net_method_congestion_event(it->first, ts_noise, lp, (void**)&m, NULL);
+        m->current_epoch = s->current_epoch;
+        // e = tw_event_new(it->first, ts_noise, lp); //ROSS method to create a new event
+        // m = (congestion_control_message*)tw_event_data(e); //Gives you a pointer to the data encoded within event e
+        m->type = CC_WORKLOAD_RANK_COMPLETE; //Set the event type so we can know how to classify the event when received
+        tw_event_send(e); //ROSS method to send off the event e with the encoded data in m
+    }
+
+    it = terminal_lpid_to_id_map.begin();
+    for(; it != terminal_lpid_to_id_map.end(); it++)
+    {
+        tw_stime ts_noise = g_tw_lookahead + 1 + tw_rand_unif(lp->rng) * .0001;
+
+        congestion_control_message *m;
+        tw_event *e = model_net_method_congestion_event(it->first, ts_noise, lp, (void**)&m, NULL);
+        m->current_epoch = s->current_epoch;
+
+        // e = tw_event_new(it->first, ts_noise, lp); //ROSS method to create a new event
+        // m = (congestion_control_message*)tw_event_data(e); //Gives you a pointer to the data encoded within event e
+        m->type = CC_WORKLOAD_RANK_COMPLETE; //Set the event type so we can know how to classify the event when received
+        tw_event_send(e); //ROSS method to send off the event e with the encoded data in m
+        // printf("SC: Sent  request to Terminal %d at %f\n",it->second, tw_now(lp)+ts_noise);
+    }
+}
+
+
+void cc_supervisor_request_performance_information_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    //Send requests to Router and Node local controllers for performance information
+    map<tw_lpid, int>::iterator it = router_lpid_to_id_map.begin();
+    for(; it != router_lpid_to_id_map.end(); it++)
+    {
+        tw_rand_reverse_unif(lp->rng);
+    }
+
+    it = terminal_lpid_to_id_map.begin();
+    for(; it != terminal_lpid_to_id_map.end(); it++)
+    {
+        tw_rand_reverse_unif(lp->rng);
+    }
+}
+
+
 
 void cc_supervisor_start_new_epoch(sc_state *s)
 {
@@ -513,57 +567,59 @@ bool cc_supervisor_check_congestion_patterns(sc_state *s, controller_type type, 
     }
 }
 
-void cc_supervisor_request_performance_information(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
-{
-    //Send requests to Router and Node local controllers for performance information
-    map<tw_lpid, int>::iterator it = router_lpid_to_id_map.begin();
-    for(; it != router_lpid_to_id_map.end(); it++)
-    {
-        tw_stime ts_noise = g_tw_lookahead + 1 + tw_rand_unif(lp->rng) * .0001;
+//NM: 5/15/20 - changing from a broadcast request incast response pattern to a periodic incast (no broadcast request) pattern
+//              broadcast messages are terrible for PDES performance.
+// void cc_supervisor_request_performance_information(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+// {
+//     //Send requests to Router and Node local controllers for performance information
+//     map<tw_lpid, int>::iterator it = router_lpid_to_id_map.begin();
+//     for(; it != router_lpid_to_id_map.end(); it++)
+//     {
+//         tw_stime ts_noise = g_tw_lookahead + 1 + tw_rand_unif(lp->rng) * .0001;
 
-        congestion_control_message *m;
-        tw_event *e = model_net_method_congestion_request_event(it->first, ts_noise, lp, (void**)&m, NULL);
-        m->current_epoch = s->current_epoch;
-        // e = tw_event_new(it->first, ts_noise, lp); //ROSS method to create a new event
-        // m = (congestion_control_message*)tw_event_data(e); //Gives you a pointer to the data encoded within event e
-        m->type = CC_SC_PERF_REQUEST; //Set the event type so we can know how to classify the event when received
-        tw_event_send(e); //ROSS method to send off the event e with the encoded data in m
-        // printf("SC: Sent performance request to Router %d at %f\n",it->second, tw_now(lp)+ts_noise);
-    }
+//         congestion_control_message *m;
+//         tw_event *e = model_net_method_congestion_event(it->first, ts_noise, lp, (void**)&m, NULL);
+//         m->current_epoch = s->current_epoch;
+//         // e = tw_event_new(it->first, ts_noise, lp); //ROSS method to create a new event
+//         // m = (congestion_control_message*)tw_event_data(e); //Gives you a pointer to the data encoded within event e
+//         m->type = CC_SC_PERF_REQUEST; //Set the event type so we can know how to classify the event when received
+//         tw_event_send(e); //ROSS method to send off the event e with the encoded data in m
+//         // printf("SC: Sent performance request to Router %d at %f\n",it->second, tw_now(lp)+ts_noise);
+//     }
 
-    it = terminal_lpid_to_id_map.begin();
-    for(; it != terminal_lpid_to_id_map.end(); it++)
-    {
-        tw_stime ts_noise = g_tw_lookahead + 1 + tw_rand_unif(lp->rng) * .0001;
+//     it = terminal_lpid_to_id_map.begin();
+//     for(; it != terminal_lpid_to_id_map.end(); it++)
+//     {
+//         tw_stime ts_noise = g_tw_lookahead + 1 + tw_rand_unif(lp->rng) * .0001;
 
-        congestion_control_message *m;
-        tw_event *e = model_net_method_congestion_request_event(it->first, ts_noise, lp, (void**)&m, NULL);
-        m->current_epoch = s->current_epoch;
+//         congestion_control_message *m;
+//         tw_event *e = model_net_method_congestion_event(it->first, ts_noise, lp, (void**)&m, NULL);
+//         m->current_epoch = s->current_epoch;
 
-        // e = tw_event_new(it->first, ts_noise, lp); //ROSS method to create a new event
-        // m = (congestion_control_message*)tw_event_data(e); //Gives you a pointer to the data encoded within event e
-        m->type = CC_SC_PERF_REQUEST; //Set the event type so we can know how to classify the event when received
-        tw_event_send(e); //ROSS method to send off the event e with the encoded data in m
-        // printf("SC: Sent performance request to Terminal %d at %f\n",it->second, tw_now(lp)+ts_noise);
-    }
-}
+//         // e = tw_event_new(it->first, ts_noise, lp); //ROSS method to create a new event
+//         // m = (congestion_control_message*)tw_event_data(e); //Gives you a pointer to the data encoded within event e
+//         m->type = CC_SC_PERF_REQUEST; //Set the event type so we can know how to classify the event when received
+//         tw_event_send(e); //ROSS method to send off the event e with the encoded data in m
+//         // printf("SC: Sent performance request to Terminal %d at %f\n",it->second, tw_now(lp)+ts_noise);
+//     }
+// }
 
 
-void cc_supervisor_request_performance_information_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
-{
-    //Send requests to Router and Node local controllers for performance information
-    map<tw_lpid, int>::iterator it = router_lpid_to_id_map.begin();
-    for(; it != router_lpid_to_id_map.end(); it++)
-    {
-        tw_rand_reverse_unif(lp->rng);
-    }
+// void cc_supervisor_request_performance_information_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+// {
+//     //Send requests to Router and Node local controllers for performance information
+//     map<tw_lpid, int>::iterator it = router_lpid_to_id_map.begin();
+//     for(; it != router_lpid_to_id_map.end(); it++)
+//     {
+//         tw_rand_reverse_unif(lp->rng);
+//     }
 
-    it = terminal_lpid_to_id_map.begin();
-    for(; it != terminal_lpid_to_id_map.end(); it++)
-    {
-        tw_rand_reverse_unif(lp->rng);
-    }
-}
+//     it = terminal_lpid_to_id_map.begin();
+//     for(; it != terminal_lpid_to_id_map.end(); it++)
+//     {
+//         tw_rand_reverse_unif(lp->rng);
+//     }
+// }
 
 void cc_supervisor_load_pattern_set(sc_state *s)
 {
@@ -638,6 +694,27 @@ void cc_router_local_controller_init(rlc_state *s)
     s->port_period_stall_map = new map<unsigned long long, int>();
 }
 
+void cc_router_local_send_heartbeat(rlc_state *s, tw_bf *bf, tw_lp *lp)
+{
+    if (s->is_all_workloads_complete == false)
+    {
+        bf->c3=1;
+        
+        tw_stime noise = tw_rand_unif(lp->rng) * .001;
+        tw_stime next_heartbeat_time = tw_now(lp) + s->params->measurement_period + noise;
+
+        tw_event *e;
+        congestion_control_message *h_msg;
+        e = tw_event_new(lp->gid, s->params->measurement_period + noise, lp);
+        h_msg = (congestion_control_message*)tw_event_data(e);
+        h_msg->type = CC_SC_HEARTBEAT;
+        h_msg->sender_lpid = lp->gid;
+        // printf("SC: Sending Heartbeat to self: Now=%lf  TS=%lf\n",tw_now(lp), next_heartbeat_time);
+        tw_event_send(e);
+    }
+}
+
+
 void cc_router_local_controller_setup_stall_alpha(rlc_state *s, int radix, unsigned long *stalled_chunks_ptr, unsigned long *total_chunks_ptr)
 {
     s->stalled_chunks_at_last_epoch = (unsigned long *)calloc(s->local_params->router_radix, sizeof(unsigned long));
@@ -645,6 +722,7 @@ void cc_router_local_controller_setup_stall_alpha(rlc_state *s, int radix, unsig
     s->stalled_chunks_ptr = stalled_chunks_ptr;
     s->total_chunks_ptr = total_chunks_ptr;
 }
+
 
 int cc_router_local_get_port_stall_count(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
@@ -695,7 +773,7 @@ void cc_router_local_send_performance(rlc_state *s, tw_bf *bf, congestion_contro
     tw_stime noise = tw_rand_unif(lp->rng) *.001;
     e = tw_event_new(g_cc_supervisory_controller_gid, noise, lp);
     m = (congestion_control_message *)tw_event_data(e);
-    m->type = CC_R_PERF_RESPONSE;
+    m->type = CC_R_PERF_REPORT;
     m->sender_lpid = lp->gid;
     m->current_epoch = s->current_epoch;
     m->stalled_count = (*s->port_period_stall_map)[s->current_epoch];

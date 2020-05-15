@@ -104,7 +104,7 @@ void * model_net_method_get_edata(int net_id, void * msg);
 
 
 // Wrapper for congestion controller to request congestion data from destination
-tw_event* model_net_method_congestion_request_event(tw_lpid dest_gid,
+tw_event* model_net_method_congestion_event(tw_lpid dest_gid,
     tw_stime offset_ts,
     tw_lp *sender,
     void **msg_data,
@@ -123,7 +123,7 @@ enum model_net_base_event_type {
     // message goes directly down to topology-specific event handler
     MN_BASE_PASS,
     // message calls congestion request method on topology specific handler
-    MN_CONGESTION_REQ
+    MN_CONGESTION_EVENT
 };
 
 typedef struct model_net_base_msg {

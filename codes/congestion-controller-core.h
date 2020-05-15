@@ -46,9 +46,11 @@ typedef enum controller_type
 typedef enum cc_event_t
 {
     CC_SC_HEARTBEAT = 1001,
-    CC_SC_PERF_REQUEST,
-    CC_R_PERF_RESPONSE,
-    CC_N_PERF_RESPONSE,
+    // CC_SC_PERF_REQUEST,
+    CC_RLC_HEARTBEAT,
+    CC_TLC_HEARTBEAT,
+    CC_R_PERF_REPORT,
+    CC_N_PERF_REPORT,
     CC_WORKLOAD_RANK_COMPLETE,
 } cc_event_t;
 
