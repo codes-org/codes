@@ -52,6 +52,8 @@ typedef struct cc_local_param
 {
     int router_radix;
 
+    tw_stime measurement_period;
+
     //NIC STALL ALPHA values
     double node_stall_to_pass_ratio_threshold; //if meet or exceed ratio, then the node is STALLED
 
@@ -115,6 +117,7 @@ typedef struct rlc_state
 
     unsigned long *total_chunks_at_last_epoch;
 
+    bool is_all_workloads_complete; 
 } rlc_state;
 
 typedef struct tlc_state
@@ -139,6 +142,7 @@ typedef struct tlc_state
 
     unsigned long total_chunks_at_last_epoch;
 
+    bool is_all_workloads_complete;
 } tlc_state;
 
 
@@ -175,24 +179,27 @@ extern void cc_supervisor_load_pattern_set(sc_state *s);
 
 // ------------ Local controllers -----------------------
 extern void cc_router_local_controller_init(rlc_state *s);
+extern void cc_router_local_controller_kickoff(rlc_state *s, tw_lp *lp);
 
-extern void cc_router_local_send_heartbeat(rlc_state *s, tw_bf *bf, tw_lp *lp);
-extern void cc_router_local_send_heartbeat_rc(rlc_state *s, tw_bf *bf, tw_lp *lp);
+extern void cc_router_local_send_heartbeat(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+extern void cc_router_local_send_heartbeat_rc(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_router_local_process_heartbeat(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_router_local_process_heartbeat_rc(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 
 extern void cc_router_local_congestion_event(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_router_local_congestion_event_rc(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+extern void cc_router_local_congestion_event_commit(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp); 
 
 extern void cc_router_local_controller_setup_stall_alpha(rlc_state *s, int radix, unsigned long *stalled_chunks_ptr, unsigned long *total_chunks_ptr);
 
 extern int cc_router_local_get_port_stall_count(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_router_local_get_port_stall_count_rc(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_router_local_send_performance(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
-void cc_router_local_send_performance_rc(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+extern void cc_router_local_send_performance_rc(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_router_local_new_epoch(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_router_local_new_epoch_rc(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
-extern void cc_router_local_new_epoch_commit(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp); 
+extern void cc_router_local_new_epoch_commit(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+
 
 extern void cc_terminal_local_controller_init(tlc_state *s);
 
@@ -203,6 +210,7 @@ extern void cc_terminal_local_process_heartbeat_rc(tlc_state *s, tw_bf *bf, cong
 
 extern void cc_terminal_local_congestion_event(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_terminal_local_congestion_event_rc(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+extern void cc_terminal_local_congestion_event_commit(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 
 extern void cc_terminal_local_get_nic_stall_count(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_terminal_local_send_performance(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);

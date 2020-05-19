@@ -439,6 +439,7 @@ struct terminal_state
     unsigned int terminal_id;
 
     ConnectionManager connMan;
+    tlc_state *local_congestion_controller;
 
     int** vc_occupancy; // vc_occupancies [rail_id][qos_level]
     tw_stime* terminal_available_time; // [rail_id]
@@ -2151,23 +2152,22 @@ void dragonfly_dally_report_stats()
 
 static void dragonfly_dally_terminal_congestion_event(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    // printf("GOT REQUEST TERMINAL\n");
-
+    cc_terminal_local_congestion_event(s->local_congestion_controller, bf, msg, lp);
 }
 
 static void dragonfly_dally_terminal_congestion_event_rc(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    // printf("GOT REQUEST RC TERMINAL\n");
+    cc_terminal_local_congestion_event_rc(s->local_congestion_controller, bf, msg, lp);
 }
 
 static void dragonfly_dally_terminal_congestion_event_commit(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    
+    cc_terminal_local_congestion_event_commit(s->local_congestion_controller, bf, msg, lp);
 }
 
 static void dragonfly_dally_router_congestion_event(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-
+    cc_router_local_congestion_event(s->local_congestion_controller, bf, msg, lp);
     // 5-15-20 just commenting these out for now as this is no longer a congestion request event handler but a general
     //          congestion event handler that will have a switch statement breakout
     // cc_router_local_get_port_stall_count(s->local_congestion_controller, bf, msg, lp);
@@ -2177,6 +2177,7 @@ static void dragonfly_dally_router_congestion_event(router_state *s, tw_bf *bf, 
 
 static void dragonfly_dally_router_congestion_event_rc(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
+    cc_router_local_congestion_event_rc(s->local_congestion_controller, bf, msg, lp);
     // cc_router_local_new_epoch_rc(s->local_congestion_controller, bf, msg, lp);
     // cc_router_local_send_performance_rc(s->local_congestion_controller, bf, msg, lp);
     // cc_router_local_get_port_stall_count_rc(s->local_congestion_controller, bf, msg, lp);
@@ -2184,6 +2185,7 @@ static void dragonfly_dally_router_congestion_event_rc(router_state *s, tw_bf *b
 
 static void dragonfly_dally_router_congestion_event_commit(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
+    cc_router_local_congestion_event_commit(s->local_congestion_controller, bf, msg, lp);
     // cc_router_local_new_epoch_commit(s->local_congestion_controller, bf, msg, lp);
 }
 
@@ -2846,6 +2848,7 @@ void router_dally_init(router_state * r, tw_lp * lp)
         r->local_congestion_controller = (rlc_state*)calloc(1,sizeof(rlc_state));
         cc_router_local_controller_init(r->local_congestion_controller);
         cc_router_local_controller_setup_stall_alpha(r->local_congestion_controller, p->radix, r->stalled_chunks, r->total_chunks);
+        cc_router_local_controller_kickoff(r->local_congestion_controller, lp);
     }
 
     return;
