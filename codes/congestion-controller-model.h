@@ -83,7 +83,8 @@ typedef struct sc_state
 
     unsigned long long current_epoch;
     unsigned long long congested_epochs;
-    bool is_network_congested;
+    bool is_network_routers_congested;
+    bool is_network_terminals_congested;
     bool is_abatement_active;
     bool is_all_workloads_complete;
 }sc_state;
@@ -158,8 +159,9 @@ extern void cc_supervisor_broadcast_wl_completion(sc_state *s, tw_bf *bf, conges
 extern void cc_supervisor_broadcast_wl_completion_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_supervisor_start_new_epoch(sc_state *s); //implemented
 extern void cc_supervisor_start_new_epoch_rc(sc_state *s); //implemented
-extern void cc_supervisor_congestion_control_detect(sc_state *s, tw_bf *bf, tw_lp *lp); //implemented
-extern void cc_supervisor_congestion_control_detect_rc(sc_state *s, tw_bf *bf, tw_lp *lp); //implemented
+extern bool cc_supervisor_congestion_control_detect_on_type(sc_state *s, tw_bf *bf, tw_lp *lp, controller_type type); //implemented
+// extern void cc_supervisor_congestion_control_detect(sc_state *s, tw_bf *bf, tw_lp *lp); //implemented
+// extern void cc_supervisor_congestion_control_detect_rc(sc_state *s, tw_bf *bf, tw_lp *lp); //implemented
 extern void cc_supervisor_check_nic_congestion_criterion(sc_state *s, tw_bf *bf); //implemented
 extern void cc_supervisor_check_port_congestion_criterion(sc_state *s, tw_bf *bf); //implemented
 extern void cc_supervisor_check_nic_congestion_criterion_rc(sc_state *s, tw_bf *bf); //implemented

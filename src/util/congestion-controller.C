@@ -187,7 +187,8 @@ void cc_supervisor_init(sc_state *s, tw_lp *lp)
 
     s->current_epoch = 0;
     s->congested_epochs = 0;
-    s->is_network_congested = false;
+    s->is_network_routers_congested = false;
+    s->is_network_terminals_congested = false;
     s->is_abatement_active = false;
     s->is_all_workloads_complete = false;
     cc_supervisor_load_pattern_set(s);
@@ -304,12 +305,11 @@ void cc_supervisor_finalize(sc_state *s, tw_lp *lp)
 
 void cc_supervisor_process_performance_response(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    printf("%.5f\n",tw_now(lp));
     switch(msg->type)
     {
         case CC_R_PERF_REPORT:
             s->received_router_performance_count++;
-            (*s->router_port_stallcount_map)[router_lpid_to_id_map[msg->sender_lpid]] = msg->stalled_count;
+            (*s->router_port_stallcount_map)[router_lpid_to_id_map[msg->sender_lpid]] = msg->stalled_count;       
         break;
         case CC_N_PERF_REPORT:
             s->received_terminal_performance_count++;
@@ -319,10 +319,40 @@ void cc_supervisor_process_performance_response(sc_state *s, tw_bf *bf, congesti
             tw_error(TW_LOC,"Invalid performance response message processed\n");
         break;
     }
+
+    s->received_terminal_performance_count = s->params->total_terminals;
+
+    if (s->received_router_performance_count == s->params->total_routers && s->received_terminal_performance_count == s->params->total_terminals)
+    {
+        bf->c0 = 1; //normal bitfield to check if the above if statement was true
+
+        bf->c1 = (int) s->is_network_routers_congested; //Risky move here, i'm using the bitfield to store an RC bool
+        bf->c2 = (int) s->is_network_terminals_congested;
+
+        s->is_network_routers_congested = cc_supervisor_congestion_control_detect_on_type(s, bf, lp, CC_ROUTER);
+        s->is_network_terminals_congested = cc_supervisor_congestion_control_detect_on_type(s, bf, lp, CC_TERMINAL);
+
+        s->congested_epochs += (int) (s->is_network_routers_congested || s->is_network_terminals_congested);
+        cc_supervisor_start_new_epoch(s);
+
+        s->received_router_performance_count = 0;
+        s->received_terminal_performance_count = 0;
+    }
 }
 
 void cc_supervisor_process_performance_response_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
+    if(bf->c0) {
+        s->received_terminal_performance_count = s->params->total_terminals;
+        s->received_router_performance_count = s->params->total_routers;
+
+        cc_supervisor_start_new_epoch_rc(s);
+        s->congested_epochs -= (int) (s->is_network_routers_congested || s->is_network_terminals_congested);
+
+        s->is_network_routers_congested = bf->c1;
+        s->is_network_terminals_congested = bf->c2;
+    }
+
     switch(msg->type)
     {
         case CC_R_PERF_REPORT:
@@ -414,8 +444,6 @@ void cc_supervisor_request_performance_information_rc(sc_state *s, tw_bf *bf, co
     }
 }
 
-
-
 void cc_supervisor_start_new_epoch(sc_state *s)
 {
     s->current_epoch++;
@@ -426,45 +454,73 @@ void cc_supervisor_start_new_epoch_rc(sc_state *s)
     s->current_epoch--;
 }
 
-void cc_supervisor_congestion_control_detect(sc_state *s, tw_bf *bf, tw_lp *lp)
-{
-    cc_supervisor_check_nic_congestion_criterion(s, bf);
-    cc_supervisor_check_port_congestion_criterion(s, bf);
 
-    if (s->is_network_congested == false) {
-        bool to_congestion_router = cc_supervisor_check_congestion_patterns(s, CC_ROUTER, TO_CONGESTION);
-        bool to_congestion_terminal = cc_supervisor_check_congestion_patterns(s, CC_TERMINAL, TO_CONGESTION);
-        
-        bool to_congestion = to_congestion_router || to_congestion_terminal;
-        if (to_congestion) {
-            bf->c1 = 1;
-            s->is_network_congested = true;
-            printf("%lu CONGESTION DETECTED\n", s->current_epoch);
-        }
+//returns 1 if broad congestion exists on type, returns 0 if broad non-congested on type. If network is congested prior to calling, will return 0 iff it matches decongestion patterns
+bool cc_supervisor_congestion_control_detect_on_type(sc_state *s, tw_bf *bf, tw_lp *lp, controller_type type)
+{
+    if (!((type == CC_ROUTER) || (type == CC_TERMINAL)))
+        tw_error(TW_LOC, "Invalid controller type specified\n");
+
+    bool cur_type_congestion;
+    if (type == CC_ROUTER) {
+        cc_supervisor_check_port_congestion_criterion(s, bf);
+        cur_type_congestion = s->is_network_routers_congested;
+    }
+    if (type == CC_TERMINAL) {
+        cc_supervisor_check_nic_congestion_criterion(s, bf);
+        cur_type_congestion = s->is_network_terminals_congested;
+    }
+
+    if (cur_type_congestion == false) {
+        bool to_congestion = cc_supervisor_check_congestion_patterns(s, type, TO_CONGESTION);
+        return to_congestion;
     }
     else { //Network is congested, we need to see if we are no longer congested
-        bool to_decongestion_router = cc_supervisor_check_congestion_patterns(s, CC_ROUTER, TO_DECONGESTION);
-        bool to_decongestion_terminal = cc_supervisor_check_congestion_patterns(s, CC_TERMINAL, TO_DECONGESTION);
-
-        bool to_decongestion = to_decongestion_router && to_decongestion_terminal;
-        if (to_decongestion) {
-            bf->c2 = 1;
-            s->is_network_congested = false;
-            printf("%lu CONGESTION ABATED\n", s->current_epoch);
-        }
+        bool to_decongestion = cc_supervisor_check_congestion_patterns(s, type, TO_DECONGESTION);
+        return !to_decongestion;
     }
 }
 
-void cc_supervisor_congestion_control_detect_rc(sc_state *s, tw_bf *bf, tw_lp *lp)
-{
-    cc_supervisor_check_nic_congestion_criterion_rc(s, bf);
-    cc_supervisor_check_port_congestion_criterion_rc(s, bf);
 
-    if (bf->c1)
-        s->is_network_congested = false;
-    if (bf->c2)
-        s->is_network_congested = true;
-}
+// void cc_supervisor_congestion_control_detect(sc_state *s, tw_bf *bf, tw_lp *lp)
+// {
+//     cc_supervisor_check_nic_congestion_criterion(s, bf);
+//     cc_supervisor_check_port_congestion_criterion(s, bf);
+
+//     if (s->is_network_congested == false) {
+//         bool to_congestion_router = cc_supervisor_check_congestion_patterns(s, CC_ROUTER, TO_CONGESTION);
+//         bool to_congestion_terminal = cc_supervisor_check_congestion_patterns(s, CC_TERMINAL, TO_CONGESTION);
+        
+//         bool to_congestion = to_congestion_router || to_congestion_terminal;
+//         if (to_congestion) {
+//             bf->c1 = 1;
+//             s->is_network_congested = true;
+//             printf("%lu CONGESTION DETECTED\n", s->current_epoch);
+//         }
+//     }
+//     else { //Network is congested, we need to see if we are no longer congested
+//         bool to_decongestion_router = cc_supervisor_check_congestion_patterns(s, CC_ROUTER, TO_DECONGESTION);
+//         bool to_decongestion_terminal = cc_supervisor_check_congestion_patterns(s, CC_TERMINAL, TO_DECONGESTION);
+
+//         bool to_decongestion = to_decongestion_router && to_decongestion_terminal;
+//         if (to_decongestion) {
+//             bf->c2 = 1;
+//             s->is_network_congested = false;
+//             printf("%lu CONGESTION ABATED\n", s->current_epoch);
+//         }
+//     }
+// }
+
+// void cc_supervisor_congestion_control_detect_rc(sc_state *s, tw_bf *bf, tw_lp *lp)
+// {
+//     cc_supervisor_check_nic_congestion_criterion_rc(s, bf);
+//     cc_supervisor_check_port_congestion_criterion_rc(s, bf);
+
+//     if (bf->c1)
+//         s->is_network_congested = false;
+//     if (bf->c2)
+//         s->is_network_congested = true;
+// }
 
 void cc_supervisor_check_nic_congestion_criterion(sc_state *s, tw_bf *bf)
 {
@@ -805,7 +861,10 @@ void cc_router_local_congestion_event_rc(rlc_state *s, tw_bf *bf, congestion_con
     {
         case CC_RLC_HEARTBEAT:
         {
-
+            cc_router_local_send_heartbeat_rc(s, bf, msg, lp);
+            cc_router_local_new_epoch_rc(s, bf, msg, lp);
+            cc_router_local_send_performance_rc(s, bf, msg, lp);
+            cc_router_local_get_port_stall_count_rc(s, bf, msg, lp);
         }
             break;
         case CC_WORKLOAD_RANK_COMPLETE:
@@ -856,7 +915,7 @@ void cc_router_local_send_heartbeat(rlc_state *s, tw_bf *bf, congestion_control_
     }
 }
 
-void cc_router_local_send_heartbeat_rc(rlc_state *s, tw_bf *bf, tw_lp *lp)
+void cc_router_local_send_heartbeat_rc(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
     if(bf->c3==1)
         tw_rand_reverse_unif(lp->rng);
