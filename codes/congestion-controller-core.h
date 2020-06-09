@@ -92,6 +92,11 @@ typedef struct congestion_control_message
     void *rc_ptr; //pointer to dynamic data - dependent on context - NOT FOR USE OUTSIDE OF LP THAT ALLOC'D IT, free'd in either RC or Commit
     void *rc_ptr2;
     int check_sum;
+    int rc_network_router_congested;
+    int rc_network_terminal_congested;
+    tw_stime rc_time;
+    unsigned long * stalled_chunks_at_last_epoch;
+    unsigned long * total_chunks_at_last_epoch;
 } congestion_control_message;
 
 extern const tw_lptype* sc_get_lp_type();
