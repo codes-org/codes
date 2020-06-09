@@ -3029,6 +3029,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
 
     int total_event_size;
     uint64_t num_chunks = msg->packet_size / p->chunk_size;
+    
     double cn_delay = s->params->cn_delay;
 
     if (msg->packet_size < s->params->chunk_size) 
@@ -3037,6 +3038,10 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     if(msg->packet_size < s->params->chunk_size)
         cn_delay = bytes_to_ns(msg->packet_size % s->params->chunk_size, s->params->cn_bandwidth);
 
+    if (g_congestion_control_enabled) {
+        double bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
+        cn_delay = cn_delay * (1.0/bandwidth_coef);
+    }
 
     //get rails available: should be from rails known to not be failed
     vector< Connection > injection_connections = s->connMan.get_connections_by_type(CONN_INJECTION, false);
@@ -3472,6 +3477,11 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     {
         data_size = cur_entry->msg.packet_size % s->params->chunk_size;
         delay = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, s->params->cn_bandwidth); 
+    }
+
+    if (g_congestion_control_enabled) {
+        double bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
+        delay = delay * (1.0/bandwidth_coef);
     }
 
     s->qos_data[msg->rail_id][vcg] += data_size;

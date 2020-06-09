@@ -299,7 +299,8 @@ void cc_supervisor_event_rc(sc_state *s, tw_bf *bf, congestion_control_message *
         break;
         case CC_N_PERF_REPORT:
             if (bf->c14 == 1)
-                cc_supervisor_process_performance_response_rc(s, bf, msg, lp);        break;
+                cc_supervisor_process_performance_response_rc(s, bf, msg, lp);
+        break;
         case CC_WORKLOAD_RANK_COMPLETE:
             cc_supervisor_receive_wl_completion_rc(s, bf, msg, lp);
         break;
@@ -324,14 +325,28 @@ void cc_supervisor_process_heartbeat(sc_state *s, tw_bf *bf, congestion_control_
     // bf->c1 = (int) s->is_network_routers_congested; //Risky move here, i'm using the bitfield to store an RC bool
     // bf->c2 = (int) s->is_network_terminals_congested;
 
+    bool last_epoch_congested = (int) (s->is_network_routers_congested || s->is_network_terminals_congested);
+
     s->is_network_routers_congested = cc_supervisor_congestion_control_detect_on_type(s, bf, lp, CC_ROUTER);
     s->is_network_terminals_congested = cc_supervisor_congestion_control_detect_on_type(s, bf, lp, CC_TERMINAL);
-
 
     bool is_congested_epoch = (int) (s->is_network_routers_congested || s->is_network_terminals_congested);
     if (is_congested_epoch) {
         bf->c3 = 1;
         s->congested_epochs += 1;
+    }
+
+    if (is_congested_epoch != last_epoch_congested) {
+        if (is_congested_epoch) {
+            bf->c17 = 1;
+            printf("CONGESTION DETECTED\n");
+            cc_supervisor_send_signal_abate(s, bf, msg, lp);
+        }
+        else {
+            bf->c18 = 1;
+            printf("CONGESTION ABATED\n");
+            cc_supervisor_send_signal_normal(s, bf, msg, lp);
+        }
     }
 
     msg->check_sum = s->received_router_performance_count;
@@ -356,6 +371,13 @@ void cc_supervisor_process_heartbeat_rc(sc_state *s, tw_bf *bf, congestion_contr
 
     s->received_router_performance_count = msg->check_sum;
 
+    if (bf->c17) {
+        cc_supervisor_send_signal_abate_rc(s, bf, msg, lp);
+    }
+    if (bf->c18) {
+        cc_supervisor_send_signal_normal_rc(s, bf, msg, lp);
+    }
+
     if (bf->c3 == 1)
         s->congested_epochs -= 1;
 
@@ -366,6 +388,60 @@ void cc_supervisor_process_heartbeat_rc(sc_state *s, tw_bf *bf, congestion_contr
     s->is_network_terminals_congested = msg->rc_network_terminal_congested;
 }
 
+//Sends an abatement signal to all terminal local controllers
+void cc_supervisor_send_signal_abate(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    map<tw_lpid, int>::iterator it;
+    it = terminal_lpid_to_id_map.begin();
+    for(; it != terminal_lpid_to_id_map.end(); it++)
+    {
+        tw_stime ts_noise = g_tw_lookahead + 1 + cc_tw_rand_unif(lp) * .0001;
+
+        congestion_control_message *m;
+        tw_event *e = model_net_method_congestion_event(it->first, ts_noise, lp, (void**)&m, NULL);
+        m->current_epoch = s->current_epoch;
+
+        m->type = CC_SC_SIGNAL_ABATE; //Set the event type so we can know how to classify the event when received
+        tw_event_send(e); //ROSS method to send off the event e with the encoded data in m
+    }
+}
+
+void cc_supervisor_send_signal_abate_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    map<tw_lpid, int>::iterator it;
+    it = terminal_lpid_to_id_map.begin();
+    for(; it != terminal_lpid_to_id_map.end(); it++)
+    {
+        cc_tw_rand_reverse_unif(lp);
+    }
+}
+
+void cc_supervisor_send_signal_normal(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    map<tw_lpid, int>::iterator it;
+    it = terminal_lpid_to_id_map.begin();
+    for(; it != terminal_lpid_to_id_map.end(); it++)
+    {
+        tw_stime ts_noise = g_tw_lookahead + 1 + cc_tw_rand_unif(lp) * .0001;
+
+        congestion_control_message *m;
+        tw_event *e = model_net_method_congestion_event(it->first, ts_noise, lp, (void**)&m, NULL);
+        m->current_epoch = s->current_epoch;
+
+        m->type = CC_SC_SIGNAL_NORMAL; //Set the event type so we can know how to classify the event when received
+        tw_event_send(e); //ROSS method to send off the event e with the encoded data in m
+    }
+}
+
+void cc_supervisor_send_signal_normal_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    map<tw_lpid, int>::iterator it;
+    it = terminal_lpid_to_id_map.begin();
+    for(; it != terminal_lpid_to_id_map.end(); it++)
+    {
+        cc_tw_rand_reverse_unif(lp);
+    }
+}
 
 // void cc_supervisor_process_heartbeat(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 // {
@@ -1179,6 +1255,8 @@ void cc_terminal_local_controller_init(tlc_state *s, int term_id)
     s->local_params = (cc_local_param*)calloc(1,sizeof(cc_local_param));
     cc_local_param *p = s->local_params;
 
+    s->current_injection_bandwidth_coef = 1.0;
+
     s->terminal_id = term_id;
 
     tw_stime period;
@@ -1270,6 +1348,18 @@ void cc_terminal_local_congestion_event(tlc_state *s, tw_bf *bf, congestion_cont
             cc_terminal_local_process_heartbeat(s, bf, msg, lp);
         }
             break;
+        case CC_SC_SIGNAL_NORMAL:
+        {
+            printf("NORMAL SIGNAL RECEIVED\n");
+            cc_terminal_local_process_signal_normal(s, bf, msg, lp);
+        }
+            break;
+        case CC_SC_SIGNAL_ABATE:
+        {
+            printf("ABATEMENT SIGNAL RECEIVED\n");
+            cc_terminal_local_process_signal_abate(s, bf, msg, lp);
+        }
+            break;
         case CC_WORKLOAD_RANK_COMPLETE:
         {
             s->is_all_workloads_complete = true;
@@ -1290,6 +1380,15 @@ void cc_terminal_local_congestion_event_rc(tlc_state *s, tw_bf *bf, congestion_c
             cc_terminal_local_process_heartbeat_rc(s, bf, msg, lp);
         }
             break;
+        case CC_SC_SIGNAL_NORMAL:
+        {
+            cc_terminal_local_process_signal_normal_rc(s, bf, msg, lp);
+        }
+            break;
+        case CC_SC_SIGNAL_ABATE:
+        {
+            cc_terminal_local_process_signal_abate_rc(s, bf, msg, lp);
+        }
         case CC_WORKLOAD_RANK_COMPLETE:
         {
             s->is_all_workloads_complete = false;
@@ -1312,6 +1411,8 @@ void cc_terminal_local_congestion_event_commit(tlc_state *s, tw_bf *bf, congesti
             // free(msg->stalled_chunks_at_last_epoch);
         }
             break;
+        case CC_SC_SIGNAL_NORMAL:
+        case CC_SC_SIGNAL_ABATE:
         case CC_WORKLOAD_RANK_COMPLETE:
             break;
         default:
@@ -1424,4 +1525,41 @@ void cc_terminal_local_new_epoch_commit(tlc_state *s, tw_bf *bf, congestion_cont
 {
     free(msg->rc_ptr);
     free(msg->rc_ptr2);
+}
+
+void cc_terminal_local_process_signal_abate(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    if (s->current_injection_bandwidth_coef == 1.0)
+    {
+        bf->c16 = 1;
+        s->current_injection_bandwidth_coef = .75;
+    }
+    //else no change
+}
+
+void cc_terminal_local_process_signal_abate_rc(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    if (bf->c16)
+        s->current_injection_bandwidth_coef = 1.0;
+}
+
+void cc_terminal_local_process_signal_normal(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    if (s->current_injection_bandwidth_coef != 1)
+    {
+        bf->c15 = 1;
+        s->current_injection_bandwidth_coef = 1.0;
+    }
+    //else no change
+}
+
+void cc_terminal_local_process_signal_normal_rc(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    if (bf->c15)
+        s->current_injection_bandwidth_coef = .75;
+}
+
+double cc_terminal_get_current_injection_bandwidth_coef(tlc_state *s)
+{
+    return s->current_injection_bandwidth_coef;
 }

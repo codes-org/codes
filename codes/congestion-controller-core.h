@@ -47,6 +47,8 @@ typedef enum cc_event_t
 {
     CC_SC_HEARTBEAT = 1001,
     // CC_SC_PERF_REQUEST,
+    CC_SC_SIGNAL_NORMAL,
+    CC_SC_SIGNAL_ABATE,
     CC_RLC_HEARTBEAT,
     CC_TLC_HEARTBEAT,
     CC_R_PERF_REPORT,

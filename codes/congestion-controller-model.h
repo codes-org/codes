@@ -130,6 +130,8 @@ typedef struct tlc_state
 {
     cc_local_param *local_params;
 
+    double current_injection_bandwidth_coef;
+
     int terminal_id;
 
     unsigned long long current_epoch;
@@ -191,6 +193,11 @@ extern void cc_supervisor_load_pattern_set(sc_state *s);
 extern void cc_router_local_controller_init(rlc_state *s, int router_id);
 extern void cc_router_local_controller_kickoff(rlc_state *s, tw_lp *lp);
 
+void cc_supervisor_send_signal_abate(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+void cc_supervisor_send_signal_abate_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+void cc_supervisor_send_signal_normal(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+void cc_supervisor_send_signal_normal_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+
 extern void cc_router_local_send_heartbeat(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_router_local_send_heartbeat_rc(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_router_local_process_heartbeat(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
@@ -232,6 +239,14 @@ extern void cc_terminal_local_send_performance_rc(tlc_state *s, tw_bf *bf, conge
 extern void cc_terminal_local_new_epoch(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_terminal_local_new_epoch_rc(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_terminal_local_new_epoch_commit(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+
+void cc_terminal_local_process_signal_abate(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+void cc_terminal_local_process_signal_abate_rc(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+void cc_terminal_local_process_signal_normal(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+void cc_terminal_local_process_signal_normal_rc(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+
+double cc_terminal_get_current_injection_bandwidth_coef(tlc_state *s);
+
 
 
 /************* LP Definition **************************************/
