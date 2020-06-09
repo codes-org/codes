@@ -238,14 +238,14 @@ static double ns_to_GBps(tw_stime ns, uint64_t bytes)
     return GB_p_s;
 }
 
-static void issue_event(
+static tw_stime issue_event(
     svr_state * ns,
     tw_lp * lp)
 {
     (void)ns;
     tw_event *e;
     svr_msg *m;
-    tw_stime kickoff_time;
+    tw_stime time_offset;
 
     configuration_get_value_double(&config, "PARAMS", "cn_bandwidth", NULL, &link_bandwidth);
     if(!link_bandwidth) {
@@ -277,13 +277,15 @@ static void issue_event(
      */
 
     /* skew each kickoff event slightly to help avoid event ties later on */
-    kickoff_time = g_tw_lookahead + tw_rand_exponential(lp->rng, mean_interval);
-    // kickoff_time = tw_rand_exponential(lp->rng, mean_interval);
+    time_offset = g_tw_lookahead + tw_rand_exponential(lp->rng, mean_interval) + tw_rand_unif(lp->rng)*.00001;
+    // time_offset = tw_rand_exponential(lp->rng, mean_interval);
 
-    e = tw_event_new(lp->gid, kickoff_time, lp);
+    e = tw_event_new(lp->gid, time_offset, lp);
     m = tw_event_data(e);
     m->svr_event_type = KICKOFF;
     tw_event_send(e);
+
+    return time_offset;
 }
 
 static void notify_workload_complete(svr_state *ns, tw_bf *bf, tw_lp *lp)
@@ -292,7 +294,7 @@ static void notify_workload_complete(svr_state *ns, tw_bf *bf, tw_lp *lp)
         tw_event *e;
         congestion_control_message *m;
         tw_stime noise = tw_rand_unif(lp->rng) *.001;
-        bf->c2 = 1;
+        bf->c10 = 1;
         e = tw_event_new(g_cc_supervisory_controller_gid, noise, lp);
         m = tw_event_data(e);
         m->type = CC_WORKLOAD_RANK_COMPLETE;
@@ -304,14 +306,13 @@ static void svr_init(
     svr_state * ns,
     tw_lp * lp)
 {
-    ns->start_ts = 0.0;
     ns->dest_id = -1;
     ns->svr_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
     ns->max_server_latency = 0.0;
     ns->sum_server_latency = 0.0;
     ns->warm_msg_sent_count = 0;
 
-    issue_event(ns, lp);
+    ns->start_ts = issue_event(ns, lp);
     return;
 }
 
@@ -339,6 +340,7 @@ static void handle_kickoff_rev_event(
 
     model_net_event_rc2(lp, &m->event_rc);
 	ns->msg_sent_count--;
+    tw_rand_reverse_unif(lp->rng);
     tw_rand_reverse_unif(lp->rng);
 }
 static void handle_kickoff_event(
@@ -368,7 +370,6 @@ static void handle_kickoff_event(
     memcpy(m_remote, m_local, sizeof(svr_msg));
     m_remote->svr_event_type = REMOTE;
 
-    ns->start_ts = tw_now(lp);
     codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
     int local_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
 
@@ -444,8 +445,12 @@ static void handle_ack_event(svr_state * ns, tw_bf *bf, svr_msg *m, tw_lp *lp)
     ns->msg_complete_count++;
     if (ns->msg_complete_count >= num_msgs)
     {
+        bf->c11 = 1;
+
+        m->saved_end_time = ns->end_ts;
+        ns->end_ts = tw_now(lp);
+        
         notify_workload_complete(ns, bf, lp);
-        bf->c2 = 1;
     }
     
 }
@@ -453,8 +458,13 @@ static void handle_ack_event(svr_state * ns, tw_bf *bf, svr_msg *m, tw_lp *lp)
 static void handle_ack_event_rc(svr_state * ns, tw_bf *bf, svr_msg *m, tw_lp *lp)
 {
     ns->msg_complete_count--;
-    if (bf->c2)
-        tw_rand_reverse_unif(lp->rng);
+    if (bf->c11) {
+        ns->end_ts = m->saved_end_time;
+        
+        if (bf->c10)
+            tw_rand_reverse_unif(lp->rng);
+    }
+
 }
 
 static void handle_remote_rev_event(
@@ -468,7 +478,7 @@ static void handle_remote_rev_event(
         (void)lp;
     
     if (b->c3) {
-        ns->end_ts = m->saved_end_time;
+        // ns->end_ts = m->saved_end_time;
 
         ns->msg_recvd_count--;
 
@@ -503,8 +513,8 @@ static void handle_remote_event(
             ns->max_server_latency = packet_latency;
         }
 
-        m->saved_end_time = ns->end_ts;
-        ns->end_ts = tw_now(lp);
+        // m->saved_end_time = ns->end_ts;
+        // ns->end_ts = tw_now(lp);
 
 
         tw_stime noise = tw_rand_unif(lp->rng) * .001;
@@ -574,14 +584,14 @@ static void svr_finalize(
     
     char output_buf[1024];
 
-    double observed_load_time = ((double)now-warm_up_time);
+    double observed_load_time = ((double)ns->end_ts-warm_up_time);
     double observed_load = ((double)PAYLOAD_SZ*(double)ns->msg_recvd_count)/observed_load_time;
     observed_load = observed_load * (double)(1000*1000*1000);
     observed_load = observed_load / (double)(1024*1024*1024);
 
     // double offered_load = (double)(load*link_bandwidth);
 
-    double offered_load_time = ((double)now-warm_up_time);
+    double offered_load_time = ((double)ns->end_ts-warm_up_time);
     double offered_load = ((double)PAYLOAD_SZ*(double)ns->warm_msg_sent_count)/offered_load_time;
     offered_load = offered_load * (double)(1000*1000*1000);
     offered_load = offered_load / (double)(1024*1024*1024);
@@ -695,7 +705,7 @@ static void aggregate_svr_stats(int myrank)
 
     if (myrank == 0) {
         printf("\nSynthetic-All Stats ---\n");
-        printf("AVG OFFERED LOAD = %.2f     |     AVG OBSERVED LOAD = %.2f\n",avg_offered_load, avg_observed_load);
+        printf("AVG OFFERED LOAD = %.3f     |     AVG OBSERVED LOAD = %.3f\n",avg_offered_load, avg_observed_load);
     }
 }
 
