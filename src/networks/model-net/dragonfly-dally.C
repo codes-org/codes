@@ -4102,7 +4102,7 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     msg->num_rngs++;
     injection_delay += g_tw_lookahead + tw_rand_unif(lp->rng) + s->params->router_delay;
     msg->num_rngs++;
-    propagation_delay += g_tw_lookahead + tw_rand_unif(lp->rng) + s->params->router_delay;
+    propagation_delay += g_tw_lookahead + tw_rand_unif(lp->rng);
 
     msg->saved_available_time = s->next_output_available_time[output_port];
     s->next_output_available_time[output_port] = 
