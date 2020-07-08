@@ -8,8 +8,11 @@
  * Copyright (c) 2019 Rensselaer Polytechnic Institute
  */
 #include <ross.h>
+#include <codes/codes-jobmap.h>
 #define MAX_PATTERN_LEN 16
 #define MAX_PORT_COUNT 256
+
+extern int g_congestion_control_causation_enabled;
 
 #ifdef __cplusplus
 extern "C" {
@@ -103,6 +106,9 @@ typedef struct congestion_control_message
 
 extern const tw_lptype* sc_get_lp_type();
 extern void congestion_control_register_lp_type();
+extern int congestion_control_set_jobmap(struct codes_jobmap_ctx *jobmap_ctx);
+extern void congestion_control_notify_rank_completion(tw_lp *lp);
+extern void congestion_control_notify_rank_completion_rc(tw_lp *lp);
 
 
 // /**

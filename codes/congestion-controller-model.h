@@ -26,7 +26,10 @@ typedef struct cc_param
     // configuration parameters
     int total_routers;
     int total_terminals;
-    unsigned long long total_workload_ranks;
+    int total_workload_lps; //number of workload LPs - alloc'd or not
+    int total_workload_ranks; //number of workload ranks - actually assigned to a job
+    int total_jobs;
+    unsigned long long total_alloc_ranks;
     int router_radix;
     unsigned int total_ports;
     tw_stime measurement_period;

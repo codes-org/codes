@@ -1,5 +1,6 @@
 #include <codes/congestion-controller-core.h>
 #include <codes/congestion-controller-model.h>
+#include <codes/codes-jobmap.h>
 #include <codes/model-net-lp.h>
 #include <codes/codes_mapping.h>
 #include <map>
@@ -11,13 +12,14 @@
 
 using namespace std;
 
+struct codes_jobmap_ctx *jobmap_ctx;
 
 unsigned long long stalled_packet_counter;
 
 /************* DEFINITIONS ****************************************/
-int g_congestion_control_enabled;
-tw_lpid g_cc_supervisory_controller_gid;
-
+int g_congestion_control_enabled; //declared in codes.h
+tw_lpid g_cc_supervisory_controller_gid; //declared in codes.h
+int g_congestion_control_causation_enabled; //declared in congestion-controller-core.h
 
 //sc lptype function declarations
 extern void cc_supervisor_init(sc_state *s, tw_lp *lp);
@@ -94,6 +96,43 @@ double cc_tw_rand_reverse_unif(tw_lp *lp)
 
 /************* CONGESTION CONTROLLER IMPLEMENTATIONS **************/
 
+void congestion_control_notify_rank_completion(tw_lp *lp)
+{
+    if (g_congestion_control_enabled) {
+        tw_event *e;
+        congestion_control_message *m;
+        tw_stime noise = tw_rand_unif(lp->rng) *.001;
+        e = tw_event_new(g_cc_supervisory_controller_gid, noise, lp);
+        m = (congestion_control_message*)tw_event_data(e);
+        m->type = CC_WORKLOAD_RANK_COMPLETE;
+        tw_event_send(e);
+    }
+}
+
+void congestion_control_notify_rank_completion_rc(tw_lp *lp)
+{
+    if (g_congestion_control_enabled) {
+        tw_rand_reverse_unif(lp->rng);
+    }
+}
+
+int congestion_control_set_jobmap(struct codes_jobmap_ctx *ctx)
+{
+    if (g_congestion_control_enabled == 0) 
+        return -1;
+
+    if (ctx == NULL) {
+        g_congestion_control_causation_enabled = 0;
+        // tw_printf("Congestion Control: No jobmap passed to control module - Causation Detection Not Enabled")
+        return -2;
+    }
+    else {
+        g_congestion_control_causation_enabled = 1;
+        jobmap_ctx = ctx;
+        return 0;
+    }
+}
+
 void cc_load_configuration(sc_state *s)
 {
     s->params = (cc_param*)calloc(1,sizeof(cc_param));
@@ -130,7 +169,15 @@ void cc_load_configuration(sc_state *s)
 
     p->total_routers = codes_mapping_get_lp_count(NULL, 0, p->router_lp_name, NULL, 0);
     p->total_terminals = codes_mapping_get_lp_count(NULL, 0, p->terminal_lp_name, NULL, 0);
-    p->total_workload_ranks = codes_mapping_get_lp_count(NULL, 0, p->workload_lp_name, NULL,0);
+    
+    p->total_workload_lps = codes_mapping_get_lp_count(NULL, 0, p->workload_lp_name, NULL,0);
+    p->total_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
+    p->total_workload_ranks = 0;
+    for (int i = 0; i < p->total_jobs; i++)
+    {
+        p->total_workload_ranks += codes_jobmap_get_num_ranks(i, jobmap_ctx);
+    }
+
 
     int radix;
     rc = configuration_get_value_int(&config, "PARAMS", "cc_radix", NULL, &radix);
