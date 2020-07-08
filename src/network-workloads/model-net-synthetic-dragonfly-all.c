@@ -22,7 +22,8 @@ static int PAYLOAD_SZ = 2048;
 static double mean_interval = 0.0;
 static double link_bandwidth = 0.0;
 
-static double pe_total_offered_load, pe_total_observed_load = 0;
+static double pe_total_offered_load, pe_total_observed_load = 0.0;
+static double pe_max_end_ts = 0.0;
 
 static int num_servers_per_rep = 0;
 static int num_routers_per_grp = 0;
@@ -109,6 +110,7 @@ struct svr_msg
     int completed_sends; /* helper for reverse computation */
     tw_stime saved_time; /* helper for reverse computation */
     tw_stime saved_end_time;
+    tw_stime saved_max_end_time;
     model_net_event_return event_rc;
 };
 
@@ -449,6 +451,10 @@ static void handle_ack_event(svr_state * ns, tw_bf *bf, svr_msg *m, tw_lp *lp)
 
         m->saved_end_time = ns->end_ts;
         ns->end_ts = tw_now(lp);
+
+        m->saved_max_end_time = pe_max_end_ts;
+        if (ns->end_ts > pe_max_end_ts)
+            pe_max_end_ts = ns->end_ts;
         
         notify_workload_complete(ns, bf, lp);
     }
@@ -461,6 +467,8 @@ static void handle_ack_event_rc(svr_state * ns, tw_bf *bf, svr_msg *m, tw_lp *lp
     if (bf->c11) {
         ns->end_ts = m->saved_end_time;
         
+        pe_max_end_ts = m->saved_max_end_time;
+
         if (bf->c10)
             tw_rand_reverse_unif(lp->rng);
     }
@@ -676,18 +684,20 @@ static void svr_report_stats()
 {
     long long total_received_messages;
     tw_stime total_sum_latency, max_latency, mean_latency;
+    tw_stime max_end_time;
     
 
     MPI_Reduce( &sum_global_messages_received, &total_received_messages, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
     MPI_Reduce( &sum_global_server_latency, &total_sum_latency, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
     MPI_Reduce( &max_global_server_latency, &max_latency, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_CODES);
-
+    MPI_Reduce( &pe_max_end_ts, &max_end_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_CODES);
     mean_latency = total_sum_latency / total_received_messages;
 
     if(!g_tw_mynode)
     {	
-        printf("\nSynthetic Workload LP Stats: Mean Message Latency: %lf us,  Maximum Message Latency: %lf us,  Total Messages Received: %lld\n",
+        printf("\nSynthetic Workload LP Stats: Mean Message Latency: %lf us,  Maximum Message Latency: %lf us, Total Messages Received: %lld\n",
                 (float)mean_latency / 1000, (float)max_latency / 1000, total_received_messages);
+        printf("\tMaximum Workload End Time %.2f\n",max_end_time);
     }
 }
 
