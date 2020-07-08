@@ -16,6 +16,7 @@
 #include "codes/quicklist.h"
 #include "codes/quickhash.h"
 #include "codes/codes-jobmap.h"
+#include "codes/congestion-controller-core.h"
 
 /* turning on track lp will generate a lot of output messages */
 #define MN_LP_NM "modelnet_dragonfly_custom"
@@ -88,6 +89,8 @@ char file_name_of_job[5][8192];
 
 struct codes_jobmap_ctx *jobmap_ctx;
 struct codes_jobmap_params_list jobmap_p;
+struct codes_jobmap_params_identity jobmap_ident_p; // for if an alloc file isn't supplied.
+
 
 /* Variables for Cortex Support */
 /* Matthieu's additions start */
@@ -620,6 +623,7 @@ void finish_bckgnd_traffic_rc(
         (void)msg;
         (void)lp;
 
+        congestion_control_notify_rank_completion_rc(lp);
         ns->is_finished = 0;
         return;
 }
@@ -633,6 +637,7 @@ void finish_bckgnd_traffic(
         (void)msg;
         ns->is_finished = 1;
         lprintf("\n LP %llu completed sending data %llu completed at time %lf ", LLU(lp->gid), ns->gen_data, tw_now(lp));
+        congestion_control_notify_rank_completion(lp);
         
         return;
 }
@@ -2385,6 +2390,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 
 	if(m->op_type == CODES_WK_END)
     {
+        congestion_control_notify_rank_completion_rc(lp);
         s->is_finished = 0;
 
         if(bf->c9)
@@ -2499,7 +2505,8 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
             s->elapsed_time = tw_now(lp) - s->start_time;
             s->is_finished = 1;
 
-            
+            congestion_control_notify_rank_completion(lp);
+
             if(!alloc_spec)
             {
                 bf->c9 = 1;
@@ -3052,6 +3059,14 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 			jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_LIST, &jobmap_p);
 		}
     }
+
+    if (jobmap_ctx == NULL) //then we need to set up an identity jobmap for the ranks that do exist
+    {
+        jobmap_ident_p.num_ranks = num_net_traces;
+        jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_IDENTITY, &jobmap_ident_p);
+    }
+
+
     MPI_Comm_rank(MPI_COMM_CODES, &rank);
     MPI_Comm_size(MPI_COMM_CODES, &nprocs);
 
@@ -3136,6 +3151,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
        model_net_enable_sampling(sampling_interval, sampling_end_time);
 
    codes_mapping_setup();
+   congestion_control_set_jobmap(jobmap_ctx); //must be placed after codes_mapping_setup - where g_congestion_control_enabled is set
 
    num_mpi_lps = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp", NULL, 0);
    
