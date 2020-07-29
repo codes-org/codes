@@ -443,6 +443,9 @@ struct terminal_state
     ConnectionManager connMan;
     tlc_state *local_congestion_controller;
 
+    map<tw_lpid, int> workload_lpid_to_app_id;
+    set<int> app_ids;
+
     int** vc_occupancy; // vc_occupancies [rail_id][qos_level]
     tw_stime* terminal_available_time; // [rail_id]
     terminal_dally_message_list ***terminal_msgs; //[rail_id][qos_level]
@@ -479,6 +482,9 @@ struct terminal_state
     
     unsigned long* total_chunks; //counter for when a packet is sent
     unsigned long* stalled_chunks; //Counter for when a packet cannot be immediately routed due to full VC - [rail_id]
+
+    unsigned long injected_chunks; //counter for chunks injected
+    unsigned long ejected_chunks; //counter for chucnks ejected from network
 
     tw_stime max_latency;
     tw_stime min_latency;
@@ -2152,7 +2158,6 @@ void dragonfly_dally_report_stats()
                         total_minimal_packets, total_nonmin_packets, total_finished_chunks);
     
         printf("\nTotal packets generated %ld finished %ld Locally routed- same router %ld different-router %ld Remote (inter-group) %ld \n", total_gen, total_fin, total_local_packets_sr, total_local_packets_sg, total_remote_packets);
-        // printf("MPI REDUCED STALLED CHUNK COUNT: %d\n",total_stalled_chunks);
     }
     return;
 }
@@ -2627,7 +2632,35 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
             NULL, 0);
         codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 1, s->router_id[i] / num_routers_per_mgrp, s->router_id[i] % num_routers_per_mgrp, &s->router_lp[i]);
     }
-    
+
+    s->workload_lpid_to_app_id = map<tw_lpid, int>();
+    s->app_ids = set<int>();
+
+    if (congestion_control_is_jobmap_set()) {
+        //get the assigend workload LPIDs and App IDs
+        struct codes_jobmap_ctx* ctx = congestion_control_get_jobmap();
+        char workload_lp_name[MAX_NAME_LENGTH];
+        workload_lp_name[0] = '\0';
+        configuration_get_value(&config, "PARAMS", "cc_workload_lpname", NULL, workload_lp_name, MAX_NAME_LENGTH);
+        if (strlen(workload_lp_name) <= 0) {
+            strcpy(workload_lp_name, "nw-lp"); //default workload LP name
+        }
+        int num_workload_lps = codes_mapping_get_lp_count(lp_group_name, 0, workload_lp_name, NULL, 0);
+
+        for (int work_rel_id = 0; work_rel_id < num_workload_lps; work_rel_id++) {
+            tw_lpid work_gid = codes_mapping_get_lpid_from_relative(work_rel_id, NULL, workload_lp_name, NULL, 0);
+            struct codes_jobmap_id job_ident = codes_jobmap_to_local_id(work_rel_id, ctx); //work rel id is job global id - TODO DOUBLE CHECK
+            tw_lpid attached_term_id = model_net_find_local_device(DRAGONFLY_DALLY, NULL, 0, work_gid);
+
+            if (attached_term_id == lp->gid && job_ident.job != -1) {
+                s->workload_lpid_to_app_id[work_gid] = job_ident.job;
+                s->app_ids.insert(job_ident.job);
+            }
+        }
+        // printf("Term %d has %d assigned workload LPs from %d jobs\n",s->terminal_id, s->workload_lpid_to_app_id.size(), s->app_ids.size());
+        //end LPID map generation
+    }
+
     s->terminal_available_time = (tw_stime*)calloc(p->num_rails, sizeof(tw_stime));
     s->packet_counter = 0;
     s->min_latency = INT_MAX;
@@ -2642,6 +2675,10 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
 
     s->stalled_chunks = (unsigned long*)calloc(p->num_rails, sizeof(uint64_t));
     s->total_chunks = (unsigned long*)calloc(p->num_rails, sizeof(uint64_t));
+
+    s->injected_chunks = 0;
+    s->ejected_chunks = 0;
+
     s->busy_time = (tw_stime*)calloc(p->num_rails, sizeof(tw_stime));
 
     s->fwd_events = 0;
@@ -2713,7 +2750,7 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
     if (g_congestion_control_enabled) {
         s->local_congestion_controller = (tlc_state*)calloc(1,sizeof(tlc_state));
         cc_terminal_local_controller_init(s->local_congestion_controller, s->terminal_id);
-        cc_terminal_local_controller_setup_stall_alpha(s->local_congestion_controller, s->stalled_chunks, s->total_chunks);
+        cc_terminal_local_controller_setup_stall_alpha(s->local_congestion_controller, s->stalled_chunks, s->total_chunks,  &s->injected_chunks, &s->ejected_chunks, *(s->app_ids.begin()));
         cc_terminal_local_controller_kickoff(s->local_congestion_controller, lp);
     }
 
@@ -3039,6 +3076,11 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         cn_delay = bytes_to_ns(msg->packet_size % s->params->chunk_size, s->params->cn_bandwidth);
 
     if (g_congestion_control_enabled) {
+        if (congestion_control_is_jobmap_set()) {
+            msg->app_id = s->workload_lpid_to_app_id[msg->sender_lp];
+            if(s->app_ids.count(msg->app_id) == 0)
+                tw_error(TW_LOC, "Attempting to generate packet for incorrect application\n");
+        }
         double bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
         cn_delay = cn_delay * (1.0/bandwidth_coef);
     }
@@ -3402,6 +3444,7 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_dally_messag
     s->vc_occupancy[msg->rail_id][vcg] -= s->params->chunk_size;
     s->link_traffic[msg->rail_id]-=s->params->chunk_size;
     s->total_chunks[msg->rail_id]--;
+    s->injected_chunks--; 
 
     terminal_dally_message_list* cur_entry = (terminal_dally_message_list *)rc_stack_pop(s->st);
     
@@ -3549,6 +3592,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     s->terminal_length[msg->rail_id][vcg] -= s->params->chunk_size;
     s->link_traffic[msg->rail_id] += s->params->chunk_size;
     s->total_chunks[msg->rail_id]++;
+    s->injected_chunks++; //TODO: if a terminal can inject packets from multiple jobs, it might be beneficial to make that matter here
 
     int next_vcg = 0;
 
@@ -3657,6 +3701,7 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
     s->fin_chunks_sample--;
     s->ross_sample.fin_chunks_sample--;
     s->fin_chunks_ross_sample--;
+    s->ejected_chunks--;
 
     total_hops -= msg->my_N_hop;
     s->total_hops -= msg->my_N_hop;
@@ -3822,6 +3867,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     s->fin_chunks_sample++;
     s->ross_sample.fin_chunks_sample++;
     s->fin_chunks_ross_sample++;
+    s->ejected_chunks++;
 
     /* WE do not allow self messages through dragonfly */
     assert(lp->gid != msg->src_terminal_id);

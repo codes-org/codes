@@ -44,6 +44,8 @@ struct terminal_dally_message
    * sender_mn_lp??*/
   unsigned int origin_router_id;
 
+  int app_id; //id of the job associated with this terminal TODO - this will cause a problem if multiple job workload LPs are mapped to one terminal
+
   /* number of hops traversed by the packet */
   short my_N_hop;
   short my_l_hop, my_g_hop;
