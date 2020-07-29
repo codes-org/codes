@@ -12,8 +12,6 @@
 #define MAX_PATTERN_LEN 16
 #define MAX_PORT_COUNT 256
 
-extern int g_congestion_control_causation_enabled;
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -93,9 +91,16 @@ typedef struct congestion_control_message
     tw_lpid sender_lpid; //lpid of the sender
     unsigned int stalled_count; //used by both routers and terminals, if router then is is the number of port stalled, if terminal nonzero implies congestion
     unsigned long long current_epoch; //the measurement period that these numbers apply to
+    unsigned int term_injection_count;
+    unsigned int term_ejection_count;
+    int app_id;
+    
+    // Reverse computation values
+    int num_cc_rngs;
     unsigned long long rc_value; //rc value storage - dependent on context
     void *rc_ptr; //pointer to dynamic data - dependent on context - NOT FOR USE OUTSIDE OF LP THAT ALLOC'D IT, free'd in either RC or Commit
     void *rc_ptr2;
+    int saved_currently_abated_app;
     int check_sum;
     int rc_network_router_congested;
     int rc_network_terminal_congested;
@@ -106,7 +111,10 @@ typedef struct congestion_control_message
 
 extern const tw_lptype* sc_get_lp_type();
 extern void congestion_control_register_lp_type();
-extern int congestion_control_set_jobmap(struct codes_jobmap_ctx *jobmap_ctx);
+extern int congestion_control_set_jobmap(struct codes_jobmap_ctx *jobmap_ctx, int net_id);
+extern int congestion_control_is_jobmap_set();
+extern int congestion_control_get_job_count();
+extern struct codes_jobmap_ctx* congestion_control_get_jobmap();
 extern void congestion_control_notify_rank_completion(tw_lp *lp);
 extern void congestion_control_notify_rank_completion_rc(tw_lp *lp);
 

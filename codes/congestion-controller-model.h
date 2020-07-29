@@ -34,6 +34,7 @@ typedef struct cc_param
     unsigned int total_ports;
     tw_stime measurement_period;
     int congestion_enabled;
+    int congestion_causation_enabled;
     char router_lp_name[MAX_NAME_LENGTH];
     char terminal_lp_name[MAX_NAME_LENGTH];
     char workload_lp_name[MAX_NAME_LENGTH];
@@ -76,6 +77,13 @@ typedef struct sc_state
     // map< unsigned int, int > *node_to_job_map; //TODO: This should consider multiple jobs per node as well
     map< unsigned long long, congestion_status > *node_period_congestion_map; // maps an epoch to a status of whether the nic congestion threshold was met //TODO make into a sliding window as optimization by culling stale data (can be done via pruning during a commit_f on a heartbeat event)
     map< unsigned long long, congestion_status > *port_period_congestion_map; //maps an epoch to a status of whether the port congestion threshold was 
+    
+    map<int, unsigned long long> *app_to_transit_packets_map; //maps a job ID to total number of packets currently injected in the network
+    
+    map<int, vector<tw_lpid> > *app_to_terminal_lpids_map;
+
+    int currently_abated_app;
+
     unsigned long long num_completed_workload_ranks;
 
     int received_router_performance_count; //number of CC_R_PERF_REPORT messages received following a request
@@ -137,14 +145,22 @@ typedef struct tlc_state
 
     int terminal_id;
 
+    int app_id; //needs to be multiple if multiple jobs per terminal can exist.
+
     unsigned long long current_epoch;
 
         // maps an epoch to whether the nic was stalled
     // TODO: add pruning functionality for a commit_f function
     map<unsigned long long, stall_status > *nic_period_stall_map;
 
+    // pointer to counter of injected packets from the terminal
+    unsigned long *injected_chunks_ptr;
+
+    // pointer to counter of ejected packets from the terminal
+    unsigned long *ejected_chunks_ptr;
+
     // pointer to counter of stalled chunks on the terminal
-    unsigned long* stalled_chunks_ptr;
+    unsigned long *stalled_chunks_ptr;
 
     // pointer to counter of total chunks processed on the terminal
     // representing "total_chunks" on the router
@@ -233,7 +249,7 @@ extern void cc_terminal_local_congestion_event(tlc_state *s, tw_bf *bf, congesti
 extern void cc_terminal_local_congestion_event_rc(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_terminal_local_congestion_event_commit(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 
-extern void cc_terminal_local_controller_setup_stall_alpha(tlc_state *s, unsigned long *stalled_chunks_ptr, unsigned long *total_chunks_ptr);
+extern void cc_terminal_local_controller_setup_stall_alpha(tlc_state *s, unsigned long *stalled_chunks_ptr, unsigned long *total_chunks_ptr, unsigned long *injected_chunks_ptr, unsigned long *ejected_chunks_ptr, int app_id);
 
 extern int cc_terminal_local_get_nic_stall_count(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_terminal_local_get_nic_stall_count_rc(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);

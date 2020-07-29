@@ -13,13 +13,14 @@
 using namespace std;
 
 struct codes_jobmap_ctx *jobmap_ctx;
+static int is_jobmap_set = 0;
+static int network_id = 0;
 
 unsigned long long stalled_packet_counter;
 
 /************* DEFINITIONS ****************************************/
 int g_congestion_control_enabled; //declared in codes.h
 tw_lpid g_cc_supervisory_controller_gid; //declared in codes.h
-int g_congestion_control_causation_enabled; //declared in congestion-controller-core.h
 
 //sc lptype function declarations
 extern void cc_supervisor_init(sc_state *s, tw_lp *lp);
@@ -116,21 +117,42 @@ void congestion_control_notify_rank_completion_rc(tw_lp *lp)
     }
 }
 
-int congestion_control_set_jobmap(struct codes_jobmap_ctx *ctx)
+int congestion_control_set_jobmap(struct codes_jobmap_ctx *ctx, int net_id)
 {
     if (g_congestion_control_enabled == 0) 
         return -1;
 
     if (ctx == NULL) {
-        g_congestion_control_causation_enabled = 0;
         // tw_printf("Congestion Control: No jobmap passed to control module - Causation Detection Not Enabled")
         return -2;
     }
     else {
-        g_congestion_control_causation_enabled = 1;
         jobmap_ctx = ctx;
+        network_id = net_id;
+        is_jobmap_set = 1;
         return 0;
     }
+}
+
+int congestion_control_is_jobmap_set()
+{
+    return is_jobmap_set;
+}
+
+struct codes_jobmap_ctx* congestion_control_get_jobmap()
+{
+    if (is_jobmap_set == 0)
+        tw_error(TW_LOC,"Codes Jobmap was never passed to the congestion controller\n");
+    else
+        return jobmap_ctx;
+}
+
+int congestion_control_get_job_count()
+{
+    if (is_jobmap_set == 0)
+        return 1;
+    else
+        return codes_jobmap_get_num_jobs(jobmap_ctx);
 }
 
 void cc_load_configuration(sc_state *s)
@@ -142,11 +164,32 @@ void cc_load_configuration(sc_state *s)
 
     if (!p->congestion_enabled)
         tw_error(TW_LOC, "Congestion Control: Supervisory controller attempted init but congestion management wasn't enabled\n");
-
+    
+    p->congestion_causation_enabled = 0;
+    int causation_enabled;
+    int rc = configuration_get_value_int(&config, "PARAMS", "congestion_causation_enabled", NULL, &causation_enabled);
+    if (rc)
+    {
+        if (is_jobmap_set == false)
+            p->congestion_causation_enabled = 0;
+        else {
+            p->congestion_causation_enabled = 1;
+            printf("Congestion Control: Jobmap specified but congestion causation not explicitly disabled. Causation Enabled\n");
+        }
+    }
+    else {
+        p->congestion_causation_enabled = causation_enabled;
+    }
+    if (is_jobmap_set == false && causation_enabled)
+    {
+        p->congestion_causation_enabled = 0;
+        printf("Congestion Control: Congestion Causation Configured to be enabled but no jobmap set by workload. Disabling Causation Detection\n");
+    }
+    
     p->router_lp_name[0] = '\0';
     bool is_router_controller_specified = true;
-    int rc = configuration_get_value(&config, "PARAMS", "cc_router_lp_name", NULL, p->router_lp_name, MAX_NAME_LENGTH);
-    if (rc == 0) {
+    rc = configuration_get_value(&config, "PARAMS", "cc_router_lp_name", NULL, p->router_lp_name, MAX_NAME_LENGTH);
+    if (rc == 0) { //weirdly rc of 0 means error with configuration_get_value()
         is_router_controller_specified = false;
     }
 
@@ -161,7 +204,7 @@ void cc_load_configuration(sc_state *s)
         tw_error(TW_LOC, "Congestion was enabled but neither router nor terminal LP names specified. (cc_router_lp_name and/or cc_terminal_lp_name)");
 
     p->workload_lp_name[0] = '\0';
-    configuration_get_value(&config, "PARAMS", "ccworkloadpname", NULL, p->workload_lp_name, MAX_NAME_LENGTH);
+    configuration_get_value(&config, "PARAMS", "cc_workload_lpname", NULL, p->workload_lp_name, MAX_NAME_LENGTH);
     if (strlen(p->workload_lp_name) <= 0) {
         printf("Congestion Control: Assuming default workload LP name of: 'nw-lp'\n");
         strcpy(p->workload_lp_name, "nw-lp");
@@ -171,13 +214,19 @@ void cc_load_configuration(sc_state *s)
     p->total_terminals = codes_mapping_get_lp_count(NULL, 0, p->terminal_lp_name, NULL, 0);
     
     p->total_workload_lps = codes_mapping_get_lp_count(NULL, 0, p->workload_lp_name, NULL,0);
-    p->total_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
-    p->total_workload_ranks = 0;
-    for (int i = 0; i < p->total_jobs; i++)
-    {
-        p->total_workload_ranks += codes_jobmap_get_num_ranks(i, jobmap_ctx);
-    }
 
+    if (is_jobmap_set) {
+        p->total_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
+        p->total_workload_ranks = 0;
+        for (int i = 0; i < p->total_jobs; i++)
+        {
+            p->total_workload_ranks += codes_jobmap_get_num_ranks(i, jobmap_ctx);
+        }
+    }
+    else {
+        p->total_jobs = 1;
+        p->total_workload_ranks = p->total_workload_lps;
+    }
 
     int radix;
     rc = configuration_get_value_int(&config, "PARAMS", "cc_radix", NULL, &radix);
@@ -230,7 +279,6 @@ void cc_supervisor_init(sc_state *s, tw_lp *lp)
 
     s->router_port_stallcount_map = new map<unsigned int, unsigned int>();
     s->node_stall_map = new map<unsigned int, short>();
-    // s->node_to_job_map = new map<unsigned int, int>();
     s->node_period_congestion_map = new map<unsigned long long, congestion_status>();
     s->port_period_congestion_map = new map<unsigned long long, congestion_status>();
     s->num_completed_workload_ranks = 0;
@@ -243,6 +291,36 @@ void cc_supervisor_init(sc_state *s, tw_lp *lp)
     for(int i = 0; i < p->total_terminals; i++)
     {
         (*s->node_stall_map)[i] = 0;
+    }
+
+    s->app_to_transit_packets_map = new map<int, unsigned long long>();
+    for(int i = 0; i < p->total_jobs; i++)
+    {
+        (*s->app_to_transit_packets_map)[i] = 0;
+    }
+
+    s->app_to_terminal_lpids_map = new map<int, vector<tw_lpid> >();
+
+    if (congestion_control_is_jobmap_set())
+    {
+        struct codes_jobmap_ctx* ctx = congestion_control_get_jobmap();
+        int num_jobs = codes_jobmap_get_num_jobs(ctx);
+
+        for(int app_i = 0; app_i < num_jobs; app_i++)
+        {
+            set<tw_lpid> term_gids_set = set<tw_lpid>();
+            for(int work_rel_id = 0; work_rel_id < p->total_workload_lps; work_rel_id++)
+            {
+                tw_lpid work_gid = codes_mapping_get_lpid_from_relative(work_rel_id, NULL, p->workload_lp_name, NULL, 0);
+                struct codes_jobmap_id app_ident = codes_jobmap_to_local_id(work_rel_id, ctx);
+                tw_lpid attached_term_id = model_net_find_local_device(network_id, NULL, 0, work_gid);
+
+                if (app_ident.job == app_i)
+                    term_gids_set.insert(attached_term_id); //set ensures no duplicates
+            }
+            vector<tw_lpid> term_gids_vec = vector<tw_lpid>(term_gids_set.begin(), term_gids_set.end()); //vector allows for easier manipulation
+            (*s->app_to_terminal_lpids_map)[app_i] = term_gids_vec;
+        }
     }
 
     //these are global static maps, and we would ordinarily have something to make sure that it
@@ -264,6 +342,7 @@ void cc_supervisor_init(sc_state *s, tw_lp *lp)
         terminal_id_to_lpid_map[terminal_rel_id] = terminal_lpid;
     }
 
+    s->currently_abated_app = -1;
     s->current_epoch = 0;
     s->congested_epochs = 0;
     s->is_network_routers_congested = false;
@@ -292,11 +371,10 @@ void cc_supervisor_init(sc_state *s, tw_lp *lp)
 
 void cc_supervisor_event(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    // printf("SC: event!\n");
+    msg->num_cc_rngs = 0;
     switch (msg->type)
     {
         case CC_SC_HEARTBEAT:
-            // printf("SC HEARTBEAT RECEIVE %.5f\n", tw_now(lp));
             cc_supervisor_process_heartbeat(s, bf, msg, lp);
         break;
         case CC_R_PERF_REPORT:
@@ -310,7 +388,7 @@ void cc_supervisor_event(sc_state *s, tw_bf *bf, congestion_control_message *msg
                 {
                     tw_error(TW_LOC, "problem: SC epoch =%d   msg epoch = %d\n",s->current_epoch, msg->current_epoch);
                 }
-            }
+            }           
         break;
         case CC_N_PERF_REPORT:
             if(s->is_all_workloads_complete == false) {
@@ -322,7 +400,8 @@ void cc_supervisor_event(sc_state *s, tw_bf *bf, congestion_control_message *msg
                 {
                     tw_error(TW_LOC, "problem: SC epoch =%d   msg epoch = %d\n",s->current_epoch, msg->current_epoch);
                 }
-            }        break;
+            } 
+            break;
         case CC_WORKLOAD_RANK_COMPLETE:
             cc_supervisor_receive_wl_completion(s, bf, msg, lp);
         break;
@@ -333,11 +412,9 @@ void cc_supervisor_event(sc_state *s, tw_bf *bf, congestion_control_message *msg
 
 void cc_supervisor_event_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    // printf("SC: event!\n");
     switch (msg->type)
     {
         case CC_SC_HEARTBEAT:
-            // printf("SC HEARTBEAT RECEIVE RC %.5f\n", tw_now(lp));
             cc_supervisor_process_heartbeat_rc(s, bf, msg, lp);
         break;
         case CC_R_PERF_REPORT:
@@ -354,6 +431,7 @@ void cc_supervisor_event_rc(sc_state *s, tw_bf *bf, congestion_control_message *
         default:
             tw_error(TW_LOC,"SC Received invalid event for RC %d\n", msg->type);
     }
+    msg->num_cc_rngs = 0;
 }
 
 void cc_supervisor_finalize(sc_state *s, tw_lp *lp)
@@ -383,16 +461,46 @@ void cc_supervisor_process_heartbeat(sc_state *s, tw_bf *bf, congestion_control_
         s->congested_epochs += 1;
     }
 
+    int aggressor_job = -1;
+    if (s->params->congestion_causation_enabled) {
+        //congestion causation determination
+        //normalize the in transit packets by the number of ranks associated with the job
+        //the job with the highest number of in transit packets (total injected - total ejected) per rank is the aggressor
+
+        double max_packet_rate = -1;
+        int num_jobs = (*s->app_to_transit_packets_map).size();
+        for (int i = 0; i < num_jobs; i++)
+        {
+            int num_ranks = codes_jobmap_get_num_ranks(i, jobmap_ctx);
+            double normalized_packets_in_transit = (*s->app_to_transit_packets_map)[i]/num_ranks;
+            if (normalized_packets_in_transit > max_packet_rate)
+            {
+                max_packet_rate = normalized_packets_in_transit;
+                aggressor_job = i;
+            }
+        }
+    }
+
+
     if (is_congested_epoch != last_epoch_congested) {
         if (is_congested_epoch) {
             bf->c17 = 1;
-            printf("CONGESTION DETECTED\n");
+            // printf("CONGESTION DETECTED\n");
+            if(s->params->congestion_causation_enabled) {
+                msg->saved_currently_abated_app = s->currently_abated_app;
+                s->currently_abated_app = aggressor_job;
+            }
             cc_supervisor_send_signal_abate(s, bf, msg, lp);
+
         }
         else {
             bf->c18 = 1;
-            printf("CONGESTION ABATED\n");
+            // printf("CONGESTION ABATED\n");
             cc_supervisor_send_signal_normal(s, bf, msg, lp);
+            if(s->params->congestion_causation_enabled) {
+                msg->saved_currently_abated_app = s->currently_abated_app;
+                s->currently_abated_app = -1;
+            }
         }
     }
 
@@ -411,7 +519,6 @@ void cc_supervisor_process_heartbeat(sc_state *s, tw_bf *bf, congestion_control_
 void cc_supervisor_process_heartbeat_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
     cc_supervisor_send_heartbeat_rc(s, bf, msg, lp);
-    // printf("RC %d->%d\n",s->current_epoch, msg->current_epoch);
     int new_epoch = msg->current_epoch;
     msg->current_epoch = s->current_epoch;
     s->current_epoch = new_epoch;
@@ -419,9 +526,11 @@ void cc_supervisor_process_heartbeat_rc(sc_state *s, tw_bf *bf, congestion_contr
     s->received_router_performance_count = msg->check_sum;
 
     if (bf->c17) {
+        s->currently_abated_app = msg->saved_currently_abated_app;
         cc_supervisor_send_signal_abate_rc(s, bf, msg, lp);
     }
     if (bf->c18) {
+        s->currently_abated_app = msg->saved_currently_abated_app;
         cc_supervisor_send_signal_normal_rc(s, bf, msg, lp);
     }
 
@@ -438,26 +547,45 @@ void cc_supervisor_process_heartbeat_rc(sc_state *s, tw_bf *bf, congestion_contr
 //Sends an abatement signal to all terminal local controllers
 void cc_supervisor_send_signal_abate(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    map<tw_lpid, int>::iterator it;
-    it = terminal_lpid_to_id_map.begin();
-    for(; it != terminal_lpid_to_id_map.end(); it++)
-    {
-        tw_stime ts_noise = g_tw_lookahead + 1 + cc_tw_rand_unif(lp) * .0001;
 
-        congestion_control_message *m;
-        tw_event *e = model_net_method_congestion_event(it->first, ts_noise, lp, (void**)&m, NULL);
-        m->current_epoch = s->current_epoch;
+    if (s->params->congestion_causation_enabled) {
+        vector<tw_lpid>::iterator it;
+        it = (*s->app_to_terminal_lpids_map)[s->currently_abated_app].begin();
+        for(; it != (*s->app_to_terminal_lpids_map)[s->currently_abated_app].end(); it++)
+        {
+            tw_stime ts_noise = g_tw_lookahead + 1 + cc_tw_rand_unif(lp) * .1;
+            msg->num_cc_rngs++;
 
-        m->type = CC_SC_SIGNAL_ABATE; //Set the event type so we can know how to classify the event when received
-        tw_event_send(e); //ROSS method to send off the event e with the encoded data in m
+            congestion_control_message *m;
+            tw_event *e = model_net_method_congestion_event(*it, ts_noise, lp, (void**)&m, NULL);
+            m->current_epoch = s->current_epoch;
+            m->app_id = s->currently_abated_app;
+            m->type = CC_SC_SIGNAL_ABATE; //Set the event type so we can know how to classify the event when received
+            tw_event_send(e); //ROSS method to send off the event e with the encoded data in m
+        }
+
+    }
+    else {
+        map<tw_lpid, int>::iterator it;
+        it = terminal_lpid_to_id_map.begin();
+        for(; it != terminal_lpid_to_id_map.end(); it++)
+        {
+            tw_stime ts_noise = g_tw_lookahead + 1 + cc_tw_rand_unif(lp) * .1;
+            msg->num_cc_rngs++;
+
+            congestion_control_message *m;
+            tw_event *e = model_net_method_congestion_event(it->first, ts_noise, lp, (void**)&m, NULL);
+            m->current_epoch = s->current_epoch;
+
+            m->type = CC_SC_SIGNAL_ABATE; //Set the event type so we can know how to classify the event when received
+            tw_event_send(e); //ROSS method to send off the event e with the encoded data in m
+        }
     }
 }
 
 void cc_supervisor_send_signal_abate_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    map<tw_lpid, int>::iterator it;
-    it = terminal_lpid_to_id_map.begin();
-    for(; it != terminal_lpid_to_id_map.end(); it++)
+    for(int i = 0; i < msg->num_cc_rngs; i++)
     {
         cc_tw_rand_reverse_unif(lp);
     }
@@ -465,26 +593,46 @@ void cc_supervisor_send_signal_abate_rc(sc_state *s, tw_bf *bf, congestion_contr
 
 void cc_supervisor_send_signal_normal(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    map<tw_lpid, int>::iterator it;
-    it = terminal_lpid_to_id_map.begin();
-    for(; it != terminal_lpid_to_id_map.end(); it++)
-    {
-        tw_stime ts_noise = g_tw_lookahead + 1 + cc_tw_rand_unif(lp) * .0001;
+    if (s->params->congestion_causation_enabled) {
+        assert(0);
+        assert(s->currently_abated_app != -1);
+        vector<tw_lpid>::iterator it;
+        it = (*s->app_to_terminal_lpids_map)[s->currently_abated_app].begin();
+        for(; it != (*s->app_to_terminal_lpids_map)[s->currently_abated_app].end(); it++)
+        {
+            tw_stime ts_noise = g_tw_lookahead + 1 + cc_tw_rand_unif(lp) * .0001;
+            msg->num_cc_rngs++;
 
-        congestion_control_message *m;
-        tw_event *e = model_net_method_congestion_event(it->first, ts_noise, lp, (void**)&m, NULL);
-        m->current_epoch = s->current_epoch;
+            congestion_control_message *m;
+            tw_event *e = model_net_method_congestion_event(*it, ts_noise, lp, (void**)&m, NULL);
+            m->current_epoch = s->current_epoch;
+            m->app_id = s->currently_abated_app;
+            m->type = CC_SC_SIGNAL_NORMAL; //Set the event type so we can know how to classify the event when received
+            tw_event_send(e); //ROSS method to send off the event e with the encoded data in m
+        }
 
-        m->type = CC_SC_SIGNAL_NORMAL; //Set the event type so we can know how to classify the event when received
-        tw_event_send(e); //ROSS method to send off the event e with the encoded data in m
+    }
+    else {
+        map<tw_lpid, int>::iterator it;
+        it = terminal_lpid_to_id_map.begin();
+        for(; it != terminal_lpid_to_id_map.end(); it++)
+        {
+            tw_stime ts_noise = g_tw_lookahead + 1 + cc_tw_rand_unif(lp) * .1;
+            msg->num_cc_rngs++;
+
+            congestion_control_message *m;
+            tw_event *e = model_net_method_congestion_event(it->first, ts_noise, lp, (void**)&m, NULL);
+            m->current_epoch = s->current_epoch;
+
+            m->type = CC_SC_SIGNAL_NORMAL; //Set the event type so we can know how to classify the event when received
+            tw_event_send(e); //ROSS method to send off the event e with the encoded data in m
+        }
     }
 }
 
 void cc_supervisor_send_signal_normal_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    map<tw_lpid, int>::iterator it;
-    it = terminal_lpid_to_id_map.begin();
-    for(; it != terminal_lpid_to_id_map.end(); it++)
+    for(int i = 0; i < msg->num_cc_rngs; i++)
     {
         cc_tw_rand_reverse_unif(lp);
     }
@@ -549,49 +697,22 @@ void cc_supervisor_process_performance_response(sc_state *s, tw_bf *bf, congesti
             (*s->router_port_stallcount_map)[router_lpid_to_id_map[msg->sender_lpid]] = msg->stalled_count;       
         break;
         case CC_N_PERF_REPORT:
+        {
             s->received_terminal_performance_count++;
-            (*s->node_stall_map)[terminal_lpid_to_id_map[msg->sender_lpid]] = msg->stalled_count;
+            int term_id = terminal_lpid_to_id_map[msg->sender_lpid];
+            (*s->node_stall_map)[term_id] = msg->stalled_count;
+            long in_transit = msg->term_injection_count - msg->term_ejection_count;
+            (*s->app_to_transit_packets_map)[msg->app_id] = in_transit;
+        }
         break;
         default:
             tw_error(TW_LOC,"Invalid performance response message processed\n");
         break;
     }
-
-    // s->received_terminal_performance_count = s->params->total_terminals;
-
-    // if (s->received_router_performance_count == s->params->total_routers)
-    // {
-    //     bf->c5 = 1; //normal bitfield to check if the above if statement was true
-
-    //     bf->c1 = (int) s->is_network_routers_congested; //Risky move here, i'm using the bitfield to store an RC bool
-    //     bf->c2 = (int) s->is_network_terminals_congested;
-
-    //     s->is_network_routers_congested = cc_supervisor_congestion_control_detect_on_type(s, bf, lp, CC_ROUTER);
-    //     s->is_network_terminals_congested = cc_supervisor_congestion_control_detect_on_type(s, bf, lp, CC_TERMINAL);
-
-    //     s->congested_epochs += (int) (s->is_network_routers_congested || s->is_network_terminals_congested);
-    //     cc_supervisor_start_new_epoch(s);
-
-    //     msg->check_sum = s->received_router_performance_count;
-
-    //     s->received_router_performance_count = 0;
-    //     s->received_terminal_performance_count = 0;
-    // }
 }
 
 void cc_supervisor_process_performance_response_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    // if(bf->c5) {
-    //     // s->received_terminal_performance_count = s->params->total_terminals;
-    //     s->received_router_performance_count = msg->check_sum;
-
-    //     cc_supervisor_start_new_epoch_rc(s);
-    //     s->congested_epochs -= (int) (s->is_network_routers_congested || s->is_network_terminals_congested);
-
-    //     s->is_network_routers_congested = bf->c1;
-    //     s->is_network_terminals_congested = bf->c2;
-    // }
-
     switch(msg->type)
     {
         case CC_R_PERF_REPORT:
@@ -612,7 +733,7 @@ void cc_supervisor_process_performance_response_rc(sc_state *s, tw_bf *bf, conge
 void cc_supervisor_receive_wl_completion(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
     s->num_completed_workload_ranks++;
-    printf("Number of Completed Ranks: %d/%d\n",s->num_completed_workload_ranks, s->params->total_workload_ranks);
+    printf("Congestion Control Supervisor: Number of Completed Ranks: %d/%d\n",s->num_completed_workload_ranks, s->params->total_workload_ranks);
     if (s->num_completed_workload_ranks == s->params->total_workload_ranks)
     {
         s->is_all_workloads_complete = true;
@@ -1112,7 +1233,6 @@ void cc_router_local_get_port_stall_count_rc(rlc_state *s, tw_bf *bf, congestion
 
 void cc_router_local_congestion_event(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    
     switch(msg->type)
     {
         case CC_RLC_HEARTBEAT:
@@ -1325,12 +1445,15 @@ void cc_terminal_local_controller_init(tlc_state *s, int term_id)
     s->nic_period_stall_map = new map<unsigned long long, stall_status>();
 }
 
-void cc_terminal_local_controller_setup_stall_alpha(tlc_state *s, unsigned long *stalled_chunks_ptr, unsigned long *total_chunks_ptr)
+extern void cc_terminal_local_controller_setup_stall_alpha(tlc_state *s, unsigned long *stalled_chunks_ptr, unsigned long *total_chunks_ptr, unsigned long *injected_chunks_ptr, unsigned long *ejected_chunks_ptr, int app_id)
 {
     s->stalled_chunks_at_last_epoch = 0; //TODO: what about multi rail or multi VC terminals
     s->total_chunks_at_last_epoch = 0;
     s->stalled_chunks_ptr = stalled_chunks_ptr;
     s->total_chunks_ptr = total_chunks_ptr;
+    s->injected_chunks_ptr = injected_chunks_ptr;
+    s->ejected_chunks_ptr = ejected_chunks_ptr;
+    s->app_id = app_id;
 }
 
 void cc_terminal_local_controller_kickoff(tlc_state *s, tw_lp *lp)
@@ -1387,7 +1510,6 @@ void cc_terminal_local_get_nic_stall_count_rc(tlc_state *s, tw_bf *bf, congestio
 
 void cc_terminal_local_congestion_event(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    
     switch(msg->type)
     {
         case CC_TLC_HEARTBEAT:
@@ -1490,7 +1612,6 @@ void cc_terminal_local_send_heartbeat(tlc_state *s, tw_bf *bf, congestion_contro
         // memcpy(h_msg->stalled_chunks_at_last_epoch, s->stalled_chunks_ptr, s->local_params->router_radix * sizeof(unsigned long));
         // memcpy(h_msg->total_chunks_at_last_epoch, s->total_chunks_ptr, s->local_params->router_radix * sizeof(unsigned long));
 
-        // printf("RLC: Sending Heartbeat to self: Now=%lf  TS=%lf\n",tw_now(lp), next_heartbeat_time);
         tw_event_send(e);
     }
 }
@@ -1528,6 +1649,9 @@ void cc_terminal_local_send_performance(tlc_state *s, tw_bf *bf, congestion_cont
     m->sender_lpid = lp->gid;
     m->current_epoch = s->current_epoch;
     m->stalled_count = (*s->nic_period_stall_map)[s->current_epoch];
+    m->app_id = s->app_id;
+    m->term_injection_count = (*s->injected_chunks_ptr);
+    m->term_ejection_count = (*s->ejected_chunks_ptr);
     tw_event_send(e);
 }
 
@@ -1579,7 +1703,7 @@ void cc_terminal_local_process_signal_abate(tlc_state *s, tw_bf *bf, congestion_
     if (s->current_injection_bandwidth_coef == 1.0)
     {
         bf->c16 = 1;
-        s->current_injection_bandwidth_coef = .75;
+        s->current_injection_bandwidth_coef = .8;
     }
     //else no change
 }
@@ -1592,7 +1716,7 @@ void cc_terminal_local_process_signal_abate_rc(tlc_state *s, tw_bf *bf, congesti
 
 void cc_terminal_local_process_signal_normal(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    if (s->current_injection_bandwidth_coef != 1)
+    if (s->current_injection_bandwidth_coef != 1.0)
     {
         bf->c15 = 1;
         s->current_injection_bandwidth_coef = 1.0;
@@ -1603,7 +1727,7 @@ void cc_terminal_local_process_signal_normal(tlc_state *s, tw_bf *bf, congestion
 void cc_terminal_local_process_signal_normal_rc(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
     if (bf->c15)
-        s->current_injection_bandwidth_coef = .75;
+        s->current_injection_bandwidth_coef = .8;
 }
 
 double cc_terminal_get_current_injection_bandwidth_coef(tlc_state *s)
