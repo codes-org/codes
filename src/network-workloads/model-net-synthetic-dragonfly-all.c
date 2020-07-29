@@ -437,7 +437,6 @@ static void handle_kickoff_event(
 
    ns->msg_sent_count++;
    m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
-
    issue_event(ns, lp);
    return;
 }
@@ -829,6 +828,11 @@ int main(
     num_nodes_per_grp = (num_nodes / num_groups);
 
     assert(num_nodes);
+
+    struct codes_jobmap_params_identity jobmap_ident_p;
+    jobmap_ident_p.num_ranks = num_servers;
+    struct codes_jobmap_ctx * jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_IDENTITY, &jobmap_ident_p);
+    congestion_control_set_jobmap(jobmap_ctx, net_id); //must be placed after codes_mapping_setup - where g_congestion_control_enabled is set
 
     if(lp_io_dir[0])
     {

@@ -3151,7 +3151,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
        model_net_enable_sampling(sampling_interval, sampling_end_time);
 
    codes_mapping_setup();
-   congestion_control_set_jobmap(jobmap_ctx); //must be placed after codes_mapping_setup - where g_congestion_control_enabled is set
+   congestion_control_set_jobmap(jobmap_ctx, net_id); //must be placed after codes_mapping_setup - where g_congestion_control_enabled is set
 
    num_mpi_lps = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp", NULL, 0);
    
