@@ -1996,7 +1996,7 @@ void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_dally_messa
             #if DEBUG_QOS == 1 
             if(dragonfly_rtr_bw_log != NULL)
             {
-                if(s->qos_data[i][j] > 0)
+                if(s->qos_data[j][k] > 0)
                 {
                     fprintf(dragonfly_rtr_bw_log, "\n %d %f %d %d %d %d %d %f", s->router_id, tw_now(lp), i, j, bw_consumed, s->qos_status[i][j], s->qos_data[i][j], s->busy_time_sample[i]);
                 }
@@ -3889,7 +3889,7 @@ static void router_packet_receive( router_state * s,
             bf->c3 = 1;
             terminal_dally_message *m;
             msg->num_cll++;
-            ts = maxd(s->next_output_available_time[output_chan], tw_now(lp)) - tw_now(lp);
+            ts = codes_local_latency(lp); 
             tw_event *e = model_net_method_event_new(lp->gid, ts, lp,
                     DRAGONFLY_DALLY_ROUTER, (void**)&m, NULL);
             m->type = R_SEND;
@@ -4079,7 +4079,7 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     if(cur_entry->msg.packet_size < s->params->chunk_size)
         num_chunks++;
 
-    /* Injection (or transmission) delay: Time taken for the data to be placed on the link/channel
+    /* Injection delay: Time taken for the data to be placed on the link/channel
      *  - Based on bandwidth
      * Propagtion delay: Time taken for the data to cross the link and arrive at the reciever
      *  - A physical property of the material of teh link (eg. copper, optical fiber)
@@ -4281,7 +4281,7 @@ static void router_buf_update(router_state * s, tw_bf * bf, terminal_dally_messa
         bf->c2 = 1;
         terminal_dally_message *m;
         msg->num_cll++;
-        tw_stime ts = maxd(s->next_output_available_time[indx], tw_now(lp)) - tw_now(lp);
+        tw_stime ts = codes_local_latency(lp);
         tw_event *e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_DALLY_ROUTER,
                 (void**)&m, NULL);
         m->type = R_SEND;
