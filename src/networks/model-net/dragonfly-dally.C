@@ -4096,8 +4096,7 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     if((cur_entry->msg.packet_size < s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
         injection_delay = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, bandwidth);
 
-    msg->num_rngs++;
-    injection_delay += g_tw_lookahead + tw_rand_unif(lp->rng) + s->params->router_delay;
+    injection_delay += s->params->router_delay;
 
     msg->saved_available_time = s->next_output_available_time[output_port];
     s->next_output_available_time[output_port] = 
@@ -4187,8 +4186,6 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     assert(cur_entry != NULL); 
 
     terminal_dally_message *m_new;
-    msg->num_rngs++;
-    injection_ts += g_tw_lookahead + tw_rand_unif(lp->rng);
     e = model_net_method_event_new(lp->gid, injection_ts, lp, DRAGONFLY_DALLY_ROUTER,
                 (void**)&m_new, NULL);
     m_new->type = R_SEND;
