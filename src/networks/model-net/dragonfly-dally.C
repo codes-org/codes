@@ -3889,7 +3889,7 @@ static void router_packet_receive( router_state * s,
             bf->c3 = 1;
             terminal_dally_message *m;
             msg->num_cll++;
-            ts = codes_local_latency(lp); 
+            ts = maxd(s->next_output_available_time[output_port], tw_now(lp)) - tw_now(lp);
             tw_event *e = model_net_method_event_new(lp->gid, ts, lp,
                     DRAGONFLY_DALLY_ROUTER, (void**)&m, NULL);
             m->type = R_SEND;
@@ -4281,7 +4281,7 @@ static void router_buf_update(router_state * s, tw_bf * bf, terminal_dally_messa
         bf->c2 = 1;
         terminal_dally_message *m;
         msg->num_cll++;
-        tw_stime ts = codes_local_latency(lp);
+        tw_stime ts = maxd(s->next_output_available_time[indx], tw_now(lp)) - tw_now(lp);
         tw_event *e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_DALLY_ROUTER,
                 (void**)&m, NULL);
         m->type = R_SEND;
