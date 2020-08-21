@@ -594,7 +594,6 @@ void cc_supervisor_send_signal_abate_rc(sc_state *s, tw_bf *bf, congestion_contr
 void cc_supervisor_send_signal_normal(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
     if (s->params->congestion_causation_enabled) {
-        assert(0);
         assert(s->currently_abated_app != -1);
         vector<tw_lpid>::iterator it;
         it = (*s->app_to_terminal_lpids_map)[s->currently_abated_app].begin();
@@ -702,7 +701,7 @@ void cc_supervisor_process_performance_response(sc_state *s, tw_bf *bf, congesti
             int term_id = terminal_lpid_to_id_map[msg->sender_lpid];
             (*s->node_stall_map)[term_id] = msg->stalled_count;
             long in_transit = msg->term_injection_count - msg->term_ejection_count;
-            (*s->app_to_transit_packets_map)[msg->app_id] = in_transit;
+            (*s->app_to_transit_packets_map)[msg->app_id] += in_transit;
         }
         break;
         default:
