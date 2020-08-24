@@ -40,6 +40,8 @@ typedef struct cc_param
     char workload_lp_name[MAX_NAME_LENGTH];
     int loaded_pattern_length;
 
+    double static_throttle_level;
+
     //NIC ALPHA criterion values
     double node_congestion_percent_threshold;
 
@@ -66,6 +68,8 @@ typedef struct cc_local_param
 
     set< nic_stall_criterion > *nic_stall_criterion_set;
     set< port_stall_criterion > *port_stall_criterion_set;
+
+    double static_throttle_level;
 }cc_local_param;
 
 typedef struct sc_state
@@ -79,8 +83,11 @@ typedef struct sc_state
     map< unsigned long long, congestion_status > *port_period_congestion_map; //maps an epoch to a status of whether the port congestion threshold was 
     
     map<int, unsigned long long> *app_to_transit_packets_map; //maps a job ID to total number of packets currently injected in the network
-    
+    map<int, unsigned long long> *node_to_last_ejection_count;
+    map<int, unsigned long long> *node_to_last_injection_count;
+
     map<int, vector<tw_lpid> > *app_to_terminal_lpids_map;
+    map<int, vector<int> > *app_to_terminal_ids_map; //terminal relative IDs
 
     int currently_abated_app;
 

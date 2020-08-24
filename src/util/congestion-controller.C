@@ -97,6 +97,7 @@ double cc_tw_rand_reverse_unif(tw_lp *lp)
 
 /************* CONGESTION CONTROLLER IMPLEMENTATIONS **************/
 
+//reminder: this isn't called by the terminals - but by the WORKLOAD LPs
 void congestion_control_notify_rank_completion(tw_lp *lp)
 {
     if (g_congestion_control_enabled) {
@@ -186,6 +187,15 @@ void cc_load_configuration(sc_state *s)
         printf("Congestion Control: Congestion Causation Configured to be enabled but no jobmap set by workload. Disabling Causation Detection\n");
     }
     
+
+    double throttle_level;
+    rc = configuration_get_value_double(&config, "PARAMS", "cc_static_throttle_level", NULL, &throttle_level);
+    if (rc)
+    {
+        throttle_level = .8;
+    }
+    p->static_throttle_level = throttle_level;
+
     p->router_lp_name[0] = '\0';
     bool is_router_controller_specified = true;
     rc = configuration_get_value(&config, "PARAMS", "cc_router_lp_name", NULL, p->router_lp_name, MAX_NAME_LENGTH);
@@ -251,8 +261,8 @@ void cc_load_configuration(sc_state *s)
     p->nic_congestion_criterion_set->insert(NIC_CONGESTION_ALPHA); //TODO add configurability to this
     p->port_congestion_criterion_set->insert(PORT_CONGESTION_ALPHA); //TODO add configurability to this
 
-    p->node_congestion_percent_threshold = 10.0; //TODO add configurability to this
-    p->port_congestion_percent_threshold = 10.0;
+    p->node_congestion_percent_threshold = 60.0; //TODO add configurability to this
+    p->port_congestion_percent_threshold = 60.0;
     
     char pattern_path[512];
     configuration_get_value(&config, "PARAMS", "cc_congestion_pattern_set_filepath", NULL, pattern_path, 512);
@@ -299,7 +309,20 @@ void cc_supervisor_init(sc_state *s, tw_lp *lp)
         (*s->app_to_transit_packets_map)[i] = 0;
     }
 
+    s->node_to_last_injection_count = new map<int, unsigned long long>();
+    for(int i = 0; i < p->total_terminals; i++)
+    {
+        (*s->node_to_last_injection_count)[i] = 0;
+    }
+
+    s->node_to_last_ejection_count = new map<int, unsigned long long>();
+    for(int i = 0; i < p->total_terminals; i++)
+    {
+        (*s->node_to_last_ejection_count)[i] = 0;
+    }
+
     s->app_to_terminal_lpids_map = new map<int, vector<tw_lpid> >();
+    s->app_to_terminal_ids_map = new map<int, vector<int> >();
 
     if (congestion_control_is_jobmap_set())
     {
@@ -321,7 +344,19 @@ void cc_supervisor_init(sc_state *s, tw_lp *lp)
             vector<tw_lpid> term_gids_vec = vector<tw_lpid>(term_gids_set.begin(), term_gids_set.end()); //vector allows for easier manipulation
             (*s->app_to_terminal_lpids_map)[app_i] = term_gids_vec;
         }
+
+        for(int app_i = 0; app_i < num_jobs; app_i++)
+        {
+            int num_terms = (*s->app_to_terminal_lpids_map)[app_i].size();
+            vector<int> term_ids_this_app = vector<int>();
+            for(int j = 0; j < num_terms; j++)
+            {
+                term_ids_this_app.emplace_back(codes_mapping_get_lp_relative_id(((*s->app_to_terminal_lpids_map)[app_i])[j], 0, 0));
+            }
+            (*s->app_to_terminal_ids_map)[app_i] = term_ids_this_app;
+        }
     }
+
 
     //these are global static maps, and we would ordinarily have something to make sure that it
     //is only set once per PE, but since there's only one SC in the entire sim, I'm just going
@@ -441,6 +476,20 @@ void cc_supervisor_finalize(sc_state *s, tw_lp *lp)
     printf("Congested Epochs: %d\n", s->congested_epochs);
 
     printf("Stalled count running: %d\n",stalled_packet_counter);
+
+    /* Note: If you're looking to sanity check that the in transit packets is calculated correctly
+    //       I am leaving this code snippet here as a record that even though this is happening at
+    //       the simulation finalize step, the in transit packets map was last updated at the last
+    //       received performance update from the terminals. There is very likely a gap in time
+    //       between the last received performance update and simulation end. Don't worry too much
+    //       if you notice a difference.
+    */
+    // long long count = 0;
+    // for(int i = 0; i < (*s->app_to_transit_packets_map).size(); i++)
+    // {
+    //     count += (*s->app_to_transit_packets_map)[i];
+    // }
+    // printf("In Transit Packets: %d\n",count);
 }
 
 void cc_supervisor_process_heartbeat(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
@@ -467,8 +516,8 @@ void cc_supervisor_process_heartbeat(sc_state *s, tw_bf *bf, congestion_control_
         //normalize the in transit packets by the number of ranks associated with the job
         //the job with the highest number of in transit packets (total injected - total ejected) per rank is the aggressor
 
-        double max_packet_rate = -1;
         int num_jobs = (*s->app_to_transit_packets_map).size();
+        double max_packet_rate = -1;
         for (int i = 0; i < num_jobs; i++)
         {
             int num_ranks = codes_jobmap_get_num_ranks(i, jobmap_ctx);
@@ -700,8 +749,14 @@ void cc_supervisor_process_performance_response(sc_state *s, tw_bf *bf, congesti
             s->received_terminal_performance_count++;
             int term_id = terminal_lpid_to_id_map[msg->sender_lpid];
             (*s->node_stall_map)[term_id] = msg->stalled_count;
-            long in_transit = msg->term_injection_count - msg->term_ejection_count;
-            (*s->app_to_transit_packets_map)[msg->app_id] += in_transit;
+
+            long long ejected_last_period = msg->term_ejection_count - (*s->node_to_last_ejection_count)[term_id];
+            long long injected_last_period = msg->term_injection_count - (*s->node_to_last_injection_count)[term_id];
+
+            (*s->app_to_transit_packets_map)[msg->app_id] += (injected_last_period - ejected_last_period);
+
+            (*s->node_to_last_injection_count)[term_id] = msg->term_injection_count;
+            (*s->node_to_last_ejection_count)[term_id] = msg->term_ejection_count;
         }
         break;
         default:
@@ -1433,6 +1488,14 @@ void cc_terminal_local_controller_init(tlc_state *s, int term_id)
     }
     p->measurement_period = period;
 
+    double throttle_level;
+    rc = configuration_get_value_double(&config, "PARAMS", "cc_static_throttle_level", NULL, &throttle_level);
+    if (rc)
+    {
+        throttle_level = .8;
+    }
+    p->static_throttle_level = throttle_level;
+
     p->nic_stall_criterion_set = new set<nic_stall_criterion>();
     p->nic_stall_criterion_set->insert(NIC_STALL_ALPHA);
     p->node_stall_to_pass_ratio_threshold = 1.0;
@@ -1518,13 +1581,13 @@ void cc_terminal_local_congestion_event(tlc_state *s, tw_bf *bf, congestion_cont
             break;
         case CC_SC_SIGNAL_NORMAL:
         {
-            printf("NORMAL SIGNAL RECEIVED\n");
+            printf("NORMAL SIGNAL RECEIVED %d\n",msg->app_id);
             cc_terminal_local_process_signal_normal(s, bf, msg, lp);
         }
             break;
         case CC_SC_SIGNAL_ABATE:
         {
-            printf("ABATEMENT SIGNAL RECEIVED\n");
+            printf("ABATEMENT SIGNAL RECEIVED %d\n",msg->app_id);
             cc_terminal_local_process_signal_abate(s, bf, msg, lp);
         }
             break;
@@ -1702,7 +1765,7 @@ void cc_terminal_local_process_signal_abate(tlc_state *s, tw_bf *bf, congestion_
     if (s->current_injection_bandwidth_coef == 1.0)
     {
         bf->c16 = 1;
-        s->current_injection_bandwidth_coef = .8;
+        s->current_injection_bandwidth_coef = s->local_params->static_throttle_level;
     }
     //else no change
 }
@@ -1726,7 +1789,7 @@ void cc_terminal_local_process_signal_normal(tlc_state *s, tw_bf *bf, congestion
 void cc_terminal_local_process_signal_normal_rc(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
     if (bf->c15)
-        s->current_injection_bandwidth_coef = .8;
+        s->current_injection_bandwidth_coef = s->local_params->static_throttle_level;
 }
 
 double cc_terminal_get_current_injection_bandwidth_coef(tlc_state *s)
