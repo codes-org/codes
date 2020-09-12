@@ -31,6 +31,7 @@
 #define COL_TAG 1235
 #define BAR_TAG 1234
 #define PRINT_SYNTH_TRAFFIC 1
+#define MAX_JOBS 5
 
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
@@ -60,6 +61,7 @@ static int wrkld_id;
 static int num_net_traces = 0;
 static int priority_type = 0;
 static int num_dumpi_traces = 0;
+static int num_nonsyn_jobs = 0;
 static int64_t EAGER_THRESHOLD = 8192;
 
 // static int upper_threshold = 1048576;
@@ -80,11 +82,12 @@ static int do_lp_io = 0;
 /* variables for loading multiple applications */
 char workloads_conf_file[8192];
 char alloc_file[8192];
-int num_traces_of_job[5];
+int num_traces_of_job[MAX_JOBS];
+int is_job_synthetic[MAX_JOBS]; //0 if job is not synthetic 1 if job is
 tw_stime soft_delay_mpi = 2500;
 tw_stime nic_delay = 1000;
 tw_stime copy_per_byte_eager = 0.55;
-char file_name_of_job[5][8192];
+char file_name_of_job[MAX_JOBS][8192];
 
 struct codes_jobmap_ctx *jobmap_ctx;
 struct codes_jobmap_params_list jobmap_p;
@@ -161,6 +164,7 @@ enum MPI_NW_EVENTS
     CLI_BCKGND_ARRIVE,
     CLI_BCKGND_GEN,
     CLI_NBR_FINISH,
+    CLI_OTHER_FINISH //received when another workload has finished
 };
 
 /* type of synthetic traffic */
@@ -259,6 +263,9 @@ struct nw_state
     int synthetic_pattern;
     int is_finished;
     int neighbor_completed;
+
+     //array of whether this rank knows other jobs are completed.
+    int * known_completed_jobs;
 
     struct rc_stack * processed_ops;
     struct rc_stack * processed_wait_op;
@@ -506,7 +513,11 @@ static void notify_background_traffic_rc(
     int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx); 
     
     for(int i = 0; i < num_jobs - 1; i++)
-        tw_rand_reverse_unif(lp->rng); 
+    {
+        if(is_job_synthetic[i] == 0)
+            continue;
+        tw_rand_reverse_unif(lp->rng);
+    }
 }
 
 static void notify_background_traffic(
@@ -525,8 +536,9 @@ static void notify_background_traffic(
         
         for(int other_id = 0; other_id < num_jobs; other_id++)
         {
-            if(other_id == jid.job)
+            if(is_job_synthetic[other_id] == 0) //we only want to notify the synthetic (background) ranks
                 continue;
+            assert(other_id != jid.job);
 
             struct codes_jobmap_id other_jid;
             other_jid.job = other_id;
@@ -534,7 +546,7 @@ static void notify_background_traffic(
             int num_other_ranks = codes_jobmap_get_num_ranks(other_id, jobmap_ctx);
 
             lprintf("\n Other ranks %d ", num_other_ranks);
-            tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_exponential(lp->rng, noise);
+            tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_exponential(lp->rng, noise); //TODO this is a possible source of nondeterminism - reused timestamp causes event ties
             tw_lpid global_dest_id;
      
             for(int k = 0; k < num_other_ranks; k++)    
@@ -553,6 +565,134 @@ static void notify_background_traffic(
         }
         return;
 }
+
+static void notify_other_workloads_rc(
+        struct nw_state * ns,
+        tw_lp * lp,
+        tw_bf * bf,
+        struct nw_message * m)
+{
+    (void)ns;
+    (void)bf;
+    (void)m;
+        
+    int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx); 
+    
+    for(int i = 0; i < num_jobs - 1; i++)
+    {
+        if(i == ns->app_id || is_job_synthetic[i])
+            continue;
+        tw_rand_reverse_unif(lp->rng);
+    }
+}
+
+//notifies other (nonsynthetic) jobs that this one has completed, 
+//this is important for synthetic ranks that continue generating until all non-synthetic have completed
+static void notify_other_workloads(
+        struct nw_state * ns,
+        tw_lp * lp,
+        tw_bf * bf,
+        struct nw_message * m)
+{
+    (void)bf;
+    (void)m;
+
+    struct codes_jobmap_id jid;
+    jid = codes_jobmap_to_local_id(ns->nw_id, jobmap_ctx);
+
+    int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
+
+    //broadcast to every job
+    for(int other_id = 0; other_id < num_jobs; other_id++)
+    {
+        if (other_id == jid.job || is_job_synthetic[other_id])
+            continue;
+
+        struct codes_jobmap_id other_jid;
+        other_jid.job = other_id;
+
+        int num_other_ranks = codes_jobmap_get_num_ranks(other_id, jobmap_ctx);
+        other_jid.rank = num_other_ranks -1; //we want to notify the last rank in each job
+
+        int intm_dest_id = codes_jobmap_to_global_id(other_jid, jobmap_ctx);
+        tw_lpid global_dest_id = codes_mapping_get_lpid_from_relative(intm_dest_id, NULL, NW_LP_NM, NULL, 0);
+
+        tw_event *e;
+        struct nw_message *m_new;
+        tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_unif(lp->rng) * 0.001;
+        e = tw_event_new(global_dest_id, ts, lp);
+        m_new = (struct nw_message*)tw_event_data(e);
+        m_new->msg_type = CLI_OTHER_FINISH;
+        m_new->fwd.app_id = jid.job; //just borrowing the fwd struct even though this isn't an injected message
+        tw_event_send(e);
+    }
+}
+
+void handle_other_finish_rc(
+    struct nw_state * ns,
+    tw_lp * lp,
+    tw_bf * bf,
+    struct nw_message *m)
+{
+    ns->known_completed_jobs[m->fwd.app_id] = 0;
+    if(bf->c2)
+        notify_background_traffic_rc(ns, lp, bf, m);
+
+}
+
+//for nonsynthetic jobs to determine if they have all completed
+//the highest ordered non synthetic job then notifies all synthetic ranks to stop generating traffic
+void handle_other_finish(
+    struct nw_state * ns,
+    tw_lp * lp,
+    tw_bf * bf,
+    struct nw_message *m)
+{
+    printf("App %d: Received finished workload notification",ns->app_id);
+    if(is_job_synthetic[ns->app_id])
+        return; //nothing for synthetic (background) ranks to do here
+    printf(" And I am not synthetic\n");
+    int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
+
+    ns->known_completed_jobs[m->fwd.app_id] = 1;
+    int total_completed_jobs = 0;
+    int total_non_syn_completed_jobs = 0;
+    int highest_non_syn_job_id = 0;
+    //Find number of completed non synthetic jobs and the highest ID of all nonsyn jobs
+    for(int i = 0; i < num_jobs; i++)
+    {
+        if (is_job_synthetic[i] == 0) {
+            total_non_syn_completed_jobs += ns->known_completed_jobs[i];
+            highest_non_syn_job_id = i;
+        }
+    }
+    
+    if (total_non_syn_completed_jobs == num_nonsyn_jobs) //then all nonsynthetic jobs have completed, the background synthetic workloads must be notified
+    {
+        printf("App %d: All non-synthetic workloads have completed\n", ns->app_id);
+        //Determine which job should be the one to notify all the background ranks
+        //Let's say: highest numbered non-synthetic job (found above)
+        if (ns->app_id == highest_non_syn_job_id)
+        {
+            if(max_gen_data <= 0) {
+                printf("App %d: Notifying background traffic\n", ns->app_id);
+                bf->c2 = 1;
+                //If I am the last rank in the highest ordered non-synthetic job, then it is my job to notify
+                notify_background_traffic(ns, lp, bf, m);
+            }
+            else {
+                printf("App %d: Not notifying background traffic as max_gen_data > 0. Will let synthetic workloads finish",ns->app_id);
+            }
+        }
+    }
+    else
+    {
+        printf("There is still a nonsynethic workload left. %d != %d\n",total_non_syn_completed_jobs, num_nonsyn_jobs);
+    }
+    
+
+}
+
 static void notify_neighbor_rc(
 	    struct nw_state * ns,
         tw_lp * lp,
@@ -561,7 +701,8 @@ static void notify_neighbor_rc(
 {
        if(bf->c0)
        {
-            notify_background_traffic_rc(ns, lp, bf, m);
+            notify_other_workloads_rc(ns, lp, bf, m);
+            // notify_background_traffic_rc(ns, lp, bf, m);
             return;
        }
    
@@ -576,13 +717,20 @@ static void notify_neighbor(
         tw_bf * bf,
         struct nw_message * m)
 {
-    if(ns->local_rank == num_dumpi_traces - 1 
+    int ranks_my_job = codes_jobmap_get_num_ranks(ns->app_id, jobmap_ctx);
+
+    //If this LP is the last rank in its workload, and it has finished,
+    //and so has its preceding neighbor (implying all others have also finishged)
+    //then we need to notify the last rank in each other workload (TODO: verify that this is best instead of all ranks)  
+    if(ns->local_rank == ranks_my_job - 1 
             && ns->is_finished == 1
             && ns->neighbor_completed == 1)
     {
-//        printf("\n All workloads completed, notifying background traffic ");
+       printf("App %d: Completed workload, notifying other workloads of this\n", ns->app_id);
         bf->c0 = 1;
-        notify_background_traffic(ns, lp, bf, m);
+        ns->known_completed_jobs[ns->app_id] = 1;
+        notify_other_workloads(ns, lp, bf, m);
+        // notify_background_traffic(ns, lp, bf, m);
         return;
     }
     
@@ -590,11 +738,13 @@ static void notify_neighbor(
     nbr_jid.job = ns->app_id;
     tw_lpid global_dest_id;
 
+
     if(ns->is_finished == 1 && (ns->neighbor_completed == 1 || ns->local_rank == 0))
     {
+        assert(ns->local_rank != ranks_my_job-1); //This should not be hit by the last rank in a workload.
         bf->c1 = 1;
 
-//        printf("\n Local rank %d notifying neighbor %d ", ns->local_rank, ns->local_rank+1);
+       printf("\n Local rank %d notifying neighbor %d ", ns->local_rank, ns->local_rank+1);
         tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_exponential(lp->rng, noise);
         nbr_jid.rank = ns->local_rank + 1;
         
@@ -632,8 +782,9 @@ void finish_bckgnd_traffic(
         (void)b;
         (void)msg;
         ns->is_finished = 1;
-        lprintf("\n LP %llu completed sending data %llu completed at time %lf ", LLU(lp->gid), ns->gen_data, tw_now(lp));
-        
+
+        printf("\n LP %llu App %d completed sending data %llu completed at time %lf ", LLU(lp->gid),ns->app_id, ns->gen_data, tw_now(lp));
+
         return;
 }
 
@@ -686,8 +837,7 @@ static void gen_synthetic_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp 
         s->ross_sample.num_sends--;
 
      if(bf->c5)
-         s->is_finished = 0;
-        
+        finish_bckgnd_traffic_rc(s, bf, m, lp);
     if(bf->c7)
         tw_rand_reverse_unif(lp->rng);
 }
@@ -857,7 +1007,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
     if (max_gen_data != 0) { //max_gen_data is by default 0 (off). If it's on, then we use it to determine when to finish synth ranks
         if(s->gen_data >= max_gen_data) {
             bf->c5 = 1;
-            s->is_finished = 1;
+            finish_bckgnd_traffic(s, bf, m, lp);
         }
     }
 
@@ -2129,6 +2279,9 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 	        return;
    }
 
+   int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
+   s->known_completed_jobs = calloc(num_jobs, sizeof(int));
+
    if (strcmp(workload_type, "dumpi") == 0){
        dumpi_trace_params params_d;
        strcpy(params_d.file_name, file_name_of_job[lid.job]);
@@ -2376,6 +2529,9 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
             finish_bckgnd_traffic(s, bf, m, lp);
             break;
 
+        case CLI_OTHER_FINISH:
+            handle_other_finish(s, lp, bf, m);
+            break;
 	}
 }
 
@@ -2488,7 +2644,6 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 //        printf("\n App id %d local rank %d ", s->app_id, s->local_rank);
     //    struct codes_workload_op mpi_op;
     //    codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, &mpi_op);
-
 	    struct codes_workload_op * mpi_op = (struct codes_workload_op*)malloc(sizeof(struct codes_workload_op));
         codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, mpi_op);
         m->mpi_op = mpi_op; 
@@ -2508,7 +2663,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
             
             /* Notify ranks from other job that checkpoint traffic has
              * completed */
-             printf("\n Network node %d Rank %llu finished at %lf ", s->local_rank, LLU(s->nw_id), tw_now(lp));
+             printf("\n Network node %d Rank %llu App %d finished at %lf ", s->local_rank, LLU(s->nw_id), s->app_id, tw_now(lp));
             int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx); 
              if(num_jobs <= 1 || is_synthetic == 0)
              {
@@ -2796,6 +2951,10 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
         case CLI_BCKGND_FIN:
             finish_bckgnd_traffic_rc(s, bf, m, lp);
             break;
+
+        case CLI_OTHER_FINISH:
+            handle_other_finish_rc(s, lp, bf, m);
+            break;
 	}
 }
 
@@ -3016,6 +3175,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
             {
               num_syn_clients = num_traces_of_job[i];
               num_net_traces += num_traces_of_job[i];
+              is_job_synthetic[i] = 1;
               is_synthetic = 1;
             }
             else if(ref!=EOF)
@@ -3025,10 +3185,12 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 
                 num_net_traces += num_traces_of_job[i];
                 num_dumpi_traces += num_traces_of_job[i];
+                is_job_synthetic[i] = 0;
+                num_nonsyn_jobs += 1;
             }
                 i++;
         }
-        printf("\n num_net_traces %d ", num_net_traces);
+        printf("\n num_net_traces %d; num_dumpi_traces %d", num_net_traces, num_dumpi_traces);
         fclose(name_file);
         assert(strlen(alloc_file) != 0);
         alloc_spec = 1;
