@@ -148,6 +148,8 @@ typedef struct tlc_state
 {
     cc_local_param *local_params;
 
+    bool is_abatement_active;
+
     double current_injection_bandwidth_coef;
 
     int terminal_id;
@@ -272,7 +274,7 @@ void cc_terminal_local_process_signal_normal(tlc_state *s, tw_bf *bf, congestion
 void cc_terminal_local_process_signal_normal_rc(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 
 double cc_terminal_get_current_injection_bandwidth_coef(tlc_state *s);
-
+bool cc_terminal_is_abatement_active(tlc_state *s);
 
 
 /************* LP Definition **************************************/

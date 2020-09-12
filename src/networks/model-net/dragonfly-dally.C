@@ -3021,7 +3021,7 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     }
 
 
-    int* scs = (int*)rc_stack_pop(s->st);
+    // int* scs = (int*)rc_stack_pop(s->st);
     int* iis = (int*)rc_stack_pop(s->st);
     tw_stime* bts = (tw_stime*)rc_stack_pop(s->st);
     
@@ -3029,11 +3029,11 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     {
         s->last_buf_full[j] = bts[j];
         s->issueIdle[j] = iis[j];
-        s->stalled_chunks[j] = scs[j];
+        // s->stalled_chunks[j] = scs[j];
     }
     buff_time_storage_delete(bts);
     int_storage_delete(iis);
-    int_storage_delete(scs);
+    // int_storage_delete(scs);
 
     // if (bf->c11) {
     //     s->issueIdle[msg->rail_id] = 0;
@@ -3076,13 +3076,16 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         cn_delay = bytes_to_ns(msg->packet_size % s->params->chunk_size, s->params->cn_bandwidth);
 
     if (g_congestion_control_enabled) {
-        if (congestion_control_is_jobmap_set()) {
-            msg->app_id = s->workload_lpid_to_app_id[msg->sender_lp];
-            if(s->app_ids.count(msg->app_id) == 0)
-                tw_error(TW_LOC, "Attempting to generate packet for incorrect application\n");
+        if (cc_terminal_is_abatement_active(s->local_congestion_controller)) {
+            if (congestion_control_is_jobmap_set()) {
+                msg->app_id = s->workload_lpid_to_app_id[msg->sender_lp];
+                if(s->app_ids.count(msg->app_id) == 0)
+                    tw_error(TW_LOC, "Attempting to generate packet for incorrect application\n");
+            }
+            double bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
+            cn_delay = bytes_to_ns(s->params->chunk_size, bandwidth_coef*s->params->cn_bandwidth);
+            // cn_delay = cn_delay * (1.0/bandwidth_coef);
         }
-        double bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
-        cn_delay = cn_delay * (1.0/bandwidth_coef);
     }
 
     //get rails available: should be from rails known to not be failed
@@ -3331,13 +3334,13 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
 
     tw_stime *bts = buff_time_storage_create(s); //mallocs space to push onto the rc stack -- free'd in rc
     int *iis = int_storage_create(s);
-    int *scs = int_storage_create(s);
+    // int *scs = int_storage_create(s);
 
     //TODO: Inspect this and verify that we should be looking at each port always
     for(int j=0; j<s->params->num_injection_queues; j++){
         bts[j] = s->last_buf_full[j];
         iis[j] = s->issueIdle[j];
-        scs[j] = s->stalled_chunks[j];
+        // scs[j] = s->stalled_chunks[j];
 
         if(s->terminal_length[j][vcg] < s->params->cn_vc_size)
         {
@@ -3348,7 +3351,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         else
         {
             s->issueIdle[j] = 1;
-            s->stalled_chunks[j]++;
+            // s->stalled_chunks[j]++;
             if(s->last_buf_full[j] == 0.0)
             {
                 s->last_buf_full[j] = tw_now(lp);;
@@ -3357,7 +3360,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     }
     rc_stack_push(lp, bts, buff_time_storage_delete, s->st);
     rc_stack_push(lp, iis, int_storage_delete, s->st);
-    rc_stack_push(lp, scs, int_storage_delete, s->st);
+    // rc_stack_push(lp, scs, int_storage_delete, s->st);
 
 
     // if(s->terminal_length[msg->rail_id][vcg] < s->params->cn_vc_size) {
@@ -3417,6 +3420,7 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_dally_messag
 
     if(bf->c1) {
         s->in_send_loop[msg->rail_id] = 1;
+        s->stalled_chunks[msg->rail_id]--;
         if(bf->c3)
             s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
     
@@ -3499,6 +3503,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     if(vcg == -1) {
         bf->c1 = 1;
         s->in_send_loop[msg->rail_id] = 0;
+        s->stalled_chunks[msg->rail_id]++;
         if(!s->last_buf_full[msg->rail_id])
         {
             bf->c3 = 1;
@@ -3523,8 +3528,11 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     }
 
     if (g_congestion_control_enabled) {
-        double bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
-        delay = delay * (1.0/bandwidth_coef);
+        if(cc_terminal_is_abatement_active(s->local_congestion_controller)) {
+            double bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
+            delay = bytes_to_ns(s->params->chunk_size, bandwidth_coef*s->params->cn_bandwidth);
+            // delay = delay * (1.0/bandwidth_coef);
+        }
     }
 
     s->qos_data[msg->rail_id][vcg] += data_size;
@@ -3790,7 +3798,6 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     //     printf("TERMINAL RECEIVED A DOUBLE GLOBAL HOP PACKET\n");
     // }
     // printf("%d\n",msg->my_g_hop);
-
     if (msg->my_N_hop > s->params->max_hops_notify)
     {
         printf("Terminal received a packet with %d hops! (Notify on > than %d)\n",msg->my_N_hop, s->params->max_hops_notify);
@@ -5148,6 +5155,7 @@ terminal_dally_event( terminal_state * s,
 void router_dally_event(router_state * s, tw_bf * bf, terminal_dally_message * msg, 
     tw_lp * lp) 
 {
+    printf("router event\n");
     s->fwd_events++;
     s->ross_rsample.fwd_events++;
     rc_stack_gc(lp, s->st);

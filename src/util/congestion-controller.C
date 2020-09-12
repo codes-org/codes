@@ -16,7 +16,8 @@ struct codes_jobmap_ctx *jobmap_ctx;
 static int is_jobmap_set = 0;
 static int network_id = 0;
 
-unsigned long long stalled_packet_counter;
+unsigned long long stalled_packet_counter = 0;
+unsigned long long stalled_nic_counter = 0;
 
 /************* DEFINITIONS ****************************************/
 int g_congestion_control_enabled; //declared in codes.h
@@ -103,7 +104,7 @@ void congestion_control_notify_rank_completion(tw_lp *lp)
     if (g_congestion_control_enabled) {
         tw_event *e;
         congestion_control_message *m;
-        tw_stime noise = tw_rand_unif(lp->rng) *.001;
+        tw_stime noise = cc_tw_rand_unif(lp) *.001;
         e = tw_event_new(g_cc_supervisory_controller_gid, noise, lp);
         m = (congestion_control_message*)tw_event_data(e);
         m->type = CC_WORKLOAD_RANK_COMPLETE;
@@ -114,7 +115,7 @@ void congestion_control_notify_rank_completion(tw_lp *lp)
 void congestion_control_notify_rank_completion_rc(tw_lp *lp)
 {
     if (g_congestion_control_enabled) {
-        tw_rand_reverse_unif(lp->rng);
+        cc_tw_rand_reverse_unif(lp);
     }
 }
 
@@ -261,8 +262,8 @@ void cc_load_configuration(sc_state *s)
     p->nic_congestion_criterion_set->insert(NIC_CONGESTION_ALPHA); //TODO add configurability to this
     p->port_congestion_criterion_set->insert(PORT_CONGESTION_ALPHA); //TODO add configurability to this
 
-    p->node_congestion_percent_threshold = 60.0; //TODO add configurability to this
-    p->port_congestion_percent_threshold = 60.0;
+    p->node_congestion_percent_threshold = .3; //TODO add configurability to this
+    p->port_congestion_percent_threshold = .3;
     
     char pattern_path[512];
     configuration_get_value(&config, "PARAMS", "cc_congestion_pattern_set_filepath", NULL, pattern_path, 512);
@@ -476,6 +477,8 @@ void cc_supervisor_finalize(sc_state *s, tw_lp *lp)
     printf("Congested Epochs: %d\n", s->congested_epochs);
 
     printf("Stalled count running: %d\n",stalled_packet_counter);
+    printf("Stalled nic running: %d\n",stalled_nic_counter);
+
 
     /* Note: If you're looking to sanity check that the in transit packets is calculated correctly
     //       I am leaving this code snippet here as a record that even though this is happening at
@@ -748,6 +751,7 @@ void cc_supervisor_process_performance_response(sc_state *s, tw_bf *bf, congesti
         {
             s->received_terminal_performance_count++;
             int term_id = terminal_lpid_to_id_map[msg->sender_lpid];
+            stalled_nic_counter += msg->stalled_count;
             (*s->node_stall_map)[term_id] = msg->stalled_count;
 
             long long ejected_last_period = msg->term_ejection_count - (*s->node_to_last_ejection_count)[term_id];
@@ -776,6 +780,7 @@ void cc_supervisor_process_performance_response_rc(sc_state *s, tw_bf *bf, conge
         break;
         case CC_N_PERF_REPORT:
             s->received_terminal_performance_count--;
+            stalled_nic_counter -= msg->stalled_count;
             (*s->node_stall_map).erase(terminal_lpid_to_id_map[msg->sender_lpid]);
         break;
         default:
@@ -972,8 +977,10 @@ void cc_supervisor_check_nic_congestion_criterion(sc_state *s, tw_bf *bf)
                 double percent_stalled = (double) num_stalled_nics / s->params->total_terminals;
                 // printf("percent stalled: %.2f\n",percent_stalled);
 
-                if (percent_stalled*100 >= s->params->node_congestion_percent_threshold)
+                if (percent_stalled*100 >= s->params->node_congestion_percent_threshold) {
                     (*s->node_period_congestion_map)[s->current_epoch] = CONGESTED;
+                    printf("Marking node congestion this period\n");
+                }
                 break;
             }
             default:
@@ -1192,7 +1199,7 @@ void cc_router_local_controller_init(rlc_state *s, int router_id)
 
     p->port_stall_criterion_set = new set<port_stall_criterion>();
     p->port_stall_criterion_set->insert(PORT_STALL_ALPHA);
-    p->port_stall_to_pass_ratio_threshold = 1.0;
+    p->port_stall_to_pass_ratio_threshold = 1;
 
     s->is_all_workloads_complete = 0;
 
@@ -1261,8 +1268,10 @@ int cc_router_local_get_port_stall_count(rlc_state *s, tw_bf *bf, congestion_con
                     double ratio = (double)packets_stalled_since_last / packets_passed_since_last;
                     // printf("%d: %d total stalled and %d total passed\n",s->router_id,s->stalled_chunks_ptr[i], s->total_chunks_ptr[i]);
                     // printf("%d stalled and %d passed    ratio = %.2f\n",packets_stalled_since_last, packets_passed_since_last, ratio);
-                    if (ratio >= s->local_params->port_stall_to_pass_ratio_threshold)
+                    if (ratio > s->local_params->port_stall_to_pass_ratio_threshold) {
                         stalled_ports++;
+                        // printf("%.2f > %.2f   port\n", ratio, s->local_params->port_stall_to_pass_ratio_threshold);
+                    }
                 }
 
                 if (stalled_ports > max_stalled_ports)
@@ -1476,6 +1485,8 @@ void cc_terminal_local_controller_init(tlc_state *s, int term_id)
     s->local_params = (cc_local_param*)calloc(1,sizeof(cc_local_param));
     cc_local_param *p = s->local_params;
 
+    s->is_abatement_active = false;
+
     s->current_injection_bandwidth_coef = 1.0;
 
     s->terminal_id = term_id;
@@ -1498,7 +1509,7 @@ void cc_terminal_local_controller_init(tlc_state *s, int term_id)
 
     p->nic_stall_criterion_set = new set<nic_stall_criterion>();
     p->nic_stall_criterion_set->insert(NIC_STALL_ALPHA);
-    p->node_stall_to_pass_ratio_threshold = 1.0;
+    p->node_stall_to_pass_ratio_threshold = 1;
 
     s->is_all_workloads_complete = 0;
 
@@ -1552,8 +1563,12 @@ int cc_terminal_local_get_nic_stall_count(tlc_state *s, tw_bf *bf, congestion_co
                 int packets_stalled_since_last = *(s->stalled_chunks_ptr) - s->stalled_chunks_at_last_epoch;
                 int packets_passed_since_last = *(s->total_chunks_ptr) - s->total_chunks_at_last_epoch;
                 
-                if (((double)packets_stalled_since_last)/((double)packets_passed_since_last) >= s->local_params->node_stall_to_pass_ratio_threshold)
-                    is_stalled = STALLED;                
+                double ratio = ((double)packets_passed_since_last/(double)packets_passed_since_last);
+
+                if ( ratio > s->local_params->node_stall_to_pass_ratio_threshold) {
+                    is_stalled = STALLED;
+                    printf("%.2f  > %.2f  term\n", ratio, s->local_params->node_stall_to_pass_ratio_threshold);
+                }
             }    
             break;
             default:
@@ -1762,6 +1777,10 @@ void cc_terminal_local_new_epoch_commit(tlc_state *s, tw_bf *bf, congestion_cont
 
 void cc_terminal_local_process_signal_abate(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
+    if(s->is_abatement_active == false) {
+        bf->c19 = 1;
+        s->is_abatement_active = true;
+    }
     if (s->current_injection_bandwidth_coef == 1.0)
     {
         bf->c16 = 1;
@@ -1772,12 +1791,18 @@ void cc_terminal_local_process_signal_abate(tlc_state *s, tw_bf *bf, congestion_
 
 void cc_terminal_local_process_signal_abate_rc(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
+    if (bf->c19)
+        s->is_abatement_active = false;
     if (bf->c16)
         s->current_injection_bandwidth_coef = 1.0;
 }
 
 void cc_terminal_local_process_signal_normal(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
+    if(s->is_abatement_active == true) {
+        bf->c19 = 1;
+        s->is_abatement_active = false;
+    }
     if (s->current_injection_bandwidth_coef != 1.0)
     {
         bf->c15 = 1;
@@ -1788,6 +1813,9 @@ void cc_terminal_local_process_signal_normal(tlc_state *s, tw_bf *bf, congestion
 
 void cc_terminal_local_process_signal_normal_rc(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
+    if(bf->c19)
+        s->is_abatement_active = true;
+
     if (bf->c15)
         s->current_injection_bandwidth_coef = s->local_params->static_throttle_level;
 }
@@ -1795,4 +1823,9 @@ void cc_terminal_local_process_signal_normal_rc(tlc_state *s, tw_bf *bf, congest
 double cc_terminal_get_current_injection_bandwidth_coef(tlc_state *s)
 {
     return s->current_injection_bandwidth_coef;
+}
+
+bool cc_terminal_is_abatement_active(tlc_state *s)
+{
+    return s->is_abatement_active;
 }

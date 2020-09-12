@@ -9,7 +9,7 @@
  */
 #include <ross.h>
 #include <codes/codes-jobmap.h>
-#define MAX_PATTERN_LEN 16
+#define MAX_PATTERN_LEN 32
 #define MAX_PORT_COUNT 256
 
 #ifdef __cplusplus
