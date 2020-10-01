@@ -5155,7 +5155,6 @@ terminal_dally_event( terminal_state * s,
 void router_dally_event(router_state * s, tw_bf * bf, terminal_dally_message * msg, 
     tw_lp * lp) 
 {
-    printf("router event\n");
     s->fwd_events++;
     s->ross_rsample.fwd_events++;
     rc_stack_gc(lp, s->st);

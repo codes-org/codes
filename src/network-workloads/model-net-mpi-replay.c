@@ -2649,7 +2649,6 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 //        printf("\n App id %d local rank %d ", s->app_id, s->local_rank);
     //    struct codes_workload_op mpi_op;
     //    codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, &mpi_op);
-        printf("event\n");
 	    struct codes_workload_op * mpi_op = (struct codes_workload_op*)malloc(sizeof(struct codes_workload_op));
         codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, mpi_op);
         m->mpi_op = mpi_op; 

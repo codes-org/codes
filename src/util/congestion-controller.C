@@ -215,7 +215,7 @@ void cc_load_configuration(sc_state *s)
         tw_error(TW_LOC, "Congestion was enabled but neither router nor terminal LP names specified. (cc_router_lp_name and/or cc_terminal_lp_name)");
 
     p->workload_lp_name[0] = '\0';
-    configuration_get_value(&config, "PARAMS", "cc_workload_lpname", NULL, p->workload_lp_name, MAX_NAME_LENGTH);
+    configuration_get_value(&config, "PARAMS", "cc_workload_lp_name", NULL, p->workload_lp_name, MAX_NAME_LENGTH);
     if (strlen(p->workload_lp_name) <= 0) {
         printf("Congestion Control: Assuming default workload LP name of: 'nw-lp'\n");
         strcpy(p->workload_lp_name, "nw-lp");
