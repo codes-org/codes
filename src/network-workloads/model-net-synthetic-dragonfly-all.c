@@ -521,19 +521,6 @@ static void svr_finalize(
     //this server's mean
     // tw_stime mean_packet_latency = ns->sum_server_latency/ns->msg_recvd_count;
 
-
-    //add to the global running sums
-    sum_global_server_latency += ns->sum_server_latency;
-    sum_global_messages_received += ns->msg_recvd_count;
-
-    //compare to global maximum
-    if (ns->max_server_latency > max_global_server_latency)
-        max_global_server_latency = ns->max_server_latency;
-
-    //this server's mean
-    // tw_stime mean_packet_latency = ns->sum_server_latency/ns->msg_recvd_count;
-
-
     //printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s(ns->end_ts-ns->start_ts),
     //    ((double)(PAYLOAD_SZ*ns->msg_sent_count)/(double)(1024*1024)/ns_to_s(ns->end_ts-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
     
