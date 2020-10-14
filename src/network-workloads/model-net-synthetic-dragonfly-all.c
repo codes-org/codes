@@ -10,7 +10,7 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 
-define G_TW_END_OPT_OVERRIDE 1
+#define G_TW_END_OPT_OVERRIDE 1
 
 static int net_id = 0;
 static int traffic = 1;
