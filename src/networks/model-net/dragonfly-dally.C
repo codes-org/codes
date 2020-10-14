@@ -2930,12 +2930,6 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     int_storage_delete(iis);
     int_storage_delete(scs);
 
-    // if (bf->c11) {
-    //     s->issueIdle[msg->rail_id] = 0;
-    //     s->stalled_chunks[msg->rail_id]--;
-    //     if(bf->c8)
-    //         s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
-    // }
     struct mn_stats* stat;
     stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
     stat->send_count--;
@@ -3411,15 +3405,8 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     s->terminal_available_time[msg->rail_id] += ts;
 
     ts = s->terminal_available_time[msg->rail_id] - tw_now(lp);
-    // codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
-    //     &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-    // codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 0,
-    //     s->router_id[msg->rail_id] / num_routers_per_mgrp, s->router_id[msg->rail_id] % num_routers_per_mgrp, &router_id);
     router_id = s->router_lp[msg->rail_id];
 
-    //  if(s->router_id == 1)
-    //   printf("\n Local router id %d global router id %d ", s->router_id, router_id);
-    // we are sending an event to the router, so no method_event here
     void * remote_event;
     e = model_net_method_event_new(router_id, ts, lp,
             DRAGONFLY_DALLY_ROUTER, (void**)&m, &remote_event);
@@ -3649,23 +3636,10 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
 /* packet arrives at the destination terminal */
 static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) 
 {
-    // if(isRoutingMinimal(routing) && msg->my_N_hop > 4)
-    // {
-    //     printf("TERMINAL RECEIVED A NONMINIMAL LENGTH PACKET\n");
-    // }
-    // if(isRoutingMinimal(routing) && msg->my_g_hop > 1)
-    // {
-    //     printf("TERMINAL RECEIVED A DOUBLE GLOBAL HOP PACKET\n");
-    // }
-    // printf("%d\n",msg->my_g_hop);
-
     if (msg->my_N_hop > s->params->max_hops_notify)
     {
         printf("Terminal received a packet with %d hops! (Notify on > than %d)\n",msg->my_N_hop, s->params->max_hops_notify);
     }
-
-    // NIC aggregation - should this be a separate function?
-    // Trigger an event on receiving server
 
     msg->num_rngs = 0;
     msg->num_cll = 0;
@@ -4010,6 +3984,12 @@ dragonfly_dally_terminal_final( terminal_state * s,
     
     rc_stack_destroy(s->st);
     //TODO FREE THESE CORRECTLY
+    for(int i = 0; i < s->params->num_rails; i++)
+    {
+        free(s->vc_occupancy[i]);
+        free(s->terminal_msgs[i]);
+        free(s->terminal_msgs_tail[i]);
+    }
     free(s->vc_occupancy);
     free(s->terminal_msgs);
     free(s->terminal_msgs_tail);
