@@ -2188,11 +2188,6 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         printf("\nTotal routers: %d; total groups: %d \n", p->total_routers, p->num_groups);
     }
 
-    // connectionList.resize(p->num_groups);
-    // for (int g = 0; g < connectionList.size(); g++) {
-    //     connectionList[g].resize(p->num_groups);
-    // }
-
     InterGroupLink newInterLink;
     while (fread(&newInterLink, sizeof(InterGroupLink), 1, systemFile) != 0) {
         
@@ -2213,22 +2208,6 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
             new_link.rail_id = i;
             // printf("R%d G-> R%d   P%d\n",new_link.src_gid, new_link.dest_gid, new_link.rail_id);
             netMan.add_link(new_link);
-
-            // if( i == 0) //only need to do this once, not every plane
-            // {
-            //     // connManagerList[src_id_global].add_connection(dest_id_global, CONN_GLOBAL);
-            //     // connectionListEnumerated[read_src_group_id][read_dest_group_id].push_back(newInterLink.src);
-
-            //     int r;
-            //     for (r = 0; r < connectionList[read_src_group_id][read_dest_group_id].size(); r++) {
-            //         if (connectionList[read_src_group_id][read_dest_group_id][r] == newInterLink.src)
-            //             break;
-            //     }
-            //     if (r == connectionList[read_src_group_id][read_dest_group_id].size()) {
-            //         connectionList[read_src_group_id][read_dest_group_id].push_back(newInterLink.src);
-            //     }
-            // }
-
         }
     }
 
@@ -3607,22 +3586,6 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
     rc_stack_push(lp, iis, int_storage_delete, s->st);
     rc_stack_push(lp, scs, int_storage_delete, s->st);
 
-    // if(s->terminal_length[msg->rail_id][vcg] < s->params->cn_vc_size) {
-    //     model_net_method_idle_event2(nic_ts, 0, msg->rail_id, lp);
-    // } else {
-    //     bf->c11 = 1;
-    //     s->issueIdle[msg->rail_id] = 1;
-    //     s->stalled_chunks[msg->rail_id]++;
-
-    //     //this block was missing from when QOS was added - readded 5-21-19
-    //     if(s->last_buf_full[msg->rail_id] == 0)
-    //     {
-    //         bf->c8 = 1;
-    //         msg->saved_busy_time = s->last_buf_full[msg->rail_id];
-    //         s->last_buf_full[msg->rail_id] = tw_now(lp);
-    //     }
-    // }
-
     if(s->in_send_loop[msg->rail_id] == 0) {
         bf->c5 = 1;
         msg->num_cll++;
@@ -3767,10 +3730,6 @@ static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg
     s->terminal_available_time[msg->rail_id] += ts;
 
     ts = s->terminal_available_time[msg->rail_id] - tw_now(lp);
-    // codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
-    //     &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-    // codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 0,
-    //     s->router_id[msg->rail_id] / num_routers_per_mgrp, s->router_id[msg->rail_id] % num_routers_per_mgrp, &router_id);
     router_id = s->router_lp[msg->rail_id];
     //  printf("\n Local router id %d global router id %d ", s->router_id, router_id);
     // we are sending an event to the router, so no method_event here
@@ -4358,31 +4317,6 @@ void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
 
 void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
 {
-    // int max_gc_usage = 0;
-    // int min_gc_usage = INT_MAX;
-
-    // int running_sum = 0;
-    // for(int i = 0; i < s->params->num_global_connections; i++)
-    // {
-    //     int gc_val = s->gc_usage[i];
-    //     running_sum += gc_val;
-
-    //     if (gc_val > max_gc_usage)
-    //         max_gc_usage = gc_val;
-    //     if (gc_val < min_gc_usage)
-    //         min_gc_usage = gc_val;
-    // }
-    // double mean_gc_usage = (double) running_sum / (double) s->params->num_global_connections; 
-
-    // if (s->dfp_router_type == SPINE) {
-    //     printf("Router %d in group %d:   Min GC Usage= %d    Max GC Usage= %d     Mean GC Usage= %.2f", s->router_id, s->router_id / s->params->num_routers, min_gc_usage, max_gc_usage, mean_gc_usage);
-    //     printf("\t[");
-    //     for(int i = 0; i < s->params->num_global_connections; i++)
-    //     {
-    //         printf("%d ",s->gc_usage[i]);
-    //     }
-    //     printf("]\n");
-    // }
 
 #if DEBUG_QOS
     if(s->router_id == 0)
@@ -6444,38 +6378,13 @@ static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf
 {
     set<Connection> possible_next_dests;
 
-    // vector<int> shortest_path_next_gids = netMan.get_shortest_nexts(s->router_id, fdest_router_id);
-    // for(vector<int>::iterator it = shortest_path_next_gids.begin(); it != shortest_path_next_gids.end(); it++)
-    // {   
-    //     vector<Connection> local_conns;
-    //     vector<Connection> global_conns;
-    //     if(msg->my_hops_cur_group < max_hops_per_group)
-    //         local_conns = s->connMan.get_connections_to_gid(*it,CONN_LOCAL);
-    //     if(msg->my_g_hop < max_global_hops_in_path)
-    //         global_conns = s->connMan.get_connections_to_gid(*it,CONN_GLOBAL);
-        
-    //     vector<Connection>::iterator it2;
-    //     for(it2 = local_conns.begin(); it2 != local_conns.end(); it2++)
-    //     {
-    //         if (netMan.get_valid_next_hops_conns(it2->dest_gid,fdest_router_id,(max_hops_per_group-(msg->my_hops_cur_group+1)), (max_global_hops_in_path-msg->my_g_hop)).size())
-    //             possible_next_dests.insert(*it2);
-    //     }
-    //     for(it2 = global_conns.begin(); it2 != global_conns.end(); it2++)
-    //     {
-    //         if (netMan.get_valid_next_hops_conns(it2->dest_gid,fdest_router_id,(max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_in_path-(msg->my_g_hop+1))).size())
-    //             possible_next_dests.insert(*it2);
-    //     }
-    // }
-    // if(possible_next_dests.size() < 1)
-    // {
-        if(s->group_id == fdest_router_id / s->params->num_routers)
-        {
-            possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
-        }
-        else {
-            possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_in_path-msg->my_g_hop));
-        }
-    // }
+    if(s->group_id == fdest_router_id / s->params->num_routers)
+    {
+        possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
+    }
+    else {
+        possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_in_path-msg->my_g_hop));
+    }
 
     return possible_next_dests;
 }
@@ -6493,41 +6402,6 @@ static set<Connection> get_smart_legal_nonminimal_stops(router_state *s, tw_bf *
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
     
     bool in_intermediate_group = (my_group_id != fdest_group_id && my_group_id != origin_group_id);
-
-    // set<Connection> possible_next_dests;
-    // if (msg->dfp_upward_channel_flag) //then we route to fdest!
-    // {
-    //     if(s->group_id == fdest_router_id / s->params->num_routers)
-    //     {
-    //         possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
-    //     }
-    //     else {
-    //         possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_nonminimal-msg->my_g_hop));
-    //     }
-    // }
-    // else //then we route to msg->intm_rtr_id!
-    // {
-    //     if(s->group_id == msg->intm_rtr_id / s->params->num_routers)
-    //     {
-    //         possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, msg->intm_rtr_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
-    //     }
-    //     else {
-    //         possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, msg->intm_rtr_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_minimal-msg->my_g_hop));
-    //     }
-
-    //     if (msg->my_g_hop == 0 && possible_next_dests.size() == 0) //then we should attempt to pick a new intermediate router that we can reach
-    //     {
-    //         dfp_smart_pick_intermediate_router(s, bf, msg, lp, fdest_router_id);
-    //         //then try again
-    //         if(s->group_id == msg->intm_rtr_id / s->params->num_routers)
-    //         {
-    //             possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, msg->intm_rtr_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
-    //         }
-    //         else {
-    //             possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, msg->intm_rtr_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_minimal-msg->my_g_hop));
-    //         }
-    //     }
-    // }
 
     set<Connection> possible_next_dests;
     if(s->group_id == fdest_router_id / s->params->num_routers)
