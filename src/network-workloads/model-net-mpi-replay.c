@@ -580,7 +580,7 @@ static void notify_other_workloads_rc(
     
     for(int i = 0; i < num_jobs - 1; i++)
     {
-        if(i == ns->app_id || is_job_synthetic[i])
+        if(is_job_synthetic[i])
             continue;
         tw_rand_reverse_unif(lp->rng);
     }
@@ -605,7 +605,7 @@ static void notify_other_workloads(
     //broadcast to every job
     for(int other_id = 0; other_id < num_jobs; other_id++)
     {
-        if (other_id == jid.job || is_job_synthetic[other_id])
+        if (is_job_synthetic[other_id])
             continue;
 
         struct codes_jobmap_id other_jid;
