@@ -2254,13 +2254,18 @@ void issue_bw_monitor_event_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     msg->num_cll = 0;
 
     int num_qos_levels = s->params->num_qos_levels;
+    int num_rails = s->params->num_rails;
+
     
     if(msg->rc_is_qos_set == 1)
     {
-        for(int i = 0; i < num_qos_levels; i++)
+        for(int i = 0; i < num_rails; i++) 
         {
-            s->qos_data[msg->rail_id][i] = msg->rc_qos_data[i]; //rail id of data put into the rc data is the same as the one it's being extracted to.
-            s->qos_status[msg->rail_id][i] = msg->rc_qos_status[i];
+            for(int j = 0; j < num_qos_levels; j++)
+            {
+                s->qos_data[i][j] = *(indexer2d(msg->rc_qos_data, i, j, num_rails, num_qos_levels));
+                s->qos_status[i][j] =*(indexer2d(msg->rc_qos_status, i, j, num_rails, num_qos_levels));
+            }
         }
 
         free(msg->rc_qos_data);
@@ -2301,8 +2306,8 @@ void issue_bw_monitor_event(terminal_state * s, tw_bf * bf, terminal_dally_messa
     {
         for(int j = 0; j < num_qos_levels; j++)
         {
-            s->qos_status[j][i] = Q_ACTIVE;
-            s->qos_data[j][i] = 0;
+            s->qos_status[i][j] = Q_ACTIVE;
+            s->qos_data[i][j] = 0;
         }
         s->busy_time_sample[i] = 0;
         s->ross_sample.busy_time_sample[i] = 0;
