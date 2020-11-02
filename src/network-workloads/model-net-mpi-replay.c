@@ -704,6 +704,7 @@ static void notify_neighbor_rc(
 {
        if(bf->c0)
        {
+            congestion_control_notify_job_completion_rc(lp, ns->app_id);
             notify_other_workloads_rc(ns, lp, bf, m);
             // notify_background_traffic_rc(ns, lp, bf, m);
             return;
@@ -732,6 +733,7 @@ static void notify_neighbor(
        printf("App %d: Completed workload, notifying other workloads of this\n", ns->app_id);
         bf->c0 = 1;
         ns->known_completed_jobs[ns->app_id] = 1;
+        congestion_control_notify_job_completion(lp, ns->app_id);
         notify_other_workloads(ns, lp, bf, m);
         // notify_background_traffic(ns, lp, bf, m);
         return;
@@ -786,6 +788,8 @@ void finish_bckgnd_traffic(
         (void)b;
         (void)msg;
         ns->is_finished = 1;
+        ns->elapsed_time = tw_now(lp) - ns->start_time;
+
         printf("\n LP %llu App %d completed sending data %llu completed at time %lf ", LLU(lp->gid),ns->app_id, ns->gen_data, tw_now(lp));
         congestion_control_notify_rank_completion(lp);
         
@@ -2671,11 +2675,11 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
              * completed */
              printf("\n Network node %d Rank %llu App %d finished at %lf ", s->local_rank, LLU(s->nw_id), s->app_id, tw_now(lp));
             int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx); 
-             if(num_jobs <= 1 || is_synthetic == 0)
-             {
-                bf->c19 = 1;
-                return;
-             }
+            //  if(num_jobs <= 1 || is_synthetic == 0)
+            //  {
+            //     bf->c19 = 1;
+            //     return;
+            //  }
 
             if(num_qos_levels == 1) //notify neighbor isn't really compatible with QoS, so notify_neighbor is only called if num_qos_levels == 1 (QoS off)
                 notify_neighbor(s, lp, bf, m);
