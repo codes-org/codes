@@ -92,6 +92,7 @@ struct svr_msg
     enum svr_event svr_event_type;
     tw_lpid src;          /* source of this request or ack */
     tw_stime msg_start_time;
+    int saved_dest;      /* helper for reverse computation */
     int completed_sends; /* helper for reverse computation */
     tw_stime saved_time; /* helper for reverse computation */
     model_net_event_return event_rc;
@@ -238,8 +239,10 @@ static void handle_kickoff_rev_event(
     if(b->c1)
         tw_rand_reverse_unif(lp->rng);
 
-    if(b->c8)
+    if (b->c8) {
         tw_rand_reverse_unif(lp->rng);
+        ns->dest_id = m->saved_dest;
+    }
     if(traffic == RANDOM_OTHER_GROUP) {
         tw_rand_reverse_unif(lp->rng);
         tw_rand_reverse_unif(lp->rng);
@@ -302,6 +305,7 @@ static void handle_kickoff_event(
        if(ns->dest_id == -1)
        {
             b->c8 = 1;
+            m->saved_dest = ns->dest_id;
             ns->dest_id = tw_rand_integer(lp->rng, 0, num_nodes - 1); 
             local_dest = ns->dest_id;
        }
