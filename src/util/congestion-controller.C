@@ -10,6 +10,8 @@
 #include <string.h>
 #include <string>
 
+#define PERMANENT_ABATEMENT 1
+
 using namespace std;
 
 struct codes_jobmap_ctx *jobmap_ctx;
@@ -97,6 +99,26 @@ double cc_tw_rand_reverse_unif(tw_lp *lp)
 }
 
 /************* CONGESTION CONTROLLER IMPLEMENTATIONS **************/
+
+void congestion_control_notify_job_completion(tw_lp *lp, int app_id)
+{
+    if (g_congestion_control_enabled) {
+        tw_event *e;
+        congestion_control_message *m;
+        tw_stime noise = cc_tw_rand_unif(lp) *.001;
+        e = tw_event_new(g_cc_supervisory_controller_gid, noise, lp);
+        m = (congestion_control_message*)tw_event_data(e);
+        m->type = CC_WORKLOAD_JOB_COMPLETE;
+        tw_event_send(e);
+    }
+}
+
+void congestion_control_notify_job_completion_rc(tw_lp *lp, int app_id)
+{
+    if (g_congestion_control_enabled) {
+        cc_tw_rand_reverse_unif(lp);
+    }
+}
 
 //reminder: this isn't called by the terminals - but by the WORKLOAD LPs
 void congestion_control_notify_rank_completion(tw_lp *lp)
@@ -293,6 +315,7 @@ void cc_supervisor_init(sc_state *s, tw_lp *lp)
     s->node_period_congestion_map = new map<unsigned long long, congestion_status>();
     s->port_period_congestion_map = new map<unsigned long long, congestion_status>();
     s->num_completed_workload_ranks = 0;
+    s->num_completed_workloads = 0;
 
     for(int i = 0; i < p->total_routers; i++)
     {
@@ -441,6 +464,9 @@ void cc_supervisor_event(sc_state *s, tw_bf *bf, congestion_control_message *msg
         case CC_WORKLOAD_RANK_COMPLETE:
             cc_supervisor_receive_wl_completion(s, bf, msg, lp);
         break;
+        case CC_WORKLOAD_JOB_COMPLETE:
+            cc_supervisor_receive_wljob_completion(s, bf, msg, lp);
+        break;
         default:
             tw_error(TW_LOC,"SC Received invalid event\n");
     }
@@ -463,6 +489,9 @@ void cc_supervisor_event_rc(sc_state *s, tw_bf *bf, congestion_control_message *
         break;
         case CC_WORKLOAD_RANK_COMPLETE:
             cc_supervisor_receive_wl_completion_rc(s, bf, msg, lp);
+        break;
+        case CC_WORKLOAD_JOB_COMPLETE:
+            cc_supervisor_receive_wljob_completion_rc(s, bf, msg, lp);
         break;
         default:
             tw_error(TW_LOC,"SC Received invalid event for RC %d\n", msg->type);
@@ -533,20 +562,39 @@ void cc_supervisor_process_heartbeat(sc_state *s, tw_bf *bf, congestion_control_
         }
     }
 
+    if (s->num_completed_workloads < s->params->total_jobs - 1)
+    {
+        if (is_congested_epoch != last_epoch_congested) {
+            if (is_congested_epoch) {
+                if(s->currently_abated_app == -1) {
+                    bf->c17 = 1;
+                    // printf("CONGESTION DETECTED\n");
+                    if(s->params->congestion_causation_enabled) {
+                        msg->saved_currently_abated_app = s->currently_abated_app;
+                        s->currently_abated_app = aggressor_job;
+                    }
+                    cc_supervisor_send_signal_abate(s, bf, msg, lp);
+                }
 
-    if (is_congested_epoch != last_epoch_congested) {
-        if (is_congested_epoch) {
-            bf->c17 = 1;
-            // printf("CONGESTION DETECTED\n");
-            if(s->params->congestion_causation_enabled) {
-                msg->saved_currently_abated_app = s->currently_abated_app;
-                s->currently_abated_app = aggressor_job;
             }
-            cc_supervisor_send_signal_abate(s, bf, msg, lp);
-
+            else {
+                if(PERMANENT_ABATEMENT == 0) {
+                    bf->c18 = 1;
+                    // printf("CONGESTION ABATED\n");
+                    cc_supervisor_send_signal_normal(s, bf, msg, lp);
+                    if(s->params->congestion_causation_enabled) {
+                        msg->saved_currently_abated_app = s->currently_abated_app;
+                        s->currently_abated_app = -1;
+                    }
+                }
+            }
         }
-        else {
-            bf->c18 = 1;
+    }
+    else {
+        //ensure that there's no abated application
+        if (s->currently_abated_app != -1)
+        {
+            bf->c18 = 1; //OK to reuse because the same action is performed as above so reversing it is the same.
             // printf("CONGESTION ABATED\n");
             cc_supervisor_send_signal_normal(s, bf, msg, lp);
             if(s->params->congestion_causation_enabled) {
@@ -788,6 +836,18 @@ void cc_supervisor_process_performance_response_rc(sc_state *s, tw_bf *bf, conge
         break;
     }
 }
+
+void cc_supervisor_receive_wljob_completion(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    s->num_completed_workloads++;
+    printf("Congestion Control Supervisor: Number of Completed Jobs: %d/%d\n",s->num_completed_workloads, s->params->total_jobs);
+}
+
+void cc_supervisor_receive_wljob_completion_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    s->num_completed_workloads--;
+}
+
 
 void cc_supervisor_receive_wl_completion(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {

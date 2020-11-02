@@ -92,6 +92,7 @@ typedef struct sc_state
     int currently_abated_app;
 
     unsigned long long num_completed_workload_ranks;
+    unsigned long long num_completed_workloads;
 
     int received_router_performance_count; //number of CC_R_PERF_REPORT messages received following a request
     int received_terminal_performance_count; //number of CC_N_PERF_REPORT messages received following a request
@@ -190,6 +191,8 @@ extern void cc_supervisor_process_heartbeat(sc_state *s, tw_bf *bf, congestion_c
 extern void cc_supervisor_process_heartbeat_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_supervisor_send_heartbeat(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_supervisor_send_heartbeat_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+extern void cc_supervisor_receive_wljob_completion(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+extern void cc_supervisor_receive_wljob_completion_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_supervisor_receive_wl_completion(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_supervisor_receive_wl_completion_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_supervisor_broadcast_wl_completion(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
@@ -216,15 +219,15 @@ extern void sc_identify_suspect_jobs();
 extern void sc_check_for_guilty_jobs();
 extern void cc_supervisor_load_pattern_set(sc_state *s);
 
-
-// ------------ Local controllers -----------------------
-extern void cc_router_local_controller_init(rlc_state *s, int router_id);
-extern void cc_router_local_controller_kickoff(rlc_state *s, tw_lp *lp);
-
 void cc_supervisor_send_signal_abate(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 void cc_supervisor_send_signal_abate_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 void cc_supervisor_send_signal_normal(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 void cc_supervisor_send_signal_normal_rc(sc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
+
+
+// ------------ Local controllers -----------------------
+extern void cc_router_local_controller_init(rlc_state *s, int router_id);
+extern void cc_router_local_controller_kickoff(rlc_state *s, tw_lp *lp);
 
 extern void cc_router_local_send_heartbeat(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);
 extern void cc_router_local_send_heartbeat_rc(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp);

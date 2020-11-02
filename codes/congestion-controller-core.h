@@ -55,6 +55,7 @@ typedef enum cc_event_t
     CC_R_PERF_REPORT,
     CC_N_PERF_REPORT,
     CC_WORKLOAD_RANK_COMPLETE,
+    CC_WORKLOAD_JOB_COMPLETE
 } cc_event_t;
 
 // Enum for how to determine if the 
@@ -117,6 +118,9 @@ extern int congestion_control_get_job_count();
 extern struct codes_jobmap_ctx* congestion_control_get_jobmap();
 extern void congestion_control_notify_rank_completion(tw_lp *lp);
 extern void congestion_control_notify_rank_completion_rc(tw_lp *lp);
+extern void congestion_control_notify_job_completion(tw_lp *lp, int app_id);
+extern void congestion_control_notify_job_completion_rc(tw_lp *lp, int app_id);
+
 
 
 // /**
