@@ -39,6 +39,7 @@ static int do_lp_io = 0;
 static int num_msgs = 20;
 static tw_stime sampling_interval = 800000;
 static tw_stime sampling_end_time = 1600000;
+static long long rperm_threshold = 131072;
 
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
@@ -82,6 +83,7 @@ struct svr_state
     tw_stime end_ts;      /* time that we ended sending requests */
     int svr_id;
     int dest_id;
+    long long rperm_data;  /* amount of data sent this rperm period */
 
     tw_stime max_server_latency; /* maximum measured packet latency observed by server */
     tw_stime sum_server_latency; /* running sum of measured latencies observed by server for calc of mean */
@@ -95,6 +97,7 @@ struct svr_msg
     int saved_dest;      /* helper for reverse computation */
     int completed_sends; /* helper for reverse computation */
     tw_stime saved_time; /* helper for reverse computation */
+    long long saved_rperm_data; /* helper for reverse computation */
     model_net_event_return event_rc;
 };
 
@@ -173,6 +176,7 @@ const tw_optdef app_opt [] =
     	TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
     	TWOPT_UINT("num_messages", num_msgs, "Number of messages to be generated per terminal "),
     	TWOPT_UINT("payload_sz",PAYLOAD_SZ, "size of the message being sent "),
+        TWOPT_UINT("rperm_threshold",rperm_threshold, "size of rperm data sent before selecting new dest "),
     	TWOPT_STIME("sampling-interval", sampling_interval, "the sampling interval "),
     	TWOPT_STIME("sampling-end-time", sampling_end_time, "sampling end time "),
 	    TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
@@ -222,6 +226,7 @@ static void svr_init(
     ns->svr_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
     ns->max_server_latency = 0.0;
     ns->sum_server_latency = 0.0;
+    ns->rperm_data = 0;
 
     issue_event(ns, lp);
     return;
@@ -239,9 +244,15 @@ static void handle_kickoff_rev_event(
     if(b->c1)
         tw_rand_reverse_unif(lp->rng);
 
-    if (b->c8) {
-        tw_rand_reverse_unif(lp->rng);
-        ns->dest_id = m->saved_dest;
+    if (traffic == RAND_PERM) {
+        if (b->c8) { 
+            ns->rperm_data = m->saved_rperm_data;
+            tw_rand_reverse_unif(lp->rng);
+            ns->dest_id = m->saved_dest;
+        }
+        else {
+            ns->rperm_data -= PAYLOAD_SZ;
+        }
     }
     if(traffic == RANDOM_OTHER_GROUP) {
         tw_rand_reverse_unif(lp->rng);
@@ -302,16 +313,18 @@ static void handle_kickoff_event(
    }
    else if(traffic == RAND_PERM)
    {
-       if(ns->dest_id == -1)
-       {
+       if (ns->dest_id == -1 || ns->rperm_data > rperm_threshold) {
             b->c8 = 1;
             m->saved_dest = ns->dest_id;
             ns->dest_id = tw_rand_integer(lp->rng, 0, num_nodes - 1); 
             local_dest = ns->dest_id;
+            m->saved_rperm_data = ns->rperm_data;
+            ns->rperm_data = PAYLOAD_SZ; //reset to 0 + payload size for this run
        }
        else
        {
         local_dest = ns->dest_id; 
+        ns->rperm_data += PAYLOAD_SZ;
        }
    }
    else if(traffic == RANDOM_OTHER_GROUP)
