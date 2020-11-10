@@ -1,6 +1,8 @@
 # CODES Discrete-event Simulation Framework
 
-### New? Check out the Wiki for Installation, Tutorials, and Documentation: https://github.com/codes-org/codes/wiki
+### [Join our CODES user mailing list](https://mailchi.mp/75d0c8aa42c3/codes-user-group) to stay up to date with major changes, events, and news!
+
+### New? Check out the [Wiki for Installation, Tutorials, and Documentation](https://github.com/codes-org/codes/wiki)
 
 Discrete event driven simulation of HPC system architectures and subsystems has emerged as a productive and cost-effective means to evaluating potential HPC designs, along with capabilities for executing simulations of extreme scale systems. The goal of the CODES project is to use highly parallel simulation to explore the design of exascale storage/network architectures and distributed data-intensive science facilities. 
 
