@@ -137,15 +137,6 @@ static void model_net_commit_event(model_net_base_state * ns, tw_bf *b,  model_n
         if(ns->sub_type->commit != NULL)
             ns->sub_type->commit(ns->sub_state, b, sub_msg, lp);
     }
-
-    if(m->h.event_type == MN_CONGESTION_EVENT)
-    {
-        void * sub_msg;
-        sub_msg = ((char*)m)+msg_offsets[SUPERVISORY_CONTROLLER];
-        commit_f con_req_commit = method_array[ns->net_id]->cc_congestion_request_commit_fn;
-        if(con_req_commit != NULL)
-            con_req_commit(ns->sub_state, b, sub_msg, lp);
-    }
 }
 /* setup for the ROSS event tracing
  */
@@ -590,12 +581,6 @@ void model_net_base_event(
             sub_msg = ((char*)m)+msg_offsets[ns->net_id];
             ns->sub_type->event(ns->sub_state, b, sub_msg, lp);
             break;
-        case MN_CONGESTION_EVENT: ;
-            event_f con_req = method_array[ns->net_id]->cc_congestion_request_fn;
-            assert(g_congestion_control_enabled && con_req != NULL);
-            sub_msg = ((char*)m)+msg_offsets[SUPERVISORY_CONTROLLER];
-            con_req(ns->sub_state, b, sub_msg, lp);
-            break;
         /* ... */
         default:
             assert(!"model_net_base event type not known");
@@ -627,12 +612,6 @@ void model_net_base_event_rc(
         case MN_BASE_PASS: ;
             sub_msg = ((char*)m)+msg_offsets[ns->net_id];
             ns->sub_type->revent(ns->sub_state, b, sub_msg, lp);
-            break;
-        case MN_CONGESTION_EVENT: ;
-            revent_f con_req_rc = method_array[ns->net_id]->cc_congestion_request_rc_fn;
-            assert(g_congestion_control_enabled && con_req_rc != NULL);
-            sub_msg = ((char*)m)+msg_offsets[SUPERVISORY_CONTROLLER];
-            con_req_rc(ns->sub_state, b, sub_msg, lp);
             break;
         /* ... */
         default:
@@ -1005,25 +984,6 @@ void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue,
 
 void * model_net_method_get_edata(int net_id, void *msg){
     return (char*)msg + sizeof(model_net_wrap_msg) - msg_offsets[net_id];
-}
-
-tw_event* model_net_method_congestion_event(tw_lpid dest_gid,
-    tw_stime offset_ts,
-    tw_lp *sender,
-    void **msg_data,
-    void **extra_data)
-{
-    tw_event *e = tw_event_new(dest_gid, offset_ts, sender);
-    model_net_wrap_msg *m_wrap = tw_event_data(e);
-    msg_set_header(model_net_base_magic, MN_CONGESTION_EVENT, sender->gid,
-            &m_wrap->h);
-    *msg_data = ((char*)m_wrap)+msg_offsets[SUPERVISORY_CONTROLLER];
-    // extra_data is optional
-    if (extra_data != NULL){
-        *extra_data = m_wrap + 1;
-    }
-    return e;
-
 }
 
 /*

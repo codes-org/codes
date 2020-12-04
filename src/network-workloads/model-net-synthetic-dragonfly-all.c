@@ -290,19 +290,19 @@ static tw_stime issue_event(
     return time_offset;
 }
 
-static void notify_workload_complete(svr_state *ns, tw_bf *bf, tw_lp *lp)
-{
-    if (g_congestion_control_enabled) {
-        tw_event *e;
-        congestion_control_message *m;
-        tw_stime noise = tw_rand_unif(lp->rng) *.001;
-        bf->c10 = 1;
-        e = tw_event_new(g_cc_supervisory_controller_gid, noise, lp);
-        m = tw_event_data(e);
-        m->type = CC_WORKLOAD_RANK_COMPLETE;
-        tw_event_send(e);
-    }
-}
+// static void notify_workload_complete(svr_state *ns, tw_bf *bf, tw_lp *lp)
+// {
+//     if (g_congestion_control_enabled) {
+//         tw_event *e;
+//         congestion_control_message *m;
+//         tw_stime noise = tw_rand_unif(lp->rng) *.001;
+//         bf->c10 = 1;
+//         e = tw_event_new(g_cc_supervisory_controller_gid, noise, lp);
+//         m = tw_event_data(e);
+//         m->type = CC_WORKLOAD_RANK_COMPLETE;
+//         tw_event_send(e);
+//     }
+// }
 
 static void svr_init(
     svr_state * ns,
@@ -454,8 +454,6 @@ static void handle_ack_event(svr_state * ns, tw_bf *bf, svr_msg *m, tw_lp *lp)
         m->saved_max_end_time = pe_max_end_ts;
         if (ns->end_ts > pe_max_end_ts)
             pe_max_end_ts = ns->end_ts;
-        
-        notify_workload_complete(ns, bf, lp);
     }
     
 }
@@ -832,7 +830,7 @@ int main(
     struct codes_jobmap_params_identity jobmap_ident_p;
     jobmap_ident_p.num_ranks = num_servers;
     struct codes_jobmap_ctx * jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_IDENTITY, &jobmap_ident_p);
-    congestion_control_set_jobmap(jobmap_ctx, net_id); //must be placed after codes_mapping_setup - where g_congestion_control_enabled is set
+    // congestion_control_set_jobmap(jobmap_ctx, net_id); //must be placed after codes_mapping_setup - where g_congestion_control_enabled is set
 
     if(lp_io_dir[0])
     {

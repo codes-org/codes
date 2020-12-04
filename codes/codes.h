@@ -20,10 +20,6 @@ extern "C" {
 
 extern MPI_Comm MPI_COMM_CODES;
 
-// Global Congestion Controller Enable/Disable flag declaration
-extern int g_congestion_control_enabled;
-extern tw_lpid g_cc_supervisory_controller_gid;
-
 // for printf conversions: shorthand for cast to long long unsigned format (llu)
 #define LLU(x) ((unsigned long long)(x))
 #define LLD(x) ((long long)(x))

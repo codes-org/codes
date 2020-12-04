@@ -493,17 +493,8 @@ static void codes_mapping_init(void)
 	 kpid = ross_lid % g_tw_nkp;
 	 pe = g_tw_pe;
 
-    if (g_congestion_control_enabled)
-    {
-        if (ross_gid != g_cc_supervisory_controller_gid)
-	        codes_mapping_get_lp_info(ross_gid, NULL, &grp_id, lp_type_name,
-                 &lpt_id, NULL, &rep_id, &offset);
-        else
-            strcpy(lp_type_name, "supervisory_controller");
-    }
-    else
-        codes_mapping_get_lp_info(ross_gid, NULL, &grp_id, lp_type_name,
-            &lpt_id, NULL, &rep_id, &offset);
+    codes_mapping_get_lp_info(ross_gid, NULL, &grp_id, lp_type_name,
+        &lpt_id, NULL, &rep_id, &offset);
 
      
 
@@ -551,29 +542,6 @@ void codes_mapping_setup_with_seed_offset(int offset)
     for (lpt = 0; lpt < lpconf.lpgroups[grp].lptypes_count; lpt++)
 	lps_per_pe_floor += (lpconf.lpgroups[grp].lptypes[lpt].count * lpconf.lpgroups[grp].repetitions);
    }
-
-  int congestion_enabled = 0;
-  int ret = configuration_get_value_int(&config, "PARAMS", "congestion_control_enabled", NULL, &congestion_enabled);
-  if (!ret) {
-      if(congestion_enabled) {
-      g_congestion_control_enabled = 1;
-      congestion_control_register_lp_type();
-      }
-      else {
-          g_congestion_control_enabled = 0;
-      }
-  }
-  else
-  {
-      g_congestion_control_enabled = 0;
-  }
-    
-  if (g_congestion_control_enabled) {
-      if (g_tw_mynode)
-        printf("Congestion Control: Enabled\n");
-      lps_per_pe_floor++; //supervisory controller LP
-      g_cc_supervisory_controller_gid = lps_per_pe_floor-1;
-  }
 
   tw_lpid global_nlps = lps_per_pe_floor;
   lps_leftover = lps_per_pe_floor % pes;

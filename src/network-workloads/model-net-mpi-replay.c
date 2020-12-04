@@ -583,7 +583,7 @@ static void notify_other_workloads_rc(
     
     for(int i = 0; i < num_jobs - 1; i++)
     {
-        if(i == ns->app_id || is_job_synthetic[i])
+        if(is_job_synthetic[i])
             continue;
         tw_rand_reverse_unif(lp->rng);
     }
@@ -608,7 +608,7 @@ static void notify_other_workloads(
     //broadcast to every job
     for(int other_id = 0; other_id < num_jobs; other_id++)
     {
-        if (other_id == jid.job || is_job_synthetic[other_id])
+        if (is_job_synthetic[other_id])
             continue;
 
         struct codes_jobmap_id other_jid;
@@ -704,7 +704,6 @@ static void notify_neighbor_rc(
 {
        if(bf->c0)
        {
-            congestion_control_notify_job_completion_rc(lp, ns->app_id);
             notify_other_workloads_rc(ns, lp, bf, m);
             // notify_background_traffic_rc(ns, lp, bf, m);
             return;
@@ -733,7 +732,6 @@ static void notify_neighbor(
        printf("App %d: Completed workload, notifying other workloads of this\n", ns->app_id);
         bf->c0 = 1;
         ns->known_completed_jobs[ns->app_id] = 1;
-        congestion_control_notify_job_completion(lp, ns->app_id);
         notify_other_workloads(ns, lp, bf, m);
         // notify_background_traffic(ns, lp, bf, m);
         return;
@@ -775,7 +773,6 @@ void finish_bckgnd_traffic_rc(
         (void)msg;
         (void)lp;
 
-        congestion_control_notify_rank_completion_rc(lp);
         ns->is_finished = 0;
         return;
 }
@@ -791,7 +788,6 @@ void finish_bckgnd_traffic(
         ns->elapsed_time = tw_now(lp) - ns->start_time;
 
         printf("\n LP %llu App %d completed sending data %llu completed at time %lf ", LLU(lp->gid),ns->app_id, ns->gen_data, tw_now(lp));
-        congestion_control_notify_rank_completion(lp);
         
         return;
 }
@@ -2549,7 +2545,6 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 
 	if(m->op_type == CODES_WK_END)
     {
-        congestion_control_notify_rank_completion_rc(lp);
         s->is_finished = 0;
 
         if(bf->c9)
@@ -2662,8 +2657,6 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
         {
             s->elapsed_time = tw_now(lp) - s->start_time;
             s->is_finished = 1;
-
-            congestion_control_notify_rank_completion(lp);
 
             if(!alloc_spec)
             {
@@ -3316,7 +3309,6 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
        model_net_enable_sampling(sampling_interval, sampling_end_time);
 
    codes_mapping_setup();
-   congestion_control_set_jobmap(jobmap_ctx, net_id); //must be placed after codes_mapping_setup - where g_congestion_control_enabled is set
 
    num_mpi_lps = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp", NULL, 0);
    

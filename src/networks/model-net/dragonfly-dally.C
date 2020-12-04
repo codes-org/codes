@@ -547,6 +547,7 @@ struct router_state
     int *queued_count;
     struct rc_stack * st;
 
+    int* vc_max_sizes; //max for vc sizes indexed by port
     int** vc_occupancy;
     int64_t* link_traffic;
     int64_t * link_traffic_sample;
@@ -2088,6 +2089,25 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     }
     //END CREDIT DELAY CONFIGURATION LOGIC ----------------
 
+    // CONGESTION CONTROL
+    int cc_enabled;
+    rc = configuration_get_value_int(&config, "PARAMS", "congestion_control_enabled", anno, &cc_enabled);
+    if(rc) {
+        if(!myRank)
+            fprintf(stderr,"\nCongestion Control Not Enabled\n");
+    }
+    else {
+        g_congestion_control_enabled = cc_enabled;
+        if(!myRank) {
+            if (cc_enabled)
+                fprintf(stderr,"\nCongestion Control Enabled\n");
+            else 
+                fprintf(stderr,"\nCongestion Control Disabled\n");
+
+        }
+    }
+    // END CONGESTION CONTROL
+
     if (PRINT_CONFIG && !myRank) {
         dragonfly_print_params(p,stderr);
     }
@@ -2160,37 +2180,6 @@ void dragonfly_dally_report_stats()
         printf("\nTotal packets generated %ld finished %ld Locally routed- same router %ld different-router %ld Remote (inter-group) %ld \n", total_gen, total_fin, total_local_packets_sr, total_local_packets_sg, total_remote_packets);
     }
     return;
-}
-
-static void dragonfly_dally_terminal_congestion_event(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
-{
-    cc_terminal_local_congestion_event(s->local_congestion_controller, bf, msg, lp);
-}
-
-static void dragonfly_dally_terminal_congestion_event_rc(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
-{
-    cc_terminal_local_congestion_event_rc(s->local_congestion_controller, bf, msg, lp);
-}
-
-static void dragonfly_dally_terminal_congestion_event_commit(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
-{
-    cc_terminal_local_congestion_event_commit(s->local_congestion_controller, bf, msg, lp);
-}
-
-static void dragonfly_dally_router_congestion_event(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
-{
-    cc_router_local_congestion_event(s->local_congestion_controller, bf, msg, lp);
-}
-
-static void dragonfly_dally_router_congestion_event_rc(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
-{
-    cc_router_local_congestion_event_rc(s->local_congestion_controller, bf, msg, lp);
-
-}
-
-static void dragonfly_dally_router_congestion_event_commit(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
-{
-    cc_router_local_congestion_event_commit(s->local_congestion_controller, bf, msg, lp);
 }
 
 int get_vcg_from_category(terminal_dally_message * msg)
@@ -2641,31 +2630,6 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
     s->workload_lpid_to_app_id = map<tw_lpid, int>();
     s->app_ids = set<int>();
 
-    if (congestion_control_is_jobmap_set()) {
-        //get the assigend workload LPIDs and App IDs
-        struct codes_jobmap_ctx* ctx = congestion_control_get_jobmap();
-        char workload_lp_name[MAX_NAME_LENGTH];
-        workload_lp_name[0] = '\0';
-        configuration_get_value(&config, "PARAMS", "cc_workload_lpname", NULL, workload_lp_name, MAX_NAME_LENGTH);
-        if (strlen(workload_lp_name) <= 0) {
-            strcpy(workload_lp_name, "nw-lp"); //default workload LP name
-        }
-        int num_workload_lps = codes_mapping_get_lp_count(lp_group_name, 0, workload_lp_name, NULL, 0);
-
-        for (int work_rel_id = 0; work_rel_id < num_workload_lps; work_rel_id++) {
-            tw_lpid work_gid = codes_mapping_get_lpid_from_relative(work_rel_id, NULL, workload_lp_name, NULL, 0);
-            struct codes_jobmap_id job_ident = codes_jobmap_to_local_id(work_rel_id, ctx); //work rel id is job global id - TODO DOUBLE CHECK
-            tw_lpid attached_term_id = model_net_find_local_device(DRAGONFLY_DALLY, NULL, 0, work_gid);
-
-            if (attached_term_id == lp->gid && job_ident.job != -1) {
-                s->workload_lpid_to_app_id[work_gid] = job_ident.job;
-                s->app_ids.insert(job_ident.job);
-            }
-        }
-        // printf("Term %d has %d assigned workload LPs from %d jobs\n",s->terminal_id, s->workload_lpid_to_app_id.size(), s->app_ids.size());
-        //end LPID map generation
-    }
-
     s->terminal_available_time = (tw_stime*)calloc(p->num_rails, sizeof(tw_stime));
     s->packet_counter = 0;
     s->min_latency = INT_MAX;
@@ -2754,9 +2718,7 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
 
     if (g_congestion_control_enabled) {
         s->local_congestion_controller = (tlc_state*)calloc(1,sizeof(tlc_state));
-        cc_terminal_local_controller_init(s->local_congestion_controller, s->terminal_id);
-        cc_terminal_local_controller_setup_stall_alpha(s->local_congestion_controller, s->stalled_chunks, s->total_chunks,  &s->injected_chunks, &s->ejected_chunks, *(s->app_ids.begin()));
-        cc_terminal_local_controller_kickoff(s->local_congestion_controller, lp);
+        // cc_terminal_local_controller_init(s->local_congestion_controller, s->terminal_id);
     }
 
     return;
@@ -2816,7 +2778,18 @@ void router_dally_init(router_state * r, tw_lp * lp)
     int num_qos_levels = p->num_qos_levels;
 
     r->connMan = netMan.get_connection_manager_for_router(r->router_id);
-    // r->connMan = &connManagerList[r->router_id];
+    
+    r->vc_max_sizes = (int*)calloc(p->radix, sizeof(int));
+    for(int i = 0; i < p->radix; i++)
+    {
+        ConnectionType conn_type = r->connMan.get_port_type(i);
+        if (conn_type == CONN_LOCAL)
+            r->vc_max_sizes[i] = p->local_vc_size;
+        else if (conn_type == CONN_GLOBAL)
+            r->vc_max_sizes[i] = p->global_vc_size;
+        else
+            r->vc_max_sizes[i] = p->cn_vc_size;
+    }
 
     r->global_channel = (int*)calloc(p->num_global_channels, sizeof(int));
     r->next_output_available_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
@@ -2899,9 +2872,7 @@ void router_dally_init(router_state * r, tw_lp * lp)
 
     if (g_congestion_control_enabled) {
         r->local_congestion_controller = (rlc_state*)calloc(1,sizeof(rlc_state));
-        cc_router_local_controller_init(r->local_congestion_controller, r->router_id);
-        cc_router_local_controller_setup_stall_alpha(r->local_congestion_controller, p->radix, r->stalled_chunks, r->total_chunks);
-        cc_router_local_controller_kickoff(r->local_congestion_controller, lp);
+        cc_router_local_controller_init(r->local_congestion_controller, p->total_terminals, r->router_id, p->radix, p->num_vcs, r->vc_max_sizes);
     }
 
     return;
@@ -3081,16 +3052,9 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         cn_delay = bytes_to_ns(msg->packet_size % s->params->chunk_size, s->params->cn_bandwidth);
 
     if (g_congestion_control_enabled) {
-        if (cc_terminal_is_abatement_active(s->local_congestion_controller)) {
-            if (congestion_control_is_jobmap_set()) {
-                msg->app_id = s->workload_lpid_to_app_id[msg->sender_lp];
-                if(s->app_ids.count(msg->app_id) == 0)
-                    tw_error(TW_LOC, "Attempting to generate packet for incorrect application\n");
-            }
-            double bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
-            cn_delay = bytes_to_ns(s->params->chunk_size, bandwidth_coef*s->params->cn_bandwidth);
-            // cn_delay = cn_delay * (1.0/bandwidth_coef);
-        }
+        // if (cc_terminal_is_abatement_active(s->local_congestion_controller)) {
+            //do something
+        // }
     }
 
     //get rails available: should be from rails known to not be failed
@@ -3533,11 +3497,11 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     }
 
     if (g_congestion_control_enabled) {
-        if(cc_terminal_is_abatement_active(s->local_congestion_controller)) {
-            double bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
-            delay = bytes_to_ns(s->params->chunk_size, bandwidth_coef*s->params->cn_bandwidth);
-            // delay = delay * (1.0/bandwidth_coef);
-        }
+        // if(cc_terminal_is_abatement_active(s->local_congestion_controller)) {
+        //     double bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
+        //     delay = bytes_to_ns(s->params->chunk_size, bandwidth_coef*s->params->cn_bandwidth);
+        //     // delay = delay * (1.0/bandwidth_coef);
+        // }
     }
 
     s->qos_data[msg->rail_id][vcg] += data_size;
@@ -3570,6 +3534,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
 
     m->type = R_ARRIVE;
     m->src_terminal_id = lp->gid;
+    m->dfdally_src_terminal_id = s->terminal_id;
     m->rail_id = msg->rail_id;
     m->vc_index = vcg;
     m->last_hop = TERMINAL;
@@ -4254,6 +4219,9 @@ void dragonfly_dally_router_final(router_state * s, tw_lp * lp)
     sprintf(s->output_buf + written, "\n");
     lp_io_write(lp->gid, (char*)"dragonfly-link-stats", written, s->output_buf);
 
+    if(g_congestion_control_enabled)
+        cc_router_local_controller_finalize(s->local_congestion_controller);
+
     /*if(!s->router_id)
     {
         written = sprintf(s->output_buf, "# Format <LP ID> <Group ID> <Router ID> <Link Traffic per router port(s)>");
@@ -4530,6 +4498,9 @@ static void router_packet_receive_rc(router_state * s,
         s->queued_msgs_tail[output_port], output_chan));
     s->queued_count[output_port] -= s->params->chunk_size; 
     }
+
+    if (g_congestion_control_enabled)
+            cc_router_received_packet_rc(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, msg->dfdally_src_terminal_id);
 }
 
 /* Packet arrives at the router and a credit is sent back to the sending terminal/router */
@@ -4743,6 +4714,9 @@ static void router_packet_receive( router_state * s,
         }
     }
 
+    if (g_congestion_control_enabled)
+            cc_router_received_packet(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, msg->dfdally_src_terminal_id);
+
     msg->saved_vc = output_port;
     msg->saved_channel = output_chan;
     return;
@@ -4821,6 +4795,10 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
 
     prepend_to_terminal_dally_message_list(s->pending_msgs[output_port],
             s->pending_msgs_tail[output_port], output_chan, cur_entry);
+
+    if (g_congestion_control_enabled)
+        cc_router_forwarded_packet_rc(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, msg->dfdally_src_terminal_id);
+    
 
     if(bf->c4) {
         s->in_send_loop[output_port] = 1;
@@ -4985,6 +4963,9 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
         m->type = R_ARRIVE;
     }
     tw_event_send(e);
+
+    if (g_congestion_control_enabled)
+        cc_router_forwarded_packet(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, msg->dfdally_src_terminal_id);
     
     cur_entry = return_head(s->pending_msgs[output_port], 
         s->pending_msgs_tail[output_port], output_chan);
@@ -6541,9 +6522,6 @@ struct model_net_method dragonfly_dally_method =
     NULL,//(final_f)dragonfly_dally_sample_fin
     custom_dally_dragonfly_register_model_types,
     custom_dally_dragonfly_get_model_types,
-    (event_f)dragonfly_dally_terminal_congestion_event,
-    (revent_f)dragonfly_dally_terminal_congestion_event_rc,
-    (commit_f)dragonfly_dally_terminal_congestion_event_commit,
 };
 
 struct model_net_method dragonfly_dally_router_method =
@@ -6566,9 +6544,6 @@ struct model_net_method dragonfly_dally_router_method =
     NULL,//(final_f)dragonfly_dally_rsample_fin
     custom_dally_router_register_model_types,
     custom_dally_dfly_router_get_model_types,
-    (event_f)dragonfly_dally_router_congestion_event,
-    (revent_f)dragonfly_dally_router_congestion_event_rc,
-    (commit_f)dragonfly_dally_router_congestion_event_commit,
 };
 
 // #ifdef ENABLE_CORTEX
