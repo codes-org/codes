@@ -316,6 +316,7 @@ typedef enum event_t
     R_BANDWIDTH,
     R_BW_HALT,
     T_BANDWIDTH,
+    T_SIM_ACK, // A 'simulated' ack message sent from receiving terminal to original to let it know that its packet was ejected
 } event_t;
 
 /* whether the last hop of a packet was global, local or a terminal */
@@ -2105,6 +2106,12 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
                 fprintf(stderr,"\nCongestion Control Disabled\n");
 
         }
+
+        if(cc_enabled)
+        {
+            congestion_control_register_terminal_lpname(LP_CONFIG_NM_TERM);
+            congestion_control_register_router_lpname(LP_CONFIG_NM_ROUT);
+        }
     }
     // END CONGESTION CONTROL
 
@@ -2180,6 +2187,37 @@ void dragonfly_dally_report_stats()
         printf("\nTotal packets generated %ld finished %ld Locally routed- same router %ld different-router %ld Remote (inter-group) %ld \n", total_gen, total_fin, total_local_packets_sr, total_local_packets_sg, total_remote_packets);
     }
     return;
+}
+
+static void dragonfly_dally_terminal_congestion_event(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    cc_terminal_local_congestion_event(s->local_congestion_controller, bf, msg, lp);
+}
+
+static void dragonfly_dally_terminal_congestion_event_rc(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    cc_terminal_local_congestion_event_rc(s->local_congestion_controller, bf, msg, lp);
+}
+
+static void dragonfly_dally_terminal_congestion_event_commit(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    cc_terminal_local_congestion_event_commit(s->local_congestion_controller, bf, msg, lp);
+}
+
+static void dragonfly_dally_router_congestion_event(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    cc_router_local_congestion_event(s->local_congestion_controller, bf, msg, lp);
+}
+
+static void dragonfly_dally_router_congestion_event_rc(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    cc_router_local_congestion_event_rc(s->local_congestion_controller, bf, msg, lp);
+
+}
+
+static void dragonfly_dally_router_congestion_event_commit(router_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
+{
+    cc_router_local_congestion_event_commit(s->local_congestion_controller, bf, msg, lp);
 }
 
 int get_vcg_from_category(terminal_dally_message * msg)
@@ -2718,7 +2756,7 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
 
     if (g_congestion_control_enabled) {
         s->local_congestion_controller = (tlc_state*)calloc(1,sizeof(tlc_state));
-        // cc_terminal_local_controller_init(s->local_congestion_controller, s->terminal_id);
+        cc_terminal_local_controller_init(s->local_congestion_controller);
     }
 
     return;
@@ -2872,7 +2910,7 @@ void router_dally_init(router_state * r, tw_lp * lp)
 
     if (g_congestion_control_enabled) {
         r->local_congestion_controller = (rlc_state*)calloc(1,sizeof(rlc_state));
-        cc_router_local_controller_init(r->local_congestion_controller, p->total_terminals, r->router_id, p->radix, p->num_vcs, r->vc_max_sizes);
+        cc_router_local_controller_init(r->local_congestion_controller, lp, p->total_terminals, r->router_id, p->radix, p->num_vcs, r->vc_max_sizes);
     }
 
     return;
@@ -3052,9 +3090,11 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         cn_delay = bytes_to_ns(msg->packet_size % s->params->chunk_size, s->params->cn_bandwidth);
 
     if (g_congestion_control_enabled) {
-        // if (cc_terminal_is_abatement_active(s->local_congestion_controller)) {
-            //do something
-        // }
+        if (cc_terminal_is_abatement_active(s->local_congestion_controller)) {
+            double bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
+            cn_delay = bytes_to_ns(s->params->chunk_size, bandwidth_coef*s->params->cn_bandwidth);
+            // cn_delay = cn_delay * (1.0/bandwidth_coef);
+        }
     }
 
     //get rails available: should be from rails known to not be failed
@@ -3497,11 +3537,11 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     }
 
     if (g_congestion_control_enabled) {
-        // if(cc_terminal_is_abatement_active(s->local_congestion_controller)) {
-        //     double bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
-        //     delay = bytes_to_ns(s->params->chunk_size, bandwidth_coef*s->params->cn_bandwidth);
-        //     // delay = delay * (1.0/bandwidth_coef);
-        // }
+        if(cc_terminal_is_abatement_active(s->local_congestion_controller)) {
+            double bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
+            delay = bytes_to_ns(s->params->chunk_size, bandwidth_coef*s->params->cn_bandwidth);
+            // delay = delay * (1.0/bandwidth_coef);
+        }
     }
 
     s->qos_data[msg->rail_id][vcg] += data_size;
@@ -4467,6 +4507,7 @@ static void router_packet_receive_rc(router_state * s,
 {  
     int output_port = msg->saved_vc;
     int output_chan = msg->saved_channel;
+    int src_term_id = msg->dfdally_src_terminal_id;
 
     for(int i = 0 ; i < msg->num_cll; i++)
         codes_local_latency_reverse(lp);
@@ -4500,7 +4541,7 @@ static void router_packet_receive_rc(router_state * s,
     }
 
     if (g_congestion_control_enabled)
-            cc_router_received_packet_rc(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, msg->dfdally_src_terminal_id);
+            cc_router_received_packet_rc(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, src_term_id);
 }
 
 /* Packet arrives at the router and a credit is sent back to the sending terminal/router */
@@ -4715,8 +4756,9 @@ static void router_packet_receive( router_state * s,
     }
 
     if (g_congestion_control_enabled)
-            cc_router_received_packet(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, msg->dfdally_src_terminal_id);
+            cc_router_received_packet(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, cur_chunk->msg.dfdally_src_terminal_id);
 
+    msg->dfdally_src_terminal_id = cur_chunk->msg.dfdally_src_terminal_id;
     msg->saved_vc = output_port;
     msg->saved_channel = output_chan;
     return;
@@ -4727,6 +4769,7 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
     int num_qos_levels = s->params->num_qos_levels;
    
     int output_port = msg->saved_vc;
+    int src_term_id = msg->dfdally_src_terminal_id;
       
     if(msg->qos_reset1)
         s->qos_status[output_port][0] = Q_ACTIVE;
@@ -4797,7 +4840,7 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
             s->pending_msgs_tail[output_port], output_chan, cur_entry);
 
     if (g_congestion_control_enabled)
-        cc_router_forwarded_packet_rc(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, msg->dfdally_src_terminal_id);
+        cc_router_forwarded_packet_rc(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, src_term_id);
     
 
     if(bf->c4) {
@@ -4842,6 +4885,8 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
 
     cur_entry = s->pending_msgs[output_port][output_chan];
     
+    msg->dfdally_src_terminal_id = cur_entry->msg.dfdally_src_terminal_id;
+
     assert(cur_entry != NULL);
 
     if(s->last_buf_full[output_port]) //5-12-19, same here as above comment
@@ -4965,7 +5010,7 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     tw_event_send(e);
 
     if (g_congestion_control_enabled)
-        cc_router_forwarded_packet(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, msg->dfdally_src_terminal_id);
+        cc_router_forwarded_packet(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, cur_entry->msg.dfdally_src_terminal_id);
     
     cur_entry = return_head(s->pending_msgs[output_port], 
         s->pending_msgs_tail[output_port], output_chan);
@@ -6522,6 +6567,9 @@ struct model_net_method dragonfly_dally_method =
     NULL,//(final_f)dragonfly_dally_sample_fin
     custom_dally_dragonfly_register_model_types,
     custom_dally_dragonfly_get_model_types,
+    (event_f)dragonfly_dally_terminal_congestion_event,
+    (revent_f)dragonfly_dally_terminal_congestion_event_rc,
+    (commit_f)dragonfly_dally_terminal_congestion_event_commit,
 };
 
 struct model_net_method dragonfly_dally_router_method =
@@ -6544,6 +6592,9 @@ struct model_net_method dragonfly_dally_router_method =
     NULL,//(final_f)dragonfly_dally_rsample_fin
     custom_dally_router_register_model_types,
     custom_dally_dfly_router_get_model_types,
+    (event_f)dragonfly_dally_router_congestion_event,
+    (revent_f)dragonfly_dally_router_congestion_event_rc,
+    (commit_f)dragonfly_dally_router_congestion_event_commit,
 };
 
 // #ifdef ENABLE_CORTEX

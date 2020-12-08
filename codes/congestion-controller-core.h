@@ -35,7 +35,7 @@ typedef enum controller_type
 typedef enum cc_event_t
 {
     CC_SIGNAL_NORMAL = 1001,
-    CC_SIGNAL_ABATE
+    CC_SIGNAL_ABATE,
 } cc_event_t;
 
 typedef struct congestion_control_message
@@ -47,6 +47,9 @@ typedef struct congestion_control_message
     // Reverse computation values
     int num_cc_rngs;
 } congestion_control_message;
+
+extern void congestion_control_register_terminal_lpname(char lp_name[]);
+extern void congestion_control_register_router_lpname(char lp_name[]);
 
 extern int congestion_control_set_jobmap(struct codes_jobmap_ctx *jobmap_ctx, int net_id);
 extern int congestion_control_is_jobmap_set();
