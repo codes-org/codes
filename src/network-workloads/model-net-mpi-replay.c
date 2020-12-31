@@ -686,6 +686,16 @@ void handle_other_finish(
             else {
                 printf("App %d: Not notifying background traffic as max_gen_data > 0. Will let synthetic workloads finish",ns->app_id);
             }
+
+            //TODO because we're treating synthetic workloads differently based on whether or not there's max_gen_data set, creating this notification here at this exact spot in logic
+            //will result in LPs receiving a "wrap up" notification potentially before synthetic workloads are done. To fix this, then we need to start treating synthetic workloads
+            //with a max_gen_data set differently, so that they communicate with other workloads when they're done in the same way we do with regular workloads
+            //this notification would then be sent by a single workload LP that knows for a fact that all other workloads have completed.
+            //also this, to be more accurate, should only be sent when all of the workload LPs have received all messages that have been sent so that we know that no packets
+            //are currently in transit. This currently isn't measured for model_net_mpi_replay.
+
+            //send to all non nw-lp LPs (all model net, is there a function taht does this?)
+            model_net_method_end_sim_broadcast(tw_rand_unif(lp->rng), lp);
         }
     }
     else

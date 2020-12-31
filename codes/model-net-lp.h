@@ -102,6 +102,14 @@ void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue,
 // NOTE: this should ONLY be called on model-net implementations, nowhere else
 void * model_net_method_get_edata(int net_id, void * msg);
 
+int model_net_method_end_sim_broadcast(
+    tw_stime offset_ts,
+    tw_lp *sender);
+
+tw_event* model_net_method_end_sim_notification(
+    tw_lpid dest_gid,
+    tw_stime offset_ts,
+    tw_lp *sender);
 
 // Wrapper for congestion controller to request congestion data from destination
 tw_event* model_net_method_congestion_event(tw_lpid dest_gid,
@@ -122,6 +130,9 @@ enum model_net_base_event_type {
     MN_BASE_SAMPLE,
     // message goes directly down to topology-specific event handler
     MN_BASE_PASS,
+    /* message goes directly to topology-specific event handler for ending the simulation
+       usefull if there is an infinite heartbeat pattern */
+    MN_BASE_END_NOTIF,
     // message calls congestion request method on topology specific handler
     MN_CONGESTION_EVENT
 };

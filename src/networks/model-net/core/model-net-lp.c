@@ -590,6 +590,10 @@ void model_net_base_event(
             sub_msg = ((char*)m)+msg_offsets[ns->net_id];
             ns->sub_type->event(ns->sub_state, b, sub_msg, lp);
             break;
+        case MN_BASE_END_NOTIF: ;
+            event_f end_ev = method_array[ns->net_id]->mn_end_notif_fn;
+            end_ev(ns->sub_state, b, m, lp);
+            break;
         case MN_CONGESTION_EVENT: ;
             event_f con_ev = method_array[ns->net_id]->cc_congestion_event_fn;
             assert(g_congestion_control_enabled && con_ev != NULL);
@@ -627,6 +631,10 @@ void model_net_base_event_rc(
         case MN_BASE_PASS: ;
             sub_msg = ((char*)m)+msg_offsets[ns->net_id];
             ns->sub_type->revent(ns->sub_state, b, sub_msg, lp);
+            break;
+        case MN_BASE_END_NOTIF: ;
+            event_f end_ev_rc = method_array[ns->net_id]->mn_end_notif_rc_fn;
+            end_ev_rc(ns->sub_state, b, m, lp);
             break;
         case MN_CONGESTION_EVENT: ;
             revent_f con_ev_rc = method_array[ns->net_id]->cc_congestion_event_rc_fn;
@@ -1005,6 +1013,56 @@ void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue,
 
 void * model_net_method_get_edata(int net_id, void *msg){
     return (char*)msg + sizeof(model_net_wrap_msg) - msg_offsets[net_id];
+}
+
+// This is utilized by a workoad file, when a single workload rank has determined that
+// all of the workload ranks have finished their respective tasks, it uses this method
+// to send a notification to all model net LPs that the workloads have completed.
+// This enables network models to implement features that require a heartbeat message
+// that's repeated ad infinitum. If those ranks aren't notified that the workload
+// ranks are completed, then the simulation will 'never' end. (it will run until g_tw_ts_end is reached)
+// note: network models must explicitly implement and initialize the necessary model-net-method callback
+//return number of random calls utilized by this method
+int model_net_method_end_sim_broadcast(
+    tw_stime offset_ts,
+    tw_lp *sender)
+{
+    int rand_count = 0;
+
+    //get lp names of active model-net LPs
+    //send end sim notification to each LP that match an active model-net lp name
+    for (int cid = 0; cid < lpconf.num_uniq_lptypes; cid++)
+    {
+        const char* lp_name = codes_mapping_get_lp_name_by_cid(cid);
+        for (int n = 0; n < MAX_NETS; n++)
+        {
+            if (strcmp(lp_name, model_net_lp_config_names[n]) == 0)
+            {
+                // printf("ACTIVE TYPE FOUND: %s\n", lp_name);
+                for (int lid = 0; lid < codes_mapping_get_lp_count("MODELNET_GRP", 0, lp_name, NULL, 1); lid++)
+                {
+                    tw_lpid lpgid = codes_mapping_get_lpid_from_relative(lid, NULL, lp_name, NULL, 0);
+                    tw_event* e = model_net_method_end_sim_notification(lpgid, tw_rand_unif(sender->rng)*.001, sender);
+                    rand_count++;
+                    tw_event_send(e);
+                }
+            }
+        }
+    }
+    return rand_count;
+}
+
+// see model_net_method_end_sim_broadcast for details on why this method is useful
+tw_event* model_net_method_end_sim_notification(
+    tw_lpid dest_gid,
+    tw_stime offset_ts,
+    tw_lp *sender)
+{
+    tw_event *e = tw_event_new(dest_gid, offset_ts, sender);
+    model_net_wrap_msg *m_wrap = tw_event_data(e);
+    msg_set_header(model_net_base_magic, MN_BASE_END_NOTIF, sender->gid,
+            &m_wrap->h);
+    return e;
 }
 
 tw_event* model_net_method_congestion_event(tw_lpid dest_gid,

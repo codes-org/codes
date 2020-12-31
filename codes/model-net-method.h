@@ -65,6 +65,8 @@ struct model_net_method
     final_f mn_sample_fini_fn;
     void (*mn_model_stat_register)(st_model_types *base_type);
     const st_model_types* (*mn_get_model_stat_types)();
+    event_f mn_end_notif_fn;
+    revent_f mn_end_notif_rc_fn;
     event_f cc_congestion_event_fn;
     revent_f cc_congestion_event_rc_fn;
     commit_f cc_congestion_event_commit_fn;
