@@ -12,6 +12,7 @@
 #include "codes/configuration.h"
 #include "codes/codes_mapping.h"
 #include "codes/model-net.h"
+#include "codes/model-net-lp.h"
 #include "codes/rc-stack.h"
 #include "codes/quicklist.h"
 #include "codes/quickhash.h"
@@ -353,6 +354,7 @@ struct nw_message
    // forward message handler
    int msg_type;
    int op_type;
+   int num_rngs;
    model_net_event_return event_rc;
    struct codes_workload_op * mpi_op;
 
@@ -641,6 +643,11 @@ void handle_other_finish_rc(
     if(bf->c2)
         notify_background_traffic_rc(ns, lp, bf, m);
 
+    for (int i = 0; i < m->num_rngs; i++)
+    {
+        tw_rand_reverse_unif(lp->rng);
+    }
+
 }
 
 //for nonsynthetic jobs to determine if they have all completed
@@ -695,7 +702,8 @@ void handle_other_finish(
             //are currently in transit. This currently isn't measured for model_net_mpi_replay.
 
             //send to all non nw-lp LPs (all model net, is there a function taht does this?)
-            model_net_method_end_sim_broadcast(tw_rand_unif(lp->rng), lp);
+            int num_rngs = model_net_method_end_sim_broadcast(tw_rand_unif(lp->rng), lp);
+            m->num_rngs += num_rngs;
         }
     }
     else
@@ -3319,6 +3327,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
        model_net_enable_sampling(sampling_interval, sampling_end_time);
 
    codes_mapping_setup();
+   congestion_control_set_jobmap(jobmap_ctx, net_id); //must be placed after codes_mapping_setup - where g_congestion_control_enabled is set
 
    num_mpi_lps = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp", NULL, 0);
    

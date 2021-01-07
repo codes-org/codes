@@ -36,6 +36,8 @@ typedef enum cc_event_t
 {
     CC_SIGNAL_NORMAL = 1001,
     CC_SIGNAL_ABATE,
+    CC_BANDWIDTH_CHECK,
+    CC_SIM_ACK // A 'simulated' ack message sent from receiving terminal to original to let it know that its packet was ejected
 } cc_event_t;
 
 typedef struct congestion_control_message
@@ -45,7 +47,19 @@ typedef struct congestion_control_message
     int app_id;
 
     // Reverse computation values
+    double saved_window;
+    double saved_rate;
+    double saved_bw;
+    unsigned int saved_ejected_bytes;
     int num_cc_rngs;
+    short to_congest;
+    short to_decongest;
+
+    // Dangerous - same LP dynamic RC state -- if this message is to be sent between two LPs, DON'T USE THIS FIELD
+    size_t size_abated;
+    size_t size_deabated;
+    unsigned int* danger_rc_abated;
+    unsigned int* danger_rc_deabated;
 } congestion_control_message;
 
 extern void congestion_control_register_terminal_lpname(char lp_name[]);

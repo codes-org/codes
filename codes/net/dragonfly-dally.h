@@ -84,6 +84,7 @@ struct terminal_dally_message
    int is_pull;
    uint32_t pull_size;
    int path_type;
+   int saved_app_id;
 
    /* for reverse computation */   
    short num_rngs;

@@ -316,7 +316,6 @@ typedef enum event_t
     R_BANDWIDTH,
     R_BW_HALT,
     T_BANDWIDTH,
-    T_SIM_ACK, // A 'simulated' ack message sent from receiving terminal to original to let it know that its packet was ejected
 } event_t;
 
 /* whether the last hop of a packet was global, local or a terminal */
@@ -447,6 +446,8 @@ struct terminal_state
     map<tw_lpid, int> workload_lpid_to_app_id;
     set<int> app_ids;
 
+    int workloads_finished_flag;
+
     int** vc_occupancy; // vc_occupancies [rail_id][qos_level]
     tw_stime* terminal_available_time; // [rail_id]
     terminal_dally_message_list ***terminal_msgs; //[rail_id][qos_level]
@@ -547,6 +548,8 @@ struct router_state
     int *in_send_loop;
     int *queued_count;
     struct rc_stack * st;
+
+    int workloads_finished_flag;
 
     int* vc_max_sizes; //max for vc sizes indexed by port
     int** vc_occupancy;
@@ -2189,6 +2192,27 @@ void dragonfly_dally_report_stats()
     return;
 }
 
+static void dragonfly_dally_terminal_end_sim_notif(terminal_state *s, tw_bf *bf, model_net_wrap_msg *msg, tw_lp *lp)
+{
+    s->workloads_finished_flag = 1;
+}
+
+static void dragonfly_dally_terminal_end_sim_notif_rc(terminal_state *s, tw_bf *bf, model_net_wrap_msg *msg, tw_lp *lp)
+{
+    s->workloads_finished_flag = 0;
+}
+
+
+static void dragonfly_dally_router_end_sim_notif(terminal_state *s, tw_bf *bf, model_net_wrap_msg *msg, tw_lp *lp)
+{
+    s->workloads_finished_flag = 1;
+}
+
+static void dragonfly_dally_router_end_sim_notif_rc(terminal_state *s, tw_bf *bf, model_net_wrap_msg *msg, tw_lp *lp)
+{
+    s->workloads_finished_flag = 0;
+}
+
 static void dragonfly_dally_terminal_congestion_event(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
     cc_terminal_local_congestion_event(s->local_congestion_controller, bf, msg, lp);
@@ -2691,6 +2715,8 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
     s->fwd_events = 0;
     s->rev_events = 0;
 
+    s->workloads_finished_flag = 0;
+
     rc_stack_create(&s->st);
     s->vc_occupancy = (int**)calloc(p->num_rails, sizeof(int*)); //1 vc times the number of qos levels
     s->last_buf_full = (tw_stime*)calloc(p->num_rails, sizeof(tw_stime));
@@ -2756,7 +2782,7 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
 
     if (g_congestion_control_enabled) {
         s->local_congestion_controller = (tlc_state*)calloc(1,sizeof(tlc_state));
-        cc_terminal_local_controller_init(s->local_congestion_controller);
+        cc_terminal_local_controller_init(s->local_congestion_controller, lp, s->terminal_id, &s->workloads_finished_flag);
     }
 
     return;
@@ -2837,6 +2863,8 @@ void router_dally_init(router_state * r, tw_lp * lp)
     r->stalled_chunks = (unsigned long*)calloc(p->radix, sizeof(unsigned long));
     r->total_chunks = (unsigned long*)calloc(p->radix, sizeof(unsigned long));
 
+    r->workloads_finished_flag = 0;
+
     r->vc_occupancy = (int**)calloc(p->radix , sizeof(int*));
     r->in_send_loop = (int*)calloc(p->radix, sizeof(int));
     r->qos_data = (int**)calloc(p->radix, sizeof(int*));
@@ -2910,7 +2938,7 @@ void router_dally_init(router_state * r, tw_lp * lp)
 
     if (g_congestion_control_enabled) {
         r->local_congestion_controller = (rlc_state*)calloc(1,sizeof(rlc_state));
-        cc_router_local_controller_init(r->local_congestion_controller, lp, p->total_terminals, r->router_id, p->radix, p->num_vcs, r->vc_max_sizes);
+        cc_router_local_controller_init(r->local_congestion_controller, lp, p->total_terminals, r->router_id, p->radix, p->num_vcs, r->vc_max_sizes, &r->workloads_finished_flag);
     }
 
     return;
@@ -2958,6 +2986,7 @@ static tw_stime dragonfly_dally_packet_event(
     msg->local_event_size_bytes = 0;
     msg->type = T_GENERATE;
     msg->dest_terminal_lpid = req->dest_mn_lp;
+    msg->dfdally_src_terminal_id = codes_mapping_get_lp_relative_id(msg->sender_mn_lp,0,0);
     msg->dfdally_dest_terminal_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_lpid,0,0);
     msg->message_id = req->msg_id;
     msg->is_pull = req->is_pull;
@@ -2965,6 +2994,7 @@ static tw_stime dragonfly_dally_packet_event(
     msg->magic = terminal_magic_num; 
     msg->msg_start_time = req->msg_start_time;
     msg->rail_id = req->queue_offset;
+    msg->app_id = req->app_id;
 
     if(is_last_pckt) /* Its the last packet so pass in remote and local event information*/
     {
@@ -3699,6 +3729,9 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
 
     for(int i = 0; i < msg->num_cll; i++)
         codes_local_latency_reverse(lp);
+        
+    if (g_congestion_control_enabled)
+        cc_terminal_send_ack_rc(s->local_congestion_controller);
 
     msg->num_rngs = 0;
     msg->num_cll = 0;
@@ -3812,6 +3845,9 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     {
         printf("Terminal received a packet with %d hops! (Notify on > than %d)\n",msg->my_N_hop, s->params->max_hops_notify);
     }
+
+    if (g_congestion_control_enabled)
+        cc_terminal_send_ack(s->local_congestion_controller, msg->src_terminal_id);
 
     // NIC aggregation - should this be a separate function?
     // Trigger an event on receiving server
@@ -4508,6 +4544,7 @@ static void router_packet_receive_rc(router_state * s,
     int output_port = msg->saved_vc;
     int output_chan = msg->saved_channel;
     int src_term_id = msg->dfdally_src_terminal_id;
+    int app_id = msg->saved_app_id;
 
     for(int i = 0 ; i < msg->num_cll; i++)
         codes_local_latency_reverse(lp);
@@ -4540,8 +4577,11 @@ static void router_packet_receive_rc(router_state * s,
     s->queued_count[output_port] -= s->params->chunk_size; 
     }
 
-    if (g_congestion_control_enabled)
-            cc_router_received_packet_rc(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, src_term_id);
+    if (g_congestion_control_enabled) {
+        congestion_control_message *cc_msg_rc = (congestion_control_message*)rc_stack_pop(s->st);
+        cc_router_received_packet_rc(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, src_term_id, app_id, cc_msg_rc);
+        cc_msg_rc_storage_delete(cc_msg_rc);
+    }
 }
 
 /* Packet arrives at the router and a credit is sent back to the sending terminal/router */
@@ -4755,9 +4795,13 @@ static void router_packet_receive( router_state * s,
         }
     }
 
-    if (g_congestion_control_enabled)
-            cc_router_received_packet(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, cur_chunk->msg.dfdally_src_terminal_id);
+    if (g_congestion_control_enabled) {
+            congestion_control_message *cc_msg_rc = cc_msg_rc_storage_create();
+            cc_router_received_packet(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, cur_chunk->msg.dfdally_src_terminal_id, cur_chunk->msg.app_id, cc_msg_rc);
+            rc_stack_push(lp, cc_msg_rc, cc_msg_rc_storage_delete, s->st);
+    }
 
+    msg->saved_app_id = cur_chunk->msg.app_id;
     msg->dfdally_src_terminal_id = cur_chunk->msg.dfdally_src_terminal_id;
     msg->saved_vc = output_port;
     msg->saved_channel = output_chan;
@@ -4770,6 +4814,7 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
    
     int output_port = msg->saved_vc;
     int src_term_id = msg->dfdally_src_terminal_id;
+    int app_id = msg->saved_app_id;
       
     if(msg->qos_reset1)
         s->qos_status[output_port][0] = Q_ACTIVE;
@@ -4839,9 +4884,11 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
     prepend_to_terminal_dally_message_list(s->pending_msgs[output_port],
             s->pending_msgs_tail[output_port], output_chan, cur_entry);
 
-    if (g_congestion_control_enabled)
-        cc_router_forwarded_packet_rc(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, src_term_id);
-    
+    if (g_congestion_control_enabled) {
+        congestion_control_message *cc_msg_rc = (congestion_control_message*)rc_stack_pop(s->st);
+        cc_router_forwarded_packet_rc(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, src_term_id, app_id, cc_msg_rc);
+        cc_msg_rc_storage_delete(cc_msg_rc);
+    }
 
     if(bf->c4) {
         s->in_send_loop[output_port] = 1;
@@ -5009,9 +5056,13 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     }
     tw_event_send(e);
 
-    if (g_congestion_control_enabled)
-        cc_router_forwarded_packet(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, cur_entry->msg.dfdally_src_terminal_id);
-    
+    msg->saved_app_id = cur_entry->msg.app_id;
+    if (g_congestion_control_enabled) {
+        congestion_control_message *cc_msg_rc = cc_msg_rc_storage_create();
+        cc_router_forwarded_packet(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, cur_entry->msg.dfdally_src_terminal_id, cur_entry->msg.app_id, cc_msg_rc);
+        rc_stack_push(lp, cc_msg_rc, cc_msg_rc_storage_delete, s->st);
+    }
+
     cur_entry = return_head(s->pending_msgs[output_port], 
         s->pending_msgs_tail[output_port], output_chan);
     rc_stack_push(lp, cur_entry, delete_terminal_dally_message_list, s->st);
@@ -5176,7 +5227,6 @@ terminal_dally_event( terminal_state * s,
         case T_BANDWIDTH:
             issue_bw_monitor_event(s, bf, msg, lp);
         break;
-        
         default:
             printf("\n LP %d Terminal message type not supported %d ", (int)lp->gid, msg->type);
             tw_error(TW_LOC, "Msg type not supported");
@@ -6567,6 +6617,8 @@ struct model_net_method dragonfly_dally_method =
     NULL,//(final_f)dragonfly_dally_sample_fin
     custom_dally_dragonfly_register_model_types,
     custom_dally_dragonfly_get_model_types,
+    (event_f)dragonfly_dally_terminal_end_sim_notif,
+    (revent_f)dragonfly_dally_terminal_end_sim_notif_rc,
     (event_f)dragonfly_dally_terminal_congestion_event,
     (revent_f)dragonfly_dally_terminal_congestion_event_rc,
     (commit_f)dragonfly_dally_terminal_congestion_event_commit,
@@ -6592,6 +6644,8 @@ struct model_net_method dragonfly_dally_router_method =
     NULL,//(final_f)dragonfly_dally_rsample_fin
     custom_dally_router_register_model_types,
     custom_dally_dfly_router_get_model_types,
+    (event_f)dragonfly_dally_router_end_sim_notif,
+    (revent_f)dragonfly_dally_router_end_sim_notif_rc,
     (event_f)dragonfly_dally_router_congestion_event,
     (revent_f)dragonfly_dally_router_congestion_event_rc,
     (commit_f)dragonfly_dally_router_congestion_event_commit,
