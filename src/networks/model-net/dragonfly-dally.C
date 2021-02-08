@@ -48,6 +48,7 @@
 #define TRACK_PKT -1
 #define TRACK_MSG -1
 #define DEBUG 0
+#define DEBUG_QOS 0
 #define MAX_STATS 65536
 #define SHOW_ADAP_STATS 1
 // maximum number of characters allowed to represent the routing algorithm as a string
@@ -1996,7 +1997,7 @@ void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_dally_messa
             #if DEBUG_QOS == 1 
             if(dragonfly_rtr_bw_log != NULL)
             {
-                if(s->qos_data[j][k] > 0)
+                if(s->qos_data[i][j] > 0)
                 {
                     fprintf(dragonfly_rtr_bw_log, "\n %d %f %d %d %d %d %d %f", s->router_id, tw_now(lp), i, j, bw_consumed, s->qos_status[i][j], s->qos_data[i][j], s->busy_time_sample[i]);
                 }
