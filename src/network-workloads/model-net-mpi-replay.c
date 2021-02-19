@@ -21,7 +21,7 @@
 #define MN_LP_NM "modelnet_dragonfly_custom"
 #define CONTROL_MSG_SZ 64
 #define TRACE -1
-#define MAX_WAIT_REQS 1024
+#define MAX_WAIT_REQS 2048
 #define CS_LP_DBG 1
 #define RANK_HASH_TABLE_SZ 2000
 #define NW_LP_NM "nw-lp"
@@ -30,8 +30,8 @@
 #define MAX_STATS 65536
 #define COL_TAG 1235
 #define BAR_TAG 1234
-#define PRINT_SYNTH_TRAFFIC 1
-#define MAX_JOBS 5
+#define PRINT_SYNTH_TRAFFIC 0
+#define MAX_JOBS 64
 
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
@@ -81,13 +81,24 @@ static int do_lp_io = 0;
 
 /* variables for loading multiple applications */
 char workloads_conf_file[8192];
+char workloads_timer_file[8192];
+char workloads_period_file[8192];
 char alloc_file[8192];
 int num_traces_of_job[MAX_JOBS];
 int is_job_synthetic[MAX_JOBS]; //0 if job is not synthetic 1 if job is
+int qos_level_of_job[MAX_JOBS];
+float mean_interval_of_job[MAX_JOBS];
+long job_timer1[MAX_JOBS];
+long job_timer2[MAX_JOBS];
+int period_count[MAX_JOBS];
+long period_time[MAX_JOBS][64];
+float period_interval[MAX_JOBS][64];
+char file_name_of_job[MAX_JOBS][8192];
+
+/* On-node delay variables */
 tw_stime soft_delay_mpi = 2500;
 tw_stime nic_delay = 1000;
 tw_stime copy_per_byte_eager = 0.55;
-char file_name_of_job[MAX_JOBS][8192];
 
 struct codes_jobmap_ctx *jobmap_ctx;
 struct codes_jobmap_params_list jobmap_p;
@@ -163,6 +174,7 @@ enum MPI_NW_EVENTS
     CLI_BCKGND_FIN,
     CLI_BCKGND_ARRIVE,
     CLI_BCKGND_GEN,
+    CLI_BCKGND_CHANGE,
     CLI_NBR_FINISH,
     CLI_OTHER_FINISH //received when another workload has finished
 };
@@ -174,7 +186,8 @@ enum TRAFFIC
     NEAREST_NEIGHBOR = 2, /* sends message to the next node (potentially connected to the same router) */
     ALLTOALL = 3, /* sends message to all other nodes */
     STENCIL = 4, /* sends message to 4 nearby neighbors */
-    PERMUTATION = 5
+    PERMUTATION = 5,
+    BISECTION = 6
 };
 struct mpi_workload_sample
 {
@@ -259,6 +272,7 @@ struct nw_state
 	short wrkld_end;
     int app_id;
     int local_rank;
+    int qos_level;
 
     int synthetic_pattern;
     int is_finished;
@@ -920,6 +934,13 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
             dest_svr[0] = (s->local_rank + 1) % num_clients;
         }
         break;
+        case BISECTION:
+        {
+            length = 1;
+            dest_svr = (int*) calloc(1, sizeof(int));
+            dest_svr[0] = (s->local_rank + (num_clients/2)) % num_clients;
+        }
+        break;
         case ALLTOALL:
         {
             dest_svr = (int*) calloc(num_clients-1, sizeof(int));
@@ -963,6 +984,31 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
     /* Record length for reverse handler*/
     m->rc.saved_syn_length = length;
 
+    char prio[12];
+	switch(s->qos_level){
+		case 0:
+			strcpy(prio, "high"); break;
+		case 1:
+			strcpy(prio, "medium"); break;
+		case 2:
+			strcpy(prio, "low"); break;
+		case 3:
+			strcpy(prio, "class3"); break;
+		case 4:
+			strcpy(prio, "class4"); break;
+		case 5:
+			strcpy(prio, "class5"); break;
+		default:
+			tw_error(TW_LOC, "\n Invalid QoS level: %d", s->qos_level);
+			break;
+	}
+	
+	// TODO: Check if I can combine these two if statements. -Kevin
+	if(tw_now(lp) < job_timer2[s->app_id] && job_timer1[s->app_id] > 0){
+		if(tw_now(lp) > job_timer1[s->app_id]){
+			length = 0;
+		}
+	}
     if(length > 0)
     {
         // m->event_array_rc = (model_net_event_return) malloc(length * sizeof(model_net_event_return));
@@ -982,7 +1028,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
             remote_m.fwd.src_rank = s->local_rank;
 
             // printf("\nAPP %d SRC %d Dest %d (twid %llu)", jid.job, s->local_rank, dest_svr[i], global_dest_id);
-            m->event_rc = model_net_event(net_id, "medium", global_dest_id, payload_sz, 0.0, 
+            m->event_rc = model_net_event(net_id, prio, global_dest_id, payload_sz, 0.0,
                     sizeof(nw_message), (const void*)&remote_m, 
                     0, NULL, lp);
             
@@ -996,7 +1042,8 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
     s->ross_sample.num_sends++;
 
     /* New event after MEAN_INTERVAL */  
-    tw_stime ts = mean_interval  + tw_rand_exponential(lp->rng, noise); 
+    //tw_stime ts = mean_interval  + tw_rand_exponential(lp->rng, noise); 
+    tw_stime ts = mean_interval_of_job[s->app_id] + tw_rand_exponential(lp->rng, noise);
     tw_event * e;
     nw_message * m_new;
     e = tw_event_new(lp->gid, ts, lp);
@@ -1795,13 +1842,37 @@ static void codes_exec_mpi_send(nw_state* s,
     bf->c1 = 0;
     bf->c4 = 0;
    
+    /* Class names in the CODES dragonfly-dally (as at 2020/09/21 - KB):
+     * 	"high"		<- highest priority
+     * 	"medium"
+     * 	"low"
+     * 	"class3"
+     * 	"class4"
+     * 	"class5"
+     *
+     * The name of the first three classes are kept for backwards compatibility. TODO: Rename classes
+     */
     char prio[12];
+	switch(s->qos_level){
+		case 0:
+			strcpy(prio, "high"); break;
+		case 1:
+			strcpy(prio, "medium"); break;
+		case 2:
+			strcpy(prio, "low"); break;
+		case 3:
+			strcpy(prio, "class3"); break;
+		case 4:
+			strcpy(prio, "class4"); break;
+		case 5:
+			strcpy(prio, "class5"); break;
+		default:
+			tw_error(TW_LOC, "\n Invalid QoS level: %d", s->qos_level);
+			break;
+	}
+
     if(priority_type == 0)
     {
-        if(s->app_id == 0) 
-          strcpy(prio, "high");
-        else
-          strcpy(prio, "medium");
     }
     else if(priority_type == 1)
     {
@@ -1809,11 +1880,9 @@ static void codes_exec_mpi_send(nw_state* s,
         {
             strcpy(prio, "high");
         }
-        else
-            strcpy(prio, "medium");
     }
     else
-        tw_error(TW_LOC, "\n Invalid priority type %d", priority_type);
+        tw_error(TW_LOC, "\n Invalid priority type: %d", priority_type);
 
     int is_eager = 0;
 	/* model-net event */
@@ -2055,13 +2124,28 @@ static void send_ack_back(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp, m
     remote_m.fwd.req_id = mpi_op->req_id;  
     remote_m.fwd.matched_req = matched_req;
 
+    // TODO: If we want ack messages to be in the low-latency class, change this function. -Kevin Brown 2021.02.18
     char prio[12];
+	switch(s->qos_level){
+		case 0:
+			strcpy(prio, "high"); break;
+		case 1:
+			strcpy(prio, "medium"); break;
+		case 2:
+			strcpy(prio, "low"); break;
+		case 3:
+			strcpy(prio, "class3"); break;
+		case 4:
+			strcpy(prio, "class4"); break;
+		case 5:
+			strcpy(prio, "class5"); break;
+		default:
+			tw_error(TW_LOC, "\n Invalid QoS level: %d", s->qos_level);
+			break;
+	}
+
     if(priority_type == 0)
     {
-        if(s->app_id == 0) 
-          strcpy(prio, "high");
-        else if(s->app_id == 1)
-          strcpy(prio, "medium");
     }
     else if(priority_type == 1)
     {
@@ -2069,11 +2153,9 @@ static void send_ack_back(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp, m
         {
             strcpy(prio, "high");
         }
-        else
-            strcpy(prio, "medium");
     }
     else
-       tw_error(TW_LOC, "\n Invalid app id");
+        tw_error(TW_LOC, "\n Invalid priority type: %d", priority_type);
     
     m->event_rc = model_net_event_mctx(net_id, &mapping_context, &mapping_context,
         prio, dest_rank, CONTROL_MSG_SZ, (self_overhead + soft_delay_mpi + nic_delay),
@@ -2247,6 +2329,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->all_reduce_time = 0;
    s->prev_switch = 0;
    s->max_time = 0;
+   s->qos_level = -1;
 
    char type_name[512];
 
@@ -2311,7 +2394,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        else if(strlen(workloads_conf_file) > 0)
        {
             strcpy(oc_params.workload_name, file_name_of_job[lid.job]);
-       
+	    s->qos_level = qos_level_of_job[lid.job];
        }
 
        //assert(strcmp(oc_params.workload_name, "lammps") == 0 || strcmp(oc_params.workload_name, "nekbone") == 0);
@@ -2365,7 +2448,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    if(strncmp(file_name_of_job[lid.job], "synthetic", 9) == 0)
    {
         sscanf(file_name_of_job[lid.job], "synthetic%d", &synthetic_pattern);
-        if(synthetic_pattern <=0 || synthetic_pattern > 5)
+        if(synthetic_pattern <=0 || synthetic_pattern > 6)
         {
             printf("\n Undefined synthetic pattern: setting to uniform random ");
             s->synthetic_pattern = 1;
@@ -2374,6 +2457,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
         {
             s->synthetic_pattern = synthetic_pattern;
         }
+	s->qos_level = qos_level_of_job[lid.job];
 
         tw_event * e;
         nw_message * m_new;
@@ -2383,6 +2467,20 @@ void nw_test_init(nw_state* s, tw_lp* lp)
         m_new->msg_type = CLI_BCKGND_GEN;
         tw_event_send(e);
         is_synthetic = 1;
+
+	if(lid.rank == 0){
+		for(int k = 0; k < period_count[lid.job]; k++){
+			tw_event * e2;
+			nw_message * m_new2;
+			tw_stime ts2 = period_time[lid.job][k];
+			e2 = tw_event_new(lp->gid, ts2, lp);
+			m_new2 = (nw_message*)tw_event_data(e2);
+			m_new2->msg_type = CLI_BCKGND_CHANGE;
+			m_new2->fwd.msg_send_time = period_interval[lid.job][k];
+			m_new2->rc.saved_send_time = mean_interval_of_job[s->app_id];
+			tw_event_send(e2);
+		}
+	}
 
    }
    else 
@@ -2517,6 +2615,11 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
             gen_synthetic_tr(s, bf, m, lp);
         break;
 
+        case CLI_BCKGND_CHANGE:
+		mean_interval_of_job[s->app_id] = m->fwd.msg_send_time;
+		printf("======== CHANGE [now: %lf] App:%d | Interval: %f\n", tw_now(lp), s->app_id, mean_interval_of_job[s->app_id]);
+	break;
+
         case CLI_BCKGND_ARRIVE:
             arrive_syn_tr(s, bf, m, lp);
             break;
@@ -2633,13 +2736,10 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
             codes_exec_mpi_wait_all_rc(s, bf, m, lp);
 		}
 		break;
-
-		case CODES_WK_MARK:
-		{
-			printf("\n MARK_%d REVERSE node %llu job %d rank %d ", m->mpi_op->u.send.tag, LLU(s->nw_id), s->app_id, s->local_rank);
-			codes_issue_next_event_rc(lp);
-		}
+	case CODES_WK_MARK:
+		codes_issue_next_event_rc(lp);
 		break;
+
 		default:
 			printf("\n Invalid op type %d ", m->op_type);
 	}
@@ -2655,7 +2755,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
         codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, mpi_op);
         m->mpi_op = mpi_op; 
         m->op_type = mpi_op->op_type;
-
+	
         if(mpi_op->op_type == CODES_WK_END)
         {
             s->elapsed_time = tw_now(lp) - s->start_time;
@@ -2678,7 +2778,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
                 return;
              }
 
-            if(num_qos_levels == 1) //notify neighbor isn't really compatible with QoS, so notify_neighbor is only called if num_qos_levels == 1 (QoS off)
+            //if(num_qos_levels == 1) //notify neighbor isn't really compatible with QoS, so notify_neighbor is only called if num_qos_levels == 1 (QoS off)
                 notify_neighbor(s, lp, bf, m);
 //             printf("Client rank %llu completed workload, local rank %d .\n", s->nw_id, s->local_rank);
 
@@ -2747,7 +2847,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
                 {
                     bf->c27 = 1;
                     m->rc.saved_delay = s->all_reduce_time;
-                    s->all_reduce_time += (tw_now(lp) - s->col_time);
+                    s->all_reduce_time += tw_now(lp) - s->col_time;
                     m->rc.saved_send_time = s->col_time;
                     s->col_time = 0;
                     s->num_all_reduce++;
@@ -2772,12 +2872,14 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			    codes_issue_next_event(lp);
             }
 			break;
+
 		case CODES_WK_MARK:
 			{
 				printf("\n MARK_%d node %llu job %d rank %d time %lf ", mpi_op->u.send.tag, LLU(s->nw_id), s->app_id, s->local_rank, tw_now(lp));
 				codes_issue_next_event(lp);
 			}
 			break;
+
 
 			default:
 				printf("\n Invalid op type %d ", mpi_op->op_type);
@@ -2954,6 +3056,10 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
             gen_synthetic_tr_rc(s, bf, m, lp);
             break;
 
+        case CLI_BCKGND_CHANGE:
+	    mean_interval_of_job[s->app_id] = m->rc.saved_send_time;
+	    break;
+
         case CLI_BCKGND_ARRIVE:
             arrive_syn_tr_rc(s, bf, m, lp);
             break;
@@ -2980,6 +3086,8 @@ const tw_optdef app_opt [] =
 	TWOPT_CHAR("workload_file", workload_file, "workload file name"),
 	TWOPT_CHAR("alloc_file", alloc_file, "allocation file name"),
 	TWOPT_CHAR("workload_conf_file", workloads_conf_file, "workload config file name"),
+	TWOPT_CHAR("workload_timer_file", workloads_timer_file, "workload timer file name (for starting/pausing/stopping synthetic traffic)"),
+	TWOPT_CHAR("workload_period_file", workloads_period_file, "workload periods file name (for changing the per-job synthetic traffic load at specified periods/times)"),
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
 	TWOPT_UINT("priority_type", priority_type, "Priority type (zero): high priority to foreground traffic and low to background/2nd job, (one): high priority to collective operations "),
 	TWOPT_UINT("payload_sz", payload_sz, "size of payload for synthetic traffic "),
@@ -3153,6 +3261,8 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 		printf("Usage: mpirun -np n ./modelnet-mpi-replay --sync=1/3"
                 " --workload_type=dumpi/online"
 		" --workload_conf_file=prefix-workload-file-name"
+		" --workload_timer_file=timer-file"
+		" --workload_period_file=period-file"
                 " --alloc_file=alloc-file-name"
 #ifdef ENABLE_CORTEX_PYTHON
 		" --cortex-file=cortex-file-name"
@@ -3183,7 +3293,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
         char ref = '\n';
         while(!feof(name_file))
         {
-            ref = fscanf(name_file, "%d %s", &num_traces_of_job[i], file_name_of_job[i]);
+            ref = fscanf(name_file, "%d %s %d %f", &num_traces_of_job[i], file_name_of_job[i], &qos_level_of_job[i], &mean_interval_of_job[i]);
             
             if(ref != EOF && strncmp(file_name_of_job[i], "synthetic", 9) == 0)
             {
@@ -3191,11 +3301,15 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
               num_net_traces += num_traces_of_job[i];
               is_job_synthetic[i] = 1;
               is_synthetic = 1;
+	      // Make sure BISECTION job has even number of clients
+	      if (strcmp(file_name_of_job[i], "synthetic6") == 0 && num_traces_of_job[i] % 2 != 0)
+		tw_error(TW_LOC, "BISECTION requires and even number of nodes.");
+
             }
             else if(ref!=EOF)
             {
                 if(enable_debug)
-                    printf("\n%d traces of app %s \n", num_traces_of_job[i], file_name_of_job[i]);
+                    printf("\n%d traces of app %s (default qos class: %d)\n", num_traces_of_job[i], file_name_of_job[i], qos_level_of_job[i]);
 
                 num_net_traces += num_traces_of_job[i];
                 num_dumpi_traces += num_traces_of_job[i];
@@ -3210,6 +3324,44 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
         alloc_spec = 1;
         jobmap_p.alloc_file = alloc_file;
         jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_LIST, &jobmap_p);
+	
+
+	if(strlen(workloads_timer_file) > 0){
+		FILE *timer_file = fopen(workloads_timer_file, "r");
+		if(!timer_file)
+		    tw_error(TW_LOC, "\n Could not open file %s ", workloads_timer_file);
+		
+		int i = 0;
+		char ref = '\n';
+		while(!feof(timer_file))
+		{
+		    ref = fscanf(timer_file, "%ld %ld", &job_timer1[i], &job_timer2[i]);
+			i++;
+		}
+		fclose(timer_file);
+	}
+
+	if(strlen(workloads_period_file) > 0){
+		FILE *period_file = fopen(workloads_period_file, "r");
+		if(!period_file)
+		    tw_error(TW_LOC, "\n Could not open file %s ", workloads_period_file);
+		
+		int i = 0;
+		char ref = '\n';
+		while(!feof(period_file))
+		{
+		    ref = fscanf(period_file, "%d", &period_count[i]);
+		    if(ref != EOF){
+			    printf("======== [ID: %d] Period count: %d\n", i, period_count[i]);
+			    for(int k = 0; k < period_count[i]; k++){
+				fscanf(period_file, "%ld:%f", &period_time[i][k], &period_interval[i][k]);
+				printf("======== [ID: %d] Period time and interval: %ld and %f\n", i, period_time[i][k], period_interval[i][k]);
+			    }
+		    }
+		    i++;
+		}
+		fclose(period_file);
+	}
     }
     else
     {
