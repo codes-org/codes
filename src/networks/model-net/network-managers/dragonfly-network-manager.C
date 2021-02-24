@@ -1,6 +1,4 @@
-#include "codes/network-manager.h"
-#include <algorithm>
-#include <unordered_set>
+#include "codes/network-manager/dragonfly-network-manager.h"
 
 #define ENABLE_SHORT_PATH_CALC 1
 #define MAX_PATH_VAL 999
@@ -14,32 +12,38 @@ void add_as_if_set_int(int value, vector<int>& vec)
         vec.push_back(value);
 }
 
-//*******************    Network Manager Implementation **********************************************
-NetworkManager::NetworkManager()
+int isNotVisited(int x, vector<int>& path) 
+{ 
+    int size = path.size(); 
+    for (int i = 0; i < size; i++)  
+        if (path[i] == x)  
+            return 0;  
+    return 1; 
+} 
+
+DragonflyNetworkManager::DragonflyNetworkManager()
 {
     _total_routers = 0;
     _num_routers_per_group = 0;
-    _num_groups = 0;
+    _total_groups = 0;
     _num_lc_pr = 0;
     _num_gc_pr = 0;
     _num_cn_pr = 0;
     _is_solidified = false;
 }
 
-
-NetworkManager::NetworkManager(int total_routers, int total_terminals, int num_routers_per_group, int num_lc_per_router, int num_gc_per_router, int num_cn_conns_per_router, int num_rails, int num_planes, int max_local_hops, int max_global_hops)
+DragonflyNetworkManager::DragonflyNetworkManager(int total_routers, int total_terminals, int num_routers_per_group, int num_lc_per_router, int num_gc_per_router, int num_cn_conns_per_router, int num_rails, int num_planes, int max_local_hops, int max_global_hops)
 {
     _total_routers = total_routers;
     _total_terminals = total_terminals;
     _total_groups = total_routers / num_routers_per_group;
     _num_rails = num_rails;
-    _num_planes = num_planes;
+    _total_planes = num_planes;
     _num_routers_per_group = num_routers_per_group;
-    _num_groups = _total_groups / num_planes;
+    _num_groups_per_plane = _total_groups / num_planes;
     _num_lc_pr = num_lc_per_router;
     _num_gc_pr = num_gc_per_router;
     _num_cn_pr = num_cn_conns_per_router;
-    // _num_unique_term_pr = num_cn_conns_per_router / num_rails;
 
     _max_local_hops_per_group = max_local_hops;
     _max_global_hops = max_global_hops;
@@ -50,9 +54,7 @@ NetworkManager::NetworkManager(int total_routers, int total_terminals, int num_r
     _num_failed_router_conns = 0;
     _num_failed_router_terminal_conns = 0;
 
-    // _num_router_router_conns_created = 0;
-    // _num_router_terminal_conns_created = 0;
-    
+
     if (total_routers % num_routers_per_group != 0)
         tw_error(TW_LOC, "NetworkManager: total routers \% num routers per group is not evenly divisible, non-uniform groups\n");
 
@@ -63,7 +65,7 @@ NetworkManager::NetworkManager(int total_routers, int total_terminals, int num_r
         int src_id_local = i % _num_routers_per_group;
         int src_group = i / _num_routers_per_group;
 
-        ConnectionManager conn_man = ConnectionManager(src_id_local, src_id_global, src_group, _num_lc_pr, _num_gc_pr, _num_cn_pr, 0, _num_routers_per_group, _num_groups, _num_planes, MAN_ROUTER);
+        DragonflyConnectionManager conn_man = DragonflyConnectionManager(src_id_local, src_id_global, src_group, _num_lc_pr, _num_gc_pr, _num_cn_pr, 0, _num_routers_per_group, _num_groups_per_plane, _total_planes, MAN_ROUTER);
         _connection_manager_list.push_back(conn_man);
     }
 
@@ -73,34 +75,15 @@ NetworkManager::NetworkManager(int total_routers, int total_terminals, int num_r
         int src_id_local = src_id_global % num_cn_conns_per_router;
         int src_group = -1;
 
-        ConnectionManager conn_man = ConnectionManager(src_id_local, src_id_global, src_group, 0, 0, 0, num_rails, _num_routers_per_group, _num_groups, _num_planes, MAN_TERMINAL);
+        DragonflyConnectionManager conn_man = DragonflyConnectionManager(src_id_local, src_id_global, src_group, 0, 0, 0, num_rails, _num_routers_per_group, _num_groups_per_plane, _total_planes, MAN_TERMINAL);
         _terminal_connection_manager_list.push_back(conn_man);
     }
 
     _is_solidified = false;
 }
 
-void NetworkManager::enable_link_failures()
-{
-    _link_failures_enabled = true;
-}
 
-bool NetworkManager::is_link_failures_enabled()
-{
-    return _link_failures_enabled;
-}
-
-ConnectionManager& NetworkManager::get_connection_manager_for_router(int router_gid)
-{
-    return _connection_manager_list[router_gid];
-}
-
-ConnectionManager& NetworkManager::get_connection_manager_for_terminal(int terminal_gid)
-{
-    return _terminal_connection_manager_list[terminal_gid];
-}
-
-void NetworkManager::add_link(Link_Info link)
+void DragonflyNetworkManager::add_link(Link_Info link)
 {
     Connection *conn = (Connection*)malloc(sizeof(Connection));
     conn->port = -1; //will be set by the Connection Manager of the router (src_gid) and defined in add_cons_to_connectoin_managers
@@ -117,6 +100,15 @@ void NetworkManager::add_link(Link_Info link)
     if (link.conn_type != CONN_TERMINAL)
     {
         _num_router_conns++;
+
+        vector<Connection*> existing_conns_from_src =  _router_connections_map[link.src_gid];
+        int num_conns = 0;
+        for(int i = 0; i < existing_conns_from_src.size(); i++)
+        {
+            if (existing_conns_from_src[i]->dest_gid == conn->dest_gid)
+                num_conns++;
+        }
+        conn->link_id = num_conns;
 
         //put the conn into its owning structure
         _router_connections_map[link.src_gid].push_back(conn);
@@ -140,6 +132,15 @@ void NetworkManager::add_link(Link_Info link)
     {
         _num_router_terminal_conns++;
 
+        vector<Connection*> existing_conns_from_src = _router_terminal_connections_map[link.src_gid];
+        int num_conns = 0;
+        for(int i = 0; i < existing_conns_from_src.size(); i++)
+        {
+            if (existing_conns_from_src[i]->dest_gid == conn->dest_gid)
+                num_conns++;
+        }
+        conn->link_id = num_conns;
+
         conn->dest_group_id = conn->src_group_id;
         conn->dest_lid = conn->dest_gid % _num_cn_pr;
         //put conn into owning structure
@@ -149,6 +150,7 @@ void NetworkManager::add_link(Link_Info link)
         _router_to_terminal_connection_map[make_pair(conn->src_gid,conn->dest_gid)].push_back(conn);
         _router_ids_with_terminals.insert(conn->src_gid);
 
+        _num_terminal_router_conns++;
         //Terminals don't have their own interconnection mapping file that has both links so we need to create a
         //new connection for the terminal connection manager too that goes from the terminal to the router.
         Connection *term_conn = (Connection*)malloc(sizeof(Connection));
@@ -168,94 +170,8 @@ void NetworkManager::add_link(Link_Info link)
     }
 }
 
-void NetworkManager::add_link_failure_info(Link_Info link)
-{
-    if(_link_failures_enabled == false)
-        tw_error(TW_LOC,"Network Manager: attempting to add link failure info but link failure has not been enabled via NetworkManager.allow_link_failures()\n");
 
-    if (link.conn_type != CONN_TERMINAL)
-    {
-        _router_link_failure_lists[link.src_gid].push_back(link);
-        _num_failed_router_conns++;
-    }
-    else
-    {
-        _router_terminal_link_failure_lists[link.src_gid].push_back(link);
-        _num_failed_router_terminal_conns++;
-    }
-}
-
-
-void NetworkManager::fail_connection(Link_Info link)
-{
-    if(_link_failures_enabled == false)
-        tw_error(TW_LOC,"Network Manager: attempting to fail link but link failure has not been enabled via NetworkManager.allow_link_failures()\n");
-
-    if (link.conn_type != CONN_TERMINAL)
-    {
-        vector<Connection*> conns_to_gid = _router_to_router_connection_map[make_pair(link.src_gid,link.dest_gid)];
-        int num_failed_already = get_failed_count_from_vector(conns_to_gid);
-        if (num_failed_already == conns_to_gid.size())
-            tw_error(TW_LOC, "Attempting to fail more links from Router GID %d to Router GID %d than exist; Link Type %d; Already Failed %d\n", link.src_gid, link.dest_gid, link.conn_type, num_failed_already);
-
-        vector<Connection*>:: iterator it = _router_to_router_connection_map[make_pair(link.src_gid,link.dest_gid)].begin();
-        for(; it != _router_to_router_connection_map[make_pair(link.src_gid,link.dest_gid)].end(); it++)
-        {
-            if(!(*it)->is_failed)
-            {
-                (*it)->is_failed = 1;
-                break;
-            }
-        }
-    }
-    else
-    {
-        vector<Connection*> conns_to_term_gid = _router_to_terminal_connection_map[make_pair(link.src_gid,link.dest_gid)];
-        int num_failed_already = get_failed_count_from_vector(conns_to_term_gid);
-        if (num_failed_already == conns_to_term_gid.size())
-            tw_error(TW_LOC, "Attempting to fail more links from Router GID %d to Terminal GID %d than exist. Already Failed %d\n", link.src_gid, link.dest_gid, num_failed_already);
-
-        int failed_rail = 0;
-        vector<Connection*>:: iterator it = _router_to_terminal_connection_map[make_pair(link.src_gid,link.dest_gid)].begin();
-        for(; it != _router_to_terminal_connection_map[make_pair(link.src_gid,link.dest_gid)].end(); it++)
-        {
-            if(!(*it)->is_failed)
-            {
-                (*it)->is_failed = 1;
-                failed_rail = (*it)->rail_or_planar_id;
-                break;
-            }
-        }
-
-        //we also need to fail the corresponding injection link
-        int router_id = link.src_gid;
-        int term_id = link.dest_gid;
-        
-        it =_terminal_to_router_connection_map[make_pair(term_id,router_id)].begin();
-        for(; it != _terminal_to_router_connection_map[make_pair(term_id,router_id)].end(); it++)
-        {
-            if((*it)->rail_or_planar_id == failed_rail)
-            {
-                (*it)->is_failed = 1;
-                break;
-            }
-        }
-    }
-}
-
-int NetworkManager::get_failed_count_from_vector(vector<Connection*> conns)
-{
-    int count = 0;
-    vector<Connection*>::iterator it = conns.begin();
-    for(; it != conns.end(); it++)
-    {
-        if ((*it)->is_failed)
-            count++;
-    }
-    return count;
-}
-
-void NetworkManager::calculate_floyd_warshall_shortest_paths()
+void DragonflyNetworkManager::calculate_floyd_warshall_shortest_paths()
 {
     if(!g_tw_mynode)
         printf("\nNetwork Manager: Performing Shortest Path Calculations...\n");
@@ -283,7 +199,7 @@ void NetworkManager::calculate_floyd_warshall_shortest_paths()
     {
         for(int j = 0; j <_total_routers; j++)
         {
-            int plane_id = j / (_total_routers / _num_planes);
+            int plane_id = j / (_total_routers / _total_planes);
             int src_gid = i;
             int dest_gid = j;
             int is_adj = adjacency_matrix_nofail[plane_id][i][j];
@@ -318,8 +234,8 @@ void NetworkManager::calculate_floyd_warshall_shortest_paths()
         _shortest_path_nexts[make_pair(i,i)].push_back(i);
     }
 
-    int rpp = _total_routers / _num_planes;
-    for(int p = 0; p < _num_planes; p++) //we don't need to attempt to calculate distances between planes
+    int rpp = _total_routers / _total_planes;
+    for(int p = 0; p < _total_planes; p++) //we don't need to attempt to calculate distances between planes
     {
         for(int k = p*rpp; k < rpp + p*rpp; k++)
         {
@@ -365,12 +281,12 @@ void NetworkManager::calculate_floyd_warshall_shortest_paths()
     free(costMat);
 }
 
-int NetworkManager::get_shortest_dist_between_routers(int src_gid, int dest_gid)
+int DragonflyNetworkManager::get_shortest_dist_between_routers(int src_gid, int dest_gid)
 {
     return _shortest_path_vals[src_gid][dest_gid];
 }
 
-vector<int> NetworkManager::get_shortest_nexts(int src_gid, int dest_gid)
+vector<int> DragonflyNetworkManager::get_shortest_nexts(int src_gid, int dest_gid)
 {
     if(_shortest_path_nexts[make_pair(src_gid,dest_gid)][0] == dest_gid)
     {
@@ -383,19 +299,127 @@ vector<int> NetworkManager::get_shortest_nexts(int src_gid, int dest_gid)
     }
 }
 
-int isNotVisited(int x, vector<int>& path) 
-{ 
-    int size = path.size(); 
-    for (int i = 0; i < size; i++)  
-        if (path[i] == x)  
-            return 0;  
-    return 1; 
-} 
+void DragonflyNetworkManager::enable_link_failures()
+{
+    _link_failures_enabled = true;
+}
 
-set<Connection> NetworkManager::get_valid_next_hops_conns(int src_gid, int dest_gid, int max_local, int exact_global)
+bool DragonflyNetworkManager::is_link_failures_enabled()
+{
+    return _link_failures_enabled;
+}
+
+DragonflyConnectionManager& DragonflyNetworkManager::get_connection_manager_for_router(int router_gid)
+{
+    return _connection_manager_list[router_gid];
+}
+
+DragonflyConnectionManager& DragonflyNetworkManager::get_connection_manager_for_terminal(int terminal_gid)
+{
+    return _terminal_connection_manager_list[terminal_gid];
+}
+
+int DragonflyNetworkManager::get_max_local_hops()
+{
+    return _max_local_hops_per_group;
+}
+
+int DragonflyNetworkManager::get_max_global_hops()
+{
+    return _max_global_hops;
+}
+
+void DragonflyNetworkManager::add_link_failure_info(Link_Info link)
+{
+    if(_link_failures_enabled == false)
+        tw_error(TW_LOC,"Network Manager: attempting to add link failure info but link failure has not been enabled via NetworkManager.allow_link_failures()\n");
+
+    if (link.conn_type != CONN_TERMINAL)
+    {
+        _router_link_failure_lists[link.src_gid].push_back(link);
+        _num_failed_router_conns++;
+    }
+    else
+    {
+        _router_terminal_link_failure_lists[link.src_gid].push_back(link);
+        _num_failed_router_terminal_conns++;
+    }
+}
+
+int DragonflyNetworkManager::get_failed_count_from_vector(vector<Connection*> conns)
+{
+    int count = 0;
+    vector<Connection*>::iterator it = conns.begin();
+    for(; it != conns.end(); it++)
+    {
+        if ((*it)->is_failed)
+            count++;
+    }
+    return count;
+}
+
+void DragonflyNetworkManager::fail_connection(Link_Info link)
+{
+    if(_link_failures_enabled == false)
+        tw_error(TW_LOC,"Network Manager: attempting to fail link but link failure has not been enabled via NetworkManager.allow_link_failures()\n");
+
+    if (link.conn_type != CONN_TERMINAL)
+    {
+        vector<Connection*> conns_to_gid = _router_to_router_connection_map[make_pair(link.src_gid,link.dest_gid)];
+        int num_failed_already = get_failed_count_from_vector(conns_to_gid);
+        if (num_failed_already == conns_to_gid.size())
+            tw_error(TW_LOC, "Attempting to fail more links from router GID %d to router GID %d than exist; Link Type %d; Already Failed %d\n", link.src_gid, link.dest_gid, link.conn_type, num_failed_already);
+
+        vector<Connection*>:: iterator it = _router_to_router_connection_map[make_pair(link.src_gid,link.dest_gid)].begin();
+        for(; it != _router_to_router_connection_map[make_pair(link.src_gid,link.dest_gid)].end(); it++)
+        {
+            if(!(*it)->is_failed)
+            {
+                (*it)->is_failed = 1;
+                break;
+            }
+        }
+    }
+    else
+    {
+        vector<Connection*> conns_to_term_gid = _router_to_terminal_connection_map[make_pair(link.src_gid,link.dest_gid)];
+        int num_failed_already = get_failed_count_from_vector(conns_to_term_gid);
+        if (num_failed_already == conns_to_term_gid.size())
+            tw_error(TW_LOC, "Attempting to fail more links from router GID %d to Terminal GID %d than exist. Already Failed %d\n", link.src_gid, link.dest_gid, num_failed_already);
+
+        int failed_rail = 0;
+        vector<Connection*>:: iterator it = _router_to_terminal_connection_map[make_pair(link.src_gid,link.dest_gid)].begin();
+        for(; it != _router_to_terminal_connection_map[make_pair(link.src_gid,link.dest_gid)].end(); it++)
+        {
+            if(!(*it)->is_failed)
+            {
+                (*it)->is_failed = 1;
+                failed_rail = (*it)->rail_or_planar_id;
+                break;
+            }
+        }
+
+        //we also need to fail the corresponding injection link
+        int router_id = link.src_gid;
+        int term_id = link.dest_gid;
+        
+        it =_terminal_to_router_connection_map[make_pair(term_id,router_id)].begin();
+        for(; it != _terminal_to_router_connection_map[make_pair(term_id,router_id)].end(); it++)
+        {
+            if((*it)->rail_or_planar_id == failed_rail)
+            {
+                (*it)->is_failed = 1;
+                break;
+            }
+        }
+    }
+}
+
+
+set<Connection> DragonflyNetworkManager::get_valid_next_hops_conns(int src_gid, int dest_gid, int max_local, int exact_global)
 {
     set<Connection>valid_nexts;
-    if((src_gid / (_total_routers/_num_planes)) != (dest_gid / (_total_routers/_num_planes)))
+    if((src_gid / (_total_routers/_total_planes)) != (dest_gid / (_total_routers/_total_planes)))
     {
         return valid_nexts; //different planes have no valid path between them
     }
@@ -453,17 +477,7 @@ set<Connection> NetworkManager::get_valid_next_hops_conns(int src_gid, int dest_
     return valid_nexts;
 }
 
-int NetworkManager::get_max_local_hops()
-{
-    return _max_local_hops_per_group;
-}
-
-int NetworkManager::get_max_global_hops()
-{
-    return _max_global_hops;
-}
-
-void NetworkManager::add_conns_to_connection_managers()
+void DragonflyNetworkManager::add_conns_to_connection_managers()
 {
     for(int i = 0; i < _total_routers; i++)
     {
@@ -516,13 +530,14 @@ void NetworkManager::add_conns_to_connection_managers()
     }
 }
 
-void NetworkManager::solidify_network()
+
+void DragonflyNetworkManager::solidify_network()
 {
 
-    adjacency_matrix = (int***)calloc(_num_planes, sizeof(int**));
-    adjacency_matrix_nofail = (int***)calloc(_num_planes, sizeof(int**));
+    adjacency_matrix = (int***)calloc(_total_planes, sizeof(int**));
+    adjacency_matrix_nofail = (int***)calloc(_total_planes, sizeof(int**));
 
-    for(int i = 0; i < _num_planes; i++)
+    for(int i = 0; i < _total_planes; i++)
     {
         adjacency_matrix[i] = (int**)calloc(_total_routers, sizeof(int*));
         adjacency_matrix_nofail[i] = (int**)calloc(_total_routers, sizeof(int*));
@@ -589,11 +604,11 @@ void NetworkManager::solidify_network()
 
     //add copies of all of the connections to the connection managers
     add_conns_to_connection_managers();
-    for(vector<ConnectionManager>::iterator it = _connection_manager_list.begin(); it != _connection_manager_list.end(); it++)
+    for(vector<DragonflyConnectionManager>::iterator it = _connection_manager_list.begin(); it != _connection_manager_list.end(); it++)
     {
         it->solidify_connections(); //solidify those connection managers
     }
-    for(vector<ConnectionManager>::iterator it = _terminal_connection_manager_list.begin(); it != _terminal_connection_manager_list.end(); it++)
+    for(vector<DragonflyConnectionManager>::iterator it = _terminal_connection_manager_list.begin(); it != _terminal_connection_manager_list.end(); it++)
     {
         it->solidify_connections();
     }
@@ -601,8 +616,8 @@ void NetworkManager::solidify_network()
     if(is_link_failures_enabled())
     {
         printf("Network Manager: precalculating valid paths\n");
-        int rpp = _total_routers / _num_planes;
-        for(int p = 0; p < _num_planes; p++)
+        int rpp = _total_routers / _total_planes;
+        for(int p = 0; p < _total_planes; p++)
         {
             for(int i = 0; i < rpp;i++)
             {
@@ -627,13 +642,19 @@ void NetworkManager::solidify_network()
     _is_solidified = true; //the network is now solidified
 }
 
+
 //*******************    Connection Manager Implementation *******************************************
-ConnectionManager::ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int num_router_per_group, int num_groups)
+DragonflyConnectionManager::DragonflyConnectionManager()
 {
-    ConnectionManager(src_id_local, src_id_global, src_group, max_intra, max_inter, max_term, 0, num_router_per_group, num_groups, 1, MAN_ROUTER);
+    DragonflyConnectionManager(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, MAN_ROUTER);
 }
 
-ConnectionManager::ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int max_injection, int num_router_per_group, int num_groups, int num_planes, ManagerType manType)
+DragonflyConnectionManager::DragonflyConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int num_router_per_group, int num_groups)
+{
+    DragonflyConnectionManager(src_id_local, src_id_global, src_group, max_intra, max_inter, max_term, 0, num_router_per_group, num_groups, 1, MAN_ROUTER);
+}
+
+DragonflyConnectionManager::DragonflyConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int max_injection, int num_router_per_group, int num_groups, int num_planes, ManagerType manType)
 {
     _manType = manType;
 
@@ -657,17 +678,15 @@ ConnectionManager::ConnectionManager(int src_id_local, int src_id_global, int sr
     _max_injection_ports = max_injection;
 
     _num_routers_per_group = num_router_per_group;
-    _num_planes = num_planes;
-    _total_groups = num_groups * num_planes;
     _num_groups = num_groups;
 
     is_solidified = false;
 }
 
-int ConnectionManager::add_connection(int dest_gid, ConnectionType type)
+int DragonflyConnectionManager::add_connection(int dest_gid, ConnectionType type)
 {
     if (is_solidified)
-        tw_error(TW_LOC,"ConnectionManager: Attempting to add connections after manager has been solidified!\n");
+        tw_error(TW_LOC,"DragonflyConnectionManager: Attempting to add connections after manager has been solidified!\n");
 
     Connection conn;
     conn.src_lid = _source_id_local;
@@ -683,10 +702,10 @@ int ConnectionManager::add_connection(int dest_gid, ConnectionType type)
     return port;
 }
 
-int ConnectionManager::add_connection(Connection conn)
+int DragonflyConnectionManager::add_connection(Connection conn)
 {
     if (is_solidified)
-        tw_error(TW_LOC,"ConnectionManager: Attempting to add connections after manager has been solidified!\n");
+        tw_error(TW_LOC,"DragonflyConnectionManager: Attempting to add connections after manager has been solidified!\n");
 
     switch (conn.conn_type)
     {
@@ -698,6 +717,7 @@ int ConnectionManager::add_connection(Connection conn)
                 intraGroupConnections[conn.dest_lid].push_back(conn);
                 intraGroupConnectionsGID[conn.dest_gid].push_back(conn);
                 _used_intra_ports++;
+                _connected_to_router_gids.insert(conn.dest_gid);
             }
             else
                 tw_error(TW_LOC,"Attempting to add too many local connections per router - exceeding configuration value: %d",_max_intra_ports);
@@ -711,6 +731,7 @@ int ConnectionManager::add_connection(Connection conn)
                 conn.port = _max_intra_ports + this->get_used_ports_for(CONN_GLOBAL);
                 globalConnections[conn.dest_gid].push_back(conn);
                 _used_inter_ports++;
+                _connected_to_router_gids.insert(conn.dest_gid);
             }
             else
                 tw_error(TW_LOC,"Attempting to add too many global connections per router - exceeding configuration value: %d",_max_inter_ports);
@@ -723,6 +744,7 @@ int ConnectionManager::add_connection(Connection conn)
                 conn.dest_group_id = _source_group;
                 terminalConnections[conn.dest_gid].push_back(conn);
                 _used_terminal_ports++;
+                _connected_to_terminal_gids.insert(conn.dest_gid);
             }
             else
                 tw_error(TW_LOC,"Attempting to add too many terminal connections per router - exceeding configuration value: %d",_max_terminal_ports);
@@ -731,6 +753,7 @@ int ConnectionManager::add_connection(Connection conn)
             if(_used_injection_ports < _max_injection_ports){
                 injectionConnections[conn.dest_gid].push_back(conn);
                 _used_injection_ports++;
+                _connected_to_router_gids.insert(conn.dest_gid);
             }
             break;
         default:
@@ -741,7 +764,7 @@ int ConnectionManager::add_connection(Connection conn)
     return conn.port;
 }
 
-void ConnectionManager::add_group_group_connection_information(map<pair<int,int>, vector<Connection*> > group_group_connections)
+void DragonflyConnectionManager::add_group_group_connection_information(map<pair<int,int>, vector<Connection*> > group_group_connections)
 {
     map<pair<int, int>, vector<Connection*> >::iterator map_it = group_group_connections.begin();
     for(; map_it != group_group_connections.end(); map_it++)
@@ -769,12 +792,12 @@ void ConnectionManager::add_group_group_connection_information(map<pair<int,int>
     }
 }
 
-void ConnectionManager::set_routed_connections_to_groups(map<int, vector<Connection> > conn_map)
+void DragonflyConnectionManager::set_routed_connections_to_groups(map<int, vector<Connection> > conn_map)
 {
     _routed_connections_to_group_map = conn_map;
 }
 
-vector< Connection > ConnectionManager::get_routed_connections_to_group(int group_id, bool get_next_hop, bool include_failed)
+vector< Connection > DragonflyConnectionManager::get_routed_connections_to_group(int group_id, bool get_next_hop, bool include_failed)
 {
     vector< Connection > conns;
     vector< Connection >::iterator it;
@@ -820,22 +843,22 @@ vector< Connection > ConnectionManager::get_routed_connections_to_group(int grou
     return conns;
 }
 
-vector< Connection > ConnectionManager::get_routed_connections_to_group(int group_id, bool get_next_hop)
+vector< Connection > DragonflyConnectionManager::get_routed_connections_to_group(int group_id, bool get_next_hop)
 {
     return get_routed_connections_to_group(group_id, get_next_hop, false);
 }
 
-vector< int > ConnectionManager::get_accessible_group_ids()
+vector< int > DragonflyConnectionManager::get_accessible_group_ids()
 {
     return _accessible_group_ids_nofail;
 }
 
-vector< int > ConnectionManager::get_router_gids_with_global_to_group(int group_id)
+vector< int > DragonflyConnectionManager::get_router_gids_with_global_to_group(int group_id)
 {
     return get_router_gids_with_global_to_group(group_id, false);
 }
 
-vector< int > ConnectionManager::get_router_gids_with_global_to_group(int group_id, bool include_failed)
+vector< int > DragonflyConnectionManager::get_router_gids_with_global_to_group(int group_id, bool include_failed)
 {
     try {
         if (include_failed)
@@ -847,17 +870,8 @@ vector< int > ConnectionManager::get_router_gids_with_global_to_group(int group_
     }
 }
 
-// vector< Connection > ConnectionManager::get_routed_connections_in_group(int dest_lid, bool include_failed)
-// {
 
-// }
-
-// vector< Connection > ConnectionManager::get_routed_connections_in_group(int dest_lid)
-// {
-//     return get_routed_connections_in_group(dest_lid, false);
-// }
-
-vector< int > ConnectionManager::get_groups_that_connect_to_group(int dest_group, bool include_failed)
+vector< int > DragonflyConnectionManager::get_groups_that_connect_to_group(int dest_group, bool include_failed)
 {
     try{
         if (include_failed)
@@ -870,12 +884,12 @@ vector< int > ConnectionManager::get_groups_that_connect_to_group(int dest_group
 
 }
 
-vector< int > ConnectionManager::get_groups_that_connect_to_group(int dest_group)
+vector< int > DragonflyConnectionManager::get_groups_that_connect_to_group(int dest_group)
 {
     return get_groups_that_connect_to_group(dest_group, false);
 }
 
-int ConnectionManager::get_source_id(ConnectionType type)
+int DragonflyConnectionManager::get_source_id(ConnectionType type)
 {
     switch (type)
     {
@@ -889,7 +903,7 @@ int ConnectionManager::get_source_id(ConnectionType type)
     }
 }
 
-vector<int> ConnectionManager::get_ports(int dest_id, ConnectionType type, bool include_failed)
+vector<int> DragonflyConnectionManager::get_ports(int dest_id, ConnectionType type, bool include_failed)
 {
     vector< Connection > conns = this->get_connections_to_gid(dest_id, type);
 
@@ -902,12 +916,12 @@ vector<int> ConnectionManager::get_ports(int dest_id, ConnectionType type, bool 
     return ports_used;
 }
 
-vector<int> ConnectionManager::get_ports(int dest_id, ConnectionType type)
+vector<int> DragonflyConnectionManager::get_ports(int dest_id, ConnectionType type)
 {
     return get_ports(dest_id, type, false);
 }
 
-Connection ConnectionManager::get_connection_on_port(int port, bool include_failed)
+Connection DragonflyConnectionManager::get_connection_on_port(int port, bool include_failed)
 {
     Connection conn = _portMap[port];
     if (conn.is_failed == 0 || include_failed)
@@ -920,17 +934,17 @@ Connection ConnectionManager::get_connection_on_port(int port, bool include_fail
     }
 }
 
-Connection ConnectionManager::get_connection_on_port(int port)
+Connection DragonflyConnectionManager::get_connection_on_port(int port)
 {
     return get_connection_on_port(port, true);
 }
 
-bool ConnectionManager::is_connected_to_by_type(int dest_id, ConnectionType type)
+bool DragonflyConnectionManager::is_connected_to_by_type(int dest_id, ConnectionType type)
 {
     return is_connected_to_by_type(dest_id, type, false); //by default, don't include failed links
 }
 
-bool ConnectionManager::is_connected_to_by_type(int dest_id, ConnectionType type, bool include_failed)
+bool DragonflyConnectionManager::is_connected_to_by_type(int dest_id, ConnectionType type, bool include_failed)
 {
     map<int, vector<Connection> > the_map;
     map<int, vector<Connection> >::iterator map_it;
@@ -971,12 +985,12 @@ bool ConnectionManager::is_connected_to_by_type(int dest_id, ConnectionType type
     return false;
 }
 
-bool ConnectionManager::is_any_connection_to(int dest_global_id)
+bool DragonflyConnectionManager::is_any_connection_to(int dest_global_id)
 {
     return is_any_connection_to(dest_global_id, false);
 }
 
-bool ConnectionManager::is_any_connection_to(int dest_global_id, bool include_failed)
+bool DragonflyConnectionManager::is_any_connection_to(int dest_global_id, bool include_failed)
 {
     int local_id = dest_global_id % _num_routers_per_group;
     if (is_connected_to_by_type(local_id, CONN_LOCAL, include_failed))
@@ -990,7 +1004,7 @@ bool ConnectionManager::is_any_connection_to(int dest_global_id, bool include_fa
     return false;
 }
 
-int ConnectionManager::get_total_used_ports(bool account_for_failed)
+int DragonflyConnectionManager::get_total_used_ports(bool account_for_failed)
 {
     int sum = 0;
     sum = _used_intra_ports + _used_inter_ports + _used_terminal_ports;
@@ -999,12 +1013,12 @@ int ConnectionManager::get_total_used_ports(bool account_for_failed)
     return sum;
 }
 
-int ConnectionManager::get_total_used_ports()
+int DragonflyConnectionManager::get_total_used_ports()
 {
     return get_total_used_ports(true);
 }
 
-int ConnectionManager::get_used_ports_for(ConnectionType type, bool account_for_failed)
+int DragonflyConnectionManager::get_used_ports_for(ConnectionType type, bool account_for_failed)
 {
     switch (type)
     {
@@ -1026,27 +1040,27 @@ int ConnectionManager::get_used_ports_for(ConnectionType type, bool account_for_
     }
 }
 
-int ConnectionManager::get_used_ports_for(ConnectionType type)
+int DragonflyConnectionManager::get_used_ports_for(ConnectionType type)
 {
     return get_used_ports_for(type, true);
 }
 
-ConnectionType ConnectionManager::get_port_type(int port_num)
+ConnectionType DragonflyConnectionManager::get_port_type(int port_num)
 {
     return _portMap[port_num].conn_type;
 }
 
-bool ConnectionManager::get_port_failed_status(int port_num)
+bool DragonflyConnectionManager::get_port_failed_status(int port_num)
 {
     return _portMap[port_num].is_failed;
 }
 
-vector< Connection > ConnectionManager::get_connections_to_gid(int dest_gid, ConnectionType type)
+vector< Connection > DragonflyConnectionManager::get_connections_to_gid(int dest_gid, ConnectionType type)
 {
     return get_connections_to_gid(dest_gid, type, false);
 }
 
-vector< Connection > ConnectionManager::get_connections_to_gid(int dest_gid, ConnectionType type, bool include_failed)
+vector< Connection > DragonflyConnectionManager::get_connections_to_gid(int dest_gid, ConnectionType type, bool include_failed)
 {
     vector<Connection> conn_vec;
     try {
@@ -1098,12 +1112,12 @@ vector< Connection > ConnectionManager::get_connections_to_gid(int dest_gid, Con
     }
 }
 
-vector< Connection > ConnectionManager::get_connections_to_group(int dest_group_id)
+vector< Connection > DragonflyConnectionManager::get_connections_to_group(int dest_group_id)
 {
     return get_connections_to_group(dest_group_id, false);
 }
 
-vector< Connection > ConnectionManager::get_connections_to_group(int dest_group_id, bool include_failed)
+vector< Connection > DragonflyConnectionManager::get_connections_to_group(int dest_group_id, bool include_failed)
 {
     try {
         if(include_failed)
@@ -1119,12 +1133,12 @@ vector< Connection > ConnectionManager::get_connections_to_group(int dest_group_
     }
 }
 
-vector< Connection > ConnectionManager::get_connections_by_type(ConnectionType type)
+vector< Connection > DragonflyConnectionManager::get_connections_by_type(ConnectionType type)
 {
     return get_connections_by_type(type, false);
 }
 
-vector< Connection > ConnectionManager::get_connections_by_type(ConnectionType type, bool include_failed)
+vector< Connection > DragonflyConnectionManager::get_connections_by_type(ConnectionType type, bool include_failed)
 {
     try {
         if(include_failed)
@@ -1136,12 +1150,12 @@ vector< Connection > ConnectionManager::get_connections_by_type(ConnectionType t
     }
 }
 
-vector< int > ConnectionManager::get_connected_group_ids()
+vector< int > DragonflyConnectionManager::get_connected_group_ids()
 {
     return get_connected_group_ids(false);
 }
 
-vector< int > ConnectionManager::get_connected_group_ids(bool include_failed)
+vector< int > DragonflyConnectionManager::get_connected_group_ids(bool include_failed)
 {
     if (include_failed)
         return _other_groups_i_connect_to;
@@ -1149,7 +1163,7 @@ vector< int > ConnectionManager::get_connected_group_ids(bool include_failed)
         return _other_groups_i_connect_to_nofail;
 }
 
-void ConnectionManager::solidify_connections()
+void DragonflyConnectionManager::solidify_connections()
 {
     //--connections to group
     for(map<int, vector<Connection> >::iterator it = globalConnections.begin(); it != globalConnections.end(); it++)
@@ -1347,12 +1361,12 @@ void ConnectionManager::solidify_connections()
     is_solidified = true;
 }
 
-bool ConnectionManager::check_is_solidified()
+bool DragonflyConnectionManager::check_is_solidified()
 {
     return is_solidified;
 }
 
-void ConnectionManager::print_connections()
+void DragonflyConnectionManager::print_connections()
 {
     if(_manType == MAN_ROUTER)
         printf("Connections for Router: %d ---------------------------------------\n",_source_id_global);

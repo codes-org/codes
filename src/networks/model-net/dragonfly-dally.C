@@ -31,7 +31,7 @@
 #include <set>
 #include <algorithm>
 
-#include "codes/network-manager.h"
+#include "codes/network-manager/dragonfly-network-manager.h"
 #include "codes/congestion-controller-model.h"
 
 #ifdef ENABLE_CORTEX
@@ -39,7 +39,7 @@
 #include <cortex/topology.h>
 #endif
 
-#define DUMP_CONNECTIONS 0
+#define DUMP_CONNECTIONS 1
 #define PRINT_CONFIG 1
 #define DFLY_HASH_TABLE_SIZE 4999
 // debugging parameters
@@ -96,7 +96,7 @@ using namespace std;
 /*MM: Maintains a list of routers connecting the source and destination groups */
 static vector< vector< vector<int> > > connectionList;
 
-static NetworkManager netMan;
+static DragonflyNetworkManager netMan;
 
 /* Note: Dragonfly Dally doesn't distinguish intra links into colored "types".
    So the type field here is ignored. This will be changed at some point in the
@@ -440,7 +440,7 @@ struct terminal_state
     unsigned int* router_id; //one per rail
     unsigned int terminal_id;
 
-    ConnectionManager connMan;
+    DragonflyConnectionManager connMan;
     tlc_state *local_congestion_controller;
 
     map<tw_lpid, int> workload_lpid_to_app_id;
@@ -529,7 +529,7 @@ struct router_state
 
     int* global_channel; 
 
-    ConnectionManager connMan; //manages and organizes connections from this router
+    DragonflyConnectionManager connMan; //manages and organizes connections from this router
     rlc_state *local_congestion_controller;
 
     tw_stime* next_output_available_time;
@@ -1815,8 +1815,8 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     p->total_terminals = p->total_routers * p->num_cn / p->num_planes;
     p->num_routers_per_plane = p->total_routers / p->num_planes;
 
-    //Setup NetworkManager
-    netMan = NetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->num_global_channels, p->cn_radix, p->num_rails, p->num_planes, max_hops_per_group, max_global_hops_nonminimal);
+    //Setup DflyNetworkManager
+    netMan = DragonflyNetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->num_global_channels, p->cn_radix, p->num_rails, p->num_planes, max_hops_per_group, max_global_hops_nonminimal);
 
     // read intra group connections, store from a router's perspective
     // all links to the same router form a vector

@@ -24,7 +24,7 @@
 #include "codes/rc-stack.h"
 #include "sys/file.h"
 
-#include "codes/network-manager.h"
+#include "codes/network-manager/dragonfly-network-manager.h"
 
 #ifdef ENABLE_CORTEX
 #include <cortex/cortex.h>
@@ -63,8 +63,8 @@ using namespace std;
 /*MM: Maintains a list of routers connecting the source and destination groups */
 // static vector< vector< vector< int > > > connectionList;
 
-static NetworkManager netMan;
-// static vector< ConnectionManager > connManagerList;
+static DragonflyNetworkManager netMan;
+// static vector< DragonflyConnectionManager > connManagerList;
 
 /* IntraGroupLink is a struct used to unpack binary data regarding inter group
    connections from the supplied inter-group file. This struct should not be
@@ -375,8 +375,8 @@ typedef enum qos_status
     Q_OVERBW,
 } qos_status;
 
-// Used to denote whether a connection is one that would allow a packet to continue along a minimal path or not
-// Specifically used to clearly pass whether a connection is a minimal one through to the connection scoring function
+// Used to denote whether a Connection is one that would allow a packet to continue along a minimal path or not
+// Specifically used to clearly pass whether a Connection is a minimal one through to the Connection scoring function
 typedef enum conn_minimality_t
 {
     C_MIN = 1,
@@ -522,7 +522,7 @@ struct terminal_state
     unsigned int* router_id; //one per rail
     unsigned int terminal_id;
 
-    ConnectionManager connMan;
+    DragonflyConnectionManager connMan;
 
     // Each terminal will have an input and output channel with the router
     int** vc_occupancy;  // [rail_id][qos_level]
@@ -605,7 +605,7 @@ struct router_state
 
     router_type dfp_router_type;  // Enum to specify whether this router is a spine or a leaf
 
-    ConnectionManager connMan;
+    DragonflyConnectionManager connMan;
     int *gc_usage;
 
     int *global_channel;
@@ -1237,7 +1237,7 @@ static void free_tmp(void *ptr)
 }
 
 /**
- * Scores a connection based on the metric provided in the function
+ * Scores a Connection based on the metric provided in the function
  * @param isMinimalPort a boolean variable used in the Gamma metric to pass whether a given port would lead to the destination in a minimal way
  */
 static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, Connection conn, conn_minimality_t c_minimality)
@@ -1266,7 +1266,7 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
             vc_size = s->params->cn_vc_size;
             break;
         default:
-            tw_error(TW_LOC, "Error connection type");
+            tw_error(TW_LOC, "Error Connection type");
     }
 
     switch(scoring) {
@@ -1306,7 +1306,7 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
             to_subtract += s->queued_count[port];
             score -= to_subtract;
 
-            if (c_minimality == C_MIN) //the connection maintains the paths minimality - gets a bonus of 2x
+            if (c_minimality == C_MIN) //the Connection maintains the paths minimality - gets a bonus of 2x
                 score = score * 2;
             break;
         }
@@ -1398,7 +1398,7 @@ static Connection get_absolute_best_connection_from_conn_set(router_state *s, tw
         bad_conn.port = -1;
         return bad_conn;
     }
-    if (conns.size() == 1) { //no need to compare singular connection
+    if (conns.size() == 1) { //no need to compare singular Connection
         return (*(conns.begin()));
     }
 
@@ -2102,8 +2102,8 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
 
     p->max_port_score = (p->num_vcs * largest_vc_size) + largest_vc_size; //The maximum score that a port can get during the scoring metrics.
 
-    //Setup NetworkManager
-    netMan = NetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->num_global_connections, p->cn_radix, p->num_rails, p->num_planes, max_hops_per_group, max_global_hops_nonminimal);
+    //Setup DragonflyNetworkManager
+    netMan = DragonflyNetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->num_global_connections, p->cn_radix, p->num_rails, p->num_planes, max_hops_per_group, max_global_hops_nonminimal);
 
     // read intra group connections, store from a router's perspective
     // all links to the same router form a vector
@@ -2120,7 +2120,7 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     //     int src_id_local = i % p->num_routers;
     //     int src_group = i / p->num_routers;
 
-    //     ConnectionManager conman = ConnectionManager(src_id_local, src_id_global, src_group, p->intra_grp_radix, p->num_global_connections, p->num_cn, p->num_routers, p->num_groups);
+    //     DragonflyConnectionManager conman = DragonflyConnectionManager(src_id_local, src_id_global, src_group, p->intra_grp_radix, p->num_global_connections, p->num_cn, p->num_routers, p->num_groups);
     //     connManagerList.push_back(conman);
     // }
 
@@ -2268,7 +2268,7 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         }
     }
 
-    netMan.solidify_network(); //finalize link failures and burn the network links into the connection managers 
+    netMan.solidify_network(); //finalize link failures and burn the network links into the Connection managers 
 
     if (DUMP_CONNECTIONS)
     {
@@ -3387,7 +3387,7 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
         if (s->params->rail_select == RAIL_DEDICATED) { //then attempt to inject on rail based on the injection queue from the workload
             Connection specific_injection_conn = s->connMan.get_connection_on_port(msg->rail_id, true);
             if (specific_injection_conn.port == - 1)
-                tw_error(TW_LOC, "Packet Generation Failure: No connection on specified rail\n");
+                tw_error(TW_LOC, "Packet Generation Failure: No Connection on specified rail\n");
             if (specific_injection_conn.is_failed)
                 congestion_fallback = true;
             else
@@ -3728,7 +3728,7 @@ static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg
   
     vcg = get_next_vcg(s, bf, msg, lp);
   
-    /* For a terminal to router connection, there would be as many VCGs as number
+    /* For a terminal to router Connection, there would be as many VCGs as number
     * of VCs*/
 
     if(vcg == -1) {
@@ -4589,7 +4589,7 @@ static Connection do_dfp_routing(router_state *s, tw_bf *bf, terminal_plus_messa
         if (my_router_id == fdest_router_id) {
             vector< Connection > poss_next_stops = s->connMan.get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
             if (poss_next_stops.size() < 1)
-                tw_error(TW_LOC, "Destination Router: No connection to destination terminal\n");
+                tw_error(TW_LOC, "Destination Router: No Connection to destination terminal\n");
             
             Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
             return best_min_conn;
@@ -4698,9 +4698,9 @@ static void router_verify_valid_receipt(router_state *s, tw_bf *bf, terminal_plu
 
     if (!has_valid_connection){
         if (msg->last_hop == TERMINAL)
-            printf("ERROR: Router ID %d has no connection to Terminal %d but received a message from it!",s->router_id, src_term_rel_id);
+            printf("ERROR: Router ID %d has no Connection to Terminal %d but received a message from it!",s->router_id, src_term_rel_id);
         else
-            printf("ERROR: Router ID %d has no connection to Router %d but received a message from it!",s->router_id, rel_id);
+            printf("ERROR: Router ID %d has no Connection to Router %d but received a message from it!",s->router_id, rel_id);
     }
     assert(has_valid_connection);
 }
@@ -4906,7 +4906,7 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
     msg->num_rngs += (cur_chunk->msg).num_rngs; //make sure we're counting the rngs called during do_dfp_routing()
 
     if (s->connMan.is_any_connection_to(next_stop_conn.dest_gid) == false)
-        tw_error(TW_LOC, "Router %d does not have a connection to chosen destination %d\n", s->router_id, next_stop_conn.dest_gid);
+        tw_error(TW_LOC, "Router %d does not have a Connection to chosen destination %d\n", s->router_id, next_stop_conn.dest_gid);
 
 
     output_port = next_stop_conn.port;
@@ -5557,13 +5557,13 @@ static void router_plus_register(tw_lptype *base_type)
 //     int origin_group_id = msg->origin_router_id / s->params->num_routers;
 //     bool in_intermediate_group = (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
 
-//     Connection nextStopConn; //the connection that we will forward the packet to
+//     Connection nextStopConn; //the Connection that we will forward the packet to
 
 //     //----------- DESTINATION LOCAL GROUP ROUTING --------------
 //     if (my_router_id == fdest_router_id) {
 //         vector< Connection > poss_next_stops = s->connMan.get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
 //         if (poss_next_stops.size() < 1)
-//             tw_error(TW_LOC, "Destination Router: No connection to destination terminal\n");
+//             tw_error(TW_LOC, "Destination Router: No Connection to destination terminal\n");
 
 //             //Not exactly sure why I did this //TODO Address
 //             // if (poss_next_stops.size() > 1)
@@ -5575,7 +5575,7 @@ static void router_plus_register(tw_lptype *base_type)
 //             //             conns_on_rail.push_back(poss_next_stops[i]);
 //             //     }
 //             //     if(conns_on_rail.size() < 1)
-//             //         tw_error(TW_LOC, "Destination Router %d: No connection to destination terminal %d on specified rail %d\n",s->router_id, msg->dfdally_dest_terminal_id, msg->rail_id);
+//             //         tw_error(TW_LOC, "Destination Router %d: No Connection to destination terminal %d on specified rail %d\n",s->router_id, msg->dfdally_dest_terminal_id, msg->rail_id);
 
 //             //     Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, conns_on_rail);
 //             //     return best_min_conn;
@@ -5676,7 +5676,7 @@ static void router_plus_register(tw_lptype *base_type)
 //             best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //pick absolute best from poss_next_stops
 
 //         if (best_conn.port == -1)
-//             tw_error(TW_LOC, "Get best connection returned a bad connection");
+//             tw_error(TW_LOC, "Get best Connection returned a bad Connection");
         
 //         return best_conn;
 //     }
@@ -5821,8 +5821,8 @@ static void dfp_select_intermediate_group(router_state *s, tw_bf *bf, terminal_p
         }
         msg->intm_grp_id = rand_group_id;
     }
-    else { //the only time that it is re-set is when a router didn't have a direct connection to the intermediate group but had no other options
-        // so we need to pick an intm group that the current router DOES have a connection to.
+    else { //the only time that it is re-set is when a router didn't have a direct Connection to the intermediate group but had no other options
+        // so we need to pick an intm group that the current router DOES have a Connection to.
         assert(s->router_id != msg->origin_router_id);
 
         set< int > valid_intm_groups;
@@ -5926,7 +5926,7 @@ static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *b
     return poss_next_nonmin_stops;
 }
 
-// //Returns a vector of connections that are legal dragonfly plus routes that specifically would not allow for a minimal connection to the specific router specified in get_possible_stops_to_specific_router()
+// //Returns a vector of connections that are legal dragonfly plus routes that specifically would not allow for a minimal Connection to the specific router specified in get_possible_stops_to_specific_router()
 // //Be very wary of using this method, results may not make sense if possible_minimal_stops is not a vector of minimal next stops to fdest_rotuer_id
 // //Nonminimal specifically refers to any move that does not move directly toward the destination router
 // static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector< Connection > possible_minimal_stops, int fdest_router_id)
@@ -6016,7 +6016,7 @@ static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *b
 // }
 
 //The term minimal in this case refers to "Moving toward destination router". If a packet is at an intermediate spine and that spine doesn't
-//have a direct connection to the destinatino group, then there wouldn't be any "legal minimal stops". The packet would have to continue to
+//have a direct Connection to the destinatino group, then there wouldn't be any "legal minimal stops". The packet would have to continue to
 //some leaf in the group first. THIS DOES NOT INCLUDE REROUTING. The only time an intermediate leaf can send to an intermediate spine is if
 //dfp_upward_channel_flag is 0.
 static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
@@ -6135,7 +6135,7 @@ static Connection dfp_nonminimal_leaf_routing(router_state *s, tw_bf *bf, termin
         best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //pick absolute best from poss_next_stops
 
     if (best_conn.port == -1)
-        tw_error(TW_LOC, "Get best connection returned a bad connection");
+        tw_error(TW_LOC, "Get best Connection returned a bad Connection");
     
     return best_conn;
 }
@@ -6570,11 +6570,11 @@ static Connection dfp_smart_minimal_routing(router_state *s, tw_bf *bf, terminal
     {
         vector< Connection > poss_next_stops = s->connMan.get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
             if (poss_next_stops.size() < 1)
-                tw_error(TW_LOC, "Destination Router %d: No connection to destination terminal %d\n", s->router_id, msg->dfp_dest_terminal_id); //shouldn't happen unless math was wrong
+                tw_error(TW_LOC, "Destination Router %d: No Connection to destination terminal %d\n", s->router_id, msg->dfp_dest_terminal_id); //shouldn't happen unless math was wrong
         Connection best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
         return best_conn;
     }
-    //do i have a direct connection to fdest by any chance?
+    //do i have a direct Connection to fdest by any chance?
     vector<Connection> direct_conns;
     if(my_group_id != fdest_group_id)
         direct_conns = s->connMan.get_connections_to_gid(fdest_router_id,CONN_GLOBAL);
@@ -6616,7 +6616,7 @@ static Connection dfp_smart_nonminimal_routing(router_state *s, tw_bf *bf, termi
     {
         vector< Connection > poss_next_stops = s->connMan.get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
             if (poss_next_stops.size() < 1)
-                tw_error(TW_LOC, "Destination Router %d: No connection to destination terminal %d\n", s->router_id, msg->dfp_dest_terminal_id); //shouldn't happen unless math was wrong
+                tw_error(TW_LOC, "Destination Router %d: No Connection to destination terminal %d\n", s->router_id, msg->dfp_dest_terminal_id); //shouldn't happen unless math was wrong
         Connection best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
         return best_conn;
     }
@@ -6663,7 +6663,7 @@ static Connection dfp_smart_prog_adaptive_routing(router_state *s, tw_bf *bf, te
         {
             vector< Connection > poss_next_stops = s->connMan.get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
                 if (poss_next_stops.size() < 1)
-                    tw_error(TW_LOC, "Destination Router %d: No connection to destination terminal %d\n", s->router_id, msg->dfp_dest_terminal_id); //shouldn't happen unless math was wrong
+                    tw_error(TW_LOC, "Destination Router %d: No Connection to destination terminal %d\n", s->router_id, msg->dfp_dest_terminal_id); //shouldn't happen unless math was wrong
             Connection best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
             return best_conn;
         }
@@ -6814,7 +6814,7 @@ struct model_net_method dragonfly_plus_router_method = {
 //     //     int lid_r1 = r1 % params->num_routers;
 //     //     int lid_r2 = r2 % params->num_routers;
 
-//     //     /* The connection will be there if the router is in the same row or
+//     //     /* The Connection will be there if the router is in the same row or
 //     //      * same column */
 //     //     int src_row_r1 = lid_r1 / params->num_router_cols;
 //     //     int src_row_r2 = lid_r2 / params->num_router_cols;

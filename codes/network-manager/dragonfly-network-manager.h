@@ -1,11 +1,11 @@
-#ifndef CONNECTION_MANAGER_H
-#define CONNECTION_MANAGER_H
+#ifndef DFLY_CONNECTION_MANAGER_H
+#define DFLY_CONNECTION_MANAGER_H
 
 /**
- * network-manager.h -- Simple, Readable, Connection management interface
+ * dragonfly-network-manager.h
  * Neil McGlohon
  *
- * Copyright (c) 2018 Rensselaer Polytechnic Institute
+ * Copyright (c) 2021 Rensselaer Polytechnic Institute
  */
 #include <map>
 #include <vector>
@@ -17,12 +17,10 @@
 #include <unordered_set>
 #include <unordered_map>
 
-
-
 using namespace std;
 
-class ConnectionManager;
-class NetworkManager;
+class DragonflyConnectionManager;
+class DragonflyNetworkManager;
 
 /**
  * @brief Enum differentiating local router connection types from global.
@@ -34,7 +32,7 @@ enum ConnectionType
     CONN_LOCAL = 1,
     CONN_GLOBAL = 2,
     CONN_TERMINAL = 3,
-    CONN_INJECTION = 4
+    CONN_INJECTION = 4,
 };
 
 enum ManagerType
@@ -51,11 +49,17 @@ struct Link_Info
     int src_gid;
     int dest_gid;
     int rail_id;
+    double bandwidth;
     ConnectionType conn_type;
 };
 
+
 /**
  * @brief Struct for complete connection information
+ * @note it is inadvisable to create child classes from this, unless the
+ *       container that the child is put in is specifically templated for
+ *       the child class, the instance will be casted to the parent and
+ *       you'll lose fields. Yes this is dirty but safe.
  */
 struct Connection
 {
@@ -66,6 +70,8 @@ struct Connection
     int dest_lid; //local id of the destination
     int dest_gid; //global id of the destination
     int dest_group_id; //group id of the destination
+    double bandwidth;
+    int link_id; //For repeated links - starts at 0
     int is_failed; //boolean value for whether or not the link is considered failed
     int rail_or_planar_id; //rail ID if coming to/from terminal, planar ID if router-router
     ConnectionType conn_type; //type of the connection: CONN_LOCAL, CONN_GLOBAL, or CONN_TERMINAL
@@ -78,12 +84,13 @@ struct Connection
                 && dest_lid == other.dest_lid
                 && dest_gid == other.dest_gid
                 && dest_group_id == other.dest_group_id
+                && link_id == other.link_id
+                && bandwidth == other.bandwidth
                 && is_failed == other.is_failed
                 && rail_or_planar_id == other.rail_or_planar_id
                 && conn_type == other.conn_type);
     }
 };
-
 
 template<typename T>
 inline void hash_combine(std::size_t& seed, const T& val)
@@ -163,14 +170,14 @@ inline bool operator<(const Connection& lhs, const Connection& rhs)
  * This class was designed with dragonfly type topologies in mind (local groups of routers)
  * Certain parts may not make sense for other topologies, they might work fine, but no guarantees.
  */
-class NetworkManager {
+class DragonflyNetworkManager {
     int _total_routers;
     int _total_terminals;
     int _total_groups;
     int _num_rails;
-    int _num_planes;
+    int _total_planes;
     int _num_routers_per_group;
-    int _num_groups;
+    int _num_groups_per_plane;
     int _num_lc_pr; //num local conns per router
     int _num_gc_pr; //num global conns per router
     int _num_cn_pr; //num cn conns per router
@@ -182,6 +189,7 @@ class NetworkManager {
 
     int _num_router_conns; //total number of router-router links
     int _num_router_terminal_conns; //total number of terminal links
+    int _num_terminal_router_conns;
     bool _link_failures_enabled;
     int _num_failed_router_conns;
     int _num_failed_router_terminal_conns;
@@ -213,29 +221,31 @@ class NetworkManager {
 
     int** _shortest_path_vals;
     int** _next;
+    unordered_map<pair<int,int>, vector<int> > _shortest_path_nexts;
 
-    vector< ConnectionManager > _connection_manager_list; //list of all connection managers in the network
-    vector< ConnectionManager > _terminal_connection_manager_list; // list of all connection mangers for TERMINALS in the network
+    vector< DragonflyConnectionManager > _connection_manager_list; //list of all connection managers in the network
+    vector< DragonflyConnectionManager > _terminal_connection_manager_list; // list of all connection mangers for TERMINALS in the network
 
     bool _is_solidified;
 
-    unordered_map<pair<int,int>, vector<int> > _shortest_path_nexts;
-
 public:
+    DragonflyNetworkManager();
 
-    NetworkManager();
-
-    NetworkManager(int total_routers, int total_terminals, int num_routers_per_group, int num_lc_per_router, int num_gc_per_router, int num_cn_conns_per_router, int num_rails, int num_planes, int max_local_hops, int max_global_hops);
+    DragonflyNetworkManager(int total_routers, int total_terminals, int num_routers_per_group, int num_lc_per_router, int num_gc_per_router, int num_cn_conns_per_router, int num_rails, int num_planes, int max_local_hops, int max_global_hops);
 
     void enable_link_failures();
 
     bool is_link_failures_enabled();
 
-    ConnectionManager& get_connection_manager_for_router(int router_gid);
+    DragonflyConnectionManager& get_connection_manager_for_router(int router_gid);
 
-    ConnectionManager& get_connection_manager_for_terminal(int terminal_gid);
+    DragonflyConnectionManager& get_connection_manager_for_terminal(int terminal_gid);
 
     void add_link(Link_Info link);
+
+    vector<int> get_attached_router_ids_from_terminal(int terminal_gid);
+    
+    vector<int> get_attached_terminal_ids_from_router(int router_gid);
 
     void add_link_failure_info(Link_Info failed_link);
 
@@ -261,7 +271,7 @@ public:
 };
 
 /**
- * @class ConnectionManager
+ * @class DragonflyConnectionManager
  *
  * @brief
  * This class is meant to make organization of the connections between routers more
@@ -275,7 +285,8 @@ public:
  * @note
  * This class assumes that each router group has the same number of routers in it: _num_routers_per_group.
  */
-class ConnectionManager {
+class DragonflyConnectionManager {
+public:
     ManagerType _manType; //whether this is a router or a terminal connection manager
     map< int, Connection > _portMap; //Mapper for ports to connection references - includes failed connections
 
@@ -309,6 +320,9 @@ class ConnectionManager {
     map< int, vector<int> > _group_group_connection_map_nofail;
     
 
+    set<int> _connected_to_terminal_gids;
+    set<int> _connected_to_router_gids;
+
     // other information
     int _source_id_local; //local id (within group) of owner of this connection manager
     int _source_id_global; //global id (not lp gid) of owner of this connection manager
@@ -330,16 +344,15 @@ class ConnectionManager {
     int _max_injection_ports; //maximum number of ports for packet injection into the network
 
     int _num_routers_per_group; //number of routers per group - used for turning global ID into local and back
-    int _num_planes;
-    int _total_groups;
     int _num_groups;
     int _source_plane;
 
     bool is_solidified; //flag for whether or not solidification has taken place so that this can be checked at the end of router init
 
 public:
-    ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int num_router_per_group, int num_groups);
-    ConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int max_injection, int num_router_per_group, int num_groups, int num_planes, ManagerType manType);
+    DragonflyConnectionManager();
+    DragonflyConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int num_router_per_group, int num_groups);
+    DragonflyConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int max_injection, int num_router_per_group, int num_groups, int num_planes, ManagerType manType);
     /**
      * @brief Adds a connection to the manager, returns a reference to it
      * @param dest_gid the global ID of the destination router
@@ -369,15 +382,12 @@ public:
     vector< int > get_router_gids_with_global_to_group(int group_id);
 
     vector< int > get_router_gids_with_global_to_group(int group_id, bool include_failed);
-    
-    // vector< Connection > get_routed_connections_in_group(int dest_lid, bool include_failed);
-
-    // vector< Connection > get_routed_connections_in_group(int dest_lid);
 
     vector< int > get_groups_that_connect_to_group(int dest_group, bool include_failed);
 
     vector< int > get_groups_that_connect_to_group(int dest_group);
 
+    vector< int > get_connected_gids_by_connection_type(ConnectionType conn_type);
 
     /**
      * @brief get the source ID of the owner of the manager
@@ -552,6 +562,5 @@ public:
      */
     void print_connections();
 };
-
 
 #endif /* end of include guard:*/
