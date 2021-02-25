@@ -26,6 +26,7 @@
 #include "all_to_one_swm_user_code.h"
 #include "one_to_many_swm_user_code.h"
 #include "many_to_many_swm_user_code.h"
+#include "milc_swm_user_code.h"
 #include "allreduce.h"
 
 #define ALLREDUCE_SHORT_MSG_SIZE 2048
@@ -821,6 +822,11 @@ static void workload_caller(void * arg)
         ManyToManySWMUserCode * many_to_many_swm = static_cast< ManyToManySWMUserCode*>(sctx->swm_obj);
         many_to_many_swm->call();
     }
+    else if(strcmp(sctx->workload_name, "milc") == 0)
+    {
+        MilcSWMUserCode * milc_swm = static_cast< MilcSWMUserCode*>(sctx->swm_obj);
+        milc_swm->call();
+    }
 }
 static int comm_online_workload_load(const char * params, int app_id, int rank)
 {
@@ -902,6 +908,10 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     {
         path.append("/many_to_many_workload1.json");
     }
+    else if(strcmp(o_params->workload_name, "milc") == 0)
+    {
+        path.append("/milc_skeleton.json");
+    }
     else
         tw_error(TW_LOC, "\n Undefined workload type %s ", o_params->workload_name);
 
@@ -950,6 +960,11 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     {
         ManyToManySWMUserCode * many_to_many_swm = new ManyToManySWMUserCode(root, generic_ptrs);
         my_ctx->sctx.swm_obj = (void*)many_to_many_swm;
+    }
+    else if(strcmp(o_params->workload_name, "milc") == 0)
+    {
+        MilcSWMUserCode * milc_swm = new MilcSWMUserCode(root, generic_ptrs);
+        my_ctx->sctx.swm_obj = (void*)milc_swm;
     }
 
     if(global_prod_thread == NULL)
