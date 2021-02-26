@@ -27,7 +27,7 @@ extern "C" {
 
 #define MAX_NAME_LENGTH 256
 #define CATEGORY_NAME_MAX 16
-#define CATEGORY_MAX 12
+#define CATEGORY_MAX 15
 
 // simple deprecation attribute hacking
 #if !defined(DEPRECATED)

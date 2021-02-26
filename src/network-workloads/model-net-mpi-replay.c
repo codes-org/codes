@@ -33,7 +33,7 @@
 #define COL_TAG 1235
 #define BAR_TAG 1234
 #define PRINT_SYNTH_TRAFFIC 1
-#define MAX_JOBS 5
+#define MAX_JOBS 11
 
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
@@ -1937,7 +1937,7 @@ static void codes_exec_mpi_send(nw_state* s,
        local_m.fwd.rend_send = 1;
        remote_m = local_m; 
        remote_m.msg_type = MPI_REND_ARRIVED;
-    	
+
        m->event_rc = model_net_event_mctx(net_id, &mapping_context, &mapping_context, 
             prio, dest_rank, mpi_op->u.send.num_bytes, (self_overhead + soft_delay_mpi + nic_delay),
 	    sizeof(nw_message), (const void*)&remote_m, sizeof(nw_message), (const void*)&local_m, lp);
@@ -2084,6 +2084,8 @@ static void send_ack_back(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp, m
           strcpy(prio, "high");
         else if(s->app_id == 1)
           strcpy(prio, "medium");
+        else
+          strcpy(prio, "low");
     }
     else if(priority_type == 1)
     {
@@ -2333,7 +2335,6 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        else if(strlen(workloads_conf_file) > 0)
        {
             strcpy(oc_params.workload_name, file_name_of_job[lid.job]);
-       
        }
 
        //assert(strcmp(oc_params.workload_name, "lammps") == 0 || strcmp(oc_params.workload_name, "nekbone") == 0);

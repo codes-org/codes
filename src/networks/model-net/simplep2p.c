@@ -17,8 +17,8 @@
 #include "codes/codes.h"
 #include "codes/net/simplep2p.h"
 
-#define CATEGORY_NAME_MAX 16
-#define CATEGORY_MAX 12
+// #define CATEGORY_NAME_MAX 16
+// #define CATEGORY_MAX 12
 
 #define SIMPLEP2P_DEBUG 0
 
