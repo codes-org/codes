@@ -1,6 +1,6 @@
 #include "codes/network-manager/dragonfly-network-manager.h"
 
-#define ENABLE_SHORT_PATH_CALC 1
+#define ENABLE_SHORT_PATH_CALC 0
 #define MAX_PATH_VAL 999
 #define DEST -999
 

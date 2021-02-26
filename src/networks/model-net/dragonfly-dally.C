@@ -39,7 +39,7 @@
 #include <cortex/topology.h>
 #endif
 
-#define DUMP_CONNECTIONS 1
+#define DUMP_CONNECTIONS 0
 #define PRINT_CONFIG 1
 #define DFLY_HASH_TABLE_SIZE 4999
 // debugging parameters
