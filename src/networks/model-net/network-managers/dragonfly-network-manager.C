@@ -959,43 +959,65 @@ bool DragonflyConnectionManager::is_connected_to_by_type(int dest_id, Connection
 
 bool DragonflyConnectionManager::is_connected_to_by_type(int dest_id, ConnectionType type, bool include_failed)
 {
-    map<int, vector<Connection> > the_map;
-    map<int, vector<Connection> >::iterator map_it;
+    if (include_failed) {
+        if (intraGroupConnectionsGID.find(dest_id) != intraGroupConnectionsGID.end())
+            return true;
+        if (globalConnections.find(dest_id) != globalConnections.end())
+            return true;
+        if (terminalConnections.find(dest_id) != terminalConnections.end())
+            return true;
 
-    if (include_failed)
-    {
-        if (type == CONN_LOCAL)
-            the_map = intraGroupConnections;
-        else if (type == CONN_GLOBAL)
-            the_map = globalConnections;
-        else if (type == CONN_TERMINAL)
-            the_map = terminalConnections;
-        else if (type == CONN_INJECTION)
-            the_map = injectionConnections;
-        else
-            assert(false);
+        return false;
     }
     else {
-        if (type == CONN_LOCAL)
-            the_map = intraGroupConnections_nofail;
-        else if (type == CONN_GLOBAL)
-            the_map = globalConnections_nofail;
-        else if (type == CONN_TERMINAL)
-            the_map = terminalConnections_nofail;
-        else if (type == CONN_INJECTION)
-            the_map = injectionConnections_nofail;
-        else
-            assert(false);
+        if (intraGroupConnectionsGID_nofail.find(dest_id) != intraGroupConnectionsGID_nofail.end())
+            return true;
+        if (globalConnections_nofail.find(dest_id) != globalConnections_nofail.end())
+            return true;
+        if (terminalConnections_nofail.find(dest_id) != terminalConnections_nofail.end())
+            return true;
+
+        return false;
     }
 
-    vector<Connection>::iterator vec_it;
-    map_it = the_map.find(dest_id);
-    if (map_it != the_map.end())
-    {
-        if (map_it->second.size() > 0) //verify that there is at least one connection - empty vector shouldn't count
-            return true;
-    }
-    return false;
+    //The below version is safer but slow as heck.
+    // unordered_map<int, vector<Connection> > the_map;
+    // unordered_map<int, vector<Connection> >::iterator map_it;
+
+    // if (include_failed)
+    // {
+    //     if (type == CONN_LOCAL)
+    //         the_map = intraGroupConnections;
+    //     else if (type == CONN_GLOBAL)
+    //         the_map = globalConnections;
+    //     else if (type == CONN_TERMINAL)
+    //         the_map = terminalConnections;
+    //     else if (type == CONN_INJECTION)
+    //         the_map = injectionConnections;
+    //     else
+    //         assert(false);
+    // }
+    // else {
+    //     if (type == CONN_LOCAL)
+    //         the_map = intraGroupConnections_nofail;
+    //     else if (type == CONN_GLOBAL)
+    //         the_map = globalConnections_nofail;
+    //     else if (type == CONN_TERMINAL)
+    //         the_map = terminalConnections_nofail;
+    //     else if (type == CONN_INJECTION)
+    //         the_map = injectionConnections_nofail;
+    //     else
+    //         assert(false);
+    // }
+
+    // vector<Connection>::iterator vec_it;
+    // map_it = the_map.find(dest_id);
+    // if (map_it != the_map.end())
+    // {
+    //     if (map_it->second.size() > 0) //verify that there is at least one connection - empty vector shouldn't count
+    //         return true;
+    // }
+    // return false;
 }
 
 bool DragonflyConnectionManager::is_any_connection_to(int dest_global_id)
