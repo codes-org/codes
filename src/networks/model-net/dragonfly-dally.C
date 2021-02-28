@@ -2362,8 +2362,6 @@ void issue_bw_monitor_event(terminal_state * s, tw_bf * bf, terminal_dally_messa
             s->qos_status[i][j] = Q_ACTIVE;
             s->qos_data[i][j] = 0;
         }
-        s->busy_time_sample[i] = 0;
-        s->ross_sample.busy_time_sample[i] = 0;
     }
 
     if(tw_now(lp) > max_qos_monitor)
@@ -2947,7 +2945,7 @@ void router_dally_init(router_state * r, tw_lp * lp)
 /* dragonfly packet event reverse handler */
 static void dragonfly_dally_packet_event_rc(tw_lp *sender)
 {
-	codes_local_latency_reverse(sender);
+	// codes_local_latency_reverse(sender);
 	return;
 }
 
@@ -2970,7 +2968,8 @@ static tw_stime dragonfly_dally_packet_event(
     terminal_dally_message * msg;
     char* tmp_ptr;
 
-    xfer_to_nic_time = codes_local_latency(sender); 
+    // xfer_to_nic_time = codes_local_latency(sender);
+    xfer_to_nic_time = 0;
     //e_new = tw_event_new(sender->gid, xfer_to_nic_time+offset, sender);
     //msg = tw_event_data(e_new);
     e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time+offset,
@@ -3064,27 +3063,27 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
         s->in_send_loop[msg->rail_id] = 0;
     }
 
+    if (s->params->num_injection_queues > 1) {
+        // int* scs = (int*)rc_stack_pop(s->st);
+        int* iis = (int*)rc_stack_pop(s->st);
+        tw_stime* bts = (tw_stime*)rc_stack_pop(s->st);
 
-    // int* scs = (int*)rc_stack_pop(s->st);
-    int* iis = (int*)rc_stack_pop(s->st);
-    tw_stime* bts = (tw_stime*)rc_stack_pop(s->st);
-    
-    for(int j = 0; j < s->params->num_injection_queues; j++) 
-    {
-        s->last_buf_full[j] = bts[j];
-        s->issueIdle[j] = iis[j];
-        // s->stalled_chunks[j] = scs[j];
+        for(int j = 0; j < s->params->num_injection_queues; j++)
+        {
+            s->last_buf_full[j] = bts[j];
+            s->issueIdle[j] = iis[j];
+            // s->stalled_chunks[j] = scs[j];
+        }
+        buff_time_storage_delete(bts);
+        int_storage_delete(iis);
+        // int_storage_delete(scs);
     }
-    buff_time_storage_delete(bts);
-    int_storage_delete(iis);
-    // int_storage_delete(scs);
 
-    // if (bf->c11) {
-    //     s->issueIdle[msg->rail_id] = 0;
-    //     s->stalled_chunks[msg->rail_id]--;
-    //     if(bf->c8)
-    //         s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
-    // }
+    if (bf->c11) {
+        s->issueIdle[msg->rail_id] = 0;
+        if(bf->c8)
+            s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
+    }
     struct mn_stats* stat;
     stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
     stat->send_count--;
@@ -3314,8 +3313,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         {
             bf->c1 = 1;
             /* Issue an event on both terminal and router to monitor bandwidth */
-            msg->num_cll++;
-            tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
+            tw_stime bw_ts = bw_reset_window;
             terminal_dally_message * m;
             tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp, DRAGONFLY_DALLY,
                 (void**)&m, NULL);
@@ -3372,35 +3370,50 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     }
     nic_ts = g_tw_lookahead + injection_ts;
 
-    tw_stime *bts = buff_time_storage_create(s); //mallocs space to push onto the rc stack -- free'd in rc
-    int *iis = int_storage_create(s);
-    // int *scs = int_storage_create(s);
 
-    //TODO: Inspect this and verify that we should be looking at each port always
-    for(int j=0; j<s->params->num_injection_queues; j++){
-        bts[j] = s->last_buf_full[j];
-        iis[j] = s->issueIdle[j];
-        // scs[j] = s->stalled_chunks[j];
-        if(s->terminal_length[j][vcg] < s->params->cn_vc_size)
-        {
-            double dither = .0001 * tw_rand_unif(lp->rng);
-            msg->num_rngs++;
-            model_net_method_idle_event2(nic_ts+dither, 0, j, lp);
-        }
-        else
-        {
-            s->issueIdle[j] = 1;
-            // s->stalled_chunks[j]++;
-            if(s->last_buf_full[j] == 0.0)
+
+
+    if (s->params->num_injection_queues > 1) {
+        tw_stime *bts = buff_time_storage_create(s); //mallocs space to push onto the rc stack -- free'd in rc
+        int *iis = int_storage_create(s);
+        // int *scs = int_storage_create(s);
+
+        //TODO: Inspect this and verify that we should be looking at each port always
+        for(int j=0; j<s->params->num_injection_queues; j++){
+            bts[j] = s->last_buf_full[j];
+            iis[j] = s->issueIdle[j];
+            // scs[j] = s->stalled_chunks[j];
+            if(s->terminal_length[j][vcg] < s->params->cn_vc_size)
             {
-                s->last_buf_full[j] = tw_now(lp);;
+                model_net_method_idle_event2(nic_ts, 0, j, lp);
+            }
+            else
+            {
+                s->issueIdle[j] = 1;
+                // s->stalled_chunks[j]++;
+                if(s->last_buf_full[j] == 0.0)
+                {
+                    s->last_buf_full[j] = tw_now(lp);;
+                }
+            }
+        }
+        rc_stack_push(lp, bts, buff_time_storage_delete, s->st);
+        rc_stack_push(lp, iis, int_storage_delete, s->st);
+        // rc_stack_push(lp, scs, int_storage_delete, s->st);
+    }
+    else {
+        if (s->terminal_length[msg->rail_id][vcg] < s->params->cn_vc_size) {
+            model_net_method_idle_event2(nic_ts, 0, msg->rail_id, lp);
+        } else {
+            bf->c11 = 1;
+            s->issueIdle[msg->rail_id] = 1;
+            if (s->last_buf_full[msg->rail_id] == 0.0) {
+                bf->c8 = 1;
+                msg->saved_busy_time = s->last_buf_full[msg->rail_id];
+                s->last_buf_full[msg->rail_id] = tw_now(lp);
             }
         }
     }
-    rc_stack_push(lp, bts, buff_time_storage_delete, s->st);
-    rc_stack_push(lp, iis, int_storage_delete, s->st);
-    // rc_stack_push(lp, scs, int_storage_delete, s->st);
-
 
     // if(s->terminal_length[msg->rail_id][vcg] < s->params->cn_vc_size) {
     //     model_net_method_idle_event2(nic_ts, 0, msg->rail_id, lp);
@@ -3589,7 +3602,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     s->terminal_available_time[msg->rail_id] = maxd(s->terminal_available_time[msg->rail_id], tw_now(lp));
     s->terminal_available_time[msg->rail_id] += injection_delay;
 
-    injection_ts = s->terminal_available_time - tw_now(lp);
+    injection_ts = s->terminal_available_time[msg->rail_id] - tw_now(lp);
     propagation_ts = injection_ts + propagation_delay;
 
     router_id = s->router_lp[msg->rail_id];
@@ -4986,7 +4999,7 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
         injection_delay = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, bandwidth);
 
     msg->num_cll++;
-    injection_delay += s->params->router_delay + codes_local_latency(lp);
+    injection_delay += s->params->router_delay;
 
     msg->saved_available_time = s->next_output_available_time[output_port];
     s->next_output_available_time[output_port] = 
@@ -5451,8 +5464,7 @@ static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, 
         //     // --------- return non-direct connection (still minimal though)        
         // }
         else { //we don't have a direct connection to group and need list of routers in our group that do
-            vector<Connection> poss_next_conns_to_group = s->connMan.get_routed_connections_to_group(fdest_group_id, true);
-
+            vector<Connection> poss_next_conns_to_group = s->connMan.get_next_hop_routed_connections_to_group(fdest_group_id);
             // vector< Connection > poss_next_conns_to_group;
             // set< int > poss_router_id_set_to_group; //TODO this might be a source of non-determinism(?)
             // for(int i = 0; i < connectionList[my_group_id][fdest_group_id].size(); i++)
@@ -5508,7 +5520,7 @@ static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *b
                 return conns_to_intm_group;
             }
             else { //no - route within group to router that DOES have a connection to intm group
-                vector<Connection> conns_to_connecting_routers = s->connMan.get_routed_connections_to_group(preset_intm_group_id, true);
+                vector<Connection> conns_to_connecting_routers = s->connMan.get_next_hop_routed_connections_to_group(preset_intm_group_id);
                 // vector<int> connecting_router_ids = connectionList[my_group_id][preset_intm_group_id];
                 // vector< Connection > conns_to_connecting_routers;
                 // for (int i = 0; i < connecting_router_ids.size(); i++)
@@ -5606,7 +5618,7 @@ static Connection dfdally_nonminimal_routing(router_state *s, tw_bf *bf, termina
         return next_conn;
     }
     else { // I need to route to a router in my group that does have a direct connection to the intermediate group
-        vector<Connection> connections_toward_next_group = s->connMan.get_routed_connections_to_group(next_dest_group_id, true);
+        vector<Connection> connections_toward_next_group = s->connMan.get_next_hop_routed_connections_to_group(next_dest_group_id);
         // vector<int> connecting_router_ids = connectionList[my_group_id][next_dest_group_id];
         // assert(connecting_router_ids.size() > 0);
         // msg->num_rngs++;

@@ -279,7 +279,7 @@ static tw_stime issue_event(
      */
 
     /* skew each kickoff event slightly to help avoid event ties later on */
-    time_offset = g_tw_lookahead + tw_rand_exponential(lp->rng, mean_interval) + tw_rand_unif(lp->rng)*.00001;
+    time_offset = g_tw_lookahead + tw_rand_exponential(lp->rng, mean_interval);
     // time_offset = tw_rand_exponential(lp->rng, mean_interval);
 
     e = tw_event_new(lp->gid, time_offset, lp);
@@ -343,7 +343,7 @@ static void handle_kickoff_rev_event(
     model_net_event_rc2(lp, &m->event_rc);
 	ns->msg_sent_count--;
     tw_rand_reverse_unif(lp->rng);
-    tw_rand_reverse_unif(lp->rng);
+    // tw_rand_reverse_unif(lp->rng);
 }
 static void handle_kickoff_event(
 	    svr_state * ns,
@@ -492,7 +492,7 @@ static void handle_remote_rev_event(
         if (b->c2)
             ns->max_server_latency = m->saved_time;
 
-        tw_rand_reverse_unif(lp->rng);
+        // tw_rand_reverse_unif(lp->rng);
     }
 }
 
@@ -522,11 +522,11 @@ static void handle_remote_event(
         // ns->end_ts = tw_now(lp);
 
 
-        tw_stime noise = tw_rand_unif(lp->rng) * .001;
+        // tw_stime noise = tw_rand_unif(lp->rng) * .001;
 
         tw_event *e;
         svr_msg *new_msg;
-        e = tw_event_new(m->src, noise, lp);
+        e = tw_event_new(m->src, 0, lp);
         new_msg = tw_event_data(e);
         new_msg->svr_event_type = ACK;
         tw_event_send(e);
