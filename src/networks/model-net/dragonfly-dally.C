@@ -50,6 +50,7 @@
 #define TRACK_PKT -1
 #define TRACK_MSG -1
 #define DEBUG 0
+#define DEBUG_QOS 1
 #define MAX_STATS 65536
 #define SHOW_ADAP_STATS 1
 // maximum number of characters allowed to represent the routing algorithm as a string
@@ -83,6 +84,7 @@ static long num_remote_packets = 0;
 static long global_stalled_chunk_counter = 0;
 
 /* time in nanosecs */
+//static int bw_reset_window = 50000000;
 static int bw_reset_window = 5000000;
 
 #define indexer3d(_ptr, _x, _y, _z, _maxx, _maxy, _maxz) \
@@ -2367,9 +2369,8 @@ void issue_bw_monitor_event(terminal_state * s, tw_bf * bf, terminal_dally_messa
     if(tw_now(lp) > max_qos_monitor)
         return;
     
-    msg->num_cll++;
     terminal_dally_message * m; 
-    tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
+    tw_stime bw_ts = bw_reset_window;
     tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp, DRAGONFLY_DALLY,
             (void**)&m, NULL); 
     m->type = T_BANDWIDTH;
@@ -2439,7 +2440,7 @@ void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_dally_messa
             #if DEBUG_QOS == 1 
             if(dragonfly_rtr_bw_log != NULL)
             {
-                if(s->qos_data[j][k] > 0)
+                if(s->qos_data[i][j] > 0)
                 {
                     fprintf(dragonfly_rtr_bw_log, "\n %d %f %d %d %d %d %d %f", s->router_id, tw_now(lp), i, j, bw_consumed, s->qos_status[i][j], s->qos_data[i][j], s->busy_time_sample[i]);
                 }
@@ -2463,8 +2464,7 @@ void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_dally_messa
     if(tw_now(lp) > max_qos_monitor)
         return;
     
-    msg->num_cll++;
-    tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
+    tw_stime bw_ts = bw_reset_window;
     terminal_dally_message *m;
     tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp,
             DRAGONFLY_DALLY_ROUTER, (void**)&m, NULL);
@@ -2981,7 +2981,7 @@ static tw_stime dragonfly_dally_packet_event(
     msg->sender_lp=req->src_lp;
     msg->sender_mn_lp = sender->gid;
     msg->packet_size = packet_size;
-    msg->travel_start_time = tw_now(sender);
+    //msg->travel_start_time = tw_now(sender);
     msg->remote_event_size_bytes = 0;
     msg->local_event_size_bytes = 0;
     msg->type = T_GENERATE;
@@ -3103,7 +3103,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     s->packet_gen++;
     s->total_gen_size += msg->packet_size;
 
-    tw_stime ts, nic_ts;
+    tw_stime ts, injection_ts, nic_ts;
 
     assert(lp->gid != msg->dest_terminal_lpid);
     const dragonfly_param *p = s->params;
@@ -3118,14 +3118,6 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
 
     if(msg->packet_size < s->params->chunk_size)
         cn_delay = bytes_to_ns(msg->packet_size % s->params->chunk_size, s->params->cn_bandwidth);
-
-    if (g_congestion_control_enabled) {
-        if (cc_terminal_is_abatement_active(s->local_congestion_controller)) {
-            double bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
-            cn_delay = bytes_to_ns(s->params->chunk_size, bandwidth_coef*s->params->cn_bandwidth);
-            // cn_delay = cn_delay * (1.0/bandwidth_coef);
-        }
-    }
 
     //get rails available: should be from rails known to not be failed
     vector< Connection > injection_connections = s->connMan.get_connections_by_type(CONN_INJECTION, false);
@@ -3303,8 +3295,6 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         bf->c4 = 1;
         num_remote_packets++;
     }
-    msg->num_rngs++;
-    nic_ts = g_tw_lookahead + (num_chunks * cn_delay) + (tw_rand_unif(lp->rng)*.001);
     
     msg->packet_ID = s->packet_counter;
     s->packet_counter++;
@@ -3370,6 +3360,17 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         vcg, cur_chunk);
         s->terminal_length[msg->rail_id][vcg] += s->params->chunk_size;
     }
+    
+    if (g_congestion_control_enabled) {
+        if (cc_terminal_is_abatement_active(s->local_congestion_controller)) {
+            double bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
+            injection_ts = bytes_to_ns(msg->packet_size, bandwidth_coef * s->params->cn_bandwidth);
+        }
+    }
+    else {
+        injection_ts = bytes_to_ns(msg->packet_size, s->params->cn_bandwidth);
+    }
+    nic_ts = g_tw_lookahead + injection_ts;
 
     tw_stime *bts = buff_time_storage_create(s); //mallocs space to push onto the rc stack -- free'd in rc
     int *iis = int_storage_create(s);
@@ -3380,7 +3381,6 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         bts[j] = s->last_buf_full[j];
         iis[j] = s->issueIdle[j];
         // scs[j] = s->stalled_chunks[j];
-
         if(s->terminal_length[j][vcg] < s->params->cn_vc_size)
         {
             double dither = .0001 * tw_rand_unif(lp->rng);
@@ -3420,8 +3420,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     
     if(s->in_send_loop[msg->rail_id] == 0) {
         bf->c5 = 1;
-        msg->num_cll++;
-        ts = codes_local_latency(lp);
+        ts = 0;
         terminal_dally_message *m;
         tw_event* e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_DALLY, 
         (void**)&m, NULL);
@@ -3558,44 +3557,48 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     uint64_t num_chunks = cur_entry->msg.packet_size/s->params->chunk_size;
     if(cur_entry->msg.packet_size < s->params->chunk_size)
         num_chunks++;
+    cur_entry->msg.travel_start_time = tw_now(lp);
 
-    tw_stime delay = s->params->cn_delay;
+    double bandwidth_coef = 1;
+    if (g_congestion_control_enabled) {
+        if(cc_terminal_is_abatement_active(s->local_congestion_controller)) {
+            bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
+        }
+    }
+    /* Injection (or transmission) delay: Time taken for the data to be placed on the link/channel
+     *    - Based on bandwidth
+     * Propagtion delay: Time taken for the data to cross the link and arrive at the reciever
+     *    - A physical property of the material of the link (eg. copper, optical fiber)
+     */
+    tw_stime injection_ts, injection_delay;
+    tw_stime propagation_ts, propagation_delay;
+ 
+    injection_delay = bytes_to_ns(s->params->chunk_size, bandwidth_coef * s->params->cn_bandwidth);
     if((cur_entry->msg.packet_size < s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
     {
         data_size = cur_entry->msg.packet_size % s->params->chunk_size;
-        delay = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, s->params->cn_bandwidth); 
+        injection_delay = bytes_to_ns(data_size, bandwidth_coef * s->params->cn_bandwidth);
     }
-
-    if (g_congestion_control_enabled) {
-        if(cc_terminal_is_abatement_active(s->local_congestion_controller)) {
-            double bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
-            delay = bytes_to_ns(s->params->chunk_size, bandwidth_coef*s->params->cn_bandwidth);
-            // delay = delay * (1.0/bandwidth_coef);
-        }
-    }
+    propagation_delay = s->params->cn_delay;
 
     s->qos_data[msg->rail_id][vcg] += data_size;
   
+    injection_delay += g_tw_lookahead;
+    
     msg->saved_available_time = s->terminal_available_time[msg->rail_id];
-    
-    msg->num_rngs++;
-    ts = g_tw_lookahead + delay + (tw_rand_unif(lp->rng)*.001);
-    
     s->terminal_available_time[msg->rail_id] = maxd(s->terminal_available_time[msg->rail_id], tw_now(lp));
-    s->terminal_available_time[msg->rail_id] += ts;
+    s->terminal_available_time[msg->rail_id] += injection_delay;
 
-    ts = s->terminal_available_time[msg->rail_id] - tw_now(lp);
-    // codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
-    //     &mapping_type_id, NULL, &mapping_rep_id, &mapping_offset);
-    // codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 0,
-    //     s->router_id[msg->rail_id] / num_routers_per_mgrp, s->router_id[msg->rail_id] % num_routers_per_mgrp, &router_id);
+    injection_ts = s->terminal_available_time - tw_now(lp);
+    propagation_ts = injection_ts + propagation_delay;
+
     router_id = s->router_lp[msg->rail_id];
 
     //  if(s->router_id == 1)
     //   printf("\n Local router id %d global router id %d ", s->router_id, router_id);
     // we are sending an event to the router, so no method_event here
     void * remote_event;
-    e = model_net_method_event_new(router_id, ts, lp,
+    e = model_net_method_event_new(router_id, propagation_ts, lp,
             DRAGONFLY_DALLY_ROUTER, (void**)&m, &remote_event);
     memcpy(m, &cur_entry->msg, sizeof(terminal_dally_message));
     if (m->remote_event_size_bytes){
@@ -3624,8 +3627,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
 
     if(cur_entry->msg.chunk_id == num_chunks - 1 && (cur_entry->msg.local_event_size_bytes > 0)) 
     {
-        msg->num_cll++;
-        tw_stime local_ts = codes_local_latency(lp); 
+        tw_stime local_ts = 0;
         tw_event *e_new = tw_event_new(cur_entry->msg.sender_lp, local_ts, lp);
         void * m_new = tw_event_data(e_new);
         void *local_event = (char*)cur_entry->event_data + 
@@ -3654,9 +3656,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     /* if there is another packet inline then schedule another send event */
     if(cur_entry != NULL && s->vc_occupancy[msg->rail_id][next_vcg] + s->params->chunk_size <= s->params->cn_vc_size) {
         terminal_dally_message *m_new;
-        msg->num_rngs++;
-        ts += tw_rand_unif(lp->rng)*.001;
-        e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_DALLY, (void**)&m_new, NULL);
+        e = model_net_method_event_new(lp->gid, injection_ts, lp, DRAGONFLY_DALLY, (void**)&m_new, NULL);
         m_new->type = T_SEND;
         m_new->rail_id = msg->rail_id;
         m_new->magic = terminal_magic_num;
@@ -3669,9 +3669,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     if(s->issueIdle[msg->rail_id]) {
         bf->c5 = 1;
         s->issueIdle[msg->rail_id] = 0;
-        msg->num_rngs++;
-        ts += tw_rand_unif(lp->rng)*.001;
-        model_net_method_idle_event2(ts, 0, msg->rail_id, lp);
+        model_net_method_idle_event2(injection_ts, 0, msg->rail_id, lp);
     
         if(s->last_buf_full[msg->rail_id] > 0.0)
         {
@@ -3696,8 +3694,7 @@ static void send_remote_event(terminal_state * s, terminal_dally_message * msg, 
 {
     void * tmp_ptr = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
     
-    msg->num_rngs++;
-    tw_stime ts = g_tw_lookahead + mpi_soft_overhead + tw_rand_unif(lp->rng) *.001;
+    tw_stime ts = g_tw_lookahead + mpi_soft_overhead;
 
     if (msg->is_pull){
         bf->c4 = 1;
@@ -3892,8 +3889,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
         printf("\n Packet %llu arrived at lp %llu hops %d ", LLU(msg->sender_lp), LLU(lp->gid), msg->my_N_hop);
     
-    msg->num_rngs++;
-    tw_stime ts = g_tw_lookahead + s->params->cn_credit_delay + tw_rand_unif(lp->rng) * .001;
+    tw_stime ts = g_tw_lookahead + s->params->cn_credit_delay;
 
     // no method_event here - message going to router
     tw_event * buf_e;
@@ -4104,8 +4100,7 @@ static void terminal_buf_update(terminal_state * s,
     if(num_qos_levels > 1)
         vcg = get_vcg_from_category(msg);
 
-    msg->num_cll++;
-    tw_stime ts = codes_local_latency(lp);
+    tw_stime ts = 0;
     s->vc_occupancy[msg->rail_id][vcg] -= s->params->chunk_size;
     
     if(s->in_send_loop[msg->rail_id] == 0 && s->terminal_msgs[msg->rail_id][vcg] != NULL) {
@@ -4506,8 +4501,11 @@ static void router_credit_send(router_state * s, terminal_dally_message * msg,
     else
         printf("\n Invalid message type");
 
-    (*rng_counter)++;
-    ts = g_tw_lookahead + credit_delay +  (tw_rand_unif(lp->rng) * .001);
+    /* TODO: Credit delay should really be a combination of credit processing time,
+     * the injection delay, and propagation delay of the channel. But this level of
+     * granularity _may_ only be necessary for specific credit-based flow control
+     * studies. It should certainly be considered for those studies. */
+    ts = g_tw_lookahead + credit_delay;
 
     if (is_terminal) {
         buf_e = model_net_method_event_new(dest, ts, lp, DRAGONFLY_DALLY, 
@@ -4605,8 +4603,7 @@ static void router_packet_receive( router_state * s,
         if(s->is_monitoring_bw == 0)
         {
             bf->c1 = 1;
-            msg->num_cll++;
-            tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
+            tw_stime bw_ts = bw_reset_window;
             terminal_dally_message * m;
             tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp, 
                 DRAGONFLY_DALLY_ROUTER, (void**)&m, NULL); 
@@ -4757,8 +4754,7 @@ static void router_packet_receive( router_state * s,
         if(s->in_send_loop[output_port] == 0) {
             bf->c3 = 1;
             terminal_dally_message *m;
-            msg->num_cll++;
-            ts = codes_local_latency(lp); 
+            ts = maxd(s->next_output_available_time[output_port], tw_now(lp)) - tw_now(lp);
             tw_event *e = model_net_method_event_new(lp->gid, ts, lp,
                     DRAGONFLY_DALLY_ROUTER, (void**)&m, NULL);
             m->rail_id = msg->rail_id;
@@ -4897,7 +4893,6 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
 /* routes the current packet to the next stop */
 static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
 {
-    tw_stime ts;
     tw_event *e;
     terminal_dally_message *m;
     int output_port = msg->vc_index;
@@ -4973,23 +4968,35 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     if(cur_entry->msg.packet_size < s->params->chunk_size)
         num_chunks++;
 
-    double bytetime = delay;
-    
+    /* Injection delay: Time taken for the data to be placed on the link/channel
+     *  - Based on bandwidth
+     * Propagtion delay: Time taken for the data to cross the link and arrive at the reciever
+     *  - A physical property of the material of teh link (eg. copper, optical fiber)
+     */
+    tw_stime injection_ts, injection_delay;
+    tw_stime propagation_ts, propagation_delay;
+
+    propagation_delay = delay;
+    injection_delay = bytes_to_ns(s->params->chunk_size, bandwidth);
+
     if(cur_entry->msg.packet_size == 0)
-        bytetime = bytes_to_ns(s->params->credit_size, bandwidth);
+        injection_delay = bytes_to_ns(s->params->credit_size, bandwidth);
 
     if((cur_entry->msg.packet_size < s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
-        bytetime = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, bandwidth); 
+        injection_delay = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, bandwidth);
 
-    msg->num_rngs++;
-    ts = g_tw_lookahead + (tw_rand_unif( lp->rng)*.001) + bytetime + s->params->router_delay;
+    msg->num_cll++;
+    injection_delay += s->params->router_delay + codes_local_latency(lp);
 
     msg->saved_available_time = s->next_output_available_time[output_port];
     s->next_output_available_time[output_port] = 
         maxd(s->next_output_available_time[output_port], tw_now(lp));
-    s->next_output_available_time[output_port] += ts;
+    s->next_output_available_time[output_port] += injection_delay;
 
-    ts = s->next_output_available_time[output_port] - tw_now(lp);
+    injection_ts = s->next_output_available_time[output_port] - tw_now(lp);
+    propagation_ts = injection_ts + propagation_delay;
+
+
     // dest can be a router or a terminal, so we must check
     void * m_data;
     if (to_terminal) {
@@ -4998,13 +5005,11 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
         printf("\n intra-group radix %d output port %d next stop %d", s->params->intra_grp_radix, output_port, cur_entry->msg.next_stop);
         assert(cur_entry->msg.next_stop == cur_entry->msg.dest_terminal_lpid);
         e = model_net_method_event_new(cur_entry->msg.next_stop, 
-            s->next_output_available_time[output_port] - tw_now(lp), lp,
-            DRAGONFLY_DALLY, (void**)&m, &m_data);
+            propagation_ts, lp, DRAGONFLY_DALLY, (void**)&m, &m_data);
     }
     else {
         e = model_net_method_event_new(cur_entry->msg.next_stop,
-                s->next_output_available_time[output_port] - tw_now(lp), lp,
-                DRAGONFLY_DALLY_ROUTER, (void**)&m, &m_data);
+                propagation_ts, lp, DRAGONFLY_DALLY_ROUTER, (void**)&m, &m_data);
     }
     memcpy(m, &cur_entry->msg, sizeof(terminal_dally_message));
     if (m->remote_event_size_bytes) {
@@ -5069,7 +5074,7 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
 
     s->qos_data[output_port][vcg] += msg_size; 
     s->next_output_available_time[output_port] -= s->params->router_delay;
-    ts -= s->params->router_delay;
+    injection_ts -= s->params->router_delay;
 
     int next_output_chan = get_next_router_vcg(s, bf, msg, lp); 
 
@@ -5083,9 +5088,7 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     assert(cur_entry != NULL); 
 
     terminal_dally_message *m_new;
-    msg->num_rngs++;
-    ts += g_tw_lookahead + (tw_rand_unif(lp->rng) * .001);
-    e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_DALLY_ROUTER,
+    e = model_net_method_event_new(lp->gid, injection_ts, lp, DRAGONFLY_DALLY_ROUTER,
                 (void**)&m_new, NULL);
     m_new->type = R_SEND;
     m_new->rail_id = msg->rail_id;
@@ -5180,8 +5183,7 @@ static void router_buf_update(router_state * s, tw_bf * bf, terminal_dally_messa
     if(s->in_send_loop[indx] == 0 && s->pending_msgs[indx][output_chan] != NULL) {
         bf->c2 = 1;
         terminal_dally_message *m;
-        msg->num_cll++;
-        tw_stime ts = codes_local_latency(lp);
+        tw_stime ts = maxd(s->next_output_available_time[indx], tw_now(lp)) - tw_now(lp);
         tw_event *e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_DALLY_ROUTER,
                 (void**)&m, NULL);
         m->type = R_SEND;
@@ -6953,3 +6955,13 @@ struct model_net_method dragonfly_dally_router_method =
 // #endif
 
 }
+
+
+/*
+ * Local variables:
+ *  c-indent-level: 4
+ *  c-basic-offset: 4
+ * End:
+ *
+ * vim: ft=c ts=8 sts=4 sw=4 expandtab
+ */
