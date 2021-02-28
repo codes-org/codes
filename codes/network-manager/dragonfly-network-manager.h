@@ -301,6 +301,7 @@ public:
     vector< int > _other_groups_i_connect_to;
     map< int, vector< Connection > > _all_conns_by_type_map;
     map< int, vector< Connection > > _routed_connections_to_group_map; //maps group ID to connections within local group that go to specified group
+    map< int, vector< Connection > > _next_hop_routed_connections_to_group_map; //maps group ID to connections within local group that directly lead to a router that goes to the specified group
     map< int, vector<int> > _routed_router_gids_to_group_map; //maps group ID to a vector of Router GIDs within current group that have a connection to the group ID
     map< int, vector<int> > _group_group_connection_map;
 
@@ -316,6 +317,7 @@ public:
     vector< int > _accessible_group_ids_nofail; //group IDs that this router can reach directly or with one intermediate router hop within its local group
     map< int, vector< Connection > > _all_conns_by_type_map_nofail;
     map< int, vector< Connection > > _routed_connections_to_group_map_nofail; //maps group ID to connections within local group that go to specified group
+    map< int, vector< Connection > > _next_hop_routed_connections_to_group_map_nofail; //maps group ID to connections within local group that directly lead to a router that goes to the specified group
     map< int, vector<int> > _routed_router_gids_to_group_map_nofail; //maps group ID to a vector of Router GIDs within current group that have a connection to the group ID
     map< int, vector<int> > _group_group_connection_map_nofail;
     
@@ -376,6 +378,10 @@ public:
     vector< Connection > get_routed_connections_to_group(int group_id, bool force_next_hop, bool include_failed);
 
     vector< Connection > get_routed_connections_to_group(int group_id, bool force_next_hop);
+
+    vector< Connection > get_next_hop_routed_connections_to_group(int group_id, bool include_failed);
+
+    vector< Connection > get_next_hop_routed_connections_to_group(int group_id);
 
     vector< int > get_accessible_group_ids();
 

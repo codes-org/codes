@@ -848,6 +848,19 @@ vector< Connection > DragonflyConnectionManager::get_routed_connections_to_group
     return get_routed_connections_to_group(group_id, get_next_hop, false);
 }
 
+vector< Connection > DragonflyConnectionManager::get_next_hop_routed_connections_to_group(int group_id, bool include_failed)
+{
+    if (include_failed)
+        return _next_hop_routed_connections_to_group_map[group_id];
+    else
+        return _next_hop_routed_connections_to_group_map_nofail[group_id];
+}
+
+vector< Connection > DragonflyConnectionManager::get_next_hop_routed_connections_to_group(int group_id)
+{
+    return get_next_hop_routed_connections_to_group(group_id, false);
+}
+
 vector< int > DragonflyConnectionManager::get_accessible_group_ids()
 {
     return _accessible_group_ids_nofail;
@@ -1317,6 +1330,14 @@ void DragonflyConnectionManager::solidify_connections()
         vector<Connection>::iterator vec_it;
         for(vec_it = conns_to_group.begin(); vec_it != conns_to_group.end(); vec_it++)
         {
+            vector< Connection > local_conns = get_connections_to_gid(vec_it->src_gid, CONN_LOCAL, true);
+            if (local_conns.size() > 1)
+                _next_hop_routed_connections_to_group_map[group_id].push_back(*vec_it);
+
+            local_conns = get_connections_to_gid(vec_it->src_gid, CONN_LOCAL, false);
+            if (local_conns.size() > 1)
+                _next_hop_routed_connections_to_group_map_nofail[group_id].push_back(*vec_it);
+
             if(vec_it->is_failed == 0)
                 _routed_connections_to_group_map_nofail[group_id].push_back(*vec_it);
         }
