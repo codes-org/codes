@@ -15,8 +15,8 @@
 #include <map>
 #include <set>
 #include <vector>
-#include <unordered_set>
-#include <unordered_map>
+#include <set>
+#include <map>
 #include <string.h>
 #include <string>
 
@@ -41,11 +41,11 @@ private:
     portchan_node_type type; //what level of the tree are we?
     unsigned long long packet_count; //number of packets on this node and children
     bool is_congested;
-    unordered_set<unsigned int> abated_terminals_this_node;
-    unordered_map<unsigned int, unsigned int> abated_terminal_child_counter; //maps terminal ID to number of children nodes that it is under abatement on
-    unordered_map<unsigned int, unsigned long long> term_count_map; //maps terminal ID to number of packets on this node and children
-    unordered_map<unsigned int, unsigned long long> app_count_map; //maps application ID to number of packets on this node and children
-    unordered_map<unsigned int, unordered_map<unsigned int, unsigned long long> > app_to_terminal_counter; //maps application ID to a map of terminals from said application and their packet counts on this node and children
+    set<unsigned int> abated_terminals_this_node;
+    map<unsigned int, unsigned int> abated_terminal_child_counter; //maps terminal ID to number of children nodes that it is under abatement on
+    map<unsigned int, unsigned long long> term_count_map; //maps terminal ID to number of packets on this node and children
+    map<unsigned int, unsigned long long> app_count_map; //maps application ID to number of packets on this node and children
+    map<unsigned int, map<unsigned int, unsigned long long> > app_to_terminal_counter; //maps application ID to a map of terminals from said application and their packet counts on this node and children
     vector<Portchan_node *> children; //pointers to children
 
 public:
@@ -60,15 +60,15 @@ public:
     unsigned long long get_packet_count_by_port_vc(int port_no, int vc_no);
     unsigned long long get_packet_count_by_port_vc_from_term(int port_no, int vc_no, unsigned int term_id);
     unsigned long long get_packet_count_by_port_vc_from_app(int port_no, int vc_no, unsigned int app_id);
-    unordered_map<unsigned int, unsigned long long> get_term_count_map();
-    unordered_map<unsigned int, unsigned long long> get_app_count_map();
-    unordered_map<unsigned int, unsigned long long> get_term_count_map_by_port(int port_no);
-    unordered_map<unsigned int, unsigned long long> get_app_count_map_by_port(int port_no);
-    unordered_map<unsigned int, unsigned long long> get_term_count_map_by_port_vc(int port_no, int vc_no);
-    unordered_map<unsigned int, unsigned long long> get_app_count_map_by_port_vc(int port_no, int vc_no);
-    unordered_map<unsigned int, unsigned long long> get_term_count_map_from_app(int app_id);
-    unordered_map<unsigned int, unsigned long long> get_term_count_map_by_port_from_app(int port_no, int app_id);
-    unordered_map<unsigned int, unsigned long long> get_term_count_map_by_port_vc_from_app(int port_no, int vc_no, int app_id);
+    map<unsigned int, unsigned long long> get_term_count_map();
+    map<unsigned int, unsigned long long> get_app_count_map();
+    map<unsigned int, unsigned long long> get_term_count_map_by_port(int port_no);
+    map<unsigned int, unsigned long long> get_app_count_map_by_port(int port_no);
+    map<unsigned int, unsigned long long> get_term_count_map_by_port_vc(int port_no, int vc_no);
+    map<unsigned int, unsigned long long> get_app_count_map_by_port_vc(int port_no, int vc_no);
+    map<unsigned int, unsigned long long> get_term_count_map_from_app(int app_id);
+    map<unsigned int, unsigned long long> get_term_count_map_by_port_from_app(int port_no, int app_id);
+    map<unsigned int, unsigned long long> get_term_count_map_by_port_vc_from_app(int port_no, int vc_no, int app_id);
     bool is_router_congested();
     bool is_port_congested(int port_no);
     bool is_port_vc_congested(int port_no, int vc_no);
@@ -79,9 +79,9 @@ public:
     void mark_unabated_terminal(int port_no, unsigned int term_id);
     void mark_unabated_terminal(int port_no, int vc_no, unsigned int term_id);
     bool is_abated_terminal(unsigned int term_id);
-    unordered_set<unsigned int> get_abated_terminals();
-    unordered_set<unsigned int> get_abated_terminals(int port_no);
-    unordered_set<unsigned int> get_abated_terminals(int port_no, int vc_no);
+    set<unsigned int> get_abated_terminals();
+    set<unsigned int> get_abated_terminals(int port_no);
+    set<unsigned int> get_abated_terminals(int port_no, int vc_no);
     void enqueue_packet(unsigned int packet_size, int port_no, int vc_no, unsigned int term_id, unsigned int app_id);
     void dequeue_packet(unsigned int packet_size, int port_no, int vc_no, unsigned int term_id, unsigned int app_id);
 };
@@ -127,7 +127,7 @@ typedef struct tlc_state
     int terminal_id;
     int app_id; //needs to be multiple if multiple jobs per terminal can exist.
 
-    unsigned int abatement_signal_count; //if > 0, abate, if 0, normal
+    int abatement_signal_count; //if > 0, abate, if 0, normal
 
     unsigned int window_epoch;
     unsigned int ejected_packet_bytes; //in current window

@@ -25,7 +25,7 @@
 #define TRACE -1
 #define MAX_WAIT_REQS 2048
 #define CS_LP_DBG 1
-#define RANK_HASH_TABLE_SZ 2000
+#define RANK_HASH_TABLE_SZ 8193
 #define NW_LP_NM "nw-lp"
 #define lprintf(_fmt, ...) \
         do {if (CS_LP_DBG) printf(_fmt, __VA_ARGS__);} while (0)
@@ -33,7 +33,8 @@
 #define COL_TAG 1235
 #define BAR_TAG 1234
 #define PRINT_SYNTH_TRAFFIC 1
-#define MAX_JOBS 11
+#define MAX_JOBS 40
+#define NEAR_ZERO .0001
 
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
@@ -535,7 +536,7 @@ static void notify_background_traffic_rc(
     {
         if(is_job_synthetic[i] == 0)
             continue;
-        tw_rand_reverse_unif(lp->rng);
+        // tw_rand_reverse_unif(lp->rng);
     }
 }
 
@@ -565,7 +566,8 @@ static void notify_background_traffic(
             int num_other_ranks = codes_jobmap_get_num_ranks(other_id, jobmap_ctx);
 
             lprintf("\n Other ranks %d ", num_other_ranks);
-            tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_exponential(lp->rng, noise); //TODO this is a possible source of nondeterminism - reused timestamp causes event ties
+            tw_stime ts = 0;
+            // tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_exponential(lp->rng, noise); //TODO this is a possible source of nondeterminism - reused timestamp causes event ties
             tw_lpid global_dest_id;
      
             for(int k = 0; k < num_other_ranks; k++)    
@@ -597,12 +599,12 @@ static void notify_other_workloads_rc(
         
     int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx); 
     
-    for(int i = 0; i < num_jobs - 1; i++)
-    {
-        if(is_job_synthetic[i])
-            continue;
-        tw_rand_reverse_unif(lp->rng);
-    }
+    // for(int i = 0; i < num_jobs - 1; i++)
+    // {
+    //     if(is_job_synthetic[i])
+    //         continue;
+    //     // tw_rand_reverse_unif(lp->rng);
+    // }
 }
 
 //notifies other (nonsynthetic) jobs that this one has completed, 
@@ -638,7 +640,8 @@ static void notify_other_workloads(
 
         tw_event *e;
         struct nw_message *m_new;
-        tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_unif(lp->rng) * 0.001;
+        tw_stime ts = 0;
+        // tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_unif(lp->rng) * 0.001;
         e = tw_event_new(global_dest_id, ts, lp);
         m_new = (struct nw_message*)tw_event_data(e);
         m_new->msg_type = CLI_OTHER_FINISH;
@@ -657,10 +660,10 @@ void handle_other_finish_rc(
     if(bf->c2)
         notify_background_traffic_rc(ns, lp, bf, m);
 
-    for (int i = 0; i < m->num_rngs; i++)
-    {
-        tw_rand_reverse_unif(lp->rng);
-    }
+    // for (int i = 0; i < m->num_rngs; i++)
+    // {
+    //     tw_rand_reverse_unif(lp->rng);
+    // }
 
 }
 
@@ -716,8 +719,8 @@ void handle_other_finish(
             //are currently in transit. This currently isn't measured for model_net_mpi_replay.
 
             //send to all non nw-lp LPs (all model net, is there a function taht does this?)
-            int num_rngs = model_net_method_end_sim_broadcast(tw_rand_unif(lp->rng), lp);
-            m->num_rngs += num_rngs;
+            int num_rngs = model_net_method_end_sim_broadcast(NEAR_ZERO, lp);
+            // m->num_rngs += num_rngs;
         }
     }
     else
@@ -741,10 +744,10 @@ static void notify_neighbor_rc(
             return;
        }
    
-       if(bf->c1)
-       {
-          tw_rand_reverse_unif(lp->rng); 
-       }
+    //    if(bf->c1)
+    //    {
+    //       tw_rand_reverse_unif(lp->rng); 
+    //    }
 } 
 static void notify_neighbor(
 	    struct nw_state * ns,
@@ -779,8 +782,9 @@ static void notify_neighbor(
         assert(ns->local_rank != ranks_my_job-1); //This should not be hit by the last rank in a workload.
         bf->c1 = 1;
 
-       printf("\n Local rank %d notifying neighbor %d ", ns->local_rank, ns->local_rank+1);
-        tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_exponential(lp->rng, noise);
+    //    printf("\n Local rank %d notifying neighbor %d ", ns->local_rank, ns->local_rank+1);
+        tw_stime ts = NEAR_ZERO;
+        // tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_exponential(lp->rng, noise);
         nbr_jid.rank = ns->local_rank + 1;
         
         /* Send a notification to the neighbor about completion */
@@ -868,7 +872,7 @@ static void gen_synthetic_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp 
         s->num_bytes_sent -= payload_sz;
         s->ross_sample.num_bytes_sent -= payload_sz;
     }
-        tw_rand_reverse_unif(lp->rng);
+        // tw_rand_reverse_unif(lp->rng);
         s->num_sends--;
         s->ross_sample.num_sends--;
 
@@ -916,6 +920,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
         case PERMUTATION:
         {
             m->rc.saved_prev_switch = s->prev_switch; //for reverse computation
+            m->rc.saved_perm = s->saved_perm_dest;
 
             length = 1;
             dest_svr = (int*) calloc(1, sizeof(int));
@@ -939,7 +944,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
                 if(dest_svr[0] == s->local_rank)
                     dest_svr[0] = (s->local_rank + num_clients/2) % num_clients;
                 /* TODO: Fix random number generation code */
-                m->rc.saved_perm = s->saved_perm_dest;
+                // m->rc.saved_perm = s->saved_perm_dest;
                 s->saved_perm_dest = dest_svr[0];
                 assert(s->saved_perm_dest != s->local_rank);
             }
@@ -1065,7 +1070,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
 
     /* New event after MEAN_INTERVAL */  
     //tw_stime ts = mean_interval  + tw_rand_exponential(lp->rng, noise); 
-    tw_stime ts = mean_interval_of_job[s->app_id] + tw_rand_exponential(lp->rng, noise);
+    tw_stime ts = mean_interval_of_job[s->app_id];
     tw_event * e;
     nw_message * m_new;
     e = tw_event_new(lp->gid, ts, lp);
@@ -1647,7 +1652,7 @@ static int rm_matching_send(nw_state * ns,
 }
 static void codes_issue_next_event_rc(tw_lp * lp)
 {
-	    tw_rand_reverse_unif(lp->rng);
+	    // tw_rand_reverse_unif(lp->rng);
 }
 
 /* Trigger getting next event at LP */
@@ -1658,8 +1663,9 @@ static void codes_issue_next_event(tw_lp* lp)
 
    tw_stime ts;
 
-   ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
-   assert(ts > 0);
+   ts = 0;
+//    ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
+//    assert(ts > 0);
    e = tw_event_new( lp->gid, ts, lp );
    msg = (nw_message*)tw_event_data(e);
 
@@ -1681,14 +1687,17 @@ static void codes_exec_comp_delay(
     s->compute_time += (mpi_op->u.delay.nsecs/compute_time_speedup);
     s->ross_sample.compute_time += (mpi_op->u.delay.nsecs/compute_time_speedup);
     ts = (mpi_op->u.delay.nsecs/compute_time_speedup);
-    if(ts <= g_tw_lookahead)
-    {
-        bf->c28 = 1;
-        ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
-    }
+    if (ts < 0)
+        ts = 0;
+    // if(ts <= g_tw_lookahead)
+    // {
+    //     bf->c28 = 1;
+    //     // ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
+    //     ts = g_tw_lookahead;
+    // }
 
 	//ts += g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
-    assert(ts > 0);
+    // assert(ts > 0);
 
 	e = tw_event_new( lp->gid, ts , lp );
 	msg = (nw_message*)tw_event_data(e);
@@ -1972,6 +1981,7 @@ static void codes_exec_mpi_send(nw_state* s,
 
         remote_m = local_m;
         remote_m.msg_type = MPI_SEND_ARRIVED;
+        remote_m.fwd.app_id = s->app_id;
     	m->event_rc = model_net_event_mctx(net_id, &mapping_context, &mapping_context, 
             prio, dest_rank, mpi_op->u.send.num_bytes, (self_overhead + copy_overhead + soft_delay_mpi + nic_delay),
 	    sizeof(nw_message), (const void*)&remote_m, sizeof(nw_message), (const void*)&local_m, lp);
@@ -2199,8 +2209,8 @@ static void update_arrival_queue_rc(nw_state* s,
     s->ross_sample.num_bytes_recvd -= m->fwd.num_bytes;
     num_bytes_recvd -= m->fwd.num_bytes;
 
-    if(bf->c1)
-        codes_local_latency_reverse(lp);
+    // if(bf->c1)
+    //     codes_local_latency_reverse(lp);
 
     if(bf->c10)
         send_ack_back_rc(s, bf, m, lp);
@@ -2275,8 +2285,9 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
 
     if(m->fwd.num_bytes < EAGER_THRESHOLD)
     {
-        tw_stime ts = codes_local_latency(lp);
-        assert(ts > 0);
+        // tw_stime ts = codes_local_latency(lp);
+        tw_stime ts = 0;
+        // assert(ts > 0);
         bf->c1 = 1;
         tw_event *e_callback =
         tw_event_new(rank_to_lpid(global_src_id),
@@ -2489,7 +2500,8 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 
         tw_event * e;
         nw_message * m_new;
-        tw_stime ts = tw_rand_exponential(lp->rng, noise);
+        // tw_stime ts = tw_rand_exponential(lp->rng, noise);
+        tw_stime ts = 0;
         e = tw_event_new(lp->gid, ts, lp);
         m_new = (nw_message*)tw_event_data(e);
         m_new->msg_type = CLI_BCKGND_GEN;
@@ -2498,6 +2510,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 
 	if(lid.rank == 0){
 		for(int k = 0; k < period_count[lid.job]; k++){
+            printf("PERIOD WAH\n");
 			tw_event * e2;
 			nw_message * m_new2;
 			tw_stime ts2 = period_time[lid.job][k];
@@ -2566,7 +2579,8 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
             
             tw_event *e_callback =
             tw_event_new(rank_to_lpid(global_src_id),
-                codes_local_latency(lp), lp);
+                0, lp);
+                // codes_local_latency(lp), lp);
             nw_message *m_callback = (nw_message*)tw_event_data(e_callback);
             m_callback->msg_type = MPI_SEND_ARRIVED_CB;
             m_callback->fwd.msg_send_time = tw_now(lp) - m->fwd.sim_start_time;
@@ -2709,8 +2723,8 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
                 codes_issue_next_event_rc(lp);
             else
             {
-                if (bf->c28)
-                    tw_rand_reverse_unif(lp->rng);
+                // if (bf->c28)
+                //     tw_rand_reverse_unif(lp->rng);
                 s->compute_time = m->rc.saved_delay;
                 s->ross_sample.compute_time = m->rc.saved_delay_sample;
             }
@@ -2771,6 +2785,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 		default:
 			printf("\n Invalid op type %d ", m->op_type);
 	}
+    // free(m->mpi_op);
 }
 
 static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
@@ -3062,8 +3077,6 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
 
         case MPI_REND_ARRIVED:
         {
-            codes_local_latency_reverse(lp);
-
             if(bf->c10)
                 codes_issue_next_event_rc(lp);
 
@@ -3103,6 +3116,16 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
             handle_other_finish_rc(s, lp, bf, m);
             break;
 	}
+}
+
+void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
+{
+    // switch(m->msg_type)
+    // {
+    //     case MPI_OP_GET_NEXT:
+    //         free(m->mpi_op);
+    //     break;
+    // }
 }
 
 const tw_optdef app_opt [] =
@@ -3148,7 +3171,7 @@ tw_lptype nw_lp = {
     (pre_run_f) NULL,
     (event_f) nw_test_event_handler,
     (revent_f) nw_test_event_handler_rc,
-    (commit_f) NULL,
+    (commit_f) nw_test_event_handler_commit,
     (final_f) nw_test_finalize,
     (map_f) codes_mapping,
     sizeof(nw_state)

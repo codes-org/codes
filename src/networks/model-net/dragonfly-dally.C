@@ -464,6 +464,7 @@ struct terminal_state
     int is_monitoring_bw;
 
     struct rc_stack * st;
+    struct rc_stack * cc_st;
     int* issueIdle; //[rail_id]
     int** terminal_length; // [rail_id][qos_level]
 
@@ -550,6 +551,7 @@ struct router_state
     int *in_send_loop;
     int *queued_count;
     struct rc_stack * st;
+    struct rc_stack * cc_st;
 
     int workloads_finished_flag;
 
@@ -2196,23 +2198,25 @@ void dragonfly_dally_report_stats()
 
 static void dragonfly_dally_terminal_end_sim_notif(terminal_state *s, tw_bf *bf, model_net_wrap_msg *msg, tw_lp *lp)
 {
+    bf->c1 = s->workloads_finished_flag;
     s->workloads_finished_flag = 1;
 }
 
 static void dragonfly_dally_terminal_end_sim_notif_rc(terminal_state *s, tw_bf *bf, model_net_wrap_msg *msg, tw_lp *lp)
 {
-    s->workloads_finished_flag = 0;
+    s->workloads_finished_flag = bf->c1;
 }
 
 
-static void dragonfly_dally_router_end_sim_notif(terminal_state *s, tw_bf *bf, model_net_wrap_msg *msg, tw_lp *lp)
+static void dragonfly_dally_router_end_sim_notif(router_state *s, tw_bf *bf, model_net_wrap_msg *msg, tw_lp *lp)
 {
+    bf->c1 = s->workloads_finished_flag;
     s->workloads_finished_flag = 1;
 }
 
-static void dragonfly_dally_router_end_sim_notif_rc(terminal_state *s, tw_bf *bf, model_net_wrap_msg *msg, tw_lp *lp)
+static void dragonfly_dally_router_end_sim_notif_rc(router_state *s, tw_bf *bf, model_net_wrap_msg *msg, tw_lp *lp)
 {
-    s->workloads_finished_flag = 0;
+    s->workloads_finished_flag = bf->c1;
 }
 
 static void dragonfly_dally_terminal_congestion_event(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
@@ -2716,6 +2720,7 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
     s->workloads_finished_flag = 0;
 
     rc_stack_create(&s->st);
+    rc_stack_create(&s->cc_st);
     s->vc_occupancy = (int**)calloc(p->num_rails, sizeof(int*)); //1 vc times the number of qos levels
     s->last_buf_full = (tw_stime*)calloc(p->num_rails, sizeof(tw_stime));
 
@@ -2892,6 +2897,7 @@ void router_dally_init(router_state * r, tw_lp * lp)
     r->ross_rsample.link_traffic_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
 
     rc_stack_create(&r->st);
+    rc_stack_create(&r->cc_st);
 
     for(int i=0; i < p->radix; i++)
     {
@@ -3364,17 +3370,17 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         s->terminal_length[msg->rail_id][vcg] += s->params->chunk_size;
     }
     
+    double bandwidth_coef = 1;
     if (g_congestion_control_enabled) {
         if (cc_terminal_is_abatement_active(s->local_congestion_controller)) {
-            double bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
-            injection_ts = bytes_to_ns(msg->packet_size, bandwidth_coef * s->params->cn_bandwidth);
+            bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
         }
+        injection_ts = bytes_to_ns(msg->packet_size, bandwidth_coef * s->params->cn_bandwidth);
     }
     else {
         injection_ts = bytes_to_ns(msg->packet_size, s->params->cn_bandwidth);
     }
     nic_ts = g_tw_lookahead + injection_ts;
-
 
 
 
@@ -3856,6 +3862,9 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     //     printf("TERMINAL RECEIVED A DOUBLE GLOBAL HOP PACKET\n");
     // }
     // printf("%d\n",msg->my_g_hop);
+    if (msg->dfdally_dest_terminal_id != s->terminal_id)
+        tw_error(TW_LOC, "Packet arrived at wrong terminal\n");
+
     if (msg->my_N_hop > s->params->max_hops_notify)
     {
         printf("Terminal received a packet with %d hops! (Notify on > than %d)\n",msg->my_N_hop, s->params->max_hops_notify);
@@ -4594,7 +4603,7 @@ static void router_packet_receive_rc(router_state * s,
     }
 
     if (g_congestion_control_enabled) {
-        congestion_control_message *cc_msg_rc = (congestion_control_message*)rc_stack_pop(s->st);
+        congestion_control_message *cc_msg_rc = (congestion_control_message*)rc_stack_pop(s->cc_st);
         cc_router_received_packet_rc(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, src_term_id, app_id, cc_msg_rc);
         cc_msg_rc_storage_delete(cc_msg_rc);
     }
@@ -4801,7 +4810,7 @@ static void router_packet_receive( router_state * s,
         * that is empty then we check if last_buf_full is set or not. If already
         * set then we don't overwrite it. If two packets arrive next to each other
         * then the first person should be setting it. */
-        if(s->pending_msgs[output_port][output_chan] == NULL && s->last_buf_full[output_port] == 0.0)
+        if(s->last_buf_full[output_port] == 0.0)
         {
             bf->c22 = 1;
             msg->saved_busy_time = s->last_buf_full[output_port];
@@ -4812,7 +4821,7 @@ static void router_packet_receive( router_state * s,
     if (g_congestion_control_enabled) {
             congestion_control_message *cc_msg_rc = cc_msg_rc_storage_create();
             cc_router_received_packet(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, cur_chunk->msg.dfdally_src_terminal_id, cur_chunk->msg.app_id, cc_msg_rc);
-            rc_stack_push(lp, cc_msg_rc, cc_msg_rc_storage_delete, s->st);
+            rc_stack_push(lp, cc_msg_rc, cc_msg_rc_storage_delete, s->cc_st);
     }
 
     msg->saved_app_id = cur_chunk->msg.app_id;
@@ -4899,7 +4908,7 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
             s->pending_msgs_tail[output_port], output_chan, cur_entry);
 
     if (g_congestion_control_enabled) {
-        congestion_control_message *cc_msg_rc = (congestion_control_message*)rc_stack_pop(s->st);
+        congestion_control_message *cc_msg_rc = (congestion_control_message*)rc_stack_pop(s->cc_st);
         cc_router_forwarded_packet_rc(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, src_term_id, app_id, cc_msg_rc);
         cc_msg_rc_storage_delete(cc_msg_rc);
     }
@@ -5003,7 +5012,6 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     if((cur_entry->msg.packet_size < s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
         injection_delay = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, bandwidth);
 
-    msg->num_cll++;
     injection_delay += s->params->router_delay;
 
     msg->saved_available_time = s->next_output_available_time[output_port];
@@ -5083,7 +5091,7 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     if (g_congestion_control_enabled) {
         congestion_control_message *cc_msg_rc = cc_msg_rc_storage_create();
         cc_router_forwarded_packet(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, cur_entry->msg.dfdally_src_terminal_id, cur_entry->msg.app_id, cc_msg_rc);
-        rc_stack_push(lp, cc_msg_rc, cc_msg_rc_storage_delete, s->st);
+        rc_stack_push(lp, cc_msg_rc, cc_msg_rc_storage_delete, s->cc_st);
     }
 
     cur_entry = return_head(s->pending_msgs[output_port], 
@@ -5469,8 +5477,7 @@ static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, 
         //     // --------- return non-direct connection (still minimal though)        
         // }
         else { //we don't have a direct connection to group and need list of routers in our group that do
-            vector<Connection> poss_next_conns_to_group = s->connMan.get_next_hop_routed_connections_to_group(fdest_group_id);
-            // vector< Connection > poss_next_conns_to_group;
+            vector<Connection> poss_next_conns_to_group = s->connMan.get_routed_connections_to_group(fdest_group_id, true);            // vector< Connection > poss_next_conns_to_group;
             // set< int > poss_router_id_set_to_group; //TODO this might be a source of non-determinism(?)
             // for(int i = 0; i < connectionList[my_group_id][fdest_group_id].size(); i++)
             // {
@@ -5525,7 +5532,7 @@ static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *b
                 return conns_to_intm_group;
             }
             else { //no - route within group to router that DOES have a connection to intm group
-                vector<Connection> conns_to_connecting_routers = s->connMan.get_next_hop_routed_connections_to_group(preset_intm_group_id);
+                vector<Connection> conns_to_connecting_routers = s->connMan.get_routed_connections_to_group(preset_intm_group_id, true);
                 // vector<int> connecting_router_ids = connectionList[my_group_id][preset_intm_group_id];
                 // vector< Connection > conns_to_connecting_routers;
                 // for (int i = 0; i < connecting_router_ids.size(); i++)
@@ -5623,7 +5630,7 @@ static Connection dfdally_nonminimal_routing(router_state *s, tw_bf *bf, termina
         return next_conn;
     }
     else { // I need to route to a router in my group that does have a direct connection to the intermediate group
-        vector<Connection> connections_toward_next_group = s->connMan.get_next_hop_routed_connections_to_group(next_dest_group_id);
+        vector<Connection> connections_toward_next_group = s->connMan.get_routed_connections_to_group(next_dest_group_id, true);
         // vector<int> connecting_router_ids = connectionList[my_group_id][next_dest_group_id];
         // assert(connecting_router_ids.size() > 0);
         // msg->num_rngs++;

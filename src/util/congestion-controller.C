@@ -6,7 +6,7 @@
 #include <map>
 #include <vector>
 #include <set>
-#include <unordered_set>
+#include <set>
 #include <string.h>
 #include <string>
 
@@ -120,17 +120,17 @@ unsigned long long Portchan_node::get_packet_count_by_port_vc_from_term(int port
     return children[port_no]->children[vc_no]->get_packet_count_from_term(term_id);
 }
 
-unordered_map<unsigned int, unsigned long long> Portchan_node::get_term_count_map()
+map<unsigned int, unsigned long long> Portchan_node::get_term_count_map()
 {
     return term_count_map;
 }
 
-unordered_map<unsigned int, unsigned long long> Portchan_node::get_app_count_map()
+map<unsigned int, unsigned long long> Portchan_node::get_app_count_map()
 {
     return app_count_map;
 }
 
-unordered_map<unsigned int, unsigned long long> Portchan_node::get_term_count_map_by_port(int port_no)
+map<unsigned int, unsigned long long> Portchan_node::get_term_count_map_by_port(int port_no)
 {
     if(type != ROOT)
         tw_error(TW_LOC, "Portchan_node : Invalid node type for this action\n");
@@ -138,7 +138,7 @@ unordered_map<unsigned int, unsigned long long> Portchan_node::get_term_count_ma
     return children[port_no]->get_term_count_map();
 }
 
-unordered_map<unsigned int, unsigned long long> Portchan_node::get_app_count_map_by_port(int port_no)
+map<unsigned int, unsigned long long> Portchan_node::get_app_count_map_by_port(int port_no)
 {
     if(type != ROOT)
         tw_error(TW_LOC, "Portchan_node : Invalid node type for this action\n");
@@ -146,7 +146,7 @@ unordered_map<unsigned int, unsigned long long> Portchan_node::get_app_count_map
     return children[port_no]->get_app_count_map();
 }
 
-unordered_map<unsigned int, unsigned long long> Portchan_node::get_term_count_map_by_port_vc(int port_no, int vc_no)
+map<unsigned int, unsigned long long> Portchan_node::get_term_count_map_by_port_vc(int port_no, int vc_no)
 {
     if(type != ROOT)
         tw_error(TW_LOC, "Portchan_node : Invalid node type for this action\n");
@@ -154,7 +154,7 @@ unordered_map<unsigned int, unsigned long long> Portchan_node::get_term_count_ma
     return children[port_no]->children[vc_no]->get_term_count_map();
 }
 
-unordered_map<unsigned int, unsigned long long> Portchan_node::get_app_count_map_by_port_vc(int port_no, int vc_no)
+map<unsigned int, unsigned long long> Portchan_node::get_app_count_map_by_port_vc(int port_no, int vc_no)
 {
     if(type != ROOT)
         tw_error(TW_LOC, "Portchan_node : Invalid node type for this action\n");
@@ -162,12 +162,12 @@ unordered_map<unsigned int, unsigned long long> Portchan_node::get_app_count_map
     return children[port_no]->children[vc_no]->get_app_count_map();
 }
 
-unordered_map<unsigned int, unsigned long long> Portchan_node::get_term_count_map_from_app(int app_id)
+map<unsigned int, unsigned long long> Portchan_node::get_term_count_map_from_app(int app_id)
 {
     return app_to_terminal_counter.at(app_id);
 }
 
-unordered_map<unsigned int, unsigned long long> Portchan_node::get_term_count_map_by_port_from_app(int port_no, int app_id)
+map<unsigned int, unsigned long long> Portchan_node::get_term_count_map_by_port_from_app(int port_no, int app_id)
 {
     if(type != ROOT)
         tw_error(TW_LOC, "Portchan_node : Invalid node type for this action\n");
@@ -175,7 +175,7 @@ unordered_map<unsigned int, unsigned long long> Portchan_node::get_term_count_ma
     return children[port_no]->get_term_count_map_from_app(app_id);
 }
 
-unordered_map<unsigned int, unsigned long long> Portchan_node::get_term_count_map_by_port_vc_from_app(int port_no, int vc_no, int app_id)
+map<unsigned int, unsigned long long> Portchan_node::get_term_count_map_by_port_vc_from_app(int port_no, int vc_no, int app_id)
 {
     if(type != ROOT)
         tw_error(TW_LOC, "Portchan_node : Invalid node type for this action\n");
@@ -318,12 +318,12 @@ bool Portchan_node::is_abated_terminal(unsigned int term_id)
     }
 }
 
-unordered_set<unsigned int> Portchan_node::get_abated_terminals()
+set<unsigned int> Portchan_node::get_abated_terminals()
 {
     return abated_terminals_this_node;
 }
 
-unordered_set<unsigned int> Portchan_node::get_abated_terminals(int port_no)
+set<unsigned int> Portchan_node::get_abated_terminals(int port_no)
 {
     if(type != ROOT)
         tw_error(TW_LOC, "Portchan_node : Invalid node type for this action\n");
@@ -331,7 +331,7 @@ unordered_set<unsigned int> Portchan_node::get_abated_terminals(int port_no)
     return children[port_no]->get_abated_terminals();
 }
 
-unordered_set<unsigned int> Portchan_node::get_abated_terminals(int port_no, int vc_no)
+set<unsigned int> Portchan_node::get_abated_terminals(int port_no, int vc_no)
 {
     if(type != ROOT)
         tw_error(TW_LOC, "Portchan_node : Invalid node type for this action\n");
@@ -403,10 +403,10 @@ static map< int, tw_lpid > router_id_to_lpid_map = map<int, tw_lpid>();
 static map< int, tw_lpid > terminal_id_to_lpid_map = map<int, tw_lpid>();
 
 static string congestion_pattern_set_filepath;
-static unordered_set<unsigned long> congestion_pattern_set = unordered_set<unsigned long>();
+static set<unsigned long> congestion_pattern_set = set<unsigned long>();
 
 static string decongestion_pattern_set_filepath;
-static unordered_set<unsigned long> decongestion_pattern_set = unordered_set<unsigned long>();
+static set<unsigned long> decongestion_pattern_set = set<unsigned long>();
 
 /************* PROTOTYPES *****************************************/
 
@@ -610,16 +610,16 @@ void cc_router_congestion_check(rlc_state *s, int port_no, int vc_no, congestion
         if (port_occupancy >= s->params->single_port_congestion_threshold * port_size) {
             rc_msg->to_congest = 1;
             // printf("CONGESTION DETECTED %llu\n", port_occupancy);
-            unordered_set< pair<unsigned int,unsigned int>,pair_hash > aggressor_term_ids;
+            set< pair<unsigned int,unsigned int> > aggressor_term_ids;
 
-            unordered_map<unsigned int, unsigned long long> app_map = s->packet_counting_tree->get_app_count_map_by_port(port_no);
-            unordered_map<unsigned int, unsigned long long>::iterator it = app_map.begin();
+            map<unsigned int, unsigned long long> app_map = s->packet_counting_tree->get_app_count_map_by_port(port_no);
+            map<unsigned int, unsigned long long>::iterator it = app_map.begin();
             for (; it != app_map.end(); it++)
             {
                 if ((it->second / port_occupancy) >= s->params->single_port_aggressor_usage_threshold)
                 {
-                    unordered_map<unsigned int, unsigned long long> tcm = s->packet_counting_tree->get_term_count_map_by_port_from_app(port_no, it->first);
-                    unordered_map<unsigned int, unsigned long long>::iterator agg_it = tcm.begin();
+                    map<unsigned int, unsigned long long> tcm = s->packet_counting_tree->get_term_count_map_by_port_from_app(port_no, it->first);
+                    map<unsigned int, unsigned long long>::iterator agg_it = tcm.begin();
                     for (; agg_it != tcm.end(); agg_it++)
                     {
                         aggressor_term_ids.insert( make_pair(agg_it->first, it->first) );
@@ -628,12 +628,13 @@ void cc_router_congestion_check(rlc_state *s, int port_no, int vc_no, congestion
             }
 
             //create a store for the list of terms getting a mark of abatement
-            rc_msg->size_abated = sizeof(unsigned int) * aggressor_term_ids.size();
-            rc_msg->danger_rc_abated = (unsigned int*)malloc(rc_msg->size_abated);
+            rc_msg->size_abated = aggressor_term_ids.size();
+            rc_msg->danger_rc_abated = (unsigned int*)malloc(sizeof(unsigned int)*rc_msg->size_abated);
+            // printf("size abated %d\n", rc_msg->size_abated);
             int stored = 0;
 
             //send an abatement signal to each aggressor terminal on this port if they aren't already abated
-            unordered_set< pair<unsigned int, unsigned int>, pair_hash >::iterator set_it = aggressor_term_ids.begin();
+            set< pair<unsigned int, unsigned int> >::iterator set_it = aggressor_term_ids.begin();
             for(; set_it != aggressor_term_ids.end(); set_it++)
             {
                 unsigned int term_id = set_it->first;
@@ -648,8 +649,7 @@ void cc_router_congestion_check(rlc_state *s, int port_no, int vc_no, congestion
                 {
                     tw_lpid term_lpgid = codes_mapping_get_lpid_from_relative(term_id, NULL, terminal_lp_name, NULL, 0);
                     congestion_control_message *c_msg;
-                    tw_event *e = model_net_method_congestion_event(term_lpgid, cc_tw_rand_unif(s->lp)*.01, s->lp, (void**)&c_msg, NULL);
-                    rc_msg->num_cc_rngs += 1;
+                    tw_event *e = model_net_method_congestion_event(term_lpgid, .00001, s->lp, (void**)&c_msg, NULL);
                     c_msg->type = CC_SIGNAL_ABATE;
                     c_msg->app_id = app_id;
                     tw_event_send(e);
@@ -665,12 +665,13 @@ void cc_router_congestion_check(rlc_state *s, int port_no, int vc_no, congestion
             rc_msg->to_decongest = 1;
 
             //get the terminals abated by this port
-            unordered_set<unsigned int> abated_terms = s->packet_counting_tree->get_abated_terminals(port_no);
-            unordered_set<unsigned int>::iterator it = abated_terms.begin();
+            set<unsigned int> abated_terms = s->packet_counting_tree->get_abated_terminals(port_no);
+            set<unsigned int>::iterator it = abated_terms.begin();
 
             //store the list of terms receiving a removal of a mark of abatement
-            rc_msg->size_deabated = sizeof(abated_terms);
-            rc_msg->danger_rc_deabated = (unsigned int*)malloc(sizeof(abated_terms));
+            rc_msg->size_deabated = abated_terms.size();
+            rc_msg->danger_rc_deabated = (unsigned int*)malloc(sizeof(unsigned int)*rc_msg->size_deabated);
+            // printf("size deabated %d\n", rc_msg->size_deabated);
             int stored = 0;
 
             for(; it != abated_terms.end(); it++)
@@ -685,8 +686,7 @@ void cc_router_congestion_check(rlc_state *s, int port_no, int vc_no, congestion
                     //if any are no longer marked abated at all, then send a normal signal
                     tw_lpid term_lpgid = codes_mapping_get_lpid_from_relative(*it, NULL, terminal_lp_name, NULL, 0);
                     congestion_control_message *c_msg;
-                    tw_event *e = model_net_method_congestion_event(term_lpgid, cc_tw_rand_unif(s->lp)*.01, s->lp, (void**)&c_msg, NULL);
-                    rc_msg->num_cc_rngs += 1;
+                    tw_event *e = model_net_method_congestion_event(term_lpgid, .00001, s->lp, (void**)&c_msg, NULL);
                     c_msg->type = CC_SIGNAL_NORMAL;
                     tw_event_send(e);
                 }
@@ -694,8 +694,8 @@ void cc_router_congestion_check(rlc_state *s, int port_no, int vc_no, congestion
         }
 
         // //check if any terminals have left the port entirely
-        // unordered_set<unsigned int> abated_terms = s->packet_counting_tree->get_abated_terminals(port_no);
-        // unordered_set<unsigned int>::iterator it = abated_terms.begin();
+        // set<unsigned int> abated_terms = s->packet_counting_tree->get_abated_terminals(port_no);
+        // set<unsigned int>::iterator it = abated_terms.begin();
         // for(; it != abated_terms.end(); it++)
         // {
         //     if (s->packet_counting_tree->get_packet_count_by_port_from_term(port_no, *it) == 0)
@@ -737,10 +737,10 @@ void cc_router_congestion_check_rc(rlc_state *s, int port_no, int vc_no, congest
         }
     }
 
-    for(int i = 0; i < rc_msg->num_cc_rngs; i++)
-    {
-        cc_tw_rand_reverse_unif(s->lp);
-    }
+    // for(int i = 0; i < rc_msg->num_cc_rngs; i++)
+    // {
+    //     cc_tw_rand_reverse_unif(s->lp);
+    // }
 }
 
 void cc_router_local_controller_finalize(rlc_state *s)
@@ -857,14 +857,14 @@ void cc_terminal_local_controller_init(tlc_state *s, tw_lp *lp, int terminal_id,
 void cc_terminal_send_ack(tlc_state *s, tw_lpid original_terminal_lpgid)
 {
     congestion_control_message *ack_msg;
-    tw_event * ack_e = model_net_method_congestion_event(original_terminal_lpgid, cc_tw_rand_unif(s->lp)*.01 , s->lp, (void**)&ack_msg, NULL);
+    tw_event * ack_e = model_net_method_congestion_event(original_terminal_lpgid, .00001, s->lp, (void**)&ack_msg, NULL);
     ack_msg->type = CC_SIM_ACK;
     tw_event_send(ack_e);
 }
 
 void cc_terminal_send_ack_rc(tlc_state *s)
 {
-    cc_tw_rand_reverse_unif(s->lp);
+    // cc_tw_rand_reverse_unif(s->lp);
 }
 
 void cc_terminal_receive_ack(tlc_state *s)

@@ -1042,7 +1042,7 @@ int model_net_method_end_sim_broadcast(
                 for (int lid = 0; lid < codes_mapping_get_lp_count("MODELNET_GRP", 0, lp_name, NULL, 1); lid++)
                 {
                     tw_lpid lpgid = codes_mapping_get_lpid_from_relative(lid, NULL, lp_name, NULL, 0);
-                    tw_event* e = model_net_method_end_sim_notification(lpgid, tw_rand_unif(sender->rng)*.001, sender);
+                    tw_event* e = model_net_method_end_sim_notification(lpgid, offset_ts, sender);
                     rand_count++;
                     tw_event_send(e);
                 }

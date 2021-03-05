@@ -980,9 +980,9 @@ bool DragonflyConnectionManager::is_connected_to_by_type(int dest_id, Connection
         return false;
     }
 
-    //The below version is safer but slow as heck.
-    // unordered_map<int, vector<Connection> > the_map;
-    // unordered_map<int, vector<Connection> >::iterator map_it;
+    // //The below version is safer but slow as heck.
+    // map<int, vector<Connection> > the_map;
+    // map<int, vector<Connection> >::iterator map_it;
 
     // if (include_failed)
     // {
@@ -1354,11 +1354,11 @@ void DragonflyConnectionManager::solidify_connections()
         {
             vector< Connection > local_conns = get_connections_to_gid(vec_it->src_gid, CONN_LOCAL, true);
             if (local_conns.size() > 1)
-                _next_hop_routed_connections_to_group_map[group_id].push_back(*vec_it);
+                _next_hop_routed_connections_to_group_map[group_id].insert(_next_hop_routed_connections_to_group_map[group_id].end(), local_conns.begin(), local_conns.end());
 
             local_conns = get_connections_to_gid(vec_it->src_gid, CONN_LOCAL, false);
             if (local_conns.size() > 1)
-                _next_hop_routed_connections_to_group_map_nofail[group_id].push_back(*vec_it);
+                _next_hop_routed_connections_to_group_map_nofail[group_id].insert(_next_hop_routed_connections_to_group_map_nofail[group_id].end(), local_conns.begin(), local_conns.end());
 
             if(vec_it->is_failed == 0)
                 _routed_connections_to_group_map_nofail[group_id].push_back(*vec_it);
