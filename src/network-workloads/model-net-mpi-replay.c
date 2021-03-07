@@ -34,7 +34,7 @@
 #define BAR_TAG 1234
 #define PRINT_SYNTH_TRAFFIC 1
 #define MAX_JOBS 40
-#define NEAR_ZERO .0001
+#define NEAR_ZERO 0
 
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
@@ -719,7 +719,7 @@ void handle_other_finish(
             //are currently in transit. This currently isn't measured for model_net_mpi_replay.
 
             //send to all non nw-lp LPs (all model net, is there a function taht does this?)
-            int num_rngs = model_net_method_end_sim_broadcast(NEAR_ZERO, lp);
+            int num_rngs = model_net_method_end_sim_broadcast(.00001, lp);
             // m->num_rngs += num_rngs;
         }
     }
@@ -793,7 +793,7 @@ static void notify_neighbor(
        
         tw_event * e;
         struct nw_message * m_new;  
-        e = tw_event_new(global_dest_id, ts, lp);
+        e = tw_event_new(global_dest_id, .00001, lp);
         m_new = (struct nw_message*)tw_event_data(e); 
         m_new->msg_type = CLI_NBR_FINISH;
         tw_event_send(e);   

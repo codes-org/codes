@@ -56,6 +56,9 @@
 // maximum number of characters allowed to represent the routing algorithm as a string
 #define MAX_ROUTING_CHARS 32
 
+#define OUTPUT_END_END_LATENCIES 1
+#define OUTPUT_PORT_PORT_LATENCIES 1
+#define OUTPUT_LATENCY_MODULO 100
 
 //Routing Defines
 //NONMIN_INCLUDE_SOURCE_DEST: Do we allow source and destination groups to be viable choces for indirect group (i.e. do we allow nonminimal routing to sometimes be minimal?)
@@ -2628,6 +2631,22 @@ void terminal_dally_commit(terminal_state * s,
             msg->rc_is_qos_set = 0;
         }
     }
+
+    if(msg->type == T_ARRIVE)
+    {
+        if (OUTPUT_END_END_LATENCIES)
+        {
+            if (msg->message_id % OUTPUT_LATENCY_MODULO == 0) {
+                char end_end_filename[128];
+                sprintf(end_end_filename, "end-to-end-latencies");
+
+                char latency[32];
+                int written;
+                written = sprintf(latency, "%.5f ",msg->travel_end_time-msg->travel_start_time);
+                lp_io_write(lp->gid, end_end_filename, written, latency);
+            }
+        }
+    }
 }
 
 void router_dally_commit(router_state * s,
@@ -2641,6 +2660,22 @@ void router_dally_commit(router_state * s,
             free(msg->rc_qos_data);
             free(msg->rc_qos_status);
             msg->rc_is_qos_set = 0;
+        }
+    }
+
+    if(msg->type == R_SEND)
+    {
+        if (OUTPUT_PORT_PORT_LATENCIES)
+        {
+            if (msg->message_id % OUTPUT_LATENCY_MODULO == 0) {
+                char port_port_filename[128];
+                sprintf(port_port_filename, "port-to-port-latencies");
+
+                char latency[32];
+                int written;
+                written = sprintf(latency, "%.5f ",msg->this_router_departure-msg->this_router_arrival);
+                lp_io_write(lp->gid, port_port_filename, written, latency);
+            }
         }
     }
 }
@@ -3807,6 +3842,8 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
         s->finished_packets--;
     }
     
+    if(bf->c21)
+        s->min_latency = msg->saved_min_lat;
     if(bf->c22)
 	{
           s->max_latency = msg->saved_available_time;
@@ -3967,16 +4004,20 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     if(msg->path_type != MINIMAL && msg->path_type != NON_MINIMAL)
         printf("\n Wrong message path type %d ", msg->path_type);
 
+    //record for commit_f file IO
+    msg->travel_end_time = tw_now(lp);
+    tw_stime ete_latency = msg->travel_end_time - msg->travel_start_time;
+
     /* save the sample time */
     msg->saved_sample_time = s->fin_chunks_time;
-    s->fin_chunks_time += (tw_now(lp) - msg->travel_start_time);
-    s->ross_sample.fin_chunks_time += (tw_now(lp) - msg->travel_start_time);
+    s->fin_chunks_time += ete_latency;
+    s->ross_sample.fin_chunks_time += ete_latency;
     msg->saved_fin_chunks_ross = s->fin_chunks_time_ross_sample;
-    s->fin_chunks_time_ross_sample += (tw_now(lp) - msg->travel_start_time);
+    s->fin_chunks_time_ross_sample += ete_latency;
     
     /* save the total time per LP */
     msg->saved_avg_time = s->total_time;
-    s->total_time += (tw_now(lp) - msg->travel_start_time); 
+    s->total_time += ete_latency;
     total_hops += msg->my_N_hop;
     s->total_hops += msg->my_N_hop;
     s->fin_hops_sample += msg->my_N_hop;
@@ -3985,7 +4026,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
 
     mn_stats* stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
     msg->saved_rcv_time = stat->recv_time;
-    stat->recv_time += (tw_now(lp) - msg->travel_start_time);
+    stat->recv_time += ete_latency;
 
 #if DEBUG == 1
     if( msg->packet_ID == TRACK 
@@ -4048,14 +4089,16 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
         memcpy(tmp->remote_event_data, m_data_src, msg->remote_event_size_bytes);
     }
     
-    if(s->min_latency > tw_now(lp) - msg->travel_start_time) {
-		s->min_latency = tw_now(lp) - msg->travel_start_time;	
+    if(s->min_latency > ete_latency) {
+        bf->c21 = 1;
+        msg->saved_min_lat = s->min_latency;
+		s->min_latency = ete_latency;	
 	}
 
-	if(s->max_latency < tw_now( lp ) - msg->travel_start_time) {
+	if(s->max_latency < ete_latency) {
         bf->c22 = 1;
         msg->saved_available_time = s->max_latency;
-        s->max_latency = tw_now(lp) - msg->travel_start_time;
+        s->max_latency = ete_latency;
 	}
     /* If all chunks of a message have arrived then send a remote event to the
      * callee*/
@@ -4658,6 +4701,8 @@ static void router_packet_receive( router_state * s,
     if(cur_chunk->msg.last_hop == TERMINAL) // We are first router in the path
         cur_chunk->msg.path_type = MINIMAL; // Route always starts as minimal
 
+    cur_chunk->msg.this_router_arrival = tw_now(lp);
+
     Connection next_stop_conn = do_dfdally_routing(s, bf, &(cur_chunk->msg), lp, dest_router_id);
     msg->num_rngs += (cur_chunk->msg).num_rngs; //make sure we're counting the rngs called during do_dfdally_routing()
     cur_chunk->msg.num_rngs = 0;
@@ -5022,7 +5067,7 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     injection_ts = s->next_output_available_time[output_port] - tw_now(lp);
     propagation_ts = injection_ts + propagation_delay;
 
-
+    cur_entry->msg.this_router_departure = tw_now(lp);
     // dest can be a router or a terminal, so we must check
     void * m_data;
     if (to_terminal) {

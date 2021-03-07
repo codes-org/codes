@@ -22,6 +22,8 @@ struct terminal_dally_message
   int magic;
   /* flit travel start time*/
   tw_stime travel_start_time;
+  /* flit travel end time*/
+  tw_stime travel_end_time;
  /* packet ID of the flit  */
   unsigned long long packet_ID;
   /* event type of the flit */
@@ -55,6 +57,11 @@ struct terminal_dally_message
   short saved_vc;
 
   int next_stop;
+
+  //encoded time when received at a router
+  tw_stime this_router_arrival;
+  //encoded time when departed from router
+  tw_stime this_router_departure;
 
   /* Intermediate LP ID from which this message is coming */
   unsigned int intm_lp_id;
@@ -102,6 +109,7 @@ struct terminal_dally_message
    int * rc_qos_status;
 
    tw_stime saved_available_time;
+   tw_stime saved_min_lat;
    tw_stime saved_avg_time;
    tw_stime saved_rcv_time;
    tw_stime saved_busy_time; 
