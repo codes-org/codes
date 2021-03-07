@@ -649,7 +649,7 @@ void cc_router_congestion_check(rlc_state *s, int port_no, int vc_no, congestion
                 {
                     tw_lpid term_lpgid = codes_mapping_get_lpid_from_relative(term_id, NULL, terminal_lp_name, NULL, 0);
                     congestion_control_message *c_msg;
-                    tw_event *e = model_net_method_congestion_event(term_lpgid, .00001, s->lp, (void**)&c_msg, NULL);
+                    tw_event *e = model_net_method_congestion_event(term_lpgid, 0, s->lp, (void**)&c_msg, NULL);
                     c_msg->type = CC_SIGNAL_ABATE;
                     c_msg->app_id = app_id;
                     tw_event_send(e);
@@ -686,7 +686,7 @@ void cc_router_congestion_check(rlc_state *s, int port_no, int vc_no, congestion
                     //if any are no longer marked abated at all, then send a normal signal
                     tw_lpid term_lpgid = codes_mapping_get_lpid_from_relative(*it, NULL, terminal_lp_name, NULL, 0);
                     congestion_control_message *c_msg;
-                    tw_event *e = model_net_method_congestion_event(term_lpgid, .00001, s->lp, (void**)&c_msg, NULL);
+                    tw_event *e = model_net_method_congestion_event(term_lpgid, 0, s->lp, (void**)&c_msg, NULL);
                     c_msg->type = CC_SIGNAL_NORMAL;
                     tw_event_send(e);
                 }
