@@ -93,7 +93,9 @@ struct svr_state
     int msg_recvd_count;  /* requests recvd */
     int local_recvd_count; /* number of local messages received */
     tw_stime start_ts;    /* time that we started sending requests */
-    tw_stime end_ts;      /* time that we ended sending requests */
+    tw_stime last_send_ts;
+    tw_stime first_recv_ts;
+    tw_stime last_recv_ts;      /* time that we ended sending requests */
     int svr_id;
     int dest_id;
     int msg_complete_count; //number of messages that successfully made it to their dest svr
@@ -265,7 +267,7 @@ static tw_stime issue_event(
         else if (load != 0.0)
         {
             mean_interval = bytes_to_ns(PAYLOAD_SZ, load*link_bandwidth);
-            // printf("load=%.2f\n",load);
+            printf("load=%.2f\n",load);
         }
         else
         {
@@ -279,8 +281,9 @@ static tw_stime issue_event(
      */
 
     /* skew each kickoff event slightly to help avoid event ties later on */
-    time_offset = g_tw_lookahead + tw_rand_exponential(lp->rng, mean_interval);
+    // time_offset = g_tw_lookahead + tw_rand_exponential(lp->rng, mean_interval);
     // time_offset = tw_rand_exponential(lp->rng, mean_interval);
+    time_offset = mean_interval;
 
     e = tw_event_new(lp->gid, time_offset, lp);
     m = tw_event_data(e);
@@ -313,6 +316,7 @@ static void svr_init(
     ns->max_server_latency = 0.0;
     ns->sum_server_latency = 0.0;
     ns->warm_msg_sent_count = 0;
+    ns->first_recv_ts = -1;
 
     ns->start_ts = issue_event(ns, lp);
     return;
@@ -436,6 +440,7 @@ static void handle_kickoff_event(
    global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
 
    ns->msg_sent_count++;
+   ns->last_send_ts = tw_now(lp);
    m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
    issue_event(ns, lp);
    return;
@@ -444,25 +449,32 @@ static void handle_kickoff_event(
 static void handle_ack_event(svr_state * ns, tw_bf *bf, svr_msg *m, tw_lp *lp)
 {
     ns->msg_complete_count++;
-    if (ns->msg_complete_count >= num_msgs)
-    {
+    if (ns->first_recv_ts == -1) {
+        bf->c12 = 1;
+        ns->first_recv_ts = tw_now(lp);
+    }
+    // if (ns->msg_complete_count >= num_msgs)
+    // {
         bf->c11 = 1;
 
-        m->saved_end_time = ns->end_ts;
-        ns->end_ts = tw_now(lp);
+        m->saved_end_time = ns->last_recv_ts;
+        ns->last_recv_ts = tw_now(lp);
 
         m->saved_max_end_time = pe_max_end_ts;
-        if (ns->end_ts > pe_max_end_ts)
-            pe_max_end_ts = ns->end_ts;
-    }
+        if (ns->last_recv_ts > pe_max_end_ts)
+            pe_max_end_ts = ns->last_recv_ts;
+    // }
     
 }
 
 static void handle_ack_event_rc(svr_state * ns, tw_bf *bf, svr_msg *m, tw_lp *lp)
 {
     ns->msg_complete_count--;
+    if (bf->c12)
+        ns->first_recv_ts = -1;
+
     if (bf->c11) {
-        ns->end_ts = m->saved_end_time;
+        ns->last_recv_ts = m->saved_end_time;
         
         pe_max_end_ts = m->saved_max_end_time;
 
@@ -612,14 +624,14 @@ static void svr_finalize(
     
     char output_buf[1024];
 
-    double observed_load_time = ((double)ns->end_ts-warm_up_time);
+    double observed_load_time = ((double)ns->last_recv_ts-warm_up_time) - ns->first_recv_ts;
     double observed_load = ((double)PAYLOAD_SZ*(double)ns->msg_recvd_count)/observed_load_time;
     observed_load = observed_load * (double)(1000*1000*1000);
     observed_load = observed_load / (double)(1024*1024*1024);
 
     // double offered_load = (double)(load*link_bandwidth);
 
-    double offered_load_time = ((double)ns->end_ts-warm_up_time);
+    double offered_load_time = ((double)ns->last_send_ts-warm_up_time) - ns->start_ts;
     double offered_load = ((double)PAYLOAD_SZ*(double)ns->warm_msg_sent_count)/offered_load_time;
     offered_load = offered_load * (double)(1000*1000*1000);
     offered_load = offered_load / (double)(1024*1024*1024);
@@ -627,7 +639,7 @@ static void svr_finalize(
     int written = 0;
     int written2 = 0;
 
-    // printf("%.2f Offered | %.2f Observed locally\n",offered_load,observed_load);
+    printf("%.2f Offered | %.2f Observed locally\n",offered_load,observed_load);
 
     pe_total_offered_load+= offered_load;
     pe_total_observed_load+= observed_load;
@@ -637,7 +649,7 @@ static void svr_finalize(
     }
 
     written += sprintf(output_buf + written, "%llu %d %d %d %d %f %f %f %f\n",LLU(lp->gid), ns->msg_sent_count, ns->msg_recvd_count,
-            PAYLOAD_SZ*ns->msg_sent_count, PAYLOAD_SZ*ns->msg_recvd_count, load*link_bandwidth, observed_load, ns->end_ts, observed_load_time);
+            PAYLOAD_SZ*ns->msg_sent_count, PAYLOAD_SZ*ns->msg_recvd_count, load*link_bandwidth, observed_load, ns->last_recv_ts, observed_load_time);
 
     lp_io_write(lp->gid, "synthetic-stats", written, output_buf);
     
