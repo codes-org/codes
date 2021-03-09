@@ -34,7 +34,7 @@
 #define BAR_TAG 1234
 #define PRINT_SYNTH_TRAFFIC 1
 #define MAX_JOBS 40
-#define NEAR_ZERO 0
+#define NEAR_ZERO .0001;
 
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
@@ -1113,6 +1113,24 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
     (void)bf;
     (void)lp;
+    m->rc.saved_send_time = s->send_time;
+    m->rc.saved_send_time_sample = s->ross_sample.send_time;
+    if((tw_now(lp) - m->fwd.sim_start_time) > s->max_time)
+    {
+        m->rc.saved_prev_max_time = s->max_time;
+        s->max_time = tw_now(lp) - m->fwd.sim_start_time;
+        s->ross_sample.max_time = tw_now(lp) - m->fwd.sim_start_time;
+    }
+
+    s->send_time += (tw_now(lp) - m->fwd.sim_start_time);
+    s->ross_sample.send_time += (tw_now(lp) - m->fwd.sim_start_time);
+    s->num_recvs++;
+    s->ross_sample.num_recvs++;
+    int data = m->fwd.num_bytes;
+    s->syn_data += data;
+    s->num_bytes_recvd += data;
+    s->ross_sample.num_bytes_recvd += data;
+    num_syn_bytes_recvd += data;
 
     if(PRINT_SYNTH_TRAFFIC) {
         if(s->local_rank == 0)
@@ -1132,24 +1150,6 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
         }*/
         }
     }
-    m->rc.saved_send_time = s->send_time;
-    m->rc.saved_send_time_sample = s->ross_sample.send_time;
-    if((tw_now(lp) - m->fwd.sim_start_time) > s->max_time)
-    {
-        m->rc.saved_prev_max_time = s->max_time;
-        s->max_time = tw_now(lp) - m->fwd.sim_start_time;
-        s->ross_sample.max_time = tw_now(lp) - m->fwd.sim_start_time;
-    }
-
-    s->send_time += (tw_now(lp) - m->fwd.sim_start_time);
-    s->ross_sample.send_time += (tw_now(lp) - m->fwd.sim_start_time);
-    s->num_recvs++;
-    s->ross_sample.num_recvs++;
-    int data = m->fwd.num_bytes;
-    s->syn_data += data;
-    s->num_bytes_recvd += data;
-    s->ross_sample.num_bytes_recvd += data;
-    num_syn_bytes_recvd += data;
 }
 /* Debugging functions, may generate unused function warning */
 /*static void print_waiting_reqs(uint32_t * reqs, int count)
@@ -1663,7 +1663,7 @@ static void codes_issue_next_event(tw_lp* lp)
 
    tw_stime ts;
 
-   ts = 0;
+   ts = NEAR_ZERO;
 //    ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
 //    assert(ts > 0);
    e = tw_event_new( lp->gid, ts, lp );
@@ -2414,6 +2414,11 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        params_d.num_net_traces = num_traces_of_job[lid.job];
        params = (char*)&params_d;
        strcpy(type_name, "dumpi-trace-workload");
+
+       if(strlen(workloads_conf_file) > 0)
+       {
+	        s->qos_level = qos_level_of_job[lid.job];
+       }
 //       printf("network LP nw id %d app id %d local rank %d generating events, lp gid is %ld \n", s->nw_id, 
 //               s->app_id, s->local_rank, lp->gid);
 #ifdef ENABLE_CORTEX_PYTHON
