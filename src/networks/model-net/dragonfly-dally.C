@@ -2637,12 +2637,15 @@ void terminal_dally_commit(terminal_state * s,
         if (OUTPUT_END_END_LATENCIES)
         {
             if (msg->message_id % OUTPUT_LATENCY_MODULO == 0) {
+                int written1;
                 char end_end_filename[128];
-                sprintf(end_end_filename, "end-to-end-latencies");
+                written1 = sprintf(end_end_filename, "end-to-end-latencies");
+                end_end_filename[written1] = '\0';
 
                 char latency[32];
                 int written;
-                written = sprintf(latency, "%.5f ",msg->travel_end_time-msg->travel_start_time);
+                tw_stime lat = msg->travel_end_time-msg->travel_start_time;
+                written = sprintf(latency, "%.5f\n",msg->travel_end_time-msg->travel_start_time);
                 lp_io_write(lp->gid, end_end_filename, written, latency);
             }
         }
@@ -2665,16 +2668,20 @@ void router_dally_commit(router_state * s,
 
     if(msg->type == R_SEND)
     {
-        if (OUTPUT_PORT_PORT_LATENCIES)
-        {
-            if (msg->message_id % OUTPUT_LATENCY_MODULO == 0) {
-                char port_port_filename[128];
-                sprintf(port_port_filename, "port-to-port-latencies");
+        if (bf->c1 == 0) { //did the R_SEND event actually complete a send?
+            if (OUTPUT_PORT_PORT_LATENCIES)
+            {
+                if (msg->message_id % OUTPUT_LATENCY_MODULO == 0) {
+                    int written1;
+                    char port_port_filename[128];
+                    written1 = sprintf(port_port_filename, "port-to-port-latencies");
+                    port_port_filename[written1] = '\0';
 
-                char latency[32];
-                int written;
-                written = sprintf(latency, "%.5f ",msg->this_router_departure-msg->this_router_arrival);
-                lp_io_write(lp->gid, port_port_filename, written, latency);
+                    char latency[32];
+                    int written;
+                    written = sprintf(latency, "%.5f\n",msg->this_router_ptp_latency);
+                    lp_io_write(lp->gid, port_port_filename, written, latency);
+                }
             }
         }
     }
@@ -4695,13 +4702,13 @@ static void router_packet_receive( router_state * s,
     int dest_router_id = dfdally_get_assigned_router_id_from_terminal(s->params, msg->dfdally_dest_terminal_id, s->plane_id);
     // int dest_router_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_lpid, 0, 0) / s->params->num_cn;
 
+    msg->this_router_arrival = tw_now(lp);
     terminal_dally_message_list * cur_chunk = (terminal_dally_message_list*)calloc(1, sizeof(terminal_dally_message_list));
     init_terminal_dally_message_list(cur_chunk, msg);
     
     if(cur_chunk->msg.last_hop == TERMINAL) // We are first router in the path
         cur_chunk->msg.path_type = MINIMAL; // Route always starts as minimal
 
-    cur_chunk->msg.this_router_arrival = tw_now(lp);
 
     Connection next_stop_conn = do_dfdally_routing(s, bf, &(cur_chunk->msg), lp, dest_router_id);
     msg->num_rngs += (cur_chunk->msg).num_rngs; //make sure we're counting the rngs called during do_dfdally_routing()
@@ -5067,7 +5074,9 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     injection_ts = s->next_output_available_time[output_port] - tw_now(lp);
     propagation_ts = injection_ts + propagation_delay;
 
-    cur_entry->msg.this_router_departure = tw_now(lp);
+    cur_entry->msg.this_router_ptp_latency = tw_now(lp)- cur_entry->msg.this_router_arrival;
+    msg->this_router_ptp_latency = cur_entry->msg.this_router_ptp_latency;
+
     // dest can be a router or a terminal, so we must check
     void * m_data;
     if (to_terminal) {

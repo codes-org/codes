@@ -61,7 +61,8 @@ struct terminal_dally_message
   //encoded time when received at a router
   tw_stime this_router_arrival;
   //encoded time when departed from router
-  tw_stime this_router_departure;
+  tw_stime this_router_ptp_latency;
+  short ptp_latency_set;
 
   /* Intermediate LP ID from which this message is coming */
   unsigned int intm_lp_id;
