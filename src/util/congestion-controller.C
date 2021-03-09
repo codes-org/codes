@@ -316,6 +316,7 @@ bool Portchan_node::is_abated_terminal(unsigned int term_id)
             return false;
         }
     }
+    return false;
 }
 
 set<unsigned int> Portchan_node::get_abated_terminals()
@@ -952,6 +953,10 @@ double cc_terminal_get_current_injection_bandwidth_coef(tlc_state *s)
         assert(ret_val < 1);
         assert(ret_val > 0);
         return ret_val;
+    }
+    else {
+        tw_error(TW_LOC, "Abatement inactive but signal count > 0\n");
+        return 1.0;
     }
 }
 
