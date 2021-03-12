@@ -346,7 +346,7 @@ static void handle_kickoff_rev_event(
 
     model_net_event_rc2(lp, &m->event_rc);
 	ns->msg_sent_count--;
-    tw_rand_reverse_unif(lp->rng);
+    // tw_rand_reverse_unif(lp->rng);
     // tw_rand_reverse_unif(lp->rng);
 }
 static void handle_kickoff_event(
@@ -639,7 +639,7 @@ static void svr_finalize(
     int written = 0;
     int written2 = 0;
 
-    printf("%.2f Offered | %.2f Observed locally\n",offered_load,observed_load);
+    // printf("%.2f Offered | %.2f Observed locally\n",offered_load,observed_load);
 
     pe_total_offered_load+= offered_load;
     pe_total_observed_load+= observed_load;
