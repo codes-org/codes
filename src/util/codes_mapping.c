@@ -582,7 +582,7 @@ void codes_mapping_setup_with_seed_offset(int offset)
       for (tw_lpid l = 0; l < g_tw_nlp; l++){
           for (unsigned int i = 0; i < g_tw_nRNG_per_lp; i++){
               tw_rand_initial_seed(&g_tw_lp[l]->rng[i], (g_tw_lp[l]->gid +
-                          global_nlps * offset) * g_tw_nRNG_per_lp + i);
+                          global_nlps * offset) * g_tw_nRNG_per_lp + i, NULL);
           }
       }
   }
