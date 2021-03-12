@@ -2201,25 +2201,23 @@ void dragonfly_dally_report_stats()
 
 static void dragonfly_dally_terminal_end_sim_notif(terminal_state *s, tw_bf *bf, model_net_wrap_msg *msg, tw_lp *lp)
 {
-    bf->c1 = s->workloads_finished_flag;
     s->workloads_finished_flag = 1;
 }
 
 static void dragonfly_dally_terminal_end_sim_notif_rc(terminal_state *s, tw_bf *bf, model_net_wrap_msg *msg, tw_lp *lp)
 {
-    s->workloads_finished_flag = bf->c1;
+    s->workloads_finished_flag = 0;
 }
 
 
 static void dragonfly_dally_router_end_sim_notif(router_state *s, tw_bf *bf, model_net_wrap_msg *msg, tw_lp *lp)
 {
-    bf->c1 = s->workloads_finished_flag;
     s->workloads_finished_flag = 1;
 }
 
 static void dragonfly_dally_router_end_sim_notif_rc(router_state *s, tw_bf *bf, model_net_wrap_msg *msg, tw_lp *lp)
 {
-    s->workloads_finished_flag = bf->c1;
+    s->workloads_finished_flag = 0;
 }
 
 static void dragonfly_dally_terminal_congestion_event(terminal_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
@@ -2639,13 +2637,13 @@ void terminal_dally_commit(terminal_state * s,
             if (msg->message_id % OUTPUT_LATENCY_MODULO == 0) {
                 int written1;
                 char end_end_filename[128];
-                written1 = sprintf(end_end_filename, "end-to-end-latencies");
+                written1 = sprintf(end_end_filename, "end-to-end-latency-hops");
                 end_end_filename[written1] = '\0';
 
                 char latency[32];
                 int written;
                 tw_stime lat = msg->travel_end_time-msg->travel_start_time;
-                written = sprintf(latency, "%.5f\n",msg->travel_end_time-msg->travel_start_time);
+                written = sprintf(latency, "%.5f %d\n",msg->travel_end_time-msg->travel_start_time,msg->my_N_hop);
                 lp_io_write(lp->gid, end_end_filename, written, latency);
             }
         }
@@ -2829,7 +2827,6 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
         s->local_congestion_controller = (tlc_state*)calloc(1,sizeof(tlc_state));
         cc_terminal_local_controller_init(s->local_congestion_controller, lp, s->terminal_id, &s->workloads_finished_flag);
     }
-
     return;
 }
 
@@ -2837,7 +2834,6 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
  * local channels, compute node channels */
 void router_dally_init(router_state * r, tw_lp * lp)
 {
-    
     char anno[MAX_NAME_LENGTH];
     codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
             &mapping_type_id, anno, &mapping_rep_id, &mapping_offset);
@@ -3422,7 +3418,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     else {
         injection_ts = bytes_to_ns(msg->packet_size, s->params->cn_bandwidth);
     }
-    nic_ts = g_tw_lookahead + injection_ts;
+    nic_ts = injection_ts;
 
 
 
@@ -3649,7 +3645,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
 
     s->qos_data[msg->rail_id][vcg] += data_size;
   
-    injection_delay += g_tw_lookahead;
+    // injection_delay += g_tw_lookahead;
     
     msg->saved_available_time = s->terminal_available_time[msg->rail_id];
     s->terminal_available_time[msg->rail_id] = maxd(s->terminal_available_time[msg->rail_id], tw_now(lp));
@@ -3760,7 +3756,7 @@ static void send_remote_event(terminal_state * s, terminal_dally_message * msg, 
 {
     void * tmp_ptr = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
     
-    tw_stime ts = g_tw_lookahead + mpi_soft_overhead;
+    tw_stime ts = 0;
 
     if (msg->is_pull){
         bf->c4 = 1;
@@ -3960,7 +3956,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
         printf("\n Packet %llu arrived at lp %llu hops %d ", LLU(msg->sender_lp), LLU(lp->gid), msg->my_N_hop);
     
-    tw_stime ts = g_tw_lookahead + s->params->cn_credit_delay;
+    tw_stime ts = s->params->cn_credit_delay;
 
     // no method_event here - message going to router
     tw_event * buf_e;
@@ -4582,7 +4578,7 @@ static void router_credit_send(router_state * s, terminal_dally_message * msg,
      * the injection delay, and propagation delay of the channel. But this level of
      * granularity _may_ only be necessary for specific credit-based flow control
      * studies. It should certainly be considered for those studies. */
-    ts = g_tw_lookahead + credit_delay;
+    ts = credit_delay;
 
     if (is_terminal) {
         buf_e = model_net_method_event_new(dest, ts, lp, DRAGONFLY_DALLY, 
@@ -4710,9 +4706,10 @@ static void router_packet_receive( router_state * s,
         cur_chunk->msg.path_type = MINIMAL; // Route always starts as minimal
 
 
+    int num_rngs_before = (cur_chunk->msg).num_rngs;
     Connection next_stop_conn = do_dfdally_routing(s, bf, &(cur_chunk->msg), lp, dest_router_id);
-    msg->num_rngs += (cur_chunk->msg).num_rngs; //make sure we're counting the rngs called during do_dfdally_routing()
-    cur_chunk->msg.num_rngs = 0;
+    msg->num_rngs += (cur_chunk->msg).num_rngs - num_rngs_before; //make sure we're counting the rngs called during do_dfdally_routing()
+    cur_chunk->msg.num_rngs = num_rngs_before;
 
     if (s->connMan.is_any_connection_to(next_stop_conn.dest_gid) == false)
         tw_error(TW_LOC, "Router %d does not have a connection to chosen destination %d\n", s->router_id, next_stop_conn.dest_gid);
@@ -5074,7 +5071,7 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     injection_ts = s->next_output_available_time[output_port] - tw_now(lp);
     propagation_ts = injection_ts + propagation_delay;
 
-    cur_entry->msg.this_router_ptp_latency = tw_now(lp)- cur_entry->msg.this_router_arrival;
+    cur_entry->msg.this_router_ptp_latency = s->next_output_available_time[output_port] - cur_entry->msg.this_router_arrival;
     msg->this_router_ptp_latency = cur_entry->msg.this_router_ptp_latency;
 
     // dest can be a router or a terminal, so we must check
@@ -5531,7 +5528,9 @@ static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, 
         //     // --------- return non-direct connection (still minimal though)        
         // }
         else { //we don't have a direct connection to group and need list of routers in our group that do
-            vector<Connection> poss_next_conns_to_group = s->connMan.get_routed_connections_to_group(fdest_group_id, true);            // vector< Connection > poss_next_conns_to_group;
+            vector<Connection> poss_next_conns_to_group = s->connMan.get_routed_connections_to_group(fdest_group_id, true);
+
+            // vector< Connection > poss_next_conns_to_group;
             // set< int > poss_router_id_set_to_group; //TODO this might be a source of non-determinism(?)
             // for(int i = 0; i < connectionList[my_group_id][fdest_group_id].size(); i++)
             // {
