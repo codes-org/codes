@@ -24,10 +24,10 @@
 #include "nekbone_swm_user_code.h"
 #include "nearest_neighbor_swm_user_code.h"
 #include "all_to_one_swm_user_code.h"
-// #include "one_to_many_swm_user_code.h"
-// #include "many_to_many_swm_user_code.h"
+#include "one_to_many_swm_user_code.h"
+#include "many_to_many_swm_user_code.h"
 #include "milc_swm_user_code.h"
-// #include "allreduce.h"
+#include "allreduce.h"
 
 #define ALLREDUCE_SHORT_MSG_SIZE 2048
 
@@ -807,21 +807,21 @@ static void workload_caller(void * arg)
        AllToOneSWMUserCode * incast_swm = static_cast<AllToOneSWMUserCode*>(sctx->swm_obj);
        incast_swm->call();
     }
-    // else if(strcmp(sctx->workload_name, "spread") == 0)
-    // {
-    //     OneToManySWMUserCode * spread_swm = static_cast< OneToManySWMUserCode*>(sctx->swm_obj);
-    //     spread_swm->call();
-    // }
-    // else if(strcmp(sctx->workload_name, "allreduce") == 0 || strcmp(sctx->workload_name, "allreduce32") == 0 || strcmp(sctx->workload_name, "allreduce256") == 0)
-    // {
-    //     AllReduceSWMUserCode * allreduce_swm = static_cast< AllReduceSWMUserCode*>(sctx->swm_obj);
-    //     allreduce_swm->call();
-    // }
-    // else if(strcmp(sctx->workload_name, "many_to_many") == 0 || strcmp(sctx->workload_name, "many_to_many1") == 0)
-    // {
-    //     ManyToManySWMUserCode * many_to_many_swm = static_cast< ManyToManySWMUserCode*>(sctx->swm_obj);
-    //     many_to_many_swm->call();
-    // }
+    else if(strcmp(sctx->workload_name, "spread") == 0)
+    {
+        OneToManySWMUserCode * spread_swm = static_cast< OneToManySWMUserCode*>(sctx->swm_obj);
+        spread_swm->call();
+    }
+    else if(strcmp(sctx->workload_name, "allreduce") == 0 || strcmp(sctx->workload_name, "allreduce32") == 0 || strcmp(sctx->workload_name, "allreduce256") == 0)
+    {
+        AllReduceSWMUserCode * allreduce_swm = static_cast< AllReduceSWMUserCode*>(sctx->swm_obj);
+        allreduce_swm->call();
+    }
+    else if(strcmp(sctx->workload_name, "many_to_many") == 0 || strcmp(sctx->workload_name, "many_to_many1") == 0)
+    {
+        ManyToManySWMUserCode * many_to_many_swm = static_cast< ManyToManySWMUserCode*>(sctx->swm_obj);
+        many_to_many_swm->call();
+    }
     else if(strcmp(sctx->workload_name, "milc") == 0)
     {
         MilcSWMUserCode * milc_swm = static_cast< MilcSWMUserCode*>(sctx->swm_obj);
@@ -946,21 +946,21 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
         AllToOneSWMUserCode * incast_swm = new AllToOneSWMUserCode(root, generic_ptrs);
         my_ctx->sctx.swm_obj = (void*)incast_swm;
     }
-    // else if(strcmp(o_params->workload_name, "spread") == 0)
-    // {
-    //     OneToManySWMUserCode * spread_swm = new OneToManySWMUserCode(root, generic_ptrs);
-    //     my_ctx->sctx.swm_obj = (void*)spread_swm;
-    // }
-    // else if(strcmp(o_params->workload_name, "allreduce") == 0 || strcmp(o_params->workload_name, "allreduce32") == 0 || strcmp(o_params->workload_name, "allreduce256") == 0)
-    // {
-    //     AllReduceSWMUserCode * allreduce_swm = new AllReduceSWMUserCode(root, generic_ptrs);
-    //     my_ctx->sctx.swm_obj = (void*)allreduce_swm;
-    // }
-    // else if(strcmp(o_params->workload_name, "many_to_many") == 0 || strcmp(o_params->workload_name, "many_to_many1") == 0)
-    // {
-    //     ManyToManySWMUserCode * many_to_many_swm = new ManyToManySWMUserCode(root, generic_ptrs);
-    //     my_ctx->sctx.swm_obj = (void*)many_to_many_swm;
-    // }
+    else if(strcmp(o_params->workload_name, "spread") == 0)
+    {
+        OneToManySWMUserCode * spread_swm = new OneToManySWMUserCode(root, generic_ptrs);
+        my_ctx->sctx.swm_obj = (void*)spread_swm;
+    }
+    else if(strcmp(o_params->workload_name, "allreduce") == 0 || strcmp(o_params->workload_name, "allreduce32") == 0 || strcmp(o_params->workload_name, "allreduce256") == 0)
+    {
+        AllReduceSWMUserCode * allreduce_swm = new AllReduceSWMUserCode(root, generic_ptrs);
+        my_ctx->sctx.swm_obj = (void*)allreduce_swm;
+    }
+    else if(strcmp(o_params->workload_name, "many_to_many") == 0 || strcmp(o_params->workload_name, "many_to_many1") == 0)
+    {
+        ManyToManySWMUserCode * many_to_many_swm = new ManyToManySWMUserCode(root, generic_ptrs);
+        my_ctx->sctx.swm_obj = (void*)many_to_many_swm;
+    }
     else if(strcmp(o_params->workload_name, "milc") == 0)
     {
         MilcSWMUserCode * milc_swm = new MilcSWMUserCode(root, generic_ptrs);
