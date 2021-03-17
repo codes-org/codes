@@ -56,9 +56,9 @@
 // maximum number of characters allowed to represent the routing algorithm as a string
 #define MAX_ROUTING_CHARS 32
 
-#define OUTPUT_END_END_LATENCIES 1
-#define OUTPUT_PORT_PORT_LATENCIES 1
-#define OUTPUT_LATENCY_MODULO 100
+#define OUTPUT_END_END_LATENCIES 0
+#define OUTPUT_PORT_PORT_LATENCIES 0
+#define OUTPUT_LATENCY_MODULO 1
 
 //Routing Defines
 //NONMIN_INCLUDE_SOURCE_DEST: Do we allow source and destination groups to be viable choces for indirect group (i.e. do we allow nonminimal routing to sometimes be minimal?)
@@ -4740,19 +4740,18 @@ static void router_packet_receive( router_state * s,
     int dest_group_id = dest_router_id / num_routers;
 
     output_chan = 0;
-    if (my_group_id == s->group_id)
+    if (my_group_id == src_group_id)
     {
+        output_chan = cur_chunk->msg.my_l_hop;
         if(msg->path_type == NON_MINIMAL)
             output_chan = 1;
-        else
-            output_chan = 0;
     }
-    if (my_group_id != src_group_id && my_group_id != dest_group_id)
+    else if (my_group_id != src_group_id && my_group_id != dest_group_id)
     {
         assert(msg->path_type == NON_MINIMAL);
         output_chan = 2;
     }
-    if (my_group_id == dest_group_id)
+    else if (my_group_id == dest_group_id)
     {
         output_chan = 3;
     }
