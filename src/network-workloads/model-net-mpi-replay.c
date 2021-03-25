@@ -2790,7 +2790,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 		default:
 			printf("\n Invalid op type %d ", m->op_type);
 	}
-    // free(m->mpi_op);
+    free(m->mpi_op);
 }
 
 static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
@@ -3125,12 +3125,12 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
 
 void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-    // switch(m->msg_type)
-    // {
-    //     case MPI_OP_GET_NEXT:
-    //         free(m->mpi_op);
-    //     break;
-    // }
+    switch(m->msg_type)
+    {
+        case MPI_OP_GET_NEXT:
+            free(m->mpi_op);
+        break;
+    }
 }
 
 const tw_optdef app_opt [] =
