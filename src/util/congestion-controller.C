@@ -444,13 +444,12 @@ congestion_control_message* cc_msg_rc_storage_create()
 
 void cc_msg_rc_storage_delete(void * ptr)
 {
-    if (ptr) {
-        if(((congestion_control_message *) ptr)->danger_rc_abated)
-            free(((congestion_control_message*)ptr)->danger_rc_abated);
-        if(((congestion_control_message *) ptr)->danger_rc_deabated)
-            free(((congestion_control_message*)ptr)->danger_rc_deabated);
-        free(ptr); 
-    }
+    congestion_control_message *rc_msg = (congestion_control_message*)ptr;
+    if (rc_msg->size_abated > 0)
+        free(rc_msg->danger_rc_abated);
+    if (rc_msg->size_deabated > 0)
+        free(rc_msg->danger_rc_deabated);
+    free(ptr);
 }
 
 void congestion_control_register_terminal_lpname(char lp_name[])
@@ -605,6 +604,7 @@ void cc_router_congestion_check(rlc_state *s, int port_no, int vc_no, congestion
     int port_size = s->params->router_vc_sizes_on_each_port[port_no]*s->params->router_vc_per_port;
 
     unsigned long long port_occupancy = s->packet_counting_tree->get_packet_count_by_port(port_no);
+    rc_msg->size_abated = 0;
 
     if(s->packet_counting_tree->is_port_congested(port_no) == false)
     {
