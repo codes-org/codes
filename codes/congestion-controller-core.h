@@ -17,6 +17,8 @@ extern "C" {
 #endif
 
 extern int g_congestion_control_enabled; 
+extern tw_stime g_congestion_control_notif_latency;
+extern const tw_optdef cc_app_opt [];
 
 // Defines congestion (aggregate of stall)
 typedef enum congestion_status

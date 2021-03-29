@@ -105,6 +105,8 @@ typedef struct cc_param
     double single_vc_decongestion_threshold; //unused currently
     double single_port_decongestion_threshold;
     double single_router_decongestion_threshold; //unused currently
+
+    double notification_latency;
 } cc_param;
 
 typedef struct rlc_state
@@ -116,6 +118,7 @@ typedef struct rlc_state
 
     int* workloads_finished_flag_ptr;
 
+    set<int> output_ports;
     Portchan_node *packet_counting_tree;
 } rlc_state;
 
@@ -155,6 +158,7 @@ void cc_terminal_local_congestion_event_commit(tlc_state *s, tw_bf *bf, congesti
 
 // ------------ Local controllers -----------------------
 void cc_router_local_controller_init(rlc_state *s, tw_lp *lp, int total_terminals, int router_id, int radix, int num_vcs_per_port, int *vc_sizes, int* workload_finished_flag_ptr);
+void cc_router_local_controller_add_output_port(rlc_state *s, int port_no);
 void cc_router_received_packet(rlc_state *s, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg);
 void cc_router_received_packet_rc(rlc_state *s, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg);
 void cc_router_forwarded_packet(rlc_state *s, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg);

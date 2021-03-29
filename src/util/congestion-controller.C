@@ -30,6 +30,14 @@ unsigned long long stalled_nic_counter = 0;
 
 /************* DEFINITIONS ****************************************/
 int g_congestion_control_enabled;
+tw_stime g_congestion_control_notif_latency = 0;
+
+const tw_optdef cc_app_opt [] =
+{
+	TWOPT_GROUP("Congestion Control"),
+    TWOPT_STIME("cc_notif_latency", g_congestion_control_notif_latency, "latency for congestion control notifications"),
+	TWOPT_END()
+};
 
 static char terminal_lp_name[128];
 static char router_lp_name[128];
@@ -532,14 +540,21 @@ void cc_router_local_controller_init(rlc_state *s, tw_lp* lp, int total_terminal
         p->single_port_aggressor_usage_threshold = .10;
     }
 
+    p->notification_latency = g_congestion_control_notif_latency;
+
     s->router_id = router_id;
     s->lp = lp;
     // s->vc_occupancy_ptr = &vc_occupancy;
     // s->port_vc_to_term_count_map = map<pair<int,int>,map<int,int> >();
 
     s->workloads_finished_flag_ptr = workload_finished_flag_ptr;
-
+    s->output_ports = set<int>();
     s->packet_counting_tree = new Portchan_node(ROOT, radix, num_vcs_per_port);
+}
+
+void cc_router_local_controller_add_output_port(rlc_state *s, int port_no)
+{
+    s->output_ports.insert(port_no);
 }
 
 void cc_router_local_congestion_event(rlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
@@ -575,26 +590,34 @@ void cc_router_local_congestion_event_commit(rlc_state *s, tw_bf *bf, congestion
 void cc_router_received_packet(rlc_state *s, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg)
 {
     // s->port_vc_to_term_count_map[make_pair(port_no, vc_no)][term_id]++;
-    s->packet_counting_tree->enqueue_packet(packet_size, port_no, vc_no, term_id, app_id);
-    cc_router_congestion_check(s, port_no, vc_no, rc_msg);
+    if (s->output_ports.size() > 0 && s->output_ports.count(port_no) > 0) {
+        s->packet_counting_tree->enqueue_packet(packet_size, port_no, vc_no, term_id, app_id);
+        cc_router_congestion_check(s, port_no, vc_no, rc_msg);
+    }
 }
 
 void cc_router_received_packet_rc(rlc_state *s, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg)
 {
-    cc_router_congestion_check_rc(s, port_no, vc_no, rc_msg);
-    s->packet_counting_tree->dequeue_packet(packet_size, port_no, vc_no, term_id, app_id);
+    if (s->output_ports.size() > 0 && s->output_ports.count(port_no) > 0) {
+        cc_router_congestion_check_rc(s, port_no, vc_no, rc_msg);
+        s->packet_counting_tree->dequeue_packet(packet_size, port_no, vc_no, term_id, app_id);
+    }
 }
 
 void cc_router_forwarded_packet(rlc_state *s, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg)
 {
-    s->packet_counting_tree->dequeue_packet(packet_size, port_no, vc_no, term_id, app_id);
-    cc_router_congestion_check(s, port_no, vc_no, rc_msg);
+    if (s->output_ports.size() > 0 && s->output_ports.count(port_no) > 0) {
+        s->packet_counting_tree->dequeue_packet(packet_size, port_no, vc_no, term_id, app_id);
+        cc_router_congestion_check(s, port_no, vc_no, rc_msg);
+    }
 }
 
 void cc_router_forwarded_packet_rc(rlc_state *s, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg)
 {
-    cc_router_congestion_check_rc(s, port_no, vc_no, rc_msg);
-    s->packet_counting_tree->enqueue_packet(packet_size, port_no, vc_no, term_id, app_id);
+    if (s->output_ports.size() > 0 && s->output_ports.count(port_no) > 0) {
+        cc_router_congestion_check_rc(s, port_no, vc_no, rc_msg);
+        s->packet_counting_tree->enqueue_packet(packet_size, port_no, vc_no, term_id, app_id);
+    }
 }
 
 void cc_router_congestion_check(rlc_state *s, int port_no, int vc_no, congestion_control_message *rc_msg)
@@ -650,7 +673,7 @@ void cc_router_congestion_check(rlc_state *s, int port_no, int vc_no, congestion
                 {
                     tw_lpid term_lpgid = codes_mapping_get_lpid_from_relative(term_id, NULL, terminal_lp_name, NULL, 0);
                     congestion_control_message *c_msg;
-                    tw_event *e = model_net_method_congestion_event(term_lpgid, 0, s->lp, (void**)&c_msg, NULL);
+                    tw_event *e = model_net_method_congestion_event(term_lpgid, s->params->notification_latency, s->lp, (void**)&c_msg, NULL);
                     c_msg->type = CC_SIGNAL_ABATE;
                     c_msg->app_id = app_id;
                     tw_event_send(e);
@@ -687,7 +710,7 @@ void cc_router_congestion_check(rlc_state *s, int port_no, int vc_no, congestion
                     //if any are no longer marked abated at all, then send a normal signal
                     tw_lpid term_lpgid = codes_mapping_get_lpid_from_relative(*it, NULL, terminal_lp_name, NULL, 0);
                     congestion_control_message *c_msg;
-                    tw_event *e = model_net_method_congestion_event(term_lpgid, 0, s->lp, (void**)&c_msg, NULL);
+                    tw_event *e = model_net_method_congestion_event(term_lpgid, s->params->notification_latency, s->lp, (void**)&c_msg, NULL);
                     c_msg->type = CC_SIGNAL_NORMAL;
                     tw_event_send(e);
                 }
@@ -841,7 +864,14 @@ void cc_terminal_local_controller_init(tlc_state *s, tw_lp *lp, int terminal_id,
         if(!g_tw_mynode)
             tw_error(TW_LOC, "Chunk size not specified.");
     }
-    
+
+    rc = configuration_get_value_double(&config, "PARAMS", "cc_measurement_period", NULL, &cc_bandwidth_monitoring_window);
+    if (rc) {
+        cc_bandwidth_monitoring_window = 10000;
+    }
+
+    p->notification_latency = g_congestion_control_notif_latency;
+
     s->is_abatement_active = false;
     s->current_injection_bandwidth_coef = 1;
     s->abatement_signal_count = 0;
@@ -858,7 +888,7 @@ void cc_terminal_local_controller_init(tlc_state *s, tw_lp *lp, int terminal_id,
 void cc_terminal_send_ack(tlc_state *s, tw_lpid original_terminal_lpgid)
 {
     congestion_control_message *ack_msg;
-    tw_event * ack_e = model_net_method_congestion_event(original_terminal_lpgid, .00001, s->lp, (void**)&ack_msg, NULL);
+    tw_event * ack_e = model_net_method_congestion_event(original_terminal_lpgid, s->params->notification_latency + .00001, s->lp, (void**)&ack_msg, NULL);
     ack_msg->type = CC_SIM_ACK;
     tw_event_send(ack_e);
 }
@@ -943,14 +973,18 @@ double cc_terminal_get_current_injection_bandwidth_coef(tlc_state *s)
     else if (s->abatement_signal_count > 0) {
         double ret_val;
         double calculated_injection = s->current_injection_bandwidth_coef;
-        if (calculated_injection < .01)
-            ret_val = .01;
+        // double min_injection = (1.0/codes_jobmap_get_num_ranks(s->app_id, jobmap_ctx)); //TODO s->app_id is never set because it's hard for the network side to know this
+        double min_injection = (1.0/100.0);
+        if (calculated_injection < min_injection)
+            ret_val = min_injection;
         else
             ret_val = calculated_injection;
         
         if (ret_val < 0)
             printf("%.2f = %.2f / %d\n", ret_val, s->current_injection_bandwidth_coef, s->abatement_signal_count);
-        assert(ret_val < 1);
+        if (ret_val > 1)
+            ret_val = 1;
+        assert(ret_val <= 1);
         assert(ret_val > 0);
         return ret_val;
     }

@@ -2515,7 +2515,6 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 
 	if(lid.rank == 0){
 		for(int k = 0; k < period_count[lid.job]; k++){
-            printf("PERIOD WAH\n");
 			tw_event * e2;
 			nw_message * m_new2;
 			tw_stime ts2 = period_time[lid.job][k];
@@ -3304,6 +3303,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 
   workload_type[0]='\0';
   tw_opt_add(app_opt);
+  tw_opt_add(cc_app_opt);
   tw_init(argc, argv);
 #ifdef USE_RDAMARIS
     if(g_st_ross_rank)
