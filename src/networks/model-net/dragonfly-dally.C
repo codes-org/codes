@@ -2978,6 +2978,14 @@ void router_dally_init(router_state * r, tw_lp * lp)
     if (g_congestion_control_enabled) {
         r->local_congestion_controller = (rlc_state*)calloc(1,sizeof(rlc_state));
         cc_router_local_controller_init(r->local_congestion_controller, lp, p->total_terminals, r->router_id, p->radix, p->num_vcs, r->vc_max_sizes, &r->workloads_finished_flag);
+        
+        vector<Connection> terminal_out_conns = r->connMan.get_connections_by_type(CONN_TERMINAL);
+        vector<Connection>::iterator it = terminal_out_conns.begin();
+        for(; it != terminal_out_conns.end(); it++)
+        {
+            cc_router_local_controller_add_output_port(r->local_congestion_controller, it->port);
+        }
+
     }
 
     return;
