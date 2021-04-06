@@ -699,7 +699,8 @@ void handle_other_finish(
         printf("App %d: All non-synthetic workloads have completed\n", ns->app_id);
         //Determine which job should be the one to notify all the background ranks
         //Let's say: highest numbered non-synthetic job (found above)
-        if (ns->app_id == highest_non_syn_job_id)
+        // also make sure that there actually are synthetic jobs
+        if (ns->app_id == highest_non_syn_job_id && (total_non_syn_completed_jobs < num_jobs))
         {
             if(max_gen_data <= 0) {
                 printf("App %d: Notifying background traffic\n", ns->app_id);
@@ -740,6 +741,7 @@ static void notify_neighbor_rc(
        if(bf->c0)
        {
             notify_other_workloads_rc(ns, lp, bf, m);
+            ns->known_completed_jobs[ns->app_id] = 0;
             // notify_background_traffic_rc(ns, lp, bf, m);
             return;
        }
