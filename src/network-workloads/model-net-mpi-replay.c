@@ -1295,9 +1295,9 @@ static int notify_posted_wait(nw_state* s,
                     if(enable_debug)
                         fprintf(workload_log, "\n(%lf) APP ID %d MPI WAITALL COMPLETED AT %llu ", tw_now(lp), s->app_id, LLU(s->nw_id));
                     wait_completed = 1;
+                    m->fwd.wait_completed = 1;
                 }
 
-                m->fwd.wait_completed = 1;
             }
         }
     }
