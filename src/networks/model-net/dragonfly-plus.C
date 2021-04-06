@@ -4678,8 +4678,8 @@ static void router_verify_valid_receipt(router_state *s, tw_bf *bf, terminal_plu
             tw_error(TW_LOC, "\nRouter Receipt Verify: Codes Mapping Get LP Rel ID Failure - Local");
         }
 
-        int rel_loc_id = rel_id % s->params->num_routers;
-        has_valid_connection = s->connMan.is_connected_to_by_type(rel_loc_id, CONN_LOCAL);
+        // int rel_loc_id = rel_id % s->params->num_routers;
+        has_valid_connection = s->connMan.is_connected_to_by_type(rel_id, CONN_LOCAL);
     }
     else if (msg->last_hop == GLOBAL)
     {
