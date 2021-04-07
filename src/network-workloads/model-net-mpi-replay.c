@@ -1296,8 +1296,7 @@ static int notify_posted_wait(nw_state* s,
                         fprintf(workload_log, "\n(%lf) APP ID %d MPI WAITALL COMPLETED AT %llu ", tw_now(lp), s->app_id, LLU(s->nw_id));
                     wait_completed = 1;
                 }
-
-                m->fwd.wait_completed = 1;
+                m->fwd.wait_completed = 1; //This is just the individual request handle - not the entire wait.
             }
         }
     }
@@ -2093,10 +2092,11 @@ static void update_completed_queue(nw_state* s,
     bf->c31 = 0;
     m->fwd.num_matched = 0;
 
-    int waiting = 0;
-    waiting = notify_posted_wait(s, bf, m, lp, req_id);
+     //done waiting means that this was either the only wait in the op or the last wait in the collective op.
+    int done_waiting = 0;
+    done_waiting = notify_posted_wait(s, bf, m, lp, req_id);
 
-    if(!waiting)
+    if(!done_waiting)
     {
         bf->c30 = 1;
         completed_requests * req = (completed_requests*)malloc(sizeof(completed_requests));
