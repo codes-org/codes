@@ -109,6 +109,7 @@ struct terminal_dally_message
    unsigned long long * rc_qos_data;
    int * rc_qos_status;
 
+   short saved_send_loop;
    tw_stime saved_available_time;
    tw_stime saved_min_lat;
    tw_stime saved_avg_time;

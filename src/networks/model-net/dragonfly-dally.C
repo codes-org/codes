@@ -60,7 +60,7 @@
 #define OUTPUT_PORT_PORT_LATENCIES 0
 #define OUTPUT_LATENCY_MODULO 1
 
-#define ADD_NOISE 1
+#define ADD_NOISE 0
 
 //Routing Defines
 //NONMIN_INCLUDE_SOURCE_DEST: Do we allow source and destination groups to be viable choces for indirect group (i.e. do we allow nonminimal routing to sometimes be minimal?)
@@ -2987,7 +2987,6 @@ void router_dally_init(router_state * r, tw_lp * lp)
         }
 
     }
-
     return;
 }	
 
@@ -3429,7 +3428,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
             bts[j] = s->last_buf_full[j];
             iis[j] = s->issueIdle[j];
             // scs[j] = s->stalled_chunks[j];
-            if(s->terminal_length[j][vcg] < s->params->cn_vc_size)
+            if(s->terminal_length[j][vcg] < s->params->cn_vc_size && s->issueIdle[j] == 0)
             {
                 model_net_method_idle_event2(nic_ts, 0, j, lp);
             }
@@ -3516,7 +3515,7 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_dally_messag
         s->last_qos_lvl[msg->rail_id] = msg->last_saved_qos;
 
     if(bf->c1) {
-        s->in_send_loop[msg->rail_id] = 1;
+        s->in_send_loop[msg->rail_id] = msg->saved_send_loop;
         s->stalled_chunks[msg->rail_id]--;
         if(bf->c3)
             s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
@@ -3546,7 +3545,7 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_dally_messag
             s->terminal_msgs_tail[msg->rail_id], vcg, cur_entry);
     
     if(bf->c4) {
-        s->in_send_loop[msg->rail_id] = 1;
+        s->in_send_loop[msg->rail_id] = msg->saved_send_loop;
     }
     if(bf->c5)
     {
@@ -3576,6 +3575,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     msg->last_saved_qos = -1;
     msg->qos_reset1 = -1;
     msg->qos_reset2 = -1;
+    msg->saved_send_loop = s->in_send_loop[msg->rail_id];
 
     vcg = get_next_vcg(s, bf, msg, lp);
     
@@ -3616,12 +3616,16 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
      */
     tw_stime injection_ts, injection_delay;
     tw_stime propagation_ts, propagation_delay;
+
+    double bandwidth = s->params->cn_bandwidth;
+    if (g_congestion_control_enabled)
+        bandwidth = bandwidth_coef * bandwidth;
  
-    injection_delay = bytes_to_ns(s->params->chunk_size, bandwidth_coef * s->params->cn_bandwidth);
+    injection_delay = bytes_to_ns(s->params->chunk_size, bandwidth);
     if((cur_entry->msg.packet_size < s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
     {
         data_size = cur_entry->msg.packet_size % s->params->chunk_size;
-        injection_delay = bytes_to_ns(data_size, bandwidth_coef * s->params->cn_bandwidth);
+        injection_delay = bytes_to_ns(data_size, bandwidth);
     }
     propagation_delay = s->params->cn_delay;
 
@@ -4233,8 +4237,8 @@ dragonfly_dally_terminal_final( terminal_state * s,
     free(s->terminal_msgs_tail);
 }
 
-void dragonfly_dally_router_final(router_state * s, tw_lp * lp)
-{
+void dragonfly_dally_router_final(router_state * s, tw_lp * lp){
+
     unsigned long total_stalled_chunks = 0;
     unsigned long total_total_chunks = 0;
     for (int i = 0; i < s->params->radix; i++)
@@ -4846,7 +4850,7 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
        s->last_qos_lvl[output_port] = msg->last_saved_qos; 
      
     if(bf->c1) {
-        s->in_send_loop[output_port] = 1;
+        s->in_send_loop[output_port] = msg->saved_send_loop;
         if(bf->c2) {
             s->last_buf_full[output_port] = msg->saved_busy_time;
         }
@@ -4903,7 +4907,7 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
     }
 
     if(bf->c4) {
-        s->in_send_loop[output_port] = 1;
+        s->in_send_loop[output_port] = msg->saved_send_loop;
     }
 }
 /* routes the current packet to the next stop */
@@ -4919,6 +4923,7 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     msg->last_saved_qos = -1;
     msg->qos_reset1 = -1;
     msg->qos_reset2 = -1;
+    msg->saved_send_loop = s->in_send_loop[output_port];
 
     int num_qos_levels = s->params->num_qos_levels;
     int output_chan = get_next_router_vcg(s, bf, msg, lp); //includes default output_chan setting functionality if qos not enabled
