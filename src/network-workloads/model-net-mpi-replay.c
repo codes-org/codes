@@ -34,7 +34,8 @@
 #define BAR_TAG 1234
 #define PRINT_SYNTH_TRAFFIC 1
 #define MAX_JOBS 40
-#define NEAR_ZERO .0001;
+#define NEAR_ZERO .0001
+#define OUTPUT_MARKS 0
 
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
@@ -402,6 +403,7 @@ struct nw_message
        double saved_wait_time_sample;
        double saved_delay;
        double saved_delay_sample;
+       double saved_marker_time;
        int64_t saved_num_bytes;
        int saved_syn_length;
        unsigned long saved_prev_switch;
@@ -711,18 +713,18 @@ void handle_other_finish(
             else {
                 printf("App %d: Not notifying background traffic as max_gen_data > 0. Will let synthetic workloads finish",ns->app_id);
             }
-
-            //TODO because we're treating synthetic workloads differently based on whether or not there's max_gen_data set, creating this notification here at this exact spot in logic
-            //will result in LPs receiving a "wrap up" notification potentially before synthetic workloads are done. To fix this, then we need to start treating synthetic workloads
-            //with a max_gen_data set differently, so that they communicate with other workloads when they're done in the same way we do with regular workloads
-            //this notification would then be sent by a single workload LP that knows for a fact that all other workloads have completed.
-            //also this, to be more accurate, should only be sent when all of the workload LPs have received all messages that have been sent so that we know that no packets
-            //are currently in transit. This currently isn't measured for model_net_mpi_replay.
-
-            //send to all non nw-lp LPs (all model net, is there a function taht does this?)
-            int num_rngs = model_net_method_end_sim_broadcast(.00001, lp);
-            // m->num_rngs += num_rngs;
         }
+
+        //TODO because we're treating synthetic workloads differently based on whether or not there's max_gen_data set, creating this notification here at this exact spot in logic
+        //will result in LPs receiving a "wrap up" notification potentially before synthetic workloads are done. To fix this, then we need to start treating synthetic workloads
+        //with a max_gen_data set differently, so that they communicate with other workloads when they're done in the same way we do with regular workloads
+        //this notification would then be sent by a single workload LP that knows for a fact that all other workloads have completed.
+        //also this, to be more accurate, should only be sent when all of the workload LPs have received all messages that have been sent so that we know that no packets
+        //are currently in transit. This currently isn't measured for model_net_mpi_replay.
+
+        //send to all non nw-lp LPs (all model net, is there a function taht does this?)
+        int num_rngs = model_net_method_end_sim_broadcast(.00001, lp);
+        // m->num_rngs += num_rngs;
     }
     else
     {
@@ -2924,6 +2926,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 		case CODES_WK_MARK:
 			{
 				printf("\n MARK_%d node %llu job %d rank %d time %lf ", mpi_op->u.send.tag, LLU(s->nw_id), s->app_id, s->local_rank, tw_now(lp));
+                m->rc.saved_marker_time = tw_now(lp);
 				codes_issue_next_event(lp);
 			}
 			break;
@@ -3129,6 +3132,23 @@ void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp
     switch(m->msg_type)
     {
         case MPI_OP_GET_NEXT:
+            if (m->mpi_op->op_type == CODES_WK_MARK) {
+                if (OUTPUT_MARKS)
+                {
+                    int written1;
+                    char marker_filename[128];
+                    written1 = sprintf(marker_filename, "mpi-replay-marker-tag-times");
+                    marker_filename[written1] = '\0';
+
+                    char tag_line[32];
+                    int written;
+                    written = sprintf(tag_line, "%d %d %.5f\n",s->nw_id, m->mpi_op->u.send.tag, m->rc.saved_marker_time);
+                    lp_io_write(lp->gid, marker_filename, written, tag_line);
+                }
+            }
+
+
+
             free(m->mpi_op);
         break;
     }
