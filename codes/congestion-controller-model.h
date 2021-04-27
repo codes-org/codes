@@ -41,6 +41,7 @@ private:
     portchan_node_type type; //what level of the tree are we?
     unsigned long long packet_count; //number of packets on this node and children
     bool is_congested;
+    tw_stime next_possible_normal_time;
     set<unsigned int> abated_terminals_this_node;
     map<unsigned int, unsigned int> abated_terminal_child_counter; //maps terminal ID to number of children nodes that it is under abatement on
     map<unsigned int, unsigned long long> term_count_map; //maps terminal ID to number of packets on this node and children
@@ -72,6 +73,15 @@ public:
     bool is_router_congested();
     bool is_port_congested(int port_no);
     bool is_port_vc_congested(int port_no, int vc_no);
+    void set_router_congestion_state(bool is_congested);
+    void set_port_congestion_state(int port_no, bool is_congested);
+    void set_port_vc_congested(int port_no, int vc_no, bool is_congested);
+    void set_next_possible_router_normal_time(tw_stime time);
+    void set_next_possible_port_normal_time(int port_no, tw_stime time);
+    void set_next_possible_vc_normal_time(int port_no, int vc_no, tw_stime time);
+    tw_stime get_next_possible_router_normal_time();
+    tw_stime get_next_possible_port_normal_time(int port_no);
+    tw_stime get_next_possible_vc_normal_time(int port_no, int vc_no);
     void mark_abated_terminal(unsigned int term_id);
     void mark_abated_terminal(int port_no, unsigned int term_id);
     void mark_abated_terminal(int port_no, int vc_no, unsigned int term_id);
@@ -90,7 +100,6 @@ typedef struct cc_param
 {    
     int router_radix;
     int router_vc_per_port;
-    int* router_vc_sizes_on_each_port;
     int router_total_buffer_size;
 
     double terminal_configured_bandwidth;
@@ -107,6 +116,7 @@ typedef struct cc_param
     double single_router_decongestion_threshold; //unused currently
 
     double notification_latency;
+    double minimum_abatement_time;
 } cc_param;
 
 typedef struct rlc_state
@@ -116,6 +126,8 @@ typedef struct rlc_state
 
     int router_id;
 
+    int* router_vc_sizes_on_each_port;
+    double* router_bandwidths_on_each_port;
     int* workloads_finished_flag_ptr;
 
     set<int> output_ports;
@@ -157,14 +169,14 @@ void cc_terminal_local_congestion_event_commit(tlc_state *s, tw_bf *bf, congesti
 
 
 // ------------ Local controllers -----------------------
-void cc_router_local_controller_init(rlc_state *s, tw_lp *lp, int total_terminals, int router_id, int radix, int num_vcs_per_port, int *vc_sizes, int* workload_finished_flag_ptr);
+void cc_router_local_controller_init(rlc_state *s, tw_lp *lp, int total_terminals, int router_id, int radix, int num_vcs_per_port, int *vc_sizes, double* bandwidths, int* workload_finished_flag_ptr);
 void cc_router_local_controller_add_output_port(rlc_state *s, int port_no);
-void cc_router_received_packet(rlc_state *s, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg);
-void cc_router_received_packet_rc(rlc_state *s, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg);
-void cc_router_forwarded_packet(rlc_state *s, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg);
-void cc_router_forwarded_packet_rc(rlc_state *s, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg);
-void cc_router_congestion_check(rlc_state *s, int port_no, int vc_no, congestion_control_message *rc_msg);
-void cc_router_congestion_check_rc(rlc_state *s, int port_no, int vc_no, congestion_control_message *rc_msg);
+void cc_router_received_packet(rlc_state *s, tw_lp *lp, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg);
+void cc_router_received_packet_rc(rlc_state *s, tw_lp *lp, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg);
+void cc_router_forwarded_packet(rlc_state *s, tw_lp *lp, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg);
+void cc_router_forwarded_packet_rc(rlc_state *s, tw_lp *lp, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg);
+void cc_router_congestion_check(rlc_state *s, tw_lp *lp, int port_no, int vc_no, congestion_control_message *rc_msg);
+void cc_router_congestion_check_rc(rlc_state *s, tw_lp *lp, int port_no, int vc_no, congestion_control_message *rc_msg);
 void cc_router_local_controller_finalize(rlc_state *s);
 
 void cc_terminal_local_controller_init(tlc_state *s, tw_lp *lp, int terminal_id, int* workload_finished_flag_ptr);

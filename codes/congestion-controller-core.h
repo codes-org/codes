@@ -52,10 +52,16 @@ typedef struct congestion_control_message
     double saved_window;
     double saved_rate;
     double saved_bw;
+    double saved_new_bw; //for commit
+    tw_stime msg_time; // for commit
     unsigned int saved_ejected_bytes;
     int num_cc_rngs;
     short to_congest;
     short to_decongest;
+
+    short received_new_while_congested;
+    int saved_term_id;
+    double saved_expire_time;
 
     // Dangerous - same LP dynamic RC state -- if this message is to be sent between two LPs, DON'T USE THIS FIELD
     size_t size_abated;

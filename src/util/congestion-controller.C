@@ -11,6 +11,7 @@
 #include <string>
 
 #define PERMANENT_ABATEMENT 1
+#define OUTPUT_BANDWIDTHS 0
 
 using namespace std;
 
@@ -23,7 +24,7 @@ static int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
 
 static int network_id = 0;
 static double cc_bandwidth_monitoring_window = 10000;
-static int cc_bandwidth_rolling_window_count = 5;
+static int cc_bandwidth_rolling_window_count = 2;
 
 unsigned long long stalled_packet_counter = 0;
 unsigned long long stalled_nic_counter = 0;
@@ -212,6 +213,51 @@ bool Portchan_node::is_port_vc_congested(int port_no, int vc_no)
     return children[port_no]->children[vc_no]->is_congested;
 }
 
+void Portchan_node::set_router_congestion_state(bool new_is_congested)
+{
+    is_congested = new_is_congested;
+}
+
+void Portchan_node::set_port_congestion_state(int port_no, bool new_is_congested)
+{
+    children[port_no]->is_congested = new_is_congested;
+}
+
+void Portchan_node::set_port_vc_congested(int port_no, int vc_no, bool new_is_congested)
+{
+    children[port_no]->children[vc_no]->is_congested = new_is_congested;
+}
+
+void Portchan_node::set_next_possible_router_normal_time(tw_stime time)
+{
+    next_possible_normal_time = time;
+}
+
+void Portchan_node::set_next_possible_port_normal_time(int port_no, tw_stime time)
+{
+    children[port_no]->next_possible_normal_time = time;
+}
+
+void Portchan_node::set_next_possible_vc_normal_time(int port_no, int vc_no, tw_stime time)
+{
+    children[port_no]->children[vc_no]->next_possible_normal_time = time;
+}
+
+tw_stime Portchan_node::get_next_possible_router_normal_time()
+{
+    return next_possible_normal_time;
+}
+
+tw_stime Portchan_node::get_next_possible_port_normal_time(int port_no)
+{
+    return children[port_no]->next_possible_normal_time;
+}
+
+tw_stime Portchan_node::get_next_possible_vc_normal_time(int port_no, int vc_no)
+{
+    return children[port_no]->children[vc_no]->next_possible_normal_time;
+}
+
 void Portchan_node::mark_abated_terminal(unsigned int term_id)
 {
     if(type != ROOT)
@@ -219,6 +265,7 @@ void Portchan_node::mark_abated_terminal(unsigned int term_id)
 
     abated_terminals_this_node.emplace(term_id);
 }
+
 
 void Portchan_node::mark_abated_terminal(int port_no, unsigned int term_id)
 {
@@ -426,7 +473,20 @@ static set<unsigned long> decongestion_pattern_set = set<unsigned long>();
 
 /************* HELPER FUNCTIONS ***********************************/
 
-// tw_stime cc_get_next_heartbeat_time
+/* convert GiB/s and bytes to ns */
+static tw_stime bytes_to_ns(uint64_t bytes, double GB_p_s)
+{
+    tw_stime time;
+
+    /* bytes to GB */
+    time = ((double)bytes)/(1024.0*1024.0*1024.0);
+    /* GiB to s */
+    time = time / GB_p_s;
+    /* s to ns */
+    time = time * 1000.0 * 1000.0 * 1000.0;
+
+    return(time);
+}
 
 double cc_tw_rand_unif(tw_lp *lp)
 {
@@ -515,7 +575,7 @@ struct pair_hash {
 };
 
 //Router Local Controller
-void cc_router_local_controller_init(rlc_state *s, tw_lp* lp, int total_terminals, int router_id, int radix, int num_vcs_per_port, int* vc_sizes,  int* workload_finished_flag_ptr)
+void cc_router_local_controller_init(rlc_state *s, tw_lp* lp, int total_terminals, int router_id, int radix, int num_vcs_per_port, int* vc_sizes, double* bandwidths,  int* workload_finished_flag_ptr)
 {
     // printf("CC LOCAL INIT!\n");
     s->params = (cc_param*)calloc(1, sizeof(cc_param));
@@ -523,7 +583,8 @@ void cc_router_local_controller_init(rlc_state *s, tw_lp* lp, int total_terminal
 
     p->router_radix = radix;
     p->router_vc_per_port = num_vcs_per_port;
-    p->router_vc_sizes_on_each_port = vc_sizes;
+    s->router_vc_sizes_on_each_port = vc_sizes;
+    s->router_bandwidths_on_each_port = bandwidths;
 
     int rc = configuration_get_value_double(&config, "PARAMS", "cc_single_port_congestion_threshold", NULL, &p->single_port_congestion_threshold);
     if(rc) {
@@ -532,12 +593,17 @@ void cc_router_local_controller_init(rlc_state *s, tw_lp* lp, int total_terminal
 
     rc = configuration_get_value_double(&config, "PARAMS", "cc_single_port_decongestion_threshold", NULL, &p->single_port_decongestion_threshold);
     if(rc) {
-        p->single_port_decongestion_threshold = .20;
+        p->single_port_decongestion_threshold = .05;
     }
 
     rc = configuration_get_value_double(&config, "PARAMS", "cc_single_port_aggressor_usage_threshold", NULL, &p->single_port_aggressor_usage_threshold);
     if(rc) {
         p->single_port_aggressor_usage_threshold = .10;
+    }
+
+    rc = configuration_get_value_double(&config, "PARAMS", "cc_minimum_abatement_active_time", NULL, &p->minimum_abatement_time);
+    if(rc) {
+        p->minimum_abatement_time = 10000000;
     }
 
     p->notification_latency = g_congestion_control_notif_latency;
@@ -587,51 +653,98 @@ void cc_router_local_congestion_event_commit(rlc_state *s, tw_bf *bf, congestion
     }
 }
 
-void cc_router_received_packet(rlc_state *s, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg)
+void cc_router_received_packet(rlc_state *s, tw_lp *lp, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg)
 {
     // s->port_vc_to_term_count_map[make_pair(port_no, vc_no)][term_id]++;
     if (s->output_ports.size() > 0 && s->output_ports.count(port_no) > 0) {
         s->packet_counting_tree->enqueue_packet(packet_size, port_no, vc_no, term_id, app_id);
-        cc_router_congestion_check(s, port_no, vc_no, rc_msg);
+
+        double cur_expire_time = s->packet_counting_tree->get_next_possible_port_normal_time(port_no);
+        rc_msg->saved_expire_time = cur_expire_time;
+
+        if (s->packet_counting_tree->is_port_congested(port_no) == true) {
+            // Then abatement for this port is already active, we need to see if this is a packet from a new aggresssor
+            // regardless, we also need to extend the abatement policy
+
+            if (s->packet_counting_tree->is_abated_terminal(term_id) == false)
+            {
+                //then we haven't yet abated the terminal that send this message and we are currently in congestion
+                rc_msg->received_new_while_congested = true;
+                rc_msg->saved_term_id = term_id;
+
+                //need to send abatement to it
+                tw_lpid term_lpgid = codes_mapping_get_lpid_from_relative(term_id, NULL, terminal_lp_name, NULL, 0);
+                congestion_control_message *c_msg;
+                tw_event *e = model_net_method_congestion_event(term_lpgid, s->params->notification_latency, s->lp, (void**)&c_msg, NULL);
+                c_msg->type = CC_SIGNAL_ABATE;
+                c_msg->app_id = app_id;
+                tw_event_send(e);
+
+                s->packet_counting_tree->mark_abated_terminal(port_no, term_id); //increments the abatement counter
+            }
+
+            s->packet_counting_tree->set_next_possible_port_normal_time(port_no, cur_expire_time+bytes_to_ns(packet_size, s->router_bandwidths_on_each_port[port_no]));
+        }
+        else { //TODO NOTE: this if else only is valid if we're only monitoring ports
+            cc_router_congestion_check(s, lp, port_no, vc_no, rc_msg);
+        }
     }
 }
 
-void cc_router_received_packet_rc(rlc_state *s, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg)
+void cc_router_received_packet_rc(rlc_state *s, tw_lp *lp, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg)
 {
     if (s->output_ports.size() > 0 && s->output_ports.count(port_no) > 0) {
-        cc_router_congestion_check_rc(s, port_no, vc_no, rc_msg);
+        cc_router_congestion_check_rc(s, lp, port_no, vc_no, rc_msg);
+
+        if (rc_msg->received_new_while_congested == true)
+        {
+            s->packet_counting_tree->mark_unabated_terminal(port_no, rc_msg->saved_term_id);
+        }
+
+        s->packet_counting_tree->set_next_possible_port_normal_time(port_no, rc_msg->saved_expire_time);
+
+
         s->packet_counting_tree->dequeue_packet(packet_size, port_no, vc_no, term_id, app_id);
     }
 }
 
-void cc_router_forwarded_packet(rlc_state *s, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg)
+void cc_router_forwarded_packet(rlc_state *s, tw_lp *lp, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg)
 {
     if (s->output_ports.size() > 0 && s->output_ports.count(port_no) > 0) {
         s->packet_counting_tree->dequeue_packet(packet_size, port_no, vc_no, term_id, app_id);
-        cc_router_congestion_check(s, port_no, vc_no, rc_msg);
+        cc_router_congestion_check(s, lp, port_no, vc_no, rc_msg);
     }
 }
 
-void cc_router_forwarded_packet_rc(rlc_state *s, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg)
+void cc_router_forwarded_packet_rc(rlc_state *s, tw_lp *lp, unsigned int packet_size, int port_no, int vc_no, int term_id, int app_id, congestion_control_message *rc_msg)
 {
     if (s->output_ports.size() > 0 && s->output_ports.count(port_no) > 0) {
-        cc_router_congestion_check_rc(s, port_no, vc_no, rc_msg);
+        cc_router_congestion_check_rc(s, lp, port_no, vc_no, rc_msg);
         s->packet_counting_tree->enqueue_packet(packet_size, port_no, vc_no, term_id, app_id);
     }
 }
 
-void cc_router_congestion_check(rlc_state *s, int port_no, int vc_no, congestion_control_message *rc_msg)
+void cc_router_congestion_check(rlc_state *s, tw_lp *lp, int port_no, int vc_no, congestion_control_message *rc_msg)
 {
     int num_rngs = 0;
     //PORT CONGESTION/DECONGESTION
-    int port_size = s->params->router_vc_sizes_on_each_port[port_no]*s->params->router_vc_per_port;
+    int port_size = s->router_vc_sizes_on_each_port[port_no]*s->params->router_vc_per_port;
+    int port_congestion_threshold_size = s->params->single_port_congestion_threshold * port_size;
+    int port_decongestion_threshold_size = s->params->single_port_decongestion_threshold * port_size;
 
     unsigned long long port_occupancy = s->packet_counting_tree->get_packet_count_by_port(port_no);
     rc_msg->size_abated = 0;
 
+    //have we already registered congestion on this port?
     if(s->packet_counting_tree->is_port_congested(port_no) == false)
     {
-        if (port_occupancy >= s->params->single_port_congestion_threshold * port_size) {
+        if (port_occupancy >= port_congestion_threshold_size) {
+            s->packet_counting_tree->set_port_congestion_state(port_no, true);
+
+            tw_stime expiration_delay = bytes_to_ns(port_congestion_threshold_size-port_decongestion_threshold_size, s->router_bandwidths_on_each_port[port_no]);
+            // expiration_delay = max(expiration_delay, s->params->minimum_abatement_time);
+            s->packet_counting_tree->set_next_possible_port_normal_time(port_no, tw_now(lp)+expiration_delay);
+
             rc_msg->to_congest = 1;
             // printf("CONGESTION DETECTED %llu\n", port_occupancy);
             set< pair<unsigned int,unsigned int> > aggressor_term_ids;
@@ -684,35 +797,40 @@ void cc_router_congestion_check(rlc_state *s, int port_no, int vc_no, congestion
     }
     else
     {
-        if (port_occupancy < s->params->single_port_decongestion_threshold * port_size) {
-            ///decongestion on this port!
-            rc_msg->to_decongest = 1;
+        if (tw_now(lp) > s->packet_counting_tree->get_next_possible_port_normal_time(port_no)) {
+            if (port_occupancy < port_decongestion_threshold_size) {
+                ///decongestion on this port!
+                rc_msg->to_decongest = 1;
+                s->packet_counting_tree->set_port_congestion_state(port_no, false);
+                printf("Want to send Normal\n");
 
-            //get the terminals abated by this port
-            set<unsigned int> abated_terms = s->packet_counting_tree->get_abated_terminals(port_no);
-            set<unsigned int>::iterator it = abated_terms.begin();
+                //get the terminals abated by this port
+                set<unsigned int> abated_terms = s->packet_counting_tree->get_abated_terminals(port_no);
+                set<unsigned int>::iterator it = abated_terms.begin();
 
-            //store the list of terms receiving a removal of a mark of abatement
-            rc_msg->size_deabated = abated_terms.size();
-            rc_msg->danger_rc_deabated = (unsigned int*)malloc(sizeof(unsigned int)*rc_msg->size_deabated);
-            // printf("size deabated %d\n", rc_msg->size_deabated);
-            int stored = 0;
+                //store the list of terms receiving a removal of a mark of abatement
+                rc_msg->size_deabated = abated_terms.size();
+                rc_msg->danger_rc_deabated = (unsigned int*)malloc(sizeof(unsigned int)*rc_msg->size_deabated);
+                // printf("size deabated %d\n", rc_msg->size_deabated);
+                int stored = 0;
 
-            for(; it != abated_terms.end(); it++)
-            {
-                rc_msg->danger_rc_deabated[stored] = *it;
-                stored++;
-
-                //mark them unabated on this port
-                s->packet_counting_tree->mark_unabated_terminal(port_no, *it);
-                if (s->packet_counting_tree->is_abated_terminal(*it) == 0)
+                for(; it != abated_terms.end(); it++)
                 {
-                    //if any are no longer marked abated at all, then send a normal signal
-                    tw_lpid term_lpgid = codes_mapping_get_lpid_from_relative(*it, NULL, terminal_lp_name, NULL, 0);
-                    congestion_control_message *c_msg;
-                    tw_event *e = model_net_method_congestion_event(term_lpgid, s->params->notification_latency, s->lp, (void**)&c_msg, NULL);
-                    c_msg->type = CC_SIGNAL_NORMAL;
-                    tw_event_send(e);
+                    rc_msg->danger_rc_deabated[stored] = *it;
+                    stored++;
+
+                    //mark them unabated on this port
+                    s->packet_counting_tree->mark_unabated_terminal(port_no, *it);
+                    if (s->packet_counting_tree->is_abated_terminal(*it) == 0)
+                    {
+                        printf("Sending Normal\n");
+                        //if any are no longer marked abated at all, then send a normal signal
+                        tw_lpid term_lpgid = codes_mapping_get_lpid_from_relative(*it, NULL, terminal_lp_name, NULL, 0);
+                        congestion_control_message *c_msg;
+                        tw_event *e = model_net_method_congestion_event(term_lpgid, s->params->notification_latency, s->lp, (void**)&c_msg, NULL);
+                        c_msg->type = CC_SIGNAL_NORMAL;
+                        tw_event_send(e);
+                    }
                 }
             }
         }
@@ -741,7 +859,7 @@ void cc_router_congestion_check(rlc_state *s, int port_no, int vc_no, congestion
     //other congestion checks would go here
 }
 
-void cc_router_congestion_check_rc(rlc_state *s, int port_no, int vc_no, congestion_control_message *rc_msg)
+void cc_router_congestion_check_rc(rlc_state *s, tw_lp *lp, int port_no, int vc_no, congestion_control_message *rc_msg)
 {
     if (rc_msg->to_congest)
     {
@@ -750,7 +868,7 @@ void cc_router_congestion_check_rc(rlc_state *s, int port_no, int vc_no, congest
         {
             s->packet_counting_tree->mark_unabated_terminal(port_no, rc_msg->danger_rc_abated[i]);
         }
-
+        s->packet_counting_tree->set_port_congestion_state(port_no, false);
     }
     if (rc_msg->to_decongest)
     {
@@ -759,6 +877,7 @@ void cc_router_congestion_check_rc(rlc_state *s, int port_no, int vc_no, congest
         {
             s->packet_counting_tree->mark_abated_terminal(port_no, rc_msg->danger_rc_deabated[i]);
         }
+        s->packet_counting_tree->set_port_congestion_state(port_no, true);
     }
 
     // for(int i = 0; i < rc_msg->num_cc_rngs; i++)
@@ -783,7 +902,7 @@ static double calculate_bandwidth_usage_percent(int bytes_transmitted, double ma
     return percent_bw;
 }
 
-void cc_terminal_process_bandwidth_check(tlc_state *s, congestion_control_message *msg)
+void cc_terminal_process_bandwidth_check(tlc_state *s, congestion_control_message *msg, tw_lp *lp)
 {
     double usage_percent = calculate_bandwidth_usage_percent(s->ejected_packet_bytes, s->params->terminal_configured_bandwidth, 1); //multiplier for multiple rails but right now we're just using 1
     double removed_window = s->ejected_rate_windows[s->window_epoch % cc_bandwidth_rolling_window_count];
@@ -798,6 +917,11 @@ void cc_terminal_process_bandwidth_check(tlc_state *s, congestion_control_messag
     
     msg->saved_bw = s->current_injection_bandwidth_coef;
     s->current_injection_bandwidth_coef = s->cur_average_rate;
+    if (s->is_abatement_active)
+        msg->saved_new_bw = s->current_injection_bandwidth_coef; //for commit m processing
+    else
+        msg->saved_new_bw = 1.0;
+    msg->msg_time = tw_now(lp);
 
     msg->saved_ejected_bytes = s->ejected_packet_bytes;
     s->ejected_packet_bytes = 0;
@@ -812,7 +936,7 @@ void cc_terminal_process_bandwidth_check(tlc_state *s, congestion_control_messag
     }
 }
 
-void cc_terminal_process_bandwidth_check_rc(tlc_state *s, congestion_control_message *msg)
+void cc_terminal_process_bandwidth_check_rc(tlc_state *s, congestion_control_message *msg, tw_lp *lp)
 {
     s->window_epoch--;
     s->ejected_packet_bytes = msg->saved_ejected_bytes;
@@ -876,6 +1000,7 @@ void cc_terminal_local_controller_init(tlc_state *s, tw_lp *lp, int terminal_id,
     s->current_injection_bandwidth_coef = 1;
     s->abatement_signal_count = 0;
     s->ejected_rate_windows = (double*)calloc(cc_bandwidth_rolling_window_count, sizeof(double));
+    s->current_injection_bandwidth_coef = 0;
 
     s->workloads_finished_flag_ptr = workload_finished_flag_ptr;
 
@@ -1011,7 +1136,7 @@ void cc_terminal_local_congestion_event(tlc_state *s, tw_bf *bf, congestion_cont
             cc_terminal_receive_normal_signal(s, msg);
         break;
         case CC_BANDWIDTH_CHECK:
-            cc_terminal_process_bandwidth_check(s, msg);
+            cc_terminal_process_bandwidth_check(s, msg, lp);
         break;
         case CC_SIM_ACK:
             cc_terminal_receive_ack(s);
@@ -1033,7 +1158,7 @@ void cc_terminal_local_congestion_event_rc(tlc_state *s, tw_bf *bf, congestion_c
             cc_terminal_receive_normal_signal_rc(s, msg);
         break;
         case CC_BANDWIDTH_CHECK:
-            cc_terminal_process_bandwidth_check_rc(s, msg);
+            cc_terminal_process_bandwidth_check_rc(s, msg, lp);
         break;
         case CC_SIM_ACK:
             cc_terminal_receive_ack_rc(s);
@@ -1046,10 +1171,29 @@ void cc_terminal_local_congestion_event_rc(tlc_state *s, tw_bf *bf, congestion_c
 
 void cc_terminal_local_congestion_event_commit(tlc_state *s, tw_bf *bf, congestion_control_message *msg, tw_lp *lp)
 {
-    // switch(msg->type)
-    // {
-    //     default:
-    //         tw_error(TW_LOC, "Invalid event at cc terminal local congestion event commit");
-    //         break;
-    // }
+    switch(msg->type)
+    {
+        case CC_BANDWIDTH_CHECK:
+            if (OUTPUT_BANDWIDTHS) {
+                int written1;
+                char bandwidth_filename[128];
+                written1 = sprintf(bandwidth_filename, "congestion-control-bandwidths");
+                bandwidth_filename[written1] = '\0';
+
+                char tag_line[32];
+                int written;
+                written = sprintf(tag_line, "%d %.2f %.5f\n",s->terminal_id, msg->saved_new_bw, msg->msg_time);
+                lp_io_write(lp->gid, bandwidth_filename, written, tag_line);
+            }
+        break;
+        case CC_SIGNAL_ABATE:
+        break;
+        case CC_SIGNAL_NORMAL:
+        break;
+        case CC_SIM_ACK:
+        break;
+        default:
+            tw_error(TW_LOC, "Invalid event at cc terminal local congestion event commit");
+            break;
+    }
 }
