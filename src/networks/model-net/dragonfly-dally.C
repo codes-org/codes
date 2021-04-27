@@ -560,6 +560,7 @@ struct router_state
 
     int workloads_finished_flag;
 
+    double* port_bandwidths; //used by CC
     int* vc_max_sizes; //max for vc sizes indexed by port
     int** vc_occupancy;
     int64_t* link_traffic;
@@ -2893,6 +2894,18 @@ void router_dally_init(router_state * r, tw_lp * lp)
             r->vc_max_sizes[i] = p->cn_vc_size;
     }
 
+    r->port_bandwidths = (double*)calloc(p->radix, sizeof(double));
+    for(int i = 0; i < p->radix; i++)
+    {
+        ConnectionType conn_type = r->connMan.get_port_type(i);
+        if (conn_type == CONN_LOCAL)
+            r->port_bandwidths[i] = p->local_bandwidth;
+        else if (conn_type == CONN_GLOBAL)
+            r->port_bandwidths[i] = p->global_bandwidth;
+        else
+            r->port_bandwidths[i] = p->cn_bandwidth;
+    }
+
     r->global_channel = (int*)calloc(p->num_global_channels, sizeof(int));
     r->next_output_available_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
     r->link_traffic = (int64_t*)calloc(p->radix, sizeof(int64_t));
@@ -2977,7 +2990,7 @@ void router_dally_init(router_state * r, tw_lp * lp)
 
     if (g_congestion_control_enabled) {
         r->local_congestion_controller = (rlc_state*)calloc(1,sizeof(rlc_state));
-        cc_router_local_controller_init(r->local_congestion_controller, lp, p->total_terminals, r->router_id, p->radix, p->num_vcs, r->vc_max_sizes, &r->workloads_finished_flag);
+        cc_router_local_controller_init(r->local_congestion_controller, lp, p->total_terminals, r->router_id, p->radix, p->num_vcs, r->vc_max_sizes, r->port_bandwidths, &r->workloads_finished_flag);
         
         vector<Connection> terminal_out_conns = r->connMan.get_connections_by_type(CONN_TERMINAL);
         vector<Connection>::iterator it = terminal_out_conns.begin();
@@ -4607,7 +4620,7 @@ static void router_packet_receive_rc(router_state * s,
 
     if (g_congestion_control_enabled) {
         congestion_control_message *cc_msg_rc = (congestion_control_message*)rc_stack_pop(s->cc_st);
-        cc_router_received_packet_rc(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, src_term_id, app_id, cc_msg_rc);
+        cc_router_received_packet_rc(s->local_congestion_controller, lp, s->params->chunk_size, output_port, output_chan, src_term_id, app_id, cc_msg_rc);
         cc_msg_rc_storage_delete(cc_msg_rc);
     }
 }
@@ -4822,7 +4835,7 @@ static void router_packet_receive( router_state * s,
 
     if (g_congestion_control_enabled) {
             congestion_control_message *cc_msg_rc = cc_msg_rc_storage_create();
-            cc_router_received_packet(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, cur_chunk->msg.dfdally_src_terminal_id, cur_chunk->msg.app_id, cc_msg_rc);
+            cc_router_received_packet(s->local_congestion_controller, lp, s->params->chunk_size, output_port, output_chan, cur_chunk->msg.dfdally_src_terminal_id, cur_chunk->msg.app_id, cc_msg_rc);
             rc_stack_push(lp, cc_msg_rc, cc_msg_rc_storage_delete, s->cc_st);
     }
 
@@ -4902,7 +4915,7 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
 
     if (g_congestion_control_enabled) {
         congestion_control_message *cc_msg_rc = (congestion_control_message*)rc_stack_pop(s->cc_st);
-        cc_router_forwarded_packet_rc(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, src_term_id, app_id, cc_msg_rc);
+        cc_router_forwarded_packet_rc(s->local_congestion_controller, lp, s->params->chunk_size, output_port, output_chan, src_term_id, app_id, cc_msg_rc);
         cc_msg_rc_storage_delete(cc_msg_rc);
     }
 
@@ -5084,7 +5097,7 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     msg->saved_app_id = cur_entry->msg.app_id;
     if (g_congestion_control_enabled) {
         congestion_control_message *cc_msg_rc = cc_msg_rc_storage_create();
-        cc_router_forwarded_packet(s->local_congestion_controller, s->params->chunk_size, output_port, output_chan, cur_entry->msg.dfdally_src_terminal_id, cur_entry->msg.app_id, cc_msg_rc);
+        cc_router_forwarded_packet(s->local_congestion_controller, lp, s->params->chunk_size, output_port, output_chan, cur_entry->msg.dfdally_src_terminal_id, cur_entry->msg.app_id, cc_msg_rc);
         rc_stack_push(lp, cc_msg_rc, cc_msg_rc_storage_delete, s->cc_st);
     }
 
