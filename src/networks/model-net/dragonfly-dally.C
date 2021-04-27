@@ -2641,7 +2641,7 @@ void terminal_dally_commit(terminal_state * s,
                 char latency[32];
                 int written;
                 tw_stime lat = msg->travel_end_time-msg->travel_start_time;
-                written = sprintf(latency, "%.5f %d\n",msg->travel_end_time-msg->travel_start_time,msg->my_N_hop);
+                written = sprintf(latency, "%d %.5f %d\n",msg->app_id, msg->travel_end_time-msg->travel_start_time,msg->my_N_hop);
                 lp_io_write(lp->gid, end_end_filename, written, latency);
             }
         }
@@ -2675,7 +2675,7 @@ void router_dally_commit(router_state * s,
 
                     char latency[32];
                     int written;
-                    written = sprintf(latency, "%.5f\n",msg->this_router_ptp_latency);
+                    written = sprintf(latency, "%d %.5f\n",msg->app_id, msg->this_router_ptp_latency);
                     lp_io_write(lp->gid, port_port_filename, written, latency);
                 }
             }
