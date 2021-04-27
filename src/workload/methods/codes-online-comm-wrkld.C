@@ -28,6 +28,7 @@
 #include "many_to_many_swm_user_code.h"
 #include "milc_swm_user_code.h"
 #include "allreduce.h"
+#include "periodic_aggressor.h"
 
 #define ALLREDUCE_SHORT_MSG_SIZE 2048
 
@@ -837,6 +838,11 @@ static void workload_caller(void * arg)
         MilcSWMUserCode * milc_swm = static_cast< MilcSWMUserCode*>(sctx->swm_obj);
         milc_swm->call();
     }
+    else if(strcmp(sctx->workload_name, "periodic_aggressor") == 0)
+    {
+        PeriodicAggressor * periodic_aggressor_swm = static_cast<PeriodicAggressor*>(sctx->swm_obj);
+        periodic_aggressor_swm->call();
+    }
 }
 static int comm_online_workload_load(const char * params, int app_id, int rank)
 {
@@ -922,6 +928,10 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     {
         path.append("/milc_skeleton.json");
     }
+    else if(strcmp(o_params->workload_name, "periodic_aggressor") == 0)
+    {
+        path.append("/periodic_aggressor.json");
+    }
     else
         tw_error(TW_LOC, "\n Undefined workload type %s ", o_params->workload_name);
 
@@ -975,6 +985,11 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     {
         MilcSWMUserCode * milc_swm = new MilcSWMUserCode(root, generic_ptrs);
         my_ctx->sctx.swm_obj = (void*)milc_swm;
+    }
+    else if(strcmp(o_params->workload_name, "periodic_aggressor") == 0)
+    {
+        PeriodicAggressor * periodic_aggressor_swm = new PeriodicAggressor(root, generic_ptrs);
+        my_ctx->sctx.swm_obj = (void*)periodic_aggressor_swm;
     }
 
     if(global_prod_thread == NULL)
