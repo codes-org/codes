@@ -782,27 +782,9 @@ static void workload_caller(void * arg)
        incast_swm->call();
     }
 }
-static int comm_online_workload_load(const char * params, int app_id, int rank)
+
+string get_default_path(online_comm_params * o_params)
 {
-    /* LOAD parameters from JSON file*/
-    online_comm_params * o_params = (online_comm_params*)params;
-    int nprocs = o_params->nprocs;
-
-    rank_mpi_context *my_ctx = new rank_mpi_context;
-    //my_ctx = (rank_mpi_context*)caloc(1, sizeof(rank_mpi_context));  
-    assert(my_ctx); 
-    my_ctx->sctx.my_rank = rank; 
-    my_ctx->sctx.num_ranks = nprocs;
-    my_ctx->sctx.wait_id = 0;
-    my_ctx->app_id = app_id;
-
-    void** generic_ptrs;
-    int array_len = 1;
-    generic_ptrs = (void**)calloc(array_len,  sizeof(void*));
-    generic_ptrs[0] = (void*)&rank;
-
-    strcpy(my_ctx->sctx.workload_name, o_params->workload_name);
-    boost::property_tree::ptree root;
     string path;
     path.append(SWM_DATAROOTDIR);
 
@@ -833,11 +815,47 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     else
         tw_error(TW_LOC, "\n Undefined workload type %s ", o_params->workload_name);
 
+    return path;
+}
+
+
+static int comm_online_workload_load(const char * params, int app_id, int rank)
+{
+    /* LOAD parameters from JSON file*/
+    online_comm_params * o_params = (online_comm_params*)params;
+    int nprocs = o_params->nprocs;
+
+    rank_mpi_context *my_ctx = new rank_mpi_context;
+    //my_ctx = (rank_mpi_context*)caloc(1, sizeof(rank_mpi_context));
+    assert(my_ctx);
+    my_ctx->sctx.my_rank = rank;
+    my_ctx->sctx.num_ranks = nprocs;
+    my_ctx->sctx.wait_id = 0;
+    my_ctx->app_id = app_id;
+
+    void** generic_ptrs;
+    int array_len = 1;
+    generic_ptrs = (void**)calloc(array_len,  sizeof(void*));
+    generic_ptrs[0] = (void*)&rank;
+
+    string path;
+
+    if (o_params->workload_name[0] != '\0') { //then we were supplied with just the workload name, use default configs
+        strcpy(my_ctx->sctx.workload_name, o_params->workload_name);
+        path = get_default_path(o_params);
+    }
+    else { //then we were supplied a filepath to the config in the workload conf file
+        path = std::string(o_params->file_path);
+    }
+
+    boost::property_tree::ptree root;
     try {
         std::ifstream jsonFile(path.c_str());
         boost::property_tree::json_parser::read_json(jsonFile, root);
         uint32_t process_cnt = root.get<uint32_t>("jobs.size", 1);
-        cpu_freq = root.get<double>("jobs.cfg.cpu_freq") / 1e9; 
+        cpu_freq = root.get<double>("jobs.cfg.cpu_freq") / 1e9;
+        if (o_params->workload_name[0] == '\0') //if we instead had a configuration filename supplied, get worklaod name from jobs.cfg.app
+            strcpy(o_params->workload_name, root.get<string>("jobs.cfg.app").c_str());
     }
     catch(std::exception & e)
     {

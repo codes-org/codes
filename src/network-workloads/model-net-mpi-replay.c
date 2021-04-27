@@ -2157,8 +2157,27 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        }
        else if(strlen(workloads_conf_file) > 0)
        {
-            strcpy(oc_params.workload_name, file_name_of_job[lid.job]);
-       
+            short filename_supplied = 0;
+            int len = strlen(file_name_of_job[lid.job]);
+            if (len > 4) {
+                char *last_five = &file_name_of_job[lid.job][len-5];
+                if (strcmp(".json", last_five) == 0)
+                {
+                    filename_supplied = 1;
+                }
+            }
+            if (filename_supplied) { //then we were supplied a filepath
+                strcpy(oc_params.file_path, file_name_of_job[lid.job]);
+                oc_params.workload_name[0] = '\0';
+                if(lid.rank == 0)
+                    printf("Workload Filepath provided: %s\n", oc_params.file_path);
+            }
+            else { //then we were supplied just the name of the workload and will use on of the defaults
+                strcpy(oc_params.workload_name, file_name_of_job[lid.job]);
+                oc_params.file_path[0] = '\0';
+                if(lid.rank == 0)
+                    printf("Workload name provided: %s\n",oc_params.workload_name);
+            }
        }
 
        //assert(strcmp(oc_params.workload_name, "lammps") == 0 || strcmp(oc_params.workload_name, "nekbone") == 0);
