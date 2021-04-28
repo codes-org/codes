@@ -956,8 +956,10 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
         boost::property_tree::json_parser::read_json(jsonFile, root);
         uint32_t process_cnt = root.get<uint32_t>("jobs.size", 1);
         cpu_freq = root.get<double>("jobs.cfg.cpu_freq") / 1e9;
-        if (o_params->workload_name[0] == '\0') //if we instead had a configuration filename supplied, get worklaod name from jobs.cfg.app
+        if (o_params->workload_name[0] == '\0') {//if we instead had a configuration filename supplied, get worklaod name from jobs.cfg.app
             strcpy(o_params->workload_name, root.get<string>("jobs.cfg.app").c_str());
+            strcpy(my_ctx->sctx.workload_name, o_params->workload_name);
+        }
     }
     catch(std::exception & e)
     {
