@@ -437,9 +437,9 @@ void SWM_Sendrecv(
 #if 1
 // Alternate, simpler implementation. Matches MPICH design. OpenMPI does Irecv+Send which also works.
     uint32_t handles[2];
-    SWM_Isend(sendpeer, comm_id, sendtag, sendreqvc, sendrspvc, sendbuf, sendbytes, pktrspbytes, &handles[0], reqrt, rsprt);
     SWM_Irecv(recvpeer, comm_id, recvtag, recvbuf, &handles[1]);
-    SWM_Waitall(2, handles);
+    // SWM_Isend(sendpeer, comm_id, sendtag, sendreqvc, sendrspvc, sendbuf, sendbytes, pktrspbytes, &handles[0], reqrt, rsprt);
+    SWM_Send(sendpeer, comm_id, sendtag, sendreqvc, sendrspvc, sendbuf, sendbytes, pktrspbytes, reqrt, rsprt);
 #else
     //    printf("\n Sending to %d receiving from %d ", sendpeer, recvpeer);
     struct codes_workload_op send_op;
