@@ -24,7 +24,7 @@ static int mapping_grp_id, mapping_type_id, mapping_rep_id, mapping_offset;
 
 static int network_id = 0;
 static double cc_bandwidth_monitoring_window = 10000;
-static int cc_bandwidth_rolling_window_count = 2;
+static int cc_bandwidth_rolling_window_count = 5;
 
 unsigned long long stalled_packet_counter = 0;
 unsigned long long stalled_nic_counter = 0;
@@ -668,19 +668,23 @@ void cc_router_received_packet(rlc_state *s, tw_lp *lp, unsigned int packet_size
 
             if (s->packet_counting_tree->is_abated_terminal(term_id) == false)
             {
-                //then we haven't yet abated the terminal that send this message and we are currently in congestion
-                rc_msg->received_new_while_congested = true;
-                rc_msg->saved_term_id = term_id;
+                int this_app_occupancy = s->packet_counting_tree->get_app_count_map_by_port(port_no)[app_id];
+                unsigned long long port_occupancy = s->packet_counting_tree->get_packet_count_by_port(port_no);
+                if ((this_app_occupancy / port_occupancy) >= s->params->single_port_aggressor_usage_threshold) {
+                    //then we haven't yet abated the terminal that send this message and we are currently in congestion
+                    rc_msg->received_new_while_congested = true;
+                    rc_msg->saved_term_id = term_id;
 
-                //need to send abatement to it
-                tw_lpid term_lpgid = codes_mapping_get_lpid_from_relative(term_id, NULL, terminal_lp_name, NULL, 0);
-                congestion_control_message *c_msg;
-                tw_event *e = model_net_method_congestion_event(term_lpgid, s->params->notification_latency, s->lp, (void**)&c_msg, NULL);
-                c_msg->type = CC_SIGNAL_ABATE;
-                c_msg->app_id = app_id;
-                tw_event_send(e);
+                    //need to send abatement to it
+                    tw_lpid term_lpgid = codes_mapping_get_lpid_from_relative(term_id, NULL, terminal_lp_name, NULL, 0);
+                    congestion_control_message *c_msg;
+                    tw_event *e = model_net_method_congestion_event(term_lpgid, s->params->notification_latency, s->lp, (void**)&c_msg, NULL);
+                    c_msg->type = CC_SIGNAL_ABATE;
+                    c_msg->app_id = app_id;
+                    tw_event_send(e);
 
-                s->packet_counting_tree->mark_abated_terminal(port_no, term_id); //increments the abatement counter
+                    s->packet_counting_tree->mark_abated_terminal(port_no, term_id); //increments the abatement counter
+                }
             }
 
             s->packet_counting_tree->set_next_possible_port_normal_time(port_no, cur_expire_time+bytes_to_ns(packet_size, s->router_bandwidths_on_each_port[port_no]));
@@ -741,7 +745,7 @@ void cc_router_congestion_check(rlc_state *s, tw_lp *lp, int port_no, int vc_no,
         if (port_occupancy >= port_congestion_threshold_size) {
             s->packet_counting_tree->set_port_congestion_state(port_no, true);
 
-            tw_stime expiration_delay = bytes_to_ns(port_congestion_threshold_size-port_decongestion_threshold_size, s->router_bandwidths_on_each_port[port_no]);
+            tw_stime expiration_delay = 2*bytes_to_ns(port_congestion_threshold_size-port_decongestion_threshold_size, s->router_bandwidths_on_each_port[port_no]);
             // expiration_delay = max(expiration_delay, s->params->minimum_abatement_time);
             s->packet_counting_tree->set_next_possible_port_normal_time(port_no, tw_now(lp)+expiration_delay);
 
@@ -802,7 +806,7 @@ void cc_router_congestion_check(rlc_state *s, tw_lp *lp, int port_no, int vc_no,
                 ///decongestion on this port!
                 rc_msg->to_decongest = 1;
                 s->packet_counting_tree->set_port_congestion_state(port_no, false);
-                printf("Want to send Normal\n");
+                // printf("Want to send Normal\n");
 
                 //get the terminals abated by this port
                 set<unsigned int> abated_terms = s->packet_counting_tree->get_abated_terminals(port_no);
@@ -823,7 +827,7 @@ void cc_router_congestion_check(rlc_state *s, tw_lp *lp, int port_no, int vc_no,
                     s->packet_counting_tree->mark_unabated_terminal(port_no, *it);
                     if (s->packet_counting_tree->is_abated_terminal(*it) == 0)
                     {
-                        printf("Sending Normal\n");
+                        // printf("Sending Normal\n");
                         //if any are no longer marked abated at all, then send a normal signal
                         tw_lpid term_lpgid = codes_mapping_get_lpid_from_relative(*it, NULL, terminal_lp_name, NULL, 0);
                         congestion_control_message *c_msg;
@@ -1000,7 +1004,6 @@ void cc_terminal_local_controller_init(tlc_state *s, tw_lp *lp, int terminal_id,
     s->current_injection_bandwidth_coef = 1;
     s->abatement_signal_count = 0;
     s->ejected_rate_windows = (double*)calloc(cc_bandwidth_rolling_window_count, sizeof(double));
-    s->current_injection_bandwidth_coef = 0;
 
     s->workloads_finished_flag_ptr = workload_finished_flag_ptr;
 
