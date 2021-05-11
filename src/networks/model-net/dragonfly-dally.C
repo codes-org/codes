@@ -56,6 +56,8 @@
 // maximum number of characters allowed to represent the routing algorithm as a string
 #define MAX_ROUTING_CHARS 32
 
+#define ROUTER_BW_LOG 0
+
 #define OUTPUT_END_END_LATENCIES 1
 #define OUTPUT_PORT_PORT_LATENCIES 0
 #define OUTPUT_LATENCY_MODULO 1
@@ -2439,7 +2441,7 @@ void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_dally_messa
             int bw_consumed = get_rtr_bandwidth_consumption(s, j, i);
         
             #if DEBUG_QOS == 1 
-            if(dragonfly_rtr_bw_log != NULL)
+            if(dragonfly_rtr_bw_log != NULL && ROUTER_BW_LOG)
             {
                 if(s->qos_data[i][j] > 0)
                 {
@@ -2863,7 +2865,7 @@ void router_dally_init(router_state * r, tw_lp * lp)
     char rtr_bw_log[128];
     sprintf(rtr_bw_log, "router-bw-tracker-%lu", g_tw_mynode);
 
-    if(dragonfly_rtr_bw_log == NULL)
+    if(dragonfly_rtr_bw_log == NULL && ROUTER_BW_LOG)
     {
         dragonfly_rtr_bw_log = fopen(rtr_bw_log, "w+");
 
@@ -2998,6 +3000,20 @@ void router_dally_init(router_state * r, tw_lp * lp)
         {
             cc_router_local_controller_add_output_port(r->local_congestion_controller, it->port);
         }
+
+        // vector<Connection> local_conns = r->connMan.get_connections_by_type(CONN_LOCAL);
+        // it = local_conns.begin();
+        // for(; it != local_conns.end(); it++)
+        // {
+        //     cc_router_local_controller_add_output_port(r->local_congestion_controller, it->port);
+        // }
+
+        // vector<Connection> global_conns = r->connMan.get_connections_by_type(CONN_GLOBAL);
+        // it = global_conns.begin();
+        // for(; it != global_conns.end(); it++)
+        // {
+        //     cc_router_local_controller_add_output_port(r->local_congestion_controller, it->port);
+        // }
 
     }
     return;
@@ -4278,7 +4294,7 @@ void dragonfly_dally_router_final(router_state * s, tw_lp * lp){
         }
     }
 
-    if(s->router_id == 0)
+    if(s->router_id == 0 && ROUTER_BW_LOG)
         fclose(dragonfly_rtr_bw_log);
 
     rc_stack_destroy(s->st);

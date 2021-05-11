@@ -3363,11 +3363,15 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 
 	jobmap_ctx = NULL; // make sure it's NULL if it's not used
 
-    sprintf(sampling_dir, "sampling-dir");
-    mkdir(sampling_dir, S_IRUSR | S_IWUSR | S_IXUSR);
 
-    sprintf(mpi_msg_dir, "synthetic%d", syn_type);
-    mkdir(mpi_msg_dir, S_IRUSR | S_IWUSR | S_IXUSR);
+
+    if(enable_msg_tracking) {
+        sprintf(sampling_dir, "sampling-dir");
+        mkdir(sampling_dir, S_IRUSR | S_IWUSR | S_IXUSR);
+
+        sprintf(mpi_msg_dir, "synthetic%d", syn_type);
+        mkdir(mpi_msg_dir, S_IRUSR | S_IWUSR | S_IXUSR);
+    }
     if(strlen(workloads_conf_file) > 0)
     {
         FILE *name_file = fopen(workloads_conf_file, "r");
