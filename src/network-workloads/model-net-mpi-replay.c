@@ -3409,7 +3409,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
         alloc_spec = 1;
         jobmap_p.alloc_file = alloc_file;
         jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_LIST, &jobmap_p);
-    }	
+	
 
 	if(strlen(workloads_timer_file) > 0){
 		FILE *timer_file = fopen(workloads_timer_file, "r");
@@ -3447,6 +3447,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 		}
 		fclose(period_file);
 	}
+    }
     else
     {
         assert(num_net_traces);
