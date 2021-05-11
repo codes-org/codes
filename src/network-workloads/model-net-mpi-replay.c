@@ -282,7 +282,7 @@ struct nw_state
 
     int synthetic_pattern;
     int is_finished;
-    int neighbor_completed;
+    int num_own_job_ranks_completed; //counted by the root rank 0 of a job
 
      //array of whether this rank knows other jobs are completed.
     int * known_completed_jobs;
@@ -589,7 +589,7 @@ static void notify_background_traffic(
         return;
 }
 
-static void notify_other_workloads_rc(
+static void notify_root_workload_rc(
         struct nw_state * ns,
         tw_lp * lp,
         tw_bf * bf,
@@ -598,20 +598,11 @@ static void notify_other_workloads_rc(
     (void)ns;
     (void)bf;
     (void)m;
-        
-    int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx); 
-    
-    // for(int i = 0; i < num_jobs - 1; i++)
-    // {
-    //     if(is_job_synthetic[i])
-    //         continue;
-    //     // tw_rand_reverse_unif(lp->rng);
-    // }
 }
 
-//notifies other (nonsynthetic) jobs that this one has completed, 
+//notifies the lowest nonsynthetic job that this one has completed
 //this is important for synthetic ranks that continue generating until all non-synthetic have completed
-static void notify_other_workloads(
+static void notify_root_workload(
         struct nw_state * ns,
         tw_lp * lp,
         tw_bf * bf,
@@ -625,31 +616,30 @@ static void notify_other_workloads(
 
     int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
 
-    //broadcast to every job
-    for(int other_id = 0; other_id < num_jobs; other_id++)
+    int lowest_non_synth_job_id;
+    for (int other_id = 0; other_id < num_jobs; other_id++)
     {
-        if (is_job_synthetic[other_id])
-            continue;
-
-        struct codes_jobmap_id other_jid;
-        other_jid.job = other_id;
-
-        int num_other_ranks = codes_jobmap_get_num_ranks(other_id, jobmap_ctx);
-        other_jid.rank = num_other_ranks -1; //we want to notify the last rank in each job
-
-        int intm_dest_id = codes_jobmap_to_global_id(other_jid, jobmap_ctx);
-        tw_lpid global_dest_id = codes_mapping_get_lpid_from_relative(intm_dest_id, NULL, NW_LP_NM, NULL, 0);
-
-        tw_event *e;
-        struct nw_message *m_new;
-        tw_stime ts = 0;
-        // tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_unif(lp->rng) * 0.001;
-        e = tw_event_new(global_dest_id, ts, lp);
-        m_new = (struct nw_message*)tw_event_data(e);
-        m_new->msg_type = CLI_OTHER_FINISH;
-        m_new->fwd.app_id = jid.job; //just borrowing the fwd struct even though this isn't an injected message
-        tw_event_send(e);
+        if (!is_job_synthetic[other_id]) {
+            lowest_non_synth_job_id = other_id;
+            break;
+        }
     }
+    struct codes_jobmap_id other_jid;
+    other_jid.job = 0;
+    other_jid.rank = 0; //root rank
+
+    int intm_dest_id = codes_jobmap_to_global_id(other_jid, jobmap_ctx);
+    tw_lpid global_dest_id = codes_mapping_get_lpid_from_relative(intm_dest_id, NULL, NW_LP_NM, NULL, 0);
+
+    tw_event *e;
+    struct nw_message *m_new;
+    tw_stime ts = 0;
+    // tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_unif(lp->rng) * 0.001;
+    e = tw_event_new(global_dest_id, ts, lp);
+    m_new = (struct nw_message*)tw_event_data(e);
+    m_new->msg_type = CLI_OTHER_FINISH;
+    m_new->fwd.app_id = ns->app_id; //just borrowing the fwd struct even though this isn't an injected message
+    tw_event_send(e);
 }
 
 void handle_other_finish_rc(
@@ -662,11 +652,6 @@ void handle_other_finish_rc(
     if(bf->c2)
         notify_background_traffic_rc(ns, lp, bf, m);
 
-    // for (int i = 0; i < m->num_rngs; i++)
-    // {
-    //     tw_rand_reverse_unif(lp->rng);
-    // }
-
 }
 
 //for nonsynthetic jobs to determine if they have all completed
@@ -677,6 +662,10 @@ void handle_other_finish(
     tw_bf * bf,
     struct nw_message *m)
 {
+    // printf("APP %d RANK %d RECEIVED COMPLETION NOTICE\n",ns->app_id, ns->local_rank);
+    assert(ns->app_id == 0); //make sure that only the root workload is getting this notification
+    assert(ns->local_rank == 0); //make sure that only the root rank is getting this notification
+
     printf("App %d: Received finished workload notification",ns->app_id);
     if(is_job_synthetic[ns->app_id])
         return; //nothing for synthetic (background) ranks to do here
@@ -686,13 +675,12 @@ void handle_other_finish(
     ns->known_completed_jobs[m->fwd.app_id] = 1;
     int total_completed_jobs = 0;
     int total_non_syn_completed_jobs = 0;
-    int highest_non_syn_job_id = 0;
-    //Find number of completed non synthetic jobs and the highest ID of all nonsyn jobs
+
+    //Find number of completed non synthetic jobs
     for(int i = 0; i < num_jobs; i++)
     {
         if (is_job_synthetic[i] == 0) {
             total_non_syn_completed_jobs += ns->known_completed_jobs[i];
-            highest_non_syn_job_id = i;
         }
     }
     
@@ -702,7 +690,7 @@ void handle_other_finish(
         //Determine which job should be the one to notify all the background ranks
         //Let's say: highest numbered non-synthetic job (found above)
         // also make sure that there actually are synthetic jobs
-        if (ns->app_id == highest_non_syn_job_id && (total_non_syn_completed_jobs < num_jobs))
+        if (total_non_syn_completed_jobs < num_jobs)
         {
             if(max_gen_data <= 0) {
                 printf("App %d: Notifying background traffic\n", ns->app_id);
@@ -730,79 +718,73 @@ void handle_other_finish(
     {
         printf("There is still a nonsynethic workload left. %d != %d\n",total_non_syn_completed_jobs, num_nonsyn_jobs);
     }
-    
+}
+
+static void handle_neighbor_finish_rc(
+        struct nw_state * ns,
+        tw_lp * lp,
+        tw_bf * bf,
+        struct nw_message *m)
+{
+    ns->num_own_job_ranks_completed--;
+
+    if (bf->c1) {
+        notify_root_workload_rc(ns, lp, bf, m);
+    }
+}
+
+//Called by the root rank of the application when it receives a rank completion notification from one of its own job's ranks
+static void handle_neighbor_finish(
+        struct nw_state * ns,
+        tw_lp * lp,
+        tw_bf * bf,
+        struct nw_message *m)
+{
+    ns->num_own_job_ranks_completed++;
+
+    //have all of the ranks from our job completed?
+    if (ns->num_own_job_ranks_completed == codes_jobmap_get_num_ranks(ns->app_id, jobmap_ctx)) {
+        bf->c1 = 1;
+        notify_root_workload(ns, lp, bf, m);
+    }
+}
+
+static void notify_root_rank_rc(
+        struct nw_state * ns,
+        tw_lp * lp,
+        tw_bf * bf,
+        struct nw_message *m)
+{
 
 }
 
-static void notify_neighbor_rc(
-	    struct nw_state * ns,
+static void notify_root_rank(
+        struct nw_state * ns,
         tw_lp * lp,
         tw_bf * bf,
-        struct nw_message * m)
+        struct nw_message *m)
 {
-       if(bf->c0)
-       {
-            notify_other_workloads_rc(ns, lp, bf, m);
-            ns->known_completed_jobs[ns->app_id] = 0;
-            // notify_background_traffic_rc(ns, lp, bf, m);
-            return;
-       }
-   
-    //    if(bf->c1)
-    //    {
-    //       tw_rand_reverse_unif(lp->rng); 
-    //    }
-} 
-static void notify_neighbor(
-	    struct nw_state * ns,
-        tw_lp * lp,
-        tw_bf * bf,
-        struct nw_message * m)
-{
-    int ranks_my_job = codes_jobmap_get_num_ranks(ns->app_id, jobmap_ctx);
+    assert(ns->is_finished);
 
-    //If this LP is the last rank in its workload, and it has finished,
-    //and so has its preceding neighbor (implying all others have also finishged)
-    //then we need to notify the last rank in each other workload (TODO: verify that this is best instead of all ranks)  
-    if(ns->local_rank == ranks_my_job - 1 
-            && ns->is_finished == 1
-            && ns->neighbor_completed == 1)
-    {
-       printf("App %d: Completed workload, notifying other workloads of this\n", ns->app_id);
-        bf->c0 = 1;
-        ns->known_completed_jobs[ns->app_id] = 1;
-        notify_other_workloads(ns, lp, bf, m);
-        // notify_background_traffic(ns, lp, bf, m);
-        return;
-    }
+    tw_stime ts = NEAR_ZERO;
     
-    struct codes_jobmap_id nbr_jid;
-    nbr_jid.job = ns->app_id;
+    struct codes_jobmap_id root_jid;
+    root_jid.job = ns->app_id;
+    root_jid.rank = 0;
     tw_lpid global_dest_id;
 
-
-    if(ns->is_finished == 1 && (ns->neighbor_completed == 1 || ns->local_rank == 0))
-    {
-        assert(ns->local_rank != ranks_my_job-1); //This should not be hit by the last rank in a workload.
-        bf->c1 = 1;
-
-    //    printf("\n Local rank %d notifying neighbor %d ", ns->local_rank, ns->local_rank+1);
-        tw_stime ts = NEAR_ZERO;
-        // tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_exponential(lp->rng, noise);
-        nbr_jid.rank = ns->local_rank + 1;
-        
-        /* Send a notification to the neighbor about completion */
-        int intm_dest_id = codes_jobmap_to_global_id(nbr_jid, jobmap_ctx); 
-        global_dest_id = codes_mapping_get_lpid_from_relative(intm_dest_id, NULL, NW_LP_NM, NULL, 0);
-       
-        tw_event * e;
-        struct nw_message * m_new;  
-        e = tw_event_new(global_dest_id, .00001, lp);
-        m_new = (struct nw_message*)tw_event_data(e); 
-        m_new->msg_type = CLI_NBR_FINISH;
-        tw_event_send(e);   
-    }
+    /* Send a notification to the root neighbor about completion */
+    int intm_dest_id = codes_jobmap_to_global_id(root_jid, jobmap_ctx); 
+    global_dest_id = codes_mapping_get_lpid_from_relative(intm_dest_id, NULL, NW_LP_NM, NULL, 0);
+    
+    tw_event * e;
+    struct nw_message * m_new;
+    e = tw_event_new(global_dest_id, .00001, lp);
+    m_new = (struct nw_message*)tw_event_data(e);
+    m_new->msg_type = CLI_NBR_FINISH;
+    tw_event_send(e);
 }
+
 void finish_bckgnd_traffic_rc(
     struct nw_state * ns,
     tw_bf * b,
@@ -832,27 +814,27 @@ void finish_bckgnd_traffic(
         return;
 }
 
-void finish_nbr_wkld_rc(
-    struct nw_state * ns,
-    tw_bf * b,
-    struct nw_message * msg,
-    tw_lp * lp)
-{
-    ns->neighbor_completed = 0;
+// void finish_nbr_wkld_rc(
+//     struct nw_state * ns,
+//     tw_bf * b,
+//     struct nw_message * msg,
+//     tw_lp * lp)
+// {
+//     ns->neighbor_completed = 0;
     
-    notify_neighbor_rc(ns, lp, b, msg);
-}
+//     notify_neighbor_rc(ns, lp, b, msg);
+// }
 
-void finish_nbr_wkld(
-    struct nw_state * ns,
-    tw_bf * b,
-    struct nw_message * msg,
-    tw_lp * lp)
-{
-    ns->neighbor_completed = 1;
+// void finish_nbr_wkld(
+//     struct nw_state * ns,
+//     tw_bf * b,
+//     struct nw_message * msg,
+//     tw_lp * lp)
+// {
+//     ns->neighbor_completed = 1;
 
-    notify_neighbor(ns, lp, b, msg);
-}
+//     notify_neighbor(ns, lp, b, msg);
+// }
 static void gen_synthetic_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
     if(bf->c0)
@@ -2405,6 +2387,8 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 	        return;
    }
 
+   s->num_own_job_ranks_completed = 0;
+
    int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
    s->known_completed_jobs = calloc(num_jobs, sizeof(int));
 
@@ -2696,7 +2680,7 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
             break;
         
         case CLI_NBR_FINISH:
-            finish_nbr_wkld(s, bf, m, lp);
+            handle_neighbor_finish(s, lp, bf, m);
             break;
         
         case CLI_BCKGND_FIN:
@@ -2716,6 +2700,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 	if(m->op_type == CODES_WK_END)
     {
         s->is_finished = 0;
+        s->num_own_job_ranks_completed--;
 
         if(bf->c9)
             return;
@@ -2723,7 +2708,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
         if(bf->c19)
             return;
 
-        notify_neighbor_rc(s, lp, bf, m);
+        notify_root_rank_rc(s, lp, bf, m);
 		return;
     }
 	switch(m->op_type)
@@ -2832,6 +2817,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
         {
             s->elapsed_time = tw_now(lp) - s->start_time;
             s->is_finished = 1;
+            s->num_own_job_ranks_completed+=1;
 
             if(!alloc_spec)
             {
@@ -2850,7 +2836,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
             //  }
 
             //if(num_qos_levels == 1) //notify neighbor isn't really compatible with QoS, so notify_neighbor is only called if num_qos_levels == 1 (QoS off)
-                notify_neighbor(s, lp, bf, m);
+                notify_root_rank(s, lp, bf, m);
 //             printf("Client rank %llu completed workload, local rank %d .\n", s->nw_id, s->local_rank);
 
              return;
@@ -3135,7 +3121,7 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
             break;
         
         case CLI_NBR_FINISH:
-            finish_nbr_wkld_rc(s, bf, m, lp);
+            handle_neighbor_finish_rc(s, lp, bf, m);
             break;
         
         case CLI_BCKGND_FIN:
