@@ -90,6 +90,11 @@ static long num_remote_packets = 0;
 
 static long global_stalled_chunk_counter = 0;
 
+#define OUTPUT_SNAPSHOT 1
+const static int num_snapshots = 2;
+tw_stime snapshot_times[num_snapshots] = {2000000.0, 30000000.0};
+char snapshot_filename[128];
+
 /* time in nanosecs */
 //static int bw_reset_window = 50000000;
 static int bw_reset_window = 5000000;
@@ -325,6 +330,7 @@ typedef enum event_t
     R_BANDWIDTH,
     R_BW_HALT,
     T_BANDWIDTH,
+    R_SNAPSHOT, //used for timed statistic outputs
 } event_t;
 
 /* whether the last hop of a packet was global, local or a terminal */
@@ -576,6 +582,7 @@ struct router_state
     const char * anno;
     const dragonfly_param *params;
     
+    int** snapshot_data; //array of x numbers of snapshots of variable size
     char output_buf[4096];
 
     struct dfly_router_sample * rsamples;
@@ -2616,6 +2623,54 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
     return -1;
 }
 
+//Snapshot pattern
+//Sends a snapshot event - this wakes the router at the specified time to store its data somewhere
+//this storage place could be in the event or elsewehre so long as the data is over-writeable
+//in case the event gets rolled back and replayed.
+//On commit of the snapshot event, the commit function looks where the data was stored and outputs to lpio
+void router_send_snapshot_events(router_state *s, tw_lp *lp)
+{
+    int len = sprintf(snapshot_filename, "dragonfly-snapshots.csv");
+    snapshot_filename[len] = '\0';
+    if (s->router_id == 0) //add header information
+    {
+        if (OUTPUT_SNAPSHOT)
+        {
+            char snapshot_line[1024];
+            int written;
+
+            written = sprintf(snapshot_line, "#Time of snapshot, Router ID, Port 0 VC 0, Port 0 VC 1 ... Port N VC M\n#Radix = %d  Num VCs = %d\n",s->params->radix, s->params->num_vcs);
+            lp_io_write(lp->gid, snapshot_filename, written, snapshot_line);
+        }
+    }
+
+
+    for(int i = 0; i < num_snapshots; i++)
+    {
+        terminal_dally_message *m;
+        tw_event * e = model_net_method_event_new(lp->gid, snapshot_times[i], lp, DRAGONFLY_DALLY, (void**)&m, NULL);
+        m->type = R_SNAPSHOT;
+        m->magic = router_magic_num;
+        m->packet_ID = i; //just borrowing this field for our use
+        tw_event_send(e);
+    }
+    // printf("%d: sending snapshot events\n",s->router_id);
+}
+
+void router_handle_snapshot_event(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp)
+{
+    for(int i = 0; i < s->params->radix; i++)
+    {
+        for(int j = 0; j < s->params->num_vcs; j++)
+        {
+            //msg->packet_ID contains which snapshot we're collecting
+            int snapshot_array_i = (i * s->params->num_vcs) + j;
+            s->snapshot_data[msg->packet_ID][snapshot_array_i] = s->vc_occupancy[i][j];
+            // printf("%d: stored snapshot %d at time %.2f\n",s->router_id, msg->packet_ID, tw_now(lp));
+        }
+    }
+}
+
 void terminal_dally_commit(terminal_state * s,
 		tw_bf * bf, 
 		terminal_dally_message * msg, 
@@ -2681,6 +2736,29 @@ void router_dally_commit(router_state * s,
                     lp_io_write(lp->gid, port_port_filename, written, latency);
                 }
             }
+        }
+    }
+
+    if (msg->type == R_SNAPSHOT)
+    {
+        if (OUTPUT_SNAPSHOT == 1)
+        {
+            char snapshot_line[8192];
+            int written;
+
+            written = sprintf(snapshot_line, "%.4f, %d, ",snapshot_times[msg->packet_ID],s->router_id);
+
+            for(int i = 0; i < s->params->radix; i++)
+            {
+                for(int j = 0; j < s->params->num_vcs; j++)
+                {
+                    int snapshot_array_i = (i * s->params->num_vcs) + j;
+                    int this_vc_snapshot_data = s->snapshot_data[msg->packet_ID][snapshot_array_i];
+                    written += sprintf(snapshot_line+written, "%d, ", this_vc_snapshot_data);
+                }
+            }
+            written += sprintf(snapshot_line+written, "\n");
+            lp_io_write(lp->gid, snapshot_filename, written, snapshot_line);
         }
     }
 }
@@ -3016,6 +3094,14 @@ void router_dally_init(router_state * r, tw_lp * lp)
         // }
 
     }
+
+    r->snapshot_data = (int**)calloc(num_snapshots, sizeof(int*));
+    for(int i = 0; i < num_snapshots; i++)
+    {
+        r->snapshot_data[i] = (int*)calloc(r->params->num_vcs * r->params->radix, sizeof(int)); //capturing VC occupancies of each port
+    }
+    router_send_snapshot_events(r, lp);
+
     return;
 }	
 
@@ -5309,6 +5395,10 @@ void router_dally_event(router_state * s, tw_bf * bf, terminal_dally_message * m
         case R_BANDWIDTH:
             // printf("%d: router bandwidth monitor event\n", s->router_id);
             issue_rtr_bw_monitor_event(s, bf, msg, lp);
+        break;
+
+        case R_SNAPSHOT:
+            router_handle_snapshot_event(s, bf, msg, lp);
         break;
         
         default:
