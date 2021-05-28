@@ -66,6 +66,7 @@ static int num_net_traces = 0;
 static int priority_type = 0;
 static int num_dumpi_traces = 0;
 static int num_nonsyn_jobs = 0;
+static int num_total_jobs = 0;
 static int64_t EAGER_THRESHOLD = 8192;
 
 // static int upper_threshold = 1048576;
@@ -98,6 +99,8 @@ int period_count[MAX_JOBS];
 long period_time[MAX_JOBS][64];
 float period_interval[MAX_JOBS][64];
 char file_name_of_job[MAX_JOBS][8192];
+
+tw_stime max_elapsed_time_per_job[MAX_JOBS] = {0};
 
 /* On-node delay variables */
 tw_stime soft_delay_mpi = 2500;
@@ -568,7 +571,7 @@ static void notify_background_traffic(
             int num_other_ranks = codes_jobmap_get_num_ranks(other_id, jobmap_ctx);
 
             lprintf("\n Other ranks %d ", num_other_ranks);
-            tw_stime ts = 0;
+            tw_stime ts = NEAR_ZERO;
             // tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_exponential(lp->rng, noise); //TODO this is a possible source of nondeterminism - reused timestamp causes event ties
             tw_lpid global_dest_id;
      
@@ -633,7 +636,7 @@ static void notify_root_workload(
 
     tw_event *e;
     struct nw_message *m_new;
-    tw_stime ts = 0;
+    tw_stime ts = NEAR_ZERO;
     // tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_unif(lp->rng) * 0.001;
     e = tw_event_new(global_dest_id, ts, lp);
     m_new = (struct nw_message*)tw_event_data(e);
@@ -667,9 +670,9 @@ void handle_other_finish(
     assert(ns->local_rank == 0); //make sure that only the root rank is getting this notification
 
     printf("App %d: Received finished workload notification",ns->app_id);
-    if(is_job_synthetic[ns->app_id])
-        return; //nothing for synthetic (background) ranks to do here
-    printf(" And I am not synthetic\n");
+    // if(is_job_synthetic[ns->app_id])
+        // return; //nothing for synthetic (background) ranks to do here
+    // printf(" And I am not synthetic\n");
     int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
 
     ns->known_completed_jobs[m->fwd.app_id] = 1;
@@ -679,9 +682,9 @@ void handle_other_finish(
     //Find number of completed non synthetic jobs
     for(int i = 0; i < num_jobs; i++)
     {
-        if (is_job_synthetic[i] == 0) {
+        // if (is_job_synthetic[i] == 0) {
             total_non_syn_completed_jobs += ns->known_completed_jobs[i];
-        }
+        // }
     }
     
     if (total_non_syn_completed_jobs == num_nonsyn_jobs) //then all nonsynthetic jobs have completed, the background synthetic workloads must be notified
@@ -711,7 +714,7 @@ void handle_other_finish(
         //are currently in transit. This currently isn't measured for model_net_mpi_replay.
 
         //send to all non nw-lp LPs (all model net, is there a function taht does this?)
-        int num_rngs = model_net_method_end_sim_broadcast(.00001, lp);
+        int num_rngs = model_net_method_end_sim_broadcast(NEAR_ZERO, lp);
         // m->num_rngs += num_rngs;
     }
     else
@@ -779,7 +782,7 @@ static void notify_root_rank(
     
     tw_event * e;
     struct nw_message * m_new;
-    e = tw_event_new(global_dest_id, .00001, lp);
+    e = tw_event_new(global_dest_id, ts, lp);
     m_new = (struct nw_message*)tw_event_data(e);
     m_new->msg_type = CLI_NBR_FINISH;
     tw_event_send(e);
@@ -2002,6 +2005,7 @@ static void codes_exec_mpi_send(nw_state* s,
        remote_m = local_m; 
        remote_m.msg_type = MPI_REND_ARRIVED;
 
+
        m->event_rc = model_net_event_mctx(net_id, &mapping_context, &mapping_context, 
             prio, dest_rank, mpi_op->u.send.num_bytes, (self_overhead + soft_delay_mpi + nic_delay),
 	    sizeof(nw_message), (const void*)&remote_m, sizeof(nw_message), (const void*)&local_m, lp);
@@ -2700,7 +2704,6 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 	if(m->op_type == CODES_WK_END)
     {
         s->is_finished = 0;
-        s->num_own_job_ranks_completed--;
 
         if(bf->c9)
             return;
@@ -2817,7 +2820,6 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
         {
             s->elapsed_time = tw_now(lp) - s->start_time;
             s->is_finished = 1;
-            s->num_own_job_ranks_completed+=1;
 
             if(!alloc_spec)
             {
@@ -3018,8 +3020,13 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
                 s->num_bytes_recvd, s->send_time, s->elapsed_time - s->compute_time, s->compute_time, avg_msg_time, s->max_time);
         lp_io_write(lp->gid, (char*)"mpi-replay-stats", written, s->output_buf);
 
-		if(s->elapsed_time - s->compute_time > max_comm_time)
-			max_comm_time = s->elapsed_time - s->compute_time;
+        tw_stime my_comm_time = s->elapsed_time - s->compute_time;
+
+		if(my_comm_time > max_comm_time)
+			max_comm_time = my_comm_time;
+
+        if(s->elapsed_time > max_elapsed_time_per_job[s->app_id])
+            max_elapsed_time_per_job[s->app_id] = s->elapsed_time;
 
 		if(s->elapsed_time > max_time )
 			max_time = s->elapsed_time;
@@ -3390,6 +3397,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
               num_net_traces += num_traces_of_job[i];
               is_job_synthetic[i] = 1;
               is_synthetic = 1;
+              num_total_jobs += 1;
 	      // Make sure BISECTION job has even number of clients
 	      if (strcmp(file_name_of_job[i], "synthetic6") == 0 && num_traces_of_job[i] % 2 != 0)
 		tw_error(TW_LOC, "BISECTION requires and even number of nodes.");
@@ -3404,6 +3412,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
                 num_dumpi_traces += num_traces_of_job[i];
                 is_job_synthetic[i] = 0;
                 num_nonsyn_jobs += 1;
+                num_total_jobs += 1;
             }
                 i++;
         }
@@ -3621,6 +3630,14 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 			total_max_recv_time, total_avg_recv_time/num_net_traces,
 			total_max_wait_time, total_avg_wait_time/num_net_traces);
     
+    printf("\n----------\n");
+    printf("Per App Max Elapsed Times:\n");
+    for(int i = 0; i < num_total_jobs; i++)
+    {
+        printf("\tApp %d: %.4f\n",i,max_elapsed_time_per_job[i]);
+    }
+    printf("----------\n");
+
     if(synthetic_pattern == PERMUTATION)
         printf("\n Threshold for random permutation %ld ", perm_switch_thresh);
    }
