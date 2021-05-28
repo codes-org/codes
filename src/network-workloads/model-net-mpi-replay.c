@@ -231,7 +231,7 @@ struct completed_requests
 };
 
 /* for wait operations, store the pending operation and number of completed waits so far. */
-struct pending_waits
+typedef struct pending_waits
 {
     int op_type;
     unsigned int req_ids[MAX_WAIT_REQS];
@@ -239,7 +239,7 @@ struct pending_waits
 	int count;
     tw_stime start_time;
     struct qlist_head ql;
-};
+}pending_waits;
 
 struct msg_size_info
 {
@@ -337,7 +337,7 @@ struct nw_state
     tw_stime cur_interval_end;
     
     /* Pending wait operation */
-    struct pending_waits * wait_op;
+    pending_waits * wait_op;
 
     /* Message size latency information */
     struct qhash_table * msg_sz_table;
@@ -411,6 +411,7 @@ struct nw_message
        int saved_syn_length;
        unsigned long saved_prev_switch;
        double saved_prev_max_time;
+       pending_waits * saved_pend_waits;
    } rc;
 };
 
@@ -1243,7 +1244,7 @@ static int notify_posted_wait(nw_state* s,
 {
     (void)bf;
 
-    struct pending_waits* wait_elem = s->wait_op;
+    pending_waits* wait_elem = s->wait_op;
     int wait_completed = 0;
 
     m->fwd.wait_completed = 0;
@@ -1317,7 +1318,7 @@ static void codes_exec_mpi_wait_rc(nw_state* s, tw_bf * bf, tw_lp* lp, nw_messag
         codes_issue_next_event_rc(lp);
         return;
     }
-         struct pending_waits * wait_op = s->wait_op;
+         pending_waits * wait_op = s->wait_op;
          free(wait_op);
          s->wait_op = NULL;
 }
@@ -1328,7 +1329,9 @@ static void codes_exec_mpi_wait(nw_state* s, tw_bf * bf, nw_message * m, tw_lp* 
     /* check in the completed receives queue if the request ID has already been completed.*/
                 
 //    printf("\n Wait posted rank id %d ", s->nw_id);
-    assert(!s->wait_op);
+    if (s->wait_op)
+        tw_lp_suspend(lp, 1, 0);
+    // assert(!s->wait_op);
     unsigned int req_id = mpi_op->u.wait.req_id;
 
     struct completed_requests* current = NULL;
@@ -1361,7 +1364,7 @@ static void codes_exec_mpi_wait(nw_state* s, tw_bf * bf, nw_message * m, tw_lp* 
         print_completed_queue(lp, &s->completed_reqs);
     }*/
     /* If not, add the wait operation in the pending 'waits' list. */
-    struct pending_waits* wait_op = (struct pending_waits*)malloc(sizeof(struct pending_waits));
+    pending_waits* wait_op = (pending_waits*)malloc(sizeof(pending_waits));
     wait_op->op_type = mpi_op->op_type;
     wait_op->req_ids[0] = req_id;
     wait_op->count = 1;
@@ -1391,12 +1394,18 @@ static void codes_exec_mpi_wait_all_rc(
   }
   if(s->wait_op)
   {
-      struct pending_waits * wait_op = s->wait_op;
+      pending_waits * wait_op = s->wait_op;
       free(wait_op);
       s->wait_op = NULL;
   }
   else
   {
+      if (bf->c29){
+        s->wait_op = (pending_waits*)malloc(sizeof(pending_waits));
+        memcpy(s->wait_op,m->rc.saved_pend_waits,sizeof(pending_waits));
+        free(m->rc.saved_pend_waits);
+      }
+
       add_completed_reqs(s, lp, m->fwd.num_matched);
       codes_issue_next_event_rc(lp);
   }
@@ -1469,16 +1478,23 @@ static void codes_exec_mpi_wait_all(
   {
     /* No need to post a MPI Wait all then, issue next event */
       /* Remove all completed requests from the list */
+      pending_waits* wait_op = s->wait_op;
+      if (s->wait_op != NULL) {
+        bf->c29 = 1;
+        pending_waits* pend_waits = (pending_waits*) malloc(sizeof(pending_waits));
+        memcpy(pend_waits, wait_op, sizeof(pending_waits));
+        m->rc.saved_pend_waits = pend_waits;
+      }
       m->fwd.num_matched = clear_completed_reqs(s, lp, mpi_op->u.waits.req_ids, count);
-      struct pending_waits* wait_op = s->wait_op;
       free(wait_op);
       s->wait_op = NULL;
       codes_issue_next_event(lp);
   }
   else
   {
+      assert(!s->wait_op);
       /* If not, add the wait operation in the pending 'waits' list. */
-	  struct pending_waits* wait_op = (struct pending_waits*)malloc(sizeof(struct pending_waits));
+	  pending_waits* wait_op = (pending_waits*)malloc(sizeof(pending_waits));
 	  wait_op->count = count;
       wait_op->op_type = mpi_op->op_type;
       assert(count < MAX_WAIT_REQS);
@@ -2041,7 +2057,7 @@ static void update_completed_queue_rc(nw_state * s, tw_bf * bf, nw_message * m, 
     }
     else if(bf->c31)
     {
-       struct pending_waits* wait_elem = (struct pending_waits*)rc_stack_pop(s->processed_wait_op);
+       pending_waits* wait_elem = (pending_waits*)rc_stack_pop(s->processed_wait_op);
        s->wait_op = wait_elem;
        s->wait_time = m->rc.saved_wait_time;
        s->ross_sample.wait_time = m->rc.saved_wait_time_sample;
@@ -2089,7 +2105,7 @@ static void update_completed_queue(nw_state* s,
             s->wait_time += (tw_now(lp) - s->wait_op->start_time);
             s->ross_sample.wait_time += (tw_now(lp) - s->wait_op->start_time);
 
-            struct pending_waits* wait_elem = s->wait_op;
+            pending_waits* wait_elem = s->wait_op;
             rc_stack_push(lp, wait_elem, free, s->processed_wait_op);
             s->wait_op = NULL;
 
@@ -3123,9 +3139,10 @@ void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp
                     lp_io_write(lp->gid, marker_filename, written, tag_line);
                 }
             }
-
-
-
+            // if (m->mpi_op->op_type == CODES_WK_WAITALL) {
+            //     if (bf->c29)
+            //         free(m->rc.saved_pend_waits);
+            // }
             free(m->mpi_op);
         break;
     }
