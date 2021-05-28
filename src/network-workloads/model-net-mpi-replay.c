@@ -1861,37 +1861,17 @@ static void codes_exec_mpi_send(nw_state* s,
     bf->c1 = 0;
     bf->c4 = 0;
    
-    /* Class names in the CODES dragonfly-dally (as at 2020/09/21 - KB):
-     * 	"high"		<- highest priority
-     * 	"medium"
-     * 	"low"
-     * 	"class3"
-     * 	"class4"
-     * 	"class5"
-     *
-     * The name of the first three classes are kept for backwards compatibility. TODO: Rename classes
-     */
+   bf->c3 = 0;
+    bf->c1 = 0;
+    bf->c4 = 0;
+   
     char prio[12];
-	switch(s->qos_level){
-		case 0:
-			strcpy(prio, "high"); break;
-		case 1:
-			strcpy(prio, "medium"); break;
-		case 2:
-			strcpy(prio, "low"); break;
-		case 3:
-			strcpy(prio, "class3"); break;
-		case 4:
-			strcpy(prio, "class4"); break;
-		case 5:
-			strcpy(prio, "class5"); break;
-		default:
-			tw_error(TW_LOC, "\n Invalid QoS level: %d", s->qos_level);
-			break;
-	}
-
     if(priority_type == 0)
     {
+        if(s->app_id == 0) 
+          strcpy(prio, "high");
+        else
+          strcpy(prio, "medium");
     }
     else if(priority_type == 1)
     {
@@ -1899,9 +1879,11 @@ static void codes_exec_mpi_send(nw_state* s,
         {
             strcpy(prio, "high");
         }
+        else
+            strcpy(prio, "medium");
     }
     else
-        tw_error(TW_LOC, "\n Invalid priority type: %d", priority_type);
+        tw_error(TW_LOC, "\n Invalid priority type %d", priority_type);
 
     int is_eager = 0;
 	/* model-net event */
@@ -2146,34 +2128,13 @@ static void send_ack_back(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp, m
     remote_m.fwd.req_id = mpi_op->req_id;  
     remote_m.fwd.matched_req = matched_req;
 
-    // TODO: If we want ack messages to be in the low-latency class, change this function. -Kevin Brown 2021.02.18
     char prio[12];
-	switch(s->qos_level){
-		case 0:
-			strcpy(prio, "high"); break;
-		case 1:
-			strcpy(prio, "medium"); break;
-		case 2:
-			strcpy(prio, "low"); break;
-		case 3:
-			strcpy(prio, "class3"); break;
-		case 4:
-			strcpy(prio, "class4"); break;
-		case 5:
-			strcpy(prio, "class5"); break;
-		default:
-			tw_error(TW_LOC, "\n Invalid QoS level: %d", s->qos_level);
-			break;
-	}
-
     if(priority_type == 0)
     {
         if(s->app_id == 0) 
           strcpy(prio, "high");
-        else if(s->app_id == 1)
-          strcpy(prio, "medium");
         else
-          strcpy(prio, "low");
+          strcpy(prio, "medium");
     }
     else if(priority_type == 1)
     {
@@ -2181,9 +2142,11 @@ static void send_ack_back(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp, m
         {
             strcpy(prio, "high");
         }
+        else
+            strcpy(prio, "medium");
     }
     else
-        tw_error(TW_LOC, "\n Invalid priority type: %d", priority_type);
+       tw_error(TW_LOC, "\n Invalid app id");
     
     m->event_rc = model_net_event_mctx(net_id, &mapping_context, &mapping_context,
         prio, dest_rank, CONTROL_MSG_SZ, (self_overhead + soft_delay_mpi + nic_delay),
