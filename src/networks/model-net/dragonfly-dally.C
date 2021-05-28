@@ -83,7 +83,6 @@ static int max_hops_per_group = 1;
 static int max_global_hops_nonminimal = 2;
 static int max_global_hops_minimal = 1;
 
-static tw_stime max_qos_monitor = 5000000000;
 static long num_local_packets_sr = 0;
 static long num_local_packets_sg = 0;
 static long num_remote_packets = 0;
@@ -1689,11 +1688,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     }
     else
         p->qos_bandwidths[0] = 100;
-    rc = configuration_get_value_double(&config, "PARAMS", "max_qos_monitor", anno, &max_qos_monitor);
-    if(rc) {
-        if(!myRank)
-            fprintf(stderr, "Setting max_qos_monitor to %lf\n", max_qos_monitor);
-	}
+
     rc = configuration_get_value_int(&config, "PARAMS", "adaptive_threshold", anno, &p->adaptive_threshold);
     if (rc) {
         if(!myRank)
@@ -2384,16 +2379,15 @@ void issue_bw_monitor_event(terminal_state * s, tw_bf * bf, terminal_dally_messa
         }
     }
 
-    if(tw_now(lp) > max_qos_monitor)
-        return;
-    
-    terminal_dally_message * m; 
-    tw_stime bw_ts = bw_reset_window + gen_noise(lp, &msg->num_rngs);
-    tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp, DRAGONFLY_DALLY,
-            (void**)&m, NULL); 
-    m->type = T_BANDWIDTH;
-    m->magic = terminal_magic_num; 
-    tw_event_send(e);
+    if (s->workloads_finished_flag == 0) {
+        terminal_dally_message * m; 
+        tw_stime bw_ts = bw_reset_window + gen_noise(lp, &msg->num_rngs);
+        tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp, DRAGONFLY_DALLY,
+                (void**)&m, NULL); 
+        m->type = T_BANDWIDTH;
+        m->magic = terminal_magic_num; 
+        tw_event_send(e);
+    }
 }
 
 void issue_rtr_bw_monitor_event_rc(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp)
@@ -2471,16 +2465,15 @@ void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_dally_messa
         s->ross_rsample.busy_time[i] = 0;
     }
 
-    if(tw_now(lp) > max_qos_monitor)
-        return;
-    
-    tw_stime bw_ts = bw_reset_window + gen_noise(lp, &msg->num_rngs);
-    terminal_dally_message *m;
-    tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp,
-            DRAGONFLY_DALLY_ROUTER, (void**)&m, NULL);
-    m->type = R_BANDWIDTH;
-    m->magic = router_magic_num;
-    tw_event_send(e);
+    if (s->workloads_finished_flag == 0) {
+        tw_stime bw_ts = bw_reset_window + gen_noise(lp, &msg->num_rngs);
+        terminal_dally_message *m;
+        tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp,
+                DRAGONFLY_DALLY_ROUTER, (void**)&m, NULL);
+        m->type = R_BANDWIDTH;
+        m->magic = router_magic_num;
+        tw_event_send(e);
+    }
 }
 
 static int get_next_vcg(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
