@@ -63,7 +63,7 @@ char workload_file[8192];
 char offset_file[8192];
 static int wrkld_id;
 static int num_net_traces = 0;
-static int priority_type = 0;
+static int prioritize_collectives = 0;
 static int num_dumpi_traces = 0;
 static int num_nonsyn_jobs = 0;
 static int num_total_jobs = 0;
@@ -1890,18 +1890,13 @@ static void codes_exec_mpi_send(nw_state* s,
 			break;
 	}
 
-    if(priority_type == 0)
-    {
-    }
-    else if(priority_type == 1)
+    if(prioritize_collectives == 1)
     {
         if(mpi_op->u.send.tag == COL_TAG || mpi_op->u.send.tag == BAR_TAG)
         {
             strcpy(prio, "high");
         }
     }
-    else
-        tw_error(TW_LOC, "\n Invalid priority type: %d", priority_type);
 
     int is_eager = 0;
 	/* model-net event */
@@ -2166,24 +2161,13 @@ static void send_ack_back(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp, m
 			break;
 	}
 
-    if(priority_type == 0)
-    {
-        if(s->app_id == 0) 
-          strcpy(prio, "high");
-        else if(s->app_id == 1)
-          strcpy(prio, "medium");
-        else
-          strcpy(prio, "low");
-    }
-    else if(priority_type == 1)
+    if(prioritize_collectives == 1)
     {
         if(mpi_op->tag == COL_TAG || mpi_op->tag == BAR_TAG)
         {
             strcpy(prio, "high");
         }
     }
-    else
-        tw_error(TW_LOC, "\n Invalid priority type: %d", priority_type);
     
     m->event_rc = model_net_event_mctx(net_id, &mapping_context, &mapping_context,
         prio, dest_rank, CONTROL_MSG_SZ, (self_overhead + soft_delay_mpi + nic_delay),
@@ -3180,7 +3164,7 @@ const tw_optdef app_opt [] =
 	TWOPT_CHAR("workload_timer_file", workloads_timer_file, "workload timer file name (for starting/pausing/stopping synthetic traffic)"),
 	TWOPT_CHAR("workload_period_file", workloads_period_file, "workload periods file name (for changing the per-job synthetic traffic load at specified periods/times)"),
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
-	TWOPT_UINT("priority_type", priority_type, "Priority type (zero): high priority to foreground traffic and low to background/2nd job, (one): high priority to collective operations "),
+	TWOPT_UINT("priority_type", prioritize_collectives, "Priority type (zero): Normal, (one): high priority to collective operations "),
 	TWOPT_UINT("payload_sz", payload_sz, "size of payload for synthetic traffic "),
 	TWOPT_ULONGLONG("max_gen_data", max_gen_data, "maximum data to be generated for synthetic traffic (Default 0 (OFF))"),
 	TWOPT_UINT("eager_threshold", EAGER_THRESHOLD, "the transition point for eager/rendezvous protocols (Default 8192)"),
