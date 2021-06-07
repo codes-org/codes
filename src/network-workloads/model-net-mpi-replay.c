@@ -2342,7 +2342,9 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->all_reduce_time = 0;
    s->prev_switch = 0;
    s->max_time = 0;
-   s->qos_level = -1;
+   s->qos_level = 0; //TODO:  We need a more elegant solution for determining if qos is enabled or not.
+                     //       This had been -1 but if qos is not configured (single job no workload conf file)
+                     //       then this will error out
 
    char type_name[512];
 
