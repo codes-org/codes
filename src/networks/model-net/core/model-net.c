@@ -36,6 +36,8 @@ extern struct model_net_method loggp_method;
 extern struct model_net_method express_mesh_method;
 extern struct model_net_method express_mesh_router_method;
 
+char g_nm_link_failure_filepath[MAX_NAME_LENGTH];
+
 #define X(a,b,c,d) b,
 char * model_net_lp_config_names[] = {
     NETWORK_DEF
@@ -66,6 +68,7 @@ static tw_stime start_time_param; // MN_MSG_PARAM_START_TIME
 static double cn_bandwidth = 20;
 tw_stime codes_cn_delay;
 static int codes_node_eager_limit = 16000;
+static int codes_noop_bypass = 0;
 
 // global listing of lp types found by model_net_register
 // - needs to be held between the register and configure calls
@@ -163,6 +166,12 @@ int* model_net_configure(int *id_count){
     if(ret && !g_tw_mynode) {
         fprintf(stderr, "Within-node eager limit (node_eager_limit) not specified, "
                 "setting to %d\n", codes_node_eager_limit);
+    }
+
+    ret = configuration_get_value_int(&config, "PARAMS", "codes_noop_bypass",NULL,
+            &codes_noop_bypass);
+    if(!ret && !g_tw_mynode) {
+        printf("CODES No-op method bypass enabled\n");
     }
 
     return ids;
@@ -331,7 +340,7 @@ static model_net_event_return model_net_event_impl_base(
     tw_lpid dest_mn_lp = model_net_find_local_device_mctx(net_id, recv_map_ctx,
             final_dest_lp);
 
-    if ( src_mn_lp == dest_mn_lp && message_size < (uint64_t)codes_node_eager_limit)
+    if ( src_mn_lp == dest_mn_lp && message_size < (uint64_t)codes_node_eager_limit && !codes_noop_bypass)
     {
         return model_net_noop_event(final_dest_lp, is_pull, offset, message_size,
                 remote_event_size, remote_event, self_event_size, self_event,
@@ -374,6 +383,13 @@ static model_net_event_return model_net_event_impl_base(
     else
         r->msg_start_time = tw_now(sender);
 
+    if (congestion_control_is_jobmap_set()) { //perhaps make jobmap a global set regardless of congestion control
+        struct codes_jobmap_ctx *ctx;
+        ctx = congestion_control_get_jobmap();
+        struct codes_jobmap_id jid; 
+        jid = codes_jobmap_to_local_id(codes_mapping_get_lp_relative_id(sender->gid, 0, 0), ctx);
+        r->app_id = jid.job;
+    }
     // this is an outgoing message
     m->msg.m_base.is_from_remote = 0;
     m->msg.m_base.isQueueReq = 1;

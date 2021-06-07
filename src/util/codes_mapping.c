@@ -8,6 +8,7 @@
  * CODES custom mapping file for ROSS
  */
 #include "codes/codes_mapping.h"
+#include "codes/congestion-controller-core.h"
 
 #define CODES_MAPPING_DEBUG 0
 
@@ -96,6 +97,22 @@ int codes_mapping_get_group_reps(const char* group_name)
 	     return lpconf.lpgroups[grp].repetitions;
   }
   return -1;
+}
+
+// returns the total number of LPs defined in LPGROUPS
+// this lets us define an auxillary LP group for one off LPs
+// like the supervisory controller
+int codes_mapping_get_lpgroups_lp_count()
+{
+    tw_lpid total_count = 0;
+    for (int g = 0; g < lpconf.lpgroups_count; g++){
+        const config_lpgroup_t *lpg = &lpconf.lpgroups[g];
+        for (int l = 0; l < lpg->lptypes_count; l++){
+            const config_lptype_t *lpt = &lpg->lptypes[l];
+            total_count += (lpt->count * lpg->repetitions);
+        }
+    }
+    return total_count;
 }
 
 int codes_mapping_get_lp_count(
@@ -475,8 +492,12 @@ static void codes_mapping_init(void)
 	 ross_lid = lpid - lp_start;
 	 kpid = ross_lid % g_tw_nkp;
 	 pe = g_tw_pe;
-	 codes_mapping_get_lp_info(ross_gid, NULL, &grp_id, lp_type_name,
-                 &lpt_id, NULL, &rep_id, &offset);
+
+    codes_mapping_get_lp_info(ross_gid, NULL, &grp_id, lp_type_name,
+        &lpt_id, NULL, &rep_id, &offset);
+
+     
+
 #if CODES_MAPPING_DEBUG
          printf("lp:%lu --> kp:%lu, pe:%llu\n", ross_gid, kpid, pe->id);
 #endif
@@ -521,6 +542,7 @@ void codes_mapping_setup_with_seed_offset(int offset)
     for (lpt = 0; lpt < lpconf.lpgroups[grp].lptypes_count; lpt++)
 	lps_per_pe_floor += (lpconf.lpgroups[grp].lptypes[lpt].count * lpconf.lpgroups[grp].repetitions);
    }
+
   tw_lpid global_nlps = lps_per_pe_floor;
   lps_leftover = lps_per_pe_floor % pes;
   lps_per_pe_floor /= pes;
@@ -547,6 +569,7 @@ void codes_mapping_setup_with_seed_offset(int offset)
   // we increment the number of RNGs used to let codes_local_latency use the
   // last one
   g_tw_nRNG_per_lp++;
+  g_tw_nRNG_per_lp++; //Congestion Control gets its own RNG - second to last (CLL is last)
 
   tw_define_lps(codes_mapping_get_lps_for_pe(), message_size);
 
@@ -559,7 +582,7 @@ void codes_mapping_setup_with_seed_offset(int offset)
       for (tw_lpid l = 0; l < g_tw_nlp; l++){
           for (unsigned int i = 0; i < g_tw_nRNG_per_lp; i++){
               tw_rand_initial_seed(&g_tw_lp[l]->rng[i], (g_tw_lp[l]->gid +
-                          global_nlps * offset) * g_tw_nRNG_per_lp + i);
+                          global_nlps * offset) * g_tw_nRNG_per_lp + i, NULL);
           }
       }
   }

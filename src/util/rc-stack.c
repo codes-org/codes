@@ -98,7 +98,11 @@ void rc_stack_gc(tw_lp const *lp, struct rc_stack *s) {
     struct qlist_head *ent = s->head.next;
     while (ent != &s->head) {
         rc_entry *r = qlist_entry(ent, rc_entry, ql);
+#ifdef USE_RAND_TIEBREAKER
+        if (lp == NULL || r->time < lp->pe->GVT_sig.recv_ts){
+#else
         if (lp == NULL || r->time < lp->pe->GVT){
+#endif
             qlist_del(ent);
             if (r->free_fn) r->free_fn(r->data);
             free(r);

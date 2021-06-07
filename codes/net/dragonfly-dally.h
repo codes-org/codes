@@ -22,6 +22,8 @@ struct terminal_dally_message
   int magic;
   /* flit travel start time*/
   tw_stime travel_start_time;
+  /* flit travel end time*/
+  tw_stime travel_end_time;
  /* packet ID of the flit  */
   unsigned long long packet_ID;
   /* event type of the flit */
@@ -37,20 +39,29 @@ struct terminal_dally_message
   tw_lpid sender_mn_lp; // source modelnet id
  /* destination terminal ID of the dragonfly */
   tw_lpid dest_terminal_lpid;
-  int dfdally_dest_terminal_id; //this is the terminal id in the dfdally network in range [0-total_num_terminals)
+  unsigned int dfdally_src_terminal_id;
+  unsigned int dfdally_dest_terminal_id; //this is the terminal id in the dfdally network in range [0-total_num_terminals)
   /* source terminal ID of the dragonfly */
   unsigned int src_terminal_id;
   /* message originating router id. MM: Can we calculate it through
    * sender_mn_lp??*/
   unsigned int origin_router_id;
 
+  int app_id; //id of the job associated with this terminal TODO - this will cause a problem if multiple job workload LPs are mapped to one terminal
+
   /* number of hops traversed by the packet */
   short my_N_hop;
   short my_l_hop, my_g_hop;
+  short my_hops_cur_group;
   short saved_channel;
   short saved_vc;
 
   int next_stop;
+
+  //encoded time when received at a router
+  tw_stime this_router_arrival;
+  //encoded time when departed from router
+  tw_stime this_router_ptp_latency;
 
   /* Intermediate LP ID from which this message is coming */
   unsigned int intm_lp_id;
@@ -73,11 +84,13 @@ struct terminal_dally_message
 
   // For buffer message
    short vc_index;
+   short rail_id;
    int output_chan;
    model_net_event_return event_rc;
    int is_pull;
    uint32_t pull_size;
    int path_type;
+   int saved_app_id;
 
    /* for reverse computation */   
    short num_rngs;
@@ -94,7 +107,9 @@ struct terminal_dally_message
    unsigned long long * rc_qos_data;
    int * rc_qos_status;
 
+   short saved_send_loop;
    tw_stime saved_available_time;
+   tw_stime saved_min_lat;
    tw_stime saved_avg_time;
    tw_stime saved_rcv_time;
    tw_stime saved_busy_time; 
