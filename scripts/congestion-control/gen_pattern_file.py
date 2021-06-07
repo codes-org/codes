@@ -9,6 +9,11 @@
 # This is a brute force attempt but since these files only need to be generated once, it's not
 # so important that this be the most optimized that it could be.
 
+#NOTE: 6-6-2021 DEPRECATED - This was necessary for v1 of the congestion control feature. This version was
+#               not great and part of the reason was that it relied on patterns like these for detection
+#               of congestion. This file will eventually be removed entirely from the repo but was left
+#               as a monument to my wasted time. Congestion Control v1 was wiped and replaced by v2.
+
 import sys
 
 N_PERIODS = 5 #length of patterns
