@@ -62,7 +62,6 @@ struct terminal_dally_message
   tw_stime this_router_arrival;
   //encoded time when departed from router
   tw_stime this_router_ptp_latency;
-  short ptp_latency_set;
 
   /* Intermediate LP ID from which this message is coming */
   unsigned int intm_lp_id;
@@ -70,7 +69,6 @@ struct terminal_dally_message
   short last_hop;
    /* For routing */
   short is_intm_visited;
-  int minimal_intermediate_flag; //flag for when the minimal route will be equivalent to a valiant one
   int intm_rtr_id;
   int intm_grp_id;
   int saved_src_dest;
