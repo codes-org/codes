@@ -41,6 +41,8 @@
 // maximum number of characters allowed to represent the routing algorithm as a string
 #define MAX_ROUTING_CHARS 32
 
+#define ROUTER_BW_LOG 0
+
 //Routing Defines
 //NONMIN_INCLUDE_SOURCE_DEST: Do we allow source and destination groups to be viable choces for indirect group (i.e. do we allow nonminimal routing to sometimes be minimal?)
 #define NONMIN_INCLUDE_SOURCE_DEST 0
@@ -2642,7 +2644,7 @@ void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_plus_messag
             int bw_consumed = get_rtr_bandwidth_consumption(s, j, i);
         
             #if DEBUG_QOS == 1 
-            if(dragonfly_rtr_bw_log != NULL)
+            if(dragonfly_rtr_bw_log != NULL && ROUTER_BW_LOG)
             {
                 if(s->qos_data[j][k] > 0)
                 {
@@ -3039,7 +3041,7 @@ void router_plus_init(router_state *r, tw_lp *lp)
         char rtr_bw_log[128];
         sprintf(rtr_bw_log, "router-bw-tracker-%d", g_tw_mynode);
        
-        if(dragonfly_rtr_bw_log == NULL)
+        if(dragonfly_rtr_bw_log == NULL && ROUTER_BW_LOG)
         {
             dragonfly_rtr_bw_log = fopen(rtr_bw_log, "w+");
        
@@ -4385,7 +4387,7 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
     // }
 
 #if DEBUG_QOS
-    if(s->router_id == 0)
+    if(s->router_id == 0 && ROUTER_BW_LOG)
         fclose(dragonfly_rtr_bw_log);
 #endif
 
