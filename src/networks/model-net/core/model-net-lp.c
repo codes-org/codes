@@ -1027,8 +1027,6 @@ int model_net_method_end_sim_broadcast(
     tw_stime offset_ts,
     tw_lp *sender)
 {
-    int rand_count = 0;
-
     //get lp names of active model-net LPs
     //send end sim notification to each LP that match an active model-net lp name
     for (int cid = 0; cid < lpconf.num_uniq_lptypes; cid++)
@@ -1043,13 +1041,12 @@ int model_net_method_end_sim_broadcast(
                 {
                     tw_lpid lpgid = codes_mapping_get_lpid_from_relative(lid, NULL, lp_name, NULL, 0);
                     tw_event* e = model_net_method_end_sim_notification(lpgid, offset_ts, sender);
-                    rand_count++;
                     tw_event_send(e);
                 }
             }
         }
     }
-    return rand_count;
+    return 0;
 }
 
 // see model_net_method_end_sim_broadcast for details on why this method is useful

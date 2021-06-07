@@ -34,7 +34,7 @@
 #define BAR_TAG 1234
 #define PRINT_SYNTH_TRAFFIC 1
 #define MAX_JOBS 40
-#define NEAR_ZERO .0001
+#define NEAR_ZERO .0001 //timestamp for use to be 'close to zero' but still allow progress, zero offset events are hard on the PDES engine
 #define OUTPUT_MARKS 0
 
 static int msg_size_hash_compare(
@@ -541,7 +541,6 @@ static void notify_background_traffic_rc(
     {
         if(is_job_synthetic[i] == 0)
             continue;
-        // tw_rand_reverse_unif(lp->rng);
     }
 }
 
@@ -572,7 +571,6 @@ static void notify_background_traffic(
 
             lprintf("\n Other ranks %d ", num_other_ranks);
             tw_stime ts = NEAR_ZERO;
-            // tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_exponential(lp->rng, noise); //TODO this is a possible source of nondeterminism - reused timestamp causes event ties
             tw_lpid global_dest_id;
      
             for(int k = 0; k < num_other_ranks; k++)    
@@ -637,7 +635,6 @@ static void notify_root_workload(
     tw_event *e;
     struct nw_message *m_new;
     tw_stime ts = NEAR_ZERO;
-    // tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_unif(lp->rng) * 0.001;
     e = tw_event_new(global_dest_id, ts, lp);
     m_new = (struct nw_message*)tw_event_data(e);
     m_new->msg_type = CLI_OTHER_FINISH;
@@ -714,8 +711,7 @@ void handle_other_finish(
         //are currently in transit. This currently isn't measured for model_net_mpi_replay.
 
         //send to all non nw-lp LPs (all model net, is there a function taht does this?)
-        int num_rngs = model_net_method_end_sim_broadcast(NEAR_ZERO, lp);
-        // m->num_rngs += num_rngs;
+        model_net_method_end_sim_broadcast(NEAR_ZERO, lp);
     }
     else
     {
@@ -817,27 +813,6 @@ void finish_bckgnd_traffic(
         return;
 }
 
-// void finish_nbr_wkld_rc(
-//     struct nw_state * ns,
-//     tw_bf * b,
-//     struct nw_message * msg,
-//     tw_lp * lp)
-// {
-//     ns->neighbor_completed = 0;
-    
-//     notify_neighbor_rc(ns, lp, b, msg);
-// }
-
-// void finish_nbr_wkld(
-//     struct nw_state * ns,
-//     tw_bf * b,
-//     struct nw_message * msg,
-//     tw_lp * lp)
-// {
-//     ns->neighbor_completed = 1;
-
-//     notify_neighbor(ns, lp, b, msg);
-// }
 static void gen_synthetic_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
     if(bf->c0)
@@ -932,8 +907,6 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
                 dest_svr[0] = tw_rand_integer(lp->rng, 0, num_clients - 1);
                 if(dest_svr[0] == s->local_rank)
                     dest_svr[0] = (s->local_rank + num_clients/2) % num_clients;
-                /* TODO: Fix random number generation code */
-                // m->rc.saved_perm = s->saved_perm_dest;
                 s->saved_perm_dest = dest_svr[0];
                 assert(s->saved_perm_dest != s->local_rank);
             }
@@ -1058,7 +1031,6 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
     s->ross_sample.num_sends++;
 
     /* New event after MEAN_INTERVAL */  
-    //tw_stime ts = mean_interval  + tw_rand_exponential(lp->rng, noise); 
     tw_stime ts = mean_interval_of_job[s->app_id];
     tw_event * e;
     nw_message * m_new;
@@ -2817,15 +2789,9 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
              * completed */
              printf("\n Network node %d Rank %llu App %d finished at %lf ", s->local_rank, LLU(s->nw_id), s->app_id, tw_now(lp));
             int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx); 
-            //  if(num_jobs <= 1 || is_synthetic == 0)
-            //  {
-            //     bf->c19 = 1;
-            //     return;
-            //  }
 
-            //if(num_qos_levels == 1) //notify neighbor isn't really compatible with QoS, so notify_neighbor is only called if num_qos_levels == 1 (QoS off)
-                notify_root_rank(s, lp, bf, m);
-//             printf("Client rank %llu completed workload, local rank %d .\n", s->nw_id, s->local_rank);
+            notify_root_rank(s, lp, bf, m);
+            // printf("Client rank %llu completed workload, local rank %d .\n", s->nw_id, s->local_rank);
 
              return;
         }
@@ -3375,6 +3341,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
         char ref = '\n';
         while(!feof(name_file))
         {
+            //TODO: can we allow for a 2 item line but with defaults for the last two?
             ref = fscanf(name_file, "%d %s %d %f", &num_traces_of_job[i], file_name_of_job[i], &qos_level_of_job[i], &mean_interval_of_job[i]);
             
             if(ref != EOF && strncmp(file_name_of_job[i], "synthetic", 9) == 0)
