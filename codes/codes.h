@@ -69,7 +69,7 @@ static inline tw_event * tw_event_new_bounded(
  * nanoseconds.
  */
 #define CODES_MIN_LATENCY 0.5
-#define CODES_MAX_LATENCY 1.5
+#define CODES_MAX_LATENCY 1.0
 #define CODES_LATENCY_RANGE \
     (CODES_MAX_LATENCY-CODES_MIN_LATENCY)
 static inline tw_stime codes_local_latency(tw_lp *lp)
