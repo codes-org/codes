@@ -58,7 +58,7 @@
 
 #define ROUTER_BW_LOG 0
 
-#define OUTPUT_END_END_LATENCIES 1
+#define OUTPUT_END_END_LATENCIES 0
 #define OUTPUT_PORT_PORT_LATENCIES 0
 #define OUTPUT_LATENCY_MODULO 1
 
@@ -89,9 +89,9 @@ static long num_remote_packets = 0;
 
 static long global_stalled_chunk_counter = 0;
 
-#define OUTPUT_SNAPSHOT 1
-const static int num_snapshots = 2;
-tw_stime snapshot_times[num_snapshots] = {2000000.0, 30000000.0};
+#define OUTPUT_SNAPSHOT 0
+const static int num_snapshots = 0;
+tw_stime snapshot_times[num_snapshots] = {};
 char snapshot_filename[128];
 
 /* time in nanosecs */
@@ -3088,12 +3088,14 @@ void router_dally_init(router_state * r, tw_lp * lp)
 
     }
 
-    r->snapshot_data = (int**)calloc(num_snapshots, sizeof(int*));
-    for(int i = 0; i < num_snapshots; i++)
-    {
-        r->snapshot_data[i] = (int*)calloc(r->params->num_vcs * r->params->radix, sizeof(int)); //capturing VC occupancies of each port
+    if (num_snapshots) {
+        r->snapshot_data = (int**)calloc(num_snapshots, sizeof(int*));
+        for(int i = 0; i < num_snapshots; i++)
+        {
+            r->snapshot_data[i] = (int*)calloc(r->params->num_vcs * r->params->radix, sizeof(int)); //capturing VC occupancies of each port
+        }
+        router_send_snapshot_events(r, lp);
     }
-    router_send_snapshot_events(r, lp);
 
     return;
 }	
