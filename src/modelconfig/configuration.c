@@ -78,8 +78,9 @@ finalize:
     free(txtdata);
     free(tmp_path);
 
-    if (rc != MPI_SUCCESS && !error) {
+    if (rc != MPI_SUCCESS && rc > 0) {
         error = (char*) malloc(MPI_MAX_ERROR_STRING);
+        printf("%d\n", rc);
         MPI_Error_string(rc, error, &len);
     }
     
