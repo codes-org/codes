@@ -81,40 +81,53 @@ list(APPEND SRCS
     modelconfig/txt_configfile.c
 )
 
+list(APPEND LIBS_TO_LINK PkgConfig::ROSS)
+
 if(USE_DUMPI)
     list(APPEND SRCS workload/methods/codes-dumpi-trace-nw-wrkld.c)
+    list(APPEND LIBS_TO_LINK ${DUMPI_LIB})
 endif()
 
 if(USE_ONLINE)
     list(APPEND SRCS workload/methods/codes-online-comm-wrkld.C)
+    list(APPEND LIBS_TO_LINK PkgConfig::SWM)
+    list(APPEND LIBS_TO_LINK PkgConfig::ARGOBOTS)
 endif()
+
 
 if(USE_RECORDER)
     list(APPEND SRCS workload/methods/codes-recorder-io-wrkld.c)
 endif()
 
-if(USE_DARSHAN)
-    list(APPEND SRCS workload/methods/codes-darshan3-io-wrkld.c)
-endif()
+# if(USE_DARSHAN)
+#     list(APPEND SRCS workload/methods/codes-darshan3-io-wrkld.c)
+# endif()
 
 add_library(codes STATIC ${SRCS})
 
-set(LIBS_TO_LINK
-    PkgConfig::ROSS
-    ${DUMPI_LIB}
-    PkgConfig::ARGOBOTS
-    PkgConfig::SWM
-)
+list(APPEND LIBS_TO_LINK ${MPI_C_LIBRARIES})
+target_include_directories(codes INTERFACE ${MPI_C_INCLUDE_PATH})
+
+# set(LIBS_TO_LINK
+#     PkgConfig::ROSS
+#     ${DUMPI_LIB}
+#     PkgConfig::ARGOBOTS
+#     PkgConfig::SWM
+# )
+
 #LINK DUMPI
 # target_link_libraries(codes PUBLIC ${DUPMI_LIB})
-target_include_directories(codes PUBLIC ${DUMPI_INCLUDE})
+if(USE_DUMPI)
+    target_include_directories(codes PUBLIC ${DUMPI_INCLUDE})
+endif()
 
 #LINK ARGOBOTS and SWM ONLINE
 # target_link_libraries(codes PUBLIC PkgConfig::ARGOBOTS)
-target_include_directories(codes PUBLIC ${ARGOBOTS_INCLUDE_DIRS})
-
-# target_link_libraries(codes PUBLIC PkgConfig::SWM)
-target_include_directories(codes PUBLIC ${SWM_INCLUDE_DIRS})
+if(USE_ONLINE)
+    target_include_directories(codes PUBLIC ${ARGOBOTS_INCLUDE_DIRS})
+    # target_link_libraries(codes PUBLIC PkgConfig::SWM)
+    target_include_directories(codes PUBLIC ${SWM_INCLUDE_DIRS})
+endif()
 
 #LINK ROSS
 # target_link_libraries(codes PUBLIC #{pkgcfg_lib_ROSS_ROSS})
@@ -134,26 +147,30 @@ target_link_libraries(codes PUBLIC ${LIBS_TO_LINK})
 get_target_property(CODES_INCLUDE_DIRS codes INCLUDE_DIRECTORIES)
 cmake_print_variables(CODES_INCLUDE_DIRS)
 
-add_executable(codes-workload-dump workload/codes-workload-dump.c)
 add_executable(topology-test networks/model-net/topology-test.c)
 add_executable(model-net-mpi-replay network-workloads/model-net-mpi-replay.c network-workloads/model-net-mpi-replay-main.c)
-add_executable(model-net-dumpi-traces-dump network-workloads/model-net-dumpi-traces-dump.c)
+if(USE_DUMPI)
+    add_executable(codes-workload-dump workload/codes-workload-dump.c)
+    add_executable(model-net-dumpi-traces-dump network-workloads/model-net-dumpi-traces-dump.c)
+endif()
 add_executable(model-net-synthetic network-workloads/model-net-synthetic.c)
 add_executable(model-net-synthetic-slimfly network-workloads/model-net-synthetic-slimfly.c)
 add_executable(model-net-synthetic-fattree network-workloads/model-net-synthetic-fattree.c)
 add_executable(model-net-synthetic-dragonfly-all network-workloads/model-net-synthetic-dragonfly-all.c)
 
 set(CODES_TARGETS
-    codes-workload-dump
     topology-test
     model-net-mpi-replay
-    model-net-dumpi-traces-dump
     model-net-synthetic
     model-net-synthetic-slimfly
     model-net-synthetic-fattree
     model-net-synthetic-dragonfly-all
 )
 
+if(USE_DUMPI)
+    list(APPEND CODES_TARGETS codes-workload-dump)
+    list(APPEND CODES_TARGETS model-net-dumpi-traces-dump)
+endif()
 
 foreach(tar IN LISTS CODES_TARGETS)
     target_include_directories(${tar} PUBLIC ${CODES_INCLUDE_DIRS} ${ROSS_INCLUDE_DIRS})

@@ -30,11 +30,11 @@ find_package(PkgConfig REQUIRED)
 set(ENV{PKG_CONFIG_PATH} "${ROSS_PKG_CONFIG_PATH}:${SWM_PKG_CONFIG_PATH}:${ARGOBOTS_PKG_CONFIG_PATH}")
 pkg_check_modules(ROSS REQUIRED IMPORTED_TARGET ross)
 
-## MPI
+# MPI
 include(SetupMPI)
 if(MPI_C_FOUND)
         include_directories(${MPI_C_INCLUDE_PATH})
-        list(APPEND ROSS_EXTERNAL_LIBS ${MPI_C_LIBRARIES})
+        list(APPEND CODES_EXTERNAL_LIBS ${MPI_C_LIBRARIES})
 else(MPI_C_FOUND)
         message("WARNING: Could not find MPI!")
         message("         Either add an MPI compiler to your path (using modules)")
@@ -89,12 +89,12 @@ endif()
 
 
 ## DAMARIS
-pkg_check_modules(DAMARIS IMPORTED_TARGET)
-if(NOT DAMARIS_FOUND)
-        message(STATUS "DAMARIS Library not found, Damaris disabled")
-else(DAMARIS_FOUND)
-        set(USE_DAMARIS true)
-endif()
+# pkg_check_modules(DAMARIS IMPORTED_TARGET)
+# if(NOT DAMARIS_FOUND)
+#         message(STATUS "DAMARIS Library not found, Damaris disabled")
+# else(DAMARIS_FOUND)
+#         set(USE_DAMARIS true)
+# endif()
 
 cmake_print_variables(CMAKE_C_FLAGS)
 add_subdirectory(src)
