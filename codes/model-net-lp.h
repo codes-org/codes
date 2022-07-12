@@ -32,6 +32,7 @@ extern "C" {
 #include "net/simplep2p.h"
 #include "net/torus.h"
 #include "net/express-mesh.h"
+#include "codes/congestion-controller-core.h"
 
 extern int model_net_base_magic;
 
@@ -101,6 +102,22 @@ void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue,
 // NOTE: this should ONLY be called on model-net implementations, nowhere else
 void * model_net_method_get_edata(int net_id, void * msg);
 
+int model_net_method_end_sim_broadcast(
+    tw_stime offset_ts,
+    tw_lp *sender);
+
+tw_event* model_net_method_end_sim_notification(
+    tw_lpid dest_gid,
+    tw_stime offset_ts,
+    tw_lp *sender);
+
+// Wrapper for congestion controller to request congestion data from destination
+tw_event* model_net_method_congestion_event(tw_lpid dest_gid,
+    tw_stime offset_ts,
+    tw_lp *sender,
+    void **msg_data,
+    void **extra_data);
+
 /// The following functions/data structures should not need to be used by
 /// model developers - they are just provided so other internal components can
 /// use them
@@ -112,7 +129,12 @@ enum model_net_base_event_type {
     // gather a sample from the underlying model
     MN_BASE_SAMPLE,
     // message goes directly down to topology-specific event handler
-    MN_BASE_PASS
+    MN_BASE_PASS,
+    /* message goes directly to topology-specific event handler for ending the simulation
+       usefull if there is an infinite heartbeat pattern */
+    MN_BASE_END_NOTIF,
+    // message calls congestion request method on topology specific handler
+    MN_CONGESTION_EVENT
 };
 
 typedef struct model_net_base_msg {
@@ -142,6 +164,7 @@ typedef struct model_net_wrap_msg {
         sp_message              m_sp2p;  // simplep2p
         nodes_message           m_torus; // torus
         em_message              m_em; // express-mesh
+        congestion_control_message m_cc;
         // add new ones here
     } msg;
 } model_net_wrap_msg;

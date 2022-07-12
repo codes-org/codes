@@ -12,18 +12,20 @@
 #include "codes/configuration.h"
 #include "codes/codes_mapping.h"
 #include "codes/model-net.h"
+#include "codes/model-net-lp.h"
 #include "codes/rc-stack.h"
 #include "codes/quicklist.h"
 #include "codes/quickhash.h"
 #include "codes/codes-jobmap.h"
+#include "codes/congestion-controller-core.h"
 
 /* turning on track lp will generate a lot of output messages */
 #define MN_LP_NM "modelnet_dragonfly_custom"
 #define CONTROL_MSG_SZ 64
 #define TRACE -1
-#define MAX_WAIT_REQS 1024
+#define MAX_WAIT_REQS 2048
 #define CS_LP_DBG 1
-#define RANK_HASH_TABLE_SZ 2000
+#define RANK_HASH_TABLE_SZ 8193
 #define NW_LP_NM "nw-lp"
 #define lprintf(_fmt, ...) \
         do {if (CS_LP_DBG) printf(_fmt, __VA_ARGS__);} while (0)
@@ -31,6 +33,9 @@
 #define COL_TAG 1235
 #define BAR_TAG 1234
 #define PRINT_SYNTH_TRAFFIC 1
+#define MAX_JOBS 40
+#define NEAR_ZERO .0001 //timestamp for use to be 'close to zero' but still allow progress, zero offset events are hard on the PDES engine
+#define OUTPUT_MARKS 0
 
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
@@ -58,8 +63,10 @@ char workload_file[8192];
 char offset_file[8192];
 static int wrkld_id;
 static int num_net_traces = 0;
-static int priority_type = 0;
+static int prioritize_collectives = 0;
 static int num_dumpi_traces = 0;
+static int num_nonsyn_jobs = 0;
+static int num_total_jobs = 0;
 static int64_t EAGER_THRESHOLD = 8192;
 
 // static int upper_threshold = 1048576;
@@ -79,15 +86,31 @@ static int do_lp_io = 0;
 
 /* variables for loading multiple applications */
 char workloads_conf_file[8192];
+char workloads_timer_file[8192];
+char workloads_period_file[8192];
 char alloc_file[8192];
-int num_traces_of_job[5];
+int num_traces_of_job[MAX_JOBS];
+int is_job_synthetic[MAX_JOBS]; //0 if job is not synthetic 1 if job is
+int qos_level_of_job[MAX_JOBS];
+float mean_interval_of_job[MAX_JOBS];
+long job_timer1[MAX_JOBS];
+long job_timer2[MAX_JOBS];
+int period_count[MAX_JOBS];
+long period_time[MAX_JOBS][64];
+float period_interval[MAX_JOBS][64];
+char file_name_of_job[MAX_JOBS][8192];
+
+tw_stime max_elapsed_time_per_job[MAX_JOBS] = {0};
+
+/* On-node delay variables */
 tw_stime soft_delay_mpi = 2500;
 tw_stime nic_delay = 1000;
 tw_stime copy_per_byte_eager = 0.55;
-char file_name_of_job[5][8192];
 
 struct codes_jobmap_ctx *jobmap_ctx;
 struct codes_jobmap_params_list jobmap_p;
+struct codes_jobmap_params_identity jobmap_ident_p; // for if an alloc file isn't supplied.
+
 
 /* Variables for Cortex Support */
 /* Matthieu's additions start */
@@ -160,7 +183,9 @@ enum MPI_NW_EVENTS
     CLI_BCKGND_FIN,
     CLI_BCKGND_ARRIVE,
     CLI_BCKGND_GEN,
+    CLI_BCKGND_CHANGE,
     CLI_NBR_FINISH,
+    CLI_OTHER_FINISH //received when another workload has finished
 };
 
 /* type of synthetic traffic */
@@ -170,7 +195,8 @@ enum TRAFFIC
     NEAREST_NEIGHBOR = 2, /* sends message to the next node (potentially connected to the same router) */
     ALLTOALL = 3, /* sends message to all other nodes */
     STENCIL = 4, /* sends message to 4 nearby neighbors */
-    PERMUTATION = 5
+    PERMUTATION = 5,
+    BISECTION = 6
 };
 struct mpi_workload_sample
 {
@@ -255,10 +281,14 @@ struct nw_state
 	short wrkld_end;
     int app_id;
     int local_rank;
+    int qos_level;
 
     int synthetic_pattern;
     int is_finished;
-    int neighbor_completed;
+    int num_own_job_ranks_completed; //counted by the root rank 0 of a job
+
+     //array of whether this rank knows other jobs are completed.
+    int * known_completed_jobs;
 
     struct rc_stack * processed_ops;
     struct rc_stack * processed_wait_op;
@@ -343,6 +373,7 @@ struct nw_message
    // forward message handler
    int msg_type;
    int op_type;
+   int num_rngs;
    model_net_event_return event_rc;
    struct codes_workload_op * mpi_op;
 
@@ -375,6 +406,7 @@ struct nw_message
        double saved_wait_time_sample;
        double saved_delay;
        double saved_delay_sample;
+       double saved_marker_time;
        int64_t saved_num_bytes;
        int saved_syn_length;
        unsigned long saved_prev_switch;
@@ -506,7 +538,10 @@ static void notify_background_traffic_rc(
     int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx); 
     
     for(int i = 0; i < num_jobs - 1; i++)
-        tw_rand_reverse_unif(lp->rng); 
+    {
+        if(is_job_synthetic[i] == 0)
+            continue;
+    }
 }
 
 static void notify_background_traffic(
@@ -525,8 +560,9 @@ static void notify_background_traffic(
         
         for(int other_id = 0; other_id < num_jobs; other_id++)
         {
-            if(other_id == jid.job)
+            if(is_job_synthetic[other_id] == 0) //we only want to notify the synthetic (background) ranks
                 continue;
+            assert(other_id != jid.job);
 
             struct codes_jobmap_id other_jid;
             other_jid.job = other_id;
@@ -534,7 +570,7 @@ static void notify_background_traffic(
             int num_other_ranks = codes_jobmap_get_num_ranks(other_id, jobmap_ctx);
 
             lprintf("\n Other ranks %d ", num_other_ranks);
-            tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_exponential(lp->rng, noise);
+            tw_stime ts = NEAR_ZERO;
             tw_lpid global_dest_id;
      
             for(int k = 0; k < num_other_ranks; k++)    
@@ -553,63 +589,201 @@ static void notify_background_traffic(
         }
         return;
 }
-static void notify_neighbor_rc(
-	    struct nw_state * ns,
+
+static void notify_root_workload_rc(
+        struct nw_state * ns,
         tw_lp * lp,
         tw_bf * bf,
         struct nw_message * m)
 {
-       if(bf->c0)
-       {
-            notify_background_traffic_rc(ns, lp, bf, m);
-            return;
-       }
-   
-       if(bf->c1)
-       {
-          tw_rand_reverse_unif(lp->rng); 
-       }
-} 
-static void notify_neighbor(
-	    struct nw_state * ns,
+    (void)ns;
+    (void)bf;
+    (void)m;
+}
+
+//notifies the lowest nonsynthetic job that this one has completed
+//this is important for synthetic ranks that continue generating until all non-synthetic have completed
+static void notify_root_workload(
+        struct nw_state * ns,
         tw_lp * lp,
         tw_bf * bf,
         struct nw_message * m)
 {
-    if(ns->local_rank == num_dumpi_traces - 1 
-            && ns->is_finished == 1
-            && ns->neighbor_completed == 1)
+    (void)bf;
+    (void)m;
+
+    struct codes_jobmap_id jid;
+    jid = codes_jobmap_to_local_id(ns->nw_id, jobmap_ctx);
+
+    int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
+
+    int lowest_non_synth_job_id;
+    for (int other_id = 0; other_id < num_jobs; other_id++)
     {
-//        printf("\n All workloads completed, notifying background traffic ");
-        bf->c0 = 1;
-        notify_background_traffic(ns, lp, bf, m);
-        return;
+        if (!is_job_synthetic[other_id]) {
+            lowest_non_synth_job_id = other_id;
+            break;
+        }
+    }
+    struct codes_jobmap_id other_jid;
+    other_jid.job = 0;
+    other_jid.rank = 0; //root rank
+
+    int intm_dest_id = codes_jobmap_to_global_id(other_jid, jobmap_ctx);
+    tw_lpid global_dest_id = codes_mapping_get_lpid_from_relative(intm_dest_id, NULL, NW_LP_NM, NULL, 0);
+
+    tw_event *e;
+    struct nw_message *m_new;
+    tw_stime ts = NEAR_ZERO;
+    e = tw_event_new(global_dest_id, ts, lp);
+    m_new = (struct nw_message*)tw_event_data(e);
+    m_new->msg_type = CLI_OTHER_FINISH;
+    m_new->fwd.app_id = ns->app_id; //just borrowing the fwd struct even though this isn't an injected message
+    tw_event_send(e);
+}
+
+void handle_other_finish_rc(
+    struct nw_state * ns,
+    tw_lp * lp,
+    tw_bf * bf,
+    struct nw_message *m)
+{
+    ns->known_completed_jobs[m->fwd.app_id] = 0;
+    if(bf->c2)
+        notify_background_traffic_rc(ns, lp, bf, m);
+
+}
+
+//for nonsynthetic jobs to determine if they have all completed
+//the highest ordered non synthetic job then notifies all synthetic ranks to stop generating traffic
+void handle_other_finish(
+    struct nw_state * ns,
+    tw_lp * lp,
+    tw_bf * bf,
+    struct nw_message *m)
+{
+    // printf("APP %d RANK %d RECEIVED COMPLETION NOTICE\n",ns->app_id, ns->local_rank);
+    assert(ns->app_id == 0); //make sure that only the root workload is getting this notification
+    assert(ns->local_rank == 0); //make sure that only the root rank is getting this notification
+
+    printf("App %d: Received finished workload notification",ns->app_id);
+    // if(is_job_synthetic[ns->app_id])
+        // return; //nothing for synthetic (background) ranks to do here
+    // printf(" And I am not synthetic\n");
+    int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
+
+    ns->known_completed_jobs[m->fwd.app_id] = 1;
+    int total_completed_jobs = 0;
+    int total_non_syn_completed_jobs = 0;
+
+    //Find number of completed non synthetic jobs
+    for(int i = 0; i < num_jobs; i++)
+    {
+        // if (is_job_synthetic[i] == 0) {
+            total_non_syn_completed_jobs += ns->known_completed_jobs[i];
+        // }
     }
     
-    struct codes_jobmap_id nbr_jid;
-    nbr_jid.job = ns->app_id;
-    tw_lpid global_dest_id;
-
-    if(ns->is_finished == 1 && (ns->neighbor_completed == 1 || ns->local_rank == 0))
+    if (total_non_syn_completed_jobs == num_nonsyn_jobs) //then all nonsynthetic jobs have completed, the background synthetic workloads must be notified
     {
-        bf->c1 = 1;
+        printf("App %d: All non-synthetic workloads have completed\n", ns->app_id);
+        //Determine which job should be the one to notify all the background ranks
+        //Let's say: highest numbered non-synthetic job (found above)
+        // also make sure that there actually are synthetic jobs
+        if (total_non_syn_completed_jobs < num_jobs)
+        {
+            if(max_gen_data <= 0) {
+                printf("App %d: Notifying background traffic\n", ns->app_id);
+                bf->c2 = 1;
+                //If I am the last rank in the highest ordered non-synthetic job, then it is my job to notify
+                notify_background_traffic(ns, lp, bf, m);
+            }
+            else {
+                printf("App %d: Not notifying background traffic as max_gen_data > 0. Will let synthetic workloads finish",ns->app_id);
+            }
+        }
 
-//        printf("\n Local rank %d notifying neighbor %d ", ns->local_rank, ns->local_rank+1);
-        tw_stime ts = (1.1 * g_tw_lookahead) + tw_rand_exponential(lp->rng, noise);
-        nbr_jid.rank = ns->local_rank + 1;
-        
-        /* Send a notification to the neighbor about completion */
-        int intm_dest_id = codes_jobmap_to_global_id(nbr_jid, jobmap_ctx); 
-        global_dest_id = codes_mapping_get_lpid_from_relative(intm_dest_id, NULL, NW_LP_NM, NULL, 0);
-       
-        tw_event * e;
-        struct nw_message * m_new;  
-        e = tw_event_new(global_dest_id, ts, lp);
-        m_new = (struct nw_message*)tw_event_data(e); 
-        m_new->msg_type = CLI_NBR_FINISH;
-        tw_event_send(e);   
+        //TODO because we're treating synthetic workloads differently based on whether or not there's max_gen_data set, creating this notification here at this exact spot in logic
+        //will result in LPs receiving a "wrap up" notification potentially before synthetic workloads are done. To fix this, then we need to start treating synthetic workloads
+        //with a max_gen_data set differently, so that they communicate with other workloads when they're done in the same way we do with regular workloads
+        //this notification would then be sent by a single workload LP that knows for a fact that all other workloads have completed.
+        //also this, to be more accurate, should only be sent when all of the workload LPs have received all messages that have been sent so that we know that no packets
+        //are currently in transit. This currently isn't measured for model_net_mpi_replay.
+
+        //send to all non nw-lp LPs (all model net, is there a function taht does this?)
+        model_net_method_end_sim_broadcast(NEAR_ZERO, lp);
+    }
+    else
+    {
+        printf("There is still a nonsynethic workload left. %d != %d\n",total_non_syn_completed_jobs, num_nonsyn_jobs);
     }
 }
+
+static void handle_neighbor_finish_rc(
+        struct nw_state * ns,
+        tw_lp * lp,
+        tw_bf * bf,
+        struct nw_message *m)
+{
+    ns->num_own_job_ranks_completed--;
+
+    if (bf->c1) {
+        notify_root_workload_rc(ns, lp, bf, m);
+    }
+}
+
+//Called by the root rank of the application when it receives a rank completion notification from one of its own job's ranks
+static void handle_neighbor_finish(
+        struct nw_state * ns,
+        tw_lp * lp,
+        tw_bf * bf,
+        struct nw_message *m)
+{
+    ns->num_own_job_ranks_completed++;
+
+    //have all of the ranks from our job completed?
+    if (ns->num_own_job_ranks_completed == codes_jobmap_get_num_ranks(ns->app_id, jobmap_ctx)) {
+        bf->c1 = 1;
+        notify_root_workload(ns, lp, bf, m);
+    }
+}
+
+static void notify_root_rank_rc(
+        struct nw_state * ns,
+        tw_lp * lp,
+        tw_bf * bf,
+        struct nw_message *m)
+{
+
+}
+
+static void notify_root_rank(
+        struct nw_state * ns,
+        tw_lp * lp,
+        tw_bf * bf,
+        struct nw_message *m)
+{
+    assert(ns->is_finished);
+
+    tw_stime ts = NEAR_ZERO;
+    
+    struct codes_jobmap_id root_jid;
+    root_jid.job = ns->app_id;
+    root_jid.rank = 0;
+    tw_lpid global_dest_id;
+
+    /* Send a notification to the root neighbor about completion */
+    int intm_dest_id = codes_jobmap_to_global_id(root_jid, jobmap_ctx); 
+    global_dest_id = codes_mapping_get_lpid_from_relative(intm_dest_id, NULL, NW_LP_NM, NULL, 0);
+    
+    tw_event * e;
+    struct nw_message * m_new;
+    e = tw_event_new(global_dest_id, ts, lp);
+    m_new = (struct nw_message*)tw_event_data(e);
+    m_new->msg_type = CLI_NBR_FINISH;
+    tw_event_send(e);
+}
+
 void finish_bckgnd_traffic_rc(
     struct nw_state * ns,
     tw_bf * b,
@@ -632,32 +806,13 @@ void finish_bckgnd_traffic(
         (void)b;
         (void)msg;
         ns->is_finished = 1;
-        lprintf("\n LP %llu completed sending data %llu completed at time %lf ", LLU(lp->gid), ns->gen_data, tw_now(lp));
+        ns->elapsed_time = tw_now(lp) - ns->start_time;
+
+        printf("\n LP %llu App %d completed sending data %llu completed at time %lf ", LLU(lp->gid),ns->app_id, ns->gen_data, tw_now(lp));
         
         return;
 }
 
-void finish_nbr_wkld_rc(
-    struct nw_state * ns,
-    tw_bf * b,
-    struct nw_message * msg,
-    tw_lp * lp)
-{
-    ns->neighbor_completed = 0;
-    
-    notify_neighbor_rc(ns, lp, b, msg);
-}
-
-void finish_nbr_wkld(
-    struct nw_state * ns,
-    tw_bf * b,
-    struct nw_message * msg,
-    tw_lp * lp)
-{
-    ns->neighbor_completed = 1;
-
-    notify_neighbor(ns, lp, b, msg);
-}
 static void gen_synthetic_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
     if(bf->c0)
@@ -681,13 +836,12 @@ static void gen_synthetic_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp 
         s->num_bytes_sent -= payload_sz;
         s->ross_sample.num_bytes_sent -= payload_sz;
     }
-        tw_rand_reverse_unif(lp->rng);
+        // tw_rand_reverse_unif(lp->rng);
         s->num_sends--;
         s->ross_sample.num_sends--;
 
      if(bf->c5)
-         s->is_finished = 0;
-        
+        finish_bckgnd_traffic_rc(s, bf, m, lp);
     if(bf->c7)
         tw_rand_reverse_unif(lp->rng);
 }
@@ -730,6 +884,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
         case PERMUTATION:
         {
             m->rc.saved_prev_switch = s->prev_switch; //for reverse computation
+            m->rc.saved_perm = s->saved_perm_dest;
 
             length = 1;
             dest_svr = (int*) calloc(1, sizeof(int));
@@ -752,8 +907,6 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
                 dest_svr[0] = tw_rand_integer(lp->rng, 0, num_clients - 1);
                 if(dest_svr[0] == s->local_rank)
                     dest_svr[0] = (s->local_rank + num_clients/2) % num_clients;
-                /* TODO: Fix random number generation code */
-                m->rc.saved_perm = s->saved_perm_dest;
                 s->saved_perm_dest = dest_svr[0];
                 assert(s->saved_perm_dest != s->local_rank);
             }
@@ -768,6 +921,13 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
             length = 1;
             dest_svr = (int*) calloc(1, sizeof(int));
             dest_svr[0] = (s->local_rank + 1) % num_clients;
+        }
+        break;
+        case BISECTION:
+        {
+            length = 1;
+            dest_svr = (int*) calloc(1, sizeof(int));
+            dest_svr[0] = (s->local_rank + (num_clients/2)) % num_clients;
         }
         break;
         case ALLTOALL:
@@ -813,6 +973,31 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
     /* Record length for reverse handler*/
     m->rc.saved_syn_length = length;
 
+    char prio[12];
+	switch(s->qos_level){
+		case 0:
+			strcpy(prio, "high"); break;
+		case 1:
+			strcpy(prio, "medium"); break;
+		case 2:
+			strcpy(prio, "low"); break;
+		case 3:
+			strcpy(prio, "class3"); break;
+		case 4:
+			strcpy(prio, "class4"); break;
+		case 5:
+			strcpy(prio, "class5"); break;
+		default:
+			tw_error(TW_LOC, "\n Invalid QoS level: %d", s->qos_level);
+			break;
+	}
+	
+	// TODO: Check if I can combine these two if statements. -Kevin
+	if(tw_now(lp) < job_timer2[s->app_id] && job_timer1[s->app_id] > 0){
+		if(tw_now(lp) > job_timer1[s->app_id]){
+			length = 0;
+		}
+	}
     if(length > 0)
     {
         // m->event_array_rc = (model_net_event_return) malloc(length * sizeof(model_net_event_return));
@@ -832,7 +1017,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
             remote_m.fwd.src_rank = s->local_rank;
 
             // printf("\nAPP %d SRC %d Dest %d (twid %llu)", jid.job, s->local_rank, dest_svr[i], global_dest_id);
-            m->event_rc = model_net_event(net_id, "medium", global_dest_id, payload_sz, 0.0, 
+            m->event_rc = model_net_event(net_id, prio, global_dest_id, payload_sz, 0.0,
                     sizeof(nw_message), (const void*)&remote_m, 
                     0, NULL, lp);
             
@@ -846,7 +1031,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
     s->ross_sample.num_sends++;
 
     /* New event after MEAN_INTERVAL */  
-    tw_stime ts = mean_interval  + tw_rand_exponential(lp->rng, noise); 
+    tw_stime ts = mean_interval_of_job[s->app_id];
     tw_event * e;
     nw_message * m_new;
     e = tw_event_new(lp->gid, ts, lp);
@@ -857,7 +1042,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
     if (max_gen_data != 0) { //max_gen_data is by default 0 (off). If it's on, then we use it to determine when to finish synth ranks
         if(s->gen_data >= max_gen_data) {
             bf->c5 = 1;
-            s->is_finished = 1;
+            finish_bckgnd_traffic(s, bf, m, lp);
         }
     }
 
@@ -889,6 +1074,24 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
     (void)bf;
     (void)lp;
+    m->rc.saved_send_time = s->send_time;
+    m->rc.saved_send_time_sample = s->ross_sample.send_time;
+    if((tw_now(lp) - m->fwd.sim_start_time) > s->max_time)
+    {
+        m->rc.saved_prev_max_time = s->max_time;
+        s->max_time = tw_now(lp) - m->fwd.sim_start_time;
+        s->ross_sample.max_time = tw_now(lp) - m->fwd.sim_start_time;
+    }
+
+    s->send_time += (tw_now(lp) - m->fwd.sim_start_time);
+    s->ross_sample.send_time += (tw_now(lp) - m->fwd.sim_start_time);
+    s->num_recvs++;
+    s->ross_sample.num_recvs++;
+    int data = m->fwd.num_bytes;
+    s->syn_data += data;
+    s->num_bytes_recvd += data;
+    s->ross_sample.num_bytes_recvd += data;
+    num_syn_bytes_recvd += data;
 
     if(PRINT_SYNTH_TRAFFIC) {
         if(s->local_rank == 0)
@@ -908,24 +1111,6 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
         }*/
         }
     }
-    m->rc.saved_send_time = s->send_time;
-    m->rc.saved_send_time_sample = s->ross_sample.send_time;
-    if((tw_now(lp) - m->fwd.sim_start_time) > s->max_time)
-    {
-        m->rc.saved_prev_max_time = s->max_time;
-        s->max_time = tw_now(lp) - m->fwd.sim_start_time;
-        s->ross_sample.max_time = tw_now(lp) - m->fwd.sim_start_time;
-    }
-
-    s->send_time += (tw_now(lp) - m->fwd.sim_start_time);
-    s->ross_sample.send_time += (tw_now(lp) - m->fwd.sim_start_time);
-    s->num_recvs++;
-    s->ross_sample.num_recvs++;
-    int data = m->fwd.num_bytes;
-    s->syn_data += data;
-    s->num_bytes_recvd += data;
-    s->ross_sample.num_bytes_recvd += data;
-    num_syn_bytes_recvd += data;
 }
 /* Debugging functions, may generate unused function warning */
 /*static void print_waiting_reqs(uint32_t * reqs, int count)
@@ -1070,8 +1255,7 @@ static int notify_posted_wait(nw_state* s,
                         fprintf(workload_log, "\n(%lf) APP ID %d MPI WAITALL COMPLETED AT %llu ", tw_now(lp), s->app_id, LLU(s->nw_id));
                     wait_completed = 1;
                 }
-
-                m->fwd.wait_completed = 1;
+                m->fwd.wait_completed = 1; //This is just the individual request handle - not the entire wait.
             }
         }
     }
@@ -1428,7 +1612,7 @@ static int rm_matching_send(nw_state * ns,
 }
 static void codes_issue_next_event_rc(tw_lp * lp)
 {
-	    tw_rand_reverse_unif(lp->rng);
+	    // tw_rand_reverse_unif(lp->rng);
 }
 
 /* Trigger getting next event at LP */
@@ -1439,8 +1623,9 @@ static void codes_issue_next_event(tw_lp* lp)
 
    tw_stime ts;
 
-   ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
-   assert(ts > 0);
+   ts = NEAR_ZERO;
+//    ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
+//    assert(ts > 0);
    e = tw_event_new( lp->gid, ts, lp );
    msg = (nw_message*)tw_event_data(e);
 
@@ -1462,14 +1647,17 @@ static void codes_exec_comp_delay(
     s->compute_time += (mpi_op->u.delay.nsecs/compute_time_speedup);
     s->ross_sample.compute_time += (mpi_op->u.delay.nsecs/compute_time_speedup);
     ts = (mpi_op->u.delay.nsecs/compute_time_speedup);
-    if(ts <= g_tw_lookahead)
-    {
-        bf->c28 = 1;
-        ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
-    }
+    if (ts < 0)
+        ts = 0;
+    // if(ts <= g_tw_lookahead)
+    // {
+    //     bf->c28 = 1;
+    //     // ts = g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
+    //     ts = g_tw_lookahead;
+    // }
 
 	//ts += g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
-    assert(ts > 0);
+    // assert(ts > 0);
 
 	e = tw_event_new( lp->gid, ts , lp );
 	msg = (nw_message*)tw_event_data(e);
@@ -1645,25 +1833,42 @@ static void codes_exec_mpi_send(nw_state* s,
     bf->c1 = 0;
     bf->c4 = 0;
    
+    /* Class names in the CODES dragonfly-dally (as at 2020/09/21 - KB):
+     * 	"high"		<- highest priority
+     * 	"medium"
+     * 	"low"
+     * 	"class3"
+     * 	"class4"
+     * 	"class5"
+     *
+     * The name of the first three classes are kept for backwards compatibility. TODO: Rename classes
+     */
     char prio[12];
-    if(priority_type == 0)
-    {
-        if(s->app_id == 0) 
-          strcpy(prio, "high");
-        else
-          strcpy(prio, "medium");
-    }
-    else if(priority_type == 1)
+	switch(s->qos_level){
+		case 0:
+			strcpy(prio, "high"); break;
+		case 1:
+			strcpy(prio, "medium"); break;
+		case 2:
+			strcpy(prio, "low"); break;
+		case 3:
+			strcpy(prio, "class3"); break;
+		case 4:
+			strcpy(prio, "class4"); break;
+		case 5:
+			strcpy(prio, "class5"); break;
+		default:
+			tw_error(TW_LOC, "\n Invalid QoS level: %d", s->qos_level);
+			break;
+	}
+
+    if(prioritize_collectives == 1)
     {
         if(mpi_op->u.send.tag == COL_TAG || mpi_op->u.send.tag == BAR_TAG)
         {
             strcpy(prio, "high");
         }
-        else
-            strcpy(prio, "medium");
     }
-    else
-        tw_error(TW_LOC, "\n Invalid priority type %d", priority_type);
 
     int is_eager = 0;
 	/* model-net event */
@@ -1731,6 +1936,7 @@ static void codes_exec_mpi_send(nw_state* s,
 
         remote_m = local_m;
         remote_m.msg_type = MPI_SEND_ARRIVED;
+        remote_m.fwd.app_id = s->app_id;
     	m->event_rc = model_net_event_mctx(net_id, &mapping_context, &mapping_context, 
             prio, dest_rank, mpi_op->u.send.num_bytes, (self_overhead + copy_overhead + soft_delay_mpi + nic_delay),
 	    sizeof(nw_message), (const void*)&remote_m, sizeof(nw_message), (const void*)&local_m, lp);
@@ -1765,7 +1971,8 @@ static void codes_exec_mpi_send(nw_state* s,
        local_m.fwd.rend_send = 1;
        remote_m = local_m; 
        remote_m.msg_type = MPI_REND_ARRIVED;
-    	
+
+
        m->event_rc = model_net_event_mctx(net_id, &mapping_context, &mapping_context, 
             prio, dest_rank, mpi_op->u.send.num_bytes, (self_overhead + soft_delay_mpi + nic_delay),
 	    sizeof(nw_message), (const void*)&remote_m, sizeof(nw_message), (const void*)&local_m, lp);
@@ -1840,10 +2047,11 @@ static void update_completed_queue(nw_state* s,
     bf->c31 = 0;
     m->fwd.num_matched = 0;
 
-    int waiting = 0;
-    waiting = notify_posted_wait(s, bf, m, lp, req_id);
+     //done waiting means that this was either the only wait in the op or the last wait in the collective op.
+    int done_waiting = 0;
+    done_waiting = notify_posted_wait(s, bf, m, lp, req_id);
 
-    if(!waiting)
+    if(!done_waiting)
     {
         bf->c30 = 1;
         completed_requests * req = (completed_requests*)malloc(sizeof(completed_requests));
@@ -1905,25 +2113,33 @@ static void send_ack_back(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp, m
     remote_m.fwd.req_id = mpi_op->req_id;  
     remote_m.fwd.matched_req = matched_req;
 
+    // TODO: If we want ack messages to be in the low-latency class, change this function. -Kevin Brown 2021.02.18
     char prio[12];
-    if(priority_type == 0)
-    {
-        if(s->app_id == 0) 
-          strcpy(prio, "high");
-        else if(s->app_id == 1)
-          strcpy(prio, "medium");
-    }
-    else if(priority_type == 1)
+	switch(s->qos_level){
+		case 0:
+			strcpy(prio, "high"); break;
+		case 1:
+			strcpy(prio, "medium"); break;
+		case 2:
+			strcpy(prio, "low"); break;
+		case 3:
+			strcpy(prio, "class3"); break;
+		case 4:
+			strcpy(prio, "class4"); break;
+		case 5:
+			strcpy(prio, "class5"); break;
+		default:
+			tw_error(TW_LOC, "\n Invalid QoS level: %d", s->qos_level);
+			break;
+	}
+
+    if(prioritize_collectives == 1)
     {
         if(mpi_op->tag == COL_TAG || mpi_op->tag == BAR_TAG)
         {
             strcpy(prio, "high");
         }
-        else
-            strcpy(prio, "medium");
     }
-    else
-       tw_error(TW_LOC, "\n Invalid app id");
     
     m->event_rc = model_net_event_mctx(net_id, &mapping_context, &mapping_context,
         prio, dest_rank, CONTROL_MSG_SZ, (self_overhead + soft_delay_mpi + nic_delay),
@@ -1939,8 +2155,8 @@ static void update_arrival_queue_rc(nw_state* s,
     s->ross_sample.num_bytes_recvd -= m->fwd.num_bytes;
     num_bytes_recvd -= m->fwd.num_bytes;
 
-    if(bf->c1)
-        codes_local_latency_reverse(lp);
+    // if(bf->c1)
+    //     codes_local_latency_reverse(lp);
 
     if(bf->c10)
         send_ack_back_rc(s, bf, m, lp);
@@ -2015,8 +2231,9 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
 
     if(m->fwd.num_bytes < EAGER_THRESHOLD)
     {
-        tw_stime ts = codes_local_latency(lp);
-        assert(ts > 0);
+        // tw_stime ts = codes_local_latency(lp);
+        tw_stime ts = 0;
+        // assert(ts > 0);
         bf->c1 = 1;
         tw_event *e_callback =
         tw_event_new(rank_to_lpid(global_src_id),
@@ -2097,6 +2314,9 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->all_reduce_time = 0;
    s->prev_switch = 0;
    s->max_time = 0;
+   s->qos_level = 0; //TODO:  We need a more elegant solution for determining if qos is enabled or not.
+                     //       This had been -1 but if qos is not configured (single job no workload conf file)
+                     //       then this will error out
 
    char type_name[512];
 
@@ -2129,6 +2349,11 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 	        return;
    }
 
+   s->num_own_job_ranks_completed = 0;
+
+   int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
+   s->known_completed_jobs = calloc(num_jobs, sizeof(int));
+
    if (strcmp(workload_type, "dumpi") == 0){
        dumpi_trace_params params_d;
        strcpy(params_d.file_name, file_name_of_job[lid.job]);
@@ -2139,6 +2364,11 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        params_d.num_net_traces = num_traces_of_job[lid.job];
        params = (char*)&params_d;
        strcpy(type_name, "dumpi-trace-workload");
+
+       if(strlen(workloads_conf_file) > 0)
+       {
+	        s->qos_level = qos_level_of_job[lid.job];
+       }
 //       printf("network LP nw id %d app id %d local rank %d generating events, lp gid is %ld \n", s->nw_id, 
 //               s->app_id, s->local_rank, lp->gid);
 #ifdef ENABLE_CORTEX_PYTHON
@@ -2157,8 +2387,29 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        }
        else if(strlen(workloads_conf_file) > 0)
        {
-            strcpy(oc_params.workload_name, file_name_of_job[lid.job]);
-       
+            short filename_supplied = 0;
+            int len = strlen(file_name_of_job[lid.job]);
+            if (len > 4) {
+                char *last_five = &file_name_of_job[lid.job][len-5];
+                if (strcmp(".json", last_five) == 0)
+                {
+                    filename_supplied = 1;
+                }
+            }
+            if (filename_supplied) { //then we were supplied a filepath
+                strcpy(oc_params.file_path, file_name_of_job[lid.job]);
+                oc_params.workload_name[0] = '\0';
+                if(lid.rank == 0)
+                    printf("Workload Filepath provided: %s\n", oc_params.file_path);
+            }
+            else { //then we were supplied just the name of the workload and will use on of the defaults
+                strcpy(oc_params.workload_name, file_name_of_job[lid.job]);
+                oc_params.file_path[0] = '\0';
+                if(lid.rank == 0)
+                    printf("Workload name provided: %s\n",oc_params.workload_name);
+            }
+
+	        s->qos_level = qos_level_of_job[lid.job];
        }
 
        //assert(strcmp(oc_params.workload_name, "lammps") == 0 || strcmp(oc_params.workload_name, "nekbone") == 0);
@@ -2212,7 +2463,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    if(strncmp(file_name_of_job[lid.job], "synthetic", 9) == 0)
    {
         sscanf(file_name_of_job[lid.job], "synthetic%d", &synthetic_pattern);
-        if(synthetic_pattern <=0 || synthetic_pattern > 5)
+        if(synthetic_pattern <=0 || synthetic_pattern > 6)
         {
             printf("\n Undefined synthetic pattern: setting to uniform random ");
             s->synthetic_pattern = 1;
@@ -2221,15 +2472,31 @@ void nw_test_init(nw_state* s, tw_lp* lp)
         {
             s->synthetic_pattern = synthetic_pattern;
         }
+	s->qos_level = qos_level_of_job[lid.job];
 
         tw_event * e;
         nw_message * m_new;
-        tw_stime ts = tw_rand_exponential(lp->rng, noise);
+        // tw_stime ts = tw_rand_exponential(lp->rng, noise);
+        tw_stime ts = 0;
         e = tw_event_new(lp->gid, ts, lp);
         m_new = (nw_message*)tw_event_data(e);
         m_new->msg_type = CLI_BCKGND_GEN;
         tw_event_send(e);
         is_synthetic = 1;
+
+	if(lid.rank == 0){
+		for(int k = 0; k < period_count[lid.job]; k++){
+			tw_event * e2;
+			nw_message * m_new2;
+			tw_stime ts2 = period_time[lid.job][k];
+			e2 = tw_event_new(lp->gid, ts2, lp);
+			m_new2 = (nw_message*)tw_event_data(e2);
+			m_new2->msg_type = CLI_BCKGND_CHANGE;
+			m_new2->fwd.msg_send_time = period_interval[lid.job][k];
+			m_new2->rc.saved_send_time = mean_interval_of_job[s->app_id];
+			tw_event_send(e2);
+		}
+	}
 
    }
    else 
@@ -2287,7 +2554,8 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
             
             tw_event *e_callback =
             tw_event_new(rank_to_lpid(global_src_id),
-                codes_local_latency(lp), lp);
+                0, lp);
+                // codes_local_latency(lp), lp);
             nw_message *m_callback = (nw_message*)tw_event_data(e_callback);
             m_callback->msg_type = MPI_SEND_ARRIVED_CB;
             m_callback->fwd.msg_send_time = tw_now(lp) - m->fwd.sim_start_time;
@@ -2364,18 +2632,26 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
             gen_synthetic_tr(s, bf, m, lp);
         break;
 
+        case CLI_BCKGND_CHANGE:
+		mean_interval_of_job[s->app_id] = m->fwd.msg_send_time;
+		printf("======== CHANGE [now: %lf] App:%d | Interval: %f\n", tw_now(lp), s->app_id, mean_interval_of_job[s->app_id]);
+	break;
+
         case CLI_BCKGND_ARRIVE:
             arrive_syn_tr(s, bf, m, lp);
             break;
         
         case CLI_NBR_FINISH:
-            finish_nbr_wkld(s, bf, m, lp);
+            handle_neighbor_finish(s, lp, bf, m);
             break;
         
         case CLI_BCKGND_FIN:
             finish_bckgnd_traffic(s, bf, m, lp);
             break;
 
+        case CLI_OTHER_FINISH:
+            handle_other_finish(s, lp, bf, m);
+            break;
 	}
 }
 
@@ -2393,7 +2669,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
         if(bf->c19)
             return;
 
-        notify_neighbor_rc(s, lp, bf, m);
+        notify_root_rank_rc(s, lp, bf, m);
 		return;
     }
 	switch(m->op_type)
@@ -2422,8 +2698,8 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
                 codes_issue_next_event_rc(lp);
             else
             {
-                if (bf->c28)
-                    tw_rand_reverse_unif(lp->rng);
+                // if (bf->c28)
+                //     tw_rand_reverse_unif(lp->rng);
                 s->compute_time = m->rc.saved_delay;
                 s->ross_sample.compute_time = m->rc.saved_delay_sample;
             }
@@ -2477,9 +2753,14 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
             codes_exec_mpi_wait_all_rc(s, bf, m, lp);
 		}
 		break;
+	case CODES_WK_MARK:
+		codes_issue_next_event_rc(lp);
+		break;
+
 		default:
 			printf("\n Invalid op type %d ", m->op_type);
 	}
+    free(m->mpi_op);
 }
 
 static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
@@ -2488,18 +2769,16 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 //        printf("\n App id %d local rank %d ", s->app_id, s->local_rank);
     //    struct codes_workload_op mpi_op;
     //    codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, &mpi_op);
-
 	    struct codes_workload_op * mpi_op = (struct codes_workload_op*)malloc(sizeof(struct codes_workload_op));
         codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, mpi_op);
         m->mpi_op = mpi_op; 
         m->op_type = mpi_op->op_type;
-
+	
         if(mpi_op->op_type == CODES_WK_END)
         {
             s->elapsed_time = tw_now(lp) - s->start_time;
             s->is_finished = 1;
 
-            
             if(!alloc_spec)
             {
                 bf->c9 = 1;
@@ -2508,17 +2787,11 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
             
             /* Notify ranks from other job that checkpoint traffic has
              * completed */
-             printf("\n Network node %d Rank %llu finished at %lf ", s->local_rank, LLU(s->nw_id), tw_now(lp));
+             printf("\n Network node %d Rank %llu App %d finished at %lf ", s->local_rank, LLU(s->nw_id), s->app_id, tw_now(lp));
             int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx); 
-             if(num_jobs <= 1 || is_synthetic == 0)
-             {
-                bf->c19 = 1;
-                return;
-             }
 
-            if(num_qos_levels == 1) //notify neighbor isn't really compatible with QoS, so notify_neighbor is only called if num_qos_levels == 1 (QoS off)
-                notify_neighbor(s, lp, bf, m);
-//             printf("Client rank %llu completed workload, local rank %d .\n", s->nw_id, s->local_rank);
+            notify_root_rank(s, lp, bf, m);
+            // printf("Client rank %llu completed workload, local rank %d .\n", s->nw_id, s->local_rank);
 
              return;
         }
@@ -2585,7 +2858,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
                 {
                     bf->c27 = 1;
                     m->rc.saved_delay = s->all_reduce_time;
-                    s->all_reduce_time += (tw_now(lp) - s->col_time);
+                    s->all_reduce_time += tw_now(lp) - s->col_time;
                     m->rc.saved_send_time = s->col_time;
                     s->col_time = 0;
                     s->num_all_reduce++;
@@ -2610,6 +2883,16 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 			    codes_issue_next_event(lp);
             }
 			break;
+
+		case CODES_WK_MARK:
+			{
+				printf("\n MARK_%d node %llu job %d rank %d time %lf ", mpi_op->u.send.tag, LLU(s->nw_id), s->app_id, s->local_rank, tw_now(lp));
+                m->rc.saved_marker_time = tw_now(lp);
+				codes_issue_next_event(lp);
+			}
+			break;
+
+
 			default:
 				printf("\n Invalid op type %d ", mpi_op->op_type);
 		}
@@ -2689,8 +2972,13 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
                 s->num_bytes_recvd, s->send_time, s->elapsed_time - s->compute_time, s->compute_time, avg_msg_time, s->max_time);
         lp_io_write(lp->gid, (char*)"mpi-replay-stats", written, s->output_buf);
 
-		if(s->elapsed_time - s->compute_time > max_comm_time)
-			max_comm_time = s->elapsed_time - s->compute_time;
+        tw_stime my_comm_time = s->elapsed_time - s->compute_time;
+
+		if(my_comm_time > max_comm_time)
+			max_comm_time = my_comm_time;
+
+        if(s->elapsed_time > max_elapsed_time_per_job[s->app_id])
+            max_elapsed_time_per_job[s->app_id] = s->elapsed_time;
 
 		if(s->elapsed_time > max_time )
 			max_time = s->elapsed_time;
@@ -2764,8 +3052,6 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
 
         case MPI_REND_ARRIVED:
         {
-            codes_local_latency_reverse(lp);
-
             if(bf->c10)
                 codes_issue_next_event_rc(lp);
 
@@ -2785,18 +3071,53 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
             gen_synthetic_tr_rc(s, bf, m, lp);
             break;
 
+        case CLI_BCKGND_CHANGE:
+	    mean_interval_of_job[s->app_id] = m->rc.saved_send_time;
+	    break;
+
         case CLI_BCKGND_ARRIVE:
             arrive_syn_tr_rc(s, bf, m, lp);
             break;
         
         case CLI_NBR_FINISH:
-            finish_nbr_wkld_rc(s, bf, m, lp);
+            handle_neighbor_finish_rc(s, lp, bf, m);
             break;
         
         case CLI_BCKGND_FIN:
             finish_bckgnd_traffic_rc(s, bf, m, lp);
             break;
+
+        case CLI_OTHER_FINISH:
+            handle_other_finish_rc(s, lp, bf, m);
+            break;
 	}
+}
+
+void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
+{
+    switch(m->msg_type)
+    {
+        case MPI_OP_GET_NEXT:
+            if (m->mpi_op->op_type == CODES_WK_MARK) {
+                if (OUTPUT_MARKS)
+                {
+                    int written1;
+                    char marker_filename[128];
+                    written1 = sprintf(marker_filename, "mpi-replay-marker-tag-times");
+                    marker_filename[written1] = '\0';
+
+                    char tag_line[32];
+                    int written;
+                    written = sprintf(tag_line, "%d %d %.5f\n",s->nw_id, m->mpi_op->u.send.tag, m->rc.saved_marker_time);
+                    lp_io_write(lp->gid, marker_filename, written, tag_line);
+                }
+            }
+
+
+
+            free(m->mpi_op);
+        break;
+    }
 }
 
 const tw_optdef app_opt [] =
@@ -2808,8 +3129,10 @@ const tw_optdef app_opt [] =
 	TWOPT_CHAR("alloc_file", alloc_file, "allocation file name"),
 	TWOPT_CHAR("workload_conf_file", workloads_conf_file, "workload config file name"),
     TWOPT_CHAR("link_failure_file", g_nm_link_failure_filepath, "filepath for override of link failure file from configuration for supporting models"),
+	TWOPT_CHAR("workload_timer_file", workloads_timer_file, "workload timer file name (for starting/pausing/stopping synthetic traffic)"),
+	TWOPT_CHAR("workload_period_file", workloads_period_file, "workload periods file name (for changing the per-job synthetic traffic load at specified periods/times)"),
 	TWOPT_UINT("num_net_traces", num_net_traces, "number of network traces"),
-	TWOPT_UINT("priority_type", priority_type, "Priority type (zero): high priority to foreground traffic and low to background/2nd job, (one): high priority to collective operations "),
+	TWOPT_UINT("priority_type", prioritize_collectives, "Priority type (zero): Normal, (one): high priority to collective operations "),
 	TWOPT_UINT("payload_sz", payload_sz, "size of payload for synthetic traffic "),
 	TWOPT_ULONGLONG("max_gen_data", max_gen_data, "maximum data to be generated for synthetic traffic (Default 0 (OFF))"),
 	TWOPT_UINT("eager_threshold", EAGER_THRESHOLD, "the transition point for eager/rendezvous protocols (Default 8192)"),
@@ -2840,7 +3163,7 @@ tw_lptype nw_lp = {
     (pre_run_f) NULL,
     (event_f) nw_test_event_handler,
     (revent_f) nw_test_event_handler_rc,
-    (commit_f) NULL,
+    (commit_f) nw_test_event_handler_commit,
     (final_f) nw_test_finalize,
     (map_f) codes_mapping,
     sizeof(nw_state)
@@ -2968,6 +3291,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 
   workload_type[0]='\0';
   tw_opt_add(app_opt);
+  tw_opt_add(cc_app_opt);
   tw_init(argc, argv);
 #ifdef USE_RDAMARIS
     if(g_st_ross_rank)
@@ -2981,6 +3305,8 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 		printf("Usage: mpirun -np n ./modelnet-mpi-replay --sync=1/3"
                 " --workload_type=dumpi/online"
 		" --workload_conf_file=prefix-workload-file-name"
+		" --workload_timer_file=timer-file"
+		" --workload_period_file=period-file"
                 " --alloc_file=alloc-file-name"
 #ifdef ENABLE_CORTEX_PYTHON
 		" --cortex-file=cortex-file-name"
@@ -2996,11 +3322,15 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 
 	jobmap_ctx = NULL; // make sure it's NULL if it's not used
 
-    sprintf(sampling_dir, "sampling-dir");
-    mkdir(sampling_dir, S_IRUSR | S_IWUSR | S_IXUSR);
 
-    sprintf(mpi_msg_dir, "synthetic%d", syn_type);
-    mkdir(mpi_msg_dir, S_IRUSR | S_IWUSR | S_IXUSR);
+
+    if(enable_msg_tracking) {
+        sprintf(sampling_dir, "sampling-dir");
+        mkdir(sampling_dir, S_IRUSR | S_IWUSR | S_IXUSR);
+
+        sprintf(mpi_msg_dir, "synthetic%d", syn_type);
+        mkdir(mpi_msg_dir, S_IRUSR | S_IWUSR | S_IXUSR);
+    }
     if(strlen(workloads_conf_file) > 0)
     {
         FILE *name_file = fopen(workloads_conf_file, "r");
@@ -3011,30 +3341,78 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
         char ref = '\n';
         while(!feof(name_file))
         {
-            ref = fscanf(name_file, "%d %s", &num_traces_of_job[i], file_name_of_job[i]);
+            //TODO: can we allow for a 2 item line but with defaults for the last two?
+            ref = fscanf(name_file, "%d %s %d %f", &num_traces_of_job[i], file_name_of_job[i], &qos_level_of_job[i], &mean_interval_of_job[i]);
             
             if(ref != EOF && strncmp(file_name_of_job[i], "synthetic", 9) == 0)
             {
               num_syn_clients = num_traces_of_job[i];
               num_net_traces += num_traces_of_job[i];
+              is_job_synthetic[i] = 1;
               is_synthetic = 1;
+              num_total_jobs += 1;
+	      // Make sure BISECTION job has even number of clients
+	      if (strcmp(file_name_of_job[i], "synthetic6") == 0 && num_traces_of_job[i] % 2 != 0)
+		tw_error(TW_LOC, "BISECTION requires and even number of nodes.");
+
             }
             else if(ref!=EOF)
             {
                 if(enable_debug)
-                    printf("\n%d traces of app %s \n", num_traces_of_job[i], file_name_of_job[i]);
+                    printf("\n%d traces of app %s (default qos class: %d)\n", num_traces_of_job[i], file_name_of_job[i], qos_level_of_job[i]);
 
                 num_net_traces += num_traces_of_job[i];
                 num_dumpi_traces += num_traces_of_job[i];
+                is_job_synthetic[i] = 0;
+                num_nonsyn_jobs += 1;
+                num_total_jobs += 1;
             }
                 i++;
         }
-        printf("\n num_net_traces %d ", num_net_traces);
+        printf("\n num_net_traces %d; num_dumpi_traces %d", num_net_traces, num_dumpi_traces);
         fclose(name_file);
         assert(strlen(alloc_file) != 0);
         alloc_spec = 1;
         jobmap_p.alloc_file = alloc_file;
         jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_LIST, &jobmap_p);
+	
+
+	if(strlen(workloads_timer_file) > 0){
+		FILE *timer_file = fopen(workloads_timer_file, "r");
+		if(!timer_file)
+		    tw_error(TW_LOC, "\n Could not open file %s ", workloads_timer_file);
+		
+		int i = 0;
+		char ref = '\n';
+		while(!feof(timer_file))
+		{
+		    ref = fscanf(timer_file, "%ld %ld", &job_timer1[i], &job_timer2[i]);
+			i++;
+		}
+		fclose(timer_file);
+	}
+
+	if(strlen(workloads_period_file) > 0){
+		FILE *period_file = fopen(workloads_period_file, "r");
+		if(!period_file)
+		    tw_error(TW_LOC, "\n Could not open file %s ", workloads_period_file);
+		
+		int i = 0;
+		char ref = '\n';
+		while(!feof(period_file))
+		{
+		    ref = fscanf(period_file, "%d", &period_count[i]);
+		    if(ref != EOF){
+			    printf("======== [ID: %d] Period count: %d\n", i, period_count[i]);
+			    for(int k = 0; k < period_count[i]; k++){
+				fscanf(period_file, "%ld:%f", &period_time[i][k], &period_interval[i][k]);
+				printf("======== [ID: %d] Period time and interval: %ld and %f\n", i, period_time[i][k], period_interval[i][k]);
+			    }
+		    }
+		    i++;
+		}
+		fclose(period_file);
+	}
     }
     else
     {
@@ -3052,6 +3430,14 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 			jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_LIST, &jobmap_p);
 		}
     }
+
+    if (jobmap_ctx == NULL) //then we need to set up an identity jobmap for the ranks that do exist
+    {
+        jobmap_ident_p.num_ranks = num_net_traces;
+        jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_IDENTITY, &jobmap_ident_p);
+    }
+
+
     MPI_Comm_rank(MPI_COMM_CODES, &rank);
     MPI_Comm_size(MPI_COMM_CODES, &nprocs);
 
@@ -3136,6 +3522,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
        model_net_enable_sampling(sampling_interval, sampling_end_time);
 
    codes_mapping_setup();
+   congestion_control_set_jobmap(jobmap_ctx, net_id); //must be placed after codes_mapping_setup - where g_congestion_control_enabled is set
 
    num_mpi_lps = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp", NULL, 0);
    
@@ -3196,6 +3583,14 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 			total_max_recv_time, total_avg_recv_time/num_net_traces,
 			total_max_wait_time, total_avg_wait_time/num_net_traces);
     
+    printf("\n----------\n");
+    printf("Per App Max Elapsed Times:\n");
+    for(int i = 0; i < num_total_jobs; i++)
+    {
+        printf("\tApp %d: %.4f\n",i,max_elapsed_time_per_job[i]);
+    }
+    printf("----------\n");
+
     if(synthetic_pattern == PERMUTATION)
         printf("\n Threshold for random permutation %ld ", perm_switch_thresh);
    }

@@ -27,7 +27,7 @@ extern "C" {
 
 #define MAX_NAME_LENGTH 256
 #define CATEGORY_NAME_MAX 16
-#define CATEGORY_MAX 12
+#define CATEGORY_MAX 15
 
 // simple deprecation attribute hacking
 #if !defined(DEPRECATED)
@@ -86,6 +86,7 @@ typedef struct mn_stats mn_stats;
     X(DRAGONFLY_PLUS_ROUTER, "modelnet_dragonfly_plus_router", "dragonfly_plus_router", &dragonfly_plus_router_method)\
     X(DRAGONFLY_DALLY, "modelnet_dragonfly_dally", "dragonfly_dally", &dragonfly_dally_method)\
     X(DRAGONFLY_DALLY_ROUTER, "modelnet_dragonfly_dally_router", "dragonfly_dally_router", &dragonfly_dally_router_method)\
+    X(CONGESTION_CONTROLLER, "congestion_controller", "congestion_controller", NULL)\
     X(MAX_NETS,  NULL,                 NULL,        NULL)
 
 #define X(a,b,c,d) a,

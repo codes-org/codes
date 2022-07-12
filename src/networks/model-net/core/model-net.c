@@ -383,6 +383,13 @@ static model_net_event_return model_net_event_impl_base(
     else
         r->msg_start_time = tw_now(sender);
 
+    if (congestion_control_is_jobmap_set()) { //perhaps make jobmap a global set regardless of congestion control
+        struct codes_jobmap_ctx *ctx;
+        ctx = congestion_control_get_jobmap();
+        struct codes_jobmap_id jid; 
+        jid = codes_jobmap_to_local_id(codes_mapping_get_lp_relative_id(sender->gid, 0, 0), ctx);
+        r->app_id = jid.job;
+    }
     // this is an outgoing message
     m->msg.m_base.is_from_remote = 0;
     m->msg.m_base.isQueueReq = 1;

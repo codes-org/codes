@@ -92,7 +92,9 @@ nobase_include_HEADERS = \
 	codes/model-net-sched.h \
 	codes/model-net-sched-impl.h \
 	codes/model-net-inspect.h \
-	codes/network-manager.h	\
+	codes/congestion-controller-core.h \
+	codes/congestion-controller-model.h \
+	codes/network-manager/dragonfly-network-manager.h	\
 	codes/net/common-net.h \
 	codes/net/dragonfly.h \
 	codes/net/dragonfly-custom.h \
@@ -151,7 +153,7 @@ src_libcodes_la_SOURCES =  \
 	src/util/jobmap-impl/jobmap-identity.c\
 	src/util/codes-mapping-context.c \
   	src/util/codes-comm.c \
-	src/util/network-manager.C \
+	src/util/congestion-controller.C \
     src/workload/codes-workload.c \
     src/workload/methods/codes-iolang-wrkld.c \
     src/workload/methods/codes-checkpoint-wrkld.c \
@@ -159,6 +161,7 @@ src_libcodes_la_SOURCES =  \
 	src/workload/methods/codes-iomock-wrkld.c \
 	codes/rc-stack.h \
 	src/util/rc-stack.c \
+	src/networks/model-net/network-managers/dragonfly-network-manager.C \
 	src/networks/model-net/core/model-net.c \
 	src/networks/model-net/common-net.c \
 	src/networks/model-net/simplenet-upd.c \
