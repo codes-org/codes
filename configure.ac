@@ -116,23 +116,49 @@ AM_CONDITIONAL(USE_DARSHAN, [test "x${use_darshan}" = xyes])
 
 # check for Argobots
 AC_ARG_WITH([online],[AS_HELP_STRING([--with-online@<:@=DIR@:>@],
-                        [Build with the online workloads and argobots support])],
-                      [use_online=yes],[use_online=no])
-if test "x${use_online}" != "xno" ; then
+                        [Build with the online workloads and argobots support])])
+if test "x${with_online}" != "x" ; then
     AM_CONDITIONAL(USE_ONLINE, true)
     AX_BOOST_BASE([1.66])
     AX_CXX_COMPILE_STDCXX(11, noext, mandatory)
     PKG_CHECK_MODULES_STATIC([ARGOBOTS], [argobots], [],
                       [AC_MSG_ERROR([Could not find working argobots installation via pkg-config])])
+    AC_DEFINE_UNQUOTED([ONLINE_CONFIGDIR], ["$with_online"], [if using json data files, 
+                    specify config directory])
+else
+    AM_CONDITIONAL(USE_ONLINE, false)
+fi
+
+#check for SWM
+AC_ARG_WITH([swm],[AS_HELP_STRING([--with-swm@<:@=DIR@:>@],
+                        [location of SWM installation])])
+if test "x${with_swm}" != "x" ; then
+    AM_CONDITIONAL(USE_SWM, true)
     PKG_CHECK_MODULES_STATIC([SWM], [swm], [],
                       [AC_MSG_ERROR([Could not find working swm installation via pkg-config])])
     PKG_CHECK_VAR([SWM_DATAROOTDIR], [swm], [datarootdir], [],
               [AC_MSG_ERROR[Could not find shared directory in SWM]])
     AC_DEFINE_UNQUOTED([SWM_DATAROOTDIR], ["$SWM_DATAROOTDIR"], [if using json
-                        data files])
+                    data files])
 else
-    AM_CONDITIONAL(USE_ONLINE, false)
+  AM_CONDITIONAL(USE_SWM, false)
 fi
+
+#check for Conceptual
+AC_ARG_WITH([conceptual],[AS_HELP_STRING([--with-conceptual@<:@=DIR@:>@],
+                        [location of Conceptual installation])])
+if test "x${with_conceptual}" != "x" ; then
+  AC_CHECK_FILES([${with_conceptual}/lib/libncptl.a],
+    AM_CONDITIONAL(USE_CONC, true),
+    AC_MSG_ERROR(Could not find Conceptual libraries libncptl.a))
+  CONCEPTUAL_CFLAGS="-I${with_conceptual}/include"
+  CONCEPTUAL_LIBS="-L${with_conceptual}/lib/ -lncptl"
+  AC_SUBST(CONCEPTUAL_LIBS)
+  AC_SUBST(CONCEPTUAL_CFLAGS)
+else
+  AM_CONDITIONAL(USE_CONC, false)
+fi
+
 
 # check for Recorder
 AM_CONDITIONAL(USE_RECORDER, true)

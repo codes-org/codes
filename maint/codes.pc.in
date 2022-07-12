@@ -19,6 +19,8 @@ argobots_cflags=@ARGOBOTS_CFLAGS@
 swm_libs=@SWM_LIBS@
 swm_cflags=@SWM_CFLAGS@
 swm_datarootdir=@SWM_DATAROOTDIR@
+conceptual_libs=@CONCEPTUAL_LIBS@
+conceptual_cflags=@CONCEPTUAL_CFLAGS@
 
 Name: codes-base
 Description: Base functionality for CODES storage simulation

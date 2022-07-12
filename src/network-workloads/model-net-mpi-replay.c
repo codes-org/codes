@@ -107,6 +107,7 @@ static float noise = 1.0;
 static int num_nw_lps = 0, num_mpi_lps = 0;
 
 static int num_syn_clients;
+static int finished_syn_clients;
 static int syn_type = 0;
 
 FILE * workload_log = NULL;
@@ -523,8 +524,11 @@ static void notify_background_traffic(
         
         int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx); 
         
-        for(int other_id = 0; other_id < num_jobs; other_id++)
+        //Assumption: synthetic job are at the bottom of workload configure file
+        for(int other_id = num_jobs - 1; other_id >= 0; other_id--)
         {
+            if(finished_syn_clients == num_syn_clients)
+                break;
             if(other_id == jid.job)
                 continue;
 
@@ -549,6 +553,7 @@ static void notify_background_traffic(
                 m_new = (struct nw_message*)tw_event_data(e);
                 m_new->msg_type = CLI_BCKGND_FIN;
                 tw_event_send(e);   
+                finished_syn_clients += 1;
             }
         }
         return;
@@ -576,15 +581,25 @@ static void notify_neighbor(
         tw_bf * bf,
         struct nw_message * m)
 {
-    if(ns->local_rank == num_dumpi_traces - 1 
+    int num_ranks = codes_jobmap_get_num_ranks(ns->app_id, jobmap_ctx);
+
+    //if all application workloads finishes, notify background traffic to stop
+    if(ns->local_rank == num_ranks - 1 
             && ns->is_finished == 1
             && ns->neighbor_completed == 1)
     {
-//        printf("\n All workloads completed, notifying background traffic ");
-        bf->c0 = 1;
-        notify_background_traffic(ns, lp, bf, m);
+        // printf("\n All ranks completed");
+        num_dumpi_traces -= num_ranks;
+
+        if(num_dumpi_traces == 0) {     
+            // printf("\n All workloads completed, notifying background traffic ");          
+            bf->c0 = 1;
+            notify_background_traffic(ns, lp, bf, m);
+        }
         return;
     }
+
+
     
     struct codes_jobmap_id nbr_jid;
     nbr_jid.job = ns->app_id;
@@ -2147,7 +2162,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 	strcpy(params_d.cortex_gen, cortex_gen);
 #endif
    }
-   else if(strcmp(workload_type, "online") == 0){
+   else if(strcmp(workload_type, "swm-online") == 0){
            
        online_comm_params oc_params;
        
@@ -2166,7 +2181,25 @@ void nw_test_init(nw_state* s, tw_lp* lp)
         * online, it is the number of ranks to be simulated. */
        oc_params.nprocs = num_traces_of_job[lid.job]; 
        params = (char*)&oc_params;
-       strcpy(type_name, "online_comm_workload");
+       strcpy(type_name, "swm_online_comm_workload");
+   }
+   else if(strcmp(workload_type, "conc-online") == 0){
+           
+       online_comm_params oc_params;
+       
+       if(strlen(workload_name) > 0)
+       {
+           strcpy(oc_params.workload_name, workload_name); 
+       }
+       else if(strlen(workloads_conf_file) > 0)
+       {
+            strcpy(oc_params.workload_name, file_name_of_job[lid.job]);      
+       }
+       /*TODO: nprocs is different for dumpi and online workload. for
+        * online, it is the number of ranks to be simulated. */
+       oc_params.nprocs = num_traces_of_job[lid.job]; 
+       params = (char*)&oc_params;
+       strcpy(type_name, "conc_online_comm_workload");
    }
 
    int rc = configuration_get_value_int(&config, "PARAMS", "num_qos_levels", NULL, &num_qos_levels);
@@ -2637,16 +2670,20 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
             return;
         if(strncmp(file_name_of_job[lid.job], "synthetic", 9) == 0)
             avg_msg_time = (s->send_time / s->num_recvs);
-        else if(strcmp(workload_type, "online") == 0) 
-        codes_workload_finalize("online_comm_workload", params, s->app_id, s->local_rank);
+        else if(strcmp(workload_type, "swm-online") == 0) 
+            codes_workload_finalize("swm_online_comm_workload", params, s->app_id, s->local_rank);
+        else if(strcmp(workload_type, "conc-online") == 0)
+            codes_workload_finalize("conc_online_comm_workload", params, s->app_id, s->local_rank);
     }
     else
     {
         if(s->nw_id >= (tw_lpid)num_net_traces)
             return;
         
-        if(strcmp(workload_type, "online") == 0) 
-            codes_workload_finalize("online_comm_workload", params, s->app_id, s->local_rank);
+        if(strcmp(workload_type, "swm-online") == 0) 
+            codes_workload_finalize("swm_online_comm_workload", params, s->app_id, s->local_rank);
+        if(strcmp(workload_type, "conc-online") == 0)
+            codes_workload_finalize("conc_online_comm_workload", params, s->app_id, s->local_rank);  
     }
 
         struct msg_size_info * tmp_msg = NULL; 
@@ -2974,7 +3011,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 #endif
   codes_comm_update();
 
-  if(strcmp(workload_type, "dumpi") != 0 && strcmp(workload_type, "online") != 0)
+  if(strcmp(workload_type, "dumpi") != 0 && strcmp(workload_type, "swm-online") != 0 && strcmp(workload_type, "conc-online") != 0)
     {
 	if(tw_ismaster())
 		printf("Usage: mpirun -np n ./modelnet-mpi-replay --sync=1/3"
@@ -2991,6 +3028,10 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
                 " for instructions on how to run the models with network traces ");
 	tw_end();
 	return -1;
+    }
+    /* Currently rendezvous protocol cannot work with Conceptual */
+    if(strcmp(workload_type, "conc-online") == 0) {
+        EAGER_THRESHOLD = INT64_MAX;
     }
 
 	jobmap_ctx = NULL; // make sure it's NULL if it's not used
@@ -3014,7 +3055,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
             
             if(ref != EOF && strncmp(file_name_of_job[i], "synthetic", 9) == 0)
             {
-              num_syn_clients = num_traces_of_job[i];
+              num_syn_clients += num_traces_of_job[i];
               num_net_traces += num_traces_of_job[i];
               is_synthetic = 1;
             }
