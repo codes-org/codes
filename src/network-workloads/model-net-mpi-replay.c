@@ -126,7 +126,7 @@ typedef struct nw_message nw_message;
 typedef unsigned int dumpi_req_id;
 
 static int net_id = 0;
-static float noise = 1.0;
+// static float noise = 1.0;
 static int num_nw_lps = 0, num_mpi_lps = 0;
 
 static int num_syn_clients;
@@ -1449,18 +1449,18 @@ static void codes_exec_mpi_wait_all(
   }
   else
   {
-      /* If not, add the wait operation in the pending 'waits' list. */
-	  struct pending_waits* wait_op = (struct pending_waits*)malloc(sizeof(struct pending_waits));
-	  wait_op->count = count;
-      wait_op->op_type = mpi_op->op_type;
-      assert(count < MAX_WAIT_REQS);
+    /* If not, add the wait operation in the pending 'waits' list. */
+    struct pending_waits* wait_op = (struct pending_waits*)malloc(sizeof(struct pending_waits));
+    wait_op->count = count;
+    wait_op->op_type = mpi_op->op_type;
+    assert(count < MAX_WAIT_REQS);
 
-      for(i = 0; i < count; i++)
-          wait_op->req_ids[i] =  mpi_op->u.waits.req_ids[i];
+    for(i = 0; i < count; i++)
+    wait_op->req_ids[i] =  mpi_op->u.waits.req_ids[i];
 
-	  wait_op->num_completed = num_matched;
-	  wait_op->start_time = tw_now(lp);
-      s->wait_op = wait_op;
+    wait_op->num_completed = num_matched;
+    wait_op->start_time = tw_now(lp);
+    s->wait_op = wait_op;
   }
   return;
 }
@@ -1681,8 +1681,9 @@ static void codes_exec_mpi_recv_rc(
 
     if(bf->c6)
         codes_issue_next_event_rc(lp);
-	if(m->fwd.found_match >= 0)
-	  {
+
+    if(m->fwd.found_match >= 0)
+	{
 		ns->recv_time = m->rc.saved_recv_time;
 		ns->ross_sample.recv_time = m->rc.saved_recv_time_sample;
         //int queue_count = qlist_count(&ns->arrival_queue);
@@ -1713,7 +1714,7 @@ static void codes_exec_mpi_recv_rc(
         {
             update_completed_queue_rc(ns, bf, m, lp);
         }
-      }
+    }
 	else if(m->fwd.found_match < 0)
 	    {
             struct qlist_head * ent = qlist_pop_back(&ns->pending_recvs_queue);
@@ -3375,44 +3376,44 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
         alloc_spec = 1;
         jobmap_p.alloc_file = alloc_file;
         jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_LIST, &jobmap_p);
-	
 
-	if(strlen(workloads_timer_file) > 0){
-		FILE *timer_file = fopen(workloads_timer_file, "r");
-		if(!timer_file)
-		    tw_error(TW_LOC, "\n Could not open file %s ", workloads_timer_file);
-		
-		int i = 0;
-		char ref = '\n';
-		while(!feof(timer_file))
-		{
-		    ref = fscanf(timer_file, "%ld %ld", &job_timer1[i], &job_timer2[i]);
-			i++;
-		}
-		fclose(timer_file);
-	}
 
-	if(strlen(workloads_period_file) > 0){
-		FILE *period_file = fopen(workloads_period_file, "r");
-		if(!period_file)
-		    tw_error(TW_LOC, "\n Could not open file %s ", workloads_period_file);
-		
-		int i = 0;
-		char ref = '\n';
-		while(!feof(period_file))
-		{
-		    ref = fscanf(period_file, "%d", &period_count[i]);
-		    if(ref != EOF){
-			    printf("======== [ID: %d] Period count: %d\n", i, period_count[i]);
-			    for(int k = 0; k < period_count[i]; k++){
-				fscanf(period_file, "%ld:%f", &period_time[i][k], &period_interval[i][k]);
-				printf("======== [ID: %d] Period time and interval: %ld and %f\n", i, period_time[i][k], period_interval[i][k]);
-			    }
-		    }
-		    i++;
-		}
-		fclose(period_file);
-	}
+        if(strlen(workloads_timer_file) > 0){
+            FILE *timer_file = fopen(workloads_timer_file, "r");
+            if(!timer_file)
+                tw_error(TW_LOC, "\n Could not open file %s ", workloads_timer_file);
+
+            int j = 0;
+            char ref2 = '\n';
+            while(!feof(timer_file))
+            {
+                ref2 = fscanf(timer_file, "%ld %ld", &job_timer1[j], &job_timer2[j]);
+                j++;
+            }
+            fclose(timer_file);
+        }
+
+        if(strlen(workloads_period_file) > 0){
+            FILE *period_file = fopen(workloads_period_file, "r");
+            if(!period_file)
+                tw_error(TW_LOC, "\n Could not open file %s ", workloads_period_file);
+
+            int j = 0;
+            char ref2 = '\n';
+            while(!feof(period_file))
+            {
+                ref2 = fscanf(period_file, "%d", &period_count[j]);
+                if(ref2 != EOF){
+                    printf("======== [ID: %d] Period count: %d\n", j, period_count[j]);
+                    for(int k = 0; k < period_count[j]; k++){
+                        fscanf(period_file, "%ld:%f", &period_time[j][k], &period_interval[j][k]);
+                        printf("======== [ID: %d] Period time and interval: %ld and %f\n", j, period_time[j][k], period_interval[j][k]);
+                    }
+                }
+                j++;
+            }
+            fclose(period_file);
+        }
     }
     else
     {
