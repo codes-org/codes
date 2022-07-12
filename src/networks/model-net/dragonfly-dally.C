@@ -1544,7 +1544,6 @@ static void int_storage_delete(void * ptr)
         free(ptr);
 }
 
-
 void dragonfly_print_params(const dragonfly_param *p, FILE * st)
 {
     if(!st)
@@ -3752,9 +3751,6 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
 
     router_id = s->router_lp[msg->rail_id];
 
-    //  if(s->router_id == 1)
-    //   printf("\n Local router id %d global router id %d ", s->router_id, router_id);
-    // we are sending an event to the router, so no method_event here
     void * remote_event;
     e = model_net_method_event_new(router_id, propagation_ts + gen_noise(lp, &msg->num_rngs), lp,
             DRAGONFLY_DALLY_ROUTER, (void**)&m, &remote_event);
@@ -3980,6 +3976,7 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
 /* packet arrives at the destination terminal */
 static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) 
 {
+
     // if(isRoutingMinimal(routing) && msg->my_N_hop > 4)
     // {
     //     printf("TERMINAL RECEIVED A NONMINIMAL LENGTH PACKET\n");
@@ -3996,6 +3993,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     {
         printf("Terminal received a packet with %d hops! (Notify on > than %d)\n",msg->my_N_hop, s->params->max_hops_notify);
     }
+
 
     if (g_congestion_control_enabled)
         cc_terminal_send_ack(s->local_congestion_controller, msg->src_terminal_id);
@@ -4342,6 +4340,12 @@ dragonfly_dally_terminal_final( terminal_state * s,
     
     rc_stack_destroy(s->st);
     //TODO FREE THESE CORRECTLY
+    for(int i = 0; i < s->params->num_rails; i++)
+    {
+        free(s->vc_occupancy[i]);
+        free(s->terminal_msgs[i]);
+        free(s->terminal_msgs_tail[i]);
+    }
     free(s->vc_occupancy);
     free(s->terminal_msgs);
     free(s->terminal_msgs_tail);

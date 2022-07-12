@@ -534,7 +534,7 @@ static void handle_remote_event(
         (void)b;
         (void)m;
         (void)lp;
-    
+
     if (tw_now(lp) >= warm_up_time) {
         b->c3 = 1;
         ns->msg_recvd_count++;
@@ -726,8 +726,6 @@ static void svr_report_stats()
     }
 }
 
-
-
 static void aggregate_svr_stats(int myrank)
 {
 
@@ -743,7 +741,6 @@ static void aggregate_svr_stats(int myrank)
         printf("AVG OFFERED LOAD = %.3f     |     AVG OBSERVED LOAD = %.3f\n",avg_offered_load, avg_observed_load);
     }
 }
-
 
 int main(
     int argc,
