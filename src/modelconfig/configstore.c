@@ -5,6 +5,7 @@
  */
 
 #include "codes_config.h"
+#include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #ifdef HAVE_MALLOC_H

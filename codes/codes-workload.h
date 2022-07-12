@@ -20,7 +20,7 @@ extern "C" {
 #include "configuration.h"
 
 #ifdef USE_ONLINE
-#include <abt.h>
+#include "abt.h"
 #endif
 #define MAX_NAME_LENGTH_WKLD 512
 

@@ -10,6 +10,7 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 #include "codes/congestion-controller-core.h"
+#include <mpi.h>
 
 #define G_TW_END_OPT_OVERRIDE 1
 
