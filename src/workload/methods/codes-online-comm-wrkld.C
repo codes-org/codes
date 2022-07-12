@@ -24,6 +24,11 @@
 #include "nekbone_swm_user_code.h"
 #include "nearest_neighbor_swm_user_code.h"
 #include "all_to_one_swm_user_code.h"
+#include "one_to_many_swm_user_code.h"
+#include "many_to_many_swm_user_code.h"
+#include "milc_swm_user_code.h"
+#include "allreduce.h"
+#include "periodic_aggressor.h"
 
 #define ALLREDUCE_SHORT_MSG_SIZE 2048
 
@@ -428,6 +433,15 @@ void SWM_Sendrecv(
         SWM_ROUTING_TYPE reqrt,
         SWM_ROUTING_TYPE rsprt)
 {
+
+#if 1
+// Alternate, simpler implementation. Matches MPICH design. OpenMPI does Irecv+Send which also works.
+    uint32_t handle;
+    SWM_Irecv(recvpeer, comm_id, recvtag, recvbuf, &handle);
+    // SWM_Isend(sendpeer, comm_id, sendtag, sendreqvc, sendrspvc, sendbuf, sendbytes, pktrspbytes, &handles[0], reqrt, rsprt);
+    SWM_Send(sendpeer, comm_id, sendtag, sendreqvc, sendrspvc, sendbuf, sendbytes, pktrspbytes, reqrt, rsprt);
+    SWM_Wait(handle);
+#else
     //    printf("\n Sending to %d receiving from %d ", sendpeer, recvpeer);
     struct codes_workload_op send_op;
 
@@ -473,6 +487,8 @@ void SWM_Sendrecv(
 
     ABT_thread_yield_to(global_prod_thread);
     num_sendrecv++;
+#endif
+
 }
 
 /* @param count: number of bytes in Allreduce
@@ -747,6 +763,28 @@ void SWM_Finalize()
     ABT_thread_yield_to(global_prod_thread);
 }
 
+void SWM_Mark_Iteration(SWM_TAG iter_tag)
+{
+    /* Add an event in the shared queue and then yield */
+    struct codes_workload_op wrkld_per_rank;
+
+    wrkld_per_rank.op_type = CODES_WK_MARK;
+    wrkld_per_rank.u.send.tag = iter_tag;
+
+    /* Retreive the shared context state */
+    ABT_thread prod;
+    void * arg;
+    int err = ABT_thread_self(&prod);
+    assert(err == ABT_SUCCESS);
+    err =  ABT_thread_get_arg(prod, &arg);
+    assert(err == ABT_SUCCESS);
+    struct shared_context * sctx = static_cast<shared_context*>(arg);
+    wrkld_per_rank.u.send.source_rank = sctx->my_rank;
+    sctx->fifo.push_back(&wrkld_per_rank);
+
+    ABT_thread_yield_to(global_prod_thread);
+}
+
 static int hash_rank_compare(void *key, struct qhash_head *link)
 {
     rank_mpi_compare *in = (rank_mpi_compare*)key;
@@ -761,12 +799,12 @@ static void workload_caller(void * arg)
 {
     shared_context* sctx = static_cast<shared_context*>(arg);
 
-    if(strcmp(sctx->workload_name, "lammps") == 0)
+    if(strcmp(sctx->workload_name, "lammps") == 0 || strcmp(sctx->workload_name, "lammps1") == 0)
     {
         LAMMPS_SWM * lammps_swm = static_cast<LAMMPS_SWM*>(sctx->swm_obj);
         lammps_swm->call();
     }
-    else if(strcmp(sctx->workload_name, "nekbone") == 0) 
+    else if(strcmp(sctx->workload_name, "nekbone") == 0 || strcmp(sctx->workload_name, "nekbone1") == 0)
     {
         NEKBONESWMUserCode * nekbone_swm = static_cast<NEKBONESWMUserCode*>(sctx->swm_obj);
         nekbone_swm->call();
@@ -781,28 +819,35 @@ static void workload_caller(void * arg)
        AllToOneSWMUserCode * incast_swm = static_cast<AllToOneSWMUserCode*>(sctx->swm_obj);
        incast_swm->call();
     }
+    else if(strcmp(sctx->workload_name, "spread") == 0)
+    {
+        OneToManySWMUserCode * spread_swm = static_cast< OneToManySWMUserCode*>(sctx->swm_obj);
+        spread_swm->call();
+    }
+    else if(strcmp(sctx->workload_name, "allreduce") == 0 || strcmp(sctx->workload_name, "allreduce32") == 0 || strcmp(sctx->workload_name, "allreduce256") == 0)
+    {
+        AllReduceSWMUserCode * allreduce_swm = static_cast< AllReduceSWMUserCode*>(sctx->swm_obj);
+        allreduce_swm->call();
+    }
+    else if(strcmp(sctx->workload_name, "many_to_many") == 0 || strcmp(sctx->workload_name, "many_to_many1") == 0)
+    {
+        ManyToManySWMUserCode * many_to_many_swm = static_cast< ManyToManySWMUserCode*>(sctx->swm_obj);
+        many_to_many_swm->call();
+    }
+    else if(strcmp(sctx->workload_name, "milc") == 0)
+    {
+        MilcSWMUserCode * milc_swm = static_cast< MilcSWMUserCode*>(sctx->swm_obj);
+        milc_swm->call();
+    }
+    else if(strcmp(sctx->workload_name, "periodic_aggressor") == 0)
+    {
+        PeriodicAggressor * periodic_aggressor_swm = static_cast<PeriodicAggressor*>(sctx->swm_obj);
+        periodic_aggressor_swm->call();
+    }
 }
-static int comm_online_workload_load(const char * params, int app_id, int rank)
+
+string get_default_path(online_comm_params * o_params)
 {
-    /* LOAD parameters from JSON file*/
-    online_comm_params * o_params = (online_comm_params*)params;
-    int nprocs = o_params->nprocs;
-
-    rank_mpi_context *my_ctx = new rank_mpi_context;
-    //my_ctx = (rank_mpi_context*)caloc(1, sizeof(rank_mpi_context));  
-    assert(my_ctx); 
-    my_ctx->sctx.my_rank = rank; 
-    my_ctx->sctx.num_ranks = nprocs;
-    my_ctx->sctx.wait_id = 0;
-    my_ctx->app_id = app_id;
-
-    void** generic_ptrs;
-    int array_len = 1;
-    generic_ptrs = (void**)calloc(array_len,  sizeof(void*));
-    generic_ptrs[0] = (void*)&rank;
-
-    strcpy(my_ctx->sctx.workload_name, o_params->workload_name);
-    boost::property_tree::ptree root;
     string path;
     path.append(SWM_DATAROOTDIR);
 
@@ -810,9 +855,17 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     {
         path.append("/lammps_workload.json");
     }
+    else if(strcmp(o_params->workload_name, "lammps1") == 0)
+    {
+        path.append("/lammps_workload1.json");
+    }
     else if(strcmp(o_params->workload_name, "nekbone") == 0)
     {
-        path.append("/workload.json"); 
+        path.append("/workload.json");
+    }
+    else if(strcmp(o_params->workload_name, "nekbone1") == 0)
+    {
+        path.append("/workload1.json");
     }
     else if(strcmp(o_params->workload_name, "nearest_neighbor") == 0)
     {
@@ -830,26 +883,96 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     {
         path.append("/incast2.json"); 
     }
+    else if(strcmp(o_params->workload_name, "spread") == 0)
+    {
+        path.append("/spread_workload.json");
+    }
+    else if(strcmp(o_params->workload_name, "allreduce") == 0)
+    {
+        path.append("/allreduce_workload.json");
+    }
+    else if(strcmp(o_params->workload_name, "allreduce32") == 0)
+    {
+        path.append("/allreduce32_workload.json");
+    }
+    else if(strcmp(o_params->workload_name, "allreduce256") == 0)
+    {
+        path.append("/allreduce256_workload.json");
+    }
+    else if(strcmp(o_params->workload_name, "many_to_many") == 0)
+    {
+        path.append("/many_to_many_workload.json");
+    }
+    else if(strcmp(o_params->workload_name, "many_to_many1") == 0)
+    {
+        path.append("/many_to_many_workload1.json");
+    }
+    else if(strcmp(o_params->workload_name, "milc") == 0)
+    {
+        path.append("/milc_skeleton.json");
+    }
+    else if(strcmp(o_params->workload_name, "periodic_aggressor") == 0)
+    {
+        path.append("/periodic_aggressor.json");
+    }
     else
         tw_error(TW_LOC, "\n Undefined workload type %s ", o_params->workload_name);
 
+    return path;
+}
+
+
+static int comm_online_workload_load(const char * params, int app_id, int rank)
+{
+    /* LOAD parameters from JSON file*/
+    online_comm_params * o_params = (online_comm_params*)params;
+    int nprocs = o_params->nprocs;
+
+    rank_mpi_context *my_ctx = new rank_mpi_context;
+    //my_ctx = (rank_mpi_context*)caloc(1, sizeof(rank_mpi_context));
+    assert(my_ctx);
+    my_ctx->sctx.my_rank = rank;
+    my_ctx->sctx.num_ranks = nprocs;
+    my_ctx->sctx.wait_id = 0;
+    my_ctx->app_id = app_id;
+
+    void** generic_ptrs;
+    int array_len = 1;
+    generic_ptrs = (void**)calloc(array_len,  sizeof(void*));
+    generic_ptrs[0] = (void*)&rank;
+
+    string path;
+
+    if (o_params->workload_name[0] != '\0') { //then we were supplied with just the workload name, use default configs
+        strcpy(my_ctx->sctx.workload_name, o_params->workload_name);
+        path = get_default_path(o_params);
+    }
+    else { //then we were supplied a filepath to the config in the workload conf file
+        path = std::string(o_params->file_path);
+    }
+
+    boost::property_tree::ptree root;
     try {
         std::ifstream jsonFile(path.c_str());
         boost::property_tree::json_parser::read_json(jsonFile, root);
         uint32_t process_cnt = root.get<uint32_t>("jobs.size", 1);
-        cpu_freq = root.get<double>("jobs.cfg.cpu_freq") / 1e9; 
+        cpu_freq = root.get<double>("jobs.cfg.cpu_freq") / 1e9;
+        if (o_params->workload_name[0] == '\0') {//if we instead had a configuration filename supplied, get worklaod name from jobs.cfg.app
+            strcpy(o_params->workload_name, root.get<string>("jobs.cfg.app").c_str());
+            strcpy(my_ctx->sctx.workload_name, o_params->workload_name);
+        }
     }
     catch(std::exception & e)
     {
         printf("%s \n", e.what());
         return -1;
     }
-    if(strcmp(o_params->workload_name, "lammps") == 0)
+    if(strcmp(o_params->workload_name, "lammps") == 0 || strcmp(o_params->workload_name, "lammps1") == 0)
     {
         LAMMPS_SWM * lammps_swm = new LAMMPS_SWM(root, generic_ptrs);
         my_ctx->sctx.swm_obj = (void*)lammps_swm;
     }
-    else if(strcmp(o_params->workload_name, "nekbone") == 0)
+    else if(strcmp(o_params->workload_name, "nekbone") == 0 || strcmp(o_params->workload_name, "nekbone1") == 0)
     {
         NEKBONESWMUserCode * nekbone_swm = new NEKBONESWMUserCode(root, generic_ptrs);
         my_ctx->sctx.swm_obj = (void*)nekbone_swm;
@@ -863,6 +986,31 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     {
         AllToOneSWMUserCode * incast_swm = new AllToOneSWMUserCode(root, generic_ptrs);
         my_ctx->sctx.swm_obj = (void*)incast_swm;
+    }
+    else if(strcmp(o_params->workload_name, "spread") == 0)
+    {
+        OneToManySWMUserCode * spread_swm = new OneToManySWMUserCode(root, generic_ptrs);
+        my_ctx->sctx.swm_obj = (void*)spread_swm;
+    }
+    else if(strcmp(o_params->workload_name, "allreduce") == 0 || strcmp(o_params->workload_name, "allreduce32") == 0 || strcmp(o_params->workload_name, "allreduce256") == 0)
+    {
+        AllReduceSWMUserCode * allreduce_swm = new AllReduceSWMUserCode(root, generic_ptrs);
+        my_ctx->sctx.swm_obj = (void*)allreduce_swm;
+    }
+    else if(strcmp(o_params->workload_name, "many_to_many") == 0 || strcmp(o_params->workload_name, "many_to_many1") == 0)
+    {
+        ManyToManySWMUserCode * many_to_many_swm = new ManyToManySWMUserCode(root, generic_ptrs);
+        my_ctx->sctx.swm_obj = (void*)many_to_many_swm;
+    }
+    else if(strcmp(o_params->workload_name, "milc") == 0)
+    {
+        MilcSWMUserCode * milc_swm = new MilcSWMUserCode(root, generic_ptrs);
+        my_ctx->sctx.swm_obj = (void*)milc_swm;
+    }
+    else if(strcmp(o_params->workload_name, "periodic_aggressor") == 0)
+    {
+        PeriodicAggressor * periodic_aggressor_swm = new PeriodicAggressor(root, generic_ptrs);
+        my_ctx->sctx.swm_obj = (void*)periodic_aggressor_swm;
     }
 
     if(global_prod_thread == NULL)

@@ -19,8 +19,8 @@
 #include "codes/codes.h"
 #include "codes/net/loggp.h"
 
-#define CATEGORY_NAME_MAX 16
-#define CATEGORY_MAX 12
+// #define CATEGORY_NAME_MAX 16
+// #define CATEGORY_MAX 12
 
 #define LP_CONFIG_NM (model_net_lp_config_names[LOGGP])
 #define LP_METHOD_NM (model_net_method_names[LOGGP])

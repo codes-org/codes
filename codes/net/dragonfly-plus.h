@@ -46,6 +46,7 @@ struct terminal_plus_message
   /* number of hops traversed by the packet */
   short my_N_hop;
   short my_l_hop, my_g_hop;
+  short my_hops_cur_group;
   short saved_channel;
   short saved_vc;
 
@@ -62,7 +63,7 @@ struct terminal_plus_message
 
   //DFP Specific Routing
   int intm_rtr_id; //Router ID of the intermediate router for nonminimal routes
-  int intm_group_id; //Group ID of the intermediate router for nonminimal routes
+  int intm_grp_id; //Group ID of the intermediate router for nonminimal routes
 
   short dfp_upward_channel_flag;
 
@@ -79,6 +80,7 @@ struct terminal_plus_message
 
   // For buffer message
    short vc_index;
+   short rail_id;
    int output_chan;
    model_net_event_return event_rc;
    int is_pull;
