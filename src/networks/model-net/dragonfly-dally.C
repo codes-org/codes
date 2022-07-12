@@ -218,12 +218,14 @@ struct dragonfly_param
     int global_k_picks; /* k number of connections to select from when doing local adaptive routing */
     int adaptive_threshold; 
     int rail_select; // method by which rails are selected
+    int num_parallel_switch_conns;
     // derived parameters
     int num_rails_per_plane;
     int num_routers_per_plane;
     int num_cn;
     int cn_radix;
     int intra_grp_radix;
+    int global_radix;
     int num_groups;
     int total_groups;
     int radix;
@@ -1544,7 +1546,6 @@ static void int_storage_delete(void * ptr)
         free(ptr);
 }
 
-
 void dragonfly_print_params(const dragonfly_param *p, FILE * st)
 {
     if(!st)
@@ -1832,16 +1833,24 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
             fprintf(stderr,"Number of global channels per router not specified, setting to 10\n");
         p->num_global_channels = 10;
     }
-    p->intra_grp_radix = p->num_routers -1; //TODO allow for parallel connections
+
+    rc = configuration_get_value_int(&config, "PARAMS", "num_parallel_switch_conns", anno, &p->num_parallel_switch_conns);
+    if(rc) {
+        p->num_parallel_switch_conns = 1;
+    }
+
+
+    p->intra_grp_radix = (p->num_routers -1) * p->num_parallel_switch_conns;
     p->cn_radix = (p->num_cn * p->num_rails) / p->num_planes; //number of CNs per router times number of rails taht each CN has, divided by how many planes those CNs are shared across
-    p->radix = p->intra_grp_radix + p->num_global_channels + p->cn_radix;
+    p->global_radix = p->num_global_channels * p->num_parallel_switch_conns;
+    p->radix = p->intra_grp_radix + p->global_radix + p->cn_radix;
     p->total_groups = p->num_groups * p->num_planes;
     p->total_routers = p->total_groups * p->num_routers;
     p->total_terminals = p->total_routers * p->num_cn / p->num_planes;
     p->num_routers_per_plane = p->total_routers / p->num_planes;
 
     //Setup DflyNetworkManager
-    netMan = DragonflyNetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->num_global_channels, p->cn_radix, p->num_rails, p->num_planes, max_hops_per_group, max_global_hops_nonminimal);
+    netMan = DragonflyNetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->global_radix, p->cn_radix, p->num_rails, p->num_planes, max_hops_per_group, max_global_hops_nonminimal);
 
     // read intra group connections, store from a router's perspective
     // all links to the same router form a vector
@@ -3752,9 +3761,6 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
 
     router_id = s->router_lp[msg->rail_id];
 
-    //  if(s->router_id == 1)
-    //   printf("\n Local router id %d global router id %d ", s->router_id, router_id);
-    // we are sending an event to the router, so no method_event here
     void * remote_event;
     e = model_net_method_event_new(router_id, propagation_ts + gen_noise(lp, &msg->num_rngs), lp,
             DRAGONFLY_DALLY_ROUTER, (void**)&m, &remote_event);
@@ -3980,6 +3986,7 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
 /* packet arrives at the destination terminal */
 static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) 
 {
+
     // if(isRoutingMinimal(routing) && msg->my_N_hop > 4)
     // {
     //     printf("TERMINAL RECEIVED A NONMINIMAL LENGTH PACKET\n");
@@ -3996,6 +4003,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     {
         printf("Terminal received a packet with %d hops! (Notify on > than %d)\n",msg->my_N_hop, s->params->max_hops_notify);
     }
+
 
     if (g_congestion_control_enabled)
         cc_terminal_send_ack(s->local_congestion_controller, msg->src_terminal_id);
@@ -4342,6 +4350,12 @@ dragonfly_dally_terminal_final( terminal_state * s,
     
     rc_stack_destroy(s->st);
     //TODO FREE THESE CORRECTLY
+    for(int i = 0; i < s->params->num_rails; i++)
+    {
+        free(s->vc_occupancy[i]);
+        free(s->terminal_msgs[i]);
+        free(s->terminal_msgs_tail[i]);
+    }
     free(s->vc_occupancy);
     free(s->terminal_msgs);
     free(s->terminal_msgs_tail);
