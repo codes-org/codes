@@ -29,6 +29,7 @@
 #include "milc_swm_user_code.h"
 #include "allreduce.h"
 #include "periodic_aggressor.h"
+#include "layered_allbroadcast.h"
 
 #define ALLREDUCE_SHORT_MSG_SIZE 2048
 
@@ -844,6 +845,11 @@ static void workload_caller(void * arg)
         PeriodicAggressor * periodic_aggressor_swm = static_cast<PeriodicAggressor*>(sctx->swm_obj);
         periodic_aggressor_swm->call();
     }
+    else if (strcmp(sctx->workload_name, "layered_allbcast") == 0)
+    {
+        LayeredAllBroadcast * layered_allbcast_swm = static_cast<LayeredAllBroadcast*>(sctx->swm_obj);
+        layered_allbcast_swm->call();
+    }
 }
 
 string get_default_path(online_comm_params * o_params)
@@ -914,6 +920,10 @@ string get_default_path(online_comm_params * o_params)
     else if(strcmp(o_params->workload_name, "periodic_aggressor") == 0)
     {
         path.append("/periodic_aggressor.json");
+    }
+    else if (strcmp(o_params->workload_name, "layered_allbcast") == 0)
+    {
+        path.append("/layered_allbcast.json");
     }
     else
         tw_error(TW_LOC, "\n Undefined workload type %s ", o_params->workload_name);
@@ -1011,6 +1021,11 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
     {
         PeriodicAggressor * periodic_aggressor_swm = new PeriodicAggressor(root, generic_ptrs);
         my_ctx->sctx.swm_obj = (void*)periodic_aggressor_swm;
+    }
+    else if (strcmp(o_params->workload_name, "layered_allbcast") == 0)
+    {
+        LayeredAllBroadcast * layered_allbcast_swm = new LayeredAllBroadcast(root, generic_ptrs);
+        my_ctx->sctx.swm_obj = (void*)layered_allbcast_swm;
     }
 
     if(global_prod_thread == NULL)

@@ -218,12 +218,14 @@ struct dragonfly_param
     int global_k_picks; /* k number of connections to select from when doing local adaptive routing */
     int adaptive_threshold; 
     int rail_select; // method by which rails are selected
+    int num_parallel_switch_conns;
     // derived parameters
     int num_rails_per_plane;
     int num_routers_per_plane;
     int num_cn;
     int cn_radix;
     int intra_grp_radix;
+    int global_radix;
     int num_groups;
     int total_groups;
     int radix;
@@ -1831,16 +1833,24 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
             fprintf(stderr,"Number of global channels per router not specified, setting to 10\n");
         p->num_global_channels = 10;
     }
-    p->intra_grp_radix = p->num_routers -1; //TODO allow for parallel connections
+
+    rc = configuration_get_value_int(&config, "PARAMS", "num_parallel_switch_conns", anno, &p->num_parallel_switch_conns);
+    if(rc) {
+        p->num_parallel_switch_conns = 1;
+    }
+
+
+    p->intra_grp_radix = (p->num_routers -1) * p->num_parallel_switch_conns;
     p->cn_radix = (p->num_cn * p->num_rails) / p->num_planes; //number of CNs per router times number of rails taht each CN has, divided by how many planes those CNs are shared across
-    p->radix = p->intra_grp_radix + p->num_global_channels + p->cn_radix;
+    p->global_radix = p->num_global_channels * p->num_parallel_switch_conns;
+    p->radix = p->intra_grp_radix + p->global_radix + p->cn_radix;
     p->total_groups = p->num_groups * p->num_planes;
     p->total_routers = p->total_groups * p->num_routers;
     p->total_terminals = p->total_routers * p->num_cn / p->num_planes;
     p->num_routers_per_plane = p->total_routers / p->num_planes;
 
     //Setup DflyNetworkManager
-    netMan = DragonflyNetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->num_global_channels, p->cn_radix, p->num_rails, p->num_planes, max_hops_per_group, max_global_hops_nonminimal);
+    netMan = DragonflyNetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->global_radix, p->cn_radix, p->num_rails, p->num_planes, max_hops_per_group, max_global_hops_nonminimal);
 
     // read intra group connections, store from a router's perspective
     // all links to the same router form a vector

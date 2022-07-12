@@ -33,7 +33,7 @@
 #define COL_TAG 1235
 #define BAR_TAG 1234
 #define PRINT_SYNTH_TRAFFIC 1
-#define MAX_JOBS 40
+#define MAX_JOBS 64
 #define NEAR_ZERO .0001 //timestamp for use to be 'close to zero' but still allow progress, zero offset events are hard on the PDES engine
 #define OUTPUT_MARKS 0
 
