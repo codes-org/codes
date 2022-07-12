@@ -1,3 +1,5 @@
+# *_DEVELOP BRANCH REQUIRES ROSS "`tiebreaker`" BRANCH_*
+
 # CODES Discrete-event Simulation Framework
 
 ### [Join our CODES user mailing list](https://mailchi.mp/75d0c8aa42c3/codes-user-group) to stay up to date with major changes, events, and news!

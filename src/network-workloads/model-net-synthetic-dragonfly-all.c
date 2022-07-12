@@ -9,12 +9,22 @@
 #include "codes/codes_mapping.h"
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
+#include "codes/congestion-controller-core.h"
+#include <mpi.h>
 
+#define G_TW_END_OPT_OVERRIDE 1
 
 static int net_id = 0;
 static int traffic = 1;
-static double arrival_time = 1000.0;
+static double warm_up_time = 0.0;
+static double arrival_time = 0.0;
+static double load = 0.0;
 static int PAYLOAD_SZ = 2048;
+static double mean_interval = 0.0;
+static double link_bandwidth = 0.0;
+
+static double pe_total_offered_load, pe_total_observed_load = 0.0;
+static double pe_max_end_ts = 0.0;
 
 static int num_servers_per_rep = 0;
 static int num_routers_per_grp = 0;
@@ -22,6 +32,9 @@ static int num_nodes_per_grp = 0;
 static int num_nodes_per_router = 0;
 static int num_groups = 0;
 static unsigned long long num_nodes = 0;
+static int total_terminals = 0;
+static int num_servers = 0;
+static int num_servers_per_terminal = 0;
 
 //Dragonfly Custom Specific values
 int num_router_rows, num_router_cols;
@@ -39,6 +52,7 @@ static int do_lp_io = 0;
 static int num_msgs = 20;
 static tw_stime sampling_interval = 800000;
 static tw_stime sampling_end_time = 1600000;
+static long long rperm_threshold = 131072;
 
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
@@ -59,7 +73,8 @@ enum svr_event
 {
     KICKOFF,	   /* kickoff event */
     REMOTE,        /* remote event */
-    LOCAL      /* local event */
+    LOCAL,      /* local event */
+    ACK /*pdes acknowledgement of received message*/
 };
 
 /* type of synthetic traffic */
@@ -76,12 +91,17 @@ enum TRAFFIC
 struct svr_state
 {
     int msg_sent_count;   /* requests sent */
+    int warm_msg_sent_count;
     int msg_recvd_count;  /* requests recvd */
     int local_recvd_count; /* number of local messages received */
     tw_stime start_ts;    /* time that we started sending requests */
-    tw_stime end_ts;      /* time that we ended sending requests */
+    tw_stime last_send_ts;
+    tw_stime first_recv_ts;
+    tw_stime last_recv_ts;      /* time that we ended sending requests */
     int svr_id;
     int dest_id;
+    long long rperm_data;  /* amount of data sent this rperm period */
+    int msg_complete_count; //number of messages that successfully made it to their dest svr
 
     tw_stime max_server_latency; /* maximum measured packet latency observed by server */
     tw_stime sum_server_latency; /* running sum of measured latencies observed by server for calc of mean */
@@ -92,8 +112,12 @@ struct svr_msg
     enum svr_event svr_event_type;
     tw_lpid src;          /* source of this request or ack */
     tw_stime msg_start_time;
+    int saved_dest;      /* helper for reverse computation */
     int completed_sends; /* helper for reverse computation */
     tw_stime saved_time; /* helper for reverse computation */
+    long long saved_rperm_data; /* helper for reverse computation */
+    tw_stime saved_end_time;
+    tw_stime saved_max_end_time;
     model_net_event_return event_rc;
 };
 
@@ -172,11 +196,15 @@ const tw_optdef app_opt [] =
     	TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
     	TWOPT_UINT("num_messages", num_msgs, "Number of messages to be generated per terminal "),
     	TWOPT_UINT("payload_sz",PAYLOAD_SZ, "size of the message being sent "),
+        TWOPT_UINT("rperm_threshold",rperm_threshold, "size of rperm data sent before selecting new dest "),
     	TWOPT_STIME("sampling-interval", sampling_interval, "the sampling interval "),
     	TWOPT_STIME("sampling-end-time", sampling_end_time, "sampling end time "),
 	    TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
+        TWOPT_STIME("warm_up_time", warm_up_time, "Time delay before starting stats colleciton. For generating accurate observed bandwidth calculations"),
+        TWOPT_STIME("load_per_svr", load, "percentage of packet inter-arrival rate to simulate per server"),
         TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
         TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
+        TWOPT_CHAR("link_failure_file", g_nm_link_failure_filepath, "filepath for override of link failure file from configuration for supporting models"),
         TWOPT_END()
 };
 
@@ -190,39 +218,114 @@ static void svr_add_lp_type()
   lp_type_register("nw-lp", svr_get_lp_type());
 }
 
-static void issue_event(
+/* convert GiB/s and bytes to ns */
+static tw_stime bytes_to_ns(uint64_t bytes, double GB_p_s)
+{
+    tw_stime time;
+
+    /* bytes to GB */
+    time = ((double)bytes)/(1024.0*1024.0*1024.0);
+    /* MB to s */
+    time = time / GB_p_s;
+    /* s to ns */
+    time = time * 1000.0 * 1000.0 * 1000.0;
+
+    return(time);
+}
+
+static uint64_t ns_to_bytes(tw_stime ns, double GB_p_s)
+{
+    uint64_t bytes;
+
+    bytes = ((ns / (1000.0*1000.0*1000.0))*GB_p_s)*(1024.0*1024.0*1024.0);
+    return bytes;
+}
+
+static double ns_to_GBps(tw_stime ns, uint64_t bytes)
+{
+    double GB_p_s;
+    GB_p_s = (bytes/(1024.0*1024.0*1024.0))/(ns/(1000.0*1000.0*1000.0));
+    return GB_p_s;
+}
+
+static tw_stime issue_event(
     svr_state * ns,
     tw_lp * lp)
 {
     (void)ns;
     tw_event *e;
     svr_msg *m;
-    tw_stime kickoff_time;
+    tw_stime time_offset;
+
+    configuration_get_value_double(&config, "PARAMS", "cn_bandwidth", NULL, &link_bandwidth);
+    if(!link_bandwidth) {
+        link_bandwidth = 4.7;
+        fprintf(stderr, "Bandwidth of channels not specified, setting to %lf\n", link_bandwidth);
+    }
+
+    if(mean_interval == 0.0)
+    {
+        if(arrival_time != 0.0)
+        {
+            mean_interval = arrival_time;
+            load = ns_to_GBps(mean_interval, PAYLOAD_SZ);
+        }
+        else if (load != 0.0)
+        {
+            mean_interval = bytes_to_ns(PAYLOAD_SZ, load*link_bandwidth);
+            printf("load=%.2f\n",load);
+        }
+        else
+        {
+            mean_interval = 1000.0;
+            load = ns_to_GBps(mean_interval, PAYLOAD_SZ);
+        }
+    }
 
     /* each server sends a dummy event to itself that will kick off the real
      * simulation
      */
 
     /* skew each kickoff event slightly to help avoid event ties later on */
-    kickoff_time = 1.1 * g_tw_lookahead + tw_rand_exponential(lp->rng, arrival_time);
+    // time_offset = g_tw_lookahead + tw_rand_exponential(lp->rng, mean_interval);
+    // time_offset = tw_rand_exponential(lp->rng, mean_interval);
+    time_offset = mean_interval;
 
-    e = tw_event_new(lp->gid, kickoff_time, lp);
+    e = tw_event_new(lp->gid, time_offset, lp);
     m = tw_event_data(e);
     m->svr_event_type = KICKOFF;
     tw_event_send(e);
+
+    return time_offset;
 }
+
+// static void notify_workload_complete(svr_state *ns, tw_bf *bf, tw_lp *lp)
+// {
+//     if (g_congestion_control_enabled) {
+//         tw_event *e;
+//         congestion_control_message *m;
+//         tw_stime noise = tw_rand_unif(lp->rng) *.001;
+//         bf->c10 = 1;
+//         e = tw_event_new(g_cc_supervisory_controller_gid, noise, lp);
+//         m = tw_event_data(e);
+//         m->type = CC_WORKLOAD_RANK_COMPLETE;
+//         tw_event_send(e);
+//     }
+// }
 
 static void svr_init(
     svr_state * ns,
     tw_lp * lp)
 {
-    ns->start_ts = 0.0;
     ns->dest_id = -1;
     ns->svr_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
     ns->max_server_latency = 0.0;
     ns->sum_server_latency = 0.0;
+    ns->rperm_data = 0;
+    ns->warm_msg_sent_count = 0;
+    ns->first_recv_ts = -1;
 
-    issue_event(ns, lp);
+    ns->start_ts = issue_event(ns, lp);
     return;
 }
 
@@ -232,22 +335,34 @@ static void handle_kickoff_rev_event(
             svr_msg * m,
             tw_lp * lp)
 {
-    if(m->completed_sends)
+    if(m->completed_sends) {
         return;
+    }
 
     if(b->c1)
         tw_rand_reverse_unif(lp->rng);
 
-    if(b->c8)
-        tw_rand_reverse_unif(lp->rng);
+    if (traffic == RAND_PERM) {
+        if (b->c8) { 
+            ns->rperm_data = m->saved_rperm_data;
+            tw_rand_reverse_unif(lp->rng);
+            ns->dest_id = m->saved_dest;
+        }
+        else {
+            ns->rperm_data -= PAYLOAD_SZ;
+        }
+    }
     if(traffic == RANDOM_OTHER_GROUP) {
         tw_rand_reverse_unif(lp->rng);
         tw_rand_reverse_unif(lp->rng);
     }
+    if(b->c5)
+        ns->warm_msg_sent_count--; 
 
     model_net_event_rc2(lp, &m->event_rc);
 	ns->msg_sent_count--;
-    tw_rand_reverse_unif(lp->rng);
+    // tw_rand_reverse_unif(lp->rng);
+    // tw_rand_reverse_unif(lp->rng);
 }
 static void handle_kickoff_event(
 	    svr_state * ns,
@@ -276,7 +391,6 @@ static void handle_kickoff_event(
     memcpy(m_remote, m_local, sizeof(svr_msg));
     m_remote->svr_event_type = REMOTE;
 
-    ns->start_ts = tw_now(lp);
     codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
     int local_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
 
@@ -299,15 +413,18 @@ static void handle_kickoff_event(
    }
    else if(traffic == RAND_PERM)
    {
-       if(ns->dest_id == -1)
-       {
+       if (ns->dest_id == -1 || ns->rperm_data > rperm_threshold) {
             b->c8 = 1;
+            m->saved_dest = ns->dest_id;
             ns->dest_id = tw_rand_integer(lp->rng, 0, num_nodes - 1); 
             local_dest = ns->dest_id;
+            m->saved_rperm_data = ns->rperm_data;
+            ns->rperm_data = PAYLOAD_SZ; //reset to 0 + payload size for this run
        }
        else
        {
         local_dest = ns->dest_id; 
+        ns->rperm_data += PAYLOAD_SZ;
        }
    }
    else if(traffic == RANDOM_OTHER_GROUP)
@@ -330,14 +447,59 @@ static void handle_kickoff_event(
         printf("\n LP %d sending to %llu num nodes %llu ", local_id, LLU(local_dest), num_nodes);
 
    }
+
+    if (tw_now(lp) >= warm_up_time) {
+        b->c5 = 1;
+        ns->warm_msg_sent_count++;
+    }
+
    assert(local_dest < num_nodes);
 //   codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest / num_servers_per_rep, local_dest % num_servers_per_rep, &global_dest);
    global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
-   ns->msg_sent_count++;
-   m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
 
+   ns->msg_sent_count++;
+   ns->last_send_ts = tw_now(lp);
+   m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
    issue_event(ns, lp);
    return;
+}
+
+static void handle_ack_event(svr_state * ns, tw_bf *bf, svr_msg *m, tw_lp *lp)
+{
+    ns->msg_complete_count++;
+    if (ns->first_recv_ts == -1) {
+        bf->c12 = 1;
+        ns->first_recv_ts = tw_now(lp);
+    }
+    // if (ns->msg_complete_count >= num_msgs)
+    // {
+        bf->c11 = 1;
+
+        m->saved_end_time = ns->last_recv_ts;
+        ns->last_recv_ts = tw_now(lp);
+
+        m->saved_max_end_time = pe_max_end_ts;
+        if (ns->last_recv_ts > pe_max_end_ts)
+            pe_max_end_ts = ns->last_recv_ts;
+    // }
+    
+}
+
+static void handle_ack_event_rc(svr_state * ns, tw_bf *bf, svr_msg *m, tw_lp *lp)
+{
+    ns->msg_complete_count--;
+    if (bf->c12)
+        ns->first_recv_ts = -1;
+
+    if (bf->c11) {
+        ns->last_recv_ts = m->saved_end_time;
+        
+        pe_max_end_ts = m->saved_max_end_time;
+
+        if (bf->c10)
+            tw_rand_reverse_unif(lp->rng);
+    }
+
 }
 
 static void handle_remote_rev_event(
@@ -349,6 +511,10 @@ static void handle_remote_rev_event(
         (void)b;
         (void)m;
         (void)lp;
+    
+    if (b->c3) {
+        // ns->end_ts = m->saved_end_time;
+
         ns->msg_recvd_count--;
 
         tw_stime packet_latency = tw_now(lp) - m->msg_start_time;
@@ -356,6 +522,8 @@ static void handle_remote_rev_event(
         if (b->c2)
             ns->max_server_latency = m->saved_time;
 
+        // tw_rand_reverse_unif(lp->rng);
+    }
 }
 
 static void handle_remote_event(
@@ -367,16 +535,32 @@ static void handle_remote_event(
         (void)b;
         (void)m;
         (void)lp;
-	ns->msg_recvd_count++;
 
-    tw_stime packet_latency = tw_now(lp) - m->msg_start_time;
-    ns->sum_server_latency += packet_latency;
-    if (packet_latency > ns->max_server_latency) {
-        b->c2 = 1;
-        m->saved_time = ns->max_server_latency;
-        ns->max_server_latency = packet_latency;
+    if (tw_now(lp) >= warm_up_time) {
+        b->c3 = 1;
+        ns->msg_recvd_count++;
+
+        tw_stime packet_latency = tw_now(lp) - m->msg_start_time;
+        ns->sum_server_latency += packet_latency;
+        if (packet_latency > ns->max_server_latency) {
+            b->c2 = 1;
+            m->saved_time = ns->max_server_latency;
+            ns->max_server_latency = packet_latency;
+        }
+
+        // m->saved_end_time = ns->end_ts;
+        // ns->end_ts = tw_now(lp);
+
+
+        // tw_stime noise = tw_rand_unif(lp->rng) * .001;
+
+        tw_event *e;
+        svr_msg *new_msg;
+        e = tw_event_new(m->src, 0, lp);
+        new_msg = tw_event_data(e);
+        new_msg->svr_event_type = ACK;
+        tw_event_send(e);
     }
-
 }
 
 static void handle_local_rev_event(
@@ -388,7 +572,8 @@ static void handle_local_rev_event(
         (void)b;
         (void)m;
         (void)lp;
-	ns->local_recvd_count--;
+    if (b->c4)
+	    ns->local_recvd_count--;
 }
 
 static void handle_local_event(
@@ -400,7 +585,10 @@ static void handle_local_event(
         (void)b;
         (void)m;
         (void)lp;
-    ns->local_recvd_count++;
+    if (tw_now(lp) >= warm_up_time) {
+        b->c4 = 1;
+        ns->local_recvd_count++;
+    }
 }
 
 /* convert seconds to ns */
@@ -413,8 +601,7 @@ static void svr_finalize(
     svr_state * ns,
     tw_lp * lp)
 {
-    ns->end_ts = tw_now(lp);
-
+    tw_stime now = tw_now(lp);
     //add to the global running sums
     sum_global_server_latency += ns->sum_server_latency;
     sum_global_messages_received += ns->msg_recvd_count;
@@ -426,9 +613,42 @@ static void svr_finalize(
     //this server's mean
     // tw_stime mean_packet_latency = ns->sum_server_latency/ns->msg_recvd_count;
 
-
     //printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s(ns->end_ts-ns->start_ts),
     //    ((double)(PAYLOAD_SZ*ns->msg_sent_count)/(double)(1024*1024)/ns_to_s(ns->end_ts-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
+    
+    char output_buf[1024];
+
+    double observed_load_time = ((double)ns->last_recv_ts-warm_up_time) - ns->first_recv_ts;
+    double observed_load = ((double)PAYLOAD_SZ*(double)ns->msg_recvd_count)/observed_load_time;
+    observed_load = observed_load * (double)(1000*1000*1000);
+    observed_load = observed_load / (double)(1024*1024*1024);
+
+    // double offered_load = (double)(load*link_bandwidth);
+
+    double offered_load_time = ((double)ns->last_send_ts-warm_up_time) - ns->start_ts;
+    double offered_load = ((double)PAYLOAD_SZ*(double)ns->warm_msg_sent_count)/offered_load_time;
+    offered_load = offered_load * (double)(1000*1000*1000);
+    offered_load = offered_load / (double)(1024*1024*1024);
+
+    int written = 0;
+    int written2 = 0;
+
+    // printf("%.2f Offered | %.2f Observed locally\n",offered_load,observed_load);
+
+    pe_total_offered_load+= offered_load;
+    pe_total_observed_load+= observed_load;
+
+    if(lp->gid == 0){
+        written = sprintf(output_buf, "# Format <LP id> <Msgs Sent> <Msgs Recvd> <Bytes Sent> <Bytes Recvd> <Offered Load [GBps]> <Observed Load [GBps]> <End Time [ns]>\n");
+    }
+
+    written += sprintf(output_buf + written, "%llu %d %d %d %d %f %f %f %f\n",LLU(lp->gid), ns->msg_sent_count, ns->msg_recvd_count,
+            PAYLOAD_SZ*ns->msg_sent_count, PAYLOAD_SZ*ns->msg_recvd_count, load*link_bandwidth, observed_load, ns->last_recv_ts, observed_load_time);
+
+    lp_io_write(lp->gid, "synthetic-stats", written, output_buf);
+    
+    
+    
     return;
 }
 
@@ -449,6 +669,9 @@ static void svr_rev_event(
 	case KICKOFF:
 		handle_kickoff_rev_event(ns, b, m, lp);
 		break;
+    case ACK:
+        handle_ack_event_rc(ns, b, m, lp);
+        break;
 	default:
 		assert(0);
 		break;
@@ -469,9 +692,12 @@ static void svr_event(
         case LOCAL:
             handle_local_event(ns, b, m, lp);
             break;
-	case KICKOFF:
-	    handle_kickoff_event(ns, b, m, lp);
-	    break;
+	    case KICKOFF:
+	        handle_kickoff_event(ns, b, m, lp);
+	        break;
+        case ACK:
+            handle_ack_event(ns, b, m, lp);
+            break;
         default:
             printf("\n Invalid message type %d ", m->svr_event_type);
             assert(0);
@@ -484,21 +710,38 @@ static void svr_report_stats()
 {
     long long total_received_messages;
     tw_stime total_sum_latency, max_latency, mean_latency;
-    
+    tw_stime max_end_time;
 
     MPI_Reduce( &sum_global_messages_received, &total_received_messages, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
     MPI_Reduce( &sum_global_server_latency, &total_sum_latency, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
     MPI_Reduce( &max_global_server_latency, &max_latency, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_CODES);
+    MPI_Reduce( &pe_max_end_ts, &max_end_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_CODES);
 
     mean_latency = total_sum_latency / total_received_messages;
 
     if(!g_tw_mynode)
     {	
-        printf("\nSynthetic Workload LP Stats: Mean Message Latency: %lf us,  Maximum Message Latency: %lf us,  Total Messages Received: %lld\n",
+        printf("\nSynthetic Workload LP Stats: Mean Message Latency: %lf us,  Maximum Message Latency: %lf us, Total Messages Received: %lld\n",
                 (float)mean_latency / 1000, (float)max_latency / 1000, total_received_messages);
+        printf("\tMaximum Workload End Time %.2f\n",max_end_time);
     }
 }
 
+static void aggregate_svr_stats(int myrank)
+{
+
+    double agg_offered_load, agg_observed_load;
+    MPI_Reduce(&pe_total_offered_load, &agg_offered_load, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
+    MPI_Reduce(&pe_total_observed_load, &agg_observed_load, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
+
+    double avg_offered_load = agg_offered_load / num_servers * num_servers_per_terminal;
+    double avg_observed_load = agg_observed_load / num_servers * num_servers_per_terminal;
+
+    if (myrank == 0) {
+        printf("\nSynthetic-All Stats ---\n");
+        printf("AVG OFFERED LOAD = %.3f     |     AVG OBSERVED LOAD = %.3f\n",avg_offered_load, avg_observed_load);
+    }
+}
 
 int main(
     int argc,
@@ -544,8 +787,10 @@ int main(
     net_id = *net_ids;
     free(net_ids);
 
-    /* 5 days of simulation time */
-    g_tw_ts_end = s_to_ns(5 * 24 * 60 * 60);
+    if(G_TW_END_OPT_OVERRIDE) {
+        /* 5 days of simulation time */
+        g_tw_ts_end = s_to_ns(5 * 24 * 60 * 60);
+    }
     model_net_enable_sampling(sampling_interval, sampling_end_time);
 
     if(!(net_id == DRAGONFLY_DALLY || net_id == DRAGONFLY_PLUS || net_id == DRAGONFLY_CUSTOM || net_id == DRAGONFLY))
@@ -565,6 +810,7 @@ int main(
         configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers);
         configuration_get_value_int(&config, "PARAMS", "num_groups", NULL, &num_groups);
         configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", NULL, &num_nodes_per_router);
+        total_terminals = codes_mapping_get_lp_count("MODELNET_GRP", 0, "modelnet_dragonfly_dally", NULL, 1);
         num_routers_with_cns_per_group = num_routers;
     }
     else if (net_id == DRAGONFLY_PLUS) {
@@ -575,6 +821,7 @@ int main(
         configuration_get_value_int(&config, "PARAMS", "num_routers", NULL, &num_routers);
         configuration_get_value_int(&config, "PARAMS", "num_groups", NULL, &num_groups);
         configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", NULL, &num_nodes_per_router);
+        total_terminals = codes_mapping_get_lp_count("MODELNET_GRP", 0, "modelnet_dragonfly_plus", NULL, 1);
         num_routers_with_cns_per_group = num_router_leaf;
 
     }
@@ -585,6 +832,7 @@ int main(
         configuration_get_value_int(&config, "PARAMS", "num_router_cols", NULL, &num_router_cols);
         configuration_get_value_int(&config, "PARAMS", "num_groups", NULL, &num_groups);
         configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", NULL, &num_nodes_per_router);
+        total_terminals = codes_mapping_get_lp_count("MODELNET_GRP", 0, "modelnet_dragonfly_custom", NULL, 1);
         num_routers_with_cns_per_group = num_router_rows * num_router_cols;
     }
     else if (net_id == DRAGONFLY) {
@@ -596,10 +844,19 @@ int main(
         num_groups = num_routers * num_nodes_per_router + 1;
     }
 
-    num_nodes = num_groups * num_routers_with_cns_per_group * num_nodes_per_router;
-    num_nodes_per_grp = num_routers_with_cns_per_group * num_nodes_per_router;
+    num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp",
+            NULL, 1);
+    num_nodes = num_servers;
+    num_servers_per_terminal = num_servers / total_terminals;
+    // num_nodes = num_groups * num_routers_with_cns_per_group * num_nodes_per_router;
+    num_nodes_per_grp = (num_nodes / num_groups);
 
     assert(num_nodes);
+
+    struct codes_jobmap_params_identity jobmap_ident_p;
+    jobmap_ident_p.num_ranks = num_servers;
+    struct codes_jobmap_ctx * jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_IDENTITY, &jobmap_ident_p);
+    // congestion_control_set_jobmap(jobmap_ctx, net_id); //must be placed after codes_mapping_setup - where g_congestion_control_enabled is set
 
     if(lp_io_dir[0])
     {
@@ -615,6 +872,8 @@ int main(
     }
     model_net_report_stats(net_id);
     svr_report_stats();
+    aggregate_svr_stats(rank);
+
 #ifdef USE_RDAMARIS
     } // end if(g_st_ross_rank)
 #endif

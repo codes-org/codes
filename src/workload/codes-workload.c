@@ -9,6 +9,7 @@
 #include <ross.h>
 #include <codes/codes-workload.h>
 #include <codes/codes.h>
+#include "codes_config.h"
 
 /* list of available methods.  These are statically compiled for now, but we
  * could make generators optional via autoconf tests etc. if needed

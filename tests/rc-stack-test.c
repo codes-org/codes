@@ -38,6 +38,18 @@ int main()
         *c = 3; \
     } while (0)
 
+
+#ifdef USE_RAND_TIEBREAKER
+#define PUSH_ALL() \
+    do { \
+        kp.last_sig.recv_ts = 1.0; \
+        rc_stack_push(&lp, a, free, s); \
+        kp.last_sig.recv_ts = 2.0; \
+        rc_stack_push(&lp, b, free, s); \
+        kp.last_sig.recv_ts = 3.0; \
+        rc_stack_push(&lp, c, free, s); \
+    } while (0)
+#else
 #define PUSH_ALL() \
     do { \
         kp.last_time = 1.0; \
@@ -47,6 +59,7 @@ int main()
         kp.last_time = 3.0; \
         rc_stack_push(&lp, c, free, s); \
     } while (0)
+#endif
 
     ALLOC_ALL();
     PUSH_ALL();
@@ -62,8 +75,14 @@ int main()
     assert(0 == rc_stack_count(s));
 
     PUSH_ALL();
+
+#ifdef USE_RAND_TIEBREAKER
+    /* garbage collect the first two (NOT freeing the pointers first) */
+    pe.GVT_sig.recv_ts = 2.5;
+#else
     /* garbage collect the first two (NOT freeing the pointers first) */
     pe.GVT = 2.5;
+#endif
     rc_stack_gc(&lp, s);
     assert(1 == rc_stack_count(s));
 
