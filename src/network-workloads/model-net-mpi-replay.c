@@ -107,9 +107,9 @@ tw_stime soft_delay_mpi = 2500;
 tw_stime nic_delay = 1000;
 tw_stime copy_per_byte_eager = 0.55;
 
-struct codes_jobmap_ctx *jobmap_ctx;
-struct codes_jobmap_params_list jobmap_p;
-struct codes_jobmap_params_identity jobmap_ident_p; // for if an alloc file isn't supplied.
+static struct codes_jobmap_ctx *jobmap_ctx;
+static struct codes_jobmap_params_list jobmap_p;
+static struct codes_jobmap_params_identity jobmap_ident_p; // for if an alloc file isn't supplied.
 
 
 /* Variables for Cortex Support */
