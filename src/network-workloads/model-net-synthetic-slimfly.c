@@ -69,9 +69,9 @@ void init_worst_case_mapping();
 /* Global variables for worst-case workload pairing */
 static int num_local_channels;
 static int num_global_channels;
-int *X;
-int *X_prime;
-int X_size;
+static int *X;
+static int *X_prime;
+static int X_size;
 
 /* type of events */
 enum svr_event
