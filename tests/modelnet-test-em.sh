@@ -1,5 +1,5 @@
 #!/bin/bash
 
-tests/modelnet-test --sync=1 -- tests/conf/modelnet-test-em.conf
+tests/modelnet-test --sync=1 -- $srcdir/tests/conf/modelnet-test-em.conf
 
 

@@ -1,3 +1,3 @@
 #!/bin/bash
 
-tests/modelnet-test --sync=1 -- tests/conf/modelnet-test-slimfly.conf
+tests/modelnet-test --sync=1 -- $srcdir/tests/conf/modelnet-test-slimfly.conf

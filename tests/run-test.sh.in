@@ -1,0 +1,6 @@
+#!/bin/bash -x
+
+export srcdir="${CMAKE_SOURCE_DIR}"
+export GENERATED_USING_CMAKE=1
+
+bash -x "$1"

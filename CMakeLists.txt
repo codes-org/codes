@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.17)
 
 # set the project name and version
 project(codes LANGUAGES C CXX VERSION 2.0)
@@ -103,4 +103,10 @@ add_subdirectory(src)
 configure_file(codes_config.h.in codes_config.h)
 
 
-
+string(COMPARE NOTEQUAL "RELEASE" "${CMAKE_BUILD_TYPE}" not_release)
+if(BUILD_TESTING AND not_release)
+    include(CTest)
+    set(CODES_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    set(CODES_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+    add_subdirectory(tests)
+endif()
