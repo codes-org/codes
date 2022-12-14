@@ -102,6 +102,7 @@ add_subdirectory(src)
 
 configure_file(codes_config.h.in codes_config.h)
 
+add_subdirectory(doc/example)
 
 string(COMPARE NOTEQUAL "RELEASE" "${CMAKE_BUILD_TYPE}" not_release)
 if(BUILD_TESTING AND not_release)

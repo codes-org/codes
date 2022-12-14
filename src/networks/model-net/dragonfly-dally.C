@@ -332,6 +332,7 @@ typedef enum event_t
     R_BW_HALT,
     T_BANDWIDTH,
     R_SNAPSHOT, //used for timed statistic outputs
+    T_NOTIFY_TOTAL_DELAY,
 } event_t;
 
 /* whether the last hop of a packet was global, local or a terminal */
@@ -2705,6 +2706,17 @@ void terminal_dally_commit(terminal_state * s,
             }
         }
     }
+
+    if(msg->type == T_NOTIFY_TOTAL_DELAY)
+    {
+        assert(lp->gid == msg->src_terminal_id);
+        assert(s->terminal_id == msg->dfdally_src_terminal_id);
+        printf("Terminal LPID:%llu (terminal_id:%u) Packet ID:%llu sent to LPID:%llu (terminal_id:%u) at %f delivered at %f delayed by %f in %d hops\n",
+                (unsigned long long) lp->gid, s->terminal_id, msg->packet_ID,
+                (unsigned long long) msg->dest_terminal_lpid, msg->dfdally_dest_terminal_id, 
+                msg->travel_start_time, msg->travel_end_time, msg->travel_end_time - msg->travel_start_time,
+                msg->my_N_hop);
+    }
 }
 
 void router_dally_commit(router_state * s,
@@ -3853,6 +3865,19 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     return;
 }
 
+static void send_total_delay_from_src_lp(terminal_state * s, terminal_dally_message * msg, tw_lp * lp, tw_bf * bf)
+{
+    terminal_dally_message * new_msg;
+    tw_event *e = model_net_method_event_new(
+            msg->src_terminal_id, g_tw_lookahead, lp, DRAGONFLY_DALLY, (void**)&new_msg, NULL);
+
+    memcpy(new_msg, msg, sizeof(terminal_dally_message));
+    new_msg->type = T_NOTIFY_TOTAL_DELAY;
+    new_msg->magic = terminal_magic_num;
+    strcpy(new_msg->category, msg->category);
+    tw_event_send(e); 
+}
+
 //used by packet_arrive()
 static void send_remote_event(terminal_state * s, terminal_dally_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
 {
@@ -4213,6 +4238,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
         
         //assert(tmp->remote_event_data && tmp->remote_event_size > 0);
         if(tmp->remote_event_data && tmp->remote_event_size > 0) {
+            send_total_delay_from_src_lp(s, msg, lp, bf);
             send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
         }
         /* Remove the hash entry */
@@ -5342,6 +5368,7 @@ terminal_dally_event( terminal_state * s,
     s->ross_sample.fwd_events++;
     //*(int *)bf = (int)0;
     assert(msg->magic == terminal_magic_num);
+    //printf("LPID: %llu Event type %d processed at %f\n", lp->gid, msg->type, tw_now(lp));
 
     rc_stack_gc(lp, s->st);
     switch(msg->type)
@@ -5364,6 +5391,10 @@ terminal_dally_event( terminal_state * s,
     
         case T_BANDWIDTH:
             issue_bw_monitor_event(s, bf, msg, lp);
+        break;
+    
+        case T_NOTIFY_TOTAL_DELAY:
+        //    We don't process the message, we only store the message when committing
         break;
         default:
             printf("\n LP %d Terminal message type not supported %d ", (int)lp->gid, msg->type);
@@ -5451,6 +5482,10 @@ void terminal_dally_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_da
         case T_BANDWIDTH:
             issue_bw_monitor_event_rc(s,bf, msg, lp);
             break;
+    
+        case T_NOTIFY_TOTAL_DELAY:
+        //    We don't process the message, we only store the message when committing
+        break;
 
         default:
             tw_error(TW_LOC, "\n Invalid terminal event type %d ", msg->type);

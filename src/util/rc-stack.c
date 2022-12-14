@@ -63,7 +63,7 @@ void rc_stack_push(
     if (s->mode != RC_NONOPT || free_fn == NULL) {
         rc_entry * ent = (rc_entry*)malloc(sizeof(*ent));
         assert(ent);
-        ent->e_sig = tw_now_sig(lp);
+        ent->e_sig = tw_now_sig(lp);  // NOTE(helq): This should fail if USE_RAND_TIEBREAKER is deactivated, shouldn't it?
         ent->data = data;
         ent->free_fn = free_fn;
         qlist_add_tail(&ent->ql, &s->head);
