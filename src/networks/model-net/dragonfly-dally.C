@@ -30,6 +30,8 @@
 #include <map>
 #include <set>
 #include <algorithm>
+#include <queue>
+#include <deque>
 
 #include "codes/network-manager/dragonfly-network-manager.h"
 #include "codes/congestion-controller-model.h"
@@ -86,6 +88,7 @@ static int max_global_hops_minimal = 1;
 static long num_local_packets_sr = 0;
 static long num_local_packets_sg = 0;
 static long num_remote_packets = 0;
+static FILE * stats_file;
 
 static long global_stalled_chunk_counter = 0;
 
@@ -332,7 +335,7 @@ typedef enum event_t
     R_BW_HALT,
     T_BANDWIDTH,
     R_SNAPSHOT, //used for timed statistic outputs
-    T_NOTIFY_TOTAL_DELAY,
+    T_NOTIFY_TOTAL_LATENCY,
 } event_t;
 
 /* whether the last hop of a packet was global, local or a terminal */
@@ -438,6 +441,25 @@ static bool isRoutingNonminimalExplicit(int alg)
         return false;
 }
 
+struct packet_start {
+    uint64_t packet_ID;
+    // tw_lpid dest_terminal_id;  // ROSS id; LPID for terminal
+    unsigned int dfdally_dest_terminal_id; // number in [0, total terminals)
+    double travel_start_time;
+};
+
+struct packet_end {
+    uint64_t packet_ID;
+    double travel_end_time;
+};
+
+// Comparison function object to use in min-heap of packet_end's
+struct {
+    bool operator() (struct packet_end const l, struct packet_end const r) const {
+        return l.packet_ID > r.packet_ID;
+    }
+} packet_end_greater_cmp;
+
 /* handles terminal and router events like packet generate/send/receive/buffer */
 typedef struct terminal_state terminal_state;
 typedef struct router_state router_state;
@@ -535,6 +557,14 @@ struct terminal_state
     tw_stime fin_chunks_time_ross_sample;
     tw_stime *busy_time_ross_sample;
     struct dfly_cn_sample ross_sample;
+
+    // Variables to recover latency of packets sent to other terminals
+    // Sent packets (to be populated at by commit handler of packet sender)
+    deque<struct packet_start> sent_packets;
+    // min-heap for latencies of packets once they arrive (some packets might
+    // arrive faster than others, so a list like the one above is not feasible
+    // to store in order efficiently their arrival)
+    priority_queue<struct packet_end, vector<struct packet_end>, decltype(packet_end_greater_cmp)> sent_packets_latency;
 };
 
 struct router_state
@@ -1228,6 +1258,15 @@ static int dfdally_get_assigned_router_id_from_terminal(const dragonfly_param *p
         if(num_planes == num_rails)
         {
             return (term_gid / num_cn_per_router) + (rail_id * routers_per_plane);
+        }
+        // NOTE(helq): The compiler has been bothering me about the lack of a
+        // return statement here, so I added a message to something that
+        // (hopefully) will never happen.
+        else
+        {
+            tw_error(TW_LOC, "Error: this should have never happened. We couldn't "
+                    "figure out to which router does a terminal belong to :S");
+            return -1;
         }
     }
     
@@ -2176,6 +2215,15 @@ void dragonfly_dally_configure() {
 #ifdef ENABLE_CORTEX
 	model_net_topology = dragonfly_dally_cortex_topology;
 #endif
+
+    char const fmt[] = "packets-delay-gid=%lu.txt";
+    int sz = snprintf(NULL, 0, fmt, g_tw_mynode);
+    char filename_path[sz + 1]; // `+ 1` for terminating null byte
+    snprintf(filename_path, sizeof(filename_path), fmt, g_tw_mynode);
+    stats_file = fopen(filename_path, "w+");
+    if(!stats_file) {
+        tw_error(TW_LOC, "File %s could not be opened", filename_path);
+    }
 }
 
 /* report dragonfly statistics like average and maximum packet latency, average number of hops traversed */
@@ -2210,6 +2258,7 @@ void dragonfly_dally_report_stats()
     // long long total_stalled_chunks; //helpful for debugging and determinism checking
     // MPI_Reduce( &global_stalled_chunk_counter, &total_stalled_chunks, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
 
+    fclose(stats_file);
     /* print statistics */
     if(!g_tw_mynode)
     {	
@@ -2626,6 +2675,26 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
     return -1;
 }
 
+static void packet_latency_save_to_file(unsigned int terminal_id, struct packet_start start, struct packet_end end)
+{
+    assert(start.packet_ID == end.packet_ID);
+    fprintf(stats_file, "%u,%u,%llu,%f,%f,%f\n",
+            terminal_id, start.dfdally_dest_terminal_id, start.packet_ID,
+            start.travel_start_time, end.travel_end_time, end.travel_end_time - start.travel_start_time);
+}
+
+static void process_packet_latencies(terminal_state * s)
+{
+    while( !s->sent_packets.empty()
+        && !s->sent_packets_latency.empty()
+        && s->sent_packets.front().packet_ID == s->sent_packets_latency.top().packet_ID)
+    {
+        packet_latency_save_to_file(s->terminal_id, s->sent_packets.front(), s->sent_packets_latency.top());
+        s->sent_packets.pop_front();
+        s->sent_packets_latency.pop();
+    }
+}
+
 //Snapshot pattern
 //Sends a snapshot event - this wakes the router at the specified time to store its data somewhere
 //this storage place could be in the event or elsewehre so long as the data is over-writeable
@@ -2707,15 +2776,15 @@ void terminal_dally_commit(terminal_state * s,
         }
     }
 
-    if(msg->type == T_NOTIFY_TOTAL_DELAY)
+    if(msg->type == T_NOTIFY_TOTAL_LATENCY)
     {
         assert(lp->gid == msg->src_terminal_id);
         assert(s->terminal_id == msg->dfdally_src_terminal_id);
-        printf("Terminal LPID:%llu (terminal_id:%u) Packet ID:%llu sent to LPID:%llu (terminal_id:%u) at %f delivered at %f delayed by %f in %d hops\n",
-                (unsigned long long) lp->gid, s->terminal_id, msg->packet_ID,
-                (unsigned long long) msg->dest_terminal_lpid, msg->dfdally_dest_terminal_id, 
-                msg->travel_start_time, msg->travel_end_time, msg->travel_end_time - msg->travel_start_time,
-                msg->my_N_hop);
+        s->sent_packets_latency.push({
+                .packet_ID = msg->packet_ID,
+                .travel_end_time = msg->travel_end_time});
+
+        process_packet_latencies(s);
     }
 }
 
@@ -2919,6 +2988,14 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
         s->local_congestion_controller = (tlc_state*)calloc(1,sizeof(tlc_state));
         cc_terminal_local_controller_init(s->local_congestion_controller, lp, s->terminal_id, &s->workloads_finished_flag);
     }
+
+    // This doesn't allocate any memory, it calls the constructor on the
+    // previously allocated memory (by ROSS)
+    // In the future calling the constructor could be done with:
+    // std::construct_at, for now this syntax suffices and works
+    // (see https://en.cppreference.com/w/cpp/memory/construct_at)
+    new (&s->sent_packets) deque<struct packet_start>();
+    new (&s->sent_packets_latency) priority_queue<struct packet_end, vector<struct packet_end>, decltype(packet_end_greater_cmp)>();
     return;
 }
 
@@ -3210,6 +3287,8 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     packet_gen--;
     s->packet_counter--;
 
+    s->sent_packets.pop_back();
+
     if(bf->c2)
         num_local_packets_sr--;
     if(bf->c3)
@@ -3478,6 +3557,12 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     msg->my_g_hop = 0;
     msg->my_hops_cur_group = 0;
 
+    // Storing packet info to be sent. Once packets arrive back, we can compute
+    // the latency of sending them
+    s->sent_packets.push_back({
+        .packet_ID = msg->packet_ID,
+        .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
+        .travel_start_time = tw_now(lp)});
 
     //qos stuff
     int num_qos_levels = s->params->num_qos_levels;
@@ -3872,7 +3957,7 @@ static void send_total_delay_from_src_lp(terminal_state * s, terminal_dally_mess
             msg->src_terminal_id, g_tw_lookahead, lp, DRAGONFLY_DALLY, (void**)&new_msg, NULL);
 
     memcpy(new_msg, msg, sizeof(terminal_dally_message));
-    new_msg->type = T_NOTIFY_TOTAL_DELAY;
+    new_msg->type = T_NOTIFY_TOTAL_LATENCY;
     new_msg->magic = terminal_magic_num;
     strcpy(new_msg->category, msg->category);
     tw_event_send(e); 
@@ -4385,6 +4470,12 @@ dragonfly_dally_terminal_final( terminal_state * s,
     free(s->vc_occupancy);
     free(s->terminal_msgs);
     free(s->terminal_msgs_tail);
+
+    // Calling destructors for data. There is no need to free data, the
+    // destructors do it themselves. ROSS allocated space for the datatypes and
+    // it doesn't need to be freed
+    s->sent_packets.~deque();
+    s->sent_packets_latency.~priority_queue();
 }
 
 void dragonfly_dally_router_final(router_state * s, tw_lp * lp){
@@ -5393,7 +5484,7 @@ terminal_dally_event( terminal_state * s,
             issue_bw_monitor_event(s, bf, msg, lp);
         break;
     
-        case T_NOTIFY_TOTAL_DELAY:
+        case T_NOTIFY_TOTAL_LATENCY:
         //    We don't process the message, we only store the message when committing
         break;
         default:
@@ -5483,7 +5574,7 @@ void terminal_dally_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_da
             issue_bw_monitor_event_rc(s,bf, msg, lp);
             break;
     
-        case T_NOTIFY_TOTAL_DELAY:
+        case T_NOTIFY_TOTAL_LATENCY:
         //    We don't process the message, we only store the message when committing
         break;
 

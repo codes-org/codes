@@ -49,11 +49,11 @@ struct svr_msg
 
 struct svr_state
 {
-    int svr_id;           /* the ID of this server */
+    tw_lpid svr_id;            /* the ID of this server */
     int ping_msg_sent_count;   /* PING messages sent */
     int ping_msg_recvd_count;  /* PING messages received */
     int pong_msg_sent_count;   /* PONG messages sent */
-    int pong_msg_recvd_count; /* PONG messages received */
+    int pong_msg_recvd_count;  /* PONG messages received */
     tw_stime start_ts;    /* time that this LP started sending requests */
     tw_stime end_ts;      /* time that this LP ended sending requests */
     int payload_sum;      /* the running sum of all payloads received */
@@ -128,11 +128,11 @@ static void svr_init(svr_state * s, tw_lp * lp)
 
 static void handle_kickoff_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
 {
-    /* // This bit is just for testing. It allows to send a PING event only to the first LP/server
-     *if (lp->gid != 0) {
-     *    return;
-     *}
-     */
+    (void) b;
+    // This bit is just for testing. It allows to send a PING event only to the first LP/server
+    //if (lp->gid != 0) {
+    //    return;
+    //}
     s->start_ts = tw_now(lp); //the time when we're starting this LP's work is NOW
 
     svr_msg ping_msg;
@@ -160,6 +160,7 @@ static void handle_kickoff_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * 
 
 static void handle_kickoff_rev_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
 {
+    (void) b;
     model_net_event_rc2(lp, &m->event_rc); //undo any model_net_event calls encoded into this message
     s->ping_msg_sent_count--; //undo the increment of the ping_msg_sent_count in the server state
     tw_rand_reverse_unif(lp->rng); //reverse the rng call for creating a payload value;
@@ -168,6 +169,7 @@ static void handle_kickoff_rev_event(svr_state * s, tw_bf * b, svr_msg * m, tw_l
 
 static void handle_ping_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
 {
+    (void) b;
     s->ping_msg_recvd_count++; //increment the counter for ping messages received
 
     int original_sender = m->sender_id; //this is the server we need to send a PONG message back to
@@ -186,9 +188,11 @@ static void handle_ping_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
 
 static void handle_ping_rev_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
 {
+    (void) b;
     model_net_event_rc2(lp, &m->event_rc); //undo any model_net_event calls encoded into this message
-    s->ping_msg_recvd_count--; //undo the increment of the counter for ping messages received
+    s->pong_msg_sent_count--;
     s->payload_sum -= m->payload_value; //undo the increment of the payload sum
+    s->ping_msg_recvd_count--; //undo the increment of the counter for ping messages received
 }
 
 static void handle_pong_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
@@ -218,13 +222,13 @@ static void handle_pong_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
 
 static void handle_pong_rev_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
 {
-    model_net_event_rc2(lp, &m->event_rc); //undo any model_net_event calls encoded into this message
-    s->ping_msg_sent_count--;
-    tw_rand_reverse_unif(lp->rng); //undo the rng for the new payload value
-    tw_rand_reverse_unif(lp->rng); //undo the rng for the new server to send a ping to
-
-    if (b->c1) //if we flipped the c1 flag in the forward event
-        return; //then we don't need to undo any rngs or state change
+    if (! b->c1) { //if we didn't flip the c1 flag in the forward event
+        model_net_event_rc2(lp, &m->event_rc); //undo any model_net_event calls encoded into this message
+        s->ping_msg_sent_count--;
+        tw_rand_reverse_unif(lp->rng); //undo the rng for the new payload value
+        tw_rand_reverse_unif(lp->rng); //undo the rng for the new server to send a ping to
+        b->c1 = 0;
+    }
 
     s->pong_msg_recvd_count--; //undo the increment of the counter for ping messages received
 }
@@ -237,8 +241,9 @@ static void svr_finalize(svr_state * s, tw_lp * lp)
     int total_msg_size_sent = PAYLOAD_SZ * total_msgs_sent;
     tw_stime time_in_seconds_sent = ns_to_s(s->end_ts - s->start_ts);
 
-    printf("Sever LPID:%llu svr_id:%d sent %d bytes in %f seconds, PINGs Sent: %d; PONGs Received: %d; PINGs Received: %d; PONGs Sent %d; Payload Sum: %d\n", (unsigned long long)lp->gid, s->svr_id, total_msg_size_sent,
-        time_in_seconds_sent, s->ping_msg_sent_count, s->pong_msg_recvd_count, s->ping_msg_recvd_count, s->pong_msg_sent_count, s->payload_sum);
+    printf("Sever LPID:%lu svr_id:%lu sent %d bytes in %f seconds, PINGs Sent: %d; PONGs Received: %d; PINGs Received: %d; PONGs Sent %d; Payload Sum: %d\n",
+            (unsigned long)lp->gid, (unsigned long)s->svr_id, total_msg_size_sent,
+            time_in_seconds_sent, s->ping_msg_sent_count, s->pong_msg_recvd_count, s->ping_msg_recvd_count, s->pong_msg_sent_count, s->payload_sum);
 }
 
 static void svr_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
