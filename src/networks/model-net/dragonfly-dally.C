@@ -181,6 +181,9 @@ static char router_sample_file[MAX_NAME_LENGTH];
 //don't do overhead here - job of MPI layer
 static tw_stime mpi_soft_overhead = 0;
 
+// Parameters to tune surrogate mode
+static bool g_is_surrogate_on = false;
+
 typedef struct terminal_dally_message_list terminal_dally_message_list;
 struct terminal_dally_message_list {
     terminal_dally_message msg;
@@ -2776,14 +2779,15 @@ void terminal_dally_commit(terminal_state * s,
         }
     }
 
-    if(msg->type == T_NOTIFY_TOTAL_LATENCY)
+    if(!g_is_surrogate_on && msg->type == T_NOTIFY_TOTAL_LATENCY)
     {
         assert(lp->gid == msg->src_terminal_id);
         assert(s->terminal_id == msg->dfdally_src_terminal_id);
+        // TODO(helq): assert that msg->packet_ID to be present in s->sent_packets
+
         s->sent_packets_latency.push({
                 .packet_ID = msg->packet_ID,
                 .travel_end_time = msg->travel_end_time});
-
         process_packet_latencies(s);
     }
 }
@@ -3274,6 +3278,109 @@ static tw_stime dragonfly_dally_packet_event(
 	   //printf("\n dragonfly remote event %d local event %d last packet %d %lf ", msg->remote_event_size_bytes, msg->local_event_size_bytes, is_last_pckt, xfer_to_nic_time);
     tw_event_send(e_new);
     return xfer_to_nic_time;
+}
+
+static double predict_latency(unsigned long src_terminal, unsigned long dest_terminal) {
+    // source and destination share the same router
+    if (src_terminal / 2 == dest_terminal / 2) {
+        return 2108.74;
+    } 
+    // source and destination are in the same group
+    else if (src_terminal / 8 == dest_terminal / 8) {
+        return 2390.13;
+    }
+    // source and destination are in different groups
+    else {
+        return 4162.77;
+    }
+}
+
+static void packet_generate_predicted_rc(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
+{
+    struct mn_stats * stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+    stat->send_count--;
+    stat->send_bytes -= msg->packet_size;
+    stat->send_time -= (1/s->params->cn_bandwidth) * msg->packet_size;
+
+    s->packet_counter--;
+    s->total_gen_size -= msg->packet_size;
+    s->packet_gen--;
+    packet_gen--;
+}
+
+/* generates packet at the current dragonfly compute node */
+static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) {
+    packet_gen++;
+    s->packet_gen++;
+    s->total_gen_size += msg->packet_size;
+
+    assert(lp->gid != msg->dest_terminal_lpid);
+    const dragonfly_param *p = s->params;
+
+    msg->packet_ID = s->packet_counter;
+    s->packet_counter++;
+
+    // these actually don't matter because we are bypassing the network
+    msg->my_N_hop = -1;
+    msg->my_l_hop = -1;
+    msg->my_g_hop = -1;
+    msg->my_hops_cur_group = -1;
+
+    // determining injection delay
+    tw_stime injection_ts;
+    double bandwidth_coef = 1;
+    if (g_congestion_control_enabled) {
+        if (cc_terminal_is_abatement_active(s->local_congestion_controller)) {
+            bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
+        }
+        injection_ts = bytes_to_ns(msg->packet_size, bandwidth_coef * s->params->cn_bandwidth);
+    }
+    else {
+        injection_ts = bytes_to_ns(msg->packet_size, s->params->cn_bandwidth);
+    }
+    tw_stime const nic_ts = injection_ts;
+
+    // Scheduling idle event to allow next message to be sent
+    bool const is_from_remote = false;
+    model_net_method_idle_event2(nic_ts, is_from_remote, msg->rail_id, lp);
+
+    // Sending packet directly to destination terminal
+    tw_stime const ts = 0;
+    terminal_dally_message * m;
+    void * remote_event;
+    void const * const m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
+    tw_event * const e = model_net_method_event_new(
+            msg->dest_terminal_lpid, predict_latency(lp->gid, msg->dfdally_dest_terminal_id),
+            lp, DRAGONFLY_DALLY, (void**)&m, &remote_event);
+    memcpy(m, msg, sizeof(terminal_dally_message));
+    if (msg->remote_event_size_bytes) {
+        memcpy(remote_event, m_data_src, msg->remote_event_size_bytes);
+    }
+    m->magic = terminal_magic_num;
+    m->type = T_ARRIVE;
+    m->src_terminal_id = lp->gid;
+    m->dfdally_src_terminal_id = s->terminal_id; //m->travel_start_time = tw_now(lp);
+    //m->rail_id = msg->rail_id;
+    //m->vc_index = vcg;
+    // m->last_hop = TERMINAL;
+    m->path_type = -1;
+    m->local_event_size_bytes = 0;
+    m->is_intm_visited = 0;
+    m->intm_grp_id = -1;
+    m->intm_rtr_id = -1; //for legacy prog-adaptive
+    tw_event_send(e);
+
+    const int total_event_size = model_net_get_msg_sz(DRAGONFLY_DALLY)
+        + msg->remote_event_size_bytes + msg->local_event_size_bytes;
+    mn_stats* stat;
+    stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+    stat->send_count++;
+    stat->send_bytes += msg->packet_size;
+    stat->send_time += (1/p->cn_bandwidth) * msg->packet_size;
+    if(stat->max_event_size < total_event_size)
+        stat->max_event_size = total_event_size;
+
+    return;
 }
 
 static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
@@ -4323,7 +4430,9 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
         
         //assert(tmp->remote_event_data && tmp->remote_event_size > 0);
         if(tmp->remote_event_data && tmp->remote_event_size > 0) {
-            send_total_delay_from_src_lp(s, msg, lp, bf);
+            if (!g_is_surrogate_on) {
+                send_total_delay_from_src_lp(s, msg, lp, bf);
+            }
             send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
         }
         /* Remove the hash entry */
@@ -5465,11 +5574,20 @@ terminal_dally_event( terminal_state * s,
     switch(msg->type)
         {
         case T_GENERATE:
-            packet_generate(s,bf,msg,lp);
+            if (g_is_surrogate_on) {
+                packet_generate_predicted(s,bf,msg,lp);
+            } else {
+                packet_generate(s,bf,msg,lp);
+            }
         break;
         
         case T_ARRIVE:
-            packet_arrive(s,bf,msg,lp);
+            if (g_is_surrogate_on) {
+                void * m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
+                send_remote_event(s, msg, lp, bf, (char *) m_data_src, msg->remote_event_size_bytes);
+            } else {
+                packet_arrive(s,bf,msg,lp);
+            }
         break;
         
         case T_SEND:
@@ -5555,7 +5673,11 @@ void terminal_dally_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_da
     switch(msg->type)
     {
         case T_GENERATE:
-            packet_generate_rc(s, bf, msg, lp); 
+            if (g_is_surrogate_on) {
+                packet_generate_predicted_rc(s,bf,msg,lp);
+            } else {
+                packet_generate_rc(s, bf, msg, lp); 
+            }
             break;
 
         case T_SEND:
