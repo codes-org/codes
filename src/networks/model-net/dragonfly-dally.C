@@ -46,7 +46,6 @@
 #define DFLY_HASH_TABLE_SIZE 4999
 // debugging parameters
 #define BW_MONITOR 1
-#define DEBUG_LP 892
 #define T_ID -1
 #define TRACK -1
 #define TRACK_PKT -1
@@ -88,7 +87,6 @@ static int max_global_hops_minimal = 1;
 static long num_local_packets_sr = 0;
 static long num_local_packets_sg = 0;
 static long num_remote_packets = 0;
-static FILE * stats_file;
 
 static long global_stalled_chunk_counter = 0;
 
@@ -182,6 +180,8 @@ static char router_sample_file[MAX_NAME_LENGTH];
 static tw_stime mpi_soft_overhead = 0;
 
 // Parameters to tune surrogate mode
+static bool is_terminal_to_terminal_latency_on = false;
+static FILE * terminal_to_terminal_latency_f = NULL;
 static bool g_is_surrogate_on = false;
 
 typedef struct terminal_dally_message_list terminal_dally_message_list;
@@ -2219,13 +2219,15 @@ void dragonfly_dally_configure() {
 	model_net_topology = dragonfly_dally_cortex_topology;
 #endif
 
-    char const fmt[] = "packets-delay-gid=%lu.txt";
-    int sz = snprintf(NULL, 0, fmt, g_tw_mynode);
-    char filename_path[sz + 1]; // `+ 1` for terminating null byte
-    snprintf(filename_path, sizeof(filename_path), fmt, g_tw_mynode);
-    stats_file = fopen(filename_path, "w+");
-    if(!stats_file) {
-        tw_error(TW_LOC, "File %s could not be opened", filename_path);
+    if (is_terminal_to_terminal_latency_on) {
+        char const fmt[] = "packets-delay-gid=%lu.txt";
+        int sz = snprintf(NULL, 0, fmt, g_tw_mynode);
+        char filename_path[sz + 1]; // `+ 1` for terminating null byte
+        snprintf(filename_path, sizeof(filename_path), fmt, g_tw_mynode);
+        terminal_to_terminal_latency_f = fopen(filename_path, "w+");
+        if(!terminal_to_terminal_latency_f) {
+            tw_error(TW_LOC, "File %s could not be opened", filename_path);
+        }
     }
 }
 
@@ -2261,7 +2263,9 @@ void dragonfly_dally_report_stats()
     // long long total_stalled_chunks; //helpful for debugging and determinism checking
     // MPI_Reduce( &global_stalled_chunk_counter, &total_stalled_chunks, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
 
-    fclose(stats_file);
+    if (is_terminal_to_terminal_latency_on) {
+        fclose(terminal_to_terminal_latency_f);
+    }
     /* print statistics */
     if(!g_tw_mynode)
     {	
@@ -2681,9 +2685,11 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
 static void packet_latency_save_to_file(unsigned int terminal_id, struct packet_start start, struct packet_end end)
 {
     assert(start.packet_ID == end.packet_ID);
-    fprintf(stats_file, "%u,%u,%llu,%f,%f,%f\n",
-            terminal_id, start.dfdally_dest_terminal_id, start.packet_ID,
-            start.travel_start_time, end.travel_end_time, end.travel_end_time - start.travel_start_time);
+    if (is_terminal_to_terminal_latency_on) {
+        fprintf(terminal_to_terminal_latency_f, "%u,%u,%lu,%f,%f,%f\n",
+                terminal_id, start.dfdally_dest_terminal_id, start.packet_ID,
+                start.travel_start_time, end.travel_end_time, end.travel_end_time - start.travel_start_time);
+    }
 }
 
 static void process_packet_latencies(terminal_state * s)
@@ -3665,7 +3671,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     msg->my_hops_cur_group = 0;
 
     // Storing packet info to be sent. Once packets arrive back, we can compute
-    // the latency of sending them
+    // the latency of sending the packet
     s->sent_packets.push_back({
         .packet_ID = msg->packet_ID,
         .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
@@ -3988,10 +3994,12 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     tw_event_send(e);
 
 
+#if DEBUG == 1
     if(cur_entry->msg.packet_ID == LLU(TRACK_PKT) && lp->gid == T_ID)
         printf("\n Packet %llu generated at terminal %d dest %llu size %llu num chunks %llu router-id %d %llu", 
                 cur_entry->msg.packet_ID, s->terminal_id, LLU(cur_entry->msg.dest_terminal_lpid),
                 LLU(cur_entry->msg.packet_size), LLU(num_chunks), s->router_id[msg->rail_id], LLU(router_id));
+#endif
 
     if(cur_entry->msg.chunk_id == num_chunks - 1 && (cur_entry->msg.local_event_size_bytes > 0)) 
     {
@@ -4057,7 +4065,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     return;
 }
 
-static void send_total_delay_from_src_lp(terminal_state * s, terminal_dally_message * msg, tw_lp * lp, tw_bf * bf)
+static void notify_src_lp_on_total_latency(terminal_state * s, terminal_dally_message * msg, tw_lp * lp, tw_bf * bf)
 {
     terminal_dally_message * new_msg;
     tw_event *e = model_net_method_event_new(
@@ -4098,6 +4106,79 @@ static void send_remote_event(terminal_state * s, terminal_dally_message * msg, 
         tw_event_send(e); 
     }
     return;
+}
+
+static void packet_arrive_predicted_rc(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
+{
+    if(bf->c4) {
+        model_net_event_rc2(lp, &msg->event_rc);
+    }
+
+    s->finished_msgs--;
+    s->total_msg_size -= msg->total_size;
+    total_msg_sz -= msg->total_size;
+    N_finished_msgs--;
+    s->data_size_ross_sample -= msg->total_size;
+    s->ross_sample.data_size_sample -= msg->total_size;
+    s->data_size_sample -= msg->total_size;
+
+    s->finished_packets--;
+    N_finished_packets--;
+    
+    mn_stats * stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+
+    stat->recv_bytes -= msg->packet_size;
+    stat->recv_count--;
+
+    stat->recv_time = msg->saved_rcv_time;
+
+    packet_fin--;
+    s->packet_fin--;
+}
+
+/* packet arrives at the destination terminal */
+static void packet_arrive_predicted(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) 
+{
+    assert(lp->gid == msg->dest_terminal_lpid);
+    /* WE do not allow self messages through dragonfly */
+    assert(lp->gid != msg->src_terminal_id);
+
+#if DEBUG == 1
+    if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
+        printf("\n Packet %llu arrived at lp %llu hops %d ", LLU(msg->sender_lp), LLU(lp->gid), msg->my_N_hop);
+#endif
+    
+    s->packet_fin++;
+    packet_fin++;
+
+    //record for commit_f file IO
+    msg->travel_end_time = tw_now(lp);
+    tw_stime ete_latency = msg->travel_end_time - msg->travel_start_time;
+
+    mn_stats* stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+    msg->saved_rcv_time = stat->recv_time;
+    stat->recv_time += ete_latency;
+
+    void * m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
+
+    stat->recv_count++;
+    stat->recv_bytes += msg->packet_size;
+
+    N_finished_packets++;
+    s->finished_packets++;
+
+    s->data_size_sample += msg->total_size;
+    s->ross_sample.data_size_sample += msg->total_size;
+    s->data_size_ross_sample += msg->total_size;
+    N_finished_msgs++;
+    total_msg_sz += msg->total_size;
+    s->total_msg_size += msg->total_size;
+    s->finished_msgs++;
+    
+    // This should always be true. It sends the message to the server/workload or communicates to the model-net layer
+    if(m_data_src && msg->remote_event_size_bytes > 0) {
+        send_remote_event(s, msg, lp, bf, (char *) m_data_src, msg->remote_event_size_bytes);
+    }
 }
 
 static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
@@ -4262,8 +4343,10 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     }*/
     assert(lp->gid == msg->dest_terminal_lpid);
 
+#if DEBUG == 1
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
         printf("\n Packet %llu arrived at lp %llu hops %d ", LLU(msg->sender_lp), LLU(lp->gid), msg->my_N_hop);
+#endif
     
     tw_stime ts = s->params->cn_credit_delay;
 
@@ -4431,7 +4514,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
         //assert(tmp->remote_event_data && tmp->remote_event_size > 0);
         if(tmp->remote_event_data && tmp->remote_event_size > 0) {
             if (!g_is_surrogate_on) {
-                send_total_delay_from_src_lp(s, msg, lp, bf);
+                notify_src_lp_on_total_latency(s, msg, lp, bf);
             }
             send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
         }
@@ -5113,8 +5196,10 @@ static void router_packet_receive( router_state * s,
         tw_error(TW_LOC, "\n Output channel %d great than available VCs %d", output_chan, s->params->num_vcs - 1);
                 //cur_chunk->msg.packet_ID, output_chan, output_port, s->router_id, dest_router_id, cur_chunk->msg.path_type, src_grp_id, dest_grp_id, msg->src_terminal_id);
 
+#if DEBUG == 1
     if(cur_chunk->msg.packet_ID == LLU(TRACK_PKT) && cur_chunk->msg.src_terminal_id == T_ID)
             printf("\n Packet %llu arrived at router %u next stop %d final stop %d local hops %d global hops %d", cur_chunk->msg.packet_ID, s->router_id, next_stop, dest_router_id, cur_chunk->msg.my_l_hop, cur_chunk->msg.my_g_hop);
+#endif
 
     if(msg->remote_event_size_bytes > 0) {
         void *m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY_ROUTER, msg);
@@ -5413,8 +5498,10 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
 
     s->total_chunks[output_port]++;
 
+#if DEBUG == 1
     if(cur_entry->msg.packet_ID == LLU(TRACK_PKT) && cur_entry->msg.src_terminal_id == T_ID)
         printf("\n Queuing at the router %d ", s->router_id);
+#endif
 
     m->rail_id = msg->rail_id;
 
@@ -5575,16 +5662,17 @@ terminal_dally_event( terminal_state * s,
         {
         case T_GENERATE:
             if (g_is_surrogate_on) {
+                msg->is_predicted = true;
                 packet_generate_predicted(s,bf,msg,lp);
             } else {
+                msg->is_predicted = false;
                 packet_generate(s,bf,msg,lp);
             }
         break;
         
         case T_ARRIVE:
-            if (g_is_surrogate_on) {
-                void * m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
-                send_remote_event(s, msg, lp, bf, (char *) m_data_src, msg->remote_event_size_bytes);
+            if (msg->is_predicted) {
+                packet_arrive_predicted(s,bf,msg,lp);
             } else {
                 packet_arrive(s,bf,msg,lp);
             }
@@ -5685,7 +5773,11 @@ void terminal_dally_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_da
             break;
 
         case T_ARRIVE:
-            packet_arrive_rc(s, bf, msg, lp);
+            if (g_is_surrogate_on) {
+                packet_arrive_predicted_rc(s, bf, msg, lp);
+            } else {
+                packet_arrive_rc(s, bf, msg, lp);
+            }
             break;
 
         case T_BUFFER:
@@ -6528,8 +6620,10 @@ static tw_lpid get_next_stop_legacy(router_state *s, tw_lp *lp, tw_bf *bf, termi
         codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, next_stop / num_routers_per_mgrp,
             next_stop % num_routers_per_mgrp, &router_dest_id);
     
+#if DEBUG == 1
         if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
                 printf("\n Next stop is %d ", next_stop);
+#endif
         
         return router_dest_id;
     }
@@ -6586,8 +6680,10 @@ static tw_lpid get_next_stop_legacy(router_state *s, tw_lp *lp, tw_bf *bf, termi
         dest_lp = dests;
     }
 
+#if DEBUG == 1
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
         printf("\n Next stop is %d ", dest_lp);
+#endif
     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_lp / num_routers_per_mgrp,
         dest_lp % num_routers_per_mgrp, &router_dest_id);
 
@@ -6993,8 +7089,10 @@ static Connection dfdally_prog_adaptive_legacy_routing(router_state *s, tw_bf *b
   
     next_stop = get_next_stop_legacy(s, lp, bf, msg, dest_router_id, adap_chan, do_chan_selection, get_direct_con, &(msg->num_rngs));
 
+#if DEBUG == 1
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
         printf("\n Packet %llu arrived at router %u next stop %d final stop %d local hops %d global hops %d", msg->packet_ID, s->router_id, next_stop, dest_router_id, msg->my_l_hop, msg->my_g_hop);
+#endif
 
     output_port = get_output_port_legacy(s, msg, lp, bf, next_stop, &(msg->num_rngs)); 
     assert(output_port >= 0);

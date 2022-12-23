@@ -12,6 +12,7 @@ extern "C" {
 #endif
 
 #include <ross.h>
+#include <stdbool.h>
 
 typedef struct terminal_dally_message terminal_dally_message;
 
@@ -92,7 +93,7 @@ struct terminal_dally_message
    int path_type;
    int saved_app_id;
 
-   /* for reverse computation */   
+   /* for reverse computation */
    short num_rngs;
    short num_cll;
 
@@ -112,12 +113,15 @@ struct terminal_dally_message
    tw_stime saved_min_lat;
    tw_stime saved_avg_time;
    tw_stime saved_rcv_time;
-   tw_stime saved_busy_time; 
+   tw_stime saved_busy_time;
    tw_stime saved_total_time;
    tw_stime saved_sample_time;
    tw_stime msg_start_time;
    tw_stime saved_busy_time_ross;
    tw_stime saved_fin_chunks_ross;
+
+   /* If we predict the latency from terminal to terminal of a packet, the event should be processed by the corresponding `_predicted` event handler */
+   bool is_predicted; // the event has been processed on surrogate mode ON
 };
 
 #ifdef __cplusplus
