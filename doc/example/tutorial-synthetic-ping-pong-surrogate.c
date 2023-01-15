@@ -6,6 +6,8 @@
 
 #include "codes/model-net.h"
 #include "codes/codes_mapping.h"
+#include "codes/surrogate.h"
+#include "codes/net/dragonfly-dally.h"
 
 
 static int net_id = 0;
@@ -94,6 +96,63 @@ static void svr_add_lp_type()
 {
   lp_type_register("nw-lp", svr_get_lp_type());
 }
+
+// === START OF surrogate functions
+//
+static double predict_latency(void * data, tw_lp * lp, unsigned int src_terminal, struct packet_start packet_dest) {
+    (void) data;
+    (void) lp;
+
+    unsigned int dest_terminal = packet_dest.dfdally_dest_terminal_id;
+
+    // source and destination share the same router
+    if (src_terminal / 2 == dest_terminal / 2) {
+        return 2108.74;
+    }
+    // source and destination are in the same group
+    else if (src_terminal / 8 == dest_terminal / 8) {
+        return 2390.13;
+    }
+    // source and destination are in different groups
+    else {
+        return 4162.77;
+    }
+}
+
+static void init_pred(void * data, tw_lp * lp, unsigned int src_terminal) {
+    (void) data;
+    (void) lp;
+    (void) src_terminal;
+}
+
+static void feed_pred(void * data, tw_lp * lp, unsigned int src_terminal, struct packet_start start, struct packet_end end) {
+    (void) data;
+    (void) lp;
+    (void) src_terminal;
+    (void) start;
+    (void) end;
+}
+
+static void predict_latency_rc(void * data, tw_lp * lp) {
+    (void) data;
+    (void) lp;
+}
+
+
+struct packet_latency_predictor latency_predictor = {
+    .init              = init_pred,
+    .feed              = feed_pred,
+    .predict           = predict_latency,
+    .predict_rc        = predict_latency_rc,
+    .predictor_data_sz = 0
+};
+
+void director_init(struct director_data self) {
+    assert(! self.is_surrogate_on());
+    self.switch_surrogate();
+}
+//
+// === END OF surrogate functions
 
 static void svr_init(svr_state * s, tw_lp * lp)
 {
@@ -301,6 +360,12 @@ int main(int argc, char **argv)
     tw_init(&argc, &argv);
 
     codes_comm_update();
+
+    dragonfly_dally_save_packet_latency_to_file("pingpong");
+    //dragonfly_dally_surrogate_configure((struct dragonfly_dally_surrogate_configure_st){
+    //    .director_init = director_init,
+    //    .latency_predictor = &latency_predictor
+    //});
 
     if(argc < 2)
     {

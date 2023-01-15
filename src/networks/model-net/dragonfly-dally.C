@@ -19,9 +19,9 @@
 #include "codes/jenkins-hash.h"
 #include "codes/codes_mapping.h"
 #include "codes/codes.h"
-#include "codes/model-net.h"
 #include "codes/model-net-method.h"
 #include "codes/model-net-lp.h"
+#include "codes/surrogate.h"
 #include "codes/net/dragonfly-dally.h"
 #include "sys/file.h"
 #include "codes/quickhash.h"
@@ -32,6 +32,8 @@
 #include <algorithm>
 #include <queue>
 #include <deque>
+#include <errno.h>
+#include <sys/stat.h>
 
 #include "codes/network-manager/dragonfly-network-manager.h"
 #include "codes/congestion-controller-model.h"
@@ -176,13 +178,19 @@ static int sample_rtr_bytes_written = 0;
 static char cn_sample_file[MAX_NAME_LENGTH];
 static char router_sample_file[MAX_NAME_LENGTH];
 
-//don't do overhead here - job of MPI layer
-static tw_stime mpi_soft_overhead = 0;
+// File to store packet latency from terminal-to-terminal
+// NOTE: Only non-predicted latencies are saved to file
+static FILE * packet_latency_f = NULL;
 
-// Parameters to tune surrogate mode
-static bool is_terminal_to_terminal_latency_on = false;
-static FILE * terminal_to_terminal_latency_f = NULL;
-static bool g_is_surrogate_on = false;
+// ==== START OF Parameters to tune surrogate mode ====
+// 
+static bool surrogate_configured = false;
+static bool is_surrogate_on = false;
+static struct packet_latency_predictor * terminal_predictor = NULL;
+static void switch_surrogate(void);
+static bool is_surrogate_on_fun(void);
+//
+// ==== END OF Parameters to tune surrogate mode ====
 
 typedef struct terminal_dally_message_list terminal_dally_message_list;
 struct terminal_dally_message_list {
@@ -444,20 +452,12 @@ static bool isRoutingNonminimalExplicit(int alg)
         return false;
 }
 
-struct packet_start {
-    uint64_t packet_ID;
-    // tw_lpid dest_terminal_id;  // ROSS id; LPID for terminal
-    unsigned int dfdally_dest_terminal_id; // number in [0, total terminals)
-    double travel_start_time;
-};
-
-struct packet_end {
-    uint64_t packet_ID;
-    double travel_end_time;
-};
+/**
+ * Surrogate definitions and data
+ */
 
 // Comparison function object to use in min-heap of packet_end's
-struct {
+static struct {
     bool operator() (struct packet_end const l, struct packet_end const r) const {
         return l.packet_ID > r.packet_ID;
     }
@@ -568,6 +568,9 @@ struct terminal_state
     // arrive faster than others, so a list like the one above is not feasible
     // to store in order efficiently their arrival)
     priority_queue<struct packet_end, vector<struct packet_end>, decltype(packet_end_greater_cmp)> sent_packets_latency;
+
+    // Predictor data
+    void * predictor_data;
 };
 
 struct router_state
@@ -2219,15 +2222,48 @@ void dragonfly_dally_configure() {
 	model_net_topology = dragonfly_dally_cortex_topology;
 #endif
 
-    if (is_terminal_to_terminal_latency_on) {
-        char const fmt[] = "packets-delay-gid=%lu.txt";
-        int sz = snprintf(NULL, 0, fmt, g_tw_mynode);
-        char filename_path[sz + 1]; // `+ 1` for terminating null byte
-        snprintf(filename_path, sizeof(filename_path), fmt, g_tw_mynode);
-        terminal_to_terminal_latency_f = fopen(filename_path, "w+");
-        if(!terminal_to_terminal_latency_f) {
-            tw_error(TW_LOC, "File %s could not be opened", filename_path);
+}
+
+void dragonfly_dally_surrogate_configure(
+        struct dragonfly_dally_surrogate_configure_st conf) {
+
+    assert(conf.director_init != NULL);
+    assert(conf.latency_predictor != NULL);
+    assert(conf.latency_predictor->init != NULL);
+    assert(conf.latency_predictor->feed != NULL);
+    assert(conf.latency_predictor->predict != NULL);
+    assert(conf.latency_predictor->predict_rc != NULL);
+    assert(! surrogate_configured);
+
+    conf.director_init({
+        .switch_surrogate = switch_surrogate,
+        .is_surrogate_on = is_surrogate_on_fun});
+    terminal_predictor = conf.latency_predictor;
+    
+    surrogate_configured = true;
+}
+
+void dragonfly_dally_save_packet_latency_to_file(char * dir_to_save) {
+    assert(packet_latency_f == NULL);
+    // checking 
+    int const NO_ERROR = 0;
+    struct stat st;
+    memset(&st, 0, sizeof(struct stat));
+    if(g_tw_mynode == 0 && stat(dir_to_save, &st) == -1) {
+        int res = mkdir(dir_to_save, 0700);
+        if (res != NO_ERROR) {
+            tw_error(TW_LOC, "Error (%d) occurred when attempting to mkdir folder `%s`", errno, dir_to_save);
         }
+    }
+    MPI_Barrier(MPI_COMM_CODES);
+
+    char const fmt[] = "%s/packets-delay-gid=%lu.txt";
+    int sz = snprintf(NULL, 0, fmt, dir_to_save, g_tw_mynode);
+    char filename_path[sz + 1]; // `+ 1` for terminating null byte
+    snprintf(filename_path, sizeof(filename_path), fmt, dir_to_save, g_tw_mynode);
+    packet_latency_f = fopen(filename_path, "w+");
+    if(!packet_latency_f) {
+        tw_error(TW_LOC, "File %s could not be opened", filename_path);
     }
 }
 
@@ -2263,8 +2299,8 @@ void dragonfly_dally_report_stats()
     // long long total_stalled_chunks; //helpful for debugging and determinism checking
     // MPI_Reduce( &global_stalled_chunk_counter, &total_stalled_chunks, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
 
-    if (is_terminal_to_terminal_latency_on) {
-        fclose(terminal_to_terminal_latency_f);
+    if (packet_latency_f) {
+        fclose(packet_latency_f);
     }
     /* print statistics */
     if(!g_tw_mynode)
@@ -2685,24 +2721,42 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
 static void packet_latency_save_to_file(unsigned int terminal_id, struct packet_start start, struct packet_end end)
 {
     assert(start.packet_ID == end.packet_ID);
-    if (is_terminal_to_terminal_latency_on) {
-        fprintf(terminal_to_terminal_latency_f, "%u,%u,%lu,%f,%f,%f\n",
-                terminal_id, start.dfdally_dest_terminal_id, start.packet_ID,
-                start.travel_start_time, end.travel_end_time, end.travel_end_time - start.travel_start_time);
-    }
+    fprintf(packet_latency_f, "%u,%u,%lu,%f,%f,%f\n",
+            terminal_id, start.dfdally_dest_terminal_id, start.packet_ID,
+            start.travel_start_time, end.travel_end_time, end.travel_end_time - start.travel_start_time);
 }
 
-static void process_packet_latencies(terminal_state * s)
+// ==== START OF Surrogate functions definition ====
+
+static void switch_surrogate(void) {
+    is_surrogate_on = ! is_surrogate_on;
+    // TODO: `sent_packets` and `sent_packets_latency` have to be cleaned on switches. This won't be an apparent problem until switching to and from surrogate mode happens in a very short amount of time
+}
+
+static bool is_surrogate_on_fun(void) {
+    return is_surrogate_on;
+}
+
+// Goes through all received packet latencies and process them in order in which they were sent through the network
+static void process_packet_latencies(terminal_state * s, tw_lp * lp)
 {
     while( !s->sent_packets.empty()
         && !s->sent_packets_latency.empty()
         && s->sent_packets.front().packet_ID == s->sent_packets_latency.top().packet_ID)
     {
-        packet_latency_save_to_file(s->terminal_id, s->sent_packets.front(), s->sent_packets_latency.top());
+        if (packet_latency_f) {
+            packet_latency_save_to_file(s->terminal_id, s->sent_packets.front(), s->sent_packets_latency.top());
+        }
+        if (surrogate_configured && !is_surrogate_on) {
+            assert(terminal_predictor != NULL);
+            terminal_predictor->feed(s->predictor_data, lp, s->terminal_id, s->sent_packets.front(), s->sent_packets_latency.top());
+        }
         s->sent_packets.pop_front();
         s->sent_packets_latency.pop();
     }
 }
+//
+// ==== END OF Surrogate functions definition ====
 
 //Snapshot pattern
 //Sends a snapshot event - this wakes the router at the specified time to store its data somewhere
@@ -2785,7 +2839,7 @@ void terminal_dally_commit(terminal_state * s,
         }
     }
 
-    if(!g_is_surrogate_on && msg->type == T_NOTIFY_TOTAL_LATENCY)
+    if(msg->type == T_NOTIFY_TOTAL_LATENCY)
     {
         assert(lp->gid == msg->src_terminal_id);
         assert(s->terminal_id == msg->dfdally_src_terminal_id);
@@ -2794,7 +2848,7 @@ void terminal_dally_commit(terminal_state * s,
         s->sent_packets_latency.push({
                 .packet_ID = msg->packet_ID,
                 .travel_end_time = msg->travel_end_time});
-        process_packet_latencies(s);
+        process_packet_latencies(s, lp);
     }
 }
 
@@ -3006,6 +3060,14 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
     // (see https://en.cppreference.com/w/cpp/memory/construct_at)
     new (&s->sent_packets) deque<struct packet_start>();
     new (&s->sent_packets_latency) priority_queue<struct packet_end, vector<struct packet_end>, decltype(packet_end_greater_cmp)>();
+
+    // alloc'ing memory for predictor, calling initiliazer for predictor
+    if (terminal_predictor != NULL && terminal_predictor->predictor_data_sz > 0) {
+        s->predictor_data = calloc(1, sizeof terminal_predictor->predictor_data_sz);
+        terminal_predictor->init(s->predictor_data, lp, s->terminal_id);
+    } else {
+        s->predictor_data = NULL;
+    }
     return;
 }
 
@@ -3286,27 +3348,14 @@ static tw_stime dragonfly_dally_packet_event(
     return xfer_to_nic_time;
 }
 
-static double predict_latency(unsigned long src_terminal, unsigned long dest_terminal) {
-    // source and destination share the same router
-    if (src_terminal / 2 == dest_terminal / 2) {
-        return 2108.74;
-    } 
-    // source and destination are in the same group
-    else if (src_terminal / 8 == dest_terminal / 8) {
-        return 2390.13;
-    }
-    // source and destination are in different groups
-    else {
-        return 4162.77;
-    }
-}
-
 static void packet_generate_predicted_rc(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
 {
     struct mn_stats * stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
     stat->send_count--;
     stat->send_bytes -= msg->packet_size;
     stat->send_time -= (1/s->params->cn_bandwidth) * msg->packet_size;
+
+    terminal_predictor->predict_rc(s->predictor_data, lp);
 
     s->packet_counter--;
     s->total_gen_size -= msg->packet_size;
@@ -3350,14 +3399,21 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
     bool const is_from_remote = false;
     model_net_method_idle_event2(nic_ts, is_from_remote, msg->rail_id, lp);
 
+    // Using predictor to find latency
+    double const latency = 
+        terminal_predictor->predict(s->predictor_data, lp, s->terminal_id,
+          {.packet_ID = msg->packet_ID,
+           .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
+           .travel_start_time = tw_now(lp)
+          });
+
     // Sending packet directly to destination terminal
     tw_stime const ts = 0;
     terminal_dally_message * m;
     void * remote_event;
     void const * const m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
     tw_event * const e = model_net_method_event_new(
-            msg->dest_terminal_lpid, predict_latency(lp->gid, msg->dfdally_dest_terminal_id),
-            lp, DRAGONFLY_DALLY, (void**)&m, &remote_event);
+            msg->dest_terminal_lpid, latency, lp, DRAGONFLY_DALLY, (void**)&m, &remote_event);
     memcpy(m, msg, sizeof(terminal_dally_message));
     if (msg->remote_event_size_bytes) {
         memcpy(remote_event, m_data_src, msg->remote_event_size_bytes);
@@ -4513,7 +4569,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
         
         //assert(tmp->remote_event_data && tmp->remote_event_size > 0);
         if(tmp->remote_event_data && tmp->remote_event_size > 0) {
-            if (!g_is_surrogate_on) {
+            if (packet_latency_f || surrogate_configured) {
                 notify_src_lp_on_total_latency(s, msg, lp, bf);
             }
             send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
@@ -4668,6 +4724,10 @@ dragonfly_dally_terminal_final( terminal_state * s,
     // it doesn't need to be freed
     s->sent_packets.~deque();
     s->sent_packets_latency.~priority_queue();
+
+    if (s->predictor_data) {
+        free(s->predictor_data);
+    }
 }
 
 void dragonfly_dally_router_final(router_state * s, tw_lp * lp){
@@ -5661,7 +5721,7 @@ terminal_dally_event( terminal_state * s,
     switch(msg->type)
         {
         case T_GENERATE:
-            if (g_is_surrogate_on) {
+            if (is_surrogate_on) {
                 msg->is_predicted = true;
                 packet_generate_predicted(s,bf,msg,lp);
             } else {
@@ -5761,7 +5821,7 @@ void terminal_dally_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_da
     switch(msg->type)
     {
         case T_GENERATE:
-            if (g_is_surrogate_on) {
+            if (msg->is_predicted) {
                 packet_generate_predicted_rc(s,bf,msg,lp);
             } else {
                 packet_generate_rc(s, bf, msg, lp); 
@@ -5773,7 +5833,7 @@ void terminal_dally_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_da
             break;
 
         case T_ARRIVE:
-            if (g_is_surrogate_on) {
+            if (msg->is_predicted) {
                 packet_arrive_predicted_rc(s, bf, msg, lp);
             } else {
                 packet_arrive_rc(s, bf, msg, lp);

@@ -1,6 +1,7 @@
 set(example-files
     example
     tutorial-synthetic-ping-pong
+    tutorial-synthetic-ping-pong-surrogate
     )
 
 foreach(namefile ${example-files})

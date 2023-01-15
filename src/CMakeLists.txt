@@ -54,6 +54,7 @@ list(APPEND SRCS
   	util/codes-comm.c
     util/rc-stack.c
     util/congestion-controller.C
+    util/surrogate.c
 
     iokernellang/codesparser.h
     iokernellang/codesparser.c
