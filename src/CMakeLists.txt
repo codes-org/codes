@@ -185,7 +185,7 @@ endforeach()
 # configure_file(modelconfig/configparser.c ${CMAKE_CURRENT_BINARY_DIR}/modelconfig/configparser.c COPYONLY)
 # configure_file(modelconfig/configparser.h ${CMAKE_CURRENT_BINARY_DIR}/modelconfig/configparser.h COPYONLY)
 
-install(DIRECTORY "${CMAKE_SOURCE_DIR}/codes" DESTINATION "${CMAKE_BINARY_DIR}")
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/codes" DESTINATION include)
 
 install(TARGETS ${CODES_TARGETS} DESTINATION bin)
 

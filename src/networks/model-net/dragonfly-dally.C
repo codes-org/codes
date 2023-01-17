@@ -2228,6 +2228,7 @@ void dragonfly_dally_surrogate_configure(
         struct dragonfly_dally_surrogate_configure_st conf) {
 
     assert(conf.director_init != NULL);
+    assert(conf.director_call != NULL);
     assert(conf.latency_predictor != NULL);
     assert(conf.latency_predictor->init != NULL);
     assert(conf.latency_predictor->feed != NULL);
@@ -2239,11 +2240,12 @@ void dragonfly_dally_surrogate_configure(
         .switch_surrogate = switch_surrogate,
         .is_surrogate_on = is_surrogate_on_fun});
     terminal_predictor = conf.latency_predictor;
+    g_tw_gvt_arbitrary_fun = conf.director_call;
     
     surrogate_configured = true;
 }
 
-void dragonfly_dally_save_packet_latency_to_file(char * dir_to_save) {
+void dragonfly_dally_save_packet_latency_to_file(char const * const dir_to_save) {
     assert(packet_latency_f == NULL);
     // checking 
     int const NO_ERROR = 0;
@@ -2749,7 +2751,8 @@ static void process_packet_latencies(terminal_state * s, tw_lp * lp)
         }
         if (surrogate_configured && !is_surrogate_on) {
             assert(terminal_predictor != NULL);
-            terminal_predictor->feed(s->predictor_data, lp, s->terminal_id, s->sent_packets.front(), s->sent_packets_latency.top());
+            auto end = s->sent_packets_latency.top();
+            terminal_predictor->feed(s->predictor_data, lp, s->terminal_id, &s->sent_packets.front(), &end);
         }
         s->sent_packets.pop_front();
         s->sent_packets_latency.pop();
@@ -3063,7 +3066,7 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
 
     // alloc'ing memory for predictor, calling initiliazer for predictor
     if (terminal_predictor != NULL && terminal_predictor->predictor_data_sz > 0) {
-        s->predictor_data = calloc(1, sizeof terminal_predictor->predictor_data_sz);
+        s->predictor_data = calloc(1, terminal_predictor->predictor_data_sz);
         terminal_predictor->init(s->predictor_data, lp, s->terminal_id);
     } else {
         s->predictor_data = NULL;
@@ -3400,15 +3403,15 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
     model_net_method_idle_event2(nic_ts, is_from_remote, msg->rail_id, lp);
 
     // Using predictor to find latency
-    double const latency = 
-        terminal_predictor->predict(s->predictor_data, lp, s->terminal_id,
-          {.packet_ID = msg->packet_ID,
+    auto start = (struct packet_start) {.packet_ID = msg->packet_ID,
            .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
            .travel_start_time = tw_now(lp)
-          });
+          };
+    double const latency = 
+        terminal_predictor->predict(s->predictor_data, lp, s->terminal_id, &start);
 
     // Sending packet directly to destination terminal
-    tw_stime const ts = 0;
+    //tw_stime const ts = 0;
     terminal_dally_message * m;
     void * remote_event;
     void const * const m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY, msg);

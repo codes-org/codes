@@ -61,6 +61,7 @@ struct svr_state
 static void svr_init(svr_state * s, tw_lp * lp);
 static void svr_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp);
 static void svr_rev_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp);
+static void svr_commit(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp);
 static void svr_finalize(svr_state * s, tw_lp * lp);
 static tw_stime ns_to_s(tw_stime ns);
 static tw_stime s_to_ns(tw_stime s);
@@ -71,7 +72,7 @@ tw_lptype svr_lp = {
     (pre_run_f) NULL,
     (event_f) svr_event,
     (revent_f) svr_rev_event,
-    (commit_f) NULL,
+    (commit_f) svr_commit,
     (final_f)  svr_finalize,
     (map_f) codes_mapping,
     sizeof(svr_state),
@@ -99,12 +100,46 @@ static void svr_add_lp_type()
 
 // === START OF surrogate functions
 //
-static double predict_latency(void * data, tw_lp * lp, unsigned int src_terminal, struct packet_start packet_dest) {
-    (void) data;
+#define N_TERMINALS 72
+struct latency_surrogate {
+    double sum_latency[N_TERMINALS];
+    unsigned int total_msgs[N_TERMINALS];
+};
+
+static void init_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int src_terminal) {
+    (void) lp;
+    (void) src_terminal;
+    assert(data->sum_latency[0] == 0);
+    assert(data->total_msgs[0] == 0);
+}
+
+static void feed_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int src_terminal, struct packet_start * start, struct packet_end * end) {
+    (void) lp;
+    (void) src_terminal;
+
+    unsigned int const dest_terminal = start->dfdally_dest_terminal_id;
+    double const latency = end->travel_end_time - start->travel_start_time;
+    assert(dest_terminal < N_TERMINALS);
+
+    data->sum_latency[dest_terminal] += latency;
+    data->total_msgs[dest_terminal]++;
+}
+
+static double predict_latency(struct latency_surrogate * data, tw_lp * lp, unsigned int src_terminal, struct packet_start * packet_dest) {
     (void) lp;
 
-    unsigned int dest_terminal = packet_dest.dfdally_dest_terminal_id;
+    unsigned int const dest_terminal = packet_dest->dfdally_dest_terminal_id;
+    assert(dest_terminal < N_TERMINALS);
 
+    // In case we have any data to determine the average
+    unsigned int const total_datapoints = data->total_msgs[dest_terminal];
+    if (total_datapoints > 0) {
+        double const sum_latency = data->sum_latency[dest_terminal];
+        return sum_latency / total_datapoints;
+    }
+
+    // Otherwise, use "sensible" results from another simulation
+    // This assumes the network is a 72 nodes 1D-DragonFly (9 groups, with 4 routers, and 2 terminals per router)
     // source and destination share the same router
     if (src_terminal / 2 == dest_terminal / 2) {
         return 2108.74;
@@ -119,37 +154,58 @@ static double predict_latency(void * data, tw_lp * lp, unsigned int src_terminal
     }
 }
 
-static void init_pred(void * data, tw_lp * lp, unsigned int src_terminal) {
-    (void) data;
-    (void) lp;
-    (void) src_terminal;
-}
-
-static void feed_pred(void * data, tw_lp * lp, unsigned int src_terminal, struct packet_start start, struct packet_end end) {
-    (void) data;
-    (void) lp;
-    (void) src_terminal;
-    (void) start;
-    (void) end;
-}
-
-static void predict_latency_rc(void * data, tw_lp * lp) {
+static void predict_latency_rc(struct latency_surrogate * data, tw_lp * lp) {
     (void) data;
     (void) lp;
 }
 
 
 struct packet_latency_predictor latency_predictor = {
-    .init              = init_pred,
-    .feed              = feed_pred,
-    .predict           = predict_latency,
-    .predict_rc        = predict_latency_rc,
-    .predictor_data_sz = 0
+    .init              = (init_pred_f) init_pred,
+    .feed              = (feed_pred_f) feed_pred,
+    .predict           = (predict_pred_f) predict_latency,
+    .predict_rc        = (predict_pred_rc_f) predict_latency_rc,
+    .predictor_data_sz = sizeof(struct latency_surrogate)
 };
+
+struct director_data my_director_data;
+int ping_msg_sent_count = 0;
 
 void director_init(struct director_data self) {
     assert(! self.is_surrogate_on());
-    self.switch_surrogate();
+    //self.switch_surrogate();
+    //printf("Starting on %s mode\n", my_director_data.is_surrogate_on() ? "surrogate" : "vanilla");
+    my_director_data = self;
+}
+
+void director_fun(tw_pe * pe) {
+    //static int i = 0;
+    //if (g_tw_mynode == 0) {
+    //    printf(".");
+    //    fflush(stdout);
+    //    //printf("GVT %d at %f with snt_count=%d\n", i++, pe->GVT_sig.recv_ts, ping_msg_sent_count);
+    //}
+
+    // Do not process if the simulation ended
+    if (pe->GVT_sig.recv_ts >= g_tw_ts_end) {
+        return;
+    }
+
+    // Switching to and from surrogate mode at `switch_at`
+    int const switch_at[] = {10};
+    size_t const switch_total = sizeof(switch_at) / sizeof(switch_at[0]);
+    static size_t switch_i = 0;
+    if (switch_i < switch_total) {
+        // Finding the "largest" ping_msg_sent_count across all PEs
+        int max_msg_count = 0;
+        MPI_Allreduce(&ping_msg_sent_count, &max_msg_count, 1, MPI_INT, MPI_MAX, MPI_COMM_ROSS);
+        if (max_msg_count > switch_at[switch_i]) {
+            //printf("\nswitching");
+            my_director_data.switch_surrogate();
+            //printf(" to %s\n", my_director_data.is_surrogate_on() ? "surrogate" : "vanilla");
+            switch_i++;
+        }
+    }
 }
 //
 // === END OF surrogate functions
@@ -288,6 +344,16 @@ static void handle_pong_rev_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp *
     s->pong_msg_recvd_count--; //undo the increment of the counter for ping messages received
 }
 
+static void svr_commit(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
+{
+    (void) b;
+    (void) lp;
+
+    if (s->svr_id == 0 && m->svr_event_type == PONG) {
+        ping_msg_sent_count = s->ping_msg_sent_count;
+    }
+}
+
 static void svr_finalize(svr_state * s, tw_lp * lp)
 {
     s->end_ts = tw_now(lp);
@@ -361,11 +427,13 @@ int main(int argc, char **argv)
 
     codes_comm_update();
 
+    //g_tw_gvt_arbitrary_fun = director_fun;
     dragonfly_dally_save_packet_latency_to_file("pingpong");
-    //dragonfly_dally_surrogate_configure((struct dragonfly_dally_surrogate_configure_st){
-    //    .director_init = director_init,
-    //    .latency_predictor = &latency_predictor
-    //});
+    dragonfly_dally_surrogate_configure((struct dragonfly_dally_surrogate_configure_st){
+        .director_init = director_init,
+        .director_call = director_fun,
+        .latency_predictor = &latency_predictor
+    });
 
     if(argc < 2)
     {

@@ -128,13 +128,14 @@ struct terminal_dally_message
 
 struct dragonfly_dally_surrogate_configure_st {
     director_init_f                   director_init;
+    director_f                        director_call;
     struct packet_latency_predictor * latency_predictor;
 };
 
 void dragonfly_dally_surrogate_configure(
         struct dragonfly_dally_surrogate_configure_st);
 
-void dragonfly_dally_save_packet_latency_to_file(char * dir_to_save);
+void dragonfly_dally_save_packet_latency_to_file(char const * const dir_to_save);
 
 #ifdef __cplusplus
 }

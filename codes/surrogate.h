@@ -33,16 +33,16 @@ struct packet_end {
 
 // Definition of functions needed to define a predictor
 typedef void (*init_pred_f) (void * predictor_data, tw_lp * lp, unsigned int terminal_id); // Initializes the predictor (eg, LSTM)
-typedef void (*feed_pred_f) (void * predictor_data, tw_lp * lp, unsigned int terminal_id, struct packet_start, struct packet_end); // Feeds known latency for packet sent at `now`
-typedef double (*predict_pred_f) (void * predictor_data, tw_lp * lp, unsigned int terminal_id, struct packet_start); // Get prediction for packet sent to `destination` at `now`
-typedef void (*predict_rc_pred_f) (void * predictor_data, tw_lp * lp); // Reverse prediction (reverse state of predictor one prediction)
+typedef void (*feed_pred_f) (void * predictor_data, tw_lp * lp, unsigned int terminal_id, struct packet_start *, struct packet_end *); // Feeds known latency for packet sent at `now`
+typedef double (*predict_pred_f) (void * predictor_data, tw_lp * lp, unsigned int terminal_id, struct packet_start *); // Get prediction for packet sent to `destination` at `now`
+typedef void (*predict_pred_rc_f) (void * predictor_data, tw_lp * lp); // Reverse prediction (reverse state of predictor one prediction)
 
 // Each network model defines its own way to setup the packet latency predictor
 struct packet_latency_predictor {
     init_pred_f        init;
     feed_pred_f        feed;
     predict_pred_f     predict;
-    predict_rc_pred_f  predict_rc;
+    predict_pred_rc_f  predict_rc;
     size_t             predictor_data_sz; // `predictor_data` size
 };
 
@@ -62,7 +62,7 @@ struct director_data {
 };
 
 typedef void (*director_init_f) (struct director_data self);
-typedef void (*director_f) (void); // This is the function that is to be called at each GVT computation
+typedef void (*director_f) (tw_pe * pe); // This is the function that is to be called at each GVT computation
 
 #ifdef __cplusplus
 }
