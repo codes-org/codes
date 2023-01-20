@@ -16,7 +16,11 @@ enum rc_stack_mode {
 };
 
 typedef struct rc_entry_s {
+#ifdef USE_RAND_TIEBREAKER
     tw_event_sig e_sig; // ROSS 2D event timestamp (.recv_ts & .event_tiebreaker)
+#else
+    tw_stime time;
+#endif
     void * data;
     void (*free_fn)(void*);
     struct qlist_head ql;
@@ -63,7 +67,11 @@ void rc_stack_push(
     if (s->mode != RC_NONOPT || free_fn == NULL) {
         rc_entry * ent = (rc_entry*)malloc(sizeof(*ent));
         assert(ent);
+#ifdef USE_RAND_TIEBREAKER
         ent->e_sig = tw_now_sig(lp);
+#else
+        ent->time = tw_now(lp);
+#endif
         ent->data = data;
         ent->free_fn = free_fn;
         qlist_add_tail(&ent->ql, &s->head);
