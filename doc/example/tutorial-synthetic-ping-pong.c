@@ -41,6 +41,8 @@ struct svr_msg
     int sender_id; //ID of the sender workload LP to know who to send a PONG message back to
     int payload_value; //Some value that we will encode as an example
     model_net_event_return event_rc; //helper to encode data relating to CODES rng usage
+    // Used for rollback
+    tw_stime previous_ts;
 };
 
 struct svr_state
@@ -231,8 +233,6 @@ static void handle_pong_rev_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp *
 
 static void svr_finalize(svr_state * s, tw_lp * lp)
 {
-    s->end_ts = tw_now(lp);
-
     int total_msgs_sent = s->ping_msg_sent_count + s->pong_msg_sent_count;
     int total_msg_size_sent = PAYLOAD_SZ * total_msgs_sent;
     tw_stime time_in_seconds_sent = ns_to_s(s->end_ts - s->start_ts);
@@ -244,6 +244,9 @@ static void svr_finalize(svr_state * s, tw_lp * lp)
 
 static void svr_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
 {
+    m->previous_ts = s->end_ts;
+    s->end_ts = tw_now(lp);
+
     switch (m->svr_event_type)
     {
         case KICKOFF:
@@ -278,6 +281,8 @@ static void svr_rev_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
             tw_error(TW_LOC, "\n Invalid message type %d ", m->svr_event_type);
             break;
     }
+
+    s->end_ts = m->previous_ts;
 }
 
 /* convert ns to seconds */
