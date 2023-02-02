@@ -21,7 +21,8 @@ def collect_data_numpy(
         print(f"No valid `{filepreffix}` files have been found in path {path}", file=sys.stderr)
         exit(1)
 
-    return np.loadtxt(fileinput.input(stat_files), delimiter=delimiter, dtype=dtype)
+    return np.loadtxt(fileinput.input(stat_files), delimiter=delimiter, dtype=dtype,
+                      comments='#')
 
 
 if __name__ == '__main__':
@@ -32,7 +33,8 @@ if __name__ == '__main__':
     delays = delays[sorted_indx]
 
     # saving some columns
-    np.savetxt("packets-delay.csv", delays[:, (0, 1, 2, 3, 5)],
-               fmt="%d,%d,%d,%f,%f",
-               header='src_terminal,dst_terminal,packet_id,start_time,delay',
-               comments='')
+    np.savetxt(
+        "packets-delay.csv", delays[:, (0, 1, 2, 3, 4, 5, 7)],
+        fmt="%d,%d,%d,%d,%f,%f,%f",
+        header='src_terminal,dst_terminal,packet_id,packet_size,injection_time,start_time,delay',
+        comments='')

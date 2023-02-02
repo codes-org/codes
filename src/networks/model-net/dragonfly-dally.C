@@ -2276,6 +2276,8 @@ static void setup_packet_latency_path(char const * const dir_to_save) {
     if(!packet_latency_f) {
         tw_error(TW_LOC, "File %s could not be opened", filename_path);
     }
+
+    fprintf(packet_latency_f, "#src_terminal,dest_terminal,packet_id,size,workload_injection,start,end,latency\n");
 }
 
 /* report dragonfly statistics like average and maximum packet latency, average number of hops traversed */
@@ -2732,8 +2734,9 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
 static void packet_latency_save_to_file(unsigned int terminal_id, struct packet_start start, struct packet_end end)
 {
     assert(start.packet_ID == end.packet_ID);
-    fprintf(packet_latency_f, "%u,%u,%lu,%u,%f,%f,%f\n",
+    fprintf(packet_latency_f, "%u,%u,%lu,%u,%f,%f,%f,%f\n",
             terminal_id, start.dfdally_dest_terminal_id, start.packet_ID, start.packet_size,
+            start.workload_injection_time,
             start.travel_start_time, end.travel_end_time, end.travel_end_time - start.travel_start_time);
 }
 
@@ -3416,6 +3419,7 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
         .packet_ID = msg->packet_ID,
         .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
         .travel_start_time = tw_now(lp),
+        .workload_injection_time = msg->msg_start_time,
         .packet_size = msg->packet_size
     };
     double const latency = 
@@ -3742,10 +3746,12 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
 
     // Storing packet info to be sent. Once packets arrive back, we can compute
     // the latency of sending the packet
+    //assert(tw_now(lp) == msg->travel_start_time);
     s->sent_packets.push_back({
         .packet_ID = msg->packet_ID,
         .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
         .travel_start_time = tw_now(lp),
+        .workload_injection_time = msg->msg_start_time,
         .packet_size = msg->packet_size});
 
     //qos stuff

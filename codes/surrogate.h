@@ -24,6 +24,7 @@ struct packet_start {
     // tw_lpid dest_terminal_id;  // ROSS id; LPID for terminal
     unsigned int dfdally_dest_terminal_id; // number in [0, total terminals)
     double travel_start_time;
+    double workload_injection_time; // this is when the workload passed down the event to model-net
     uint32_t packet_size;
 };
 

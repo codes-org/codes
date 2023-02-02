@@ -14,6 +14,7 @@
 
 // Global variables
 int total_terminals = 0;
+double ignore_until = 0;
 
 // === Average packet latency functionality
 //
@@ -43,6 +44,10 @@ static void init_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int 
 static void feed_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int src_terminal, struct packet_start * start, struct packet_end * end) {
     (void) lp;
     (void) src_terminal;
+
+    if (start->travel_start_time < ignore_until) {
+        return;
+    }
 
     unsigned int const dest_terminal = start->dfdally_dest_terminal_id;
     double const latency = end->travel_end_time - start->travel_start_time;
@@ -150,7 +155,10 @@ void director_fun(tw_pe * pe) {
         double const next_switch = switch_at.time_stampts[switch_at.current_i];
         if (now > next_switch) {
             if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
-                printf("\nswitching at %g", now);
+                if (DEBUG_DIRECTOR == 2) {
+                    printf("\n");
+                }
+                printf("switching at %g", now);
             }
             my_director_data.switch_surrogate();
             if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
@@ -180,7 +188,7 @@ void surrogate_config(
     director_mode[0] = '\0';
     configuration_get_value(&config, "SURROGATE", "director_mode", anno, director_mode, MAX_NAME_LENGTH);
     if (strcmp(director_mode, "at-fixed-virtual-times") == 0) {
-        if(!g_tw_mynode) {
+        if(g_tw_mynode == 0) {
             fprintf(stderr, "\nSurrogate activated switching at fixed virtual times: ");
         }
 
@@ -200,11 +208,11 @@ void surrogate_config(
                 tw_error(TW_LOC, "Sequence `%s' could not be succesfully interpreted as a _double_.", timestamps[i]);
             }
 
-            if(!g_tw_mynode) {
+            if(g_tw_mynode == 0) {
                 fprintf(stderr, "%g%s", switch_at.time_stampts[i], i == len-1 ? "" : ", ");
             }
         }
-        if(!g_tw_mynode) {
+        if(g_tw_mynode == 0) {
             fprintf(stderr, "\n");
         }
 
@@ -226,6 +234,15 @@ void surrogate_config(
     configuration_get_value(&config, "SURROGATE", "packet_latency_predictor", anno, latency_pred_name, MAX_NAME_LENGTH);
     if (strcmp(latency_pred_name, "average") == 0) {
         *pl_pred = &average_latency_predictor;
+
+        // Finding out whether to ignore some packet latencies
+        int rc = configuration_get_value_double(&config, "SURROGATE", "ignore_until", anno, &ignore_until);
+        if (rc) {
+            ignore_until = -1; // any negative number disables ignore_until, all packet latencies will be considered
+        }
+        if (g_tw_mynode == 0) {
+            fprintf(stderr, "Enabling average packet latency predictor with ignore_until=%g\n", ignore_until);
+        }
     } else {
         tw_error(TW_LOC, "Unknown predictor for packet latency `%s`", latency_pred_name);
     }

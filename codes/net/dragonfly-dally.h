@@ -14,7 +14,6 @@ extern "C" {
 #include <ross.h>
 #include <stdbool.h>
 #include <model-net.h>
-#include <codes/surrogate.h>
 
 typedef struct terminal_dally_message terminal_dally_message;
 
@@ -23,7 +22,7 @@ struct terminal_dally_message
 {
   /* magic number */
   int magic;
-  /* flit travel start time*/
+  /* message travel start time*/
   tw_stime travel_start_time;
   /* flit travel end time*/
   tw_stime travel_end_time;
