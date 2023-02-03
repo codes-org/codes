@@ -10,6 +10,7 @@
 #include "sys/file.h"
 #include "codes/quickhash.h"
 #include "codes/rc-stack.h"
+#include "qos.h"
 #include <ctype.h>
 #include <search.h>
 
@@ -161,6 +162,12 @@ struct fattree_param
   int rail_size_limit;
   int num_rails;
   int ports_per_nic;
+
+  // QoS
+  int use_qos;
+  size_t num_vcs; /* number of virtual channels */
+  int * qos_table;
+
 };
 
 struct ftree_hash_key
@@ -275,13 +282,13 @@ struct switch_state
   tw_stime* busy_time;
   tw_stime* busy_time_sample;
 
-  fattree_message_list **pending_msgs;
-  fattree_message_list **pending_msgs_tail;
-  fattree_message_list **queued_msgs;
-  fattree_message_list **queued_msgs_tail;
+  fattree_message_list ***pending_msgs;
+  fattree_message_list ***pending_msgs_tail;
+  fattree_message_list ***queued_msgs;
+  fattree_message_list ***queued_msgs_tail;
   int *queued_length;
   int *in_send_loop;
-  int* vc_occupancy;
+  int** vc_occupancy;
   int64_t* link_traffic;
   tw_lpid *port_connections;
 
@@ -294,6 +301,11 @@ struct switch_state
   fattree_param *params;
   /* array to store linear forwaring tables in case we use static routing */
   int *lft;
+
+  // QoS
+  size_t *qos_table_index;
+  size_t *qos_table_counter;
+
 };
 
 /* ROSS Instrumentation Support */
@@ -347,6 +359,17 @@ static long long       N_finished_packets = 0;
 static long long       total_msg_sz = 0;
 static long long       N_finished_msgs = 0;
 static long long       N_finished_chunks = 0;
+
+static int switch_queue_has_packets(void *, size_t);
+static int switch_queue_has_packets_all_sls(fattree_message_list **, size_t);
+
+#ifdef PACKET_PRINT
+static int getRank() {
+  int rank;
+  MPI_Comm_rank(MPI_COMM_CODES, &rank);
+  return rank;
+}
+#endif
 
 static int fattree_rank_hash_compare(
 void *key, struct qhash_head *link)
@@ -757,6 +780,25 @@ static void fattree_read_config(const char * anno, fattree_param *p){
   p->num_switches = (int *) malloc (p->num_levels * sizeof(int));
   p->switch_radix = (int*) malloc (p->num_levels * sizeof(int));
 
+  // Load QoS paramters. We share some of these parameters with model-net
+  char sched[MAX_NAME_LENGTH];
+  int ret = configuration_get_value(&config, "PARAMS", "modelnet_scheduler",
+            anno, sched, MAX_NAME_LENGTH);
+  p->use_qos = ret > 0 && strcmp(sched, "qos") == 0;
+  if (p->use_qos) {
+    ret = configuration_get_multivalue_int(&config, "PARAMS", "ft_qos_table",
+                                           anno, &p->qos_table, &p->num_vcs);
+    if (ret != 0) {
+      p->use_qos = 0;
+    }
+  }
+  if (!p->use_qos) {
+    // Put in default values
+    p->num_vcs = 1;
+    p->qos_table = malloc(sizeof(int));
+    p->qos_table[0] = 100;
+  }
+
   char switch_counts_str[MAX_NAME_LENGTH];
   int rc = configuration_get_value(&config, "PARAMS", "switch_count", anno,
       switch_counts_str, MAX_NAME_LENGTH);
@@ -851,7 +893,7 @@ static void fattree_read_config(const char * anno, fattree_param *p){
     }
   }
 
-  for(int jj=0;jj<3 && !g_tw_mynode;jj++)
+  for(int jj=0;jj<p->num_levels && !g_tw_mynode;jj++)
   {
     printf("num_switches[%d]=%d\n",jj,p->num_switches[jj]);
   }
@@ -1154,24 +1196,29 @@ void switch_init(switch_state * r, tw_lp * lp)
 
   r->next_output_available_time = (tw_stime*) malloc (r->radix *
       sizeof(tw_stime));
-  r->vc_occupancy = (int*) malloc (r->radix * sizeof(int));
+  r->vc_occupancy = (int**) malloc (r->radix * sizeof(int*));
   r->in_send_loop = (int*) malloc (r->radix * sizeof(int));
   r->link_traffic = (int64_t*) malloc (r->radix * sizeof(int64_t));
   r->port_connections = (tw_lpid*) malloc (r->radix * sizeof(tw_lpid));
+
   r->pending_msgs =
-    (fattree_message_list**)malloc(r->radix * sizeof(fattree_message_list*));
+    (fattree_message_list***)malloc(r->radix * sizeof(fattree_message_list**));
   r->pending_msgs_tail =
-    (fattree_message_list**)malloc(r->radix * sizeof(fattree_message_list*));
+    (fattree_message_list***)malloc(r->radix * sizeof(fattree_message_list**));
   r->queued_msgs =
-    (fattree_message_list**)malloc(r->radix * sizeof(fattree_message_list*));
+    (fattree_message_list***)malloc(r->radix * sizeof(fattree_message_list**));
   r->queued_msgs_tail =
-    (fattree_message_list**)malloc(r->radix * sizeof(fattree_message_list*));
+    (fattree_message_list***)malloc(r->radix * sizeof(fattree_message_list**));
+
   r->queued_length = (int*)malloc(r->radix * sizeof(int));
   r->lft = NULL;
 
   r->last_buf_full = (tw_stime*)malloc(r->radix * sizeof(tw_stime));
   r->busy_time = (tw_stime*)malloc(r->radix * sizeof(tw_stime));
   r->busy_time_sample = (tw_stime*)malloc(r->radix * sizeof(tw_stime));
+
+  r->qos_table_index = malloc(r->radix * sizeof(size_t));
+  r->qos_table_counter = malloc(r->radix * sizeof(size_t));
 
   // ROSS Instrumentation
   if (g_st_use_analysis_lps && g_st_model_stats)
@@ -1186,14 +1233,23 @@ void switch_init(switch_state * r, tw_lp * lp)
     r->busy_time[i] = 0.0;
     r->busy_time_sample[i] = 0.0;
     r->next_output_available_time[i] = 0;
-    r->vc_occupancy[i] = 0;
+    r->vc_occupancy[i] = malloc(p->num_vcs * sizeof(int));
     r->in_send_loop[i] = 0;
     r->link_traffic[i] = 0;
-    r->pending_msgs[i] = NULL;
-    r->pending_msgs_tail[i] = NULL;
-    r->queued_msgs[i] = NULL;
-    r->queued_msgs_tail[i] = NULL;
+    r->pending_msgs[i] = malloc(p->num_vcs * sizeof(fattree_message_list*));
+    r->pending_msgs_tail[i] = malloc(p->num_vcs * sizeof(fattree_message_list*));
+    r->queued_msgs[i] = malloc(p->num_vcs * sizeof(fattree_message_list*));
+    r->queued_msgs_tail[i] = malloc(p->num_vcs * sizeof(fattree_message_list*));
+    for (size_t vc = 0; vc < p->num_vcs; vc++) {
+        r->vc_occupancy[i][vc] = 0;
+        r->pending_msgs[i][vc] = NULL;
+        r->pending_msgs_tail[i][vc] = NULL;
+        r->queued_msgs[i][vc] = NULL;
+        r->queued_msgs_tail[i][vc] = NULL;
+    }
     r->queued_length[i] = 0;
+    r->qos_table_index[i] = 0;
+    r->qos_table_counter[i] = 0;
   }
 
   /* dump partial topology info into DOT format (switch radix, guid, ...) */
@@ -1560,6 +1616,7 @@ static tw_stime fattree_packet_event(
   msg->pull_size = req->pull_size;
   msg->magic = fattree_terminal_magic_num;
   msg->msg_start_time = req->msg_start_time;
+  msg->service_level = sched_params->prio;
 
   /* Its the last packet so pass in remote and local event information*/
   if(is_last_pckt)
@@ -1652,6 +1709,11 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
 
   nic_ts = g_tw_lookahead + (msg->packet_size * s->params->cn_delay) + tw_rand_unif(lp->rng);
 
+  // Make sure the service level is valid
+  if (!p->use_qos || msg->service_level >= p->num_vcs) {
+    msg->service_level = 0;
+  }
+
   msg->my_N_hop = 0;
 
   msg->packet_ID = lp->gid + g_tw_nlp * s->packet_counter;
@@ -1695,6 +1757,7 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
 
     cur_chunk->msg.chunk_id = i;
     cur_chunk->msg.origin_switch_id = s->switch_id;
+    cur_chunk->msg.service_level = msg->service_level;
     append_to_fattree_message_list(s->terminal_msgs, s->terminal_msgs_tail,
       target_queue, cur_chunk);
     s->terminal_length[target_queue] += s->params->chunk_size;
@@ -1718,6 +1781,7 @@ void ft_packet_generate(ft_terminal_state * s, tw_bf * bf, fattree_message * msg
     m->type = T_SEND;
     m->vc_index = target_queue;
     m->magic = fattree_terminal_magic_num;
+    m->service_level = msg->service_level;
     s->in_send_loop[target_queue] = 1;
     tw_event_send(e);
   }
@@ -1755,6 +1819,10 @@ void ft_packet_send_rc(ft_terminal_state * s, tw_bf *bf, fattree_message * msg, 
     s->vc_occupancy[msg->vc_index] -= s->params->chunk_size;
 
     fattree_message_list* cur_entry = rc_stack_pop(s->st);
+#ifdef PACKET_PRINT
+  printf("%d: %f terminal send reverse packet %llu node %d SL %d src %d dest %d\n", getRank(), tw_now(lp), cur_entry->msg.packet_ID, s->terminal_id, cur_entry->msg.service_level, codes_mapping_get_lp_relative_id(cur_entry->msg.src_terminal_id, 0, 0),  codes_mapping_get_lp_relative_id(cur_entry->msg.dest_terminal_id, 0, 0));
+  fflush(stdout);
+#endif
 
     prepend_to_fattree_message_list(s->terminal_msgs,
         s->terminal_msgs_tail, msg->vc_index, cur_entry);
@@ -1855,6 +1923,11 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
     tw_event_send(e_new);
   }
 
+#ifdef PACKET_PRINT
+  printf("%d: %f terminal send packet %llu node %d SL %d src %d dest %d\n", getRank(), tw_now(lp), cur_entry->msg.packet_ID, s->terminal_id, cur_entry->msg.service_level, codes_mapping_get_lp_relative_id(cur_entry->msg.src_terminal_id, 0, 0),  codes_mapping_get_lp_relative_id(cur_entry->msg.dest_terminal_id, 0, 0));
+  fflush(stdout);
+#endif
+
   s->packet_counter++;
   s->vc_occupancy[msg->vc_index] += s->params->chunk_size;
   cur_entry = return_head(s->terminal_msgs, s->terminal_msgs_tail, msg->vc_index);
@@ -1866,21 +1939,15 @@ void ft_packet_send(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
 
   cur_entry = s->terminal_msgs[msg->vc_index];
 
-  if(cur_entry != NULL &&
-    s->vc_occupancy[msg->vc_index] + s->params->chunk_size <= s->params->cn_vc_size) {
-    bf->c3 = 1;
-    fattree_message *m_new;
-    ts = ts + g_tw_lookahead * tw_rand_unif(lp->rng);
-    e = model_net_method_event_new(lp->gid, ts, lp, FATTREE,
-      (void**)&m_new, NULL);
-    m_new->type = T_SEND;
-    m_new->vc_index = msg->vc_index;
-    m_new->magic = fattree_terminal_magic_num;
-    tw_event_send(e);
-  } else {
-    bf->c4 = 1;
-    s->in_send_loop[msg->vc_index] = 0;
-  }
+  bf->c3 = 1;
+  fattree_message *m_new;
+  ts = ts + g_tw_lookahead * tw_rand_unif(lp->rng);
+  e = model_net_method_event_new(lp->gid, ts, lp, FATTREE,
+    (void**)&m_new, NULL);
+  m_new->type = T_SEND;
+  m_new->vc_index = msg->vc_index;
+  m_new->magic = fattree_terminal_magic_num;
+  tw_event_send(e);
 
   if(s->issueIdle[msg->vc_index]) {
     bf->c5 = 1;
@@ -1900,15 +1967,22 @@ void switch_packet_receive_rc(switch_state * s,
 	s_arrive_r++;
 #endif
     int output_port = msg->saved_vc;
+    int use_vc = msg->service_level;
+#ifdef PACKET_PRINT
+  printf("%d: %f switch recv reverse packet %llu switch %d port %d SL %d src %d dest %d\n", getRank(), tw_now(lp), msg->packet_ID, s->switch_id, output_port, use_vc, codes_mapping_get_lp_relative_id(msg->src_terminal_id, 0, 0), codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0));
+  fflush(stdout);
+#endif
     if(s->params->routing != STATIC) {
       tw_rand_reverse_unif(lp->rng);
     }
     if(bf->c1)
     {
         tw_rand_reverse_unif(lp->rng);
-        delete_fattree_message_list(return_tail(s->pending_msgs,
-        s->pending_msgs_tail, output_port));
-        s->vc_occupancy[output_port] -= s->params->chunk_size;
+
+      	delete_fattree_message_list(return_tail(s->pending_msgs[output_port],
+        s->pending_msgs_tail[output_port], use_vc));
+        s->vc_occupancy[output_port][use_vc] -= s->params->chunk_size;
+
         if(bf->c2)
         {
             codes_local_latency_reverse(lp);
@@ -1917,8 +1991,8 @@ void switch_packet_receive_rc(switch_state * s,
     }
     if(bf->c3) 
     {
-        delete_fattree_message_list(return_tail(s->queued_msgs,
-        s->queued_msgs_tail, output_port));
+      	delete_fattree_message_list(return_tail(s->queued_msgs[output_port],
+        s->queued_msgs_tail[output_port], use_vc));
         s->queued_length[output_port] -= s->params->chunk_size;
         s->last_buf_full[output_port] = msg->saved_busy_time;
     }
@@ -1965,13 +2039,19 @@ void switch_packet_receive( switch_state * s, tw_bf * bf,
   cur_chunk->msg.vc_index = output_port;
   cur_chunk->msg.vc_off = out_off;
   cur_chunk->msg.my_N_hop++;
+  cur_chunk->msg.service_level = msg->service_level;
 
-  if(s->vc_occupancy[output_port] + s->params->chunk_size <= max_vc_size) {
+  int use_vc = msg->service_level;
+
+  if(s->vc_occupancy[output_port][use_vc] + s->params->chunk_size <= max_vc_size) {
+
     bf->c1 = 1;
     switch_credit_send(s, bf, msg, lp, -1);
-    append_to_fattree_message_list( s->pending_msgs, s->pending_msgs_tail,
-      output_port, cur_chunk);
-    s->vc_occupancy[output_port] += s->params->chunk_size;
+
+    append_to_fattree_message_list( s->pending_msgs[output_port], s->pending_msgs_tail[output_port],
+      use_vc, cur_chunk);
+    s->vc_occupancy[output_port][use_vc] += s->params->chunk_size;
+
     if(s->in_send_loop[output_port] == 0) {
       bf->c2 = 1;
       fattree_message *m;
@@ -1981,6 +2061,7 @@ void switch_packet_receive( switch_state * s, tw_bf * bf,
       m->type = S_SEND;
       m->magic = switch_magic_num;
       m->vc_index = output_port;
+      m->service_level = msg->service_level;
       //printf("[%d] pack recv Send to %d\n", lp->gid, lp->gid);
       tw_event_send(e);
       s->in_send_loop[output_port] = 1;
@@ -1989,14 +2070,19 @@ void switch_packet_receive( switch_state * s, tw_bf * bf,
     bf->c3 = 1;
     cur_chunk->msg.saved_vc = msg->vc_index;
     cur_chunk->msg.saved_off = msg->vc_off;
-    append_to_fattree_message_list( s->queued_msgs, s->queued_msgs_tail,
-      output_port, cur_chunk);
+    append_to_fattree_message_list( s->queued_msgs[output_port], s->queued_msgs_tail[output_port],
+      use_vc, cur_chunk);
     s->queued_length[output_port] += s->params->chunk_size;
     msg->saved_busy_time = s->last_buf_full[output_port];
     s->last_buf_full[output_port] = tw_now(lp);
   }
   //for reverse
   msg->saved_vc = output_port;
+
+#ifdef PACKET_PRINT
+  printf("%d: %f switch recv packet %llu switch %d port %d SL %d src %d dest %d\n", getRank(), tw_now(lp), msg->packet_ID, s->switch_id, output_port, use_vc, codes_mapping_get_lp_relative_id(msg->src_terminal_id, 0, 0), codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0));
+  fflush(stdout);
+#endif
 
   return;
 }
@@ -2009,6 +2095,7 @@ void switch_packet_send_rc(switch_state * s,
 	s_send_r++;
 #endif
     int output_port = msg->saved_vc;
+    int use_vc = msg->service_level;
     if(bf->c1) 
     {
         s->in_send_loop[output_port] = 1;
@@ -2020,6 +2107,11 @@ void switch_packet_send_rc(switch_state * s,
     fattree_message_list * cur_entry = rc_stack_pop(s->st);
     assert(cur_entry);
 
+#ifdef PACKET_PRINT
+  printf("%d: %f switch send reverse packet %llu switch %d port %d SL %d src %d dest %d\n", getRank(), tw_now(lp), cur_entry->msg.packet_ID, s->switch_id, output_port, use_vc, codes_mapping_get_lp_relative_id(cur_entry->msg.src_terminal_id, 0, 0), codes_mapping_get_lp_relative_id(cur_entry->msg.dest_terminal_id, 0, 0));
+  fflush(stdout);
+#endif
+
     if(bf->c11)
     {
         s->link_traffic[output_port] -= (cur_entry->msg.packet_size % s->params->chunk_size);
@@ -2029,8 +2121,8 @@ void switch_packet_send_rc(switch_state * s,
         s->link_traffic[output_port] -= s->params->chunk_size;
     }
 
-    prepend_to_fattree_message_list(s->pending_msgs,
-        s->pending_msgs_tail, output_port, cur_entry);
+    prepend_to_fattree_message_list(s->pending_msgs[output_port],
+        s->pending_msgs_tail[output_port], use_vc, cur_entry);
 
     if(bf->c3) 
     {
@@ -2040,7 +2132,30 @@ void switch_packet_send_rc(switch_state * s,
     {
       s->in_send_loop[output_port] = 1;
     }
+
+    if (s->params->use_qos) {
+      s->qos_table_index[output_port] = msg->qos_table_index;
+      s->qos_table_counter[output_port] = msg->qos_table_counter;
+    }
+
 }
+
+static int switch_queue_has_packets_all_sls(fattree_message_list ** pending_msgs, size_t num_sls) {
+  int i;
+  int more_msgs = 0;
+  for (i = 0; i < num_sls; ++i) {
+    if(pending_msgs[i] != NULL) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int switch_queue_has_packets(void * data, size_t sl) {
+  fattree_message_list ** pending_msgs = data;
+  return pending_msgs[sl] != NULL;
+}
+
 /* routes the current packet to the next stop */
 void switch_packet_send( switch_state * s, tw_bf * bf, fattree_message * msg,
     tw_lp * lp) {
@@ -2054,8 +2169,19 @@ void switch_packet_send( switch_state * s, tw_bf * bf, fattree_message * msg,
   fattree_message *m;
 
   int output_port = msg->vc_index;
-  fattree_message_list *cur_entry = s->pending_msgs[output_port];
+  int use_vc = 0;
+  if (s->params->use_qos) {
+    // Save QoS parameters needed to revert the operation
+    msg->qos_table_index = s->qos_table_index[output_port];
+    msg->qos_table_counter = s->qos_table_counter[output_port];
+
+    use_vc = get_next_sl(s->params->num_vcs, s->params->qos_table, &s->qos_table_index[output_port], &s->qos_table_counter[output_port], switch_queue_has_packets, s->pending_msgs[output_port]);
+    if (use_vc == NO_PACKETS_TO_SEND) use_vc = 0;
+  }
+
+  fattree_message_list *cur_entry = s->pending_msgs[output_port][use_vc];
   msg->saved_vc = output_port;
+  msg->service_level = use_vc;
 
   if(cur_entry == NULL) {
     bf->c1 = 1;
@@ -2134,29 +2260,30 @@ void switch_packet_send( switch_state * s, tw_bf * bf, fattree_message * msg,
   }
   tw_event_send(e);
 
-  cur_entry = return_head(s->pending_msgs, s->pending_msgs_tail,
-    output_port);
+#ifdef PACKET_PRINT
+  printf("%d: %f switch send packet %llu switch %d port %d SL %d src %d dest %d\n", getRank(), tw_now(lp), cur_entry->msg.packet_ID, s->switch_id, output_port, use_vc, codes_mapping_get_lp_relative_id(cur_entry->msg.src_terminal_id, 0, 0), codes_mapping_get_lp_relative_id(cur_entry->msg.dest_terminal_id, 0, 0));
+  fflush(stdout);
+#endif
+
+  cur_entry = return_head(s->pending_msgs[output_port], s->pending_msgs_tail[output_port],
+    use_vc);
+
   rc_stack_push(lp, cur_entry, (void*)delete_fattree_message_list, s->st);
 
   s->next_output_available_time[output_port] -= s->params->router_delay;
   ts -= s->params->router_delay;
 
-  cur_entry = s->pending_msgs[output_port];
-  if(cur_entry != NULL) {
-    bf->c3 = 1;
-    fattree_message *m_new;
-    ts = ts + g_tw_lookahead * tw_rand_unif(lp->rng);
-    e = tw_event_new(lp->gid, ts, lp);
-    m_new = tw_event_data(e);
-    m_new->type = S_SEND;
-    m_new->magic = switch_magic_num;
-    m_new->vc_index = output_port;
-    //printf("[%d] switch send loop Send to %d\n", lp->gid, lp->gid);
-    tw_event_send(e);
-  } else {
-    bf->c4 = 1;
-    s->in_send_loop[output_port] = 0;
-  }
+  bf->c3 = 1;
+  fattree_message *m_new;
+  ts = ts + g_tw_lookahead * tw_rand_unif(lp->rng);
+  e = tw_event_new(lp->gid, ts, lp);
+  m_new = tw_event_data(e);
+  m_new->type = S_SEND;
+  m_new->magic = switch_magic_num;
+  m_new->vc_index = output_port;
+  //printf("[%d] switch send loop Send to %d\n", lp->gid, lp->gid);
+  tw_event_send(e);
+
   return;
 }
 
@@ -2196,10 +2323,12 @@ void switch_credit_send(switch_state * s, tw_bf * bf, fattree_message * msg,
   if (is_terminal) {
     buf_e = model_net_method_event_new(dest, ts, lp, FATTREE,
       (void**)&buf_msg, NULL);
-	buf_msg->magic = fattree_terminal_magic_num;
+    	memcpy(buf_msg, msg, sizeof(fattree_message));
+    	buf_msg->magic = fattree_terminal_magic_num;
   } else {
     buf_e = tw_event_new(dest, ts , lp);
     buf_msg = tw_event_data(buf_e);
+    memcpy(buf_msg, msg, sizeof(fattree_message));
     buf_msg->magic = switch_magic_num;
   }
 
@@ -2210,6 +2339,14 @@ void switch_credit_send(switch_state * s, tw_bf * bf, fattree_message * msg,
   } else {
     buf_msg->vc_index = msg->vc_index; //the port src used to send me this data
   }
+
+  buf_msg->service_level = msg->service_level;
+  buf_msg->packet_ID = msg->packet_ID;
+
+#ifdef PACKET_PRINT
+  printf("%d: %f send credit packet %llu switch %d SL %d src %d dest %d\n", getRank(), tw_now(lp), msg->packet_ID, s->switch_id, buf_msg->service_level, codes_mapping_get_lp_relative_id(msg->src_terminal_id, 0, 0), codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0));
+  fflush(stdout);
+#endif
 
   //printf("[%d] credit send Send to %d\n", lp->gid, dest);
   tw_event_send(buf_e);
@@ -2223,6 +2360,10 @@ void ft_terminal_buf_update_rc(ft_terminal_state * s, tw_bf * bf, fattree_messag
 #endif
     s->vc_occupancy[msg->vc_index] += s->params->chunk_size;
     codes_local_latency_reverse(lp);
+#ifdef PACKET_PRINT
+  printf("%d: %f terminal receive credit reverse packet %llu node %d SL %d src %d dest %d\n", getRank(), tw_now(lp), msg->packet_ID, s->terminal_id, msg->service_level, codes_mapping_get_lp_relative_id(msg->src_terminal_id, 0, 0), codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0));
+  fflush(stdout);
+#endif
     if(bf->c3)
     {
       s->busy_time[msg->vc_index] = msg->saved_total_time;
@@ -2267,6 +2408,12 @@ void ft_terminal_buf_update(ft_terminal_state * s, tw_bf * bf,
     //printf("[%d] term buf Send to %d\n", lp->gid, lp->gid);
     tw_event_send(e);
   }
+
+#ifdef PACKET_PRINT
+  printf("%d: %f terminal receive credit packet %llu node %d SL %d src %d dest %d\n", getRank(), tw_now(lp), msg->packet_ID, s->terminal_id, msg->service_level, codes_mapping_get_lp_relative_id(msg->src_terminal_id, 0, 0), codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0));
+  fflush(stdout);
+#endif
+
   return;
 }
 
@@ -2279,7 +2426,13 @@ void switch_buf_update_rc(switch_state * s,
 	s_buffer_r++;
 #endif
     int indx = msg->vc_index;
-    s->vc_occupancy[indx] += s->params->chunk_size;
+    int use_vc = msg->service_level;
+    s->vc_occupancy[indx][use_vc] += s->params->chunk_size;
+
+#ifdef PACKET_PRINT
+  printf("%d: %f switch receive credit reverse packet %llu switch %d port %d SL %d src %d dest %d\n", getRank(), tw_now(lp), msg->packet_ID, s->switch_id, indx, use_vc, codes_mapping_get_lp_relative_id(msg->src_terminal_id, 0, 0), codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0));
+  fflush(stdout);
+#endif
 
     if(bf->c3)
     {
@@ -2289,12 +2442,12 @@ void switch_buf_update_rc(switch_state * s,
     }
     if(bf->c1) 
     {
-        fattree_message_list* head = return_tail(s->pending_msgs,
-        s->pending_msgs_tail, indx);
+        fattree_message_list* head = return_tail(s->pending_msgs[indx],
+        s->pending_msgs_tail[indx], use_vc);
         tw_rand_reverse_unif(lp->rng);
-        prepend_to_fattree_message_list(s->queued_msgs,
-        s->queued_msgs_tail, indx, head);
-        s->vc_occupancy[indx] -= s->params->chunk_size;
+        prepend_to_fattree_message_list(s->queued_msgs[indx],
+        s->queued_msgs_tail[indx], use_vc, head);
+        s->vc_occupancy[indx][use_vc] -= s->params->chunk_size;
         s->queued_length[indx] += s->params->chunk_size;
     }
     if(bf->c2) 
@@ -2312,7 +2465,8 @@ void switch_buf_update(switch_state * s, tw_bf * bf, fattree_message * msg,
   bf->c3 = 0;
 
   int indx = msg->vc_index;
-  s->vc_occupancy[indx] -= s->params->chunk_size;
+  int use_vc = msg->service_level;
+  s->vc_occupancy[indx][use_vc] -= s->params->chunk_size;
 
   if(s->last_buf_full[indx])
   {
@@ -2325,18 +2479,23 @@ void switch_buf_update(switch_state * s, tw_bf * bf, fattree_message * msg,
     s->last_buf_full[indx] = 0.0;
   }
 
-  if(s->queued_msgs[indx] != NULL) {
+  if(s->queued_msgs[indx][use_vc]!= NULL) {
     bf->c1 = 1;
-    fattree_message_list *head = return_head( s->queued_msgs,
-        s->queued_msgs_tail, indx);
+    fattree_message_list *head = return_head( s->queued_msgs[indx],
+        s->queued_msgs_tail[indx], use_vc);
     s->queued_length[indx] -= s->params->chunk_size;
     switch_credit_send( s, bf,  &head->msg, lp, 1);
-    append_to_fattree_message_list( s->pending_msgs, s->pending_msgs_tail,
-      indx, head);
-    s->vc_occupancy[indx] += s->params->chunk_size;
+    append_to_fattree_message_list( s->pending_msgs[indx], s->pending_msgs_tail[indx],
+      use_vc, head);
+    s->vc_occupancy[indx][use_vc] += s->params->chunk_size;
   }
 
-  if(s->in_send_loop[indx] == 0 && s->pending_msgs[indx] != NULL) {
+#ifdef PACKET_PRINT
+  printf("%d: %f switch receive credit packet %llu switch %d port %d SL %d src %d dest %d\n", getRank(), tw_now(lp), msg->packet_ID, s->switch_id, indx, use_vc, codes_mapping_get_lp_relative_id(msg->src_terminal_id, 0, 0), codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0));
+  fflush(stdout);
+#endif
+
+  if(s->in_send_loop[indx] == 0 && switch_queue_has_packets_all_sls(s->pending_msgs[indx], s->params->num_vcs)) {
     bf->c2 = 1;
     fattree_message *m;
     tw_stime ts = codes_local_latency(lp);
@@ -2423,6 +2582,11 @@ void ft_packet_arrive_rc(ft_terminal_state * s, tw_bf * bf, fattree_message * ms
     stat = model_net_find_stats(msg->category, s->fattree_stats_array);
     stat->recv_time = msg->saved_rcv_time;
 
+#ifdef PACKET_PRINT
+  printf("%d: %f terminal recv reverse packet %llu switch %d SL %d src %d dest %d\n", getRank(), tw_now(lp), msg->packet_ID, s->switch_id, msg->service_level, codes_mapping_get_lp_relative_id(msg->src_terminal_id, 0, 0), codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0));
+  fflush(stdout);
+#endif
+
     if(bf->c1)
     {
       N_finished_packets--;
@@ -2497,14 +2661,21 @@ void ft_packet_arrive(ft_terminal_state * s, tw_bf * bf, fattree_message * msg,
   fattree_message * buf_msg;
   tw_stime ts;
 
+#ifdef PACKET_PRINT
+  printf("%d: %f terminal recv packet %llu switch %d SL %d src %d dest %d\n", getRank(), tw_now(lp), msg->packet_ID, s->switch_id, msg->service_level, codes_mapping_get_lp_relative_id(msg->src_terminal_id, 0, 0), codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0));
+  fflush(stdout);
+#endif
+
   ts = g_tw_lookahead + s->params->credit_delay + g_tw_lookahead * tw_rand_unif(lp->rng);
 
   // no method_event here - message going to switch
   buf_e = tw_event_new(s->switch_lp[msg->rail_id], ts, lp);
   buf_msg = tw_event_data(buf_e);
+  memcpy(buf_msg, msg, sizeof(fattree_message));
   buf_msg->magic = switch_magic_num;
   buf_msg->vc_index = msg->vc_index;
   buf_msg->type = S_BUFFER;
+  buf_msg->service_level = msg->service_level;
   //printf("[%d] pack arrive credit Send to %d\n", lp->gid, s->switch_lp);
   tw_event_send(buf_e);
 
@@ -2671,6 +2842,7 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
   (void)lp;
   int outport = -1;
   int start_port, end_port;
+  int use_vc = 0;
   fattree_param *p = s->params;
 
   int dest_term_local_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0);
@@ -2721,12 +2893,12 @@ int ft_get_output_port( switch_state * s, tw_bf * bf, fattree_message * msg,
   //outport = start_port;
   // when occupancy is same, just choose random port
   outport = tw_rand_integer(lp->rng, start_port, end_port-1);  
-  int load = s->vc_occupancy[outport] + s->queued_length[outport];
+  int load = s->vc_occupancy[outport][use_vc] + s->queued_length[outport];
   if(load != 0) {
     //for(int port = start_port + 1; port < end_port; port++) {
     for(int port = start_port; port < end_port; port++) {
-      if(s->vc_occupancy[port] +  s->queued_length[port] < load) {
-        load = s->vc_occupancy[port] +  s->queued_length[port];
+      if(s->vc_occupancy[port][use_vc] + s->queued_length[port] < load) {
+        load = s->vc_occupancy[port][use_vc] +  s->queued_length[port];
         outport = port;
         if(load <= 0) break;
       }
@@ -2861,13 +3033,16 @@ void fattree_switch_final(switch_state * s, tw_lp * lp)
     if(dump_topo) return;
 
     (void)lp;
-    int i;
+    int i;  
+      size_t vc;
     for(i = 0; i < s->radix; i++) {
-        if(s->queued_msgs[i] != NULL) {
-          printf("[%llu] leftover queued messages %d %d\n", LLU(lp->gid), i,s->vc_occupancy[i]);
-        }
-        if(s->pending_msgs[i] != NULL) {
-          printf("[%llu] lefover pending messages %d\n", LLU(lp->gid), i);
+        for (vc = 0; vc < s->params->num_vcs; vc++) {
+            if(s->queued_msgs[i][vc] != NULL) {
+              printf("[%llu] leftover queued messages %d %d %d\n", LLU(lp->gid), i,s->vc_occupancy[i][vc], vc);
+            }
+            if(s->pending_msgs[i][vc] != NULL) {
+              printf("[%llu] lefover pending messages %d %d\n", LLU(lp->gid), i, vc);
+            }
         }
       }
 

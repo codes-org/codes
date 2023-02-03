@@ -107,7 +107,7 @@ nobase_include_HEADERS = \
 	codes/net/simplep2p.h \
 	codes/net/express-mesh.h \
 	codes/net/torus.h \
-    codes/codes-mpi-replay.h \
+    	codes/codes-mpi-replay.h \
 	codes/configfile.h
 
 
@@ -177,7 +177,10 @@ src_libcodes_la_SOURCES =  \
 	src/networks/model-net/simplep2p.c \
 	src/networks/model-net/core/model-net-lp.c \
 	src/networks/model-net/core/model-net-sched.c \
-	src/networks/model-net/core/model-net-sched-impl.c
+	src/networks/model-net/core/model-net-sched-impl.c \
+       src/networks/model-net/qos.h \
+       src/networks/model-net/qos.c
+
 
 src_libcodes_mpi_replay_la_SOURCES = \
   src/network-workloads/model-net-mpi-replay.c

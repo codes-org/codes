@@ -30,6 +30,7 @@ typedef struct mn_sched_params_s mn_sched_params;
     X(MN_SCHED_FCFS_FULL, "fcfs-full",   &fcfs_tab) \
     X(MN_SCHED_RR,        "round-robin", &rr_tab) \
     X(MN_SCHED_PRIO,      "priority",    &prio_tab) \
+    X(MN_SCHED_QOS,       "qos",         &qos_tab) \
     X(MAX_SCHEDS,         NULL,          NULL)
 
 #define X(a,b,c) a,
@@ -46,18 +47,29 @@ typedef struct model_net_sched_rc_s model_net_sched_rc;
 // priority scheduler configurtion parameters
 typedef struct mn_prio_params_s {
     int num_prios; // number of priorities
-    // sub-scheduler to use. can be any but prio
+    // sub-scheduler to use. can be any but prio or qos
     enum sched_type sub_stype;
 } mn_prio_params;
+
+typedef struct mn_qos_params_s {
+    int *qos_table;
+    size_t numSLs;
+} mn_qos_params;
 
 // TODO: other scheduler config params
 
 // initialization parameter set
+//typedef struct model_net_sched_cfg_params_s {
+//    enum sched_type type;
+//    union {
+//        mn_prio_params prio;
+//    } u;
+//} model_net_sched_cfg_params;
+
 typedef struct model_net_sched_cfg_params_s {
-    enum sched_type type;
-    union {
-        mn_prio_params prio;
-    } u;
+  enum sched_type type;
+  mn_prio_params prio;
+  mn_qos_params qos;
 } model_net_sched_cfg_params;
 
 typedef struct mn_sched_cfg_params {
@@ -72,7 +84,7 @@ enum sched_msg_param_type {
 
 // scheduler-specific parameter definitions must go here
 struct mn_sched_params_s {
-    int prio; // MN_SCHED_PARAM_PRIO (currently the only one)
+    int prio; // used by prio and qos
 } ;
 
 /// interface to be implemented by schedulers
@@ -141,7 +153,11 @@ struct model_net_sched_rc_s {
     model_net_request req; // request gets deleted...
     mn_sched_params sched_params; // along with msg params
     int rtn; // return code from a sched_next 
-    int prio; // prio when doing priority queue events
+    int prio; // prio when doing priority queue or qos events
+
+    // For QoS
+    size_t qos_table_index;
+    size_t qos_table_counter;
 };
 
 // initialize the scheduler

@@ -81,6 +81,12 @@ struct fattree_message
   int remote_event_size_bytes;
   int local_event_size_bytes;
 
+  size_t service_level;
+
+  // QoS params needed to revert operations
+  size_t qos_table_index;
+  size_t qos_table_counter;
+
 };
 
 #endif /* end of include guard: FATTREE_H */

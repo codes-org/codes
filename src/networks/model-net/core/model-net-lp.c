@@ -270,7 +270,7 @@ static void base_read_config(const char * anno, model_net_base_params *p){
     char sched[MAX_NAME_LENGTH];
     long int packet_size_l = 0;
     uint64_t packet_size;
-    int ret;
+    int ret, is_prio;
 
     ret = configuration_get_value(&config, "PARAMS", "modelnet_scheduler",
             anno, sched, MAX_NAME_LENGTH);
@@ -320,11 +320,28 @@ static void base_read_config(const char * anno, model_net_base_params *p){
                 "setting to %d\n", p->node_copy_queues);
     }
 
+    is_prio = p->sched_params.type == MN_SCHED_PRIO || p->sched_params.type == MN_SCHED_QOS;
+
     // get scheduler-specific parameters
-    if (p->sched_params.type == MN_SCHED_PRIO){
-        // prio scheduler uses default parameters
-        int             * num_prios = &p->sched_params.u.prio.num_prios;
-        enum sched_type * sub_stype = &p->sched_params.u.prio.sub_stype;
+    if (p->sched_params.type == MN_SCHED_QOS) {
+        mn_qos_params *qos = &p->sched_params.qos;
+        ret = configuration_get_multivalue_int(&config, "PARAMS", "qos_table",
+                                               anno, &qos->qos_table, &qos->numSLs);
+        if (ret != 0) {
+            qos->numSLs = 1;
+            qos->qos_table = malloc(sizeof(int));
+            qos->qos_table[0] = 100;
+        }
+
+        // QoS uses the prio scheduler, so set those params as well
+        p->sched_params.prio.num_prios = qos->numSLs;
+        p->sched_params.prio.sub_stype = MN_SCHED_RR;
+    }
+
+    if (p->sched_params.type == MN_SCHED_PRIO) {
+        int             * num_prios = &p->sched_params.prio.num_prios;
+        enum sched_type * sub_stype = &p->sched_params.prio.sub_stype;
+
         // number of priorities to allocate
         ret = configuration_get_value_int(&config, "PARAMS",
                 "prio-sched-num-prios", anno, num_prios);
@@ -347,7 +364,7 @@ static void base_read_config(const char * anno, model_net_base_params *p){
                 tw_error(TW_LOC, "Unknown value for "
                         "PARAMS:prio-sched-sub-sched %s", sched);
             }
-            else if (i == MN_SCHED_PRIO){
+            else if (i == MN_SCHED_PRIO || i == MN_SCHED_QOS){
                 tw_error(TW_LOC, "priority scheduler cannot be used as a "
                         "priority scheduler's sub sched "
                         "(PARAMS:prio-sched-sub-sched)");
@@ -356,16 +373,14 @@ static void base_read_config(const char * anno, model_net_base_params *p){
     }
 
     if (p->sched_params.type == MN_SCHED_FCFS_FULL ||
-            (p->sched_params.type == MN_SCHED_PRIO &&
-             p->sched_params.u.prio.sub_stype == MN_SCHED_FCFS_FULL)){
+     (is_prio &&  p->sched_params.prio.sub_stype == MN_SCHED_FCFS_FULL)){
         // override packet size to something huge (leave a bit in the unlikely
         // case that an op using packet size causes overflow)
         packet_size = 1ull << 62;
     }
     else if (!packet_size &&
             (p->sched_params.type != MN_SCHED_FCFS_FULL ||
-             (p->sched_params.type == MN_SCHED_PRIO &&
-              p->sched_params.u.prio.sub_stype != MN_SCHED_FCFS_FULL))){
+            (is_prio && p->sched_params.prio.sub_stype != MN_SCHED_FCFS_FULL))){
         packet_size = 512;
         fprintf(stderr, "WARNING, no packet size specified, setting packet "
                 "size to %llu\n", LLU(packet_size));
