@@ -573,6 +573,8 @@ struct terminal_state
     // to store in order efficiently their arrival)
     priority_queue<struct packet_end, vector<struct packet_end>, decltype(packet_end_greater_cmp)> sent_packets_latency;
 
+    // Stores the last time in which a packet was processed (time at which a T_GENERATE event was processed)
+    double last_in_queue_time;
     // Predictor data
     void * predictor_data;
 };
@@ -2277,7 +2279,7 @@ static void setup_packet_latency_path(char const * const dir_to_save) {
         tw_error(TW_LOC, "File %s could not be opened", filename_path);
     }
 
-    fprintf(packet_latency_f, "#src_terminal,dest_terminal,packet_id,size,workload_injection,start,end,latency\n");
+    fprintf(packet_latency_f, "#src_terminal,dest_terminal,packet_id,is_surrogate_on,is_predicted,size,workload_injection,delay_at_queue_head,start,end,latency\n");
 }
 
 /* report dragonfly statistics like average and maximum packet latency, average number of hops traversed */
@@ -2731,12 +2733,18 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
     return -1;
 }
 
-static void packet_latency_save_to_file(unsigned int terminal_id, struct packet_start start, struct packet_end end)
-{
+static void packet_latency_save_to_file(
+        unsigned int terminal_id,
+        struct packet_start start,
+        struct packet_end end,
+        bool is_predicted
+) {
     assert(start.packet_ID == end.packet_ID);
-    fprintf(packet_latency_f, "%u,%u,%lu,%u,%f,%f,%f,%f\n",
-            terminal_id, start.dfdally_dest_terminal_id, start.packet_ID, start.packet_size,
-            start.workload_injection_time,
+    fprintf(packet_latency_f, "%u,%u,%lu,%d,%d,%u,%f,%f,%f,%f,%f\n",
+            terminal_id, start.dfdally_dest_terminal_id, start.packet_ID,
+            is_surrogate_on, is_predicted,
+            start.packet_size,
+            start.workload_injection_time, start.delay_at_queue_head,
             start.travel_start_time, end.travel_end_time, end.travel_end_time - start.travel_start_time);
 }
 
@@ -2759,7 +2767,7 @@ static void process_packet_latencies(terminal_state * s, tw_lp * lp)
         && s->sent_packets.front().packet_ID == s->sent_packets_latency.top().packet_ID)
     {
         if (packet_latency_f) {
-            packet_latency_save_to_file(s->terminal_id, s->sent_packets.front(), s->sent_packets_latency.top());
+            packet_latency_save_to_file(s->terminal_id, s->sent_packets.front(), s->sent_packets_latency.top(), false);
         }
         if (surrogate_configured && !is_surrogate_on) {
             assert(terminal_predictor != NULL);
@@ -3083,6 +3091,7 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
     } else {
         s->predictor_data = NULL;
     }
+    s->last_in_queue_time = 0;
     return;
 }
 
@@ -3340,6 +3349,7 @@ static tw_stime dragonfly_dally_packet_event(
     msg->pull_size = req->pull_size;
     msg->magic = terminal_magic_num; 
     msg->msg_start_time = req->msg_start_time;
+    msg->msg_new_mn_event = req->msg_new_mn_event;
     msg->rail_id = req->queue_offset;
     msg->app_id = req->app_id;
 
@@ -3370,6 +3380,8 @@ static void packet_generate_predicted_rc(terminal_state * s, tw_bf * bf, termina
     stat->send_bytes -= msg->packet_size;
     stat->send_time -= (1/s->params->cn_bandwidth) * msg->packet_size;
 
+    s->last_in_queue_time = msg->saved_last_in_queue_time;
+
     terminal_predictor->predict_rc(s->predictor_data, lp);
 
     s->packet_counter--;
@@ -3398,8 +3410,8 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
 
     // determining injection delay
     tw_stime injection_ts;
-    double bandwidth_coef = 1;
     if (g_congestion_control_enabled) {
+        double bandwidth_coef = 1;
         if (cc_terminal_is_abatement_active(s->local_congestion_controller)) {
             bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
         }
@@ -3409,21 +3421,35 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
         injection_ts = bytes_to_ns(msg->packet_size, s->params->cn_bandwidth);
     }
     tw_stime const nic_ts = injection_ts;
-
-    // Scheduling idle event to allow next message to be sent
-    bool const is_from_remote = false;
-    model_net_method_idle_event2(nic_ts, is_from_remote, msg->rail_id, lp);
+    //printf("injection_ts = %f\n", injection_ts);
 
     // Using predictor to find latency
+    tw_stime const time_at_queue_head = msg->msg_new_mn_event > s->last_in_queue_time ? msg->msg_new_mn_event : s->last_in_queue_time;
     auto start = (struct packet_start) {
         .packet_ID = msg->packet_ID,
         .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
         .travel_start_time = tw_now(lp),
         .workload_injection_time = msg->msg_start_time,
-        .packet_size = msg->packet_size
+        .delay_at_queue_head = tw_now(lp) - time_at_queue_head,
+        .packet_size = msg->packet_size,
     };
+
+    // Scheduling idle event for next packet to be processed
+    bool const is_from_remote = false;
+    // TODO(helq): estimate from data collected before, new nic_ts
+    model_net_method_idle_event2(nic_ts, is_from_remote, msg->rail_id, lp);
+    msg->saved_last_in_queue_time = s->last_in_queue_time;
+    s->last_in_queue_time = tw_now(lp);
+
     double const latency = 
         terminal_predictor->predict(s->predictor_data, lp, s->terminal_id, &start);
+
+    // Saving
+    auto end = (struct packet_end) {
+        .packet_ID = msg->packet_ID,
+        .travel_end_time = tw_now(lp) + latency,
+    };
+    packet_latency_save_to_file(s->terminal_id, start, end, true);
 
     // Sending packet directly to destination terminal
     //tw_stime const ts = 0;
@@ -3525,6 +3551,12 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
         if(bf->c8)
             s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
     }
+
+    if (bf->c13) {
+        s->last_in_queue_time = msg->saved_last_in_queue_time;
+        bf->c13 = 0;
+    }
+
     struct mn_stats* stat;
     stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
     stat->send_count--;
@@ -3747,12 +3779,15 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     // Storing packet info to be sent. Once packets arrive back, we can compute
     // the latency of sending the packet
     //assert(tw_now(lp) == msg->travel_start_time);
+    tw_stime const time_at_queue_head = msg->msg_new_mn_event > s->last_in_queue_time ? msg->msg_new_mn_event : s->last_in_queue_time;
     s->sent_packets.push_back({
         .packet_ID = msg->packet_ID,
         .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
         .travel_start_time = tw_now(lp),
         .workload_injection_time = msg->msg_start_time,
-        .packet_size = msg->packet_size});
+        .delay_at_queue_head = tw_now(lp) - time_at_queue_head,
+        .packet_size = msg->packet_size,
+        });
 
     //qos stuff
     int num_qos_levels = s->params->num_qos_levels;
@@ -3837,6 +3872,9 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
             if(s->terminal_length[j][vcg] < s->params->cn_vc_size && s->issueIdle[j] == 0)
             {
                 model_net_method_idle_event2(nic_ts, 0, j, lp);
+                msg->saved_last_in_queue_time = s->last_in_queue_time;
+                s->last_in_queue_time = tw_now(lp);
+                bf->c13 = 1;
             }
             else
             {
@@ -3855,6 +3893,9 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     else {
         if (s->terminal_length[msg->rail_id][vcg] < s->params->cn_vc_size) {
             model_net_method_idle_event2(nic_ts, 0, msg->rail_id, lp);
+            msg->saved_last_in_queue_time = s->last_in_queue_time;
+            s->last_in_queue_time = tw_now(lp);
+            bf->c13 = 1;
         } else {
             bf->c11 = 1;
             s->issueIdle[msg->rail_id] = 1;
@@ -3956,6 +3997,7 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_dally_messag
     if(bf->c5)
     {
         s->issueIdle[msg->rail_id] = 1;
+        s->last_in_queue_time = msg->saved_last_in_queue_time;
         if(bf->c6)
         {
             s->busy_time[msg->rail_id] = msg->saved_total_time;
@@ -4123,6 +4165,8 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
         bf->c5 = 1;
         s->issueIdle[msg->rail_id] = 0;
         model_net_method_idle_event2(injection_ts, 0, msg->rail_id, lp);
+        msg->saved_last_in_queue_time = s->last_in_queue_time;
+        s->last_in_queue_time = tw_now(lp);
     
         if(s->last_buf_full[msg->rail_id] > 0.0)
         {

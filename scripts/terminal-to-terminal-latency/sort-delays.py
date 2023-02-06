@@ -34,7 +34,8 @@ if __name__ == '__main__':
 
     # saving some columns
     np.savetxt(
-        "packets-delay.csv", delays[:, (0, 1, 2, 3, 4, 5, 7)],
-        fmt="%d,%d,%d,%d,%f,%f,%f",
-        header='src_terminal,dst_terminal,packet_id,packet_size,injection_time,start_time,delay',
+        "packets-delay.csv", delays[:, (0, 1, 2, 3, 4, 5, 6, 7, 8, 10)],
+        fmt="%d,%d,%d,%d,%d,%d,%f,%f,%f,%f",
+        header='src_terminal,dst_terminal,packet_id,is_surrogate_on,is_predicted,'
+               'packet_size,injection_time,delay_at_queue_head,start_time,delay',
         comments='')

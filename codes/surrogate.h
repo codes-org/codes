@@ -25,6 +25,7 @@ struct packet_start {
     unsigned int dfdally_dest_terminal_id; // number in [0, total terminals)
     double travel_start_time;
     double workload_injection_time; // this is when the workload passed down the event to model-net
+    double delay_at_queue_head;  // delay for this packet to be processed from previous packet in the queue
     uint32_t packet_size;
 };
 

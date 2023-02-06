@@ -8,12 +8,12 @@ def mean_and_std(array: np.array) -> tuple[float, float]:
 
 if __name__ == '__main__':
     delays = np.loadtxt("packets-delay.csv", skiprows=1, delimiter=",")
-    start_col = 5
-    delay_col = 6
+    start_col = 8
+    delay_col = 9
 
     # Filtering data to some interval
-    # delays = delays[np.bitwise_and(delays[:, start_col] > 250000,
-    #                                delays[:, start_col] + delays[:, delay_col] < 500000)]
+    delays = delays[np.bitwise_and(delays[:, start_col] > 200e3,
+                                   delays[:, start_col] + delays[:, delay_col] < 500e3)]
 
     # Distribution
     delays_same_router = (delays[:, 0] // 2) == (delays[:, 1] // 2)

@@ -133,7 +133,7 @@ static void model_net_commit_event(model_net_base_state * ns, tw_bf *b,  model_n
     {
         void * sub_msg;
         sub_msg = ((char*)m)+msg_offsets[ns->net_id];
-    
+
         if(ns->sub_type->commit != NULL)
             ns->sub_type->commit(ns->sub_state, b, sub_msg, lp);
     }
@@ -755,6 +755,7 @@ void handle_new_msg(
     // simply pass down to the scheduler
     model_net_request *r = &m->msg.m_base.req;
     // don't forget to set packet size, now that we're responsible for it!
+    r->msg_new_mn_event = tw_now(lp);
     r->packet_size = ns->params->packet_size;
     r->msg_id = ns->msg_id++;
     void * m_data = m+1;

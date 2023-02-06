@@ -130,6 +130,8 @@ typedef struct model_net_request {
     tw_lpid  src_lp;
     // time the source event was called
     tw_stime msg_start_time;
+    // time the event was created
+    tw_stime msg_new_mn_event;
     uint64_t msg_size;
     uint64_t pull_size;
     uint64_t packet_size;

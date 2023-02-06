@@ -120,6 +120,10 @@ struct terminal_dally_message
    tw_stime msg_start_time;
    tw_stime saved_busy_time_ross;
    tw_stime saved_fin_chunks_ross;
+
+   // To use in rollback calls
+   tw_stime saved_last_in_queue_time;
+   tw_stime msg_new_mn_event;
 };
 
 #ifdef __cplusplus
