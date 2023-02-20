@@ -10,8 +10,6 @@
 #include "ross.h"
 #include "codes/lp-type-lookup.h"
 
-#define MAX_LP_TYPES 64
-
 struct lp_name_mapping
 {
     const char* name;

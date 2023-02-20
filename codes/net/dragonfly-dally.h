@@ -28,12 +28,12 @@ struct terminal_dally_message
   tw_stime travel_end_time;
  /* packet ID of the flit  */
   unsigned long long packet_ID;
-  /* event type of the flit */
-  short  type;
+  /* event type of the flit. Actual type is `enum dfdally_event_t` */
+  short type;
+  /* if the type==T_NOTIFY then we have to find out what type of notification is it. Actual type is `enum dfdally_notify_t` */
+  short notify_type;
   /* category: comes from codes */
   char category[CATEGORY_NAME_MAX];
-  /* store category hash in the event */
-  uint32_t category_hash;
   /* final destination LP ID, this comes from codes can be a server or any other LP type*/
   tw_lpid final_dest_gid;
   /*sending LP ID from CODES, can be a server or any other LP type */

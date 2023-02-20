@@ -12,6 +12,7 @@
 #include "codes/model-net-sched.h"
 #include "codes/codes_mapping.h"
 #include "codes/jenkins-hash.h"
+#include "codes/surrogate.h"
 
 #define MN_NAME "model_net_base"
 
@@ -39,6 +40,8 @@ typedef struct model_net_base_params_s {
 static int                       num_params = 0;
 static const char              * annos[CONFIGURATION_MAX_ANNOS];
 static model_net_base_params     all_params[CONFIGURATION_MAX_ANNOS];
+static bool is_surrogate_on = false;
+static int num_surrogate = 0;
 
 static tw_stime mn_sample_interval = 0.0;
 static tw_stime mn_sample_end = 0.0;
@@ -63,6 +66,8 @@ typedef struct model_net_base_state {
     void *sub_state;
     tw_stime next_available_time;
     tw_stime *node_copy_next_available_time;
+    // Copy of in_sched_send_loop before switching to surrogate mode
+    int * sched_loop_pre_surrogate, sched_recv_loop_pre_surrogate;
 } model_net_base_state;
 
 
@@ -504,6 +509,7 @@ void model_net_base_lp_init(
     }
 
     ns->in_sched_send_loop = (int *)malloc(ns->params->num_queues * sizeof(int));
+    ns->sched_loop_pre_surrogate = (int *)malloc(ns->params->num_queues * sizeof(int));
     ns->sched_send = (model_net_sched**)malloc(ns->params->num_queues * sizeof(model_net_sched*));
     for(int i = 0; i < ns->params->num_queues; i++) {
         ns->sched_send[i] = (model_net_sched*)malloc(sizeof(model_net_sched));
@@ -815,6 +821,7 @@ void handle_new_msg(
 #if DEBUG
         printf("%llu handle_shed_next() from handle_new_msg()\n",LLU(tw_now(lp)));
 #endif
+        m->msg.m_base.created_during_surrogate = is_surrogate_on ? num_surrogate : -1;
         handle_sched_next(ns, b, m, lp);
         assert(*in_sched_loop);
     }
@@ -862,6 +869,16 @@ void handle_sched_next(
 #if DEBUG
     printf("%llu handle sched_next function\n",LLU(tw_now(lp)));
 #endif
+    if (FREEZE_NETWORK_STATE) {
+        // This event should not be processed outside of the surrogate environment it was created, and it must be processed if it was generated during vanilla high-def simulation mode
+        bool const from_same_surrogate_instance = is_surrogate_on && m->msg.m_base.created_during_surrogate == num_surrogate;
+        bool const highdef_created_during_highdef = !is_surrogate_on && m->msg.m_base.created_during_surrogate == -1;
+        if (!from_same_surrogate_instance && !highdef_created_during_highdef) {
+            b->c12 = 1;
+            return;
+        }
+    }
+
     tw_stime poffset;
     model_net_request *r = &m->msg.m_base.req;
     int is_from_remote = m->msg.m_base.is_from_remote;
@@ -901,6 +918,13 @@ void handle_sched_next_rc(
         tw_bf *b,
         model_net_wrap_msg * m,
         tw_lp * lp){
+
+    // Handling event was skipped
+    if (b->c12) {
+        b->c12 = 0;
+        return;
+    }
+
     model_net_request *r = &m->msg.m_base.req;
     int is_from_remote = m->msg.m_base.is_from_remote;
     model_net_sched * ss = is_from_remote ? ns->sched_recv : ns->sched_send[r->queue_offset];
@@ -1008,6 +1032,7 @@ void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue,
     msg_set_header(model_net_base_magic, MN_BASE_SCHED_NEXT, lp->gid,
             &m_wrap->h);
     m_wrap->msg.m_base.is_from_remote = is_recv_queue;
+    m_wrap->msg.m_base.created_during_surrogate = is_surrogate_on ? num_surrogate : -1;
     r_wrap->queue_offset = queue_offset;
     tw_event_send(e);
 }
@@ -1080,6 +1105,65 @@ tw_event* model_net_method_congestion_event(tw_lpid dest_gid,
     }
     return e;
 
+}
+
+void model_net_method_switch_to_surrogate(tw_lp * lp) {
+    model_net_base_state * const ns = (model_net_base_state*) lp->cur_state;
+
+    //printf("PID %d in_sched_send_loop = [", lp->gid);
+    for (int i = 0; i < ns->params->num_queues; i++) {
+        //printf("%d ", ns->in_sched_send_loop[i]);
+        ns->sched_loop_pre_surrogate[i] = ns->in_sched_send_loop[i];
+        // scheduling an idle event to prevent getting stuck in the middle of a scheduling loop
+        if (ns->sched_loop_pre_surrogate[i]) {
+            // TODO: change zero-offset event for something a bit more sensible
+            model_net_method_idle_event(0.0, 0, lp);
+        }
+        ns->in_sched_send_loop[i] = 0;
+    }
+    //printf("]\n");
+
+    ns->sched_recv_loop_pre_surrogate = ns->in_sched_recv_loop;
+    if (ns->in_sched_recv_loop) {
+        model_net_method_idle_event(0.0, 1, lp);
+    }
+    ns->in_sched_recv_loop = 0;
+
+    is_surrogate_on = true;
+    num_surrogate++;
+}
+
+void model_net_method_switch_to_highdef(tw_lp * lp) {
+    model_net_base_state * const ns = (model_net_base_state*) lp->cur_state;
+
+    //printf("PID %d in_sched_send_loop = [", lp->gid);
+    for (int i = 0; i < ns->params->num_queues; i++) {
+        //printf("%d ", ns->in_sched_send_loop[i]);
+        // We have to duplicate an idle event that was produced in surrogate-mode, but not yet processed by the time we switch to high-def again, if that event was in the middle of the loop (asking for the next packet to inject) and in no other case
+        // TODO: THIS MUST HAVE SOME SECONDARY EFFECT THAT WILL PROVOQUE A CURRUPT SIMULATION, but not so far. Which is weird
+        //model_net_method_idle_event(0.0, 0, lp);
+        if (ns->in_sched_send_loop[i] == 1 && ns->sched_loop_pre_surrogate[i] == 0) {
+            model_net_method_idle_event(0.0, 0, lp);
+        }// else {
+        ns->in_sched_send_loop[i] = ns->sched_loop_pre_surrogate[i];
+        //    ns->in_sched_send_loop[i] = ns->sched_loop_pre_surrogate[i];
+        //}
+    }
+    //printf("]\n");
+
+    if (ns->in_sched_recv_loop == 1 && ns->sched_recv_loop_pre_surrogate == 0) {
+        model_net_method_idle_event(0.0, 1, lp);
+    } //else {
+        ns->in_sched_recv_loop = ns->sched_recv_loop_pre_surrogate;
+    //}
+
+    is_surrogate_on = false;
+}
+
+void model_net_method_call_inner(tw_lp * lp, void (*fun) (void * inner, tw_lp * lp)) {
+    model_net_base_state * const ns = (model_net_base_state*) lp->cur_state;
+
+    fun(ns->sub_state, lp);
 }
 
 /*

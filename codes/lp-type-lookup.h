@@ -14,6 +14,8 @@ extern "C" {
 
 #include "ross.h"
 
+#define MAX_LP_TYPES 64
+
 /* look up the lp type registered through lp_type_register. Mostly used
  * internally */
 const tw_lptype* lp_type_lookup(const char* name);

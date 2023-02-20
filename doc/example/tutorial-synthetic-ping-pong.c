@@ -302,6 +302,10 @@ int main(int argc, char **argv)
     int num_nets;
     int *net_ids;
 
+    /* 1 day of simulation time is drastically huge but it will ensure
+       that the simulation doesn't try to end before all packets are delivered */
+    g_tw_ts_end = s_to_ns(24 * 60 * 60);
+
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
 
@@ -327,10 +331,6 @@ int main(int argc, char **argv)
     net_ids = model_net_configure(&num_nets);
     net_id = *net_ids;
     free(net_ids);
-
-    /* 1 day of simulation time is drastically huge but it will ensure
-       that the simulation doesn't try to end before all packets are delivered */
-    g_tw_ts_end = s_to_ns(24 * 60 * 60);
 
     num_nodes = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp", NULL, 1);  //get the number of nodes so we can use this value during the simulation
     assert(num_nodes);

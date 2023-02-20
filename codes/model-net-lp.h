@@ -118,6 +118,16 @@ tw_event* model_net_method_congestion_event(tw_lpid dest_gid,
     void **msg_data,
     void **extra_data);
 
+// Function to call when switching from highdef to surrogate
+void model_net_method_switch_to_surrogate(tw_lp * lp);
+
+// Function to call when switching from surrogate to highdef
+void model_net_method_switch_to_highdef(tw_lp * lp);
+
+// It will call the function (pointer) on the internal structure/network model.
+// The lp parameter has to be a model-net lp. The function pointer has to coincide with the underlying subtype
+void model_net_method_call_inner(tw_lp * lp, void (*) (void * inner, tw_lp * lp));
+
 /// The following functions/data structures should not need to be used by
 /// model developers - they are just provided so other internal components can
 /// use them
@@ -142,6 +152,7 @@ typedef struct model_net_base_msg {
     model_net_request req;
     int is_from_remote;
     int isQueueReq;
+    int created_during_surrogate; // if the MN_BASE_SCHED_NEXT event was created in surrogate mode, this variable contains the surrogate iteration at which it was created; otherwise it's -1
     tw_stime save_ts;
     // parameters to pass to new messages (via model_net_set_msg_params)
     // TODO: make this a union for multiple types of parameters
