@@ -4671,7 +4671,7 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
         s->data_size_ross_sample -= msg->total_size;
 
         if(bf->c14) {
-            s->zombies.emplace((struct packet_id &&) {
+            s->zombies.emplace((struct packet_id) {
                 .packet_ID = msg->packet_ID,
                 .dfdally_src_terminal_id = msg->dfdally_src_terminal_id
             });

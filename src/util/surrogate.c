@@ -198,15 +198,6 @@ static inline bool does_any_pe(bool val) {
 }
 
 
-static inline bool do_all_pes(bool val) {
-    bool global_val;
-    if(MPI_Allreduce(&val, &global_val, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_ROSS) != MPI_SUCCESS) {
-        tw_error(TW_LOC, "MPI_Allreduce for custom rollback and cleanup failed");
-    }
-    return global_val;
-}
-
-
 static void rollback_and_cancel_events_pe(tw_pe * pe) {
     // Backtracking the simulation to GVT
     for (unsigned int i = 0; i < g_tw_nkp; i++) {
@@ -302,6 +293,7 @@ static void shift_events_to_future_pe(tw_pe * pe, tw_event_sig gvt) {
 
         prev_event->prev = NULL;
         tw_pq_enqueue(pe->pq, prev_event);
+        assert(prev_event->recv_ts >= g_tw_trigger_arbitrary_fun.sig_at.recv_ts);
 
         events_enqueued++;
     }
@@ -442,9 +434,10 @@ static void director_fun(tw_pe * pe, tw_event_sig gvt) {
     // Detecting if we are going to switch
     if (switch_at.current_i < switch_at.total
             && g_tw_trigger_arbitrary_fun.active == ARBITRARY_FUN_triggered) {
-        // double const now = gvt.recv_ts;
-        // double const switch_at = switch_at.time_stampts[switch_at.current_i];
-        // assert(now + 1000 >= switch_at);  // current gvt shouldn't be that far ahead from the point we wanted to trigger it
+        double const now = gvt.recv_ts;
+        double const switch_time = switch_at.time_stampts[switch_at.current_i];
+        assert(g_tw_trigger_arbitrary_fun.sig_at.recv_ts == switch_at.time_stampts[switch_at.current_i]);
+        assert(now >= switch_time);  // current gvt shouldn't be that far ahead from the point we wanted to trigger it
     } else {
         return;
     }
