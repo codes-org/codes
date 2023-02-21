@@ -602,6 +602,9 @@ struct terminal_state
 
     // Events that will arrive to this terminal
     set<struct packet_id> arrived_here;
+
+    // Variable to save the entire state of the terminal into before switching to surrogate mode. During surrogate-mode, the terminal should not access the state of the network
+    terminal_state * frozen_state;
 };
 
 struct router_state
@@ -2907,17 +2910,74 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(terminal_state * s, tw
             free(start.remote_event_data);
         }
     }
-
-    // TODO: Find out how to schedule an idle event (AND how to remove one when rolling back!)
-
     assert(s->sent_packets_latency.empty());
+
+    // Hide current state and clean current state. Hidding the network information is in principle
+    // the same as freezing the state of the network.
+    assert(s->frozen_state == NULL);
+    terminal_state * frozen_state = (terminal_state*) malloc(sizeof(terminal_state));
+    memcpy(frozen_state, s, sizeof(terminal_state));
+    memset(s, 0, sizeof(terminal_state));
+    for (size_t i = 0; i < CATEGORY_MAX; i++) {
+        s->dragonfly_stats_array[i] = frozen_state->dragonfly_stats_array[i];
+    }
+    s->packet_gen                   = frozen_state->packet_gen;
+    s->total_gen_size               = frozen_state->total_gen_size;
+    s->params                       = frozen_state->params;
+    s->packet_counter               = frozen_state->packet_counter;
+    s->local_congestion_controller  = frozen_state->local_congestion_controller;
+    s->last_in_queue_time           = frozen_state->last_in_queue_time;
+    s->predictor_data               = frozen_state->predictor_data;
+    s->terminal_id                  = frozen_state->terminal_id;
+    s->packet_fin                   = frozen_state->packet_fin;
+    s->finished_packets             = frozen_state->finished_packets;
+    s->data_size_sample             = frozen_state->data_size_sample;
+    s->ross_sample.data_size_sample = frozen_state->ross_sample.data_size_sample;
+    s->data_size_ross_sample        = frozen_state->data_size_ross_sample;
+    s->total_msg_size               = frozen_state->total_msg_size;
+    s->finished_msgs                = frozen_state->finished_msgs;
+    memcpy(&s->arrived_here,         &frozen_state->arrived_here,         sizeof(s->arrived_here));
+    memcpy(&s->zombies,              &frozen_state->zombies,              sizeof(s->zombies));
+    memcpy(&s->sent_packets,         &frozen_state->sent_packets,         sizeof(s->sent_packets));
+    memcpy(&s->sent_packets_latency, &frozen_state->sent_packets_latency, sizeof(s->sent_packets_latency));
+
+    s->frozen_state = frozen_state;
 };
 
 // This function never rollsback because it's called at GVT
 static void dragonfly_dally_terminal_surrogate_to_highdef(terminal_state * s, tw_lp * lp) {
-    (void) s;
     (void) lp;
     //printf("Terminal %d (PID: %d) switching back to high-def at %e\n", s->terminal_id, lp->gid, tw_now(lp));
+
+    // Re-instanciating pre-transition (before surrogate was turned on) terminal state
+    assert(s->frozen_state != NULL);
+    terminal_state * frozen_state = s->frozen_state;
+    for (size_t i = 0; i < CATEGORY_MAX; i++) {
+        frozen_state->dragonfly_stats_array[i] = s->dragonfly_stats_array[i];
+    }
+    frozen_state->packet_gen                   = s->packet_gen;
+    frozen_state->total_gen_size               = s->total_gen_size;
+    frozen_state->params                       = s->params;
+    frozen_state->packet_counter               = s->packet_counter;
+    frozen_state->local_congestion_controller  = s->local_congestion_controller;
+    frozen_state->last_in_queue_time           = s->last_in_queue_time;
+    frozen_state->predictor_data               = s->predictor_data;
+    frozen_state->terminal_id                  = s->terminal_id;
+    frozen_state->packet_fin                   = s->packet_fin;
+    frozen_state->finished_packets             = s->finished_packets;
+    frozen_state->data_size_sample             = s->data_size_sample;
+    frozen_state->ross_sample.data_size_sample = s->ross_sample.data_size_sample;
+    frozen_state->data_size_ross_sample        = s->data_size_ross_sample;
+    frozen_state->total_msg_size               = s->total_msg_size;
+    frozen_state->finished_msgs                = s->finished_msgs;
+    memcpy(&frozen_state->arrived_here,         &s->arrived_here,         sizeof(s->arrived_here));
+    memcpy(&frozen_state->zombies,              &s->zombies,              sizeof(s->zombies));
+    memcpy(&frozen_state->sent_packets,         &s->sent_packets,         sizeof(s->sent_packets));
+    memcpy(&frozen_state->sent_packets_latency, &s->sent_packets_latency, sizeof(s->sent_packets_latency));
+    memcpy(s, frozen_state, sizeof(terminal_state));
+    memset(frozen_state, 0, sizeof(terminal_state));
+    free(frozen_state);
+    assert(s->frozen_state == NULL);
 };
 //
 // ==== END OF Surrogate functions definition ====
@@ -3230,6 +3290,7 @@ static void terminal_dally_init( terminal_state * s, tw_lp * lp )
     new (&s->sent_packets_latency) priority_queue<struct packet_end, vector<struct packet_end>, decltype(packet_end_greater_cmp)>();
     new (&s->zombies) set<struct packet_id>();
     new (&s->arrived_here) set<struct packet_id>();
+    s->frozen_state = NULL;
 
     // alloc'ing memory for predictor, calling initiliazer for predictor
     if (terminal_predictor != NULL && terminal_predictor->predictor_data_sz > 0) {
@@ -6138,7 +6199,16 @@ terminal_dally_event( terminal_state * s,
     assert(msg->magic == terminal_magic_num);
     //printf("LPID: %llu Event type %d processed at %f\n", lp->gid, msg->type, tw_now(lp));
 
-    rc_stack_gc(lp, s->st);
+    if (is_surrogate_on && FREEZE_NETWORK_STATE) {
+        // This event will be reversed. It comes from the past, it has been forwarded to the future
+        // by the surrogate freezing the network procedure and should not be taken into account
+        if (! (msg->type == T_GENERATE || msg->type == T_ARRIVE_PREDICTED || msg->type == T_NOTIFY)) {
+            bf->c20 = 1;
+            return;
+        }
+    } else {
+        rc_stack_gc(lp, s->st);
+    }
     switch(msg->type)
         {
         case T_GENERATE:
@@ -6234,14 +6304,21 @@ static void router_dally_event(router_state * s, tw_bf * bf, terminal_dally_mess
 /* Reverse computation handler for a terminal event */
 static void terminal_dally_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) 
 {
+    s->rev_events++;
+    s->ross_sample.rev_events++;
+
+    // In case the event was skipped above, skip now
+    if (bf->c20) {
+        bf->c20 = 0;
+        return;
+    }
+
     for(int i = 0; i < msg->num_rngs; i++)
         tw_rand_reverse_unif(lp->rng);
 
     for(int i = 0; i < msg->num_cll; i++)
         codes_local_latency_reverse(lp);
 
-    s->rev_events++;
-    s->ross_sample.rev_events++;
     switch((enum event_t) msg->type)
     {
         case T_GENERATE:

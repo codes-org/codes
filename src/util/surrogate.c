@@ -337,6 +337,7 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_event_sig gvt) {
     }
 
     shift_events_to_future_pe(pe, gvt);
+    model_net_method_switch_to_surrogate();
 
     // Going through all LPs in PE and running their specific functions
     for (tw_lpid local_lpid = 0; local_lpid < g_tw_nlp; local_lpid++) {
@@ -355,7 +356,7 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_event_sig gvt) {
 
         if (lp_type_switch && lp_type_switch->highdef_to_surrogate) {
             if (lp_type_switch->is_modelnet) {
-                model_net_method_switch_to_surrogate(lp);
+                model_net_method_switch_to_surrogate_lp(lp);
                 model_net_method_call_inner(lp, lp_type_switch->highdef_to_surrogate);
             } else {
                 lp_type_switch->highdef_to_surrogate(lp->cur_state, lp);
@@ -367,6 +368,7 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_event_sig gvt) {
 
 static void events_surrogate_to_high_def_switch(tw_pe * pe, tw_event_sig gvt) {
     (void) pe;
+    model_net_method_switch_to_highdef();
 
     // Going through all LPs in PE and running their specific functions
     for (tw_lpid local_lpid = 0; local_lpid < g_tw_nlp; local_lpid++) {
@@ -386,7 +388,7 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe, tw_event_sig gvt) {
 
         if (lp_type_switch && lp_type_switch->surrogate_to_highdef) {
             if (lp_type_switch->is_modelnet) {
-                model_net_method_switch_to_highdef(lp);
+                model_net_method_switch_to_highdef_lp(lp);
                 model_net_method_call_inner(lp, lp_type_switch->surrogate_to_highdef);
             } else {
                 lp_type_switch->surrogate_to_highdef(lp->cur_state, lp);

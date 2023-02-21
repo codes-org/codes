@@ -870,7 +870,7 @@ void handle_sched_next(
     printf("%llu handle sched_next function\n",LLU(tw_now(lp)));
 #endif
     if (FREEZE_NETWORK_STATE) {
-        // This event should not be processed outside of the surrogate environment it was created, and it must be processed if it was generated during vanilla high-def simulation mode
+        // The event should not be processed outside of the surrogate environment it was created, and it must be processed if it was generated during vanilla high-def simulation mode
         bool const from_same_surrogate_instance = is_surrogate_on && m->msg.m_base.created_during_surrogate == num_surrogate;
         bool const highdef_created_during_highdef = !is_surrogate_on && m->msg.m_base.created_during_surrogate == -1;
         if (!from_same_surrogate_instance && !highdef_created_during_highdef) {
@@ -1107,7 +1107,16 @@ tw_event* model_net_method_congestion_event(tw_lpid dest_gid,
 
 }
 
-void model_net_method_switch_to_surrogate(tw_lp * lp) {
+void model_net_method_switch_to_surrogate(void) {
+    is_surrogate_on = true;
+    num_surrogate++;
+}
+
+void model_net_method_switch_to_highdef(void) {
+    is_surrogate_on = false;
+}
+
+void model_net_method_switch_to_surrogate_lp(tw_lp * lp) {
     model_net_base_state * const ns = (model_net_base_state*) lp->cur_state;
 
     //printf("PID %d in_sched_send_loop = [", lp->gid);
@@ -1115,49 +1124,34 @@ void model_net_method_switch_to_surrogate(tw_lp * lp) {
         //printf("%d ", ns->in_sched_send_loop[i]);
         ns->sched_loop_pre_surrogate[i] = ns->in_sched_send_loop[i];
         // scheduling an idle event to prevent getting stuck in the middle of a scheduling loop
-        if (ns->sched_loop_pre_surrogate[i]) {
-            // TODO: change zero-offset event for something a bit more sensible
-            model_net_method_idle_event(0.0, 0, lp);
-        }
+        //if (ns->sched_loop_pre_surrogate[i]) <- this is too restrictive, although the right idea.
+        // TODO: change zero-offset event for something a bit more sensible
+        model_net_method_idle_event(1.0, 0, lp);
+        //}
         ns->in_sched_send_loop[i] = 0;
     }
     //printf("]\n");
 
     ns->sched_recv_loop_pre_surrogate = ns->in_sched_recv_loop;
-    if (ns->in_sched_recv_loop) {
-        model_net_method_idle_event(0.0, 1, lp);
-    }
+    //if (ns->in_sched_recv_loop)
+    model_net_method_idle_event(1.0, 1, lp);
     ns->in_sched_recv_loop = 0;
-
-    is_surrogate_on = true;
-    num_surrogate++;
 }
 
-void model_net_method_switch_to_highdef(tw_lp * lp) {
+void model_net_method_switch_to_highdef_lp(tw_lp * lp) {
     model_net_base_state * const ns = (model_net_base_state*) lp->cur_state;
 
     //printf("PID %d in_sched_send_loop = [", lp->gid);
     for (int i = 0; i < ns->params->num_queues; i++) {
         //printf("%d ", ns->in_sched_send_loop[i]);
         // We have to duplicate an idle event that was produced in surrogate-mode, but not yet processed by the time we switch to high-def again, if that event was in the middle of the loop (asking for the next packet to inject) and in no other case
-        // TODO: THIS MUST HAVE SOME SECONDARY EFFECT THAT WILL PROVOQUE A CURRUPT SIMULATION, but not so far. Which is weird
-        //model_net_method_idle_event(0.0, 0, lp);
-        if (ns->in_sched_send_loop[i] == 1 && ns->sched_loop_pre_surrogate[i] == 0) {
-            model_net_method_idle_event(0.0, 0, lp);
-        }// else {
+        // TODO: Not all LPs need an event like this!
+        model_net_method_idle_event(1.0, 0, lp);
         ns->in_sched_send_loop[i] = ns->sched_loop_pre_surrogate[i];
-        //    ns->in_sched_send_loop[i] = ns->sched_loop_pre_surrogate[i];
-        //}
     }
-    //printf("]\n");
 
-    if (ns->in_sched_recv_loop == 1 && ns->sched_recv_loop_pre_surrogate == 0) {
-        model_net_method_idle_event(0.0, 1, lp);
-    } //else {
-        ns->in_sched_recv_loop = ns->sched_recv_loop_pre_surrogate;
-    //}
-
-    is_surrogate_on = false;
+    model_net_method_idle_event(1.0, 1, lp);
+    ns->in_sched_recv_loop = ns->sched_recv_loop_pre_surrogate;
 }
 
 void model_net_method_call_inner(tw_lp * lp, void (*fun) (void * inner, tw_lp * lp)) {
