@@ -18,6 +18,7 @@ static unsigned int lp_io_use_suffix = 0;
 static int do_lp_io = 0;
 
 static int num_msgs = 20;
+static int num_initial_msgs = 1;
 
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
@@ -81,6 +82,7 @@ const tw_optdef app_opt [] =
 {
         TWOPT_GROUP("Model net synthetic traffic " ),
     	TWOPT_UINT("num_messages", num_msgs, "Number of PING messages to be generated per terminal "),
+    	TWOPT_UINT("num_initial_messages", num_initial_msgs, "Number of PING messages to be injected initially at the start (larger = more congestion)"),
     	TWOPT_UINT("payload_sz",PAYLOAD_SZ, "size of the message being sent "),
         TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
         TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
@@ -116,12 +118,16 @@ static void svr_init(svr_state * s, tw_lp * lp)
     //the lookahead value is a value required for conservative mode execution to work, it prevents scheduling a new event within the lookahead window
     tw_stime kickoff_time = g_tw_lookahead + (tw_rand_unif(lp->rng) * .0001);
 
-    tw_event *e;
-    svr_msg *m;
-    e = tw_event_new(lp->gid, kickoff_time, lp); //ROSS method to create a new event
-    m = tw_event_data(e); //Gives you a pointer to the data encoded within event e
-    m->svr_event_type = KICKOFF; //Set the event type so we can know how to classify the event when received
-    tw_event_send(e); //ROSS method to send off the event e with the encoded data in m
+    for (int i = 1; i <= num_initial_msgs && i <= num_msgs; i++) {
+        tw_event *e;
+        svr_msg *m;
+        e = tw_event_new(lp->gid, kickoff_time * i, lp); //ROSS method to create a new event
+        m = tw_event_data(e); //Gives you a pointer to the data encoded within event e
+        m->svr_event_type = KICKOFF; //Set the event type so we can know how to classify the event when received
+        tw_event_send(e); //ROSS method to send off the event e with the encoded data in m
+    }
+
+    s->start_ts = kickoff_time; // the time when we're starting this LP's work is when the first ping is generated
 }
 
 static void handle_kickoff_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
@@ -131,7 +137,6 @@ static void handle_kickoff_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * 
     //if (lp->gid != 0) {
     //    return;
     //}
-    s->start_ts = tw_now(lp); //the time when we're starting this LP's work is NOW
 
     svr_msg ping_msg;
 

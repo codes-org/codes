@@ -285,7 +285,7 @@ static void shift_events_to_future_pe(tw_pe * pe, tw_event_sig gvt) {
         frozen_events = frozen_events->prev;
 
         //printf("%c", tw_event_sig_compare(gvt, prev_event->sig) < 0 ? '.' : 'x');
-        if(tw_event_sig_compare(prev_event->sig, gvt) > 0) {
+        if(tw_event_sig_compare(prev_event->sig, gvt) > 0 && !model_net_is_this_base_event(tw_event_data(prev_event))) {
             assert(prev_event->recv_ts == prev_event->sig.recv_ts);
             prev_event->recv_ts += switch_offset;
             prev_event->sig.recv_ts = prev_event->recv_ts;

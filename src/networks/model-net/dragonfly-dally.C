@@ -96,9 +96,9 @@ static long num_remote_packets = 0;
 
 static long global_stalled_chunk_counter = 0;
 
-#define OUTPUT_SNAPSHOT 0
-const static int num_snapshots = 0;
-tw_stime snapshot_times[num_snapshots] = {};
+#define OUTPUT_SNAPSHOT 1
+const static int num_snapshots = 3;
+tw_stime snapshot_times[num_snapshots] = {100e3, 475e3, 1990e3};
 char snapshot_filename[128];
 
 /* time in nanosecs */
@@ -2945,6 +2945,7 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(terminal_state * s, tw
 };
 
 // This function never rollsback because it's called at GVT
+// Note: this function CANNOT generate any events, because it is to be used in `dragonfly_dally_terminal_final`
 static void dragonfly_dally_terminal_surrogate_to_highdef(terminal_state * s, tw_lp * lp) {
     (void) lp;
     //printf("Terminal %d (PID: %d) switching back to high-def at %e\n", s->terminal_id, lp->gid, tw_now(lp));
@@ -2995,11 +2996,33 @@ static void router_send_snapshot_events(router_state *s, tw_lp *lp)
     {
         if (OUTPUT_SNAPSHOT)
         {
-            char snapshot_line[1024];
-            int written;
+            // Finding size of snapshot line
+            int line_sz = 28;  // This is the size of '#Time of snapshot,Router ID,'
+            for (int i = 0, j = 0; i < s->params->radix; ) {
+                int sz = snprintf(NULL, 0, "Port %d VC %d,", i, j);
+                line_sz += sz;
 
-            written = sprintf(snapshot_line, "#Time of snapshot, Router ID, Port 0 VC 0, Port 0 VC 1 ... Port N VC M\n#Radix = %d  Num VCs = %d\n",s->params->radix, s->params->num_vcs);
-            lp_io_write(lp->gid, snapshot_filename, written, snapshot_line);
+                j++;
+                if(j >= s->params->num_vcs) { i++; j = 0; }
+            }
+
+            // Creating snapshot line
+            char snapshot_line[line_sz + 1];  // extra space for '\0'
+            int offset = 28;
+            snprintf(snapshot_line, sizeof(snapshot_line), "#Time of snapshot,Router ID,");
+            for (int i = 0, j = 0; i < s->params->radix; ) {
+                int sz = snprintf(snapshot_line + offset, sizeof(snapshot_line) - offset, "Port %d VC %d,", i, j);
+                offset += sz;
+
+                j++;
+                if(j >= s->params->num_vcs) { i++; j = 0; }
+            }
+            assert(line_sz == offset);
+            snapshot_line[line_sz - 1] = '\n';  // replacing last ',' for '\n'
+            snapshot_line[line_sz] = '\0';  // just in case it's treated as a null terminating string
+
+            // "Saving" snapshot line
+            lp_io_write(lp->gid, snapshot_filename, line_sz, snapshot_line);
         }
     }
 
@@ -5108,6 +5131,9 @@ static void terminal_buf_update(terminal_state * s,
 static void dragonfly_dally_terminal_final( terminal_state * s, 
       tw_lp * lp )
 {
+    if (is_surrogate_on) {
+        dragonfly_dally_terminal_surrogate_to_highdef(s, lp);
+    }
     // printf("terminal id %d\n",s->terminal_id);
     dragonfly_total_time += s->total_time; //increment the PE level time counter
     
