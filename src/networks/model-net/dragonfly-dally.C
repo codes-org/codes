@@ -97,8 +97,8 @@ static long num_remote_packets = 0;
 static long global_stalled_chunk_counter = 0;
 
 #define OUTPUT_SNAPSHOT 1
-const static int num_snapshots = 3;
-tw_stime snapshot_times[num_snapshots] = {100e3, 475e3, 1990e3};
+static int num_snapshots = 0;
+tw_stime * snapshot_times;
 char snapshot_filename[128];
 
 /* time in nanosecs */
@@ -2231,6 +2231,40 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         }
     }
     // END CONGESTION CONTROL
+
+    // Router buffer occupancy configuration
+    if (OUTPUT_SNAPSHOT) {
+        char **timestamps;
+        size_t len;
+        rc = configuration_get_multivalue(&config, "PARAMS", "router_buffer_snapshots", anno, &timestamps, &len);
+        assert((len > 0) == (timestamps != NULL));
+        if (rc) {  // counter-intuitively, configuration_get_multivalue returns 1 if it found the key!
+            num_snapshots = len;
+            snapshot_times = (tw_stime*) malloc(len * sizeof(tw_stime));
+
+            for (size_t i = 0; i < len; i++) {
+                errno = 0;
+                snapshot_times[i] = strtod(timestamps[i], NULL);
+                if (errno == ERANGE || errno == EILSEQ){
+                    tw_error(TW_LOC, "Sequence `%s' could not be succesfully interpreted as a _double_.", timestamps[i]);
+                }
+            }
+
+            if(!myRank) {
+                fprintf(stderr, "\nRouter snaptshots activated for timestamps = ");
+                for (size_t i = 0; i < len; i++) {
+                    fprintf(stderr, "%g%s", snapshot_times[i], i == len-1 ? "" : ", ");
+                }
+                fprintf(stderr, "\n");
+            }
+
+            // freeing some memory
+            for (size_t i = 0; i < len; i++) {
+                free(timestamps[i]);
+            }
+            free(timestamps);
+        }
+    }
 
     // Packet latency path to store configuration
     char packet_latency_path[MAX_NAME_LENGTH];

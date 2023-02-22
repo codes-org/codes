@@ -50,4 +50,6 @@ PARAMS
    inter-group-connections="@abs_srcdir@/../../src/network-workloads/conf/dragonfly-dally/dfdally-72-inter";
 # routing protocol to be used
    routing="prog-adaptive";
+# router buffer occupancy snapshots
+   router_buffer_snapshots=( "50e4", "60e4" );
 }
