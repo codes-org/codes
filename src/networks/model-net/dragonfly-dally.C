@@ -197,6 +197,8 @@ static void switch_surrogate(void);
 static bool is_surrogate_on_fun(void);
 static void dragonfly_dally_terminal_highdef_to_surrogate(terminal_state * s, tw_lp * lp);
 static void dragonfly_dally_terminal_surrogate_to_highdef(terminal_state * s, tw_lp * lp);
+static bool dragonfly_dally_terminal_should_event_be_frozen(tw_lp * lp, tw_event * event);
+static bool dragonfly_dally_router_should_event_be_frozen(tw_lp * lp, tw_event * event);
 //
 // ==== END OF Parameters to tune surrogate mode ====
 
@@ -2286,13 +2288,15 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
             .n_lp_types = 2,
             .lp_types = {
                 {.lpname = "modelnet_dragonfly_dally",
-                 .is_modelnet = true,
+                 .trigger_idle_modelnet = true,
                  .highdef_to_surrogate = (model_switch_f) dragonfly_dally_terminal_highdef_to_surrogate,
-                 .surrogate_to_highdef = (model_switch_f) dragonfly_dally_terminal_surrogate_to_highdef},
+                 .surrogate_to_highdef = (model_switch_f) dragonfly_dally_terminal_surrogate_to_highdef,
+                 .should_event_be_frozen = dragonfly_dally_terminal_should_event_be_frozen},
                 {.lpname = "modelnet_dragonfly_dally_router",
-                 .is_modelnet = true,
+                 .trigger_idle_modelnet = false,
                  .highdef_to_surrogate = NULL,
-                 .surrogate_to_highdef = NULL},
+                 .surrogate_to_highdef = NULL,
+                 .should_event_be_frozen = dragonfly_dally_router_should_event_be_frozen},
                 0
             }
         };
@@ -3014,6 +3018,27 @@ static void dragonfly_dally_terminal_surrogate_to_highdef(terminal_state * s, tw
     free(frozen_state);
     assert(s->frozen_state == NULL);
 };
+
+static bool dragonfly_dally_terminal_should_event_be_frozen(tw_lp * lp, tw_event * event) {
+    (void) lp;
+    assert(lp->gid == event->dest_lpid);
+    int const event_types_to_freeze = MN_BASE_SAMPLE | MN_BASE_PASS | MN_BASE_END_NOTIF | MN_CONGESTION_EVENT;
+    return model_net_should_event_be_frozen(lp, (model_net_wrap_msg *) tw_event_data(event), event_types_to_freeze, NULL);
+}
+
+static bool dragonfly_dally_router_should_event_be_frozen_internal(terminal_dally_message * msg) {
+    if (msg->type == R_SNAPSHOT) { // Snapshots will stay unaltered, never frozen
+        return false;
+    }
+    return true;
+}
+
+static bool dragonfly_dally_router_should_event_be_frozen(tw_lp * lp, tw_event * event) {
+    assert(lp->gid == event->dest_lpid);
+    int const event_types_to_freeze = MN_BASE_NEW_MSG | MN_BASE_SCHED_NEXT | MN_BASE_SAMPLE | MN_BASE_END_NOTIF | MN_CONGESTION_EVENT;
+    return model_net_should_event_be_frozen(lp, (model_net_wrap_msg *) tw_event_data(event), event_types_to_freeze,
+            (should_msg_be_frozen_f) dragonfly_dally_router_should_event_be_frozen_internal);
+}
 //
 // ==== END OF Surrogate functions definition ====
 
@@ -3189,7 +3214,11 @@ static void router_dally_commit(router_state * s,
                     written += sprintf(snapshot_line+written, "%d, ", this_vc_snapshot_data);
                 }
             }
-            written += sprintf(snapshot_line+written, "\n");
+            assert(written <= 8192);
+            assert(snapshot_line[written - 2] == ',');
+            snapshot_line[written - 2] = '\n';  // Replacing ',' for new line
+            written -= 1;
+
             lp_io_write(lp->gid, snapshot_filename, written, snapshot_line);
         }
     }

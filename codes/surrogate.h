@@ -84,14 +84,14 @@ struct director_data {
  */
 
 typedef void (*model_switch_f) (void * data, tw_lp * lp); // Switches back and forth from surrogate mode as defined by network model (e.g, by dragonfly-dally.C)
-typedef void (*model_ask_if_freeze_f) (void * data_model, void * data_model_net, tw_lp * lp, bool * ret); // Determines whether the event should be "frozen" or should be allowed to run during surrogate-mode
+typedef bool (*model_ask_if_freeze_f) (tw_lp * lp, tw_event * event); // Determines whether the event should be "frozen" or should be allowed to run during surrogate-mode
 
 struct lp_types_switch {
     char lpname[MAX_NAME_LENGTH];
-    bool is_modelnet;
+    bool trigger_idle_modelnet;  // Trigger idle events for model-net (prevents a model to be stuck in a schedule loop if it is to process packets during surrogate-mode). If this is true and the lpname does not start with 'modelnet_', the behaviour is undefined
     model_switch_f        highdef_to_surrogate;
     model_switch_f        surrogate_to_highdef;
-    model_ask_if_freeze_f should_event_be_frozen;
+    model_ask_if_freeze_f should_event_be_frozen;  // NULL means event from LP type shouldn't be frozen
 };
 
 struct surrogate_config {

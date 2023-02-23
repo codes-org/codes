@@ -131,18 +131,18 @@ void model_net_method_call_inner(tw_lp * lp, void (*) (void * inner, tw_lp * lp)
 /// use them
 
 enum model_net_base_event_type {
-    MN_BASE_NEW_MSG,
+    MN_BASE_NEW_MSG = 1,
     // schedule next packet
-    MN_BASE_SCHED_NEXT,
+    MN_BASE_SCHED_NEXT = 2,
     // gather a sample from the underlying model
-    MN_BASE_SAMPLE,
+    MN_BASE_SAMPLE = 4,
     // message goes directly down to topology-specific event handler
-    MN_BASE_PASS,
+    MN_BASE_PASS = 8,
     /* message goes directly to topology-specific event handler for ending the simulation
        usefull if there is an infinite heartbeat pattern */
-    MN_BASE_END_NOTIF,
+    MN_BASE_END_NOTIF = 16,
     // message calls congestion request method on topology specific handler
-    MN_CONGESTION_EVENT
+    MN_CONGESTION_EVENT = 32
 };
 
 typedef struct model_net_base_msg {
@@ -177,7 +177,15 @@ typedef struct model_net_wrap_msg {
     } msg;
 } model_net_wrap_msg;
 
-bool model_net_is_this_base_event(model_net_wrap_msg *);
+typedef bool (*should_msg_be_frozen_f) (void*); // topology-specific should it be frozen question
+
+// Determines if given event should be frozen. It will return true for events of a type contained in `freeze_types`, it will optionally call the topology-specific `should_freeze_question` to check if the event is to be frozen (active only if MN_BASE_PASS is not contained in `freeze_types`)
+bool model_net_should_event_be_frozen(
+        tw_lp * lp,
+        model_net_wrap_msg * msg,  // message to check if has to be frozen
+        int freeze_types,  // events of type "contained" in this will be frozen. An example is the "enum" `MN_BASE_SAMPLE | MN_CONGESTION_EVENT | MN_BASE_END_NOTIF` which will freeze events of those three types and will check on the supplied function below whether the internal model decides to freeze or not
+        should_msg_be_frozen_f should_freeze_question  // this function will be called if the type of the message is MN_BASE_PASS and it hasn't been indicated above that it will be frozen. If NULL and MN_BASE_PASS has not being indicated above, then it won't be frozen
+);
 
 #ifdef __cplusplus
 }

@@ -141,16 +141,6 @@ static struct {
 } switch_at;
 
 
-// To be treated as a linked list. Use `->next` to access the next event
-static bool is_workload_event(tw_event * event) {
-    char const * lp_type_name;
-    int rep_id, offset; // unused
-    codes_mapping_get_lp_info2(event->dest_lpid, NULL, &lp_type_name, NULL, &rep_id, &offset);
-
-    return strncmp("modelnet_", lp_type_name, 9) != 0;
-}
-
-
 //static void offset_future_events_in_causality_list(double switch_offset, tw_event_sig gvt) {
 //    (void) switch_offset;
 //    (void) gvt;
@@ -201,26 +191,26 @@ static inline bool does_any_pe(bool val) {
 }
 
 
-static tw_event_sig find_sig_smallest_larger_than(double switch_, tw_kp * kp, tw_event_sig gvt) {
-    //printf("Just testing, I'm here! size=%d\n", kp->pevent_q.size);
-    tw_event * cur_event = kp->pevent_q.tail;
-    while (cur_event) {
-        //printf("Current timestamp to rollback (%e) and gvt (%e)\n", cur_event->sig.recv_ts, gvt.recv_ts);
-        if (tw_event_sig_compare(cur_event->sig, gvt) < 0 && switch_ <= cur_event->sig.recv_ts) {
-            gvt = cur_event->sig;
-        }
-        cur_event = cur_event->prev;
-    }
-    return gvt;
-}
+//static tw_event_sig find_sig_smallest_larger_than(double switch_, tw_kp * kp, tw_event_sig gvt) {
+//    //printf("Just testing, I'm here! size=%d\n", kp->pevent_q.size);
+//    tw_event * cur_event = kp->pevent_q.tail;
+//    while (cur_event) {
+//        //printf("Current timestamp to rollback (%e) and gvt (%e)\n", cur_event->sig.recv_ts, gvt.recv_ts);
+//        if (tw_event_sig_compare(cur_event->sig, gvt) < 0 && switch_ <= cur_event->sig.recv_ts) {
+//            gvt = cur_event->sig;
+//        }
+//        cur_event = cur_event->prev;
+//    }
+//    return gvt;
+//}
 
 
 static void rollback_and_cancel_events_pe(tw_pe * pe, tw_event_sig gvt) {
     // Backtracking the simulation to GVT
-    double const switch_ = switch_at.time_stampts[switch_at.current_i];
+    //double const switch_ = switch_at.time_stampts[switch_at.current_i];
     for (unsigned int i = 0; i < g_tw_nkp; i++) {
-        tw_event_sig const smallest = find_sig_smallest_larger_than(switch_, g_tw_kp[i], gvt);
-        tw_kp_rollback_to_sig(g_tw_kp[i], smallest);
+        //tw_event_sig const smallest = find_sig_smallest_larger_than(switch_, g_tw_kp[i], gvt);
+        tw_kp_rollback_to_sig(g_tw_kp[i], gvt);
     }
     assert(tw_event_sig_compare(pe->GVT_sig, gvt) == 0);
 
@@ -255,37 +245,6 @@ static void shift_events_to_future_pe(tw_pe * pe, tw_event_sig gvt) {
         return;
     }
 
-    tw_event * frozen_events = NULL;  // Linked list of frozen events
-    tw_event * workload_events = NULL; // Linked list of workload events, to be placed again in the queue
-
-    int events_dequeued = 0;
-    // Traversing all events stored in the queue
-    while (next_event) {
-        // Filtering events to freeze
-        tw_event * const prev_event = next_event;
-        next_event = tw_pq_dequeue(pe->pq);
-        assert(prev_event->next == NULL);
-
-        if (is_workload_event(prev_event)) {
-            // store event in events to inject immediately back to the queue (in reverse order, because the queue will take the youngest event first)
-            if (!workload_events) {
-                workload_events = prev_event;
-            } else {
-                prev_event->prev = workload_events;
-                workload_events = prev_event;
-            }
-        } else {
-            // store event in frozen events, to be forwarded to the future
-            if (!frozen_events) {
-                frozen_events = prev_event;
-            } else {
-                prev_event->prev = frozen_events;
-                frozen_events = prev_event;
-            }
-        }
-        events_dequeued++;
-    }
-
     // We have to put the events back into the queue after we switch back, but if we never
     // switch back they will never get to be processed and thus we can clean them
     double switch_offset = g_tw_ts_end;
@@ -297,32 +256,42 @@ static void shift_events_to_future_pe(tw_pe * pe, tw_event_sig gvt) {
         //printf("gvt=%f next_switch=%f switch_offset=%f\n", pre_switch_time, next_switch, switch_offset);
     }
 
-    int events_enqueued = 0;
-    // shifting time stamps of network events to the future
-    //printf("Events in the future ");
-    while (frozen_events) {
-        tw_event * const prev_event = frozen_events;
-        frozen_events = frozen_events->prev;
+    tw_event * dequed_events = NULL; // Linked list of workload events, to be placed again in the queue
+    int events_dequeued = 0;  // for stats on code correctness
+    // Traversing all events stored in the queue
+    while (next_event) {
+        // Filtering events to freeze
+        assert(next_event->prev == NULL);
+        assert(tw_event_sig_compare(next_event->sig, gvt) >= 0);
 
-        //printf("%c", tw_event_sig_compare(gvt, prev_event->sig) < 0 ? '.' : 'x');
-        assert(tw_event_sig_compare(prev_event->sig, gvt) >= 0);
-        if(!model_net_is_this_base_event(tw_event_data(prev_event))) {
-            assert(prev_event->recv_ts == prev_event->sig.recv_ts);
-            prev_event->recv_ts += switch_offset;
-            prev_event->sig.recv_ts = prev_event->recv_ts;
+        // finding out lp type
+        char const * lp_type_name;
+        int rep_id, offset; // unused
+        codes_mapping_get_lp_info2(next_event->dest_lpid, NULL, &lp_type_name, NULL, &rep_id, &offset);
+        struct lp_types_switch const * const lp_type_switch = get_type_switch(lp_type_name);
+
+        // shifting time stamps to the future for events to freeze
+        if (lp_type_switch && lp_type_switch->should_event_be_frozen
+                && lp_type_switch->should_event_be_frozen(next_event->dest_lp, next_event)) {
+            assert(next_event->recv_ts == next_event->sig.recv_ts);
+            next_event->recv_ts += switch_offset;
+            next_event->sig.recv_ts = next_event->recv_ts;
         }
+        assert(next_event->recv_ts >= g_tw_trigger_arbitrary_fun.sig_at.recv_ts);
 
-        prev_event->prev = NULL;
-        tw_pq_enqueue(pe->pq, prev_event);
-        assert(prev_event->recv_ts >= g_tw_trigger_arbitrary_fun.sig_at.recv_ts);
+        // store event in deque_events to inject immediately back to the queue
+        next_event->prev = dequed_events;
+        dequed_events = next_event;
+        events_dequeued++;
 
-        events_enqueued++;
+        next_event = tw_pq_dequeue(pe->pq);
     }
 
-    // Reinjecting workload events into simulation
-    while (workload_events) {
-        tw_event * const prev_event = workload_events;
-        workload_events = workload_events->prev;
+    int events_enqueued = 0;
+    // Reinjecting events into simulation
+    while (dequed_events) {
+        tw_event * const prev_event = dequed_events;
+        dequed_events = dequed_events->prev;
         prev_event->prev = NULL;
         tw_pq_enqueue(pe->pq, prev_event);
 
@@ -372,14 +341,20 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_event_sig gvt) {
         char const * lp_type_name;
         int rep_id, offset; // unused
         codes_mapping_get_lp_info2(lp->gid, NULL, &lp_type_name, NULL, &rep_id, &offset);
+        bool const is_lp_modelnet = strncmp("modelnet_", lp_type_name, 9) == 0;
         struct lp_types_switch const * const lp_type_switch = get_type_switch(lp_type_name);
 
-        if (lp_type_switch && lp_type_switch->highdef_to_surrogate) {
-            if (lp_type_switch->is_modelnet) {
+        if (lp_type_switch) {
+            if (lp_type_switch->trigger_idle_modelnet) {
+                assert(is_lp_modelnet);
                 model_net_method_switch_to_surrogate_lp(lp);
-                model_net_method_call_inner(lp, lp_type_switch->highdef_to_surrogate);
-            } else {
-                lp_type_switch->highdef_to_surrogate(lp->cur_state, lp);
+            }
+            if (lp_type_switch->surrogate_to_highdef) {
+                if (is_lp_modelnet) {
+                    model_net_method_call_inner(lp, lp_type_switch->highdef_to_surrogate);
+                } else {
+                    lp_type_switch->highdef_to_surrogate(lp->cur_state, lp);
+                }
             }
         }
     }
@@ -410,14 +385,20 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe, tw_event_sig gvt) {
         char const * lp_type_name;
         int rep_id, offset; // unused
         codes_mapping_get_lp_info2(lp->gid, NULL, &lp_type_name, NULL, &rep_id, &offset);
+        bool const is_lp_modelnet = strncmp("modelnet_", lp_type_name, 9) == 0;
         struct lp_types_switch const * const lp_type_switch = get_type_switch(lp_type_name);
 
-        if (lp_type_switch && lp_type_switch->surrogate_to_highdef) {
-            if (lp_type_switch->is_modelnet) {
+        if (lp_type_switch) {
+            if (lp_type_switch->trigger_idle_modelnet) {
+                assert(is_lp_modelnet);
                 model_net_method_switch_to_highdef_lp(lp);
-                model_net_method_call_inner(lp, lp_type_switch->surrogate_to_highdef);
-            } else {
-                lp_type_switch->surrogate_to_highdef(lp->cur_state, lp);
+            }
+            if (lp_type_switch->surrogate_to_highdef) {
+                if (is_lp_modelnet) {
+                    model_net_method_call_inner(lp, lp_type_switch->surrogate_to_highdef);
+                } else {
+                    lp_type_switch->surrogate_to_highdef(lp->cur_state, lp);
+                }
             }
         }
 

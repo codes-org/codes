@@ -1134,8 +1134,23 @@ void model_net_method_call_inner(tw_lp * lp, void (*fun) (void * inner, tw_lp * 
     fun(ns->sub_state, lp);
 }
 
-bool model_net_is_this_base_event(model_net_wrap_msg * msg) {
-    return msg->h.event_type == MN_BASE_NEW_MSG || msg->h.event_type == MN_BASE_SCHED_NEXT;
+bool model_net_should_event_be_frozen(
+        tw_lp * lp,
+        model_net_wrap_msg * msg,
+        int freeze_types,
+        should_msg_be_frozen_f should_freeze_question
+) {
+    model_net_base_state * const ns = (model_net_base_state*) lp->cur_state;
+
+    if (msg->h.event_type & freeze_types) { // Finding out whether current event type is one of freeze types
+        return true;
+    } else if (msg->h.event_type & MN_BASE_PASS) { // pass down to topology-specific event handler
+        if (should_freeze_question) {
+            void * const sub_msg = ((char*)msg)+msg_offsets[ns->net_id];
+            return should_freeze_question(sub_msg);
+        }
+    }
+    return false;
 }
 
 /*
