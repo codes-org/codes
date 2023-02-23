@@ -123,6 +123,7 @@ struct terminal_dally_message
 
    // To use in rollback calls
    tw_stime saved_last_in_queue_time;
+   tw_stime saved_in_queue_delay;
    tw_stime msg_new_mn_event;
 };
 

@@ -596,6 +596,7 @@ struct terminal_state
 
     // Stores the last time in which a packet was processed (time at which a T_GENERATE event was processed)
     double last_in_queue_time;
+    double in_queue_delay;
     // The predictor kicks in on surrogate mode and predicts the time a packet will take to its destination
     void * predictor_data;
 
@@ -2974,6 +2975,7 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(terminal_state * s, tw
     s->data_size_ross_sample        = frozen_state->data_size_ross_sample;
     s->total_msg_size               = frozen_state->total_msg_size;
     s->finished_msgs                = frozen_state->finished_msgs;
+    s->in_queue_delay               = frozen_state->in_queue_delay;
     memcpy(&s->arrived_here,         &frozen_state->arrived_here,         sizeof(s->arrived_here));
     memcpy(&s->zombies,              &frozen_state->zombies,              sizeof(s->zombies));
     memcpy(&s->sent_packets,         &frozen_state->sent_packets,         sizeof(s->sent_packets));
@@ -3009,6 +3011,7 @@ static void dragonfly_dally_terminal_surrogate_to_highdef(terminal_state * s, tw
     frozen_state->data_size_ross_sample        = s->data_size_ross_sample;
     frozen_state->total_msg_size               = s->total_msg_size;
     frozen_state->finished_msgs                = s->finished_msgs;
+    frozen_state->in_queue_delay               = s->in_queue_delay;
     memcpy(&frozen_state->arrived_here,         &s->arrived_here,         sizeof(s->arrived_here));
     memcpy(&frozen_state->zombies,              &s->zombies,              sizeof(s->zombies));
     memcpy(&frozen_state->sent_packets,         &s->sent_packets,         sizeof(s->sent_packets));
@@ -3143,6 +3146,25 @@ static void terminal_dally_commit(terminal_state * s,
                 lp_io_write(lp->gid, end_end_filename, written, latency);
             }
         }
+    }
+
+    if(msg->type == T_GENERATE && bf->c10) {  // if the packet was sent as a prediction, store the prediction in memory
+        auto start = (struct packet_start) {
+            .packet_ID = msg->packet_ID,
+            .dest_terminal_lpid = msg->dest_terminal_lpid,
+            .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
+            .travel_start_time = msg->travel_start_time,
+            .workload_injection_time = msg->msg_start_time,
+            .delay_at_queue_head = s->in_queue_delay,
+            .packet_size = msg->packet_size
+        };
+
+        // Saving
+        auto const end = (struct packet_end) {
+            .packet_ID = msg->packet_ID,
+            .travel_end_time = msg->travel_end_time,
+        };
+        packet_latency_save_to_file(s->terminal_id, start, end, true);
     }
 
     if(msg->type == T_NOTIFY && msg->notify_type == NOTIFY_LATENCY)
@@ -3703,18 +3725,19 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
     msg->my_hops_cur_group = -1;
 
     // determining injection delay
-    tw_stime injection_ts;
-    if (g_congestion_control_enabled) {
-        double bandwidth_coef = 1;
-        if (cc_terminal_is_abatement_active(s->local_congestion_controller)) {
-            bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
-        }
-        injection_ts = bytes_to_ns(msg->packet_size, bandwidth_coef * s->params->cn_bandwidth);
-    }
-    else {
-        injection_ts = bytes_to_ns(msg->packet_size, s->params->cn_bandwidth);
-    }
-    tw_stime const nic_ts = injection_ts;
+    //tw_stime injection_ts;
+    //if (g_congestion_control_enabled) {
+    //    double bandwidth_coef = 1;
+    //    if (cc_terminal_is_abatement_active(s->local_congestion_controller)) {
+    //        bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
+    //    }
+    //    injection_ts = bytes_to_ns(msg->packet_size, bandwidth_coef * s->params->cn_bandwidth);
+    //}
+    //else {
+    //    injection_ts = bytes_to_ns(msg->packet_size, s->params->cn_bandwidth);
+    //}
+    //tw_stime const nic_ts = injection_ts;
+    tw_stime const nic_ts = s->in_queue_delay;
     //printf("injection_ts = %f\n", injection_ts);
 
     // Using predictor to find latency
@@ -3739,12 +3762,9 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
     double const latency = 
         terminal_predictor->predict(s->predictor_data, lp, s->terminal_id, &start);
 
-    // Saving
-    auto const end = (struct packet_end) {
-        .packet_ID = msg->packet_ID,
-        .travel_end_time = tw_now(lp) + latency,
-    };
-    packet_latency_save_to_file(s->terminal_id, start, end, true);
+    // Info to be used at commit time to save into file
+    msg->travel_start_time = tw_now(lp);
+    msg->travel_end_time = tw_now(lp) + latency;
 
     // Sending packet directly to destination terminal
     //tw_stime const ts = 0;
@@ -3795,6 +3815,7 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     packet_gen--;
     s->packet_counter--;
 
+    s->in_queue_delay = msg->saved_in_queue_delay;
     s->sent_packets.pop_back();
 
     if(bf->c2)
@@ -4082,13 +4103,15 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     }
     //assert(tw_now(lp) == msg->travel_start_time);
     tw_stime const time_at_queue_head = msg->msg_new_mn_event > s->last_in_queue_time ? msg->msg_new_mn_event : s->last_in_queue_time;
+    msg->saved_in_queue_delay = s->in_queue_delay;
+    s->in_queue_delay = tw_now(lp) - time_at_queue_head;
     s->sent_packets.push_back((struct packet_start){
         .packet_ID = msg->packet_ID,
         .dest_terminal_lpid = msg->dest_terminal_lpid,
         .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
         .travel_start_time = tw_now(lp),
         .workload_injection_time = msg->msg_start_time,
-        .delay_at_queue_head = tw_now(lp) - time_at_queue_head,
+        .delay_at_queue_head = s->in_queue_delay,
         .packet_size = msg->packet_size,
         .message_data = msg_data,
         .remote_event_data = remote_data
