@@ -12,7 +12,6 @@
 #include "codes/model-net-sched.h"
 #include "codes/codes_mapping.h"
 #include "codes/jenkins-hash.h"
-#include "codes/surrogate.h"
 
 #define MN_NAME "model_net_base"
 
@@ -40,8 +39,6 @@ typedef struct model_net_base_params_s {
 static int                       num_params = 0;
 static const char              * annos[CONFIGURATION_MAX_ANNOS];
 static model_net_base_params     all_params[CONFIGURATION_MAX_ANNOS];
-static bool is_surrogate_on = false;
-static int num_surrogate = 0;
 
 static tw_stime mn_sample_interval = 0.0;
 static tw_stime mn_sample_end = 0.0;
@@ -868,7 +865,6 @@ void handle_sched_next(
 #if DEBUG
     printf("%llu handle sched_next function\n",LLU(tw_now(lp)));
 #endif
-
     tw_stime poffset;
     model_net_request *r = &m->msg.m_base.req;
     int is_from_remote = m->msg.m_base.is_from_remote;
@@ -908,13 +904,6 @@ void handle_sched_next_rc(
         tw_bf *b,
         model_net_wrap_msg * m,
         tw_lp * lp){
-
-    // Handling event was skipped
-    if (b->c12) {
-        b->c12 = 0;
-        return;
-    }
-
     model_net_request *r = &m->msg.m_base.req;
     int is_from_remote = m->msg.m_base.is_from_remote;
     model_net_sched * ss = is_from_remote ? ns->sched_recv : ns->sched_send[r->queue_offset];
@@ -1094,15 +1083,6 @@ tw_event* model_net_method_congestion_event(tw_lpid dest_gid,
     }
     return e;
 
-}
-
-void model_net_method_switch_to_surrogate(void) {
-    is_surrogate_on = true;
-    num_surrogate++;
-}
-
-void model_net_method_switch_to_highdef(void) {
-    is_surrogate_on = false;
 }
 
 void model_net_method_switch_to_surrogate_lp(tw_lp * lp) {

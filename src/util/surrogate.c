@@ -151,30 +151,33 @@ static bool is_workload_event(tw_event * event) {
 }
 
 
-static void offset_future_events_in_causality_list(double switch_offset, tw_event_sig gvt) {
-    int events_processed = 0;
-    int events_modified = 0;
-    for (unsigned int i = 0; i < g_tw_nkp; i++) {
-        tw_kp * const this_kp = g_tw_kp[i];
-
-        // All events in pevent_q are sent into the future
-        assert((this_kp->pevent_q.tail == NULL) == (this_kp->pevent_q.size == 0));
-        tw_event * cur_event = this_kp->pevent_q.tail;
-        while (cur_event) {
-            if (!is_workload_event(cur_event) && tw_event_sig_compare(cur_event->sig, gvt) > 0) {
-                cur_event->recv_ts += switch_offset;
-                cur_event->sig.recv_ts = cur_event->recv_ts;
-                events_modified++;
-            }
-
-            cur_event = cur_event->prev;
-            events_processed++;
-        }
-    }
-    if (DEBUG_DIRECTOR > 1 && g_tw_mynode == 0) {
-        printf("PE %lu: Total events from causality modified %d (from total processed %d)\n", g_tw_mynode, events_modified, events_processed);
-    }
-}
+//static void offset_future_events_in_causality_list(double switch_offset, tw_event_sig gvt) {
+//    (void) switch_offset;
+//    (void) gvt;
+//    int events_processed = 0;
+//    int events_modified = 0;
+//    for (unsigned int i = 0; i < g_tw_nkp; i++) {
+//        tw_kp * const this_kp = g_tw_kp[i];
+//
+//        //assert(this_kp->pevent_q.size == 0);
+//        // All events in pevent_q are sent into the future
+//        assert((this_kp->pevent_q.tail == NULL) == (this_kp->pevent_q.size == 0));
+//        tw_event * cur_event = this_kp->pevent_q.tail;
+//        while (cur_event) {
+//            if (!is_workload_event(cur_event) && tw_event_sig_compare(cur_event->sig, gvt) > 0) {
+//                cur_event->recv_ts += switch_offset;
+//                cur_event->sig.recv_ts = cur_event->recv_ts;
+//                events_modified++;
+//            }
+//
+//            cur_event = cur_event->prev;
+//            events_processed++;
+//        }
+//    }
+//    if (DEBUG_DIRECTOR > 1 && g_tw_mynode == 0) {
+//        printf("PE %lu: Total events from causality modified %d (from total processed %d)\n", g_tw_mynode, events_modified, events_processed);
+//    }
+//}
 
 
 static struct lp_types_switch const * get_type_switch(char const * const name) {
@@ -198,11 +201,28 @@ static inline bool does_any_pe(bool val) {
 }
 
 
-static void rollback_and_cancel_events_pe(tw_pe * pe) {
-    // Backtracking the simulation to GVT
-    for (unsigned int i = 0; i < g_tw_nkp; i++) {
-        tw_kp_rollback_to_sig(g_tw_kp[i], pe->GVT_sig);
+static tw_event_sig find_sig_smallest_larger_than(double switch_, tw_kp * kp, tw_event_sig gvt) {
+    //printf("Just testing, I'm here! size=%d\n", kp->pevent_q.size);
+    tw_event * cur_event = kp->pevent_q.tail;
+    while (cur_event) {
+        //printf("Current timestamp to rollback (%e) and gvt (%e)\n", cur_event->sig.recv_ts, gvt.recv_ts);
+        if (tw_event_sig_compare(cur_event->sig, gvt) < 0 && switch_ <= cur_event->sig.recv_ts) {
+            gvt = cur_event->sig;
+        }
+        cur_event = cur_event->prev;
     }
+    return gvt;
+}
+
+
+static void rollback_and_cancel_events_pe(tw_pe * pe, tw_event_sig gvt) {
+    // Backtracking the simulation to GVT
+    double const switch_ = switch_at.time_stampts[switch_at.current_i];
+    for (unsigned int i = 0; i < g_tw_nkp; i++) {
+        tw_event_sig const smallest = find_sig_smallest_larger_than(switch_, g_tw_kp[i], gvt);
+        tw_kp_rollback_to_sig(g_tw_kp[i], smallest);
+    }
+    assert(tw_event_sig_compare(pe->GVT_sig, gvt) == 0);
 
     // Making sure that everything gets cleaned up properly (AVL tree should be empty by the end)
     do {
@@ -285,7 +305,8 @@ static void shift_events_to_future_pe(tw_pe * pe, tw_event_sig gvt) {
         frozen_events = frozen_events->prev;
 
         //printf("%c", tw_event_sig_compare(gvt, prev_event->sig) < 0 ? '.' : 'x');
-        if(tw_event_sig_compare(prev_event->sig, gvt) > 0 && !model_net_is_this_base_event(tw_event_data(prev_event))) {
+        assert(tw_event_sig_compare(prev_event->sig, gvt) >= 0);
+        if(!model_net_is_this_base_event(tw_event_data(prev_event))) {
             assert(prev_event->recv_ts == prev_event->sig.recv_ts);
             prev_event->recv_ts += switch_offset;
             prev_event->sig.recv_ts = prev_event->recv_ts;
@@ -314,7 +335,7 @@ static void shift_events_to_future_pe(tw_pe * pe, tw_event_sig gvt) {
     }
 
     // shifting time stamps of events in causality list (one list per KP)
-    offset_future_events_in_causality_list(switch_offset, gvt);
+    // offset_future_events_in_causality_list(switch_offset, gvt);
 }
 
 
@@ -331,13 +352,12 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_event_sig gvt) {
 
     if (g_tw_synchronization_protocol == OPTIMISTIC) {
         assert(tw_event_sig_compare(pe->GVT_sig, gvt) == 0);
-        rollback_and_cancel_events_pe(pe);
+        rollback_and_cancel_events_pe(pe, gvt);
         //assert(tw_event_sig_compare(pe->GVT_sig, gvt) <= 0);
         assert(tw_event_sig_compare(pe->GVT_sig, gvt) == 0);
     }
 
     shift_events_to_future_pe(pe, gvt);
-    model_net_method_switch_to_surrogate();
 
     // Going through all LPs in PE and running their specific functions
     for (tw_lpid local_lpid = 0; local_lpid < g_tw_nlp; local_lpid++) {
@@ -368,7 +388,13 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_event_sig gvt) {
 
 static void events_surrogate_to_high_def_switch(tw_pe * pe, tw_event_sig gvt) {
     (void) pe;
-    model_net_method_switch_to_highdef();
+
+    if (g_tw_synchronization_protocol == OPTIMISTIC) {
+        assert(tw_event_sig_compare(pe->GVT_sig, gvt) == 0);
+        rollback_and_cancel_events_pe(pe, gvt);
+        //assert(tw_event_sig_compare(pe->GVT_sig, gvt) <= 0);
+        assert(tw_event_sig_compare(pe->GVT_sig, gvt) == 0);
+    }
 
     // Going through all LPs in PE and running their specific functions
     for (tw_lpid local_lpid = 0; local_lpid < g_tw_nlp; local_lpid++) {

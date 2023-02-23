@@ -5165,7 +5165,7 @@ static void terminal_buf_update(terminal_state * s,
 static void dragonfly_dally_terminal_final( terminal_state * s, 
       tw_lp * lp )
 {
-    if (is_surrogate_on) {
+    if (FREEZE_NETWORK_STATE && is_surrogate_on) {
         dragonfly_dally_terminal_surrogate_to_highdef(s, lp);
     }
     // printf("terminal id %d\n",s->terminal_id);
@@ -6264,6 +6264,7 @@ terminal_dally_event( terminal_state * s,
         // by the surrogate freezing the network procedure and should not be taken into account
         if (! (msg->type == T_GENERATE || msg->type == T_ARRIVE_PREDICTED || msg->type == T_NOTIFY)) {
             bf->c20 = 1;
+            printf("This shouldn't happen! :( (time stamp = %e)\n", tw_now(lp));
             return;
         }
     } else {
@@ -6370,6 +6371,7 @@ static void terminal_dally_rc_event_handler(terminal_state * s, tw_bf * bf, term
     // In case the event was skipped above, skip now
     if (bf->c20) {
         bf->c20 = 0;
+        printf("Has been rolledback! :)\n");
         return;
     }
 
