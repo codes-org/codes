@@ -3155,7 +3155,7 @@ static void terminal_dally_commit(terminal_state * s,
             .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
             .travel_start_time = msg->travel_start_time,
             .workload_injection_time = msg->msg_start_time,
-            .delay_at_queue_head = s->in_queue_delay,
+            .delay_at_queue_head = msg->saved_in_queue_delay,
             .packet_size = msg->packet_size
         };
 
@@ -3725,19 +3725,21 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
     msg->my_hops_cur_group = -1;
 
     // determining injection delay
-    //tw_stime injection_ts;
-    //if (g_congestion_control_enabled) {
-    //    double bandwidth_coef = 1;
-    //    if (cc_terminal_is_abatement_active(s->local_congestion_controller)) {
-    //        bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
-    //    }
-    //    injection_ts = bytes_to_ns(msg->packet_size, bandwidth_coef * s->params->cn_bandwidth);
-    //}
-    //else {
-    //    injection_ts = bytes_to_ns(msg->packet_size, s->params->cn_bandwidth);
-    //}
-    //tw_stime const nic_ts = injection_ts;
-    tw_stime const nic_ts = s->in_queue_delay;
+    tw_stime injection_ts;
+    if (g_congestion_control_enabled) {
+        double bandwidth_coef = 1;
+        if (cc_terminal_is_abatement_active(s->local_congestion_controller)) {
+            bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
+        }
+        injection_ts = bytes_to_ns(msg->packet_size, bandwidth_coef * s->params->cn_bandwidth);
+    }
+    else {
+        injection_ts = bytes_to_ns(msg->packet_size, s->params->cn_bandwidth);
+    }
+    tw_stime const nic_ts = injection_ts;
+    msg->saved_in_queue_delay = injection_ts;
+    //tw_stime const nic_ts = s->in_queue_delay;
+    //msg->saved_in_queue_delay = s->in_queue_delay;
     //printf("injection_ts = %f\n", injection_ts);
 
     // Using predictor to find latency
@@ -3747,8 +3749,6 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
         .dest_terminal_lpid = msg->dest_terminal_lpid,
         .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
         .travel_start_time = tw_now(lp),
-        .workload_injection_time = msg->msg_start_time,
-        .delay_at_queue_head = tw_now(lp) - time_at_queue_head,
         .packet_size = msg->packet_size
     };
 
