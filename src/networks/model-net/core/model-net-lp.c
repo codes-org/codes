@@ -1116,7 +1116,7 @@ void model_net_method_switch_to_surrogate_lp(tw_lp * lp) {
         // TODO: change zero-offset event for something a bit more sensible
             model_net_method_idle_event2(0.0, 0, i, lp);
         }
-        ns->in_sched_send_loop[i] = 0;
+        //ns->in_sched_send_loop[i] = 0;
     }
     //printf("]\n");
 
@@ -1124,7 +1124,7 @@ void model_net_method_switch_to_surrogate_lp(tw_lp * lp) {
     if (ns->in_sched_recv_loop) {
         model_net_method_idle_event(0.0, 1, lp);
     }
-    ns->in_sched_recv_loop = 0;
+    //ns->in_sched_recv_loop = 0;
 }
 
 void model_net_method_switch_to_highdef_lp(tw_lp * lp) {

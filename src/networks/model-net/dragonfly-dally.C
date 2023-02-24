@@ -2239,9 +2239,9 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     if (OUTPUT_SNAPSHOT) {
         char **timestamps;
         size_t len;
-        rc = configuration_get_multivalue(&config, "PARAMS", "router_buffer_snapshots", anno, &timestamps, &len);
+        configuration_get_multivalue(&config, "PARAMS", "router_buffer_snapshots", anno, &timestamps, &len);
         assert((len > 0) == (timestamps != NULL));
-        if (rc) {  // counter-intuitively, configuration_get_multivalue returns 1 if it found the key!
+        if (len) {  // counter-intuitively, configuration_get_multivalue returns 1 if it found the key!
             num_snapshots = len;
             snapshot_times = (tw_stime*) malloc(len * sizeof(tw_stime));
 
@@ -5222,7 +5222,7 @@ static void terminal_buf_update(terminal_state * s,
 static void dragonfly_dally_terminal_final( terminal_state * s, 
       tw_lp * lp )
 {
-    if (FREEZE_NETWORK_STATE && is_surrogate_on) {
+    if (freeze_network_on_switch && is_surrogate_on) {
         dragonfly_dally_terminal_surrogate_to_highdef(s, lp);
     }
     // printf("terminal id %d\n",s->terminal_id);
@@ -6316,7 +6316,7 @@ terminal_dally_event( terminal_state * s,
     assert(msg->magic == terminal_magic_num);
     //printf("LPID: %llu Event type %d processed at %f\n", lp->gid, msg->type, tw_now(lp));
 
-    if (is_surrogate_on && FREEZE_NETWORK_STATE) {
+    if (is_surrogate_on && freeze_network_on_switch) {
         // This event will be reversed. It comes from the past, it has been forwarded to the future
         // by the surrogate freezing the network procedure and should not be taken into account
         if (! (msg->type == T_GENERATE || msg->type == T_ARRIVE_PREDICTED || msg->type == T_NOTIFY)) {

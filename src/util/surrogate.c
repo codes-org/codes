@@ -14,6 +14,9 @@
 #include <codes/model-net-lp.h>
 #include <codes/surrogate.h>
 
+// A simple macro to clarify code a bit
+#define PRINTF_ONCE(...) if (g_tw_mynode == 0) { fprintf(stderr, __VA_ARGS__); }
+
 // Basic level of debugging is 1. It should be always turned on
 // because it tells us when a switch to or from surrogate-mode happened.
 // It can be deactivated (set to 0) if it ends up being too obnoxious
@@ -24,6 +27,7 @@
 #define DEBUG_DIRECTOR 1
 
 // Global variables
+bool freeze_network_on_switch = true;
 static double ignore_until = 0;
 static struct surrogate_config surr_config = {0};
 
@@ -464,7 +468,7 @@ static void director_fun(tw_pe * pe, tw_event_sig gvt) {
     }
 
     // "Freezing" network events and activating LP's switch functions
-    if (FREEZE_NETWORK_STATE) {
+    if (freeze_network_on_switch) {
         if (surr_config.director.is_surrogate_on()) {
             model_net_method_switch_to_surrogate();
             events_high_def_to_surrogate_switch(pe, gvt);
@@ -512,9 +516,7 @@ void surrogate_configure(
     director_mode[0] = '\0';
     configuration_get_value(&config, "SURROGATE", "director_mode", anno, director_mode, MAX_NAME_LENGTH);
     if (strcmp(director_mode, "at-fixed-virtual-times") == 0) {
-        if(g_tw_mynode == 0) {
-            fprintf(stderr, "\nSurrogate activated switching at fixed virtual times: ");
-        }
+        PRINTF_ONCE("\nSurrogate activated switching at fixed virtual times: ");
 
         // Loading timestamps
         char **timestamps;
@@ -532,13 +534,9 @@ void surrogate_configure(
                 tw_error(TW_LOC, "Sequence `%s' could not be succesfully interpreted as a _double_.", timestamps[i]);
             }
 
-            if(g_tw_mynode == 0) {
-                fprintf(stderr, "%g%s", switch_at.time_stampts[i], i == len-1 ? "" : ", ");
-            }
+            PRINTF_ONCE("%g%s", switch_at.time_stampts[i], i == len-1 ? "" : ", ");
         }
-        if(g_tw_mynode == 0) {
-            fprintf(stderr, "\n");
-        }
+        PRINTF_ONCE("\n");
 
         // Injecting into ROSS the function to be called at GVT and the instant in time to trigger GVT
         g_tw_gvt_arbitrary_fun = director_fun;
@@ -560,19 +558,43 @@ void surrogate_configure(
     char latency_pred_name[MAX_NAME_LENGTH];
     latency_pred_name[0] = '\0';
     configuration_get_value(&config, "SURROGATE", "packet_latency_predictor", anno, latency_pred_name, MAX_NAME_LENGTH);
-    if (strcmp(latency_pred_name, "average") == 0) {
-        *pl_pred = &average_latency_predictor;
+    if (*latency_pred_name) {
+        if (strcmp(latency_pred_name, "average") == 0) {
+            *pl_pred = &average_latency_predictor;
 
-        // Finding out whether to ignore some packet latencies
-        int rc = configuration_get_value_double(&config, "SURROGATE", "ignore_until", anno, &ignore_until);
-        if (rc) {
-            ignore_until = -1; // any negative number disables ignore_until, all packet latencies will be considered
-        }
-        if (g_tw_mynode == 0) {
-            fprintf(stderr, "Enabling average packet latency predictor with ignore_until=%g\n", ignore_until);
+            // Finding out whether to ignore some packet latencies
+            int rc = configuration_get_value_double(&config, "SURROGATE", "ignore_until", anno, &ignore_until);
+            if (rc) {
+                ignore_until = -1; // any negative number disables ignore_until, all packet latencies will be considered
+                PRINTF_ONCE("Enabling average packet latency predictor\n");
+            } else {
+                PRINTF_ONCE("Enabling average packet latency predictor with ignore_until=%g\n", ignore_until);
+            }
+        } else {
+            tw_error(TW_LOC, "Unknown predictor for packet latency `%s` (possibilities include: average)", latency_pred_name);
         }
     } else {
-        tw_error(TW_LOC, "Unknown predictor for packet latency `%s`", latency_pred_name);
+        *pl_pred = &average_latency_predictor;
+        PRINTF_ONCE("Enabling average packet latency predictor (default behaviour)\n");
+    }
+
+    // Determining which predictor to set up and return
+    char network_treatment_name[MAX_NAME_LENGTH];
+    network_treatment_name[0] = '\0';
+    configuration_get_value(&config, "SURROGATE", "network_treatment_on_switch", anno, network_treatment_name, MAX_NAME_LENGTH);
+    if (*network_treatment_name) {
+        if (strcmp(network_treatment_name, "freeze") == 0) {
+            freeze_network_on_switch = true;
+            PRINTF_ONCE("The network will be frozen on switch to surrogate\n");
+        } else if (strcmp(network_treatment_name, "nothing") == 0) {
+            freeze_network_on_switch = false;
+            PRINTF_ONCE("The network will be left alone on switch to surrogate (it will run on the background until it empties by itself)\n");
+        } else {
+            tw_error(TW_LOC, "Unknown network treatment `%s` (possibilities include: frezee or nothing)", network_treatment_name);
+        }
+    } else {
+        freeze_network_on_switch = true;
+        PRINTF_ONCE("The network will be frozen on switch to surrogate (default behaviour)\n");
     }
 
     //surr_config.director.switch_surrogate();
