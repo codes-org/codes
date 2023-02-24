@@ -3816,6 +3816,11 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     s->packet_counter--;
 
     s->in_queue_delay = msg->saved_in_queue_delay;
+    struct packet_start start = s->sent_packets.back();
+    if (start.remote_event_data) {
+        free(start.remote_event_data);
+    }
+    free(start.message_data);
     s->sent_packets.pop_back();
 
     if(bf->c2)
@@ -4845,7 +4850,15 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
                 .packet_ID = msg->packet_ID,
                 .dfdally_src_terminal_id = msg->dfdally_src_terminal_id
             });
-            bf->c14 = 0;
+        }
+
+        if(bf->c15) {
+            struct packet_id const packet = {
+                .packet_ID = msg->packet_ID,
+                .dfdally_src_terminal_id = msg->dfdally_src_terminal_id
+            };
+            assert(s->arrived_here.count(packet) == 1);
+            s->arrived_here.erase(packet);
         }
 
         struct dfly_qhash_entry * d_entry_pop = (dfly_qhash_entry *)rc_stack_pop(s->st);
@@ -4868,16 +4881,6 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
         qhash_del(hash_link);
         free_tmp(tmp);	
         s->rank_tbl_pop--;
-    }
-
-    if(bf->c15) {
-        struct packet_id const packet = {
-            .packet_ID = msg->packet_ID,
-            .dfdally_src_terminal_id = msg->dfdally_src_terminal_id
-        };
-        assert(s->arrived_here.count(packet) == 1);
-        s->arrived_here.erase(packet);
-        bf->c15 = 0;
     }
     
     return;
@@ -4968,6 +4971,8 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     bf->c3 = 0;
     bf->c4 = 0;
     bf->c7 = 0;
+    bf->c14 = 0;
+    bf->c15 = 0;
 
     /* Total overall finished chunks in simulation */
     N_finished_chunks++;
