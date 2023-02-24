@@ -3025,7 +3025,7 @@ static void dragonfly_dally_terminal_surrogate_to_highdef(terminal_state * s, tw
 static bool dragonfly_dally_terminal_should_event_be_frozen(tw_lp * lp, tw_event * event) {
     (void) lp;
     assert(lp->gid == event->dest_lpid);
-    int const event_types_to_freeze = MN_BASE_SAMPLE | MN_BASE_PASS | MN_BASE_END_NOTIF | MN_CONGESTION_EVENT;
+    int const event_types_to_freeze = MN_BASE_SCHED_NEXT | MN_BASE_SAMPLE | MN_BASE_PASS | MN_BASE_END_NOTIF | MN_CONGESTION_EVENT;
     return model_net_should_event_be_frozen(lp, (model_net_wrap_msg *) tw_event_data(event), event_types_to_freeze, NULL);
 }
 

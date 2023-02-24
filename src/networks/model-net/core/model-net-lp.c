@@ -21,6 +21,8 @@
 int model_net_base_magic;
 int mn_sample_enabled = 0;
 
+static int is_surrogate_on = false;
+
 // message-type specific offsets - don't want to get bitten later by alignment
 // issues...
 static int msg_offsets[MAX_NETS];
@@ -574,6 +576,10 @@ void model_net_base_event(
 
     assert(m->h.magic == model_net_base_magic);
 
+    if(!is_surrogate_on && m->h.event_type == MN_BASE_SCHED_NEXT && m->msg.m_base.created_in_surrogate) {
+        return;
+    }
+
     void * sub_msg;
     switch (m->h.event_type){
         case MN_BASE_NEW_MSG:
@@ -616,6 +622,10 @@ void model_net_base_event_rc(
         model_net_wrap_msg * m,
         tw_lp * lp){
     assert(m->h.magic == model_net_base_magic);
+
+    if(!is_surrogate_on && m->h.event_type == MN_BASE_SCHED_NEXT && m->msg.m_base.created_in_surrogate) {
+        return;
+    }
 
     void * sub_msg;
     switch (m->h.event_type){
@@ -1012,6 +1022,7 @@ void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue,
             &m_wrap->h);
     m_wrap->msg.m_base.is_from_remote = is_recv_queue;
     r_wrap->queue_offset = queue_offset;
+    m_wrap->msg.m_base.created_in_surrogate = is_surrogate_on;
     tw_event_send(e);
 }
 
@@ -1085,6 +1096,14 @@ tw_event* model_net_method_congestion_event(tw_lpid dest_gid,
 
 }
 
+void model_net_method_switch_to_surrogate(void) {
+    is_surrogate_on = true;
+}
+
+void model_net_method_switch_to_highdef(void) {
+    is_surrogate_on = false;
+}
+
 void model_net_method_switch_to_surrogate_lp(tw_lp * lp) {
     model_net_base_state * const ns = (model_net_base_state*) lp->cur_state;
 
@@ -1095,7 +1114,7 @@ void model_net_method_switch_to_surrogate_lp(tw_lp * lp) {
         // scheduling an idle event to prevent getting stuck in the middle of a scheduling loop
         if (ns->sched_loop_pre_surrogate[i]) { // <- this can be more finely tuned
         // TODO: change zero-offset event for something a bit more sensible
-            model_net_method_idle_event(1.0, 0, lp);
+            model_net_method_idle_event2(0.0, 0, i, lp);
         }
         ns->in_sched_send_loop[i] = 0;
     }
@@ -1103,7 +1122,7 @@ void model_net_method_switch_to_surrogate_lp(tw_lp * lp) {
 
     ns->sched_recv_loop_pre_surrogate = ns->in_sched_recv_loop;
     if (ns->in_sched_recv_loop) {
-        model_net_method_idle_event(1.0, 1, lp);
+        model_net_method_idle_event(0.0, 1, lp);
     }
     ns->in_sched_recv_loop = 0;
 }
@@ -1116,16 +1135,16 @@ void model_net_method_switch_to_highdef_lp(tw_lp * lp) {
         //printf("%d ", ns->in_sched_send_loop[i]);
         // We have to duplicate an idle event that was produced in surrogate-mode, but not yet processed by the time we switch to high-def again, if that event was in the middle of the loop (asking for the next packet to inject) and in no other case
         // TODO: Not all LPs need an event like this!
-        if (ns->sched_loop_pre_surrogate[i] == 1 && ns->in_sched_send_loop[i] == 0) {
-            model_net_method_idle_event(1.0, 0, lp);
+        if (ns->sched_loop_pre_surrogate[i] == 0 && ns->in_sched_send_loop[i] == 1) {
+            model_net_method_idle_event2(0.0, 0, i, lp);
         }
-        ns->in_sched_send_loop[i] = ns->sched_loop_pre_surrogate[i];
+        ns->in_sched_send_loop[i] |= ns->sched_loop_pre_surrogate[i];
     }
 
-    if (ns->sched_recv_loop_pre_surrogate == 1 && ns->in_sched_recv_loop == 0) {
-        model_net_method_idle_event(1.0, 1, lp);
+    if (ns->sched_recv_loop_pre_surrogate == 0 && ns->in_sched_recv_loop == 1) {
+        model_net_method_idle_event(0.0, 1, lp);
     }
-    ns->in_sched_recv_loop = ns->sched_recv_loop_pre_surrogate;
+    ns->in_sched_recv_loop |= ns->sched_recv_loop_pre_surrogate;
 }
 
 void model_net_method_call_inner(tw_lp * lp, void (*fun) (void * inner, tw_lp * lp)) {

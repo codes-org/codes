@@ -121,6 +121,8 @@ tw_event* model_net_method_congestion_event(tw_lpid dest_gid,
 // Functions to call when switching from highdef to surrogate, and surrogate to highdef
 void model_net_method_switch_to_surrogate_lp(tw_lp * lp);
 void model_net_method_switch_to_highdef_lp(tw_lp * lp);
+void model_net_method_switch_to_surrogate(void);
+void model_net_method_switch_to_highdef(void);
 
 // It will call the function (pointer) on the internal structure/network model.
 // The lp parameter has to be a model-net lp. The function pointer has to coincide with the underlying subtype
@@ -155,6 +157,7 @@ typedef struct model_net_base_msg {
     // TODO: make this a union for multiple types of parameters
     mn_sched_params sched_params;
     model_net_sched_rc rc; // rc for scheduling events
+    int created_in_surrogate;
 } model_net_base_msg;
 
 typedef struct model_net_wrap_msg {

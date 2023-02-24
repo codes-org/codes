@@ -466,8 +466,10 @@ static void director_fun(tw_pe * pe, tw_event_sig gvt) {
     // "Freezing" network events and activating LP's switch functions
     if (FREEZE_NETWORK_STATE) {
         if (surr_config.director.is_surrogate_on()) {
+            model_net_method_switch_to_surrogate();
             events_high_def_to_surrogate_switch(pe, gvt);
         } else {
+            model_net_method_switch_to_highdef();
             events_surrogate_to_high_def_switch(pe, gvt);
         }
     }
