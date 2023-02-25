@@ -25,6 +25,7 @@ extern "C" {
 // surrogate to high-def). If not, all events will be kept in the network while
 // on surrogate mode, which means that the network will vacate completely
 extern bool freeze_network_on_switch;
+void print_surrogate_stats(void);
 
 /**
  * Terminal-to-terminal packet latency prediction machinery

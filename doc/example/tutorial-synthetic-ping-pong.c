@@ -6,6 +6,7 @@
 
 #include "codes/model-net.h"
 #include "codes/codes_mapping.h"
+#include "codes/surrogate.h"  // just needed for stats on surrogate-mode
 
 
 static int net_id = 0;
@@ -353,6 +354,9 @@ int main(int argc, char **argv)
         assert(ret == 0 || !"lp_io_flush failure");
     }
     model_net_report_stats(net_id);
+
+    // Printing some stats
+    print_surrogate_stats();
 
     tw_end();
     return 0;

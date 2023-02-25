@@ -28,6 +28,8 @@
 
 // Global variables
 bool freeze_network_on_switch = true;
+static bool is_surrogate_configured = false;
+static double surrogate_switching_time = 0.0;
 static double ignore_until = 0;
 static struct surrogate_config surr_config = {0};
 
@@ -412,6 +414,8 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe, tw_event_sig gvt) {
 
 
 static void director_fun(tw_pe * pe, tw_event_sig gvt) {
+    assert(is_surrogate_configured);
+
     static int i = 0;
     if (g_tw_mynode == 0) {
         if (DEBUG_DIRECTOR == 2) {
@@ -455,6 +459,7 @@ static void director_fun(tw_pe * pe, tw_event_sig gvt) {
         return;
     }
 
+    double const start = tw_clock_read();
     // Asking the director/model to switch
     if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
         if (DEBUG_DIRECTOR == 2) {
@@ -494,6 +499,7 @@ static void director_fun(tw_pe * pe, tw_event_sig gvt) {
     if (DEBUG_DIRECTOR > 1) {
         printf("PE %lu: Switch completed!\n", g_tw_mynode);
     }
+    surrogate_switching_time += tw_clock_read() - start;
 }
 //
 // === END OF Director functionality
@@ -507,6 +513,7 @@ void surrogate_configure(
 ) {
     assert(sc);
     assert(0 < sc->n_lp_types && sc->n_lp_types <= MAX_LP_TYPES);
+    is_surrogate_configured = true;
 
     // This is the only place where the director data should be loaded and set up
     surr_config = *sc;
@@ -603,3 +610,12 @@ void surrogate_configure(
     }
 }
 // === END OF All things Surrogate Configuration
+
+
+// === Stats!
+void print_surrogate_stats(void) {
+    if(is_surrogate_configured && g_tw_mynode == 0) {
+        printf("\nTotal time spent on switching from and to surrogate-mode: %.4f\n", (double) surrogate_switching_time / g_tw_clock_rate);
+    }
+}
+// === END OF Stats!
