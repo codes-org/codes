@@ -1,6 +1,7 @@
 This document serves the following purposes:
 * CODES updates to accommodate Union online simulations
 * Installation tutorial
+* Completed Experiments
 * Known issues
 
 = CODES updates
