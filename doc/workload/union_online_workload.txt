@@ -1,0 +1,67 @@
+This document serves the following purposes:
+* CODES updates to accommodate Union online simulations
+* Installation tutorial
+* Known issues
+
+= CODES updates
+
+The code modifications are started with comment text "Xin:"
+
+== Header file
+
+Added parameters for collecting router traffic data, including:
+* codes/model-net.h
+* codes/net/dragonfly-custom.h
+* codes/net/dragonfly-dally.h
+
+== Makefile
+
+Added checking for Union installation in the autoconf configure script configure.ac
+Added src/workload/methods/codes-conc-online-comm-wrkld.C to code base if compile with Union in Makefile.am
+
+== Union online workload
+
+We add a pluggable workload module "src/workload/methods/codes-conc-online-comm-wrkld.C" into CODES workload generator to hold the actual implementation of Union communication events, such that the messages from Union skeletons can be emitted as simulation events in CODES.
+
+== Router status collection for dragonfly custom and dragonfly dally
+
+Added supportive functions for collecting traffic data on router port on the following network models:
+* dragonfly custom at src/networks/model-net/dragonfly-custom.C
+* dragonfly dally at src/networks/model-net/dragonfly-dally.C
+
+== Updates in MPI replay
+
+Added Union online workload type in MPI workload replay at src/network-workloads/model-net-mpi-replay.c
+
+== Configurations
+
+We added the following items in the CODES configuration file for collecting router traffic information during simulation.
+
+* counting_bool - flag to enable/disable the collection of trouter traffic
+* counting_start - the start time in microsecond for collecting traffic data
+* counting_interval - the time window size in microsecond for collection traffic data
+* counting_windows - the number of time windows for collecting traffic data
+* num_apps - the number of applications in the simulation workload
+* offset - supportive parameter for getting the application id of each packet 
+
+An example configuration can be found at: https://github.com/SPEAR-IIT/Union/blob/master/test/df1d-72-adp.conf
+
+= Installation tutorial
+
+Please follow the Readme at: https://github.com/SPEAR-IIT/Union to install Union and run test simulation of Union online workloads.
+
+= Completed Experiments 
+
+We have completed the following experiments with Union online workload simulation:
+* simulate Conceptual skeletons alone
+* simulate Conceptual and SWM skeletons simultaneously
+* simulate Conceptual and SWM skeletons simultaneously with different synthetic traffic patterns
+
+The above experiments have been done on both dragonfly custom and dragonfly dally network models, with sequential mode and optimistic mode.
+
+= Known Issues
+
+Currently the rendezvous protocol in MPI replay cannot work with Union online workloads.
+The reverse function router_buf_update_rc() does not take care of the cross window reverses for aggregated busytime on port.
+
+
