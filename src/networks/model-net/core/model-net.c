@@ -369,6 +369,12 @@ static model_net_event_return model_net_event_impl_base(
     strncpy(r->category, category, CATEGORY_NAME_MAX-1);
     r->category[CATEGORY_NAME_MAX-1]='\0';
 
+    //Xin: passing app_id to the request struct
+    int ptroffset;
+    configuration_get_value_int(&config, "PARAMS", "offset", NULL, &ptroffset);
+    const int *id_ptr = remote_event+ptroffset;
+    r->app_id = *id_ptr;
+
     if (is_msg_params_set[MN_MSG_PARAM_START_TIME])
         r->msg_start_time = start_time_param;
     else

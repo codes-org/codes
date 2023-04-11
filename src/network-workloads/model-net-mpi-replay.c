@@ -2147,7 +2147,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 	strcpy(params_d.cortex_gen, cortex_gen);
 #endif
    }
-   else if(strcmp(workload_type, "online") == 0){
+   else if(strcmp(workload_type, "swm-online") == 0){
            
        online_comm_params oc_params;
        
@@ -2166,7 +2166,27 @@ void nw_test_init(nw_state* s, tw_lp* lp)
         * online, it is the number of ranks to be simulated. */
        oc_params.nprocs = num_traces_of_job[lid.job]; 
        params = (char*)&oc_params;
-       strcpy(type_name, "online_comm_workload");
+       strcpy(type_name, "swm_online_comm_workload");
+   }
+   //Xin: add conceputual online workload
+   else if(strcmp(workload_type, "conc-online") == 0){
+           
+       online_comm_params oc_params;
+       
+       if(strlen(workload_name) > 0)
+       {
+           strcpy(oc_params.workload_name, workload_name); 
+       }
+       else if(strlen(workloads_conf_file) > 0)
+       {
+            strcpy(oc_params.workload_name, file_name_of_job[lid.job]);      
+       }
+       /*TODO: nprocs is different for dumpi and online workload. for
+        * online, it is the number of ranks to be simulated. */
+       // printf("conc-online num_traces_of_job %d\n", num_traces_of_job[lid.job]);
+       oc_params.nprocs = num_traces_of_job[lid.job]; 
+       params = (char*)&oc_params;
+       strcpy(type_name, "conc_online_comm_workload");
    }
 
    int rc = configuration_get_value_int(&config, "PARAMS", "num_qos_levels", NULL, &num_qos_levels);
@@ -2637,16 +2657,22 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
             return;
         if(strncmp(file_name_of_job[lid.job], "synthetic", 9) == 0)
             avg_msg_time = (s->send_time / s->num_recvs);
-        else if(strcmp(workload_type, "online") == 0) 
-        codes_workload_finalize("online_comm_workload", params, s->app_id, s->local_rank);
+        else if(strcmp(workload_type, "swm-online") == 0) 
+            codes_workload_finalize("swm_online_comm_workload", params, s->app_id, s->local_rank);
+        //Xin: for conceptual online workload
+        else if(strcmp(workload_type, "conc-online") == 0)
+            codes_workload_finalize("conc_online_comm_workload", params, s->app_id, s->local_rank);
     }
     else
     {
         if(s->nw_id >= (tw_lpid)num_net_traces)
             return;
         
-        if(strcmp(workload_type, "online") == 0) 
-            codes_workload_finalize("online_comm_workload", params, s->app_id, s->local_rank);
+        if(strcmp(workload_type, "swm-online") == 0) 
+            codes_workload_finalize("swm_online_comm_workload", params, s->app_id, s->local_rank);
+        //Xin: for conceptual online workload
+        if(strcmp(workload_type, "conc-online") == 0)
+            codes_workload_finalize("conc_online_comm_workload", params, s->app_id, s->local_rank); 
     }
 
         struct msg_size_info * tmp_msg = NULL; 
@@ -2973,12 +2999,12 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
     { // keep damaris ranks from running code between here up until tw_end()
 #endif
   codes_comm_update();
-
-  if(strcmp(workload_type, "dumpi") != 0 && strcmp(workload_type, "online") != 0)
+  //Xin: add conceptual online workload
+  if(strcmp(workload_type, "dumpi") != 0 && strcmp(workload_type, "swm-online") != 0 && strcmp(workload_type, "conc-online") != 0)
     {
 	if(tw_ismaster())
 		printf("Usage: mpirun -np n ./modelnet-mpi-replay --sync=1/3"
-                " --workload_type=dumpi/online"
+                " --workload_type=dumpi/swm-online/conc-online"
 		" --workload_conf_file=prefix-workload-file-name"
                 " --alloc_file=alloc-file-name"
 #ifdef ENABLE_CORTEX_PYTHON
@@ -2991,6 +3017,11 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
                 " for instructions on how to run the models with network traces ");
 	tw_end();
 	return -1;
+    }
+
+    /* Xin: Currently rendezvous protocol cannot work with Conceptual online workloads */
+    if(strcmp(workload_type, "conc-online") == 0) {
+        EAGER_THRESHOLD = INT64_MAX;
     }
 
 	jobmap_ctx = NULL; // make sure it's NULL if it's not used

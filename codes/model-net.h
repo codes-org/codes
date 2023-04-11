@@ -135,7 +135,7 @@ typedef struct model_net_request {
     int      self_event_size;
     char     category[CATEGORY_NAME_MAX];
 
-    //for counting msg app id
+    //Xin: passing app id to routers
     int     app_id;
 
 } model_net_request;
