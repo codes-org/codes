@@ -21,6 +21,9 @@
 typedef struct client_msg client_msg;
 typedef struct client_state client_state;
 
+char workload_type[MAX_NAME_LENGTH_WKLD];
+struct iolang_params ioparams;
+
 enum client_event_type
 {
     CLIENT_KICKOFF = 64,    /* initial event */

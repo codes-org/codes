@@ -27,7 +27,7 @@ extern "C" {
 
 #define MAX_NAME_LENGTH 256
 #define CATEGORY_NAME_MAX 16
-#define CATEGORY_MAX 12
+#define CATEGORY_MAX 15
 
 // simple deprecation attribute hacking
 #if !defined(DEPRECATED)
@@ -37,6 +37,13 @@ extern "C" {
 #    define DEPRECATED
 #  endif
 #endif
+
+/* Global declarations for configurations that might want to be passed via
+ * command line in addition to configuration file. Needed a globally accessible
+ * place for these
+*/
+extern char g_nm_link_failure_filepath[]; //filepath to link failure file for use by models that use NetworkManager
+
 
 /* HACK: there is currently no scheduling fidelity across multiple
  * model_net_event calls. Hence, problems arise when some LP sends multiple
@@ -79,6 +86,7 @@ typedef struct mn_stats mn_stats;
     X(DRAGONFLY_PLUS_ROUTER, "modelnet_dragonfly_plus_router", "dragonfly_plus_router", &dragonfly_plus_router_method)\
     X(DRAGONFLY_DALLY, "modelnet_dragonfly_dally", "dragonfly_dally", &dragonfly_dally_method)\
     X(DRAGONFLY_DALLY_ROUTER, "modelnet_dragonfly_dally_router", "dragonfly_dally_router", &dragonfly_dally_router_method)\
+    X(CONGESTION_CONTROLLER, "congestion_controller", "congestion_controller", NULL)\
     X(MAX_NETS,  NULL,                 NULL,        NULL)
 
 #define X(a,b,c,d) a,

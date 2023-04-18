@@ -20,7 +20,7 @@ extern "C" {
 #include "configuration.h"
 
 #ifdef USE_ONLINE
-#include <abt.h>
+#include "abt.h"
 #endif
 #define MAX_NAME_LENGTH_WKLD 512
 
@@ -173,6 +173,9 @@ enum codes_workload_op_type
     CODES_WK_MPI_COLL_WRITE,
     /* collective_read */
     CODES_WK_MPI_COLL_READ,
+
+    /* intrumentation */
+    CODES_WK_MARK,
 };
 
 /* I/O operation paramaters */
