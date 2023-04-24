@@ -211,6 +211,7 @@ static inline bool does_any_pe(bool val) {
 //}
 
 
+#ifdef USE_RAND_TIEBREAKER
 static void rollback_and_cancel_events_pe(tw_pe * pe, tw_event_sig gvt) {
     // Backtracking the simulation to GVT
     //double const switch_ = switch_at.time_stampts[switch_at.current_i];
@@ -219,6 +220,16 @@ static void rollback_and_cancel_events_pe(tw_pe * pe, tw_event_sig gvt) {
         tw_kp_rollback_to_sig(g_tw_kp[i], gvt);
     }
     assert(tw_event_sig_compare(pe->GVT_sig, gvt) == 0);
+#else
+static void rollback_and_cancel_events_pe(tw_pe * pe, tw_stime gvt) {
+    // Backtracking the simulation to GVT
+    //double const switch_ = switch_at.time_stampts[switch_at.current_i];
+    for (unsigned int i = 0; i < g_tw_nkp; i++) {
+        //tw_event_sig const smallest = find_sig_smallest_larger_than(switch_, g_tw_kp[i], gvt);
+        tw_kp_rollback_to(g_tw_kp[i], gvt);
+    }
+    assert(pe->GVT == gvt);
+#endif
 
     // Making sure that everything gets cleaned up properly (AVL tree should be empty by the end)
     do {
@@ -234,7 +245,11 @@ static void rollback_and_cancel_events_pe(tw_pe * pe, tw_event_sig gvt) {
         tw_gvt_step2(pe);
 
         if (DEBUG_DIRECTOR > 1) {
+#ifdef USE_RAND_TIEBREAKER
             printf("PE %lu: Time stamp at the end of GVT time: %e - AVL-tree sized: %d\n", g_tw_mynode, pe->GVT_sig.recv_ts, pe->avl_tree_size);
+#else
+            printf("PE %lu: Time stamp at the end of GVT time: %e - AVL-tree sized: %d\n", g_tw_mynode, pe->GVT, pe->avl_tree_size);
+#endif
         }
     } while (does_any_pe(pe->cancel_q != NULL) || does_any_pe(pe->event_q.size != 0));
 
@@ -243,7 +258,11 @@ static void rollback_and_cancel_events_pe(tw_pe * pe, tw_event_sig gvt) {
     }
 }
 
+#ifdef USE_RAND_TIEBREAKER
 static void shift_events_to_future_pe(tw_pe * pe, tw_event_sig gvt) {
+#else
+static void shift_events_to_future_pe(tw_pe * pe, tw_stime gvt) {
+#endif
     tw_event * next_event = tw_pq_dequeue(pe->pq);
 
     // If there aren't any events left to process, the simulation has already finished and we have nothing to do
@@ -256,7 +275,11 @@ static void shift_events_to_future_pe(tw_pe * pe, tw_event_sig gvt) {
     double switch_offset = g_tw_ts_end;
     if (switch_at.current_i + 1 < switch_at.total) {
         double const next_switch = switch_at.time_stampts[switch_at.current_i + 1];
+#ifdef USE_RAND_TIEBREAKER
         double const pre_switch_time = gvt.recv_ts;  // pe->GVT_sig.recv_ts;
+#else
+        double const pre_switch_time = gvt;
+#endif
         switch_offset = next_switch - pre_switch_time;
         assert(pre_switch_time < next_switch);
         //printf("gvt=%f next_switch=%f switch_offset=%f\n", pre_switch_time, next_switch, switch_offset);
@@ -268,7 +291,11 @@ static void shift_events_to_future_pe(tw_pe * pe, tw_event_sig gvt) {
     while (next_event) {
         // Filtering events to freeze
         assert(next_event->prev == NULL);
+#ifdef USE_RAND_TIEBREAKER
         assert(tw_event_sig_compare(next_event->sig, gvt) >= 0);
+#else
+        assert(next_event->recv_ts >= gvt);
+#endif
 
         // finding out lp type
         char const * lp_type_name;
@@ -279,11 +306,17 @@ static void shift_events_to_future_pe(tw_pe * pe, tw_event_sig gvt) {
         // shifting time stamps to the future for events to freeze
         if (lp_type_switch && lp_type_switch->should_event_be_frozen
                 && lp_type_switch->should_event_be_frozen(next_event->dest_lp, next_event)) {
+#ifdef USE_RAND_TIEBREAKER
             assert(next_event->recv_ts == next_event->sig.recv_ts);
             next_event->recv_ts += switch_offset;
             next_event->sig.recv_ts = next_event->recv_ts;
         }
         assert(next_event->recv_ts >= g_tw_trigger_arbitrary_fun.sig_at.recv_ts);
+#else
+            next_event->recv_ts += switch_offset;
+        }
+        assert(next_event->recv_ts >= g_tw_trigger_arbitrary_fun.at);
+#endif
 
         // store event in deque_events to inject immediately back to the queue
         next_event->prev = dequed_events;
@@ -320,6 +353,7 @@ static void shift_events_to_future_pe(tw_pe * pe, tw_event_sig gvt) {
 // - Looking at all events in the PE, "freezing" those in the network model
 //   and letting the workload events be processed further
 // - Going through every LP and calling their respective functions
+#ifdef USE_RAND_TIEBREAKER
 static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_event_sig gvt) {
     if (g_tw_synchronization_protocol != OPTIMISTIC && g_tw_synchronization_protocol != SEQUENTIAL) {
         tw_error(TW_LOC, "Sorry, sending packets to the future hasn't been implement in this mode");
@@ -331,6 +365,19 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_event_sig gvt) {
         //assert(tw_event_sig_compare(pe->GVT_sig, gvt) <= 0);
         assert(tw_event_sig_compare(pe->GVT_sig, gvt) == 0);
     }
+#else
+static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_stime gvt) {
+    if (g_tw_synchronization_protocol != OPTIMISTIC && g_tw_synchronization_protocol != SEQUENTIAL) {
+        tw_error(TW_LOC, "Sorry, sending packets to the future hasn't been implement in this mode");
+    }
+
+    if (g_tw_synchronization_protocol == OPTIMISTIC) {
+        assert(pe->GVT == gvt);
+        rollback_and_cancel_events_pe(pe, gvt);
+        //assert(tw_event_sig_compare(pe->GVT_sig, gvt) <= 0);
+        assert(pe->GVT == gvt);
+    }
+#endif
 
     shift_events_to_future_pe(pe, gvt);
 
@@ -342,7 +389,11 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_event_sig gvt) {
         // Modifying current time for LPs (technically, KPs) so that they
         // coincide with current GVT (the current GVT often does not
         // correspond to the (last) time stored in KPs).
+#ifdef USE_RAND_TIEBREAKER
         lp->kp->last_sig = gvt;
+#else
+        lp->kp->last_time = gvt;
+#endif
 
         char const * lp_type_name;
         int rep_id, offset; // unused
@@ -367,6 +418,7 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_event_sig gvt) {
 }
 
 
+#ifdef USE_RAND_TIEBREAKER
 static void events_surrogate_to_high_def_switch(tw_pe * pe, tw_event_sig gvt) {
     (void) pe;
 
@@ -376,6 +428,17 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe, tw_event_sig gvt) {
         //assert(tw_event_sig_compare(pe->GVT_sig, gvt) <= 0);
         assert(tw_event_sig_compare(pe->GVT_sig, gvt) == 0);
     }
+#else
+static void events_surrogate_to_high_def_switch(tw_pe * pe, tw_stime gvt) {
+    (void) pe;
+
+    if (g_tw_synchronization_protocol == OPTIMISTIC) {
+        assert(pe->GVT == gvt);
+        rollback_and_cancel_events_pe(pe, gvt);
+        //assert(tw_event_sig_compare(pe->GVT_sig, gvt) <= 0);
+        assert(pe->GVT == gvt);
+    }
+#endif
 
     // Going through all LPs in PE and running their specific functions
     for (tw_lpid local_lpid = 0; local_lpid < g_tw_nlp; local_lpid++) {
@@ -385,8 +448,13 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe, tw_event_sig gvt) {
         // Modifying current time for LPs (technically, KPs) so that they
         // coincide with current GVT (the current GVT often does not
         // correspond to the (last) time stored in KPs).
+#ifdef USE_RAND_TIEBREAKER
         tw_event_sig const previous_sig = lp->kp->last_sig;
         lp->kp->last_sig = gvt;
+#else
+        tw_stime const previous_time = lp->kp->last_time;
+        lp->kp->last_time = gvt;
+#endif
 
         char const * lp_type_name;
         int rep_id, offset; // unused
@@ -408,12 +476,20 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe, tw_event_sig gvt) {
             }
         }
 
+#ifdef USE_RAND_TIEBREAKER
         lp->kp->last_sig = previous_sig;
+#else
+        lp->kp->last_time = previous_time;
+#endif
     }
 }
 
 
+#ifdef USE_RAND_TIEBREAKER
 static void director_fun(tw_pe * pe, tw_event_sig gvt) {
+#else
+static void director_fun(tw_pe * pe, tw_stime gvt) {
+#endif
     assert(is_surrogate_configured);
 
     static int i = 0;
@@ -423,8 +499,13 @@ static void director_fun(tw_pe * pe, tw_event_sig gvt) {
             fflush(stdout);
         }
         if (DEBUG_DIRECTOR == 3) {
+#ifdef USE_RAND_TIEBREAKER
             printf("GVT %d at %f in %s arbitrary-fun-status=", i++, gvt.recv_ts,
                     surr_config.director.is_surrogate_on() ? "surrogate-mode" : "high-definition");
+#else
+            printf("GVT %d at %f in %s arbitrary-fun-status=", i++, gvt,
+                    surr_config.director.is_surrogate_on() ? "surrogate-mode" : "high-definition");
+#endif
 
             switch (g_tw_trigger_arbitrary_fun.active) {
                 case ARBITRARY_FUN_enabled:
@@ -440,6 +521,7 @@ static void director_fun(tw_pe * pe, tw_event_sig gvt) {
         }
     }
 
+#ifdef USE_RAND_TIEBREAKER
     // Only in sequential mode pe->GVT does not carry the current gvt, while it does in conservative and optimistic
     assert((g_tw_synchronization_protocol == SEQUENTIAL) || (pe->GVT_sig.recv_ts == gvt.recv_ts));
 
@@ -458,6 +540,25 @@ static void director_fun(tw_pe * pe, tw_event_sig gvt) {
     } else {
         return;
     }
+#else
+    // Only in sequential mode pe->GVT does not carry the current gvt, while it does in conservative and optimistic
+    assert((g_tw_synchronization_protocol == SEQUENTIAL) || (pe->GVT == gvt));
+
+    // Do not process if the simulation ended
+    if (gvt >= g_tw_ts_end) {
+        return;
+    }
+
+    // Detecting if we are going to switch
+    if (switch_at.current_i < switch_at.total
+            && g_tw_trigger_arbitrary_fun.active == ARBITRARY_FUN_triggered) {
+        double const switch_time = switch_at.time_stampts[switch_at.current_i];
+        assert(g_tw_trigger_arbitrary_fun.at == switch_at.time_stampts[switch_at.current_i]);
+        assert(gvt >= switch_time);  // current gvt shouldn't be that far ahead from the point we wanted to trigger it
+    } else {
+        return;
+    }
+#endif
 
     double const start = tw_clock_read();
     // Asking the director/model to switch
@@ -465,7 +566,11 @@ static void director_fun(tw_pe * pe, tw_event_sig gvt) {
         if (DEBUG_DIRECTOR == 2) {
             printf("\n");
         }
+#ifdef USE_RAND_TIEBREAKER
         printf("Switching at %g", gvt.recv_ts);
+#else
+        printf("Switching at %g", gvt);
+#endif
     }
     surr_config.director.switch_surrogate();
     if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
@@ -487,10 +592,15 @@ static void director_fun(tw_pe * pe, tw_event_sig gvt) {
     if (++switch_at.current_i < switch_at.total) {
         double const next_switch = switch_at.time_stampts[switch_at.current_i];
         // Setting trigger for next switch
+#ifdef USE_RAND_TIEBREAKER
         tw_event_sig time_stamp = {0};
         time_stamp.recv_ts = next_switch;
         //printf("Adding a trigger to activate next switch!\n");
         tw_trigger_arbitrary_fun_at(time_stamp);
+#else
+        //printf("Adding a trigger to activate next switch!\n");
+        tw_trigger_arbitrary_fun_at(next_switch);
+#endif
     }
 
     if (DEBUG_DIRECTOR == 1 && g_tw_mynode == 0) {
@@ -548,9 +658,13 @@ void surrogate_configure(
         // Injecting into ROSS the function to be called at GVT and the instant in time to trigger GVT
         g_tw_gvt_arbitrary_fun = director_fun;
 
+#ifdef USE_RAND_TIEBREAKER
         tw_event_sig time_stamp = {0};
         time_stamp.recv_ts = switch_at.time_stampts[0];
         tw_trigger_arbitrary_fun_at(time_stamp);
+#else
+        tw_trigger_arbitrary_fun_at(switch_at.time_stampts[0]);
+#endif
 
         // freeing timestamps before it dissapears
         for (size_t i = 0; i < len; i++) {
