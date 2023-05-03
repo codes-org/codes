@@ -4638,6 +4638,8 @@ static void process_terminal_notification_event(terminal_state * s, tw_bf * bf, 
 // This function triggers an event that is completely ignored when processed later. The number of events produced by a terminal/router DOES alter the simulation results. (The number of events processed by an LP shouldn't be a parameter to the simulation itself, but it is weirdly).
 static void vacuous_msg_to_itself(terminal_state * s, terminal_dally_message * msg, tw_lp * lp)
 {
+    (void) s;
+    (void) msg;
     terminal_dally_message * new_msg;
     tw_event *e = model_net_method_event_new(
             lp->gid, g_tw_lookahead, lp, DRAGONFLY_DALLY, (void**)&new_msg, NULL);
@@ -4650,6 +4652,7 @@ static void vacuous_msg_to_itself(terminal_state * s, terminal_dally_message * m
 //used by packet_arrive()
 static void send_remote_event(terminal_state * s, terminal_dally_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
 {
+    (void) s;
     void * tmp_ptr = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
     
     tw_stime ts = 0;
