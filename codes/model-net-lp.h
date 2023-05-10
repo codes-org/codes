@@ -126,7 +126,7 @@ void model_net_method_switch_to_highdef(void);
 
 // It will call the function (pointer) on the internal structure/network model.
 // The lp parameter has to be a model-net lp. The function pointer has to coincide with the underlying subtype
-void model_net_method_call_inner(tw_lp * lp, void (*) (void * inner, tw_lp * lp));
+void model_net_method_call_inner(tw_lp * lp, void (*) (void * inner, tw_lp * lp, tw_event **), tw_event **);
 
 /// The following functions/data structures should not need to be used by
 /// model developers - they are just provided so other internal components can
@@ -180,15 +180,11 @@ typedef struct model_net_wrap_msg {
     } msg;
 } model_net_wrap_msg;
 
-typedef bool (*should_msg_be_frozen_f) (void*); // topology-specific should it be frozen question
+// Returns the (hidden) event type of the current event
+int model_net_get_event_type_lp(model_net_wrap_msg *);
 
-// Determines if given event should be frozen. It will return true for events of a type contained in `freeze_types`, it will optionally call the topology-specific `should_freeze_question` to check if the event is to be frozen (active only if MN_BASE_PASS is not contained in `freeze_types`)
-bool model_net_should_event_be_frozen(
-        tw_lp * lp,
-        model_net_wrap_msg * msg,  // message to check if has to be frozen
-        int freeze_types,  // events of type "contained" in this will be frozen. An example is the "enum" `MN_BASE_SAMPLE | MN_CONGESTION_EVENT | MN_BASE_END_NOTIF` which will freeze events of those three types and will check on the supplied function below whether the internal model decides to freeze or not
-        should_msg_be_frozen_f should_freeze_question  // this function will be called if the type of the message is MN_BASE_PASS and it hasn't been indicated above that it will be frozen. If NULL and MN_BASE_PASS has not being indicated above, then it won't be frozen
-);
+// Extracting message contained within event MN_BASE_PASS
+void * model_net_method_msg_from_tw_event(tw_lp *, model_net_wrap_msg *);
 
 #ifdef __cplusplus
 }

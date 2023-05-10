@@ -328,13 +328,78 @@ static void shift_events_to_future_pe(tw_pe * pe, tw_stime gvt) {
         events_enqueued++;
     }
 
-    if (DEBUG_DIRECTOR > 1 && g_tw_mynode == 0) {
+    if (DEBUG_DIRECTOR > 1) {
         printf("PE %lu: Discrepancy on number of events processed %d (%d dequeued and %d enqueued)\n",
                 g_tw_mynode, events_dequeued - events_enqueued, events_dequeued, events_enqueued);
     }
 
     // shifting time stamps of events in causality list (one list per KP)
     // offset_future_events_in_causality_list(switch_offset, gvt);
+}
+
+
+// Returns an array of size `g_tw_nlp`, where each element is a null-terminated
+// array containing all the events that each LP has for processing
+static tw_event *** order_events_per_lps(tw_pe * pe) {
+    // 0. Create array for linked list of size g_tw_nlp to store events per lp
+    tw_event ** lp_queue_events = (tw_event **) calloc(g_tw_nlp, sizeof(tw_event *));
+    // 0b. Create simple array (size g_tw_lp) to store number of events per lp
+    size_t * num_lp_queue_events = (size_t *) calloc(g_tw_nlp, sizeof(size_t));
+
+    // 1. loop extracting events from queue
+    //   a. check from which local lp does the event belong
+    //   b. add event to reversed linked-list of given lp and increase lp counter
+    tw_event * next_event = tw_pq_dequeue(pe->pq);
+    size_t events_dequeued = 0;
+    while (next_event) {
+        // Filtering events to freeze
+        assert(next_event->prev == NULL);
+
+        // finding out lp type
+        assert(tw_getlocal_lp(next_event->dest_lpid) == next_event->dest_lp);
+        tw_lpid const lpid = next_event->dest_lp->id;
+
+        // store event in lp_queue_events
+        next_event->prev = lp_queue_events[lpid];
+        lp_queue_events[lpid] = next_event;
+        num_lp_queue_events[lpid]++;
+        events_dequeued++;
+
+        next_event = tw_pq_dequeue(pe->pq);
+    }
+
+    // 2. create array (triple pointer type, **) of size `g_tw_nlp + total events`
+    //    to store events per lp, null-terminated
+    tw_event *** lps_events = (tw_event ** *) calloc(g_tw_nlp, sizeof(tw_event **));
+    tw_event ** all_events_mem = (tw_event * *) calloc(g_tw_nlp + events_dequeued, sizeof(tw_event *));
+
+    // 3. loop through each linked-list insert each event back into the
+    //   queue and store address copy into lp array
+    size_t event_i = 0;
+    for (size_t lpid = 0; lpid < g_tw_nlp; lpid++) {
+        lps_events[lpid] = &all_events_mem[event_i];
+
+        tw_event * dequed_events = lp_queue_events[lpid];
+        while (dequed_events) {
+            // event address copy
+            all_events_mem[event_i] = dequed_events;
+
+            // placing back into queue
+            tw_event * const prev_event = dequed_events;
+            dequed_events = dequed_events->prev;
+            prev_event->prev = NULL;
+            tw_pq_enqueue(pe->pq, prev_event);
+
+            event_i++;
+        }
+        event_i++;
+    }
+    assert(event_i == g_tw_nlp + events_dequeued);
+
+    assert(g_tw_nlp > 0 && lps_events[0] == all_events_mem);
+    free(lp_queue_events);
+    free(num_lp_queue_events);
+    return lps_events;
 }
 
 
@@ -370,6 +435,7 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_stime gvt) {
     }
 #endif
 
+    tw_event *** lps_events = order_events_per_lps(pe);
     shift_events_to_future_pe(pe, gvt);
 
     // Going through all LPs in PE and running their specific functions
@@ -399,13 +465,20 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_stime gvt) {
             }
             if (lp_type_switch->surrogate_to_highdef) {
                 if (is_lp_modelnet) {
-                    model_net_method_call_inner(lp, lp_type_switch->highdef_to_surrogate);
+                    model_net_method_call_inner(lp, lp_type_switch->highdef_to_surrogate, lps_events[local_lpid]);
                 } else {
-                    lp_type_switch->highdef_to_surrogate(lp->cur_state, lp);
+                    lp_type_switch->highdef_to_surrogate(lp->cur_state, lp, lps_events[local_lpid]);
                 }
             }
         }
     }
+
+    // This will force a global update on all the new remote events (instead of waiting until the next GVT cycle to update events to process)
+    rollback_and_cancel_events_pe(pe, gvt);
+
+    assert(lps_events[0] != NULL);
+    free(lps_events[0]);
+    free(lps_events);
 }
 
 
@@ -416,7 +489,6 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe, tw_event_sig gvt) {
     if (g_tw_synchronization_protocol == OPTIMISTIC) {
         assert(tw_event_sig_compare(pe->GVT_sig, gvt) == 0);
         rollback_and_cancel_events_pe(pe, gvt);
-        //assert(tw_event_sig_compare(pe->GVT_sig, gvt) <= 0);
         assert(tw_event_sig_compare(pe->GVT_sig, gvt) == 0);
     }
 #else
@@ -426,7 +498,6 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe, tw_stime gvt) {
     if (g_tw_synchronization_protocol == OPTIMISTIC) {
         assert(pe->GVT == gvt);
         rollback_and_cancel_events_pe(pe, gvt);
-        //assert(tw_event_sig_compare(pe->GVT_sig, gvt) <= 0);
         assert(pe->GVT == gvt);
     }
 #endif
@@ -460,9 +531,9 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe, tw_stime gvt) {
             }
             if (lp_type_switch->surrogate_to_highdef) {
                 if (is_lp_modelnet) {
-                    model_net_method_call_inner(lp, lp_type_switch->surrogate_to_highdef);
+                    model_net_method_call_inner(lp, lp_type_switch->surrogate_to_highdef, NULL);
                 } else {
-                    lp_type_switch->surrogate_to_highdef(lp->cur_state, lp);
+                    lp_type_switch->surrogate_to_highdef(lp->cur_state, lp, NULL);
                 }
             }
         }

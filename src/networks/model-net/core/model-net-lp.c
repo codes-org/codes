@@ -1147,29 +1147,24 @@ void model_net_method_switch_to_highdef_lp(tw_lp * lp) {
     ns->in_sched_recv_loop |= ns->sched_recv_loop_pre_surrogate;
 }
 
-void model_net_method_call_inner(tw_lp * lp, void (*fun) (void * inner, tw_lp * lp)) {
+void model_net_method_call_inner(tw_lp * lp, void (*fun) (void * inner, tw_lp * lp, tw_event **), tw_event ** lp_events) {
     model_net_base_state * const ns = (model_net_base_state*) lp->cur_state;
 
-    fun(ns->sub_state, lp);
+    fun(ns->sub_state, lp, lp_events);
 }
 
-bool model_net_should_event_be_frozen(
-        tw_lp * lp,
-        model_net_wrap_msg * msg,
-        int freeze_types,
-        should_msg_be_frozen_f should_freeze_question
-) {
+int model_net_get_event_type_lp(model_net_wrap_msg * msg) {
+    return msg->h.event_type;
+}
+
+void * model_net_method_msg_from_tw_event(tw_lp * lp, model_net_wrap_msg * msg) {
     model_net_base_state * const ns = (model_net_base_state*) lp->cur_state;
 
-    if (msg->h.event_type & freeze_types) { // Finding out whether current event type is one of freeze types
-        return true;
-    } else if (msg->h.event_type & MN_BASE_PASS) { // pass down to topology-specific event handler
-        if (should_freeze_question) {
-            void * const sub_msg = ((char*)msg)+msg_offsets[ns->net_id];
-            return should_freeze_question(sub_msg);
-        }
+    if (msg->h.event_type & MN_BASE_PASS) { // grab sub message
+        void * const sub_msg = ((char*)msg)+msg_offsets[ns->net_id];
+        return sub_msg;
     }
-    return false;
+    return NULL;
 }
 
 /*

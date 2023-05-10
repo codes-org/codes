@@ -84,7 +84,10 @@ struct director_data {
  * Configuration specifics
  */
 
-typedef void (*model_switch_f) (void * data, tw_lp * lp); // Switches back and forth from surrogate mode as defined by network model (e.g, by dragonfly-dally.C)
+// Switches back and forth from surrogate mode as defined by network model
+// (e.g, by dragonfly-dally.C)
+// Parameters: `data` corresponds to the lp sub-state, lp is the lp pointer, and the array of events in queue (to be processed)
+typedef void (*model_switch_f) (void * data, tw_lp * lp, tw_event **);
 typedef bool (*model_ask_if_freeze_f) (tw_lp * lp, tw_event * event); // Determines whether the event should be "frozen" or should be allowed to run during surrogate-mode
 
 struct lp_types_switch {
