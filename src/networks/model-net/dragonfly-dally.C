@@ -474,12 +474,16 @@ static bool isRoutingNonminimalExplicit(int alg)
  * Surrogate definitions and data
  */
 
-// Comparison function object to use in min-heap of packet_end's
+struct packet_double_val {
+    uint64_t packet_ID;
+    double value; // This can either be packet delivery latency or delay in queue to be processed
+};
+// Comparison function object to use in min-heap of sent_packets_latency
 static struct {
-    bool operator() (struct packet_end const l, struct packet_end const r) const {
+    bool operator() (struct packet_double_val const l, struct packet_double_val const r) const {
         return l.packet_ID > r.packet_ID;
     }
-} packet_end_greater_cmp;
+} packet_double_val_greater_cmp;
 
 struct packet_id {
     uint64_t packet_ID;
@@ -591,7 +595,7 @@ struct terminal_state
     // min-heap for latencies of packets once they arrive (some packets might
     // arrive faster than others, so a list like the one above is not feasible
     // to store in order efficiently their arrival)
-    priority_queue<struct packet_end, vector<struct packet_end>, decltype(packet_end_greater_cmp)> sent_packets_latency;
+    priority_queue<struct packet_double_val, vector<struct packet_double_val>, decltype(packet_double_val_greater_cmp)> sent_packets_latency;
 
     // Stores the last time in which a packet was processed (time at which a T_GENERATE event was processed)
     double last_in_queue_time;
@@ -2818,7 +2822,6 @@ static void packet_latency_save_to_file(
         struct packet_end end,
         bool is_predicted
 ) {
-    assert(start.packet_ID == end.packet_ID);
     fprintf(packet_latency_f, "%u,%u,%lu,%d,%d,%u,%f,%f,%f,%f,%f\n",
             terminal_id, start.dfdally_dest_terminal_id, start.packet_ID,
             is_surrogate_on, is_predicted,
@@ -2840,17 +2843,22 @@ static bool is_surrogate_on_fun(void) {
 // Goes through all received packet latencies and process them in order in which they were sent through the network
 static void process_packet_latencies(terminal_state * s, tw_lp * lp)
 {
-    while( !s->sent_packets.empty()
+    while( s->sent_packets.size() >= 2  // We need at least two packets to determine the delay of the next packet to be processed
         && !s->sent_packets_latency.empty()
-        && s->sent_packets.front().packet_ID == s->sent_packets_latency.top().packet_ID)
+        && s->sent_packets.front().packet_ID == s->sent_packets_latency.top().packet_ID
+        )
     {
         auto start = s->sent_packets.front();
+        double const delay_at_queue_head_next = s->sent_packets[1].delay_at_queue_head;
+        struct packet_end end = {
+            .travel_end_time = s->sent_packets_latency.top().value,
+            .delay_at_queue_head_next = delay_at_queue_head_next,
+        };
         if (packet_latency_f) {
-            packet_latency_save_to_file(s->terminal_id, start, s->sent_packets_latency.top(), false);
+            packet_latency_save_to_file(s->terminal_id, start, end, false);
         }
         if (surrogate_configured && !is_surrogate_on) {
             assert(terminal_predictor != NULL);
-            auto end = s->sent_packets_latency.top();
             terminal_predictor->feed(s->predictor_data, lp, s->terminal_id, &start, &end);
         }
 
@@ -2870,7 +2878,7 @@ static void process_packet_latencies(terminal_state * s, tw_lp * lp)
 // Constructs a hashmap with all the T_NOTIFY events to be processed.
 // The key of the list is the GID for the source terminal. The value of the
 // hash is the end time
-static map<uint64_t, double> construct_map_of_T_NOTIFY_events(
+static map<uint64_t, double> construct_map_of_NOTIFY_LATENCY_events(
         tw_lp * lp, tw_event ** const terminal_events) {
     // hash map to store T_NOTIFY events found (`packet_ID` and `travel_end_time`)
     map<uint64_t, double> notification_events_map;
@@ -2898,7 +2906,7 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(
         terminal_state * s, tw_lp * lp, tw_event ** terminal_events) {
     process_packet_latencies(s, lp);
 
-    auto notification_events_map = construct_map_of_T_NOTIFY_events(lp, terminal_events);
+    auto notification_events_map = construct_map_of_NOTIFY_LATENCY_events(lp, terminal_events);
 
     // Going through every packet that was sent but not yet received, remove it
     // from the list, send it to its destination using the predictor, and
@@ -2910,40 +2918,45 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(
 
         // The predictor is asked to predict the latency of the packet regardless if it is a zombie or not.
         // (This makes it so that we feed the predictor only during high-def mode, and never a switching time)
-        double latency = 
+        struct packet_end predicted_end = 
             terminal_predictor->predict(s->predictor_data, lp, s->terminal_id, &start);
 
         bool const in_sent_packets_latency =
             !s->sent_packets_latency.empty() && start.packet_ID == s->sent_packets_latency.top().packet_ID;
-        // Finding out whether the T_NOTIFY is on the list of messages to be processed
+        // Finding out whether the packet-latency is on the list of messages to be processed
         bool const in_events_to_process = !in_sent_packets_latency &&
             notification_events_map.count(start.packet_ID) == 1;
 
-        // The packet was delievered and its latency is known (we were notified). Delete packet from stack
-        if (in_sent_packets_latency) {
-            auto const end = s->sent_packets_latency.top();
-            s->sent_packets_latency.pop();
+        // The packet was delievered and its latency is known (we were notified)
+        if (in_sent_packets_latency || in_events_to_process) {
+            struct packet_end end;
+            // Delete packet from stack
+            if (in_sent_packets_latency) {
+                auto const latency_q = s->sent_packets_latency.top();
+                end.travel_end_time = latency_q.value;
+                s->sent_packets_latency.pop();
+            } else {
+                end.travel_end_time = notification_events_map[start.packet_ID];
+            }
+            if (s->sent_packets.size() >= 2) {
+                end.delay_at_queue_head_next = s->sent_packets[1].delay_at_queue_head;
+            } else {
+                end.delay_at_queue_head_next = -1;
+            }
             packet_latency_save_to_file(s->terminal_id, start, end, false);
-        } else if (in_events_to_process) {
-            auto const end = (struct packet_end) {
-                .packet_ID = start.packet_ID,
-                .travel_end_time = notification_events_map[start.packet_ID],
-            };
-            packet_latency_save_to_file(s->terminal_id, start, end, false);
+        }
         // The packet has not been delievered, or we haven't received the notification yet.
         // Send directly to destination and notify of zombie event
-        } else {
-            double arrival = start.travel_start_time + latency;
+        else {
+            double latency = predicted_end.travel_end_time - start.travel_start_time;
+            double arrival = start.travel_start_time + latency; // this is "equivalent" to end.travel_end_time (we do it because floating point operations are weird, and it's better to err on the side of spending some cycles computing the addition rather than assuming that things will work out correctly)
             if (arrival < tw_now(lp)) {
                 arrival = tw_now(lp);
                 latency = 0;
             }
             
-            auto const end = (struct packet_end) {
-                .packet_ID = start.packet_ID,
-                .travel_end_time = arrival,
-            };
-            packet_latency_save_to_file(s->terminal_id, start, end, true);
+            predicted_end.travel_end_time = arrival;
+            packet_latency_save_to_file(s->terminal_id, start, predicted_end, true);
 
             assert(start.message_data);
             terminal_dally_message * const msg_data = (terminal_dally_message*) start.message_data;
@@ -3211,7 +3224,6 @@ static void terminal_dally_commit(terminal_state * s,
 
         // Saving
         auto const end = (struct packet_end) {
-            .packet_ID = msg->packet_ID,
             .travel_end_time = msg->travel_end_time,
         };
         packet_latency_save_to_file(s->terminal_id, start, end, true);
@@ -3224,7 +3236,7 @@ static void terminal_dally_commit(terminal_state * s,
         if (!s->sent_packets.empty() && s->sent_packets.front().packet_ID <= msg->packet_ID) {
             s->sent_packets_latency.push({
                     .packet_ID = msg->packet_ID,
-                    .travel_end_time = msg->travel_end_time});
+                    .value = msg->travel_end_time});
 
             process_packet_latencies(s, lp);
         }
@@ -3442,7 +3454,7 @@ static void terminal_dally_init( terminal_state * s, tw_lp * lp )
     // std::construct_at, for now this syntax suffices and works
     // (see https://en.cppreference.com/w/cpp/memory/construct_at)
     new (&s->sent_packets) deque<struct packet_start>();
-    new (&s->sent_packets_latency) priority_queue<struct packet_end, vector<struct packet_end>, decltype(packet_end_greater_cmp)>();
+    new (&s->sent_packets_latency) priority_queue<struct packet_double_val, vector<struct packet_double_val>, decltype(packet_double_val_greater_cmp)>();
     new (&s->zombies) set<struct packet_id>();
     s->frozen_state = NULL;
 
@@ -3770,24 +3782,6 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
     msg->my_g_hop = -1;
     msg->my_hops_cur_group = -1;
 
-    // determining injection delay
-    tw_stime injection_ts;
-    if (g_congestion_control_enabled) {
-        double bandwidth_coef = 1;
-        if (cc_terminal_is_abatement_active(s->local_congestion_controller)) {
-            bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
-        }
-        injection_ts = bytes_to_ns(msg->packet_size, bandwidth_coef * s->params->cn_bandwidth);
-    }
-    else {
-        injection_ts = bytes_to_ns(msg->packet_size, s->params->cn_bandwidth);
-    }
-    tw_stime const nic_ts = injection_ts;
-    msg->saved_in_queue_delay = injection_ts;
-    //tw_stime const nic_ts = s->in_queue_delay;
-    //msg->saved_in_queue_delay = s->in_queue_delay;
-    //printf("injection_ts = %f\n", injection_ts);
-
     // Using predictor to find latency
     tw_stime const time_at_queue_head = msg->msg_new_mn_event > s->last_in_queue_time ? msg->msg_new_mn_event : s->last_in_queue_time;
     auto start = (struct packet_start) {
@@ -3795,22 +3789,31 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
         .dest_terminal_lpid = msg->dest_terminal_lpid,
         .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
         .travel_start_time = tw_now(lp),
+        .workload_injection_time = msg->msg_start_time,
+        .delay_at_queue_head = tw_now(lp) - time_at_queue_head,
         .packet_size = msg->packet_size
     };
 
+    struct packet_end const end = 
+        terminal_predictor->predict(s->predictor_data, lp, s->terminal_id, &start);
+    double const latency = end.travel_end_time - start.travel_start_time;
+    double const arrival = start.travel_start_time + latency; // this is "equivalent" to end.travel_end_time
+    assert(arrival >= tw_now(lp));
+
+    // determining injection delay
+    double const nic_ts = end.delay_at_queue_head_next;
+    msg->saved_in_queue_delay = nic_ts;
+
     // Scheduling idle event for next packet to be processed
     bool const is_from_remote = false;
-    // TODO(helq): estimate from data collected before, new nic_ts
     model_net_method_idle_event2(nic_ts, is_from_remote, msg->rail_id, lp);
     msg->saved_last_in_queue_time = s->last_in_queue_time;
     s->last_in_queue_time = tw_now(lp);
 
-    double const latency = 
-        terminal_predictor->predict(s->predictor_data, lp, s->terminal_id, &start);
-
     // Info to be used at commit time to save into file
+    msg->saved_in_queue_delay = tw_now(lp) - time_at_queue_head;
     msg->travel_start_time = tw_now(lp);
-    msg->travel_end_time = tw_now(lp) + latency;
+    msg->travel_end_time = arrival;
 
     // Sending packet directly to destination terminal
     //tw_stime const ts = 0;
@@ -3844,10 +3847,9 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
     stat->send_count++;
     stat->send_bytes += msg->packet_size;
     stat->send_time += (1/p->cn_bandwidth) * msg->packet_size;
-    if(stat->max_event_size < total_event_size)
+    if(stat->max_event_size < total_event_size) {
         stat->max_event_size = total_event_size;
-
-    return;
+    }
 }
 
 static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)

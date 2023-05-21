@@ -45,14 +45,14 @@ struct packet_start {
 };
 
 struct packet_end {
-    uint64_t packet_ID;
     double travel_end_time;
+    double delay_at_queue_head_next;  // Delay to start processing next packet
 };
 
 // Definition of functions needed to define a predictor
 typedef void (*init_pred_f) (void * predictor_data, tw_lp * lp, unsigned int terminal_id); // Initializes the predictor (eg, LSTM)
-typedef void (*feed_pred_f) (void * predictor_data, tw_lp * lp, unsigned int terminal_id, struct packet_start *, struct packet_end *); // Feeds known latency for packet sent at `now`
-typedef double (*predict_pred_f) (void * predictor_data, tw_lp * lp, unsigned int terminal_id, struct packet_start *); // Get prediction for packet sent to `destination` at `now`
+typedef void (*feed_pred_f) (void * predictor_data, tw_lp * lp, unsigned int terminal_id, struct packet_start const *, struct packet_end const *); // Feeds known latency for packet sent at `now`
+typedef struct packet_end (*predict_pred_f) (void * predictor_data, tw_lp * lp, unsigned int terminal_id, struct packet_start const *); // Get prediction for packet sent to `destination` at `now`
 typedef void (*predict_pred_rc_f) (void * predictor_data, tw_lp * lp); // Reverse prediction (reverse state of predictor one prediction)
 
 // Each network model defines its own way to setup the packet latency predictor

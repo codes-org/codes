@@ -41,6 +41,7 @@ struct aggregated_latency_one_terminal {
 };
 
 struct latency_surrogate {
+    double sum_delay_at_queue_head_next;
     struct aggregated_latency_one_terminal aggregated_latency_for_all;
     unsigned int num_terminals;
     struct aggregated_latency_one_terminal aggregated_latency[];
@@ -56,9 +57,10 @@ static void init_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int 
     assert(data->aggregated_latency[0].total_msgs == 0);
 
     data->num_terminals = surr_config.total_terminals;
+    data->sum_delay_at_queue_head_next = 0;
 }
 
-static void feed_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int src_terminal, struct packet_start * start, struct packet_end * end) {
+static void feed_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int src_terminal, struct packet_start const * start, struct packet_end const * end) {
     (void) lp;
     (void) src_terminal;
 
@@ -75,49 +77,41 @@ static void feed_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int 
 
     data->aggregated_latency_for_all.sum_latency += latency;
     data->aggregated_latency_for_all.total_msgs++;
+
+    data->sum_delay_at_queue_head_next += end->delay_at_queue_head_next;
 }
 
-static double predict_latency(struct latency_surrogate * data, tw_lp * lp, unsigned int src_terminal, struct packet_start * packet_dest) {
+static struct packet_end predict_latency(struct latency_surrogate * data, tw_lp * lp, unsigned int src_terminal, struct packet_start const * packet_dest) {
     (void) lp;
 
     unsigned int const dest_terminal = packet_dest->dfdally_dest_terminal_id;
     assert(dest_terminal < data->num_terminals);
 
-    // In case we have any data to determine the average for a specific terminal
-    unsigned int const total_datapoints = data->aggregated_latency[dest_terminal].total_msgs;
-    if (total_datapoints > 0) {
-        double const sum_latency = data->aggregated_latency[dest_terminal].sum_latency;
-        return sum_latency / total_datapoints;
-    }
-
-    // If no information for that terminal exists, use average from all message
     unsigned int const total_total_datapoints = data->aggregated_latency_for_all.total_msgs;
-    if (total_total_datapoints > 0) {
-        double const sum_latency = data->aggregated_latency_for_all.sum_latency;
-        return sum_latency / total_total_datapoints;
+    if (total_total_datapoints == 0) {
+        // otherwise, we have no data to approximate the latency
+        tw_error(TW_LOC, "Terminal %u doesn't have any packet delay information available to predict future packet latency!\n", src_terminal);
+        return (struct packet_end) {
+            .travel_end_time = -1.0,
+            .delay_at_queue_head_next = -1.0,
+        };
     }
 
-    // otherwise, we have no data to approximate the latency
-    tw_error(TW_LOC, "Terminal %u doesn't have any packet delay information available to predict future packet latency!\n", src_terminal);
-    return -1.0;
+    // In case we have any data to determine the average for a specific terminal
+    unsigned int const total_datapoints_for_term = data->aggregated_latency[dest_terminal].total_msgs;
+    double latency = -1.0;
+    if (total_datapoints_for_term > 0) {
+        latency = data->aggregated_latency[dest_terminal].sum_latency / total_datapoints_for_term;
+    } else {
+        // If no information for that terminal exists, use average from all message
+        latency = data->aggregated_latency_for_all.sum_latency / total_total_datapoints;
+    }
 
-    // TODO(elkin): this (below) is wrong, bad bad. I'm not entirely sure how to do this rn in a non-hardcoded manner, but given time, this should be left in better terms
-    // THIS HAS BEEN HARDCODED FOR THE CASE OF 72-node DRAGONFLY
-
-    //// Otherwise, use "sensible" results from another simulation
-    //// This assumes the network is a 72 nodes 1D-DragonFly (9 groups, with 4 routers, and 2 terminals per router)
-    //// source and destination share the same router
-    //if (src_terminal / 2 == dest_terminal / 2) {
-    //    return 2108.74;
-    //}
-    //// source and destination are in the same group
-    //else if (src_terminal / 8 == dest_terminal / 8) {
-    //    return 2390.13;
-    //}
-    //// source and destination are in different groups
-    //else {
-    //    return 4162.77;
-    //}
+    double const delay_at_queue_head_next = data->sum_delay_at_queue_head_next / total_total_datapoints;
+    return (struct packet_end) {
+        .travel_end_time = packet_dest->travel_start_time + latency,
+        .delay_at_queue_head_next = delay_at_queue_head_next,
+    };
 }
 
 static void predict_latency_rc(struct latency_surrogate * data, tw_lp * lp) {
