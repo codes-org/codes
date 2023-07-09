@@ -3,7 +3,7 @@
  * See LICENSE in top-level directory
  * 
  * Originally written by Misbah Mubarak
- * Updated by Neil McGlohon
+ * Updated by Neil McGlohon and Elkin Cruz-Camacho
  *  
  * A 1D specific dragonfly custom model - diverged from dragonfly-custom.C
  * Differs from dragonfly.C in that it allows for the custom features typically found in
@@ -596,10 +596,11 @@ struct terminal_state
     // arrive faster than others, so a list like the one above is not feasible
     // to store in order efficiently their arrival)
     priority_queue<struct packet_double_val, vector<struct packet_double_val>, decltype(packet_double_val_greater_cmp)> sent_packets_latency;
+    // received (and not completed, yet) packets. The value associated to a key is the remaining number of "bytes" to receive before the packet is consumed totally. If a packet size == chunk size, this map will never be used/filled
+    map<struct packet_id, uint32_t> remaining_sz_packets;
 
     // Stores the last time in which a packet was processed (time at which a T_GENERATE event was processed)
     double last_in_queue_time;
-    double in_queue_delay;
     // The predictor kicks in on surrogate mode and predicts the time a packet will take to its destination
     void * predictor_data;
 
@@ -2361,7 +2362,7 @@ static void setup_packet_latency_path(char const * const dir_to_save) {
         tw_error(TW_LOC, "File %s could not be opened", filename_path);
     }
 
-    fprintf(packet_latency_f, "#src_terminal,dest_terminal,packet_id,is_surrogate_on,is_predicted,size,workload_injection,delay_at_queue_head,start,end,latency\n");
+    fprintf(packet_latency_f, "#src_terminal,dest_terminal,packet_id,is_surrogate_on,is_predicted,size,workload_injection,next_packet_delay,start,end,latency\n");
 }
 
 /* report dragonfly statistics like average and maximum packet latency, average number of hops traversed */
@@ -2820,13 +2821,15 @@ static void packet_latency_save_to_file(
         unsigned int terminal_id,
         struct packet_start start,
         struct packet_end end,
+        bool surrogate_on,
         bool is_predicted
 ) {
+    if (end.travel_end_time > g_tw_ts_end) { return; } // This packet could never arrive to its destination!
     fprintf(packet_latency_f, "%u,%u,%lu,%d,%d,%u,%f,%f,%f,%f,%f\n",
             terminal_id, start.dfdally_dest_terminal_id, start.packet_ID,
-            is_surrogate_on, is_predicted,
+            surrogate_on, is_predicted,
             start.packet_size,
-            start.workload_injection_time, start.delay_at_queue_head,
+            start.workload_injection_time, end.next_packet_delay,
             start.travel_start_time, end.travel_end_time, end.travel_end_time - start.travel_start_time);
 }
 
@@ -2849,13 +2852,13 @@ static void process_packet_latencies(terminal_state * s, tw_lp * lp)
         )
     {
         auto start = s->sent_packets.front();
-        double const delay_at_queue_head_next = s->sent_packets[1].delay_at_queue_head;
+        double const next_packet_delay = s->sent_packets[1].processing_packet_delay;
         struct packet_end end = {
             .travel_end_time = s->sent_packets_latency.top().value,
-            .delay_at_queue_head_next = delay_at_queue_head_next,
+            .next_packet_delay = next_packet_delay,
         };
         if (packet_latency_f) {
-            packet_latency_save_to_file(s->terminal_id, start, end, false);
+            packet_latency_save_to_file(s->terminal_id, start, end, is_surrogate_on, false);
         }
         if (surrogate_configured && !is_surrogate_on) {
             assert(terminal_predictor != NULL);
@@ -2939,24 +2942,22 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(
                 end.travel_end_time = notification_events_map[start.packet_ID];
             }
             if (s->sent_packets.size() >= 2) {
-                end.delay_at_queue_head_next = s->sent_packets[1].delay_at_queue_head;
+                end.next_packet_delay = s->sent_packets[1].processing_packet_delay;
             } else {
-                end.delay_at_queue_head_next = -1;
+                end.next_packet_delay = -1;
             }
-            packet_latency_save_to_file(s->terminal_id, start, end, false);
+            packet_latency_save_to_file(s->terminal_id, start, end, is_surrogate_on, false);
         }
         // The packet has not been delievered, or we haven't received the notification yet.
         // Send directly to destination and notify of zombie event
-        else {
-            double latency = predicted_end.travel_end_time - start.travel_start_time;
-            double arrival = start.travel_start_time + latency; // this is "equivalent" to end.travel_end_time (we do it because floating point operations are weird, and it's better to err on the side of spending some cycles computing the addition rather than assuming that things will work out correctly)
-            if (arrival < tw_now(lp)) {
-                arrival = tw_now(lp);
+        else if (freeze_network_on_switch) {
+            double latency = predicted_end.travel_end_time - tw_now(lp);
+            if (predicted_end.travel_end_time < tw_now(lp) || latency < 0) {
+                predicted_end.travel_end_time = tw_now(lp);
                 latency = 0;
             }
-            
-            predicted_end.travel_end_time = arrival;
-            packet_latency_save_to_file(s->terminal_id, start, predicted_end, true);
+
+            packet_latency_save_to_file(s->terminal_id, start, predicted_end, is_surrogate_on, true);
 
             assert(start.message_data);
             terminal_dally_message * const msg_data = (terminal_dally_message*) start.message_data;
@@ -3026,16 +3027,19 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(
     s->data_size_ross_sample        = frozen_state->data_size_ross_sample;
     s->total_msg_size               = frozen_state->total_msg_size;
     s->finished_msgs                = frozen_state->finished_msgs;
-    s->in_queue_delay               = frozen_state->in_queue_delay;
+    s->rank_tbl_pop                 = frozen_state->rank_tbl_pop;
     memcpy(&s->zombies,              &frozen_state->zombies,              sizeof(s->zombies));
     memcpy(&s->sent_packets,         &frozen_state->sent_packets,         sizeof(s->sent_packets));
     memcpy(&s->sent_packets_latency, &frozen_state->sent_packets_latency, sizeof(s->sent_packets_latency));
+    memcpy(&s->remaining_sz_packets, &frozen_state->remaining_sz_packets, sizeof(s->remaining_sz_packets));
+    memcpy(&s->rank_tbl,             &frozen_state->rank_tbl,             sizeof(s->rank_tbl));
+    memcpy(&s->st,                   &frozen_state->st,                   sizeof(s->st));
 
     s->frozen_state = frozen_state;
 };
 
 // This function never rollsback because it's called at GVT
-// Note: this function CANNOT generate any events, because it is to be used in `dragonfly_dally_terminal_final`
+// Note: this function CANNOT generate any events, because it is to be used in `dragonfly_dally_terminal_final` too
 static void dragonfly_dally_terminal_surrogate_to_highdef(
         terminal_state * s, tw_lp * lp, tw_event ** terminal_events) {
     (void) lp;
@@ -3063,10 +3067,13 @@ static void dragonfly_dally_terminal_surrogate_to_highdef(
     frozen_state->data_size_ross_sample        = s->data_size_ross_sample;
     frozen_state->total_msg_size               = s->total_msg_size;
     frozen_state->finished_msgs                = s->finished_msgs;
-    frozen_state->in_queue_delay               = s->in_queue_delay;
+    frozen_state->rank_tbl_pop                 = s->rank_tbl_pop;
     memcpy(&frozen_state->zombies,              &s->zombies,              sizeof(s->zombies));
     memcpy(&frozen_state->sent_packets,         &s->sent_packets,         sizeof(s->sent_packets));
     memcpy(&frozen_state->sent_packets_latency, &s->sent_packets_latency, sizeof(s->sent_packets_latency));
+    memcpy(&frozen_state->remaining_sz_packets, &s->remaining_sz_packets, sizeof(s->remaining_sz_packets));
+    memcpy(&frozen_state->rank_tbl,             &s->rank_tbl,             sizeof(s->rank_tbl));
+    memcpy(&frozen_state->st,                   &s->st,                   sizeof(s->st));
     memcpy(s, frozen_state, sizeof(terminal_state));
     memset(frozen_state, 0, sizeof(terminal_state));
     free(frozen_state);
@@ -3218,15 +3225,16 @@ static void terminal_dally_commit(terminal_state * s,
             .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
             .travel_start_time = msg->travel_start_time,
             .workload_injection_time = msg->msg_start_time,
-            .delay_at_queue_head = msg->saved_in_queue_delay,
+            .processing_packet_delay = -1,
             .packet_size = msg->packet_size
         };
 
         // Saving
         auto const end = (struct packet_end) {
             .travel_end_time = msg->travel_end_time,
+            .next_packet_delay = msg->saved_next_packet_delay,
         };
-        packet_latency_save_to_file(s->terminal_id, start, end, true);
+        packet_latency_save_to_file(s->terminal_id, start, end, is_surrogate_on, true);
     }
 
     if(msg->type == T_NOTIFY && msg->notify_type == NOTIFY_LATENCY)
@@ -3395,7 +3403,7 @@ static void terminal_dally_init( terminal_state * s, tw_lp * lp )
     s->in_send_loop = (int*)calloc(p->num_rails, sizeof(int));
     s->issueIdle = (int*)calloc(p->num_rails, sizeof(int));
 
-    s->rank_tbl = NULL;
+    s->rank_tbl = qhash_init(dragonfly_rank_hash_compare, dragonfly_hash_func, DFLY_HASH_TABLE_SIZE);
     s->terminal_msgs = 
         (terminal_dally_message_list***)calloc(p->num_rails, sizeof(terminal_dally_message_list**));
     s->terminal_msgs_tail = 
@@ -3455,6 +3463,7 @@ static void terminal_dally_init( terminal_state * s, tw_lp * lp )
     // (see https://en.cppreference.com/w/cpp/memory/construct_at)
     new (&s->sent_packets) deque<struct packet_start>();
     new (&s->sent_packets_latency) priority_queue<struct packet_double_val, vector<struct packet_double_val>, decltype(packet_double_val_greater_cmp)>();
+    new (&s->remaining_sz_packets) set<struct packet_id, uint32_t>();
     new (&s->zombies) set<struct packet_id>();
     s->frozen_state = NULL;
 
@@ -3783,14 +3792,14 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
     msg->my_hops_cur_group = -1;
 
     // Using predictor to find latency
-    tw_stime const time_at_queue_head = msg->msg_new_mn_event > s->last_in_queue_time ? msg->msg_new_mn_event : s->last_in_queue_time;
+    double const processing_packet_delay = tw_now(lp) - s->last_in_queue_time;
     auto start = (struct packet_start) {
         .packet_ID = msg->packet_ID,
         .dest_terminal_lpid = msg->dest_terminal_lpid,
         .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
         .travel_start_time = tw_now(lp),
         .workload_injection_time = msg->msg_start_time,
-        .delay_at_queue_head = tw_now(lp) - time_at_queue_head,
+        .processing_packet_delay = processing_packet_delay,
         .packet_size = msg->packet_size
     };
 
@@ -3801,8 +3810,22 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
     assert(arrival >= tw_now(lp));
 
     // determining injection delay
-    double const nic_ts = end.delay_at_queue_head_next;
-    msg->saved_in_queue_delay = nic_ts;
+    //tw_stime injection_ts;
+    //if (g_congestion_control_enabled) {
+    //    double bandwidth_coef = 1;
+    //    if (cc_terminal_is_abatement_active(s->local_congestion_controller)) {
+    //         bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
+    //    }
+    //    injection_ts = bytes_to_ns(msg->packet_size, bandwidth_coef * s->params->cn_bandwidth);
+    //}
+    //else {
+    //    injection_ts = bytes_to_ns(msg->packet_size, s->params->cn_bandwidth);
+    //}
+    //tw_stime const nic_ts = injection_ts;
+    // The code above does a good job at limiting the speed in which packets are injected, so it produces good
+    // results when running in surrogate. A good model should produce similar `nic`s to what the code above
+    // does (the average predictor does just that!)
+    double const nic_ts = end.next_packet_delay;
 
     // Scheduling idle event for next packet to be processed
     bool const is_from_remote = false;
@@ -3811,7 +3834,7 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
     s->last_in_queue_time = tw_now(lp);
 
     // Info to be used at commit time to save into file
-    msg->saved_in_queue_delay = tw_now(lp) - time_at_queue_head;
+    msg->saved_next_packet_delay = end.next_packet_delay;
     msg->travel_start_time = tw_now(lp);
     msg->travel_end_time = arrival;
 
@@ -3863,7 +3886,7 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     packet_gen--;
     s->packet_counter--;
 
-    s->in_queue_delay = msg->saved_in_queue_delay;
+    s->last_in_queue_time = msg->saved_last_in_queue_time;
     struct packet_start start = s->sent_packets.back();
     if (start.remote_event_data) {
         free(start.remote_event_data);
@@ -3919,11 +3942,6 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
         s->issueIdle[msg->rail_id] = 0;
         if(bf->c8)
             s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
-    }
-
-    if (bf->c13) {
-        s->last_in_queue_time = msg->saved_last_in_queue_time;
-        bf->c13 = 0;
     }
 
     struct mn_stats* stat;
@@ -4155,16 +4173,16 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         memcpy(remote_data, model_net_method_get_edata(DRAGONFLY_DALLY, msg), msg->remote_event_size_bytes);
     }
     //assert(tw_now(lp) == msg->travel_start_time);
-    tw_stime const time_at_queue_head = msg->msg_new_mn_event > s->last_in_queue_time ? msg->msg_new_mn_event : s->last_in_queue_time;
-    msg->saved_in_queue_delay = s->in_queue_delay;
-    s->in_queue_delay = tw_now(lp) - time_at_queue_head;
+    double const processing_packet_delay = tw_now(lp) - s->last_in_queue_time;
+    msg->saved_last_in_queue_time = s->last_in_queue_time;
+    s->last_in_queue_time = tw_now(lp);
     s->sent_packets.push_back((struct packet_start){
         .packet_ID = msg->packet_ID,
         .dest_terminal_lpid = msg->dest_terminal_lpid,
         .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
         .travel_start_time = tw_now(lp),
         .workload_injection_time = msg->msg_start_time,
-        .delay_at_queue_head = s->in_queue_delay,
+        .processing_packet_delay = processing_packet_delay,
         .packet_size = msg->packet_size,
         .message_data = msg_data,
         .remote_event_data = remote_data
@@ -4253,9 +4271,6 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
             if(s->terminal_length[j][vcg] < s->params->cn_vc_size && s->issueIdle[j] == 0)
             {
                 model_net_method_idle_event2(nic_ts, 0, j, lp);
-                msg->saved_last_in_queue_time = s->last_in_queue_time;
-                s->last_in_queue_time = tw_now(lp);
-                bf->c13 = 1;
             }
             else
             {
@@ -4274,9 +4289,6 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     else {
         if (s->terminal_length[msg->rail_id][vcg] < s->params->cn_vc_size) {
             model_net_method_idle_event2(nic_ts, 0, msg->rail_id, lp);
-            msg->saved_last_in_queue_time = s->last_in_queue_time;
-            s->last_in_queue_time = tw_now(lp);
-            bf->c13 = 1;
         } else {
             bf->c11 = 1;
             s->issueIdle[msg->rail_id] = 1;
@@ -4378,7 +4390,6 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_dally_messag
     if(bf->c5)
     {
         s->issueIdle[msg->rail_id] = 1;
-        s->last_in_queue_time = msg->saved_last_in_queue_time;
         if(bf->c6)
         {
             s->busy_time[msg->rail_id] = msg->saved_total_time;
@@ -4546,8 +4557,6 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
         bf->c5 = 1;
         s->issueIdle[msg->rail_id] = 0;
         model_net_method_idle_event2(injection_ts, 0, msg->rail_id, lp);
-        msg->saved_last_in_queue_time = s->last_in_queue_time;
-        s->last_in_queue_time = tw_now(lp);
     
         if(s->last_buf_full[msg->rail_id] > 0.0)
         {
@@ -4695,34 +4704,60 @@ static void send_remote_event(terminal_state * s, terminal_dally_message * msg, 
 
 static void packet_arrive_predicted_rc(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
 {
+    struct dfly_hash_key key = {
+        .message_id = msg->message_id,
+        .sender_id = msg->sender_lp,
+    };
+    struct dfly_qhash_entry * tmp = NULL;
+    struct qhash_head * hash_link = NULL;
+
+    // If entry was removed from hash
+    if(bf->c8) {
+        struct dfly_qhash_entry * d_entry_pop = (dfly_qhash_entry *) rc_stack_pop(s->st);
+        qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
+        s->rank_tbl_pop++;
+
+        if(s->rank_tbl_pop >= DFLY_HASH_TABLE_SIZE)
+            tw_error(TW_LOC, "\n Exceeded allocated qhash size, increase hash size in dragonfly model");
+
+        hash_link = &(d_entry_pop->hash_link);
+        tmp = d_entry_pop;
+    // In case it was not deleted, and we accessed it
+    } else if (bf->c9 || bf->c5) {
+        assert(!tmp);
+        hash_link = qhash_search(s->rank_tbl, &key);
+
+        tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
+    }
+    assert((bf->c9 || bf->c5) == bf->c6);
+
     if(bf->c4) {
         model_net_event_rc2(lp, &msg->event_rc);
     }
 
-    s->finished_msgs--;
-    s->total_msg_size -= msg->total_size;
-    total_msg_sz -= msg->total_size;
-    N_finished_msgs--;
-    s->data_size_ross_sample -= msg->total_size;
-    s->ross_sample.data_size_sample -= msg->total_size;
-    s->data_size_sample -= msg->total_size;
+    if(bf->c7) {
+        s->finished_msgs--;
+        s->total_msg_size -= msg->total_size;
+        total_msg_sz -= msg->total_size;
+        N_finished_msgs--;
+        s->data_size_ross_sample -= msg->total_size;
+        s->ross_sample.data_size_sample -= msg->total_size;
+        s->data_size_sample -= msg->total_size;
+    }
 
-    s->finished_packets--;
-    N_finished_packets--;
-    
-    mn_stats * stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+    if(bf->c6) {
+        tmp->num_chunks -= msg->saved_remaining_packet_chunks;
+    }
 
-    stat->recv_bytes -= msg->packet_size;
-    stat->recv_count--;
-
-    stat->recv_time = msg->saved_rcv_time;
-
-    packet_fin--;
-    s->packet_fin--;
+    if(bf->c5) {
+        qhash_del(hash_link);
+        free_tmp(tmp);
+        s->rank_tbl_pop--;
+    }
 }
 
 /* packet arrives at the destination terminal */
-static void packet_arrive_predicted(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) 
+static void packet_arrive_predicted(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
 {
     assert(lp->gid == msg->dest_terminal_lpid);
     /* WE do not allow self messages through dragonfly */
@@ -4732,37 +4767,111 @@ static void packet_arrive_predicted(terminal_state * s, tw_bf * bf, terminal_dal
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
         printf("\n Packet %llu arrived at lp %llu hops %d ", LLU(msg->sender_lp), LLU(lp->gid), msg->my_N_hop);
 #endif
-    
-    s->packet_fin++;
-    packet_fin++;
 
     //record for commit_f file IO
     msg->travel_end_time = tw_now(lp);
-    tw_stime ete_latency = msg->travel_end_time - msg->travel_start_time;
 
-    mn_stats* stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
-    msg->saved_rcv_time = stat->recv_time;
-    stat->recv_time += ete_latency;
+    // packets arrive as one event not as multiple events (ie, predicted packets are not broken into chunks)
+    struct packet_id const packet_key = {
+        .packet_ID = msg->packet_ID,
+        .dfdally_src_terminal_id = msg->dfdally_src_terminal_id
+    };
+    bool const has_remaining_sz = s->remaining_sz_packets.count(packet_key) == 1;
 
-    void * m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
+    // Finding out how many bytes are left to receive for this packet
+    int remaining_sz = 0;
+    if (has_remaining_sz) {
+        remaining_sz = s->remaining_sz_packets[packet_key];
+    } else {
+        remaining_sz = msg->packet_size;
+    }
 
-    stat->recv_count++;
-    stat->recv_bytes += msg->packet_size;
+    uint64_t const chunk_size = s->params->chunk_size;
+    uint64_t remaining_packet_chunks = remaining_sz / chunk_size + (remaining_sz % chunk_size ? 1 : 0);
+    uint64_t total_chunks = msg->total_size / chunk_size + (msg->total_size % chunk_size ? 1 : 0);
+    if (remaining_packet_chunks == 0) { remaining_packet_chunks = 1; }
+    if (total_chunks == 0) { total_chunks = 1; }
+    msg->saved_remaining_packet_chunks = remaining_packet_chunks;
 
-    N_finished_packets++;
-    s->finished_packets++;
+    // The table has to have been initialized already, if not, what the heck!
+    struct dfly_hash_key key = {
+        .message_id = msg->message_id,
+        .sender_id = msg->sender_lp,
+    };
 
-    s->data_size_sample += msg->total_size;
-    s->ross_sample.data_size_sample += msg->total_size;
-    s->data_size_ross_sample += msg->total_size;
-    N_finished_msgs++;
-    total_msg_sz += msg->total_size;
-    s->total_msg_size += msg->total_size;
-    s->finished_msgs++;
-    
-    // This should always be true. It sends the message to the server/workload or communicates to the model-net layer
-    if(m_data_src && msg->remote_event_size_bytes > 0) {
-        send_remote_event(s, msg, lp, bf, (char *) m_data_src, msg->remote_event_size_bytes);
+    // Finding out if message is in hash
+    struct qhash_head * hash_link = qhash_search(s->rank_tbl, &key);
+    struct dfly_qhash_entry * tmp = NULL;
+    if(hash_link) {
+        bf->c9 = 1;
+        tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
+    // We create an entry into the hash only if it makes sense to do so (ie, only when the message needs multiple packets to be completed)
+    } else if (msg->total_size > msg->packet_size) {
+        bf->c5 = 1;
+        assert(remaining_sz == msg->packet_size);
+
+        struct dfly_qhash_entry * const d_entry = (dfly_qhash_entry *) calloc(1, sizeof (struct dfly_qhash_entry));
+        d_entry->num_chunks = 0;
+        d_entry->key = key;
+        d_entry->remote_event_data = NULL;
+        d_entry->remote_event_size = 0;
+        qhash_add(s->rank_tbl, &key, &(d_entry->hash_link));
+        s->rank_tbl_pop++;
+
+        if(s->rank_tbl_pop >= DFLY_HASH_TABLE_SIZE) {
+            tw_error(TW_LOC, "\n Exceeded allocated qhash size, increase hash size in dragonfly model");
+        }
+
+        hash_link = &(d_entry->hash_link);
+        tmp = d_entry;
+    // Just for completion, checking invariant
+    } else {
+        assert(msg->total_size == msg->packet_size);
+    }
+
+    // Increasing the number of chunks received
+    if (tmp) {
+        bf->c6 = 1;
+        tmp->num_chunks += remaining_packet_chunks;
+
+        /* retrieve the event data, all chunks from the same packet carry the `remote_event_data` */
+        if(msg->remote_event_size_bytes > 0 && !tmp->remote_event_data)
+        {
+            /* Now retreieve the number of chunks completed from the hash and update them */
+            void *m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
+
+            /* Retreive the remote event entry */
+            tmp->remote_event_data = (char*) calloc(1, msg->remote_event_size_bytes);
+            assert(tmp->remote_event_data);
+            tmp->remote_event_size = msg->remote_event_size_bytes;
+            memcpy(tmp->remote_event_data, m_data_src, msg->remote_event_size_bytes);
+        }
+    }
+
+    bool const is_msg_completed = tmp ? tmp->num_chunks >= total_chunks : true;
+    assert(tmp || total_chunks == remaining_packet_chunks);
+
+    if(is_msg_completed) {
+        bf->c7 = 1;
+        s->data_size_sample += msg->total_size;
+        s->ross_sample.data_size_sample += msg->total_size;
+        s->data_size_ross_sample += msg->total_size;
+        N_finished_msgs++;
+        total_msg_sz += msg->total_size;
+        s->total_msg_size += msg->total_size;
+        s->finished_msgs++;
+
+        // This should always be true. It sends the message to the server/workload or communicates to the model-net layer
+        if (tmp->remote_event_data && tmp->remote_event_size > 0) {
+            send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
+        }
+
+        if (tmp) {
+            bf->c8 = 1;
+            qhash_del(hash_link);
+            rc_stack_push(lp, tmp, free_tmp, s->st);
+            s->rank_tbl_pop--;
+        }
     }
 }
 
@@ -4770,12 +4879,6 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
 {
     if (g_congestion_control_enabled)
         cc_terminal_send_ack_rc(s->local_congestion_controller);
-    
-    if(bf->c31)
-    {
-        s->packet_fin--;
-        packet_fin--;
-    }
 
     if(msg->path_type == MINIMAL)
         minimal_count--;
@@ -4815,6 +4918,8 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
 
     if(bf->c1)
     {
+        s->packet_fin--;
+        packet_fin--;
         stat->recv_count--;
         stat->recv_bytes -= msg->packet_size;
         N_finished_packets--;
@@ -4827,11 +4932,35 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
 	{
           s->max_latency = msg->saved_available_time;
 	} 
-    if(bf->c7)
-    {
+
+    struct packet_id const packet_key = {
+        .packet_ID = msg->packet_ID,
+        .dfdally_src_terminal_id = msg->dfdally_src_terminal_id
+    };
+
+    if (bf->c28) {
+        if (bf->c29) {
+            s->remaining_sz_packets[packet_key] = 0;
+        }
+        s->remaining_sz_packets[packet_key] += s->params->chunk_size;
+    } else {
+        if (bf->c29) {
+            s->remaining_sz_packets[packet_key] += s->params->chunk_size;
+        }
+    }
+
+    if (bf->c14) {
+        s->zombies.emplace((struct packet_id) {
+            .packet_ID = msg->packet_ID,
+            .dfdally_src_terminal_id = msg->dfdally_src_terminal_id
+        });
+    }
+    if (bf->c15) {
+        return;
+    }
+
+    if(bf->c7) {
         //assert(!hash_link);
-        if(bf->c4)
-            model_net_event_rc2(lp, &msg->event_rc);
         
         N_finished_msgs--;
         s->finished_msgs--;
@@ -4841,11 +4970,8 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
         s->ross_sample.data_size_sample -= msg->total_size;
         s->data_size_ross_sample -= msg->total_size;
 
-        if(bf->c14) {
-            s->zombies.emplace((struct packet_id) {
-                .packet_ID = msg->packet_ID,
-                .dfdally_src_terminal_id = msg->dfdally_src_terminal_id
-            });
+        if(bf->c4) {
+            model_net_event_rc2(lp, &msg->event_rc);
         }
 
         struct dfly_qhash_entry * d_entry_pop = (dfly_qhash_entry *)rc_stack_pop(s->st);
@@ -4869,14 +4995,11 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
         free_tmp(tmp);	
         s->rank_tbl_pop--;
     }
-    
-    return;
 }
 
 /* packet arrives at the destination terminal */
 static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) 
 {
-
     // if(isRoutingMinimal(routing) && msg->my_N_hop > 4)
     // {
     //     printf("TERMINAL RECEIVED A NONMINIMAL LENGTH PACKET\n");
@@ -4898,48 +5021,13 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     if (g_congestion_control_enabled)
         cc_terminal_send_ack(s->local_congestion_controller, msg->src_terminal_id);
 
-    // NIC aggregation - should this be a separate function?
-    // Trigger an event on receiving server
-
-    if(!s->rank_tbl)
-        s->rank_tbl = qhash_init(dragonfly_rank_hash_compare, dragonfly_hash_func, DFLY_HASH_TABLE_SIZE);
-    
-    struct dfly_hash_key key;
-    key.message_id = msg->message_id; 
-    key.sender_id = msg->sender_lp;
-    
-    struct qhash_head *hash_link = NULL;
-    struct dfly_qhash_entry * tmp = NULL;
-      
-    hash_link = qhash_search(s->rank_tbl, &key);
-    
-    if(hash_link)
-        tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
-
-    uint64_t total_chunks = msg->total_size / s->params->chunk_size;
-
-    if(msg->total_size % s->params->chunk_size)
-          total_chunks++;
-
-    if(!total_chunks)
-          total_chunks = 1;
-
-    /*if(tmp)
-    {
-        if(tmp->num_chunks >= total_chunks || tmp->num_chunks < 0)
-        {
-           //tw_output(lp, "\n invalid number of chunks %d for LP %ld ", tmp->num_chunks, lp->gid);
-           tw_lp_suspend(lp, 0, 0);
-           return;
-        }
-    }*/
     assert(lp->gid == msg->dest_terminal_lpid);
 
 #if DEBUG == 1
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
         printf("\n Packet %llu arrived at lp %llu hops %d ", LLU(msg->sender_lp), LLU(lp->gid), msg->my_N_hop);
 #endif
-    
+
     tw_stime ts = s->params->cn_credit_delay;
 
     // no method_event here - message going to router
@@ -4954,12 +5042,6 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     buf_msg->type = R_BUFFER;
     tw_event_send(buf_e);
 
-    bf->c1 = 0;
-    bf->c3 = 0;
-    bf->c4 = 0;
-    bf->c7 = 0;
-    bf->c14 = 0;
-
     /* Total overall finished chunks in simulation */
     N_finished_chunks++;
     /* Finished chunks on a LP basis */
@@ -4973,6 +5055,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     /* WE do not allow self messages through dragonfly */
     assert(lp->gid != msg->src_terminal_id);
 
+    // TODO (elkin): this is wrong, this is _not_ finding the number of chunks, consider: chunk_size = 2 and packet_size = 5. There should be 3 chunks, but the code outputs 2!
     uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
     if (msg->packet_size < s->params->chunk_size)
         num_chunks++;
@@ -4983,12 +5066,6 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     if(msg->path_type == NON_MINIMAL)
         nonmin_count++;
 
-    if(msg->chunk_id == num_chunks - 1)
-    {
-        bf->c31 = 1;
-        s->packet_fin++;
-        packet_fin++;
-    }
     if(msg->path_type != MINIMAL && msg->path_type != NON_MINIMAL)
         printf("\n Wrong message path type %d ", msg->path_type);
 
@@ -5016,6 +5093,20 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     msg->saved_rcv_time = stat->recv_time;
     stat->recv_time += ete_latency;
 
+    // Chunk with the last id has been received (not the last chunk to receive necessarily)
+    if(msg->chunk_id == num_chunks - 1)
+    {
+        bf->c1 = 1;
+        s->packet_fin++;
+        packet_fin++;
+
+        stat->recv_count++;
+        stat->recv_bytes += msg->packet_size;
+
+        N_finished_packets++;
+        s->finished_packets++;
+    }
+
 #if DEBUG == 1
     if( msg->packet_ID == TRACK 
             && msg->chunk_id == num_chunks-1
@@ -5031,9 +5122,94 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     }
 #endif
 
-    /* Now retreieve the number of chunks completed from the hash and update
-        * them */
-    void *m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
+    if(s->min_latency > ete_latency) {
+        bf->c21 = 1;
+        msg->saved_min_lat = s->min_latency;
+        s->min_latency = ete_latency;
+    }
+
+    if(s->max_latency < ete_latency) {
+        bf->c22 = 1;
+        msg->saved_available_time = s->max_latency;
+        s->max_latency = ete_latency;
+    }
+
+    struct packet_id const packet_key = {
+        .packet_ID = msg->packet_ID,
+        .dfdally_src_terminal_id = msg->dfdally_src_terminal_id
+    };
+    bool const is_zombie = s->zombies.count(packet_key) == 1;
+    bool const has_remaining_sz = s->remaining_sz_packets.count(packet_key) == 1;
+
+    // Finding out if the packet is complete
+    bool is_packet_completed = false;
+    int const chunk_size = s->params->chunk_size;
+    if (has_remaining_sz) {
+        bf->c28 = 1;
+        assert(s->remaining_sz_packets[packet_key] >= chunk_size);
+        s->remaining_sz_packets[packet_key] -= chunk_size;
+
+        // if `remaining == 0`, ie, if the packet has been completed
+        if (s->remaining_sz_packets[packet_key] == 0) {
+            bf->c29 = 1;
+            is_packet_completed = true;
+            s->remaining_sz_packets.erase(packet_key);
+        }
+    } else {
+        if (chunk_size < msg->packet_size) {
+            bf->c29 = 1;
+            s->remaining_sz_packets[packet_key] = msg->packet_size - chunk_size;
+        } else {
+            is_packet_completed = true;
+        }
+    }
+
+    // Zombies don't generate delay notifications, and they don't modify the state of `s->rank_tbl` (`packet_arrive_predicted` should have removed the msg entry already)
+    if (is_zombie) {
+        struct dfly_hash_key key = {
+            .message_id = msg->message_id,
+            .sender_id = msg->sender_lp,
+        };
+        //printf("We got a zombie! LPID=%d  packet_ID = %d  dfdally_src_terminal_id = %d\n", lp->gid, msg->packet_ID, msg->dfdally_src_terminal_id);
+
+        if (is_packet_completed) {
+            s->zombies.erase(packet_key);
+            bf->c14 = 1;
+        }
+        bf->c15 = 1;
+        return;
+    }
+
+    struct dfly_hash_key key = {
+        .message_id = msg->message_id,
+        .sender_id = msg->sender_lp,
+    };
+
+    struct qhash_head *hash_link = NULL;
+    struct dfly_qhash_entry * tmp = NULL;
+
+    hash_link = qhash_search(s->rank_tbl, &key);
+
+    if(hash_link)
+        tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
+
+    uint64_t total_chunks = msg->total_size / s->params->chunk_size;
+
+    if(msg->total_size % s->params->chunk_size)
+          total_chunks++;
+
+    if(!total_chunks)
+          total_chunks = 1;
+
+    /*if(tmp)
+    {
+        if(tmp->num_chunks >= total_chunks || tmp->num_chunks < 0)
+        {
+           //tw_output(lp, "\n invalid number of chunks %d for LP %ld ", tmp->num_chunks, lp->gid);
+           tw_lp_suspend(lp, 0, 0);
+           return;
+        }
+    }*/
 
     /* If an entry does not exist then create one */
     if(!tmp)
@@ -5057,45 +5233,38 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     assert(tmp);
     tmp->num_chunks++;
 
-    if(msg->chunk_id == num_chunks - 1)
-    {
-        bf->c1 = 1;
-        stat->recv_count++;
-        stat->recv_bytes += msg->packet_size;
-
-        N_finished_packets++;
-        s->finished_packets++;
-    }
-
-    /* if its the last chunk of the packet then handle the remote event data */
+    /* retrieve the event data, all chunks from the same packet carry the `remote_event_data` */
     if(msg->remote_event_size_bytes > 0 && !tmp->remote_event_data)
     {
+        /* Now retreieve the number of chunks completed from the hash and update
+            * them */
+        void *m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
+
         /* Retreive the remote event entry */
         tmp->remote_event_data = (char*)calloc(1, msg->remote_event_size_bytes);
         assert(tmp->remote_event_data);
         tmp->remote_event_size = msg->remote_event_size_bytes; 
         memcpy(tmp->remote_event_data, m_data_src, msg->remote_event_size_bytes);
     }
-    
-    if(s->min_latency > ete_latency) {
-        bf->c21 = 1;
-        msg->saved_min_lat = s->min_latency;
-		s->min_latency = ete_latency;	
-	}
 
-	if(s->max_latency < ete_latency) {
-        bf->c22 = 1;
-        msg->saved_available_time = s->max_latency;
-        s->max_latency = ete_latency;
-	}
-    /* If all chunks of a message have arrived then send a remote event to the
-     * callee*/
-    //assert(tmp->num_chunks <= total_chunks);
+    // if the packet is complete (ie, this `msg` is the last piece of the packet)
+    if (is_packet_completed) {
+        //printf("Good day sir, not a zombie! LPID=%d  packet_ID = %d  dfdally_src_terminal_id = %d\n", lp->gid, msg->packet_ID, msg->dfdally_src_terminal_id);
+        if (packet_latency_f || surrogate_configured) {
+            notify_src_lp_on_total_latency(lp, msg);
+        //} else {
+        //    // This vacuous msg is necessary just to keep simulations with and without the latency notification the same. Notifying the latency does not impact
+        //    // the simulation (unless the data is fed to a predictor, later to be used). If the latency notification is deactivated, the simulation will produce
+        //    // the same number of events (a bit wasteful), a parameter that model-net or dragonfly-dally for some reason use :S
+        //    vacuous_msg_to_itself(s, msg, lp);
+        }
+    }
 
+    // if the message is complete (ie, this `msg` is the last piece of the message)
+    /* If all chunks of a message have arrived then send a remote event to the callee */
     if(tmp->num_chunks >= total_chunks)
     {
         bf->c7 = 1;
-
         s->data_size_sample += msg->total_size;
         s->ross_sample.data_size_sample += msg->total_size;
         s->data_size_ross_sample += msg->total_size;
@@ -5103,43 +5272,16 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
         total_msg_sz += msg->total_size;
         s->total_msg_size += msg->total_size;
         s->finished_msgs++;
-        
+
         //assert(tmp->remote_event_data && tmp->remote_event_size > 0);
         if(tmp->remote_event_data && tmp->remote_event_size > 0) {
-            struct packet_id const zombie_packet = {
-                .packet_ID = msg->packet_ID,
-                .dfdally_src_terminal_id = msg->dfdally_src_terminal_id
-            };
-            int const is_zombie = s->zombies.count(zombie_packet) == 1;
-            // Not notifying in case it's a zombie
-            if (is_zombie) {
-                // Ignore packet, do not send forward if it has already been delievered
-                //printf("We got a zombie! LPID=%d  packet_ID = %d  dfdally_src_terminal_id = %d\n", lp->gid, msg->packet_ID, msg->dfdally_src_terminal_id);
-                s->zombies.erase(zombie_packet);
-                bf->c14 = 1;
-            } else {
-                //printf("Good day sir, not a zombie! LPID=%d  packet_ID = %d  dfdally_src_terminal_id = %d\n", lp->gid, msg->packet_ID, msg->dfdally_src_terminal_id);
-                if (packet_latency_f || surrogate_configured) {
-                    notify_src_lp_on_total_latency(lp, msg);
-                } else {
-                    // This vacuous msg is necessary just to keep simulations with
-                    // and without the latency notification the same. Notifying the
-                    // latency does not impact the simulation (unless the data is
-                    // fed to a predictor, later to be used). If the latency
-                    // notification is deactivated, the simulation will produce
-                    // the same number of events (a bit wasteful), a parameter
-                    // that model-net or dragonfly-dally for some reason use :S
-                    //vacuous_msg_to_itself(s, msg, lp);
-                }
-                send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
-             }
+            send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
         }
         /* Remove the hash entry */
         qhash_del(hash_link);
         rc_stack_push(lp, tmp, free_tmp, s->st);
         s->rank_tbl_pop--;
-   }
-  return;
+     }
 }
 
 static void terminal_buf_update_rc(terminal_state * s,
@@ -5262,6 +5404,43 @@ static void dragonfly_dally_terminal_final( terminal_state * s,
 
     lp_io_write(lp->gid, (char*)"dragonfly-cn-stats", written, s->output_buf2); 
 
+    if (packet_latency_f) {
+        // Storing the missing packets into io file
+        while(!s->sent_packets.empty()) {
+            struct packet_start start = s->sent_packets.front();
+            s->sent_packets.pop_front();
+            assert(start.message_data);
+
+            struct packet_end end = {
+                .travel_end_time = -1,
+                .next_packet_delay = -1,
+            };
+
+            // The packet was delievered and its latency is known (we were notified)
+            if (!s->sent_packets_latency.empty()
+                    && start.packet_ID == s->sent_packets_latency.top().packet_ID)
+            {
+                auto const latency_q = s->sent_packets_latency.top();
+                s->sent_packets_latency.pop();
+
+                end.travel_end_time = latency_q.value;
+
+                if (s->sent_packets.size() >= 2) {
+                    end.next_packet_delay = s->sent_packets[1].processing_packet_delay;
+                }
+
+                packet_latency_save_to_file(s->terminal_id, start, end, false, false);
+            }
+            // The packet has not been delievered yet (that we know of)
+            else {
+                packet_latency_save_to_file(s->terminal_id, start, end, false, false);
+            }
+
+            // Deallocating memory from packet_start
+            if (start.message_data) { free(start.message_data); }
+            if (start.remote_event_data) { free(start.remote_event_data); }
+        }
+    }
 
     //if(s->packet_gen != s->packet_fin)
     //    printf("\n generated %d finished %d ", s->packet_gen, s->packet_fin);
@@ -5298,6 +5477,7 @@ static void dragonfly_dally_terminal_final( terminal_state * s,
     }
     s->sent_packets.~deque();
     s->sent_packets_latency.~priority_queue();
+    s->remaining_sz_packets.~map();
 
     if (s->predictor_data) {
         free(s->predictor_data);

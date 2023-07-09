@@ -38,7 +38,7 @@ struct packet_start {
     unsigned int dfdally_dest_terminal_id; // number in [0, total terminals)
     double travel_start_time;
     double workload_injection_time; // this is when the workload passed down the event to model-net
-    double delay_at_queue_head;  // delay for this packet to be processed from previous packet in the queue
+    double processing_packet_delay;  // delay for this packet to be processed from previous packet in the queue
     uint32_t packet_size;
     void * message_data;  // Yep, we have to save the entire message just because we might need to resend the message when switching to surrogate-mode. It's wasteful but there is no other way
     void * remote_event_data;  // This and the one above have to be freed. This contains the extra information that the message contains
@@ -46,7 +46,7 @@ struct packet_start {
 
 struct packet_end {
     double travel_end_time;
-    double delay_at_queue_head_next;  // Delay to start processing next packet
+    double next_packet_delay;  // Delay to start processing next packet
 };
 
 // Definition of functions needed to define a predictor

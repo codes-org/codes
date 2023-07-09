@@ -570,6 +570,7 @@ void model_net_base_event(
         tw_bf * b,
         model_net_wrap_msg * m,
         tw_lp * lp){
+    memset(b, 0, sizeof(tw_bf));
 
     if(m->h.magic != model_net_base_magic)
         printf("\n LP ID mismatched %llu\n", LLU(lp->gid));

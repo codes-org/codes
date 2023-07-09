@@ -41,7 +41,7 @@ struct aggregated_latency_one_terminal {
 };
 
 struct latency_surrogate {
-    double sum_delay_at_queue_head_next;
+    double sum_next_packet_delay;
     struct aggregated_latency_one_terminal aggregated_latency_for_all;
     unsigned int num_terminals;
     struct aggregated_latency_one_terminal aggregated_latency[];
@@ -57,7 +57,7 @@ static void init_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int 
     assert(data->aggregated_latency[0].total_msgs == 0);
 
     data->num_terminals = surr_config.total_terminals;
-    data->sum_delay_at_queue_head_next = 0;
+    data->sum_next_packet_delay = 0;
 }
 
 static void feed_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int src_terminal, struct packet_start const * start, struct packet_end const * end) {
@@ -71,6 +71,7 @@ static void feed_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int 
     unsigned int const dest_terminal = start->dfdally_dest_terminal_id;
     double const latency = end->travel_end_time - start->travel_start_time;
     assert(dest_terminal < data->num_terminals);
+    assert(end->travel_end_time > start->travel_start_time);
 
     data->aggregated_latency[dest_terminal].sum_latency += latency;
     data->aggregated_latency[dest_terminal].total_msgs++;
@@ -78,7 +79,7 @@ static void feed_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int 
     data->aggregated_latency_for_all.sum_latency += latency;
     data->aggregated_latency_for_all.total_msgs++;
 
-    data->sum_delay_at_queue_head_next += end->delay_at_queue_head_next;
+    data->sum_next_packet_delay += end->next_packet_delay;
 }
 
 static struct packet_end predict_latency(struct latency_surrogate * data, tw_lp * lp, unsigned int src_terminal, struct packet_start const * packet_dest) {
@@ -93,7 +94,7 @@ static struct packet_end predict_latency(struct latency_surrogate * data, tw_lp 
         tw_error(TW_LOC, "Terminal %u doesn't have any packet delay information available to predict future packet latency!\n", src_terminal);
         return (struct packet_end) {
             .travel_end_time = -1.0,
-            .delay_at_queue_head_next = -1.0,
+            .next_packet_delay = -1.0,
         };
     }
 
@@ -106,11 +107,12 @@ static struct packet_end predict_latency(struct latency_surrogate * data, tw_lp 
         // If no information for that terminal exists, use average from all message
         latency = data->aggregated_latency_for_all.sum_latency / total_total_datapoints;
     }
+    assert(latency >= 0);
 
-    double const delay_at_queue_head_next = data->sum_delay_at_queue_head_next / total_total_datapoints;
+    double const next_packet_delay = data->sum_next_packet_delay / total_total_datapoints;
     return (struct packet_end) {
         .travel_end_time = packet_dest->travel_start_time + latency,
-        .delay_at_queue_head_next = delay_at_queue_head_next,
+        .next_packet_delay = next_packet_delay,
     };
 }
 
@@ -468,7 +470,9 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_stime gvt) {
     }
 
     // This will force a global update on all the new remote events (instead of waiting until the next GVT cycle to update events to process)
-    rollback_and_cancel_events_pe(pe, gvt);
+    if (g_tw_synchronization_protocol == OPTIMISTIC) {
+        rollback_and_cancel_events_pe(pe, gvt);
+    }
 
     assert(lps_events[0] != NULL);
     free(lps_events[0]);
