@@ -5,4 +5,8 @@ if [ -z $srcdir ]; then
     exit 1
 fi
 
-tests/lsm-test --sync=1 --conf=$srcdir/tests/conf/lsm-test.conf
+if [ -z $GENERATED_USING_CMAKE ]; then
+    bindir=.
+fi
+
+"$bindir"/tests/lsm-test --sync=1 --conf="$srcdir"/tests/conf/lsm-test.conf

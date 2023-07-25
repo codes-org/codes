@@ -1,12 +1,17 @@
 #!/bin/bash
 
-tst=$srcdir/tests
+if [ -z $GENERATED_USING_CMAKE ]; then
+    bindir=.
+fi
+
+tst="$srcdir/tests"
 set -e
-tests/mapping_test --sync=1 --codes-config=$tst/conf/mapping_test.conf \
+
+"$bindir"/tests/mapping_test --sync=1 --codes-config="$tst"/conf/mapping_test.conf \
     2> mapping_test.err \
     1| grep TEST > mapping_test.out
 
-diff $tst/expected/mapping_test.out mapping_test.out
+diff "$tst"/expected/mapping_test.out mapping_test.out
 err=$?
 
 if [ -s mapping_test.err ] ; then

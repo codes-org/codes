@@ -1,3 +1,7 @@
 #!/bin/bash
 
-tests/lp-io-test --sync=1
+if [ -z $GENERATED_USING_CMAKE ]; then
+    bindir=.
+fi
+
+"$bindir"/tests/lp-io-test --sync=1

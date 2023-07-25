@@ -13,13 +13,13 @@ LPGROUPS
 PARAMS
 {
 # packet size in the network
-   packet_size="4096";
+   packet_size="${PACKET_SIZE}";
    modelnet_order=( "dragonfly_dally","dragonfly_dally_router" );
    # scheduler options
    modelnet_scheduler="fcfs";
 # chunk size in the network (when chunk size = packet size, packets will not be
 # divided into chunks)
-   chunk_size="64";
+   chunk_size="${CHUNK_SIZE}";
 # modelnet_scheduler="round-robin";
 # number of routers in group
    num_routers="4";
@@ -38,18 +38,20 @@ PARAMS
 # bandwidth in GiB/s for compute node-router channels
    cn_bandwidth="2.0";
 # ROSS message size
-   message_size="736";
+   message_size="408";
 # number of compute nodes connected to router, dictated by dragonfly config
 # file
    num_cns_per_router="2";
 # number of global channels per router
    num_global_channels="2";
 # network config file for intra-group connections
-   intra-group-connections="@abs_srcdir@/../../src/network-workloads/conf/dragonfly-dally/dfdally-72-intra";
+   intra-group-connections="@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-intra";
 # network config file for inter-group connections
-   inter-group-connections="@abs_srcdir@/../../src/network-workloads/conf/dragonfly-dally/dfdally-72-inter";
+   inter-group-connections="@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-inter";
 # routing protocol to be used
    routing="prog-adaptive";
 # router buffer occupancy snapshots
    router_buffer_snapshots=( "50e4", "60e4" );
+# folder path to store packet latency from terminal to terminal, if no value is given it won't save anything
+   save_packet_latency_path="${PACKET_LATENCY_TRACE_PATH}";
 }

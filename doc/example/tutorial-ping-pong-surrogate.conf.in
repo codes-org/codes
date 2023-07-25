@@ -1,6 +1,6 @@
 # Run this example with:
 # > cd path-to-codes/build
-# > mpirun -np 2 doc/example/tutorial-synthetic-ping-pong --synch=3 --num_messages=10000 --lp-io-dir=codes-output -- ../doc/example/tutorial-ping-pong-surrogate.conf
+# > mpirun -np 3 doc/example/tutorial-synthetic-ping-pong --synch=3 --num_messages=10000 --lp-io-dir=codes-output -- doc/example/tutorial-ping-pong-surrogate.conf
 LPGROUPS
 {
    MODELNET_GRP
@@ -16,13 +16,13 @@ LPGROUPS
 PARAMS
 {
 # packet size in the network
-   packet_size="4096";
+   packet_size="${PACKET_SIZE}";
    modelnet_order=( "dragonfly_dally","dragonfly_dally_router" );
    # scheduler options
    modelnet_scheduler="fcfs";
 # chunk size in the network (when chunk size = packet size, packets will not be
 # divided into chunks)
-   chunk_size="64";
+   chunk_size="${CHUNK_SIZE}";
 # modelnet_scheduler="round-robin";
 # number of routers in group
    num_routers="4";
@@ -41,22 +41,22 @@ PARAMS
 # bandwidth in GiB/s for compute node-router channels
    cn_bandwidth="2.0";
 # ROSS message size
-   message_size="736";
+   message_size="408";
 # number of compute nodes connected to router, dictated by dragonfly config
 # file
    num_cns_per_router="2";
 # number of global channels per router
    num_global_channels="2";
 # network config file for intra-group connections
-   intra-group-connections="../src/network-workloads/conf/dragonfly-dally/dfdally-72-intra";
+   intra-group-connections="@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-intra";
 # network config file for inter-group connections
-   inter-group-connections="../src/network-workloads/conf/dragonfly-dally/dfdally-72-inter";
+   inter-group-connections="@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-inter";
 # routing protocol to be used
    routing="prog-adaptive";
 # folder path to store packet latency from terminal to terminal, if no value is given it won't save anything
-   save_packet_latency_path="packet-latency-trace/";
+   save_packet_latency_path="${PACKET_LATENCY_TRACE_PATH}";
 # router buffer occupancy snapshots
-   router_buffer_snapshots=( "50e4", "60e4" );
+   router_buffer_snapshots=( "100e3", "200e3", "300e3", "400e3", "500e3", "600e3", "700e3", "800e3", "900e3", "1e6", "1.1e6", "1.2e6", "1.3e6", "1.4e6", "1.5e6", "1.6e6", "1.7e6", "1.8e6", "1.9e6", "2e6", "2.1e6", "2.2e6", "2.3e6", "2.4e6", "2.5e6", "2.6e6", "2.7e6", "2.8e6", "2.9e6", "3e6", "3.1e6", "3.2e6", "3.3e6", "3.4e6", "3.5e6", "3.6e6", "3.7e6", "3.8e6", "3.9e6", "4e6", "4.1e6", "4.2e6", "4.3e6", "4.4e6", "4.5e6", "4.6e6", "4.7e6", "4.8e6", "4.9e6", "5e6", "5.1e6", "5.2e6", "5.3e6", "5.4e6", "5.5e6", "5.6e6", "5.7e6", "5.8e6", "5.9e6", "6e6", "6.1e6", "6.2e6", "6.3e6", "6.4e6", "6.5e6", "6.6e6", "6.7e6", "6.8e6", "6.9e6", "7e6", "7.1e6", "7.2e6", "7.3e6", "7.4e6", "7.5e6", "7.6e6", "7.7e6", "7.8e6", "7.9e6", "8e6", "8.1e6", "8.2e6", "8.3e6", "8.4e6", "8.5e6", "8.6e6", "8.7e6", "8.8e6", "8.9e6", "9e6", "9.1e6", "9.2e6", "9.3e6", "9.4e6", "9.5e6", "9.6e6", "9.7e6", "9.8e6", "9.9e6", "9.990e6" );
 }
 SURROGATE {
 # determines the director switching from surrogate to high-def simulation strategy
@@ -65,8 +65,14 @@ SURROGATE {
 # director configuration for: director_mode == "at-fixed-virtual-times"
 # timestamps at which to switch to surrogate-mode and back
    #fixed_switch_timestamps=( "100e4", "8900e4" );  # the first switch happens at around 100 ping messages, the second at approx. 9900 pings
-   fixed_switch_timestamps=( "1000e4", "8900e4" );  # the first switch happens at around 1000 ping messages, the second at approx. 9900 pings
+   #fixed_switch_timestamps=( "1000e4", "8900e4" );  # the first switch happens at around 1000 ping messages, the second at approx. 9900 pings
+   fixed_switch_timestamps=( ${SWITCH_TIMESTAMPS} );
 
 # latency predictor to use
    packet_latency_predictor="average";
+# some workload models need some time to stabilize, a point where the network behaviour stabilizes. The predictor will ignore all packet latencies that arrive during this period
+   ignore_until="${IGNORE_UNTIL}";
+
+# selecting network treatment on switching to surrogate. Options: frezee, nothing
+   network_treatment_on_switch="${NETWORK_TREATMENT}";
 }

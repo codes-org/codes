@@ -4,13 +4,12 @@ configure_file(run-test.sh.in run-test.sh)
 
 include_directories("${ROSS_INCLUDE_DIRS}" "${CODES_SOURCE_DIR}")
 
-# Unfortunatelly, CMake doesn't support iteration of a key-pair
-# structure, otherwise the following lists could be easily
-# compressed into a single list/dictionary/structure. Instead
-# each C file name MUST match each binary file name. This would
-# be handled differently if maintaining the autoconfig build
-# was not a MUST (in which case, the name of the file and its
-# binary should match, leaving us with a single list!)
+# Unfortunatelly, CMake doesn't support iteration of a key-pair structure,
+# otherwise the following lists could be easily compressed into a single
+# list/dictionary/structure. Instead each C file name **MUST** match each
+# binary file name. This would be handled differently if maintaining the
+# autoconfig build was not a **MUST** (in which case, the name of the file and
+# its binary should match, leaving us with a single list!)
 set(test-c-files
     lp-io-test.c
     mapping_test.c
@@ -87,6 +86,11 @@ set(test-shell-files
     modelnet-test-fattree-synthetic.sh
     modelnet-test-slimfly-synthetic.sh
     workload/codes-workload-test.sh
+    example-ping-pong-determinism.sh
+    example-ping-pong-surrogate-1.sh
+    example-ping-pong-surrogate-2.sh
+    example-ping-pong-surrogate-3.sh
+    example-ping-pong-no-logging.sh
     )
 
 foreach(testname ${test-shell-files})

@@ -5,4 +5,8 @@ if [[ -z $srcdir ]] ; then
     exit 1
 fi
 
-tests/modelnet-simplep2p-test
+if [ -z $GENERATED_USING_CMAKE ]; then
+    bindir=.
+fi
+
+"$bindir"/tests/modelnet-simplep2p-test

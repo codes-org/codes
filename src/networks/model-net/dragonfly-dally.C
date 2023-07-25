@@ -2817,13 +2817,14 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
     return -1;
 }
 
-static void packet_latency_save_to_file(
+static inline void packet_latency_save_to_file(
         unsigned int terminal_id,
         struct packet_start start,
         struct packet_end end,
         bool surrogate_on,
         bool is_predicted
 ) {
+    if (!packet_latency_f) { return; } // Don't save if there isn't a file to save to
     if (end.travel_end_time > g_tw_ts_end) { return; } // This packet could never arrive to its destination!
     fprintf(packet_latency_f, "%u,%u,%lu,%d,%d,%u,%f,%f,%f,%f,%f\n",
             terminal_id, start.dfdally_dest_terminal_id, start.packet_ID,
@@ -2857,9 +2858,7 @@ static void process_packet_latencies(terminal_state * s, tw_lp * lp)
             .travel_end_time = s->sent_packets_latency.top().value,
             .next_packet_delay = next_packet_delay,
         };
-        if (packet_latency_f) {
-            packet_latency_save_to_file(s->terminal_id, start, end, is_surrogate_on, false);
-        }
+        packet_latency_save_to_file(s->terminal_id, start, end, is_surrogate_on, false);
         if (surrogate_configured && !is_surrogate_on) {
             assert(terminal_predictor != NULL);
             terminal_predictor->feed(s->predictor_data, lp, s->terminal_id, &start, &end);
