@@ -91,6 +91,9 @@ set(test-shell-files
     example-ping-pong-surrogate-2.sh
     example-ping-pong-surrogate-3.sh
     example-ping-pong-no-logging.sh
+    # These are aspirational unit tests. The switching mechanism is not fully deterministic
+    #example-ping-pong-surrogate-determinism-1.sh # bug: not all processed events are commited before the switch happens, this might alter the behaviour of the predictor, thus the simulation diverges at switch (no longer deterministic)
+    #example-ping-pong-surrogate-determinism-2.sh # bug: incoming packets (`T_ARRIVE_PREDICTED` events scheduled by `dragonfly_dally_terminal_highdef_to_surrogate`) might tie some times, the tie is not resolved deterministically
     )
 
 foreach(testname ${test-shell-files})

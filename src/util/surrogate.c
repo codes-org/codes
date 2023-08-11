@@ -243,6 +243,8 @@ static void rollback_and_cancel_events_pe(tw_pe * pe, tw_stime gvt) {
         }
     } while (does_any_pe(pe->cancel_q != NULL) || does_any_pe(pe->event_q.size != 0));
 
+    tw_pe_fossil_collect();
+
     if (DEBUG_DIRECTOR > 1) {
         printf("PE %lu: All events rolledbacked and cancelled\n", g_tw_mynode);
     }
@@ -407,29 +409,12 @@ static tw_event *** order_events_per_lps(tw_pe * pe) {
 // - Going through every LP and calling their respective functions
 #ifdef USE_RAND_TIEBREAKER
 static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_event_sig gvt) {
-    if (g_tw_synchronization_protocol != OPTIMISTIC && g_tw_synchronization_protocol != SEQUENTIAL) {
-        tw_error(TW_LOC, "Sorry, sending packets to the future hasn't been implement in this mode");
-    }
-
-    if (g_tw_synchronization_protocol == OPTIMISTIC) {
-        assert(tw_event_sig_compare(pe->GVT_sig, gvt) == 0);
-        rollback_and_cancel_events_pe(pe, gvt);
-        //assert(tw_event_sig_compare(pe->GVT_sig, gvt) <= 0);
-        assert(tw_event_sig_compare(pe->GVT_sig, gvt) == 0);
-    }
 #else
 static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_stime gvt) {
+#endif
     if (g_tw_synchronization_protocol != OPTIMISTIC && g_tw_synchronization_protocol != SEQUENTIAL) {
         tw_error(TW_LOC, "Sorry, sending packets to the future hasn't been implement in this mode");
     }
-
-    if (g_tw_synchronization_protocol == OPTIMISTIC) {
-        assert(pe->GVT == gvt);
-        rollback_and_cancel_events_pe(pe, gvt);
-        //assert(tw_event_sig_compare(pe->GVT_sig, gvt) <= 0);
-        assert(pe->GVT == gvt);
-    }
-#endif
 
     tw_event *** lps_events = order_events_per_lps(pe);
     shift_events_to_future_pe(pe, gvt);
@@ -482,23 +467,10 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_stime gvt) {
 
 #ifdef USE_RAND_TIEBREAKER
 static void events_surrogate_to_high_def_switch(tw_pe * pe, tw_event_sig gvt) {
-    (void) pe;
-
-    if (g_tw_synchronization_protocol == OPTIMISTIC) {
-        assert(tw_event_sig_compare(pe->GVT_sig, gvt) == 0);
-        rollback_and_cancel_events_pe(pe, gvt);
-        assert(tw_event_sig_compare(pe->GVT_sig, gvt) == 0);
-    }
 #else
 static void events_surrogate_to_high_def_switch(tw_pe * pe, tw_stime gvt) {
-    (void) pe;
-
-    if (g_tw_synchronization_protocol == OPTIMISTIC) {
-        assert(pe->GVT == gvt);
-        rollback_and_cancel_events_pe(pe, gvt);
-        assert(pe->GVT == gvt);
-    }
 #endif
+    (void) pe;
 
     // Going through all LPs in PE and running their specific functions
     for (tw_lpid local_lpid = 0; local_lpid < g_tw_nlp; local_lpid++) {
@@ -611,9 +583,25 @@ static void director_fun(tw_pe * pe, tw_stime gvt) {
         }
         printf("Switching at %g", gvt);
     }
+    // Rollback if in optimistic mode
+#ifdef USE_RAND_TIEBREAKER
+    if (g_tw_synchronization_protocol == OPTIMISTIC) {
+        assert(tw_event_sig_compare(pe->GVT_sig, gvt_sig) == 0);
+        rollback_and_cancel_events_pe(pe, gvt_sig);
+        //assert(tw_event_sig_compare(pe->GVT_sig, gvt_sig) <= 0);
+        assert(tw_event_sig_compare(pe->GVT_sig, gvt_sig) == 0);
+    }
+#else
+    if (g_tw_synchronization_protocol == OPTIMISTIC) {
+        assert(pe->GVT == gvt);
+        rollback_and_cancel_events_pe(pe, gvt);
+        //assert(tw_event_sig_compare(pe->GVT_sig, gvt) <= 0);
+        assert(pe->GVT == gvt);
+    }
+#endif
     surr_config.director.switch_surrogate();
     if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
-        printf(" to %s\n", surr_config.director.is_surrogate_on() ? "surrogate" : "vanilla");
+        printf(" to %s\n", surr_config.director.is_surrogate_on() ? "surrogate" : "high-fidelity");
     }
 
     // "Freezing" network events and activating LP's switch functions
