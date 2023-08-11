@@ -3872,6 +3872,17 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
     if(stat->max_event_size < total_event_size) {
         stat->max_event_size = total_event_size;
     }
+
+    if(msg->local_event_size_bytes > 0)
+    {
+        // TODO (Elkin): This delay is wrong. It might take quite a bit longer in some cases as all the chunks are processed until we get to this. Create a better estimate based on the number of total chunks!
+        tw_stime local_ts = 0;
+        tw_event *e_new = tw_event_new(msg->sender_lp, local_ts, lp);
+        void *m_new = tw_event_data(e_new);
+        void *local_event = (char*) model_net_method_get_edata(DRAGONFLY_DALLY, msg) + msg->remote_event_size_bytes;
+        memcpy(m_new, local_event, msg->local_event_size_bytes);
+        tw_event_send(e_new);
+    }
 }
 
 static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
@@ -4825,6 +4836,7 @@ static void packet_arrive_predicted(terminal_state * s, tw_bf * bf, terminal_dal
         tmp = d_entry;
     // Just for completion, checking invariant
     } else {
+        // packet sz == message sz
         assert(msg->total_size == msg->packet_size);
     }
 
@@ -4860,16 +4872,22 @@ static void packet_arrive_predicted(terminal_state * s, tw_bf * bf, terminal_dal
         s->total_msg_size += msg->total_size;
         s->finished_msgs++;
 
-        // This should always be true. It sends the message to the server/workload or communicates to the model-net layer
-        if (tmp->remote_event_data && tmp->remote_event_size > 0) {
-            send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
-        }
-
         if (tmp) {
+            // This should always be true. It sends the message to the server/workload or communicates to the model-net layer
+            if (tmp->remote_event_data && tmp->remote_event_size > 0) {
+                send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
+            }
+
             bf->c8 = 1;
             qhash_del(hash_link);
             rc_stack_push(lp, tmp, free_tmp, s->st);
             s->rank_tbl_pop--;
+        } else { // packet sz == message sz
+            if (msg->remote_event_size_bytes > 0) {
+                void *m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
+                assert(m_data_src);
+                send_remote_event(s, msg, lp, bf, (char*) m_data_src, msg->remote_event_size_bytes);
+            }
         }
     }
 }
