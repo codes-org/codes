@@ -39,7 +39,8 @@ struct model_net_method
             void const * remote_event,
             void const * self_event,
             tw_lp *sender,
-            int is_last_pckt);
+            int is_last_pckt,
+            bool is_there_another_pckt_in_queue);
     void (*model_net_method_packet_event_rc)(tw_lp *sender);
     tw_stime (*model_net_method_recv_msg_event)(
             const char * category,

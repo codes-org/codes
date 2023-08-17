@@ -38,7 +38,7 @@ PARAMS
 # bandwidth in GiB/s for compute node-router channels
    cn_bandwidth="2.0";
 # ROSS message size
-   message_size="408";
+   message_size="416";
 # number of compute nodes connected to router, dictated by dragonfly config
 # file
    num_cns_per_router="2";

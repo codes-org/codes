@@ -2362,7 +2362,7 @@ static void setup_packet_latency_path(char const * const dir_to_save) {
         tw_error(TW_LOC, "File %s could not be opened", filename_path);
     }
 
-    fprintf(packet_latency_f, "#src_terminal,dest_terminal,packet_id,is_surrogate_on,is_predicted,size,workload_injection,next_packet_delay,start,end,latency\n");
+    fprintf(packet_latency_f, "#src_terminal,dest_terminal,packet_id,is_surrogate_on,is_predicted,size,workload_injection,next_packet_delay,start,end,latency,is_there_another_pckt_in_queue\n");
 }
 
 /* report dragonfly statistics like average and maximum packet latency, average number of hops traversed */
@@ -2826,12 +2826,13 @@ static inline void packet_latency_save_to_file(
 ) {
     if (!packet_latency_f) { return; } // Don't save if there isn't a file to save to
     if (end.travel_end_time > g_tw_ts_end) { return; } // This packet could never arrive to its destination!
-    fprintf(packet_latency_f, "%u,%u,%lu,%d,%d,%u,%f,%f,%f,%f,%f\n",
+    fprintf(packet_latency_f, "%u,%u,%lu,%d,%d,%u,%f,%f,%f,%f,%f,%d\n",
             terminal_id, start.dfdally_dest_terminal_id, start.packet_ID,
             surrogate_on, is_predicted,
             start.packet_size,
             start.workload_injection_time, end.next_packet_delay,
-            start.travel_start_time, end.travel_end_time, end.travel_end_time - start.travel_start_time);
+            start.travel_start_time, end.travel_end_time, end.travel_end_time - start.travel_start_time,
+            start.is_there_another_pckt_in_queue);
 }
 
 // ==== START OF Surrogate functions definition ====
@@ -3225,7 +3226,8 @@ static void terminal_dally_commit(terminal_state * s,
             .travel_start_time = msg->travel_start_time,
             .workload_injection_time = msg->msg_start_time,
             .processing_packet_delay = -1,
-            .packet_size = msg->packet_size
+            .packet_size = msg->packet_size,
+            .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue
         };
 
         // Saving
@@ -3695,7 +3697,8 @@ static tw_stime dragonfly_dally_packet_event(
         void const * remote_event,
         void const * self_event,
         tw_lp *sender,
-        int is_last_pckt)
+        int is_last_pckt,
+        bool is_there_another_pckt_in_queue)
 {
     (void)message_offset;
     (void)sched_params;
@@ -3734,6 +3737,7 @@ static tw_stime dragonfly_dally_packet_event(
     msg->msg_new_mn_event = req->msg_new_mn_event;
     msg->rail_id = req->queue_offset;
     msg->app_id = req->app_id;
+    msg->is_there_another_pckt_in_queue = is_there_another_pckt_in_queue;
 
     if(is_last_pckt) /* Its the last packet so pass in remote and local event information*/
     {
@@ -3799,7 +3803,8 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
         .travel_start_time = tw_now(lp),
         .workload_injection_time = msg->msg_start_time,
         .processing_packet_delay = processing_packet_delay,
-        .packet_size = msg->packet_size
+        .packet_size = msg->packet_size,
+        .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue
     };
 
     struct packet_end const end = 
@@ -4194,6 +4199,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         .workload_injection_time = msg->msg_start_time,
         .processing_packet_delay = processing_packet_delay,
         .packet_size = msg->packet_size,
+        .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue,
         .message_data = msg_data,
         .remote_event_data = remote_data
         });

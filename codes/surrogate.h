@@ -40,6 +40,7 @@ struct packet_start {
     double workload_injection_time; // this is when the workload passed down the event to model-net
     double processing_packet_delay;  // delay for this packet to be processed from previous packet in the queue
     uint32_t packet_size;
+    bool is_there_another_pckt_in_queue; // is there another packet in queue
     void * message_data;  // Yep, we have to save the entire message just because we might need to resend the message when switching to surrogate-mode. It's wasteful but there is no other way
     void * remote_event_data;  // This and the one above have to be freed. This contains the extra information that the message contains
 };

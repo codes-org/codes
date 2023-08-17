@@ -41,7 +41,7 @@ struct aggregated_latency_one_terminal {
 };
 
 struct latency_surrogate {
-    double sum_next_packet_delay;
+    struct aggregated_latency_one_terminal aggregated_next_packet_delay;
     struct aggregated_latency_one_terminal aggregated_latency_for_all;
     unsigned int num_terminals;
     struct aggregated_latency_one_terminal aggregated_latency[];
@@ -55,9 +55,10 @@ static void init_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int 
     assert(data->aggregated_latency_for_all.total_msgs == 0);
     assert(data->aggregated_latency[0].sum_latency == 0);
     assert(data->aggregated_latency[0].total_msgs == 0);
+    assert(data->aggregated_next_packet_delay.total_msgs == 0);
+    assert(data->aggregated_next_packet_delay.sum_latency == 0);
 
     data->num_terminals = surr_config.total_terminals;
-    data->sum_next_packet_delay = 0;
 }
 
 static void feed_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int src_terminal, struct packet_start const * start, struct packet_end const * end) {
@@ -73,13 +74,19 @@ static void feed_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int 
     assert(dest_terminal < data->num_terminals);
     assert(end->travel_end_time > start->travel_start_time);
 
+    // For average latency per terminal
     data->aggregated_latency[dest_terminal].sum_latency += latency;
     data->aggregated_latency[dest_terminal].total_msgs++;
 
+    // For average total latency (used in case there is no data for a specific node)
     data->aggregated_latency_for_all.sum_latency += latency;
     data->aggregated_latency_for_all.total_msgs++;
 
-    data->sum_next_packet_delay += end->next_packet_delay;
+    // We ignore the delay if there are no more packets in the queue
+    if (start->is_there_another_pckt_in_queue) {
+        data->aggregated_next_packet_delay.sum_latency += end->next_packet_delay;
+        data->aggregated_next_packet_delay.total_msgs ++;
+    }
 }
 
 static struct packet_end predict_latency(struct latency_surrogate * data, tw_lp * lp, unsigned int src_terminal, struct packet_start const * packet_dest) {
@@ -109,7 +116,8 @@ static struct packet_end predict_latency(struct latency_surrogate * data, tw_lp 
     }
     assert(latency >= 0);
 
-    double const next_packet_delay = data->sum_next_packet_delay / total_total_datapoints;
+    double const next_packet_delay =
+        data->aggregated_next_packet_delay.sum_latency / data->aggregated_next_packet_delay.total_msgs;
     return (struct packet_end) {
         .travel_end_time = packet_dest->travel_start_time + latency,
         .next_packet_delay = next_packet_delay,

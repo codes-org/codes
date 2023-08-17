@@ -20,7 +20,7 @@
         if (MN_SCHED_DEBUG_VERBOSE) printf(_fmt, ##__VA_ARGS__); \
     } while(0)
 
-/// scheduler-specific data structures 
+/// scheduler-specific data structures
 
 typedef struct mn_sched_qitem {
     model_net_request req;
@@ -28,7 +28,7 @@ typedef struct mn_sched_qitem {
     // remaining bytes to send
     uint64_t rem;
     tw_stime entry_time;
-    // pointers to event structures 
+    // pointers to event structures
     // sizes are given in the request struct
     void * remote_event;
     void * local_event;
@@ -56,7 +56,7 @@ typedef struct mn_sched_prio {
 /// FCFS
 // void used to avoid ptr-to-ptr conv warnings
 static void fcfs_init (
-        const struct model_net_method     * method, 
+        const struct model_net_method     * method,
         const model_net_sched_cfg_params  * params,
         int                                 is_recv_queue,
         void                             ** sched);
@@ -86,7 +86,7 @@ static void fcfs_next_rc(
 
 // ROUND-ROBIN
 static void rr_init (
-        const struct model_net_method     * method, 
+        const struct model_net_method     * method,
         const model_net_sched_cfg_params  * params,
         int                                 is_recv_queue,
         void                             ** sched);
@@ -114,7 +114,7 @@ static void rr_next_rc (
         const model_net_sched_rc * rc,
         tw_lp                    * lp);
 static void prio_init (
-        const struct model_net_method     * method, 
+        const struct model_net_method     * method,
         const model_net_sched_cfg_params  * params,
         int                                 is_recv_queue,
         void                             ** sched);
@@ -143,9 +143,9 @@ static void prio_next_rc (
         tw_lp                    * lp);
 
 /// function tables (names defined by X macro in model-net-sched.h)
-static const model_net_sched_interface fcfs_tab = 
+static const model_net_sched_interface fcfs_tab =
 { &fcfs_init, &fcfs_destroy, &fcfs_add, &fcfs_add_rc, &fcfs_next, &fcfs_next_rc};
-static const model_net_sched_interface rr_tab = 
+static const model_net_sched_interface rr_tab =
 { &rr_init, &rr_destroy, &rr_add, &rr_add_rc, &rr_next, &rr_next_rc};
 static const model_net_sched_interface prio_tab =
 { &prio_init, &prio_destroy, &prio_add, &prio_add_rc, &prio_next, &prio_next_rc};
@@ -156,10 +156,10 @@ const model_net_sched_interface * sched_interfaces[] = {
 };
 #undef X
 
-/// FCFS implementation 
+/// FCFS implementation
 
 void fcfs_init(
-        const struct model_net_method     * method, 
+        const struct model_net_method     * method,
         const model_net_sched_cfg_params  * params,
         int                                 is_recv_queue,
         void                             ** sched){
@@ -219,7 +219,7 @@ void fcfs_add_rc(void *sched, const model_net_sched_rc *rc, tw_lp *lp){
     mn_sched_qitem *q = qlist_entry(ent, mn_sched_qitem, ql);
     dprintf("%llu (mn): rc adding request from %llu to %llu\n", LLU(lp->gid),
             LLU(q->req.src_lp), LLU(q->req.final_dest_lp));
-    // free'ing NULLs is a no-op 
+    // free'ing NULLs is a no-op
     free(q->remote_event);
     free(q->local_event);
     free(q);
@@ -251,6 +251,8 @@ int fcfs_next(
         is_last_packet = 0;
     }
 
+    bool const is_there_another_pckt_in_queue = !is_last_packet || s->queue_len > 1;
+
     if (s->is_recv_queue){
         dprintf("%llu (mn):    receiving message of size %llu (of %llu) "
                 "from %llu to %llu at %1.5e (last:%d)\n",
@@ -270,7 +272,8 @@ int fcfs_next(
                 LLU(q->req.final_dest_lp), tw_now(lp), is_last_packet);
         *poffset = s->method->model_net_method_packet_event(&q->req,
                 q->req.msg_size - q->rem, psize, 0.0, &q->sched_params,
-                q->remote_event, q->local_event, lp, is_last_packet);
+                q->remote_event, q->local_event, lp, is_last_packet,
+                is_there_another_pckt_in_queue);
     }
 
     // if last packet - remove from list, free, save for rc
@@ -362,7 +365,7 @@ void fcfs_next_rc(
 }
 
 void rr_init (
-        const struct model_net_method     * method, 
+        const struct model_net_method     * method,
         const model_net_sched_cfg_params  * params,
         int                                 is_recv_queue,
         void                             ** sched){
@@ -427,7 +430,7 @@ void rr_next_rc (
 }
 
 void prio_init (
-        const struct model_net_method     * method, 
+        const struct model_net_method     * method,
         const model_net_sched_cfg_params  * params,
         int                                 is_recv_queue,
         void                             ** sched){
@@ -465,7 +468,7 @@ void prio_add (
     mn_sched_prio *ss = sched;
     int prio = sched_params->prio;
     if (prio == -1){
-        // default prio - lowest possible 
+        // default prio - lowest possible
         prio = ss->params.num_prios-1;
     }
     else if (prio >= ss->params.num_prios){
@@ -504,7 +507,7 @@ int prio_next(
         }
     }
     rc->prio = -1;
-    return -1; // all sub schedulers had no work 
+    return -1; // all sub schedulers had no work
 }
 
 void prio_next_rc (

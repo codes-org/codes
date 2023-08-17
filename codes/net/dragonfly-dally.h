@@ -94,6 +94,9 @@ struct terminal_dally_message
    int path_type;
    int saved_app_id;
 
+   // For packet latency predictor (surrogate)
+   bool is_there_another_pckt_in_queue;
+
    /* for reverse computation */
    short num_rngs;
    short num_cll;
