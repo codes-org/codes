@@ -20,6 +20,7 @@
 #include "codes/congestion-controller-core.h"
 
 /* turning on track lp will generate a lot of output messages */
+#define DBG_COMM 1
 #define MN_LP_NM "modelnet_dragonfly_custom"
 #define CONTROL_MSG_SZ 64
 #define TRACE -1
@@ -134,6 +135,7 @@ static int syn_type = 0;
 
 FILE * workload_log = NULL;
 FILE * msg_size_log = NULL;
+FILE * iteration_log = NULL;
 FILE * workload_agg_log = NULL;
 FILE * workload_meta_log = NULL;
 
@@ -1252,7 +1254,11 @@ static int notify_posted_wait(nw_state* s,
                 if(wait_elem->num_completed >= wait_elem->count)
                 {
                     if(enable_debug)
-                        fprintf(workload_log, "\n(%lf) APP ID %d MPI WAITALL COMPLETED AT %llu ", tw_now(lp), s->app_id, LLU(s->nw_id));
+                    {
+                        // fprintf(workload_log, "\n(%lf) APP ID %d MPI WAITALL COMPLETED AT %llu ", tw_now(lp), s->app_id, LLU(s->nw_id));
+                        fprintf(workload_log, "\n (%lf) APP ID %d MPI WAITALL SOURCE %d COMPLETED", 
+                          tw_now(lp), s->app_id, s->local_rank);
+                    }
                     wait_completed = 1;
                 }
                 m->fwd.wait_completed = 1; //This is just the individual request handle - not the entire wait.
@@ -1299,7 +1305,12 @@ static void codes_exec_mpi_wait(nw_state* s, tw_bf * bf, nw_message * m, tw_lp* 
 {
     /* check in the completed receives queue if the request ID has already been completed.*/
                 
-//    printf("\n Wait posted rank id %d ", s->nw_id);
+    if(enable_debug)
+    {
+      fprintf(workload_log, "\n (%lf) APP ID %d MPI WAIT POSTED SOURCE %d", 
+            tw_now(lp), s->app_id, s->local_rank);
+    }
+
     assert(!s->wait_op);
     unsigned int req_id = mpi_op->u.wait.req_id;
 
@@ -1383,7 +1394,11 @@ static void codes_exec_mpi_wait_all(
         struct codes_workload_op * mpi_op)
 {
   if(enable_debug)
-    fprintf(workload_log, "\n MPI WAITALL POSTED AT %llu ", LLU(s->nw_id));
+  {
+    // fprintf(workload_log, "\n MPI WAITALL POSTED AT %llu ", LLU(s->nw_id));
+    fprintf(workload_log, "\n (%lf) APP ID %d MPI WAITALL POSTED SOURCE %d", 
+          tw_now(lp), s->app_id, s->local_rank);
+  }
 
   if(enable_sampling)
   {
@@ -1659,6 +1674,12 @@ static void codes_exec_comp_delay(
 	//ts += g_tw_lookahead + 0.1 + tw_rand_exponential(lp->rng, noise);
     // assert(ts > 0);
 
+  if(enable_debug)
+  {
+    fprintf(workload_log, "\n (%lf) APP %d MPI DELAY SOURCE %d DURATION %lf",
+              tw_now(lp), s->app_id, s->local_rank, ts);
+  }
+
 	e = tw_event_new( lp->gid, ts , lp );
 	msg = (nw_message*)tw_event_data(e);
 	msg->msg_type = MPI_OP_GET_NEXT;
@@ -1754,6 +1775,20 @@ static void codes_exec_mpi_recv(
 //        printf("\n Receive op posted num bytes %llu source %d ", recv_op->num_bytes,
 //                recv_op->source_rank);
 
+  if(enable_debug)
+  {
+      if(mpi_op->op_type == CODES_WK_RECV)
+      {
+        fprintf(workload_log, "\n (%lf) APP %d MPI RECV SOURCE %d DEST %d BYTES %"PRId64,
+                  tw_now(lp), s->app_id, recv_op->source_rank, recv_op->dest_rank, recv_op->num_bytes);
+      }
+      else
+      {
+        fprintf(workload_log, "\n (%lf) APP ID %d MPI IRECV SOURCE %d DEST %d BYTES %"PRId64,
+                  tw_now(lp), s->app_id, recv_op->source_rank, recv_op->dest_rank, recv_op->num_bytes);
+      }
+  }
+
 	int found_matching_sends = rm_matching_send(s, bf, m, lp, recv_op);
 
 	       /* for mpi irecvs, this is a non-blocking receive so just post it and move on with the trace read. */
@@ -1762,6 +1797,8 @@ static void codes_exec_mpi_recv(
         bf->c6 = 1;
 	    codes_issue_next_event(lp);
     }
+
+
 	/* save the req id inserted in the completed queue for reverse computation. */
 	if(found_matching_sends < 0)
 	  {
@@ -1982,12 +2019,18 @@ static void codes_exec_mpi_send(nw_state* s,
     {
         if(mpi_op->op_type == CODES_WK_ISEND)
         {
-            fprintf(workload_log, "\n (%lf) APP %d MPI ISEND SOURCE %llu DEST %d TAG %d BYTES %"PRId64,
-                    tw_now(lp), s->app_id, LLU(s->nw_id), global_dest_rank, mpi_op->u.send.tag, mpi_op->u.send.num_bytes);
+            // fprintf(workload_log, "\n (%lf) APP %d MPI ISEND SOURCE %llu DEST %d TAG %d BYTES %"PRId64,
+            //         tw_now(lp), s->app_id, LLU(s->nw_id), global_dest_rank, mpi_op->u.send.tag, mpi_op->u.send.num_bytes);
+          fprintf(workload_log, "\n (%lf) APP %d MPI ISEND SOURCE %llu DEST %d TAG %d BYTES %"PRId64,
+                    tw_now(lp), s->app_id, LLU(remote_m.fwd.src_rank), remote_m.fwd.dest_rank, mpi_op->u.send.tag, mpi_op->u.send.num_bytes);
         }
         else
-            fprintf(workload_log, "\n (%lf) APP ID %d MPI SEND SOURCE %llu DEST %d TAG %d BYTES %"PRId64,
-                    tw_now(lp), s->app_id, LLU(s->nw_id), global_dest_rank, mpi_op->u.send.tag, mpi_op->u.send.num_bytes);
+        {
+            // fprintf(workload_log, "\n (%lf) APP ID %d MPI SEND SOURCE %llu DEST %d TAG %d BYTES %"PRId64,
+            //         tw_now(lp), s->app_id, LLU(s->nw_id), global_dest_rank, mpi_op->u.send.tag, mpi_op->u.send.num_bytes);
+          fprintf(workload_log, "\n (%lf) APP ID %d MPI SEND SOURCE %llu DEST %d TAG %d BYTES %"PRId64,
+                    tw_now(lp), s->app_id, LLU(remote_m.fwd.src_rank), remote_m.fwd.dest_rank, mpi_op->u.send.tag, mpi_op->u.send.num_bytes);
+        }
     }
     if(is_rend || is_eager)    
     {
@@ -2378,7 +2421,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 	strcpy(params_d.cortex_gen, cortex_gen);
 #endif
    }
-   else if(strcmp(workload_type, "online") == 0){
+   else if(strcmp(workload_type, "swm-online") == 0){
            
        online_comm_params oc_params;
        
@@ -2418,7 +2461,27 @@ void nw_test_init(nw_state* s, tw_lp* lp)
         * online, it is the number of ranks to be simulated. */
        oc_params.nprocs = num_traces_of_job[lid.job]; 
        params = (char*)&oc_params;
-       strcpy(type_name, "online_comm_workload");
+       strcpy(type_name, "swm_online_comm_workload");
+   }
+   //Xin: add conceputual online workload
+   else if(strcmp(workload_type, "conc-online") == 0){
+           
+       online_comm_params oc_params;
+       
+       if(strlen(workload_name) > 0)
+       {
+           strcpy(oc_params.workload_name, workload_name); 
+       }
+       else if(strlen(workloads_conf_file) > 0)
+       {
+            strcpy(oc_params.workload_name, file_name_of_job[lid.job]);      
+       }
+       /*TODO: nprocs is different for dumpi and online workload. for
+        * online, it is the number of ranks to be simulated. */
+       // printf("conc-online num_traces_of_job %d\n", num_traces_of_job[lid.job]);
+       oc_params.nprocs = num_traces_of_job[lid.job]; 
+       params = (char*)&oc_params;
+       strcpy(type_name, "conc_online_comm_workload");
    }
 
    int rc = configuration_get_value_int(&config, "PARAMS", "num_qos_levels", NULL, &num_qos_levels);
@@ -2482,6 +2545,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
         e = tw_event_new(lp->gid, ts, lp);
         m_new = (nw_message*)tw_event_data(e);
         m_new->msg_type = CLI_BCKGND_GEN;
+        printf("\naddress difference = %ld\n", (&m_new->fwd.app_id - (int *)m_new));
         tw_event_send(e);
         is_synthetic = 1;
 
@@ -2887,8 +2951,11 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 
 		case CODES_WK_MARK:
 			{
-				printf("\n MARK_%d node %llu job %d rank %d time %lf ", mpi_op->u.send.tag, LLU(s->nw_id), s->app_id, s->local_rank, tw_now(lp));
+				// printf("\n MARK_%d node %llu job %d rank %d time %lf \n", mpi_op->u.send.tag, LLU(s->nw_id), s->app_id, s->local_rank, tw_now(lp));
+                // m->rc.saved_marker_time = tw_now(lp);
+        fprintf(iteration_log, "ITERATION %d node %llu job %d rank %d time %lf\n", mpi_op->u.send.tag, LLU(s->nw_id), s->app_id, s->local_rank, tw_now(lp));
                 m->rc.saved_marker_time = tw_now(lp);
+
 				codes_issue_next_event(lp);
 			}
 			break;
@@ -2921,16 +2988,22 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
             return;
         if(strncmp(file_name_of_job[lid.job], "synthetic", 9) == 0)
             avg_msg_time = (s->send_time / s->num_recvs);
-        else if(strcmp(workload_type, "online") == 0) 
-        codes_workload_finalize("online_comm_workload", params, s->app_id, s->local_rank);
+        else if(strcmp(workload_type, "swm-online") == 0) 
+            codes_workload_finalize("swm_online_comm_workload", params, s->app_id, s->local_rank);
+        //Xin: for conceptual online workload
+        else if(strcmp(workload_type, "conc-online") == 0)
+            codes_workload_finalize("conc_online_comm_workload", params, s->app_id, s->local_rank);
     }
     else
     {
         if(s->nw_id >= (tw_lpid)num_net_traces)
             return;
         
-        if(strcmp(workload_type, "online") == 0) 
-            codes_workload_finalize("online_comm_workload", params, s->app_id, s->local_rank);
+        if(strcmp(workload_type, "swm-online") == 0) 
+            codes_workload_finalize("swm_online_comm_workload", params, s->app_id, s->local_rank);
+        //Xin: for conceptual online workload
+        if(strcmp(workload_type, "conc-online") == 0)
+            codes_workload_finalize("conc_online_comm_workload", params, s->app_id, s->local_rank); 
     }
 
         struct msg_size_info * tmp_msg = NULL; 
@@ -3109,7 +3182,7 @@ void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp
 
                     char tag_line[32];
                     int written;
-                    written = sprintf(tag_line, "%d %d %.5f\n",s->nw_id, m->mpi_op->u.send.tag, m->rc.saved_marker_time);
+                    written = sprintf(tag_line, "%llu %d %.5f\n",s->nw_id, m->mpi_op->u.send.tag, m->rc.saved_marker_time);
                     lp_io_write(lp->gid, marker_filename, written, tag_line);
                 }
             }
@@ -3299,12 +3372,12 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
     { // keep damaris ranks from running code between here up until tw_end()
 #endif
   codes_comm_update();
-
-  if(strcmp(workload_type, "dumpi") != 0 && strcmp(workload_type, "online") != 0)
+  //Xin: add conceptual online workload
+  if(strcmp(workload_type, "dumpi") != 0 && strcmp(workload_type, "swm-online") != 0 && strcmp(workload_type, "conc-online") != 0)
     {
 	if(tw_ismaster())
 		printf("Usage: mpirun -np n ./modelnet-mpi-replay --sync=1/3"
-                " --workload_type=dumpi/online"
+                " --workload_type=dumpi/swm-online/conc-online"
 		" --workload_conf_file=prefix-workload-file-name"
 		" --workload_timer_file=timer-file"
 		" --workload_period_file=period-file"
@@ -3319,6 +3392,11 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
                 " for instructions on how to run the models with network traces ");
 	tw_end();
 	return -1;
+    }
+
+    /* Xin: Currently rendezvous protocol cannot work with Conceptual online workloads */
+    if(strcmp(workload_type, "conc-online") == 0) {
+        EAGER_THRESHOLD = INT64_MAX;
     }
 
 	jobmap_ctx = NULL; // make sure it's NULL if it's not used
@@ -3376,7 +3454,6 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
         alloc_spec = 1;
         jobmap_p.alloc_file = alloc_file;
         jobmap_ctx = codes_jobmap_configure(CODES_JOBMAP_LIST, &jobmap_p);
-
 
         if(strlen(workloads_timer_file) > 0){
             FILE *timer_file = fopen(workloads_timer_file, "r");
@@ -3456,6 +3533,15 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    free(net_ids);
 
    modelnet_mpi_replay_read_config();
+
+   //Xin: output iteration time into log file
+   iteration_log = fopen("iteration-logs", "w+");
+   if(!iteration_log)
+   {
+       printf("\n Error logging iteration times... quitting ");
+       MPI_Finalize();
+       return -1;
+   }
 
    if(enable_debug)
    {
@@ -3537,8 +3623,11 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
         int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_CODES);
         assert(ret == 0 || !"lp_io_prepare failure");
     }
+
    tw_run();
 
+    fclose(iteration_log); //Xin
+    
     if(enable_debug)
         fclose(workload_log);
 

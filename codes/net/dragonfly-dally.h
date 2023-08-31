@@ -130,6 +130,13 @@ struct terminal_dally_message
    tw_stime saved_next_packet_delay;
    tw_stime msg_new_mn_event;
    uint64_t saved_remaining_packet_chunks;
+
+   //Yao: for counting msg app id
+   tw_stime last_received_time;
+   tw_stime last_sent_time;
+
+   //Xin: for busy time recording
+   tw_stime last_bufupdate_time;
 };
 
 #ifdef __cplusplus
