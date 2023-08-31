@@ -1,4 +1,4 @@
-# Union
+:# Union
 Workload Manager for Integration of Conceptual as an Online Workload for CODES
 
 
@@ -85,10 +85,10 @@ make install
 ### Run Test Simulations
 The tmptest directory includes all necessary configuration files to run the test simulation.
 
-Copy milc_skeleton.json to /path/to/swm/install/share/
-Copy conceptual.json to /path/to/union/install/share/
-Change the path for "intra-group-connections" and "intra-group-connections" in dfdally-72-par.conf
-Run the following command:
+- Copy milc_skeleton.json to /path/to/swm/install/share/
+- Copy conceptual.json to /path/to/union/install/share/
+- Change the path for "intra-group-connections" and "intra-group-connections" in dfdally-72-par.conf
+- Run the following command:
 
 ```bash
 /path/to/codes/install/bin/model-net-mpi-replay --sync=1 --workload_type=conc-online --lp-io-use-suffix=1 --workload_conf_file=/path/to/codes/tmptest/conf/jacobi_MILC.conf --alloc_file=/path/to/codes/tmptest/conf/rand_node0-1d-72-jacobi_MILC.conf --lp-io-dir=tmptest-jacobiS_MILC -- /path/to/codes/tmptest/conf/dfdally-72-par.conf > tmptest-jacobiS_MILC.output 
