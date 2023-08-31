@@ -34,6 +34,10 @@
 #define ALLREDUCE_SHORT_MSG_SIZE 2048
 
 #define DBG_COMM 0
+#define DBG_LINKING 0
+#define DBG_TMP 0
+#define CHECKPOINT_HASH_TABLE_SIZE 251
+#define DEFAULT_WR_BUF_SIZE (16 * 1024 * 1024)   /* 16 MiB default */
 
 #define THISMIN(a,b) ((a) < (b)) ? (a) : (b)
 
@@ -134,9 +138,9 @@ void UNION_MPI_Finalize()
     sctx->fifo.push_back(&wrkld_per_rank);
 
     if(DBG_COMM){
-        printf("FINALIZE src %d\n", sctx->my_rank);
-        // printf("num_sends %ld num_recvs %ld num_isends %ld num_irecvs %ld num_allreduce %ld num_barrier %ld num_waitalls %ld\n", 
-        //         num_sends, num_recvs, num_isends, num_irecvs, num_allreduce, num_barriers, num_waitalls);
+        printf("\nUNION FINALIZE src %d ", sctx->my_rank);
+        printf("\nnum_sends %ld num_recvs %ld num_isends %ld num_irecvs %ld num_allreduce %ld num_barrier %ld num_waitalls %ld\n", 
+                num_sends, num_recvs, num_isends, num_irecvs, num_allreduce, num_barriers, num_waitalls);
         // printf("Rank %d yield to CODES thread: %p\n", sctx->my_rank, global_prod_thread);
     }
 
@@ -161,9 +165,134 @@ void UNION_Compute(long cycle_count)
     struct shared_context * sctx = static_cast<shared_context*>(arg);
     sctx->fifo.push_back(&wrkld_per_rank);
     if(DBG_COMM){
-        printf("COMPUTE src %d: %ld ns\n", sctx->my_rank, cycle_count);
+        printf("\nUNION COMPUTE src %d: %ld ns ", sctx->my_rank, cycle_count);
     }
     ABT_thread_yield_to(global_prod_thread);
+}
+
+void UNION_Mark_Iteration(UNION_TAG iter_tag)
+{
+    /* Add an event in the shared queue and then yield */
+    struct codes_workload_op wrkld_per_rank;
+
+    wrkld_per_rank.op_type = CODES_WK_MARK;
+    wrkld_per_rank.u.send.tag = iter_tag;
+
+    /* Retreive the shared context state */
+    ABT_thread prod;
+    void * arg;
+    int err = ABT_thread_self(&prod);
+    assert(err == ABT_SUCCESS);
+    err =  ABT_thread_get_arg(prod, &arg);
+    assert(err == ABT_SUCCESS);
+    struct shared_context * sctx = static_cast<shared_context*>(arg);
+    wrkld_per_rank.u.send.source_rank = sctx->my_rank;
+    sctx->fifo.push_back(&wrkld_per_rank);
+
+    if(DBG_COMM){
+        printf("\nUNION MARKITERATION src %d ", sctx->my_rank);
+    }
+
+    ABT_thread_yield_to(global_prod_thread);
+}
+
+
+void UNION_IO_OPEN_FILE(int fid)
+{
+    struct codes_workload_op op;
+    op.op_type = CODES_WK_OPEN;
+    op.u.open.file_id = fid;
+    op.u.open.create_flag = 1;
+
+    /* Retreive the shared context state */
+    ABT_thread prod;
+    void * arg;
+    int err = ABT_thread_self(&prod);
+    assert(err == ABT_SUCCESS);
+    err =  ABT_thread_get_arg(prod, &arg);
+    assert(err == ABT_SUCCESS);
+    struct shared_context * sctx = static_cast<shared_context*>(arg);
+    sctx->fifo.push_back(&op);
+
+    if(DBG_TMP){
+        printf("\nUNION IO OPEN src %d ", sctx->my_rank);
+    }
+
+    ABT_thread_yield_to(global_prod_thread);
+
+}
+
+void UNION_IO_WRITE(int fid, long size)
+{
+    struct codes_workload_op op;
+    op.op_type = CODES_WK_WRITE;
+    op.u.write.file_id = fid;
+    op.u.write.offset = 0;
+    op.u.write.size = size;
+
+    /* Retreive the shared context state */
+    ABT_thread prod;
+    void * arg;
+    int err = ABT_thread_self(&prod);
+    assert(err == ABT_SUCCESS);
+    err =  ABT_thread_get_arg(prod, &arg);
+    assert(err == ABT_SUCCESS);
+    struct shared_context * sctx = static_cast<shared_context*>(arg);
+    sctx->fifo.push_back(&op);
+    
+    if(DBG_TMP){
+        printf("\nUNION IO WRITE src %d ", sctx->my_rank);
+    }
+
+    ABT_thread_yield_to(global_prod_thread);
+}
+
+void UNION_IO_READ(int fid, long size)
+{
+    struct codes_workload_op op;
+    op.op_type = CODES_WK_READ;
+    op.u.read.file_id = fid;
+    op.u.read.offset = 0;
+    op.u.read.size = size;
+
+    /* Retreive the shared context state */
+    ABT_thread prod;
+    void * arg;
+    int err = ABT_thread_self(&prod);
+    assert(err == ABT_SUCCESS);
+    err =  ABT_thread_get_arg(prod, &arg);
+    assert(err == ABT_SUCCESS);
+    struct shared_context * sctx = static_cast<shared_context*>(arg);
+    sctx->fifo.push_back(&op);
+    
+    if(DBG_TMP){
+        printf("\nUNION IO READ src %d ", sctx->my_rank);
+    }
+
+    ABT_thread_yield_to(global_prod_thread);
+}
+
+void UNION_IO_CLOSE_FILE(int fid)
+{
+    struct codes_workload_op op;
+    op.op_type = CODES_WK_CLOSE;
+    op.u.close.file_id = fid;
+
+    /* Retreive the shared context state */
+    ABT_thread prod;
+    void * arg;
+    int err = ABT_thread_self(&prod);
+    assert(err == ABT_SUCCESS);
+    err =  ABT_thread_get_arg(prod, &arg);
+    assert(err == ABT_SUCCESS);
+    struct shared_context * sctx = static_cast<shared_context*>(arg);
+    sctx->fifo.push_back(&op);
+    
+    if(DBG_TMP){
+        printf("\nUNION IO READ src %d ", sctx->my_rank);
+    }
+
+    ABT_thread_yield_to(global_prod_thread);    
 }
 
 void UNION_MPI_Send(const void *buf, 
@@ -174,7 +303,6 @@ void UNION_MPI_Send(const void *buf,
             UNION_Comm comm)
 {
     /* add an event in the shared queue and then yield */
-    //    printf("\n Sending to rank %d ", comm_id);
     struct codes_workload_op wrkld_per_rank;
 
     int datatypesize;
@@ -197,8 +325,8 @@ void UNION_MPI_Send(const void *buf,
     struct shared_context * sctx = static_cast<shared_context*>(arg);
     wrkld_per_rank.u.send.source_rank = sctx->my_rank;
     sctx->fifo.push_back(&wrkld_per_rank);
-    if(DBG_COMM){
-        printf("SEND src %d dst %d: %lld bytes\n", sctx->my_rank, dest,
+    if(DBG_TMP){
+        printf("\nUNION SEND src %d dst %d: %lld bytes ", sctx->my_rank, dest,
                 wrkld_per_rank.u.send.num_bytes);
     // printf("Rank %d yield to CODES thread: %p\n", sctx->my_rank, global_prod_thread);
     }
@@ -238,7 +366,7 @@ void UNION_MPI_Recv(void *buf,
     wrkld_per_rank.u.recv.dest_rank = sctx->my_rank;
     sctx->fifo.push_back(&wrkld_per_rank);
     if(DBG_COMM){
-        printf("RECV src %d dst %d: %lld bytes\n", source, sctx->my_rank, 
+        printf("\nUNION RECV src %d dst %d: %lld bytes ", source, sctx->my_rank, 
             wrkld_per_rank.u.recv.num_bytes);
     // printf("Rank %d yield to CODES thread: %p\n", sctx->my_rank, global_prod_thread);
     }
@@ -298,7 +426,7 @@ void UNION_MPI_Sendrecv(const void *sendbuf,
     sctx->fifo.push_back(&send_op);
     sctx->fifo.push_back(&recv_op);
     if(DBG_COMM){
-        printf("SENDRECV ssrc %d sdst %d: %lld bytes; rsrc %d rdst %d: %lld bytes\n", sctx->my_rank, dest,
+        printf("\nUNION SENDRECV ssrc %d sdst %d: %lld bytes; rsrc %d rdst %d: %lld bytes ", sctx->my_rank, dest,
                 send_op.u.send.num_bytes, source, sctx->my_rank, recv_op.u.recv.num_bytes);
     }
     ABT_thread_yield_to(global_prod_thread);
@@ -334,9 +462,9 @@ void UNION_MPI_Barrier(UNION_Comm comm)
         mask <<= 1;
     }
     num_barriers++; 
-    if(DBG_COMM){
-        printf("BARRIER src %d\n", sctx->my_rank);
-    }
+    // if(DBG_COMM){
+    //     printf("UNION BARRIER src %d\n", sctx->my_rank);
+    // }
 }
 
 void UNION_MPI_Isend(const void *buf, 
@@ -376,7 +504,7 @@ void UNION_MPI_Isend(const void *buf,
     wrkld_per_rank.u.send.req_id = *request;
     sctx->wait_id++;
     if(DBG_COMM){
-        printf("ISEND src %d dst %d: %lld bytes\n", sctx->my_rank, dest,
+        printf("\nUNION ISEND src %d dst %d: %lld bytes ", sctx->my_rank, dest,
                 wrkld_per_rank.u.send.num_bytes);
     }
 
@@ -420,7 +548,7 @@ void UNION_MPI_Irecv(void *buf,
     wrkld_per_rank.u.recv.req_id = *request;
     sctx->wait_id++;
     if(DBG_COMM){
-        printf("IRECV src %d dst %d: %lld bytes\n", source, sctx->my_rank, 
+        printf("\nUNION IRECV src %d dst %d: %lld bytes ", source, sctx->my_rank, 
                 wrkld_per_rank.u.recv.num_bytes);    
     }
     ABT_thread_yield_to(global_prod_thread);
@@ -446,7 +574,7 @@ void UNION_MPI_Wait(UNION_Request *request,
     struct shared_context * sctx = static_cast<shared_context*>(arg);
     sctx->fifo.push_back(&wrkld_per_rank);
     if(DBG_COMM){
-        printf("WAIT src %d\n",sctx->my_rank);    
+        printf("\nUNION WAIT src %d ",sctx->my_rank);    
     }
     ABT_thread_yield_to(global_prod_thread);       
 }
@@ -459,9 +587,9 @@ void UNION_MPI_Waitall(int count,
     for(int i = 0; i < count; i++)
         UNION_MPI_Wait(&array_of_requests[i], UNION_STATUSES_IGNORE);
 
-    if(DBG_COMM){
-        printf("WAITALL count %d\n", count);    
-    }  
+    // if(DBG_COMM){
+    //     printf("UNION WAITALL count %d\n", count);    
+    // }  
 }
 
 void UNION_MPI_Reduce(const void *sendbuf, 
@@ -792,9 +920,9 @@ void UNION_MPI_Bcast(void *buffer,
     //use scatter followed by ring allgather
     bcast_scatter_ring_allgather(buffer,rank,count,datatype,root,comm);
     }
-    if(DBG_COMM){
-        printf("BCAST src %d\n", root);    
-    }  
+    // if(DBG_COMM){
+    //     printf("BCAST src %d\n", root);    
+    // }  
 }
 
 void UNION_MPI_Alltoallv(const void *sendbuf, 
@@ -941,7 +1069,7 @@ void SWM_Send(SWM_PEER peer,
     sctx->fifo.push_back(&wrkld_per_rank);
 
     if(DBG_COMM){
-        printf("SEND src %d dst %d: %lld bytes\n", sctx->my_rank, peer,
+        printf("\nSWM SEND src %d dst %d: %lld bytes ", sctx->my_rank, peer,
                 wrkld_per_rank.u.send.num_bytes);
     // printf("Rank %d yield to CODES thread: %p\n", sctx->my_rank, global_prod_thread);
     }
@@ -1071,7 +1199,7 @@ void SWM_Isend(SWM_PEER peer,
     sctx->wait_id++;
 
     if(DBG_COMM){
-        printf("ISEND src %d dst %d: %lld bytes\n", sctx->my_rank, peer,
+        printf("\nSWM ISEND src %d dst %d: %lld bytes ", sctx->my_rank, peer,
                 wrkld_per_rank.u.send.num_bytes);
     }
 
@@ -1106,7 +1234,7 @@ void SWM_Recv(SWM_PEER peer,
     sctx->fifo.push_back(&wrkld_per_rank);
 
     if(DBG_COMM){
-        printf("RECV src %d dst %d: %lld bytes\n", peer, sctx->my_rank, 
+        printf("\nSWM RECV src %d dst %d: %lld bytes ", peer, sctx->my_rank, 
                 wrkld_per_rank.u.recv.num_bytes);    
     }
 
@@ -1146,7 +1274,7 @@ void SWM_Irecv(SWM_PEER peer,
     sctx->wait_id++;
 
     if(DBG_COMM){
-        printf("IRECV src %d dst %d: %lld bytes\n", peer, sctx->my_rank, 
+        printf("\nSWM IRECV src %d dst %d: %lld bytes ", peer, sctx->my_rank, 
                 wrkld_per_rank.u.recv.num_bytes);    
     }
 
@@ -1182,6 +1310,10 @@ void SWM_Compute(long cycle_count)
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
     sctx->fifo.push_back(&wrkld_per_rank);
+
+    if(DBG_COMM){
+        printf("\nSWM COMPUTE src %d: %lld ns ", sctx->my_rank, delay_in_ns);    
+    }
     
     ABT_thread_yield_to(global_prod_thread);
 
@@ -1211,7 +1343,7 @@ void SWM_Wait(uint32_t req_id)
     sctx->fifo.push_back(&wrkld_per_rank);
 
     if(DBG_COMM){
-        printf("WAIT src %d\n",sctx->my_rank);    
+        printf("\nSWM WAIT src %d ",sctx->my_rank);    
     }
 
     ABT_thread_yield_to(global_prod_thread);
@@ -1246,7 +1378,7 @@ void SWM_Waitall(int len, uint32_t * req_ids)
     sctx->fifo.push_back(&wrkld_per_rank);
 
     if(DBG_COMM){
-        printf("WAITALL src %d: count %d\n",sctx->my_rank, len);    
+        printf("\nSWM WAITALL src %d: count %d ",sctx->my_rank, len);    
     }
 
     ABT_thread_yield_to(global_prod_thread);
@@ -1297,7 +1429,7 @@ void SWM_Sendrecv(
     sctx->fifo.push_back(&recv_op);
 
     if(DBG_COMM){
-        printf("SENDRECV ssrc %d sdst %d: %d bytes; rsrc %d rdst %d: %lld bytes\n", sctx->my_rank, sendpeer,
+        printf("\nSWM SENDRECV ssrc %d sdst %d: %d bytes; rsrc %d rdst %d: %lld bytes ", sctx->my_rank, sendpeer,
                 sendbytes, recvpeer, sctx->my_rank, recv_op.u.recv.num_bytes);
     }
 
@@ -1572,12 +1704,38 @@ void SWM_Finalize()
         {
             cout << "\n isend " << it->first << " " << it->second;
         }*/
-        printf("\n finalize workload for rank %d ", sctx->my_rank);
-        //printf("\n finalize workload for rank %d num_sends %ld num_recvs %ld num_isends %ld num_irecvs %ld num_allreduce %ld num_barrier %ld num_waitalls %ld", sctx->my_rank, num_sends, num_recvs, num_isends, num_irecvs, num_allreduce, num_barriers, num_waitalls);
+        printf("\nSWM FINALIZE src %d ", sctx->my_rank);
+        printf("\nnum_sends %ld num_recvs %ld num_isends %ld num_irecvs %ld num_allreduce %ld num_barrier %ld num_waitalls %ld\n", 
+                num_sends, num_recvs, num_isends, num_irecvs, num_allreduce, num_barriers, num_waitalls);
     }
     ABT_thread_yield_to(global_prod_thread);
 }
 
+void SWM_Mark_Iteration(SWM_TAG iter_tag)
+{
+    /* Add an event in the shared queue and then yield */
+    struct codes_workload_op wrkld_per_rank;
+
+    wrkld_per_rank.op_type = CODES_WK_MARK;
+    wrkld_per_rank.u.send.tag = iter_tag;
+
+    /* Retreive the shared context state */
+    ABT_thread prod;
+    void * arg;
+    int err = ABT_thread_self(&prod);
+    assert(err == ABT_SUCCESS);
+    err =  ABT_thread_get_arg(prod, &arg);
+    assert(err == ABT_SUCCESS);
+    struct shared_context * sctx = static_cast<shared_context*>(arg);
+    wrkld_per_rank.u.send.source_rank = sctx->my_rank;
+    sctx->fifo.push_back(&wrkld_per_rank);
+
+    if(DBG_COMM){
+        printf("\nSWM MARKITERATION src %d ", sctx->my_rank);
+    }
+
+    ABT_thread_yield_to(global_prod_thread);
+}
 
 //#endif
 
@@ -1592,6 +1750,7 @@ static int hash_rank_compare(void *key, struct qhash_head *link)
         return 1;
     return 0;
 }
+
 static void workload_caller(void * arg)
 {
     shared_context* sctx = static_cast<shared_context*>(arg);
@@ -1607,6 +1766,10 @@ static void workload_caller(void * arg)
             conc_params->conc_argv[i] = conc_params->config_in[i];
         }
         // conc_params->argv = &conc_params->conc_argv;
+        if(DBG_LINKING)
+        {
+            printf("\nLoad Union Benchmark: %s: %s", conc_params->conc_program, conc_params->conc_argv[1]);
+        }        
         union_conc_bench_load(conc_params->conc_program, 
                         conc_params->conc_argc, 
                         conc_params->conc_argv);
@@ -1775,11 +1938,14 @@ static int comm_online_workload_load(const char * params, int app_id, int rank)
         ABT_xstream_self(&self_es);
         ABT_thread_self(&global_prod_thread);
     }
-    ABT_thread_create_on_xstream(self_es, 
+    int rcode = ABT_thread_create_on_xstream(self_es, 
             &workload_caller, (void*)&(my_ctx->sctx),
             ABT_THREAD_ATTR_NULL, &(my_ctx->sctx.producer));
 
-    // printf("Rank %d create app thread %p\n", rank, my_ctx->sctx.producer);
+    if(DBG_LINKING)
+    {
+        printf("\nRank %d create app thread? %d", rank, rcode);
+    }
     rank_mpi_compare cmp;
     cmp.app_id = app_id;
     cmp.rank = rank;
@@ -1819,12 +1985,30 @@ static void comm_online_workload_get_next(int app_id, int rank, struct codes_wor
     assert(temp_data);
     while(temp_data->sctx.fifo.empty())
     {
-        // printf("Rank %d fifo empty, yield to app %p\n", rank, temp_data->sctx.producer);
+        if(DBG_COMM){
+            // void * arg;
+            // int err =  ABT_thread_get_arg(temp_data->sctx.producer, &arg);
+            // assert(err == ABT_SUCCESS);
+            // struct shared_context * sctx = static_cast<shared_context*>(arg);
+            printf("\nFIFO que empty, yield to rank %d ", rank);
+        }
         int rc = ABT_thread_yield_to(temp_data->sctx.producer); 
     }
     struct codes_workload_op * front_op = temp_data->sctx.fifo.front();
     assert(front_op);
-    // printf("Pop op %d to CODES\n", front_op->op_type);
+    if(DBG_COMM)
+    {
+        switch(front_op->op_type)
+        {
+            case CODES_WK_ISEND: printf("\nFIFO pop operation ISEND src %d ", rank);
+            case CODES_WK_SEND: printf("\nFIFO pop operation SEND src %d ", rank);
+            case CODES_WK_RECV: printf("\nFIFO pop operation RECV src %d ", rank);
+            case CODES_WK_IRECV: printf("\nFIFO pop operation IRECV src %d ", rank);
+            case CODES_WK_DELAY: printf("\nFIFO pop operation COMPUTE src %d ", rank);
+            case CODES_WK_WAIT: printf("\nFIFO pop operation WAIT src %d ", rank);
+            case CODES_WK_WAITALL: printf("\nFIFO pop operation WAITALL src %d ", rank);
+        }
+    }
     *op = *front_op;
     temp_data->sctx.fifo.pop_front();
     return;
@@ -1847,7 +2031,7 @@ static int comm_online_workload_finalize(const char* params, int app_id, int ran
     hash_link = qhash_search(rank_tbl, &cmp);
     if(!hash_link)
     {
-        printf("\n not found for rank id %d , %d", rank, app_id);
+        printf("\n not found for rank id %d , %d ", rank, app_id);
         return -1;
     }
     temp_data = qhash_entry(hash_link, rank_mpi_context, hash_link);
