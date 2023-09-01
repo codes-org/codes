@@ -59,7 +59,7 @@
 // maximum number of characters allowed to represent the routing algorithm as a string
 #define MAX_ROUTING_CHARS 32
 
-#define ROUTER_BW_LOG 0
+#define ROUTER_BW_LOG 1
 
 #define OUTPUT_END_END_LATENCIES 0
 #define OUTPUT_PORT_PORT_LATENCIES 0
@@ -90,6 +90,7 @@ static int max_hops_per_group = 1;
 static int max_global_hops_nonminimal = 2;
 static int max_global_hops_minimal = 1;
 
+static tw_stime max_qos_monitor = 5000000000;
 static long num_local_packets_sr = 0;
 static long num_local_packets_sg = 0;
 static long num_remote_packets = 0;
@@ -1776,6 +1777,16 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     else
         p->qos_bandwidths[0] = 100;
 
+    rc = configuration_get_value_double(&config, "PARAMS", "max_qos_monitor", anno, &max_qos_monitor);
+    if(rc) {
+        if(!myRank)
+            fprintf(stderr, "Setting max_qos_monitor to %lf\n", max_qos_monitor);
+    }
+    rc = configuration_get_value_int(&config, "PARAMS", "bw_reset_window", anno, &bw_reset_window);
+    if(rc) {
+        if(!myRank)
+            fprintf(stderr, "Setting bw_reset_window to %d\n", bw_reset_window);
+    }
     rc = configuration_get_value_int(&config, "PARAMS", "adaptive_threshold", anno, &p->adaptive_threshold);
     if (rc) {
         if(!myRank)
@@ -2635,24 +2646,32 @@ static void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_dall
     msg->rc_is_qos_set = 1;
     //RC data storage end.
 
-
+    #if DEBUG_QOS == 1 
+    int vcs_per_qos = s->params->num_vcs / num_qos_levels;
+    int base_limit = 0;
     for(int i = 0; i < radix; i++)
     {
         for(int j = 0; j < num_qos_levels; j++)
         {
             int bw_consumed = get_rtr_bandwidth_consumption(s, j, i);
+            base_limit = j * vcs_per_qos;
         
-            #if DEBUG_QOS == 1 
             if(dragonfly_rtr_bw_log != NULL && ROUTER_BW_LOG)
             {
-                if(s->qos_data[i][j] > 0)
-                {
-                    fprintf(dragonfly_rtr_bw_log, "\n %d %f %d %d %d %d %d %f", s->router_id, tw_now(lp), i, j, bw_consumed, s->qos_status[i][j], s->qos_data[i][j], s->busy_time_sample[i]);
-                }
+                //if(s->qos_data[i][j] > 0) // Removed because we want to record periods of no data transmission
+                //{
+                    fprintf(dragonfly_rtr_bw_log, "\n %d %f %d %d %d %d %d %f", 
+                            s->router_id, tw_now(lp), i, j, bw_consumed, s->qos_status[i][j], s->qos_data[i][j], s->busy_time_sample[i]);
+
+                    // print colon-delimited per-VC vc_occupancy values for this class
+                    fprintf(dragonfly_rtr_bw_log, " %d", s->vc_occupancy[i][base_limit]);
+                    for(int k = base_limit+1; k < base_limit + vcs_per_qos; k ++)
+                        fprintf(dragonfly_rtr_bw_log, ":%d", s->vc_occupancy[i][k]);
+                //}
             }
-            #endif   
         }
     }
+    #endif   
 
     /* Reset the qos status and bandwidth consumption. */
     for(int i = 0; i < s->params->radix; i++)
@@ -2665,6 +2684,9 @@ static void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_dall
         s->busy_time_sample[i] = 0;
         s->ross_rsample.busy_time[i] = 0;
     }
+
+    if(tw_now(lp) > max_qos_monitor)
+        return;
 
     if (s->workloads_finished_flag == 0) {
         tw_stime bw_ts = bw_reset_window + gen_noise(lp, &msg->num_rngs);
@@ -3518,7 +3540,7 @@ static void router_dally_init(router_state * r, tw_lp * lp)
     {
         dragonfly_rtr_bw_log = fopen(rtr_bw_log, "w+");
 
-        fprintf(dragonfly_rtr_bw_log, "\n router-id time-stamp port-id qos-level bw-consumed qos-status qos-data busy-time");
+        fprintf(dragonfly_rtr_bw_log, "\n router-id time-stamp port-id qos-level bw-consumed qos-status qos-data busy-time vc-occupancy");
     }
    //printf("\n Local router id %d global id %d ", r->router_id, lp->gid);
 
@@ -3673,6 +3695,18 @@ static void router_dally_init(router_state * r, tw_lp * lp)
             r->snapshot_data[i] = (int*)calloc(r->params->num_vcs * r->params->radix, sizeof(int)); //capturing VC occupancies of each port
         }
         router_send_snapshot_events(r, lp);
+    }
+
+    if(ROUTER_BW_LOG)
+    {
+        tw_stime bw_ts = bw_reset_window;
+        terminal_dally_message * m;
+        tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp,
+                DRAGONFLY_DALLY_ROUTER, (void**)&m, NULL);
+        m->type = R_BANDWIDTH;
+        m->magic = router_magic_num;
+        tw_event_send(e);
+        r->is_monitoring_bw = 1;
     }
 
     return;
