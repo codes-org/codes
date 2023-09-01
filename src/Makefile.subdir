@@ -83,6 +83,7 @@ nobase_include_HEADERS = \
 	codes/resource-lp.h \
 	codes/local-storage-model.h \
 	codes/rc-stack.h \
+	codes/surrogate.h \
 	codes/codes-jobmap.h \
 	codes/codes-callback.h \
 	codes/codes-mapping-context.h \
@@ -161,6 +162,7 @@ src_libcodes_la_SOURCES =  \
 	src/workload/methods/codes-iomock-wrkld.c \
 	codes/rc-stack.h \
 	src/util/rc-stack.c \
+        src/util/surrogate.c \
 	src/networks/model-net/network-managers/dragonfly-network-manager.C \
 	src/networks/model-net/core/model-net.c \
 	src/networks/model-net/common-net.c \

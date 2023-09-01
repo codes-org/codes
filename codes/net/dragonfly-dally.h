@@ -12,8 +12,6 @@ extern "C" {
 #endif
 
 #include <ross.h>
-#include <stdbool.h>
-#include <model-net.h>
 
 typedef struct terminal_dally_message terminal_dally_message;
 
