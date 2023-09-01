@@ -185,7 +185,9 @@ enum MPI_NW_EVENTS
     CLI_BCKGND_GEN,
     CLI_BCKGND_CHANGE,
     CLI_NBR_FINISH,
-    CLI_OTHER_FINISH //received when another workload has finished
+    CLI_OTHER_FINISH, //received when another workload has finished
+    // Surrogate events
+    SURR_SKIP_ITERATION, // skips one (several) iteration(s) of simulation
 };
 
 /* type of synthetic traffic */
@@ -1112,6 +1114,46 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
         }
     }
 }
+
+void skip_iteration_rc(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m) {
+    // TODO: implement!!
+}
+
+void skip_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m)
+{
+	struct codes_workload_op * mpi_op = (struct codes_workload_op*) malloc(sizeof(struct codes_workload_op));
+    m->mpi_op = mpi_op;
+
+    // consuming all events until iteration 95 from iteration 4
+    bool reached_end = false;
+    while (!reached_end) {
+        codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, mpi_op);
+
+        switch (mpi_op->op_type) {
+            case CODES_WK_MARK:
+                if (mpi_op->u.send.tag == 95) {
+                    reached_end = true;
+                }
+                break;
+            // If we reach the end of simulation, rollback once to allow the operation to be processed normally
+            case CODES_WK_END:
+                codes_workload_get_next_rc(wrkld_id, s->app_id, s->local_rank, mpi_op);
+                reached_end = true;
+                break;
+            default:
+        }
+    }
+
+    tw_event *e = tw_event_new(lp->gid, 0.0, lp);
+    nw_message* msg = (nw_message*) tw_event_data(e);
+    msg->msg_type = MPI_OP_GET_NEXT;
+    tw_event_send(e);
+}
+
+bool have_we_hit_surrogate_switch(struct codes_workload_op * mpi_op) {
+    return mpi_op->u.send.tag == 4;
+}
+
 /* Debugging functions, may generate unused function warning */
 /*static void print_waiting_reqs(uint32_t * reqs, int count)
 {
@@ -2653,6 +2695,9 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
         case CLI_OTHER_FINISH:
             handle_other_finish(s, lp, bf, m);
             break;
+
+        case SURR_SKIP_ITERATION:
+            skip_iteration(s, lp, bf, m);
 	}
 }
 
@@ -2785,12 +2830,11 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
                 bf->c9 = 1;
                 return;
             }
-            
+
             /* Notify ranks from other job that checkpoint traffic has
              * completed */
-             printf("\n Network node %d Rank %llu App %d finished at %lf ", s->local_rank, LLU(s->nw_id), s->app_id, tw_now(lp));
-            int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx); 
-
+            //int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
+            m->rc.saved_marker_time = tw_now(lp);
             notify_root_rank(s, lp, bf, m);
             // printf("Client rank %llu completed workload, local rank %d .\n", s->nw_id, s->local_rank);
 
@@ -2887,9 +2931,17 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 
 		case CODES_WK_MARK:
 			{
-				printf("\n MARK_%d node %llu job %d rank %d time %lf ", mpi_op->u.send.tag, LLU(s->nw_id), s->app_id, s->local_rank, tw_now(lp));
                 m->rc.saved_marker_time = tw_now(lp);
-				codes_issue_next_event(lp);
+
+                // If we have reached the surrogate switch time, skip next iteration(s)
+                if (have_we_hit_surrogate_switch(mpi_op)) {
+                    tw_event *e = tw_event_new(lp->gid, 1560888.53 * 91, lp);
+                    nw_message* msg = (nw_message*) tw_event_data(e);
+                    msg->msg_type = SURR_SKIP_ITERATION;
+                    tw_event_send(e);
+                } else {
+                    codes_issue_next_event(lp);
+                }
 			}
 			break;
 
@@ -3099,19 +3151,29 @@ void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp
     switch(m->msg_type)
     {
         case MPI_OP_GET_NEXT:
-            if (m->mpi_op->op_type == CODES_WK_MARK) {
-                if (OUTPUT_MARKS)
-                {
-                    int written1;
-                    char marker_filename[128];
-                    written1 = sprintf(marker_filename, "mpi-replay-marker-tag-times");
-                    marker_filename[written1] = '\0';
+            switch (m->mpi_op->op_type) {
+                case CODES_WK_END:
+                    printf("Network node %d Rank %llu App %d finished at %lf \n", s->local_rank, LLU(s->nw_id), s->app_id, m->rc.saved_marker_time);
+                    break;
 
-                    char tag_line[32];
-                    int written;
-                    written = sprintf(tag_line, "%d %d %.5f\n",s->nw_id, m->mpi_op->u.send.tag, m->rc.saved_marker_time);
-                    lp_io_write(lp->gid, marker_filename, written, tag_line);
-                }
+                case CODES_WK_MARK:
+				    printf("MARK_%d node %llu job %d rank %d time %lf \n", m->mpi_op->u.send.tag, LLU(s->nw_id), s->app_id, s->local_rank, m->rc.saved_marker_time);
+
+                    if (OUTPUT_MARKS)
+                    {
+                        int written1;
+                        char marker_filename[128];
+                        written1 = sprintf(marker_filename, "mpi-replay-marker-tag-times");
+                        marker_filename[written1] = '\0';
+
+                        char tag_line[32];
+                        int written;
+                        written = sprintf(tag_line, "%d %d %.5f\n",s->nw_id, m->mpi_op->u.send.tag, m->rc.saved_marker_time);
+                        lp_io_write(lp->gid, marker_filename, written, tag_line);
+                    }
+                    break;
+
+                default:
             }
 
 
