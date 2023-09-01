@@ -2276,8 +2276,8 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         char **timestamps;
         size_t len;
         configuration_get_multivalue(&config, "PARAMS", "router_buffer_snapshots", anno, &timestamps, &len);
-        assert((len > 0) == (timestamps != NULL));
         if (len) {
+            assert(timestamps != NULL);
             num_snapshots = len;
             snapshot_times = (tw_stime*) malloc(len * sizeof(tw_stime));
 
