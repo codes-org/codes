@@ -29,6 +29,7 @@
 #include "nearest_neighbor_swm_user_code.h"
 #include "all_to_one_swm_user_code.h"
 #include "milc_swm_user_code.h"
+#include "abt.h"
 //#endif
 
 #define ALLREDUCE_SHORT_MSG_SIZE 2048
@@ -306,7 +307,7 @@ void UNION_MPI_Send(const void *buf,
     struct codes_workload_op wrkld_per_rank;
 
     int datatypesize;
-    MPI_Type_size(datatype, &datatypesize);
+    UNION_Type_size(datatype, &datatypesize);
 
     wrkld_per_rank.op_type = CODES_WK_SEND;
     wrkld_per_rank.u.send.tag = tag;
@@ -346,7 +347,7 @@ void UNION_MPI_Recv(void *buf,
     struct codes_workload_op wrkld_per_rank;
 
     int datatypesize;
-    MPI_Type_size(datatype, &datatypesize);
+    UNION_Type_size(datatype, &datatypesize);
 
     wrkld_per_rank.op_type = CODES_WK_RECV;
     wrkld_per_rank.u.recv.tag = tag;
@@ -392,8 +393,8 @@ void UNION_MPI_Sendrecv(const void *sendbuf,
     struct codes_workload_op send_op;
 
     int datatypesize1, datatypesize2;
-    MPI_Type_size(sendtype, &datatypesize1);
-    MPI_Type_size(recvtype, &datatypesize2);
+    UNION_Type_size(sendtype, &datatypesize1);
+    UNION_Type_size(recvtype, &datatypesize2);
 
     send_op.op_type = CODES_WK_SEND;
     send_op.u.send.tag = sendtag;
@@ -456,7 +457,7 @@ void UNION_MPI_Barrier(UNION_Comm comm)
         dest = (rank + mask) % size;
         src = (rank - mask + size) % size;
 
-        UNION_MPI_Sendrecv(NULL, 0, MPI_INT, dest, 1234, NULL, 0, MPI_INT, src, 1234,
+        UNION_MPI_Sendrecv(NULL, 0, UNION_Int, dest, 1234, NULL, 0, UNION_Int, src, 1234,
                 comm, NULL);
 
         mask <<= 1;
@@ -480,7 +481,7 @@ void UNION_MPI_Isend(const void *buf,
     struct codes_workload_op wrkld_per_rank;
 
     int datatypesize;
-    MPI_Type_size(datatype, &datatypesize);
+    UNION_Type_size(datatype, &datatypesize);
 
     wrkld_per_rank.op_type = CODES_WK_ISEND;
     wrkld_per_rank.u.send.tag = tag;    
@@ -524,7 +525,7 @@ void UNION_MPI_Irecv(void *buf,
     struct codes_workload_op wrkld_per_rank;
 
     int datatypesize;
-    MPI_Type_size(datatype, &datatypesize);
+    UNION_Type_size(datatype, &datatypesize);
 
     wrkld_per_rank.op_type = CODES_WK_IRECV;
     wrkld_per_rank.u.recv.tag = tag;
@@ -615,7 +616,7 @@ void UNION_MPI_Allreduce(const void *sendbuf,
 
     UNION_MPI_Comm_size(comm, &comm_size);
     UNION_MPI_Comm_rank(comm, &rank);
-    MPI_Type_size(datatype, &type_size);
+    UNION_Type_size(datatype, &type_size);
 
     cnts = disps = NULL;
     
@@ -805,7 +806,7 @@ void bcast_scatter_doubling_allgather(void *buffer,
   int type_size, nbytes = 0;
   int relative_dst, dst_tree_root, my_tree_root, send_offset, recv_offset;
 
-  MPI_Type_size(datatype, &type_size);
+  UNION_Type_size(datatype, &type_size);
   UNION_MPI_Comm_size(comm, &comm_size);
 
   relative_rank = (rank >= root) ? rank - root : rank - root + comm_size;
@@ -839,7 +840,7 @@ void bcast_scatter_doubling_allgather(void *buffer,
     if(relative_dst < comm_size)
     {
       recvcount = (nbytes-recv_offset < 0 ? 0 : nbytes-recv_offset);
-      UNION_MPI_Sendrecv(buffer,curr_size,MPI_BYTE,dst,-1005,buffer,recvcount,MPI_BYTE,dst,-1005,comm,&status);
+      UNION_MPI_Sendrecv(buffer,curr_size,UNION_Byte,dst,-1005,buffer,recvcount,UNION_Byte,dst,-1005,comm,&status);
       curr_size += recv_size;
     }
 
@@ -860,7 +861,7 @@ void bcast_scatter_ring_allgather(void *buffer,
   int recvd_size;
   UNION_Status status;
 
-  MPI_Type_size(datatype, &type_size);
+  UNION_Type_size(datatype, &type_size);
   UNION_MPI_Comm_size(comm, &comm_size);
 
   if(comm_size == 1) return;
@@ -890,7 +891,7 @@ void bcast_scatter_ring_allgather(void *buffer,
     if(right_count < 0) right_count = 0;
     right_disp = rel_j * scatter_size;
 
-    UNION_MPI_Sendrecv(buffer,right_count,MPI_BYTE,right,-1005,buffer,left_count,MPI_BYTE,left,-1005,comm,&status);  
+    UNION_MPI_Sendrecv(buffer,right_count,UNION_Byte,right,-1005,buffer,left_count,UNION_Byte,left,-1005,comm,&status);  
     curr_size += recvd_size;
     j = jnext;
     jnext = (comm_size + jnext - 1) % comm_size;
@@ -905,9 +906,9 @@ void UNION_MPI_Bcast(void *buffer,
             UNION_Comm comm)
 {
     int type_size, comm_size, rank;
-    MPI_Type_size(datatype, &type_size);
-    UNION_MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    UNION_MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
+    UNION_Type_size(datatype, &type_size);
+    UNION_MPI_Comm_rank(UNION_Comm_World, &rank);
+    UNION_MPI_Comm_size(UNION_Comm_World, &comm_size);
     int nbytes = count * type_size;
 
     if((nbytes < 12288) || (comm_size < 8)) {
@@ -1079,7 +1080,7 @@ void SWM_Send(SWM_PEER peer,
 }
 
 /*
- * @param comm_id: communicator ID (For now, MPI_COMM_WORLD)
+ * @param comm_id: communicator ID (For now, UNION_Comm_World)
  * reqvc and rspvc: virtual channel IDs for request and response (ignore for
  * our purpose)
  * buf: buffer location for the call (ignore for our purpose)

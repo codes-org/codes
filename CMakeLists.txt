@@ -22,12 +22,13 @@ SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 set(ROSS_PKG_CONFIG_PATH "" CACHE PATH "Where is ROSS PKG_CONFIG is installed?")
 set(SWM_PKG_CONFIG_PATH "" CACHE PATH "Where is the SWM PKG_CONFIG installed?")
+set(UNION_PKG_CONFIG_PATH "" CACHE PATH "Where is the Union PKG_CONFIG installed?")
 set(ARGOBOTS_PKG_CONFIG_PATH "" CACHE PATH "Where is argobots PKG_COPNFIG installed? Necessary for SWM")
 set(DAMARIS_PKG_CONFIG_PATH "" CACHE PATH "Where is the damaris PKG_CONFIG installed?")
 
 
 find_package(PkgConfig REQUIRED)
-set(ENV{PKG_CONFIG_PATH} "${ROSS_PKG_CONFIG_PATH}:${SWM_PKG_CONFIG_PATH}:${ARGOBOTS_PKG_CONFIG_PATH}")
+set(ENV{PKG_CONFIG_PATH} "${ROSS_PKG_CONFIG_PATH}:${SWM_PKG_CONFIG_PATH}:${UNION_PKG_CONFIG_PATH}:${ARGOBOTS_PKG_CONFIG_PATH}")
 pkg_check_modules(ROSS REQUIRED IMPORTED_TARGET ross)
 
 # MPI
@@ -57,7 +58,7 @@ else(DUMPI_LIB)
         set(USE_DUMPI true)
 endif()
 
-## SWM
+# SWM
 pkg_check_modules(SWM IMPORTED_TARGET swm)
 if(NOT SWM_FOUND)
         message(STATUS "SWM Library Not Found, Online workloads disabled")
@@ -72,10 +73,34 @@ else(SWM_FOUND)
 
                 pkg_get_variable(SWM_DATAROOTDIR swm datarootdir)
                 cmake_print_variables(SWM_DATAROOTDIR)
-        
+
                 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${SWM_CFLAGS} -I${SWM_INCLUDE}")
-                add_definitions(-DUSE_ONLINE=1)
-                set(USE_ONLINE true)
+                #add_definitions(-DUSE_SWM=1)
+                #set(USE_SWM true)
+        endif()
+endif()
+
+pkg_check_modules(UNION IMPORTED_TARGET union)
+if(NOT UNION_FOUND)
+        message(STATUS "UNION Library Not Found, Online workloads disabled")
+else(UNION_FOUND)
+        message(STATUS "UNION Library Found: ${UNION_LIBRARIES}")
+        pkg_check_modules(ARGOBOTS REQUIRED IMPORTED_TARGET argobots)
+        if(NOT ARGOBOTS_FOUND)
+                message(STATUS "Argobots Library Not Found, Union workloads disabled")
+        else(ARGOBOTS_FOUND)
+                message(STATUS "Argobots Library Found: ${ARGOBOTS_LIBRARIES}")
+                #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${ARGOBOTS_CFLAGS} -I${ARGOBOTS_INCLUDE}")
+
+                pkg_get_variable(UNION_DATAROOTDIR union datarootdir)
+                cmake_print_variables(UNION_DATAROOTDIR)
+        
+                set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${UNION_INCLUDE}")
+                foreach(INCLUDE_OPT ${UNION_CFLAGS})
+                    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${INCLUDE_OPT}")
+                endforeach(INCLUDE_OPT)
+                add_definitions(-DUSE_UNION=1)
+                set(USE_UNION true)
         endif()
 endif()
 
@@ -100,7 +125,7 @@ cmake_print_variables(CMAKE_C_FLAGS)
 add_subdirectory(src)
 
 
-configure_file(codes_config.h.in codes_config.h)
+configure_file(codes_config.h.cmake.in codes_config.h)
 
 add_subdirectory(doc/example)
 

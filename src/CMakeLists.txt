@@ -89,9 +89,15 @@ if(USE_DUMPI)
     list(APPEND LIBS_TO_LINK ${DUMPI_LIB})
 endif()
 
-if(USE_ONLINE)
+if(USE_SWM)
     list(APPEND SRCS workload/methods/codes-online-comm-wrkld.C)
     list(APPEND LIBS_TO_LINK PkgConfig::SWM)
+    list(APPEND LIBS_TO_LINK PkgConfig::ARGOBOTS)
+endif()
+if(USE_UNION)
+    list(APPEND SRCS workload/methods/codes-conc-online-comm-wrkld.C)
+    list(APPEND LIBS_TO_LINK PkgConfig::SWM)
+    list(APPEND LIBS_TO_LINK PkgConfig::UNION)
     list(APPEND LIBS_TO_LINK PkgConfig::ARGOBOTS)
 endif()
 
@@ -122,12 +128,18 @@ if(USE_DUMPI)
     target_include_directories(codes PUBLIC ${DUMPI_INCLUDE})
 endif()
 
-#LINK ARGOBOTS and SWM ONLINE
+#LINK ARGOBOTS, SWM and UNION
 # target_link_libraries(codes PUBLIC PkgConfig::ARGOBOTS)
-if(USE_ONLINE)
+if(USE_SWM)
     target_include_directories(codes PUBLIC ${ARGOBOTS_INCLUDE_DIRS})
     # target_link_libraries(codes PUBLIC PkgConfig::SWM)
     target_include_directories(codes PUBLIC ${SWM_INCLUDE_DIRS})
+endif()
+if(USE_UNION)
+    target_include_directories(codes PUBLIC ${ARGOBOTS_INCLUDE_DIRS})
+    # target_link_libraries(codes PUBLIC PkgConfig::SWM)
+    target_include_directories(codes PUBLIC ${SWM_INCLUDE_DIRS})
+    target_include_directories(codes PUBLIC ${UNION_INCLUDE_DIRS})
 endif()
 
 #LINK ROSS
