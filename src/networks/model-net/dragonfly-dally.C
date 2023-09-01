@@ -96,7 +96,7 @@ static long num_remote_packets = 0;
 
 static long global_stalled_chunk_counter = 0;
 
-#define OUTPUT_SNAPSHOT 1
+#define OUTPUT_SNAPSHOT 0
 static int num_snapshots = 0;
 tw_stime * snapshot_times;
 char snapshot_filename[128];
@@ -2291,16 +2291,16 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
             .total_terminals = p->total_terminals,
             .n_lp_types = 2,
             .lp_types = {
-                {.lpname = "modelnet_dragonfly_dally",
-                 .trigger_idle_modelnet = true,
-                 .highdef_to_surrogate = (model_switch_f) dragonfly_dally_terminal_highdef_to_surrogate,
-                 .surrogate_to_highdef = (model_switch_f) dragonfly_dally_terminal_surrogate_to_highdef,
-                 .should_event_be_frozen = dragonfly_dally_terminal_should_event_be_frozen},
-                {.lpname = "modelnet_dragonfly_dally_router",
-                 .trigger_idle_modelnet = false,
-                 .highdef_to_surrogate = NULL,
-                 .surrogate_to_highdef = NULL,
-                 .should_event_be_frozen = dragonfly_dally_router_should_event_be_frozen},
+                {"modelnet_dragonfly_dally",
+                 true,
+                 (model_switch_f) dragonfly_dally_terminal_highdef_to_surrogate,
+                 (model_switch_f) dragonfly_dally_terminal_surrogate_to_highdef,
+                 dragonfly_dally_terminal_should_event_be_frozen},
+                {"modelnet_dragonfly_dally_router",
+                 false,
+                 NULL,
+                 NULL,
+                 dragonfly_dally_router_should_event_be_frozen},
                 0
             }
         };
