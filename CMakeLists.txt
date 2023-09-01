@@ -77,6 +77,8 @@ else(SWM_FOUND)
         cmake_print_variables(SWM_DATAROOTDIR)
 
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${SWM_CFLAGS} -I${SWM_INCLUDE}")
+        add_definitions(-DUSE_ONLINE=1)
+        set(USE_ONLINE true)
 
         pkg_check_modules(UNION IMPORTED_TARGET union)
         if(NOT UNION_FOUND)
