@@ -9,4 +9,4 @@ if [ -z $GENERATED_USING_CMAKE ]; then
     bindir=.
 fi
 
-"$bindir"/tests/resource-test --sync=1 --codes-config="$srcdir"/tests/conf/buffer_test.conf
+mpirun -np 1 "$bindir"/tests/resource-test --sync=1 --codes-config="$srcdir"/tests/conf/buffer_test.conf

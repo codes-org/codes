@@ -9,4 +9,4 @@ if [ -z $GENERATED_USING_CMAKE ]; then
     bindir=.
 fi
 
-"$bindir"/tests/modelnet-simplep2p-test --sync=1 -- "$srcdir"/tests/conf/modelnet-test-simplep2p.conf
+mpirun -np 1 "$bindir"/tests/modelnet-simplep2p-test --sync=1 -- "$srcdir"/tests/conf/modelnet-test-simplep2p.conf

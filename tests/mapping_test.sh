@@ -7,7 +7,7 @@ fi
 tst="$srcdir/tests"
 set -e
 
-"$bindir"/tests/mapping_test --sync=1 --codes-config="$tst"/conf/mapping_test.conf \
+mpirun -np 1 "$bindir"/tests/mapping_test --sync=1 --codes-config="$tst"/conf/mapping_test.conf \
     2> mapping_test.err \
     1| grep TEST > mapping_test.out
 

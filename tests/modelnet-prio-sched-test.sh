@@ -4,7 +4,7 @@ if [ -z $GENERATED_USING_CMAKE ]; then
     bindir=.
 fi
 
-"$bindir"/tests/modelnet-prio-sched-test --sync=1 -- \
+mpirun -np 1 "$bindir"/tests/modelnet-prio-sched-test --sync=1 -- \
     $srcdir/tests/conf/modelnet-prio-sched-test.conf
 err=$?
 if [[ $err -ne 0 ]]; then

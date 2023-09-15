@@ -4,4 +4,4 @@ if [ -z $GENERATED_USING_CMAKE ]; then
     bindir=.
 fi
 
-"$bindir"/tests/lp-io-test --sync=1
+mpirun -np 1 "$bindir"/tests/lp-io-test --sync=1

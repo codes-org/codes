@@ -8,4 +8,4 @@ else
     bindir="$bindir"/src
 fi
 
-"$bindir"/model-net-synthetic --sync=1 --num_messages=1 -- "$srcdir"/src/network-workloads/conf/modelnet-synthetic-dragonfly.conf
+mpirun -np 1 "$bindir"/model-net-synthetic --sync=1 --num_messages=1 -- "$srcdir"/src/network-workloads/conf/modelnet-synthetic-dragonfly.conf

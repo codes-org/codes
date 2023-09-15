@@ -9,4 +9,4 @@ if [ -z $GENERATED_USING_CMAKE ]; then
     bindir=.
 fi
 
-"$bindir"/tests/map-ctx-test "$srcdir"/tests/conf/map-ctx-test.conf
+mpirun -np 1 "$bindir"/tests/map-ctx-test "$srcdir"/tests/conf/map-ctx-test.conf

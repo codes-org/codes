@@ -9,4 +9,4 @@ if [ -z $GENERATED_USING_CMAKE ]; then
     bindir=.
 fi
 
-"$bindir"/tests/modelnet-simplep2p-test
+mpirun -np 1 "$bindir"/tests/modelnet-simplep2p-test
