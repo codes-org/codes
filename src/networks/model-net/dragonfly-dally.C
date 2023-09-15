@@ -5928,13 +5928,6 @@ static void router_packet_receive_rc(router_state * s,
 {  
     int output_port = msg->saved_vc;
     int output_chan = msg->saved_channel;
-
-    for(int i = 0 ; i < msg->num_cll; i++)
-        codes_local_latency_reverse(lp);
-
-    for(int i = 0; i < msg->num_rngs; i++)
-        tw_rand_reverse_unif(lp->rng);
-
     int src_term_id = msg->dfdally_src_terminal_id;
     int app_id = msg->saved_app_id;
 
