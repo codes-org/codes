@@ -1143,6 +1143,7 @@ void skip_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m)
                 reached_end = true;
                 break;
             default:
+                break;
         }
     }
 
@@ -1153,7 +1154,8 @@ void skip_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m)
 }
 
 bool have_we_hit_surrogate_switch(struct codes_workload_op * mpi_op) {
-    return mpi_op->u.send.tag == 4;
+    //return mpi_op->u.send.tag == 4;
+    return false;
 }
 
 /* Debugging functions, may generate unused function warning */
@@ -3244,6 +3246,7 @@ void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp
                     break;
 
                 default:
+                    break;
             }
 
 
