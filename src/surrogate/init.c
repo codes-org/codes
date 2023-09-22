@@ -1,5 +1,6 @@
 #include <codes/surrogate/init.h>
 #include <codes/surrogate/packet-latency-predictor/average.h>
+#include <codes/surrogate/packet-latency-predictor/torch-jit.h>
 
 bool freeze_network_on_switch = true;
 struct surrogate_config surr_config = {0};
@@ -92,8 +93,23 @@ void surrogate_configure(
             } else {
                 PRINTF_ONCE("Enabling average packet latency predictor with ignore_until=%g\n", ignore_until);
             }
+        } else if (strcmp(latency_pred_name, "torch-jit") == 0) {
+            char torch_jit_mode[MAX_NAME_LENGTH];
+            torch_jit_mode[0] = '\0';
+            configuration_get_value(&config, "SURROGATE", "torch_jit_mode", anno, torch_jit_mode, MAX_NAME_LENGTH);
+            if (strcmp(torch_jit_mode, "single-static-model-for-all-terminals") != 0) {
+                tw_error(TW_LOC, "Unknown torch-jit mode `%s`", torch_jit_mode);
+            }
+
+            char torch_jit_model_path[MAX_NAME_LENGTH];
+            torch_jit_model_path[0] = '\0';
+            configuration_get_value(&config, "SURROGATE", "torch_jit_model_path", anno, torch_jit_model_path, MAX_NAME_LENGTH);
+            surrogate_torch_init(torch_jit_model_path);
+
+            *pl_pred = &torch_latency_predictor;
         } else {
-            tw_error(TW_LOC, "Unknown predictor for packet latency `%s` (possibilities include: average)", latency_pred_name);
+            tw_error(TW_LOC, "Unknown predictor for packet latency `%s` "
+                    "(possibilities include: average, torch-jit)", latency_pred_name);
         }
     } else {
         *pl_pred = &average_latency_predictor;

@@ -2,6 +2,7 @@ cmake_print_variables(CMAKE_CURRENT_SOURCE_DIR)
 
 find_package(FLEX REQUIRED)
 find_package(BISON REQUIRED)
+find_package(Torch REQUIRED)
 
 flex_target(codes_lexer ${CMAKE_CURRENT_SOURCE_DIR}/modelconfig/configlex.l ${CMAKE_CURRENT_SOURCE_DIR}/modelconfig/configlex.c DEFINES_FILE ${CMAKE_CURRENT_SOURCE_DIR}/modelconfig/configlex.h)
 bison_target(codes_parser ${CMAKE_CURRENT_SOURCE_DIR}/modelconfig/configparser.y ${CMAKE_CURRENT_SOURCE_DIR}/modelconfig/configparser.c DEFINES_FILE ${CMAKE_CURRENT_SOURCE_DIR}/modelconfig/configparser.h)
@@ -59,6 +60,7 @@ list(APPEND SRCS
     surrogate/switch.c
     surrogate/packet-latency-predictor/common.c
     surrogate/packet-latency-predictor/average.c
+    surrogate/packet-latency-predictor/torch-jit.C
 
     iokernellang/codesparser.h
     iokernellang/codesparser.c
@@ -119,6 +121,7 @@ endif()
 add_library(codes STATIC ${SRCS})
 
 list(APPEND LIBS_TO_LINK ${MPI_C_LIBRARIES})
+list(APPEND LIBS_TO_LINK ${TORCH_LIBRARIES})
 target_include_directories(codes INTERFACE ${MPI_C_INCLUDE_PATH})
 
 # set(LIBS_TO_LINK
