@@ -54,7 +54,11 @@ list(APPEND SRCS
   	util/codes-comm.c
     util/rc-stack.c
     util/congestion-controller.C
-    util/surrogate.c
+
+    surrogate/init.c
+    surrogate/switch.c
+    surrogate/packet-latency-predictor/common.c
+    surrogate/packet-latency-predictor/average.c
 
     iokernellang/codesparser.h
     iokernellang/codesparser.c

@@ -6,7 +6,7 @@
 
 #include "codes/model-net.h"
 #include "codes/codes_mapping.h"
-#include "codes/surrogate.h"  // just needed for stats on surrogate-mode
+#include "codes/surrogate/init.h"  // just needed for stats on surrogate-mode
 
 
 static int net_id = 0;

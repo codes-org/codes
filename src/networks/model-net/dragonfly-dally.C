@@ -21,7 +21,7 @@
 #include "codes/codes.h"
 #include "codes/model-net-method.h"
 #include "codes/model-net-lp.h"
-#include "codes/surrogate.h"
+#include "codes/surrogate/init.h"
 #include "codes/net/dragonfly-dally.h"
 #include "sys/file.h"
 #include "codes/quickhash.h"
