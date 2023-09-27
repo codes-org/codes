@@ -46,11 +46,13 @@ struct lp_types_switch {
     model_ask_if_freeze_f should_event_be_frozen;  // NULL means event from LP type shouldn't be frozen
 };
 
-static struct {
+struct switch_at_struct {
     size_t current_i;
     size_t total;
     double * time_stampts; // list of precise timestamps at which to switch
-} switch_at;
+};
+
+extern struct switch_at_struct switch_at;
 
 
 // Switch

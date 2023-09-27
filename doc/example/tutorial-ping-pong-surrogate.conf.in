@@ -68,10 +68,14 @@ SURROGATE {
    #fixed_switch_timestamps=( "1000e4", "8900e4" );  # the first switch happens at around 1000 ping messages, the second at approx. 9900 pings
    fixed_switch_timestamps=( ${SWITCH_TIMESTAMPS} );
 
-# latency predictor to use
-   packet_latency_predictor="average";
+# latency predictor to use. Options: average, torch-jit
+   packet_latency_predictor="${PREDICTOR_TYPE}";
 # some workload models need some time to stabilize, a point where the network behaviour stabilizes. The predictor will ignore all packet latencies that arrive during this period
    ignore_until="${IGNORE_UNTIL}";
+
+# parameters for torch-jit latency predictor
+   torch_jit_mode="single-static-model-for-all-terminals";
+   torch_jit_model_path="${TORCH_JIT_MODEL_PATH}";
 
 # selecting network treatment on switching to surrogate. Options: frezee, nothing
    network_treatment_on_switch="${NETWORK_TREATMENT}";

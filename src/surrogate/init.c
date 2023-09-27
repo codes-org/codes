@@ -1,4 +1,5 @@
 #include <codes/surrogate/init.h>
+#include <codes/surrogate/switch.h>
 #include <codes/surrogate/packet-latency-predictor/average.h>
 #include <codes/surrogate/packet-latency-predictor/torch-jit.h>
 
@@ -6,6 +7,8 @@ bool freeze_network_on_switch = true;
 struct surrogate_config surr_config = {0};
 bool is_surrogate_configured = false;
 double surrogate_switching_time = 0.0;
+
+struct switch_at_struct switch_at;
 
 
 // === Stats!
