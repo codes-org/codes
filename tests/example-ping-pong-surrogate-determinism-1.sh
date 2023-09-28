@@ -39,6 +39,11 @@ grep 'Net Events Processed' model-output-1.txt
 err=$?
 [[ $err -ne 0 ]] && exit $err
 
+# Checking that the surrogate switched properly
+grep 'Switch completed' model-output-1.txt
+err=$?
+[[ $err -ne 0 ]] && exit $err
+
 # This checks for the number of events processed. If they are different, then
 # the simulation is not deterministic (so this should fail!). As always, just
 # a unit test
