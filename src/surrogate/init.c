@@ -6,15 +6,14 @@
 bool freeze_network_on_switch = true;
 struct surrogate_config surr_config = {0};
 bool is_surrogate_configured = false;
-double surrogate_switching_time = 0.0;
-
 struct switch_at_struct switch_at;
 
 
 // === Stats!
 void print_surrogate_stats(void) {
     if(is_surrogate_configured && g_tw_mynode == 0) {
-        printf("\nTotal time spent on switching from and to surrogate-mode: %.4f\n", (double) surrogate_switching_time / g_tw_clock_rate);
+        printf("\nTotal time spent on surrogate-mode: %.4f\n", (double) time_in_surrogate / g_tw_clock_rate);
+        printf("Total time spent on switching from and to surrogate-mode: %.4f\n", (double) surrogate_switching_time / g_tw_clock_rate);
     }
 }
 // === END OF Stats!

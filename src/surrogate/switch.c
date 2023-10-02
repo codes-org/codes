@@ -2,6 +2,9 @@
 #include <codes/surrogate/switch.h>
 #include <codes/model-net-lp.h>
 
+double surrogate_switching_time = 0.0;
+double time_in_surrogate = 0.0;
+static double surrogate_time_last = 0.0;
 
 // === Director functionality
 //
@@ -422,6 +425,10 @@ void director_switch(tw_pe * pe, tw_stime gvt) {
 
     // Do not process if the simulation ended
     if (gvt >= g_tw_ts_end) {
+        // If the simulation ended and the surrogate is still on, stop timer checking surrogate time
+        if (surr_config.director.is_surrogate_on()) {
+            time_in_surrogate += tw_clock_read() - surrogate_time_last;
+        }
         return;
     }
 
@@ -438,6 +445,8 @@ void director_switch(tw_pe * pe, tw_stime gvt) {
     } else {
         return;
     }
+
+    // ---- Past this means that we are in fact switching ----
 
     double const start = tw_clock_read();
     // Asking the director/model to switch
@@ -508,7 +517,17 @@ void director_switch(tw_pe * pe, tw_stime gvt) {
     if (DEBUG_DIRECTOR > 1) {
         printf("PE %lu: Switch completed!\n", g_tw_mynode);
     }
-    surrogate_switching_time += tw_clock_read() - start;
+    double const end = tw_clock_read();
+    surrogate_switching_time += end - start;
+
+    // Determining time in surrogate
+    if (surr_config.director.is_surrogate_on()) {
+        // Start tracking time spent in surrogate mode
+        surrogate_time_last = end;
+    } else {
+        // We are done tracking time spent in surrogate mode
+        time_in_surrogate += start - surrogate_time_last;
+    }
 }
 //
 // === END OF Director functionality

@@ -16,6 +16,11 @@
 extern "C" {
 #endif
 
+// Time spent switching from high-fidelity to surrogate and viceversa
+extern double surrogate_switching_time;
+// Total time spent in surrogate mode (between switches)
+extern double time_in_surrogate;
+
 // When true (below), the network state will be frozen at switch time (from
 // high-def to surrogate) and later reanimated on the switch back (from
 // surrogate to high-def). If not, all events will be kept in the network while

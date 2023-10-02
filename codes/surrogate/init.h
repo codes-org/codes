@@ -48,7 +48,6 @@ void surrogate_configure(
 
 extern struct surrogate_config surr_config;
 extern bool is_surrogate_configured;
-extern double surrogate_switching_time;
 
 #ifdef __cplusplus
 }
