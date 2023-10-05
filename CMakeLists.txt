@@ -119,6 +119,14 @@ endif()
 #         set(USE_DAMARIS true)
 # endif()
 
+## TORCH loading ML models
+find_package(Torch)
+if(Torch_FOUND)
+    add_definitions(-DUSE_TORCH)
+    set(USE_TORCH true)
+endif()
+
+
 cmake_print_variables(CMAKE_C_FLAGS)
 add_subdirectory(src)
 
