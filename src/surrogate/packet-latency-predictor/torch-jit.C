@@ -1,5 +1,6 @@
 #include <torch/csrc/jit/serialization/import.h>
 #include <torch/csrc/autograd/generated/variable_factories.h>
+#include <torch/csrc/api/include/torch/utils.h>
 #include <ATen/Parallel.h>
 
 #include <iostream>
@@ -7,6 +8,7 @@
 #include <vector>
 
 #include <codes/surrogate/packet-latency-predictor/torch-jit.h>
+#include <ross.h>
 
 static torch::jit::Module packet_latency_model;
 
@@ -28,19 +30,26 @@ void surrogate_torch_init(char const * dir) {
         packet_latency_model = torch::jit::load(dir);
     }
     catch (const c10::Error& e) {
-        std::cerr << "Error loading Torch-JIT model\n";
-        return;
+        tw_error(TW_LOC, "Error loading Torch-JIT model");
     }
 
     // Configuring to run on a single thread
     at::set_num_threads(1);
 
     // === Checking consistency of model with dummy input
-    float data_input[] = {0.0, 0.0, 0.0, 0.0};
-    size_t const n_input = sizeof(data_input) / sizeof(float);
+    if (packet_latency_model.is_training()) {
+        std::cerr << "The Torch-JIT model was saved before running .eval(). "
+            "The output from the model will be as if it was in training mode, "
+            "meaning, it might be faulty."
+            << std::endl;
+    }
+
+    long int data_input[] = {0, 0, 0, 0};
+    size_t const n_input = sizeof(data_input) / sizeof(long int);
 
     std::vector<torch::jit::IValue> inputs;
-    inputs.emplace_back(torch::from_blob(data_input, {1, (int) n_input}, at::kFloat));
+    torch::NoGradGuard no_grad;
+    inputs.emplace_back(torch::from_blob(data_input, {1, (int) n_input}, at::kLong));
 
     // Predicting value
     at::Tensor output = packet_latency_model.forward(inputs).toTensor();
@@ -54,16 +63,16 @@ static struct packet_end surrogate_torch_predict(void *, tw_lp * lp, unsigned in
     //auto t_start = std::chrono::high_resolution_clock::now();
 
     // Create a vector of inputs.
-    float data_input[] = {
+    long int data_input[] = {
         src_terminal,
         packet_dest->dfdally_dest_terminal_id,
         packet_dest->packet_size,
         packet_dest->is_there_another_pckt_in_queue
     };
-    size_t n_input = sizeof(data_input) / sizeof(float);
+    size_t n_input = sizeof(data_input) / sizeof(long int);
 
     std::vector<torch::jit::IValue> inputs;
-    inputs.emplace_back(torch::from_blob(data_input, {1, (int) n_input}, at::kFloat));
+    inputs.emplace_back(torch::from_blob(data_input, {1, (int) n_input}, at::kLong));
 
     at::Tensor output = packet_latency_model.forward(inputs).toTensor();
     //assert_correct_dims(&output);
