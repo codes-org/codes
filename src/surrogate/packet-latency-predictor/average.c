@@ -101,12 +101,14 @@ static void predict_latency_rc(struct latency_surrogate * data, tw_lp * lp) {
 }
 
 
-struct packet_latency_predictor average_latency_predictor = {
+struct packet_latency_predictor average_latency_predictor(int num_terminals) {
+    return (struct packet_latency_predictor) {
     .init              = (init_pred_f) init_pred,
     .feed              = (feed_pred_f) feed_pred,
     .predict           = (predict_pred_f) predict_latency,
     .predict_rc        = (predict_pred_rc_f) predict_latency_rc,
-    .predictor_data_sz = sizeof(struct latency_surrogate) + 72 * sizeof(struct aggregated_latency_one_terminal)
-};
+    .predictor_data_sz = sizeof(struct latency_surrogate) + num_terminals * sizeof(struct aggregated_latency_one_terminal)
+    };
+}
 //
 // === END OF Average packet latency functionality

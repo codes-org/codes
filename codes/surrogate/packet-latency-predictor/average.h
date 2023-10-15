@@ -16,8 +16,9 @@
 extern "C" {
 #endif
 
-extern struct packet_latency_predictor average_latency_predictor;
 extern double ignore_until;
+
+struct packet_latency_predictor average_latency_predictor(int num_terminals);
 
 #ifdef __cplusplus
 }

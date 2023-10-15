@@ -10,6 +10,7 @@ bool freeze_network_on_switch = true;
 struct surrogate_config surr_config = {0};
 bool is_surrogate_configured = false;
 struct switch_at_struct switch_at;
+struct packet_latency_predictor current_predictor = {0};
 
 
 // === Stats!
@@ -88,16 +89,8 @@ void surrogate_configure(
     configuration_get_value(&config, "SURROGATE", "packet_latency_predictor", anno, latency_pred_name, MAX_NAME_LENGTH);
     if (*latency_pred_name) {
         if (strcmp(latency_pred_name, "average") == 0) {
-            *pl_pred = &average_latency_predictor;
-
-            // Finding out whether to ignore some packet latencies
-            int rc = configuration_get_value_double(&config, "SURROGATE", "ignore_until", anno, &ignore_until);
-            if (rc) {
-                ignore_until = -1; // any negative number disables ignore_until, all packet latencies will be considered
-                PRINTF_ONCE("Enabling average packet latency predictor\n");
-            } else {
-                PRINTF_ONCE("Enabling average packet latency predictor with ignore_until=%g\n", ignore_until);
-            }
+            current_predictor = average_latency_predictor(surr_config.total_terminals);
+            *pl_pred = &current_predictor;
 
 #ifdef USE_TORCH
         } else if (strcmp(latency_pred_name, "torch-jit") == 0) {
@@ -125,8 +118,18 @@ void surrogate_configure(
                     ")", latency_pred_name);
         }
     } else {
-        *pl_pred = &average_latency_predictor;
+        current_predictor = average_latency_predictor(surr_config.total_terminals);
+        *pl_pred = &current_predictor;
         PRINTF_ONCE("Enabling average packet latency predictor (default behaviour)\n");
+    }
+
+    // Finding out whether to ignore some packet latencies
+    int rc = configuration_get_value_double(&config, "SURROGATE", "ignore_until", anno, &ignore_until);
+    if (rc) {
+        ignore_until = -1; // any negative number disables ignore_until, all packet latencies will be considered
+        PRINTF_ONCE("`ignore_until` disabled (all packet latencies will be used in training the predictor)\n");
+    } else {
+        PRINTF_ONCE("ignore_until=%g a packet delievered before this time stamp will not be used in training any predictor\n", ignore_until);
     }
 
     // Determining which predictor to set up and return
@@ -150,7 +153,7 @@ void surrogate_configure(
 
     //surr_config.director.switch_surrogate();
     if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
-        fprintf(stderr, "Simulation starting on %s mode\n", surr_config.director.is_surrogate_on() ? "surrogate" : "vanilla");
+        fprintf(stderr, "Simulation starting on %s mode\n", surr_config.director.is_surrogate_on() ? "surrogate" : "high-fidelity");
     }
 }
 // === END OF All things Surrogate Configuration
