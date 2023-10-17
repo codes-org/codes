@@ -932,6 +932,26 @@ void handle_sched_next_rc(
 
 /**** END IMPLEMENTATIONS ****/
 
+tw_event * model_net_method_event_new_user_prio(
+        tw_lpid dest_gid,
+        tw_stime offset_ts,
+        tw_lp *sender,
+        int net_id,
+        void **msg_data,
+        void **extra_data,
+        tw_stime prio){
+    tw_event *e = tw_event_new_user_prio(dest_gid, offset_ts, sender, prio);
+    model_net_wrap_msg *m_wrap = tw_event_data(e);
+    msg_set_header(model_net_base_magic, MN_BASE_PASS, sender->gid,
+            &m_wrap->h);
+    *msg_data = ((char*)m_wrap)+msg_offsets[net_id];
+    // extra_data is optional
+    if (extra_data != NULL){
+        *extra_data = m_wrap + 1;
+    }
+    return e;
+}
+
 tw_event * model_net_method_event_new(
         tw_lpid dest_gid,
         tw_stime offset_ts,

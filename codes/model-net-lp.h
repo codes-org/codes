@@ -60,6 +60,16 @@ tw_event * model_net_method_event_new(
         void **msg_data,
         void **extra_data);
 
+// Same as `model_net_method_event_new` extended to use user priorities to enforce ordering of some simulatenous events (USE WITH CARE!!)
+tw_event * model_net_method_event_new_user_prio(
+        tw_lpid dest_gid,
+        tw_stime offset_ts,
+        tw_lp *sender,
+        int net_id,
+        void **msg_data,
+        void **extra_data,
+        tw_stime prio);
+
 // Construct a model-net-specific event, similar to model_net_method_event_new.
 // The primary differences are:
 // - the event gets sent to final_dest_lp and put on it's receiver queue

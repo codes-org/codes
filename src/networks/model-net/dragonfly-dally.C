@@ -239,6 +239,7 @@ struct dragonfly_param
     int global_vc_size; /* buffer size of the global channels */
     int cn_vc_size; /* buffer size of the compute node channels */
     int chunk_size; /* full-sized packets are broken into smaller chunks.*/
+    int packet_size; /* maximum size of a packet, although we have no control over it. It is model-net who is in charge of generating packets of at most this size */
     int global_k_picks; /* k number of connections to select from when doing local adaptive routing */
     int adaptive_threshold; 
     int rail_select; // method by which rails are selected
@@ -315,6 +316,7 @@ struct dfly_qhash_entry
     struct dfly_hash_key key;
     char * remote_event_data;
     int num_chunks;
+    int remaining_packets;
     int remote_event_size;
     struct qhash_head hash_link;
 };
@@ -1729,6 +1731,13 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         p->chunk_size = 512;
         if(!myRank)
             fprintf(stderr, "Chunk size for packets is specified, setting to %d\n", p->chunk_size);
+    }
+
+    rc = configuration_get_value_int(&config, "PARAMS", "packet_size", anno, &p->packet_size);
+    if(rc) {
+        p->chunk_size = 512;
+        if(!myRank)
+            fprintf(stderr, "Packet size not specificied, it is assumed to be %d\n", p->packet_size);
     }
 
     rc = configuration_get_value_double(&config, "PARAMS", "local_bandwidth", anno, &p->local_bandwidth);
@@ -4658,7 +4667,9 @@ static void notify_dest_lp_of(
     }
 
     terminal_dally_message * new_msg;
-    tw_event *e = model_net_method_event_new(msg->dest_terminal_lpid, offset, lp, DRAGONFLY_DALLY, (void**)&new_msg, NULL);
+    // Lower value in priority means that it will be processed first
+    // This event will be processed before any predicted packet arrives (even if scheduled at the same timestamp)
+    tw_event *e = model_net_method_event_new_user_prio(msg->dest_terminal_lpid, offset, lp, DRAGONFLY_DALLY, (void**)&new_msg, NULL, 0.5);
 
     memcpy(new_msg, msg, sizeof(terminal_dally_message)); // Just making sure that if the simulation breaks because we didn't set some value below, it breaks in a spectacular manner (~0 can be -1)
     assert(new_msg->dfdally_src_terminal_id == s->terminal_id);
@@ -4811,7 +4822,7 @@ static void packet_arrive_predicted_rc(terminal_state * s, tw_bf * bf, terminal_
     }
 
     if(bf->c6) {
-        tmp->num_chunks -= msg->saved_remaining_packet_chunks;
+        tmp->remaining_packets++;
     }
 
     if(bf->c5) {
@@ -4836,28 +4847,6 @@ static void packet_arrive_predicted(terminal_state * s, tw_bf * bf, terminal_dal
     //record for commit_f file IO
     msg->travel_end_time = tw_now(lp);
 
-    // packets arrive as one event not as multiple events (ie, predicted packets are not broken into chunks)
-    struct packet_id const packet_key = {
-        .packet_ID = msg->packet_ID,
-        .dfdally_src_terminal_id = msg->dfdally_src_terminal_id
-    };
-    bool const has_remaining_sz = s->remaining_sz_packets.count(packet_key) == 1;
-
-    // Finding out how many bytes are left to receive for this packet
-    int remaining_sz = 0;
-    if (has_remaining_sz) {
-        remaining_sz = s->remaining_sz_packets[packet_key];
-    } else {
-        remaining_sz = msg->packet_size;
-    }
-
-    uint64_t const chunk_size = s->params->chunk_size;
-    uint64_t remaining_packet_chunks = remaining_sz / chunk_size + (remaining_sz % chunk_size ? 1 : 0);
-    uint64_t total_chunks = msg->total_size / chunk_size + (msg->total_size % chunk_size ? 1 : 0);
-    if (remaining_packet_chunks == 0) { remaining_packet_chunks = 1; }
-    if (total_chunks == 0) { total_chunks = 1; }
-    msg->saved_remaining_packet_chunks = remaining_packet_chunks;
-
     // The table has to have been initialized already, if not, what the heck!
     struct dfly_hash_key key = {
         .message_id = msg->message_id,
@@ -4873,13 +4862,17 @@ static void packet_arrive_predicted(terminal_state * s, tw_bf * bf, terminal_dal
     // We create an entry into the hash only if it makes sense to do so (ie, only when the message needs multiple packets to be completed)
     } else if (msg->total_size > msg->packet_size) {
         bf->c5 = 1;
-        assert(remaining_sz == msg->packet_size);
+
+        uint64_t const packet_size = s->params->packet_size;
+        uint64_t total_packets = msg->total_size / packet_size + (msg->total_size % packet_size ? 1 : 0);
+        if (total_packets == 0) { total_packets = 1; }
 
         struct dfly_qhash_entry * const d_entry = (dfly_qhash_entry *) calloc(1, sizeof (struct dfly_qhash_entry));
         d_entry->num_chunks = 0;
         d_entry->key = key;
         d_entry->remote_event_data = NULL;
         d_entry->remote_event_size = 0;
+        d_entry->remaining_packets = total_packets;
         qhash_add(s->rank_tbl, &key, &(d_entry->hash_link));
         s->rank_tbl_pop++;
 
@@ -4895,10 +4888,10 @@ static void packet_arrive_predicted(terminal_state * s, tw_bf * bf, terminal_dal
         assert(msg->total_size == msg->packet_size);
     }
 
-    // Increasing the number of chunks received
+    // Decreasing the number of remaining packets
     if (tmp) {
         bf->c6 = 1;
-        tmp->num_chunks += remaining_packet_chunks;
+        tmp->remaining_packets--;
 
         /* retrieve the event data, all chunks from the same packet carry the `remote_event_data` */
         if(msg->remote_event_size_bytes > 0 && !tmp->remote_event_data)
@@ -4914,8 +4907,7 @@ static void packet_arrive_predicted(terminal_state * s, tw_bf * bf, terminal_dal
         }
     }
 
-    bool const is_msg_completed = tmp ? tmp->num_chunks >= total_chunks : true;
-    assert(tmp || total_chunks == remaining_packet_chunks);
+    bool const is_msg_completed = tmp ? tmp->remaining_packets == 0 : true;
 
     if(is_msg_completed) {
         bf->c7 = 1;
@@ -5060,6 +5052,10 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
       
     assert(tmp);
     tmp->num_chunks--;
+
+    if (bf->c13) {
+        tmp->remaining_packets++;
+    }
 
     if(bf->c5)
     {
@@ -5238,12 +5234,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
 
     // Zombies don't generate delay notifications, and they don't modify the state of `s->rank_tbl` (`packet_arrive_predicted` should have removed the msg entry already)
     if (is_zombie) {
-        struct dfly_hash_key key = {
-            .message_id = msg->message_id,
-            .sender_id = msg->sender_lp,
-        };
         //printf("We got a zombie! LPID=%d  packet_ID = %d  dfdally_src_terminal_id = %d\n", lp->gid, msg->packet_ID, msg->dfdally_src_terminal_id);
-
         if (is_packet_completed) {
             s->zombies.erase(packet_key);
             bf->c14 = 1;
@@ -5287,11 +5278,16 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     if(!tmp)
     {
         bf->c5 = 1;
+        uint64_t const packet_size = s->params->packet_size;
+        uint64_t total_packets = msg->total_size / packet_size + (msg->total_size % packet_size ? 1 : 0);
+        if (total_packets == 0) { total_packets = 1; }
+
         struct dfly_qhash_entry * d_entry = (dfly_qhash_entry *)calloc(1, sizeof (struct dfly_qhash_entry));
         d_entry->num_chunks = 0;
         d_entry->key = key;
         d_entry->remote_event_data = NULL;
         d_entry->remote_event_size = 0;
+        d_entry->remaining_packets = total_packets;
         qhash_add(s->rank_tbl, &key, &(d_entry->hash_link));
         s->rank_tbl_pop++;
                 
@@ -5321,6 +5317,10 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
 
     // if the packet is complete (ie, this `msg` is the last piece of the packet)
     if (is_packet_completed) {
+        bf->c13 = 1;
+
+        tmp->remaining_packets--;
+
         //printf("Good day sir, not a zombie! LPID=%d  packet_ID = %d  dfdally_src_terminal_id = %d\n", lp->gid, msg->packet_ID, msg->dfdally_src_terminal_id);
         if (packet_latency_f || surrogate_configured) {
             notify_src_lp_on_total_latency(lp, msg);
@@ -5334,9 +5334,13 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
 
     // if the message is complete (ie, this `msg` is the last piece of the message)
     /* If all chunks of a message have arrived then send a remote event to the callee */
-    if(tmp->num_chunks >= total_chunks)
+    //if(tmp->num_chunks >= total_chunks)  // this was the test before, it is a good test assumming the network is never frozen
+    if(tmp->remaining_packets == 0)
     {
         bf->c7 = 1;
+
+        assert(tmp->num_chunks <= total_chunks);
+
         s->data_size_sample += msg->total_size;
         s->ross_sample.data_size_sample += msg->total_size;
         s->data_size_ross_sample += msg->total_size;
