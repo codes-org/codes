@@ -3938,9 +3938,7 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
 
     if(msg->local_event_size_bytes > 0)
     {
-        // TODO (Elkin): This delay is wrong. It might take quite a bit longer in some cases as all the chunks are processed until we get to this. Create a better estimate based on the number of total chunks!
-        tw_stime local_ts = 0;
-        tw_event *e_new = tw_event_new(msg->sender_lp, local_ts, lp);
+        tw_event *e_new = tw_event_new(msg->sender_lp, nic_ts, lp);
         void *m_new = tw_event_data(e_new);
         void *local_event = (char*) model_net_method_get_edata(DRAGONFLY_DALLY, msg) + msg->remote_event_size_bytes;
         memcpy(m_new, local_event, msg->local_event_size_bytes);

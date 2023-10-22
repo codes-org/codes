@@ -11,6 +11,8 @@
 
 static int net_id = 0;
 static int PAYLOAD_SZ = 4096;
+static int RANDOM_PAYLOAD_SZ = 0; // If turned on, it assumes that PAYLOAD_SZ is a multiple of CHUNK_SIZE
+static int CHUNK_SIZE = 64; // This value depends on the network being used
 static unsigned long long num_nodes = 0;
 
 static char lp_io_dir[256] = {'\0'};
@@ -85,6 +87,7 @@ const tw_optdef app_opt [] =
     	TWOPT_UINT("num_messages", num_msgs, "Number of PING messages to be generated per terminal "),
     	TWOPT_UINT("num_initial_messages", num_initial_msgs, "Number of PING messages to be injected initially at the start (larger = more congestion)"),
     	TWOPT_UINT("payload_sz",PAYLOAD_SZ, "size of the message being sent "),
+    	TWOPT_UINT("random_payload_sz", RANDOM_PAYLOAD_SZ, "whether payloads are a random number between 1 and payload_sz (default 0)"),
         TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
         TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
         TWOPT_END()
@@ -98,6 +101,21 @@ const tw_lptype* svr_get_lp_type()
 static void svr_add_lp_type()
 {
   lp_type_register("nw-lp", svr_get_lp_type());
+}
+
+static long payload_size_forward(tw_lp * lp) {
+    long payload_size = PAYLOAD_SZ;
+    if (RANDOM_PAYLOAD_SZ) {
+        payload_size = tw_rand_integer(lp->rng, 0, PAYLOAD_SZ > CHUNK_SIZE ? PAYLOAD_SZ / CHUNK_SIZE : 1);
+        payload_size *= CHUNK_SIZE;
+    }
+    return payload_size;
+}
+
+static void payload_size_rev(tw_lp * lp) {
+    if (RANDOM_PAYLOAD_SZ) {
+        tw_rand_reverse_unif(lp->rng); //reverse the rng call for creating a payload size
+    }
 }
 
 static void svr_init(svr_state * s, tw_lp * lp)
@@ -159,7 +177,8 @@ static void handle_kickoff_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * 
     codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, NULL, &rep_id, &offset); //gets information from CODES necessary to get the global LP ID of a server
     global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
     s->ping_msg_sent_count++;
-    m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)&ping_msg, 0, NULL, lp);
+    long const payload_size = payload_size_forward(lp);
+    m->event_rc = model_net_event(net_id, "test", global_dest, payload_size, 0.0, sizeof(svr_msg), (const void*)&ping_msg, 0, NULL, lp);
 }
 
 static void handle_kickoff_rev_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
@@ -167,6 +186,7 @@ static void handle_kickoff_rev_event(svr_state * s, tw_bf * b, svr_msg * m, tw_l
     (void) b;
     model_net_event_rc2(lp, &m->event_rc); //undo any model_net_event calls encoded into this message
     s->ping_msg_sent_count--; //undo the increment of the ping_msg_sent_count in the server state
+    payload_size_rev(lp);
     tw_rand_reverse_unif(lp->rng); //reverse the rng call for creating a payload value;
     tw_rand_reverse_unif(lp->rng); //reverse the rng call for getting a local_dest
 }
@@ -187,12 +207,14 @@ static void handle_ping_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
     codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, NULL, &rep_id, &offset); //gets information from CODES necessary to get the global LP ID of a server
     tw_lpid global_dest = codes_mapping_get_lpid_from_relative(original_sender, group_name, lp_type_name, NULL, 0);
     s->pong_msg_sent_count++;
-    m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)&pong_msg, 0, NULL, lp);
+    long const payload_size = payload_size_forward(lp);
+    m->event_rc = model_net_event(net_id, "test", global_dest, payload_size, 0.0, sizeof(svr_msg), (const void*)&pong_msg, 0, NULL, lp);
 }
 
 static void handle_ping_rev_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
 {
     (void) b;
+    payload_size_rev(lp);
     model_net_event_rc2(lp, &m->event_rc); //undo any model_net_event calls encoded into this message
     s->pong_msg_sent_count--;
     s->payload_sum -= m->payload_value; //undo the increment of the payload sum
@@ -221,7 +243,8 @@ static void handle_pong_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
     codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, NULL, &rep_id, &offset); //gets information from CODES necessary to get the global LP ID of a server
     tw_lpid global_dest = codes_mapping_get_lpid_from_relative(send_to, group_name, lp_type_name, NULL, 0);
     s->ping_msg_sent_count++;
-    m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)&ping_msg, 0, NULL, lp);
+    long const payload_size = payload_size_forward(lp);
+    m->event_rc = model_net_event(net_id, "test", global_dest, payload_size, 0.0, sizeof(svr_msg), (const void*)&ping_msg, 0, NULL, lp);
 }
 
 static void handle_pong_rev_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp * lp)
@@ -229,6 +252,7 @@ static void handle_pong_rev_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp *
     if (! b->c1) { //if we didn't flip the c1 flag in the forward event
         model_net_event_rc2(lp, &m->event_rc); //undo any model_net_event calls encoded into this message
         s->ping_msg_sent_count--;
+        payload_size_rev(lp);
         tw_rand_reverse_unif(lp->rng); //undo the rng for the new payload value
         tw_rand_reverse_unif(lp->rng); //undo the rng for the new server to send a ping to
         b->c1 = 0;
@@ -240,6 +264,7 @@ static void handle_pong_rev_event(svr_state * s, tw_bf * b, svr_msg * m, tw_lp *
 static void svr_finalize(svr_state * s, tw_lp * lp)
 {
     int total_msgs_sent = s->ping_msg_sent_count + s->pong_msg_sent_count;
+    // TODO (Elkin): this is wrong for random payload sizes
     int total_msg_size_sent = PAYLOAD_SZ * total_msgs_sent;
     tw_stime time_in_seconds_sent = ns_to_s(s->end_ts - s->start_ts);
 
@@ -340,6 +365,9 @@ int main(int argc, char **argv)
 
     num_nodes = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp", NULL, 1);  //get the number of nodes so we can use this value during the simulation
     assert(num_nodes);
+
+    int rc = configuration_get_value_int(&config, "PARAMS", "chunk_size", NULL, &CHUNK_SIZE);
+    if(rc) { CHUNK_SIZE = 512; }
 
     if(lp_io_dir[0])
     {

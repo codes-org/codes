@@ -51,7 +51,7 @@ PARAMS
 # routing protocol to be used
    routing="prog-adaptive";
 # router buffer occupancy snapshots
-   router_buffer_snapshots=( "50e4", "60e4" );
+   router_buffer_snapshots=( ${BUFFER_SNAPSHOTS} );
 # folder path to store packet latency from terminal to terminal, if no value is given it won't save anything
    save_packet_latency_path="${PACKET_LATENCY_TRACE_PATH}";
 }
