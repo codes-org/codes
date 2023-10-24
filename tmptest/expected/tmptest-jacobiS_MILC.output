@@ -1,0 +1,240 @@
+/home/ac.xwang/install/codes-new/bin/model-net-mpi-replay --sync=1 --workload_type=conc-online --lp-io-use-suffix=1 --workload_conf_file=/home/ac.xwang/tools/codes-new/tmptest/conf/jacobi_MILC.conf --alloc_file=/home/ac.xwang/tools/codes-new/tmptest/conf/rand_node0-1d-72-jacobi_MILC.conf --lp-io-dir=tmptest-jacobiS_MILC -- /home/ac.xwang/tools/codes-new/tmptest/conf/dfdally-72-par.conf 
+
+Thu Aug 31 11:16:21 2023
+
+ROSS Version: v8.0.0-dirty
+
+tw_net_start: Found world size to be 1 
+
+ num_net_traces 72; num_dumpi_traces 72NIC num injection port not specified, setting to 1
+NIC seq delay not specified, setting to 10.000000
+NIC num copy queues not specified, setting to 1
+Dragonfly rail selection is 3
+within node transfer per byte delay is 0.190476
+
+ROSS Core Configuration: 
+	Total PEs                                                    1
+	Total KPs                                          [Nodes (1) x KPs (16)] 16
+	Total LPs                                                  180
+	Simulation End Time                                3600000000000.00
+	LP-to-PE Mapping                                   model defined
+
+
+ROSS Event Memory Allocation:
+	Model events                                             46081
+	Network events                                              16
+	Total events                                             46096
+
+*** START SEQUENTIAL SIMULATION ***
+
+Jacobi3D: Running Jacobi on 36 processors with (4, 3, 3) elements
+Jacobi3D: Array Dimensions: 400 300 300
+Jacobi3D: Block Dimensions: 100 100 100
+Set num_servers per router 2, servers per injection queue per router 2, servers per node copy queue per node 1, num nics 2
+
+ Network node 10 Rank 4 App 1 finished at 21068851.547571 
+ Network node 22 Rank 44 App 1 finished at 21071037.824921 
+ Network node 18 Rank 54 App 1 finished at 21073270.434406 
+ Network node 14 Rank 37 App 1 finished at 21097612.783538 
+ Network node 30 Rank 27 App 1 finished at 21102424.565586 
+ Network node 5 Rank 20 App 1 finished at 21108249.546402 
+ Network node 12 Rank 33 App 1 finished at 21110027.342929 
+ Network node 1 Rank 42 App 1 finished at 21110256.073760 
+ Network node 4 Rank 57 App 1 finished at 21111546.853831 
+ Network node 8 Rank 66 App 1 finished at 21113501.882987 
+ Network node 20 Rank 14 App 1 finished at 21113973.869383 
+ Network node 28 Rank 19 App 1 finished at 21114152.678420 
+ Network node 13 Rank 58 App 1 finished at 21115387.315974 
+ Network node 21 Rank 35 App 1 finished at 21115387.760280 
+ Network node 3 Rank 10 App 1 finished at 21115616.245572 
+ Network node 16 Rank 47 App 1 finished at 21118843.796807 
+ Network node 24 Rank 63 App 1 finished at 21119441.871021 
+ Network node 0 Rank 0 App 1 finished at 21119597.570794 
+ Network node 32 Rank 17 App 1 finished at 21127435.068113 
+ Network node 29 Rank 51 App 1 finished at 21129060.332614 
+ Network node 26 Rank 36 App 1 finished at 21143479.925367 
+ Network node 34 Rank 53 App 1 finished at 21154862.434599 
+ Network node 2 Rank 31 App 1 finished at 21156014.515093 
+ Network node 15 Rank 59 App 1 finished at 21161740.594629 
+ Network node 7 Rank 40 App 1 finished at 21161969.568495 
+ Network node 6 Rank 41 App 1 finished at 21163525.624817 
+ Network node 23 Rank 16 App 1 finished at 21173654.388469 
+ Network node 9 Rank 64 App 1 finished at 21185533.014578 
+ Network node 17 Rank 43 App 1 finished at 21189278.967585 
+ Network node 25 Rank 56 App 1 finished at 21189811.925589 
+ Network node 31 Rank 34 App 1 finished at 21192311.784327 
+ Network node 33 Rank 29 App 1 finished at 21238412.751729 
+ Network node 11 Rank 22 App 1 finished at 21253653.349942 
+ Network node 27 Rank 30 App 1 finished at 21256950.657271 
+ Network node 19 Rank 50 App 1 finished at 21257778.308085 
+ Network node 35 Rank 60 App 1 finished at 21356838.612738 App 0: Received finished workload notificationThere is still a nonsynethic workload left. 1 != 2
+
+ Network node 2 Rank 38 App 0 finished at 27847374.542274 
+ Network node 20 Rank 49 App 0 finished at 27848300.513379 
+ Network node 12 Rank 48 App 0 finished at 27848300.919883 
+ Network node 16 Rank 71 App 0 finished at 27849021.295227 
+ Network node 8 Rank 39 App 0 finished at 27849121.063364 
+ Network node 18 Rank 6 App 0 finished at 27849212.584262 
+ Network node 10 Rank 69 App 0 finished at 27849795.090486 
+ Network node 0 Rank 12 App 0 finished at 27849847.891871 
+ Network node 7 Rank 70 App 0 finished at 27850595.235628 
+ Network node 26 Rank 23 App 0 finished at 27850680.445220 
+ Network node 9 Rank 11 App 0 finished at 27851269.424881 
+ Network node 4 Rank 65 App 0 finished at 27851269.485238 
+ Network node 3 Rank 2 App 0 finished at 27852174.837306 
+ Network node 19 Rank 1 App 0 finished at 27852333.411932 
+ Network node 24 Rank 61 App 0 finished at 27852412.897185 
+ Network node 21 Rank 68 App 0 finished at 27852418.990265 
+ Network node 32 Rank 52 App 0 finished at 27853139.356496 
+ Network node 1 Rank 24 App 0 finished at 27853237.674558 
+ Network node 17 Rank 55 App 0 finished at 27853238.062964 
+ Network node 25 Rank 46 App 0 finished at 27853238.309627 
+ Network node 28 Rank 7 App 0 finished at 27853245.667187 
+ Network node 14 Rank 8 App 0 finished at 27853330.657890 
+ Network node 34 Rank 13 App 0 finished at 27853331.023495 
+ Network node 6 Rank 3 App 0 finished at 27853913.164114 
+ Network node 13 Rank 21 App 0 finished at 27854071.877755 
+ Network node 22 Rank 32 App 0 finished at 27854157.642763 
+ Network node 5 Rank 18 App 0 finished at 27855387.498509 
+ Network node 33 Rank 28 App 0 finished at 27855617.501467 
+ Network node 30 Rank 15 App 0 finished at 27855710.850404 
+ Network node 11 Rank 67 App 0 finished at 27855809.464314 
+ Network node 15 Rank 45 App 0 finished at 27856451.485560 
+ Network node 23 Rank 5 App 0 finished at 27856451.510284 
+ Network node 29 Rank 26 App 0 finished at 27856451.550016 
+ Network node 35 Rank 25 App 0 finished at 27856451.858593 
+ Network node 27 Rank 9 App 0 finished at 27857362.848268 
+ Network node 31 Rank 62 App 0 finished at 27860569.932221 App 0: Received finished workload notificationApp 0: All non-synthetic workloads have completed
+*** END SIMULATION ***
+
+
+	: Running Time = 35.7901 seconds
+
+TW Library Statistics:
+	Total Events Processed                                11315021
+	Events Aborted (part of RBs)                                 0
+	Events Rolled Back                                           0
+	Event Ties Detected in PE Queues                             0
+	Efficiency                                              100.00 %
+	Total Remote (shared mem) Events Processed                   0
+	Percent Remote Events                                     0.00 %
+	Total Remote (network) Events Processed                      0
+	Percent Remote Events                                     0.00 %
+
+	Total Roll Backs                                             0
+	Primary Roll Backs                                           0
+	Secondary Roll Backs                                         0
+	Fossil Collect Attempts                                      0
+	Total GVT Computations                                       0
+
+	Net Events Processed                                  11315021
+	Event Rate (events/sec)                               316149.8
+	Total Events Scheduled Past End Time                         0
+
+TW Memory Statistics:
+	Events Allocated                                         46097
+	Memory Allocated                                         80000
+	Memory Wasted                                              101
+
+TW Data Structure sizes in bytes (sizeof):
+	PE struct                                                 3888
+	KP struct                                                  960
+	LP struct                                                  960
+	LP Model struct                                             96
+	LP RNGs                                                     80
+	Total LP                                                  1136
+	Event struct                                               976
+	Event struct with Model                                   1768
+
+TW Clock Cycle Statistics (MAX values in secs at 1.0000 GHz):
+	Initialization                                          0.3151
+	Priority Queue (enq/deq)                                5.0614
+	AVL Tree (insert/delete)                                0.0000
+	LZ4 (de)compression                                     0.0000
+	Buddy system                                            0.0000
+	Event Processing                                        0.0000
+	Event Cancel                                            0.0000
+	Event Abort                                             0.0000
+
+	GVT                                                     0.0000
+	Fossil Collect                                          0.0000
+	Primary Rollbacks                                       0.0000
+	Network Read                                            0.0000
+	Other Network                                           0.0000
+	Instrumentation (computation)                           0.0000
+	Instrumentation (write)                                 0.0000
+	Total Time (Note: Using Running Time above for Speedup)     74.9855
+
+TW GVT Statistics: MPI AllReduce
+	GVT Interval                                                16
+	GVT Real Time Interval (cycles)                    0
+	GVT Real Time Interval (sec)                        0.00000000
+	Batch Size                                                  16
+
+	Forced GVT                                                   0
+	Total GVT Computations                                       0
+	Total All Reduce Calls                                       0
+	Average Reduction / GVT                                   -nan
+
+ Total bytes sent 2513292480 recvd 2513292480 
+ max runtime 27860569.932221 ns avg runtime 24501344.282682 
+ max comm time 21356588.612738 avg comm time 19501219.282682 
+ max send time 104174353.511400 avg send time 74765835.724547 
+ max recv time 100173347.933146 avg recv time 74419141.320531 
+ max wait time 19215338.524462 avg wait time 16456309.234173 
+
+----------
+Per App Max Elapsed Times:
+	App 0: 27860569.9322
+	App 1: 21356838.6127
+----------
+LP-IO: writing output to tmptest-jacobiS_MILC-25331-1693498581/
+LP-IO: data files:
+   tmptest-jacobiS_MILC-25331-1693498581/dragonfly-cn-stats
+   tmptest-jacobiS_MILC-25331-1693498581/dragonfly-link-stats
+   tmptest-jacobiS_MILC-25331-1693498581/model-net-category-all
+   tmptest-jacobiS_MILC-25331-1693498581/model-net-category-high
+   tmptest-jacobiS_MILC-25331-1693498581/avg-all-reduce-time
+   tmptest-jacobiS_MILC-25331-1693498581/mpi-replay-stats
+
+------------------ Dragonfly Dally Parameters ---------
+	num_routers =            4
+	local_bandwidth =        5.25
+	global_bandwidth =       4.70
+	cn_bandwidth =           5.25
+	num_vcs =                4
+	num_qos_levels =         1
+	local_vc_size =          16384
+	global_vc_size =         16384
+	cn_vc_size =             32768
+	chunk_size =             4096
+	num_cn =                 2
+	cn_radix =               2
+	intra_grp_radix =        3
+	num_groups =             9
+	total_groups =           9
+	virtual radix =          7
+	total_routers =          36
+	total_terminals =        72
+	num_global_channels =    2
+	num_injection_queues =   1
+	num_rails =              1
+	num_planes =             1
+	cn_delay =               726.61
+	local_delay =            726.61
+	global_delay =           811.64
+	local credit_delay =     1.42
+	global credit_delay =    1.42
+	cn credit_delay =        1.42
+	router_delay =           100.00
+	routing =                PROG_ADAPTIVE
+	adaptive_threshold =     0
+	max hops notification =  2147483647
+------------------------------------------------------
+
+
+Average number of hops traversed 4.101973 average chunk latency 40.897694 us maximum chunk latency 732.304909 us avg message size 363612.937500 bytes finished messages 6912 finished chunks 618912
+
+ADAPTIVE ROUTING STATS: 349554 chunks routed minimally 269358 chunks routed non-minimally completed packets 618912 
+
+Total packets generated 618912 finished 618912 Locally routed- same router 14696 different-router 56472 Remote (inter-group) 547744 

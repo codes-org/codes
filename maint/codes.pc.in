@@ -19,11 +19,14 @@ argobots_cflags=@ARGOBOTS_CFLAGS@
 swm_libs=@SWM_LIBS@
 swm_cflags=@SWM_CFLAGS@
 swm_datarootdir=@SWM_DATAROOTDIR@
+union_libs=@UNION_LIBS@
+union_cflags=@UNION_CFLAGS@
+union_datadir=@UNION_DATADIR@
 
 Name: codes-base
 Description: Base functionality for CODES storage simulation
 Version: @PACKAGE_VERSION@
 URL: https://github.com/codes-org/codes
 Requires:
-Libs: -L${libdir} -lcodes ${ross_libs} ${argobots_libs} ${swm_libs} ${darshan_libs} ${dumpi_libs} ${cortex_libs}
-Cflags: -I${includedir} -I${swm_datarootdir} ${ross_cflags} ${darshan_cflags} ${swm_cflags} ${argobots_cflags} ${dumpi_cflags} ${cortex_cflags}
+Libs: -L${libdir} -lcodes ${ross_libs} ${argobots_libs} ${swm_libs} ${union_libs} ${darshan_libs} ${dumpi_libs} ${cortex_libs}
+Cflags: -I${includedir} -I${swm_datarootdir} ${union_datadir} ${ross_cflags} ${darshan_cflags} ${swm_cflags} ${union_cflags} ${argobots_cflags} ${dumpi_cflags} ${cortex_cflags}

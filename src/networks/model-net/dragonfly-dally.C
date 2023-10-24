@@ -244,6 +244,14 @@ struct dragonfly_param
     double router_delay;
 
     int max_hops_notify; //maximum number of hops allowed before notifying via printout
+
+    //Xin: parameters for message counters of apps
+    int counting_bool;
+    tw_stime counting_start; 
+    tw_stime counting_interval; 
+    int counting_windows;
+    int num_apps;
+
 };
 
 static const dragonfly_param* stored_params;
@@ -590,6 +598,13 @@ struct router_state
     
     long fwd_events;
     long rev_events;
+
+    //Xin: buffer for output data
+    char output_buf5[4096];
+    char output_buf6[4096];
+    //Xin: msg couters for apps
+    tw_stime **agg_busy_time;
+    int64_t **agg_link_traffic;
 
     /* following used for ROSS model-level stats collection */
     tw_stime* busy_time_ross_sample;
@@ -1809,6 +1824,24 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     
     if(p->num_qos_levels > 1)
         p->num_vcs = p->num_qos_levels * p->num_vcs;
+
+    //Xin: app msgs counting on routers
+    rc = configuration_get_value_int(&config, "PARAMS", "counting_bool", anno, &p->counting_bool);
+    if(p->counting_bool) {
+        int rc1 = configuration_get_value_double(&config, "PARAMS", "counting_start", anno, &p->counting_start);
+        int rc2 = configuration_get_value_int(&config, "PARAMS", "counting_windows", anno, &p->counting_windows);
+        int rc3 = configuration_get_value_double(&config, "PARAMS", "counting_interval", anno, &p->counting_interval);
+        int rc4 = configuration_get_value_int(&config, "PARAMS", "num_apps", anno, &p->num_apps);
+        if(rc1 || rc2 || rc3 || rc4)
+            tw_error(TW_LOC, "\n Missing couting values, (counting_start/windows/interval/num_apps) check for config files\n");
+
+        //convert us to ns
+        p->counting_start = p->counting_start * 1000;
+        p->counting_interval = p->counting_interval * 1000;
+
+        //printf("start %f, end %f, interval %f\n", p->counting_start, p->counting_end, p->counting_interval);
+    }
+
 
     rc = configuration_get_value_int(&config, "PARAMS", "num_groups", anno, &p->num_groups);
     if(rc) {
@@ -3104,6 +3137,22 @@ void router_dally_init(router_state * r, tw_lp * lp)
             r->snapshot_data[i] = (int*)calloc(r->params->num_vcs * r->params->radix, sizeof(int)); //capturing VC occupancies of each port
         }
         router_send_snapshot_events(r, lp);
+    }
+
+    //Xin: msg counters for apps 
+    if(p->counting_bool > 0)
+    {   
+        r->agg_link_traffic = (int64_t **) calloc(p->counting_windows, sizeof(int64_t *));
+        r->agg_busy_time = (tw_stime **) malloc (p->counting_windows * sizeof(tw_stime *));
+
+        for (int i = 0; i < p->counting_windows; ++i)
+        {
+            r->agg_link_traffic[i] = (int64_t*) calloc(p->radix, sizeof(int64_t));
+            // r->agg_link_traffic[i] = (int64_t*) calloc(p->radix*p->num_apps, sizeof(int64_t));
+            r->agg_busy_time[i] = (tw_stime*) malloc(p->radix * sizeof(tw_stime));
+            for(int j = 0; j < p->radix; j++)
+              r->agg_busy_time[i][j] = 0.0;
+        }
     }
 
     return;
@@ -4478,6 +4527,35 @@ void dragonfly_dally_router_final(router_state * s, tw_lp * lp){
     //             dragonfly_print_params(s->params);
     //     }
     // }
+
+    //Xin: output link statistics
+    if(p->counting_bool)
+    {
+      // for link traffic
+      if(!s->router_id){
+          written = sprintf(s->output_buf5, "# Format <LP ID> <Group ID> <Router ID> <Window ID> <Link Traffic>\n");
+          lp_io_write(lp->gid, (char*)"dragonfly-router-traffic-sample", written, s->output_buf5);
+      }
+      for(int i=0; i < p->counting_windows; i++) {
+          written = sprintf(s->output_buf5, "\n %llu %d %d %lf", LLU(lp->gid), s->router_id / p->num_routers, s->router_id , (p->counting_start+(i+1)*p->counting_interval));
+          for (int d=0; d < p->radix; d++)
+              written += sprintf(s->output_buf5 + written, " %d", (s->agg_link_traffic[i][d]));
+          lp_io_write(lp->gid, (char*)"dragonfly-router-traffic-sample", written, s->output_buf5);
+      } 
+
+      // for link busy time
+      if(!s->router_id){
+          written = sprintf(s->output_buf6, "# Format <LP ID> <Group ID> <Router ID> <Window ID> <Link Busy Time>\n");
+          lp_io_write(lp->gid, (char*)"dragonfly-router-busytime-sample", written, s->output_buf6);
+      }
+      for(int i=0; i < p->counting_windows; i++) {
+          written = sprintf(s->output_buf6, "\n %llu %d %d %lf", LLU(lp->gid), s->router_id / p->num_routers, s->router_id , (p->counting_start+(i+1)*p->counting_interval));
+          for (int d=0; d < p->radix; d++)
+              written += sprintf(s->output_buf6 + written, " %lf", (s->agg_busy_time[i][d]));
+          lp_io_write(lp->gid, (char*)"dragonfly-router-busytime-sample", written, s->output_buf6);
+      }       
+    }
+
 }
 
 static Connection do_dfdally_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
@@ -4704,6 +4782,13 @@ static void router_packet_receive_rc(router_state * s,
 {  
     int output_port = msg->saved_vc;
     int output_chan = msg->saved_channel;
+
+    for(int i = 0 ; i < msg->num_cll; i++)
+        codes_local_latency_reverse(lp);
+
+    for(int i = 0; i < msg->num_rngs; i++)
+        tw_rand_reverse_unif(lp->rng);
+
     int src_term_id = msg->dfdally_src_terminal_id;
     int app_id = msg->saved_app_id;
 
@@ -4972,7 +5057,18 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
     
     if(msg->last_saved_qos)
        s->last_qos_lvl[output_port] = msg->last_saved_qos; 
-     
+
+    //Xin: target window to rollback
+    bool rolback = false;
+    int current_window = -1;
+    const dragonfly_param *p = s->params;
+    if(s->params->counting_bool>0 && msg->last_sent_time >= s->params->counting_start) {
+        current_window = (int) ((msg->last_sent_time-s->params->counting_start)/s->params->counting_interval);
+        if(current_window < s->params->counting_windows) {
+          rolback = true;
+        }
+    }      
+
     if(bf->c1) {
         s->in_send_loop[output_port] = msg->saved_send_loop;
         if(bf->c2) {
@@ -4988,6 +5084,11 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
         s->busy_time_sample[output_port] = msg->saved_sample_time;
         s->ross_rsample.busy_time[output_port] = msg->saved_sample_time;
         s->last_buf_full[output_port] = msg->saved_busy_time;
+
+        //Xin: reverse busy time
+        if(rolback && current_window >= 0){
+          s->agg_busy_time[current_window][output_port] = msg->saved_rcv_time;
+        }
     }
       
     terminal_dally_message_list * cur_entry = (terminal_dally_message_list *)rc_stack_pop(s->st);
@@ -5010,6 +5111,11 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
         s->link_traffic_sample[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size; 
         s->ross_rsample.link_traffic_sample[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size; 
         s->link_traffic_ross_sample[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size; 
+
+        //Xin: reverse link traffic
+        if(rolback && current_window >= 0){
+          s->agg_link_traffic[current_window][output_port] -= cur_entry->msg.packet_size % s->params->chunk_size;
+        }
     }
     if(bf->c12)
     {
@@ -5017,6 +5123,11 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
         s->link_traffic_sample[output_port] -= s->params->chunk_size;
         s->ross_rsample.link_traffic_sample[output_port] -= s->params->chunk_size;
         s->link_traffic_ross_sample[output_port] -= s->params->chunk_size;
+
+        //Xin: reverse link traffic
+        if(rolback && current_window >= 0){
+          s->agg_link_traffic[current_window][output_port] -= s->params->chunk_size;
+        }
     }
 
     s->total_chunks[output_port]--;
@@ -5054,6 +5165,18 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     
     msg->saved_vc = output_port;
     msg->saved_channel = output_chan;
+
+    //Xin: target window to update link traffic 
+    msg->last_sent_time = tw_now(lp);
+    bool update = false;
+    int current_window = -1;
+    const dragonfly_param *p = s->params;
+    if(s->params->counting_bool>0 && msg->last_sent_time >= s->params->counting_start) {
+      current_window = (int) ((msg->last_sent_time - s->params->counting_start)/s->params->counting_interval);
+      if(current_window < s->params->counting_windows) {
+          update = true;
+        }
+    }
     
     if(output_chan < 0) 
     {
@@ -5084,6 +5207,11 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
         s->busy_time_sample[output_port] += (tw_now(lp) - s->last_buf_full[output_port]);
         s->ross_rsample.busy_time[output_port] += (tw_now(lp) - s->last_buf_full[output_port]);
         s->last_buf_full[output_port] = 0.0;
+
+        //Xin: update link busy time
+        if(update && current_window >= 0){
+            s->agg_busy_time[current_window][output_port] += (tw_now(lp) - s->last_buf_full[output_port]); 
+        }
     }
 
     int vcg = 0;
@@ -5176,6 +5304,11 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
         s->ross_rsample.link_traffic_sample[output_port] += (cur_entry->msg.packet_size % s->params->chunk_size);
         s->link_traffic_ross_sample[output_port] += (cur_entry->msg.packet_size % s->params->chunk_size);
         msg_size = cur_entry->msg.packet_size % s->params->chunk_size;
+
+        //Xin: update link traffic
+        if(update && current_window >= 0){
+            s->agg_link_traffic[current_window][output_port] += (cur_entry->msg.packet_size % s->params->chunk_size);           
+        }
     } 
     else {
         bf->c12 = 1;
@@ -5183,6 +5316,11 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
         s->link_traffic_sample[output_port] += s->params->chunk_size;
         s->ross_rsample.link_traffic_sample[output_port] += s->params->chunk_size;
         s->link_traffic_ross_sample[output_port] += s->params->chunk_size;
+
+        //Xin: update link traffic 
+        if(update && current_window >= 0){
+            s->agg_link_traffic[current_window][output_port] += s->params->chunk_size;
+        }
     }
 
     s->total_chunks[output_port]++;
@@ -5258,6 +5396,15 @@ static void router_buf_update_rc(router_state * s,
         s->ross_rsample.busy_time[indx] = msg->saved_sample_time;
         s->busy_time_ross_sample[indx] = msg->saved_busy_time_ross;
         s->last_buf_full[indx] = msg->saved_busy_time;
+
+        //Xin: reverse agg busytime (not working for cross window reverse)
+        const dragonfly_param *p = s->params;
+        if(s->params->counting_bool>0 && msg->last_bufupdate_time >= s->params->counting_start) {
+            int current_window = (int) ((msg->last_bufupdate_time - s->params->counting_start)/s->params->counting_interval);
+            if(current_window < s->params->counting_windows) {
+              s->agg_busy_time[current_window][indx] = msg->saved_rcv_time;
+            }
+        }
     }
     if(bf->c1) {
         terminal_dally_message_list* head = return_tail(s->pending_msgs[indx],
@@ -5290,6 +5437,23 @@ static void router_buf_update(router_state * s, tw_bf * bf, terminal_dally_messa
         s->busy_time_sample[indx] += (tw_now(lp) - s->last_buf_full[indx]);
         s->ross_rsample.busy_time[indx] += (tw_now(lp) - s->last_buf_full[indx]);
         s->busy_time_ross_sample[indx] += (tw_now(lp) - s->last_buf_full[indx]);
+
+        //Xin: update link busy time
+        const dragonfly_param *p = s->params;
+        msg->last_bufupdate_time = tw_now(lp);
+        if(s->params->counting_bool>0 && msg->last_bufupdate_time >= s->params->counting_start) {
+            int current_window = (int) ((msg->last_bufupdate_time - s->params->counting_start)/s->params->counting_interval);
+            if(current_window < s->params->counting_windows) {
+                int full_window = (int) ((s->last_buf_full[indx] - s->params->counting_start)/s->params->counting_interval);
+                if(full_window==current_window) {
+                    s->agg_busy_time[current_window][indx] += (tw_now(lp) - s->last_buf_full[indx]);
+                } else {
+                    s->agg_busy_time[current_window][indx] += (tw_now(lp) - (s->params->counting_start+current_window*s->params->counting_interval));
+                    s->agg_busy_time[full_window][indx] += ((s->params->counting_start+current_window*s->params->counting_interval) - s->last_buf_full[indx]);
+                }
+            }
+        }
+
         s->last_buf_full[indx] = 0.0;
     }
 
