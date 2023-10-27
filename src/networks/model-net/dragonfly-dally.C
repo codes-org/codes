@@ -3888,6 +3888,7 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
     // results when running in surrogate. A good model should produce similar `nic`s to what the code above
     // does (the average predictor does just that!)
     double const nic_ts = end.next_packet_delay;
+    assert(nic_ts > 0);
 
     // Scheduling idle event for next packet to be processed
     bool const is_from_remote = false;

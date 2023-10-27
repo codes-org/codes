@@ -10,7 +10,7 @@ bool freeze_network_on_switch = true;
 struct surrogate_config surr_config = {0};
 bool is_surrogate_configured = false;
 struct switch_at_struct switch_at;
-struct packet_latency_predictor current_predictor = {0};
+static struct packet_latency_predictor current_predictor = {0};
 
 
 // === Stats!

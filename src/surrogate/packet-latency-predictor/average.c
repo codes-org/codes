@@ -87,7 +87,8 @@ static struct packet_end predict_latency(struct latency_surrogate * data, tw_lp 
     }
     assert(latency >= 0);
 
-    double const next_packet_delay =
+    // TODO (Elkin): 10 is an arbitrary small value, but it should be nic_ts as implemented in `packet_getenerate` in dragonfly-dally
+    double const next_packet_delay = data->aggregated_next_packet_delay.total_msgs == 0 ? 10 :
         data->aggregated_next_packet_delay.sum_latency / data->aggregated_next_packet_delay.total_msgs;
     return (struct packet_end) {
         .travel_end_time = packet_dest->travel_start_time + latency,

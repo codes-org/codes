@@ -106,11 +106,9 @@ static void rollback_and_cancel_events_pe(tw_pe * pe, tw_stime gvt) {
         tw_gvt_step2(pe);
 
         if (DEBUG_DIRECTOR > 1) {
-            printf("PE %lu: Time stamp at the end of GVT time: %e - AVL-tree sized: %d\n", g_tw_mynode, gvt, pe->avl_tree_size);
+            printf("PE %lu: Time stamp at the end of GVT time: %f - AVL-tree sized: %d\n", g_tw_mynode, gvt, pe->avl_tree_size);
         }
     } while (does_any_pe(pe->cancel_q != NULL) || does_any_pe(pe->event_q.size != 0));
-
-    tw_pe_fossil_collect();
 
     if (DEBUG_DIRECTOR > 1) {
         printf("PE %lu: All events rolledbacked and cancelled\n", g_tw_mynode);
@@ -454,7 +452,7 @@ void director_switch(tw_pe * pe, tw_stime gvt) {
         if (DEBUG_DIRECTOR == 2) {
             printf("\n");
         }
-        printf("Switching at %g", gvt);
+        printf("Switching at %f", gvt);
     }
     // Rollback if in optimistic mode
 #ifdef USE_RAND_TIEBREAKER
