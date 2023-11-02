@@ -3008,14 +3008,14 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(
 
             //printf("NOTIFYING of zombie: packet dest id %d dest gid %d\n", sent.start.dest_terminal_lpid, sent.start.dfdally_dest_terminal_id);
             notify_dest_lp_of(s, lp, m, NOTIFY_ZOMBIE);
-        }
 
-        // Deallocating memory from packet_start
-        if (sent.message_data) {
-            free(sent.message_data);
-        }
-        if (sent.remote_event_data) {
-            free(sent.remote_event_data);
+            // Deallocating memory from packet_start
+            if (sent.message_data) {
+                free(sent.message_data);
+            }
+            if (sent.remote_event_data) {
+                free(sent.remote_event_data);
+            }
         }
     }
     assert(s->sent_packets.empty());
