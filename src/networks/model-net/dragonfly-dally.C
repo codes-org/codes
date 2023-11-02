@@ -30,8 +30,6 @@
 #include <map>
 #include <set>
 #include <algorithm>
-#include <queue>
-#include <deque>
 #include <errno.h>
 #include <sys/stat.h>
 
@@ -484,19 +482,15 @@ static bool isRoutingNonminimalExplicit(int alg)
  * Surrogate definitions and data
  */
 
-struct packet_double_val {
-    uint64_t packet_ID;
-    double value; // This can either be packet delivery latency or delay in queue to be processed
+struct packet_sent {
+    struct packet_start start;
+    double next_packet_delay; // When the packet is initially sent, this value is -1, when the next packet is sent this value is updated to the actual delay to process the next packet
+    void * message_data;  // Yep, we have to save the entire message just because we might need to resend the message when switching to surrogate-mode. It's wasteful but there is no other way
+    void * remote_event_data;  // This and the one above have to be freed. This contains the extra information that the message contains
 };
-// Comparison function object to use in min-heap of sent_packets_latency
-static struct {
-    bool operator() (struct packet_double_val const l, struct packet_double_val const r) const {
-        return l.packet_ID > r.packet_ID;
-    }
-} packet_double_val_greater_cmp;
 
 struct packet_id {
-    uint64_t packet_ID;
+    int64_t packet_ID;
     unsigned int dfdally_src_terminal_id;
 };
 bool operator<(struct packet_id const &lk, struct packet_id const &rk) {
@@ -508,7 +502,7 @@ static void notify_dest_lp_of(terminal_state * s, tw_lp * lp, terminal_dally_mes
 /* dragonfly compute node data structure */
 struct terminal_state
 {
-    uint64_t packet_counter;
+    int64_t packet_counter;
 
     int packet_gen;
     int packet_fin;
@@ -601,11 +595,13 @@ struct terminal_state
 
     // Variables to recover latency of packets sent to other terminals
     // Sent packets (to be populated at by commit handler of packet sender)
-    deque<struct packet_start> sent_packets;
-    // min-heap for latencies of packets once they arrive (some packets might
-    // arrive faster than others, so a list like the one above is not feasible
-    // to store in order efficiently their arrival)
-    priority_queue<struct packet_double_val, vector<struct packet_double_val>, decltype(packet_double_val_greater_cmp)> sent_packets_latency;
+    map<int64_t, struct packet_sent> sent_packets;
+    int64_t last_packet_sent_id;
+    // We need the next packet to be injected in the network before feeding the packet info forward (the predictor needs starting time, delay to send next packet and latency)
+    struct {
+        int64_t packet_ID;
+        double travel_end_time;
+    } arrival_of_last_packet;
     // received (and not completed, yet) packets. The value associated to a key is the remaining number of "bytes" to receive before the packet is consumed totally. If a packet size == chunk size, this map will never be used/filled
     map<struct packet_id, uint32_t> remaining_sz_packets;
 
@@ -2861,20 +2857,20 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
 
 static inline void packet_latency_save_to_file(
         unsigned int terminal_id,
-        struct packet_start start,
-        struct packet_end end,
+        struct packet_start * start,
+        struct packet_end * end,
         bool surrogate_on,
         bool is_predicted
 ) {
     if (!packet_latency_f) { return; } // Don't save if there isn't a file to save to
-    if (end.travel_end_time > g_tw_ts_end) { return; } // This packet could never arrive to its destination!
+    if (end->travel_end_time > g_tw_ts_end) { return; } // This packet could never arrive to its destination!
     fprintf(packet_latency_f, "%u,%u,%lu,%d,%d,%u,%f,%f,%f,%f,%f,%d\n",
-            terminal_id, start.dfdally_dest_terminal_id, start.packet_ID,
-            surrogate_on, is_predicted,
-            start.packet_size,
-            start.workload_injection_time, end.next_packet_delay,
-            start.travel_start_time, end.travel_end_time, end.travel_end_time - start.travel_start_time,
-            start.is_there_another_pckt_in_queue);
+            terminal_id, start->dfdally_dest_terminal_id, start->packet_ID,
+            surrogate_on, is_predicted, start->packet_size,
+            start->workload_injection_time,
+            end->next_packet_delay, start->travel_start_time,
+            end->travel_end_time, end->travel_end_time - start->travel_start_time,
+            start->is_there_another_pckt_in_queue);
 }
 
 // ==== START OF Surrogate functions definition ====
@@ -2887,46 +2883,36 @@ static bool is_surrogate_on_fun(void) {
     return is_surrogate_on;
 }
 
-// Goes through all received packet latencies and process them in order in which they were sent through the network
-static void process_packet_latencies(terminal_state * s, tw_lp * lp)
-{
-    while( s->sent_packets.size() >= 2  // We need at least two packets to determine the delay of the next packet to be processed
-        && !s->sent_packets_latency.empty()
-        && s->sent_packets.front().packet_ID == s->sent_packets_latency.top().packet_ID
-        )
-    {
-        auto start = s->sent_packets.front();
-        double const next_packet_delay = s->sent_packets[1].processing_packet_delay;
-        struct packet_end end = {
-            .travel_end_time = s->sent_packets_latency.top().value,
-            .next_packet_delay = next_packet_delay,
-        };
-        packet_latency_save_to_file(s->terminal_id, start, end, is_surrogate_on, false);
-        if (surrogate_configured && !is_surrogate_on) {
-            assert(terminal_predictor != NULL);
-            terminal_predictor->feed(s->predictor_data, lp, s->terminal_id, &start, &end);
-        }
+static void feed_packet_to_predictor(terminal_state * s, tw_lp * lp, int64_t packet_ID, double end_time) {
+    assert(s->sent_packets.count(packet_ID) == 1); // packet_ID is in s->sent_packets
+    auto sent = s->sent_packets[packet_ID];
+    struct packet_end end = {
+        .travel_end_time = end_time,
+        .next_packet_delay = sent.next_packet_delay,
+    };
 
-        // Deallocating memory
-        if (start.message_data) {
-            free(start.message_data);
-        }
-        if (start.remote_event_data) {
-            free(start.remote_event_data);
-        }
+    packet_latency_save_to_file(s->terminal_id, &sent.start, &end, is_surrogate_on, false);
+    if (surrogate_configured && !is_surrogate_on) {
+        assert(terminal_predictor != NULL);
+        terminal_predictor->feed(s->predictor_data, lp, s->terminal_id, &sent.start, &end);
+    }
 
-        s->sent_packets.pop_front();
-        s->sent_packets_latency.pop();
+    // Deallocating memory
+    if (sent.message_data) {
+        free(sent.message_data);
+    }
+    if (sent.remote_event_data) {
+        free(sent.remote_event_data);
     }
 }
 
 // Constructs a hashmap with all the T_NOTIFY events to be processed.
 // The key of the list is the GID for the source terminal. The value of the
 // hash is the end time
-static map<uint64_t, double> construct_map_of_NOTIFY_LATENCY_events(
+static map<int64_t, double> construct_map_of_NOTIFY_LATENCY_events(
         tw_lp * lp, tw_event ** const terminal_events) {
     // hash map to store T_NOTIFY events found (`packet_ID` and `travel_end_time`)
-    map<uint64_t, double> notification_events_map;
+    map<int64_t, double> notification_events_map;
 
     for (size_t i = 0; terminal_events && terminal_events[i] != NULL; i++) {
         assert(terminal_events[i]->dest_lpid == lp->gid);
@@ -2949,67 +2935,56 @@ static map<uint64_t, double> construct_map_of_NOTIFY_LATENCY_events(
 // This function never rollsback because it's called at GVT
 static void dragonfly_dally_terminal_highdef_to_surrogate(
         terminal_state * s, tw_lp * lp, tw_event ** terminal_events) {
-    process_packet_latencies(s, lp);
 
     auto notification_events_map = construct_map_of_NOTIFY_LATENCY_events(lp, terminal_events);
+
+    if (s->arrival_of_last_packet.packet_ID != -1) {
+        assert(s->sent_packets.count(s->arrival_of_last_packet.packet_ID) == 1); // packet_ID is in s->sent_packets
+        assert(s->sent_packets[s->arrival_of_last_packet.packet_ID].next_packet_delay < 0); // next_packet_delay is -1
+
+        double const travel_end_time = s->arrival_of_last_packet.travel_end_time;
+        feed_packet_to_predictor(s, lp, s->arrival_of_last_packet.packet_ID, travel_end_time);
+        s->sent_packets.erase(s->arrival_of_last_packet.packet_ID);
+        s->arrival_of_last_packet.packet_ID = -1;
+    }
 
     // Going through every packet that was sent but not yet received, remove it
     // from the list, send it to its destination using the predictor, and
     // notify of its zombie status.
-    while(!s->sent_packets.empty()) {
-        struct packet_start start = s->sent_packets.front();
-        s->sent_packets.pop_front();
-        assert(start.message_data);
+    // (deleting all elements from s->sent_packets as we go)
+    for (auto it = s->sent_packets.begin(); it != s->sent_packets.end(); it = s->sent_packets.erase(it)) {
+        int64_t packet_ID = it->first;
+        auto & sent = it->second;
 
-        // The predictor is asked to predict the latency of the packet regardless if it is a zombie or not.
-        // (This makes it so that we feed the predictor only during high-def mode, and never a switching time)
-        struct packet_end predicted_end = 
-            terminal_predictor->predict(s->predictor_data, lp, s->terminal_id, &start);
+        assert(packet_ID == sent.start.packet_ID);
 
-        bool const in_sent_packets_latency =
-            !s->sent_packets_latency.empty() && start.packet_ID == s->sent_packets_latency.top().packet_ID;
         // Finding out whether the packet-latency is on the list of messages to be processed
-        bool const in_events_to_process = !in_sent_packets_latency &&
-            notification_events_map.count(start.packet_ID) == 1;
+        bool const in_events_to_process = notification_events_map.count(packet_ID) == 1;
+        if (in_events_to_process) {
+            feed_packet_to_predictor(s, lp, packet_ID, notification_events_map[sent.start.packet_ID]);
 
-        // The packet was delievered and its latency is known (we were notified)
-        if (in_sent_packets_latency || in_events_to_process) {
-            struct packet_end end;
-            // Delete packet from stack
-            if (in_sent_packets_latency) {
-                auto const latency_q = s->sent_packets_latency.top();
-                end.travel_end_time = latency_q.value;
-                s->sent_packets_latency.pop();
-            } else {
-                end.travel_end_time = notification_events_map[start.packet_ID];
-            }
-            if (s->sent_packets.size() >= 2) {
-                end.next_packet_delay = s->sent_packets[1].processing_packet_delay;
-            } else {
-                end.next_packet_delay = -1;
-            }
-            packet_latency_save_to_file(s->terminal_id, start, end, is_surrogate_on, false);
-        }
-        // The packet has not been delievered, or we haven't received the notification yet.
-        // Send directly to destination and notify of zombie event
-        else if (freeze_network_on_switch) {
+        // The packet has not been delievered. Send directly to destination and notify of zombie event
+        } else if (freeze_network_on_switch) {
+            struct packet_end predicted_end = 
+                terminal_predictor->predict(s->predictor_data, lp, s->terminal_id, &sent.start);
+
             double latency = predicted_end.travel_end_time - tw_now(lp);
             if (predicted_end.travel_end_time < tw_now(lp) || latency < 0) {
                 predicted_end.travel_end_time = tw_now(lp);
                 latency = 0;
             }
 
-            packet_latency_save_to_file(s->terminal_id, start, predicted_end, is_surrogate_on, true);
+            packet_latency_save_to_file(s->terminal_id, &sent.start, &predicted_end, is_surrogate_on, true);
 
-            assert(start.message_data);
-            terminal_dally_message * const msg_data = (terminal_dally_message*) start.message_data;
+            assert(sent.message_data);
+            terminal_dally_message * const msg_data = (terminal_dally_message*) sent.message_data;
             terminal_dally_message * m;
             void * remote_event;
             tw_event * const e = model_net_method_event_new(
-                    start.dest_terminal_lpid, latency, lp, DRAGONFLY_DALLY, (void**)&m, &remote_event);
+                    sent.start.dest_terminal_lpid, latency, lp, DRAGONFLY_DALLY, (void**)&m, &remote_event);
             memcpy(m, msg_data, sizeof(terminal_dally_message));
             if (m->remote_event_size_bytes) {
-                memcpy(remote_event, start.remote_event_data, m->remote_event_size_bytes);
+                memcpy(remote_event, sent.remote_event_data, m->remote_event_size_bytes);
             }
             m->magic = terminal_magic_num;
             m->type = T_ARRIVE_PREDICTED;
@@ -3024,26 +2999,26 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(
             m->intm_grp_id = -1;
             m->intm_rtr_id = -1; //for legacy prog-adaptive
             assert(m->dfdally_src_terminal_id  == s->terminal_id);
-            assert(m->packet_ID                == start.packet_ID);
-            assert(m->dest_terminal_lpid       == start.dest_terminal_lpid);
-            assert(m->dfdally_dest_terminal_id == start.dfdally_dest_terminal_id);
-            //assert(m->travel_start_time        >= start.travel_start_time);
-            assert(m->packet_size              == start.packet_size);
+            assert(m->packet_ID                == sent.start.packet_ID);
+            assert(m->dest_terminal_lpid       == sent.start.dest_terminal_lpid);
+            assert(m->dfdally_dest_terminal_id == sent.start.dfdally_dest_terminal_id);
+            //assert(m->travel_start_time        >= sent.start.travel_start_time);
+            assert(m->packet_size              == sent.start.packet_size);
             tw_event_send(e);
 
-            //printf("NOTIFYING of zombie: packet dest id %d dest gid %d\n", start.dest_terminal_lpid, start.dfdally_dest_terminal_id);
+            //printf("NOTIFYING of zombie: packet dest id %d dest gid %d\n", sent.start.dest_terminal_lpid, sent.start.dfdally_dest_terminal_id);
             notify_dest_lp_of(s, lp, m, NOTIFY_ZOMBIE);
         }
 
         // Deallocating memory from packet_start
-        if (start.message_data) {
-            free(start.message_data);
+        if (sent.message_data) {
+            free(sent.message_data);
         }
-        if (start.remote_event_data) {
-            free(start.remote_event_data);
+        if (sent.remote_event_data) {
+            free(sent.remote_event_data);
         }
     }
-    assert(s->sent_packets_latency.empty());
+    assert(s->sent_packets.empty());
 
     // Hide current state and clean current state. Hidding the network information is in principle
     // the same as freezing the state of the network.
@@ -3070,9 +3045,10 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(
     s->total_msg_size               = frozen_state->total_msg_size;
     s->finished_msgs                = frozen_state->finished_msgs;
     s->rank_tbl_pop                 = frozen_state->rank_tbl_pop;
+    s->last_packet_sent_id          = frozen_state->last_packet_sent_id;
+    memcpy(&s->arrival_of_last_packet, &frozen_state->arrival_of_last_packet, sizeof(s->arrival_of_last_packet));
     memcpy(&s->zombies,              &frozen_state->zombies,              sizeof(s->zombies));
     memcpy(&s->sent_packets,         &frozen_state->sent_packets,         sizeof(s->sent_packets));
-    memcpy(&s->sent_packets_latency, &frozen_state->sent_packets_latency, sizeof(s->sent_packets_latency));
     memcpy(&s->remaining_sz_packets, &frozen_state->remaining_sz_packets, sizeof(s->remaining_sz_packets));
     memcpy(&s->rank_tbl,             &frozen_state->rank_tbl,             sizeof(s->rank_tbl));
     memcpy(&s->st,                   &frozen_state->st,                   sizeof(s->st));
@@ -3110,9 +3086,10 @@ static void dragonfly_dally_terminal_surrogate_to_highdef(
     frozen_state->total_msg_size               = s->total_msg_size;
     frozen_state->finished_msgs                = s->finished_msgs;
     frozen_state->rank_tbl_pop                 = s->rank_tbl_pop;
+    frozen_state->last_packet_sent_id          = s->last_packet_sent_id;
+    memcpy(&frozen_state->arrival_of_last_packet, &s->arrival_of_last_packet, sizeof(s->arrival_of_last_packet));
     memcpy(&frozen_state->zombies,              &s->zombies,              sizeof(s->zombies));
     memcpy(&frozen_state->sent_packets,         &s->sent_packets,         sizeof(s->sent_packets));
-    memcpy(&frozen_state->sent_packets_latency, &s->sent_packets_latency, sizeof(s->sent_packets_latency));
     memcpy(&frozen_state->remaining_sz_packets, &s->remaining_sz_packets, sizeof(s->remaining_sz_packets));
     memcpy(&frozen_state->rank_tbl,             &s->rank_tbl,             sizeof(s->rank_tbl));
     memcpy(&frozen_state->st,                   &s->st,                   sizeof(s->st));
@@ -3227,70 +3204,172 @@ static void router_handle_snapshot_event(router_state *s, tw_bf *bf, terminal_da
     }
 }
 
+static void terminal_commit_packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) {
+    if (!packet_latency_f && !surrogate_configured) {
+        return;
+    }
+
+    // Storing packet info of sent packet. Once packets arrive back, we can compute
+    // the latency of sending the packet
+    void * msg_data = malloc(sizeof(terminal_dally_message));
+    memcpy(msg_data, msg, sizeof(terminal_dally_message));
+    void * remote_data = NULL;
+    if (msg->remote_event_size_bytes) {
+        remote_data = malloc(msg->remote_event_size_bytes);
+        memcpy(remote_data, model_net_method_get_edata(DRAGONFLY_DALLY, msg), msg->remote_event_size_bytes);
+    }
+    double const processing_packet_delay = s->last_in_queue_time - msg->saved_last_in_queue_time;
+    s->sent_packets.insert({
+        msg->packet_ID,
+        (struct packet_sent) {
+            .start = (struct packet_start) {
+                .packet_ID = msg->packet_ID,
+                .dest_terminal_lpid = msg->dest_terminal_lpid,
+                .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
+                .travel_start_time = tw_now(lp),
+                .workload_injection_time = msg->msg_start_time,
+                .processing_packet_delay = processing_packet_delay,
+                .packet_size = msg->packet_size,
+                .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue,
+            },
+            .next_packet_delay = -1,
+            .message_data = msg_data,
+            .remote_event_data = remote_data
+        }
+    });
+
+    // Set next_packet_delay for the last past sent packet
+    if (s->sent_packets.count(s->last_packet_sent_id) == 1) {
+        assert(s->sent_packets[s->last_packet_sent_id].next_packet_delay == -1);
+        s->sent_packets[s->last_packet_sent_id].next_packet_delay = processing_packet_delay;
+    }
+    
+    // If we already received the (previous) last packet latency, we inject it now into the predictor
+    if (s->arrival_of_last_packet.packet_ID != -1) {
+        assert(s->arrival_of_last_packet.packet_ID == s->last_packet_sent_id);
+        assert(s->arrival_of_last_packet.travel_end_time > 0);
+
+        double const travel_end_time = s->arrival_of_last_packet.travel_end_time;
+        feed_packet_to_predictor(s, lp, s->arrival_of_last_packet.packet_ID, travel_end_time);
+        s->sent_packets.erase(s->arrival_of_last_packet.packet_ID);
+        s->arrival_of_last_packet.packet_ID = -1;
+    }
+}
+
 static void terminal_dally_commit(terminal_state * s,
 		tw_bf * bf, 
 		terminal_dally_message * msg, 
         tw_lp * lp)
 {
-    if(msg->type == T_BANDWIDTH)
-    {
-        if(msg->rc_is_qos_set == 1) {
-            free(msg->rc_qos_data);
-            free(msg->rc_qos_status);
-            msg->rc_is_qos_set = 0;
-        }
-    }
 
-    if(msg->type == T_ARRIVE)
-    {
-        if (OUTPUT_END_END_LATENCIES)
-        {
-            if (msg->message_id % OUTPUT_LATENCY_MODULO == 0) {
-                int written1;
-                char end_end_filename[128];
-                written1 = sprintf(end_end_filename, "end-to-end-latency-hops");
-                end_end_filename[written1] = '\0';
-
-                char latency[32];
-                int written;
-                tw_stime lat = msg->travel_end_time-msg->travel_start_time;
-                written = sprintf(latency, "%d %.5f %d\n",msg->app_id, msg->travel_end_time-msg->travel_start_time,msg->my_N_hop);
-                lp_io_write(lp->gid, end_end_filename, written, latency);
-            }
-        }
-    }
-
-    if(msg->type == T_GENERATE && bf->c10) {  // if the packet was sent as a prediction, store the prediction in memory
-        auto start = (struct packet_start) {
-            .packet_ID = msg->packet_ID,
-            .dest_terminal_lpid = msg->dest_terminal_lpid,
-            .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
-            .travel_start_time = msg->travel_start_time,
-            .workload_injection_time = msg->msg_start_time,
-            .processing_packet_delay = -1,
-            .packet_size = msg->packet_size,
-            .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue
-        };
-
-        // Saving
-        auto const end = (struct packet_end) {
-            .travel_end_time = msg->travel_end_time,
-            .next_packet_delay = msg->saved_next_packet_delay,
-        };
-        packet_latency_save_to_file(s->terminal_id, start, end, is_surrogate_on, true);
-    }
-
-    if(msg->type == T_NOTIFY && msg->notify_type == NOTIFY_LATENCY)
-    {
-        assert(lp->gid == msg->src_terminal_id);
-        assert(s->terminal_id == msg->dfdally_src_terminal_id);
-        if (!s->sent_packets.empty() && s->sent_packets.front().packet_ID <= msg->packet_ID) {
-            s->sent_packets_latency.push({
+    switch (msg->type) {
+        case T_GENERATE:
+            if(bf->c10) {  // if the packet was sent as a prediction, store the prediction in memory
+                assert(surrogate_configured);
+                auto start = (struct packet_start) {
                     .packet_ID = msg->packet_ID,
-                    .value = msg->travel_end_time});
+                    .dest_terminal_lpid = msg->dest_terminal_lpid,
+                    .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
+                    .travel_start_time = msg->travel_start_time,
+                    .workload_injection_time = msg->msg_start_time,
+                    .processing_packet_delay = -1,
+                    .packet_size = msg->packet_size,
+                    .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue
+                };
 
-            process_packet_latencies(s, lp);
-        }
+                // Saving
+                auto end = (struct packet_end) {
+                    .travel_end_time = msg->travel_end_time,
+                    .next_packet_delay = msg->saved_next_packet_delay,
+                };
+                packet_latency_save_to_file(s->terminal_id, &start, &end, is_surrogate_on, true);
+
+                // If we had latency info for the last packet transmitted, then we have to store it into memory and clean the variable
+                if (s->arrival_of_last_packet.packet_ID != -1) {
+                    assert(s->arrival_of_last_packet.packet_ID == s->last_packet_sent_id);
+                    assert(s->arrival_of_last_packet.travel_end_time > 0);
+
+                    auto sent = s->sent_packets[s->arrival_of_last_packet.packet_ID];
+
+                    struct packet_end end = {
+                        .travel_end_time = s->arrival_of_last_packet.travel_end_time,
+                        .next_packet_delay = -1,
+                    };
+
+                    packet_latency_save_to_file(s->terminal_id, &sent.start, &end, is_surrogate_on, false);
+
+                    s->sent_packets.erase(s->arrival_of_last_packet.packet_ID);
+                    s->arrival_of_last_packet.packet_ID = -1;
+                }
+
+            // If the packet info is to be stored in memory to compute terminal delay
+            } else {
+                terminal_commit_packet_generate(s, bf, msg, lp);
+            }
+
+            assert(msg->packet_ID - 1 == s->last_packet_sent_id);
+            s->last_packet_sent_id = msg->packet_ID;
+        break;
+
+        case T_ARRIVE:
+            if (OUTPUT_END_END_LATENCIES) {
+                if (msg->message_id % OUTPUT_LATENCY_MODULO == 0) {
+                    int written1;
+                    char end_end_filename[128];
+                    written1 = sprintf(end_end_filename, "end-to-end-latency-hops");
+                    end_end_filename[written1] = '\0';
+
+                    char latency[32];
+                    int written;
+                    tw_stime lat = msg->travel_end_time-msg->travel_start_time;
+                    written = sprintf(latency, "%d %.5f %d\n",msg->app_id, msg->travel_end_time-msg->travel_start_time,msg->my_N_hop);
+                    lp_io_write(lp->gid, end_end_filename, written, latency);
+                }
+            }
+        break;
+
+        case T_ARRIVE_PREDICTED:
+        break;
+        
+        case T_SEND:
+        break;
+        
+        case T_BUFFER:
+        break;
+    
+        case T_BANDWIDTH:
+            if(msg->rc_is_qos_set == 1) {
+                free(msg->rc_qos_data);
+                free(msg->rc_qos_status);
+                msg->rc_is_qos_set = 0;
+            }
+        break;
+    
+        case T_NOTIFY:
+            if(msg->notify_type == NOTIFY_LATENCY) {
+                assert(lp->gid == msg->src_terminal_id);
+                assert(s->terminal_id == msg->dfdally_src_terminal_id);
+                int64_t packet_ID = msg->packet_ID;
+
+                if (s->sent_packets.count(packet_ID) == 1) { // packet_ID is in s->sent_packets
+                    if (packet_ID == s->last_packet_sent_id) { // packet_ID is last, we cannot compute the next_packet_delay
+                        assert(s->arrival_of_last_packet.packet_ID == -1);
+                        s->arrival_of_last_packet.packet_ID = packet_ID;
+                        s->arrival_of_last_packet.travel_end_time = msg->travel_end_time;
+                    } else {
+                        feed_packet_to_predictor(s, lp, packet_ID, msg->travel_end_time);
+                        s->sent_packets.erase(packet_ID);
+                    }
+                }
+            }
+        break;
+
+        case T_VACUOUS_EVENT:
+        break;
+
+        default:
+            printf("\n LP %d Terminal message type not supported %d ", (int)lp->gid, msg->type);
+            tw_error(TW_LOC, "Msg type not supported");
     }
 }
 
@@ -3504,9 +3583,11 @@ static void terminal_dally_init( terminal_state * s, tw_lp * lp )
     // In the future calling the constructor could be done with:
     // std::construct_at, for now this syntax suffices and works
     // (see https://en.cppreference.com/w/cpp/memory/construct_at)
-    new (&s->sent_packets) deque<struct packet_start>();
-    new (&s->sent_packets_latency) priority_queue<struct packet_double_val, vector<struct packet_double_val>, decltype(packet_double_val_greater_cmp)>();
-    new (&s->remaining_sz_packets) set<struct packet_id, uint32_t>();
+    s->last_packet_sent_id = -1;
+    s->arrival_of_last_packet.packet_ID = -1;
+    s->arrival_of_last_packet.travel_end_time = -1;
+    new (&s->sent_packets) map<int64_t, struct packet_sent>();
+    new (&s->remaining_sz_packets) map<struct packet_id, uint32_t>();
     new (&s->zombies) set<struct packet_id>();
     s->frozen_state = NULL;
 
@@ -3959,12 +4040,6 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     s->packet_counter--;
 
     s->last_in_queue_time = msg->saved_last_in_queue_time;
-    struct packet_start start = s->sent_packets.back();
-    if (start.remote_event_data) {
-        free(start.remote_event_data);
-    }
-    free(start.message_data);
-    s->sent_packets.pop_back();
 
     if(bf->c2)
         num_local_packets_sr--;
@@ -4235,31 +4310,10 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     msg->my_g_hop = 0;
     msg->my_hops_cur_group = 0;
 
-    // Storing packet info to be sent. Once packets arrive back, we can compute
-    // the latency of sending the packet
-    void * msg_data = malloc(sizeof(terminal_dally_message));
-    memcpy(msg_data, msg, sizeof(terminal_dally_message));
-    void * remote_data = NULL;
-    if (msg->remote_event_size_bytes) {
-        remote_data = malloc(msg->remote_event_size_bytes);
-        memcpy(remote_data, model_net_method_get_edata(DRAGONFLY_DALLY, msg), msg->remote_event_size_bytes);
-    }
     //assert(tw_now(lp) == msg->travel_start_time);
-    double const processing_packet_delay = tw_now(lp) - s->last_in_queue_time;
+    // This is to be later used to determine 
     msg->saved_last_in_queue_time = s->last_in_queue_time;
     s->last_in_queue_time = tw_now(lp);
-    s->sent_packets.push_back((struct packet_start){
-        .packet_ID = msg->packet_ID,
-        .dest_terminal_lpid = msg->dest_terminal_lpid,
-        .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
-        .travel_start_time = tw_now(lp),
-        .workload_injection_time = msg->msg_start_time,
-        .processing_packet_delay = processing_packet_delay,
-        .packet_size = msg->packet_size,
-        .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue,
-        .message_data = msg_data,
-        .remote_event_data = remote_data
-        });
 
     //qos stuff
     int num_qos_levels = s->params->num_qos_levels;
@@ -5480,40 +5534,44 @@ static void dragonfly_dally_terminal_final( terminal_state * s,
     lp_io_write(lp->gid, (char*)"dragonfly-cn-stats", written, s->output_buf2); 
 
     if (packet_latency_f) {
-        // Storing the missing packets into io file
-        while(!s->sent_packets.empty()) {
-            struct packet_start start = s->sent_packets.front();
-            s->sent_packets.pop_front();
-            assert(start.message_data);
+        // If the last packet transmitted actually received a latency notification (was delievered)
+        if (s->arrival_of_last_packet.packet_ID != -1) {
+            auto sent = s->sent_packets[s->arrival_of_last_packet.packet_ID];
+            assert(s->sent_packets.count(s->arrival_of_last_packet.packet_ID) == 1); // packet_ID is in s->sent_packets
+            assert(sent.next_packet_delay < 0); // next_packet_delay is -1
 
+            double const travel_end_time = s->arrival_of_last_packet.travel_end_time;
             struct packet_end end = {
-                .travel_end_time = -1,
+                .travel_end_time = travel_end_time,
                 .next_packet_delay = -1,
             };
 
-            // The packet was delievered and its latency is known (we were notified)
-            if (!s->sent_packets_latency.empty()
-                    && start.packet_ID == s->sent_packets_latency.top().packet_ID)
-            {
-                auto const latency_q = s->sent_packets_latency.top();
-                s->sent_packets_latency.pop();
-
-                end.travel_end_time = latency_q.value;
-
-                if (s->sent_packets.size() >= 2) {
-                    end.next_packet_delay = s->sent_packets[1].processing_packet_delay;
-                }
-
-                packet_latency_save_to_file(s->terminal_id, start, end, false, false);
-            }
-            // The packet has not been delievered yet (that we know of)
-            else {
-                packet_latency_save_to_file(s->terminal_id, start, end, false, false);
-            }
+            packet_latency_save_to_file(s->terminal_id, &sent.start, &end, false, false);
 
             // Deallocating memory from packet_start
-            if (start.message_data) { free(start.message_data); }
-            if (start.remote_event_data) { free(start.remote_event_data); }
+            if (sent.message_data) { free(sent.message_data); }
+            if (sent.remote_event_data) { free(sent.remote_event_data); }
+
+            s->sent_packets.erase(s->arrival_of_last_packet.packet_ID);
+            s->arrival_of_last_packet.packet_ID = -1;
+        }
+
+        // Storing all other missing packets into io file (deleting all elements from s->sent_packets as we go)
+        for (auto it = s->sent_packets.begin(); it != s->sent_packets.end(); it = s->sent_packets.erase(it)) {
+            auto& sent = it->second;
+            int64_t packet_ID = it->first;
+            assert(sent.message_data);
+
+            struct packet_end end = {
+                .travel_end_time = -1,
+                .next_packet_delay = sent.next_packet_delay,
+            };
+
+            packet_latency_save_to_file(s->terminal_id, &sent.start, &end, false, false);
+
+            // Deallocating memory from packet_start
+            if (sent.message_data) { free(sent.message_data); }
+            if (sent.remote_event_data) { free(sent.remote_event_data); }
         }
     }
 
@@ -5546,12 +5604,11 @@ static void dragonfly_dally_terminal_final( terminal_state * s,
     }
     printf("]\n");
 #endif
-    for (auto&& start: s->sent_packets) {
-        if (start.message_data) { free(start.message_data); }
-        if (start.remote_event_data) { free(start.remote_event_data); }
+    for (auto&& kv: s->sent_packets) {
+        if (kv.second.message_data) { free(kv.second.message_data); }
+        if (kv.second.remote_event_data) { free(kv.second.remote_event_data); }
     }
-    s->sent_packets.~deque();
-    s->sent_packets_latency.~priority_queue();
+    s->sent_packets.~map();
     s->remaining_sz_packets.~map();
 
     if (s->predictor_data) {
