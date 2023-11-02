@@ -36,7 +36,7 @@ static void feed_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int 
     (void) lp;
     (void) src_terminal;
 
-    if (start->travel_start_time < ignore_until) {
+    if (end->travel_end_time < ignore_until) {
         return;
     }
 

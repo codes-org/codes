@@ -490,7 +490,7 @@ struct packet_sent {
 };
 
 struct packet_id {
-    int64_t packet_ID;
+    uint64_t packet_ID;
     unsigned int dfdally_src_terminal_id;
 };
 bool operator<(struct packet_id const &lk, struct packet_id const &rk) {
@@ -595,11 +595,11 @@ struct terminal_state
 
     // Variables to recover latency of packets sent to other terminals
     // Sent packets (to be populated at by commit handler of packet sender)
-    map<int64_t, struct packet_sent> sent_packets;
-    int64_t last_packet_sent_id;
+    map<uint64_t, struct packet_sent> sent_packets;
+    uint64_t last_packet_sent_id;
     // We need the next packet to be injected in the network before feeding the packet info forward (the predictor needs starting time, delay to send next packet and latency)
     struct {
-        int64_t packet_ID;
+        uint64_t packet_ID;
         double travel_end_time;
     } arrival_of_last_packet;
     // received (and not completed, yet) packets. The value associated to a key is the remaining number of "bytes" to receive before the packet is consumed totally. If a packet size == chunk size, this map will never be used/filled
@@ -2883,7 +2883,7 @@ static bool is_surrogate_on_fun(void) {
     return is_surrogate_on;
 }
 
-static void feed_packet_to_predictor(terminal_state * s, tw_lp * lp, int64_t packet_ID, double end_time) {
+static void feed_packet_to_predictor(terminal_state * s, tw_lp * lp, uint64_t packet_ID, double end_time) {
     assert(s->sent_packets.count(packet_ID) == 1); // packet_ID is in s->sent_packets
     auto sent = s->sent_packets[packet_ID];
     struct packet_end end = {
@@ -2909,10 +2909,10 @@ static void feed_packet_to_predictor(terminal_state * s, tw_lp * lp, int64_t pac
 // Constructs a hashmap with all the T_NOTIFY events to be processed.
 // The key of the list is the GID for the source terminal. The value of the
 // hash is the end time
-static map<int64_t, double> construct_map_of_NOTIFY_LATENCY_events(
+static map<uint64_t, double> construct_map_of_NOTIFY_LATENCY_events(
         tw_lp * lp, tw_event ** const terminal_events) {
     // hash map to store T_NOTIFY events found (`packet_ID` and `travel_end_time`)
-    map<int64_t, double> notification_events_map;
+    map<uint64_t, double> notification_events_map;
 
     for (size_t i = 0; terminal_events && terminal_events[i] != NULL; i++) {
         assert(terminal_events[i]->dest_lpid == lp->gid);
@@ -2953,7 +2953,7 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(
     // notify of its zombie status.
     // (deleting all elements from s->sent_packets as we go)
     for (auto it = s->sent_packets.begin(); it != s->sent_packets.end(); it = s->sent_packets.erase(it)) {
-        int64_t packet_ID = it->first;
+        uint64_t packet_ID = it->first;
         auto & sent = it->second;
 
         assert(packet_ID == sent.start.packet_ID);
@@ -3219,24 +3219,22 @@ static void terminal_commit_packet_generate(terminal_state * s, tw_bf * bf, term
         memcpy(remote_data, model_net_method_get_edata(DRAGONFLY_DALLY, msg), msg->remote_event_size_bytes);
     }
     double const processing_packet_delay = s->last_in_queue_time - msg->saved_last_in_queue_time;
-    s->sent_packets.insert({
-        msg->packet_ID,
-        (struct packet_sent) {
-            .start = (struct packet_start) {
-                .packet_ID = msg->packet_ID,
-                .dest_terminal_lpid = msg->dest_terminal_lpid,
-                .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
-                .travel_start_time = tw_now(lp),
-                .workload_injection_time = msg->msg_start_time,
-                .processing_packet_delay = processing_packet_delay,
-                .packet_size = msg->packet_size,
-                .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue,
-            },
-            .next_packet_delay = -1,
-            .message_data = msg_data,
-            .remote_event_data = remote_data
-        }
-    });
+
+    // TODO (elkin): In the future, this ugly initialization could be done all in a single "line" instead of setting all values one by one. The reason to do it this way is because some old compilers do not understand other ways of initializing
+    struct packet_sent sent;
+    sent.start.packet_ID = msg->packet_ID;
+    sent.start.dest_terminal_lpid = msg->dest_terminal_lpid;
+    sent.start.dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id;
+    sent.start.travel_start_time = tw_now(lp);
+    sent.start.workload_injection_time = msg->msg_start_time;
+    sent.start.processing_packet_delay = processing_packet_delay;
+    sent.start.packet_size = msg->packet_size;
+    sent.start.is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue;
+    sent.next_packet_delay = -1;
+    sent.message_data = msg_data;
+    sent.remote_event_data = remote_data;
+
+    s->sent_packets[msg->packet_ID] = sent;
 
     // Set next_packet_delay for the last past sent packet
     if (s->sent_packets.count(s->last_packet_sent_id) == 1) {
@@ -3349,7 +3347,7 @@ static void terminal_dally_commit(terminal_state * s,
             if(msg->notify_type == NOTIFY_LATENCY) {
                 assert(lp->gid == msg->src_terminal_id);
                 assert(s->terminal_id == msg->dfdally_src_terminal_id);
-                int64_t packet_ID = msg->packet_ID;
+                uint64_t packet_ID = msg->packet_ID;
 
                 if (s->sent_packets.count(packet_ID) == 1) { // packet_ID is in s->sent_packets
                     if (packet_ID == s->last_packet_sent_id) { // packet_ID is last, we cannot compute the next_packet_delay
@@ -3586,7 +3584,7 @@ static void terminal_dally_init( terminal_state * s, tw_lp * lp )
     s->last_packet_sent_id = -1;
     s->arrival_of_last_packet.packet_ID = -1;
     s->arrival_of_last_packet.travel_end_time = -1;
-    new (&s->sent_packets) map<int64_t, struct packet_sent>();
+    new (&s->sent_packets) map<uint64_t, struct packet_sent>();
     new (&s->remaining_sz_packets) map<struct packet_id, uint32_t>();
     new (&s->zombies) set<struct packet_id>();
     s->frozen_state = NULL;
@@ -5559,7 +5557,7 @@ static void dragonfly_dally_terminal_final( terminal_state * s,
         // Storing all other missing packets into io file (deleting all elements from s->sent_packets as we go)
         for (auto it = s->sent_packets.begin(); it != s->sent_packets.end(); it = s->sent_packets.erase(it)) {
             auto& sent = it->second;
-            int64_t packet_ID = it->first;
+            uint64_t packet_ID = it->first;
             assert(sent.message_data);
 
             struct packet_end end = {
