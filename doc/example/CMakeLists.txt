@@ -1,7 +1,6 @@
 set(example-files
     example
     tutorial-synthetic-ping-pong
-    tutorial-synthetic-uniform
     )
 
 foreach(namefile ${example-files})
@@ -10,8 +9,8 @@ foreach(namefile ${example-files})
 endforeach()
 
 # Saving default config files to run experiments with
-configure_file(tutorial.conf.in tutorial.template.conf.in @ONLY)
-configure_file(tutorial-surrogate.conf.in tutorial-surrogate.template.conf.in @ONLY)
+configure_file(tutorial-ping-pong.conf.in tutorial-ping-pong.template.conf.in @ONLY)
+configure_file(tutorial-ping-pong-surrogate.conf.in tutorial-ping-pong-surrogate.template.conf.in @ONLY)
 
 set(single_quote "'")
 set(double_quote "\"")
@@ -22,5 +21,5 @@ set(NETWORK_TREATMENT "freeze")
 set(PACKET_LATENCY_TRACE_PATH "packet-latency-trace/")
 set(IGNORE_UNTIL "200e4")
 string(REPLACE ${single_quote} ${double_quote} SWITCH_TIMESTAMPS "'1000e4', '8900e4'")
-configure_file(tutorial.conf.in tutorial-ping-pong.conf)
-configure_file(tutorial-surrogate.conf.in tutorial-ping-pong-surrogate.conf)
+configure_file(tutorial-ping-pong.conf.in tutorial-ping-pong.conf)
+configure_file(tutorial-ping-pong-surrogate.conf.in tutorial-ping-pong-surrogate.conf)

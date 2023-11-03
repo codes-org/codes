@@ -10,7 +10,7 @@ fi
 export PACKET_SIZE=4096
 export CHUNK_SIZE=4096
 export PACKET_LATENCY_TRACE_PATH=
-cat "$bindir/doc/example"/tutorial.template.conf.in | envsubst > tutorial-ping-pong.conf
+cat "$bindir/doc/example"/tutorial-ping-pong.template.conf.in | envsubst > tutorial-ping-pong.conf
 
 # Running simulation twice with the same parameters
 

@@ -13,10 +13,10 @@ export PREDICTOR_TYPE=average
 export PACKET_LATENCY_TRACE_PATH=packet-latency-surrogate-1/
 export IGNORE_UNTIL=0.0
 export SWITCH_TIMESTAMPS='".08e6", ".1e6", ".2e6", ".6e6", ".7e6", ".9e6", "1.0e6", "1.3e6", "1.6e6", "1.7e6", "1.9e6", "2.0e6", "2.3e6", "2.6e6", "2.7e6", "2.9e6", "3.0e6", "3.3e6", "3.6e6", "3.7e6", "3.9e6", "4.0e6", "4.3e6", "4.6e6", "4.7e6", "4.9e6", "5.0e6", "9.8e6"'
-cat "$bindir/doc/example"/tutorial-surrogate.template.conf.in | envsubst > tutorial-ping-pong-surrogate-1.conf
+cat "$bindir/doc/example"/tutorial-ping-pong-surrogate.template.conf.in | envsubst > tutorial-ping-pong-surrogate-1.conf
 
 export PACKET_LATENCY_TRACE_PATH=packet-latency-surrogate-2/
-cat "$bindir/doc/example"/tutorial-surrogate.template.conf.in | envsubst > tutorial-ping-pong-surrogate-2.conf
+cat "$bindir/doc/example"/tutorial-ping-pong-surrogate.template.conf.in | envsubst > tutorial-ping-pong-surrogate-2.conf
 
 # Running simulation twice with the same parameters
 
