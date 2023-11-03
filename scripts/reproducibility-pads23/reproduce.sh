@@ -31,11 +31,11 @@ done
 
 mkdir figures
 
-python python-scripts/plot-packet-latency.py \
+python python-scripts/plot-packet-latency.py pads23 \
   --latencies results/10ms/condensed \
   --output figures/packet_latency-10ms
 
-python python-scripts/port-occupancy.py \
+python python-scripts/port-occupancy.py pads23 \
   --experiment-folder results/10ms --output figures/port-occupancy-10ms
 
 

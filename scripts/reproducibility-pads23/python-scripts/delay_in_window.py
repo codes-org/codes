@@ -19,15 +19,19 @@ def collect_data_numpy(
     filepreffix: str,
     delimiter: str | None = None,
     dtype: Any = int
-) -> np.ndarray[Any, Any]:
+) -> tuple[list[str], np.ndarray[Any, Any]]:
     escaped_path = pathlib.Path(glob.escape(path))  # type: ignore
     stat_files = glob.glob(str(escaped_path / f"{filepreffix}-gid=*.txt"))
     if not stat_files:
         print(f"No valid `{filepreffix}` files have been found in path {path}", file=sys.stderr)
         exit(1)
 
-    return np.loadtxt(fileinput.input(stat_files), delimiter=delimiter, dtype=dtype,
+    data = np.loadtxt(fileinput.input(stat_files), delimiter=delimiter, dtype=dtype,
                       comments='#')
+    with open(stat_files[0], 'r') as f:
+        header = f.readline()[1:].split(',')
+
+    return header, data
 
 
 def mean_and_std(array: ndarray) -> tuple[float, float]:
@@ -95,10 +99,11 @@ if __name__ == '__main__':
     if computing:
         if raw_data:
             # Columns within the csv file that matter to us
-            start_time_col = 8
-            delay_col = 10
-            delays = collect_data_numpy(args.latencies, 'packets-delay', delimiter=',',
-                                        dtype=np.dtype('float'))
+            header, delays = collect_data_numpy(
+                args.latencies, 'packets-delay', delimiter=',',
+                dtype=np.dtype('float'))
+            start_time_col = header.index('start')
+            delay_col = header.index('latency')
         else:
             start_time_col = 8
             delay_col = 9
@@ -135,4 +140,4 @@ if __name__ == '__main__':
 
     if plotting:
         plt.errorbar(windows, means, yerr=.2*stds)
-        plt.show()
+        plt.show()  # type: ignore

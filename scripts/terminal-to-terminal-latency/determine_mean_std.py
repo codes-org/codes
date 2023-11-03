@@ -7,13 +7,15 @@ def mean_and_std(array: np.array) -> tuple[float, float]:
 
 
 if __name__ == '__main__':
-    delays = np.loadtxt("packets-delay.csv", skiprows=1, delimiter=",")
+    delays = np.loadtxt("packets-delay.txt", skiprows=1, delimiter=",")
     start_col = 8
-    delay_col = 9
+    delay_col = 10
+    size_col = 5
 
     # Filtering data to some interval
-    delays = delays[np.bitwise_and(delays[:, start_col] > 200e3,
-                                   delays[:, start_col] + delays[:, delay_col] < 500e3)]
+    delays = delays[delays[:, start_col] > 200e3]
+    # delays = delays[np.bitwise_and(delays[:, start_col] > 200e3,
+    #                                delays[:, start_col] + delays[:, delay_col] < 500e3)]
 
     # Distribution
     delays_same_router = (delays[:, 0] // 2) == (delays[:, 1] // 2)
@@ -44,6 +46,19 @@ if __name__ == '__main__':
     axs[1, 1].set_title("Latency to terminals in other groups")
     axs[1, 1].set_xlabel("latency")
     axs[1, 1].hist(delays[delays_out_group, delay_col], bins=50, density=True, alpha=0.6, color='b')
+    plt.show()
+
+    delays01 = delays0[delays0[:, 1] == 1]
+    delays056 = delays0[delays0[:, 1] == 56]
+    plt.scatter(delays01[:, size_col], delays01[:, delay_col])
+    plt.title("Packet size vs terminal to terminal delay. Terminal 0 to terminal 1")
+    plt.xlabel("Packet size")
+    plt.ylabel("Latency")
+    plt.show()
+    plt.scatter(delays056[:, size_col], delays056[:, delay_col])
+    plt.title("Packet size vs terminal to terminal delay. Terminal 0 to terminal 56")
+    plt.xlabel("Packet size")
+    plt.ylabel("Latency")
     plt.show()
 
     buckets = [delays0[delays0[:, 1] == i] for i in range(1, 72)]
