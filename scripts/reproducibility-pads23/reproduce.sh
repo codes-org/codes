@@ -25,7 +25,7 @@ for exp in {10,100}; do
     python python-scripts/delay-in-window.py \
       --latencies results/${exp}ms/$kind/packet-latency-trace \
       --output results/${exp}ms/condensed/packet_latency-$kind \
-      --end ${exp}e6
+      --start 0.0 --end ${exp}e6
   done
 done
 

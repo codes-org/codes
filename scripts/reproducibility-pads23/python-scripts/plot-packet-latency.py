@@ -9,7 +9,8 @@ import matplotlib.pyplot as plt
 import matplotlib
 from matplotlib.ticker import EngFormatter
 
-from delay_in_window import collect_data_numpy, find_mean_and_std_through_window
+import pyximport; pyximport.install(language_level='3str')  # noqa: E702
+from file_read_cython.read_mean_std_from_file import load_mean_and_std_through_window
 
 
 time_formatter_ns = EngFormatter()
@@ -42,6 +43,8 @@ if main_args.command == 'plotfromraw':
                         help='Folder with raw latency data')
     parser.add_argument('--windows', type=int, help='Total windows to break simulation in',
                         default=100)
+    parser.add_argument('--start', type=float, help='Total (virtual) simulation time',
+                        required=True)
     parser.add_argument('--end', type=float, help='Total (virtual) simulation time',
                         required=True)
     parser.add_argument('--std-factor', type=float, default=0.2,
@@ -50,16 +53,9 @@ if main_args.command == 'plotfromraw':
 
     std_factor = args.std_factor
 
-    header, delays = collect_data_numpy(args.latencies_dir, 'packets-delay', delimiter=',',
-                                        dtype=np.dtype('float'))
-
-    # Cleaning data
-    next_packet_delay_col = header.index('next_packet_delay')
-    delays = delays[delays[:, next_packet_delay_col] > 0]
-
-    delay_col = header.index('latency')
-    windows, means, stds = find_mean_and_std_through_window(
-        delays, n_windows=args.windows, delay_col=delay_col, end_time=args.end)
+    windows, n_samples, samples = load_mean_and_std_through_window(
+        str(args.latencies_dir), args.start, args.end, num_windows=args.windows)
+    means, stds = samples[:, 0], samples[:, 1]
 
     fig, ax = plt.subplots()
 
