@@ -8,9 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 from matplotlib.ticker import EngFormatter
-
-import pyximport; pyximport.install(language_level='3str')  # noqa: E702
-from file_read_cython.read_mean_std_from_file import load_mean_and_std_through_window
+from delay_in_window import SrcDestRelationship
 
 
 time_formatter_ns = EngFormatter()
@@ -49,22 +47,59 @@ if main_args.command == 'plotfromraw':
                         required=True)
     parser.add_argument('--std-factor', type=float, default=0.2,
                         help='Size of variance to show as an std factor')
+    parser.add_argument('--use-cython', type=bool, help='Total (virtual) simulation time',
+                        default=False)
     args = parser.parse_args(sys.argv[2:])
 
     std_factor = args.std_factor
 
-    windows, n_samples, samples = load_mean_and_std_through_window(
-        str(args.latencies_dir), args.start, args.end, num_windows=args.windows)
-    means, stds = samples[:, 0], samples[:, 1]
+    scatter_plot = True
+    relationship_to_show = SrcDestRelationship.Any
+    nodes_per_router = 2
+    nodes_per_group = 8
+
+    if args.use_cython:
+        import pyximport; pyximport.install(language_level='3str')  # noqa: E702
+        from file_read_cython.read_mean_std_from_file import load_mean_and_std_through_window
+
+        windows, n_samples, samples = load_mean_and_std_through_window(
+            str(args.latencies_dir), args.start, args.end, num_windows=args.windows)
+        means, stds = samples[:, 0], samples[:, 1]
+
+    else:
+        from delay_in_window import collect_data_numpy, find_mean_and_std_through_window, \
+            break_delay_data_into
+        header, delays = collect_data_numpy(args.latencies_dir, 'packets-delay', delimiter=',',
+                                            dtype=np.dtype('float'))
+
+        # Cleaning data
+        next_packet_delay_col = header.index('next_packet_delay')
+        end_col = header.index('end')
+        delay_col = header.index('latency')
+
+        # Cleaning input
+        delays = delays[delays[:, next_packet_delay_col] > 0]
+        delays = delays[delays[:, end_col] > 0]
+        delays = break_delay_data_into(
+            delays, relationship_to_show,
+            nodes_per_group=nodes_per_group, nodes_per_router=nodes_per_router)
+
+        windows, means, stds, n_samples = find_mean_and_std_through_window(
+            delays, n_windows=args.windows, end_time=args.end, end_time_col=end_col,
+            delay_col=delay_col)
 
     fig, ax = plt.subplots()
 
-    # plt.errorbar(windows, means, yerr=std_factor*stds)
-    ax.plot(windows, means, label='high-fidelity only')
-    ax.fill_between(windows,
-                    means - std_factor*stds,
-                    means + std_factor*stds,
-                    color='#00F5')
+    if scatter_plot:
+        assert not args.use_cython
+        ax.scatter(delays[:, end_col], delays[:, delay_col])
+    else:
+        # plt.errorbar(windows, means, yerr=std_factor*stds)
+        ax.plot(windows, means)
+        ax.fill_between(windows,
+                        means - std_factor*stds,
+                        means + std_factor*stds,
+                        color='#00F5')
 
     ax.set_xlabel('Virtual time')
     ax.set_ylabel('Average Packet Latency')
@@ -90,7 +125,7 @@ if main_args.command == 'plotfromzip':
     fig, ax = plt.subplots()
 
     # plt.errorbar(windows, means, yerr=std_factor*stds)
-    ax.plot(windows, means, label='high-fidelity only')
+    ax.plot(windows, means)
     ax.fill_between(windows,
                     means - std_factor*stds,
                     means + std_factor*stds,

@@ -78,7 +78,7 @@ if main_args.command == 'singleplot':
     ax.xaxis.set_major_formatter(time_formatter_ns)
     ax.yaxis.set_major_formatter(bytes_formater)
 
-    plt.show()
+    plt.show()  # type: ignore
 
 
 if main_args.command == 'pads23':
@@ -144,7 +144,7 @@ if main_args.command == 'pads23':
 
     ax.set_xlabel('Virtual time')
     ax.set_ylabel('Total Buffer Port Occupancy')
-    ax.set_ylim(-0.2e6, 6.9e6)
+    # ax.set_ylim(-0.2e6, 6.9e6)
     ax.legend(bbox_to_anchor=(.5, .4), loc='lower center', borderaxespad=0)
     ax.xaxis.set_major_formatter(time_formatter_ns)
     ax.yaxis.set_major_formatter(bytes_formater)

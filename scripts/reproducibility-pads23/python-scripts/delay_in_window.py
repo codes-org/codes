@@ -4,22 +4,23 @@ import glob
 import sys
 import fileinput
 import pathlib
-from typing import Any
 import argparse
+from enum import Enum
+import typing as t
 
 import numpy as np
 import matplotlib.pyplot as plt
 
 
-ndarray = np.ndarray[Any, np.dtype[np.float64]]
+ndarray: t.TypeAlias = 'np.ndarray[t.Any, np.dtype[np.float64]]'
 
 
 def collect_data_numpy(
     path: pathlib.Path | str,
     filepreffix: str,
     delimiter: str | None = None,
-    dtype: Any = int
-) -> tuple[list[str], np.ndarray[Any, Any]]:
+    dtype: t.Any = int
+) -> tuple[list[str], np.ndarray[t.Any, t.Any]]:
     escaped_path = pathlib.Path(glob.escape(path))  # type: ignore
     stat_files = glob.glob(str(escaped_path / f"{filepreffix}-gid=*.txt"))
     if not stat_files:
@@ -70,6 +71,44 @@ def find_mean_and_std_through_window(
         mean_and_std_through_windows[:, 2].astype(np.int32)
 
 
+class SrcDestRelationship(Enum):
+    Any = 0
+    SameRouter = 1
+    SameGroup = 2
+    DifferentGroup = 3
+
+
+def break_delay_data_into(
+    delays: np.ndarray[t.Any, t.Any],
+    src_dest_rel: SrcDestRelationship,
+    nodes_per_router: int = 2,
+    nodes_per_group: int = 8
+) -> np.ndarray[t.Any, t.Any]:
+    if src_dest_rel == SrcDestRelationship.Any:
+        return delays
+
+    elif src_dest_rel == SrcDestRelationship.DifferentGroup:
+        delays_out_group = (delays[:, 0] // nodes_per_group) != (delays[:, 1] // nodes_per_group)
+        return delays[delays_out_group]  # type: ignore
+
+    else:
+
+        delays_same_router = \
+            (delays[:, 0] // nodes_per_router) == (delays[:, 1] // nodes_per_router)
+
+        if src_dest_rel == SrcDestRelationship.SameRouter:
+            return delays[delays_same_router]  # type: ignore
+
+        else:
+            assert src_dest_rel == SrcDestRelationship.SameGroup
+
+            delays_same_group = np.bitwise_xor(
+                (delays[:, 0] // nodes_per_group) == (delays[:, 1] // nodes_per_group),
+                delays_same_router)
+
+            return delays[delays_same_group]  # type: ignore
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--latencies', type=pathlib.Path, help='Folder to latencies',
@@ -82,28 +121,40 @@ if __name__ == '__main__':
                         required=True)
     parser.add_argument('--end', type=float, help='Total (virtual) simulation time',
                         required=True)
+    # The following aims to plot different portions of the packet delay data
+    parser.add_argument('--src-dest-relationship',
+                        help='Process only packets of related relationship',
+                        choices=[rel.name for rel in SrcDestRelationship], default='Any')
+    parser.add_argument('--nodes-per-group', type=int, help='Assuming a 1-D dragonfly network, '
+                        'this indicates the number of nodes per group (only useful with '
+                        '--src-dest-relationship)', default=8)
+    parser.add_argument('--nodes-per-router', type=int, help='Assuming a 1-D dragonfly network, '
+                        'this indicates the number of nodes per router (only useful with '
+                        '--src-dest-relationship)', default=2)
+    parser.add_argument('--use-cython', type=bool, help='Total (virtual) simulation time',
+                        default=False)
     args = parser.parse_args()
 
     plotting = False
     computing = True
-    use_cython = True
 
     loading = not computing
     end_time = args.end
     n_windows = args.windows
 
-    # Hardcoded values for 72-node dragonfly network
-    dist_type = 'all'  # options: all, same_router, same_group, other_group
+    dist_type = getattr(SrcDestRelationship, args.src_dest_relationship)
 
     out_file_name = f"{args.output}.npz"
 
     if computing:
-        if use_cython:
+        if args.use_cython:
+            assert dist_type == SrcDestRelationship.Any
             import pyximport; pyximport.install(language_level='3str')  # noqa: E702
             from file_read_cython.read_mean_std_from_file import load_mean_and_std_through_window
 
             windows, n_samples, samples = load_mean_and_std_through_window(
-                str(args.latencies), args.start, args.end, num_windows=args.windows)
+                str(args.latencies), args.start, args.end, num_windows=args.windows,
+                max_rows=100000)
             means, stds = samples[:, 0], samples[:, 1]
 
         else:
@@ -111,29 +162,19 @@ if __name__ == '__main__':
             header, delays = collect_data_numpy(
                 args.latencies, 'packets-delay', delimiter=',',
                 dtype=np.dtype('float'))
+            next_packet_delay_col = header.index('next_packet_delay')
             end_time_col = header.index('end')
             delay_col = header.index('latency')
 
-            # Delays distributions
-            if dist_type != 'all':
-                delays_same_router = (delays[:, 0] // 2) == (delays[:, 1] // 2)
-                delays_same_group = np.bitwise_xor(
-                    (delays[:, 0] // 8) == (delays[:, 1] // 8),
-                    delays_same_router)
-                delays_out_group = (delays[:, 0] // 8) != (delays[:, 1] // 8)
-
-                # Selecting which distribution to display
-                if dist_type == 'same_router':
-                    distribution = delays_same_router
-                elif dist_type == 'same_group':
-                    distribution = delays_same_group
-                elif dist_type == 'other_group':
-                    distribution = delays_out_group
+            delays = delays[delays[:, next_packet_delay_col] > 0]
+            delays = delays[delays[:, end_time_col] > 0]
+            delays = break_delay_data_into(
+                delays, dist_type,
+                nodes_per_group=args.nodes_per_group, nodes_per_router=args.nodes_per_router)
 
             # Computing windowed mean and stds + plotting
             windows, means, stds, n_samples = find_mean_and_std_through_window(
-                delays if dist_type == 'all' else delays[distribution],
-                n_windows=n_windows, end_time_col=end_time_col,
+                delays, n_windows=n_windows, end_time_col=end_time_col,
                 delay_col=delay_col, end_time=end_time)
 
         # Save
