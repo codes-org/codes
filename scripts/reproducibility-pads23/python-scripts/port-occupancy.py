@@ -87,22 +87,26 @@ if main_args.command == 'pads23':
                         help='Folder where experiment was run',
                         required=True)
     parser.add_argument('--output', type=pathlib.Path, help='Name of output figure',
-                        required=True)
+                        default=False)
+    parser.add_argument('--started-tracking', type=float, default=2e6)
+    parser.add_argument('--switch', type=float, default=3e6)
+    parser.add_argument('--switch-back', type=float, default=8e6)
+    parser.add_argument('--show-switch-labels', action='store_true')
+    parser.add_argument('--no-show-legend', dest='show_legend', action='store_false')
     args = parser.parse_args(sys.argv[2:])
 
     dir_data = args.experiment_folder
     # dir_data = pathlib.Path('data/synthetic1')
-    cut1 = 30
-    cut2 = 79
 
-    matplotlib.use("pgf")
-    matplotlib.rcParams.update({
-        "pgf.texsystem": "pdflatex",
-        'font.family': 'serif',
-        'font.size': 16,
-        'text.usetex': True,
-        'pgf.rcfonts': False,
-    })
+    if args.output:
+        matplotlib.use("pgf")
+        matplotlib.rcParams.update({
+            "pgf.texsystem": "pdflatex",
+            'font.family': 'serif',
+            'font.size': 16,
+            'text.usetex': True,
+            'pgf.rcfonts': False,
+        })
 
     ts1, utilization_hf = load_aggregated_utilization(
         dir_data / "high-fidelity" / "codes-output" / "dragonfly-snapshots.csv")
@@ -111,17 +115,13 @@ if main_args.command == 'pads23':
     ts3, utilization_hybrid_lite = load_aggregated_utilization(
         dir_data / "hybrid-lite" / "codes-output" / "dragonfly-snapshots.csv")
 
+    # Where to start and finish making the dotted line
+    assert np.all(np.abs(ts1 - ts2) < 1e-6) and np.all(np.abs(ts1 - ts3) < 1e-6)
+    cut1 = np.abs(ts1 - args.switch).argmin() + 1  # at switch
+    cut2 = np.abs(ts1 - args.switch_back).argmin()
+
     # plotting
     fig, ax = plt.subplots(figsize=(7, 3.8))
-    vlines = ax.vlines([2e6, 3e6, 8e6], -0.4e6, 7.15e6, color='#AAA', ls='-')
-    vlines.set_clip_on(False)
-
-    arrow_color = {'arrowprops': dict(arrowstyle="->", color='#AAA'), 'color': '#333'}
-    ax.annotate("", xy=(2.1e6, 0e6), xytext=(3.5e6, 1.1e6), **arrow_color)
-    ax.annotate("switch", xy=(3.1e6, 0.1e6), xytext=(4.8e6, 0.5e6), **arrow_color)
-    ax.annotate("", xy=(7.9e6, 0.1e6), xytext=(6.0e6, 0.5e6), **arrow_color)
-    ax.text(3.5e6, 1.1e6, "start latency tracking", color='#333', ha='left')
-
     ax.plot(ts1, utilization_hf, label="high-fidelity", color='blue')
 
     ax.plot(ts3[:cut1], utilization_hybrid_lite[:cut1],
@@ -135,20 +135,42 @@ if main_args.command == 'pads23':
     ax.plot(ts2[cut1-1:cut2+1], utilization_hybrid[cut1-1:cut2+1], color='green', ls='--')
     ax.plot(ts2[cut2:], utilization_hybrid[cut2:], color='green')
 
-    # ax.text(2e6, 7.4e6, "start latency tracking", color='#333', rotation=40,
-    #         rotation_mode='anchor', horizontalalignment='left', verticalalignment='center')
-    # ax.text(3e6, 7.4e6, "switch to surrogate", color='#333', rotation=40,
-    #         rotation_mode='anchor', horizontalalignment='left', verticalalignment='center')
-    # ax.text(8e6, 7.4e6, "switch to\nhigh-definition", color='#333', rotation=40,
-    #         rotation_mode='anchor', horizontalalignment='left', verticalalignment='center')
+    height_plot = ax.get_ylim()[1]
+    vlines = ax.vlines([args.started_tracking, args.switch, args.switch_back],
+                       -height_plot*0.04, height_plot, color='#AAA', ls='-')
+    vlines.set_clip_on(False)
+
+    middle = (args.switch + args.switch_back) / 2
+    arrow_color = {'arrowprops': dict(arrowstyle="->", color='#AAA'), 'color': '#333'}
+    ax.annotate("", xy=(args.started_tracking * .95, 0e6),
+                xytext=(args.started_tracking * .6, height_plot*.3), **arrow_color)
+    ax.annotate("switch", xy=(args.switch*1.04, height_plot*.03),
+                xytext=(middle, height_plot*.08), **arrow_color)
+    ax.annotate("", xy=(args.switch_back * 0.96, height_plot*.03),
+                xytext=(middle, height_plot*.08), **arrow_color)
+    ax.text(args.started_tracking * .9, height_plot*.3, "start\ntracking", color='#333', ha='right')
+
+    if args.show_switch_labels:
+        ax.text(args.started_tracking, height_plot, "start latency tracking", color='#333',
+                rotation=40, rotation_mode='anchor', horizontalalignment='left',
+                verticalalignment='center')
+        ax.text(args.switch, height_plot, "switch to surrogate", color='#333', rotation=40,
+                rotation_mode='anchor', horizontalalignment='left', verticalalignment='center')
+        ax.text(args.switch_back, height_plot, "switch to\nhigh-definition", color='#333',
+                rotation=40, rotation_mode='anchor', horizontalalignment='left',
+                verticalalignment='center')
 
     ax.set_xlabel('Virtual time')
     ax.set_ylabel('Total Buffer Port Occupancy')
     # ax.set_ylim(-0.2e6, 6.9e6)
-    ax.legend(bbox_to_anchor=(.5, .4), loc='lower center', borderaxespad=0)
+    if args.show_legend:
+        ax.legend(bbox_to_anchor=(.5, .4), loc='lower center', borderaxespad=0)
     ax.xaxis.set_major_formatter(time_formatter_ns)
     ax.yaxis.set_major_formatter(bytes_formater)
 
-    plt.tight_layout()
-    plt.savefig(f'{args.output}.pgf', bbox_inches='tight')
-    plt.savefig(f'{args.output}.pdf', bbox_inches='tight')
+    if args.output:
+        plt.tight_layout()
+        plt.savefig(f'{args.output}.pgf', bbox_inches='tight')
+        plt.savefig(f'{args.output}.pdf', bbox_inches='tight')
+    else:
+        plt.show()  # type: ignore

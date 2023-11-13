@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
 from matplotlib.ticker import EngFormatter
-from delay_in_window import SrcDestRelationship
+from delay_in_window import MainGetDataLatencies
 
 
 time_formatter_ns = EngFormatter()
@@ -36,69 +36,33 @@ if __name__ == '__main__':
 
 
 if main_args.command == 'plotfromraw':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--latencies-dir', type=pathlib.Path, required=True,
-                        help='Folder with raw latency data')
-    parser.add_argument('--windows', type=int, help='Total windows to break simulation in',
-                        default=100)
-    parser.add_argument('--start', type=float, help='Total (virtual) simulation time',
-                        required=True)
-    parser.add_argument('--end', type=float, help='Total (virtual) simulation time',
-                        required=True)
-    parser.add_argument('--std-factor', type=float, default=0.2,
-                        help='Size of variance to show as an std factor')
-    parser.add_argument('--use-cython', type=bool, help='Total (virtual) simulation time',
-                        default=False)
-    args = parser.parse_args(sys.argv[2:])
+    main = MainGetDataLatencies()
+    main.parser.add_argument('--std-factor', type=float, default=0.2,
+                             help='Size of variance to show as an std factor')
+    main.parser.add_argument('--scatter-plot', action='store_true')
+    data = main.run(argv=sys.argv[2:])
 
+    assert main.args is not None
+    args = main.args
     std_factor = args.std_factor
-
-    scatter_plot = True
-    relationship_to_show = SrcDestRelationship.Any
-    nodes_per_router = 2
-    nodes_per_group = 8
-
-    if args.use_cython:
-        import pyximport; pyximport.install(language_level='3str')  # noqa: E702
-        from file_read_cython.read_mean_std_from_file import load_mean_and_std_through_window
-
-        windows, n_samples, samples = load_mean_and_std_through_window(
-            str(args.latencies_dir), args.start, args.end, num_windows=args.windows)
-        means, stds = samples[:, 0], samples[:, 1]
-
-    else:
-        from delay_in_window import collect_data_numpy, find_mean_and_std_through_window, \
-            break_delay_data_into
-        header, delays = collect_data_numpy(args.latencies_dir, 'packets-delay', delimiter=',',
-                                            dtype=np.dtype('float'))
-
-        # Cleaning data
-        next_packet_delay_col = header.index('next_packet_delay')
-        end_col = header.index('end')
-        delay_col = header.index('latency')
-
-        # Cleaning input
-        delays = delays[delays[:, next_packet_delay_col] > 0]
-        delays = delays[delays[:, end_col] > 0]
-        delays = break_delay_data_into(
-            delays, relationship_to_show,
-            nodes_per_group=nodes_per_group, nodes_per_router=nodes_per_router)
-
-        windows, means, stds, n_samples = find_mean_and_std_through_window(
-            delays, n_windows=args.windows, end_time=args.end, end_time_col=end_col,
-            delay_col=delay_col)
 
     fig, ax = plt.subplots()
 
-    if scatter_plot:
-        assert not args.use_cython
-        ax.scatter(delays[:, end_col], delays[:, delay_col])
+    if args.scatter_plot:
+        if args.use_cython:
+            raise Exception("To scatter-plot raw data, we must have access to raw data. "
+                            "This is not possible when loading using Cython.")
+        assert data.delays is not None and data.header is not None
+
+        end_col = data.header.index('end')
+        delay_col = data.header.index('latency')
+        ax.scatter(data.delays[:, end_col], data.delays[:, delay_col])
     else:
         # plt.errorbar(windows, means, yerr=std_factor*stds)
-        ax.plot(windows, means)
-        ax.fill_between(windows,
-                        means - std_factor*stds,
-                        means + std_factor*stds,
+        ax.plot(data.windows, data.means)
+        ax.fill_between(data.windows,
+                        data.means - std_factor*data.stds,
+                        data.means + std_factor*data.stds,
                         color='#00F5')
 
     ax.set_xlabel('Virtual time')
@@ -206,18 +170,19 @@ if main_args.command == 'pads23':
 
     height_plot = ax.get_ylim()[1]
     ax.vlines = ax.vlines([args.started_tracking, args.switch, args.switch_back],
-                          -3e3, height_plot, color='#AAA', ls='-')
+                          -height_plot*0.04, height_plot, color='#AAA', ls='-')
     ax.vlines.set_clip_on(False)
+    # ax.set_ylim((0.0, height_plot))
 
     middle = (args.switch + args.switch_back) / 2
     arrow_color = {'arrowprops': dict(arrowstyle="->", color='#AAA'), 'color': '#333'}
     ax.annotate("", xy=(args.started_tracking * .95, 80e3),
-                xytext=(args.started_tracking * .6, 98e3), **arrow_color)
-    ax.annotate("switch", xy=(args.switch*1.04, 118e3),
-                xytext=(middle, 105e3), **arrow_color)
-    ax.annotate("", xy=(args.switch_back * 0.96, 118e3),
-                xytext=(middle, 110e3), **arrow_color)
-    ax.text(args.started_tracking * .9, 1e5, "start\ntracking", color='#333', ha='right')
+                xytext=(args.started_tracking * .6, height_plot*.3), **arrow_color)
+    ax.annotate("switch", xy=(args.switch*1.04, height_plot*.03),
+                xytext=(middle, height_plot*.08), **arrow_color)
+    ax.annotate("", xy=(args.switch_back * 0.96, height_plot*.03),
+                xytext=(middle, height_plot*.08), **arrow_color)
+    ax.text(args.started_tracking * .9, height_plot*.3, "start\ntracking", color='#333', ha='right')
 
     ax.text(args.started_tracking, height_plot, "start latency tracking", color='#333', rotation=40,
             rotation_mode='anchor', horizontalalignment='left', verticalalignment='center')

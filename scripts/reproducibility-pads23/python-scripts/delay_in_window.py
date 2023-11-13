@@ -9,7 +9,6 @@ from enum import Enum
 import typing as t
 
 import numpy as np
-import matplotlib.pyplot as plt
 
 
 ndarray: t.TypeAlias = 'np.ndarray[t.Any, np.dtype[np.float64]]'
@@ -109,58 +108,68 @@ def break_delay_data_into(
             return delays[delays_same_group]  # type: ignore
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--latencies', type=pathlib.Path, help='Folder to latencies',
-                        required=True)
-    parser.add_argument('--output', type=pathlib.Path, help='Directory to save aggregated stats',
-                        required=True)
-    parser.add_argument('--windows', type=int, help='Total windows to break simulation in',
-                        default=100)
-    parser.add_argument('--start', type=float, help='Total (virtual) simulation time',
-                        required=True)
-    parser.add_argument('--end', type=float, help='Total (virtual) simulation time',
-                        required=True)
-    # The following aims to plot different portions of the packet delay data
-    parser.add_argument('--src-dest-relationship',
-                        help='Process only packets of related relationship',
-                        choices=[rel.name for rel in SrcDestRelationship], default='Any')
-    parser.add_argument('--nodes-per-group', type=int, help='Assuming a 1-D dragonfly network, '
-                        'this indicates the number of nodes per group (only useful with '
-                        '--src-dest-relationship)', default=8)
-    parser.add_argument('--nodes-per-router', type=int, help='Assuming a 1-D dragonfly network, '
-                        'this indicates the number of nodes per router (only useful with '
-                        '--src-dest-relationship)', default=2)
-    parser.add_argument('--use-cython', type=bool, help='Total (virtual) simulation time',
-                        default=False)
-    args = parser.parse_args()
+class ProcessedPacketLatencyData(t.NamedTuple):
+    windows: ndarray
+    means: ndarray
+    stds: ndarray
+    n_samples: np.ndarray[t.Any, np.dtype[np.int32]]
+    header: list[str] | None = None
+    delays: ndarray | None = None
 
-    plotting = False
-    computing = True
 
-    loading = not computing
-    end_time = args.end
-    n_windows = args.windows
+class MainGetDataLatencies(object):
+    def __init__(self) -> None:
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--latencies-dir', type=pathlib.Path, help='Folder to latencies',
+                            required=True)
+        parser.add_argument('--windows', type=int, help='Total windows to break simulation in',
+                            default=100)
+        parser.add_argument('--start', type=float, help='Total (virtual) simulation time',
+                            required=True)
+        parser.add_argument('--end', type=float, help='Total (virtual) simulation time',
+                            required=True)
+        # The following aims to plot different portions of the packet delay data
+        parser.add_argument('--src-dest-relationship',
+                            help='Process only packets of related relationship',
+                            choices=[rel.name for rel in SrcDestRelationship], default='Any')
+        parser.add_argument('--nodes-per-group', type=int, help='Assuming a 1-D dragonfly network, '
+                            'this indicates the number of nodes per group (only useful with '
+                            '--src-dest-relationship)', default=8)
+        parser.add_argument('--nodes-per-router', type=int, help='Assuming a 1-D dragonfly '
+                            'network, this indicates the number of nodes per router (only '
+                            'useful with --src-dest-relationship)', default=2)
+        parser.add_argument('--use-cython', type=bool, help='Total (virtual) simulation time',
+                            default=False)
 
-    dist_type = getattr(SrcDestRelationship, args.src_dest_relationship)
+        self.parser = parser
+        self.args: argparse.Namespace | None = None
 
-    out_file_name = f"{args.output}.npz"
+    def run(
+        self,
+        argv: list[str],
+    ) -> ProcessedPacketLatencyData:
+        self.args = args = self.parser.parse_args(argv)
 
-    if computing:
+        end_time = args.end
+        n_windows = args.windows
+
+        dist_type = getattr(SrcDestRelationship, args.src_dest_relationship)
+
         if args.use_cython:
             assert dist_type == SrcDestRelationship.Any
             import pyximport; pyximport.install(language_level='3str')  # noqa: E702
-            from file_read_cython.read_mean_std_from_file import load_mean_and_std_through_window
+            from file_read_cython.read_mean_std_from_file import \
+                load_mean_and_std_through_window
 
             windows, n_samples, samples = load_mean_and_std_through_window(
-                str(args.latencies), args.start, args.end, num_windows=args.windows,
+                str(args.latencies_dir), args.start, args.end, num_windows=args.windows,
                 max_rows=100000)
             means, stds = samples[:, 0], samples[:, 1]
 
         else:
             # Columns within the csv file that matter to us
             header, delays = collect_data_numpy(
-                args.latencies, 'packets-delay', delimiter=',',
+                args.latencies_dir, 'packets-delay', delimiter=',',
                 dtype=np.dtype('float'))
             next_packet_delay_col = header.index('next_packet_delay')
             end_time_col = header.index('end')
@@ -172,19 +181,25 @@ if __name__ == '__main__':
                 delays, dist_type,
                 nodes_per_group=args.nodes_per_group, nodes_per_router=args.nodes_per_router)
 
-            # Computing windowed mean and stds + plotting
+            # Computing windowed mean and stds
             windows, means, stds, n_samples = find_mean_and_std_through_window(
                 delays, n_windows=n_windows, end_time_col=end_time_col,
                 delay_col=delay_col, end_time=end_time)
 
-        # Save
-        np.savez(out_file_name,
-                 windows=windows, means=means, stds=stds, n_samples=n_samples)
+        if 'header' in vars():
+            return ProcessedPacketLatencyData(windows, means, stds, n_samples, header, delays)
+        else:
+            return ProcessedPacketLatencyData(windows, means, stds, n_samples)
 
-    if loading:
-        data = np.load(out_file_name)
-        windows, means, stds = data['windows'], data['means'], data['stds']
 
-    if plotting:
-        plt.errorbar(windows, means, yerr=.2*stds)
-        plt.show()  # type: ignore
+if __name__ == '__main__':
+    main = MainGetDataLatencies()
+    main.parser.add_argument(
+        '--output', type=pathlib.Path, help='Directory to save aggregated stats',
+        required=True)
+    data = main.run(argv=sys.argv[1:])
+
+    assert main.args is not None
+    out_file_name = f"{main.args.output}.npz"
+    np.savez(out_file_name,
+             windows=data.windows, means=data.means, stds=data.stds, n_samples=data.n_samples)
