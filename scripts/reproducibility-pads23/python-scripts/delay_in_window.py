@@ -15,16 +15,20 @@ ndarray: t.TypeAlias = 'np.ndarray[t.Any, np.dtype[np.float64]]'
 
 
 def collect_data_numpy(
-    path: pathlib.Path | str,
-    filepreffix: str,
+    path: str,
+    filepreffix: str | None = None,
+    filepostfix: str = "-gid=*.txt",
     delimiter: str | None = None,
     dtype: t.Any = int
 ) -> tuple[list[str], np.ndarray[t.Any, t.Any]]:
-    escaped_path = pathlib.Path(glob.escape(path))  # type: ignore
-    stat_files = glob.glob(str(escaped_path / f"{filepreffix}-gid=*.txt"))
-    if not stat_files:
-        print(f"No valid `{filepreffix}` files have been found in path {path}", file=sys.stderr)
-        exit(1)
+    if filepreffix is None:
+        stat_files = [path]
+    else:
+        escaped_path = pathlib.Path(glob.escape(path))
+        stat_files = glob.glob(str(escaped_path / f"{filepreffix}{filepostfix}"))
+        if not stat_files:
+            print(f"No valid `{filepreffix}` files have been found in path {path}", file=sys.stderr)
+            exit(1)
 
     data = np.loadtxt(fileinput.input(stat_files), delimiter=delimiter, dtype=dtype,
                       comments='#')
@@ -61,10 +65,10 @@ def find_mean_and_std_through_window(
         else:
             mean_and_std_through_windows[i] = -1
 
-    last_good, = np.where(mean_and_std_through_windows[:, 0] == -1)
-    if last_good.size > 0:
-        windows = windows[:last_good[0]]
-        mean_and_std_through_windows = mean_and_std_through_windows[:last_good[0]]
+    # Removing all windows for which there is no data
+    good_res = mean_and_std_through_windows[:, 0] != -1
+    windows = windows[good_res]
+    mean_and_std_through_windows = mean_and_std_through_windows[good_res]
 
     return windows, mean_and_std_through_windows[:, 0], mean_and_std_through_windows[:, 1], \
         mean_and_std_through_windows[:, 2].astype(np.int32)
@@ -120,8 +124,11 @@ class ProcessedPacketLatencyData(t.NamedTuple):
 class MainGetDataLatencies(object):
     def __init__(self) -> None:
         parser = argparse.ArgumentParser()
-        parser.add_argument('--latencies-dir', type=pathlib.Path, help='Folder to latencies',
-                            required=True)
+        source_group = parser.add_mutually_exclusive_group(required=True)
+        source_group.add_argument('--latencies-dir', type=pathlib.Path,
+                                  help='Folder to latencies (CSV file)')
+        source_group.add_argument('--latencies-file', type=pathlib.Path,
+                                  help='(CSV) File with latencies')
         parser.add_argument('--windows', type=int, help='Total windows to break simulation in',
                             default=100)
         parser.add_argument('--start', type=float, help='Total (virtual) simulation time',
@@ -138,8 +145,8 @@ class MainGetDataLatencies(object):
         parser.add_argument('--nodes-per-router', type=int, help='Assuming a 1-D dragonfly '
                             'network, this indicates the number of nodes per router (only '
                             'useful with --src-dest-relationship)', default=2)
-        parser.add_argument('--use-cython', type=bool, help='Total (virtual) simulation time',
-                            default=False)
+        parser.add_argument('--use-cython', action='store_true',
+                            help='Total (virtual) simulation time')
 
         self.parser = parser
         self.args: argparse.Namespace | None = None
@@ -157,6 +164,7 @@ class MainGetDataLatencies(object):
 
         if args.use_cython:
             assert dist_type == SrcDestRelationship.Any
+            assert args.latencies_dir is not None
             import pyximport; pyximport.install(language_level='3str')  # noqa: E702
             from file_read_cython.read_mean_std_from_file import \
                 load_mean_and_std_through_window
@@ -168,15 +176,21 @@ class MainGetDataLatencies(object):
 
         else:
             # Columns within the csv file that matter to us
-            header, delays = collect_data_numpy(
-                args.latencies_dir, 'packets-delay', delimiter=',',
-                dtype=np.dtype('float'))
-            next_packet_delay_col = header.index('next_packet_delay')
+            if args.latencies_dir:
+                header, delays = collect_data_numpy(
+                    args.latencies_dir, 'packets-delay', delimiter=',',
+                    dtype=np.dtype('float'))
+            else:
+                assert args.latencies_file is not None
+                header, delays = collect_data_numpy(
+                    args.latencies_file, delimiter=',', dtype=np.dtype('float'))
+            # next_packet_delay_col = header.index('next_packet_delay')
             end_time_col = header.index('end')
             delay_col = header.index('latency')
 
-            delays = delays[delays[:, next_packet_delay_col] > 0]
+            # delays = delays[delays[:, next_packet_delay_col] > 0]
             delays = delays[delays[:, end_time_col] > 0]
+            delays = delays[delays[:, end_time_col] < end_time]
             delays = break_delay_data_into(
                 delays, dist_type,
                 nodes_per_group=args.nodes_per_group, nodes_per_router=args.nodes_per_router)

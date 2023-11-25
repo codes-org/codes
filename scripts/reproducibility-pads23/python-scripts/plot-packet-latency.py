@@ -36,14 +36,14 @@ if __name__ == '__main__':
 
 
 if main_args.command == 'plotfromraw':
-    main = MainGetDataLatencies()
-    main.parser.add_argument('--std-factor', type=float, default=0.2,
-                             help='Size of variance to show as an std factor')
-    main.parser.add_argument('--scatter-plot', action='store_true')
-    data = main.run(argv=sys.argv[2:])
+    main_delay = MainGetDataLatencies()
+    main_delay.parser.add_argument(
+        '--std-factor', type=float, default=0.2, help='Size of variance to show as an std factor')
+    main_delay.parser.add_argument('--scatter-plot', action='store_true')
+    data = main_delay.run(argv=sys.argv[2:])
 
-    assert main.args is not None
-    args = main.args
+    assert main_delay.args is not None
+    args = main_delay.args
     std_factor = args.std_factor
 
     fig, ax = plt.subplots()
@@ -66,7 +66,7 @@ if main_args.command == 'plotfromraw':
                         color='#00F5')
 
     ax.set_xlabel('Virtual time')
-    ax.set_ylabel('Average Packet Latency')
+    ax.set_ylabel('Packet Latency' if args.scatter_plot else 'Average Packet Latency')
     ax.yaxis.set_major_formatter(time_formatter_ns)
     ax.xaxis.set_major_formatter(time_formatter_ns)
 
