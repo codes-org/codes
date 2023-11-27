@@ -4678,7 +4678,11 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
         bf->c4 = 1;
         s->in_send_loop[msg->rail_id] = 0;
     }
-    if(s->issueIdle[msg->rail_id]) {
+    // TODO (elkin): The check on vcg only properly works for `num_qos_levels == 1`. Ideally, we should be checking if there is enough
+    // space for the next packet in the queue (the packet determines in which queue it's going to be injected), but that is not
+    // possible, because we only know the queue at `packet_generate`. This might not present a big problem for most applications but
+    // those that are fed at a rate higher than what they can process can see the queue, potentially, grow very large.
+    if(s->issueIdle[msg->rail_id] && s->terminal_length[msg->rail_id][vcg] < s->params->cn_vc_size) {
         bf->c5 = 1;
         s->issueIdle[msg->rail_id] = 0;
         model_net_method_idle_event2(injection_ts, 0, msg->rail_id, lp);
