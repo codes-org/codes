@@ -27,7 +27,7 @@ static void * iolang_io_workload_read_config(
         int num_ranks);
 
 /* load the workload file */
-static int iolang_io_workload_load(const char* params, int app_id, int rank);
+static int iolang_io_workload_load(const void* params, int app_id, int rank);
 
 /* get next operation */
 static void iolang_io_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
@@ -87,7 +87,7 @@ static void * iolang_io_workload_read_config(
 }
 
 /* loads the workload file for each simulated MPI rank/ compute node LP */
-int iolang_io_workload_load(const char* params, int app_id, int rank)
+int iolang_io_workload_load(const void* params, int app_id, int rank)
 {
     int t = -1;
     iolang_params* i_param = (struct iolang_params*)params;

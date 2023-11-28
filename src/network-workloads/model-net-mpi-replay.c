@@ -77,7 +77,7 @@ static tw_stime mean_interval = 100000;
 static int payload_sz = 1024;
 
 /* Doing LP IO*/
-static char * params = NULL;
+static void * params = NULL;
 static char lp_io_dir[256] = {'\0'};
 static char sampling_dir[32] = {'\0'};
 static char mpi_msg_dir[32] = {'\0'};
@@ -2414,6 +2414,8 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    assert(num_net_traces <= num_mpi_lps);
 
    struct codes_jobmap_id lid;
+   online_comm_params oc_params;
+   dumpi_trace_params params_d;
 
    if(alloc_spec)
    {
@@ -2443,14 +2445,10 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->known_completed_jobs = calloc(num_jobs, sizeof(int));
 
    if (strcmp(workload_type, "dumpi") == 0){
-       dumpi_trace_params params_d;
        strcpy(params_d.file_name, file_name_of_job[lid.job]);
        params_d.num_net_traces = num_traces_of_job[lid.job];
-       params_d.nprocs = nprocs; 
-       params = (char*)&params_d;
-       strcpy(params_d.file_name, file_name_of_job[lid.job]);
-       params_d.num_net_traces = num_traces_of_job[lid.job];
-       params = (char*)&params_d;
+       params_d.nprocs = nprocs;
+       params = (void*)&params_d;
        strcpy(type_name, "dumpi-trace-workload");
 
        if(strlen(workloads_conf_file) > 0)
@@ -2466,9 +2464,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 #endif
    }
    else if(strcmp(workload_type, "swm-online") == 0){
-           
-       online_comm_params oc_params;
-       
+
        if(strlen(workload_name) > 0)
        {
            strcpy(oc_params.workload_name, workload_name); 
@@ -2504,14 +2500,12 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        /*TODO: nprocs is different for dumpi and online workload. for
         * online, it is the number of ranks to be simulated. */
        oc_params.nprocs = num_traces_of_job[lid.job]; 
-       params = (char*)&oc_params;
+       params = (void*)&oc_params;
        strcpy(type_name, "swm_online_comm_workload");
    }
    //Xin: add conceputual online workload
    else if(strcmp(workload_type, "conc-online") == 0){
-           
-       online_comm_params oc_params;
-       
+
        if(strlen(workload_name) > 0)
        {
            strcpy(oc_params.workload_name, workload_name); 
@@ -2524,7 +2518,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
         * online, it is the number of ranks to be simulated. */
        // printf("conc-online num_traces_of_job %d\n", num_traces_of_job[lid.job]);
        oc_params.nprocs = num_traces_of_job[lid.job]; 
-       params = (char*)&oc_params;
+       params = (void*)&oc_params;
        strcpy(type_name, "conc_online_comm_workload");
    }
 

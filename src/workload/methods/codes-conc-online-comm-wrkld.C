@@ -1801,7 +1801,7 @@ static void workload_caller(void * arg)
     }
 }
 
-static int comm_online_workload_load(const char * params, int app_id, int rank)
+static int comm_online_workload_load(const void * params, int app_id, int rank)
 {
     /* LOAD parameters from JSON file*/
     online_comm_params * o_params = (online_comm_params*)params;
