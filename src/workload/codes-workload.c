@@ -174,7 +174,7 @@ void codes_workload_free_config_return(codes_workload_config_return *c)
 
 int codes_workload_load(
         const char* type,
-        const char* params,
+        const void* params,
         int app_id,
         int rank)
 {

@@ -119,7 +119,7 @@ static inline double time_to_ns_lf(dumpi_clock t){
 }*/
 
 /* load the trace */
-static int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank);
+static int dumpi_trace_nw_workload_load(const void* params, int app_id, int rank);
 
 /* dumpi implementation of get next operation in the workload */
 static void dumpi_trace_nw_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
@@ -770,7 +770,7 @@ static int hash_rank_compare(void *key, struct qhash_head *link)
     return 0;
 }
 
-int dumpi_trace_nw_workload_load(const char* params, int app_id, int rank)
+int dumpi_trace_nw_workload_load(const void* params, int app_id, int rank)
 {
 	libundumpi_callbacks callbacks;
 	libundumpi_cbpair callarr[DUMPI_END_OF_STREAM];

@@ -14,7 +14,7 @@
 #include "ross.h"
 #include "codes/codes-workload.h"
 
-static int test_workload_load(const char* params, int app_id, int rank);
+static int test_workload_load(const void* params, int app_id, int rank);
 static void test_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
 
 /* state information for each rank that is retrieving requests */
@@ -38,7 +38,7 @@ struct codes_workload_method test_workload_method =
     .codes_workload_get_next = test_workload_get_next,
 };
 
-static int test_workload_load(const char* params, int app_id, int rank)
+static int test_workload_load(const void* params, int app_id, int rank)
 {
     /* no params in this case; this example will work with any number of
      * ranks
