@@ -3218,7 +3218,7 @@ static void terminal_commit_packet_generate(terminal_state * s, tw_bf * bf, term
         remote_data = malloc(msg->remote_event_size_bytes);
         memcpy(remote_data, model_net_method_get_edata(DRAGONFLY_DALLY, msg), msg->remote_event_size_bytes);
     }
-    double const processing_packet_delay = s->last_in_queue_time - msg->saved_last_in_queue_time;
+    double const processing_packet_delay = msg->saved_next_packet_delay;
 
     // TODO (elkin): In the future, this ugly initialization could be done all in a single "line" instead of setting all values one by one. The reason to do it this way is because some old compilers do not understand other ways of initializing
     struct packet_sent sent;
@@ -4309,7 +4309,8 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     msg->my_hops_cur_group = 0;
 
     //assert(tw_now(lp) == msg->travel_start_time);
-    // This is to be later used to determine 
+    // This in here is NOT next_packet_delay but processing packet delay!!
+    msg->saved_next_packet_delay = tw_now(lp) - s->last_in_queue_time;
     msg->saved_last_in_queue_time = s->last_in_queue_time;
     s->last_in_queue_time = tw_now(lp);
 
