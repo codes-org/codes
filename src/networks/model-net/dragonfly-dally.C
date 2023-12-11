@@ -2748,7 +2748,7 @@ static int get_next_vcg(terminal_state * s, tw_bf * bf, terminal_dally_message *
     }
     /* TODO: If none of the vcg is exceeding bandwidth limit then select high
     * priority traffic first. */
-    if(BW_MONITOR == 1)
+    if(BW_MONITOR == 1 && num_qos_levels > 1)
     {
         for(int i = 0; i < num_qos_levels; i++)
         {
@@ -2792,7 +2792,7 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
     int chunk_size = s->params->chunk_size;
     int bw_consumption[num_qos_levels];
     /* First make sure the bandwidth consumptions are up to date. */
-    if(BW_MONITOR == 1)
+    if(BW_MONITOR == 1 && num_qos_levels > 1)
     {
         for(int k = 0; k < num_qos_levels; k++)
         {
@@ -2832,25 +2832,21 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
     }
         
     /* All vcgs are exceeding their bandwidth limits*/
-    msg->last_saved_qos = s->last_qos_lvl[output_port];
-    int next_rr_vcg = (s->last_qos_lvl[output_port] + 1) % num_qos_levels;
+    msg->last_saved_qos = s->last_qos_lvl[output_port]; // last_qos_lvl stores a vc# not a qos# for routers. Terminals store qos#
+    //int next_rr_vcg = (s->last_qos_lvl[output_port] + 1) % num_qos_levels;
+    int next_rr_vc = (s->last_qos_lvl[output_port] + 1) % s->params->num_vcs;
 
-    for(int i = 0; i < num_qos_levels; i++)
+    for(int i = 0; i < s->params->num_vcs; i++)
     {
-        base_limit = next_rr_vcg * vcs_per_qos; 
-        for(int k = base_limit; k < base_limit + vcs_per_qos; k++)
+        if(s->pending_msgs[output_port][next_rr_vc] != NULL)
         {
-            if(s->pending_msgs[output_port][k] != NULL)
-            {
-                if(msg->last_saved_qos < 0)
-                    msg->last_saved_qos = s->last_qos_lvl[output_port]; 
+            if(msg->last_saved_qos < 0)
+                msg->last_saved_qos = s->last_qos_lvl[output_port];
 
-                s->last_qos_lvl[output_port] = next_rr_vcg;
-                return k;
-            }
+            s->last_qos_lvl[output_port] = next_rr_vc;
+            return next_rr_vc;
         }
-        next_rr_vcg = (next_rr_vcg + 1) % num_qos_levels;
-        assert(next_rr_vcg < 2);
+        next_rr_vc = (next_rr_vc + 1) % s->params->num_vcs;
     }
     return -1;
 }
