@@ -933,7 +933,7 @@ string get_default_path(online_comm_params * o_params)
 }
 
 
-static int comm_online_workload_load(const char * params, int app_id, int rank)
+static int comm_online_workload_load(const void * params, int app_id, int rank)
 {
     /* LOAD parameters from JSON file*/
     online_comm_params * o_params = (online_comm_params*)params;
