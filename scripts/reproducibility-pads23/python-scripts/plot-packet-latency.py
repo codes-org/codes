@@ -114,6 +114,7 @@ if main_args.command == 'pads23':
     parser.add_argument('--started-tracking', type=float, default=2e6)
     parser.add_argument('--switch', type=float, default=3e6)
     parser.add_argument('--switch-back', type=float, default=8e6)
+    parser.add_argument('--no-show-legend', dest='show_legend', action='store_false')
     args = parser.parse_args(sys.argv[2:])
 
     std_factor = args.std_factor
@@ -176,34 +177,39 @@ if main_args.command == 'pads23':
 
     middle = (args.switch + args.switch_back) / 2
     arrow_color = {'arrowprops': dict(arrowstyle="->", color='#AAA'), 'color': '#333'}
-    ax.annotate("", xy=(args.started_tracking * .95, 80e3),
-                xytext=(args.started_tracking * .6, height_plot*.3), **arrow_color)
+    ax.annotate("", xy=(args.started_tracking * .95, height_plot*.03),
+                xytext=(args.started_tracking * .6, height_plot*.1), **arrow_color)
     ax.annotate("switch", xy=(args.switch*1.04, height_plot*.03),
                 xytext=(middle, height_plot*.08), **arrow_color)
     ax.annotate("", xy=(args.switch_back * 0.96, height_plot*.03),
                 xytext=(middle, height_plot*.08), **arrow_color)
-    ax.text(args.started_tracking * .9, height_plot*.3, "start\ntracking", color='#333', ha='right')
+    ax.text(args.started_tracking * .9, height_plot*.1, "start\ntracking", color='#333', ha='right')
 
-    ax.text(args.started_tracking, height_plot, "start latency tracking", color='#333', rotation=40,
-            rotation_mode='anchor', horizontalalignment='left', verticalalignment='center')
-    ax.text(args.switch, height_plot, "switch to surrogate", color='#333', rotation=40,
-            rotation_mode='anchor', horizontalalignment='left', verticalalignment='center')
-    ax.text(args.switch_back, 1.03 * height_plot, "switch to\nhigh-definition", color='#333',
-            rotation=40, rotation_mode='anchor', horizontalalignment='left',
-            verticalalignment='center')
+    # ax.text(args.started_tracking, height_plot, "start latency tracking", color='#333',
+    #         rotation=40, rotation_mode='anchor', horizontalalignment='left',
+    #         verticalalignment='center')
+    # ax.text(args.switch, height_plot, "switch to surrogate", color='#333', rotation=40,
+    #         rotation_mode='anchor', horizontalalignment='left', verticalalignment='center')
+    # ax.text(args.switch_back, 1.03 * height_plot, "switch to\nhigh-definition", color='#333',
+    #         rotation=40, rotation_mode='anchor', horizontalalignment='left',
+    #         verticalalignment='center')
 
     ax.set_xlabel('Virtual time')
     ax.set_ylabel('Average Packet Latency')
     # ax.set_ylim(0, 122e3)
-    # ax.legend(bbox_to_anchor=(.54, .02), loc='lower center', borderaxespad=0)
+    if args.show_legend:
+        ax.legend(bbox_to_anchor=(.54, .02), loc='lower center', borderaxespad=0)
     ax.yaxis.set_major_formatter(time_formatter_ns)
     ax.xaxis.set_major_formatter(time_formatter_ns)
 
-    n = means_hf[80:].shape[0]
+    # Finding when we switch back to high-fidelity from surrogate
+    cut_back = np.abs(windows_hf - args.switch_back).argmin() + 1
+
+    n = means_hf[cut_back:].shape[0]
     mse_hybrid_lite = \
-        np.sum((means_hf[80:] - means_hybrid_lite[80:])**2) / n
+        np.sum((means_hf[cut_back:] - means_hybrid_lite[cut_back:])**2) / n
     mse_hybrid = \
-        np.sum((means_hf[80:] - means_hybrid[80:])**2) / n
+        np.sum((means_hf[cut_back:] - means_hybrid[cut_back:])**2) / n
     print("Mean squared error (MSE) for hybrid:", mse_hybrid, "ns^2")
     print("Mean squared error (MSE) for hybrid-lite:", mse_hybrid_lite, "ns^2")
 
