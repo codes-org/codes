@@ -2748,7 +2748,7 @@ static int get_next_vcg(terminal_state * s, tw_bf * bf, terminal_dally_message *
     }
     /* TODO: If none of the vcg is exceeding bandwidth limit then select high
     * priority traffic first. */
-    if(BW_MONITOR == 1 && num_qos_levels > 1)
+    if(BW_MONITOR == 1)
     {
         for(int i = 0; i < num_qos_levels; i++)
         {
@@ -2840,9 +2840,6 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
     {
         if(s->pending_msgs[output_port][next_rr_vc] != NULL)
         {
-            if(msg->last_saved_qos < 0)
-                msg->last_saved_qos = s->last_qos_lvl[output_port];
-
             s->last_qos_lvl[output_port] = next_rr_vc;
             return next_rr_vc;
         }
@@ -6276,6 +6273,7 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
         }
         return;  
     }
+    s->last_qos_lvl[output_port] = msg->last_saved_qos;
 
     int output_chan = msg->saved_channel;
     if(bf->c8)
@@ -6560,7 +6558,23 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     s->next_output_available_time[output_port] -= s->params->router_delay;
     injection_ts -= s->params->router_delay;
 
-    int next_output_chan = get_next_router_vcg(s, bf, msg, lp); 
+    int next_output_chan = -1;
+    int base_limit = 0;
+    int vcs_per_qos = s->params->num_vcs / num_qos_levels;
+    for(int i = 0; i < num_qos_levels; i++)
+    {
+        base_limit = i * vcs_per_qos;
+        for(int k = base_limit; k < base_limit + vcs_per_qos; k ++)
+        {
+            if(s->pending_msgs[output_port][k] != NULL)
+            {
+                next_output_chan = k;
+                break;
+            }
+        }
+        if(next_output_chan >= 0)
+            break;
+    }
 
     if(next_output_chan < 0)
     {
