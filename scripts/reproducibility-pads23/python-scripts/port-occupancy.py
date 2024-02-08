@@ -34,8 +34,9 @@ def load_aggregated_utilization(filename: str | pathlib.Path) -> tuple[array_typ
 if __name__ == '__main__':
     this_binary = sys.argv[0]
     commands = {
-        'singleplot': 'Displays port occupancy plot (needs full path for csv)',
-        'pads23': 'Generates plot that appears on PADS23 paper'
+        'singleplot': 'Displays port occupancy plot (needs full path of csv)',
+        'multipleplot': 'Displays port occupancy plot (needs full path of csv\'s)',
+        'pads23': 'Generates plot that appears on PADS23 paper',
     }
     parser = argparse.ArgumentParser(
         usage=f'{this_binary} <command> [<args>]\n\n'
@@ -78,7 +79,29 @@ if main_args.command == 'singleplot':
     ax.xaxis.set_major_formatter(time_formatter_ns)
     ax.yaxis.set_major_formatter(bytes_formater)
 
-    plt.show()  # type: ignore
+    plt.show()
+
+
+if main_args.command == 'multipleplot':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--csv', type=pathlib.Path,
+                        help='Buffer occupancy CSV results (multiple csvs are possible)',
+                        action='append', required=True)
+    args = parser.parse_args(sys.argv[2:])
+
+    # plotting
+    fig, ax = plt.subplots(figsize=(7, 3.8))
+
+    for csv in args.csv:
+        ts, utilization_hf = load_aggregated_utilization(csv)
+        ax.plot(ts, utilization_hf, label="high-fidelity")
+
+    ax.set_xlabel('Virtual time')
+    ax.set_ylabel('Total Buffer Port Occupancy')
+    ax.xaxis.set_major_formatter(time_formatter_ns)
+    ax.yaxis.set_major_formatter(bytes_formater)
+
+    plt.show()
 
 
 if main_args.command == 'pads23':
@@ -173,4 +196,4 @@ if main_args.command == 'pads23':
         plt.savefig(f'{args.output}.pgf', bbox_inches='tight')
         plt.savefig(f'{args.output}.pdf', bbox_inches='tight')
     else:
-        plt.show()  # type: ignore
+        plt.show()
