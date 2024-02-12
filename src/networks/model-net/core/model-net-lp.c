@@ -21,7 +21,7 @@
 int model_net_base_magic;
 int mn_sample_enabled = 0;
 
-static int is_surrogate_on = false;
+static int is_freezing_on = false;
 
 // message-type specific offsets - don't want to get bitten later by alignment
 // issues...
@@ -577,7 +577,7 @@ void model_net_base_event(
 
     assert(m->h.magic == model_net_base_magic);
 
-    if(!is_surrogate_on && m->h.event_type == MN_BASE_SCHED_NEXT && m->msg.m_base.created_in_surrogate) {
+    if(!is_freezing_on && m->h.event_type == MN_BASE_SCHED_NEXT && m->msg.m_base.created_in_surrogate) {
         return;
     }
 
@@ -624,7 +624,7 @@ void model_net_base_event_rc(
         tw_lp * lp){
     assert(m->h.magic == model_net_base_magic);
 
-    if(!is_surrogate_on && m->h.event_type == MN_BASE_SCHED_NEXT && m->msg.m_base.created_in_surrogate) {
+    if(!is_freezing_on && m->h.event_type == MN_BASE_SCHED_NEXT && m->msg.m_base.created_in_surrogate) {
         return;
     }
 
@@ -1043,7 +1043,7 @@ void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue,
             &m_wrap->h);
     m_wrap->msg.m_base.is_from_remote = is_recv_queue;
     r_wrap->queue_offset = queue_offset;
-    m_wrap->msg.m_base.created_in_surrogate = is_surrogate_on;
+    m_wrap->msg.m_base.created_in_surrogate = is_freezing_on;
     tw_event_send(e);
 }
 
@@ -1118,11 +1118,11 @@ tw_event* model_net_method_congestion_event(tw_lpid dest_gid,
 }
 
 void model_net_method_switch_to_surrogate(void) {
-    is_surrogate_on = true;
+    is_freezing_on = true;
 }
 
 void model_net_method_switch_to_highdef(void) {
-    is_surrogate_on = false;
+    is_freezing_on = false;
 }
 
 void model_net_method_switch_to_surrogate_lp(tw_lp * lp) {
