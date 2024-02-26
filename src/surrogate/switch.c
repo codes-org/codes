@@ -382,11 +382,92 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe, tw_stime gvt) {
 }
 
 
+// This is an impure function, calling it twice WILL give different results. Only call it once!
+bool hit_trigger(tw_stime gvt) {
+    if ( switch_at.current_i < switch_at.total
+        && g_tw_trigger_arbitrary_fun.active == ARBITRARY_FUN_triggered) {
+        double const switch_time = switch_at.time_stampts[switch_at.current_i];
 #ifdef USE_RAND_TIEBREAKER
-void director_switch(tw_pe * pe, tw_event_sig gvt_sig) {
+        assert(g_tw_trigger_arbitrary_fun.sig_at.recv_ts == switch_at.time_stampts[switch_at.current_i]);
+#else
+        assert(g_tw_trigger_arbitrary_fun.at == switch_at.time_stampts[switch_at.current_i]);
+#endif
+        assert(gvt >= switch_time);  // current gvt shouldn't be that far ahead from the point we wanted to trigger it
+
+        // Activating next switch
+        if (++switch_at.current_i < switch_at.total) {
+            double const next_switch = switch_at.time_stampts[switch_at.current_i];
+            // Setting trigger for next switch
+    #ifdef USE_RAND_TIEBREAKER
+            tw_event_sig time_stamp = {0};
+            time_stamp.recv_ts = next_switch;
+            //printf("Adding a trigger to activate next switch!\n");
+            tw_trigger_arbitrary_fun_at(time_stamp);
+    #else
+            //printf("Adding a trigger to activate next switch!\n");
+            tw_trigger_arbitrary_fun_at(next_switch);
+    #endif
+        }
+        //
+        return true;
+    } else {
+        return false;
+    }
+}
+
+
+#ifdef USE_RAND_TIEBREAKER
+void switch_model(tw_pe * pe, tw_event_sig gvt_sig) {
+#else
+void switch_model(tw_pe * pe, tw_stime gvt) {
+#endif
+    // Rollback if in optimistic mode
+#ifdef USE_RAND_TIEBREAKER
+    if (g_tw_synchronization_protocol == OPTIMISTIC) {
+        assert(tw_event_sig_compare(pe->GVT_sig, gvt_sig) == 0);
+        rollback_and_cancel_events_pe(pe, gvt_sig);
+        //assert(tw_event_sig_compare(pe->GVT_sig, gvt_sig) <= 0);
+        assert(tw_event_sig_compare(pe->GVT_sig, gvt_sig) == 0);
+    }
+#else
+    if (g_tw_synchronization_protocol == OPTIMISTIC) {
+        assert(pe->GVT == gvt);
+        rollback_and_cancel_events_pe(pe, gvt);
+        //assert(tw_event_sig_compare(pe->GVT_sig, gvt) <= 0);
+        assert(pe->GVT == gvt);
+    }
+#endif
+    surr_config.director.switch_surrogate();
+    if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
+        printf("Switching to %s\n", surr_config.director.is_surrogate_on() ? "surrogate" : "high-fidelity");
+    }
+
+    // "Freezing" network events and activating LP's switch functions
+    if (freeze_network_on_switch) {
+        if (surr_config.director.is_surrogate_on()) {
+            model_net_method_switch_to_surrogate();
+#ifdef USE_RAND_TIEBREAKER
+            events_high_def_to_surrogate_switch(pe, gvt_sig);
+#else
+            events_high_def_to_surrogate_switch(pe, gvt);
+#endif
+        } else {
+            model_net_method_switch_to_highdef();
+#ifdef USE_RAND_TIEBREAKER
+            events_surrogate_to_high_def_switch(pe, gvt_sig);
+#else
+            events_surrogate_to_high_def_switch(pe, gvt);
+#endif
+        }
+    }
+}
+
+
+#ifdef USE_RAND_TIEBREAKER
+void director_call(tw_pe * pe, tw_event_sig gvt_sig) {
     tw_stime const gvt = gvt_sig.recv_ts;
 #else
-void director_switch(tw_pe * pe, tw_stime gvt) {
+void director_call(tw_pe * pe, tw_stime gvt) {
 #endif
     assert(is_surrogate_configured);
 
@@ -431,83 +512,24 @@ void director_switch(tw_pe * pe, tw_stime gvt) {
     }
 
     // Detecting if we are going to switch
-    if (switch_at.current_i < switch_at.total
-            && g_tw_trigger_arbitrary_fun.active == ARBITRARY_FUN_triggered) {
-        double const switch_time = switch_at.time_stampts[switch_at.current_i];
-#ifdef USE_RAND_TIEBREAKER
-        assert(g_tw_trigger_arbitrary_fun.sig_at.recv_ts == switch_at.time_stampts[switch_at.current_i]);
-#else
-        assert(g_tw_trigger_arbitrary_fun.at == switch_at.time_stampts[switch_at.current_i]);
-#endif
-        assert(gvt >= switch_time);  // current gvt shouldn't be that far ahead from the point we wanted to trigger it
-    } else {
+    if (! hit_trigger(gvt)) {
         return;
     }
-
     // ---- Past this means that we are in fact switching ----
+    bool const pre_switch_status = surr_config.director.is_surrogate_on();
 
-    double const start = tw_clock_read();
     // Asking the director/model to switch
     if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
         if (DEBUG_DIRECTOR == 2) {
             printf("\n");
         }
-        printf("Switching at %f", gvt);
-    }
-    // Rollback if in optimistic mode
-#ifdef USE_RAND_TIEBREAKER
-    if (g_tw_synchronization_protocol == OPTIMISTIC) {
-        assert(tw_event_sig_compare(pe->GVT_sig, gvt_sig) == 0);
-        rollback_and_cancel_events_pe(pe, gvt_sig);
-        //assert(tw_event_sig_compare(pe->GVT_sig, gvt_sig) <= 0);
-        assert(tw_event_sig_compare(pe->GVT_sig, gvt_sig) == 0);
-    }
-#else
-    if (g_tw_synchronization_protocol == OPTIMISTIC) {
-        assert(pe->GVT == gvt);
-        rollback_and_cancel_events_pe(pe, gvt);
-        //assert(tw_event_sig_compare(pe->GVT_sig, gvt) <= 0);
-        assert(pe->GVT == gvt);
-    }
-#endif
-    surr_config.director.switch_surrogate();
-    if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
-        printf(" to %s\n", surr_config.director.is_surrogate_on() ? "surrogate" : "high-fidelity");
+        printf("Switching at %f\n", gvt);
     }
 
-    // "Freezing" network events and activating LP's switch functions
-    if (freeze_network_on_switch) {
-        if (surr_config.director.is_surrogate_on()) {
-            model_net_method_switch_to_surrogate();
-#ifdef USE_RAND_TIEBREAKER
-            events_high_def_to_surrogate_switch(pe, gvt_sig);
-#else
-            events_high_def_to_surrogate_switch(pe, gvt);
-#endif
-        } else {
-            model_net_method_switch_to_highdef();
-#ifdef USE_RAND_TIEBREAKER
-            events_surrogate_to_high_def_switch(pe, gvt_sig);
-#else
-            events_surrogate_to_high_def_switch(pe, gvt);
-#endif
-        }
-    }
-
-    // Activating next switch
-    if (++switch_at.current_i < switch_at.total) {
-        double const next_switch = switch_at.time_stampts[switch_at.current_i];
-        // Setting trigger for next switch
-#ifdef USE_RAND_TIEBREAKER
-        tw_event_sig time_stamp = {0};
-        time_stamp.recv_ts = next_switch;
-        //printf("Adding a trigger to activate next switch!\n");
-        tw_trigger_arbitrary_fun_at(time_stamp);
-#else
-        //printf("Adding a trigger to activate next switch!\n");
-        tw_trigger_arbitrary_fun_at(next_switch);
-#endif
-    }
+    double const start = tw_clock_read();
+    switch_model(pe, gvt_sig);
+    double const end = tw_clock_read();
+    surrogate_switching_time += end - start;
 
     if (DEBUG_DIRECTOR == 1 && g_tw_mynode == 0) {
         printf("Switch completed!\n");
@@ -515,17 +537,18 @@ void director_switch(tw_pe * pe, tw_stime gvt) {
     if (DEBUG_DIRECTOR > 1) {
         printf("PE %lu: Switch completed!\n", g_tw_mynode);
     }
-    double const end = tw_clock_read();
-    surrogate_switching_time += end - start;
 
     // Determining time in surrogate
-    if (surr_config.director.is_surrogate_on()) {
-        // Start tracking time spent in surrogate mode
-        surrogate_time_last = end;
-    } else {
-        // We are done tracking time spent in surrogate mode
-        time_in_surrogate += start - surrogate_time_last;
+    if (pre_switch_status != surr_config.director.is_surrogate_on()) {
+        if (surr_config.director.is_surrogate_on()) {
+            // Start tracking time spent in surrogate mode
+            surrogate_time_last = end;
+        } else {
+            // We are done tracking time spent in surrogate mode
+            time_in_surrogate += start - surrogate_time_last;
+        }
     }
 }
 //
 // === END OF Director functionality
+// vim: set tabstop=4 shiftwidth=4 expandtab :

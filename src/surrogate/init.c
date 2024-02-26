@@ -64,7 +64,7 @@ void surrogate_configure(
         PRINTF_ONCE("\n");
 
         // Injecting into ROSS the function to be called at GVT and the instant in time to trigger GVT
-        g_tw_gvt_arbitrary_fun = director_switch;
+        g_tw_gvt_arbitrary_fun = director_call;
 
 #ifdef USE_RAND_TIEBREAKER
         tw_event_sig time_stamp = {0};

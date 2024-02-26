@@ -61,7 +61,7 @@ extern struct switch_at_struct switch_at;
 
 
 // Switch
-void director_switch(tw_pe * pe, tw_event_sig gvt_sig);
+void director_call(tw_pe * pe, tw_event_sig gvt_sig);
 
 #ifdef __cplusplus
 }
