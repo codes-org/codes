@@ -57,6 +57,7 @@ list(APPEND SRCS
 
     surrogate/init.c
     surrogate/switch.c
+    surrogate/lp-client/base.c
     surrogate/packet-latency-predictor/common.c
     surrogate/packet-latency-predictor/average.c
 

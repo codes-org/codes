@@ -18,6 +18,8 @@
 #include "codes/quickhash.h"
 #include "codes/codes-jobmap.h"
 #include "codes/congestion-controller-core.h"
+#include "codes/surrogate/lp-client/base.h"
+#include "codes/codes-mpi-replay.h"
 
 /* turning on track lp will generate a lot of output messages */
 #define DBG_COMM 1
@@ -158,6 +160,8 @@ static double sampling_interval = 5000000;
 static double sampling_end_time = 3000000000;
 static int enable_debug = 0;
 
+static bool enable_surrogate_client_lp = false;
+
 /* set group context */
 struct codes_mctx mapping_context;
 enum MAPPING_CONTEXTS
@@ -170,27 +174,6 @@ enum MAPPING_CONTEXTS
     UNKNOWN
 };
 static int map_ctxt = GROUP_MODULO;
-
-/* MPI_OP_GET_NEXT is for getting next MPI operation when the previous operation completes.
-* MPI_SEND_ARRIVED is issued when a MPI message arrives at its destination (the message is transported by model-net and an event is invoked when it arrives.
-* MPI_SEND_POSTED is issued when a MPI message has left the source LP (message is transported via model-net). */
-enum MPI_NW_EVENTS
-{
-	MPI_OP_GET_NEXT=1,
-	MPI_SEND_ARRIVED,
-    MPI_SEND_ARRIVED_CB, // for tracking message times on sender
-	MPI_SEND_POSTED,
-    MPI_REND_ARRIVED,
-    MPI_REND_ACK_ARRIVED,
-    CLI_BCKGND_FIN,
-    CLI_BCKGND_ARRIVE,
-    CLI_BCKGND_GEN,
-    CLI_BCKGND_CHANGE,
-    CLI_NBR_FINISH,
-    CLI_OTHER_FINISH, //received when another workload has finished
-    // Surrogate events
-    SURR_SKIP_ITERATION, // skips one (several) iteration(s) of simulation
-};
 
 /* type of synthetic traffic */
 enum TRAFFIC
@@ -366,56 +349,6 @@ struct nw_state
     char output_buf[512];
     char col_stats[64];
     struct ross_model_sample ross_sample;
-};
-
-/* data for handling reverse computation.
-* saved_matched_req holds the request ID of matched receives/sends for wait operations.
-* ptr_match_op holds the matched MPI operation which are removed from the queues when a send is matched with the receive in forward event handler.
-* network event being sent. op is the MPI operation issued by the network workloads API. rv_data holds the data for reverse computation (TODO: Fill this data structure only when the simulation runs in optimistic mode). */
-struct nw_message
-{
-   // forward message handler
-   int msg_type;
-   int op_type;
-   int num_rngs;
-   model_net_event_return event_rc;
-   struct codes_workload_op * mpi_op;
-
-   struct
-   {
-       tw_lpid src_rank;
-       int dest_rank;
-       int64_t num_bytes;
-       int num_matched;
-       int data_type;
-       double sim_start_time;
-       // for callbacks - time message was received
-       double msg_send_time;
-       unsigned int req_id;
-       int matched_req;
-       int tag;
-       int app_id;
-       int found_match;
-       short wait_completed;
-       short rend_send;
-   } fwd;
-   struct
-   {
-       int saved_perm;
-       double saved_send_time;
-       double saved_send_time_sample;
-       double saved_recv_time;
-       double saved_recv_time_sample;
-       double saved_wait_time;
-       double saved_wait_time_sample;
-       double saved_delay;
-       double saved_delay_sample;
-       double saved_marker_time;
-       int64_t saved_num_bytes;
-       int saved_syn_length;
-       unsigned long saved_prev_switch;
-       double saved_prev_max_time;
-   } rc;
 };
 
 static void send_ack_back(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp, mpi_msgs_queue * mpi_op, int matched_req);
@@ -1126,14 +1059,14 @@ void skip_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m)
 	struct codes_workload_op * mpi_op = (struct codes_workload_op*) malloc(sizeof(struct codes_workload_op));
     m->mpi_op = mpi_op;
 
-    // consuming all events until iteration 95 from iteration 4
+    // consuming all events until iteration 35 from iteration 4
     bool reached_end = false;
     while (!reached_end) {
         codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, mpi_op);
 
         switch (mpi_op->op_type) {
             case CODES_WK_MARK:
-                if (mpi_op->u.send.tag == 95) {
+                if (mpi_op->u.send.tag == 35) {
                     reached_end = true;
                 }
                 break;
@@ -1154,8 +1087,8 @@ void skip_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m)
 }
 
 bool have_we_hit_surrogate_switch(struct codes_workload_op * mpi_op) {
-    //return mpi_op->u.send.tag == 4;
-    return false;
+    return mpi_op->u.send.tag == 4;
+    // return false;
 }
 
 /* Debugging functions, may generate unused function warning */
@@ -2994,10 +2927,15 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
                 m->rc.saved_marker_time = tw_now(lp);
 
                 // If we have reached the surrogate switch time, skip next iteration(s)
-                if (have_we_hit_surrogate_switch(mpi_op)) {
-                    tw_event *e = tw_event_new(lp->gid, 2076575.16 * 91, lp);
-                    nw_message* msg = (nw_message*) tw_event_data(e);
-                    msg->msg_type = SURR_SKIP_ITERATION;
+                if (enable_surrogate_client_lp) {
+                    tw_lpid const client_surr = 0;
+                    tw_event *e = tw_event_new(client_surr, 0, lp);
+                    struct client_surr_msg* msg = (struct client_surr_msg*) tw_event_data(e);
+                    msg->src_wkld_id = s->nw_id;
+                    msg->src_wkld_lpid = lp->gid;
+                    // msg->msg_type = CLIENT_SURR_iter_time;
+                    msg->iteration = mpi_op->u.send.tag;
+                    msg->iteration_time = -1; // Not yet properly defined
                     tw_event_send(e);
                 } else {
                     codes_issue_next_event(lp);
@@ -3209,6 +3147,9 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
         case CLI_OTHER_FINISH:
             handle_other_finish_rc(s, lp, bf, m);
             break;
+
+        case SURR_SKIP_ITERATION:
+            break;
 	}
 }
 
@@ -3246,6 +3187,9 @@ void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp
 
 
             free(m->mpi_op);
+        break;
+
+        default:
         break;
     }
 }
@@ -3578,6 +3522,8 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    configuration_load((*argv)[2], MPI_COMM_CODES, &config);
 
    nw_add_lp_type();
+   // TODO(elkin): Check if client-surrogate defined in config file, otherwise no need to add type
+   client_surrogate_register_lp_type();
    model_net_register();
 
     if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
