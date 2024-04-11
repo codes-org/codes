@@ -1117,24 +1117,60 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
     }
 }
 
-void skip_iteration_rc(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m) {
+// Surrogate switiching structure
+struct AvgSurrogateSwitchingTimesForApp {
+    int app_id;
+    int skip_at_iter;
+    int resume_at_iter;
+    double time_per_iter;
+    bool done[72]; // This is a flag to indicate whethe we already completed this skipping stage
+};
+
+static int iters_skipped(struct AvgSurrogateSwitchingTimesForApp * avgSur) {
+    return avgSur->resume_at_iter - avgSur->skip_at_iter;
+}
+
+static struct AvgSurrogateSwitchingTimesForApp skip_iter_config[] = {
+    // done, app_id, skip_at_iter, resume_at_iter, time_per_iter
+    {0,  3,  21, 14403235, {false}},
+    {1,  7,  59,  4982017, {false}},
+    {1, 79, 195,  3581337, {false}},
+};
+
+struct AvgSurrogateSwitchingTimesForApp * get_switch_config(struct nw_state * s) {
+    int n_jumps = (sizeof(skip_iter_config)/sizeof(skip_iter_config[0]));
+    for (int i=0; i < n_jumps; i++) {
+        struct AvgSurrogateSwitchingTimesForApp * jump = &skip_iter_config[i];
+        if (!jump->done[s->local_rank] && jump->app_id == s->app_id) {
+            return jump;
+        }
+    }
+    return NULL;
+}
+
+static void skip_iteration_rc(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m) {
     // TODO: implement!!
 }
 
-void skip_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m)
+static void skip_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m)
 {
 	struct codes_workload_op * mpi_op = (struct codes_workload_op*) malloc(sizeof(struct codes_workload_op));
     m->mpi_op = mpi_op;
 
-    // consuming all events until iteration 95 from iteration 4
+    struct AvgSurrogateSwitchingTimesForApp * switch_config = get_switch_config(s);
+    assert(switch_config != NULL);
+    int const resume_at_iter = switch_config->resume_at_iter;
+
+    // consuming all events until indicated iteration is reached
     bool reached_end = false;
     while (!reached_end) {
         codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, mpi_op);
 
         switch (mpi_op->op_type) {
             case CODES_WK_MARK:
-                if (mpi_op->u.send.tag == 95) {
+                if (mpi_op->u.send.tag == resume_at_iter) {
                     reached_end = true;
+                    codes_workload_get_next_rc(wrkld_id, s->app_id, s->local_rank, mpi_op);
                 }
                 break;
             // If we reach the end of simulation, rollback once to allow the operation to be processed normally
@@ -1147,15 +1183,26 @@ void skip_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m)
         }
     }
 
+    switch_config->done[s->local_rank] = true;
+
     tw_event *e = tw_event_new(lp->gid, 0.0, lp);
     nw_message* msg = (nw_message*) tw_event_data(e);
     msg->msg_type = MPI_OP_GET_NEXT;
     tw_event_send(e);
 }
 
-bool have_we_hit_surrogate_switch(struct codes_workload_op * mpi_op) {
-    //return mpi_op->u.send.tag == 4;
+static bool have_we_hit_surrogate_switch(struct nw_state* s, struct codes_workload_op * mpi_op) {
+    struct AvgSurrogateSwitchingTimesForApp * switch_config = get_switch_config(s);
+    if (switch_config != NULL) {
+        return mpi_op->u.send.tag == switch_config->skip_at_iter;
+    }
     return false;
+}
+
+static double time_to_skip_iterations(struct nw_state* s, struct codes_workload_op * mpi_op) {
+    struct AvgSurrogateSwitchingTimesForApp * switch_config = get_switch_config(s);
+    assert(switch_config != NULL);
+    return switch_config->time_per_iter * iters_skipped(switch_config);
 }
 
 /* Debugging functions, may generate unused function warning */
@@ -2994,8 +3041,8 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
                 m->rc.saved_marker_time = tw_now(lp);
 
                 // If we have reached the surrogate switch time, skip next iteration(s)
-                if (have_we_hit_surrogate_switch(mpi_op)) {
-                    tw_event *e = tw_event_new(lp->gid, 2076575.16 * 91, lp);
+                if (have_we_hit_surrogate_switch(s, mpi_op)) {
+                    tw_event *e = tw_event_new(lp->gid, time_to_skip_iterations(s, mpi_op), lp);
                     nw_message* msg = (nw_message*) tw_event_data(e);
                     msg->msg_type = SURR_SKIP_ITERATION;
                     tw_event_send(e);
