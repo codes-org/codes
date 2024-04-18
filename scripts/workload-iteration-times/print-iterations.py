@@ -3,19 +3,59 @@
 from typing import Any, TextIO
 import argparse
 import pathlib
+import colorsys
 
 import matplotlib.pyplot as plt
 import matplotlib
+from matplotlib.patches import Rectangle
+from matplotlib.lines import Line2D
 import numpy as np
+import matplotlib.colors as mc
 
 
-def plot_sequence(ax: Any, seq: Any, names: Any, height: Any, color: str = 'red', print_names: bool = True):
-    ax.vlines(seq, 0, height, color=f"tab:{color}")  # The vertical stems.
-    ax.plot(seq, np.zeros_like(seq), "-o", color="k", markerfacecolor="w")
+def adjust_lightness(color: str | tuple[float, float, float], amount: float = 0.5):
+    """
+    Taken from: https://stackoverflow.com/a/49601444
+    Smaller than 1 amounts darkness, larger than 1 lightens
+    Examples:
+    >> adjust_lightness('g', 1.3)
+    >> adjust_lightness('#F034A3', 0.6)
+    >> adjust_lightness((.3,.55,.1), 1.5)
+    """
+    try:
+        c = mc.cnames[color]  # type: ignore[reportArgumentType]
+    except:
+        c = color
+    c = colorsys.rgb_to_hls(*mc.to_rgb(c))
+    return colorsys.hls_to_rgb(c[0], max(0, min(1, amount * c[1])), c[2])
+
+
+def plot_sequence(
+        ax: Any,
+        seq: Any,
+        names: Any,
+        height: Any,
+        color: str = 'red',
+        print_names: bool = True
+):
+    box = Rectangle((0, 0), seq[0], height[0], color=adjust_lightness(color, 1.7))
+    ax.add_patch(box)
+    for start, end, heit in zip(seq, height[1:], height[1:]):
+        box = Rectangle((start, 0), end, heit, color=adjust_lightness(color, 1.7))
+        ax.add_patch(box)
+
+    ax.vlines(seq, 0, height, color=adjust_lightness(color, 1.3))
+
+    non_zero_height = height != 0
+    cleaned_seq = seq[non_zero_height]
+    cleaned_height = height[non_zero_height]
+    ax.scatter(cleaned_seq, cleaned_height, marker='.', color=color)
+    # ax.plot(seq, np.zeros_like(seq), "-o", color="k", markerfacecolor="w")
     
     # annotate lines
     if print_names:
-        for d, h, r in zip(seq, height, names):
+        cleaned_names = names[non_zero_height]
+        for d, h, r in zip(cleaned_seq, cleaned_height, cleaned_names):
             ax.annotate(r, xy=(d, h),
                         xytext=(3, np.sign(h)*3), textcoords="offset points",
                         horizontalalignment="right",
@@ -96,7 +136,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     _ = parser.add_argument('file', type=argparse.FileType('r'))
     _ = parser.add_argument('--output', type=pathlib.Path, help='Name of output figure', default=None)
-    _ = parser.add_argument('--no-iter-count', dest='iter_count', action='store_false')
+    _ = parser.add_argument('--iter-count', dest='iter_count', action='store_true')
+    _ = parser.add_argument('--legends', nargs='+', help='Application names', required=False)
     args = parser.parse_args()
 
     if args.output:
@@ -112,17 +153,18 @@ if __name__ == "__main__":
     parsed_logs = parse_iteration_log(args.file)
 
     # Creating plot with data
-    fig, ax = plt.subplots(figsize=(8.8, 4), layout="constrained")
+    fig, ax = plt.subplots(figsize=(6, 3), layout="constrained")
     ax.set_xlabel("Total virtual time (ns)")
-    ax.set_ylabel("Virtual time per iteration (ns)")
+    ax.set_ylabel("Virtual time \nper iteration (ns)")
     #ax.set(title="")
-    smallest_timestamp = list(parsed_logs.values())[0]['time'][0]
-    ax.plot([0, smallest_timestamp], [0, 0], "-", color="k", markerfacecolor="w")
+    largest_timestamp = max(v['time'].max() for v in parsed_logs.values())
+    ax.plot([0, largest_timestamp], [0, 0], "-", color="k", markerfacecolor="w")
 
-    color_table = ['red', 'blue', 'green', 'black']
+    color_table = ['tab:red', 'tab:blue', 'tab:green', 'tab:black']
     for i, job in enumerate(parsed_logs.keys()):
         # Flipping second sequence if there are only two jobs
-        mul = -1 if len(parsed_logs) == 2 and i == 1 else 1
+        # mul = -1 if len(parsed_logs) == 2 and i == 1 else 1
+        mul = 1
         plot_sequence(
             ax,
             parsed_logs[job]['time'],
@@ -132,6 +174,16 @@ if __name__ == "__main__":
             print_names=args.iter_count)
     
     plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+
+    if args.legends:
+        custom_lines = []
+        legends = []
+        for legend, color in zip(args.legends, color_table):
+            # Finding legend for application with ID i
+            legend: str
+            legends.append(legend)
+            custom_lines.append(Line2D([0], [0], color=color))
+        ax.legend(custom_lines, legends)
     
     #ax.margins(y=0.1)
     if args.output:

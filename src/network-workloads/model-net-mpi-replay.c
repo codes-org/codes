@@ -1131,10 +1131,10 @@ static int iters_skipped(struct AvgSurrogateSwitchingTimesForApp * avgSur) {
 }
 
 static struct AvgSurrogateSwitchingTimesForApp skip_iter_config[] = {
-    // done, app_id, skip_at_iter, resume_at_iter, time_per_iter
-    {0,  3,  21, 14403235, {false}},
-    {1,  7,  59,  4982017, {false}},
-    {1, 79, 195,  3581337, {false}},
+    // app_id, skip_at_iter, resume_at_iter, time_per_iter, done
+    //{0,  3,  21, 14403235, {false}},
+    //{1,  7,  59,  4982017, {false}},
+    //{1, 79, 195,  3581337, {false}},
 };
 
 struct AvgSurrogateSwitchingTimesForApp * get_switch_config(struct nw_state * s) {
