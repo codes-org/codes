@@ -1,6 +1,6 @@
 
-Please copy packets-delay.csv to src/surrogate/zmqml/model/data/
-before starting the demo.
+Please copy packets-delay.csv to src/surrogate/zmqml/model/ before
+starting the demo.
 
 You need to open two terminals for this demo.
 

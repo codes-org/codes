@@ -95,7 +95,7 @@ void test_mlpacketdelay_training() {
 
     vector<string> args = {"mlpacketdelay_training", 
                            "--method", "MLP", "--epoch", "1",
-                            "--input-file", "model/data/packets-delay.csv",
+                            "--input-file", "model/packets-delay.csv",
                             "--model-path", "ml-model.pt"};
 
     vector<string> ret = zmqml_request("launch", args);

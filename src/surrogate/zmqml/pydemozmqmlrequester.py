@@ -109,7 +109,7 @@ def test_mlpacketdelay_training():
 
     target = ["mlpacketdelay_training", 
               "--method", "MLP", "--epoch", "1",
-              "--input-file", "model/data/packets-delay.csv",
+              "--input-file", "model/packets-delay.csv",
               "--model-path", "ml-model.pt"]
     
     ret = zmqml_request("launch", target)
