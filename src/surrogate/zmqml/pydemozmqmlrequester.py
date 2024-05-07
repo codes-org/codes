@@ -58,7 +58,7 @@ def zmqml_request(cmd, args=None, bindata=b"None"):
 #
 #
 def measure_latency():
-    print("measure latency")
+    print("* measure_latency")
     tss = []
     n = 1000
     for i in range(0,n):
@@ -70,7 +70,7 @@ def measure_latency():
 #
 #
 def test_blocking_sleep():
-    print("sleep")
+    print("* test_blocking_sleep")
 
     target = ["sleep", "1"] # this works like args to main() in C
 
@@ -81,7 +81,7 @@ def test_blocking_sleep():
 #
 #
 def test_nonblocking_sleep():
-    print("test nonblocking")
+    print("* test_nonblocking_sleep")
 
     target = ["sleep", "2"]
 
@@ -101,25 +101,54 @@ def test_nonblocking_sleep():
         cnt = cnt + 1
     print(f"done cnt={cnt}")
 
+
+#
+#
+def test_mlpacketdelay_training():
+    print("* test_mlpacketdelay_training")
+
+    target = ["mlpacketdelay_training", 
+              "--method", "MLP", "--epoch", "1",
+              "--input-file", "model/data/packets-delay.csv",
+              "--model-path", "ml-model.pt"]
+    
+    ret = zmqml_request("launch", target)
+    status = ret["status"]
+    id = ret["id"]
+    print(f'status={status} id={id}')
+
+    cnt = 0
+    while True:
+        ret = zmqml_request("query", [id])
+        status = ret["status"]
+        print(f"status={status}")
+        if status == "done":
+            break
+        time.sleep(.5)
+        cnt = cnt + 1
+    print(f"done cnt={cnt}")
+    
 #
 #
 def test_send_binary():
-    print("test nonblocking")
+    print("* test_send_binary")
 
     data = b""
-    with open('ml-model.pt', 'rb') as f:
+    with open('model/ml-model.pt', 'rb') as f:
         data = f.read()
     
-    ret = zmqml_request("send", ["foobar.dat"], data)
+    ret = zmqml_request("send", ["tmptestsend.dat"], data)
     status = ret["status"]
     print(f"status={status}")
 
     
 if __name__ == "__main__":
+    test_mlpacketdelay_training()
+    
     test_send_binary()
-    measure_latency()
     test_blocking_sleep()
     test_nonblocking_sleep()
-    #test_mlpacketdelay_training()
+    measure_latency()
+
     zmqml_request("exit")
     sys.exit(0)

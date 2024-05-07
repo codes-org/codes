@@ -21,6 +21,7 @@ demozmqmlrequester: demozmqmlrequester.cpp libzmqmlrequester.so
 clean:
 	rm -f $(TARGETS)
 	rm -f *.o
+	rm -f tmptestsend.dat
 
 distclean: clean
 	rm -f *~

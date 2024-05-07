@@ -15,7 +15,7 @@ from itertools import count # generate unit id
 # from dataclasses import dataclass
 
 # TODO: abstract a mechanism to call training
-from runmlpacketdelay import run_training
+from runmlpacketdelay import run_mlpacketdelay_training
 
 #import os
 #model_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "model"))
@@ -66,14 +66,26 @@ class LaunchCMD:
 #
 def launch_sleep(done_event, args):
     if debug:
-        print("Dummy started")
+        print("sleep started")
     time.sleep(int(args[0]))
     if debug:
-        print("Dummy done")
+        print("sleep done")
     done_event.set()
 
+def launch_mlpacketdelay_training(done_event, args):
+    if debug:
+        print("mlpacketdelay_training started")
+
+    run_mlpacketdelay_training(args)
+
+    if debug:
+        print("mlpacketdelay_training done")
+    done_event.set()
+
+    
 list_nonblockingcalls = {
-    "sleep": launch_sleep
+    "sleep": launch_sleep,
+    "mlpacketdelay_training": launch_mlpacketdelay_training,
 }
 
 #
@@ -168,18 +180,18 @@ def zmq_cmd_listener():
             retmsg = {"status":"done"}
         elif cmd == "execute":
             (status, et) = blockingcall(args)
-            retmsg = {"status":status, "et":et}
+            retmsg = {"status":status, "et":str(et)}
         elif cmd == "launch":
             (status, id) = nonblockingcall(args)
-            retmsg = {"status":status, "id":id}
+            retmsg = {"status":status, "id":str(id)}
         elif cmd == "query":
-            targetid = args[0]
+            targetid = int(args[0])
             (status, et) = launched_threads[targetid].query()
-            retmsg = {"status":status, "et":et}
+            retmsg = {"status":status, "et":str(et)}
         elif cmd == "send":
             destfn = args[0]
             (status, et) = receivedata(args, bindata)
-            retmsg = {"status":status, "et":et}
+            retmsg = {"status":status, "et":str(et)}
 
         # send response back to the requester
         socket.send_json(retmsg)

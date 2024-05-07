@@ -4,7 +4,7 @@ from pathlib import Path
 
 from model import mlpacketdelay
 
-def run_training(done_event):
+def run_mlpacketdelay_training(args):
     parser = argparse.ArgumentParser(description="Delay Prediction")
     parser.add_argument('--method', type=str, default='MLP', choices=['MLP','Average'])
     parser.add_argument('--epoch', type=int, default=10, help='epochs to train')
@@ -21,9 +21,11 @@ def run_training(done_event):
     parser.add_argument('--plot-weights', action='store_true', default=False,
                         help='whether to show weights from source to destination')
 
-    args = parser.parse_args(["--method", "MLP", "--epoch", "1", # 50
-                              "--input-file", "model/data/packets-delay.csv",
-                              "--model-path", "ml-model.pt"])
+    # parsed_args = parser.parse_args(["--method", "MLP", "--epoch", "1", # 50
+    #                           "--input-file", "model/data/packets-delay.csv",
+    #                           "--model-path", "model/ml-model.pt"])
 
-    mlpacketdelay.main_func(args)
-    done_event.set()
+    parsed_args = parser.parse_args(args)
+
+    mlpacketdelay.main_func(parsed_args)
+

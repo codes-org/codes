@@ -76,11 +76,11 @@ vector<string> zmqml_request(const string& cmd,
         ret.push_back(response["status"].GetString());
 
         if (response.HasMember("et")) {
-            ret.push_back(to_string(response["et"].GetDouble()));
+            ret.push_back(response["et"].GetString());
         }
 
         if (response.HasMember("id")) {
-            ret.push_back(to_string(response["id"].GetInt()));
+            ret.push_back(response["id"].GetString());
         }
     } else {
         ret.push_back("failed");
@@ -89,22 +89,6 @@ vector<string> zmqml_request(const string& cmd,
     return ret;
 }
 
-
-// void test_training() {
-//     std::cout << "test training" << std::endl;
-//     send_cmd("start_training");
-//     int cnt = 0;
-
-//     while (true) {
-//         auto result = send_cmd("status_training");
-//         std::string r = result.first;
-//         if (r == "True") break;
-// 		//cout << r << endl;
-// 		std::this_thread::sleep_for(std::chrono::seconds(1));
-//         ++cnt;
-//     }
-//     std::cout << "done cnt=" << cnt << std::endl;
-// }
 
 
 
