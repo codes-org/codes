@@ -158,6 +158,10 @@ static double sampling_interval = 5000000;
 static double sampling_end_time = 3000000000;
 static int enable_debug = 0;
 
+// More hardcoded values for surrogate switch
+static int start_iter_skip_app = -1;
+static double avg_time_app = -1.0;
+
 /* set group context */
 struct codes_mctx mapping_context;
 enum MAPPING_CONTEXTS
@@ -1132,9 +1136,9 @@ static int iters_skipped(struct AvgSurrogateSwitchingTimesForApp * avgSur) {
 
 static struct AvgSurrogateSwitchingTimesForApp skip_iter_config[] = {
     // app_id, skip_at_iter, resume_at_iter, time_per_iter, done
-    //{0,  3,  21, 14403235, {false}},
-    //{1,  7,  59,  4982017, {false}},
-    //{1, 79, 195,  3581337, {false}},
+    {0,  3,  21, 14403235, {false}},
+    {1,  7,  59,  4982017, {false}},
+    {1, 79, 195,  3581337, {false}},
 };
 
 struct AvgSurrogateSwitchingTimesForApp * get_switch_config(struct nw_state * s) {
@@ -3327,6 +3331,8 @@ const tw_optdef app_opt [] =
     TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
     TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
 	TWOPT_CHAR("offset_file", offset_file, "offset file name"),
+    TWOPT_UINT("start-iter-skip-app", start_iter_skip_app, "Hardcoded value to indicate when to switch to surrogate for app 1"),
+    TWOPT_STIME("avg-time-app", avg_time_app, "Hardcoded value for Avg. iteration time for app 1"),
 #ifdef ENABLE_CORTEX_PYTHON
 	TWOPT_CHAR("cortex-file", cortex_file, "Python file (without .py) containing the CoRtEx translation class"),
 	TWOPT_CHAR("cortex-class", cortex_class, "Python class implementing the CoRtEx translator"),
@@ -3470,6 +3476,9 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
   tw_opt_add(app_opt);
   tw_opt_add(cc_app_opt);
   tw_init(argc, argv);
+  skip_iter_config[2].skip_at_iter = start_iter_skip_app;
+  skip_iter_config[2].time_per_iter = avg_time_app;
+
 #ifdef USE_RDAMARIS
     if(g_st_ross_rank)
     { // keep damaris ranks from running code between here up until tw_end()

@@ -138,6 +138,7 @@ if __name__ == "__main__":
     _ = parser.add_argument('--output', type=pathlib.Path, help='Name of output figure', default=None)
     _ = parser.add_argument('--iter-count', dest='iter_count', action='store_true')
     _ = parser.add_argument('--legends', nargs='+', help='Application names', required=False)
+    _ = parser.add_argument('--no-show-plot', dest='show_plot', action='store_false')
     args = parser.parse_args()
 
     if args.output:
@@ -151,6 +152,12 @@ if __name__ == "__main__":
         })
 
     parsed_logs = parse_iteration_log(args.file)
+
+    final_timestamp = float(max(job['time'].max() for job in parsed_logs.values()))
+    print("Simulation end =", final_timestamp)
+
+    if not args.show_plot:
+        exit(0)
 
     # Creating plot with data
     fig, ax = plt.subplots(figsize=(6, 3), layout="constrained")
