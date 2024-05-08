@@ -18,7 +18,7 @@
 #include "codes/quickhash.h"
 #include "codes/codes-jobmap.h"
 #include "codes/congestion-controller-core.h"
-#include "codes/surrogate/lp-client/base.h"
+#include "codes/surrogate/lp-surrogacy/nw-buddy-lp/base.h"
 #include "codes/codes-mpi-replay.h"
 
 /* turning on track lp will generate a lot of output messages */
@@ -160,7 +160,7 @@ static double sampling_interval = 5000000;
 static double sampling_end_time = 3000000000;
 static int enable_debug = 0;
 
-static bool enable_surrogate_client_lp = false;
+static bool enable_surrogate_client_lp = true;
 
 /* set group context */
 struct codes_mctx mapping_context;
@@ -1059,15 +1059,20 @@ void skip_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m)
 	struct codes_workload_op * mpi_op = (struct codes_workload_op*) malloc(sizeof(struct codes_workload_op));
     m->mpi_op = mpi_op;
 
-    // consuming all events until iteration 35 from iteration 4
+    // consuming events until counting a total of `skip_iterations` iterations
+    int iters_skipped = 0;
     bool reached_end = false;
     while (!reached_end) {
         codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, mpi_op);
 
         switch (mpi_op->op_type) {
             case CODES_WK_MARK:
-                if (mpi_op->u.send.tag == 35) {
+                iters_skipped++;
+                //if (mpi_op->u.send.tag == 34) {
+                if (iters_skipped >= m->fwd.skip_iterations) {
                     reached_end = true;
+                    // We roll it back so that it shows up in the stastistics :)
+                    codes_workload_get_next_rc(wrkld_id, s->app_id, s->local_rank, mpi_op);
                 }
                 break;
             // If we reach the end of simulation, rollback once to allow the operation to be processed normally
@@ -2691,6 +2696,11 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 
         case SURR_SKIP_ITERATION:
             skip_iteration(s, lp, bf, m);
+            break;
+
+        case SURR_START_NEXT_ITERATION:
+            codes_issue_next_event(lp);
+            break;
 	}
 }
 
@@ -2930,12 +2940,11 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
                 if (enable_surrogate_client_lp) {
                     tw_lpid const client_surr = 0;
                     tw_event *e = tw_event_new(client_surr, 0, lp);
-                    struct client_surr_msg* msg = (struct client_surr_msg*) tw_event_data(e);
+                    struct nw_buddy_msg* msg = (struct nw_buddy_msg*) tw_event_data(e);
                     msg->src_wkld_id = s->nw_id;
                     msg->src_wkld_lpid = lp->gid;
-                    // msg->msg_type = CLIENT_SURR_iter_time;
                     msg->iteration = mpi_op->u.send.tag;
-                    msg->iteration_time = -1; // Not yet properly defined
+                    msg->iteration_time = tw_now(lp);
                     tw_event_send(e);
                 } else {
                     codes_issue_next_event(lp);
@@ -3149,6 +3158,9 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
             break;
 
         case SURR_SKIP_ITERATION:
+            break;
+
+        case SURR_START_NEXT_ITERATION:
             break;
 	}
 }
@@ -3523,7 +3535,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 
    nw_add_lp_type();
    // TODO(elkin): Check if client-surrogate defined in config file, otherwise no need to add type
-   client_surrogate_register_lp_type();
+   nw_buddy_surrogate_register_lp_type();
    model_net_register();
 
     if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)

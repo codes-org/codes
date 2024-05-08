@@ -38,7 +38,7 @@ enum MPI_NW_EVENTS
     CLI_NBR_FINISH,
     CLI_OTHER_FINISH, //received when another workload has finished
     // Surrogate-mediated events
-    SURR_START_NEXT_ITERATION,
+    SURR_START_NEXT_ITERATION, // tells the workload to continue processing events as normal for the next iteration
     SURR_SKIP_ITERATION, // skips one (several) iteration(s) of simulation
 };
 
