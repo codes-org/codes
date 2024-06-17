@@ -3756,7 +3756,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    if(alloc_spec)
        codes_jobmap_destroy(jobmap_ctx);
 
-   print_surrogate_stats();
+   //print_surrogate_stats();
 
 #ifdef USE_RDAMARIS
     } // end if(g_st_ross_rank)
