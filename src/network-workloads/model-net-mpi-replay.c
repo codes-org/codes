@@ -19,6 +19,288 @@
 #include "codes/codes-jobmap.h"
 #include "codes/congestion-controller-core.h"
 
+
+
+/*  ==========================================================
+    START OF Director Code (To be moved to separate files)
+    ==========================================================
+*/
+
+struct
+{
+    int surr_iter_start;
+    int surr_iter_end;
+} director_config_global;
+
+//struct director_config_struct dir_config_global;
+
+
+#define DIR_MAX_PREDICTION 10
+#define NUM_DIR_TO_NW_EVENT 20
+
+enum SIMULATION_MODE
+{
+    SIM_MODE_PDES=1,
+    SIM_MODE_ITERATION_SURROGATE,
+};
+
+typedef struct director_state director_state;
+typedef struct director_message director_message;
+typedef struct director_annotation director_annotation;
+
+enum DIR_EVENTS
+{
+	DIR_AN_ITER_MARK=1,
+    DIR_OP_NW,
+    DIR_REGISTERED_EVENT__SWITCH_TO_SURR,
+    DIR_REGISTERED_EVENT__SWITCH_TO_PDES,
+    DIR_REGISTERED_EVENT__MOVE_TO_NEXT,
+};
+
+enum DIR_OPERATIONS //currently unused
+{
+    DIR_AN_WK_START=1,
+    DIR_AN_WK_ITERATION_END,
+    DIR_AN_WK_END,
+    DIR_OP_SEND,
+    DIR_OP_RECV,
+};
+
+// state of the director LP 
+struct director_state
+{
+	tw_lpid director_id;
+    int simulation_mode;
+    
+    tw_stime predictions[DIR_MAX_PREDICTION];
+
+    void *nw_event_ptr[NUM_DIR_TO_NW_EVENT];
+    int nw_event_size[NUM_DIR_TO_NW_EVENT];
+
+    tw_lpid nw_lpid;
+};
+
+// director event message struct
+struct director_message
+{
+   int msg_type;
+   int op_type;
+   int num_rngs;
+   int value;
+   model_net_event_return event_rc;
+   struct codes_workload_op * mpi_op;
+
+   void *buffer; // this pointer MUST be at the end of the structure
+};
+
+// director annotation struct
+struct director_annotation
+{
+   int an_type;
+   int an_value;
+};
+
+/* Trigger Director Event from within network model*/
+static void codes_issue_director_event(tw_lp* lp, tw_lpid director_lpid, int dir_event_type, int value)
+{
+
+    tw_event *e;
+    struct director_message* msg;
+
+    tw_stime ts;
+
+    ts = .0001; // Todo: maybe this should be dynamically adjustable
+
+    e = tw_event_new(director_lpid, ts, lp );
+    msg = (director_message*)tw_event_data(e);
+
+    msg->msg_type = dir_event_type;
+    msg->value = value;
+    tw_event_send(e);
+}
+
+/* Trigger CODES Event From Director */
+static void director_issue_codes_event(director_state * s, tw_lpid nw_lpid, int dir_registered_event_type, tw_stime ts, tw_lp* lp)
+{
+
+    tw_event *e;
+    void* msg;
+
+    //printf("==DIR: ts: %lf\n", ts);
+    e = tw_event_new(nw_lpid, ts, lp);
+    msg = (void*)tw_event_data(e);
+
+    memcpy(msg, s->nw_event_ptr[dir_registered_event_type], s->nw_event_size[dir_registered_event_type]);
+
+    //msg->msg_type = dir_registered_event_type;
+    tw_event_send(e);
+}
+
+void director_register_events(director_state * s, director_message * msg, tw_lp * lp)
+{
+    int dir_registered_event_type = msg->msg_type;
+    int pdes_msg_size = msg->value; 
+
+    //printf("==DIR[%d] DIR Registering dir_event_type:%d (time: %lf)\n", 
+    //        s->director_id, dir_registered_event_type, tw_now(lp));
+
+    s->nw_event_size[dir_registered_event_type] = pdes_msg_size;
+    memcpy(s->nw_event_ptr[dir_registered_event_type], &msg->buffer, pdes_msg_size);
+
+    //int pdes_event_type = msg->op_type;
+    //nw_message *buffer = &msg->buffer;
+    //nw_message *saved_msg = s->nw_event_ptr[dir_registered_event_type];
+    //printf("==DIR s->director_id: %d | dir_registered_event_type: %d | pdes_event_type: %d (%d)\n",
+    //        s->director_id, dir_registered_event_type, pdes_event_type, 
+    //        buffer->msg_type);
+}
+
+
+
+
+// initializes the director LP 
+void dir_test_init(director_state* s, tw_lp* lp)
+{
+    // initialize the LP's and load the data
+    memset(s, 0, sizeof(*s));
+    s->simulation_mode = SIM_MODE_PDES;
+    s->director_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
+
+    for(int i = 0; i < DIR_MAX_PREDICTION; i++){
+        s->predictions[i] = (tw_stime) 1000000;
+    }
+
+    for(int i = 0; i < NUM_DIR_TO_NW_EVENT; i++){
+        s->nw_event_ptr[i] = (void*) calloc(1, g_tw_msg_sz);
+    }
+    
+    // get lp_id of the nw that matches this director
+    int num_nw_per_mgrp;
+    s->nw_lpid;
+    num_nw_per_mgrp = codes_mapping_get_lp_count ("MODELNET_GRP", 1, "nw-lp", NULL, 0);
+    codes_mapping_get_lp_id("MODELNET_GRP", "nw-lp", NULL, 1, s->director_id / num_nw_per_mgrp, s->director_id % num_nw_per_mgrp, &(s->nw_lpid));
+
+    // Get switching criteria from configuration
+    // if we're switch based on iteration - read iter start and end
+    // if switch based on virtual time - schedule sending switch event to CODES
+    // (stage 2) if switch based on accuracy - schedule polling for accuracy
+    // (stage 2) pass training data from CODES to surrogate
+    // (stage 3) using workload with network surrogates
+
+    // Update global configs
+    if(s->director_id == 1)
+    {
+        director_config_global.surr_iter_start = 1;
+        director_config_global.surr_iter_end = 2;
+    }
+    //printf("\n==DIR s->director_id: %d | lp->gid: %llu | s->nw_lpid: %llu", s->director_id, LLU(lp->gid), LLU(s->nw_lpid));
+    return;
+}
+
+void dir_test_event_handler(director_state* s, tw_bf * bf, director_message * m, tw_lp * lp)
+{
+    
+    switch(m->msg_type)
+	{
+		case DIR_OP_NW:
+            if(s->simulation_mode == SIM_MODE_PDES)
+            {
+                tw_error(TW_LOC, "DIR sent for non-annotation operation during PDES mode.");
+            } else if(s->simulation_mode == SIM_MODE_ITERATION_SURROGATE)
+            {
+                //printf("==DIR[%d] Skipping NW Op type:%d (time: %lf)\n", s->director_id, m->value, tw_now(lp));
+
+                tw_stime delay_ts = 0.001;
+                director_issue_codes_event(s, s->nw_lpid, DIR_REGISTERED_EVENT__MOVE_TO_NEXT, delay_ts, lp);
+            }
+		break;
+
+        case DIR_AN_ITER_MARK:
+            //printf("==DIR[%d] Non-blocking call (time %lf)\n", s->director_id, tw_now(lp));
+            //printf("==DIR[%d] s->predictions[%d]: %lf\n", s->director_id, m->value, s->predictions[m->value]);
+            //fprintf(iteration_log, "DIR %d (time %lf)\n", s->director_id, tw_now(lp));
+            //printf("==DIR[%d] DIR_AN_ITER_MARK m->value: %d (time: %lf)\n", s->director_id, m->value, tw_now(lp));
+            if(s->simulation_mode == SIM_MODE_PDES)
+            {
+                if(m->value == director_config_global.surr_iter_start)
+                {
+                    //printf("==DIR[%d] Triggering switch to SURR (time: %lf)\n", s->director_id, tw_now(lp));
+                    
+                    s->simulation_mode = SIM_MODE_ITERATION_SURROGATE;
+                    tw_stime delay_ts = s->predictions[m->value];
+                    director_issue_codes_event(s, s->nw_lpid, DIR_REGISTERED_EVENT__SWITCH_TO_SURR, delay_ts, lp);
+                    return;
+                }
+                else
+                {
+                    tw_stime delay_ts = 0.001;
+                    director_issue_codes_event(s, s->nw_lpid, DIR_REGISTERED_EVENT__MOVE_TO_NEXT, delay_ts, lp);
+                    return;
+                }
+            } 
+            else if(s->simulation_mode == SIM_MODE_ITERATION_SURROGATE)
+            {
+                if(m->value == director_config_global.surr_iter_end)
+                {
+                    //printf("==DIR[%d] Triggering switch to PDES (time: %lf)\n", s->director_id, tw_now(lp));
+                
+                    s->simulation_mode = SIM_MODE_PDES;
+                    tw_stime delay_ts = 0.001;
+                    director_issue_codes_event(s, s->nw_lpid, DIR_REGISTERED_EVENT__SWITCH_TO_PDES, delay_ts, lp);
+                    return;
+                } 
+                else // we need to predict when the next iteration will start
+                {
+                    tw_stime delay_ts = s->predictions[m->value];
+                    director_issue_codes_event(s, s->nw_lpid, DIR_REGISTERED_EVENT__MOVE_TO_NEXT, delay_ts, lp);
+                    return;
+                }
+            }
+            else
+            {
+                tw_error(TW_LOC, "[DIR] Simulation mode unknown.");
+            }
+            
+        break;
+        
+        case DIR_REGISTERED_EVENT__SWITCH_TO_SURR:
+        case DIR_REGISTERED_EVENT__SWITCH_TO_PDES:
+        case DIR_REGISTERED_EVENT__MOVE_TO_NEXT:
+            director_register_events(s, m, lp);
+        break;
+
+        default:
+        break;
+	}
+}
+
+void dir_test_finalize(director_state* s, tw_lp* lp)
+{
+    //printf("\n==DIR: FINALIZED");
+}
+
+tw_lptype dir_lp = {
+    (init_f) dir_test_init,
+    (pre_run_f) NULL,
+    (event_f) dir_test_event_handler,
+    (revent_f) NULL, //dir_test_event_handler_rc,
+    (commit_f) NULL, //dir_test_event_handler_commit,
+    (final_f) dir_test_finalize,
+    (map_f) codes_mapping,
+    sizeof(director_state)
+};
+
+
+
+
+/*  ==========================================================
+    END OF Director Code (To be moved to separate files)
+    ==========================================================
+*/
+
+
+
+
 /* turning on track lp will generate a lot of output messages */
 #define DBG_COMM 1
 #define MN_LP_NM "modelnet_dragonfly_custom"
@@ -190,6 +472,8 @@ enum MPI_NW_EVENTS
     CLI_OTHER_FINISH, //received when another workload has finished
     // Surrogate events
     SURR_SKIP_ITERATION, // skips one (several) iteration(s) of simulation
+    CODES_CMD_SWITCH_TO_SURR, // transition simulation from PDES -> Surrogate
+    CODES_CMD_SWITCH_TO_PDES, // transition simulation from Surrogate -> PDES
 };
 
 /* type of synthetic traffic */
@@ -366,6 +650,11 @@ struct nw_state
     char output_buf[512];
     char col_stats[64];
     struct ross_model_sample ross_sample;
+
+    /* For hybrid simulations with DIRECTOR and surrogate */
+    int director_enabled;
+    tw_lpid director_lpid;
+    int simulation_mode;
 };
 
 /* data for handling reverse computation.
@@ -417,6 +706,54 @@ struct nw_message
        double saved_prev_max_time;
    } rc;
 };
+
+
+/*  ==========================================================
+    START of model-net replay DIRECTOR interface
+    ==========================================================
+*/
+
+
+void codes_register_director_events(nw_state* s, int dir_event_type, int nw_event_type, size_t event_value, tw_lp* lp)
+{
+    tw_event *e;
+    director_message *msg;
+
+    nw_message registered_nw_msg;
+    registered_nw_msg.msg_type = nw_event_type;
+    registered_nw_msg.op_type = event_value;
+    registered_nw_msg.fwd.app_id = s->nw_id;
+
+    tw_stime ts = 0.001;
+
+    //printf("==DIR[%d] NW Registering dir_event_type:%d | nw_event_type:%d (time: %lf)\n", 
+    //        s->nw_id, dir_event_type, nw_event_type, tw_now(lp));
+
+    //printf("==DIR: ts: %lf\n", ts);
+   if (sizeof(nw_message) + sizeof(director_message) > g_tw_msg_sz){
+        tw_error(TW_LOC, "Error: NW-director trying to transmit an event of size "
+                        "%d but ROSS is configured for events of size %zd\n",
+                        sizeof(nw_message) + sizeof(director_message), g_tw_msg_sz);
+    }
+    
+    e = tw_event_new(s->director_lpid, ts, lp);
+    msg = (director_message*)tw_event_data(e);    
+    msg->msg_type = dir_event_type;
+    msg->op_type = nw_event_type;
+    msg->value = sizeof(nw_message);
+
+    memcpy(&msg->buffer, &registered_nw_msg, msg->value);
+
+    tw_event_send(e);
+}
+
+/*  ==========================================================
+    END of model-net replay DIRECTOR interface
+    ==========================================================
+*/
+
+
+
 
 static void send_ack_back(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp, mpi_msgs_queue * mpi_op, int matched_req);
 
@@ -2406,6 +2743,23 @@ void nw_test_init(nw_state* s, tw_lp* lp)
                      //       This had been -1 but if qos is not configured (single job no workload conf file)
                      //       then this will error out
 
+    /* START of DIRECTOR setup 
+    */
+    s->director_enabled = 0;
+    s->simulation_mode = SIM_MODE_PDES;
+    int num_dir_per_mgrp = codes_mapping_get_lp_count ("MODELNET_GRP", 1, "dir-lp", NULL, 0);
+    if(num_dir_per_mgrp > 0){
+        s->director_enabled = 1;
+        codes_mapping_get_lp_id("MODELNET_GRP", "dir-lp", NULL, 1, s->nw_id / num_dir_per_mgrp, s->nw_id % num_dir_per_mgrp, &s->director_lpid);
+        //printf("\n==DIRNW s->nw_id: %d | lp->gid: %llu | s>director_lpid: %llu", s->nw_id, LLU(lp->gid), LLU(s->director_lpid));
+    }
+    // register callbacks with director
+    codes_register_director_events(s, DIR_REGISTERED_EVENT__SWITCH_TO_SURR, CODES_CMD_SWITCH_TO_SURR, sizeof(nw_message), lp);
+    codes_register_director_events(s, DIR_REGISTERED_EVENT__SWITCH_TO_PDES, CODES_CMD_SWITCH_TO_PDES, sizeof(nw_message), lp);
+    codes_register_director_events(s, DIR_REGISTERED_EVENT__MOVE_TO_NEXT, MPI_OP_GET_NEXT, sizeof(nw_message), lp);
+    /* 
+    * END of DIRECTOR setup */
+
    char type_name[512];
 
    if(!num_net_traces)
@@ -2758,6 +3112,33 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 
         case SURR_SKIP_ITERATION:
             skip_iteration(s, lp, bf, m);
+            break;
+        
+        /* START of Sim. transition events sent by DIRECTOR 
+        */
+        case CODES_CMD_SWITCH_TO_SURR:
+            if(s->simulation_mode == SIM_MODE_PDES){
+                //printf("==DIR[%d] NW switch to SURR (time: %lf)\n", s->nw_id, tw_now(lp));
+                
+                s->simulation_mode = SIM_MODE_ITERATION_SURROGATE;
+                get_next_mpi_operation(s, bf, m, lp);
+            }else{
+
+            }
+        break;
+
+        case CODES_CMD_SWITCH_TO_PDES:
+            if(s->simulation_mode == SIM_MODE_ITERATION_SURROGATE){
+                //printf("==DIR[%d] NW switch to PDES (time: %lf)\n", s->nw_id, tw_now(lp));
+                
+                s->simulation_mode = SIM_MODE_PDES;
+                get_next_mpi_operation(s, bf, m, lp);
+            }else{
+                
+            }
+        break;
+        /* 
+        * END of Sim. transition event sent by DIRECTOR */
 	}
 }
 
@@ -2900,6 +3281,34 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 
              return;
         }
+        if(mpi_op->op_type == CODES_WK_MARK) // If annotation type
+		{// TODO: extend this section to include checks for all annotations
+            m->rc.saved_marker_time = tw_now(lp);
+
+            // If we have reached the surrogate switch time, skip next iteration(s)
+            if (have_we_hit_surrogate_switch(mpi_op)) {
+                tw_event *e = tw_event_new(lp->gid, 2076575.16 * 91, lp);
+                nw_message* msg = (nw_message*) tw_event_data(e);
+                msg->msg_type = SURR_SKIP_ITERATION;
+                tw_event_send(e);
+            }
+            
+            if(s->director_enabled == 1)
+            {
+                //printf("===DIR: Value=%d\n", mpi_op->u.send.tag);
+                codes_issue_director_event(lp, s->director_lpid, DIR_AN_ITER_MARK, mpi_op->u.send.tag);
+                //codes_issue_next_event(lp);
+                
+                return;
+            }
+		} else if(s->simulation_mode == SIM_MODE_ITERATION_SURROGATE) // Else non-annotation type
+        {
+            if(s->director_enabled == 1)
+            {
+                codes_issue_director_event(lp, s->director_lpid, DIR_OP_NW, mpi_op->op_type);
+                return;
+            }
+        }
 		switch(mpi_op->op_type)
 		{
 			case CODES_WK_SEND:
@@ -2989,21 +3398,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
             }
 			break;
 
-		case CODES_WK_MARK:
-			{
-                m->rc.saved_marker_time = tw_now(lp);
-
-                // If we have reached the surrogate switch time, skip next iteration(s)
-                if (have_we_hit_surrogate_switch(mpi_op)) {
-                    tw_event *e = tw_event_new(lp->gid, 2076575.16 * 91, lp);
-                    nw_message* msg = (nw_message*) tw_event_data(e);
-                    msg->msg_type = SURR_SKIP_ITERATION;
-                    tw_event_send(e);
-                } else {
-                    codes_issue_next_event(lp);
-                }
-			}
-			break;
+		
 
 
 			default:
@@ -3583,6 +3978,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
     if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
         nw_lp_register_model();
 
+   lp_type_register("dir-lp", &dir_lp); // DIRECTOR addition - register type
    net_ids = model_net_configure(&num_nets);
 //   assert(num_nets == 1);
    net_id = *net_ids;
