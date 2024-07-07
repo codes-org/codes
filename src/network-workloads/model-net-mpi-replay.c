@@ -18,6 +18,7 @@
 #include "codes/quickhash.h"
 #include "codes/codes-jobmap.h"
 #include "codes/congestion-controller-core.h"
+#include "codes/surrogate/init.h"
 
 /* turning on track lp will generate a lot of output messages */
 #define DBG_COMM 1
