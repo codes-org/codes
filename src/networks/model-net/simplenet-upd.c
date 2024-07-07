@@ -100,7 +100,8 @@ static tw_stime simplenet_packet_event(
         void const * remote_event,
         void const * self_event,
         tw_lp *sender,
-        int is_last_pckt);
+        int is_last_pckt,
+        bool is_there_another_pckt_in_queue);
 
 static void simplenet_packet_event_rc(tw_lp *sender);
 
@@ -523,7 +524,8 @@ static tw_stime simplenet_packet_event(
         void const * remote_event,
         void const * self_event,
         tw_lp *sender,
-        int is_last_pckt)
+        int is_last_pckt,
+        bool is_there_another_pckt_in_queue)
 {
      (void)message_offset; // unused...
      (void)sched_params; // unused...
@@ -549,6 +551,7 @@ static tw_stime simplenet_packet_event(
      msg->event_type = SN_MSG_START;
      msg->is_pull = req->is_pull;
      msg->pull_size = req->pull_size;
+     //msg->is_there_another_pckt_in_queue = is_there_another_pckt_in_queue;
 
      /*Fill in simplenet information*/
      if(is_last_pckt) /* Its the last packet so pass in remote event information*/
