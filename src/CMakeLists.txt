@@ -59,6 +59,7 @@ list(APPEND SRCS
     surrogate/switch.c
     surrogate/packet-latency-predictor/common.c
     surrogate/packet-latency-predictor/average.c
+    surrogate/director-client.C
 
     iokernellang/codesparser.h
     iokernellang/codesparser.c
@@ -155,6 +156,12 @@ if(USE_ONLINE)
     endif()
 endif()
 
+# ZMQML
+add_library(zmqmlrequester SHARED IMPORTED )
+set_target_properties(zmqmlrequester PROPERTIES 
+    IMPORTED_LOCATION "${ZMQML_BUILD_PATH}/libzmqmlrequester.so"
+    INTERFACE_INCLUDE_DIRECTORIES "${ZMQML_BUILD_PATH}")
+
 #LINK ROSS
 # target_link_libraries(codes PUBLIC #{pkgcfg_lib_ROSS_ROSS})
 # target_link_libraries(codes PUBLIC PkgConfig::ROSS)
@@ -166,6 +173,7 @@ target_include_directories(codes PUBLIC
     ${PROJECT_SOURCE_DIR}/codes
     ${PROJECT_SOURCE_DIR}/src
     ${PROJECT_SOURCE_DIR}/src/modelconfig
+    $<TARGET_PROPERTY:zmqmlrequester,INTERFACE_INCLUDE_DIRECTORIES>
 )
 
 target_link_libraries(codes PUBLIC ${LIBS_TO_LINK})
@@ -198,9 +206,14 @@ if(USE_DUMPI)
     list(APPEND CODES_TARGETS model-net-dumpi-traces-dump)
 endif()
 
+# ZMQ
+pkg_check_modules(PC_ZeroMQ QUIET zmq)
+find_path(ZeroMQ_INCLUDE_DIR NAMES zmq.hpp PATHS ${PC_ZeroMQ_INCLUDE_DIRS})
+find_library(ZeroMQ_LIBRARY NAMES zmq PATHS ${PC_ZeroMQ_LIBRARY_DIRS})
+
 foreach(tar IN LISTS CODES_TARGETS)
     target_include_directories(${tar} PUBLIC ${CODES_INCLUDE_DIRS} ${ROSS_INCLUDE_DIRS})
-    target_link_libraries(${tar} PUBLIC codes ${LIBS_TO_LINK})
+    target_link_libraries(${tar} PUBLIC codes ${LIBS_TO_LINK} zmqmlrequester ${ZeroMQ_LIBRARY})
 endforeach()
 
 
