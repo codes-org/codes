@@ -20,6 +20,7 @@ using namespace rapidjson;
 static string endpoint = "tcp://localhost:5555";
 static int debug = 0;
 
+
 /**
  * See zmqmlrequester.h
  */
@@ -81,6 +82,10 @@ vector<string> zmqml_request(const string& cmd,
 
         if (response.HasMember("id")) {
             ret.push_back(response["id"].GetString());
+        }
+
+        if (response.HasMember("predictions")) {
+            ret.push_back(response["predictions"].GetString());
         }
     } else {
         ret.push_back("failed");
