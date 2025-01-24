@@ -3760,7 +3760,21 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    modelnet_mpi_replay_read_config();
 
    //Xin: output iteration time into log file
-   iteration_log = fopen("iteration-logs", "w+");
+
+   char const iteration_dir[] = "iteration-logs";
+   if (!g_tw_mynode) {
+        int ret = mkdir("iteration-logs", 0775);
+        if(ret != 0)
+        {
+            tw_error(TW_LOC, "mkdir(\"%s/\")", iteration_dir);
+        }
+   }
+   MPI_Barrier(MPI_COMM_CODES);
+   int buffer_size = snprintf(NULL, 0, "%s/pe=%d.txt", iteration_dir, g_tw_mynode) + 1;
+   char *iteration_log_path = malloc(buffer_size);
+   snprintf(iteration_log_path, buffer_size, "%s/pe=%d.txt", iteration_dir, g_tw_mynode);
+   iteration_log = fopen(iteration_log_path, "w+");
+   free(iteration_log_path);
    if(!iteration_log)
    {
        printf("\n Error logging iteration times... quitting ");
