@@ -426,6 +426,7 @@ struct nw_message
        int saved_syn_length;
        unsigned long saved_prev_switch;
        double saved_prev_max_time;
+       struct AvgSurrogateSwitchingTimesForApp * switch_config_used;
    } rc;
 };
 
@@ -1176,33 +1177,33 @@ static struct AvgSurrogateSwitchingTimesForApp * get_switch_config(struct nw_sta
 }
 
 static void skip_iteration_rc(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m) {
-    // TODO: implement!!
+    m->rc.switch_config_used->done = false;
 }
 
-static void skip_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m)
+static void skip_to_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m)
 {
-	struct codes_workload_op * mpi_op = (struct codes_workload_op*) malloc(sizeof(struct codes_workload_op));
-    m->mpi_op = mpi_op;
+    struct codes_workload_op mpi_op;
 
     struct AvgSurrogateSwitchingTimesForApp * switch_config = get_switch_config(s);
     assert(switch_config != NULL);
     int const resume_at_iter = switch_config->resume_at_iter;
+    m->rc.switch_config_used = switch_config;
 
     // consuming all events until indicated iteration is reached
     bool reached_end = false;
     while (!reached_end) {
-        codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, mpi_op);
+        codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, &mpi_op);
 
-        switch (mpi_op->op_type) {
+        switch (mpi_op.op_type) {
             case CODES_WK_MARK:
-                if (mpi_op->u.send.tag == resume_at_iter) {
+                if (mpi_op.u.send.tag == resume_at_iter) {
                     reached_end = true;
-                    codes_workload_get_next_rc(wrkld_id, s->app_id, s->local_rank, mpi_op);
+                    codes_workload_get_next_rc(wrkld_id, s->app_id, s->local_rank, &mpi_op);
                 }
                 break;
             // If we reach the end of simulation, rollback once to allow the operation to be processed normally
             case CODES_WK_END:
-                codes_workload_get_next_rc(wrkld_id, s->app_id, s->local_rank, mpi_op);
+                codes_workload_get_next_rc(wrkld_id, s->app_id, s->local_rank, &mpi_op);
                 reached_end = true;
                 break;
             default:
@@ -1226,7 +1227,7 @@ static bool have_we_hit_surrogate_switch(struct nw_state* s, struct codes_worklo
     return false;
 }
 
-static double time_to_skip_iterations(struct nw_state* s, struct codes_workload_op * mpi_op) {
+static double time_to_skip_iterations(struct nw_state* s) {
     struct AvgSurrogateSwitchingTimesForApp * switch_config = get_switch_config(s);
     assert(switch_config != NULL);
     return switch_config->time_per_iter * iters_skipped(switch_config);
@@ -2857,7 +2858,7 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
             break;
 
         case SURR_SKIP_ITERATION:
-            skip_iteration(s, lp, bf, m);
+            skip_to_iteration(s, lp, bf, m);
             break;
 	}
 }
@@ -3096,7 +3097,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 
                 // If we have reached the surrogate switch time, skip next iteration(s)
                 if (have_we_hit_surrogate_switch(s, mpi_op)) {
-                    tw_event *e = tw_event_new(lp->gid, time_to_skip_iterations(s, mpi_op), lp);
+                    tw_event *e = tw_event_new(lp->gid, time_to_skip_iterations(s), lp);
                     nw_message* msg = (nw_message*) tw_event_data(e);
                     msg->msg_type = SURR_SKIP_ITERATION;
                     tw_event_send(e);
@@ -3356,6 +3357,8 @@ void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp
 
             free(m->mpi_op);
         break;
+        case SURR_SKIP_ITERATION:
+            break;
     }
 }
 
@@ -3683,7 +3686,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
     }
 
 
-    // Loading surrogacy configuration
+    // Loading skipping iterations configuration
     if(strlen(skipping_iterations_file) > 0) {
         FILE *file = fopen(skipping_iterations_file, "r");
         if(!file) {
@@ -3707,19 +3710,14 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 
         skip_iter_config = malloc(skip_iter_config_size * sizeof(struct AvgSurrogateSwitchingTimesForApp));
 
+        // Loading in memory all times to skip iterations
         fseek(file, 0, SEEK_SET);
-        for(i = 0; !feof(file); i++) {
+        for(i = 0; i < skip_iter_config_size; i++) {
             struct AvgSurrogateSwitchingTimesForApp *skip_row = &skip_iter_config[i];
 
-            int ref = fscanf(file, "%d %d %d %lf", &skip_row->app_id, &skip_row->skip_at_iter, &skip_row->resume_at_iter, &skip_row->time_per_iter);
-
+            fscanf(file, "%d %d %d %lf", &skip_row->app_id, &skip_row->skip_at_iter, &skip_row->resume_at_iter, &skip_row->time_per_iter);
             skip_row->done = false;
-
-            if (ref != 4) { // We couldn't read all four values
-                break;
-            }
         }
-        assert(i == skip_iter_config_size);
         fclose(file);
 
         // Sorting. To skip iterations we asume that all skips for a specific job appear in increasing order
