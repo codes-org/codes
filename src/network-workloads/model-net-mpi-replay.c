@@ -1165,7 +1165,9 @@ static int iters_skipped(struct AvgSurrogateSwitchingTimesForApp * avgSur) {
 }
 
 static struct AvgSurrogateSwitchingTimesForApp * get_switch_config(struct nw_state * s) {
-    assert(s->switch_config != NULL);
+    if (s->switch_config == NULL) {
+        return NULL;
+    }
     for (int i=0; i < s->switch_config_size; i++) {
         struct AvgSurrogateSwitchingTimesForApp * jump = &s->switch_config[i];
         assert(jump->app_id == s->app_id);
