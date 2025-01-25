@@ -37,6 +37,7 @@
 #define BAR_TAG 1234
 #define PRINT_SYNTH_TRAFFIC 1
 #define MAX_JOBS 64
+#define MAX_PERIODS_PER_APP 512
 #define NEAR_ZERO .0001 //timestamp for use to be 'close to zero' but still allow progress, zero offset events are hard on the PDES engine
 #define OUTPUT_MARKS 0
 
@@ -99,8 +100,8 @@ float mean_interval_of_job[MAX_JOBS];
 long job_timer1[MAX_JOBS];
 long job_timer2[MAX_JOBS];
 int period_count[MAX_JOBS];
-long period_time[MAX_JOBS][64];
-float period_interval[MAX_JOBS][64];
+long period_time[MAX_JOBS][MAX_PERIODS_PER_APP];
+float period_interval[MAX_JOBS][MAX_PERIODS_PER_APP];
 char file_name_of_job[MAX_JOBS][8192];
 char skipping_iterations_file[8192];
 
@@ -2672,8 +2673,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 			e2 = tw_event_new(lp->gid, ts2, lp);
 			m_new2 = (nw_message*)tw_event_data(e2);
 			m_new2->msg_type = CLI_BCKGND_CHANGE;
-			m_new2->fwd.msg_send_time = period_interval[lid.job][k];
-			m_new2->rc.saved_send_time = mean_interval_of_job[s->app_id];
+			m_new2->fwd.msg_send_time = period_interval[lid.job][k];  // Warning: this is overwriting a variable meant for message type MPI_SEND_ARRIVED_CB
 			tw_event_send(e2);
 		}
 	}
@@ -2839,9 +2839,10 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
         break;
 
         case CLI_BCKGND_CHANGE:
-		mean_interval_of_job[s->app_id] = m->fwd.msg_send_time;
-		printf("======== CHANGE [now: %lf] App:%d | Interval: %f\n", tw_now(lp), s->app_id, mean_interval_of_job[s->app_id]);
-	break;
+            m->rc.saved_send_time = mean_interval_of_job[s->app_id];  // Warning: this is overwriting a variable meant for message type MPI_OP_GET_NEXT (specifically CODES_WK_ALLREDUCE) and CLI_BCKGND_ARRIVE
+            mean_interval_of_job[s->app_id] = m->fwd.msg_send_time;
+            m->rc.saved_marker_time = tw_now(lp);
+            break;
 
         case CLI_BCKGND_ARRIVE:
             arrive_syn_tr(s, bf, m, lp);
@@ -3361,6 +3362,10 @@ void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp
         break;
         case SURR_SKIP_ITERATION:
             break;
+
+        case CLI_BCKGND_CHANGE:
+            printf("======== CHANGE [now: %lf] App|Job:%d | Period: %f\n", m->rc.saved_marker_time, s->app_id, m->fwd.msg_send_time);
+            break;
     }
 }
 
@@ -3651,7 +3656,13 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
             char ref2 = '\n';
             while(!feof(period_file))
             {
+                if (j >= MAX_JOBS) {
+                    tw_error(TW_LOC, "Exceeded number of max workloads in workloads period file. Max: %d", MAX_JOBS);
+                }
                 ref2 = fscanf(period_file, "%d", &period_count[j]);
+                if (period_count[j] > MAX_PERIODS_PER_APP) {
+                    tw_error(TW_LOC, "Too many periods for workload app %d", period_count[j]);
+                }
                 if(ref2 != EOF){
                     printf("======== [ID: %d] Period count: %d\n", j, period_count[j]);
                     for(int k = 0; k < period_count[j]; k++){
