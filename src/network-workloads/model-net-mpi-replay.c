@@ -100,7 +100,7 @@ float mean_interval_of_job[MAX_JOBS];
 long job_timer1[MAX_JOBS];
 long job_timer2[MAX_JOBS];
 int period_count[MAX_JOBS];
-long period_time[MAX_JOBS][MAX_PERIODS_PER_APP];
+double period_time[MAX_JOBS][MAX_PERIODS_PER_APP];
 float period_interval[MAX_JOBS][MAX_PERIODS_PER_APP];
 char file_name_of_job[MAX_JOBS][8192];
 char skipping_iterations_file[8192];
@@ -3666,8 +3666,8 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
                 if(ref2 != EOF){
                     printf("======== [ID: %d] Period count: %d\n", j, period_count[j]);
                     for(int k = 0; k < period_count[j]; k++){
-                        fscanf(period_file, "%ld:%f", &period_time[j][k], &period_interval[j][k]);
-                        printf("======== [ID: %d] Period time and interval: %ld and %f\n", j, period_time[j][k], period_interval[j][k]);
+                        fscanf(period_file, "%lf:%f", &period_time[j][k], &period_interval[j][k]);
+                        printf("======== [ID: %d] Period time and interval: %lf and %f\n", j, period_time[j][k], period_interval[j][k]);
                     }
                 }
                 j++;
