@@ -788,6 +788,7 @@ void handle_new_msg(
     // don't forget to set packet size, now that we're responsible for it!
     r->msg_new_mn_event = tw_now(lp);
     r->packet_size = ns->params->packet_size;
+    b->c30 = 1;
     r->msg_id = ns->msg_id++;
     void * m_data = m+1;
     void *remote = NULL, *local = NULL;
@@ -881,6 +882,10 @@ void handle_new_msg_rc(
         *in_sched_loop = 0;
     }
     model_net_sched_add_rc(ss, &m->msg.m_base.rc, lp);
+
+    if (b->c30) {
+        ns->msg_id--;
+    }
 }
 
 /// bitfields used
