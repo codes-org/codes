@@ -3656,18 +3656,22 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
             char ref2 = '\n';
             while(!feof(period_file))
             {
-                if (j >= MAX_JOBS) {
+                if (j >= MAX_JOBS && !g_tw_mynode) {
                     tw_error(TW_LOC, "Exceeded number of max workloads in workloads period file. Max: %d", MAX_JOBS);
                 }
                 ref2 = fscanf(period_file, "%d", &period_count[j]);
-                if (period_count[j] > MAX_PERIODS_PER_APP) {
+                if (period_count[j] > MAX_PERIODS_PER_APP && !g_tw_mynode) {
                     tw_error(TW_LOC, "Too many periods for workload app %d", period_count[j]);
                 }
                 if(ref2 != EOF){
-                    printf("======== [ID: %d] Period count: %d\n", j, period_count[j]);
+                    if (!g_tw_mynode) {
+                        printf("======== [ID: %d] Period count: %d\n", j, period_count[j]);
+                    }
                     for(int k = 0; k < period_count[j]; k++){
                         fscanf(period_file, "%lf:%f", &period_time[j][k], &period_interval[j][k]);
-                        printf("======== [ID: %d] Period time and interval: %lf and %f\n", j, period_time[j][k], period_interval[j][k]);
+                        if (!g_tw_mynode) {
+                            printf("======== [ID: %d] Period time and interval: %lf and %f\n", j, period_time[j][k], period_interval[j][k]);
+                        }
                     }
                 }
                 j++;
