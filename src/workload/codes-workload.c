@@ -550,6 +550,156 @@ void codes_workload_add_method(struct codes_workload_method const * method)
     method_array[num_user_methods++] = method;
 }
 
+char const * const op_type_string(enum codes_workload_op_type op_type) {
+    switch(op_type) {
+        case CODES_WK_END:        return "CODES_WK_END";
+        case CODES_WK_DELAY:      return "CODES_WK_DELAY";
+        case CODES_WK_BARRIER:    return "CODES_WK_BARRIER";
+        case CODES_WK_OPEN:       return "CODES_WK_OPEN";
+        case CODES_WK_CLOSE:      return "CODES_WK_CLOSE";
+        case CODES_WK_WRITE:      return "CODES_WK_WRITE";
+        case CODES_WK_READ:       return "CODES_WK_READ";
+        case CODES_WK_SEND:       return "CODES_WK_SEND";
+        case CODES_WK_RECV:       return "CODES_WK_RECV";
+        case CODES_WK_ISEND:      return "CODES_WK_ISEND";
+        case CODES_WK_IRECV:      return "CODES_WK_IRECV";
+        case CODES_WK_BCAST:      return "CODES_WK_BCAST";
+        case CODES_WK_ALLGATHER:  return "CODES_WK_ALLGATHER";
+        case CODES_WK_ALLGATHERV: return "CODES_WK_ALLGATHERV";
+        case CODES_WK_ALLTOALL:   return "CODES_WK_ALLTOALL";
+        case CODES_WK_ALLTOALLV:  return "CODES_WK_ALLTOALLV";
+        case CODES_WK_REDUCE:     return "CODES_WK_REDUCE";
+        case CODES_WK_ALLREDUCE:  return "CODES_WK_ALLREDUCE";
+        case CODES_WK_COL:        return "CODES_WK_COL";
+        case CODES_WK_WAITALL:    return "CODES_WK_WAITALL";
+        case CODES_WK_WAIT:       return "CODES_WK_WAIT";
+        case CODES_WK_WAITSOME:   return "CODES_WK_WAITSOME";
+        case CODES_WK_WAITANY:    return "CODES_WK_WAITANY";
+        case CODES_WK_TESTALL:    return "CODES_WK_TESTALL";
+        case CODES_WK_REQ_FREE:   return "CODES_WK_REQ_FREE";
+        case CODES_WK_IGNORE:     return "CODES_WK_IGNORE";
+        case CODES_WK_MPI_OPEN:   return "CODES_WK_MPI_OPEN";
+        case CODES_WK_MPI_CLOSE:  return "CODES_WK_MPI_CLOSE";
+        case CODES_WK_MPI_WRITE:  return "CODES_WK_MPI_WRITE";
+        case CODES_WK_MPI_READ:   return "CODES_WK_MPI_READ";
+        case CODES_WK_MPI_COLL_OPEN:  return "CODES_WK_MPI_COLL_OPEN";
+        case CODES_WK_MPI_COLL_WRITE: return "CODES_WK_MPI_COLL_WRITE";
+        case CODES_WK_MPI_COLL_READ:  return "CODES_WK_MPI_COLL_READ";
+        case CODES_WK_MARK: return "CODES_WK_MARK";
+        default: return "UNKNOWN!!";
+    }
+}
+
+// Initial implementation by Claude.ai
+void fprint_codes_workload_op(FILE * out, struct codes_workload_op * op, char const * const begin) {
+    if (op == NULL) {
+        return;
+    }
+
+    // Print common fields first
+    fprintf(out, "%sop_type = %s\n", begin, op_type_string(op->op_type));
+
+    fprintf(out, "%s          start_time = %f\n", begin, op->start_time);
+    fprintf(out, "%s            end_time = %f\n", begin, op->end_time);
+    fprintf(out, "%s      sim_start_time = %f\n", begin, op->sim_start_time);
+    fprintf(out, "%s         sequence_id = %ld\n", begin, op->sequence_id);
+
+    // Print union fields based on op_type
+    switch(op->op_type) {
+        case CODES_WK_DELAY:
+            fprintf(out, "%s       delay.seconds = %f\n", begin, op->u.delay.seconds);
+            fprintf(out, "%s         delay.nsecs = %f\n", begin, op->u.delay.nsecs);
+            break;
+
+        case CODES_WK_BARRIER:
+            fprintf(out, "%s       barrier.count = %d\n", begin, op->u.barrier.count);
+            fprintf(out, "%s        barrier.root = %d\n", begin, op->u.barrier.root);
+            break;
+
+        case CODES_WK_OPEN:
+        case CODES_WK_MPI_OPEN:
+        case CODES_WK_MPI_COLL_OPEN:
+            fprintf(out, "%s        open.file_id = %lu\n", begin, op->u.open.file_id);
+            fprintf(out, "%s    open.create_flag = %d\n", begin, op->u.open.create_flag);
+            break;
+
+        case CODES_WK_WRITE:
+        case CODES_WK_MPI_WRITE:
+        case CODES_WK_MPI_COLL_WRITE:
+            fprintf(out, "%s       write.file_id = %lu\n", begin, op->u.write.file_id);
+            fprintf(out, "%s        write.offset = %ld\n", begin, op->u.write.offset);
+            fprintf(out, "%s          write.size = %zu\n", begin, op->u.write.size);
+            break;
+
+        case CODES_WK_READ:
+        case CODES_WK_MPI_READ:
+        case CODES_WK_MPI_COLL_READ:
+            fprintf(out, "%s        read.file_id = %lu\n", begin, op->u.read.file_id);
+            fprintf(out, "%s         read.offset = %ld\n", begin, op->u.read.offset);
+            fprintf(out, "%s           read.size = %zu\n", begin, op->u.read.size);
+            break;
+
+        case CODES_WK_CLOSE:
+        case CODES_WK_MPI_CLOSE:
+            fprintf(out, "%s       close.file_id = %lu\n", begin, op->u.close.file_id);
+            break;
+
+        case CODES_WK_SEND:
+        case CODES_WK_ISEND:
+            fprintf(out, "%s    send.source_rank = %d\n", begin, op->u.send.source_rank);
+            fprintf(out, "%s      send.dest_rank = %d\n", begin, op->u.send.dest_rank);
+            fprintf(out, "%s      send.num_bytes = %ld\n", begin, op->u.send.num_bytes);
+            fprintf(out, "%s      send.data_type = %d\n", begin, op->u.send.data_type);
+            fprintf(out, "%s          send.count = %d\n", begin, op->u.send.count);
+            fprintf(out, "%s            send.tag = %d\n", begin, op->u.send.tag);
+            fprintf(out, "%s         send.req_id = %u\n", begin, op->u.send.req_id);
+            break;
+
+        case CODES_WK_RECV:
+        case CODES_WK_IRECV:
+            fprintf(out, "%s    recv.source_rank = %d\n", begin, op->u.recv.source_rank);
+            fprintf(out, "%s      recv.dest_rank = %d\n", begin, op->u.recv.dest_rank);
+            fprintf(out, "%s      recv.num_bytes = %ld\n", begin, op->u.recv.num_bytes);
+            fprintf(out, "%s      recv.data_type = %d\n", begin, op->u.recv.data_type);
+            fprintf(out, "%s          recv.count = %d\n", begin, op->u.recv.count);
+            fprintf(out, "%s            recv.tag = %d\n", begin, op->u.recv.tag);
+            fprintf(out, "%s         recv.req_id = %u\n", begin, op->u.recv.req_id);
+            break;
+
+        case CODES_WK_COL:
+        case CODES_WK_BCAST:
+        case CODES_WK_ALLGATHER:
+        case CODES_WK_ALLGATHERV:
+        case CODES_WK_ALLTOALL:
+        case CODES_WK_ALLTOALLV:
+        case CODES_WK_REDUCE:
+        case CODES_WK_ALLREDUCE:
+            fprintf(out, "%scollective.num_bytes = %d\n", begin, op->u.collective.num_bytes);
+            break;
+
+        case CODES_WK_WAITALL:
+        case CODES_WK_WAITSOME:
+        case CODES_WK_WAITANY:
+        case CODES_WK_TESTALL:
+            fprintf(out, "%s         waits.count = %d\n", begin, op->u.waits.count);
+            fprintf(out, "%s      waits.req_ids  = %p\n", begin, op->u.waits.req_ids);
+            break;
+
+        case CODES_WK_WAIT:
+            fprintf(out, "%s         wait.req_id = %u\n", begin, op->u.wait.req_id);
+            break;
+
+        case CODES_WK_REQ_FREE:
+            fprintf(out, "%s         free.req_id = %u\n", begin, op->u.free.req_id);
+            break;
+
+        case CODES_WK_END:
+        case CODES_WK_IGNORE:
+        case CODES_WK_MARK:
+            break;
+    }
+}
+
 /*
  * Local variables:
  *  c-indent-level: 4

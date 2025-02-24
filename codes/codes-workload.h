@@ -381,6 +381,10 @@ void codes_workload_add_method(struct codes_workload_method const * method);
  * will shut down automatically once they have issued their last event.
  */
 
+/* Printing event :) */
+void fprint_codes_workload_op(FILE * out, struct codes_workload_op * op, char const * const begin);
+char const * const op_type_string(enum codes_workload_op_type op_type);
+
 #ifdef __cplusplus
 }
 #endif
