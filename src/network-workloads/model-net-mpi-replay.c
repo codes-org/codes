@@ -408,23 +408,73 @@ struct nw_message
        short wait_completed;
        short rend_send;
    } fwd;
-   struct
-   {
-       int saved_perm;
-       double saved_send_time;
-       double saved_send_time_sample;
-       double saved_recv_time;
-       double saved_recv_time_sample;
-       double saved_wait_time;
-       double saved_wait_time_sample;
-       double saved_delay;
-       double saved_delay_sample;
-       double saved_marker_time;
-       int64_t saved_num_bytes;
-       int saved_syn_length;
-       unsigned long saved_prev_switch;
-       double saved_prev_max_time;
-       struct AvgSurrogateSwitchingTimesForApp * switch_config_used;
+
+   // A different struct for each type of MPI_NW_EVENTS
+   union {
+       // For CLI_BCKGND_GEN
+       struct {
+           int saved_syn_length;
+           int saved_perm;  // Used by PERMUTATION
+           unsigned long saved_prev_switch;  // Used by PERMUTATION
+       } gen;
+
+       // For CLI_BCKGND_ARRIVE and MPI_SEND_ARRIVED_CB
+       struct {
+           double saved_prev_max_time;
+           double saved_send_time;
+           double saved_send_time_sample;
+       } arrive;
+
+       // For CLI_BCKGND_CHANGE
+       struct {
+           double saved_send_time;
+           double saved_marker_time;
+       } change;
+
+       // For MPI_OP_GET_NEXT there are also different types
+       struct {
+	       double saved_elapsed_time;
+           union {
+               // CODES_WK_ALLREDUCE
+               struct {
+                   double saved_send_time;
+                   double saved_delay;
+               } all_reduce;
+               // CODES_WK_RECV and CODES_WK_IRECV
+               struct {
+                   double saved_recv_time;
+                   double saved_recv_time_sample;
+               } recv;
+               // CODES_WK_DELAY
+               struct {
+                   double saved_delay;
+                   double saved_delay_sample;
+               } delay;
+               // CODES_WK_END and CODES_WK_MARK
+               struct {
+                   double saved_marker_time;
+               } mark;
+           };
+       } mpi_next;
+
+       // For MPI_SEND_ARRIVED and MPI_REND_ARRIVED and MPI_SEND_POSTED
+       struct {
+           double saved_wait_time;
+           double saved_wait_time_sample;
+           double saved_recv_time;
+           double saved_recv_time_sample;
+           int64_t saved_num_bytes;
+       } mpi_send;
+
+       // For MPI_REND_ACK_ARRIVED
+       struct {
+           int64_t saved_num_bytes;
+       } mpi_ack;
+
+       // Surrogate variables
+       struct {
+           struct AvgSurrogateSwitchingTimesForApp * config_used;
+       } surr;
    } rc;
 };
 
@@ -838,12 +888,12 @@ static void gen_synthetic_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp 
     }
     if(bf->c2)
     {
-        s->prev_switch = m->rc.saved_prev_switch;
-        s->saved_perm_dest = m->rc.saved_perm;
+        s->prev_switch = m->rc.gen.saved_prev_switch;
+        s->saved_perm_dest = m->rc.gen.saved_perm;
         tw_rand_reverse_unif(lp->rng);
     }
     int i;
-    for (i=0; i < m->rc.saved_syn_length; i++){
+    for (i=0; i < m->rc.gen.saved_syn_length; i++){
         model_net_event_rc2(lp, &m->event_rc);
         s->gen_data -= payload_sz;
         num_syn_bytes_sent -= payload_sz;
@@ -856,8 +906,10 @@ static void gen_synthetic_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp 
 
      if(bf->c5)
         finish_bckgnd_traffic_rc(s, bf, m, lp);
-    if(bf->c7)
+    if(bf->c7) {
+        s->saved_perm_dest = m->rc.gen.saved_perm;
         tw_rand_reverse_unif(lp->rng);
+    }
 }
 
 /* generate synthetic traffic */
@@ -897,8 +949,8 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
 
         case PERMUTATION:
         {
-            m->rc.saved_prev_switch = s->prev_switch; //for reverse computation
-            m->rc.saved_perm = s->saved_perm_dest;
+            m->rc.gen.saved_prev_switch = s->prev_switch; //for reverse computation
+            m->rc.gen.saved_perm = s->saved_perm_dest;
 
             length = 1;
             dest_svr = (int*) calloc(1, sizeof(int));
@@ -984,7 +1036,7 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
             tw_error(TW_LOC, "Undefined traffic pattern");
     }   
     /* Record length for reverse handler*/
-    m->rc.saved_syn_length = length;
+    m->rc.gen.saved_syn_length = length;
 
     char prio[12];
 	switch(s->qos_level){
@@ -1075,23 +1127,23 @@ void arrive_syn_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
     num_syn_bytes_recvd -= data;
     s->num_bytes_recvd -= data;
     s->ross_sample.num_bytes_recvd -= data;
-    s->send_time = m->rc.saved_send_time;
-    s->ross_sample.send_time = m->rc.saved_send_time_sample;
+    s->send_time = m->rc.arrive.saved_send_time;
+    s->ross_sample.send_time = m->rc.arrive.saved_send_time_sample;
     if((tw_now(lp) - m->fwd.sim_start_time) > s->max_time)
     {
-        s->max_time = m->rc.saved_prev_max_time;
-        s->ross_sample.max_time = m->rc.saved_prev_max_time;
+        s->max_time = m->rc.arrive.saved_prev_max_time;
+        s->ross_sample.max_time = m->rc.arrive.saved_prev_max_time;
     }
 }
 void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
     (void)bf;
     (void)lp;
-    m->rc.saved_send_time = s->send_time;
-    m->rc.saved_send_time_sample = s->ross_sample.send_time;
+    m->rc.arrive.saved_send_time = s->send_time;
+    m->rc.arrive.saved_send_time_sample = s->ross_sample.send_time;
     if((tw_now(lp) - m->fwd.sim_start_time) > s->max_time)
     {
-        m->rc.saved_prev_max_time = s->max_time;
+        m->rc.arrive.saved_prev_max_time = s->max_time;
         s->max_time = tw_now(lp) - m->fwd.sim_start_time;
         s->ross_sample.max_time = tw_now(lp) - m->fwd.sim_start_time;
     }
@@ -1176,7 +1228,7 @@ static struct AvgSurrogateSwitchingTimesForApp * get_switch_config(struct nw_sta
 }
 
 static void skip_iteration_rc(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m) {
-    m->rc.switch_config_used->done = false;
+    m->rc.surr.config_used->done = false;
 }
 
 static void skip_to_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m)
@@ -1186,7 +1238,7 @@ static void skip_to_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message *
     struct AvgSurrogateSwitchingTimesForApp * switch_config = get_switch_config(s);
     assert(switch_config != NULL);
     int const resume_at_iter = switch_config->resume_at_iter;
-    m->rc.switch_config_used = switch_config;
+    m->rc.surr.config_used = switch_config;
 
     // consuming all events until indicated iteration is reached
     bool reached_end = false;
@@ -1643,8 +1695,8 @@ static int rm_matching_rcv(nw_state * ns,
         else
         {
             bf->c12 = 1;
-            m->rc.saved_recv_time = ns->recv_time;
-            m->rc.saved_recv_time_sample = ns->ross_sample.recv_time;
+            m->rc.mpi_send.saved_recv_time = ns->recv_time;
+            m->rc.mpi_send.saved_recv_time_sample = ns->ross_sample.recv_time;
             ns->recv_time += (tw_now(lp) - m->fwd.sim_start_time);
             ns->ross_sample.recv_time += (tw_now(lp) - m->fwd.sim_start_time);
         }
@@ -1711,8 +1763,8 @@ static int rm_matching_send(nw_state * ns,
             send_ack_back(ns, bf, m, lp, qi, qitem->req_id);
         }
 
-        m->rc.saved_recv_time = ns->recv_time;
-        m->rc.saved_recv_time_sample = ns->ross_sample.recv_time;
+        m->rc.mpi_next.recv.saved_recv_time = ns->recv_time;
+        m->rc.mpi_next.recv.saved_recv_time_sample = ns->ross_sample.recv_time;
         ns->recv_time += (tw_now(lp) - qitem->req_init_time);
         ns->ross_sample.recv_time += (tw_now(lp) - qitem->req_init_time);
 
@@ -1774,8 +1826,8 @@ static void codes_exec_comp_delay(
 	tw_stime ts;
 	nw_message* msg;
 
-    m->rc.saved_delay = s->compute_time;
-    m->rc.saved_delay_sample = s->ross_sample.compute_time;
+    m->rc.mpi_next.delay.saved_delay = s->compute_time;
+    m->rc.mpi_next.delay.saved_delay_sample = s->ross_sample.compute_time;
     s->compute_time += (mpi_op->u.delay.nsecs/compute_time_speedup);
     s->ross_sample.compute_time += (mpi_op->u.delay.nsecs/compute_time_speedup);
     ts = (mpi_op->u.delay.nsecs/compute_time_speedup);
@@ -1811,8 +1863,8 @@ static void codes_exec_mpi_recv_rc(
         nw_message* m,
         tw_lp* lp)
 {
-	ns->recv_time = m->rc.saved_recv_time;
-	ns->ross_sample.recv_time = m->rc.saved_recv_time_sample;
+	ns->recv_time = m->rc.mpi_next.recv.saved_recv_time;
+	ns->ross_sample.recv_time = m->rc.mpi_next.recv.saved_recv_time_sample;
 
     if(bf->c11)
         codes_issue_next_event_rc(lp);
@@ -1871,8 +1923,8 @@ static void codes_exec_mpi_recv(
    If no matching isend is found, the receive operation is queued in the pending queue of
    receive operations. */
 
-    m->rc.saved_recv_time = s->recv_time;
-    m->rc.saved_recv_time_sample = s->ross_sample.recv_time;
+    m->rc.mpi_next.recv.saved_recv_time = s->recv_time;
+    m->rc.mpi_next.recv.saved_recv_time_sample = s->ross_sample.recv_time;
 
     mpi_msgs_queue * recv_op = (mpi_msgs_queue*) malloc(sizeof(mpi_msgs_queue));
     recv_op->req_init_time = tw_now(lp);
@@ -1942,7 +1994,7 @@ static void codes_exec_mpi_send_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_
            int indx = s->sampling_indx;
 
            s->mpi_wkld_samples[indx].num_sends_sample--;
-           s->mpi_wkld_samples[indx].num_bytes_sample -= m->rc.saved_num_bytes;
+           s->mpi_wkld_samples[indx].num_bytes_sample -= m->rc.mpi_ack.saved_num_bytes;
 
            if(bf->c1)
            {
@@ -1968,9 +2020,9 @@ static void codes_exec_mpi_send_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_
 
         if(bf->c3)
         {
-            s->num_bytes_sent -= m->rc.saved_num_bytes;
-            s->ross_sample.num_bytes_sent -= m->rc.saved_num_bytes;
-            num_bytes_sent -= m->rc.saved_num_bytes;
+            s->num_bytes_sent -= m->rc.mpi_ack.saved_num_bytes;
+            s->ross_sample.num_bytes_sent -= m->rc.mpi_ack.saved_num_bytes;
+            num_bytes_sent -= m->rc.mpi_ack.saved_num_bytes;
         }
 }
 /* executes MPI send and isend operations */
@@ -2033,7 +2085,7 @@ static void codes_exec_mpi_send(nw_state* s,
 
     if(lp->gid == TRACK_LP)
         printf("\n Sender rank %llu global dest rank %d dest-rank %d bytes %"PRIu64" Tag %d", LLU(s->nw_id), global_dest_rank, mpi_op->u.send.dest_rank, mpi_op->u.send.num_bytes, mpi_op->u.send.tag);
-    m->rc.saved_num_bytes = mpi_op->u.send.num_bytes;
+        m->rc.mpi_ack.saved_num_bytes = mpi_op->u.send.num_bytes;
 	/* model-net event */
 	tw_lpid dest_rank = codes_mapping_get_lpid_from_relative(global_dest_rank, NULL, "nw-lp", NULL, 0);
 
@@ -2186,8 +2238,8 @@ static void update_completed_queue_rc(nw_state * s, tw_bf * bf, nw_message * m, 
     {
        struct pending_waits* wait_elem = (struct pending_waits*)rc_stack_pop(s->processed_wait_op);
        s->wait_op = wait_elem;
-       s->wait_time = m->rc.saved_wait_time;
-       s->ross_sample.wait_time = m->rc.saved_wait_time_sample;
+       s->wait_time = m->rc.mpi_send.saved_wait_time;
+       s->ross_sample.wait_time = m->rc.mpi_send.saved_wait_time_sample;
        add_completed_reqs(s, lp, m->fwd.num_matched);
        codes_issue_next_event_rc(lp);
     }
@@ -2228,8 +2280,8 @@ static void update_completed_queue(nw_state* s,
             bf->c31 = 1;
             m->fwd.num_matched = clear_completed_reqs(s, lp, s->wait_op->req_ids, s->wait_op->count);
     
-            m->rc.saved_wait_time = s->wait_time;
-            m->rc.saved_wait_time_sample = s->ross_sample.wait_time;
+            m->rc.mpi_send.saved_wait_time = s->wait_time;
+            m->rc.mpi_send.saved_wait_time_sample = s->ross_sample.wait_time;
             s->wait_time += (tw_now(lp) - s->wait_op->start_time);
             s->ross_sample.wait_time += (tw_now(lp) - s->wait_op->start_time);
 
@@ -2345,8 +2397,8 @@ static void update_arrival_queue_rc(nw_state* s,
         }
         if(bf->c12)
         {
-            s->recv_time = m->rc.saved_recv_time;
-            s->ross_sample.recv_time = m->rc.saved_recv_time_sample;
+            s->recv_time = m->rc.mpi_send.saved_recv_time;
+            s->ross_sample.recv_time = m->rc.mpi_send.saved_recv_time_sample;
         }
         
         //if(bf->c10)
@@ -2374,8 +2426,8 @@ static void update_arrival_queue(nw_state* s, tw_bf * bf, nw_message * m, tw_lp 
 
     //if(s->local_rank != m->fwd.dest_rank)
     //    printf("\n Dest rank %d local rank %d ", m->fwd.dest_rank, s->local_rank);
-    m->rc.saved_recv_time = s->recv_time;
-    m->rc.saved_recv_time_sample = s->ross_sample.recv_time;
+    m->rc.mpi_send.saved_recv_time = s->recv_time;
+    m->rc.mpi_send.saved_recv_time_sample = s->ross_sample.recv_time;
     s->num_bytes_recvd += m->fwd.num_bytes;
     s->ross_sample.num_bytes_recvd += m->fwd.num_bytes;
     num_bytes_recvd += m->fwd.num_bytes;
@@ -2438,8 +2490,8 @@ static void update_message_time(
     (void)bf;
     (void)lp;
 
-    m->rc.saved_send_time = s->send_time;
-    m->rc.saved_send_time_sample = s->ross_sample.send_time;
+    m->rc.arrive.saved_send_time = s->send_time;
+    m->rc.arrive.saved_send_time_sample = s->ross_sample.send_time;
     s->send_time += m->fwd.msg_send_time;
     s->ross_sample.send_time += m->fwd.msg_send_time;
 }
@@ -2452,8 +2504,8 @@ static void update_message_time_rc(
 {
     (void)bf;
     (void)lp;
-    s->send_time = m->rc.saved_send_time;
-    s->ross_sample.send_time = m->rc.saved_send_time_sample;
+    s->send_time = m->rc.arrive.saved_send_time;
+    s->ross_sample.send_time = m->rc.arrive.saved_send_time_sample;
 }
 
 /* initializes the network node LP, loads the trace file in the structs, calls the first MPI operation to be executed */
@@ -2772,8 +2824,8 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
                 codes_issue_next_event(lp);
             }
             
-            m->rc.saved_recv_time = s->recv_time;
-            m->rc.saved_recv_time_sample = s->ross_sample.recv_time;
+            m->rc.mpi_send.saved_recv_time = s->recv_time;
+            m->rc.mpi_send.saved_recv_time_sample = s->ross_sample.recv_time;
             s->recv_time += (tw_now(lp) - m->fwd.sim_start_time);
             s->ross_sample.recv_time += (tw_now(lp) - m->fwd.sim_start_time);
 
@@ -2832,9 +2884,9 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
         break;
 
         case CLI_BCKGND_CHANGE:
-            m->rc.saved_send_time = mean_interval_of_job[s->app_id];  // Warning: this is overwriting a variable meant for message type MPI_OP_GET_NEXT (specifically CODES_WK_ALLREDUCE) and CLI_BCKGND_ARRIVE
+            m->rc.change.saved_send_time = mean_interval_of_job[s->app_id];  // Warning: this is overwriting a variable meant for message type MPI_OP_GET_NEXT (specifically CODES_WK_ALLREDUCE) and CLI_BCKGND_ARRIVE
             mean_interval_of_job[s->app_id] = m->fwd.msg_send_time;
-            m->rc.saved_marker_time = tw_now(lp);
+            m->rc.change.saved_marker_time = tw_now(lp);
             break;
 
         case CLI_BCKGND_ARRIVE:
@@ -2904,8 +2956,8 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
             {
                 // if (bf->c28)
                 //     tw_rand_reverse_unif(lp->rng);
-                s->compute_time = m->rc.saved_delay;
-                s->ross_sample.compute_time = m->rc.saved_delay_sample;
+                s->compute_time = m->rc.mpi_next.delay.saved_delay;
+                s->ross_sample.compute_time = m->rc.mpi_next.delay.saved_delay_sample;
             }
 		}
 		break;
@@ -2914,8 +2966,8 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
             if(bf->c27)
             {
                 s->num_all_reduce--;
-                s->col_time = m->rc.saved_send_time; 
-                s->all_reduce_time = m->rc.saved_delay;
+                s->col_time = m->rc.mpi_next.all_reduce.saved_send_time;
+                s->all_reduce_time = m->rc.mpi_next.all_reduce.saved_delay;
             }
             else
             {
@@ -2992,7 +3044,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
             /* Notify ranks from other job that checkpoint traffic has
              * completed */
             //int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
-            m->rc.saved_marker_time = tw_now(lp);
+            m->rc.mpi_next.mark.saved_marker_time = tw_now(lp);
             notify_root_rank(s, lp, bf, m);
             // printf("Client rank %llu completed workload, local rank %d .\n", s->nw_id, s->local_rank);
 
@@ -3060,9 +3112,9 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
                 if(s->col_time > 0)
                 {
                     bf->c27 = 1;
-                    m->rc.saved_delay = s->all_reduce_time;
+                    m->rc.mpi_next.all_reduce.saved_delay = s->all_reduce_time;
                     s->all_reduce_time += tw_now(lp) - s->col_time;
-                    m->rc.saved_send_time = s->col_time;
+                    m->rc.mpi_next.all_reduce.saved_send_time = s->col_time;
                     s->col_time = 0;
                     s->num_all_reduce++;
                 }
@@ -3089,7 +3141,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 
 		case CODES_WK_MARK:
 			{
-                m->rc.saved_marker_time = tw_now(lp);
+                m->rc.mpi_next.mark.saved_marker_time = tw_now(lp);
 
                 // If we have reached the surrogate switch time, skip next iteration(s)
                 if (have_we_hit_surrogate_switch(s, mpi_op)) {
@@ -3279,8 +3331,8 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
             if(bf->c8)
                 update_completed_queue_rc(s, bf, m, lp);
             
-            s->recv_time = m->rc.saved_recv_time;
-            s->ross_sample.recv_time = m->rc.saved_recv_time_sample;
+            s->recv_time = m->rc.mpi_send.saved_recv_time;
+            s->ross_sample.recv_time = m->rc.mpi_send.saved_recv_time_sample;
         }
         break;
 
@@ -3293,7 +3345,7 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
             break;
 
         case CLI_BCKGND_CHANGE:
-	    mean_interval_of_job[s->app_id] = m->rc.saved_send_time;
+	    mean_interval_of_job[s->app_id] = m->rc.change.saved_send_time;
 	    break;
 
         case CLI_BCKGND_ARRIVE:
@@ -3325,11 +3377,11 @@ void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp
         case MPI_OP_GET_NEXT:
             switch (m->mpi_op->op_type) {
                 case CODES_WK_END:
-                    printf("Network node %d Rank %llu App %d finished at %lf \n", s->local_rank, LLU(s->nw_id), s->app_id, m->rc.saved_marker_time);
+                    printf("Network node %d Rank %llu App %d finished at %lf \n", s->local_rank, LLU(s->nw_id), s->app_id, m->rc.mpi_next.mark.saved_marker_time);
                     break;
 
                 case CODES_WK_MARK:
-                    fprintf(iteration_log, "ITERATION %d node %llu job %d rank %d time %lf\n", m->mpi_op->u.send.tag, LLU(s->nw_id), s->app_id, s->local_rank, m->rc.saved_marker_time);
+                    fprintf(iteration_log, "ITERATION %d node %llu job %d rank %d time %lf\n", m->mpi_op->u.send.tag, LLU(s->nw_id), s->app_id, s->local_rank, m->rc.mpi_next.mark.saved_marker_time);
 
                     if (OUTPUT_MARKS)
                     {
@@ -3340,7 +3392,7 @@ void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp
 
                         char tag_line[32];
                         int written;
-                        written = sprintf(tag_line, "%llu %d %.5f\n",s->nw_id, m->mpi_op->u.send.tag, m->rc.saved_marker_time);
+                        written = sprintf(tag_line, "%llu %d %.5f\n",s->nw_id, m->mpi_op->u.send.tag, m->rc.mpi_next.mark.saved_marker_time);
                         lp_io_write(lp->gid, marker_filename, written, tag_line);
                     }
                     break;
