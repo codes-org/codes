@@ -228,7 +228,6 @@ struct mpi_msgs_queue
     int source_rank;
     int dest_rank;
     int64_t num_bytes;
-    int64_t seq_id;
     tw_stime req_init_time;
 	dumpi_req_id req_id;
     struct qlist_head ql;
@@ -238,8 +237,8 @@ struct mpi_msgs_queue
 struct completed_requests
 {
 	unsigned int req_id;
+    int index; // for rollbacking
     struct qlist_head ql;
-    int index;
 };
 
 /* for wait operations, store the pending operation and number of completed waits so far. */
@@ -250,7 +249,6 @@ struct pending_waits
 	int num_completed;
 	int count;
     tw_stime start_time;
-    struct qlist_head ql;
 };
 
 struct msg_size_info
@@ -387,7 +385,7 @@ struct nw_state
 struct nw_message
 {
    // forward message handler
-   int msg_type;
+   enum MPI_NW_EVENTS msg_type;
    int op_type;
    int num_rngs;
    model_net_event_return event_rc;
@@ -399,7 +397,6 @@ struct nw_message
        int dest_rank;
        int64_t num_bytes;
        int num_matched;
-       int data_type;
        double sim_start_time;
        // for callbacks - time message was received
        double msg_send_time;
@@ -919,7 +916,6 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
             {
                 // printf("%d - %d >= %d\n",s->gen_data,s->prev_switch,perm_switch_thresh);
                 bf->c2 = 1;
-                m->rc.saved_prev_switch = s->prev_switch;
                 s->prev_switch = s->gen_data; //Amount of data pushed at time when switch initiated
                 dest_svr[0] = tw_rand_integer(lp->rng, 0, num_clients - 1);
                 if(dest_svr[0] == s->local_rank)
@@ -1352,7 +1348,6 @@ static int notify_posted_wait(nw_state* s,
     if(op_type == CODES_WK_WAIT &&
             (wait_elem->req_ids[0] == completed_req))
     {
-            m->fwd.wait_completed = 1;
             wait_completed = 1;
     }
     else if(op_type == CODES_WK_WAITALL
@@ -1365,6 +1360,7 @@ static int notify_posted_wait(nw_state* s,
             if(wait_elem->req_ids[i] == completed_req)
             {
                 wait_elem->num_completed++;
+                m->fwd.wait_completed++; //This is just the individual request handle - not the entire wait.
                 if(wait_elem->num_completed > wait_elem->count)
                     printf("\n Num completed %d count %d LP %llu ",
                             wait_elem->num_completed,
@@ -1383,7 +1379,6 @@ static int notify_posted_wait(nw_state* s,
                     }
                     wait_completed = 1;
                 }
-                m->fwd.wait_completed = 1; //This is just the individual request handle - not the entire wait.
             }
         }
     }
@@ -1827,8 +1822,6 @@ static void codes_exec_mpi_recv_rc(
 
     if(m->fwd.found_match >= 0)
 	{
-		ns->recv_time = m->rc.saved_recv_time;
-		ns->ross_sample.recv_time = m->rc.saved_recv_time_sample;
         //int queue_count = qlist_count(&ns->arrival_queue);
 
         mpi_msgs_queue * qi = (mpi_msgs_queue*)rc_stack_pop(ns->processed_ops);
@@ -1880,7 +1873,6 @@ static void codes_exec_mpi_recv(
 
     m->rc.saved_recv_time = s->recv_time;
     m->rc.saved_recv_time_sample = s->ross_sample.recv_time;
-    m->rc.saved_num_bytes = mpi_op->u.recv.num_bytes;
 
     mpi_msgs_queue * recv_op = (mpi_msgs_queue*) malloc(sizeof(mpi_msgs_queue));
     recv_op->req_init_time = tw_now(lp);
@@ -2199,8 +2191,9 @@ static void update_completed_queue_rc(nw_state * s, tw_bf * bf, nw_message * m, 
        add_completed_reqs(s, lp, m->fwd.num_matched);
        codes_issue_next_event_rc(lp);
     }
-    if(m->fwd.wait_completed > 0)
-           s->wait_op->num_completed--;
+    if(m->fwd.wait_completed > 0) {
+       s->wait_op->num_completed -= m->fwd.wait_completed;
+    }
 }
 
 static void update_completed_queue(nw_state* s,
@@ -2733,7 +2726,7 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
     rc_stack_gc(lp, s->processed_ops);
     rc_stack_gc(lp, s->processed_wait_op);
 
-    switch(m->msg_type)
+    switch((enum MPI_NW_EVENTS) m->msg_type)
 	{
 		case MPI_SEND_ARRIVED:
 			update_arrival_queue(s, bf, m, lp);
