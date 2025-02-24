@@ -276,6 +276,25 @@ static inline int qlist_count(struct qlist_head const *list)
     return count;
 }
 
+static inline void qlist_add_at_index(struct qlist_head *newi, struct qlist_head *list, int index)
+{
+    if (index < 0)
+    {
+        while(index++)
+        {
+            list = list->prev;
+        }
+    }
+    else
+    {
+        while(index--)
+        {
+            list = list->next;
+        }
+    }
+    __qlist_add(newi, list, list->next);
+}
+
 static inline struct qlist_head * qlist_find(
     struct qlist_head *list,
     int (*compare)(struct qlist_head *, void *),

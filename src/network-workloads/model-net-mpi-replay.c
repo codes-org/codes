@@ -864,6 +864,7 @@ void finish_bckgnd_traffic_rc(
         (void)lp;
 
         ns->is_finished = 0;
+        ns->elapsed_time = msg->rc.mpi_next.saved_elapsed_time;
         return;
 }
 void finish_bckgnd_traffic(
@@ -875,6 +876,7 @@ void finish_bckgnd_traffic(
         (void)b;
         (void)msg;
         ns->is_finished = 1;
+        msg->rc.mpi_next.saved_elapsed_time = ns->elapsed_time;
         ns->elapsed_time = tw_now(lp) - ns->start_time;
 
         printf("\n LP %llu App %d completed sending data %llu completed at time %lf ", LLU(lp->gid),ns->app_id, ns->gen_data, tw_now(lp));
@@ -1331,39 +1333,24 @@ static int clear_completed_reqs(nw_state * s,
     (void)s;
     (void)lp;
 
-    int i, matched = 0;
+    int matched = 0;
 
-    for( i = 0; i < count; i++)
-    {
-      struct qlist_head * ent = NULL;
-      struct completed_requests * current = NULL;
-      struct completed_requests * prev = NULL;
+    struct qlist_head * ent, * _;
+    struct completed_requests * current = NULL;
 
-      int index = 0;
-      qlist_for_each(ent, &s->completed_reqs)
-       {
-           if(prev)
-           {
-              rc_stack_push(lp, prev, free, s->matched_reqs);
-              prev = NULL;
-           }
-            
-           current = qlist_entry(ent, completed_requests, ql);
-           current->index = index; 
-            if(current->req_id == reqs[i])
-            {
+    int index = 0;
+    qlist_for_each_safe(ent, _, &s->completed_reqs) {
+        current = qlist_entry(ent, completed_requests, ql);
+        for(int i = 0; i < count; i++) {
+            if(current->req_id == reqs[i]) {
+                current->index = index;
                 ++matched;
-                qlist_del(&current->ql);
-                prev = current;
+                qlist_del(ent);
+                rc_stack_push(lp, current, free, s->matched_reqs);
+                break;
             }
-            ++index;
-       }
-
-      if(prev)
-      {
-         rc_stack_push(lp, prev, free, s->matched_reqs);
-         prev = NULL;
-      }
+        }
+        index++;
     }
     return matched;
 }
@@ -1376,7 +1363,7 @@ static void add_completed_reqs(nw_state * s,
     {
        struct completed_requests * req = (struct completed_requests*)rc_stack_pop(s->matched_reqs);
        // turn on only if wait-all unmatched error arises in optimistic mode.
-       qlist_add(&req->ql, &s->completed_reqs);
+       qlist_add_at_index(&req->ql, &s->completed_reqs, req->index - count + i + 1);
     }//end for
 }
 
@@ -1677,6 +1664,7 @@ static int rm_matching_rcv(nw_state * ns,
                 && ((qi->source_rank == qitem->source_rank) || qi->source_rank == -1))
         {
             matched = 1;
+            m->rc.mpi_send.saved_num_bytes = qi->num_bytes;
             qi->num_bytes = qitem->num_bytes;
             break;
         }
@@ -2090,7 +2078,7 @@ static void codes_exec_mpi_send(nw_state* s,
 
     if(lp->gid == TRACK_LP)
         printf("\n Sender rank %llu global dest rank %d dest-rank %d bytes %"PRIu64" Tag %d", LLU(s->nw_id), global_dest_rank, mpi_op->u.send.dest_rank, mpi_op->u.send.num_bytes, mpi_op->u.send.tag);
-        m->rc.mpi_ack.saved_num_bytes = mpi_op->u.send.num_bytes;
+    m->rc.mpi_ack.saved_num_bytes = mpi_op->u.send.num_bytes;
 	/* model-net event */
 	tw_lpid dest_rank = codes_mapping_get_lpid_from_relative(global_dest_rank, NULL, "nw-lp", NULL, 0);
 
@@ -2380,6 +2368,7 @@ static void update_arrival_queue_rc(nw_state* s,
     if(m->fwd.found_match >= 0)
 	{
         mpi_msgs_queue * qi = (mpi_msgs_queue*)rc_stack_pop(s->processed_ops);
+        qi->num_bytes = m->rc.mpi_send.saved_num_bytes;
 //        int queue_count = qlist_count(&s->pending_recvs_queue);
 
         if(m->fwd.found_match == 0)
@@ -2926,6 +2915,7 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 	if(m->op_type == CODES_WK_END)
     {
         s->is_finished = 0;
+        s->elapsed_time = m->rc.mpi_next.saved_elapsed_time;
 
         if(bf->c9)
             return;
@@ -3040,6 +3030,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 	
         if(mpi_op->op_type == CODES_WK_END)
         {
+            m->rc.mpi_next.saved_elapsed_time = s->elapsed_time;
             s->elapsed_time = tw_now(lp) - s->start_time;
             s->is_finished = 1;
 
