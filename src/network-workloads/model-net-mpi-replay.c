@@ -6,6 +6,7 @@
 #include <ross.h>
 #include <inttypes.h>
 #include <stddef.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/resource.h>
 #include "codes/codes-workload.h"
@@ -40,6 +41,7 @@
 #define MAX_PERIODS_PER_APP 512
 #define NEAR_ZERO .0001 //timestamp for use to be 'close to zero' but still allow progress, zero offset events are hard on the PDES engine
 #define OUTPUT_MARKS 0
+#define LP_DEBUG 1
 
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
@@ -286,6 +288,9 @@ typedef struct pending_waits pending_waits;
 /* state of the network LP. It contains the pointers to send/receive lists */
 struct nw_state
 {
+#if LP_DEBUG
+	size_t num_events_processed;
+#endif /* if LP_DEBUG */
 	long num_events_per_lp;
 	tw_lpid nw_id;
 	short wrkld_end;
@@ -2771,6 +2776,9 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
     assert(s->app_id >= 0 && s->local_rank >= 0);
+#if LP_DEBUG
+    s->num_events_processed++;
+#endif /* if LP_DEBUG */
 
     //*(int *)bf = (int)0;
     rc_stack_gc(lp, s->matched_reqs);
@@ -3298,6 +3306,10 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 
 void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
+#if LP_DEBUG
+    s->num_events_processed--;
+#endif /* if LP_DEBUG */
+
 	switch(m->msg_type)
 	{
 		case MPI_SEND_ARRIVED:
@@ -3409,7 +3421,492 @@ void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp
             break;
 
         case CLI_BCKGND_CHANGE:
-            printf("======== CHANGE [now: %lf] App|Job:%d | Period: %f\n", m->rc.saved_marker_time, s->app_id, m->fwd.msg_send_time);
+            printf("======== CHANGE [now: %lf] App|Job:%d | Period: %f\n", m->rc.change.saved_marker_time, s->app_id, m->fwd.msg_send_time);
+            break;
+    }
+}
+
+static void make_qlist_cpy(struct qlist_head * into, struct qlist_head const * from, unsigned int sizeof_elem, unsigned int offset_ql) {
+    assert(sizeof_elem > offset_ql);
+
+    int const num_elems = qlist_count(from);
+    INIT_QLIST_HEAD(into);
+    if (num_elems) {
+        char * pending_recvs = malloc(num_elems * sizeof_elem);
+        if (pending_recvs == NULL) {
+            tw_error(TW_LOC, "Malloc failed!");
+        }
+
+        char * new_entry = pending_recvs;
+        int i = 0;
+        struct qlist_head * ent;
+        qlist_for_each(ent, from) {
+            char * entry = ((char*)ent) - offset_ql;
+
+            mempcpy(new_entry, entry, sizeof_elem);
+            struct qlist_head * new_entry_ql = (void*) (new_entry + offset_ql);
+            new_entry_ql->prev = (void*)(new_entry - sizeof_elem + offset_ql);
+            new_entry_ql->next = (void*)(new_entry + sizeof_elem + offset_ql);
+            i++;
+            new_entry += sizeof_elem;
+        }
+        assert(i == num_elems);
+
+        struct qlist_head * first_ql = (void*)(pending_recvs + offset_ql);
+        struct qlist_head * last_ql = (void*)(pending_recvs + (num_elems - 1) * sizeof_elem + offset_ql);
+        into->next = first_ql;
+        into->prev = last_ql;
+        first_ql->prev = into;
+        last_ql->next = into;
+    }
+}
+
+static void free_qlist_cpy(struct qlist_head * into, unsigned int offset_ql) {
+    if (! qlist_empty(into)) {
+        void * entry = (char *)(into->next) - offset_ql;
+        free(entry);
+    }
+}
+
+// Assumes that ql is at the end of entry!!
+static bool are_qlist_equal(struct qlist_head const * left, struct qlist_head const * right, unsigned int offset_ql, bool (cmp) (void *, void *)) {
+    int const num_elems = qlist_count(left);
+    if (num_elems != qlist_count(right)) {
+        return false;
+    }
+
+    // Checking element by element
+    int i = 0;
+    struct qlist_head * elem_left = left->next;
+    struct qlist_head * elem_right = right->next;
+    while (elem_left != left) {
+        char * entry_left = (char *)(elem_left) - offset_ql;
+        char * entry_right = (char *)(elem_right) - offset_ql;
+
+        if (!cmp(entry_left, entry_right)) {
+            return false;
+        }
+
+        elem_left = elem_left->next;
+        elem_right = elem_right->next;
+        i++;
+    }
+    assert(i == num_elems);
+    assert(elem_right == right);
+
+    return true;
+}
+
+bool compare_pending_waits(struct pending_waits const * before, struct pending_waits const * after) {
+    // if one is null and the other isn't, then they're not equal
+    if ((before == NULL) != (after == NULL)) {
+        return false;
+    }
+    // only check values if they are not nul
+    if (before == NULL) {
+        return true;
+    }
+
+    bool is_same = true;
+
+    is_same &= before->op_type == after->op_type;
+    is_same &= before->num_completed == after->num_completed;
+    is_same &= before->count == after->count;
+    is_same &= before->start_time == after->start_time;
+
+    for (int i=0; i<before->count; i++) {
+        is_same &= before->req_ids[i] == after->req_ids[i];
+    }
+
+    return is_same;
+}
+
+static bool compare_mpi_msg_queues(mpi_msgs_queue * left, mpi_msgs_queue * right) {
+    bool is_same = true;
+    is_same &= left->op_type == right->op_type;
+    is_same &= left->tag == right->tag;
+    is_same &= left->source_rank == right->source_rank;
+    is_same &= left->dest_rank == right->dest_rank;
+    is_same &= left->num_bytes == right->num_bytes;
+    is_same &= left->req_init_time == right->req_init_time;
+    is_same &= left->req_id == right->req_id;
+    return is_same;
+}
+
+static bool compare_completed_requests(completed_requests * left, completed_requests * right) {
+    bool is_same = true;
+    is_same &= left->req_id == right->req_id;
+    return is_same;
+}
+
+static bool compare_msg_size_info(struct msg_size_info * left, struct msg_size_info * right) {
+    bool is_same = true;
+    is_same &= left->msg_size == right->msg_size;
+    is_same &= left->num_msgs == right->num_msgs;
+    is_same &= left->agg_latency == right->agg_latency;
+    is_same &= left->avg_latency == right->avg_latency;
+    is_same &= left->hash_link.next == right->hash_link.next; // This is not correct, we have to do deep copy this and chek that it is the same
+    is_same &= left->hash_link.prev == right->hash_link.prev;
+    return is_same;
+}
+
+// Deep-copy of nw_state!!
+// Functionality to check for correct implementation of reverse event handler
+static void save_nw_lp_state(nw_state * into, nw_state const * from) {
+    memcpy(into, from, sizeof(nw_state));
+
+    make_qlist_cpy(&into->arrival_queue, &from->arrival_queue,sizeof(mpi_msgs_queue), QLIST_OFFSET(mpi_msgs_queue, ql));
+    make_qlist_cpy(&into->pending_recvs_queue, &from->pending_recvs_queue, sizeof(mpi_msgs_queue), QLIST_OFFSET(mpi_msgs_queue, ql));
+    make_qlist_cpy(&into->completed_reqs, &from->completed_reqs, sizeof(completed_requests), QLIST_OFFSET(completed_requests, ql));
+    make_qlist_cpy(&into->msg_sz_list, &from->msg_sz_list, sizeof(struct msg_size_info), QLIST_OFFSET(struct msg_size_info, ql));
+    // No need to copy msg_sz_table because all data is also in msg_sz_list
+
+    int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
+    into->known_completed_jobs = malloc(num_jobs * sizeof(int));
+    memcpy(into->known_completed_jobs, from->known_completed_jobs, num_jobs * sizeof(int));
+    if (from->wait_op != NULL) {
+        into->wait_op = malloc(sizeof(pending_waits));
+        memcpy(into->wait_op, from->wait_op, sizeof(pending_waits));
+    }
+
+    // Don't forget to make deep copies of any new complex data types that nw_state points to
+}
+
+static void print_mpi_msgs_queue(FILE * out, struct qlist_head * head, char const * before) {
+    mpi_msgs_queue * current = NULL;
+    qlist_for_each_entry(current, head, ql) {
+         fprintf(out, "%sMsg: OpType: %d Tag %d Source %d Dest %d bytes %"PRId64" req_init_time %g req_id %u\n", before, current->op_type, current->tag, current->source_rank, current->dest_rank, current->num_bytes, current->req_init_time, current->req_id);
+    }
+}
+
+// Cleaning up deep-copy
+static void clean_nw_lp_state(nw_state * into) {
+    free_qlist_cpy(&into->arrival_queue, QLIST_OFFSET(mpi_msgs_queue, ql));
+    free_qlist_cpy(&into->pending_recvs_queue, QLIST_OFFSET(mpi_msgs_queue, ql));
+    free_qlist_cpy(&into->completed_reqs, QLIST_OFFSET(completed_requests, ql));
+    free_qlist_cpy(&into->msg_sz_list, QLIST_OFFSET(struct msg_size_info, ql));
+    free(into->known_completed_jobs);
+    if (into->wait_op != NULL) {
+        free(into->wait_op);
+    }
+}
+
+// Checking that deep-copy is the same as original!!
+// Originally filled with a prompt on Claude
+static bool check_nw_lp_state(nw_state * before, nw_state const * after) {
+    bool is_same = true;
+
+    // Basic fields
+    is_same &= (before->num_events_per_lp == after->num_events_per_lp);
+    is_same &= (before->nw_id == after->nw_id);
+    is_same &= (before->wrkld_end == after->wrkld_end);
+    is_same &= (before->app_id == after->app_id);
+    is_same &= (before->local_rank == after->local_rank);
+    is_same &= (before->qos_level == after->qos_level);
+
+    // Pattern and completion flags
+    is_same &= (before->synthetic_pattern == after->synthetic_pattern);
+    is_same &= (before->is_finished == after->is_finished);
+    is_same &= (before->num_own_job_ranks_completed == after->num_own_job_ranks_completed);
+
+    // Operation counts
+    is_same &= (before->num_sends == after->num_sends);
+    is_same &= (before->num_recvs == after->num_recvs);
+    is_same &= (before->num_cols == after->num_cols);
+    is_same &= (before->num_delays == after->num_delays);
+    is_same &= (before->num_wait == after->num_wait);
+    is_same &= (before->num_waitall == after->num_waitall);
+    is_same &= (before->num_waitsome == after->num_waitsome);
+
+    // Timing information
+    is_same &= (before->start_time == after->start_time);
+    is_same &= (before->col_time == after->col_time);
+    is_same &= (before->reduce_time == after->reduce_time);
+    is_same &= (before->num_reduce == after->num_reduce);
+    is_same &= (before->all_reduce_time == after->all_reduce_time);
+    is_same &= (before->num_all_reduce == after->num_all_reduce);
+    is_same &= (before->elapsed_time == after->elapsed_time);
+    is_same &= (before->compute_time == after->compute_time);
+    is_same &= (before->send_time == after->send_time);
+    is_same &= (before->max_time == after->max_time);
+    is_same &= (before->recv_time == after->recv_time);
+    is_same &= (before->wait_time == after->wait_time);
+
+    // Interval and current state
+    is_same &= (before->cur_interval_end == after->cur_interval_end);
+
+    // Data statistics
+    is_same &= (before->num_bytes_sent == after->num_bytes_sent);
+    is_same &= (before->num_bytes_recvd == after->num_bytes_recvd);
+    is_same &= (before->syn_data == after->syn_data);
+    is_same &= (before->gen_data == after->gen_data);
+
+    // Switch and routing information
+    is_same &= (before->prev_switch == after->prev_switch);
+    is_same &= (before->saved_perm_dest == after->saved_perm_dest);
+    is_same &= (before->rc_perm == after->rc_perm);
+
+    // Sampling information
+    is_same &= (before->sampling_indx == after->sampling_indx);
+    //is_same &= (before->max_arr_size == after->max_arr_size);
+
+    // Compare string buffers
+    is_same &= (strcmp(before->output_buf, after->output_buf) == 0);
+    is_same &= (strcmp(before->col_stats, after->col_stats) == 0);
+
+    // Compare switch configuration size
+    is_same &= (before->switch_config_size == after->switch_config_size);
+
+    // Complex elements
+    is_same &= are_qlist_equal(&before->arrival_queue, &after->arrival_queue, QLIST_OFFSET(mpi_msgs_queue, ql), (bool (*) (void *, void *)) compare_mpi_msg_queues);
+    is_same &= are_qlist_equal(&before->pending_recvs_queue, &after->pending_recvs_queue, QLIST_OFFSET(mpi_msgs_queue, ql), (bool (*) (void *, void *)) compare_mpi_msg_queues);
+    is_same &= are_qlist_equal(&before->completed_reqs, &after->completed_reqs, QLIST_OFFSET(completed_requests, ql), (bool (*) (void *, void *)) compare_completed_requests);
+    is_same &= are_qlist_equal(&before->msg_sz_list, &after->msg_sz_list, QLIST_OFFSET(struct msg_size_info, ql), (bool (*) (void *, void *)) compare_msg_size_info);
+
+    is_same &= !memcmp(&before->ross_sample, &after->ross_sample, sizeof(struct ross_model_sample));
+
+    int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
+    is_same &= !memcmp(before->known_completed_jobs, after->known_completed_jobs, num_jobs * sizeof(int));
+    is_same &= compare_pending_waits(before->wait_op, after->wait_op);
+
+    // Skipped pointer comparisons (used in reverse computation):
+    // - processed_ops
+    // - processed_wait_op
+    // - matched_reqs
+    // - msg_sz_table
+    // Pointers used in some data collection (IO) or outside of PDES loop
+    // - mpi_wkld_samples
+    // - switch_config
+
+    // There is no need to implement msg_sz_table as all values are already
+    // accounted for in msg_sz_list. We can safely ignore all values in msg_sz_list
+
+    return is_same;
+}
+
+// Originally implemneted with a prompt on Claude.ai (tedious code, easy to check and produce)
+static void print_nw_lp_state(FILE * out, nw_state * state) {
+    int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
+
+#if LP_DEBUG
+    fprintf(out, "  num_events_processed = %zu\n", state->num_events_processed);
+#endif /* if LP_DEBUG */
+    fprintf(out, "     num_events_per_lp = %ld\n", state->num_events_per_lp);
+    fprintf(out, "                 nw_id = %lu\n", state->nw_id);
+    fprintf(out, "             wrkld_end = %d\n", state->wrkld_end);
+    fprintf(out, "                app_id = %d\n", state->app_id);
+    fprintf(out, "            local_rank = %d\n", state->local_rank);
+    fprintf(out, "             qos_level = %d\n", state->qos_level);
+    fprintf(out, "     synthetic_pattern = %d\n", state->synthetic_pattern);
+    fprintf(out, "           is_finished = %d\n", state->is_finished);
+    fprintf(out, "num_own_job_ranks_completed = %d\n", state->num_own_job_ranks_completed);
+    fprintf(out, "  known_completed_jobs[%d] = [", num_jobs);
+    for(int i=0; i<num_jobs; i++) {
+        fprintf(out, "%d%s", state->known_completed_jobs[i], i+1==num_jobs ? "" : ", ");
+    }
+    fprintf(out, "]\n");
+    fprintf(out, "        *processed_ops = %p\n", state->processed_ops);
+    fprintf(out, "    *processed_wait_op = %p\n", state->processed_wait_op);
+    fprintf(out, "         *matched_reqs = %p\n", state->matched_reqs);
+
+    // Operation counts
+    fprintf(out, "             num_sends = %lu\n", state->num_sends);
+    fprintf(out, "             num_recvs = %lu\n", state->num_recvs);
+    fprintf(out, "              num_cols = %lu\n", state->num_cols);
+    fprintf(out, "            num_delays = %lu\n", state->num_delays);
+    fprintf(out, "              num_wait = %lu\n", state->num_wait);
+    fprintf(out, "           num_waitall = %lu\n", state->num_waitall);
+    fprintf(out, "          num_waitsome = %lu\n", state->num_waitsome);
+
+    // Timing information
+    fprintf(out, "            start_time = %g\n", state->start_time);
+    fprintf(out, "              col_time = %g\n", state->col_time);
+    fprintf(out, "           reduce_time = %g\n", state->reduce_time);
+    fprintf(out, "            num_reduce = %d\n", state->num_reduce);
+    fprintf(out, "       all_reduce_time = %g\n", state->all_reduce_time);
+    fprintf(out, "        num_all_reduce = %d\n", state->num_all_reduce);
+    fprintf(out, "          elapsed_time = %g\n", state->elapsed_time);
+    fprintf(out, "          compute_time = %g\n", state->compute_time);
+    fprintf(out, "             send_time = %g\n", state->send_time);
+    fprintf(out, "              max_time = %g\n", state->max_time);
+    fprintf(out, "             recv_time = %g\n", state->recv_time);
+    fprintf(out, "             wait_time = %g\n", state->wait_time);
+
+    // Queue heads
+    fprintf(out, "         arrival_queue[%d] = [\n", qlist_count(&state->arrival_queue));
+    print_mpi_msgs_queue(out, &state->arrival_queue, "            ");
+    fprintf(out, "]\n");
+    fprintf(out, "   pending_recvs_queue[%d] = [\n", qlist_count(&state->pending_recvs_queue));
+    print_mpi_msgs_queue(out, &state->pending_recvs_queue, "            ");
+    fprintf(out, "]\n");
+
+    fprintf(out, "        completed_reqs[%d] = [\n", qlist_count(&state->completed_reqs));
+    completed_requests * current = NULL;
+    qlist_for_each_entry(current, &state->completed_reqs, ql) {
+         fprintf(out, "            Req: req_id: %u\n", current->req_id);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "      cur_interval_end = %g\n", state->cur_interval_end);
+    fprintf(out, "              *wait_op = %p\n", state->wait_op);
+    if (state->wait_op != NULL) {
+        fprintf(out, "                     |.op_type = %d\n", state->wait_op->op_type);
+        fprintf(out, "                     |.req_ids = [");
+        for(int i = 0; i < state->wait_op->count; i++) {
+            fprintf(out, "%d%s", state->wait_op->req_ids[i], i+1==state->wait_op->count ? "" : ", ");
+        }
+        fprintf(out, "]\n");
+        fprintf(out, "                     |.num_completed = %d\n", state->wait_op->num_completed);
+        fprintf(out, "                     |.count = %d\n", state->wait_op->count);
+        fprintf(out, "                     |.start_time = %g\n", state->wait_op->start_time);
+    }
+    fprintf(out, "           msg_sz_list[%d] = [\n", qlist_count(&state->completed_reqs));
+    struct msg_size_info * ms_info = NULL;
+    qlist_for_each_entry(ms_info, &state->msg_sz_list, ql) {
+         fprintf(out, "            MsSizeInfo: msg_size: %lu num_msgs: %d agg_latency: %g avg_latency: %g hash_link.next: %p  hash_link.prev: %p\n", ms_info->msg_size, ms_info->num_msgs, ms_info->agg_latency, ms_info->avg_latency, ms_info->hash_link.next, ms_info->hash_link.prev);
+    }
+    fprintf(out, "]\n");
+
+    // Data statistics
+    fprintf(out, "        num_bytes_sent = %llu\n", state->num_bytes_sent);
+    fprintf(out, "       num_bytes_recvd = %llu\n", state->num_bytes_recvd);
+    fprintf(out, "              syn_data = %llu\n", state->syn_data);
+    fprintf(out, "              gen_data = %llu\n", state->gen_data);
+
+    fprintf(out, "           prev_switch = %lu\n", state->prev_switch);
+    fprintf(out, "       saved_perm_dest = %d\n", state->saved_perm_dest);
+    fprintf(out, "               rc_perm = %lu\n", state->rc_perm);
+
+    // Sampling information
+    fprintf(out, "         sampling_indx = %d\n", state->sampling_indx);
+    fprintf(out, "          max_arr_size = %d\n", state->max_arr_size);
+    fprintf(out, "*     mpi_wkld_samples = %p\n", state->mpi_wkld_samples);
+    fprintf(out, "            output_buf = %.512s...\n", state->output_buf);
+    fprintf(out, "             col_stats = %.64s...\n", state->col_stats);
+
+    fprintf(out, "ross_sample.\n");
+    fprintf(out, "           |          .nw_id = %lu\n", state->ross_sample.nw_id);
+    fprintf(out, "           |         .app_id = %d\n", state->ross_sample.app_id);
+    fprintf(out, "           |     .local_rank = %d\n", state->ross_sample.local_rank);
+    fprintf(out, "           |      .num_sends = %lu\n", state->ross_sample.num_sends);
+    fprintf(out, "           |      .num_recvs = %lu\n", state->ross_sample.num_recvs);
+    fprintf(out, "           | .num_bytes_sent = %llu\n", state->ross_sample.num_bytes_sent);
+    fprintf(out, "           |.num_bytes_recvd = %llu\n", state->ross_sample.num_bytes_recvd);
+    fprintf(out, "           |      .send_time = %g\n", state->ross_sample.send_time);
+    fprintf(out, "           |      .recv_time = %g\n", state->ross_sample.recv_time);
+    fprintf(out, "           |      .wait_time = %g\n", state->ross_sample.wait_time);
+    fprintf(out, "           |   .compute_time = %g\n", state->ross_sample.compute_time);
+    fprintf(out, "           |      .comm_time = %g\n", state->ross_sample.comm_time);
+    fprintf(out, "           |       .max_time = %g\n", state->ross_sample.max_time);
+    fprintf(out, "           |   .avg_msg_time = %g\n", state->ross_sample.avg_msg_time);
+
+    // Configuration
+    fprintf(out, "*        switch_config = %p\n", state->switch_config);
+    fprintf(out, "    switch_config_size = %zu\n", state->switch_config_size);
+}
+
+static char const * const MPI_NW_EVENTS_to_string(enum MPI_NW_EVENTS event_type) {
+
+    switch (event_type) {
+        case MPI_OP_GET_NEXT:      return "MPI_OP_GET_NEXT";
+        case MPI_SEND_ARRIVED:     return "MPI_SEND_ARRIVED";
+        case MPI_SEND_ARRIVED_CB:  return "MPI_SEND_ARRIVED_CB";
+        case MPI_SEND_POSTED:      return "MPI_SEND_POSTED";
+        case MPI_REND_ARRIVED:     return "MPI_REND_ARRIVED";
+        case MPI_REND_ACK_ARRIVED: return "MPI_REND_ACK_ARRIVED";
+        case CLI_BCKGND_FIN:       return "CLI_BCKGND_FIN";
+        case CLI_BCKGND_ARRIVE:    return "CLI_BCKGND_ARRIVE";
+        case CLI_BCKGND_GEN:       return "CLI_BCKGND_GEN";
+        case CLI_BCKGND_CHANGE:    return "CLI_BCKGND_CHANGE";
+        case CLI_NBR_FINISH:       return "CLI_NBR_FINISH";
+        case CLI_OTHER_FINISH:     return "CLI_OTHER_FINISH";
+        case SURR_SKIP_ITERATION:  return "SURR_SKIP_ITERATION";
+        default: return "UNKNOWN!!";
+    }
+
+}
+
+// Original printing function from Claude.ai
+static void print_nw_message(FILE * out, struct nw_message * msg) {
+    // Print main fields
+    fprintf(out, "msg_type = %s\n", MPI_NW_EVENTS_to_string(msg->msg_type));
+    fprintf(out, " op_type = %s\n", op_type_string(msg->op_type));
+    fprintf(out, "num_rngs = %d\n", msg->num_rngs);
+    fprintf(out, "event_rc = %d\n", msg->event_rc);
+    fprintf(out, "  mpi_op = %p\n", msg->mpi_op);
+    fprint_codes_workload_op(out, msg->mpi_op, "        |");
+
+    fprintf(out, "fwd\n");
+    fprintf(out, "  |      .src_rank = %lu\n", msg->fwd.src_rank);
+    fprintf(out, "  |     .dest_rank = %d\n", msg->fwd.dest_rank);
+    fprintf(out, "  |     .num_bytes = %ld\n", msg->fwd.num_bytes);
+    fprintf(out, "  |   .num_matched = %d\n", msg->fwd.num_matched);
+    fprintf(out, "  |.sim_start_time = %g\n", msg->fwd.sim_start_time);
+    fprintf(out, "  | .msg_send_time = %g\n", msg->fwd.msg_send_time);
+    fprintf(out, "  |        .req_id = %u\n", msg->fwd.req_id);
+    fprintf(out, "  |   .matched_req = %d\n", msg->fwd.matched_req);
+    fprintf(out, "  |           .tag = %d\n", msg->fwd.tag);
+    fprintf(out, "  |        .app_id = %d\n", msg->fwd.app_id);
+    fprintf(out, "  |   .found_match = %d\n", msg->fwd.found_match);
+    fprintf(out, "  |.wait_completed = %d\n", msg->fwd.wait_completed);
+    fprintf(out, "  |     .rend_send = %d\n", msg->fwd.rend_send);
+
+    fprintf(out, "rc\n");
+    switch(msg->msg_type) {
+        case CLI_BCKGND_GEN:
+            fprintf(out, "  |.gen\n");
+            fprintf(out, "      | .saved_syn_length = %d\n", msg->rc.gen.saved_syn_length);
+            fprintf(out, "      |       .saved_perm = %d\n", msg->rc.gen.saved_perm);
+            fprintf(out, "      |.saved_prev_switch = %lu\n", msg->rc.gen.saved_prev_switch);
+            break;
+
+        case CLI_BCKGND_ARRIVE:
+        case MPI_SEND_ARRIVED_CB:
+            fprintf(out, "  |arrive.saved_prev_max_time = %g\n", msg->rc.arrive.saved_prev_max_time);
+            fprintf(out, "  |    arrive.saved_send_time = %g\n", msg->rc.arrive.saved_send_time);
+            fprintf(out, "  |arrive.saved_send_time_sample = %g\n", msg->rc.arrive.saved_send_time_sample);
+            break;
+
+        case CLI_BCKGND_CHANGE:
+            fprintf(out, "  |   change.saved_send_time = %g\n", msg->rc.change.saved_send_time);
+            fprintf(out, "  | change.saved_marker_time = %g\n", msg->rc.change.saved_marker_time);
+            break;
+
+        case MPI_OP_GET_NEXT:
+            fprintf(out, "   .mpi_next\n");
+            fprintf(out, "           |.saved_elapsed_time = %g\n", msg->rc.mpi_next.saved_elapsed_time);
+            fprintf(out, "           |.all_reduce.saved_send_time = %g\n", msg->rc.mpi_next.all_reduce.saved_send_time);
+            fprintf(out, "           |.all_reduce.saved_delay = %g\n", msg->rc.mpi_next.all_reduce.saved_delay);
+
+            fprintf(out, "           |.recv.saved_recv_time = %g\n", msg->rc.mpi_next.recv.saved_recv_time);
+            fprintf(out, "           |.recv.saved_recv_time_sample = %g\n", msg->rc.mpi_next.recv.saved_recv_time_sample);
+
+            fprintf(out, "           |.delay.saved_delay = %g\n", msg->rc.mpi_next.delay.saved_delay);
+            fprintf(out, "           |.delay.saved_delay_sample = %g\n", msg->rc.mpi_next.delay.saved_delay_sample);
+
+            fprintf(out, "           |.mark.saved_marker_time = %g\n", msg->rc.mpi_next.mark.saved_marker_time);
+            break;
+
+        case MPI_SEND_ARRIVED:
+        case MPI_REND_ARRIVED:
+        case MPI_SEND_POSTED:
+            fprintf(out, "  |.mpi_send\n");
+            fprintf(out, "           |       .saved_wait_time = %g\n", msg->rc.mpi_send.saved_wait_time);
+            fprintf(out, "           |.saved_wait_time_sample = %g\n", msg->rc.mpi_send.saved_wait_time_sample);
+            fprintf(out, "           |       .saved_recv_time = %g\n", msg->rc.mpi_send.saved_recv_time);
+            fprintf(out, "           |.saved_recv_time_sample = %g\n", msg->rc.mpi_send.saved_recv_time_sample);
+            fprintf(out, "           |       .saved_num_bytes = %lu\n", msg->rc.mpi_send.saved_num_bytes);
+            break;
+
+        case MPI_REND_ACK_ARRIVED:
+            fprintf(out, "  |  mpi_ack.saved_num_bytes = %ld\n", msg->rc.mpi_ack.saved_num_bytes);
+            break;
+
+        case SURR_SKIP_ITERATION:
+            fprintf(out, "  |        surr.config_used = %p\n", msg->rc.surr.config_used);
+            break;
+
+        default:
             break;
     }
 }
@@ -3469,9 +3966,23 @@ const tw_lptype* nw_get_lp_type()
             return(&nw_lp);
 }
 
+// ROSS function pointer table to check reverse event handler
+crv_checkpointer nw_lp_chkptr = {
+    &nw_lp,
+    0,
+    (save_checkpoint_state_f) save_nw_lp_state,
+    (clean_checkpoint_state_f) clean_nw_lp_state,
+    (check_states_f) check_nw_lp_state,
+    (print_lpstate_f) print_nw_lp_state,
+    (print_checkpoint_state_f) print_nw_lp_state,
+    (print_event_f) print_nw_message,
+};
+
 static void nw_add_lp_type()
 {
   lp_type_register("nw-lp", nw_get_lp_type());
+  // registering custom print for nw_lp LPs
+  crv_add_custom_state_checkpoint(&nw_lp_chkptr);
 }
 
 /* setup for the ROSS event tracing

@@ -194,6 +194,14 @@ static __inline__ void qlist_splice(struct qlist_head *qlist, struct qlist_head 
     ((type *)((char *)(ptr)-(unsigned long)((&((type *)0)->member))))
 
 /**
+ * QLIST_OFFSET - get offset to the member that holds qlist_header
+ * @type:	the type of the struct this is embedded in.
+ * @member:	the name of the qlist_struct within the struct.
+ */
+#define QLIST_OFFSET(type, member) \
+    (unsigned long)((&((type *)0)->member))
+
+/**
  * qlist_for_each	-	iterate over a qlist
  * @pos:	the &struct qlist_head to use as a loop counter.
  * @head:	the head for your qlist.
@@ -252,7 +260,7 @@ static inline int qlist_exists(struct qlist_head *list, struct qlist_head *qlink
     return 0;
 }
 
-static inline int qlist_count(struct qlist_head *list)
+static inline int qlist_count(struct qlist_head const *list)
 {
     struct qlist_head *pos;
     int count = 0;
