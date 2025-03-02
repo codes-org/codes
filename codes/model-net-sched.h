@@ -197,6 +197,13 @@ void model_net_sched_add_rc(
 // set default parameters for messages that don't specify any
 void model_net_sched_set_default_params(mn_sched_params *sched_params);
 
+// Reverse handler functionality
+void save_model_net_sched(model_net_sched *before, model_net_sched const *after);
+void clean_model_net_sched(model_net_sched *before);
+bool check_model_net_sched(model_net_sched *before, model_net_sched *after);
+void print_model_net_sched(FILE * out, model_net_sched *sched);
+void print_model_net_sched_checkpoint(FILE * out, model_net_sched *sched);
+
 extern char * sched_names[];
 
 #ifdef __cplusplus

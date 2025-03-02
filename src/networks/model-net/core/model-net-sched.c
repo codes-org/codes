@@ -80,6 +80,66 @@ void model_net_sched_set_default_params(mn_sched_params *sched_params){
     sched_params->prio = -1;
 }
 
+/* START Checking reverse handler functionality */
+void save_model_net_sched(model_net_sched *into, model_net_sched const *from) {
+    into->type = from->type;
+
+    into->dat = NULL;
+    crv_checkpointer const * chptr = sched_checkpointers[from->type];
+    if (chptr && chptr->save_lp) {
+        into->dat = malloc(chptr->sz_storage);
+        chptr->save_lp(into->dat, from->dat);
+    }
+}
+
+void clean_model_net_sched(model_net_sched *state) {
+    if (state->dat) {
+        crv_checkpointer const * chptr = sched_checkpointers[state->type];
+        assert (chptr && chptr->clean_lp);
+        chptr->clean_lp(state->dat);
+        free(state->dat);
+    }
+}
+
+bool check_model_net_sched(
+    model_net_sched *before,
+    model_net_sched *after
+) {
+    crv_checkpointer const * chptr = sched_checkpointers[before->type];
+    if (before->dat != NULL && chptr && chptr->check_lps) {
+        return chptr->check_lps(before->dat, after->dat);
+    }
+    tw_error(TW_LOC, "Scheduler of type \"%s\" has not been configured to be checkpointed", sched_names[before->type]);
+    return false;
+}
+
+static void __print_model_net_sched(
+    FILE * out,
+    model_net_sched *sched,
+    bool is_lp_state
+) {
+    crv_checkpointer const * chptr = sched_checkpointers[sched->type];
+    fprintf(out, "model_net_sched.sched_type = %d\n", sched->type);
+    fprintf(out, "model_net_sched.\n");
+    if (chptr) {
+        if (is_lp_state && chptr->print_lp) {
+            chptr->print_lp(out, sched->dat);
+        }
+        if (!is_lp_state && chptr->print_checkpoint) {
+            chptr->print_checkpoint(out, sched->dat);
+        }
+    }
+}
+
+void print_model_net_sched(FILE * out, model_net_sched *sched) {
+    __print_model_net_sched(out, sched, true);
+}
+
+void print_model_net_sched_checkpoint(FILE * out, model_net_sched *sched) {
+    __print_model_net_sched(out, sched, false);
+}
+/* STOP Checking reverse handler functionality */
+
 /*
  * Local variables:
  *  c-indent-level: 4
