@@ -1858,7 +1858,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     if (p->num_rails % p->num_planes != 0)
         tw_error(TW_LOC, "Number of rails not evenly divisible by number of planes!\n");
 
-    char rail_select_str[MAX_NAME_LENGTH];
+    char rail_select_str[MAX_NAME_LENGTH] = {'\0'};
     rc = configuration_get_value(&config, "PARAMS", "rail_select", anno, rail_select_str,
             MAX_NAME_LENGTH);
     if(strcmp(rail_select_str, "dedicated") == 0)
@@ -1883,7 +1883,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
             fprintf(stderr, "global_k_picks for global adaptive routing not specified, setting to %d\n",p->global_k_picks);
     }
 
-    char scoring_str[MAX_NAME_LENGTH];
+    char scoring_str[MAX_NAME_LENGTH] = {'\0'};
     configuration_get_value(&config, "PARAMS", "route_scoring_metric", anno, scoring_str, MAX_NAME_LENGTH);
     if (strcmp(scoring_str, "alpha") == 0) {
         scoring = ALPHA;
@@ -1978,7 +1978,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
 
     // read intra group connections, store from a router's perspective
     // all links to the same router form a vector
-    char intraFile[MAX_NAME_LENGTH];
+    char intraFile[MAX_NAME_LENGTH] = {'\0'};
     configuration_get_value(&config, "PARAMS", "intra-group-connections", 
         anno, intraFile, MAX_NAME_LENGTH);
     if (strlen(intraFile) <= 0) {
@@ -2035,7 +2035,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
 
     // read inter group connections, store from a router's perspective
     // also create a group level table that tells all the connecting routers
-    char interFile[MAX_NAME_LENGTH];
+    char interFile[MAX_NAME_LENGTH] = {'\0'};
     configuration_get_value(&config, "PARAMS", "inter-group-connections", 
         anno, interFile, MAX_NAME_LENGTH);
     if(strlen(interFile) <= 0) {
@@ -2100,7 +2100,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
 
 
     //read link failure file
-    char failureFileName[MAX_NAME_LENGTH];   
+    char failureFileName[MAX_NAME_LENGTH] = {'\0'};
     failureFileName[0] = '\0';
 
     if (strlen(g_nm_link_failure_filepath) == 0) //was this defined already via a command line argument?
