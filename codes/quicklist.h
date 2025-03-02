@@ -30,6 +30,8 @@ extern "C" {
 #endif
 
 #include <stdlib.h>
+#include <assert.h>
+#include <stdbool.h>
 
 struct qlist_head {
         struct qlist_head *next, *prev;
@@ -309,6 +311,37 @@ static inline struct qlist_head * qlist_find(
         }
     }
     return NULL;
+}
+
+/**
+ * are_qlist_equal - determine if two qlists have the same elements
+ */
+static inline bool are_qlist_equal(struct qlist_head const * left, struct qlist_head const * right, unsigned int offset_ql, bool (cmp) (void *, void *)) {
+    int const num_elems = qlist_count(left);
+    if (num_elems != qlist_count(right)) {
+        return false;
+    }
+
+    // Checking element by element
+    int i = 0;
+    struct qlist_head * elem_left = left->next;
+    struct qlist_head * elem_right = right->next;
+    while (elem_left != left) {
+        char * entry_left = (char *)(elem_left) - offset_ql;
+        char * entry_right = (char *)(elem_right) - offset_ql;
+
+        if (!cmp(entry_left, entry_right)) {
+            return false;
+        }
+
+        elem_left = elem_left->next;
+        elem_right = elem_right->next;
+        i++;
+    }
+    assert(i == num_elems);
+    assert(elem_right == right);
+
+    return true;
 }
 
 /*

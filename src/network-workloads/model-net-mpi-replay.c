@@ -3459,35 +3459,6 @@ static void free_qlist_cpy(struct qlist_head * into, unsigned int offset_ql) {
     }
 }
 
-// Assumes that ql is at the end of entry!!
-static bool are_qlist_equal(struct qlist_head const * left, struct qlist_head const * right, unsigned int offset_ql, bool (cmp) (void *, void *)) {
-    int const num_elems = qlist_count(left);
-    if (num_elems != qlist_count(right)) {
-        return false;
-    }
-
-    // Checking element by element
-    int i = 0;
-    struct qlist_head * elem_left = left->next;
-    struct qlist_head * elem_right = right->next;
-    while (elem_left != left) {
-        char * entry_left = (char *)(elem_left) - offset_ql;
-        char * entry_right = (char *)(elem_right) - offset_ql;
-
-        if (!cmp(entry_left, entry_right)) {
-            return false;
-        }
-
-        elem_left = elem_left->next;
-        elem_right = elem_right->next;
-        i++;
-    }
-    assert(i == num_elems);
-    assert(elem_right == right);
-
-    return true;
-}
-
 bool compare_pending_waits(struct pending_waits const * before, struct pending_waits const * after) {
     // if one is null and the other isn't, then they're not equal
     if ((before == NULL) != (after == NULL)) {
