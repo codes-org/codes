@@ -6924,8 +6924,163 @@ static void router_dally_rc_event_handler(router_state * s, tw_bf * bf,
     msg->num_rngs = 0;
 }
 
+//*** ---------- START OF reverse handler checking functions ---------- ***
+// Print fuction originally constructed with help from Claude.ai
+static void print_terminal_state(FILE * out, terminal_state * state) {
+    fprintf(out, "terminal_state (dragonfly-dally) ->\n");
+    fprintf(out, "  |           packet_counter = %ld\n", state->packet_counter);
+    fprintf(out, "  |               packet_gen = %d\n", state->packet_gen);
+    fprintf(out, "  |               packet_fin = %d\n", state->packet_fin);
+    fprintf(out, "  |           total_gen_size = %d\n", state->total_gen_size);
+    fprintf(out, "  | *              router_lp = %p\n", state->router_lp);
+    fprintf(out, "  | *              router_id = %p\n", state->router_id);
+    fprintf(out, "  |              terminal_id = %u\n", state->terminal_id);
+    fprintf(out, "  |                  connMan = <DragonflyConnectionManager object>\n");
+    fprintf(out, "  | *local_congestion_controller = %p\n", state->local_congestion_controller);
+    fprintf(out, "  |  workload_lpid_to_app_id = <map object>\n");
+    fprintf(out, "  |                  app_ids = <set object>\n");
+    fprintf(out, "  |  workloads_finished_flag = %d\n", state->workloads_finished_flag);
+    fprintf(out, "  | **          vc_occupancy = %p\n", state->vc_occupancy);
+    fprintf(out, "  | *terminal_available_time = %p\n", state->terminal_available_time);
+    fprintf(out, "  | ***        terminal_msgs = %p\n", state->terminal_msgs);
+    fprintf(out, "  | ***   terminal_msgs_tail = %p\n", state->terminal_msgs_tail);
+    fprintf(out, "  | *           in_send_loop = %p\n", state->in_send_loop);
+    fprintf(out, "  |    dragonfly_stats_array = <mn_stats array>\n");
+    fprintf(out, "  | **            qos_status = %p\n", state->qos_status);
+    fprintf(out, "  | **              qos_data = %p\n", state->qos_data);
+    fprintf(out, "  | *           last_qos_lvl = %p\n", state->last_qos_lvl);
+    fprintf(out, "  |         is_monitoring_bw = %d\n", state->is_monitoring_bw);
+    fprintf(out, "  | *                     st = %p\n", state->st);
+    fprintf(out, "  | *                  cc_st = %p\n", state->cc_st);
+    fprintf(out, "  | *              issueIdle = %p\n", state->issueIdle);
+    fprintf(out, "  | **       terminal_length = %p\n", state->terminal_length);
+    fprintf(out, "  | *                   anno = %s\n", state->anno ? state->anno : "(nil)");
+    fprintf(out, "  | *                 params = %p\n", state->params);
+    fprintf(out, "  | *               rank_tbl = %p\n", state->rank_tbl);
+    fprintf(out, "  |             rank_tbl_pop = %lu\n", state->rank_tbl_pop);
+    fprintf(out, "  |               total_time = %f\n", state->total_time);
+    fprintf(out, "  |           total_msg_size = %lu\n", state->total_msg_size);
+    fprintf(out, "  |               total_hops = %f\n", state->total_hops);
+    fprintf(out, "  |            finished_msgs = %ld\n", state->finished_msgs);
+    fprintf(out, "  |          finished_chunks = %ld\n", state->finished_chunks);
+    fprintf(out, "  |         finished_packets = %ld\n", state->finished_packets);
+    fprintf(out, "  | *          last_buf_full = %p\n", state->last_buf_full);
+    fprintf(out, "  | *              busy_time = %p\n", state->busy_time);
+    fprintf(out, "  | *           link_traffic = %p\n", state->link_traffic);
+    fprintf(out, "  | *           total_chunks = %p\n", state->total_chunks);
+    fprintf(out, "  | *         stalled_chunks = %p\n", state->stalled_chunks);
+    fprintf(out, "  |          injected_chunks = %lu\n", state->injected_chunks);
+    fprintf(out, "  |           ejected_chunks = %lu\n", state->ejected_chunks);
+    fprintf(out, "  |              max_latency = %f\n", state->max_latency);
+    fprintf(out, "  |              min_latency = %f\n", state->min_latency);
+    fprintf(out, "  |               output_buf = '%.4096s'\n", state->output_buf);
+    fprintf(out, "  |              output_buf2 = '%.4096s'\n", state->output_buf2);
+    fprintf(out, "  |        fin_chunks_sample = %ld\n", state->fin_chunks_sample);
+    fprintf(out, "  |         data_size_sample = %ld\n", state->data_size_sample);
+    fprintf(out, "  |          fin_hops_sample = %f\n", state->fin_hops_sample);
+    fprintf(out, "  |          fin_chunks_time = %f\n", state->fin_chunks_time);
+    fprintf(out, "  | *       busy_time_sample = %p\n", state->busy_time_sample);
+    fprintf(out, "  |               sample_buf = '%.4096s'\n", state->sample_buf);
+    fprintf(out, "  | *            sample_stat = %p\n", state->sample_stat);
+    fprintf(out, "  |              op_arr_size = %d\n", state->op_arr_size);
+    fprintf(out, "  |             max_arr_size = %d\n", state->max_arr_size);
+    fprintf(out, "  |               fwd_events = %ld\n", state->fwd_events);
+    fprintf(out, "  |               rev_events = %ld\n", state->rev_events);
+    fprintf(out, "  |   fin_chunks_ross_sample = %ld\n", state->fin_chunks_ross_sample);
+    fprintf(out, "  |    data_size_ross_sample = %ld\n", state->data_size_ross_sample);
+    fprintf(out, "  |     fin_hops_ross_sample = %ld\n", state->fin_hops_ross_sample);
+    fprintf(out, "  | fin_chunks_time_ross_sample = %f\n", state->fin_chunks_time_ross_sample);
+    fprintf(out, "  | *  busy_time_ross_sample = %p\n", state->busy_time_ross_sample);
+    fprintf(out, "  |              ross_sample = <dfly_cn_sample object>\n");
+    fprintf(out, "  |             sent_packets = <map object>\n");
+    fprintf(out, "  |      last_packet_sent_id = %lu\n", state->last_packet_sent_id);
+    fprintf(out, "  |   arrival_of_last_packet = {packet_ID: %lu, travel_end_time: %f}\n", state->arrival_of_last_packet.packet_ID, state->arrival_of_last_packet.travel_end_time);
+    fprintf(out, "  |     remaining_sz_packets = <map object>\n");
+    fprintf(out, "  |       last_in_queue_time = %f\n", state->last_in_queue_time);
+    fprintf(out, "  | *         predictor_data = %p\n", state->predictor_data);
+    fprintf(out, "  |                  zombies = <set object>\n");
+    fprintf(out, "  | *           frozen_state = %p\n", state->frozen_state);
+}
+
+// Print fuction originally constructed with help from Claude.ai
+static void print_terminal_dally_message(FILE * out, struct terminal_dally_message * msg) {
+    fprintf(out, "terminal_dally_message ->\n");
+    fprintf(out, "  |                      magic = %d\n", msg->magic);
+    fprintf(out, "  |          travel_start_time = %f\n", msg->travel_start_time);
+    fprintf(out, "  |            travel_end_time = %f\n", msg->travel_end_time);
+    fprintf(out, "  |                  packet_ID = %llu\n", msg->packet_ID);
+    fprintf(out, "  |                       type = %d\n", msg->type);
+    fprintf(out, "  |                notify_type = %d\n", msg->notify_type);
+    fprintf(out, "  |                   category = %s\n", msg->category);
+    fprintf(out, "  |             final_dest_gid = %lu\n", msg->final_dest_gid);
+    fprintf(out, "  |                  sender_lp = %lu\n", msg->sender_lp);
+    fprintf(out, "  |               sender_mn_lp = %lu\n", msg->sender_mn_lp);
+    fprintf(out, "  |         dest_terminal_lpid = %lu\n", msg->dest_terminal_lpid);
+    fprintf(out, "  |    dfdally_src_terminal_id = %u\n", msg->dfdally_src_terminal_id);
+    fprintf(out, "  |   dfdally_dest_terminal_id = %u\n", msg->dfdally_dest_terminal_id);
+    fprintf(out, "  |            src_terminal_id = %u\n", msg->src_terminal_id);
+    fprintf(out, "  |           origin_router_id = %u\n", msg->origin_router_id);
+    fprintf(out, "  |                     app_id = %d\n", msg->app_id);
+    fprintf(out, "  |                   my_N_hop = %d\n", msg->my_N_hop);
+    fprintf(out, "  |                   my_l_hop = %d\n", msg->my_l_hop);
+    fprintf(out, "  |                   my_g_hop = %d\n", msg->my_g_hop);
+    fprintf(out, "  |          my_hops_cur_group = %d\n", msg->my_hops_cur_group);
+    fprintf(out, "  |              saved_channel = %d\n", msg->saved_channel);
+    fprintf(out, "  |                   saved_vc = %d\n", msg->saved_vc);
+    fprintf(out, "  |                  next_stop = %d\n", msg->next_stop);
+    fprintf(out, "  |        this_router_arrival = %f\n", msg->this_router_arrival);
+    fprintf(out, "  |    this_router_ptp_latency = %f\n", msg->this_router_ptp_latency);
+    fprintf(out, "  |                 intm_lp_id = %u\n", msg->intm_lp_id);
+    fprintf(out, "  |                   last_hop = %d\n", msg->last_hop);
+    fprintf(out, "  |            is_intm_visited = %d\n", msg->is_intm_visited);
+    fprintf(out, "  |                intm_rtr_id = %d\n", msg->intm_rtr_id);
+    fprintf(out, "  |                intm_grp_id = %d\n", msg->intm_grp_id);
+    fprintf(out, "  |             saved_src_dest = %d\n", msg->saved_src_dest);
+    fprintf(out, "  |             saved_src_chan = %d\n", msg->saved_src_chan);
+    fprintf(out, "  |                   chunk_id = %u\n", msg->chunk_id);
+    fprintf(out, "  |                packet_size = %u\n", msg->packet_size);
+    fprintf(out, "  |                 message_id = %u\n", msg->message_id);
+    fprintf(out, "  |                 total_size = %u\n", msg->total_size);
+    fprintf(out, "  |    remote_event_size_bytes = %d\n", msg->remote_event_size_bytes);
+    fprintf(out, "  |     local_event_size_bytes = %d\n", msg->local_event_size_bytes);
+    fprintf(out, "  |                   vc_index = %d\n", msg->vc_index);
+    fprintf(out, "  |                    rail_id = %d\n", msg->rail_id);
+    fprintf(out, "  |                output_chan = %d\n", msg->output_chan);
+    fprintf(out, "  |                   event_rc = <model_net_event_return object>\n");
+    fprintf(out, "  |                    is_pull = %d\n", msg->is_pull);
+    fprintf(out, "  |                  pull_size = %u\n", msg->pull_size);
+    fprintf(out, "  |                  path_type = %d\n", msg->path_type);
+    fprintf(out, "  |               saved_app_id = %d\n", msg->saved_app_id);
+    fprintf(out, "  | is_there_another_pckt_in_queue = %s\n", msg->is_there_another_pckt_in_queue ? "true" : "false");
+    fprintf(out, "  |                   num_rngs = %d\n", msg->num_rngs);
+    fprintf(out, "  |                    num_cll = %d\n", msg->num_cll);
+    fprintf(out, "  |             last_saved_qos = %d\n", msg->last_saved_qos);
+    fprintf(out, "  |                 qos_reset1 = %d\n", msg->qos_reset1);
+    fprintf(out, "  |                 qos_reset2 = %d\n", msg->qos_reset2);
+    fprintf(out, "  |              rc_is_qos_set = %d\n", msg->rc_is_qos_set);
+    fprintf(out, "  | *              rc_qos_data = %p\n", msg->rc_qos_data);
+    fprintf(out, "  | *            rc_qos_status = %p\n", msg->rc_qos_status);
+    fprintf(out, "  |            saved_send_loop = %d\n", msg->saved_send_loop);
+    fprintf(out, "  |       saved_available_time = %f\n", msg->saved_available_time);
+    fprintf(out, "  |              saved_min_lat = %f\n", msg->saved_min_lat);
+    fprintf(out, "  |             saved_avg_time = %f\n", msg->saved_avg_time);
+    fprintf(out, "  |             saved_rcv_time = %f\n", msg->saved_rcv_time);
+    fprintf(out, "  |            saved_busy_time = %f\n", msg->saved_busy_time);
+    fprintf(out, "  |           saved_total_time = %f\n", msg->saved_total_time);
+    fprintf(out, "  |          saved_sample_time = %f\n", msg->saved_sample_time);
+    fprintf(out, "  |             msg_start_time = %f\n", msg->msg_start_time);
+    fprintf(out, "  |       saved_busy_time_ross = %f\n", msg->saved_busy_time_ross);
+    fprintf(out, "  |      saved_fin_chunks_ross = %f\n", msg->saved_fin_chunks_ross);
+    fprintf(out, "  |   saved_last_in_queue_time = %f\n", msg->saved_last_in_queue_time);
+    fprintf(out, "  |    saved_next_packet_delay = %f\n", msg->saved_next_packet_delay);
+    fprintf(out, "  |           msg_new_mn_event = %f\n", msg->msg_new_mn_event);
+    fprintf(out, "  |         last_received_time = %f\n", msg->last_received_time);
+    fprintf(out, "  |             last_sent_time = %f\n", msg->last_sent_time);
+    fprintf(out, "  |        last_bufupdate_time = %f\n", msg->last_bufupdate_time);
+}
+//*** ---------- END OF reverse handler checking functions ---------- ***
+
 /* dragonfly compute node and router LP types */
-extern "C" {
 tw_lptype dragonfly_dally_lps[] =
 {
     // Terminal handling functions
@@ -6951,7 +7106,29 @@ tw_lptype dragonfly_dally_lps[] =
     },
     {NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0},
 };
-}
+
+crv_checkpointer dragonfly_dally_checkpointers[] = {
+    {
+        &dragonfly_dally_lps[0],
+        0,
+        (save_checkpoint_state_f) NULL,
+        (clean_checkpoint_state_f) NULL,
+        (check_states_f) NULL,
+        (print_lpstate_f) print_terminal_state,
+        (print_checkpoint_state_f) NULL,
+        (print_event_f) print_terminal_dally_message,
+    },
+    {
+        &dragonfly_dally_lps[1],
+        0,
+        (save_checkpoint_state_f) NULL,
+        (clean_checkpoint_state_f) NULL,
+        (check_states_f) NULL,
+        (print_lpstate_f) NULL,
+        (print_checkpoint_state_f) NULL,
+        (print_event_f) NULL,
+    },
+};
 
 /* returns the dragonfly lp type for lp registration */
 static const tw_lptype* dragonfly_dally_get_cn_lp_type(void)
@@ -8221,6 +8398,7 @@ struct model_net_method dragonfly_dally_method =
     (event_f)dragonfly_dally_terminal_congestion_event,
     (revent_f)dragonfly_dally_terminal_congestion_event_rc,
     (commit_f)dragonfly_dally_terminal_congestion_event_commit,
+    &dragonfly_dally_checkpointers[0],
 };
 
 struct model_net_method dragonfly_dally_router_method =
@@ -8248,6 +8426,7 @@ struct model_net_method dragonfly_dally_router_method =
     (event_f)dragonfly_dally_router_congestion_event,
     (revent_f)dragonfly_dally_router_congestion_event_rc,
     (commit_f)dragonfly_dally_router_congestion_event_commit,
+    &dragonfly_dally_checkpointers[1],
 };
 
 // #ifdef ENABLE_CORTEX

@@ -4045,6 +4045,7 @@ struct model_net_method slimfly_method =
     NULL,
     slimfly_register_model_types,
     slimfly_get_cn_model_types,
+    NULL,
 };
 
 struct model_net_method slimfly_router_method =
@@ -4067,6 +4068,7 @@ struct model_net_method slimfly_router_method =
     NULL,
     slimfly_router_register_model_types,
     slimfly_get_router_model_types,
+    NULL,
 };
 
 
