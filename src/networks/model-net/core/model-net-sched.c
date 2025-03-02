@@ -14,7 +14,7 @@
 #include "codes/model-net-sched-impl.h"
 #include "codes/quicklist.h"
 
-#define X(a,b,c) b,
+#define X(a,b,c,d) b,
 char * sched_names [] = {
     SCHEDULER_TYPES
 };

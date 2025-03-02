@@ -83,6 +83,10 @@ static void fcfs_next_rc(
         const void               * rc_event_save,
         const model_net_sched_rc * rc,
         tw_lp                    * lp);
+static void save_state_fcfs_state(mn_sched_queue * into, mn_sched_queue const * from);
+static void clean_state_fcfs_state(mn_sched_queue * into);
+static bool check_fcfs_state(mn_sched_queue *before, mn_sched_queue *after);
+static void print_fcfs_state(FILE * out, mn_sched_queue *sched);
 
 // ROUND-ROBIN
 static void rr_init (
@@ -150,8 +154,25 @@ static const model_net_sched_interface rr_tab =
 static const model_net_sched_interface prio_tab =
 { &prio_init, &prio_destroy, &prio_add, &prio_add_rc, &prio_next, &prio_next_rc};
 
-#define X(a,b,c) c,
+static const crv_checkpointer fcfs_chptr = {
+    NULL,
+    sizeof(mn_sched_queue),
+    (save_checkpoint_state_f) save_state_fcfs_state,
+    (clean_checkpoint_state_f) clean_state_fcfs_state,
+    (check_states_f) check_fcfs_state,
+    (print_lpstate_f) print_fcfs_state,
+    (print_checkpoint_state_f) print_fcfs_state,
+    NULL,
+};
+
+#define X(a,b,c,d) c,
 const model_net_sched_interface * sched_interfaces[] = {
+    SCHEDULER_TYPES
+};
+#undef X
+
+#define X(a,b,c,d) d,
+const crv_checkpointer * sched_checkpointers[] = {
     SCHEDULER_TYPES
 };
 #undef X
@@ -192,11 +213,13 @@ void fcfs_add (
     q->req = *req;
     q->sched_params = *sched_params;
     q->rem = req->msg_size;
+    assert(req->remote_event_size == remote_event_size);
     if (remote_event_size > 0){
         q->remote_event = malloc(remote_event_size);
         memcpy(q->remote_event, remote_event, remote_event_size);
     }
     else { q->remote_event = NULL; }
+    assert(req->self_event_size == local_event_size);
     if (local_event_size > 0){
         q->local_event = malloc(local_event_size);
         memcpy(q->local_event, local_event, local_event_size);
@@ -362,6 +385,109 @@ void fcfs_next_rc(
             assert(0);
         }
     }
+}
+
+static void save_mn_sched_qitem(mn_sched_qitem * into, mn_sched_qitem const * from) {
+    into->req = from->req;
+    into->sched_params = from->sched_params;
+    into->rem = from->rem;
+    into->entry_time = from->entry_time;
+    if (from->remote_event != NULL) {
+        assert(from->req.remote_event_size > 0);
+        into->remote_event = malloc(from->req.remote_event_size);
+        memcpy(into->remote_event, from->remote_event, from->req.remote_event_size);
+    }
+    if (from->local_event != NULL) {
+        assert(from->req.self_event_size > 0);
+        into->local_event = malloc(from->req.self_event_size);
+        memcpy(into->local_event, from->local_event, from->req.self_event_size);
+    }
+}
+
+static void save_state_fcfs_state(mn_sched_queue * into, mn_sched_queue const * from) {
+    into->method = from->method;
+    into->is_recv_queue = from->is_recv_queue;
+    into->queue_len = from->queue_len;
+    INIT_QLIST_HEAD(&into->reqs);
+
+    mn_sched_qitem * sched_qitem = NULL;
+    qlist_for_each_entry(sched_qitem, &from->reqs, ql) {
+        mn_sched_qitem * new_sched_qitem = malloc(sizeof(mn_sched_qitem));
+        save_mn_sched_qitem(new_sched_qitem, sched_qitem);
+        qlist_add_tail(&new_sched_qitem->ql, &into->reqs);
+    }
+}
+
+static void clean_mn_sched_qitem(mn_sched_qitem * into) {
+    if (into->remote_event != NULL) {
+        free(into->remote_event);
+    }
+    if (into->local_event != NULL) {
+        free(into->local_event);
+    }
+}
+
+static void clean_state_fcfs_state(mn_sched_queue * into) {
+    mn_sched_qitem * sched_qitem = NULL;
+    mn_sched_qitem * _ = NULL;
+    qlist_for_each_entry_safe(sched_qitem, _, &into->reqs, ql) {
+        clean_mn_sched_qitem(sched_qitem);
+        qlist_del(&sched_qitem->ql);
+        free(sched_qitem);
+    }
+}
+
+static bool check_mn_sched_qitem(mn_sched_qitem * before, mn_sched_qitem * after) {
+    bool is_same = true;
+
+    is_same &= check_model_net_request(&before->req, &after->req);
+    is_same &= before->sched_params.prio == after->sched_params.prio;
+    is_same &= before->rem == after->rem;
+    is_same &= before->entry_time == after->entry_time;
+    is_same &= !memcmp(before->remote_event, after->remote_event, before->req.remote_event_size);
+    is_same &= !memcmp(before->local_event, after->local_event, before->req.self_event_size);
+    return is_same;
+}
+
+static bool check_fcfs_state(mn_sched_queue * before, mn_sched_queue * after) {
+    bool is_same = true;
+
+    is_same &= before->is_recv_queue == after->is_recv_queue;
+    is_same &= before->queue_len == after->queue_len;
+
+    if (qlist_count(&before->reqs) != qlist_count(&before->reqs)) {
+        return false;
+    }
+
+    is_same &= are_qlist_equal(&before->reqs, &after->reqs, QLIST_OFFSET(mn_sched_qitem, ql), (bool (*) (void *, void *)) check_mn_sched_qitem);
+
+    return is_same;
+}
+
+static void print_mn_sched_qitem(FILE * out, mn_sched_qitem * item) {
+    fprintf(out, "     mn_sched_qitem\n");
+    fprintf(out, "       | .req\n");
+    print_model_net_request(out, "       |     |.", &item->req);
+    fprintf(out, "       | sched_params.prio = %d\n", item->sched_params.prio);
+    fprintf(out, "       |               rem = %lu\n", item->rem);
+    fprintf(out, "       |        entry_time = %g\n", item->entry_time);
+    fprintf(out, "       |      remote_event = %p (contents below)\n", item->remote_event);
+    tw_fprint_binary_array(out, item->remote_event, item->req.remote_event_size);
+    fprintf(out, "       |       local_event = %p (contents below)\n", item->local_event);
+    tw_fprint_binary_array(out, item->local_event, item->req.self_event_size);
+}
+
+static void print_fcfs_state(FILE * out, mn_sched_queue *sched) {
+    fprintf(out, "FCFS:\n");
+    fprintf(out, "   |        .method = %p\n", sched->method);
+    fprintf(out, "   | .is_recv_queue = %d\n", sched->is_recv_queue);
+    fprintf(out, "   |     .queue_len = %d\n", sched->queue_len);
+    fprintf(out, "   |      .reqs[%d] = {\n", qlist_count(&sched->reqs));
+    mn_sched_qitem * sched_qitem = NULL;
+    qlist_for_each_entry(sched_qitem, &sched->reqs, ql) {
+         print_mn_sched_qitem(out, sched_qitem);
+    }
+    fprintf(out, "}\n");
 }
 
 void rr_init (

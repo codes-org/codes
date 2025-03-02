@@ -1303,7 +1303,31 @@ static void print_type(FILE * out, enum model_net_base_event_type type) {
     }
 }
 
-static void print_model_net_request(FILE * out, char const * starts_with, model_net_request * req) {
+// Used Claude for an initial draft of this function
+bool check_model_net_request(model_net_request const * before, model_net_request const * after) {
+    bool is_same = true;
+
+    is_same &= (before->final_dest_lp == after->final_dest_lp);
+    is_same &= (before->dest_mn_lp == after->dest_mn_lp);
+    is_same &= (before->src_lp == after->src_lp);
+    is_same &= (before->msg_start_time == after->msg_start_time);
+    is_same &= (before->msg_new_mn_event == after->msg_new_mn_event);
+    is_same &= (before->msg_size == after->msg_size);
+    is_same &= (before->pull_size == after->pull_size);
+    is_same &= (before->packet_size == after->packet_size);
+    is_same &= (before->msg_id == after->msg_id);
+    is_same &= (before->net_id == after->net_id);
+    is_same &= (before->is_pull == after->is_pull);
+    is_same &= (before->queue_offset == after->queue_offset);
+    is_same &= (before->remote_event_size == after->remote_event_size);
+    is_same &= (before->self_event_size == after->self_event_size);
+    is_same &= (before->app_id == after->app_id);
+    is_same &= (strncmp(before->category, after->category, CATEGORY_NAME_MAX) == 0);
+
+    return is_same;
+}
+
+void print_model_net_request(FILE * out, char const * starts_with, model_net_request * req) {
     fprintf(out, "%sfinal_dest_lp = %ld\n", starts_with, req->final_dest_lp);
     fprintf(out, "%sdest_mn_lp = %ld\n", starts_with, req->dest_mn_lp);
     fprintf(out, "%ssrc_lp = %ld\n", starts_with, req->src_lp);
