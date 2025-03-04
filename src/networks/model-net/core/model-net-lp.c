@@ -16,6 +16,7 @@
 #define MN_NAME "model_net_base"
 
 #define DEBUG 0
+#define MODELNET_LP_DEBUG 1
 /**** BEGIN SIMULATION DATA STRUCTURES ****/
 
 int model_net_base_magic;
@@ -48,6 +49,9 @@ static int servers_per_node_queue = -1;
 extern tw_stime codes_cn_delay;
 
 typedef struct model_net_base_state {
+#if MODELNET_LP_DEBUG
+	size_t num_events_processed;
+#endif /* if MODELNET_LP_DEBUG */
     int net_id, nics_per_router;
     // whether scheduler loop is running
     int *in_sched_send_loop, in_sched_recv_loop;
@@ -592,6 +596,9 @@ void model_net_base_event(
         model_net_wrap_msg * m,
         tw_lp * lp){
     memset(b, 0, sizeof(tw_bf));
+#if MODELNET_LP_DEBUG
+    ns->num_events_processed++;
+#endif /* if MODELNET_LP_DEBUG */
 
     if(m->h.magic != model_net_base_magic)
         printf("\n LP ID mismatched %llu\n", LLU(lp->gid));
@@ -644,6 +651,9 @@ void model_net_base_event_rc(
         model_net_wrap_msg * m,
         tw_lp * lp){
     assert(m->h.magic == model_net_base_magic);
+#if MODELNET_LP_DEBUG
+    ns->num_events_processed--;
+#endif /* if MODELNET_LP_DEBUG */
 
     if(!is_freezing_on && m->h.event_type == MN_BASE_SCHED_NEXT && m->msg.m_base.created_in_surrogate) {
         return;
@@ -1225,6 +1235,9 @@ static bool check_model_net_state(model_net_base_state * before, model_net_base_
 
 static void __print_model_net(FILE * out, model_net_base_state * state, bool is_lp_state) {
     fprintf(out, "model_net_state ->\n");
+#if MODELNET_LP_DEBUG
+    fprintf(out, "  |num_events_processed = %zu\n", state->num_events_processed);
+#endif /* if MODELNET_LP_DEBUG */
     fprintf(out, "  |              net_id = %d\n", state->net_id);
     fprintf(out, "  |     nics_per_router = %d\n", state->nics_per_router);
     fprintf(out, "  | *in_sched_send_loop[%d] = [", state->params->num_queues);  // (done) deep-all

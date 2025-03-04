@@ -27,7 +27,6 @@ typedef struct mn_sched_qitem {
     mn_sched_params sched_params;
     // remaining bytes to send
     uint64_t rem;
-    tw_stime entry_time;
     // pointers to event structures
     // sizes are given in the request struct
     void * remote_event;
@@ -209,7 +208,6 @@ void fcfs_add (
         tw_lp                   * lp){
     (void)rc; // unneeded for fcfs
     mn_sched_qitem *q = malloc(sizeof(mn_sched_qitem));
-    q->entry_time = tw_now(lp);
     q->req = *req;
     q->sched_params = *sched_params;
     q->rem = req->msg_size;
@@ -391,7 +389,6 @@ static void save_mn_sched_qitem(mn_sched_qitem * into, mn_sched_qitem const * fr
     into->req = from->req;
     into->sched_params = from->sched_params;
     into->rem = from->rem;
-    into->entry_time = from->entry_time;
     if (from->remote_event != NULL) {
         assert(from->req.remote_event_size > 0);
         into->remote_event = malloc(from->req.remote_event_size);
@@ -443,7 +440,6 @@ static bool check_mn_sched_qitem(mn_sched_qitem * before, mn_sched_qitem * after
     is_same &= check_model_net_request(&before->req, &after->req);
     is_same &= before->sched_params.prio == after->sched_params.prio;
     is_same &= before->rem == after->rem;
-    is_same &= before->entry_time == after->entry_time;
     is_same &= !memcmp(before->remote_event, after->remote_event, before->req.remote_event_size);
     is_same &= !memcmp(before->local_event, after->local_event, before->req.self_event_size);
     return is_same;
@@ -470,7 +466,6 @@ static void print_mn_sched_qitem(FILE * out, mn_sched_qitem * item) {
     print_model_net_request(out, "       |     |.", &item->req);
     fprintf(out, "       | sched_params.prio = %d\n", item->sched_params.prio);
     fprintf(out, "       |               rem = %lu\n", item->rem);
-    fprintf(out, "       |        entry_time = %g\n", item->entry_time);
     fprintf(out, "       |      remote_event = %p (contents below)\n", item->remote_event);
     tw_fprint_binary_array(out, item->remote_event, item->req.remote_event_size);
     fprintf(out, "       |       local_event = %p (contents below)\n", item->local_event);

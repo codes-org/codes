@@ -41,7 +41,7 @@
 #define MAX_PERIODS_PER_APP 512
 #define NEAR_ZERO .0001 //timestamp for use to be 'close to zero' but still allow progress, zero offset events are hard on the PDES engine
 #define OUTPUT_MARKS 0
-#define LP_DEBUG 1
+#define LP_DEBUG 0
 
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
