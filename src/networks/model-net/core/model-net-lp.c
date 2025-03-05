@@ -139,9 +139,9 @@ tw_lptype model_net_base_lp = {
 static void save_state_net_state(model_net_base_state * into, model_net_base_state const * from);
 static void clean_state_net_state(model_net_base_state * state);
 static bool check_model_net_state(model_net_base_state * before, model_net_base_state * after);
-static void print_model_net_state(FILE * out, model_net_base_state * state);
-static void print_model_net_checkpoint(FILE * out, model_net_base_state * state);
-static void print_event_state(FILE * out, model_net_wrap_msg * state);
+static void print_model_net_state(FILE * out, char const * prefix, model_net_base_state * state);
+static void print_model_net_checkpoint(FILE * out, char const * prefix, model_net_base_state * state);
+static void print_event_state(FILE * out, char const * prefix, model_net_wrap_msg * state);
 
 // ROSS function pointer table to check reverse event handler
 crv_checkpointer model_net_chkptr = {
@@ -1233,87 +1233,77 @@ static bool check_model_net_state(model_net_base_state * before, model_net_base_
     return is_same;
 }
 
-static void __print_model_net(FILE * out, model_net_base_state * state, bool is_lp_state) {
-    fprintf(out, "model_net_state ->\n");
+static void __print_model_net(FILE * out, char const * prefix, model_net_base_state * state, bool is_lp_state) {
+    fprintf(out, "%smodel_net_state ->\n", prefix);
 #if MODELNET_LP_DEBUG
-    fprintf(out, "  |num_events_processed = %zu\n", state->num_events_processed);
-#endif /* if MODELNET_LP_DEBUG */
-    fprintf(out, "  |              net_id = %d\n", state->net_id);
-    fprintf(out, "  |     nics_per_router = %d\n", state->nics_per_router);
-    fprintf(out, "  | *in_sched_send_loop[%d] = [", state->params->num_queues);  // (done) deep-all
+    fprintf(out, "%s  |num_events_processed = %zu\n", prefix, state->num_events_processed);
+#endif /* if MODEL%sNET_LP_DEBUG */
+
+    void (*print_modelnet) (FILE *, char const *, model_net_sched *) = is_lp_state ? print_model_net_sched : print_model_net_sched_checkpoint;
+
+    fprintf(out, "%s  |              net_id = %d\n", prefix, state->net_id);
+    fprintf(out, "%s  |     nics_per_router = %d\n", prefix, state->nics_per_router);
+    fprintf(out, "%s  | *in_sched_send_loop[%d] = [", prefix, state->params->num_queues);  // deep-all
     for (int i=0; i < state->params->num_queues; i++) {
         fprintf(out, "%d%s", state->in_sched_send_loop[i], i==state->params->num_queues-1 ? "" : ", ");
     }
     fprintf(out, "]\n");
-    fprintf(out, "  |  in_sched_recv_loop = %d\n", state->in_sched_recv_loop);
-    fprintf(out, "  |              msg_id = %lu\n", state->msg_id);
-    fprintf(out, "  | **       sched_send = %p\n", state->sched_send);  // (done) deep-all
-    fprintf(out, "  | *        sched_recv = %p\n", state->sched_recv);  // (done) deep-all
-    fprintf(out, "  | *            params = %p\n", state->params);
-    fprintf(out, "  | *          sub_type = %p\n", state->sub_type);
-    fprintf(out, "  | *    sub_model_type = %p\n", state->sub_model_type);
-    fprintf(out, "  | *         sub_state = %p\n", state->sub_state);  // deep-all
-    fprintf(out, "  | next_available_time = %f\n", state->next_available_time);
-    fprintf(out, "  | *node_copy_next_available_time[%d] = [", state->params->num_queues);  // (done) deep-all
+    fprintf(out, "%s  |  in_sched_recv_loop = %d\n", prefix, state->in_sched_recv_loop);
+    fprintf(out, "%s  |              msg_id = %lu\n", prefix, state->msg_id);
+    fprintf(out, "%s  | **       sched_send = %p\n", prefix, state->sched_send);  // deep-all
+    //
+    int len_subprefix = snprintf(NULL, 0, "%s  |    | ", prefix) + 1;
+    char subprefix[len_subprefix];
+    snprintf(subprefix, len_subprefix, "%s  |    | ", prefix);
+    for(int i = 0; i < state->params->num_queues; i++) {
+        fprintf(out, "%ssched_send[%d]:\n", subprefix, i);
+        print_modelnet(out, subprefix, state->sched_send[i]);
+    }
+    //
+    fprintf(out, "%s  | *        sched_recv = %p\n", prefix, state->sched_recv);  // deep-all
+    print_modelnet(out, subprefix, state->sched_recv);
+    fprintf(out, "%s  | *            params = %p\n", prefix, state->params);
+    fprintf(out, "%s  | *          sub_type = %p\n", prefix, state->sub_type);
+    fprintf(out, "%s  | *    sub_model_type = %p\n", prefix, state->sub_model_type);
+    fprintf(out, "%s  | *         sub_state = %p\n", prefix, state->sub_state);  // deep-all
+    //
+    crv_checkpointer * chptr = method_array[state->net_id]->checkpointer;
+    if (chptr && state->sub_state != NULL) {
+        if (is_lp_state && chptr->print_lp) {
+            chptr->print_lp(out, subprefix, state->sub_state);
+        }
+        if (!is_lp_state && chptr->print_checkpoint) {
+            chptr->print_checkpoint(out, subprefix, state->sub_state);
+        }
+    }
+    //
+    fprintf(out, "%s  | next_available_time = %f\n", prefix, state->next_available_time);
+    fprintf(out, "%s  | *node_copy_next_available_time[%d] = [", prefix, state->params->num_queues);  // (done) deep-all
     for (int i=0; i < state->params->node_copy_queues; i++) {
         fprintf(out, "%g%s", state->node_copy_next_available_time[i], i==state->params->node_copy_queues-1 ? "" : ", ");
     }
     fprintf(out, "]\n");
-    fprintf(out, "  | *sched_loop_pre_surrogate = %p\n", state->sched_loop_pre_surrogate);  // no need to check
-    fprintf(out, "  | sched_recv_loop_pre_surrogate = %d\n", state->sched_recv_loop_pre_surrogate);  // no need to check
-
-    void (*print_modelnet) (FILE * out, model_net_sched *sched) = is_lp_state ? print_model_net_sched : print_model_net_sched_checkpoint;
-
-    fprintf(out, "\n");
-    for(int i = 0; i < state->params->num_queues; i++) {
-        fprintf(out, "==== CONTENT for sched_send[%d]:\n", i);
-        print_modelnet(stderr, state->sched_send[i]);
-    }
-
-    fprintf(out, "\n==== CONTENT for sched_recv:\n");
-    print_modelnet(stderr, state->sched_recv);
-
-    crv_checkpointer * chptr = method_array[state->net_id]->checkpointer;
-    if (chptr && state->sub_state != NULL) {
-        if (is_lp_state && chptr->print_lp) {
-            fprintf(out, "\n==== CONTENT for sub_state:\n");
-            chptr->print_lp(out, state->sub_state);
-        }
-        if (!is_lp_state && chptr->print_checkpoint) {
-            fprintf(out, "\n==== CONTENT for sub_state:\n");
-            chptr->print_checkpoint(out, state->sub_state);
-        }
-    }
+    fprintf(out, "%s  | *sched_loop_pre_surrogate = %p\n", prefix, state->sched_loop_pre_surrogate);  // no need to check
+    fprintf(out, "%s  | sched_recv_loop_pre_surrogate = %d\n", prefix, state->sched_recv_loop_pre_surrogate);  // no need to check
 }
 
-static void print_model_net_state(FILE * out, model_net_base_state * state) {
-    __print_model_net(out, state, true);
+static void print_model_net_state(FILE * out, char const * prefix, model_net_base_state * state) {
+    __print_model_net(out, prefix, state, true);
 }
-static void print_model_net_checkpoint(FILE * out, model_net_base_state * state) {
-    __print_model_net(out, state, false);
+static void print_model_net_checkpoint(FILE * out, char const * prefix, model_net_base_state * state) {
+    __print_model_net(out, prefix, state, false);
 }
 
-static void print_type(FILE * out, enum model_net_base_event_type type) {
+static char const * const event_type_string(enum model_net_base_event_type type) {
     switch (type) {
-        case MN_BASE_NEW_MSG:
-            fprintf(out, "MN_BASE_NEW_MSG");
-            break;
-        case MN_BASE_SCHED_NEXT:
-            fprintf(out, "MN_BASE_SCHED_NEXT");
-            break;
-        case MN_BASE_SAMPLE:
-            fprintf(out, "MN_BASE_SAMPLE");
-            break;
-        case MN_BASE_PASS:
-            fprintf(out, "MN_BASE_PASS");
-            break;
-        case MN_BASE_END_NOTIF:
-            fprintf(out, "MN_BASE_END_NOTIF");
-            break;
-        case MN_CONGESTION_EVENT:
-            fprintf(out, "MN_CONGESTION_EVENT");
-            break;
+        case MN_BASE_NEW_MSG:     return "MN_BASE_NEW_MSG";
+        case MN_BASE_SCHED_NEXT:  return "MN_BASE_SCHED_NEXT";
+        case MN_BASE_SAMPLE:      return "MN_BASE_SAMPLE";
+        case MN_BASE_PASS:        return "MN_BASE_PASS";
+        case MN_BASE_END_NOTIF:   return "MN_BASE_END_NOTIF";
+        case MN_CONGESTION_EVENT: return "MN_CONGESTION_EVENT";
     }
+    return "UNKNOWN TYPE!!";
 }
 
 // Used Claude for an initial draft of this function
@@ -1340,53 +1330,62 @@ bool check_model_net_request(model_net_request const * before, model_net_request
     return is_same;
 }
 
-void print_model_net_request(FILE * out, char const * starts_with, model_net_request * req) {
-    fprintf(out, "%sfinal_dest_lp = %ld\n", starts_with, req->final_dest_lp);
-    fprintf(out, "%sdest_mn_lp = %ld\n", starts_with, req->dest_mn_lp);
-    fprintf(out, "%ssrc_lp = %ld\n", starts_with, req->src_lp);
-    fprintf(out, "%smsg_start_time = %f\n", starts_with, req->msg_start_time);
-    fprintf(out, "%smsg_new_mn_event = %f\n", starts_with, req->msg_new_mn_event);
-    fprintf(out, "%smsg_size = %ld\n", starts_with, req->msg_size);
-    fprintf(out, "%spull_size = %ld\n", starts_with, req->pull_size);
-    fprintf(out, "%spacket_size = %ld\n", starts_with, req->packet_size);
-    fprintf(out, "%smsg_id = %ld\n", starts_with, req->msg_id);
-    fprintf(out, "%snet_id = %d\n", starts_with, req->net_id);
-    fprintf(out, "%sis_pull = %d\n", starts_with, req->is_pull);
-    fprintf(out, "%squeue_offset = %d\n", starts_with, req->queue_offset);
-    fprintf(out, "%sremote_event_size = %d\n", starts_with, req->remote_event_size);
-    fprintf(out, "%sself_event_size = %d\n", starts_with, req->self_event_size);
-    fprintf(out, "%scategory = '%s'\n", starts_with, req->category);
-    fprintf(out, "%sapp_id = %d\n", starts_with, req->app_id);
+void print_model_net_request(FILE * out, char const * prefix, model_net_request * req) {
+    fprintf(out, "%sfinal_dest_lp = %ld\n", prefix, req->final_dest_lp);
+    fprintf(out, "%sdest_mn_lp = %ld\n", prefix, req->dest_mn_lp);
+    fprintf(out, "%ssrc_lp = %ld\n", prefix, req->src_lp);
+    fprintf(out, "%smsg_start_time = %f\n", prefix, req->msg_start_time);
+    fprintf(out, "%smsg_new_mn_event = %f\n", prefix, req->msg_new_mn_event);
+    fprintf(out, "%smsg_size = %ld\n", prefix, req->msg_size);
+    fprintf(out, "%spull_size = %ld\n", prefix, req->pull_size);
+    fprintf(out, "%spacket_size = %ld\n", prefix, req->packet_size);
+    fprintf(out, "%smsg_id = %ld\n", prefix, req->msg_id);
+    fprintf(out, "%snet_id = %d\n", prefix, req->net_id);
+    fprintf(out, "%sis_pull = %d\n", prefix, req->is_pull);
+    fprintf(out, "%squeue_offset = %d\n", prefix, req->queue_offset);
+    fprintf(out, "%sremote_event_size = %d\n", prefix, req->remote_event_size);
+    fprintf(out, "%sself_event_size = %d\n", prefix, req->self_event_size);
+    fprintf(out, "%scategory = '%s'\n", prefix, req->category);
+    fprintf(out, "%sapp_id = %d\n", prefix, req->app_id);
 }
 
-static void print_event_state(FILE * out, model_net_wrap_msg * msg) {
-    fprintf(out, "h\n");
-    fprintf(out, "|.src = %lu\n", msg->h.src);
-    fprintf(out, "|.event_type = %d (", msg->h.event_type);
-    print_type(out, msg->h.event_type);
-    fprintf(out, ")\n");
-    fprintf(out, "|.magic = %d\n", msg->h.magic);
+static void print_event_state(FILE * out, char const * prefix, model_net_wrap_msg * msg) {
+    fprintf(out, "%sh\n", prefix);
+    fprintf(out, "%s| src = %lu\n", prefix, msg->h.src);
+    fprintf(out, "%s| event_type = %d (%s)\n", prefix, msg->h.event_type, event_type_string(msg->h.event_type));
+    fprintf(out, "%s| magic = %d\n", prefix, msg->h.magic);
+
+    char addprefix[] = "     |   | ";
+    int len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix) + 1;
+    char subprefix[len_subprefix];
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix);
+
+    char addprefix_2[] = "     |  |   | ";
+    len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_2) + 1;
+    char subprefix_2[len_subprefix];
+    snprintf(subprefix_2, len_subprefix, "%s%s", prefix, addprefix_2);
+
     switch (msg->h.event_type) {
         case MN_BASE_NEW_MSG:
         case MN_BASE_SCHED_NEXT:
             // We can check m_base values
-            fprintf(out, "m_base\n");
-            fprintf(out, "     |.req\n");
-            print_model_net_request(out, "     |   |.", &msg->msg.m_base.req);
-            fprintf(out, "     |.is_from_remote = %d\n", msg->msg.m_base.is_from_remote);
-            fprintf(out, "     |.isQueueReq = %d\n", msg->msg.m_base.isQueueReq);
-            fprintf(out, "     |.save_ts = %f\n", msg->msg.m_base.save_ts);
-            fprintf(out, "     |.sched_params.prio = %d\n", msg->msg.m_base.sched_params.prio);
-            fprintf(out, "     |.rc\n");
-            fprintf(out, "     |  |.req\n");
-            print_model_net_request(out, "     |  |   |.", &msg->msg.m_base.rc.req);
-            fprintf(out, "     |  |.sched_params.prio = %d\n", msg->msg.m_base.rc.sched_params.prio);
-            fprintf(out, "     |  |.rtn = %d\n", msg->msg.m_base.rc.rtn);
-            fprintf(out, "     |  |.prio = %d\n", msg->msg.m_base.rc.prio);
-            fprintf(out, "     |.created_in_surrogate = %d\n", msg->msg.m_base.created_in_surrogate);
+            fprintf(out, "%sm_base\n", prefix);
+            fprintf(out, "%s     | req\n", prefix);
+            print_model_net_request(out, subprefix, &msg->msg.m_base.req);
+            fprintf(out, "%s     | is_from_remote = %d\n", prefix, msg->msg.m_base.is_from_remote);
+            fprintf(out, "%s     | isQueueReq = %d\n", prefix, msg->msg.m_base.isQueueReq);
+            fprintf(out, "%s     | save_ts = %f\n", prefix, msg->msg.m_base.save_ts);
+            fprintf(out, "%s     | sched_params.prio = %d\n", prefix, msg->msg.m_base.sched_params.prio);
+            fprintf(out, "%s     | rc\n", prefix);
+            fprintf(out, "%s     |  | req\n", prefix);
+            print_model_net_request(out, subprefix_2, &msg->msg.m_base.rc.req);
+            fprintf(out, "%s     |  | sched_params.prio = %d\n", prefix, msg->msg.m_base.rc.sched_params.prio);
+            fprintf(out, "%s     |  | rtn = %d\n", prefix, msg->msg.m_base.rc.rtn);
+            fprintf(out, "%s     |  | prio = %d\n", prefix, msg->msg.m_base.rc.prio);
+            fprintf(out, "%s     | created_in_surrogate = %d\n", prefix, msg->msg.m_base.created_in_surrogate);
             break;
         default:
-            fprintf(out, "The content of this message cannot be deciphered yet with the information given\n");
+            fprintf(out, "%sThe content of this message cannot be deciphered yet with the information given\n", prefix);
     }
     // TODO: print internal state of message
     // void * sub_msg = ((char*)msg) + msg_offsets[state->net_id];

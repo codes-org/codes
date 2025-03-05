@@ -3534,10 +3534,10 @@ static void save_nw_lp_state(nw_state * into, nw_state const * from) {
     // Don't forget to make deep copies of any new complex data types that nw_state points to
 }
 
-static void print_mpi_msgs_queue(FILE * out, struct qlist_head * head, char const * before) {
+static void print_mpi_msgs_queue(FILE * out, char const * prefix, struct qlist_head * head) {
     mpi_msgs_queue * current = NULL;
     qlist_for_each_entry(current, head, ql) {
-         fprintf(out, "%sMsg: OpType: %d Tag %d Source %d Dest %d bytes %"PRId64" req_init_time %g req_id %u\n", before, current->op_type, current->tag, current->source_rank, current->dest_rank, current->num_bytes, current->req_init_time, current->req_id);
+         fprintf(out, "%sMsg: OpType: %d Tag %d Source %d Dest %d bytes %"PRId64" req_init_time %g req_id %u\n", prefix, current->op_type, current->tag, current->source_rank, current->dest_rank, current->num_bytes, current->req_init_time, current->req_id);
     }
 }
 
@@ -3647,124 +3647,130 @@ static bool check_nw_lp_state(nw_state * before, nw_state const * after) {
 }
 
 // Originally implemneted with a prompt on Claude.ai (tedious code, easy to check and produce)
-static void print_nw_lp_state(FILE * out, nw_state * state) {
+static void print_nw_lp_state(FILE * out, char const * prefix, nw_state * state) {
     int num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
 
+    fprintf(out, "%snw-lp state ->\n", prefix);
 #if LP_DEBUG
-    fprintf(out, "  num_events_processed = %zu\n", state->num_events_processed);
-#endif /* if LP_DEBUG */
-    fprintf(out, "     num_events_per_lp = %ld\n", state->num_events_per_lp);
-    fprintf(out, "                 nw_id = %lu\n", state->nw_id);
-    fprintf(out, "             wrkld_end = %d\n", state->wrkld_end);
-    fprintf(out, "                app_id = %d\n", state->app_id);
-    fprintf(out, "            local_rank = %d\n", state->local_rank);
-    fprintf(out, "             qos_level = %d\n", state->qos_level);
-    fprintf(out, "     synthetic_pattern = %d\n", state->synthetic_pattern);
-    fprintf(out, "           is_finished = %d\n", state->is_finished);
-    fprintf(out, "num_own_job_ranks_completed = %d\n", state->num_own_job_ranks_completed);
-    fprintf(out, "  known_completed_jobs[%d] = [", num_jobs);
+    fprintf(out, "%s |  num_events_processed = %zu\n", prefix, state->num_events_processed);
+#endif /* if LP_DE%sBUG */
+    fprintf(out, "%s |     num_events_per_lp = %ld\n", prefix, state->num_events_per_lp);
+    fprintf(out, "%s |                 nw_id = %lu\n", prefix, state->nw_id);
+    fprintf(out, "%s |             wrkld_end = %d\n", prefix, state->wrkld_end);
+    fprintf(out, "%s |                app_id = %d\n", prefix, state->app_id);
+    fprintf(out, "%s |            local_rank = %d\n", prefix, state->local_rank);
+    fprintf(out, "%s |             qos_level = %d\n", prefix, state->qos_level);
+    fprintf(out, "%s |     synthetic_pattern = %d\n", prefix, state->synthetic_pattern);
+    fprintf(out, "%s |           is_finished = %d\n", prefix, state->is_finished);
+    fprintf(out, "%s |num_own_job_ranks_completed = %d\n", prefix, state->num_own_job_ranks_completed);
+    fprintf(out, "%s |  known_completed_jobs[%d] = [", prefix, num_jobs);
     for(int i=0; i<num_jobs; i++) {
-        fprintf(out, "%d%s", state->known_completed_jobs[i], i+1==num_jobs ? "" : ", ");
+        fprintf(out, "%s%d%s", prefix, state->known_completed_jobs[i], i+1==num_jobs ? "" : ", ");
     }
     fprintf(out, "]\n");
-    fprintf(out, "        *processed_ops = %p\n", state->processed_ops);
-    fprintf(out, "    *processed_wait_op = %p\n", state->processed_wait_op);
-    fprintf(out, "         *matched_reqs = %p\n", state->matched_reqs);
+    fprintf(out, "%s |        *processed_ops = %p\n", prefix, state->processed_ops);
+    fprintf(out, "%s |    *processed_wait_op = %p\n", prefix, state->processed_wait_op);
+    fprintf(out, "%s |         *matched_reqs = %p\n", prefix, state->matched_reqs);
 
     // Operation counts
-    fprintf(out, "             num_sends = %lu\n", state->num_sends);
-    fprintf(out, "             num_recvs = %lu\n", state->num_recvs);
-    fprintf(out, "              num_cols = %lu\n", state->num_cols);
-    fprintf(out, "            num_delays = %lu\n", state->num_delays);
-    fprintf(out, "              num_wait = %lu\n", state->num_wait);
-    fprintf(out, "           num_waitall = %lu\n", state->num_waitall);
-    fprintf(out, "          num_waitsome = %lu\n", state->num_waitsome);
+    fprintf(out, "%s |             num_sends = %lu\n", prefix, state->num_sends);
+    fprintf(out, "%s |             num_recvs = %lu\n", prefix, state->num_recvs);
+    fprintf(out, "%s |              num_cols = %lu\n", prefix, state->num_cols);
+    fprintf(out, "%s |            num_delays = %lu\n", prefix, state->num_delays);
+    fprintf(out, "%s |              num_wait = %lu\n", prefix, state->num_wait);
+    fprintf(out, "%s |           num_waitall = %lu\n", prefix, state->num_waitall);
+    fprintf(out, "%s |          num_waitsome = %lu\n", prefix, state->num_waitsome);
 
     // Timing information
-    fprintf(out, "            start_time = %g\n", state->start_time);
-    fprintf(out, "              col_time = %g\n", state->col_time);
-    fprintf(out, "           reduce_time = %g\n", state->reduce_time);
-    fprintf(out, "            num_reduce = %d\n", state->num_reduce);
-    fprintf(out, "       all_reduce_time = %g\n", state->all_reduce_time);
-    fprintf(out, "        num_all_reduce = %d\n", state->num_all_reduce);
-    fprintf(out, "          elapsed_time = %g\n", state->elapsed_time);
-    fprintf(out, "          compute_time = %g\n", state->compute_time);
-    fprintf(out, "             send_time = %g\n", state->send_time);
-    fprintf(out, "              max_time = %g\n", state->max_time);
-    fprintf(out, "             recv_time = %g\n", state->recv_time);
-    fprintf(out, "             wait_time = %g\n", state->wait_time);
+    fprintf(out, "%s |            start_time = %g\n", prefix, state->start_time);
+    fprintf(out, "%s |              col_time = %g\n", prefix, state->col_time);
+    fprintf(out, "%s |           reduce_time = %g\n", prefix, state->reduce_time);
+    fprintf(out, "%s |            num_reduce = %d\n", prefix, state->num_reduce);
+    fprintf(out, "%s |       all_reduce_time = %g\n", prefix, state->all_reduce_time);
+    fprintf(out, "%s |        num_all_reduce = %d\n", prefix, state->num_all_reduce);
+    fprintf(out, "%s |          elapsed_time = %g\n", prefix, state->elapsed_time);
+    fprintf(out, "%s |          compute_time = %g\n", prefix, state->compute_time);
+    fprintf(out, "%s |             send_time = %g\n", prefix, state->send_time);
+    fprintf(out, "%s |              max_time = %g\n", prefix, state->max_time);
+    fprintf(out, "%s |             recv_time = %g\n", prefix, state->recv_time);
+    fprintf(out, "%s |             wait_time = %g\n", prefix, state->wait_time);
 
     // Queue heads
-    fprintf(out, "         arrival_queue[%d] = [\n", qlist_count(&state->arrival_queue));
-    print_mpi_msgs_queue(out, &state->arrival_queue, "            ");
-    fprintf(out, "]\n");
-    fprintf(out, "   pending_recvs_queue[%d] = [\n", qlist_count(&state->pending_recvs_queue));
-    print_mpi_msgs_queue(out, &state->pending_recvs_queue, "            ");
-    fprintf(out, "]\n");
+    char addprefix[] = " |  | ";
+    int len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix) + 1;
+    char subprefix[len_subprefix];
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix);
 
-    fprintf(out, "        completed_reqs[%d] = [\n", qlist_count(&state->completed_reqs));
+    fprintf(out, "%s |         arrival_queue[%d] = [\n", prefix, qlist_count(&state->arrival_queue));
+    print_mpi_msgs_queue(out, subprefix, &state->arrival_queue);
+    fprintf(out, "%s | ]\n", prefix);
+    fprintf(out, "%s |   pending_recvs_queue[%d] = [\n", prefix, qlist_count(&state->pending_recvs_queue));
+    print_mpi_msgs_queue(out, subprefix, &state->pending_recvs_queue);
+    fprintf(out, "%s | ]\n", prefix);
+
+    fprintf(out, "%s |        completed_reqs[%d] = [\n", prefix, qlist_count(&state->completed_reqs));
     completed_requests * current = NULL;
     qlist_for_each_entry(current, &state->completed_reqs, ql) {
-         fprintf(out, "            Req: req_id: %u\n", current->req_id);
+         fprintf(out, "%s |  | Req: req_id: %u\n", prefix, current->req_id);
     }
-    fprintf(out, "]\n");
+    fprintf(out, "%s | ]\n", prefix);
 
-    fprintf(out, "      cur_interval_end = %g\n", state->cur_interval_end);
-    fprintf(out, "              *wait_op = %p\n", state->wait_op);
+    fprintf(out, "%s |      cur_interval_end = %g\n", prefix, state->cur_interval_end);
+    fprintf(out, "%s |              *wait_op = %p\n", prefix, state->wait_op);
     if (state->wait_op != NULL) {
-        fprintf(out, "                     |.op_type = %d\n", state->wait_op->op_type);
-        fprintf(out, "                     |.req_ids = [");
+        fprintf(out, "%s |                  |.op_type = %d\n", prefix, state->wait_op->op_type);
+        fprintf(out, "%s |                  |.req_ids = [", prefix);
         for(int i = 0; i < state->wait_op->count; i++) {
             fprintf(out, "%d%s", state->wait_op->req_ids[i], i+1==state->wait_op->count ? "" : ", ");
         }
         fprintf(out, "]\n");
-        fprintf(out, "                     |.num_completed = %d\n", state->wait_op->num_completed);
-        fprintf(out, "                     |.count = %d\n", state->wait_op->count);
-        fprintf(out, "                     |.start_time = %g\n", state->wait_op->start_time);
+        fprintf(out, "%s |                  |.num_completed = %d\n", prefix, state->wait_op->num_completed);
+        fprintf(out, "%s |                  |.count   = %d\n", prefix, state->wait_op->count);
+        fprintf(out, "%s |                  |.start_time = %g\n", prefix, state->wait_op->start_time);
     }
-    fprintf(out, "           msg_sz_list[%d] = [\n", qlist_count(&state->completed_reqs));
+    fprintf(out, "%s |           msg_sz_list[%d] = [\n", prefix, qlist_count(&state->completed_reqs));
     struct msg_size_info * ms_info = NULL;
     qlist_for_each_entry(ms_info, &state->msg_sz_list, ql) {
-         fprintf(out, "            MsSizeInfo: msg_size: %lu num_msgs: %d agg_latency: %g avg_latency: %g hash_link.next: %p  hash_link.prev: %p\n", ms_info->msg_size, ms_info->num_msgs, ms_info->agg_latency, ms_info->avg_latency, ms_info->hash_link.next, ms_info->hash_link.prev);
+         fprintf(out, "%s |  | MsSizeInfo: msg_size: %lu num_msgs: %d agg_latency: %g avg_latency: %g hash_link.next: %p  hash_link.prev: %p\n", prefix, ms_info->msg_size, ms_info->num_msgs, ms_info->agg_latency, ms_info->avg_latency, ms_info->hash_link.next, ms_info->hash_link.prev);
     }
-    fprintf(out, "]\n");
+    fprintf(out, "%s | ]\n", prefix);
 
     // Data statistics
-    fprintf(out, "        num_bytes_sent = %llu\n", state->num_bytes_sent);
-    fprintf(out, "       num_bytes_recvd = %llu\n", state->num_bytes_recvd);
-    fprintf(out, "              syn_data = %llu\n", state->syn_data);
-    fprintf(out, "              gen_data = %llu\n", state->gen_data);
+    fprintf(out, "%s |        num_bytes_sent = %llu\n", prefix, state->num_bytes_sent);
+    fprintf(out, "%s |       num_bytes_recvd = %llu\n", prefix, state->num_bytes_recvd);
+    fprintf(out, "%s |              syn_data = %llu\n", prefix, state->syn_data);
+    fprintf(out, "%s |              gen_data = %llu\n", prefix, state->gen_data);
 
-    fprintf(out, "           prev_switch = %lu\n", state->prev_switch);
-    fprintf(out, "       saved_perm_dest = %d\n", state->saved_perm_dest);
-    fprintf(out, "               rc_perm = %lu\n", state->rc_perm);
+    fprintf(out, "%s |           prev_switch = %lu\n", prefix, state->prev_switch);
+    fprintf(out, "%s |       saved_perm_dest = %d\n", prefix, state->saved_perm_dest);
+    fprintf(out, "%s |               rc_perm = %lu\n", prefix, state->rc_perm);
 
     // Sampling information
-    fprintf(out, "         sampling_indx = %d\n", state->sampling_indx);
-    fprintf(out, "          max_arr_size = %d\n", state->max_arr_size);
-    fprintf(out, "*     mpi_wkld_samples = %p\n", state->mpi_wkld_samples);
-    fprintf(out, "            output_buf = %.512s...\n", state->output_buf);
-    fprintf(out, "             col_stats = %.64s...\n", state->col_stats);
+    fprintf(out, "%s |         sampling_indx = %d\n", prefix, state->sampling_indx);
+    fprintf(out, "%s |          max_arr_size = %d\n", prefix, state->max_arr_size);
+    fprintf(out, "%s |*     mpi_wkld_samples = %p\n", prefix, state->mpi_wkld_samples);
+    fprintf(out, "%s |            output_buf = %.512s...\n", prefix, state->output_buf);
+    fprintf(out, "%s |             col_stats = %.64s...\n", prefix, state->col_stats);
 
-    fprintf(out, "ross_sample.\n");
-    fprintf(out, "           |          .nw_id = %lu\n", state->ross_sample.nw_id);
-    fprintf(out, "           |         .app_id = %d\n", state->ross_sample.app_id);
-    fprintf(out, "           |     .local_rank = %d\n", state->ross_sample.local_rank);
-    fprintf(out, "           |      .num_sends = %lu\n", state->ross_sample.num_sends);
-    fprintf(out, "           |      .num_recvs = %lu\n", state->ross_sample.num_recvs);
-    fprintf(out, "           | .num_bytes_sent = %llu\n", state->ross_sample.num_bytes_sent);
-    fprintf(out, "           |.num_bytes_recvd = %llu\n", state->ross_sample.num_bytes_recvd);
-    fprintf(out, "           |      .send_time = %g\n", state->ross_sample.send_time);
-    fprintf(out, "           |      .recv_time = %g\n", state->ross_sample.recv_time);
-    fprintf(out, "           |      .wait_time = %g\n", state->ross_sample.wait_time);
-    fprintf(out, "           |   .compute_time = %g\n", state->ross_sample.compute_time);
-    fprintf(out, "           |      .comm_time = %g\n", state->ross_sample.comm_time);
-    fprintf(out, "           |       .max_time = %g\n", state->ross_sample.max_time);
-    fprintf(out, "           |   .avg_msg_time = %g\n", state->ross_sample.avg_msg_time);
+    fprintf(out, "%s |ross_sample.\n", prefix);
+    fprintf(out, "%s |    |           nw_id = %lu\n", prefix, state->ross_sample.nw_id);
+    fprintf(out, "%s |    |          app_id = %d\n", prefix, state->ross_sample.app_id);
+    fprintf(out, "%s |    |      local_rank = %d\n", prefix, state->ross_sample.local_rank);
+    fprintf(out, "%s |    |       num_sends = %lu\n", prefix, state->ross_sample.num_sends);
+    fprintf(out, "%s |    |       num_recvs = %lu\n", prefix, state->ross_sample.num_recvs);
+    fprintf(out, "%s |    |  num_bytes_sent = %llu\n", prefix, state->ross_sample.num_bytes_sent);
+    fprintf(out, "%s |    | num_bytes_recvd = %llu\n", prefix, state->ross_sample.num_bytes_recvd);
+    fprintf(out, "%s |    |       send_time = %g\n", prefix, state->ross_sample.send_time);
+    fprintf(out, "%s |    |       recv_time = %g\n", prefix, state->ross_sample.recv_time);
+    fprintf(out, "%s |    |       wait_time = %g\n", prefix, state->ross_sample.wait_time);
+    fprintf(out, "%s |    |    compute_time = %g\n", prefix, state->ross_sample.compute_time);
+    fprintf(out, "%s |    |       comm_time = %g\n", prefix, state->ross_sample.comm_time);
+    fprintf(out, "%s |    |        max_time = %g\n", prefix, state->ross_sample.max_time);
+    fprintf(out, "%s |    |    avg_msg_time = %g\n", prefix, state->ross_sample.avg_msg_time);
 
     // Configuration
-    fprintf(out, "*        switch_config = %p\n", state->switch_config);
-    fprintf(out, "    switch_config_size = %zu\n", state->switch_config_size);
+    fprintf(out, "%s |*        switch_config = %p\n", prefix, state->switch_config);
+    fprintf(out, "%s |    switch_config_size = %zu\n", prefix, state->switch_config_size);
 }
 
 static char const * const MPI_NW_EVENTS_to_string(enum MPI_NW_EVENTS event_type) {
@@ -3789,83 +3795,88 @@ static char const * const MPI_NW_EVENTS_to_string(enum MPI_NW_EVENTS event_type)
 }
 
 // Original printing function from Claude.ai
-static void print_nw_message(FILE * out, struct nw_message * msg) {
-    // Print main fields
-    fprintf(out, "msg_type = %s\n", MPI_NW_EVENTS_to_string(msg->msg_type));
-    fprintf(out, " op_type = %s\n", op_type_string(msg->op_type));
-    fprintf(out, "num_rngs = %d\n", msg->num_rngs);
-    fprintf(out, "event_rc = %d\n", msg->event_rc);
-    fprintf(out, "  mpi_op = %p\n", msg->mpi_op);
-    fprint_codes_workload_op(out, msg->mpi_op, "        |");
+static void print_nw_message(FILE * out, char const * prefix, struct nw_message * msg) {
+    fprintf(out, "%snw_message ->\n", prefix);
+    fprintf(out, "%s | msg_type = %s\n", prefix, MPI_NW_EVENTS_to_string(msg->msg_type));
+    fprintf(out, "%s |  op_type = %s\n", prefix, op_type_string(msg->op_type));
+    fprintf(out, "%s | num_rngs = %d\n", prefix, msg->num_rngs);
+    fprintf(out, "%s | event_rc = %d\n", prefix, msg->event_rc);
+    fprintf(out, "%s |   mpi_op = %p\n", prefix, msg->mpi_op);
 
-    fprintf(out, "fwd\n");
-    fprintf(out, "  |      .src_rank = %lu\n", msg->fwd.src_rank);
-    fprintf(out, "  |     .dest_rank = %d\n", msg->fwd.dest_rank);
-    fprintf(out, "  |     .num_bytes = %ld\n", msg->fwd.num_bytes);
-    fprintf(out, "  |   .num_matched = %d\n", msg->fwd.num_matched);
-    fprintf(out, "  |.sim_start_time = %g\n", msg->fwd.sim_start_time);
-    fprintf(out, "  | .msg_send_time = %g\n", msg->fwd.msg_send_time);
-    fprintf(out, "  |        .req_id = %u\n", msg->fwd.req_id);
-    fprintf(out, "  |   .matched_req = %d\n", msg->fwd.matched_req);
-    fprintf(out, "  |           .tag = %d\n", msg->fwd.tag);
-    fprintf(out, "  |        .app_id = %d\n", msg->fwd.app_id);
-    fprintf(out, "  |   .found_match = %d\n", msg->fwd.found_match);
-    fprintf(out, "  |.wait_completed = %d\n", msg->fwd.wait_completed);
-    fprintf(out, "  |     .rend_send = %d\n", msg->fwd.rend_send);
+    char addprefix[] = " |   | ";
+    int len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix) + 1;
+    char subprefix[len_subprefix];
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix);
+    fprint_codes_workload_op(out, subprefix, msg->mpi_op);
 
-    fprintf(out, "rc\n");
+    fprintf(out, "%s | fwd\n", prefix);
+    fprintf(out, "%s |   |       src_rank = %lu\n", prefix, msg->fwd.src_rank);
+    fprintf(out, "%s |   |      dest_rank = %d\n", prefix, msg->fwd.dest_rank);
+    fprintf(out, "%s |   |      num_bytes = %ld\n", prefix, msg->fwd.num_bytes);
+    fprintf(out, "%s |   |    num_matched = %d\n", prefix, msg->fwd.num_matched);
+    fprintf(out, "%s |   | sim_start_time = %g\n", prefix, msg->fwd.sim_start_time);
+    fprintf(out, "%s |   |  msg_send_time = %g\n", prefix, msg->fwd.msg_send_time);
+    fprintf(out, "%s |   |         req_id = %u\n", prefix, msg->fwd.req_id);
+    fprintf(out, "%s |   |    matched_req = %d\n", prefix, msg->fwd.matched_req);
+    fprintf(out, "%s |   |            tag = %d\n", prefix, msg->fwd.tag);
+    fprintf(out, "%s |   |         app_id = %d\n", prefix, msg->fwd.app_id);
+    fprintf(out, "%s |   |    found_match = %d\n", prefix, msg->fwd.found_match);
+    fprintf(out, "%s |   | wait_completed = %d\n", prefix, msg->fwd.wait_completed);
+    fprintf(out, "%s |   |      rend_send = %d\n", prefix, msg->fwd.rend_send);
+
+    fprintf(out, "%s | rc\n", prefix);
     switch(msg->msg_type) {
         case CLI_BCKGND_GEN:
-            fprintf(out, "  |.gen\n");
-            fprintf(out, "      | .saved_syn_length = %d\n", msg->rc.gen.saved_syn_length);
-            fprintf(out, "      |       .saved_perm = %d\n", msg->rc.gen.saved_perm);
-            fprintf(out, "      |.saved_prev_switch = %lu\n", msg->rc.gen.saved_prev_switch);
+            fprintf(out, "%s |   | gen\n", prefix);
+            fprintf(out, "%s |       |  saved_syn_length = %d\n", prefix, msg->rc.gen.saved_syn_length);
+            fprintf(out, "%s |       |        saved_perm = %d\n", prefix, msg->rc.gen.saved_perm);
+            fprintf(out, "%s |       | saved_prev_switch = %lu\n", prefix, msg->rc.gen.saved_prev_switch);
             break;
 
         case CLI_BCKGND_ARRIVE:
         case MPI_SEND_ARRIVED_CB:
-            fprintf(out, "  |arrive.saved_prev_max_time = %g\n", msg->rc.arrive.saved_prev_max_time);
-            fprintf(out, "  |    arrive.saved_send_time = %g\n", msg->rc.arrive.saved_send_time);
-            fprintf(out, "  |arrive.saved_send_time_sample = %g\n", msg->rc.arrive.saved_send_time_sample);
+            fprintf(out, "%s |   |arrive.saved_prev_max_time = %g\n", prefix, msg->rc.arrive.saved_prev_max_time);
+            fprintf(out, "%s |   |    arrive.saved_send_time = %g\n", prefix, msg->rc.arrive.saved_send_time);
+            fprintf(out, "%s |   |arrive.saved_send_time_sample = %g\n", prefix, msg->rc.arrive.saved_send_time_sample);
             break;
 
         case CLI_BCKGND_CHANGE:
-            fprintf(out, "  |   change.saved_send_time = %g\n", msg->rc.change.saved_send_time);
-            fprintf(out, "  | change.saved_marker_time = %g\n", msg->rc.change.saved_marker_time);
+            fprintf(out, "%s |   |   change.saved_send_time = %g\n", prefix, msg->rc.change.saved_send_time);
+            fprintf(out, "%s |   | change.saved_marker_time = %g\n", prefix, msg->rc.change.saved_marker_time);
             break;
 
         case MPI_OP_GET_NEXT:
-            fprintf(out, "   .mpi_next\n");
-            fprintf(out, "           |.saved_elapsed_time = %g\n", msg->rc.mpi_next.saved_elapsed_time);
-            fprintf(out, "           |.all_reduce.saved_send_time = %g\n", msg->rc.mpi_next.all_reduce.saved_send_time);
-            fprintf(out, "           |.all_reduce.saved_delay = %g\n", msg->rc.mpi_next.all_reduce.saved_delay);
+            fprintf(out, "%s |     mpi_next\n", prefix);
+            fprintf(out, "%s |            | saved_elapsed_time = %g\n", prefix, msg->rc.mpi_next.saved_elapsed_time);
+            fprintf(out, "%s |            | all_reduce.saved_send_time = %g\n", prefix, msg->rc.mpi_next.all_reduce.saved_send_time);
+            fprintf(out, "%s |            | all_reduce.saved_delay = %g\n", prefix, msg->rc.mpi_next.all_reduce.saved_delay);
 
-            fprintf(out, "           |.recv.saved_recv_time = %g\n", msg->rc.mpi_next.recv.saved_recv_time);
-            fprintf(out, "           |.recv.saved_recv_time_sample = %g\n", msg->rc.mpi_next.recv.saved_recv_time_sample);
+            fprintf(out, "%s |            | recv.saved_recv_time = %g\n", prefix, msg->rc.mpi_next.recv.saved_recv_time);
+            fprintf(out, "%s |            | recv.saved_recv_time_sample = %g\n", prefix, msg->rc.mpi_next.recv.saved_recv_time_sample);
 
-            fprintf(out, "           |.delay.saved_delay = %g\n", msg->rc.mpi_next.delay.saved_delay);
-            fprintf(out, "           |.delay.saved_delay_sample = %g\n", msg->rc.mpi_next.delay.saved_delay_sample);
+            fprintf(out, "%s |            | delay.saved_delay = %g\n", prefix, msg->rc.mpi_next.delay.saved_delay);
+            fprintf(out, "%s |            | delay.saved_delay_sample = %g\n", prefix, msg->rc.mpi_next.delay.saved_delay_sample);
 
-            fprintf(out, "           |.mark.saved_marker_time = %g\n", msg->rc.mpi_next.mark.saved_marker_time);
+            fprintf(out, "%s |            | mark.saved_marker_time = %g\n", prefix, msg->rc.mpi_next.mark.saved_marker_time);
             break;
 
         case MPI_SEND_ARRIVED:
         case MPI_REND_ARRIVED:
         case MPI_SEND_POSTED:
-            fprintf(out, "  |.mpi_send\n");
-            fprintf(out, "           |       .saved_wait_time = %g\n", msg->rc.mpi_send.saved_wait_time);
-            fprintf(out, "           |.saved_wait_time_sample = %g\n", msg->rc.mpi_send.saved_wait_time_sample);
-            fprintf(out, "           |       .saved_recv_time = %g\n", msg->rc.mpi_send.saved_recv_time);
-            fprintf(out, "           |.saved_recv_time_sample = %g\n", msg->rc.mpi_send.saved_recv_time_sample);
-            fprintf(out, "           |       .saved_num_bytes = %lu\n", msg->rc.mpi_send.saved_num_bytes);
+            fprintf(out, "%s |   | mpi_send\n", prefix);
+            fprintf(out, "%s |            |        saved_wait_time = %g\n", prefix, msg->rc.mpi_send.saved_wait_time);
+            fprintf(out, "%s |            | saved_wait_time_sample = %g\n", prefix, msg->rc.mpi_send.saved_wait_time_sample);
+            fprintf(out, "%s |            |        saved_recv_time = %g\n", prefix, msg->rc.mpi_send.saved_recv_time);
+            fprintf(out, "%s |            | saved_recv_time_sample = %g\n", prefix, msg->rc.mpi_send.saved_recv_time_sample);
+            fprintf(out, "%s |            |        saved_num_bytes = %lu\n", prefix, msg->rc.mpi_send.saved_num_bytes);
             break;
 
         case MPI_REND_ACK_ARRIVED:
-            fprintf(out, "  |  mpi_ack.saved_num_bytes = %ld\n", msg->rc.mpi_ack.saved_num_bytes);
+            fprintf(out, "%s |   |  mpi_ack.saved_num_bytes = %ld\n", prefix, msg->rc.mpi_ack.saved_num_bytes);
             break;
 
         case SURR_SKIP_ITERATION:
-            fprintf(out, "  |        surr.config_used = %p\n", msg->rc.surr.config_used);
+            fprintf(out, "%s |   |        surr.config_used = %p\n", prefix, msg->rc.surr.config_used);
             break;
 
         default:

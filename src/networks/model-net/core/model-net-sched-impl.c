@@ -85,7 +85,7 @@ static void fcfs_next_rc(
 static void save_state_fcfs_state(mn_sched_queue * into, mn_sched_queue const * from);
 static void clean_state_fcfs_state(mn_sched_queue * into);
 static bool check_fcfs_state(mn_sched_queue *before, mn_sched_queue *after);
-static void print_fcfs_state(FILE * out, mn_sched_queue *sched);
+static void print_fcfs_state(FILE * out, char const * prefix, mn_sched_queue *sched);
 
 // ROUND-ROBIN
 static void rr_init (
@@ -460,29 +460,33 @@ static bool check_fcfs_state(mn_sched_queue * before, mn_sched_queue * after) {
     return is_same;
 }
 
-static void print_mn_sched_qitem(FILE * out, mn_sched_qitem * item) {
-    fprintf(out, "     mn_sched_qitem\n");
-    fprintf(out, "       | .req\n");
-    print_model_net_request(out, "       |     |.", &item->req);
-    fprintf(out, "       | sched_params.prio = %d\n", item->sched_params.prio);
-    fprintf(out, "       |               rem = %lu\n", item->rem);
-    fprintf(out, "       |      remote_event = %p (contents below)\n", item->remote_event);
-    tw_fprint_binary_array(out, item->remote_event, item->req.remote_event_size);
-    fprintf(out, "       |       local_event = %p (contents below)\n", item->local_event);
-    tw_fprint_binary_array(out, item->local_event, item->req.self_event_size);
+static void print_mn_sched_qitem(FILE * out, char const * prefix, mn_sched_qitem * item) {
+    int len_subprefix = snprintf(NULL, 0, "%s       |     | ", prefix) + 1;
+    char subprefix[len_subprefix];
+    snprintf(subprefix, len_subprefix, "%s       |     | ", prefix);
+
+    fprintf(out, "%s     mn_sched_qitem\n", prefix);
+    fprintf(out, "%s       | .req\n", prefix);
+    print_model_net_request(out, subprefix, &item->req);
+    fprintf(out, "%s       | sched_params.prio = %d\n", prefix, item->sched_params.prio);
+    fprintf(out, "%s       |               rem = %lu\n", prefix, item->rem);
+    fprintf(out, "%s       |      remote_event = %p (contents below)\n", prefix, item->remote_event);
+    tw_fprint_binary_array(out, subprefix, item->remote_event, item->req.remote_event_size);
+    fprintf(out, "%s       |       local_event = %p (contents below)\n", prefix, item->local_event);
+    tw_fprint_binary_array(out, subprefix, item->local_event, item->req.self_event_size);
 }
 
-static void print_fcfs_state(FILE * out, mn_sched_queue *sched) {
-    fprintf(out, "FCFS:\n");
-    fprintf(out, "   |        .method = %p\n", sched->method);
-    fprintf(out, "   | .is_recv_queue = %d\n", sched->is_recv_queue);
-    fprintf(out, "   |     .queue_len = %d\n", sched->queue_len);
-    fprintf(out, "   |      .reqs[%d] = {\n", qlist_count(&sched->reqs));
+static void print_fcfs_state(FILE * out, char const * prefix, mn_sched_queue *sched) {
+    fprintf(out, "%sFCFS:\n", prefix);
+    fprintf(out, "%s   |        .method = %p\n", prefix, sched->method);
+    fprintf(out, "%s   | .is_recv_queue = %d\n", prefix, sched->is_recv_queue);
+    fprintf(out, "%s   |     .queue_len = %d\n", prefix, sched->queue_len);
+    fprintf(out, "%s   |      .reqs[%d] = {\n", prefix, qlist_count(&sched->reqs));
     mn_sched_qitem * sched_qitem = NULL;
     qlist_for_each_entry(sched_qitem, &sched->reqs, ql) {
-         print_mn_sched_qitem(out, sched_qitem);
+         print_mn_sched_qitem(out, prefix, sched_qitem);
     }
-    fprintf(out, "}\n");
+    fprintf(out, "%s   | }\n", prefix);
 }
 
 void rr_init (

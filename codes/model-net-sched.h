@@ -201,8 +201,8 @@ void model_net_sched_set_default_params(mn_sched_params *sched_params);
 void save_model_net_sched(model_net_sched *before, model_net_sched const *after);
 void clean_model_net_sched(model_net_sched *before);
 bool check_model_net_sched(model_net_sched *before, model_net_sched *after);
-void print_model_net_sched(FILE * out, model_net_sched *sched);
-void print_model_net_sched_checkpoint(FILE * out, model_net_sched *sched);
+void print_model_net_sched(FILE * out, char const * prefix, model_net_sched *sched);
+void print_model_net_sched_checkpoint(FILE * out, char const * prefix, model_net_sched *sched);
 
 extern char * sched_names[];
 extern const crv_checkpointer * sched_checkpointers[];

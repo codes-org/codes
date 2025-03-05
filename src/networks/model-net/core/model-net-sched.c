@@ -115,28 +115,34 @@ bool check_model_net_sched(
 
 static void __print_model_net_sched(
     FILE * out,
+    char const * prefix,
     model_net_sched *sched,
     bool is_lp_state
 ) {
     crv_checkpointer const * chptr = sched_checkpointers[sched->type];
-    fprintf(out, "model_net_sched.sched_type = %d\n", sched->type);
-    fprintf(out, "model_net_sched.\n");
+    fprintf(out, "%smodel_net_sched.sched_type = %d\n", prefix, sched->type);
+    fprintf(out, "%smodel_net_sched.dat = %p\n", prefix, sched->dat);
+
+    int len_subprefix = snprintf(NULL, 0, "%s  | ", prefix) + 1;
+    char subprefix[len_subprefix];
+    snprintf(subprefix, len_subprefix, "%s  | ", prefix);
+
     if (chptr) {
         if (is_lp_state && chptr->print_lp) {
-            chptr->print_lp(out, sched->dat);
+            chptr->print_lp(out, subprefix, sched->dat);
         }
         if (!is_lp_state && chptr->print_checkpoint) {
-            chptr->print_checkpoint(out, sched->dat);
+            chptr->print_checkpoint(out, subprefix, sched->dat);
         }
     }
 }
 
-void print_model_net_sched(FILE * out, model_net_sched *sched) {
-    __print_model_net_sched(out, sched, true);
+void print_model_net_sched(FILE * out, char const * prefix, model_net_sched *sched) {
+    __print_model_net_sched(out, prefix, sched, true);
 }
 
-void print_model_net_sched_checkpoint(FILE * out, model_net_sched *sched) {
-    __print_model_net_sched(out, sched, false);
+void print_model_net_sched_checkpoint(FILE * out, char const * prefix, model_net_sched *sched) {
+    __print_model_net_sched(out, prefix, sched, false);
 }
 /* STOP Checking reverse handler functionality */
 

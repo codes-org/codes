@@ -591,79 +591,79 @@ char const * const op_type_string(enum codes_workload_op_type op_type) {
 }
 
 // Initial implementation by Claude.ai
-void fprint_codes_workload_op(FILE * out, struct codes_workload_op * op, char const * const begin) {
+void fprint_codes_workload_op(FILE * out, char const * prefix, struct codes_workload_op * op) {
     if (op == NULL) {
         return;
     }
 
     // Print common fields first
-    fprintf(out, "%sop_type = %s\n", begin, op_type_string(op->op_type));
+    fprintf(out, "%sop_type = %s\n", prefix, op_type_string(op->op_type));
 
-    fprintf(out, "%s          start_time = %f\n", begin, op->start_time);
-    fprintf(out, "%s            end_time = %f\n", begin, op->end_time);
-    fprintf(out, "%s      sim_start_time = %f\n", begin, op->sim_start_time);
-    fprintf(out, "%s         sequence_id = %ld\n", begin, op->sequence_id);
+    fprintf(out, "%s          start_time = %f\n", prefix, op->start_time);
+    fprintf(out, "%s            end_time = %f\n", prefix, op->end_time);
+    fprintf(out, "%s      sim_start_time = %f\n", prefix, op->sim_start_time);
+    fprintf(out, "%s         sequence_id = %ld\n", prefix, op->sequence_id);
 
     // Print union fields based on op_type
     switch(op->op_type) {
         case CODES_WK_DELAY:
-            fprintf(out, "%s       delay.seconds = %f\n", begin, op->u.delay.seconds);
-            fprintf(out, "%s         delay.nsecs = %f\n", begin, op->u.delay.nsecs);
+            fprintf(out, "%s       delay.seconds = %f\n", prefix, op->u.delay.seconds);
+            fprintf(out, "%s         delay.nsecs = %f\n", prefix, op->u.delay.nsecs);
             break;
 
         case CODES_WK_BARRIER:
-            fprintf(out, "%s       barrier.count = %d\n", begin, op->u.barrier.count);
-            fprintf(out, "%s        barrier.root = %d\n", begin, op->u.barrier.root);
+            fprintf(out, "%s       barrier.count = %d\n", prefix, op->u.barrier.count);
+            fprintf(out, "%s        barrier.root = %d\n", prefix, op->u.barrier.root);
             break;
 
         case CODES_WK_OPEN:
         case CODES_WK_MPI_OPEN:
         case CODES_WK_MPI_COLL_OPEN:
-            fprintf(out, "%s        open.file_id = %lu\n", begin, op->u.open.file_id);
-            fprintf(out, "%s    open.create_flag = %d\n", begin, op->u.open.create_flag);
+            fprintf(out, "%s        open.file_id = %lu\n", prefix, op->u.open.file_id);
+            fprintf(out, "%s    open.create_flag = %d\n", prefix, op->u.open.create_flag);
             break;
 
         case CODES_WK_WRITE:
         case CODES_WK_MPI_WRITE:
         case CODES_WK_MPI_COLL_WRITE:
-            fprintf(out, "%s       write.file_id = %lu\n", begin, op->u.write.file_id);
-            fprintf(out, "%s        write.offset = %ld\n", begin, op->u.write.offset);
-            fprintf(out, "%s          write.size = %zu\n", begin, op->u.write.size);
+            fprintf(out, "%s       write.file_id = %lu\n", prefix, op->u.write.file_id);
+            fprintf(out, "%s        write.offset = %ld\n", prefix, op->u.write.offset);
+            fprintf(out, "%s          write.size = %zu\n", prefix, op->u.write.size);
             break;
 
         case CODES_WK_READ:
         case CODES_WK_MPI_READ:
         case CODES_WK_MPI_COLL_READ:
-            fprintf(out, "%s        read.file_id = %lu\n", begin, op->u.read.file_id);
-            fprintf(out, "%s         read.offset = %ld\n", begin, op->u.read.offset);
-            fprintf(out, "%s           read.size = %zu\n", begin, op->u.read.size);
+            fprintf(out, "%s        read.file_id = %lu\n", prefix, op->u.read.file_id);
+            fprintf(out, "%s         read.offset = %ld\n", prefix, op->u.read.offset);
+            fprintf(out, "%s           read.size = %zu\n", prefix, op->u.read.size);
             break;
 
         case CODES_WK_CLOSE:
         case CODES_WK_MPI_CLOSE:
-            fprintf(out, "%s       close.file_id = %lu\n", begin, op->u.close.file_id);
+            fprintf(out, "%s       close.file_id = %lu\n", prefix, op->u.close.file_id);
             break;
 
         case CODES_WK_SEND:
         case CODES_WK_ISEND:
-            fprintf(out, "%s    send.source_rank = %d\n", begin, op->u.send.source_rank);
-            fprintf(out, "%s      send.dest_rank = %d\n", begin, op->u.send.dest_rank);
-            fprintf(out, "%s      send.num_bytes = %ld\n", begin, op->u.send.num_bytes);
-            fprintf(out, "%s      send.data_type = %d\n", begin, op->u.send.data_type);
-            fprintf(out, "%s          send.count = %d\n", begin, op->u.send.count);
-            fprintf(out, "%s            send.tag = %d\n", begin, op->u.send.tag);
-            fprintf(out, "%s         send.req_id = %u\n", begin, op->u.send.req_id);
+            fprintf(out, "%s    send.source_rank = %d\n", prefix, op->u.send.source_rank);
+            fprintf(out, "%s      send.dest_rank = %d\n", prefix, op->u.send.dest_rank);
+            fprintf(out, "%s      send.num_bytes = %ld\n", prefix, op->u.send.num_bytes);
+            fprintf(out, "%s      send.data_type = %d\n", prefix, op->u.send.data_type);
+            fprintf(out, "%s          send.count = %d\n", prefix, op->u.send.count);
+            fprintf(out, "%s            send.tag = %d\n", prefix, op->u.send.tag);
+            fprintf(out, "%s         send.req_id = %u\n", prefix, op->u.send.req_id);
             break;
 
         case CODES_WK_RECV:
         case CODES_WK_IRECV:
-            fprintf(out, "%s    recv.source_rank = %d\n", begin, op->u.recv.source_rank);
-            fprintf(out, "%s      recv.dest_rank = %d\n", begin, op->u.recv.dest_rank);
-            fprintf(out, "%s      recv.num_bytes = %ld\n", begin, op->u.recv.num_bytes);
-            fprintf(out, "%s      recv.data_type = %d\n", begin, op->u.recv.data_type);
-            fprintf(out, "%s          recv.count = %d\n", begin, op->u.recv.count);
-            fprintf(out, "%s            recv.tag = %d\n", begin, op->u.recv.tag);
-            fprintf(out, "%s         recv.req_id = %u\n", begin, op->u.recv.req_id);
+            fprintf(out, "%s    recv.source_rank = %d\n", prefix, op->u.recv.source_rank);
+            fprintf(out, "%s      recv.dest_rank = %d\n", prefix, op->u.recv.dest_rank);
+            fprintf(out, "%s      recv.num_bytes = %ld\n", prefix, op->u.recv.num_bytes);
+            fprintf(out, "%s      recv.data_type = %d\n", prefix, op->u.recv.data_type);
+            fprintf(out, "%s          recv.count = %d\n", prefix, op->u.recv.count);
+            fprintf(out, "%s            recv.tag = %d\n", prefix, op->u.recv.tag);
+            fprintf(out, "%s         recv.req_id = %u\n", prefix, op->u.recv.req_id);
             break;
 
         case CODES_WK_COL:
@@ -674,23 +674,23 @@ void fprint_codes_workload_op(FILE * out, struct codes_workload_op * op, char co
         case CODES_WK_ALLTOALLV:
         case CODES_WK_REDUCE:
         case CODES_WK_ALLREDUCE:
-            fprintf(out, "%scollective.num_bytes = %d\n", begin, op->u.collective.num_bytes);
+            fprintf(out, "%scollective.num_bytes = %d\n", prefix, op->u.collective.num_bytes);
             break;
 
         case CODES_WK_WAITALL:
         case CODES_WK_WAITSOME:
         case CODES_WK_WAITANY:
         case CODES_WK_TESTALL:
-            fprintf(out, "%s         waits.count = %d\n", begin, op->u.waits.count);
-            fprintf(out, "%s      waits.req_ids  = %p\n", begin, op->u.waits.req_ids);
+            fprintf(out, "%s         waits.count = %d\n", prefix, op->u.waits.count);
+            fprintf(out, "%s      waits.req_ids  = %p\n", prefix, op->u.waits.req_ids);
             break;
 
         case CODES_WK_WAIT:
-            fprintf(out, "%s         wait.req_id = %u\n", begin, op->u.wait.req_id);
+            fprintf(out, "%s         wait.req_id = %u\n", prefix, op->u.wait.req_id);
             break;
 
         case CODES_WK_REQ_FREE:
-            fprintf(out, "%s         free.req_id = %u\n", begin, op->u.free.req_id);
+            fprintf(out, "%s         free.req_id = %u\n", prefix, op->u.free.req_id);
             break;
 
         case CODES_WK_END:
