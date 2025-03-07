@@ -3795,7 +3795,7 @@ static char const * const MPI_NW_EVENTS_to_string(enum MPI_NW_EVENTS event_type)
 }
 
 // Original printing function from Claude.ai
-static void print_nw_message(FILE * out, char const * prefix, struct nw_message * msg) {
+static void print_nw_message(FILE * out, char const * prefix, nw_state* s, struct nw_message * msg) {
     fprintf(out, "%snw_message ->\n", prefix);
     fprintf(out, "%s | msg_type = %s\n", prefix, MPI_NW_EVENTS_to_string(msg->msg_type));
     fprintf(out, "%s |  op_type = %s\n", prefix, op_type_string(msg->op_type));

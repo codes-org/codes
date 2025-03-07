@@ -141,7 +141,7 @@ static void clean_state_net_state(model_net_base_state * state);
 static bool check_model_net_state(model_net_base_state * before, model_net_base_state * after);
 static void print_model_net_state(FILE * out, char const * prefix, model_net_base_state * state);
 static void print_model_net_checkpoint(FILE * out, char const * prefix, model_net_base_state * state);
-static void print_event_state(FILE * out, char const * prefix, model_net_wrap_msg * state);
+static void print_event_state(FILE * out, char const * prefix, model_net_base_state * s, model_net_wrap_msg * msg);
 
 // ROSS function pointer table to check reverse event handler
 crv_checkpointer model_net_chkptr = {
@@ -1353,7 +1353,7 @@ void print_model_net_request(FILE * out, char const * prefix, model_net_request 
     fprintf(out, "%sapp_id = %d\n", prefix, req->app_id);
 }
 
-static void print_event_state(FILE * out, char const * prefix, model_net_wrap_msg * msg) {
+static void print_event_state(FILE * out, char const * prefix, model_net_base_state * state, model_net_wrap_msg * msg) {
     fprintf(out, "%sh\n", prefix);
     fprintf(out, "%s| src = %lu\n", prefix, msg->h.src);
     fprintf(out, "%s| event_type = %d (%s)\n", prefix, msg->h.event_type, event_type_string(msg->h.event_type));
@@ -1369,6 +1369,8 @@ static void print_event_state(FILE * out, char const * prefix, model_net_wrap_ms
     char subprefix_2[len_subprefix];
     snprintf(subprefix_2, len_subprefix, "%s%s", prefix, addprefix_2);
 
+    crv_checkpointer * chptr;
+    void * sub_msg;
     switch (msg->h.event_type) {
         case MN_BASE_NEW_MSG:
         case MN_BASE_SCHED_NEXT:
@@ -1388,11 +1390,29 @@ static void print_event_state(FILE * out, char const * prefix, model_net_wrap_ms
             fprintf(out, "%s     |  | prio = %d\n", prefix, msg->msg.m_base.rc.prio);
             fprintf(out, "%s     | created_in_surrogate = %d\n", prefix, msg->msg.m_base.created_in_surrogate);
             break;
-        default:
-            fprintf(out, "%sThe content of this message cannot be deciphered yet with the information given\n", prefix);
+
+        case MN_BASE_SAMPLE:
+        case MN_BASE_PASS:
+        case MN_BASE_END_NOTIF:
+            // printing sub_msg
+            fprintf(out, "%ssub_msg ->\n", prefix);
+            chptr = method_array[state->net_id]->checkpointer;
+            sub_msg = ((char*)msg)+msg_offsets[state->net_id];
+            if (chptr && chptr->print_event) {
+                char addprefix[] = "    | ";
+                int len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix) + 1;
+                char subprefix[len_subprefix];
+                snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix);
+                chptr->print_event(out, subprefix, state->sub_state, sub_msg);
+            } else {
+                fprintf(out, "%s    | == cannot print the submessage (event print function not yet defined for network of type %s) ==\n", prefix, model_net_method_names[state->net_id]);
+            }
+            break;
+
+        case MN_CONGESTION_EVENT:
+            // Nothing to print
+            break;
     }
-    // TODO: print internal state of message
-    // void * sub_msg = ((char*)msg) + msg_offsets[state->net_id];
 }
 
 /* END checking reverse handler functionality */

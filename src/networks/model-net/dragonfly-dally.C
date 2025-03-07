@@ -7102,14 +7102,36 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
     fprintf(out, "%s  | *           frozen_state = %p\n", prefix, state->frozen_state);
 }
 
+char const * const string_event_t(enum event_t type) {
+    switch (type) {
+        case T_GENERATE:         return "T_GENERATE";
+        case T_ARRIVE:           return "T_ARRIVE";
+        case T_SEND:             return "T_SEND";
+        case T_BUFFER:           return "T_BUFFER";
+        case R_SEND:             return "R_SEND";
+        case R_ARRIVE:           return "R_ARRIVE";
+        case R_BUFFER:           return "R_BUFFER";
+        case R_BANDWIDTH:        return "R_BANDWIDTH";
+        case R_BW_HALT:          return "R_BW_HALT";
+        case T_BANDWIDTH:        return "T_BANDWIDTH";
+        case R_SNAPSHOT:         return "R_SNAPSHOT";
+        case T_NOTIFY:           return "T_NOTIFY";
+        case T_ARRIVE_PREDICTED: return "T_ARRIVE_PREDICTED";
+        case T_VACUOUS_EVENT:    return "T_VACUOUS_EVENT";
+        default:                 return "UNKNOWN TYPE!!";
+    }
+}
+
 // Print fuction originally constructed with help from Claude.ai
-void print_terminal_dally_message(FILE * out, char const * prefix, struct terminal_dally_message * msg) {
+void print_terminal_dally_message(FILE * out, char const * prefix, void * s, struct terminal_dally_message * msg) {
+    //terminal_state * ns = (terminal_state *) s;
+
     fprintf(out, "%sterminal_dally_message ->\n", prefix);
     fprintf(out, "%s  |                      magic = %d\n", prefix, msg->magic);
     fprintf(out, "%s  |          travel_start_time = %g\n", prefix, msg->travel_start_time);
     fprintf(out, "%s  |            travel_end_time = %g\n", prefix, msg->travel_end_time);
     fprintf(out, "%s  |                  packet_ID = %llu\n", prefix, msg->packet_ID);
-    fprintf(out, "%s  |                       type = %d\n", prefix, msg->type);
+    fprintf(out, "%s  |                       type = %d (%s)\n", prefix, msg->type, string_event_t((enum event_t) msg->type));
     fprintf(out, "%s  |                notify_type = %d\n", prefix, msg->notify_type);
     fprintf(out, "%s  |                   category = %.16s\n", prefix, msg->category);
     fprintf(out, "%s  |             final_dest_gid = %lu\n", prefix, msg->final_dest_gid);

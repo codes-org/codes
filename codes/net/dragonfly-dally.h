@@ -136,7 +136,7 @@ struct terminal_dally_message
    tw_stime last_bufupdate_time;
 };
 
-void print_terminal_dally_message(FILE * out, char const * prefix, struct terminal_dally_message * msg);
+void print_terminal_dally_message(FILE * out, char const * prefix, void * s, struct terminal_dally_message * msg);
 
 #ifdef __cplusplus
 }
