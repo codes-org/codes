@@ -1176,7 +1176,7 @@ static void save_state_net_state(model_net_base_state * into, model_net_base_sta
 
     into->sub_state = NULL;
     crv_checkpointer * chptr = method_array[from->net_id]->checkpointer;
-    if (chptr && chptr->check_lps) {
+    if (chptr && chptr->save_lp) {
         into->sub_state = calloc(1, from->sub_type->state_sz);
         chptr->save_lp(into->sub_state, from->sub_state);
     }
@@ -1201,6 +1201,10 @@ static void clean_state_net_state(model_net_base_state * state) {
     free(state->sched_recv);
 
     if (state->sub_state != NULL) {
+        crv_checkpointer * chptr = method_array[state->net_id]->checkpointer;
+        if (chptr && chptr->clean_lp) {
+            chptr->clean_lp(state->sub_state);
+        }
         free(state->sub_state);
     }
     free(state->node_copy_next_available_time);

@@ -7003,7 +7003,7 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
 }
 
 // Print fuction originally constructed with help from Claude.ai
-static void print_terminal_dally_message(FILE * out, char const * prefix, struct terminal_dally_message * msg) {
+void print_terminal_dally_message(FILE * out, char const * prefix, struct terminal_dally_message * msg) {
     fprintf(out, "%sterminal_dally_message ->\n", prefix);
     fprintf(out, "%s  |                      magic = %d\n", prefix, msg->magic);
     fprintf(out, "%s  |          travel_start_time = %f\n", prefix, msg->travel_start_time);
