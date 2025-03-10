@@ -496,6 +496,9 @@ struct packet_id {
 bool operator<(struct packet_id const &lk, struct packet_id const &rk) {
     return lk.packet_ID == rk.packet_ID ? lk.dfdally_src_terminal_id < rk.dfdally_src_terminal_id : lk.packet_ID < rk.packet_ID;
 }
+bool operator==(struct packet_id const &lk, struct packet_id const &rk) {
+    return lk.packet_ID == rk.packet_ID && lk.dfdally_src_terminal_id < rk.dfdally_src_terminal_id;
+}
 // Some more function declarations
 static void notify_dest_lp_of(terminal_state * s, tw_lp * lp, terminal_dally_message * msg, enum notify_t notification);
 
@@ -3558,6 +3561,7 @@ static void terminal_dally_init( terminal_state * s, tw_lp * lp )
             fprintf(dragonfly_term_bw_log, "\n term-id time-stamp port-id busy-time");
         }*/
 
+    s->local_congestion_controller = NULL;
     if (g_congestion_control_enabled) {
         s->local_congestion_controller = (tlc_state*)calloc(1,sizeof(tlc_state));
         cc_terminal_local_controller_init(s->local_congestion_controller, lp, s->terminal_id, &s->workloads_finished_flag);
@@ -6919,17 +6923,132 @@ static void router_dally_rc_event_handler(router_state * s, tw_bf * bf,
 }
 
 //*** ---------- START OF reverse handler checking functions ---------- ***
+bool warn_incomplete_definition_terminal_state_check = false;
+
 static void save_terminal_state(terminal_state *into, terminal_state const *from) {
+    if (!warn_incomplete_definition_terminal_state_check) {
+        fprintf(stderr, "Warning: Deep-cloning and comparing has not been fully implemented for the (sub)LP type: `terminal_state` (Running this model under SEQUENTIAL_ROLLBACK_CHECK might not capture issues that arise from its reverse event handler).\n");
+        warn_incomplete_definition_terminal_state_check = true;
+    }
+
+    // These should be deep-cloned/compared/printed if we want to run the functionality they are activated at
+    // from->predictor_data
+    // from->sample_stat
+    // from->ross_sample
+    // from->busy_time_ross_sample
+
     memcpy(into, from, sizeof(terminal_state));
+
+    dragonfly_param const * p = into->params;
+    int const num_qos_levels = p->num_qos_levels;
+    int const num_rails = p->num_rails;
+
+    into->vc_occupancy = (int **) malloc(num_rails * sizeof(int*));
+    into->terminal_length = (int**) malloc(num_rails * sizeof(int*));
+    into->last_buf_full = (tw_stime*) malloc(num_rails * sizeof(tw_stime));
+    into->in_send_loop = (int*) malloc(num_rails * sizeof(int));
+    into->issueIdle = (int*) malloc(num_rails * sizeof(int));
+    into->qos_status = (int**) malloc(num_rails * sizeof(int*));
+    into->qos_data = (int**) malloc(num_rails * sizeof(int*));
+    into->last_qos_lvl = (int*) malloc(num_rails * sizeof(int));
+    into->terminal_available_time = (tw_stime*) malloc(num_rails * sizeof(tw_stime));
+    into->stalled_chunks = (unsigned long*) malloc(num_rails * sizeof(uint64_t));
+    into->total_chunks = (unsigned long*) malloc(num_rails * sizeof(uint64_t));
+    into->busy_time = (tw_stime*) malloc(num_rails * sizeof(tw_stime));
+    //into->terminal_msgs = (terminal_dally_message_list***) malloc(num_rails * sizeof(terminal_dally_message_list**));
+
+    for(int i = 0; i < num_rails; i++) {
+        into->vc_occupancy[i] = (int*) malloc(num_qos_levels * sizeof(int));
+        into->terminal_length[i] = (int*) malloc(num_qos_levels * sizeof(int));
+        into->qos_status[i] = (int*) malloc(num_qos_levels * sizeof(int));
+        into->qos_data[i] = (int*) malloc(num_qos_levels * sizeof(int));
+        for (int j = 0; j<num_qos_levels; j++) {
+            into->vc_occupancy[i][j] = from->vc_occupancy[i][j];
+            into->terminal_length[i][j] = from->terminal_length[i][j];
+            into->qos_data[i][j] = from->qos_data[i][j];
+            into->qos_status[i][j] = from->qos_status[i][j];
+        }
+        into->last_buf_full[i] = from->last_buf_full[i];
+        into->in_send_loop[i] = from->in_send_loop[i];
+        into->issueIdle[i] = from->issueIdle[i];
+        into->last_qos_lvl[i] = from->last_qos_lvl[i];
+        into->terminal_available_time[i] = from->terminal_available_time[i];
+        into->stalled_chunks[i] = from->stalled_chunks[i];
+        into->total_chunks[i] = from->total_chunks[i];
+        into->busy_time[i] = from->busy_time[i];
+    }
+
+    into->link_traffic = (uint64_t*) malloc(p->radix * sizeof(uint64_t));
+    for (int i = 0; i < p->radix; i++) {
+        into->link_traffic[i] = from->link_traffic[i];
+    }
+
+    if (from->local_congestion_controller != NULL) {
+        assert(g_congestion_control_enabled);
+        into->local_congestion_controller = (tlc_state*) malloc(sizeof(tlc_state));
+        save_tlc_state(into->local_congestion_controller, from->local_congestion_controller);
+    }
+
+    // Magic deep-copy using C++ mechanisms (the values do not point to any pointers)
+    into->remaining_sz_packets = from->remaining_sz_packets;
+    into->zombies = from->zombies;
 }
 
+// Partially written by Claude
 static void clean_terminal_state(terminal_state *state) {
+    dragonfly_param const * p = state->params;
+    int const num_rails = p->num_rails;
+
+    // Free all allocated memory
+    for (int i = 0; i < num_rails; i++) {
+        free(state->vc_occupancy[i]);
+        free(state->terminal_length[i]);
+        free(state->qos_status[i]);
+        free(state->qos_data[i]);
+    }
+
+    free(state->vc_occupancy);
+    free(state->terminal_length);
+    free(state->last_buf_full);
+    free(state->in_send_loop);
+    free(state->issueIdle);
+    free(state->qos_status);
+    free(state->qos_data);
+    free(state->last_qos_lvl);
+    free(state->terminal_available_time);
+    free(state->stalled_chunks);
+    free(state->total_chunks);
+    free(state->busy_time);
+    free(state->link_traffic);
+
+    if (state->local_congestion_controller != NULL) {
+        clean_tlc_state(state->local_congestion_controller);
+        free(state->local_congestion_controller);
+    }
+
+    // Finish cleaning (free memory), and check and print!!
+    state->remaining_sz_packets.~map();
+    state->zombies.~set();
 }
 
 static bool check_terminal_state(terminal_state *before, terminal_state *after) {
     bool is_same = true;
 
-    // Compare scalar values
+    // There is no need to deep-copy the following. They're never modified
+    assert(before->params == after->params);
+    assert(before->router_lp == after->router_lp);
+    assert(before->router_id == after->router_id);
+
+    // We ignore the comparison of the following. They are not meant to be rolled-back
+    // before->fwd_events
+    // before->rev_events
+    // before->sent_packets
+    // before->last_packet_sent_id
+    // before->arrival_of_last_packet
+    // before->anno
+    assert(before->frozen_state == after->frozen_state);
+
+    // Comparing all other elements of the struct
     is_same &= (before->packet_counter == after->packet_counter);
     is_same &= (before->packet_gen == after->packet_gen);
     is_same &= (before->packet_fin == after->packet_fin);
@@ -6954,29 +7073,11 @@ static bool check_terminal_state(terminal_state *before, terminal_state *after) 
     is_same &= (before->fin_chunks_time == after->fin_chunks_time);
     is_same &= (before->op_arr_size == after->op_arr_size);
     is_same &= (before->max_arr_size == after->max_arr_size);
-    //is_same &= (before->fwd_events == after->fwd_events);  // This is used for statistics, they are never changed when rollbacking
-    //is_same &= (before->rev_events == after->rev_events);  // This is used for statistics, they are never changed when rollbacking
     is_same &= (before->fin_chunks_ross_sample == after->fin_chunks_ross_sample);
     is_same &= (before->data_size_ross_sample == after->data_size_ross_sample);
     is_same &= (before->fin_hops_ross_sample == after->fin_hops_ross_sample);
     is_same &= (before->fin_chunks_time_ross_sample == after->fin_chunks_time_ross_sample);
-    is_same &= (before->last_packet_sent_id == after->last_packet_sent_id);
     is_same &= (before->last_in_queue_time == after->last_in_queue_time);
-
-    // Compare arrival_of_last_packet struct
-    is_same &= (before->arrival_of_last_packet.packet_ID == after->arrival_of_last_packet.packet_ID);
-    is_same &= (before->arrival_of_last_packet.travel_end_time == after->arrival_of_last_packet.travel_end_time);
-
-    // Compare arrays (assumes params is the same for both)
-    assert(before->params == after->params);
-    //if (before->params && after->params && before->params->num_rails == after->params->num_rails) {
-    //    for (int i = 0; i < before->params->num_rails; i++) {
-    //        is_same &= (before->router_lp[i] == after->router_lp[i]);
-    //        is_same &= (before->router_id[i] == after->router_id[i]);
-    //    }
-    //} else {
-    //    is_same = false;
-    //}
 
     // Compare string buffers
     is_same &= (strncmp(before->output_buf, after->output_buf, 4096) == 0);
@@ -6990,28 +7091,47 @@ static bool check_terminal_state(terminal_state *before, terminal_state *after) 
         is_same &= (before->anno == after->anno);
     }
 
+    dragonfly_param const * p = before->params;
+    int const num_qos_levels = p->num_qos_levels;
+    int const num_rails = p->num_rails;
+
+    for (int i = 0; i < num_rails; i++) {
+        for (int j = 0; j < num_qos_levels; j++) {
+            is_same &= (before->vc_occupancy[i][j] == after->vc_occupancy[i][j]);
+            is_same &= (before->terminal_length[i][j] == after->terminal_length[i][j]);
+            is_same &= (before->qos_status[i][j] == after->qos_status[i][j]);
+            is_same &= (before->qos_data[i][j] == after->qos_data[i][j]);
+        }
+
+        is_same &= (before->last_buf_full[i] == after->last_buf_full[i]);
+        is_same &= (before->in_send_loop[i] == after->in_send_loop[i]);
+        is_same &= (before->issueIdle[i] == after->issueIdle[i]);
+        is_same &= (before->last_qos_lvl[i] == after->last_qos_lvl[i]);
+        is_same &= (before->terminal_available_time[i] == after->terminal_available_time[i]);
+        is_same &= (before->stalled_chunks[i] == after->stalled_chunks[i]);
+        is_same &= (before->total_chunks[i] == after->total_chunks[i]);
+        is_same &= (before->busy_time[i] == after->busy_time[i]);
+    }
+
+    for (int i = 0; i < p->radix; i++) {
+        is_same &= (before->link_traffic[i] == after->link_traffic[i]);
+    }
+
+    // Ignoring model statistics. In general, we don't care if there are errors in the statistics, as they are only approximate. The stastistics don't interferee with the state of the model. There is a bug within the statistics when rolbacking though. A parameters is never reversed properly
+    //for (size_t i = 0; i < CATEGORY_MAX; i++) {
+    //    is_same &= check_mn_stats(&before->dragonfly_stats_array[i], &after->dragonfly_stats_array[i]);
+    //}
+
+    if (after->local_congestion_controller != NULL) {
+        is_same &= check_tlc_state(before->local_congestion_controller, after->local_congestion_controller);
+    }
+
+    is_same &= before->remaining_sz_packets == after->remaining_sz_packets;
+    is_same &= before->zombies == after->zombies;
+
     // Compare pointers (just checking if they're both NULL or both non-NULL)
-    //is_same &= ((before->local_congestion_controller == NULL) == (after->local_congestion_controller == NULL));
-    //is_same &= ((before->vc_occupancy == NULL) == (after->vc_occupancy == NULL));
-    //is_same &= ((before->terminal_available_time == NULL) == (after->terminal_available_time == NULL));
     //is_same &= ((before->terminal_msgs == NULL) == (after->terminal_msgs == NULL));
-    //is_same &= ((before->in_send_loop == NULL) == (after->in_send_loop == NULL));
-    //is_same &= ((before->qos_status == NULL) == (after->qos_status == NULL));
-    //is_same &= ((before->qos_data == NULL) == (after->qos_data == NULL));
-    //is_same &= ((before->last_qos_lvl == NULL) == (after->last_qos_lvl == NULL));
-    //is_same &= ((before->issueIdle == NULL) == (after->issueIdle == NULL));
-    //is_same &= ((before->terminal_length == NULL) == (after->terminal_length == NULL));
     //is_same &= ((before->rank_tbl == NULL) == (after->rank_tbl == NULL));
-    //is_same &= ((before->last_buf_full == NULL) == (after->last_buf_full == NULL));
-    //is_same &= ((before->busy_time == NULL) == (after->busy_time == NULL));
-    //is_same &= ((before->link_traffic == NULL) == (after->link_traffic == NULL));
-    //is_same &= ((before->total_chunks == NULL) == (after->total_chunks == NULL));
-    //is_same &= ((before->stalled_chunks == NULL) == (after->stalled_chunks == NULL));
-    //is_same &= ((before->busy_time_sample == NULL) == (after->busy_time_sample == NULL));
-    //is_same &= ((before->sample_stat == NULL) == (after->sample_stat == NULL));
-    //is_same &= ((before->busy_time_ross_sample == NULL) == (after->busy_time_ross_sample == NULL));
-    //is_same &= ((before->predictor_data == NULL) == (after->predictor_data == NULL));
-    is_same &= ((before->frozen_state == NULL) && (after->frozen_state == NULL));
 
     return is_same;
 }
@@ -7024,13 +7144,13 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
     fprintf(out, "%s  |               packet_fin = %d\n", prefix, state->packet_fin);
     fprintf(out, "%s  |           total_gen_size = %d\n", prefix, state->total_gen_size);
 
-    fprintf(out, "%s  | *              router_lp[%d] = [", prefix, state->params->num_rails);
+    fprintf(out, "%s  | *          router_lp[%d] = [", prefix, state->params->num_rails);
     for (int i=0; i<state->params->num_rails; i++) {
         fprintf(out, "%s%lu", i ? ", " : "", state->router_lp[i]);
     }
     fprintf(out, "]\n");
 
-    fprintf(out, "%s  | *              router_id[%d] = [", prefix, state->params->num_rails);
+    fprintf(out, "%s  | *          router_id[%d] = [", prefix, state->params->num_rails);
     for (int i=0; i<state->params->num_rails; i++) {
         fprintf(out, "%s%u", i ? ", " : "", state->router_id[i]);
     }
@@ -7038,22 +7158,101 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
 
     fprintf(out, "%s  |              terminal_id = %u\n", prefix, state->terminal_id);
     fprintf(out, "%s  |                  connMan = <DragonflyConnectionManager object>\n", prefix);
+
+    char addprefix[] = "  | ";
+    int len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix) + 1;
+    char * subprefix = (char *) malloc(len_subprefix * sizeof(char));
     fprintf(out, "%s  | *local_congestion_controller = %p\n", prefix, state->local_congestion_controller);
+    if (state->local_congestion_controller != NULL) {
+        print_tlc_state(out, subprefix, state->local_congestion_controller);
+    }
+    free(subprefix);
+
     fprintf(out, "%s  |  workloads_finished_flag = %d\n", prefix, state->workloads_finished_flag);
-    fprintf(out, "%s  | **          vc_occupancy = %p\n", prefix, state->vc_occupancy);
-    fprintf(out, "%s  | *terminal_available_time = %p\n", prefix, state->terminal_available_time);
+
+    fprintf(out, "%s  | **  vc_occupancy[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
+    for (int i=0; i<state->params->num_rails; i++) {
+        fprintf(out, "%s  |        rail %d: [", prefix, i);
+        for (int j=0; j<state->params->num_qos_levels; j++) {
+            fprintf(out, "%s%d", j ? ", " : "", state->vc_occupancy[i][j]);
+        }
+        fprintf(out, "]\n");
+    }
+    fprintf(out, "%s  |     ]\n", prefix);
+
+    fprintf(out, "%s  | *terminal_available_time[%d] = [", prefix, state->params->num_rails);
+    for (int i=0; i<state->params->num_rails; i++) {
+        fprintf(out, "%s%g", i ? ", " : "", state->terminal_available_time[i]);
+    }
+    fprintf(out, "]\n");
+
     fprintf(out, "%s  | ***        terminal_msgs = %p\n", prefix, state->terminal_msgs);
     fprintf(out, "%s  | ***   terminal_msgs_tail = %p\n", prefix, state->terminal_msgs_tail);
-    fprintf(out, "%s  | *           in_send_loop = %p\n", prefix, state->in_send_loop);
-    fprintf(out, "%s  |    dragonfly_stats_array = <mn_stats array>\n", prefix);
-    fprintf(out, "%s  | **            qos_status = %p\n", prefix, state->qos_status);
-    fprintf(out, "%s  | **              qos_data = %p\n", prefix, state->qos_data);
-    fprintf(out, "%s  | *           last_qos_lvl = %p\n", prefix, state->last_qos_lvl);
+
+    fprintf(out, "%s  | *       in_send_loop[%d] = [", prefix, state->params->num_rails);
+    for (int i=0; i<state->params->num_rails; i++) {
+        fprintf(out, "%s%d", i ? ", " : "", state->in_send_loop[i]);
+    }
+    fprintf(out, "]\n");
+
+    char addprefix_2[] = "  |    | ";
+    len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_2) + 1;
+    subprefix = (char *) malloc(len_subprefix * sizeof(char));
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix_2);
+    fprintf(out, "%s  |    dragonfly_stats_array = [\n", prefix);
+    for (int i = 0; i < CATEGORY_MAX; i++) {
+        fprintf(out, "%s  |    %d:\n", prefix, i);
+        print_mn_stats(out, subprefix, &state->dragonfly_stats_array[i]);
+    }
+    fprintf(out, "%s  |    ]\n", prefix);
+    free(subprefix);
+
+    fprintf(out, "%s  | **      qos_status[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
+    for (int i=0; i<state->params->num_rails; i++) {
+        fprintf(out, "%s  |          rail %d: [", prefix, i);
+        for (int j=0; j<state->params->num_qos_levels; j++) {
+            fprintf(out, "%s%d", j ? ", " : "", state->qos_status[i][j]);
+        }
+        fprintf(out, "]\n");
+    }
+    fprintf(out, "%s  |       ]\n", prefix);
+
+    fprintf(out, "%s  | **        qos_data[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
+    for (int i=0; i<state->params->num_rails; i++) {
+        fprintf(out, "%s  |            rail %d: [", prefix, i);
+        for (int j=0; j<state->params->num_qos_levels; j++) {
+            fprintf(out, "%s%d", j ? ", " : "", state->qos_data[i][j]);
+        }
+        fprintf(out, "]\n");
+    }
+    fprintf(out, "%s  |         ]\n", prefix);
+
+    fprintf(out, "%s  | *        last_qos_lvl[%d] = [", prefix, state->params->num_rails);
+    for (int i=0; i<state->params->num_rails; i++) {
+        fprintf(out, "%s%d", i ? ", " : "", state->last_qos_lvl[i]);
+    }
+    fprintf(out, "]\n");
+
     fprintf(out, "%s  |         is_monitoring_bw = %d\n", prefix, state->is_monitoring_bw);
     fprintf(out, "%s  | *                     st = %p\n", prefix, state->st);
     fprintf(out, "%s  | *                  cc_st = %p\n", prefix, state->cc_st);
-    fprintf(out, "%s  | *              issueIdle = %p\n", prefix, state->issueIdle);
-    fprintf(out, "%s  | **       terminal_length = %p\n", prefix, state->terminal_length);
+
+    fprintf(out, "%s  | *           issueIdle[%d] = [", prefix, state->params->num_rails);
+    for (int i=0; i<state->params->num_rails; i++) {
+        fprintf(out, "%s%d", i ? ", " : "", state->issueIdle[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | ** terminal_length[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
+    for (int i=0; i<state->params->num_rails; i++) {
+        fprintf(out, "%s  |       rail %d: [", prefix, i);
+        for (int j=0; j<state->params->num_qos_levels; j++) {
+            fprintf(out, "%s%d", j ? ", " : "", state->terminal_length[i][j]);
+        }
+        fprintf(out, "]\n");
+    }
+    fprintf(out, "%s  |    ]\n", prefix);
+
     fprintf(out, "%s  | *                   anno = %s\n", prefix, state->anno ? state->anno : "(nil)");
     fprintf(out, "%s  | *                 params = %p\n", prefix, state->params);
     fprintf(out, "%s  | *               rank_tbl = %p\n", prefix, state->rank_tbl);
@@ -7064,11 +7263,37 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
     fprintf(out, "%s  |            finished_msgs = %ld\n", prefix, state->finished_msgs);
     fprintf(out, "%s  |          finished_chunks = %ld\n", prefix, state->finished_chunks);
     fprintf(out, "%s  |         finished_packets = %ld\n", prefix, state->finished_packets);
-    fprintf(out, "%s  | *          last_buf_full = %p\n", prefix, state->last_buf_full);
-    fprintf(out, "%s  | *              busy_time = %p\n", prefix, state->busy_time);
-    fprintf(out, "%s  | *           link_traffic = %p\n", prefix, state->link_traffic);
-    fprintf(out, "%s  | *           total_chunks = %p\n", prefix, state->total_chunks);
-    fprintf(out, "%s  | *         stalled_chunks = %p\n", prefix, state->stalled_chunks);
+
+    fprintf(out, "%s  | *       last_buf_full[%d] = [", prefix, state->params->num_rails);
+    for (int i=0; i<state->params->num_rails; i++) {
+        fprintf(out, "%s%g", i ? ", " : "", state->last_buf_full[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *           busy_time[%d] = [", prefix, state->params->num_rails);
+    for (int i=0; i<state->params->num_rails; i++) {
+        fprintf(out, "%s%g", i ? ", " : "", state->busy_time[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *        link_traffic[%d] = [", prefix, state->params->radix);
+    for (int i=0; i<state->params->radix; i++) {
+        fprintf(out, "%s%lu", i ? ", " : "", state->link_traffic[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *        total_chunks[%d] = [", prefix, state->params->num_rails);
+    for (int i=0; i<state->params->num_rails; i++) {
+        fprintf(out, "%s%lu", i ? ", " : "", state->total_chunks[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *      stalled_chunks[%d] = [", prefix, state->params->num_rails);
+    for (int i=0; i<state->params->num_rails; i++) {
+        fprintf(out, "%s%lu", i ? ", " : "", state->stalled_chunks[i]);
+    }
+    fprintf(out, "]\n");
+
     fprintf(out, "%s  |          injected_chunks = %lu\n", prefix, state->injected_chunks);
     fprintf(out, "%s  |           ejected_chunks = %lu\n", prefix, state->ejected_chunks);
     fprintf(out, "%s  |              max_latency = %g\n", prefix, state->max_latency);
@@ -7092,13 +7317,31 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
     fprintf(out, "%s  | fin_chunks_time_ross_sample = %g\n", prefix, state->fin_chunks_time_ross_sample);
     fprintf(out, "%s  | *  busy_time_ross_sample = %p\n", prefix, state->busy_time_ross_sample);  // ingnoring as this part of the code is never used. Originally part of instrumentation
     fprintf(out, "%s  |              ross_sample = <dfly_cn_sample object>\n", prefix);  // ingnoring as this part of the code is never used. Originally part of instrumentation
+
+    // modified outside of process and reverse computation (at commit and at surrogate change)
     fprintf(out, "%s  |             sent_packets = <map object>\n", prefix);
+
     fprintf(out, "%s  |      last_packet_sent_id = %ld\n", prefix, state->last_packet_sent_id);
     fprintf(out, "%s  |   arrival_of_last_packet = {packet_ID: %ld, travel_end_time: %g}\n", prefix, state->arrival_of_last_packet.packet_ID, state->arrival_of_last_packet.travel_end_time);
-    fprintf(out, "%s  |     remaining_sz_packets = <map object>\n", prefix);
+
+    fprintf(out, "%s  |     remaining_sz_packets = {\n", prefix);
+    std::map<struct packet_id, uint32_t>::iterator it_map;
+    for (it_map = state->remaining_sz_packets.begin(); it_map != state->remaining_sz_packets.end(); ++it_map) {
+        fprintf(out, "%s  |         {packet_ID: %lu, dfdally_src_terminal_id: %u} -> %d,\n", prefix, it_map->first.packet_ID, it_map->first.dfdally_src_terminal_id, it_map->second);
+
+    }
+    fprintf(out, "%s  |     }\n", prefix);
+
     fprintf(out, "%s  |       last_in_queue_time = %g\n", prefix, state->last_in_queue_time);
     fprintf(out, "%s  | *         predictor_data = %p\n", prefix, state->predictor_data);
-    fprintf(out, "%s  |                  zombies = <set object>\n", prefix);
+
+    fprintf(out, "%s  |                  zombies = [\n", prefix);
+    std::set<struct packet_id>::iterator it;
+    for (it = state->zombies.begin(); it != state->zombies.end(); ++it) {
+        fprintf(out, "%s  |                    {packet_ID: %lu, dfdally_src_terminal_id: %u},\n", prefix, it->packet_ID, it->dfdally_src_terminal_id);
+    }
+    fprintf(out, "%s  |                  ]\n", prefix);
+
     fprintf(out, "%s  | *           frozen_state = %p\n", prefix, state->frozen_state);
 }
 

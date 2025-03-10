@@ -164,7 +164,10 @@ struct mn_stats
 };
 
 bool check_model_net_request(model_net_request const * before, model_net_request const * after);
-void print_model_net_request(FILE * out, char const * before, model_net_request * item);
+void print_model_net_request(FILE * out, char const * prefix, model_net_request * item);
+
+bool check_mn_stats(struct mn_stats const * before, struct mn_stats const * after);
+void print_mn_stats(FILE * out, char const * prefix, struct mn_stats * item);
 
 /* Registers all model-net LPs in ROSS. Should be called after
  * configuration_load, but before codes_mapping_setup */

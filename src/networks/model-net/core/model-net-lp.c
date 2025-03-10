@@ -1210,6 +1210,8 @@ static void clean_state_net_state(model_net_base_state * state) {
     free(state->node_copy_next_available_time);
 }
 
+static bool warned_no_lp_checking_defined[MAX_NETS];
+
 static bool check_model_net_state(model_net_base_state * before, model_net_base_state * after) {
     bool is_same = true;
     is_same &= before->net_id == after->net_id;
@@ -1226,8 +1228,10 @@ static bool check_model_net_state(model_net_base_state * before, model_net_base_
     crv_checkpointer * chptr = method_array[before->net_id]->checkpointer;
     if (chptr && before->sub_state != NULL && chptr->check_lps) {
         is_same &= chptr->check_lps(before->sub_state, after->sub_state);
-    } else {
-        tw_error(TW_LOC, "Network of type \"%s\" has not been configured to be checkpointed", model_net_method_names[before->net_id]);
+    // Warning once that checking for LP subtype has not been fully implemented
+    } else if (!warned_no_lp_checking_defined[before->net_id]) {
+        fprintf(stderr, "Warning: Network of type \"%s\" has not been fully configured to be checkpointed (Running this model under SEQUENTIAL_ROLLBACK_CHECK won't capture any issues that arise from the reverse event handlers).\n", model_net_method_names[before->net_id]);
+        warned_no_lp_checking_defined[before->net_id] = true;
     }
     is_same &= before->next_available_time == after->next_available_time;
     for (int i=0; i < before->params->node_copy_queues; i++) {
@@ -1351,6 +1355,32 @@ void print_model_net_request(FILE * out, char const * prefix, model_net_request 
     fprintf(out, "%sself_event_size = %d\n", prefix, req->self_event_size);
     fprintf(out, "%scategory = '%s'\n", prefix, req->category);
     fprintf(out, "%sapp_id = %d\n", prefix, req->app_id);
+}
+
+bool check_mn_stats(struct mn_stats const * before, struct mn_stats const * after) {
+    bool is_same = true;
+
+    is_same &= (strncmp(before->category, after->category, CATEGORY_NAME_MAX) == 0);
+    is_same &= (before->send_count == after->send_count);
+    is_same &= (before->send_bytes == after->send_bytes);
+    is_same &= (before->send_time == after->send_time);
+    is_same &= (before->recv_count == after->recv_count);
+    is_same &= (before->recv_bytes == after->recv_bytes);
+    is_same &= (before->recv_time == after->recv_time);
+    is_same &= (before->max_event_size == after->max_event_size);
+
+    return is_same;
+}
+
+void print_mn_stats(FILE * out, char const * prefix, struct mn_stats * req) {
+    fprintf(out, "%scategory = '%s'\n", prefix, req->category);
+    fprintf(out, "%ssend_count = %ld\n", prefix, req->send_count);
+    fprintf(out, "%ssend_bytes = %ld\n", prefix, req->send_bytes);
+    fprintf(out, "%ssend_time = %g\n", prefix, req->send_time);
+    fprintf(out, "%srecv_count = %ld\n", prefix, req->recv_count);
+    fprintf(out, "%srecv_bytes = %ld\n", prefix, req->recv_bytes);
+    fprintf(out, "%srecv_time = %g\n", prefix, req->recv_time);
+    fprintf(out, "%smax_event_size = %ld\n", prefix, req->max_event_size);
 }
 
 static void print_event_state(FILE * out, char const * prefix, model_net_base_state * state, model_net_wrap_msg * msg) {

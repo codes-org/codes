@@ -906,6 +906,59 @@ static double calculate_bandwidth_usage_percent(int bytes_transmitted, double ma
     return percent_bw;
 }
 
+void save_tlc_state(tlc_state * into, tlc_state const * from) {
+    memcpy(into, from, sizeof(tlc_state));
+    into->ejected_rate_windows = (double*) malloc(cc_bandwidth_rolling_window_count * sizeof(double));
+    for (int i = 0; i < cc_bandwidth_rolling_window_count; i++) {
+        into->ejected_rate_windows[i] = from->ejected_rate_windows[i];
+    }
+}
+
+void clean_tlc_state(tlc_state * state) {
+    free(state->ejected_rate_windows);
+}
+
+bool check_tlc_state(tlc_state * before, tlc_state * after) {
+    bool is_same = true;
+
+    is_same &= before->terminal_id == after->terminal_id;
+    is_same &= before->app_id == after->app_id;
+    is_same &= before->abatement_signal_count == after->abatement_signal_count;
+    is_same &= before->window_epoch == after->window_epoch;
+    is_same &= before->ejected_packet_bytes == after->ejected_packet_bytes;
+
+    for (int i = 0; i < cc_bandwidth_rolling_window_count; i++) {
+        is_same &= before->ejected_rate_windows[i] == after->ejected_rate_windows[i];
+    }
+
+    is_same &= before->cur_average_rate == after->cur_average_rate;
+    is_same &= before->is_abatement_active == after->is_abatement_active;
+    is_same &= *before->workloads_finished_flag_ptr == *after->workloads_finished_flag_ptr;
+    is_same &= before->current_injection_bandwidth_coef == after->current_injection_bandwidth_coef;
+
+    return is_same;
+}
+
+void print_tlc_state(FILE * out, char const * prefix, tlc_state * state) {
+    fprintf(out, "%s tlc_state ->\n", prefix);
+    fprintf(out, "%s  | terminal_id = %d\n", prefix, state->terminal_id);
+    fprintf(out, "%s  | app_id = %d\n", prefix, state->app_id);
+    fprintf(out, "%s  | abatement_signal_count = %d\n", prefix, state->abatement_signal_count);
+    fprintf(out, "%s  | window_epoch = %ud\n", prefix, state->window_epoch);
+    fprintf(out, "%s  | ejected_packet_bytes = %ud\n", prefix, state->ejected_packet_bytes);
+
+    fprintf(out, "%s  | ejected_rate_windows[%d] = [", prefix, cc_bandwidth_rolling_window_count);
+    for (int i = 0; i < cc_bandwidth_rolling_window_count; i++) {
+        fprintf(out, "%g%s", state->ejected_rate_windows[i], i == cc_bandwidth_rolling_window_count - 1 ? "" : ", ");
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | cur_average_rate = %g\n", prefix, state->cur_average_rate);
+    fprintf(out, "%s  | is_abatement_active = %d\n", prefix, state->is_abatement_active);
+    fprintf(out, "%s  | workloads_finished_flag_ptr = %d\n", prefix, *state->workloads_finished_flag_ptr);
+    fprintf(out, "%s  | current_injection_bandwidth_coef = %g\n", prefix, state->current_injection_bandwidth_coef);
+}
+
 void cc_terminal_process_bandwidth_check(tlc_state *s, congestion_control_message *msg, tw_lp *lp)
 {
     double usage_percent = calculate_bandwidth_usage_percent(s->ejected_packet_bytes, s->params->terminal_configured_bandwidth, 1); //multiplier for multiple rails but right now we're just using 1
