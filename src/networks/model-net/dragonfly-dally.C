@@ -4468,7 +4468,7 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_dally_messag
     if(msg->qos_reset2)
         s->qos_status[msg->rail_id][1] = Q_ACTIVE;
     
-    if(msg->last_saved_qos)
+    if(msg->last_saved_qos >= 0)
         s->last_qos_lvl[msg->rail_id] = msg->last_saved_qos;
 
     if(bf->c1) {
