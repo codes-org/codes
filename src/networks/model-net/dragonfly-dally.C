@@ -5580,6 +5580,7 @@ static void dragonfly_dally_terminal_final( terminal_state * s,
     for(int i = 0; i < s->params->num_rails; i++)
     {
         free(s->vc_occupancy[i]);
+        // TODO: terminal_msgs are not properly freed if there are messages left. Correct this!
         free(s->terminal_msgs[i]);
         free(s->terminal_msgs_tail[i]);
     }
@@ -6931,6 +6932,10 @@ static void save_terminal_state(terminal_state *into, terminal_state const *from
         warn_incomplete_definition_terminal_state_check = true;
     }
 
+    // Missing deep-clone/comparison/print members. These members are always accessed, so it is possible to discover some bugs if we print their contents
+    // from->terminal_msgs
+    // from->rank_tbl
+
     // These should be deep-cloned/compared/printed if we want to run the functionality they are activated at
     // from->predictor_data
     // from->sample_stat
@@ -6955,7 +6960,6 @@ static void save_terminal_state(terminal_state *into, terminal_state const *from
     into->stalled_chunks = (unsigned long*) malloc(num_rails * sizeof(uint64_t));
     into->total_chunks = (unsigned long*) malloc(num_rails * sizeof(uint64_t));
     into->busy_time = (tw_stime*) malloc(num_rails * sizeof(tw_stime));
-    //into->terminal_msgs = (terminal_dally_message_list***) malloc(num_rails * sizeof(terminal_dally_message_list**));
 
     for(int i = 0; i < num_rails; i++) {
         into->vc_occupancy[i] = (int*) malloc(num_qos_levels * sizeof(int));
@@ -7128,10 +7132,6 @@ static bool check_terminal_state(terminal_state *before, terminal_state *after) 
 
     is_same &= before->remaining_sz_packets == after->remaining_sz_packets;
     is_same &= before->zombies == after->zombies;
-
-    // Compare pointers (just checking if they're both NULL or both non-NULL)
-    //is_same &= ((before->terminal_msgs == NULL) == (after->terminal_msgs == NULL));
-    //is_same &= ((before->rank_tbl == NULL) == (after->rank_tbl == NULL));
 
     return is_same;
 }
