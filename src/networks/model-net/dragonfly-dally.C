@@ -4605,6 +4605,7 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_dally_messag
 
     terminal_dally_message_list* cur_entry = (terminal_dally_message_list *)rc_stack_pop(s->st);
     
+    cur_entry->msg.travel_start_time = msg->saved_avg_time;
     int data_size = s->params->chunk_size;
     if(cur_entry->msg.packet_size < s->params->chunk_size)
         data_size = cur_entry->msg.packet_size % s->params->chunk_size;
@@ -4671,6 +4672,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     uint64_t num_chunks = cur_entry->msg.packet_size/s->params->chunk_size;
     if(cur_entry->msg.packet_size < s->params->chunk_size)
         num_chunks++;
+    msg->saved_avg_time = cur_entry->msg.travel_start_time;  // reusing field saved_avg_time. It is only used in another event handler path (arrive). So, no interruptions here
     cur_entry->msg.travel_start_time = tw_now(lp);
 
     double bandwidth_coef = 1;
