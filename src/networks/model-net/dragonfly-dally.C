@@ -7060,46 +7060,48 @@ static void save_terminal_state(terminal_state *into, terminal_state const *from
     int const num_qos_levels = p->num_qos_levels;
     int const num_rails = p->num_rails;
 
-    into->vc_occupancy = (int **) malloc(num_rails * sizeof(int*));
-    into->terminal_length = (int**) malloc(num_rails * sizeof(int*));
-    into->last_buf_full = (tw_stime*) malloc(num_rails * sizeof(tw_stime));
-    into->in_send_loop = (int*) malloc(num_rails * sizeof(int));
-    into->issueIdle = (int*) malloc(num_rails * sizeof(int));
-    into->qos_status = (int**) malloc(num_rails * sizeof(int*));
-    into->qos_data = (int**) malloc(num_rails * sizeof(int*));
-    into->last_qos_lvl = (int*) malloc(num_rails * sizeof(int));
-    into->terminal_available_time = (tw_stime*) malloc(num_rails * sizeof(tw_stime));
-    into->stalled_chunks = (unsigned long*) malloc(num_rails * sizeof(uint64_t));
-    into->total_chunks = (unsigned long*) malloc(num_rails * sizeof(uint64_t));
-    into->busy_time = (tw_stime*) malloc(num_rails * sizeof(tw_stime));
-    into->terminal_msgs = (terminal_dally_message_list***) malloc(num_rails * sizeof(terminal_dally_message_list**));
+    if (!is_surrogate_on) {
+        into->vc_occupancy = (int **) malloc(num_rails * sizeof(int*));
+        into->terminal_length = (int**) malloc(num_rails * sizeof(int*));
+        into->last_buf_full = (tw_stime*) malloc(num_rails * sizeof(tw_stime));
+        into->in_send_loop = (int*) malloc(num_rails * sizeof(int));
+        into->issueIdle = (int*) malloc(num_rails * sizeof(int));
+        into->qos_status = (int**) malloc(num_rails * sizeof(int*));
+        into->qos_data = (int**) malloc(num_rails * sizeof(int*));
+        into->last_qos_lvl = (int*) malloc(num_rails * sizeof(int));
+        into->terminal_available_time = (tw_stime*) malloc(num_rails * sizeof(tw_stime));
+        into->stalled_chunks = (unsigned long*) malloc(num_rails * sizeof(uint64_t));
+        into->total_chunks = (unsigned long*) malloc(num_rails * sizeof(uint64_t));
+        into->busy_time = (tw_stime*) malloc(num_rails * sizeof(tw_stime));
+        into->terminal_msgs = (terminal_dally_message_list***) malloc(num_rails * sizeof(terminal_dally_message_list**));
 
-    for(int i = 0; i < num_rails; i++) {
-        into->vc_occupancy[i] = (int*) malloc(num_qos_levels * sizeof(int));
-        into->terminal_length[i] = (int*) malloc(num_qos_levels * sizeof(int));
-        into->qos_status[i] = (int*) malloc(num_qos_levels * sizeof(int));
-        into->qos_data[i] = (int*) malloc(num_qos_levels * sizeof(int));
-        into->terminal_msgs[i] = (terminal_dally_message_list**) malloc(num_qos_levels * sizeof(terminal_dally_message_list*));
-        for (int j = 0; j<num_qos_levels; j++) {
-            into->vc_occupancy[i][j] = from->vc_occupancy[i][j];
-            into->terminal_length[i][j] = from->terminal_length[i][j];
-            into->qos_data[i][j] = from->qos_data[i][j];
-            into->qos_status[i][j] = from->qos_status[i][j];
-            copy_terminal_dally_message_list(&into->terminal_msgs[i][j], from->terminal_msgs[i][j]);
+        for(int i = 0; i < num_rails; i++) {
+            into->vc_occupancy[i] = (int*) malloc(num_qos_levels * sizeof(int));
+            into->terminal_length[i] = (int*) malloc(num_qos_levels * sizeof(int));
+            into->qos_status[i] = (int*) malloc(num_qos_levels * sizeof(int));
+            into->qos_data[i] = (int*) malloc(num_qos_levels * sizeof(int));
+            into->terminal_msgs[i] = (terminal_dally_message_list**) malloc(num_qos_levels * sizeof(terminal_dally_message_list*));
+            for (int j = 0; j<num_qos_levels; j++) {
+                into->vc_occupancy[i][j] = from->vc_occupancy[i][j];
+                into->terminal_length[i][j] = from->terminal_length[i][j];
+                into->qos_data[i][j] = from->qos_data[i][j];
+                into->qos_status[i][j] = from->qos_status[i][j];
+                copy_terminal_dally_message_list(&into->terminal_msgs[i][j], from->terminal_msgs[i][j]);
+            }
+            into->last_buf_full[i] = from->last_buf_full[i];
+            into->in_send_loop[i] = from->in_send_loop[i];
+            into->issueIdle[i] = from->issueIdle[i];
+            into->last_qos_lvl[i] = from->last_qos_lvl[i];
+            into->terminal_available_time[i] = from->terminal_available_time[i];
+            into->stalled_chunks[i] = from->stalled_chunks[i];
+            into->total_chunks[i] = from->total_chunks[i];
+            into->busy_time[i] = from->busy_time[i];
         }
-        into->last_buf_full[i] = from->last_buf_full[i];
-        into->in_send_loop[i] = from->in_send_loop[i];
-        into->issueIdle[i] = from->issueIdle[i];
-        into->last_qos_lvl[i] = from->last_qos_lvl[i];
-        into->terminal_available_time[i] = from->terminal_available_time[i];
-        into->stalled_chunks[i] = from->stalled_chunks[i];
-        into->total_chunks[i] = from->total_chunks[i];
-        into->busy_time[i] = from->busy_time[i];
-    }
 
-    into->link_traffic = (uint64_t*) malloc(p->radix * sizeof(uint64_t));
-    for (int i = 0; i < p->radix; i++) {
-        into->link_traffic[i] = from->link_traffic[i];
+        into->link_traffic = (uint64_t*) malloc(p->radix * sizeof(uint64_t));
+        for (int i = 0; i < p->radix; i++) {
+            into->link_traffic[i] = from->link_traffic[i];
+        }
     }
 
     if (from->local_congestion_controller != NULL) {
@@ -7136,32 +7138,33 @@ static void clean_terminal_state(terminal_state *state) {
     int const num_rails = p->num_rails;
     int const num_qos_levels = p->num_qos_levels;
 
-    // Free all allocated memory
-    for (int i = 0; i < num_rails; i++) {
-        free(state->vc_occupancy[i]);
-        free(state->terminal_length[i]);
-        free(state->qos_status[i]);
-        free(state->qos_data[i]);
-        for (int j = 0; j<num_qos_levels; j++) {
-            clean_terminal_dally_message_list(state->terminal_msgs[i][j]);
+    if (!is_surrogate_on) {
+        for (int i = 0; i < num_rails; i++) {
+            free(state->vc_occupancy[i]);
+            free(state->terminal_length[i]);
+            free(state->qos_status[i]);
+            free(state->qos_data[i]);
+            for (int j = 0; j<num_qos_levels; j++) {
+                clean_terminal_dally_message_list(state->terminal_msgs[i][j]);
+            }
+            free(state->terminal_msgs[i]);
         }
-        free(state->terminal_msgs[i]);
-    }
 
-    free(state->vc_occupancy);
-    free(state->terminal_length);
-    free(state->last_buf_full);
-    free(state->in_send_loop);
-    free(state->issueIdle);
-    free(state->qos_status);
-    free(state->qos_data);
-    free(state->last_qos_lvl);
-    free(state->terminal_available_time);
-    free(state->stalled_chunks);
-    free(state->total_chunks);
-    free(state->busy_time);
-    free(state->link_traffic);
-    free(state->terminal_msgs);
+        free(state->vc_occupancy);
+        free(state->terminal_length);
+        free(state->last_buf_full);
+        free(state->in_send_loop);
+        free(state->issueIdle);
+        free(state->qos_status);
+        free(state->qos_data);
+        free(state->last_qos_lvl);
+        free(state->terminal_available_time);
+        free(state->stalled_chunks);
+        free(state->total_chunks);
+        free(state->busy_time);
+        free(state->link_traffic);
+        free(state->terminal_msgs);
+    }
 
     if (state->local_congestion_controller != NULL) {
         clean_tlc_state(state->local_congestion_controller);
@@ -7232,31 +7235,33 @@ static bool check_terminal_state(terminal_state *before, terminal_state *after) 
         is_same &= (before->anno == after->anno);
     }
 
-    dragonfly_param const * p = before->params;
-    int const num_qos_levels = p->num_qos_levels;
-    int const num_rails = p->num_rails;
+    if (!is_surrogate_on) {
+        dragonfly_param const * p = before->params;
+        int const num_qos_levels = p->num_qos_levels;
+        int const num_rails = p->num_rails;
 
-    for (int i = 0; i < num_rails; i++) {
-        for (int j = 0; j < num_qos_levels; j++) {
-            is_same &= (before->vc_occupancy[i][j] == after->vc_occupancy[i][j]);
-            is_same &= (before->terminal_length[i][j] == after->terminal_length[i][j]);
-            is_same &= (before->qos_status[i][j] == after->qos_status[i][j]);
-            is_same &= (before->qos_data[i][j] == after->qos_data[i][j]);
-            is_same &= check_terminal_dally_message_list(before->terminal_msgs[i][j], after->terminal_msgs[i][j]);
+        for (int i = 0; i < num_rails; i++) {
+            for (int j = 0; j < num_qos_levels; j++) {
+                is_same &= (before->vc_occupancy[i][j] == after->vc_occupancy[i][j]);
+                is_same &= (before->terminal_length[i][j] == after->terminal_length[i][j]);
+                is_same &= (before->qos_status[i][j] == after->qos_status[i][j]);
+                is_same &= (before->qos_data[i][j] == after->qos_data[i][j]);
+                is_same &= check_terminal_dally_message_list(before->terminal_msgs[i][j], after->terminal_msgs[i][j]);
+            }
+
+            is_same &= (before->last_buf_full[i] == after->last_buf_full[i]);
+            is_same &= (before->in_send_loop[i] == after->in_send_loop[i]);
+            is_same &= (before->issueIdle[i] == after->issueIdle[i]);
+            is_same &= (before->last_qos_lvl[i] == after->last_qos_lvl[i]);
+            is_same &= (before->terminal_available_time[i] == after->terminal_available_time[i]);
+            is_same &= (before->stalled_chunks[i] == after->stalled_chunks[i]);
+            is_same &= (before->total_chunks[i] == after->total_chunks[i]);
+            is_same &= (before->busy_time[i] == after->busy_time[i]);
         }
 
-        is_same &= (before->last_buf_full[i] == after->last_buf_full[i]);
-        is_same &= (before->in_send_loop[i] == after->in_send_loop[i]);
-        is_same &= (before->issueIdle[i] == after->issueIdle[i]);
-        is_same &= (before->last_qos_lvl[i] == after->last_qos_lvl[i]);
-        is_same &= (before->terminal_available_time[i] == after->terminal_available_time[i]);
-        is_same &= (before->stalled_chunks[i] == after->stalled_chunks[i]);
-        is_same &= (before->total_chunks[i] == after->total_chunks[i]);
-        is_same &= (before->busy_time[i] == after->busy_time[i]);
-    }
-
-    for (int i = 0; i < p->radix; i++) {
-        is_same &= (before->link_traffic[i] == after->link_traffic[i]);
+        for (int i = 0; i < p->radix; i++) {
+            is_same &= (before->link_traffic[i] == after->link_traffic[i]);
+        }
     }
 
     // Ignoring model statistics. In general, we don't care if there are errors in the statistics, as they are only approximate. The stastistics don't interferee with the state of the model. There is a bug within the statistics when rolbacking though. A parameters is never reversed properly
@@ -7308,44 +7313,54 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
 
     fprintf(out, "%s  |  workloads_finished_flag = %d\n", prefix, state->workloads_finished_flag);
 
-    fprintf(out, "%s  | **  vc_occupancy[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
-    for (int i=0; i<state->params->num_rails; i++) {
-        fprintf(out, "%s  |        rail %d: [", prefix, i);
-        for (int j=0; j<state->params->num_qos_levels; j++) {
-            fprintf(out, "%s%d", j ? ", " : "", state->vc_occupancy[i][j]);
+    if (is_surrogate_on) {
+        fprintf(out, "%s  | **          vc_occupancy = %p\n", prefix, state->vc_occupancy);
+        fprintf(out, "%s  | *terminal_available_time = %p\n", prefix, state->terminal_available_time);
+        fprintf(out, "%s  | ***        terminal_msgs = %p\n", prefix, state->terminal_msgs);
+    } else {
+        fprintf(out, "%s  | **  vc_occupancy[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s  |        rail %d: [", prefix, i);
+            for (int j=0; j<state->params->num_qos_levels; j++) {
+                fprintf(out, "%s%d", j ? ", " : "", state->vc_occupancy[i][j]);
+            }
+            fprintf(out, "]\n");
+        }
+        fprintf(out, "%s  |     ]\n", prefix);
+
+        fprintf(out, "%s  | *terminal_available_time[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s%g", i ? ", " : "", state->terminal_available_time[i]);
         }
         fprintf(out, "]\n");
-    }
-    fprintf(out, "%s  |     ]\n", prefix);
 
-    fprintf(out, "%s  | *terminal_available_time[%d] = [", prefix, state->params->num_rails);
-    for (int i=0; i<state->params->num_rails; i++) {
-        fprintf(out, "%s%g", i ? ", " : "", state->terminal_available_time[i]);
-    }
-    fprintf(out, "]\n");
-
-    char addprefix_2[] = "  |    |  | ";
-    len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_2) + 1;
-    subprefix = (char *) malloc(len_subprefix * sizeof(char));
-    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix_2);
-    fprintf(out, "%s  | ***        terminal_msgs[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
-    for (int i=0; i<state->params->num_rails; i++) {
-        fprintf(out, "%s  |   rail %d: [\n", prefix, i);
-        for (int j=0; j<state->params->num_qos_levels; j++) {
-            fprintf(out, "%s  |    | qos level %d\n", prefix, j);
-            print_terminal_dally_message_list(out, subprefix, state, state->terminal_msgs[i][j]);
+        char addprefix_2[] = "  |    |  | ";
+        len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_2) + 1;
+        subprefix = (char *) malloc(len_subprefix * sizeof(char));
+        snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix_2);
+        fprintf(out, "%s  | ***        terminal_msgs[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s  |   rail %d: [\n", prefix, i);
+            for (int j=0; j<state->params->num_qos_levels; j++) {
+                fprintf(out, "%s  |    | qos level %d\n", prefix, j);
+                print_terminal_dally_message_list(out, subprefix, state, state->terminal_msgs[i][j]);
+            }
         }
+        fprintf(out, "%s  | ]\n", prefix);
+        free(subprefix);
     }
-    fprintf(out, "%s  | ]\n", prefix);
-    free(subprefix);
 
     fprintf(out, "%s  | ***   terminal_msgs_tail = %p\n", prefix, state->terminal_msgs_tail);
 
-    fprintf(out, "%s  | *       in_send_loop[%d] = [", prefix, state->params->num_rails);
-    for (int i=0; i<state->params->num_rails; i++) {
-        fprintf(out, "%s%d", i ? ", " : "", state->in_send_loop[i]);
+    if (is_surrogate_on) {
+        fprintf(out, "%s  | *          in_send_loop = %p\n", prefix, state->in_send_loop);
+    } else {
+        fprintf(out, "%s  | *       in_send_loop[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s%d", i ? ", " : "", state->in_send_loop[i]);
+        }
+        fprintf(out, "]\n");
     }
-    fprintf(out, "]\n");
 
     char addprefix_3[] = "  |    | ";
     len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_3) + 1;
@@ -7359,51 +7374,62 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
     fprintf(out, "%s  |    ]\n", prefix);
     free(subprefix);
 
-    fprintf(out, "%s  | **      qos_status[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
-    for (int i=0; i<state->params->num_rails; i++) {
-        fprintf(out, "%s  |          rail %d: [", prefix, i);
-        for (int j=0; j<state->params->num_qos_levels; j++) {
-            fprintf(out, "%s%d", j ? ", " : "", state->qos_status[i][j]);
+    if (is_surrogate_on) {
+        fprintf(out, "%s  | **           qos_status = %p\n", prefix, state->qos_status);
+        fprintf(out, "%s  | **             qos_data = %p\n", prefix, state->qos_data);
+        fprintf(out, "%s  | *          last_qos_lvl = %p\n", prefix, state->last_qos_lvl);
+    } else {
+        fprintf(out, "%s  | **      qos_status[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s  |          rail %d: [", prefix, i);
+            for (int j=0; j<state->params->num_qos_levels; j++) {
+                fprintf(out, "%s%d", j ? ", " : "", state->qos_status[i][j]);
+            }
+            fprintf(out, "]\n");
+        }
+        fprintf(out, "%s  |       ]\n", prefix);
+
+        fprintf(out, "%s  | **        qos_data[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s  |            rail %d: [", prefix, i);
+            for (int j=0; j<state->params->num_qos_levels; j++) {
+                fprintf(out, "%s%d", j ? ", " : "", state->qos_data[i][j]);
+            }
+            fprintf(out, "]\n");
+        }
+        fprintf(out, "%s  |         ]\n", prefix);
+
+        fprintf(out, "%s  | *        last_qos_lvl[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s%d", i ? ", " : "", state->last_qos_lvl[i]);
         }
         fprintf(out, "]\n");
     }
-    fprintf(out, "%s  |       ]\n", prefix);
-
-    fprintf(out, "%s  | **        qos_data[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
-    for (int i=0; i<state->params->num_rails; i++) {
-        fprintf(out, "%s  |            rail %d: [", prefix, i);
-        for (int j=0; j<state->params->num_qos_levels; j++) {
-            fprintf(out, "%s%d", j ? ", " : "", state->qos_data[i][j]);
-        }
-        fprintf(out, "]\n");
-    }
-    fprintf(out, "%s  |         ]\n", prefix);
-
-    fprintf(out, "%s  | *        last_qos_lvl[%d] = [", prefix, state->params->num_rails);
-    for (int i=0; i<state->params->num_rails; i++) {
-        fprintf(out, "%s%d", i ? ", " : "", state->last_qos_lvl[i]);
-    }
-    fprintf(out, "]\n");
 
     fprintf(out, "%s  |         is_monitoring_bw = %d\n", prefix, state->is_monitoring_bw);
     fprintf(out, "%s  | *                     st = %p\n", prefix, state->st);
     fprintf(out, "%s  | *                  cc_st = %p\n", prefix, state->cc_st);
 
-    fprintf(out, "%s  | *           issueIdle[%d] = [", prefix, state->params->num_rails);
-    for (int i=0; i<state->params->num_rails; i++) {
-        fprintf(out, "%s%d", i ? ", " : "", state->issueIdle[i]);
-    }
-    fprintf(out, "]\n");
-
-    fprintf(out, "%s  | ** terminal_length[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
-    for (int i=0; i<state->params->num_rails; i++) {
-        fprintf(out, "%s  |       rail %d: [", prefix, i);
-        for (int j=0; j<state->params->num_qos_levels; j++) {
-            fprintf(out, "%s%d", j ? ", " : "", state->terminal_length[i][j]);
+    if (is_surrogate_on) {
+        fprintf(out, "%s  | *             issueIdle = %p\n", prefix, state->issueIdle);
+        fprintf(out, "%s  | **      terminal_length = %p\n", prefix, state->terminal_length);
+    } else {
+        fprintf(out, "%s  | *           issueIdle[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s%d", i ? ", " : "", state->issueIdle[i]);
         }
         fprintf(out, "]\n");
+
+        fprintf(out, "%s  | ** terminal_length[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s  |       rail %d: [", prefix, i);
+            for (int j=0; j<state->params->num_qos_levels; j++) {
+                fprintf(out, "%s%d", j ? ", " : "", state->terminal_length[i][j]);
+            }
+            fprintf(out, "]\n");
+        }
+        fprintf(out, "%s  |    ]\n", prefix);
     }
-    fprintf(out, "%s  |    ]\n", prefix);
 
     fprintf(out, "%s  | *                   anno = %s\n", prefix, state->anno ? state->anno : "(nil)");
     fprintf(out, "%s  | *                 params = %p\n", prefix, state->params);
@@ -7416,35 +7442,44 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
     fprintf(out, "%s  |          finished_chunks = %ld\n", prefix, state->finished_chunks);
     fprintf(out, "%s  |         finished_packets = %ld\n", prefix, state->finished_packets);
 
-    fprintf(out, "%s  | *       last_buf_full[%d] = [", prefix, state->params->num_rails);
-    for (int i=0; i<state->params->num_rails; i++) {
-        fprintf(out, "%s%g", i ? ", " : "", state->last_buf_full[i]);
-    }
-    fprintf(out, "]\n");
+    if (is_surrogate_on) {
+        fprintf(out, "%s  | **      terminal_length = %p\n", prefix, state->terminal_length);
+        fprintf(out, "%s  | *         last_buf_full = %p\n", prefix, state->last_buf_full);
+        fprintf(out, "%s  | *             busy_time = %p\n", prefix, state->busy_time);
+        fprintf(out, "%s  | *          link_traffic = %p\n", prefix, state->link_traffic);
+        fprintf(out, "%s  | *          total_chunks = %p\n", prefix, state->total_chunks);
+        fprintf(out, "%s  | *        stalled_chunks = %p\n", prefix, state->stalled_chunks);
+    } else {
+        fprintf(out, "%s  | *       last_buf_full[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s%g", i ? ", " : "", state->last_buf_full[i]);
+        }
+        fprintf(out, "]\n");
 
-    fprintf(out, "%s  | *           busy_time[%d] = [", prefix, state->params->num_rails);
-    for (int i=0; i<state->params->num_rails; i++) {
-        fprintf(out, "%s%g", i ? ", " : "", state->busy_time[i]);
-    }
-    fprintf(out, "]\n");
+        fprintf(out, "%s  | *           busy_time[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s%g", i ? ", " : "", state->busy_time[i]);
+        }
+        fprintf(out, "]\n");
 
-    fprintf(out, "%s  | *        link_traffic[%d] = [", prefix, state->params->radix);
-    for (int i=0; i<state->params->radix; i++) {
-        fprintf(out, "%s%lu", i ? ", " : "", state->link_traffic[i]);
-    }
-    fprintf(out, "]\n");
+        fprintf(out, "%s  | *        link_traffic[%d] = [", prefix, state->params->radix);
+        for (int i=0; i<state->params->radix; i++) {
+            fprintf(out, "%s%lu", i ? ", " : "", state->link_traffic[i]);
+        }
+        fprintf(out, "]\n");
 
-    fprintf(out, "%s  | *        total_chunks[%d] = [", prefix, state->params->num_rails);
-    for (int i=0; i<state->params->num_rails; i++) {
-        fprintf(out, "%s%lu", i ? ", " : "", state->total_chunks[i]);
-    }
-    fprintf(out, "]\n");
+        fprintf(out, "%s  | *        total_chunks[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s%lu", i ? ", " : "", state->total_chunks[i]);
+        }
+        fprintf(out, "]\n");
 
-    fprintf(out, "%s  | *      stalled_chunks[%d] = [", prefix, state->params->num_rails);
-    for (int i=0; i<state->params->num_rails; i++) {
-        fprintf(out, "%s%lu", i ? ", " : "", state->stalled_chunks[i]);
+        fprintf(out, "%s  | *      stalled_chunks[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s%lu", i ? ", " : "", state->stalled_chunks[i]);
+        }
+        fprintf(out, "]\n");
     }
-    fprintf(out, "]\n");
 
     fprintf(out, "%s  |          injected_chunks = %lu\n", prefix, state->injected_chunks);
     fprintf(out, "%s  |           ejected_chunks = %lu\n", prefix, state->ejected_chunks);
