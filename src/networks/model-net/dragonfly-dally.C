@@ -7108,9 +7108,26 @@ static void save_terminal_state(terminal_state *into, terminal_state const *from
         save_tlc_state(into->local_congestion_controller, from->local_congestion_controller);
     }
 
-    // Magic deep-copy using C++ mechanisms (the values do not point to any pointers)
-    into->remaining_sz_packets = from->remaining_sz_packets;
-    into->zombies = from->zombies;
+    // I would use the C++ amgic to copy these containers but they don't work as well :S
+    new (&into->remaining_sz_packets) map<struct packet_id, uint32_t>();
+    new (&into->zombies) set<struct packet_id>();
+
+    // Sorry const, I promise not to change the state of remaining_sz_packets
+    map<struct packet_id, uint32_t> * from_remaining_sz_packets = (map<struct packet_id, uint32_t> *) &from->remaining_sz_packets;
+    set<struct packet_id> * from_zombies = (set<struct packet_id> *) &from->zombies;
+
+    std::map<struct packet_id, uint32_t>::iterator it_map;
+    for (it_map = from_remaining_sz_packets->begin(); it_map != from_remaining_sz_packets->end(); ++it_map) {
+        into->remaining_sz_packets[it_map->first] = it_map->second;
+    }
+
+    std::set<struct packet_id>::iterator it_set;
+    for (it_set = from_zombies->begin(); it_set != from_zombies->end(); ++it_set) {
+        struct packet_id const zombie = {
+            .packet_ID = it_set->packet_ID,
+            .dfdally_src_terminal_id = it_set->dfdally_src_terminal_id};
+        into->zombies.insert(zombie);
+    }
 }
 
 // Partially written by Claude
