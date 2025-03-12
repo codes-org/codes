@@ -131,13 +131,16 @@ static void shift_events_to_future_pe(tw_pe * pe, tw_stime gvt) {
     // We have to put the events back into the queue after we switch back, but if we never
     // switch back they will never get to be processed and thus we can clean them
     double switch_offset = g_tw_ts_end;
-    if (switch_at.current_i + 1 < switch_at.total) {
-        double const next_switch = switch_at.time_stampts[switch_at.current_i + 1];
+    if (switch_at.current_i < switch_at.total) {
+        double const next_switch = switch_at.time_stampts[switch_at.current_i];
         double const pre_switch_time = gvt;
         switch_offset = next_switch - pre_switch_time;
         assert(pre_switch_time < next_switch);
         //printf("gvt=%f next_switch=%f switch_offset=%f\n", pre_switch_time, next_switch, switch_offset);
     }
+    assert(0 < switch_at.current_i && switch_at.current_i <= switch_at.total);
+    double const current_switch_time = switch_at.time_stampts[switch_at.current_i - 1];
+    assert(current_switch_time == gvt);
 
     tw_event * dequed_events = NULL; // Linked list of workload events, to be placed again in the queue
     int events_dequeued = 0;  // for stats on code correctness
@@ -164,13 +167,11 @@ static void shift_events_to_future_pe(tw_pe * pe, tw_stime gvt) {
             assert(next_event->recv_ts == next_event->sig.recv_ts);
             next_event->recv_ts += switch_offset;
             next_event->sig.recv_ts = next_event->recv_ts;
-        }
-        assert(next_event->recv_ts >= g_tw_trigger_arbitrary_fun.sig_at.recv_ts);
 #else
             next_event->recv_ts += switch_offset;
-        }
-        assert(next_event->recv_ts >= g_tw_trigger_arbitrary_fun.at);
 #endif
+        }
+        assert(next_event->recv_ts >= current_switch_time);
 
         // store event in deque_events to inject immediately back to the queue
         next_event->prev = dequed_events;
@@ -277,7 +278,7 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_event_sig gvt) {
 #else
 static void events_high_def_to_surrogate_switch(tw_pe * pe, tw_stime gvt) {
 #endif
-    if (g_tw_synchronization_protocol != OPTIMISTIC && g_tw_synchronization_protocol != SEQUENTIAL) {
+    if (g_tw_synchronization_protocol != OPTIMISTIC && g_tw_synchronization_protocol != SEQUENTIAL && g_tw_synchronization_protocol != SEQUENTIAL_ROLLBACK_CHECK) {
         tw_error(TW_LOC, "Sorry, sending packets to the future hasn't been implement in this mode");
     }
 
@@ -497,9 +498,9 @@ void director_call(tw_pe * pe, tw_stime gvt) {
 
     // Only in sequential mode pe->GVT does not carry the current gvt, while it does in conservative and optimistic
 #ifdef USE_RAND_TIEBREAKER
-    assert((g_tw_synchronization_protocol == SEQUENTIAL) || (pe->GVT_sig.recv_ts == gvt));
+    assert((g_tw_synchronization_protocol == SEQUENTIAL) || (g_tw_synchronization_protocol == SEQUENTIAL_ROLLBACK_CHECK) || (pe->GVT_sig.recv_ts == gvt));
 #else
-    assert((g_tw_synchronization_protocol == SEQUENTIAL) || (pe->GVT == gvt));
+    assert((g_tw_synchronization_protocol == SEQUENTIAL) || (g_tw_synchronization_protocol == SEQUENTIAL_ROLLBACK_CHECK) || (pe->GVT == gvt));
 #endif
 
     // Do not process if the simulation ended
