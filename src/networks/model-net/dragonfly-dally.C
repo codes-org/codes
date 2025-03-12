@@ -5171,7 +5171,7 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
         s->remaining_sz_packets[packet_key] += s->params->chunk_size;
     } else {
         if (bf->c29) {
-            s->remaining_sz_packets[packet_key] += s->params->chunk_size;
+            s->remaining_sz_packets.erase(packet_key);
         }
     }
 
