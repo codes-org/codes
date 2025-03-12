@@ -389,6 +389,8 @@ static void save_mn_sched_qitem(mn_sched_qitem * into, mn_sched_qitem const * fr
     into->req = from->req;
     into->sched_params = from->sched_params;
     into->rem = from->rem;
+    into->remote_event = NULL;
+    into->local_event = NULL;
     if (from->remote_event != NULL) {
         assert(from->req.remote_event_size > 0);
         into->remote_event = malloc(from->req.remote_event_size);

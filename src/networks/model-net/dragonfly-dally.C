@@ -497,7 +497,7 @@ bool operator<(struct packet_id const &lk, struct packet_id const &rk) {
     return lk.packet_ID == rk.packet_ID ? lk.dfdally_src_terminal_id < rk.dfdally_src_terminal_id : lk.packet_ID < rk.packet_ID;
 }
 bool operator==(struct packet_id const &lk, struct packet_id const &rk) {
-    return lk.packet_ID == rk.packet_ID && lk.dfdally_src_terminal_id < rk.dfdally_src_terminal_id;
+    return lk.packet_ID == rk.packet_ID && lk.dfdally_src_terminal_id == rk.dfdally_src_terminal_id;
 }
 // Some more function declarations
 static void notify_dest_lp_of(terminal_state * s, tw_lp * lp, terminal_dally_message * msg, enum notify_t notification);
@@ -1620,6 +1620,119 @@ static terminal_dally_message_list* return_tail(
     }
     return tail;
 }
+
+// Copies a list and returns the tail
+static terminal_dally_message_list * copy_terminal_dally_message_list(terminal_dally_message_list ** into_thisq, terminal_dally_message_list const * from_thisq) {
+    if (from_thisq == NULL) {
+        *into_thisq = NULL;
+        return NULL;
+    }
+
+    terminal_dally_message_list const * from_head = from_thisq;
+    terminal_dally_message_list * prev = NULL;
+    while(from_head != NULL) {
+        terminal_dally_message_list * copy_head = (terminal_dally_message_list *) malloc(sizeof(terminal_dally_message_list));
+
+        //copy_head->msg = from_head->msg;
+        memcpy(copy_head, from_head, sizeof(terminal_dally_message_list));
+        copy_head->prev = prev;
+
+        if (from_head->event_data != NULL) {
+            int const message_size = from_head->msg.remote_event_size_bytes + from_head->msg.local_event_size_bytes;
+            assert(message_size > 0);
+            copy_head->event_data = (char *) malloc(message_size);
+            memcpy(copy_head->event_data, from_head->event_data, message_size);
+        }
+
+        if (prev == NULL) {
+            *into_thisq = copy_head;
+        } else {
+            prev->next = copy_head;
+        }
+
+        prev = copy_head;
+        from_head = from_head->next;
+    }
+    prev->next = NULL;
+
+    return prev;
+}
+
+static void clean_terminal_dally_message_list(terminal_dally_message_list * thisq) {
+    if (thisq == NULL) {
+        return;
+    }
+
+    terminal_dally_message_list * prev = thisq;
+    terminal_dally_message_list * head = prev->next;
+    free(prev->event_data);
+    while (head != NULL) {
+        free(head->event_data);
+        free(prev);
+        prev = head;
+        head = head->next;
+    }
+    free(prev);
+}
+
+static bool check_terminal_dally_message_list(terminal_dally_message_list * before, terminal_dally_message_list * after) {
+    bool is_same = true;
+
+    terminal_dally_message_list * head_before = before;
+    terminal_dally_message_list * head_after = after;
+    while (head_before != NULL && head_after != NULL) {
+        is_same &= check_terminal_dally_message(&head_before->msg, &head_after->msg);
+        is_same &= (head_before->event_data == NULL) == (head_after->event_data == NULL);
+
+        int const message_size = head_before->msg.remote_event_size_bytes + head_before->msg.local_event_size_bytes;
+        int const message_size_after = head_after->msg.remote_event_size_bytes + head_after->msg.local_event_size_bytes;
+        is_same &= message_size == message_size_after;
+
+        if (is_same && head_before->event_data != NULL) {
+            assert(message_size > 0);
+
+            is_same &= !memcmp(head_before->event_data, head_after->event_data, message_size);
+        }
+
+        head_before = head_before->next;
+        head_after = head_after->next;
+    }
+
+    if (head_before != NULL || head_after != NULL) {
+        is_same = false; // at least one of them is longer than the other
+    }
+
+    return is_same;
+}
+
+static void print_terminal_dally_message_list(FILE * out, char const * prefix, terminal_state * ns, terminal_dally_message_list * thisq) {
+    if (thisq == NULL) {
+        return;
+    }
+
+    char addprefix_2[] = " | | ";
+    int len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_2) + 1;
+    char * subprefix = (char *) malloc(len_subprefix * sizeof(char));
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix_2);
+
+    terminal_dally_message_list * head = thisq;
+    while (head != NULL) {
+        fprintf(out, "%s{\n", prefix);
+        fprintf(out, "%s | msg:\n", prefix);
+        print_terminal_dally_message(out, subprefix, ns, &head->msg);
+        fprintf(out, "%s | event_data = %p\n", prefix, head->event_data);
+        int const message_size = head->msg.remote_event_size_bytes + head->msg.local_event_size_bytes;
+        if (head->event_data != NULL) {
+            assert(message_size > 0);
+            tw_fprint_binary_array(out, subprefix, head->event_data, message_size);
+        }
+        fprintf(out, "%s},\n", prefix);
+        head = head->next;
+    }
+
+    free(subprefix);
+}
+
 
 static tw_stime* buff_time_storage_create(terminal_state *s)
 {
@@ -6933,7 +7046,6 @@ static void save_terminal_state(terminal_state *into, terminal_state const *from
     }
 
     // Missing deep-clone/comparison/print members. These members are always accessed, so it is possible to discover some bugs if we print their contents
-    // from->terminal_msgs
     // from->rank_tbl
 
     // These should be deep-cloned/compared/printed if we want to run the functionality they are activated at
@@ -6960,17 +7072,20 @@ static void save_terminal_state(terminal_state *into, terminal_state const *from
     into->stalled_chunks = (unsigned long*) malloc(num_rails * sizeof(uint64_t));
     into->total_chunks = (unsigned long*) malloc(num_rails * sizeof(uint64_t));
     into->busy_time = (tw_stime*) malloc(num_rails * sizeof(tw_stime));
+    into->terminal_msgs = (terminal_dally_message_list***) malloc(num_rails * sizeof(terminal_dally_message_list**));
 
     for(int i = 0; i < num_rails; i++) {
         into->vc_occupancy[i] = (int*) malloc(num_qos_levels * sizeof(int));
         into->terminal_length[i] = (int*) malloc(num_qos_levels * sizeof(int));
         into->qos_status[i] = (int*) malloc(num_qos_levels * sizeof(int));
         into->qos_data[i] = (int*) malloc(num_qos_levels * sizeof(int));
+        into->terminal_msgs[i] = (terminal_dally_message_list**) malloc(num_qos_levels * sizeof(terminal_dally_message_list*));
         for (int j = 0; j<num_qos_levels; j++) {
             into->vc_occupancy[i][j] = from->vc_occupancy[i][j];
             into->terminal_length[i][j] = from->terminal_length[i][j];
             into->qos_data[i][j] = from->qos_data[i][j];
             into->qos_status[i][j] = from->qos_status[i][j];
+            copy_terminal_dally_message_list(&into->terminal_msgs[i][j], from->terminal_msgs[i][j]);
         }
         into->last_buf_full[i] = from->last_buf_full[i];
         into->in_send_loop[i] = from->in_send_loop[i];
@@ -7002,6 +7117,7 @@ static void save_terminal_state(terminal_state *into, terminal_state const *from
 static void clean_terminal_state(terminal_state *state) {
     dragonfly_param const * p = state->params;
     int const num_rails = p->num_rails;
+    int const num_qos_levels = p->num_qos_levels;
 
     // Free all allocated memory
     for (int i = 0; i < num_rails; i++) {
@@ -7009,6 +7125,10 @@ static void clean_terminal_state(terminal_state *state) {
         free(state->terminal_length[i]);
         free(state->qos_status[i]);
         free(state->qos_data[i]);
+        for (int j = 0; j<num_qos_levels; j++) {
+            clean_terminal_dally_message_list(state->terminal_msgs[i][j]);
+        }
+        free(state->terminal_msgs[i]);
     }
 
     free(state->vc_occupancy);
@@ -7024,13 +7144,13 @@ static void clean_terminal_state(terminal_state *state) {
     free(state->total_chunks);
     free(state->busy_time);
     free(state->link_traffic);
+    free(state->terminal_msgs);
 
     if (state->local_congestion_controller != NULL) {
         clean_tlc_state(state->local_congestion_controller);
         free(state->local_congestion_controller);
     }
 
-    // Finish cleaning (free memory), and check and print!!
     state->remaining_sz_packets.~map();
     state->zombies.~set();
 }
@@ -7105,6 +7225,7 @@ static bool check_terminal_state(terminal_state *before, terminal_state *after) 
             is_same &= (before->terminal_length[i][j] == after->terminal_length[i][j]);
             is_same &= (before->qos_status[i][j] == after->qos_status[i][j]);
             is_same &= (before->qos_data[i][j] == after->qos_data[i][j]);
+            is_same &= check_terminal_dally_message_list(before->terminal_msgs[i][j], after->terminal_msgs[i][j]);
         }
 
         is_same &= (before->last_buf_full[i] == after->last_buf_full[i]);
@@ -7186,7 +7307,21 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
     }
     fprintf(out, "]\n");
 
-    fprintf(out, "%s  | ***        terminal_msgs = %p\n", prefix, state->terminal_msgs);
+    char addprefix_2[] = "  |    |  | ";
+    len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_2) + 1;
+    subprefix = (char *) malloc(len_subprefix * sizeof(char));
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix_2);
+    fprintf(out, "%s  | ***        terminal_msgs[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
+    for (int i=0; i<state->params->num_rails; i++) {
+        fprintf(out, "%s  |   rail %d: [\n", prefix, i);
+        for (int j=0; j<state->params->num_qos_levels; j++) {
+            fprintf(out, "%s  |    | qos level %d\n", prefix, j);
+            print_terminal_dally_message_list(out, subprefix, state, state->terminal_msgs[i][j]);
+        }
+    }
+    fprintf(out, "%s  | ]\n", prefix);
+    free(subprefix);
+
     fprintf(out, "%s  | ***   terminal_msgs_tail = %p\n", prefix, state->terminal_msgs_tail);
 
     fprintf(out, "%s  | *       in_send_loop[%d] = [", prefix, state->params->num_rails);
@@ -7195,10 +7330,10 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
     }
     fprintf(out, "]\n");
 
-    char addprefix_2[] = "  |    | ";
-    len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_2) + 1;
+    char addprefix_3[] = "  |    | ";
+    len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_3) + 1;
     subprefix = (char *) malloc(len_subprefix * sizeof(char));
-    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix_2);
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix_3);
     fprintf(out, "%s  |    dragonfly_stats_array = [\n", prefix);
     for (int i = 0; i < CATEGORY_MAX; i++) {
         fprintf(out, "%s  |    %d:\n", prefix, i);
@@ -7328,7 +7463,6 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
     std::map<struct packet_id, uint32_t>::iterator it_map;
     for (it_map = state->remaining_sz_packets.begin(); it_map != state->remaining_sz_packets.end(); ++it_map) {
         fprintf(out, "%s  |         {packet_ID: %lu, dfdally_src_terminal_id: %u} -> %d,\n", prefix, it_map->first.packet_ID, it_map->first.dfdally_src_terminal_id, it_map->second);
-
     }
     fprintf(out, "%s  |     }\n", prefix);
 
@@ -7363,6 +7497,58 @@ char const * const string_event_t(enum event_t type) {
         case T_VACUOUS_EVENT:    return "T_VACUOUS_EVENT";
         default:                 return "UNKNOWN TYPE!!";
     }
+}
+
+// Built with help of Claude
+bool check_terminal_dally_message(struct terminal_dally_message * before, struct terminal_dally_message * after) {
+    bool is_same = true;
+
+    // Compare all fields
+    is_same &= before->magic == after->magic;
+    is_same &= before->travel_start_time == after->travel_start_time;
+    is_same &= before->travel_end_time == after->travel_end_time;
+    is_same &= before->packet_ID == after->packet_ID;
+    is_same &= before->type == after->type;
+    is_same &= before->notify_type == after->notify_type;
+    is_same &= strncmp(before->category, after->category, CATEGORY_NAME_MAX) == 0;
+    is_same &= before->final_dest_gid == after->final_dest_gid;
+    is_same &= before->sender_lp == after->sender_lp;
+    is_same &= before->sender_mn_lp == after->sender_mn_lp;
+    is_same &= before->dest_terminal_lpid == after->dest_terminal_lpid;
+    is_same &= before->dfdally_src_terminal_id == after->dfdally_src_terminal_id;
+    is_same &= before->dfdally_dest_terminal_id == after->dfdally_dest_terminal_id;
+    is_same &= before->src_terminal_id == after->src_terminal_id;
+    is_same &= before->origin_router_id == after->origin_router_id;
+    is_same &= before->app_id == after->app_id;
+    is_same &= before->my_N_hop == after->my_N_hop;
+    is_same &= before->my_l_hop == after->my_l_hop;
+    is_same &= before->my_g_hop == after->my_g_hop;
+    is_same &= before->my_hops_cur_group == after->my_hops_cur_group;
+    is_same &= before->next_stop == after->next_stop;
+    is_same &= before->this_router_arrival == after->this_router_arrival;
+    is_same &= before->this_router_ptp_latency == after->this_router_ptp_latency;
+    is_same &= before->intm_lp_id == after->intm_lp_id;
+    is_same &= before->last_hop == after->last_hop;
+    is_same &= before->is_intm_visited == after->is_intm_visited;
+    is_same &= before->intm_rtr_id == after->intm_rtr_id;
+    is_same &= before->intm_grp_id == after->intm_grp_id;
+    is_same &= before->chunk_id == after->chunk_id;
+    is_same &= before->packet_size == after->packet_size;
+    is_same &= before->message_id == after->message_id;
+    is_same &= before->total_size == after->total_size;
+    is_same &= before->remote_event_size_bytes == after->remote_event_size_bytes;
+    is_same &= before->local_event_size_bytes == after->local_event_size_bytes;
+    is_same &= before->vc_index == after->vc_index;
+    is_same &= before->rail_id == after->rail_id;
+    is_same &= before->output_chan == after->output_chan;
+    is_same &= before->is_pull == after->is_pull;
+    is_same &= before->pull_size == after->pull_size;
+    is_same &= before->path_type == after->path_type;
+    is_same &= before->is_there_another_pckt_in_queue == after->is_there_another_pckt_in_queue;
+    is_same &= before->qos_reset1 == after->qos_reset1;
+    is_same &= before->qos_reset2 == after->qos_reset2;
+
+    return is_same;
 }
 
 // Print fuction originally constructed with help from Claude.ai
