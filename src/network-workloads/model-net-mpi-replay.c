@@ -1136,7 +1136,7 @@ void arrive_syn_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
     s->ross_sample.num_bytes_recvd -= data;
     s->send_time = m->rc.arrive.saved_send_time;
     s->ross_sample.send_time = m->rc.arrive.saved_send_time_sample;
-    if((tw_now(lp) - m->fwd.sim_start_time) > s->max_time)
+    if(bf->c0)
     {
         s->max_time = m->rc.arrive.saved_prev_max_time;
         s->ross_sample.max_time = m->rc.arrive.saved_prev_max_time;
@@ -1150,6 +1150,7 @@ void arrive_syn_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * lp)
     m->rc.arrive.saved_send_time_sample = s->ross_sample.send_time;
     if((tw_now(lp) - m->fwd.sim_start_time) > s->max_time)
     {
+        bf->c0 = 1;
         m->rc.arrive.saved_prev_max_time = s->max_time;
         s->max_time = tw_now(lp) - m->fwd.sim_start_time;
         s->ross_sample.max_time = tw_now(lp) - m->fwd.sim_start_time;
@@ -2769,7 +2770,7 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
     s->num_events_processed++;
 #endif /* if LP_DEBUG */
 
-    //*(int *)bf = (int)0;
+    memset(bf, 0, sizeof(tw_bf));
     rc_stack_gc(lp, s->matched_reqs);
 //    rc_stack_gc(lp, s->indices);
     rc_stack_gc(lp, s->processed_ops);

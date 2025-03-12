@@ -16,7 +16,7 @@
 #define MN_NAME "model_net_base"
 
 #define DEBUG 0
-#define MODELNET_LP_DEBUG 1
+#define MODELNET_LP_DEBUG 0
 /**** BEGIN SIMULATION DATA STRUCTURES ****/
 
 int model_net_base_magic;
