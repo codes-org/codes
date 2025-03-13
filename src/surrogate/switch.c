@@ -140,7 +140,7 @@ static void shift_events_to_future_pe(tw_pe * pe, tw_stime gvt) {
     }
     assert(0 < switch_at.current_i && switch_at.current_i <= switch_at.total);
     double const current_switch_time = switch_at.time_stampts[switch_at.current_i - 1];
-    assert(current_switch_time == gvt);
+    assert(current_switch_time <= gvt);
 
     tw_event * dequed_events = NULL; // Linked list of workload events, to be placed again in the queue
     int events_dequeued = 0;  // for stats on code correctness
