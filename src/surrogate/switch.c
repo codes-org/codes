@@ -210,7 +210,7 @@ static void shift_events_to_future_pe(tw_pe * pe) {
         events_enqueued++;
     }
 
-    if (DEBUG_DIRECTOR > 1) {
+    if (DEBUG_DIRECTOR > 0 && events_dequeued != events_enqueued) {
         printf("PE %lu: Discrepancy on number of events processed %d (%d dequeued and %d enqueued)\n",
                 g_tw_mynode, events_dequeued - events_enqueued, events_dequeued, events_enqueued);
     }
@@ -302,9 +302,9 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe) {
     }
 
     tw_event *** lps_events = order_events_per_lps(pe);
-    printf("PE %d - AVL size %d (before shifting events)\n", g_tw_mynode, pe->avl_tree_size);
+    printf("PE %lu - AVL size %d (before shifting events)\n", g_tw_mynode, pe->avl_tree_size);
     shift_events_to_future_pe(pe);
-    printf("PE %d - AVL size %d (after shifting events to future)\n", g_tw_mynode, pe->avl_tree_size);
+    printf("PE %lu - AVL size %d (after shifting events to future)\n", g_tw_mynode, pe->avl_tree_size);
 
     // Going through all LPs in PE and running their specific functions
     for (tw_lpid local_lpid = 0; local_lpid < g_tw_nlp; local_lpid++) {
