@@ -166,6 +166,7 @@ static void shift_events_to_future_pe(tw_pe * pe) {
         struct lp_types_switch const * const lp_type_switch = get_type_switch(lp_type_name);
 
         // shifting time stamps to the future for events to freeze
+        bool deleted = false;
         if (lp_type_switch && lp_type_switch->should_event_be_frozen
                 && lp_type_switch->should_event_be_frozen(next_event->dest_lp, next_event)) {
 #ifdef USE_RAND_TIEBREAKER
@@ -175,13 +176,21 @@ static void shift_events_to_future_pe(tw_pe * pe) {
 #else
             next_event->recv_ts += switch_offset;
 #endif
+            assert(next_event->recv_ts >= current_switch_time);
+        // deleting event if we need to
+        } else if (lp_type_switch && lp_type_switch->should_event_be_deleted
+                && lp_type_switch->should_event_be_deleted(next_event->dest_lp, next_event)) {
+            tw_event_free(pe, next_event);
+            deleted = true;
         }
-        assert(next_event->recv_ts >= current_switch_time);
 
         // store event in deque_events to inject immediately back to the queue
-        next_event->prev = dequed_events;
-        dequed_events = next_event;
-        events_dequeued++;
+        if (!deleted) {
+             next_event->prev = dequed_events;
+             dequed_events = next_event;
+             events_dequeued++;
+             assert(next_event->recv_ts >= current_switch_time);
+        }
 
         next_event = tw_pq_dequeue(pe->pq);
     }

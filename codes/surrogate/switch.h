@@ -49,6 +49,7 @@ struct lp_types_switch {
     model_switch_f        highdef_to_surrogate;
     model_switch_f        surrogate_to_highdef;
     model_ask_if_freeze_f should_event_be_frozen;  // NULL means event from LP type shouldn't be frozen
+    model_ask_if_freeze_f should_event_be_deleted;  // NULL means event from LP type shouldn't be deleted
 };
 
 struct switch_at_struct {

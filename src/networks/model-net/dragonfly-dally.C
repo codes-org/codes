@@ -2446,12 +2446,16 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
                  .trigger_idle_modelnet = true,
                  .highdef_to_surrogate = (model_switch_f) dragonfly_dally_terminal_highdef_to_surrogate,
                  .surrogate_to_highdef = (model_switch_f) dragonfly_dally_terminal_surrogate_to_highdef,
-                 .should_event_be_frozen = dragonfly_dally_terminal_should_event_be_frozen},
+                 .should_event_be_frozen = dragonfly_dally_terminal_should_event_be_frozen,
+                 .should_event_be_deleted = NULL,
+                },
                 {.lpname = "modelnet_dragonfly_dally_router",
                  .trigger_idle_modelnet = false,
                  .highdef_to_surrogate = NULL,
                  .surrogate_to_highdef = NULL,
-                 .should_event_be_frozen = dragonfly_dally_router_should_event_be_frozen},
+                 .should_event_be_frozen = dragonfly_dally_router_should_event_be_frozen,
+                 .should_event_be_deleted = NULL,
+                },
                 0
             }
         };
