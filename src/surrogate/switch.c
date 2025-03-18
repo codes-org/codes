@@ -134,14 +134,14 @@ static void shift_events_to_future_pe(tw_pe * pe) {
     // switch back they will never get to be processed and thus we can clean them
     double switch_offset = g_tw_ts_end;
     if (switch_at.current_i < switch_at.total) {
-        double const next_switch = switch_at.time_stampts[switch_at.current_i];
+        double const next_switch = switch_at.time_stampts[switch_at.current_i + 1];
         double const pre_switch_time = gvt;
         switch_offset = next_switch - pre_switch_time;
         assert(pre_switch_time < next_switch);
         //printf("gvt=%f next_switch=%f switch_offset=%f\n", pre_switch_time, next_switch, switch_offset);
     }
-    assert(0 < switch_at.current_i && switch_at.current_i <= switch_at.total);
-    double const current_switch_time = switch_at.time_stampts[switch_at.current_i - 1];
+    assert(0 <= switch_at.current_i && switch_at.current_i < switch_at.total);
+    double const current_switch_time = switch_at.time_stampts[switch_at.current_i];
     assert(current_switch_time <= gvt);
 
     tw_event * dequed_events = NULL; // Linked list of workload events, to be placed again in the queue
@@ -155,6 +155,9 @@ static void shift_events_to_future_pe(tw_pe * pe) {
 #else
         assert(next_event->recv_ts >= gvt);
 #endif
+        if (next_event->event_id && next_event->state.remote) {
+            tw_hash_remove(pe->hash_t, next_event, next_event->send_pe);
+        }
 
         // finding out lp type
         char const * lp_type_name;
@@ -190,6 +193,10 @@ static void shift_events_to_future_pe(tw_pe * pe) {
         dequed_events = dequed_events->prev;
         prev_event->prev = NULL;
         tw_pq_enqueue(pe->pq, prev_event);
+
+        if (prev_event->event_id && prev_event->state.remote) {
+            tw_hash_insert(pe->hash_t, prev_event, prev_event->send_pe);
+        }
 
         events_enqueued++;
     }
@@ -286,7 +293,9 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe) {
     }
 
     tw_event *** lps_events = order_events_per_lps(pe);
+    printf("PE %d - AVL size %d (before shifting events)\n", g_tw_mynode, pe->avl_tree_size);
     shift_events_to_future_pe(pe);
+    printf("PE %d - AVL size %d (after shifting events to future)\n", g_tw_mynode, pe->avl_tree_size);
 
     // Going through all LPs in PE and running their specific functions
     for (tw_lpid local_lpid = 0; local_lpid < g_tw_nlp; local_lpid++) {
@@ -307,6 +316,10 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe) {
         codes_mapping_get_lp_info2(lp->gid, NULL, &lp_type_name, NULL, &rep_id, &offset);
         bool const is_lp_modelnet = strncmp("modelnet_", lp_type_name, 9) == 0;
         struct lp_types_switch const * const lp_type_switch = get_type_switch(lp_type_name);
+
+        pe->cur_event = pe->abort_event;
+        pe->cur_event->caused_by_me = NULL;
+        pe->cur_event->sig = pe->GVT_sig;
 
         if (lp_type_switch) {
             if (lp_type_switch->trigger_idle_modelnet) {
@@ -363,6 +376,10 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe) {
         bool const is_lp_modelnet = strncmp("modelnet_", lp_type_name, 9) == 0;
         struct lp_types_switch const * const lp_type_switch = get_type_switch(lp_type_name);
 
+        pe->cur_event = pe->abort_event;
+        pe->cur_event->caused_by_me = NULL;
+        pe->cur_event->sig = pe->GVT_sig;
+
         if (lp_type_switch) {
             if (lp_type_switch->trigger_idle_modelnet) {
                 assert(is_lp_modelnet);
@@ -385,8 +402,6 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe) {
     }
 }
 
-
-// This is an impure function, calling it twice WILL give different results. Only call it once!
 bool hit_trigger(tw_stime gvt) {
     if ( switch_at.current_i < switch_at.total
         && g_tw_trigger_gvt_hook.active == GVT_HOOK_triggered) {
@@ -398,14 +413,6 @@ bool hit_trigger(tw_stime gvt) {
 #endif
         assert(gvt >= switch_time);  // current gvt shouldn't be that far ahead from the point we wanted to trigger it
 
-        // Activating next switch
-        if (++switch_at.current_i < switch_at.total) {
-            double const next_switch = switch_at.time_stampts[switch_at.current_i];
-            // Setting trigger for next switch
-            //printf("Adding a trigger to activate next switch!\n");
-            tw_trigger_gvt_hook_at(next_switch);
-        }
-        //
         return true;
     } else {
         return false;
@@ -415,15 +422,9 @@ bool hit_trigger(tw_stime gvt) {
 
 void switch_model(tw_pe * pe) {
     // Rollback if in optimistic mode
-#ifdef USE_RAND_TIEBREAKER
     if (g_tw_synchronization_protocol == OPTIMISTIC) {
         rollback_and_cancel_events_pe(pe);
     }
-#else
-    if (g_tw_synchronization_protocol == OPTIMISTIC) {
-        rollback_and_cancel_events_pe(pe);
-    }
-#endif
     surr_config.director.switch_surrogate();
     if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
         printf("Switching to %s\n", surr_config.director.is_surrogate_on() ? "surrogate" : "high-fidelity");
@@ -510,6 +511,12 @@ void director_call(tw_pe * pe) {
     switch_model(pe);
     double const end = tw_clock_read();
     surrogate_switching_time += end - start;
+
+    // Setting trigger for next switch
+    if (++switch_at.current_i < switch_at.total) {
+        double next_switch = switch_at.time_stampts[switch_at.current_i];
+        tw_trigger_gvt_hook_at(next_switch);
+    }
 
     if (DEBUG_DIRECTOR == 1 && g_tw_mynode == 0) {
         printf("Switch completed!\n");

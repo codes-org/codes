@@ -4831,7 +4831,7 @@ static void notify_dest_lp_of(
     terminal_dally_message * new_msg;
     // Lower value in priority means that it will be processed first
     // This event will be processed before any predicted packet arrives (even if scheduled at the same timestamp)
-    tw_event *e = model_net_method_event_new_user_prio(msg->dest_terminal_lpid, offset, lp, DRAGONFLY_DALLY, (void**)&new_msg, NULL, 0.5);
+    tw_event *e = model_net_method_event_new_user_prio(msg->dest_terminal_lpid, offset, lp, DRAGONFLY_DALLY, (void**)&new_msg, NULL, 1);
 
     memcpy(new_msg, msg, sizeof(terminal_dally_message)); // Just making sure that if the simulation breaks because we didn't set some value below, it breaks in a spectacular manner (~0 can be -1)
     assert(new_msg->dfdally_src_terminal_id == s->terminal_id);
