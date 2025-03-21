@@ -3895,6 +3895,7 @@ static void router_dally_init(router_state * r, tw_lp * lp)
 
     }
 
+    r->snapshot_data = NULL;
     if (num_snapshots) {
         r->snapshot_data = (int**)calloc(num_snapshots, sizeof(int*));
         for(int i = 0; i < num_snapshots; i++)
@@ -3905,6 +3906,8 @@ static void router_dally_init(router_state * r, tw_lp * lp)
     }
 
     //Xin: msg counters for apps 
+    r->agg_link_traffic = NULL;
+    r->agg_busy_time = NULL;
     if(p->counting_bool > 0)
     {   
         r->agg_link_traffic = (int64_t **) calloc(p->counting_windows, sizeof(int64_t *));
@@ -7059,6 +7062,7 @@ static void save_terminal_state(terminal_state *into, terminal_state const *from
     // from->sample_stat
     // from->ross_sample
     // from->busy_time_ross_sample
+    // from->busy_time_sample
 
     memcpy(into, from, sizeof(terminal_state));
 
@@ -7080,6 +7084,7 @@ static void save_terminal_state(terminal_state *into, terminal_state const *from
         into->total_chunks = (unsigned long*) malloc(num_rails * sizeof(uint64_t));
         into->busy_time = (tw_stime*) malloc(num_rails * sizeof(tw_stime));
         into->terminal_msgs = (terminal_dally_message_list***) malloc(num_rails * sizeof(terminal_dally_message_list**));
+        into->link_traffic = (uint64_t*) malloc(num_rails * sizeof(uint64_t));
 
         for(int i = 0; i < num_rails; i++) {
             into->vc_occupancy[i] = (int*) malloc(num_qos_levels * sizeof(int));
@@ -7102,10 +7107,6 @@ static void save_terminal_state(terminal_state *into, terminal_state const *from
             into->stalled_chunks[i] = from->stalled_chunks[i];
             into->total_chunks[i] = from->total_chunks[i];
             into->busy_time[i] = from->busy_time[i];
-        }
-
-        into->link_traffic = (uint64_t*) malloc(p->radix * sizeof(uint64_t));
-        for (int i = 0; i < p->radix; i++) {
             into->link_traffic[i] = from->link_traffic[i];
         }
     }
@@ -7263,9 +7264,6 @@ static bool check_terminal_state(terminal_state *before, terminal_state *after) 
             is_same &= (before->stalled_chunks[i] == after->stalled_chunks[i]);
             is_same &= (before->total_chunks[i] == after->total_chunks[i]);
             is_same &= (before->busy_time[i] == after->busy_time[i]);
-        }
-
-        for (int i = 0; i < p->radix; i++) {
             is_same &= (before->link_traffic[i] == after->link_traffic[i]);
         }
     }
@@ -7468,8 +7466,8 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
         }
         fprintf(out, "]\n");
 
-        fprintf(out, "%s  | *        link_traffic[%d] = [", prefix, state->params->radix);
-        for (int i=0; i<state->params->radix; i++) {
+        fprintf(out, "%s  | *        link_traffic[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
             fprintf(out, "%s%lu", i ? ", " : "", state->link_traffic[i]);
         }
         fprintf(out, "]\n");
@@ -7537,6 +7535,509 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
     fprintf(out, "%s  | *           frozen_state = %p\n", prefix, state->frozen_state);
 }
 
+// Original function implemented by Claude
+static void save_router_state(router_state *into, router_state const *from) {
+    // Missing deep-clone/comparison/print members. These members are always accessed, so it is possible to discover some bugs if we print their contents
+    // from->local_congestion_controller
+
+    // Missing deep-clone/comparison/print members.
+    // from->rsamples
+    // from->ross_rsample
+    // from->busy_time_sample
+    // from->link_traffic_sample
+    // from->link_traffic_ross_sample
+
+    memcpy(into, from, sizeof(router_state));
+
+    dragonfly_param const * p = into->params;
+    int const radix = p->radix;
+    int const num_qos_levels = p->num_qos_levels;
+
+    into->global_channel = (int*) malloc(p->num_global_channels * sizeof(int));
+
+    for (int i = 0; i < p->num_global_channels; i++) {
+        into->global_channel[i] = from->global_channel[i];
+    }
+
+    into->next_output_available_time = (tw_stime*) malloc(radix * sizeof(tw_stime));
+    into->last_buf_full = (tw_stime*) malloc(radix * sizeof(tw_stime));
+    into->busy_time = (tw_stime*) malloc(radix * sizeof(tw_stime));
+    into->stalled_chunks = (unsigned long*) malloc(radix * sizeof(unsigned long));
+    into->total_chunks = (unsigned long*) malloc(radix * sizeof(unsigned long));
+    into->in_send_loop = (int*) malloc(radix * sizeof(int));
+    into->queued_count = (int*) malloc(radix * sizeof(int));
+    into->port_bandwidths = (double*) malloc(radix * sizeof(double));
+    into->vc_max_sizes = (int*) malloc(radix * sizeof(int));
+    into->link_traffic = (int64_t*) malloc(radix * sizeof(int64_t));
+    into->last_qos_lvl = (int*) malloc(radix * sizeof(int));
+    into->vc_occupancy = (int**) malloc(radix * sizeof(int*));
+    into->qos_status = (int**) malloc(radix * sizeof(int*));
+    into->qos_data = (int**) malloc(radix * sizeof(int*));
+    into->pending_msgs = (terminal_dally_message_list***) malloc(radix * sizeof(terminal_dally_message_list**));
+    into->queued_msgs = (terminal_dally_message_list***) malloc(radix * sizeof(terminal_dally_message_list**));
+
+    for (int i = 0; i < radix; i++) {
+        into->next_output_available_time[i] = from->next_output_available_time[i];
+        into->last_buf_full[i] = from->last_buf_full[i];
+        into->busy_time[i] = from->busy_time[i];
+        into->stalled_chunks[i] = from->stalled_chunks[i];
+        into->total_chunks[i] = from->total_chunks[i];
+        into->in_send_loop[i] = from->in_send_loop[i];
+        into->queued_count[i] = from->queued_count[i];
+        into->port_bandwidths[i] = from->port_bandwidths[i];
+        into->vc_max_sizes[i] = from->vc_max_sizes[i];
+        into->link_traffic[i] = from->link_traffic[i];
+        into->last_qos_lvl[i] = from->last_qos_lvl[i];
+
+        into->vc_occupancy[i] = (int*) malloc(p->num_vcs * sizeof(int));
+        into->qos_status[i] = (int*) malloc(num_qos_levels * sizeof(int));
+        into->qos_data[i] = (int*) malloc(num_qos_levels * sizeof(int));
+
+        into->pending_msgs[i] = (terminal_dally_message_list**) malloc(p->num_vcs * sizeof(terminal_dally_message_list*));
+        into->queued_msgs[i] = (terminal_dally_message_list**) malloc(p->num_vcs * sizeof(terminal_dally_message_list*));
+
+        for (int j = 0; j < p->num_vcs; j++) {
+            into->vc_occupancy[i][j] = from->vc_occupancy[i][j];
+            copy_terminal_dally_message_list(&into->pending_msgs[i][j], from->pending_msgs[i][j]);
+            copy_terminal_dally_message_list(&into->queued_msgs[i][j], from->queued_msgs[i][j]);
+        }
+        for (int j = 0; j < num_qos_levels; j++) {
+            into->qos_status[i][j] = from->qos_status[i][j];
+            into->qos_data[i][j] = from->qos_data[i][j];
+        }
+    }
+
+    into->snapshot_data = NULL;
+    if (num_snapshots) {
+        into->snapshot_data = (int**) malloc(num_snapshots * sizeof(int*));
+        int size_snapshot = from->params->num_vcs * from->params->radix;
+        for (int i = 0; i < num_snapshots; i++) {
+            into->snapshot_data[i] = (int*) malloc(size_snapshot * sizeof(int));
+            memcpy(into->snapshot_data[i], from->snapshot_data[i], size_snapshot * sizeof(int));
+        }
+    }
+
+    if (p->counting_bool > 0) {
+        assert(from->agg_busy_time != NULL);
+        assert(from->agg_link_traffic != NULL);
+        into->agg_busy_time = (tw_stime**) malloc(p->counting_windows * sizeof(tw_stime*));
+        into->agg_link_traffic = (int64_t**) malloc(p->counting_windows * sizeof(int64_t*));
+
+        for (int i = 0; i < p->counting_windows; i++) {
+            into->agg_busy_time[i] = (tw_stime*) malloc(radix * sizeof(tw_stime));
+            into->agg_link_traffic[i] = (int64_t*) malloc(radix * sizeof(int64_t));
+            memcpy(into->agg_busy_time[i], from->agg_busy_time[i], radix * sizeof(tw_stime));
+            memcpy(into->agg_link_traffic[i], from->agg_link_traffic[i], radix * sizeof(int64_t));
+        }
+    }
+
+    //if (from->local_congestion_controller != NULL) {
+    //    assert(g_congestion_control_enabled);
+    //    into->local_congestion_controller = (rlc_state*) malloc(sizeof(rlc_state));
+    //    save_rlc_state(into->local_congestion_controller, from->local_congestion_controller);
+    //}
+}
+
+// Original function implemented by Claude
+static void clean_router_state(router_state *state) {
+    dragonfly_param const * p = state->params;
+    int const radix = p->radix;
+
+    // Free simple arrays
+    free(state->global_channel);
+    free(state->next_output_available_time);
+    free(state->last_buf_full);
+    free(state->busy_time);
+    free(state->stalled_chunks);
+    free(state->total_chunks);
+    free(state->in_send_loop);
+    free(state->queued_count);
+    free(state->port_bandwidths);
+    free(state->vc_max_sizes);
+    free(state->link_traffic);
+    free(state->last_qos_lvl);
+
+    // Clean and free 2D arrays
+    for (int i = 0; i < radix; i++) {
+        free(state->vc_occupancy[i]);
+        free(state->qos_status[i]);
+        free(state->qos_data[i]);
+
+        for (int j = 0; j < p->num_vcs; j++) {
+            clean_terminal_dally_message_list(state->pending_msgs[i][j]);
+            clean_terminal_dally_message_list(state->queued_msgs[i][j]);
+        }
+
+        free(state->pending_msgs[i]);
+        free(state->queued_msgs[i]);
+    }
+
+    free(state->vc_occupancy);
+    free(state->qos_status);
+    free(state->qos_data);
+    free(state->pending_msgs);
+    free(state->queued_msgs);
+
+    if (num_snapshots) {
+        for (int i = 0; i < num_snapshots; i++) {
+            free(state->snapshot_data[i]);
+        }
+        free(state->snapshot_data);
+    }
+
+    if (p->counting_bool > 0) {
+        for (int i = 0; i < p->counting_windows; i++) {
+            free(state->agg_busy_time[i]);
+            free(state->agg_link_traffic[i]);
+        }
+        free(state->agg_busy_time);
+        free(state->agg_link_traffic);
+    }
+
+    //if (state->local_congestion_controller != NULL) {
+    //    clean_rlc_state(state->local_congestion_controller);
+    //    free(state->local_congestion_controller);
+    //}
+}
+
+// Original function implemented by Claude
+static bool check_router_state(router_state const *before, router_state const *after) {
+    dragonfly_param const * p = before->params;
+    int const radix = p->radix;
+    int const num_qos_levels = p->num_qos_levels;
+
+    if (before->router_id != after->router_id ||
+        before->group_id != after->group_id ||
+        before->plane_id != after->plane_id ||
+        before->op_arr_size != after->op_arr_size ||
+        before->max_arr_size != after->max_arr_size ||
+        before->workloads_finished_flag != after->workloads_finished_flag ||
+        before->is_monitoring_bw != after->is_monitoring_bw ||
+        before->last_time != after->last_time) {
+        return false;
+    }
+
+    for (int i = 0; i < p->num_global_channels; i++) {
+        if (before->global_channel[i] != after->global_channel[i]) {
+            return false;
+        }
+    }
+
+    for (int i = 0; i < radix; i++) {
+        if (before->next_output_available_time[i] != after->next_output_available_time[i] ||
+            before->last_buf_full[i] != after->last_buf_full[i] ||
+            before->busy_time[i] != after->busy_time[i] ||
+            before->stalled_chunks[i] != after->stalled_chunks[i] ||
+            before->total_chunks[i] != after->total_chunks[i] ||
+            before->in_send_loop[i] != after->in_send_loop[i] ||
+            before->queued_count[i] != after->queued_count[i] ||
+            before->port_bandwidths[i] != after->port_bandwidths[i] ||
+            before->vc_max_sizes[i] != after->vc_max_sizes[i] ||
+            before->link_traffic[i] != after->link_traffic[i] ||
+            before->last_qos_lvl[i] != after->last_qos_lvl[i]) {
+            return false;
+        }
+
+        for (int j = 0; j < p->num_vcs; j++) {
+            if (before->vc_occupancy[i][j] != after->vc_occupancy[i][j]) {
+                return false;
+            }
+
+            if (!check_terminal_dally_message_list(before->pending_msgs[i][j], after->pending_msgs[i][j]) ||
+                !check_terminal_dally_message_list(before->queued_msgs[i][j], after->queued_msgs[i][j])) {
+                return false;
+            }
+        }
+
+        for (int j = 0; j < num_qos_levels; j++) {
+            if (before->qos_status[i][j] != after->qos_status[i][j] ||
+                before->qos_data[i][j] != after->qos_data[i][j]) {
+                return false;
+            }
+        }
+    }
+
+    if ((before->snapshot_data == NULL) != (after->snapshot_data == NULL)) {
+        return false;
+    }
+
+    if (num_snapshots) {
+        assert(before->snapshot_data != NULL);
+        int size_snapshot = before->params->num_vcs * before->params->radix;
+        for (int i = 0; i < num_snapshots; i++) {
+            assert(after->snapshot_data[i] == NULL);
+
+            for (int j = 0; j < size_snapshot; j++) {
+                if (before->snapshot_data[i][j] != after->snapshot_data[i][j]) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    if ((before->agg_busy_time == NULL) != (after->agg_busy_time == NULL)) {
+        return false;
+    }
+    if ((before->agg_link_traffic == NULL) != (after->agg_link_traffic == NULL)) {
+        return false;
+    }
+
+    if (p->counting_bool > 0) {
+        assert(before->agg_busy_time != NULL && after->agg_busy_time);
+        assert(before->agg_link_traffic != NULL && after->agg_link_traffic);
+        for (int i = 0; i < p->counting_windows; i++) {
+            for (int j = 0; j < radix; j++) {
+                if (before->agg_busy_time[i][j] != after->agg_busy_time[i][j] ||
+                    before->agg_link_traffic[i][j] != after->agg_link_traffic[i][j]) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    //if (before->local_congestion_controller != NULL) {
+    //    if (!check_rlc_state(before->local_congestion_controller, after->local_congestion_controller)) {
+    //        return false;
+    //    }
+    //}
+
+    // Check strings
+    if (strncmp(before->output_buf, after->output_buf, 4096) != 0 ||
+        strncmp(before->output_buf5, after->output_buf5, 4096) != 0 ||
+        strncmp(before->output_buf6, after->output_buf6, 4096) != 0) {
+        return false;
+    }
+
+    // All checks passed
+    return true;
+}
+
+// Original function implemented by Claude
+static void print_router_state(FILE * out, char const * prefix, router_state * state) {
+    dragonfly_param const * p = state->params;
+    int const radix = p->radix;
+    int const num_qos_levels = p->num_qos_levels;
+
+    fprintf(out, "%srouter_state (dragonfly) ->\n", prefix);
+    fprintf(out, "%s  |              router_id = %u\n", prefix, state->router_id);
+    fprintf(out, "%s  |               group_id = %d\n", prefix, state->group_id);
+    fprintf(out, "%s  |               plane_id = %d\n", prefix, state->plane_id);
+    fprintf(out, "%s  |            op_arr_size = %d\n", prefix, state->op_arr_size);
+    fprintf(out, "%s  |           max_arr_size = %d\n", prefix, state->max_arr_size);
+
+    fprintf(out, "%s  | *       global_channel[%d] = [", prefix, radix);
+    for (int i = 0; i < p->num_global_channels; i++) {
+        fprintf(out, "%s%d", i ? ", " : "", state->global_channel[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  |                connMan = <DragonflyConnectionManager object>\n", prefix);
+
+    char addprefix[] = "  | ";
+    int len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix) + 1;
+    char * subprefix = (char *) malloc(len_subprefix * sizeof(char));
+    fprintf(out, "%s  | *local_congestion_controller = %p\n", prefix, state->local_congestion_controller);
+    //if (state->local_congestion_controller != NULL) {
+    //    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix);
+    //    print_rlc_state(out, subprefix, state->local_congestion_controller);
+    //}
+    free(subprefix);
+
+    fprintf(out, "%s  | *next_output_available_time[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%g", i ? ", " : "", state->next_output_available_time[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *     last_buf_full[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%g", i ? ", " : "", state->last_buf_full[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *         busy_time[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%g", i ? ", " : "", state->busy_time[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *     busy_time_sample = %p\n", prefix, state->busy_time_sample);
+
+    fprintf(out, "%s  | *    stalled_chunks[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%lu", i ? ", " : "", state->stalled_chunks[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *      total_chunks[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%lu", i ? ", " : "", state->total_chunks[i]);
+    }
+    fprintf(out, "]\n");
+
+    char addprefix_2[] = "  |   |  |  ";
+    len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_2) + 1;
+    subprefix = (char *) malloc(len_subprefix * sizeof(char));
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix_2);
+
+    fprintf(out, "%s  | ***   pending_msgs[%d][%d] = [\n", prefix, radix, p->num_vcs);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s  |   port %d: [\n", prefix, i);
+        for (int j = 0; j < p->num_vcs; j++) {
+            fprintf(out, "%s  |   |  vcs # %d\n", prefix, j);
+            print_terminal_dally_message_list(out, subprefix, NULL, state->pending_msgs[i][j]);
+        }
+        fprintf(out, "%s  |   ]\n", prefix);
+    }
+    fprintf(out, "%s  | ]\n", prefix);
+
+    fprintf(out, "%s  | ***    pending_msgs_tail = %p\n", prefix, state->pending_msgs_tail);
+
+    fprintf(out, "%s  | ***  queued_msgs[%d][%d] = [\n", prefix, radix, p->num_vcs);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s  |   port %d: [\n", prefix, i);
+        for (int j = 0; j < p->num_vcs; j++) {
+            fprintf(out, "%s  |   |  vcs # %d\n", prefix, j);
+            print_terminal_dally_message_list(out, subprefix, NULL, state->queued_msgs[i][j]);
+        }
+        fprintf(out, "%s  |   ]\n", prefix);
+    }
+    fprintf(out, "%s  | ]\n", prefix);
+    free(subprefix);
+
+    fprintf(out, "%s  | ***     queued_msgs_tail = %p\n", prefix, state->queued_msgs_tail);
+
+    fprintf(out, "%s  | *        in_send_loop[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%d", i ? ", " : "", state->in_send_loop[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *        queued_count[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%d", i ? ", " : "", state->queued_count[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *                     st = %p\n", prefix, state->st);
+    fprintf(out, "%s  | *                  cc_st = %p\n", prefix, state->cc_st);
+    fprintf(out, "%s  |  workloads_finished_flag = %d\n", prefix, state->workloads_finished_flag);
+
+    fprintf(out, "%s  | *     port_bandwidths[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%g", i ? ", " : "", state->port_bandwidths[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *        vc_max_sizes[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%d", i ? ", " : "", state->vc_max_sizes[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | **    vc_occupancy[%d][%d] = [\n", prefix, radix, p->num_vcs);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s  |         port %d: [", prefix, i);
+        for (int j = 0; j < p->num_vcs; j++) {
+            fprintf(out, "%s%d", j ? ", " : "", state->vc_occupancy[i][j]);
+        }
+        fprintf(out, "]\n");
+    }
+    fprintf(out, "%s  |      ]\n", prefix);
+
+    fprintf(out, "%s  | *        link_traffic[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%ld", i ? ", " : "", state->link_traffic[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *    link_traffic_sample = %p\n", prefix, state->link_traffic_sample);
+
+    fprintf(out, "%s  |         is_monitoring_bw = %d\n", prefix, state->is_monitoring_bw);
+
+    fprintf(out, "%s  | *        last_qos_lvl[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%d", i ? ", " : "", state->last_qos_lvl[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | **      qos_status[%d][%d] = [\n", prefix, radix, num_qos_levels);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s  |          port %d: [", prefix, i);
+        for (int j = 0; j < num_qos_levels; j++) {
+            fprintf(out, "%s%d", j ? ", " : "", state->qos_status[i][j]);
+        }
+        fprintf(out, "]\n");
+    }
+    fprintf(out, "%s  |       ]\n", prefix);
+
+    fprintf(out, "%s  | **        qos_data[%d][%d] = [\n", prefix, radix, num_qos_levels);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s  |            port %d: [", prefix, i);
+        for (int j = 0; j < num_qos_levels; j++) {
+            fprintf(out, "%s%d", j ? ", " : "", state->qos_data[i][j]);
+        }
+        fprintf(out, "]\n");
+    }
+    fprintf(out, "%s  |         ]\n", prefix);
+
+    fprintf(out, "%s  | *                   anno = %s\n", prefix, state->anno ? state->anno : "(nil)");
+    fprintf(out, "%s  | *                 params = %p\n", prefix, state->params);
+
+    if (num_snapshots) {
+        fprintf(out, "%s  | **   snapshot_data[%d][%d] = [\n", prefix, num_snapshots, radix);
+        int size_snapshot = p->num_vcs * p->radix;
+        for (int i = 0; i < num_snapshots; i++) {
+            fprintf(out, "%s  |  snapshot %d: [", prefix, i);
+            for (int j = 0; j < size_snapshot; j++) {
+                fprintf(out, "%s%d", j ? ", " : "", state->snapshot_data[i][j]);
+            }
+            fprintf(out, "]\n");
+        }
+        fprintf(out, "%s  |  ]\n", prefix);
+    } else {
+        fprintf(out, "%s  | **         snapshot_data = %p\n", prefix, state->snapshot_data);
+    }
+
+    fprintf(out, "%s  |               output_buf = '%.4096s'\n", prefix, state->output_buf);
+    fprintf(out, "%s  | *               rsamples = %p\n", prefix, state->rsamples);
+    fprintf(out, "%s  |               fwd_events = %ld\n", prefix, state->fwd_events);
+    fprintf(out, "%s  |               rev_events = %ld\n", prefix, state->rev_events);
+    fprintf(out, "%s  |              output_buf5 = '%.4096s'\n", prefix, state->output_buf5);
+    fprintf(out, "%s  |              output_buf6 = '%.4096s'\n", prefix, state->output_buf6);
+
+    if(p->counting_bool <= 0)
+    {
+        fprintf(out, "%s  | **         agg_busy_time = %p\n", prefix, state->agg_busy_time);
+        fprintf(out, "%s  | **      agg_link_traffic = %p\n", prefix, state->agg_link_traffic);
+    } else {
+        assert(state->agg_busy_time != NULL);
+        assert(state->agg_link_traffic != NULL);
+        fprintf(out, "%s  | **   agg_busy_time[%d][%d] = [\n", prefix, p->counting_windows, radix);
+        for (int i = 0; i < p->counting_windows; i++) {
+            fprintf(out, "%s  |  window %d: [", prefix, i);
+            for (int j = 0; j < radix; j++) {
+                fprintf(out, "%s%g", j ? ", " : "", state->agg_busy_time[i][j]);
+            }
+            fprintf(out, "]\n");
+        }
+        fprintf(out, "%s  |  ]\n", prefix);
+
+        fprintf(out, "%s  | ** agg_link_traffic[%d][%d] = [\n", prefix, p->counting_windows, radix);
+        for (int i = 0; i < p->counting_windows; i++) {
+            fprintf(out, "%s  |  window %d: [", prefix, i);
+            for (int j = 0; j < radix; j++) {
+                fprintf(out, "%s%lu", j ? ", " : "", state->agg_link_traffic[i][j]);
+            }
+            fprintf(out, "]\n");
+        }
+        fprintf(out, "%s  |  ]\n", prefix);
+    }
+
+    fprintf(out, "%s  |             ross_rsample = <dfly_router_sample object>\n", prefix);
+    fprintf(out, "%s  |                last_time = %g\n", prefix, state->last_time);
+}
+
 char const * const string_event_t(enum event_t type) {
     switch (type) {
         case T_GENERATE:         return "T_GENERATE";
@@ -7561,6 +8062,9 @@ char const * const string_event_t(enum event_t type) {
 bool check_terminal_dally_message(struct terminal_dally_message * before, struct terminal_dally_message * after) {
     bool is_same = true;
 
+    // Fields that have no effects in the simulation
+    // before->this_router_ptp_latency
+
     // Compare all fields
     is_same &= before->magic == after->magic;
     is_same &= before->travel_start_time == after->travel_start_time;
@@ -7584,7 +8088,6 @@ bool check_terminal_dally_message(struct terminal_dally_message * before, struct
     is_same &= before->my_hops_cur_group == after->my_hops_cur_group;
     is_same &= before->next_stop == after->next_stop;
     is_same &= before->this_router_arrival == after->this_router_arrival;
-    is_same &= before->this_router_ptp_latency == after->this_router_ptp_latency;
     is_same &= before->intm_lp_id == after->intm_lp_id;
     is_same &= before->last_hop == after->last_hop;
     is_same &= before->is_intm_visited == after->is_intm_visited;
@@ -7612,6 +8115,7 @@ bool check_terminal_dally_message(struct terminal_dally_message * before, struct
 // Print fuction originally constructed with help from Claude.ai
 void print_terminal_dally_message(FILE * out, char const * prefix, void * s, struct terminal_dally_message * msg) {
     //terminal_state * ns = (terminal_state *) s;
+    //router_state * ns = (router_state *) s;
 
     fprintf(out, "%sterminal_dally_message ->\n", prefix);
     fprintf(out, "%s  |                      magic = %d\n", prefix, msg->magic);
@@ -7730,12 +8234,12 @@ crv_checkpointer dragonfly_dally_checkpointers[] = {
     {
         &dragonfly_dally_lps[1],
         sizeof(router_state),
-        (save_checkpoint_state_f) NULL,
-        (clean_checkpoint_state_f) NULL,
-        (check_states_f) NULL,
-        (print_lpstate_f) NULL,
-        (print_checkpoint_state_f) NULL,
-        (print_event_f) NULL,
+        (save_checkpoint_state_f) save_router_state,
+        (clean_checkpoint_state_f) clean_router_state,
+        (check_states_f) check_router_state,
+        (print_lpstate_f) print_router_state,
+        (print_checkpoint_state_f) print_router_state,
+        (print_event_f) print_terminal_dally_message,
     },
 };
 
