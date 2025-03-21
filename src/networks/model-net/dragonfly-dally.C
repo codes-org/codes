@@ -6616,7 +6616,7 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     m->magic = router_magic_num;
 
     int msg_size = s->params->chunk_size;
-    if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1)) {
+    if(((cur_entry->msg.packet_size % s->params->chunk_size) || cur_entry->msg.packet_size == 0) && (cur_entry->msg.chunk_id == num_chunks - 1)) {
         bf->c11 = 1;
         s->link_traffic[output_port] +=  (cur_entry->msg.packet_size % s->params->chunk_size); 
         s->link_traffic_sample[output_port] += (cur_entry->msg.packet_size % s->params->chunk_size);
@@ -6910,6 +6910,7 @@ static void router_dally_event(router_state * s, tw_bf * bf, terminal_dally_mess
     s->ross_rsample.fwd_events++;
     rc_stack_gc(lp, s->st);
 
+    msg->last_received_time = s->last_time;
     s->last_time = tw_now(lp);
     
     assert(msg->magic == router_magic_num);
@@ -7016,6 +7017,8 @@ static void terminal_dally_rc_event_handler(terminal_state * s, tw_bf * bf, term
 static void router_dally_rc_event_handler(router_state * s, tw_bf * bf, 
   terminal_dally_message * msg, tw_lp * lp) 
 {
+    s->last_time = msg->last_received_time;
+
     for(int i = 0; i < msg->num_rngs; i++)
         tw_rand_reverse_unif(lp->rng);
 
