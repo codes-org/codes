@@ -80,9 +80,9 @@ static void rollback_and_cancel_events_pe(tw_pe * pe) {
     tw_stime const gvt = gvt_sig.recv_ts;
     // Backtracking the simulation to GVT
     for (unsigned int i = 0; i < g_tw_nkp; i++) {
-        tw_kp_rollback_to_sig(g_tw_kp[i], gvt_sig);
+        tw_kp_rollback_to_sig(g_tw_kp[i], &gvt_sig);
     }
-    assert(tw_event_sig_compare(pe->GVT_sig, gvt_sig) == 0);
+    assert(tw_event_sig_compare_ptr(&pe->GVT_sig, &gvt_sig) == 0);
     assert(pe->GVT_sig.recv_ts == gvt);  // redundant but needed because compiler cries that gvt is never used
 #else
     tw_stime const gvt = pe->GVT;
@@ -151,7 +151,7 @@ static void shift_events_to_future_pe(tw_pe * pe) {
         // Filtering events to freeze
         assert(next_event->prev == NULL);
 #ifdef USE_RAND_TIEBREAKER
-        assert(tw_event_sig_compare(next_event->sig, gvt_sig) >= 0);
+        assert(tw_event_sig_compare_ptr(&next_event->sig, &gvt_sig) >= 0);
 #else
         assert(next_event->recv_ts >= gvt);
 #endif

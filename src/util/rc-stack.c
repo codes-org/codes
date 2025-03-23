@@ -124,7 +124,7 @@ void rc_stack_gc(tw_lp const *lp, struct rc_stack *s) {
     while (ent != &s->head) {
         rc_entry *r = qlist_entry(ent, rc_entry, ql);
 #ifdef USE_RAND_TIEBREAKER
-        if (lp == NULL || tw_event_sig_compare(r->e_sig, lp->pe->GVT_sig) == -1) {
+        if (lp == NULL || tw_event_sig_compare_ptr(&r->e_sig, &lp->pe->GVT_sig) < 0) {
 #else
         if (lp == NULL || r->time < lp->pe->GVT){
 #endif
