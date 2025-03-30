@@ -378,6 +378,7 @@ static model_net_event_return model_net_event_impl_base(
     strncpy(r->category, category, CATEGORY_NAME_MAX-1);
     r->category[CATEGORY_NAME_MAX-1]='\0';
 
+
     if (is_msg_params_set[MN_MSG_PARAM_START_TIME])
         r->msg_start_time = start_time_param;
     else
@@ -390,6 +391,7 @@ static model_net_event_return model_net_event_impl_base(
         jid = codes_jobmap_to_local_id(codes_mapping_get_lp_relative_id(sender->gid, 0, 0), ctx);
         r->app_id = jid.job;
     }
+
     // this is an outgoing message
     m->msg.m_base.is_from_remote = 0;
     m->msg.m_base.isQueueReq = 1;
