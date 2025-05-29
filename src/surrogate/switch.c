@@ -1,6 +1,8 @@
 #include <codes/surrogate/init.h>
 #include <codes/surrogate/switch.h>
 #include <codes/model-net-lp.h>
+#include <ross-extern.h>
+#include <stdio.h>
 
 double surrogate_switching_time = 0.0;
 double time_in_surrogate = 0.0;
@@ -8,36 +10,6 @@ static double surrogate_time_last = 0.0;
 
 // === Director functionality
 //
-
-
-//static void offset_future_events_in_causality_list(double switch_offset, tw_event_sig gvt) {
-//    (void) switch_offset;
-//    (void) gvt;
-//    int events_processed = 0;
-//    int events_modified = 0;
-//    for (unsigned int i = 0; i < g_tw_nkp; i++) {
-//        tw_kp * const this_kp = g_tw_kp[i];
-//
-//        //assert(this_kp->pevent_q.size == 0);
-//        // All events in pevent_q are sent into the future
-//        assert((this_kp->pevent_q.tail == NULL) == (this_kp->pevent_q.size == 0));
-//        tw_event * cur_event = this_kp->pevent_q.tail;
-//        while (cur_event) {
-//            if (!is_workload_event(cur_event) && tw_event_sig_compare(cur_event->sig, gvt) > 0) {
-//                cur_event->recv_ts += switch_offset;
-//                cur_event->sig.recv_ts = cur_event->recv_ts;
-//                events_modified++;
-//            }
-//
-//            cur_event = cur_event->prev;
-//            events_processed++;
-//        }
-//    }
-//    if (DEBUG_DIRECTOR > 1 && g_tw_mynode == 0) {
-//        printf("PE %lu: Total events from causality modified %d (from total processed %d)\n", g_tw_mynode, events_modified, events_processed);
-//    }
-//}
-
 
 static struct lp_types_switch const * get_type_switch(char const * const name) {
     for (size_t i = 0; i < surr_config.n_lp_types; i++) {
@@ -49,72 +21,6 @@ static struct lp_types_switch const * get_type_switch(char const * const name) {
     return NULL;
 }
 
-
-// MPI barrier to determine if anyone has a true value `val`. Returns true if anyone says "TRUE"
-static inline bool does_any_pe(bool val) {
-    bool global_val;
-    if(MPI_Allreduce(&val, &global_val, 1, MPI_C_BOOL, MPI_LOR, MPI_COMM_ROSS) != MPI_SUCCESS) {
-        tw_error(TW_LOC, "MPI_Allreduce for custom rollback and cleanup failed");
-    }
-    return global_val;
-}
-
-
-//static tw_event_sig find_sig_smallest_larger_than(double switch_, tw_kp * kp, tw_event_sig gvt) {
-//    //printf("Just testing, I'm here! size=%d\n", kp->pevent_q.size);
-//    tw_event * cur_event = kp->pevent_q.tail;
-//    while (cur_event) {
-//        //printf("Current timestamp to rollback (%e) and gvt (%e)\n", cur_event->sig.recv_ts, gvt.recv_ts);
-//        if (tw_event_sig_compare(cur_event->sig, gvt) < 0 && switch_ <= cur_event->sig.recv_ts) {
-//            gvt = cur_event->sig;
-//        }
-//        cur_event = cur_event->prev;
-//    }
-//    return gvt;
-//}
-
-
-static void rollback_and_cancel_events_pe(tw_pe * pe) {
-#ifdef USE_RAND_TIEBREAKER
-    tw_event_sig const gvt_sig = pe->GVT_sig;
-    tw_stime const gvt = gvt_sig.recv_ts;
-    // Backtracking the simulation to GVT
-    for (unsigned int i = 0; i < g_tw_nkp; i++) {
-        tw_kp_rollback_to_sig(g_tw_kp[i], &gvt_sig);
-    }
-    assert(tw_event_sig_compare_ptr(&pe->GVT_sig, &gvt_sig) == 0);
-    assert(pe->GVT_sig.recv_ts == gvt);  // redundant but needed because compiler cries that gvt is never used
-#else
-    tw_stime const gvt = pe->GVT;
-    // Backtracking the simulation to GVT
-    for (unsigned int i = 0; i < g_tw_nkp; i++) {
-        tw_kp_rollback_to(g_tw_kp[i], gvt);
-    }
-    assert(pe->GVT == gvt);
-#endif
-
-    // Making sure that everything gets cleaned up properly (AVL tree should be empty by the end)
-    do {
-        if (tw_nnodes() > 1) {
-            double const start = tw_clock_read();
-            tw_net_read(pe);
-            pe->stats.s_net_read += tw_clock_read() - start;
-        }
-
-        pe->gvt_status = 1;
-        tw_sched_event_q(pe);
-        tw_sched_cancel_q(pe);
-        tw_gvt_step2(pe);
-
-        if (DEBUG_DIRECTOR > 1) {
-            printf("PE %lu: Time stamp at the end of GVT time: %f - AVL-tree sized: %d\n", g_tw_mynode, gvt, pe->avl_tree_size);
-        }
-    } while (does_any_pe(pe->cancel_q != NULL) || does_any_pe(pe->event_q.size != 0));
-
-    if (DEBUG_DIRECTOR > 1) {
-        printf("PE %lu: All events rolledbacked and cancelled\n", g_tw_mynode);
-    }
-}
 
 static void shift_events_to_future_pe(tw_pe * pe) {
 #ifdef USE_RAND_TIEBREAKER
@@ -347,7 +253,7 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe) {
 
     // This will force a global update on all the new remote events (instead of waiting until the next GVT cycle to update events to process)
     if (g_tw_synchronization_protocol == OPTIMISTIC) {
-        rollback_and_cancel_events_pe(pe);
+        tw_scheduler_rollback_and_cancel_events_pe(pe);
     }
 
     assert(lps_events[0] != NULL);
@@ -411,28 +317,11 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe) {
     }
 }
 
-bool hit_trigger(tw_stime gvt) {
-    if ( switch_at.current_i < switch_at.total
-        && g_tw_trigger_gvt_hook.active == GVT_HOOK_triggered) {
-        double const switch_time = switch_at.time_stampts[switch_at.current_i];
-#ifdef USE_RAND_TIEBREAKER
-        assert(g_tw_trigger_gvt_hook.sig_at.recv_ts == switch_at.time_stampts[switch_at.current_i]);
-#else
-        assert(g_tw_trigger_gvt_hook.at == switch_at.time_stampts[switch_at.current_i]);
-#endif
-        assert(gvt >= switch_time);  // current gvt shouldn't be that far ahead from the point we wanted to trigger it
-
-        return true;
-    } else {
-        return false;
-    }
-}
-
 
 void switch_model(tw_pe * pe) {
     // Rollback if in optimistic mode
     if (g_tw_synchronization_protocol == OPTIMISTIC) {
-        rollback_and_cancel_events_pe(pe);
+        tw_scheduler_rollback_and_cancel_events_pe(pe);
     }
     surr_config.director.switch_surrogate();
     if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
@@ -468,20 +357,8 @@ void director_call(tw_pe * pe) {
             fflush(stdout);
         }
         if (DEBUG_DIRECTOR == 3) {
-            printf("GVT %d at %f in %s arbitrary-fun-status=", i++, gvt,
+            printf("GVT %d at %f in %s\n", i++, gvt,
                     surr_config.director.is_surrogate_on() ? "surrogate-mode" : "high-definition");
-
-            switch (g_tw_trigger_gvt_hook.active) {
-                case GVT_HOOK_enabled:
-                    printf("enabled\n");
-                    break;
-                case GVT_HOOK_disabled:
-                    printf("disabled\n");
-                    break;
-                case GVT_HOOK_triggered:
-                    printf("triggered\n");
-                    break;
-            }
         }
     }
 
@@ -501,10 +378,6 @@ void director_call(tw_pe * pe) {
         return;
     }
 
-    // Detecting if we are going to switch
-    if (! hit_trigger(gvt)) {
-        return;
-    }
     // ---- Past this means that we are in fact switching ----
     bool const pre_switch_status = surr_config.director.is_surrogate_on();
 
