@@ -23,6 +23,7 @@
 #include "codes/model-net-lp.h"
 #include "codes/surrogate/init.h"
 #include "codes/net/dragonfly-dally.h"
+#include "quicklist.h"
 #include "sys/file.h"
 #include "codes/quickhash.h"
 #include "codes/rc-stack.h"
@@ -3302,6 +3303,11 @@ static void router_send_snapshot_events(router_state *s, tw_lp *lp)
 
 static void router_handle_snapshot_event(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp)
 {
+    if (msg->packet_ID >= num_snapshots) {
+        fprintf(stderr, "Warning: packet_ID = %llu will not be saved in the snapshot because there are only %d spaces available.\n", msg->packet_ID, num_snapshots);
+        return;
+    }
+
     for(int i = 0; i < s->params->radix; i++)
     {
         for(int j = 0; j < s->params->num_vcs; j++)
@@ -3517,7 +3523,7 @@ static void router_dally_commit(router_state * s,
 
     if (msg->type == R_SNAPSHOT)
     {
-        if (OUTPUT_SNAPSHOT == 1)
+        if (OUTPUT_SNAPSHOT == 1 && msg->packet_ID < num_snapshots)
         {
             char snapshot_line[8192];
             int written;
@@ -7049,17 +7055,103 @@ static void router_dally_rc_event_handler(router_state * s, tw_bf * bf,
 }
 
 //*** ---------- START OF reverse handler checking functions ---------- ***
-bool warn_incomplete_definition_terminal_state_check = false;
+static void copy_rank_tbl(struct qhash_table * into, struct qhash_table const * from) {
+  // YES! This function is very, very slow and so are all the others. This is
+  // the simplest implementation we could come up with without changing how
+  // qhash_table works or replacing it altogether. Both options would need
+  // substantial changes to the dragonfly model
+  for (int i = 0; i < from->table_size; i++) {
+    struct dfly_qhash_entry *entry;
+    qlist_for_each_entry(entry, &from->array[i], hash_link) {
+      struct dfly_qhash_entry *new_entry =
+          (struct dfly_qhash_entry *)malloc(sizeof(struct dfly_qhash_entry));
+      *new_entry = *entry; // There is no need to copy contents of pointer because we don't check it
+      qlist_add(&new_entry->hash_link, &into->array[i]);
+    }
+    }
+}
 
-static void save_terminal_state(terminal_state *into, terminal_state const *from) {
-    if (!warn_incomplete_definition_terminal_state_check) {
-        fprintf(stderr, "Warning: Deep-cloning and comparing has not been fully implemented for the (sub)LP type: `terminal_state` (Running this model under SEQUENTIAL_ROLLBACK_CHECK might not capture issues that arise from its reverse event handler).\n");
-        warn_incomplete_definition_terminal_state_check = true;
+static void clean_rank_tbl(struct qhash_table * rank_tbl) {
+    for (int i=0; i < rank_tbl->table_size; i++) {
+        while(!qlist_empty(&rank_tbl->array[i])) {
+            struct qlist_head *item = qlist_pop(&rank_tbl->array[i]);
+            struct dfly_qhash_entry * entry = qlist_entry(item, struct dfly_qhash_entry, hash_link);
+            free(entry);
+        }
+    }
+}
+
+static bool check_dfly_qhash_entry(struct dfly_qhash_entry * before, struct dfly_qhash_entry * after) {
+    // We ignore the remote data fields because they won't be needed:
+    // - remote_event_size
+    // - remote_event_data
+
+    if (before->key.sender_id != after->key.sender_id ||
+        before->key.message_id != after->key.message_id ||
+        before->num_chunks != after->num_chunks ||
+        before->remaining_packets != after->remaining_packets) {
+        return false;
     }
 
-    // Missing deep-clone/comparison/print members. These members are always accessed, so it is possible to discover some bugs if we print their contents
-    // from->rank_tbl
+    return true;
+}
 
+static bool check_rank_tbl(qhash_table const * before, struct qhash_table const * after) {
+    for (int i=0; i < before->table_size; i++) {
+        if (qlist_count(&before->array[i]) != qlist_count(&before->array[i])) {
+            return false;
+        }
+        struct dfly_qhash_entry * before_entry;
+        struct dfly_qhash_entry * after_entry;
+        qlist_for_each_entry(before_entry, &before->array[i], hash_link) {
+            // Yes, this is slow if there are many collisions, but often there won't be any
+            bool found_entry = false;
+            qlist_for_each_entry(after_entry, &after->array[i], hash_link) {
+                if (check_dfly_qhash_entry(before_entry, after_entry)) {
+                    found_entry = true;
+                    break;
+                }
+            }
+            if (!found_entry) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static void print_rank_tbl(FILE * out, char const * prefix, struct qhash_table * rank_tbl) {
+    fprintf(out, "%stable_size = %d\n", prefix, rank_tbl->table_size);
+    fprintf(out, "%s   compare = %p\n", prefix, rank_tbl->compare);
+    fprintf(out, "%s      hash = %p\n", prefix, rank_tbl->hash);
+    fprintf(out, "%s     array = %p\n", prefix, rank_tbl->array);
+
+    char addprefix[] = "     |  | ";
+    int len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix) + 1;
+    char * subprefix = (char *) malloc(len_subprefix * sizeof(char));
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix);
+
+    for (int i=0; i < rank_tbl->table_size; i++) {
+        struct dfly_qhash_entry * entry;
+        qlist_for_each_entry(entry, &rank_tbl->array[i], hash_link) {
+            fprintf(out, "%s     | {\n", prefix);
+            fprintf(out, "%s     |      key.message_id = %lu\n", prefix, entry->key.message_id);
+            fprintf(out, "%s     |       key.sender_id = %lu\n", prefix, entry->key.sender_id);
+            fprintf(out, "%s     |          num_chunks = %d\n", prefix, entry->num_chunks);
+            fprintf(out, "%s     |   remaining_packets = %d\n", prefix, entry->remaining_packets);
+            fprintf(out, "%s     |   remote_event_size = %d\n", prefix, entry->remote_event_size);
+            fprintf(out, "%s     | * remote_event_data = %p\n", prefix, entry->remote_event_data);
+            if (entry->remote_event_size) {
+                tw_fprint_binary_array(out, subprefix, entry->remote_event_data, entry->remote_event_size);
+            }
+            fprintf(out, "%s     | },\n", prefix);
+        }
+    }
+
+    free(subprefix);
+}
+
+static void save_terminal_state(terminal_state *into, terminal_state const *from) {
     // These should be deep-cloned/compared/printed if we want to run the functionality they are activated at
     // from->predictor_data
     // from->sample_stat
@@ -7119,6 +7211,9 @@ static void save_terminal_state(terminal_state *into, terminal_state const *from
         into->local_congestion_controller = (tlc_state*) malloc(sizeof(tlc_state));
         save_tlc_state(into->local_congestion_controller, from->local_congestion_controller);
     }
+
+    into->rank_tbl = qhash_init(dragonfly_rank_hash_compare, dragonfly_hash_func, DFLY_HASH_TABLE_SIZE);
+    copy_rank_tbl(into->rank_tbl, from->rank_tbl);
 
     // I would use the C++ amgic to copy these containers but they don't work as well :S
     new (&into->remaining_sz_packets) map<struct packet_id, uint32_t>();
@@ -7180,6 +7275,9 @@ static void clean_terminal_state(terminal_state *state) {
         clean_tlc_state(state->local_congestion_controller);
         free(state->local_congestion_controller);
     }
+
+    clean_rank_tbl(state->rank_tbl);
+    qhash_finalize(state->rank_tbl);
 
     state->remaining_sz_packets.~map();
     state->zombies.~set();
@@ -7279,6 +7377,8 @@ static bool check_terminal_state(terminal_state *before, terminal_state *after) 
     if (after->local_congestion_controller != NULL) {
         is_same &= check_tlc_state(before->local_congestion_controller, after->local_congestion_controller);
     }
+
+    is_same &= check_rank_tbl(before->rank_tbl, after->rank_tbl);
 
     is_same &= before->remaining_sz_packets == after->remaining_sz_packets;
     is_same &= before->zombies == after->zombies;
@@ -7440,7 +7540,16 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
 
     fprintf(out, "%s  | *                   anno = %s\n", prefix, state->anno ? state->anno : "(nil)");
     fprintf(out, "%s  | *                 params = %p\n", prefix, state->params);
-    fprintf(out, "%s  | *               rank_tbl = %p\n", prefix, state->rank_tbl);
+
+    fprintf(out, "%s  | *               rank_tbl = {\n", prefix);
+    char addprefix_4[] = "  |     ";
+    len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_4) + 1;
+    subprefix = (char *) malloc(len_subprefix * sizeof(char));
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix_4);
+    print_rank_tbl(out, subprefix, state->rank_tbl);
+    free(subprefix);
+    fprintf(out, "%s  | }\n", prefix);
+
     fprintf(out, "%s  |             rank_tbl_pop = %lu\n", prefix, state->rank_tbl_pop);
     fprintf(out, "%s  |               total_time = %g\n", prefix, state->total_time);
     fprintf(out, "%s  |           total_msg_size = %lu\n", prefix, state->total_msg_size);
@@ -7610,16 +7719,6 @@ static void save_router_state(router_state *into, router_state const *from) {
         }
     }
 
-    into->snapshot_data = NULL;
-    if (num_snapshots) {
-        into->snapshot_data = (int**) malloc(num_snapshots * sizeof(int*));
-        int size_snapshot = from->params->num_vcs * from->params->radix;
-        for (int i = 0; i < num_snapshots; i++) {
-            into->snapshot_data[i] = (int*) malloc(size_snapshot * sizeof(int));
-            memcpy(into->snapshot_data[i], from->snapshot_data[i], size_snapshot * sizeof(int));
-        }
-    }
-
     if (p->counting_bool > 0) {
         assert(from->agg_busy_time != NULL);
         assert(from->agg_link_traffic != NULL);
@@ -7681,13 +7780,6 @@ static void clean_router_state(router_state *state) {
     free(state->pending_msgs);
     free(state->queued_msgs);
 
-    if (num_snapshots) {
-        for (int i = 0; i < num_snapshots; i++) {
-            free(state->snapshot_data[i]);
-        }
-        free(state->snapshot_data);
-    }
-
     if (p->counting_bool > 0) {
         for (int i = 0; i < p->counting_windows; i++) {
             free(state->agg_busy_time[i]);
@@ -7705,6 +7797,13 @@ static void clean_router_state(router_state *state) {
 
 // Original function implemented by Claude
 static bool check_router_state(router_state const *before, router_state const *after) {
+    // The following are not checked because they don't influence any other
+    // components of the router state, ie, they are never used to change
+    // the simulation behavior.
+    // - snapshot_data
+    // - fwd_events
+    // - rev_events
+
     dragonfly_param const * p = before->params;
     int const radix = p->radix;
     int const num_qos_levels = p->num_qos_levels;
@@ -7756,24 +7855,6 @@ static bool check_router_state(router_state const *before, router_state const *a
             if (before->qos_status[i][j] != after->qos_status[i][j] ||
                 before->qos_data[i][j] != after->qos_data[i][j]) {
                 return false;
-            }
-        }
-    }
-
-    if ((before->snapshot_data == NULL) != (after->snapshot_data == NULL)) {
-        return false;
-    }
-
-    if (num_snapshots) {
-        assert(before->snapshot_data != NULL);
-        int size_snapshot = before->params->num_vcs * before->params->radix;
-        for (int i = 0; i < num_snapshots; i++) {
-            assert(after->snapshot_data[i] == NULL);
-
-            for (int j = 0; j < size_snapshot; j++) {
-                if (before->snapshot_data[i][j] != after->snapshot_data[i][j]) {
-                    return false;
-                }
             }
         }
     }
@@ -7987,20 +8068,7 @@ static void print_router_state(FILE * out, char const * prefix, router_state * s
     fprintf(out, "%s  | *                   anno = %s\n", prefix, state->anno ? state->anno : "(nil)");
     fprintf(out, "%s  | *                 params = %p\n", prefix, state->params);
 
-    if (num_snapshots) {
-        fprintf(out, "%s  | **   snapshot_data[%d][%d] = [\n", prefix, num_snapshots, radix);
-        int size_snapshot = p->num_vcs * p->radix;
-        for (int i = 0; i < num_snapshots; i++) {
-            fprintf(out, "%s  |  snapshot %d: [", prefix, i);
-            for (int j = 0; j < size_snapshot; j++) {
-                fprintf(out, "%s%d", j ? ", " : "", state->snapshot_data[i][j]);
-            }
-            fprintf(out, "]\n");
-        }
-        fprintf(out, "%s  |  ]\n", prefix);
-    } else {
-        fprintf(out, "%s  | **         snapshot_data = %p\n", prefix, state->snapshot_data);
-    }
+    fprintf(out, "%s  | **         snapshot_data = %p\n", prefix, state->snapshot_data);
 
     fprintf(out, "%s  |               output_buf = '%.4096s'\n", prefix, state->output_buf);
     fprintf(out, "%s  | *               rsamples = %p\n", prefix, state->rsamples);

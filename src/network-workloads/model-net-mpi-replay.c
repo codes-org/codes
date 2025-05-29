@@ -82,7 +82,7 @@ static tw_stime mean_interval = 100000;
 static int payload_sz = 1024;
 
 /* Doing LP IO*/
-static void * params = NULL;
+static char * params = NULL;
 static char lp_io_dir[256] = {'\0'};
 static char sampling_dir[32] = {'\0'};
 static char mpi_msg_dir[32] = {'\0'};
