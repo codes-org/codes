@@ -36,18 +36,18 @@ struct packet_end {
 };
 
 // Definition of functions needed to define a predictor
-typedef void (*init_pred_f) (void * predictor_data, tw_lp * lp, unsigned int terminal_id); // Initializes the predictor (eg, LSTM)
-typedef void (*feed_pred_f) (void * predictor_data, tw_lp * lp, unsigned int terminal_id, struct packet_start const *, struct packet_end const *); // Feeds known latency for packet sent at `now`
-typedef struct packet_end (*predict_pred_f) (void * predictor_data, tw_lp * lp, unsigned int terminal_id, struct packet_start const *); // Get prediction for packet sent to `destination` at `now`
-typedef void (*predict_pred_rc_f) (void * predictor_data, tw_lp * lp); // Reverse prediction (reverse state of predictor one prediction)
+typedef void (*init_pred_lat_f) (void * predictor_data, tw_lp * lp, unsigned int terminal_id); // Initializes the predictor (eg, LSTM)
+typedef void (*feed_pred_lat_f) (void * predictor_data, tw_lp * lp, unsigned int terminal_id, struct packet_start const *, struct packet_end const *); // Feeds known latency for packet sent at `now`
+typedef struct packet_end (*predict_pred_lat_f) (void * predictor_data, tw_lp * lp, unsigned int terminal_id, struct packet_start const *); // Get prediction for packet sent to `destination` at `now`
+typedef void (*predict_pred_lat_rc_f) (void * predictor_data, tw_lp * lp); // Reverse prediction (reverse state of predictor one prediction)
 
-// Each network model defines its own way to setup the packet latency predictor
+// API for packet latency predictors
 struct packet_latency_predictor {
-    init_pred_f        init;
-    feed_pred_f        feed;
-    predict_pred_f     predict;
-    predict_pred_rc_f  predict_rc;
-    size_t             predictor_data_sz; // `predictor_data` size
+    init_pred_lat_f        init;
+    feed_pred_lat_f        feed;
+    predict_pred_lat_f     predict;
+    predict_pred_lat_rc_f  predict_rc;
+    size_t                 predictor_data_sz; // `predictor_data` size
 };
 
 #ifdef __cplusplus
