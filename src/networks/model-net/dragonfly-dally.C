@@ -3704,11 +3704,12 @@ static void terminal_dally_init( terminal_state * s, tw_lp * lp )
     s->frozen_state = NULL;
 
     // alloc'ing memory for predictor, calling initiliazer for predictor
-    if (terminal_predictor != NULL && terminal_predictor->predictor_data_sz > 0) {
-        s->predictor_data = calloc(1, terminal_predictor->predictor_data_sz);
+    s->predictor_data = NULL;
+    if (terminal_predictor != NULL) {
+        if (terminal_predictor->predictor_data_sz > 0) {
+            s->predictor_data = calloc(1, terminal_predictor->predictor_data_sz);
+        }
         terminal_predictor->init(s->predictor_data, lp, s->terminal_id);
-    } else {
-        s->predictor_data = NULL;
     }
     s->last_in_queue_time = 0;
     return;
