@@ -67,7 +67,6 @@ char workload_type[128];
 char workload_name[128];
 char workload_file[8192];
 char offset_file[8192];
-static int wrkld_id;
 static int num_net_traces = 0;
 static int prioritize_collectives = 0;
 static int num_dumpi_traces = 0;
@@ -293,7 +292,7 @@ struct nw_state
 #endif /* if LP_DEBUG */
 	long num_events_per_lp;
 	tw_lpid nw_id;
-	short wrkld_end;
+	short wrkld_id;
     int app_id;
     int local_rank;
     int qos_level;
@@ -1251,18 +1250,18 @@ static void skip_to_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message *
     // consuming all events until indicated iteration is reached
     bool reached_end = false;
     while (!reached_end) {
-        codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, &mpi_op);
+        codes_workload_get_next(s->wrkld_id, s->app_id, s->local_rank, &mpi_op);
 
         switch (mpi_op.op_type) {
             case CODES_WK_MARK:
                 if (mpi_op.u.send.tag == resume_at_iter) {
                     reached_end = true;
-                    codes_workload_get_next_rc(wrkld_id, s->app_id, s->local_rank, &mpi_op);
+                    codes_workload_get_next_rc(s->wrkld_id, s->app_id, s->local_rank, &mpi_op);
                 }
                 break;
             // If we reach the end of simulation, rollback once to allow the operation to be processed normally
             case CODES_WK_END:
-                codes_workload_get_next_rc(wrkld_id, s->app_id, s->local_rank, &mpi_op);
+                codes_workload_get_next_rc(s->wrkld_id, s->app_id, s->local_rank, &mpi_op);
                 reached_end = true;
                 break;
             default:
@@ -2523,6 +2522,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->qos_level = 0; //TODO:  We need a more elegant solution for determining if qos is enabled or not.
                      //       This had been -1 but if qos is not configured (single job no workload conf file)
                      //       then this will error out
+   s->wrkld_id = -1;
 
    char type_name[512];
 
@@ -2721,8 +2721,9 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    }
    else 
    {
-   wrkld_id = codes_workload_load(type_name, params, s->app_id, s->local_rank);
+   s->wrkld_id = codes_workload_load(type_name, params, s->app_id, s->local_rank);
    codes_issue_next_event(lp);
+        printf("my wrkld_id = %d\n", s->wrkld_id);
    }
    if(enable_sampling && sampling_interval > 0)
    {
@@ -2911,7 +2912,7 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 
 static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
-    codes_workload_get_next_rc(wrkld_id, s->app_id, s->local_rank, m->mpi_op);
+    codes_workload_get_next_rc(s->wrkld_id, s->app_id, s->local_rank, m->mpi_op);
 
 	if(m->op_type == CODES_WK_END)
     {
@@ -3022,10 +3023,8 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 {
 		//struct codes_workload_op * mpi_op = malloc(sizeof(struct codes_workload_op));
 //        printf("\n App id %d local rank %d ", s->app_id, s->local_rank);
-    //    struct codes_workload_op mpi_op;
-    //    codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, &mpi_op);
 	    struct codes_workload_op * mpi_op = (struct codes_workload_op*)malloc(sizeof(struct codes_workload_op));
-        codes_workload_get_next(wrkld_id, s->app_id, s->local_rank, mpi_op);
+        codes_workload_get_next(s->wrkld_id, s->app_id, s->local_rank, mpi_op);
         m->mpi_op = mpi_op; 
         m->op_type = mpi_op->op_type;
 	
@@ -3562,7 +3561,7 @@ static bool check_nw_lp_state(nw_state * before, nw_state const * after) {
     // Basic fields
     is_same &= (before->num_events_per_lp == after->num_events_per_lp);
     is_same &= (before->nw_id == after->nw_id);
-    is_same &= (before->wrkld_end == after->wrkld_end);
+    is_same &= (before->wrkld_id == after->wrkld_id);
     is_same &= (before->app_id == after->app_id);
     is_same &= (before->local_rank == after->local_rank);
     is_same &= (before->qos_level == after->qos_level);
@@ -3657,7 +3656,7 @@ static void print_nw_lp_state(FILE * out, char const * prefix, nw_state * state)
 #endif /* if LP_DE%sBUG */
     fprintf(out, "%s |     num_events_per_lp = %ld\n", prefix, state->num_events_per_lp);
     fprintf(out, "%s |                 nw_id = %lu\n", prefix, state->nw_id);
-    fprintf(out, "%s |             wrkld_end = %d\n", prefix, state->wrkld_end);
+    fprintf(out, "%s |             wrkld_end = %d\n", prefix, state->wrkld_id);
     fprintf(out, "%s |                app_id = %d\n", prefix, state->app_id);
     fprintf(out, "%s |            local_rank = %d\n", prefix, state->local_rank);
     fprintf(out, "%s |             qos_level = %d\n", prefix, state->qos_level);
