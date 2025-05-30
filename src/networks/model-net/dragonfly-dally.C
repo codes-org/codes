@@ -189,8 +189,8 @@ static void setup_packet_latency_path(char const * const dir_to_save);
 
 // ==== START OF Parameters to tune surrogate mode ====
 // 
-static bool surrogate_configured = false;
-static bool is_surrogate_on = false;
+static bool dally_surrogate_configured = false;
+static bool is_dally_surrogate_on = false;
 static struct packet_latency_predictor * terminal_predictor = NULL;
 static void switch_surrogate(void);
 static bool is_surrogate_on_fun(void);
@@ -2435,10 +2435,10 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     // START Surrogate configuration
     char director_mode[MAX_NAME_LENGTH];
     director_mode[0] = '\0';
-    int director_mode_len = configuration_get_value(&config, "SURROGATE", "director_mode", anno, director_mode, MAX_NAME_LENGTH);
+    int director_mode_len = configuration_get_value(&config, "NETWORK_SURROGATE", "director_mode", anno, director_mode, MAX_NAME_LENGTH);
     // if surrogate mode has been set up
     if (director_mode_len > 0) {
-        struct surrogate_config surr_conf = {
+        struct network_surrogate_config surr_conf = {
             .director = {.switch_surrogate = switch_surrogate, .is_surrogate_on = is_surrogate_on_fun},
             .total_terminals = p->total_terminals,
             .n_lp_types = 2,
@@ -2460,9 +2460,9 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
                 0
             }
         };
-        surrogate_configure(anno, &surr_conf, &terminal_predictor);
+        network_surrogate_configure(anno, &surr_conf, &terminal_predictor);
         if (terminal_predictor) {
-            surrogate_configured = true;
+            dally_surrogate_configured = true;
         } else {
             tw_error(TW_LOC, "Latency predictor is NULL. Something during surrogate configuration failed.");
         }
@@ -2987,11 +2987,11 @@ static inline void packet_latency_save_to_file(
 // ==== START OF Surrogate functions definition ====
 
 static void switch_surrogate(void) {
-    is_surrogate_on = ! is_surrogate_on;
+    is_dally_surrogate_on = ! is_dally_surrogate_on;
 }
 
 static bool is_surrogate_on_fun(void) {
-    return is_surrogate_on;
+    return is_dally_surrogate_on;
 }
 
 static void feed_packet_to_predictor(terminal_state * s, tw_lp * lp, uint64_t packet_ID, double end_time) {
@@ -3002,8 +3002,8 @@ static void feed_packet_to_predictor(terminal_state * s, tw_lp * lp, uint64_t pa
         .next_packet_delay = sent.next_packet_delay,
     };
 
-    packet_latency_save_to_file(s->terminal_id, &sent.start, &end, is_surrogate_on, false);
-    if (surrogate_configured && !is_surrogate_on) {
+    packet_latency_save_to_file(s->terminal_id, &sent.start, &end, is_dally_surrogate_on, false);
+    if (dally_surrogate_configured && !is_dally_surrogate_on) {
         assert(terminal_predictor != NULL);
         terminal_predictor->feed(s->predictor_data, lp, s->terminal_id, &sent.start, &end);
     }
@@ -3085,7 +3085,7 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(
                 latency = 0;
             }
 
-            packet_latency_save_to_file(s->terminal_id, &sent.start, &predicted_end, is_surrogate_on, true);
+            packet_latency_save_to_file(s->terminal_id, &sent.start, &predicted_end, is_dally_surrogate_on, true);
 
             assert(sent.message_data);
             terminal_dally_message * const msg_data = (terminal_dally_message*) sent.message_data;
@@ -3321,7 +3321,7 @@ static void router_handle_snapshot_event(router_state *s, tw_bf *bf, terminal_da
 }
 
 static void terminal_commit_packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) {
-    if (!packet_latency_f && !surrogate_configured) {
+    if (!packet_latency_f && !dally_surrogate_configured) {
         return;
     }
 
@@ -3379,7 +3379,7 @@ static void terminal_dally_commit(terminal_state * s,
     switch (msg->type) {
         case T_GENERATE:
             if(bf->c10) {  // if the packet was sent as a prediction, store the prediction in memory
-                assert(surrogate_configured);
+                assert(dally_surrogate_configured);
                 auto start = (struct packet_start) {
                     .packet_ID = msg->packet_ID,
                     .dest_terminal_lpid = msg->dest_terminal_lpid,
@@ -3396,7 +3396,7 @@ static void terminal_dally_commit(terminal_state * s,
                     .travel_end_time = msg->travel_end_time,
                     .next_packet_delay = msg->saved_next_packet_delay,
                 };
-                packet_latency_save_to_file(s->terminal_id, &start, &end, is_surrogate_on, true);
+                packet_latency_save_to_file(s->terminal_id, &start, &end, is_dally_surrogate_on, true);
 
                 // If we had latency info for the last packet transmitted, then we have to store it into memory and clean the variable
                 if (s->arrival_of_last_packet.packet_ID != -1) {
@@ -3410,7 +3410,7 @@ static void terminal_dally_commit(terminal_state * s,
                         .next_packet_delay = -1,
                     };
 
-                    packet_latency_save_to_file(s->terminal_id, &sent.start, &end, is_surrogate_on, false);
+                    packet_latency_save_to_file(s->terminal_id, &sent.start, &end, is_dally_surrogate_on, false);
 
                     s->sent_packets.erase(s->arrival_of_last_packet.packet_ID);
                     s->arrival_of_last_packet.packet_ID = -1;
@@ -5497,7 +5497,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
         tmp->remaining_packets--;
 
         //printf("Good day sir, not a zombie! LPID=%d  packet_ID = %d  dfdally_src_terminal_id = %d\n", lp->gid, msg->packet_ID, msg->dfdally_src_terminal_id);
-        if (packet_latency_f || surrogate_configured) {
+        if (packet_latency_f || dally_surrogate_configured) {
             notify_src_lp_on_total_latency(lp, msg);
         //} else {
         //    // This vacuous msg is necessary just to keep simulations with and without the latency notification the same. Notifying the latency does not impact
@@ -5589,7 +5589,7 @@ static void terminal_buf_update(terminal_state * s,
 static void dragonfly_dally_terminal_final( terminal_state * s, 
       tw_lp * lp )
 {
-    if (freeze_network_on_switch && is_surrogate_on) {
+    if (freeze_network_on_switch && is_dally_surrogate_on) {
         dragonfly_dally_terminal_surrogate_to_highdef(s, lp, NULL);
     }
     // printf("terminal id %d\n",s->terminal_id);
@@ -6851,7 +6851,7 @@ terminal_dally_event( terminal_state * s,
     assert(msg->magic == terminal_magic_num);
     //printf("LPID: %llu Event type %d processed at %f\n", lp->gid, msg->type, tw_now(lp));
 
-    if (is_surrogate_on && freeze_network_on_switch) {
+    if (is_dally_surrogate_on && freeze_network_on_switch) {
         // This event will be reversed. It comes from the past, it has been forwarded to the future
         // by the surrogate freezing the network procedure and should not be taken into account
         if (! (msg->type == T_GENERATE || msg->type == T_ARRIVE_PREDICTED || msg->type == T_NOTIFY)) {
@@ -6865,7 +6865,7 @@ terminal_dally_event( terminal_state * s,
     switch(msg->type)
         {
         case T_GENERATE:
-            if (is_surrogate_on) {
+            if (is_dally_surrogate_on) {
                 bf->c10 = 1;
                 packet_generate_predicted(s,bf,msg,lp);
             } else {
@@ -7165,7 +7165,7 @@ static void save_terminal_state(terminal_state *into, terminal_state const *from
     int const num_qos_levels = p->num_qos_levels;
     int const num_rails = p->num_rails;
 
-    if (!is_surrogate_on) {
+    if (!is_dally_surrogate_on) {
         into->vc_occupancy = (int **) malloc(num_rails * sizeof(int*));
         into->terminal_length = (int**) malloc(num_rails * sizeof(int*));
         into->last_buf_full = (tw_stime*) malloc(num_rails * sizeof(tw_stime));
@@ -7243,7 +7243,7 @@ static void clean_terminal_state(terminal_state *state) {
     int const num_rails = p->num_rails;
     int const num_qos_levels = p->num_qos_levels;
 
-    if (!is_surrogate_on) {
+    if (!is_dally_surrogate_on) {
         for (int i = 0; i < num_rails; i++) {
             free(state->vc_occupancy[i]);
             free(state->terminal_length[i]);
@@ -7343,7 +7343,7 @@ static bool check_terminal_state(terminal_state *before, terminal_state *after) 
         is_same &= (before->anno == after->anno);
     }
 
-    if (!is_surrogate_on) {
+    if (!is_dally_surrogate_on) {
         dragonfly_param const * p = before->params;
         int const num_qos_levels = p->num_qos_levels;
         int const num_rails = p->num_rails;
@@ -7420,7 +7420,7 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
 
     fprintf(out, "%s  |  workloads_finished_flag = %d\n", prefix, state->workloads_finished_flag);
 
-    if (is_surrogate_on) {
+    if (is_dally_surrogate_on) {
         fprintf(out, "%s  | **          vc_occupancy = %p\n", prefix, state->vc_occupancy);
         fprintf(out, "%s  | *terminal_available_time = %p\n", prefix, state->terminal_available_time);
         fprintf(out, "%s  | ***        terminal_msgs = %p\n", prefix, state->terminal_msgs);
@@ -7459,7 +7459,7 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
 
     fprintf(out, "%s  | ***   terminal_msgs_tail = %p\n", prefix, state->terminal_msgs_tail);
 
-    if (is_surrogate_on) {
+    if (is_dally_surrogate_on) {
         fprintf(out, "%s  | *          in_send_loop = %p\n", prefix, state->in_send_loop);
     } else {
         fprintf(out, "%s  | *       in_send_loop[%d] = [", prefix, state->params->num_rails);
@@ -7481,7 +7481,7 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
     fprintf(out, "%s  |    ]\n", prefix);
     free(subprefix);
 
-    if (is_surrogate_on) {
+    if (is_dally_surrogate_on) {
         fprintf(out, "%s  | **           qos_status = %p\n", prefix, state->qos_status);
         fprintf(out, "%s  | **             qos_data = %p\n", prefix, state->qos_data);
         fprintf(out, "%s  | *          last_qos_lvl = %p\n", prefix, state->last_qos_lvl);
@@ -7517,7 +7517,7 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
     fprintf(out, "%s  | *                     st = %p\n", prefix, state->st);
     fprintf(out, "%s  | *                  cc_st = %p\n", prefix, state->cc_st);
 
-    if (is_surrogate_on) {
+    if (is_dally_surrogate_on) {
         fprintf(out, "%s  | *             issueIdle = %p\n", prefix, state->issueIdle);
         fprintf(out, "%s  | **      terminal_length = %p\n", prefix, state->terminal_length);
     } else {
@@ -7558,7 +7558,7 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
     fprintf(out, "%s  |          finished_chunks = %ld\n", prefix, state->finished_chunks);
     fprintf(out, "%s  |         finished_packets = %ld\n", prefix, state->finished_packets);
 
-    if (is_surrogate_on) {
+    if (is_dally_surrogate_on) {
         fprintf(out, "%s  | **      terminal_length = %p\n", prefix, state->terminal_length);
         fprintf(out, "%s  | *         last_buf_full = %p\n", prefix, state->last_buf_full);
         fprintf(out, "%s  | *             busy_time = %p\n", prefix, state->busy_time);

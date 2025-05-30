@@ -1,5 +1,5 @@
 #include <codes/surrogate/init.h>
-#include <codes/surrogate/switch.h>
+#include <codes/surrogate/network-surrogate.h>
 #include <codes/model-net-lp.h>
 #include <ross-extern.h>
 #include <stdio.h>
@@ -31,7 +31,7 @@ static void shift_events_to_future_pe(tw_pe * pe) {
 #endif
     tw_event * next_event = tw_pq_dequeue(pe->pq);
 
-    // If there aren't any events left to process, the simulation has already finished and we have nothing to do
+    // If there aren't any events left to process, then this PE has nothing to do
     if (next_event == NULL) {
         return;
     }
@@ -207,10 +207,10 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe) {
         tw_error(TW_LOC, "Sorry, sending packets to the future hasn't been implement in this mode");
     }
 
-    tw_event *** lps_events = order_events_per_lps(pe);
     printf("PE %lu - AVL size %d (before shifting events)\n", g_tw_mynode, pe->avl_tree_size);
     shift_events_to_future_pe(pe);
     printf("PE %lu - AVL size %d (after shifting events to future)\n", g_tw_mynode, pe->avl_tree_size);
+    tw_event *** lps_events = order_events_per_lps(pe);
 
     // Going through all LPs in PE and running their specific functions
     for (tw_lpid local_lpid = 0; local_lpid < g_tw_nlp; local_lpid++) {
@@ -341,8 +341,8 @@ void switch_model(tw_pe * pe) {
 }
 
 
-void director_call(tw_pe * pe) {
-    assert(is_surrogate_configured);
+void network_director(tw_pe * pe) {
+    assert(is_network_surrogate_configured);
 
 #ifdef USE_RAND_TIEBREAKER
     tw_stime gvt = pe->GVT_sig.recv_ts;

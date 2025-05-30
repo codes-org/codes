@@ -60,9 +60,8 @@ struct switch_at_struct {
 
 extern struct switch_at_struct switch_at;
 
-
-// Switch
-void director_call(tw_pe * pe);
+// Main function responsible for switching between high-fidelity and (network) surrogate
+void network_director(tw_pe * pe);
 
 #ifdef __cplusplus
 }

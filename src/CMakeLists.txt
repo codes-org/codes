@@ -56,7 +56,7 @@ list(APPEND SRCS
     util/congestion-controller.C
 
     surrogate/init.c
-    surrogate/switch.c
+    surrogate/network-surrogate.c
     surrogate/packet-latency-predictor/common.c
     surrogate/packet-latency-predictor/average.c
 
