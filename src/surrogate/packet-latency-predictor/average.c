@@ -29,7 +29,7 @@ static void init_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int 
     assert(data->aggregated_next_packet_delay.total_msgs == 0);
     assert(data->aggregated_next_packet_delay.sum_latency == 0);
 
-    data->num_terminals = surr_config.total_terminals;
+    data->num_terminals = net_surr_config.total_terminals;
 }
 
 static void feed_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int src_terminal, struct packet_start const * start, struct packet_end const * end) {

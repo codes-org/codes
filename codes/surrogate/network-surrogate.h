@@ -1,5 +1,5 @@
-#ifndef CODES_SURROGATE_SWITCH_H
-#define CODES_SURROGATE_SWITCH_H
+#ifndef CODES_SURROGATE_NETWORK_SURROGATE_H
+#define CODES_SURROGATE_NETWORK_SURROGATE_H
 
 /**
  * switch.h -- DIRECTOR FUNCTION in charge of switching back and forth from high-fidelity and surrogate modes
@@ -58,7 +58,7 @@ struct switch_at_struct {
     double * time_stampts; // list of precise timestamps at which to switch
 };
 
-extern struct switch_at_struct switch_at;
+extern struct switch_at_struct switch_network_at;
 
 // Main function responsible for switching between high-fidelity and (network) surrogate
 void network_director(tw_pe * pe);

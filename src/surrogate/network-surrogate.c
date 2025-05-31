@@ -12,10 +12,10 @@ static double surrogate_time_last = 0.0;
 //
 
 static struct lp_types_switch const * get_type_switch(char const * const name) {
-    for (size_t i = 0; i < surr_config.n_lp_types; i++) {
+    for (size_t i = 0; i < net_surr_config.n_lp_types; i++) {
         //printf("THIS %s and %s\n", surr_config.lp_types[i].lpname, name);
-        if (strcmp(surr_config.lp_types[i].lpname, name) == 0) {
-            return &surr_config.lp_types[i];
+        if (strcmp(net_surr_config.lp_types[i].lpname, name) == 0) {
+            return &net_surr_config.lp_types[i];
         }
     }
     return NULL;
@@ -39,15 +39,15 @@ static void shift_events_to_future_pe(tw_pe * pe) {
     // We have to put the events back into the queue after we switch back, but if we never
     // switch back they will never get to be processed and thus we can clean them
     double switch_offset = g_tw_ts_end;
-    if (switch_at.current_i < switch_at.total) {
-        double const next_switch = switch_at.time_stampts[switch_at.current_i + 1];
+    if (switch_network_at.current_i < switch_network_at.total) {
+        double const next_switch = switch_network_at.time_stampts[switch_network_at.current_i + 1];
         double const pre_switch_time = gvt;
         switch_offset = next_switch - pre_switch_time;
         assert(pre_switch_time < next_switch);
         //printf("gvt=%f next_switch=%f switch_offset=%f\n", pre_switch_time, next_switch, switch_offset);
     }
-    assert(0 <= switch_at.current_i && switch_at.current_i < switch_at.total);
-    double const current_switch_time = switch_at.time_stampts[switch_at.current_i];
+    assert(0 <= switch_network_at.current_i && switch_network_at.current_i < switch_network_at.total);
+    double const current_switch_time = switch_network_at.time_stampts[switch_network_at.current_i];
     assert(current_switch_time <= gvt);
 
     tw_event * dequed_events = NULL; // Linked list of workload events, to be placed again in the queue
@@ -323,14 +323,14 @@ void switch_model(tw_pe * pe) {
     if (g_tw_synchronization_protocol == OPTIMISTIC) {
         tw_scheduler_rollback_and_cancel_events_pe(pe);
     }
-    surr_config.director.switch_surrogate();
+    net_surr_config.director.switch_surrogate();
     if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
-        printf("Switching to %s\n", surr_config.director.is_surrogate_on() ? "surrogate" : "high-fidelity");
+        printf("Switching to %s\n", net_surr_config.director.is_surrogate_on() ? "surrogate" : "high-fidelity");
     }
 
     // "Freezing" network events and activating LP's switch functions
     if (freeze_network_on_switch) {
-        if (surr_config.director.is_surrogate_on()) {
+        if (net_surr_config.director.is_surrogate_on()) {
             model_net_method_switch_to_surrogate();
             events_high_def_to_surrogate_switch(pe);
         } else {
@@ -358,7 +358,7 @@ void network_director(tw_pe * pe) {
         }
         if (DEBUG_DIRECTOR == 3) {
             printf("GVT %d at %f in %s\n", i++, gvt,
-                    surr_config.director.is_surrogate_on() ? "surrogate-mode" : "high-definition");
+                    net_surr_config.director.is_surrogate_on() ? "surrogate-mode" : "high-definition");
         }
     }
 
@@ -372,14 +372,14 @@ void network_director(tw_pe * pe) {
     // Do not process if the simulation ended
     if (gvt >= g_tw_ts_end) {
         // If the simulation ended and the surrogate is still on, stop timer checking surrogate time
-        if (surr_config.director.is_surrogate_on()) {
+        if (net_surr_config.director.is_surrogate_on()) {
             time_in_surrogate += tw_clock_read() - surrogate_time_last;
         }
         return;
     }
 
     // ---- Past this means that we are in fact switching ----
-    bool const pre_switch_status = surr_config.director.is_surrogate_on();
+    bool const pre_switch_status = net_surr_config.director.is_surrogate_on();
 
     // Asking the director/model to switch
     if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
@@ -395,8 +395,8 @@ void network_director(tw_pe * pe) {
     surrogate_switching_time += end - start;
 
     // Setting trigger for next switch
-    if (++switch_at.current_i < switch_at.total) {
-        double next_switch = switch_at.time_stampts[switch_at.current_i];
+    if (++switch_network_at.current_i < switch_network_at.total) {
+        double next_switch = switch_network_at.time_stampts[switch_network_at.current_i];
         tw_trigger_gvt_hook_at(next_switch);
     }
 
@@ -408,8 +408,8 @@ void network_director(tw_pe * pe) {
     }
 
     // Determining time in surrogate
-    if (pre_switch_status != surr_config.director.is_surrogate_on()) {
-        if (surr_config.director.is_surrogate_on()) {
+    if (pre_switch_status != net_surr_config.director.is_surrogate_on()) {
+        if (net_surr_config.director.is_surrogate_on()) {
             // Start tracking time spent in surrogate mode
             surrogate_time_last = end;
         } else {

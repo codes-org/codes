@@ -6,10 +6,10 @@
 #endif
 
 bool freeze_network_on_switch = true;
-struct network_surrogate_config surr_config = {0};
+struct network_surrogate_config net_surr_config = {0};
 bool is_network_surrogate_configured = false;
-struct switch_at_struct switch_at;
-static struct packet_latency_predictor current_predictor = {0};
+struct switch_at_struct switch_network_at;
+static struct packet_latency_predictor current_net_predictor = {0};
 
 
 // === Stats!
@@ -33,7 +33,7 @@ void network_surrogate_configure(
     is_network_surrogate_configured = true;
 
     // This is the only place where the director data should be loaded and set up
-    surr_config = *sc;
+    net_surr_config = *sc;
 
     // Determining which director mode to set up
     char director_mode[MAX_NAME_LENGTH];
@@ -47,25 +47,25 @@ void network_surrogate_configure(
         size_t len;
         configuration_get_multivalue(&config, "NETWORK_SURROGATE", "fixed_switch_timestamps", anno, &timestamps, &len);
 
-        switch_at.current_i = 0;
-        switch_at.total = len;
-        switch_at.time_stampts = malloc(len * sizeof(double));
+        switch_network_at.current_i = 0;
+        switch_network_at.total = len;
+        switch_network_at.time_stampts = malloc(len * sizeof(double));
 
         for (size_t i = 0; i < len; i++) {
             errno = 0;
-            switch_at.time_stampts[i] = strtod(timestamps[i], NULL);
+            switch_network_at.time_stampts[i] = strtod(timestamps[i], NULL);
             if (errno == ERANGE || errno == EILSEQ){
                 tw_error(TW_LOC, "Sequence `%s' could not be succesfully interpreted as a _double_.", timestamps[i]);
             }
 
-            PRINTF_ONCE("%g%s", switch_at.time_stampts[i], i == len-1 ? "" : ", ");
+            PRINTF_ONCE("%g%s", switch_network_at.time_stampts[i], i == len-1 ? "" : ", ");
         }
         PRINTF_ONCE("\n");
 
         // Injecting into ROSS the function to be called at GVT and the instant in time to trigger GVT
         g_tw_gvt_hook = network_director;
 
-        tw_trigger_gvt_hook_at(switch_at.time_stampts[0]);
+        tw_trigger_gvt_hook_at(switch_network_at.time_stampts[0]);
 
         // freeing timestamps before it dissapears
         for (size_t i = 0; i < len; i++) {
@@ -82,8 +82,8 @@ void network_surrogate_configure(
     configuration_get_value(&config, "NETWORK_SURROGATE", "packet_latency_predictor", anno, latency_pred_name, MAX_NAME_LENGTH);
     if (*latency_pred_name) {
         if (strcmp(latency_pred_name, "average") == 0) {
-            current_predictor = average_latency_predictor(surr_config.total_terminals);
-            *pl_pred = &current_predictor;
+            current_net_predictor = average_latency_predictor(net_surr_config.total_terminals);
+            *pl_pred = &current_net_predictor;
 
 #ifdef USE_TORCH
         } else if (strcmp(latency_pred_name, "torch-jit") == 0) {
@@ -111,8 +111,8 @@ void network_surrogate_configure(
                     ")", latency_pred_name);
         }
     } else {
-        current_predictor = average_latency_predictor(surr_config.total_terminals);
-        *pl_pred = &current_predictor;
+        current_net_predictor = average_latency_predictor(net_surr_config.total_terminals);
+        *pl_pred = &current_net_predictor;
         PRINTF_ONCE("Enabling average packet latency predictor (default behaviour)\n");
     }
 
@@ -146,7 +146,7 @@ void network_surrogate_configure(
 
     //surr_config.director.switch_surrogate();
     if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
-        fprintf(stderr, "Simulation starting on %s mode\n", surr_config.director.is_surrogate_on() ? "surrogate" : "high-fidelity");
+        fprintf(stderr, "Simulation starting on %s mode\n", net_surr_config.director.is_surrogate_on() ? "surrogate" : "high-fidelity");
     }
 }
 // === END OF All things Surrogate Configuration
