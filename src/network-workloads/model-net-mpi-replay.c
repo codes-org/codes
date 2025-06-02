@@ -284,30 +284,40 @@ typedef struct mpi_msgs_queue mpi_msgs_queue;
 typedef struct completed_requests completed_requests;
 typedef struct pending_waits pending_waits;
 
-/* state of the network LP. It contains the pointers to send/receive lists */
+/*
+ * state of the network LP. It contains the pointers to send/receive lists
+ *
+ * nw-lp's can only run one job! Which all start at time 0
+ *
+ * Three possible states for nw-lp:
+ * - run application (non-synthetic workload)
+ * - run background noise pattern (synthetic workload)
+ * - do nothing
+ **/
 struct nw_state
 {
 #if LP_DEBUG
 	size_t num_events_processed;
 #endif /* if LP_DEBUG */
-	long num_events_per_lp;
-	tw_lpid nw_id;
-	short wrkld_id;
-    int app_id;
-    int local_rank;
-    int qos_level;
 
+    tw_lpid nw_id;  // compute node id, as labeled by the network
+    int local_rank; // id local to the application or synthetic workload, this is the number that the application sees, their phony "MPI rank"
+
+    // Parameters used for non-synthetic workloads
+    short wrkld_id; // workload machinery in charge, e.g, swm
+    int app_id;     // application id, position on the queue for this app to run
+    int * known_completed_jobs; //array of whether this rank knows other jobs are completed.
+    struct rc_stack * processed_ops;
+    struct rc_stack * processed_wait_op;
+    struct rc_stack * matched_reqs;
+    struct pending_waits * wait_op; // Pending wait operation
+
+    // Parameters used for synthetic workload parameters
     int synthetic_pattern;
     int is_finished;
     int num_own_job_ranks_completed; //counted by the root rank 0 of a job
 
-     //array of whether this rank knows other jobs are completed.
-    int * known_completed_jobs;
-
-    struct rc_stack * processed_ops;
-    struct rc_stack * processed_wait_op;
-    struct rc_stack * matched_reqs;
-//    struct rc_stack * indices;
+    int qos_level;
 
     /* count of sends, receives, collectives and delays */
 	unsigned long num_sends;
@@ -349,9 +359,6 @@ struct nw_state
 	struct qlist_head completed_reqs;
 
     tw_stime cur_interval_end;
-    
-    /* Pending wait operation */
-    struct pending_waits * wait_op;
 
     /* Message size latency information */
     struct qhash_table * msg_sz_table;
@@ -2663,12 +2670,10 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    rc_stack_create(&s->processed_ops);
    rc_stack_create(&s->processed_wait_op);
    rc_stack_create(&s->matched_reqs);
-//   rc_stack_create(&s->indices);
     
    assert(s->processed_ops != NULL);
    assert(s->processed_wait_op != NULL);
    assert(s->matched_reqs != NULL);
-//   assert(s->indices != NULL);
 
    /* clock starts ticking when the first event is processed */
    s->start_time = tw_now(lp);
@@ -2773,7 +2778,6 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 
     memset(bf, 0, sizeof(tw_bf));
     rc_stack_gc(lp, s->matched_reqs);
-//    rc_stack_gc(lp, s->indices);
     rc_stack_gc(lp, s->processed_ops);
     rc_stack_gc(lp, s->processed_wait_op);
 
@@ -3286,7 +3290,6 @@ void nw_test_finalize(nw_state* s, tw_lp* lp)
 
 		//printf("\n LP %ld Time spent in communication %llu ", lp->gid, total_time - s->compute_time);
 	    rc_stack_destroy(s->matched_reqs);
-//	    rc_stack_destroy(s->indices);
 	    rc_stack_destroy(s->processed_ops);
 	    rc_stack_destroy(s->processed_wait_op);
 
@@ -3559,7 +3562,6 @@ static bool check_nw_lp_state(nw_state * before, nw_state const * after) {
     bool is_same = true;
 
     // Basic fields
-    is_same &= (before->num_events_per_lp == after->num_events_per_lp);
     is_same &= (before->nw_id == after->nw_id);
     is_same &= (before->wrkld_id == after->wrkld_id);
     is_same &= (before->app_id == after->app_id);
@@ -3654,7 +3656,6 @@ static void print_nw_lp_state(FILE * out, char const * prefix, nw_state * state)
 #if LP_DEBUG
     fprintf(out, "%s |  num_events_processed = %zu\n", prefix, state->num_events_processed);
 #endif /* if LP_DE%sBUG */
-    fprintf(out, "%s |     num_events_per_lp = %ld\n", prefix, state->num_events_per_lp);
     fprintf(out, "%s |                 nw_id = %lu\n", prefix, state->nw_id);
     fprintf(out, "%s |             wrkld_end = %d\n", prefix, state->wrkld_id);
     fprintf(out, "%s |                app_id = %d\n", prefix, state->app_id);
