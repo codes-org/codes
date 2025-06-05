@@ -1,5 +1,7 @@
 #include <codes/surrogate/init.h>
 #include <codes/surrogate/packet-latency-predictor/average.h>
+#include <codes/surrogate/application-surrogate.h>
+#include <codes/surrogate/app-iteration-predictor/average.h>
 
 #ifdef USE_TORCH
 #include <codes/surrogate/packet-latency-predictor/torch-jit.h>
@@ -10,6 +12,7 @@ struct network_surrogate_config net_surr_config = {0};
 bool is_network_surrogate_configured = false;
 struct switch_at_struct switch_network_at;
 static struct packet_latency_predictor current_net_predictor = {0};
+static struct app_iteration_predictor current_iter_predictor = {0};
 
 
 // === Stats!
@@ -148,5 +151,26 @@ void network_surrogate_configure(
     if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
         fprintf(stderr, "Simulation starting on %s mode\n", net_surr_config.director.is_surrogate_on() ? "surrogate" : "high-fidelity");
     }
+}
+
+void application_surrogate_configure(
+    int num_terminals_in_pe,
+    int num_apps,
+    struct app_iteration_predictor ** iter_pred //!< pointer to save application iteration predictor. Caller must free it
+) {
+    // TODO: get configuration settings from common configuration file settings
+    struct avg_app_config predictor_config = {
+        .num_apps = num_apps,
+        .num_nodes_in_pe = num_terminals_in_pe,
+        .num_of_iters_to_feed = 5,
+    };
+    int every_n_gvt = 100;
+    current_iter_predictor = avg_app_iteration_predictor(&predictor_config);
+    application_director_configure(every_n_gvt, &current_iter_predictor);
+    *iter_pred = &current_iter_predictor;
+}
+
+void free_application_surrogate(void) {
+    free_avg_app_iteration_predictor();
 }
 // === END OF All things Surrogate Configuration

@@ -8,6 +8,7 @@
  * Copyright (c) 2023 Rensselaer Polytechnic Institute
  */
 #include "codes/surrogate/packet-latency-predictor/common.h"
+#include "codes/surrogate/app-iteration-predictor/common.h"
 #include "codes/surrogate/network-surrogate.h"
 
 // A simple macro to clarify code a bit
@@ -48,6 +49,13 @@ void network_surrogate_configure(
 
 extern struct network_surrogate_config net_surr_config;
 extern bool is_network_surrogate_configured;
+
+void application_surrogate_configure(
+    int num_terminals_on_pe,
+    int num_apps,
+    struct app_iteration_predictor ** iter_pred //!< pointer to save application iteration predictor. No need to free pointer
+);
+void free_application_surrogate(void);
 
 #ifdef __cplusplus
 }

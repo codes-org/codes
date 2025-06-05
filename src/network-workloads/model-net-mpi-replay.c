@@ -21,6 +21,7 @@
 #include "codes/codes-jobmap.h"
 #include "codes/congestion-controller-core.h"
 #include "codes/surrogate/init.h"
+#include "surrogate/app-iteration-predictor/common.h"
 
 /* turning on track lp will generate a lot of output messages */
 #define DBG_COMM 1
@@ -42,6 +43,7 @@
 #define NEAR_ZERO .0001 //timestamp for use to be 'close to zero' but still allow progress, zero offset events are hard on the PDES engine
 #define OUTPUT_MARKS 0
 #define LP_DEBUG 0
+#define HARD_CODED_AVG_ITER_PREDICTOR 0
 
 static int msg_size_hash_compare(
             void *key, struct qhash_head *link);
@@ -163,6 +165,9 @@ static double sampling_interval = 5000000;
 static double sampling_end_time = 3000000000;
 static int enable_debug = 0;
 
+// Surrogate variables
+struct app_iteration_predictor *iter_predictor = NULL;
+static int nw_id_counter = 0;
 // We can skip multiple iterations using an average as our predicted iteration time. This will skip ahead to a future step in the simulation
 static struct AvgSurrogateSwitchingTimesForApp *skip_iter_config;
 static size_t skip_iter_config_size = 0;
@@ -301,6 +306,7 @@ struct nw_state
 #endif /* if LP_DEBUG */
 
     tw_lpid nw_id;  // compute node id, as labeled by the network
+    tw_lpid nw_id_in_pe;  // compute node id for this PE
     int local_rank; // id local to the application or synthetic workload, this is the number that the application sees, their phony "MPI rank"
 
     // Parameters used for non-synthetic workloads
@@ -418,6 +424,7 @@ struct nw_message
        int found_match;
        short wait_completed;
        short rend_send;
+       int resume_at_iter;
    } fwd;
 
    // A different struct for each type of MPI_NW_EVENTS
@@ -482,7 +489,7 @@ struct nw_message
            int64_t saved_num_bytes;
        } mpi_ack;
 
-       // Surrogate variables
+        // For SURR_SKIP_ITERATION
        struct {
            struct AvgSurrogateSwitchingTimesForApp * config_used;
        } surr;
@@ -1242,17 +1249,25 @@ static struct AvgSurrogateSwitchingTimesForApp * get_switch_config(struct nw_sta
 }
 
 static void skip_iteration_rc(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m) {
-    m->rc.surr.config_used->done = false;
+    if (HARD_CODED_AVG_ITER_PREDICTOR) {
+        m->rc.surr.config_used->done = false;
+    }
 }
 
 static void skip_to_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message * m)
 {
     struct codes_workload_op mpi_op;
+    int resume_at_iter;
 
-    struct AvgSurrogateSwitchingTimesForApp * switch_config = get_switch_config(s);
-    assert(switch_config != NULL);
-    int const resume_at_iter = switch_config->resume_at_iter;
-    m->rc.surr.config_used = switch_config;
+    if (HARD_CODED_AVG_ITER_PREDICTOR) {
+        struct AvgSurrogateSwitchingTimesForApp * switch_config = get_switch_config(s);
+        assert(switch_config != NULL);
+        resume_at_iter = switch_config->resume_at_iter;
+        m->rc.surr.config_used = switch_config;
+        switch_config->done = true;
+    } else {
+        resume_at_iter = m->fwd.resume_at_iter;
+    }
 
     // consuming all events until indicated iteration is reached
     bool reached_end = false;
@@ -1275,8 +1290,6 @@ static void skip_to_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message *
                 break;
         }
     }
-
-    switch_config->done = true;
 
     tw_event *e = tw_event_new(lp->gid, 0.0, lp);
     nw_message* msg = (nw_message*) tw_event_data(e);
@@ -2516,6 +2529,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 
    memset(s, 0, sizeof(*s));
    s->nw_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
+   s->nw_id_in_pe = nw_id_counter++;
    s->mpi_wkld_samples = (struct mpi_workload_sample*)calloc(MAX_STATS, sizeof(struct mpi_workload_sample));
    s->sampling_indx = 0;
    s->is_finished = 0;
@@ -2685,8 +2699,10 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->app_id = lid.job;
    s->local_rank = lid.rank;
 
+   bool am_i_synthetic = false;
    if(strncmp(file_name_of_job[lid.job], "synthetic", 9) == 0)
    {
+        am_i_synthetic = true;
         sscanf(file_name_of_job[lid.job], "synthetic%d", &synthetic_pattern);
         if(synthetic_pattern <=0 || synthetic_pattern > 6)
         {
@@ -2728,7 +2744,6 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    {
    s->wrkld_id = codes_workload_load(type_name, params, s->app_id, s->local_rank);
    codes_issue_next_event(lp);
-        printf("my wrkld_id = %d\n", s->wrkld_id);
    }
    if(enable_sampling && sampling_interval > 0)
    {
@@ -2764,6 +2779,13 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    } else {
        s->switch_config = NULL;
        s->switch_config_size = 0;
+   }
+   if (iter_predictor && !am_i_synthetic) {
+        struct app_iter_node_config conf = {
+            .app_id = s->app_id,
+            .app_ending_iter = s->app_id ? 19 : 20,
+        };
+        iter_predictor->model.init(lp, s->nw_id_in_pe, &conf);
    }
 
    return;
@@ -3015,6 +3037,9 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 		break;
 	case CODES_WK_MARK:
 		codes_issue_next_event_rc(lp);
+        if (bf->c13) {
+            iter_predictor->model.predict_rc(lp, s->nw_id_in_pe);
+        }
 		break;
 
 		default:
@@ -3145,15 +3170,30 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
 		case CODES_WK_MARK:
 			{
                 m->rc.mpi_next.mark.saved_marker_time = tw_now(lp);
+                int iteration_i = mpi_op->u.send.tag;
 
-                // If we have reached the surrogate switch time, skip next iteration(s)
-                if (have_we_hit_surrogate_switch(s, mpi_op)) {
-                    tw_event *e = tw_event_new(lp->gid, time_to_skip_iterations(s), lp);
-                    nw_message* msg = (nw_message*) tw_event_data(e);
-                    msg->msg_type = SURR_SKIP_ITERATION;
-                    tw_event_send(e);
+                if (HARD_CODED_AVG_ITER_PREDICTOR) {
+                    // If we have reached the surrogate switch time, skip next iteration(s)
+                    if (have_we_hit_surrogate_switch(s, mpi_op)) {
+                        tw_event *e = tw_event_new(lp->gid, time_to_skip_iterations(s), lp);
+                        nw_message* msg = (nw_message*) tw_event_data(e);
+                        msg->msg_type = SURR_SKIP_ITERATION;
+                        tw_event_send(e);
+                    } else {
+                        codes_issue_next_event(lp);
+                    }
                 } else {
-                    codes_issue_next_event(lp);
+                    if (iter_predictor && iter_predictor->model.have_we_hit_switch(lp, s->nw_id_in_pe, iteration_i)) {
+                        bf->c13 = 1;
+                        struct iteration_pred iter_pred = iter_predictor->model.predict(lp, s->nw_id_in_pe);
+                        tw_event *e = tw_event_new(lp->gid, iter_pred.restart_at - tw_now(lp), lp);
+                        nw_message* msg = (nw_message*) tw_event_data(e);
+                        msg->msg_type = SURR_SKIP_ITERATION;
+                        msg->fwd.resume_at_iter = iter_pred.resume_at_iter;
+                        tw_event_send(e);
+                    } else {
+                        codes_issue_next_event(lp);
+                    }
                 }
 			}
 			break;
@@ -3384,10 +3424,16 @@ void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp
             switch (m->mpi_op->op_type) {
                 case CODES_WK_END:
                     printf("Network node %d Rank %llu App %d finished at %lf \n", s->local_rank, LLU(s->nw_id), s->app_id, m->rc.mpi_next.mark.saved_marker_time);
+                    if (iter_predictor) {
+                        iter_predictor->model.ended(lp, s->nw_id_in_pe, m->rc.mpi_next.mark.saved_marker_time);
+                    }
                     break;
 
                 case CODES_WK_MARK:
                     fprintf(iteration_log, "ITERATION %d node %llu job %d rank %d time %lf\n", m->mpi_op->u.send.tag, LLU(s->nw_id), s->app_id, s->local_rank, m->rc.mpi_next.mark.saved_marker_time);
+                    if (iter_predictor) {
+                        iter_predictor->model.feed(lp, s->nw_id_in_pe, m->mpi_op->u.send.tag, m->rc.mpi_next.mark.saved_marker_time);
+                    }
 
                     if (OUTPUT_MARKS)
                     {
@@ -4408,6 +4454,9 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
         assert(ret == 0 || !"lp_io_prepare failure");
     }
 
+   // TODO: read from config whether to load iterator predictor
+   application_surrogate_configure(24, 2, &iter_predictor);
+
    tw_run();
 
     fclose(iteration_log); //Xin
@@ -4489,6 +4538,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    }
 
    print_surrogate_stats();
+   free_application_surrogate();
 
 #ifdef USE_RDAMARIS
     } // end if(g_st_ross_rank)
