@@ -158,11 +158,15 @@ void application_surrogate_configure(
     int num_apps,
     struct app_iteration_predictor ** iter_pred //!< pointer to save application iteration predictor. Caller must free it
 ) {
-    // TODO: get configuration settings from common configuration file settings
+    char num_iters_str[MAX_NAME_LENGTH];
+    num_iters_str[0] = '\0';
+    int const rc = configuration_get_value(&config, "APPLICATION_SURROGATE", "num_iters_to_collect", NULL, num_iters_str, MAX_NAME_LENGTH);
+    int const num_of_iters_to_feed = (rc > 0) ? atoi(num_iters_str) : 5; // default to 5 if not specified
+
     struct avg_app_config predictor_config = {
         .num_apps = num_apps,
         .num_nodes_in_pe = num_terminals_in_pe,
-        .num_of_iters_to_feed = 5,
+        .num_iters_to_collect = num_of_iters_to_feed,
     };
     int every_n_gvt = 100;
     current_iter_predictor = avg_app_iteration_predictor(&predictor_config);

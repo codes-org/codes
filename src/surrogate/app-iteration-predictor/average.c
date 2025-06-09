@@ -84,7 +84,7 @@ static void model_calls_feed(tw_lp * lp, int nw_id_in_pe, int iter, double itera
     node_data->acc_iters++;
     node_data->last_iter = iter;
     // We've hit the required number of iterations to feed our predictor
-    if (node_data->acc_iters == my_config.num_of_iters_to_feed) {
+    if (node_data->acc_iters == my_config.num_iters_to_collect) {
         arr_app_data[node_data->app_id].nodes_with_enough_iters++;
     }
 }

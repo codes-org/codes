@@ -4103,6 +4103,27 @@ void modelnet_mpi_replay_read_config()
 }
 
 
+void modelnet_mpi_replay_configure_app_surrogate()
+{
+    char app_surrogate_test[MAX_NAME_LENGTH];
+    app_surrogate_test[0] = '\0';
+    int app_surrogate_len = configuration_get_value(&config, "APPLICATION_SURROGATE", "enable", NULL, app_surrogate_test, MAX_NAME_LENGTH);
+
+    // Only configure if APPLICATION_SURROGATE is present and enabled
+    if (app_surrogate_len == 0 || atoi(app_surrogate_test) == 0) {
+        return;
+    }
+
+    tw_lpid const num_nw_lps_in_pe = codes_mapping_count_lps_of_type("nw-lp");
+    int const num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
+    application_surrogate_configure(num_nw_lps_in_pe, num_jobs, &iter_predictor);
+
+    if (g_tw_mynode == 0) {
+        printf("Application surrogacy configured with a total of %d jobs\n", num_jobs);
+    }
+}
+
+
 int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 {
   int rank;
@@ -4454,9 +4475,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
         assert(ret == 0 || !"lp_io_prepare failure");
     }
 
-   tw_lpid const num_nw_lps_in_pe = codes_mapping_count_lps_of_type("nw-lp");
-   int const num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
-   application_surrogate_configure(num_nw_lps_in_pe, num_jobs, &iter_predictor);
+   modelnet_mpi_replay_configure_app_surrogate();
 
    tw_run();
 
