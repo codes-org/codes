@@ -17,10 +17,10 @@ struct node_data {
 };
 static struct node_data * arr_node_data = NULL; // array containing info for all nodes
 
-enum ENDED_STATUS {
-    ENDED_STATUS_running = 0,
-    ENDED_STATUS_just_ended,       // fully ended in this PE
-    ENDED_STATUS_ended_everywhere, // fully ended on all PEs
+enum APP_STATUS {
+    APP_STATUS_running = 0,
+    APP_STATUS_just_completed,       // fully ended in this PE
+    APP_STATUS_completed_everywhere, // fully ended on all PEs
 };
 
 struct app_data {
@@ -28,7 +28,7 @@ struct app_data {
     int nodes_with_enough_iters;
     int ending_iteration;  // last iteration the simulation will run (aka, num of iterations)
     int nodes_that_have_ended;
-    enum ENDED_STATUS ended;  // use ended to stop accumulating data
+    enum APP_STATUS status;  // use ended to stop accumulating data
     // To be used when called by the model. Set by `prepare_fast_forward_jump`
     struct {
         int jump_at_iter;
@@ -46,7 +46,7 @@ static inline int app_id_for(int nw_id_in_pe) {
 }
 
 
-static void init(tw_lp * lp, int nw_id_in_pe, struct app_iter_node_config * config) {
+static void model_calls_init(tw_lp * lp, int nw_id_in_pe, struct app_iter_node_config * config) {
     assert(arr_node_data);
     if (my_config.num_nodes_in_pe <= nw_id_in_pe) {
         tw_error(TW_LOC, "Node id relative to PE (%d) is larger than the number of nodes %d", nw_id_in_pe, my_config.num_nodes_in_pe);
@@ -68,7 +68,7 @@ static void init(tw_lp * lp, int nw_id_in_pe, struct app_iter_node_config * conf
 }
 
 
-static void feed(tw_lp * lp, int nw_id_in_pe, int iter, double iteration_time) {
+static void model_calls_feed(tw_lp * lp, int nw_id_in_pe, int iter, double iteration_time) {
     (void) lp;
     assert(my_config.num_nodes_in_pe > (size_t) nw_id_in_pe);
     assert(app_id_for(nw_id_in_pe) != -1);
@@ -76,7 +76,7 @@ static void feed(tw_lp * lp, int nw_id_in_pe, int iter, double iteration_time) {
     if (node_data->last_iter >= iter) { // we only collect iteration data past the previous `last_iter`
         return;
     }
-    if (arr_app_data[node_data->app_id].ended != ENDED_STATUS_running) {
+    if (arr_app_data[node_data->app_id].status != APP_STATUS_running) {
         tw_warning(TW_LOC, "Attempting to feed data to application predictor for an application that has either been marked as completed or not configured");
     }
     node_data->acc_iteration_time += iteration_time - node_data->prev_iteration_time;
@@ -90,17 +90,17 @@ static void feed(tw_lp * lp, int nw_id_in_pe, int iter, double iteration_time) {
 }
 
 
-static void ended(tw_lp * lp, int nw_id_in_pe, double iteration_time) {
+static void model_calls_ended(tw_lp * lp, int nw_id_in_pe, double iteration_time) {
     assert(app_id_for(nw_id_in_pe) != -1);
     struct app_data * app_data = &arr_app_data[app_id_for(nw_id_in_pe)];
     app_data->nodes_that_have_ended++;
     if (app_data->nodes_that_have_ended == app_data->num_nodes) {
-        app_data->ended = ENDED_STATUS_just_ended;
+        app_data->status = APP_STATUS_just_completed;
     }
 }
 
 
-static struct iteration_pred predict(tw_lp * lp, int nw_id_in_pe) {
+static struct iteration_pred model_calls_predict(tw_lp * lp, int nw_id_in_pe) {
     assert(my_config.num_nodes_in_pe > (size_t) nw_id_in_pe);
     assert(app_id_for(nw_id_in_pe) != -1);
     struct app_data * app_data = &arr_app_data[app_id_for(nw_id_in_pe)];
@@ -110,7 +110,7 @@ static struct iteration_pred predict(tw_lp * lp, int nw_id_in_pe) {
     };
 }
 
-static void predict_rc(tw_lp * lp, int nw_id_in_pe) {}
+static void model_calls_predict_rc(tw_lp * lp, int nw_id_in_pe) {}
 
 static void reset_with(bool const * app_just_ended) {
     ready_to_skip = false;
@@ -134,12 +134,12 @@ static void reset_with(bool const * app_just_ended) {
     // If an app just fully ended (ended on all PEs but hasn't been cleaned) then clean it
     for (int i = 0; i < my_config.num_apps; i++) {
         if (app_just_ended[i]) {
-            arr_app_data[i].ended = ENDED_STATUS_ended_everywhere;
+            arr_app_data[i].status = APP_STATUS_completed_everywhere;
         }
     }
 }
 
-static bool have_we_hit_switch(tw_lp * lp, int nw_id_in_pe, int iteration_id) {
+static bool model_calls_have_we_hit_switch(tw_lp * lp, int nw_id_in_pe, int iteration_id) {
     assert(my_config.num_nodes_in_pe > (size_t) nw_id_in_pe);
     int const app_id = app_id_for(nw_id_in_pe);
     if (ready_to_skip && iteration_id == arr_app_data[app_id].pred.jump_at_iter) {
@@ -164,11 +164,11 @@ static inline void post_init_share_ending_iteration(void) {
         struct app_data * app_data = &arr_app_data[i];
         if (app_data->ending_iteration == INT_MIN) {
             if (ending_iteration[i] == INT_MIN) {
-                app_data->ended = ENDED_STATUS_ended_everywhere;
+                app_data->status = APP_STATUS_completed_everywhere;
                 master_printf("Workload/app %d has not been configured to be tracked by iteration predictor (it might be a synthetic workload)\n", i);
             } else {
                 // The application has "completed" in this PE already!
-                app_data->ended = ENDED_STATUS_just_ended;
+                app_data->status = APP_STATUS_just_completed;
             }
             app_data->ending_iteration = ending_iteration[i];
         } else if (ending_iteration[i] != app_data->ending_iteration) {
@@ -182,7 +182,7 @@ static inline bool has_any_app_ended(bool * save_app_just_ended) {
     bool app_just_ended_here[my_config.num_apps];
     for (int i = 0; i < my_config.num_apps; i++) {
         struct app_data * app_data = &arr_app_data[i];
-        app_just_ended_here[i] = app_data->ended == ENDED_STATUS_just_ended;
+        app_just_ended_here[i] = app_data->status == APP_STATUS_just_completed;
     }
     if(MPI_Allreduce(&app_just_ended_here, save_app_just_ended, my_config.num_apps, MPI_C_BOOL, MPI_LAND, MPI_COMM_CODES) != MPI_SUCCESS) {
         tw_error(TW_LOC, "MPI_Allreduce call failed!");
@@ -198,7 +198,7 @@ static inline bool has_any_app_ended(bool * save_app_just_ended) {
 static inline bool all_apps_ended(void) {
     for (int i = 0; i < my_config.num_apps; i++) {
         struct app_data * app_data = &arr_app_data[i];
-        if (app_data->ended != ENDED_STATUS_ended_everywhere) {
+        if (app_data->status != APP_STATUS_completed_everywhere) {
             return false;
         }
     }
@@ -212,7 +212,7 @@ static inline bool has_everyone_accumulated_enough() {
         struct app_data * app_data = &arr_app_data[i];
         // ignoring apps that have ended already
         bool const app_in_pe = app_data->num_nodes > 0;
-        bool const hasnt_ended = app_data->completed != ENDED_STATUS_ended_everywhere;
+        bool const hasnt_ended = app_data->status != APP_STATUS_completed_everywhere;
         if (app_in_pe && hasnt_ended) {
             everyone &= app_data->nodes_with_enough_iters == app_data->num_nodes;
         }
@@ -220,7 +220,7 @@ static inline bool has_everyone_accumulated_enough() {
     return everyone;
 }
 
-static bool is_predictor_ready(void) {
+static bool director_calls_is_predictor_ready(void) {
     static bool post_init_done = false;
     if (!post_init_done) {
         post_init_share_ending_iteration();
@@ -246,7 +246,7 @@ static bool is_predictor_ready(void) {
 }
 
 
-static void reset(void) {
+static void director_calls_reset(void) {
     bool app_just_ended[my_config.num_apps];
     has_any_app_ended(app_just_ended);
     reset_with(app_just_ended);
@@ -327,11 +327,11 @@ static void find_avg_time_for_max_iter(double * save_last_iter_time, int const *
     }
 }
 
-static struct fast_forward_values prepare_fast_forward_jump(void) {
+static struct fast_forward_values director_calls_prepare_fast_forward_jump(void) {
     // 0. Check if app is still running
     bool is_running[my_config.num_apps];
     for (int i=0; i < my_config.num_apps; i++) {
-        is_running[i] = arr_app_data[i].ended != ENDED_STATUS_ended_everywhere;
+        is_running[i] = arr_app_data[i].status != APP_STATUS_completed_everywhere;
     }
     // 1. Compute end time for each application given current data (pick smallest)
     //   a. Find avg iteration per app
@@ -418,17 +418,17 @@ struct app_iteration_predictor avg_app_iteration_predictor(struct avg_app_config
     }
     return (struct app_iteration_predictor) {
         .model = {
-            .init = init,
-            .feed = feed,
-            .ended = ended,
-            .predict = predict,
-            .predict_rc = predict_rc,
-            .have_we_hit_switch = have_we_hit_switch,
+            .init = model_calls_init,
+            .feed = model_calls_feed,
+            .ended = model_calls_ended,
+            .predict = model_calls_predict,
+            .predict_rc = model_calls_predict_rc,
+            .have_we_hit_switch = model_calls_have_we_hit_switch,
         },
         .director = {
-            .reset = reset,
-            .is_predictor_ready = is_predictor_ready,
-            .prepare_fast_forward_jump = prepare_fast_forward_jump,
+            .reset = director_calls_reset,
+            .is_predictor_ready = director_calls_is_predictor_ready,
+            .prepare_fast_forward_jump = director_calls_prepare_fast_forward_jump,
         }
     };
 }
