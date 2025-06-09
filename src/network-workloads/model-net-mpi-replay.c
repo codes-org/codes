@@ -4454,8 +4454,9 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
         assert(ret == 0 || !"lp_io_prepare failure");
     }
 
-   // TODO: read from config whether to load iterator predictor
-   application_surrogate_configure(24, 2, &iter_predictor);
+   tw_lpid const num_nw_lps_in_pe = codes_mapping_count_lps_of_type("nw-lp");
+   int const num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
+   application_surrogate_configure(num_nw_lps_in_pe, num_jobs, &iter_predictor);
 
    tw_run();
 

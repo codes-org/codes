@@ -23,6 +23,9 @@ extern "C" {
 /* Returns number of LPs on the current PE */
 int codes_mapping_get_lps_for_pe(void);
 
+/* Returns the number of LPs of the given type name */
+tw_lpid codes_mapping_count_lps_of_type(char const lp_type_name[MAX_NAME_LENGTH]);
+
 /* Takes the global LP ID and returns the rank (PE id) on which the LP is mapped.*/
 tw_peid codes_mapping( tw_lpid gid);
 
