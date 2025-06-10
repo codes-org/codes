@@ -4122,10 +4122,6 @@ void modelnet_mpi_replay_configure_app_surrogate()
     tw_lpid const num_nw_lps_in_pe = codes_mapping_count_lps_of_type("nw-lp");
     int const num_jobs = codes_jobmap_get_num_jobs(jobmap_ctx);
     application_surrogate_configure(num_nw_lps_in_pe, num_jobs, &iter_predictor);
-
-    if (g_tw_mynode == 0) {
-        printf("Application surrogacy configured with a total of %d jobs\n", num_jobs);
-    }
 }
 
 

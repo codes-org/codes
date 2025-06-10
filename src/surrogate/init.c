@@ -7,6 +7,8 @@
 #include <codes/surrogate/packet-latency-predictor/torch-jit.h>
 #endif
 
+#define master_printf(...) if (g_tw_mynode == 0) { printf(__VA_ARGS__); }
+
 bool freeze_network_on_switch = true;
 struct network_surrogate_config net_surr_config = {0};
 bool is_network_surrogate_configured = false;
@@ -153,6 +155,86 @@ void network_surrogate_configure(
     }
 }
 
+static int load_and_validate_int_param(const char* param_name, int default_value) {
+    char param_str[MAX_NAME_LENGTH];
+    param_str[0] = '\0';
+    int const rc = configuration_get_value(&config, "APPLICATION_SURROGATE", param_name, NULL, param_str, MAX_NAME_LENGTH);
+    int value = (rc > 0) ? atoi(param_str) : default_value;
+
+    if (value <= 0) {
+        tw_warning(TW_LOC, "%s must be a positive integer, got %d. Using default value %d.", param_name, value, default_value);
+        value = default_value;
+    }
+
+    return value;
+}
+
+static struct application_director_config load_director_config(void) {
+    int const default_gvt = 100;
+    int const default_ns = 1000000; // 1ms
+
+    enum {
+        MODE_NOT_SET,
+        MODE_EVERY_N_GVT,
+        MODE_EVERY_N_NANOSECONDS,
+        MODE_UNKNOWN
+    } mode;
+
+    char director_mode[MAX_NAME_LENGTH];
+    director_mode[0] = '\0';
+    int const rc_mode = configuration_get_value(&config, "APPLICATION_SURROGATE", "director_mode", NULL, director_mode, MAX_NAME_LENGTH);
+
+    if (rc_mode == 0) {
+        mode = MODE_NOT_SET;
+    } else if (strcmp(director_mode, "every-n-gvt") == 0) {
+        mode = MODE_EVERY_N_GVT;
+    } else if (strcmp(director_mode, "every-n-nanoseconds") == 0) {
+        mode = MODE_EVERY_N_NANOSECONDS;
+    } else {
+        mode = MODE_UNKNOWN;
+    }
+
+    int every_n_gvt = load_and_validate_int_param("director_num_gvt", default_gvt);
+    int every_n_ns = load_and_validate_int_param("director_num_ns", default_ns);
+
+    bool const is_sequential = (g_tw_synchronization_protocol == SEQUENTIAL ||
+                                g_tw_synchronization_protocol == SEQUENTIAL_ROLLBACK_CHECK);
+
+    struct application_director_config config;
+    switch (mode) {
+        case MODE_EVERY_N_GVT:
+            if (is_sequential) {
+                tw_warning(TW_LOC, "Cannot use 'every-n-gvt' mode in sequential simulation. Forcing 'every-n-nanoseconds' mode.");
+                config.option = APP_DIRECTOR_OPTS_call_every_ns;
+                config.call_every_ns = every_n_ns;
+            } else {
+                config.option = APP_DIRECTOR_OPTS_every_n_gvt;
+                config.every_n_gvt = every_n_gvt;
+            }
+            break;
+
+        case MODE_EVERY_N_NANOSECONDS:
+            config.option = APP_DIRECTOR_OPTS_call_every_ns;
+            config.call_every_ns = every_n_ns;
+            break;
+
+        case MODE_UNKNOWN:
+            tw_warning(TW_LOC, "Unknown director_mode '%s'. Using default mode 'every-n-nanoseconds'.", director_mode);
+            config.option = APP_DIRECTOR_OPTS_call_every_ns;
+            config.call_every_ns = every_n_ns;
+            break;
+
+        case MODE_NOT_SET:
+        default:
+            tw_warning(TW_LOC, "director_mode not set. Using default mode 'every-n-nanoseconds'.");
+            config.option = APP_DIRECTOR_OPTS_call_every_ns;
+            config.call_every_ns = every_n_ns;
+            break;
+    }
+
+    return config;
+}
+
 void application_surrogate_configure(
     int num_terminals_in_pe,
     int num_apps,
@@ -168,10 +250,24 @@ void application_surrogate_configure(
         .num_nodes_in_pe = num_terminals_in_pe,
         .num_iters_to_collect = num_of_iters_to_feed,
     };
-    int every_n_gvt = 100;
+
+    struct application_director_config app_dir_config = load_director_config();
+
     current_iter_predictor = avg_app_iteration_predictor(&predictor_config);
-    application_director_configure(every_n_gvt, &current_iter_predictor);
+    application_director_configure(&app_dir_config, &current_iter_predictor);
     *iter_pred = &current_iter_predictor;
+
+    // Printing configuration summary
+    master_printf("\nApplication surrogate configuration:\n");
+    master_printf("  Predictor - num_apps: %d, num_iters_to_collect: %d\n",
+                  predictor_config.num_apps, predictor_config.num_iters_to_collect);
+
+    if (app_dir_config.option == APP_DIRECTOR_OPTS_every_n_gvt) {
+        master_printf("  Director - mode: every-n-gvt, every_n_gvt: %d\n", app_dir_config.every_n_gvt);
+    } else {
+        master_printf("  Director - mode: every-n-nanoseconds, call_every_ns: %e\n", app_dir_config.call_every_ns);
+    }
+    master_printf("\n");
 }
 
 void free_application_surrogate(void) {

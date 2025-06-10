@@ -15,8 +15,23 @@
 extern "C" {
 #endif
 
+enum APP_DIRECTOR_OPTS {
+    APP_DIRECTOR_OPTS_every_n_gvt = 0, // Call director every `n` GVTs
+    APP_DIRECTOR_OPTS_call_every_ns,   // Call director every X (virtual) nanoseconds
+};
+
+struct application_director_config {
+    enum APP_DIRECTOR_OPTS option;
+    union {
+        // To use when APP_DIRECTOR_OPTS_every_n_gvt
+        int every_n_gvt;
+        // To use when APP_DIRECTOR_OPTS_call_every_ns
+        double call_every_ns;
+    };
+};
+
 // Main function responsible for switching between high-fidelity and (application iteration) surrogate
-void application_director_configure(int every_n_gvt, struct app_iteration_predictor *);
+void application_director_configure(struct application_director_config *, struct app_iteration_predictor *);
 
 #ifdef __cplusplus
 }

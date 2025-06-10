@@ -2,7 +2,7 @@
 #include <ross-extern.h>
 
 static struct app_iteration_predictor * iter_predictor;
-static int every_n_gvt = 1;
+static struct application_director_config conf = {.option = APP_DIRECTOR_OPTS_call_every_ns, .every_n_gvt = 1000000};
 static enum {
     PRE_JUMP = 0,
     POST_JUMP_switched,  // Switched to surrogate-mode
@@ -18,6 +18,11 @@ static enum {
 #define master_printf(str, ...) if (g_tw_mynode == 0) { printf(str, __VA_ARGS__); }
 
 static void application_director_pre_switch(tw_pe * pe) {
+    // Scheduling next GVT hook call if it is not scheduled every tw_trigger_gvt_hook_every
+    if (conf.option == APP_DIRECTOR_OPTS_call_every_ns) {
+        tw_trigger_gvt_hook_at(gvt_for(pe) + conf.call_every_ns);
+    }
+
     if (!iter_predictor->director.is_predictor_ready()) {
         return;
     }
@@ -38,7 +43,13 @@ static void application_director_pre_switch(tw_pe * pe) {
 }
 
 static void application_director_post_switch(tw_pe * pe) {
-    tw_trigger_gvt_hook_every(every_n_gvt);
+    // Scheduling next GVT hook call
+    if (conf.option == APP_DIRECTOR_OPTS_call_every_ns) {
+        tw_trigger_gvt_hook_at(gvt_for(pe) + conf.call_every_ns);
+    } else {
+        tw_trigger_gvt_hook_every(conf.every_n_gvt);
+    }
+
     iter_predictor->director.reset();
 
     if (director_state == POST_JUMP_switched) {
@@ -65,10 +76,14 @@ void application_director(tw_pe * pe) {
     }
 }
 
-void application_director_configure(int every_n_gvt_, struct app_iteration_predictor * iter_predictor_) {
-    every_n_gvt = every_n_gvt_;
+void application_director_configure(struct application_director_config * conf_, struct app_iteration_predictor * iter_predictor_) {
+    conf = *conf_;
     iter_predictor = iter_predictor_;
     g_tw_gvt_hook = application_director;
     director_state = PRE_JUMP;
-    tw_trigger_gvt_hook_every(every_n_gvt);
+    if (conf.option == APP_DIRECTOR_OPTS_every_n_gvt) {
+        tw_trigger_gvt_hook_every(conf.every_n_gvt);
+    } else {
+        tw_trigger_gvt_hook_at(conf.call_every_ns);
+    }
 }
