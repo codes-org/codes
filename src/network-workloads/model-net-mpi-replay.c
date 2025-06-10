@@ -748,7 +748,7 @@ void handle_other_finish(
     assert(ns->app_id == 0); //make sure that only the root workload is getting this notification
     assert(ns->local_rank == 0); //make sure that only the root rank is getting this notification
 
-    printf("App %d: Received finished workload notification",ns->app_id);
+    printf("App %d: Received finished workload notification\n", ns->app_id);
     // if(is_job_synthetic[ns->app_id])
         // return; //nothing for synthetic (background) ranks to do here
     // printf(" And I am not synthetic\n");
