@@ -41,6 +41,12 @@ static bool ready_to_skip = false;
 
 
 static void find_max_iter_per_app(int * save_last_iter);
+static inline void mpi_allreduce_int_max(int const * local_data, int * result_data, int count);
+static inline void mpi_allreduce_int_sum(int const * local_data, int * result_data, int count);
+static inline void mpi_allreduce_double_sum(double const * local_data, double * result_data, int count);
+static inline void mpi_allreduce_bool_and(bool const * local_data, bool * result_data, int count);
+static inline void init_int_array(int * array, int size, int value);
+static inline void init_double_array(double * array, int size, double value);
 static inline int app_id_for(int nw_id_in_pe) {
     return arr_node_data[nw_id_in_pe].app_id;
 }
@@ -157,9 +163,7 @@ static inline void post_init_share_ending_iteration(void) {
         ending_iteration_here[i] = arr_app_data[i].ending_iteration;
     }
     int ending_iteration[my_config.num_apps];
-    if(MPI_Allreduce(ending_iteration_here, ending_iteration, my_config.num_apps, MPI_INT, MPI_MAX, MPI_COMM_CODES) != MPI_SUCCESS) {
-        tw_error(TW_LOC, "MPI_Allreduce call failed!");
-    }
+    mpi_allreduce_int_max(ending_iteration_here, ending_iteration, my_config.num_apps);
 
     // Checking that total iterations are the same across nodes
     for (int i = 0; i < my_config.num_apps; i++) {
@@ -186,9 +190,7 @@ static inline bool has_any_app_ended(bool * save_app_just_ended) {
         struct app_data * app_data = &arr_app_data[i];
         app_just_ended_here[i] = app_data->status == APP_STATUS_just_completed;
     }
-    if(MPI_Allreduce(&app_just_ended_here, save_app_just_ended, my_config.num_apps, MPI_C_BOOL, MPI_LAND, MPI_COMM_CODES) != MPI_SUCCESS) {
-        tw_error(TW_LOC, "MPI_Allreduce call failed!");
-    }
+    mpi_allreduce_bool_and(app_just_ended_here, save_app_just_ended, my_config.num_apps);
     for (int i = 0; i < my_config.num_apps; i++) {
         if (save_app_just_ended[i]) {
             return true;
@@ -241,9 +243,7 @@ static bool director_calls_is_predictor_ready(void) {
     // check that all applications have collected data for enough iterations to jump ahead
     bool const everyone_ready_here = has_everyone_accumulated_enough();
     bool everyone_ready;
-    if(MPI_Allreduce(&everyone_ready_here, &everyone_ready, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_CODES) != MPI_SUCCESS) {
-        tw_error(TW_LOC, "MPI_Allreduce call failed!");
-    }
+    mpi_allreduce_bool_and(&everyone_ready_here, &everyone_ready, 1);
     return everyone_ready;
 }
 
@@ -257,10 +257,8 @@ static void director_calls_reset(void) {
 static void find_avg_iteration_time(double * save_avg_time) {
     double acc_iter_time_here[my_config.num_apps];
     int acc_iters_here[my_config.num_apps];
-    for (int i=0; i < my_config.num_apps; i++) {
-        acc_iter_time_here[i] = 0.0;
-        acc_iters_here[i] = 0;
-    }
+    init_double_array(acc_iter_time_here, my_config.num_apps, 0.0);
+    init_int_array(acc_iters_here, my_config.num_apps, 0);
     for (int i=0; i < my_config.num_nodes_in_pe; i++) {
         struct node_data * node_data = &arr_node_data[i];
         int const app_id = node_data->app_id;
@@ -268,13 +266,9 @@ static void find_avg_iteration_time(double * save_avg_time) {
         acc_iters_here[app_id] += node_data->acc_iters;
     }
     double acc_iter_time[my_config.num_apps];
-    if(MPI_Allreduce(&acc_iter_time_here, &acc_iter_time, my_config.num_apps, MPI_DOUBLE, MPI_SUM, MPI_COMM_CODES) != MPI_SUCCESS) {
-        tw_error(TW_LOC, "MPI_Allreduce failed! Couldn't add up");
-    }
+    mpi_allreduce_double_sum(acc_iter_time_here, acc_iter_time, my_config.num_apps);
     int acc_iters[my_config.num_apps];
-    if(MPI_Allreduce(&acc_iters_here, &acc_iters, my_config.num_apps, MPI_INT, MPI_SUM, MPI_COMM_CODES) != MPI_SUCCESS) {
-        tw_error(TW_LOC, "MPI_Allreduce failed! Couldn't add up");
-    }
+    mpi_allreduce_int_sum(acc_iters_here, acc_iters, my_config.num_apps);
 
     for (int i=0; i < my_config.num_apps; i++) {
         if (acc_iters[i]) {
@@ -283,11 +277,46 @@ static void find_avg_iteration_time(double * save_avg_time) {
     }
 }
 
+static inline void mpi_allreduce_int_max(int const * local_data, int * result_data, int count) {
+    if(MPI_Allreduce(local_data, result_data, count, MPI_INT, MPI_MAX, MPI_COMM_CODES) != MPI_SUCCESS) {
+        tw_error(TW_LOC, "MPI_Allreduce failed! Couldn't compute maximum");
+    }
+}
+
+static inline void mpi_allreduce_int_sum(int const * local_data, int * result_data, int count) {
+    if(MPI_Allreduce(local_data, result_data, count, MPI_INT, MPI_SUM, MPI_COMM_CODES) != MPI_SUCCESS) {
+        tw_error(TW_LOC, "MPI_Allreduce failed! Couldn't add up");
+    }
+}
+
+static inline void mpi_allreduce_double_sum(double const * local_data, double * result_data, int count) {
+    if(MPI_Allreduce(local_data, result_data, count, MPI_DOUBLE, MPI_SUM, MPI_COMM_CODES) != MPI_SUCCESS) {
+        tw_error(TW_LOC, "MPI_Allreduce failed! Couldn't add up");
+    }
+}
+
+static inline void mpi_allreduce_bool_and(bool const * local_data, bool * result_data, int count) {
+    if(MPI_Allreduce(local_data, result_data, count, MPI_C_BOOL, MPI_LAND, MPI_COMM_CODES) != MPI_SUCCESS) {
+        tw_error(TW_LOC, "MPI_Allreduce call failed!");
+    }
+}
+
+static inline void init_int_array(int * array, int size, int value) {
+    for (int i = 0; i < size; i++) {
+        array[i] = value;
+    }
+}
+
+static inline void init_double_array(double * array, int size, double value) {
+    for (int i = 0; i < size; i++) {
+        array[i] = value;
+    }
+}
+
 static void find_max_iter_per_app(int * save_last_iter) {
     int last_iter_here[my_config.num_apps];
-    for (int i=0; i < my_config.num_apps; i++) {
-        last_iter_here[i] = INT_MIN;
-    }
+    init_int_array(last_iter_here, my_config.num_apps, INT_MIN);
+
     for (int i=0; i < my_config.num_nodes_in_pe; i++) {
         struct node_data * node_data = &arr_node_data[i];
         int const app_id = node_data->app_id;
@@ -295,18 +324,14 @@ static void find_max_iter_per_app(int * save_last_iter) {
             last_iter_here[app_id] = node_data->last_iter;
         }
     }
-    if(MPI_Allreduce(&last_iter_here, save_last_iter, my_config.num_apps, MPI_INT, MPI_MAX, MPI_COMM_CODES) != MPI_SUCCESS) {
-        tw_error(TW_LOC, "MPI_Allreduce failed! Couldn't compute maximum");
-    }
+    mpi_allreduce_int_max(last_iter_here, save_last_iter, my_config.num_apps);
 }
 
 static void find_avg_time_for_max_iter(double * save_last_iter_time, int const * last_iter) {
     int acc_iters_here[my_config.num_apps];
     double acc_last_iter_time[my_config.num_apps];
-    for (int i=0; i < my_config.num_apps; i++) {
-        acc_iters_here[i] = 0;
-        acc_last_iter_time[i] = 0.0;
-    }
+    init_int_array(acc_iters_here, my_config.num_apps, 0);
+    init_double_array(acc_last_iter_time, my_config.num_apps, 0.0);
     for (int i=0; i < my_config.num_nodes_in_pe; i++) {
         struct node_data * node_data = &arr_node_data[i];
         int const app_id = node_data->app_id;
@@ -315,13 +340,9 @@ static void find_avg_time_for_max_iter(double * save_last_iter_time, int const *
             acc_iters_here[app_id]++;
         }
     }
-    if(MPI_Allreduce(&acc_last_iter_time, save_last_iter_time, my_config.num_apps, MPI_DOUBLE, MPI_SUM, MPI_COMM_CODES) != MPI_SUCCESS) {
-        tw_error(TW_LOC, "MPI_Allreduce failed! Couldn't add up");
-    }
+    mpi_allreduce_double_sum(acc_last_iter_time, save_last_iter_time, my_config.num_apps);
     int acc_iters[my_config.num_apps];
-    if(MPI_Allreduce(&acc_iters_here, &acc_iters, my_config.num_apps, MPI_INT, MPI_SUM, MPI_COMM_CODES) != MPI_SUCCESS) {
-        tw_error(TW_LOC, "MPI_Allreduce failed! Couldn't add up");
-    }
+    mpi_allreduce_int_sum(acc_iters_here, acc_iters, my_config.num_apps);
     for (int i=0; i < my_config.num_apps; i++) {
         if (acc_iters[i] > 0) {
             save_last_iter_time[i] /= acc_iters[i];
@@ -329,40 +350,44 @@ static void find_avg_time_for_max_iter(double * save_last_iter_time, int const *
     }
 }
 
-static struct fast_forward_values director_calls_prepare_fast_forward_jump(void) {
-    // 0. Check if app is still running
-    bool is_running[my_config.num_apps];
-    for (int i=0; i < my_config.num_apps; i++) {
+static void get_running_apps(bool * is_running) {
+    for (int i = 0; i < my_config.num_apps; i++) {
         is_running[i] = arr_app_data[i].status != APP_STATUS_completed_everywhere;
     }
-    // 1. Compute end time for each application given current data (pick smallest)
-    //   a. Find avg iteration per app
-    double avg_iter_time[my_config.num_apps];
-    find_avg_iteration_time(avg_iter_time);
-    //   b. Find iteration to start stwich after
-    int last_iter[my_config.num_apps];
-    double last_iter_time[my_config.num_apps];
-    find_max_iter_per_app(last_iter);
-    find_avg_time_for_max_iter(last_iter_time, last_iter);
-    //   c. Compute avg end time for all apps (loop through every node, and add value to avg array)
+}
+
+static double compute_earliest_end_time(
+    bool const * is_running,
+    double const * avg_iter_time,
+    int const * last_iter,
+    double const * last_iter_time) {
+    // Compute avg end time for all apps (loop through every node, and add value to avg array)
     double apps_end_time[my_config.num_apps];
-    for (int i=0; i < my_config.num_apps; i++) {
+    for (int i = 0; i < my_config.num_apps; i++) {
         int const iterations_left = arr_app_data[i].ending_iteration - last_iter[i];
         apps_end_time[i] = last_iter_time[i] + iterations_left * avg_iter_time[i];
     }
-    //   d. Pick smallest compute end time/time to skip
+    // Pick smallest compute end time/time to skip
     double switch_time = DBL_MAX;
-    for (int i=0; i < my_config.num_apps; i++) {
+    for (int i = 0; i < my_config.num_apps; i++) {
         if (is_running[i] && switch_time > apps_end_time[i]) {
             switch_time = apps_end_time[i];
         }
     }
-    // 2. Find number of iterations to skip per node given time to skip, then compute when each application is expected to reach this point
-    //   a. Find iteration to skip to per node
-    double apps_restart_at_time[my_config.num_apps];
-    int apps_restart_at_iter[my_config.num_apps];
+    return switch_time;
+}
+
+static bool compute_restart_params(
+    bool const * is_running,
+    double const * avg_iter_time,
+    int const * last_iter,
+    double const * last_iter_time,
+    double switch_time,
+    double * apps_restart_at_time,
+    int * apps_restart_at_iter) {
+    // Find iteration to skip to per node
     bool worth_switching = true;
-    for (int i=0; i < my_config.num_apps; i++) {
+    for (int i = 0; i < my_config.num_apps; i++) {
         if (!is_running[i]) {
             continue;
         }
@@ -375,22 +400,27 @@ static struct fast_forward_values director_calls_prepare_fast_forward_jump(void)
             worth_switching = false;
         }
     }
-    //   b. Compute last application to restart (this is restarting_at)
+    return worth_switching;
+}
+
+static double find_latest_restart_time(bool const * is_running, double const * apps_restart_at_time) {
+    // Compute last application to restart (this is restarting_at)
     double last_to_finish = 0;
-    for (int i=0; i < my_config.num_apps; i++) {
+    for (int i = 0; i < my_config.num_apps; i++) {
         if (is_running[i] && last_to_finish < apps_restart_at_time[i]) {
             last_to_finish = apps_restart_at_time[i];
         }
     }
-    //   c. If the number of iterations to skip is zero for any app, force reset of predictor tracking
-    if (!worth_switching) {
-        return (struct fast_forward_values) {
-            .status = FAST_FORWARD_restart,
-            .restarting_at = last_to_finish,
-        };
-    }
-    // 4. Set values for iteration to restart at and iterations to jump for each application
-    for (int i=0; i < my_config.num_apps; i++) {
+    return last_to_finish;
+}
+
+static void set_app_prediction_data(
+    bool const * is_running,
+    int const * last_iter,
+    int const * apps_restart_at_iter,
+    double const * apps_restart_at_time) {
+    // Set values for iteration to restart at and iterations to jump for each application
+    for (int i = 0; i < my_config.num_apps; i++) {
         if (!is_running[i]) {
             continue;
         }
@@ -398,6 +428,44 @@ static struct fast_forward_values director_calls_prepare_fast_forward_jump(void)
         arr_app_data[i].pred.resume_at_iter = apps_restart_at_iter[i];
         arr_app_data[i].pred.restart_at = apps_restart_at_time[i];
     }
+}
+
+static struct fast_forward_values director_calls_prepare_fast_forward_jump(void) {
+    // 0. Check if app is still running
+    bool is_running[my_config.num_apps];
+    get_running_apps(is_running);
+
+    // 1. Compute end time for each application given current data (pick smallest)
+    //   a. Find avg iteration per app
+    double avg_iter_time[my_config.num_apps];
+    find_avg_iteration_time(avg_iter_time);
+    //   b. Find iteration to start switch after
+    int last_iter[my_config.num_apps];
+    double last_iter_time[my_config.num_apps];
+    find_max_iter_per_app(last_iter);
+    find_avg_time_for_max_iter(last_iter_time, last_iter);
+    //   c. & d. Compute and pick smallest end time/time to skip
+    double switch_time = compute_earliest_end_time(is_running, avg_iter_time, last_iter, last_iter_time);
+
+    // 2. Find number of iterations to skip per node given time to skip, then compute when each application is expected to reach this point
+    //   a. Find iteration to skip to per node
+    double apps_restart_at_time[my_config.num_apps];
+    int apps_restart_at_iter[my_config.num_apps];
+    bool worth_switching = compute_restart_params(is_running, avg_iter_time, last_iter, last_iter_time, switch_time, apps_restart_at_time, apps_restart_at_iter);
+
+    //   b. Compute last application to restart (this is restarting_at)
+    double last_to_finish = find_latest_restart_time(is_running, apps_restart_at_time);
+
+    //   c. If the number of iterations to skip is zero for any app, force reset of predictor tracking
+    if (!worth_switching) {
+        return (struct fast_forward_values) {
+            .status = FAST_FORWARD_restart,
+            .restarting_at = last_to_finish,
+        };
+    }
+
+    // 3. Set values for iteration to restart at and iterations to jump for each application
+    set_app_prediction_data(is_running, last_iter, apps_restart_at_iter, apps_restart_at_time);
     ready_to_skip = true;
 
     return (struct fast_forward_values) {
