@@ -2781,11 +2781,16 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        s->switch_config_size = 0;
    }
    if (iter_predictor && !am_i_synthetic) {
-        struct app_iter_node_config conf = {
-            .app_id = s->app_id,
-            .app_ending_iter = s->app_id ? 19 : 20,
-        };
-        iter_predictor->model.init(lp, s->nw_id_in_pe, &conf);
+        int const ending_iter = codes_workload_get_final_iteration(s->wrkld_id, s->app_id, s->local_rank);
+        if (ending_iter == -1) {
+            tw_warning(TW_LOC, "Predictor for non-synthetic job cannot be initialized. app id=%d", s->app_id);
+        } else {
+            struct app_iter_node_config conf = {
+                .app_id = s->app_id,
+                .app_ending_iter = ending_iter,
+            };
+            iter_predictor->model.init(lp, s->nw_id_in_pe, &conf);
+        }
    }
 
    return;

@@ -73,6 +73,10 @@ struct shared_context {
     bool isconc;
     ABT_thread      producer;
     std::deque<struct codes_workload_op*> fifo;
+    struct {
+        bool received;
+        int final_iteration;
+    } init_data_from_workload;
 };
 
 struct rank_mpi_context {
@@ -86,8 +90,26 @@ typedef struct rank_mpi_compare {
     int rank;
 } rank_mpi_compare;
 
-
 /* Conceptual online workload implementations */
+
+void UNION_Pass_app_data(struct union_app_data * app_data) {
+    /* Retreive the shared context state */
+    ABT_thread prod;
+    void * arg;
+    int err;
+
+    err = ABT_thread_self(&prod);
+    assert(err == ABT_SUCCESS);
+    err =  ABT_thread_get_arg(prod, &arg);
+    assert(err == ABT_SUCCESS);
+    struct shared_context * sctx = static_cast<shared_context*>(arg);
+
+    sctx->init_data_from_workload.received = true;
+    sctx->init_data_from_workload.final_iteration = app_data->final_iteration;
+
+    ABT_thread_yield_to(global_prod_thread);
+}
+
 void UNION_MPI_Comm_size (UNION_Comm comm, int *size) 
 {
     /* Retreive the shared context state */
@@ -1014,6 +1036,21 @@ void UNION_MPI_Alltoall(const void *sendbuf,
 
 //#ifdef USE_SWM
 
+void SWM_Pass_app_data(struct swm_app_data *app_data) {
+    /* Retreive the shared context state */
+    ABT_thread prod;
+    void * arg;
+    int err = ABT_thread_self(&prod);
+    assert(err == ABT_SUCCESS);
+    err =  ABT_thread_get_arg(prod, &arg);
+    assert(err == ABT_SUCCESS);
+    struct shared_context * sctx = static_cast<shared_context*>(arg);
+    sctx->init_data_from_workload.received = true;
+    sctx->init_data_from_workload.final_iteration = app_data->final_iteration;
+
+    ABT_thread_yield_to(global_prod_thread);
+}
+
 /*
  * peer: the receiving peer id 
  * comm_id: the communicator id being used
@@ -1814,6 +1851,7 @@ static int comm_online_workload_load(const void * params, int app_id, int rank)
     my_ctx->sctx.num_ranks = nprocs;
     my_ctx->sctx.wait_id = 0;
     my_ctx->app_id = app_id;
+    my_ctx->sctx.init_data_from_workload.received = false;
 
     // printf("my_ctx nprocs %d\n", my_ctx->sctx.num_ranks);
 
@@ -1943,6 +1981,12 @@ static int comm_online_workload_load(const void * params, int app_id, int rank)
             &workload_caller, (void*)&(my_ctx->sctx),
             ABT_THREAD_ATTR_NULL, &(my_ctx->sctx.producer));
 
+    // Running thread that we just spawn until the producer adds an OP to FIFO or SWM_Mark_total_iterations is called. We use SWM_Mark_total_iterations in order to pass information into CODES from the SWM app.
+    while(my_ctx->sctx.fifo.empty() && !my_ctx->sctx.init_data_from_workload.received)
+    {
+        ABT_thread_yield_to(my_ctx->sctx.producer);
+    }
+
     if(DBG_LINKING)
     {
         printf("\nRank %d create app thread? %d", rank, rcode);
@@ -2049,6 +2093,25 @@ static int comm_online_workload_finalize(const char* params, int app_id, int ran
     }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
     return 0;
 }
+
+static int comm_online_workload_get_final_iteration(int app_id, int rank) {
+    rank_mpi_compare cmp;
+    cmp.app_id = app_id;
+    cmp.rank = rank;
+
+    struct qhash_head * hash_link = qhash_search(rank_tbl, &cmp);
+    if(!hash_link)
+    {
+        printf("Workload/job not found for rank id %d, and app_id %d\n", rank, app_id);
+        return -1;
+    }
+    rank_mpi_context * ctx = qhash_entry(hash_link, rank_mpi_context, hash_link);
+    if (ctx->sctx.init_data_from_workload.received) {
+        return ctx->sctx.init_data_from_workload.final_iteration;
+    }
+    return -1;
+}
+
 extern "C" {
 /* workload method name and function pointers for the CODES workload API */
 struct codes_workload_method conc_online_comm_workload_method =
@@ -2066,7 +2129,11 @@ struct codes_workload_method conc_online_comm_workload_method =
     // .codes_workload_get_rank_cnt
     comm_online_workload_get_rank_cnt,
     // .codes_workload_finalize = 
-    comm_online_workload_finalize
+    comm_online_workload_finalize,
+    // .codes_workload_get_time =
+    NULL,
+    // .codes_workload_get_final_iteration =
+    comm_online_workload_get_final_iteration,
 };
 } // closing brace for extern "C"
 

@@ -354,6 +354,9 @@ int codes_workload_get_time(const char *type,
 		int app_id,
 		int rank, double *read_time, double *write_time, int64_t *read_bytes, int64_t *written_bytes);
 
+// Returns the final iteration (positive) after which the workload will stop. If the result is -1, then there is nothing to do
+int codes_workload_get_final_iteration(int wkld_id, int app_id, int rank);
+
 /* implementation structure */
 struct codes_workload_method
 {
@@ -368,6 +371,7 @@ struct codes_workload_method
     int (*codes_workload_finalize)(const char* params, int app_id, int rank);
     /* added for get all read or write time */
     int (*codes_workload_get_time)(const char * params, int app_id, int rank, double *read_time, double *write_time, int64_t *read_bytes, int64_t *written_bytes);
+    int (*codes_workload_get_final_iteration)(int app_id, int rank);
 };
 
 

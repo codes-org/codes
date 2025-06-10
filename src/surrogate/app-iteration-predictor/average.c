@@ -71,7 +71,9 @@ static void model_calls_init(tw_lp * lp, int nw_id_in_pe, struct app_iter_node_c
 static void model_calls_feed(tw_lp * lp, int nw_id_in_pe, int iter, double iteration_time) {
     (void) lp;
     assert(my_config.num_nodes_in_pe > (size_t) nw_id_in_pe);
-    assert(app_id_for(nw_id_in_pe) != -1);
+    if (app_id_for(nw_id_in_pe) == -1) {
+        tw_error(TW_LOC, "Predictor for node was not initialized! Node ID (on PE) %d", nw_id_in_pe);
+    }
     struct node_data * node_data = &arr_node_data[nw_id_in_pe];
     if (node_data->last_iter >= iter) { // we only collect iteration data past the previous `last_iter`
         return;

@@ -368,6 +368,13 @@ int codes_workload_get_rank_cnt(
     return(-1);
 }
 
+int codes_workload_get_final_iteration(int wkld_id, int app_id, int rank) {
+    if (method_array[wkld_id]->codes_workload_get_final_iteration) {
+        return method_array[wkld_id]->codes_workload_get_final_iteration(app_id, rank);
+    }
+    return -1;
+}
+
 void codes_workload_print_op(
         FILE *f,
         struct codes_workload_op *op,
