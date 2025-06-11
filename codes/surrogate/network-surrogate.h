@@ -65,6 +65,9 @@ extern struct switch_at_struct switch_network_at;
 // Main function responsible for switching between high-fidelity and (network) surrogate
 void network_director(tw_pe * pe);
 
+// Function for application director to use network freezing machinery
+void surrogate_switch_network_model(tw_pe * pe);
+
 #ifdef __cplusplus
 }
 #endif

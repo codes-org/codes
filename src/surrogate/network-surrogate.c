@@ -8,6 +8,10 @@ double surrogate_switching_time = 0.0;
 double time_in_surrogate = 0.0;
 static double surrogate_time_last = 0.0;
 
+// === Frozen events system for separate queue approach
+static tw_event *frozen_events_head = NULL;  // Head of frozen events linked list
+static double frozen_events_switch_time = 0.0;  // Time when we switched to surrogate mode
+
 // === Director functionality
 //
 
@@ -22,13 +26,17 @@ static struct lp_types_switch const * get_type_switch(char const * const name) {
 }
 
 
-static void shift_events_to_future_pe(tw_pe * pe) {
+static void freeze_events_to_separate_queue_pe(tw_pe * pe) {
 #ifdef USE_RAND_TIEBREAKER
     tw_event_sig gvt_sig = pe->GVT_sig;
     tw_stime gvt = gvt_sig.recv_ts;
 #else
     tw_stime gvt = pe->GVT;
 #endif
+
+    // Store the time when we switch to surrogate mode
+    frozen_events_switch_time = gvt;
+
     tw_event * next_event = tw_pq_dequeue(pe->pq);
 
     // If there aren't any events left to process, then this PE has nothing to do
@@ -36,24 +44,16 @@ static void shift_events_to_future_pe(tw_pe * pe) {
         return;
     }
 
-    // We have to put the events back into the queue after we switch back, but if we never
-    // switch back they will never get to be processed and thus we can clean them
-    double switch_offset = g_tw_ts_end;
-    if (switch_network_at.current_i < switch_network_at.total) {
-        double const next_switch = switch_network_at.time_stampts[switch_network_at.current_i + 1];
-        double const pre_switch_time = gvt;
-        switch_offset = next_switch - pre_switch_time;
-        assert(pre_switch_time < next_switch);
-        //printf("gvt=%f next_switch=%f switch_offset=%f\n", pre_switch_time, next_switch, switch_offset);
-    }
-    assert(0 <= switch_network_at.current_i && switch_network_at.current_i < switch_network_at.total);
-    double const current_switch_time = switch_network_at.time_stampts[switch_network_at.current_i];
-    assert(current_switch_time <= gvt);
+    tw_event * dequed_events = NULL; // Linked list of non-frozen events, to be placed back in the queue
+    int events_processed = 0; // Total events processed from queue
+    int events_enqueued = 0;  // Events put back in queue
+    int events_frozen = 0;    // Events moved to frozen queue
+    int events_deleted = 0;   // Events deleted
 
-    tw_event * dequed_events = NULL; // Linked list of workload events, to be placed again in the queue
-    int events_dequeued = 0;  // for stats on code correctness
     // Traversing all events stored in the queue
     while (next_event) {
+        events_processed++;
+
         // Filtering events to freeze
         assert(next_event->prev == NULL);
 #ifdef USE_RAND_TIEBREAKER
@@ -81,38 +81,35 @@ static void shift_events_to_future_pe(tw_pe * pe) {
             }
         }
 
-        // shifting time stamps to the future for events to freeze
         bool deleted = false;
+        bool frozen = false;
+
+        // Check if event should be frozen (moved to separate queue)
         if (lp_type_switch && lp_type_switch->should_event_be_frozen
                 && lp_type_switch->should_event_be_frozen(next_event->dest_lp, next_event)) {
-#ifdef USE_RAND_TIEBREAKER
-            assert(next_event->recv_ts == next_event->sig.recv_ts);
-            next_event->recv_ts += switch_offset;
-            next_event->sig.recv_ts = next_event->recv_ts;
-#else
-            next_event->recv_ts += switch_offset;
-#endif
-            assert(next_event->recv_ts >= current_switch_time);
+            // Add to frozen events linked list (no timestamp manipulation here)
+            next_event->prev = frozen_events_head;
+            frozen_events_head = next_event;
+            frozen = true;
+            events_frozen++;
         // deleting event if we need to
         } else if (lp_type_switch && lp_type_switch->should_event_be_deleted
                 && lp_type_switch->should_event_be_deleted(next_event->dest_lp, next_event)) {
             tw_event_free(pe, next_event);
             deleted = true;
+            events_deleted++;
         }
 
-        // store event in deque_events to inject immediately back to the queue
-        if (!deleted) {
+        // store event in dequed_events to inject immediately back to the queue
+        if (!deleted && !frozen) {
              next_event->prev = dequed_events;
              dequed_events = next_event;
-             events_dequeued++;
-             assert(next_event->recv_ts >= current_switch_time);
         }
 
         next_event = tw_pq_dequeue(pe->pq);
     }
 
-    int events_enqueued = 0;
-    // Reinjecting events into simulation
+    // Reinjecting non-frozen events into simulation
     while (dequed_events) {
         tw_event * const prev_event = dequed_events;
         dequed_events = dequed_events->prev;
@@ -126,13 +123,60 @@ static void shift_events_to_future_pe(tw_pe * pe) {
         events_enqueued++;
     }
 
-    if (DEBUG_DIRECTOR > 0 && events_dequeued != events_enqueued) {
-        printf("PE %lu: Discrepancy on number of events processed %d (%d dequeued and %d enqueued)\n",
-                g_tw_mynode, events_dequeued - events_enqueued, events_dequeued, events_enqueued);
+    if (DEBUG_DIRECTOR > 0) {
+        printf("PE %lu: Processed %d events (%d enqueued, %d frozen, %d deleted)\n",
+                g_tw_mynode, events_processed, events_enqueued, events_frozen, events_deleted);
     }
 
-    // shifting time stamps of events in causality list (one list per KP)
-    // offset_future_events_in_causality_list(switch_offset, gvt);
+    // Sanity check: processed = enqueued + frozen + deleted
+    assert(events_processed == events_enqueued + events_frozen + events_deleted);
+}
+
+static void unfreeze_events_from_separate_queue_pe(tw_pe * pe) {
+#ifdef USE_RAND_TIEBREAKER
+    tw_stime current_gvt = pe->GVT_sig.recv_ts;
+#else
+    tw_stime current_gvt = pe->GVT;
+#endif
+
+    // Calculate offset to adjust timestamps: current_gvt - switch_time
+    double time_offset = current_gvt - frozen_events_switch_time;
+
+    int events_restored = 0;
+
+    // Traverse the frozen events linked list and restore them to the main queue
+    while (frozen_events_head) {
+        tw_event * event_to_restore = frozen_events_head;
+        frozen_events_head = frozen_events_head->prev;
+        event_to_restore->prev = NULL;
+
+        // Adjust timestamp: original_time + time_spent_in_surrogate
+#ifdef USE_RAND_TIEBREAKER
+        assert(event_to_restore->recv_ts == event_to_restore->sig.recv_ts);
+        event_to_restore->recv_ts += time_offset;
+        event_to_restore->sig.recv_ts = event_to_restore->recv_ts;
+#else
+        event_to_restore->recv_ts += time_offset;
+#endif
+
+        // Re-enqueue the event
+        tw_pq_enqueue(pe->pq, event_to_restore);
+
+        // Re-add to hash table if it was a remote event
+        if (event_to_restore->event_id && event_to_restore->state.remote) {
+            tw_hash_insert(pe->hash_t, event_to_restore, event_to_restore->send_pe);
+        }
+
+        events_restored++;
+    }
+
+    if (DEBUG_DIRECTOR > 0 && events_restored > 0) {
+        printf("PE %lu: Restored %d frozen events with time offset %.6f\n",
+                g_tw_mynode, events_restored, time_offset);
+    }
+
+    // Reset frozen events state
+    frozen_events_switch_time = 0.0;
 }
 
 
@@ -152,9 +196,9 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe) {
         tw_error(TW_LOC, "Sorry, sending packets to the future hasn't been implement in this mode");
     }
 
-    printf("PE %lu - AVL size %d (before shifting events)\n", g_tw_mynode, pe->avl_tree_size);
-    shift_events_to_future_pe(pe);
-    printf("PE %lu - AVL size %d (after shifting events to future)\n", g_tw_mynode, pe->avl_tree_size);
+    printf("PE %lu - AVL size %d (before freezing events)\n", g_tw_mynode, pe->avl_tree_size);
+    freeze_events_to_separate_queue_pe(pe);
+    printf("PE %lu - AVL size %d (after freezing events to separate queue)\n", g_tw_mynode, pe->avl_tree_size);
 
     // Going through all LPs in PE and running their specific functions
     for (tw_lpid local_lpid = 0; local_lpid < g_tw_nlp; local_lpid++) {
@@ -210,6 +254,11 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe) {
     tw_stime gvt = pe->GVT;
 #endif
 
+    // Restore frozen events back to the main queue with timestamp adjustment
+    printf("PE %lu - AVL size %d (before injecting events into event queue again)\n", g_tw_mynode, pe->avl_tree_size);
+    unfreeze_events_from_separate_queue_pe(pe);
+    printf("PE %lu - AVL size %d (after defreezing events from separate queue)\n", g_tw_mynode, pe->avl_tree_size);
+
     // Going through all LPs in PE and running their specific functions
     for (tw_lpid local_lpid = 0; local_lpid < g_tw_nlp; local_lpid++) {
         tw_lp * const lp = g_tw_lp[local_lpid];
@@ -259,7 +308,7 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe) {
 }
 
 
-void switch_model(tw_pe * pe) {
+static void switch_model(tw_pe * pe) {
     // Rollback if in optimistic mode
     if (g_tw_synchronization_protocol == OPTIMISTIC) {
         tw_scheduler_rollback_and_cancel_events_pe(pe);
@@ -358,6 +407,12 @@ void network_director(tw_pe * pe) {
             time_in_surrogate += start - surrogate_time_last;
         }
     }
+}
+
+// === Function for application director to use network freezing machinery
+void surrogate_switch_network_model(tw_pe * pe) {
+    // Simply expose the existing switch_model function for use by application director
+    switch_model(pe);
 }
 //
 // === END OF Director functionality
