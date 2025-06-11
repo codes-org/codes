@@ -198,6 +198,7 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(terminal_state * s, tw
 static void dragonfly_dally_terminal_surrogate_to_highdef(terminal_state * s, tw_lp * lp, tw_event **);
 static bool dragonfly_dally_terminal_should_event_be_frozen(tw_lp * lp, tw_event * event);
 static bool dragonfly_dally_router_should_event_be_frozen(tw_lp * lp, tw_event * event);
+static void dragonfly_dally_terminal_pre_surrogate_switch_event_queue( terminal_state * s, tw_lp * lp, tw_event * event);
 //
 // ==== END OF Parameters to tune surrogate mode ====
 
@@ -2449,6 +2450,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
                  .surrogate_to_highdef = (model_switch_f) dragonfly_dally_terminal_surrogate_to_highdef,
                  .should_event_be_frozen = dragonfly_dally_terminal_should_event_be_frozen,
                  .should_event_be_deleted = NULL,
+                 .check_event_in_queue = (model_check_event_f) dragonfly_dally_terminal_pre_surrogate_switch_event_queue,
                 },
                 {.lpname = "modelnet_dragonfly_dally_router",
                  .trigger_idle_modelnet = false,
@@ -2456,6 +2458,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
                  .surrogate_to_highdef = NULL,
                  .should_event_be_frozen = dragonfly_dally_router_should_event_be_frozen,
                  .should_event_be_deleted = NULL,
+                 .check_event_in_queue = NULL,
                 },
                 0
             }
@@ -3017,37 +3020,27 @@ static void feed_packet_to_predictor(terminal_state * s, tw_lp * lp, uint64_t pa
     }
 }
 
-// Constructs a hashmap with all the T_NOTIFY events to be processed.
-// The key of the list is the GID for the source terminal. The value of the
-// hash is the end time
-static map<uint64_t, double> construct_map_of_NOTIFY_LATENCY_events(
-        tw_lp * lp, tw_event ** const terminal_events) {
-    // hash map to store T_NOTIFY events found (`packet_ID` and `travel_end_time`)
-    map<uint64_t, double> notification_events_map;
-
-    for (size_t i = 0; terminal_events && terminal_events[i] != NULL; i++) {
-        assert(terminal_events[i]->dest_lpid == lp->gid);
-        tw_event * event = terminal_events[i];
-        int const event_type = model_net_get_event_type_lp((model_net_wrap_msg *) tw_event_data(event));
-        // if event is T_NOTIFY, add event relevant data into hash map for T_NOTIFY event
-        if (event_type == MN_BASE_PASS) {
-            terminal_dally_message * msg = (terminal_dally_message *)
-                model_net_method_msg_from_tw_event(lp, (model_net_wrap_msg *) tw_event_data(event));
-            if (msg->type == T_NOTIFY) {
-                assert(msg->notify_type == NOTIFY_LATENCY);
-                notification_events_map[msg->packet_ID] = msg->travel_end_time;
-            }
+// We check an event that is in the event queue, thus we do not process it yet
+static void dragonfly_dally_terminal_pre_surrogate_switch_event_queue(
+    terminal_state * s, tw_lp * lp, tw_event * event) {
+    int const event_type = model_net_get_event_type_lp((model_net_wrap_msg *) tw_event_data(event));
+    // if event is T_NOTIFY, add event relevant data into hash map for T_NOTIFY event
+    if (event_type == MN_BASE_PASS) {
+        terminal_dally_message * msg = (terminal_dally_message *)
+            model_net_method_msg_from_tw_event(lp, (model_net_wrap_msg *) tw_event_data(event));
+        assert(msg != NULL);
+        if (msg->type == T_NOTIFY) {
+            assert(msg->notify_type == NOTIFY_LATENCY);
+            feed_packet_to_predictor(s, lp, msg->packet_ID, msg->travel_end_time);
+            s->sent_packets.erase(msg->packet_ID);
         }
     }
-
-    return notification_events_map;
 }
 
 // This function never rollsback because it's called at GVT
 static void dragonfly_dally_terminal_highdef_to_surrogate(
         terminal_state * s, tw_lp * lp, tw_event ** terminal_events) {
-
-    auto notification_events_map = construct_map_of_NOTIFY_LATENCY_events(lp, terminal_events);
+    (void) terminal_events;
 
     if (s->arrival_of_last_packet.packet_ID != -1) {
         assert(s->sent_packets.count(s->arrival_of_last_packet.packet_ID) == 1); // packet_ID is in s->sent_packets
@@ -3069,13 +3062,8 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(
 
         assert(packet_ID == sent.start.packet_ID);
 
-        // Finding out whether the packet-latency is on the list of messages to be processed
-        bool const in_events_to_process = notification_events_map.count(packet_ID) == 1;
-        if (in_events_to_process) {
-            feed_packet_to_predictor(s, lp, packet_ID, notification_events_map[sent.start.packet_ID]);
-
         // The packet has not been delievered. Send directly to destination and notify of zombie event
-        } else if (freeze_network_on_switch) {
+        if (freeze_network_on_switch) {
             struct packet_end predicted_end = 
                 terminal_predictor->predict(s->predictor_data, lp, s->terminal_id, &sent.start);
 

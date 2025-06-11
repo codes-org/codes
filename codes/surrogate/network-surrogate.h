@@ -42,14 +42,16 @@ struct director_data {
 // Parameters: `data` corresponds to the lp sub-state, lp is the lp pointer, and the array of events in queue (to be processed)
 typedef void (*model_switch_f) (void * data, tw_lp * lp, tw_event **);
 typedef bool (*model_ask_if_freeze_f) (tw_lp * lp, tw_event * event); // Determines whether the event should be "frozen" or should be allowed to run during surrogate-mode
+typedef void (*model_check_event_f) (void * state, tw_lp * lp, tw_event * event); // Determines whether the event should be "frozen" or should be allowed to run during surrogate-mode
 
 struct lp_types_switch {
     char lpname[MAX_NAME_LENGTH];
     bool trigger_idle_modelnet;  // Trigger idle events for model-net (prevents a model to be stuck in a schedule loop if it is to process packets during surrogate-mode). If this is true and the lpname does not start with 'modelnet_', the behaviour is undefined
     model_switch_f        highdef_to_surrogate;
     model_switch_f        surrogate_to_highdef;
-    model_ask_if_freeze_f should_event_be_frozen;  // NULL means event from LP type shouldn't be frozen
-    model_ask_if_freeze_f should_event_be_deleted;  // NULL means event from LP type shouldn't be deleted
+    model_ask_if_freeze_f should_event_be_frozen;  // true means event from LP type shouldn't be frozen
+    model_ask_if_freeze_f should_event_be_deleted;  // true means event from LP type shouldn't be deleted
+    model_check_event_f   check_event_in_queue;
 };
 
 struct switch_at_struct {

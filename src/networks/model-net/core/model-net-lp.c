@@ -1498,10 +1498,10 @@ void model_net_method_switch_to_highdef_lp(tw_lp * lp) {
     ns->in_sched_recv_loop |= ns->sched_recv_loop_pre_surrogate;
 }
 
-void model_net_method_call_inner(tw_lp * lp, void (*fun) (void * inner, tw_lp * lp, tw_event **), tw_event ** lp_events) {
+void model_net_method_call_inner(tw_lp * lp, void (*fun) (void * inner, tw_lp * lp, void * data), void * data) {
     model_net_base_state * const ns = (model_net_base_state*) lp->cur_state;
 
-    fun(ns->sub_state, lp, lp_events);
+    fun(ns->sub_state, lp, data);
 }
 
 int model_net_get_event_type_lp(model_net_wrap_msg * msg) {
