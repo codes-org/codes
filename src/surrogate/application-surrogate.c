@@ -15,7 +15,7 @@ static enum {
 #define gvt_for(pe) (pe->GVT)
 #endif
 
-#define master_printf(str, ...) if (g_tw_mynode == 0) { printf(str, __VA_ARGS__); }
+#define master_printf(...) if (g_tw_mynode == 0) { printf(__VA_ARGS__); }
 
 static void application_director_pre_switch(tw_pe * pe) {
     // Scheduling next GVT hook call if it is not scheduled every tw_trigger_gvt_hook_every
@@ -32,6 +32,14 @@ static void application_director_pre_switch(tw_pe * pe) {
         case FAST_FORWARD_switching:
             tw_trigger_gvt_hook_at(restarting_at + 1); // + 1 to force director to run right after we have fully fast-forward
             master_printf("Triggering switch to application iteration surrogate mode at GVT %d time %f\n", g_tw_gvt_done, gvt_for(pe));
+
+            // TODO: Fix network surrogate (it's buggy) and enable this code
+            // Freeze network events if configured
+            //if (freeze_network_on_app_switch) {
+            //    master_printf("Freezing network events for application surrogate mode\n");
+            //    surrogate_switch_network_model(pe);
+            //}
+
             director_state = POST_JUMP_switched;
         break;
 
@@ -54,6 +62,13 @@ static void application_director_post_switch(tw_pe * pe) {
 
     if (director_state == POST_JUMP_switched) {
         master_printf("Back to full high-fidelity application iteration mode at GVT %d time %f\n", g_tw_gvt_done, gvt_for(pe));
+
+        // Unfreeze network events if they were frozen
+        //if (freeze_network_on_app_switch) {
+        //    master_printf("Unfreezing network events after application surrogate mode\n");
+        //    surrogate_switch_network_model(pe);
+        //    // TODO: reset network predictors
+        //}
     } else {
         master_printf("Resetting predictor at GVT %d time %f\n", g_tw_gvt_done, gvt_for(pe));
     }

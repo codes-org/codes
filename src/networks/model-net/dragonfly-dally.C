@@ -2434,11 +2434,15 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     }
 
     // START Surrogate configuration
-    char director_mode[MAX_NAME_LENGTH];
-    director_mode[0] = '\0';
-    int director_mode_len = configuration_get_value(&config, "NETWORK_SURROGATE", "director_mode", anno, director_mode, MAX_NAME_LENGTH);
+    char enable_str[MAX_NAME_LENGTH];
+    enable_str[0] = '\0';
+    int const rc_enable = configuration_get_value(&config, "NETWORK_SURROGATE", "enable", anno, enable_str, MAX_NAME_LENGTH);
+    bool enable_network_surrogate = false;
+    if (rc_enable > 0) {
+        enable_network_surrogate = (strcmp(enable_str, "1") == 0 || strcmp(enable_str, "true") == 0);
+    }
     // if surrogate mode has been set up
-    if (director_mode_len > 0) {
+    if (enable_network_surrogate) {
         struct network_surrogate_config surr_conf = {
             .director = {.switch_surrogate = switch_surrogate, .is_surrogate_on = is_surrogate_on_fun},
             .total_terminals = p->total_terminals,
