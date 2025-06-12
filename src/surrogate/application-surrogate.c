@@ -1,8 +1,13 @@
 #include "surrogate/application-surrogate.h"
 #include <ross-extern.h>
+#include "surrogate/network-surrogate.h"
 
 static struct app_iteration_predictor * iter_predictor;
-static struct application_director_config conf = {.option = APP_DIRECTOR_OPTS_call_every_ns, .every_n_gvt = 1000000};
+static struct application_director_config conf = {
+    .option = APP_DIRECTOR_OPTS_call_every_ns,
+    .every_n_gvt = 1000000,
+    .use_network_surrogate = false
+};
 static enum {
     PRE_JUMP = 0,
     POST_JUMP_switched,  // Switched to surrogate-mode
@@ -35,10 +40,10 @@ static void application_director_pre_switch(tw_pe * pe) {
 
             // TODO: Fix network surrogate (it's buggy) and enable this code
             // Freeze network events if configured
-            //if (freeze_network_on_app_switch) {
-            //    master_printf("Freezing network events for application surrogate mode\n");
-            //    surrogate_switch_network_model(pe);
-            //}
+            if (conf.use_network_surrogate) {
+                master_printf("Switching on network surrogate\n");
+                surrogate_switch_network_model(pe);
+            }
 
             director_state = POST_JUMP_switched;
         break;
@@ -64,11 +69,11 @@ static void application_director_post_switch(tw_pe * pe) {
         master_printf("Back to full high-fidelity application iteration mode at GVT %d time %f\n", g_tw_gvt_done, gvt_for(pe));
 
         // Unfreeze network events if they were frozen
-        //if (freeze_network_on_app_switch) {
-        //    master_printf("Unfreezing network events after application surrogate mode\n");
-        //    surrogate_switch_network_model(pe);
-        //    // TODO: reset network predictors
-        //}
+        if (conf.use_network_surrogate) {
+            master_printf("Switching off network surrogate\n");
+            surrogate_switch_network_model(pe);
+            // TODO: reset network predictors and ask not to gather any data for 1 ms
+        }
     } else {
         master_printf("Resetting predictor at GVT %d time %f\n", g_tw_gvt_done, gvt_for(pe));
     }

@@ -232,13 +232,15 @@ static struct application_director_config load_director_config(void) {
             break;
     }
 
+    config.use_network_surrogate = is_network_surrogate_configured;
+
     return config;
 }
 
 void application_surrogate_configure(
     int num_terminals_in_pe,
     int num_apps,
-    struct app_iteration_predictor ** iter_pred //!< pointer to save application iteration predictor. Caller must free it
+    struct app_iteration_predictor ** iter_pred
 ) {
     char num_iters_str[MAX_NAME_LENGTH];
     num_iters_str[0] = '\0';
@@ -266,6 +268,9 @@ void application_surrogate_configure(
         master_printf("  Director - mode: every-n-gvt, every_n_gvt: %d\n", app_dir_config.every_n_gvt);
     } else {
         master_printf("  Director - mode: every-n-nanoseconds, call_every_ns: %e\n", app_dir_config.call_every_ns);
+    }
+    if (is_network_surrogate_configured) {
+        master_printf("  The network director has been replaced by the application director. The application director will trigger the network surrogate on and off.\n");
     }
     master_printf("\n");
 }

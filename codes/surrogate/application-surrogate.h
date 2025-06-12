@@ -28,6 +28,7 @@ struct application_director_config {
         // To use when APP_DIRECTOR_OPTS_call_every_ns
         double call_every_ns;
     };
+    bool use_network_surrogate;
 };
 
 // Main function responsible for switching between high-fidelity and (application iteration) surrogate
