@@ -59,6 +59,8 @@ PARAMS
    router_buffer_snapshots=( ${BUFFER_SNAPSHOTS} );
 }
 NETWORK_SURROGATE {
+   enable="1"; # Options: 0 or 1
+
 # determines the director switching from surrogate to high-def simulation strategy
    director_mode="at-fixed-virtual-times";
 
