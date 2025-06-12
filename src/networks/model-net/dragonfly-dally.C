@@ -3333,7 +3333,7 @@ static void terminal_commit_packet_generate(terminal_state * s, tw_bf * bf, term
     sent.start.packet_ID = msg->packet_ID;
     sent.start.dest_terminal_lpid = msg->dest_terminal_lpid;
     sent.start.dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id;
-    sent.start.travel_start_time = tw_now(lp);
+    sent.start.travel_start_time = msg->saved_processing_time;
     sent.start.workload_injection_time = msg->msg_start_time;
     sent.start.processing_packet_delay = processing_packet_delay;
     sent.start.packet_size = msg->packet_size;
@@ -3458,6 +3458,8 @@ static void terminal_dally_commit(terminal_state * s,
                 uint64_t packet_ID = msg->packet_ID;
 
                 if (s->sent_packets.count(packet_ID) == 1) { // packet_ID is in s->sent_packets
+                    auto sent = s->sent_packets[packet_ID];
+                    assert(msg->travel_end_time > sent.start.travel_start_time);
                     if (packet_ID == s->last_packet_sent_id) { // packet_ID is last, we cannot compute the next_packet_delay
                         assert(s->arrival_of_last_packet.packet_ID == -1);
                         s->arrival_of_last_packet.packet_ID = packet_ID;
@@ -4212,6 +4214,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
 
     s->packet_gen++;
     s->total_gen_size += msg->packet_size;
+    msg->saved_processing_time = tw_now(lp);
 
     tw_stime ts, injection_ts, nic_ts;
 
