@@ -5511,8 +5511,8 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
             // the simulation (unless the data is fed to a predictor, later to be used). If the latency notification is deactivated, the simulation will produce
             // the same number of events (a bit wasteful), a parameter that model-net or dragonfly-dally for some reason use :S
             vacuous_msg_to_itself(s, msg, lp);
-        }
 #endif /* if ALWAYS_DETERMINISTIC_NETWORK */
+        }
     }
 
     // if the message is complete (ie, this `msg` is the last piece of the message)
