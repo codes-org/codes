@@ -1,6 +1,7 @@
 #include "surrogate/application-surrogate.h"
 #include <ross-extern.h>
 #include "surrogate/network-surrogate.h"
+#include "surrogate/init.h"
 
 static struct app_iteration_predictor * iter_predictor;
 static struct application_director_config conf = {
@@ -38,13 +39,12 @@ static void application_director_pre_switch(tw_pe * pe) {
             tw_trigger_gvt_hook_at(restarting_at + 1); // + 1 to force director to run right after we have fully fast-forward
             master_printf("Triggering switch to application iteration surrogate mode at GVT %d time %f\n", g_tw_gvt_done, gvt_for(pe));
 
-            // TODO: Fix network surrogate (it's buggy) and enable this code
-            // Freeze network events if configured
             if (conf.use_network_surrogate) {
-                master_printf("Switching on network surrogate\n");
+                master_printf("Switching network surrogate on\n");
                 surrogate_switch_network_model(pe);
             }
 
+            surrogate_time_last = tw_clock_read();
             director_state = POST_JUMP_switched;
         break;
 
@@ -63,24 +63,29 @@ static void application_director_post_switch(tw_pe * pe) {
         tw_trigger_gvt_hook_every(conf.every_n_gvt);
     }
 
+    double const start = tw_clock_read();
     iter_predictor->director.reset();
+    double const end = tw_clock_read();
+    surrogate_switching_time += end - start;
 
     if (director_state == POST_JUMP_switched) {
         master_printf("Back to full high-fidelity application iteration mode at GVT %d time %f\n", g_tw_gvt_done, gvt_for(pe));
 
-        // Unfreeze network events if they were frozen
         if (conf.use_network_surrogate) {
-            master_printf("Switching off network surrogate\n");
+            master_printf("Switching network surrogate off\n");
             surrogate_switch_network_model(pe);
             // TODO: reset network predictors and ask not to gather any data for 1 ms
         }
+
+        time_in_surrogate += start - surrogate_time_last;
+        surrogate_time_last = 0.0;
     } else {
         master_printf("Resetting predictor at GVT %d time %f\n", g_tw_gvt_done, gvt_for(pe));
     }
     director_state = PRE_JUMP;
 }
 
-void application_director(tw_pe * pe) {
+static void application_director(tw_pe * pe) {
     // Director is not called if the simulation has ended
     if (gvt_for(pe) >= g_tw_ts_end) {
         return;
@@ -106,4 +111,7 @@ void application_director_configure(struct application_director_config * conf_, 
     } else {
         tw_trigger_gvt_hook_at(conf.call_every_ns);
     }
+}
+
+void application_director_finalize(void) {
 }

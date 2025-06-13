@@ -194,6 +194,7 @@ static void setup_packet_latency_path(char const * const dir_to_save);
 // 
 static bool dally_surrogate_configured = false;
 static bool is_dally_surrogate_on = false;
+static bool freeze_network_on_switch = false;
 static struct packet_latency_predictor * terminal_predictor = NULL;
 static void switch_surrogate(void);
 static bool is_surrogate_on_fun(void);
@@ -2449,7 +2450,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     // if surrogate mode has been set up
     if (enable_network_surrogate) {
         struct network_surrogate_config surr_conf = {
-            .director = {.switch_surrogate = switch_surrogate, .is_surrogate_on = is_surrogate_on_fun},
+            .model = {.switch_surrogate = switch_surrogate, .is_surrogate_on = is_surrogate_on_fun},
             .total_terminals = p->total_terminals,
             .n_lp_types = 2,
             .lp_types = {
@@ -2472,7 +2473,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
                 0
             }
         };
-        network_surrogate_configure(anno, &surr_conf, &terminal_predictor);
+        freeze_network_on_switch = network_surrogate_configure(anno, &surr_conf, &terminal_predictor);
         if (terminal_predictor) {
             dally_surrogate_configured = true;
         } else {

@@ -4,9 +4,11 @@
 #include <ross-extern.h>
 #include <stdio.h>
 
-double surrogate_switching_time = 0.0;
-double time_in_surrogate = 0.0;
-static double surrogate_time_last = 0.0;
+static bool is_network_surrogate_configured = false;
+static struct switch_at_struct switch_network_at = {0};
+static struct network_surrogate_config net_surr_config = {0};
+static bool freeze_network_on_switch = false;
+static bool network_director_enabled = false;
 
 // === Frozen events system for separate queue approach
 static tw_event *frozen_events_head = NULL;  // Head of frozen events linked list
@@ -313,14 +315,14 @@ static void switch_model(tw_pe * pe) {
     if (g_tw_synchronization_protocol == OPTIMISTIC) {
         tw_scheduler_rollback_and_cancel_events_pe(pe);
     }
-    net_surr_config.director.switch_surrogate();
+    net_surr_config.model.switch_surrogate();
     if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
-        printf("Switching to %s\n", net_surr_config.director.is_surrogate_on() ? "surrogate" : "high-fidelity");
+        printf("Switching to network %s\n", net_surr_config.model.is_surrogate_on() ? "surrogate" : "high-fidelity");
     }
 
     // "Freezing" network events and activating LP's switch functions
     if (freeze_network_on_switch) {
-        if (net_surr_config.director.is_surrogate_on()) {
+        if (net_surr_config.model.is_surrogate_on()) {
             model_net_method_switch_to_surrogate();
             events_high_def_to_surrogate_switch(pe);
         } else {
@@ -333,6 +335,7 @@ static void switch_model(tw_pe * pe) {
 
 void network_director(tw_pe * pe) {
     assert(is_network_surrogate_configured);
+    assert(network_director_enabled);
 
 #ifdef USE_RAND_TIEBREAKER
     tw_stime gvt = pe->GVT_sig.recv_ts;
@@ -348,7 +351,7 @@ void network_director(tw_pe * pe) {
         }
         if (DEBUG_DIRECTOR == 3) {
             printf("GVT %d at %f in %s\n", i++, gvt,
-                    net_surr_config.director.is_surrogate_on() ? "surrogate-mode" : "high-definition");
+                    net_surr_config.model.is_surrogate_on() ? "surrogate-mode" : "high-definition");
         }
     }
 
@@ -361,22 +364,18 @@ void network_director(tw_pe * pe) {
 
     // Do not process if the simulation ended
     if (gvt >= g_tw_ts_end) {
-        // If the simulation ended and the surrogate is still on, stop timer checking surrogate time
-        if (net_surr_config.director.is_surrogate_on()) {
-            time_in_surrogate += tw_clock_read() - surrogate_time_last;
-        }
         return;
     }
 
     // ---- Past this means that we are in fact switching ----
-    bool const pre_switch_status = net_surr_config.director.is_surrogate_on();
+    bool const pre_switch_status = net_surr_config.model.is_surrogate_on();
 
     // Asking the director/model to switch
     if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
         if (DEBUG_DIRECTOR == 2) {
             printf("\n");
         }
-        printf("Switching at %f\n", gvt);
+        printf("Switching network at %f\n", gvt);
     }
 
     double const start = tw_clock_read();
@@ -391,28 +390,49 @@ void network_director(tw_pe * pe) {
     }
 
     if (DEBUG_DIRECTOR == 1 && g_tw_mynode == 0) {
-        printf("Switch completed!\n");
+        printf("Network switch completed!\n");
     }
     if (DEBUG_DIRECTOR > 1) {
         printf("PE %lu: Switch completed!\n", g_tw_mynode);
     }
 
     // Determining time in surrogate
-    if (pre_switch_status != net_surr_config.director.is_surrogate_on()) {
-        if (net_surr_config.director.is_surrogate_on()) {
-            // Start tracking time spent in surrogate mode
-            surrogate_time_last = end;
-        } else {
-            // We are done tracking time spent in surrogate mode
-            time_in_surrogate += start - surrogate_time_last;
-        }
+    if (net_surr_config.model.is_surrogate_on()) {
+        // Start tracking time spent in surrogate mode
+        surrogate_time_last = end;
+    } else {
+        // We are done tracking time spent in surrogate mode
+        time_in_surrogate += start - surrogate_time_last;
+        surrogate_time_last = 0.0;
     }
 }
 
-// === Function for application director to use network freezing machinery
+void network_director_configure(struct network_surrogate_config * sc, struct switch_at_struct * switch_network_at_, bool fnos) {
+    is_network_surrogate_configured = true;
+    // Injecting into ROSS the function to be called at GVT
+    if (switch_network_at_) {
+        network_director_enabled = true;
+        g_tw_gvt_hook = network_director;
+        switch_network_at = *switch_network_at_;
+        tw_trigger_gvt_hook_at(switch_network_at.time_stampts[0]);
+    }
+    net_surr_config = *sc;
+    freeze_network_on_switch = fnos;
+}
+
+void network_director_finalize(void) {
+    if (network_director_enabled) {
+        free(switch_network_at.time_stampts);
+    }
+}
+
+// === Function for application director to use switch to surrogate machinery
 void surrogate_switch_network_model(tw_pe * pe) {
     // Simply expose the existing switch_model function for use by application director
+    double const start = tw_clock_read();
     switch_model(pe);
+    double const end = tw_clock_read();
+    surrogate_switching_time += end - start;
 }
 //
 // === END OF Director functionality

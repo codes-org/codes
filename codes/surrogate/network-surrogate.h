@@ -16,22 +16,11 @@
 extern "C" {
 #endif
 
-// Time spent switching from high-fidelity to surrogate and viceversa
-extern double surrogate_switching_time;
-// Total time spent in surrogate mode (between switches)
-extern double time_in_surrogate;
-
-// When true (below), the network state will be frozen at switch time (from
-// high-def to surrogate) and later reanimated on the switch back (from
-// surrogate to high-def). If not, all events will be kept in the network while
-// on surrogate mode, which means that the network will vacate completely
-extern bool freeze_network_on_switch;
-
 // Functions that director should have access to
 typedef void (*switch_surrogate_f) (void); // Switches back and forth from surrogate mode as defined by network model (e.g, by dragonfly-dally.C)
 typedef bool (*is_surrogate_on_f) (void); // Switches back and forth from surrogate mode as defined by network model (e.g, by dragonfly-dally.C)
 
-struct director_data {
+struct network_model_surrogate {
     switch_surrogate_f  switch_surrogate; // this function switches the model to and from surrogate-mode on a PE basis. It has to be called on all PEs to switch the entire simulation to its surrogate version
     is_surrogate_on_f   is_surrogate_on;  // determines if the model has switched or not
 };
@@ -60,13 +49,19 @@ struct switch_at_struct {
     double * time_stampts; // list of precise timestamps at which to switch
 };
 
-extern struct switch_at_struct switch_network_at;
+struct network_surrogate_config {
+    struct network_model_surrogate model;  //!< functionality needed by the director to switch the model back and forth from high-fidelity to surrogate
+    int total_terminals;  //!< total number of terminals
+    size_t n_lp_types;
+    struct lp_types_switch lp_types[MAX_LP_TYPES];
+};
 
-// Main function responsible for switching between high-fidelity and (network) surrogate
-void network_director(tw_pe * pe);
+void network_director_configure(struct network_surrogate_config *, struct switch_at_struct * switch_network_at, bool freeze_network_on_switch);
 
 // Function for application director to use network freezing machinery
 void surrogate_switch_network_model(tw_pe * pe);
+
+void network_director_finalize(void);
 
 #ifdef __cplusplus
 }

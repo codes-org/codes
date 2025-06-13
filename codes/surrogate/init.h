@@ -11,9 +11,6 @@
 #include "codes/surrogate/app-iteration-predictor/common.h"
 #include "codes/surrogate/network-surrogate.h"
 
-// A simple macro to clarify code a bit
-#define PRINTF_ONCE(...) if (g_tw_mynode == 0) { fprintf(stderr, __VA_ARGS__); }
-
 // Basic level of debugging is 1. It should be always turned on
 // because it tells us when a switch to or from surrogate-mode happened.
 // It can be deactivated (set to 0) if it ends up being too obnoxious
@@ -31,31 +28,28 @@ extern "C" {
  * Variable definitions
  */
 
+// Time spent switching from high-fidelity to surrogate and viceversa
+extern double surrogate_switching_time;
+// Total time spent in surrogate mode (between switches)
+extern double time_in_surrogate;
+// Time at which we transitioned into surrogate (zero means that we are in high-fidelity)
+extern double surrogate_time_last;
+
 void print_surrogate_stats(void);
 
-struct network_surrogate_config {
-    struct director_data director;  //!< functionality needed by the director to switch back and forth from model-level surrogate-mode to (vanilla) high-definition simulation
-    int total_terminals;  //!< total number of terminals
-    size_t n_lp_types;
-    struct lp_types_switch lp_types[MAX_LP_TYPES];
-};
-
 /** Loads surrogate configuration, including packet latency predictor. */
-void network_surrogate_configure(
+bool network_surrogate_configure(
         char const * const annotation,
         struct network_surrogate_config * const config,
         struct packet_latency_predictor ** pl_pred //!< pointer to save packet latency predictor. Caller does not need to free pointer
 );
-
-extern struct network_surrogate_config net_surr_config;
-extern bool is_network_surrogate_configured;
 
 void application_surrogate_configure(
     int num_terminals_on_pe,
     int num_apps,
     struct app_iteration_predictor ** iter_pred //!< pointer to save application iteration predictor. No need to free pointer
 );
-void free_application_surrogate(void);
+void surrogates_finalize(void);
 
 #ifdef __cplusplus
 }
