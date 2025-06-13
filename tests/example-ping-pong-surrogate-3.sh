@@ -43,7 +43,7 @@ err=$?
 [[ $err -ne 0 ]] && exit $err
 
 # Checking that the surrogate switched properly
-grep 'Switch completed' model-output-1.txt
+grep 'Network switch completed' model-output-1.txt
 err=$?
 [[ $err -ne 0 ]] && exit $err
 
