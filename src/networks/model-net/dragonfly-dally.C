@@ -5711,6 +5711,7 @@ static void dragonfly_dally_terminal_final( terminal_state * s,
         qhash_finalize(s->rank_tbl);
     
     rc_stack_destroy(s->st);
+    rc_stack_destroy(s->cc_st);
     //TODO FREE THESE CORRECTLY
     for(int i = 0; i < s->params->num_rails; i++)
     {
@@ -5778,6 +5779,7 @@ void dragonfly_dally_router_final(router_state * s, tw_lp * lp){
         fclose(dragonfly_rtr_bw_log);
 
     rc_stack_destroy(s->st);
+    rc_stack_destroy(s->cc_st);
     
     const dragonfly_param *p = s->params;
     int written = 0;
@@ -6868,6 +6870,7 @@ terminal_dally_event( terminal_state * s,
         }
     } else {
         rc_stack_gc(lp, s->st);
+        rc_stack_gc(lp, s->cc_st);
     }
     switch(msg->type)
         {
@@ -6924,6 +6927,7 @@ static void router_dally_event(router_state * s, tw_bf * bf, terminal_dally_mess
     s->fwd_events++;
     s->ross_rsample.fwd_events++;
     rc_stack_gc(lp, s->st);
+    rc_stack_gc(lp, s->cc_st);
 
     msg->last_received_time = s->last_time;
     s->last_time = tw_now(lp);
@@ -8270,6 +8274,7 @@ void print_terminal_dally_message(FILE * out, char const * prefix, void * s, str
     fprintf(out, "%s  |      saved_fin_chunks_ross = %g\n", prefix, msg->saved_fin_chunks_ross);
     fprintf(out, "%s  |   saved_last_in_queue_time = %g\n", prefix, msg->saved_last_in_queue_time);
     fprintf(out, "%s  |    saved_next_packet_delay = %g\n", prefix, msg->saved_next_packet_delay);
+    fprintf(out, "%s  |      saved_processing_time = %g\n", prefix, msg->saved_processing_time);
     fprintf(out, "%s  |           msg_new_mn_event = %g\n", prefix, msg->msg_new_mn_event);
     fprintf(out, "%s  |         last_received_time = %g\n", prefix, msg->last_received_time);
     fprintf(out, "%s  |             last_sent_time = %g\n", prefix, msg->last_sent_time);
