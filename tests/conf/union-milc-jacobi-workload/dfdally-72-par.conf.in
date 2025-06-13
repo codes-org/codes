@@ -38,16 +38,16 @@ PARAMS
 # bandwidth in GiB/s for compute node-router channels
    cn_bandwidth="5.25";
 # ROSS message size
-   message_size="792";
+   message_size="840";
 # number of compute nodes connected to router, dictated by dragonfly config
 # file
    num_cns_per_router="2";
 # number of global channels per router
    num_global_channels="2";
 # network config file for intra-group connections
-   intra-group-connections="/home/helq/Research/HPC/code/kronos/kronos-merge/codes/tmptest/conf/dfdally-72-intra";
+   intra-group-connections="@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-intra";
 # network config file for inter-group connections
-   inter-group-connections="/home/helq/Research/HPC/code/kronos/kronos-merge/codes/tmptest/conf/dfdally-72-inter";
+   inter-group-connections="@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-inter";
 # routing protocol to be used
    routing="prog-adaptive";
    minimal-bias="1";
@@ -61,4 +61,38 @@ PARAMS
    num_apps="2";
    #offset for app_id: model-net-mpi-replay is 88, synthetic-dfly-plus is 24
    offset="144";
+}
+NETWORK_SURROGATE {
+   enable="${NETWORK_SURR_ON}"; # either "0" or "1"
+# determines the director switching from surrogate to high-def simulation strategy
+   director_mode="delegate-to-app-director";
+   #director_mode="at-fixed-virtual-times";
+
+# director configuration for: director_mode == "at-fixed-virtual-times"
+# timestamps at which to switch to surrogate-mode and back
+   fixed_switch_timestamps=( "25.0e6", "400.0e6" );
+
+# latency predictor to use. Options: average, torch-jit
+   packet_latency_predictor="average";
+# some workload models need some time to stabilize, a point where the network behaviour stabilizes. The predictor will ignore all packet latencies that arrive during this period
+   ignore_until="10.0e6";
+
+# parameters for torch-jit latency predictor
+   torch_jit_mode="single-static-model-for-all-terminals";
+   torch_jit_model_path="";
+
+# selecting network treatment on switching to surrogate. Options: freeze, nothing
+   network_treatment_on_switch="nothing";  # freeze is buggy sadly. It freezes more events than it should
+}
+APPLICATION_SURROGATE {
+   enable="${APP_SURR_ON}"; # either 0 or 1
+
+   # Configuring director
+   director_mode="${APP_DIRECTOR_MODE}"; # Opts: "every-n-gvt", "every-n-nanoseconds"
+   director_num_gvt="${EVERY_N_GVT}";
+   director_num_ns="${EVERY_NSECS}"; # 1^6 means 1ms
+
+   # Configuring predictor
+   # Minimum number of iterations to collect data from before skipping ahead in the simulation
+   num_iters_to_collect="2";
 }

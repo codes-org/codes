@@ -95,6 +95,15 @@ set(test-shell-files
     example-ping-pong-surrogate-determinism-2.sh
     )
 
+configure_file(conf/union-milc-jacobi-workload/dfdally-72-par.conf.in conf/union-milc-jacobi-workload/dfdally-72-par.conf.in @ONLY)
+
+if(USE_UNION)
+    list(APPEND test-shell-files
+        union-workload-test-surrogate.sh
+        union-workload-test-surrogate-parallel.sh
+    )
+endif()
+
 foreach(testname ${test-shell-files})
     add_test(NAME ${testname}
         COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh" "${CMAKE_CURRENT_SOURCE_DIR}/${testname}"

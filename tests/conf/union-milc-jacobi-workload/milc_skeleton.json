@@ -4,7 +4,7 @@
         "size": 36,
         "cfg": {
             "app": "milc",
-            "iteration_cnt": 5,
+            "iteration_cnt": 120,
             "compute_delay": 100,
             "dimension_cnt": 4,
             "dimension_sizes": [2,2,3,3],
