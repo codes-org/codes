@@ -11,7 +11,7 @@
 #include <ross.h>
 #include <assert.h>
 #include <deque>
-#include <iostream>
+#include <memory>
 #include <inttypes.h>
 #include <fstream>
 #include <boost/property_tree/json_parser.hpp>
@@ -19,7 +19,6 @@
 #include <boost/foreach.hpp>
 #include "codes/codes-workload.h"
 #include "codes/quickhash.h"
-#include "codes/codes-jobmap.h"
 #include "codes_config.h"
 #include "union_util.h"
 
@@ -72,7 +71,7 @@ struct shared_context {
     void * conc_params;
     bool isconc;
     ABT_thread      producer;
-    std::deque<struct codes_workload_op*> fifo;
+    std::deque<std::unique_ptr<codes_workload_op>> fifo;
     struct {
         bool received;
         int final_iteration;
@@ -146,9 +145,9 @@ void UNION_MPI_Comm_rank( UNION_Comm comm, int *rank )
 void UNION_MPI_Finalize()
 {
     /* Add an event in the shared queue and then yield */
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
-    wrkld_per_rank.op_type = CODES_WK_END;
+    wrkld_per_rank->op_type = CODES_WK_END;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -158,7 +157,7 @@ void UNION_MPI_Finalize()
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    sctx->fifo.push_back(&wrkld_per_rank);
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
 
     if(DBG_COMM){
         printf("\nUNION FINALIZE src %d ", sctx->my_rank);
@@ -173,11 +172,11 @@ void UNION_MPI_Finalize()
 void UNION_Compute(long cycle_count)
 {
     /* Add an event in the shared queue and then yield */
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
-    wrkld_per_rank.op_type = CODES_WK_DELAY;
-    wrkld_per_rank.u.delay.nsecs = cycle_count;
-    wrkld_per_rank.u.delay.seconds = (cycle_count) / (1000.0 * 1000.0 * 1000.0);
+    wrkld_per_rank->op_type = CODES_WK_DELAY;
+    wrkld_per_rank->u.delay.nsecs = cycle_count;
+    wrkld_per_rank->u.delay.seconds = (cycle_count) / (1000.0 * 1000.0 * 1000.0);
     /* Retreive the shared context state */
     ABT_thread prod;
     void * arg;
@@ -186,7 +185,7 @@ void UNION_Compute(long cycle_count)
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    sctx->fifo.push_back(&wrkld_per_rank);
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
     if(DBG_COMM){
         printf("\nUNION COMPUTE src %d: %ld ns ", sctx->my_rank, cycle_count);
     }
@@ -196,10 +195,10 @@ void UNION_Compute(long cycle_count)
 void UNION_Mark_Iteration(UNION_TAG iter_tag)
 {
     /* Add an event in the shared queue and then yield */
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
-    wrkld_per_rank.op_type = CODES_WK_MARK;
-    wrkld_per_rank.u.send.tag = iter_tag;
+    wrkld_per_rank->op_type = CODES_WK_MARK;
+    wrkld_per_rank->u.send.tag = iter_tag;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -209,8 +208,8 @@ void UNION_Mark_Iteration(UNION_TAG iter_tag)
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    wrkld_per_rank.u.send.source_rank = sctx->my_rank;
-    sctx->fifo.push_back(&wrkld_per_rank);
+    wrkld_per_rank->u.send.source_rank = sctx->my_rank;
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
 
     if(DBG_COMM){
         printf("\nUNION MARKITERATION src %d ", sctx->my_rank);
@@ -222,10 +221,10 @@ void UNION_Mark_Iteration(UNION_TAG iter_tag)
 
 void UNION_IO_OPEN_FILE(int fid)
 {
-    struct codes_workload_op op;
-    op.op_type = CODES_WK_OPEN;
-    op.u.open.file_id = fid;
-    op.u.open.create_flag = 1;
+    auto op = std::unique_ptr<codes_workload_op>(new codes_workload_op);
+    op->op_type = CODES_WK_OPEN;
+    op->u.open.file_id = fid;
+    op->u.open.create_flag = 1;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -235,7 +234,7 @@ void UNION_IO_OPEN_FILE(int fid)
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    sctx->fifo.push_back(&op);
+    sctx->fifo.push_back(std::move(op));
 
     if(DBG_TMP){
         printf("\nUNION IO OPEN src %d ", sctx->my_rank);
@@ -247,11 +246,11 @@ void UNION_IO_OPEN_FILE(int fid)
 
 void UNION_IO_WRITE(int fid, long size)
 {
-    struct codes_workload_op op;
-    op.op_type = CODES_WK_WRITE;
-    op.u.write.file_id = fid;
-    op.u.write.offset = 0;
-    op.u.write.size = size;
+    auto op = std::unique_ptr<codes_workload_op>(new codes_workload_op);
+    op->op_type = CODES_WK_WRITE;
+    op->u.write.file_id = fid;
+    op->u.write.offset = 0;
+    op->u.write.size = size;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -261,7 +260,7 @@ void UNION_IO_WRITE(int fid, long size)
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    sctx->fifo.push_back(&op);
+    sctx->fifo.push_back(std::move(op));
     
     if(DBG_TMP){
         printf("\nUNION IO WRITE src %d ", sctx->my_rank);
@@ -272,11 +271,11 @@ void UNION_IO_WRITE(int fid, long size)
 
 void UNION_IO_READ(int fid, long size)
 {
-    struct codes_workload_op op;
-    op.op_type = CODES_WK_READ;
-    op.u.read.file_id = fid;
-    op.u.read.offset = 0;
-    op.u.read.size = size;
+    auto op = std::unique_ptr<codes_workload_op>(new codes_workload_op);
+    op->op_type = CODES_WK_READ;
+    op->u.read.file_id = fid;
+    op->u.read.offset = 0;
+    op->u.read.size = size;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -286,7 +285,7 @@ void UNION_IO_READ(int fid, long size)
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    sctx->fifo.push_back(&op);
+    sctx->fifo.push_back(std::move(op));
     
     if(DBG_TMP){
         printf("\nUNION IO READ src %d ", sctx->my_rank);
@@ -297,9 +296,9 @@ void UNION_IO_READ(int fid, long size)
 
 void UNION_IO_CLOSE_FILE(int fid)
 {
-    struct codes_workload_op op;
-    op.op_type = CODES_WK_CLOSE;
-    op.u.close.file_id = fid;
+    auto op = std::unique_ptr<codes_workload_op>(new codes_workload_op);
+    op->op_type = CODES_WK_CLOSE;
+    op->u.close.file_id = fid;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -309,7 +308,7 @@ void UNION_IO_CLOSE_FILE(int fid)
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    sctx->fifo.push_back(&op);
+    sctx->fifo.push_back(std::move(op));
     
     if(DBG_TMP){
         printf("\nUNION IO READ src %d ", sctx->my_rank);
@@ -326,17 +325,17 @@ void UNION_MPI_Send(const void *buf,
             UNION_Comm comm)
 {
     /* add an event in the shared queue and then yield */
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
     int datatypesize;
     UNION_Type_size(datatype, &datatypesize);
 
-    wrkld_per_rank.op_type = CODES_WK_SEND;
-    wrkld_per_rank.u.send.tag = tag;
-    wrkld_per_rank.u.send.count = count;
-    wrkld_per_rank.u.send.data_type = datatype;
-    wrkld_per_rank.u.send.num_bytes = count * datatypesize;
-    wrkld_per_rank.u.send.dest_rank = dest;
+    wrkld_per_rank->op_type = CODES_WK_SEND;
+    wrkld_per_rank->u.send.tag = tag;
+    wrkld_per_rank->u.send.count = count;
+    wrkld_per_rank->u.send.data_type = datatype;
+    wrkld_per_rank->u.send.num_bytes = count * datatypesize;
+    wrkld_per_rank->u.send.dest_rank = dest;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -346,13 +345,13 @@ void UNION_MPI_Send(const void *buf,
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    wrkld_per_rank.u.send.source_rank = sctx->my_rank;
-    sctx->fifo.push_back(&wrkld_per_rank);
+    wrkld_per_rank->u.send.source_rank = sctx->my_rank;
     if(DBG_TMP){
         printf("\nUNION SEND src %d dst %d: %lld bytes ", sctx->my_rank, dest,
-                wrkld_per_rank.u.send.num_bytes);
+                wrkld_per_rank->u.send.num_bytes);
     // printf("Rank %d yield to CODES thread: %p\n", sctx->my_rank, global_prod_thread);
     }
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
     int rc = ABT_thread_yield_to(global_prod_thread);
     num_sends++;    
 }
@@ -366,17 +365,17 @@ void UNION_MPI_Recv(void *buf,
             UNION_Status *status)
 {
     /* Add an event in the shared queue and then yield */
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
     int datatypesize;
     UNION_Type_size(datatype, &datatypesize);
 
-    wrkld_per_rank.op_type = CODES_WK_RECV;
-    wrkld_per_rank.u.recv.tag = tag;
-    wrkld_per_rank.u.recv.source_rank = source;
-    wrkld_per_rank.u.recv.data_type = datatype;
-    wrkld_per_rank.u.recv.count = count;
-    wrkld_per_rank.u.recv.num_bytes = count * datatypesize;
+    wrkld_per_rank->op_type = CODES_WK_RECV;
+    wrkld_per_rank->u.recv.tag = tag;
+    wrkld_per_rank->u.recv.source_rank = source;
+    wrkld_per_rank->u.recv.data_type = datatype;
+    wrkld_per_rank->u.recv.count = count;
+    wrkld_per_rank->u.recv.num_bytes = count * datatypesize;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -386,13 +385,13 @@ void UNION_MPI_Recv(void *buf,
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    wrkld_per_rank.u.recv.dest_rank = sctx->my_rank;
-    sctx->fifo.push_back(&wrkld_per_rank);
+    wrkld_per_rank->u.recv.dest_rank = sctx->my_rank;
     if(DBG_COMM){
         printf("\nUNION RECV src %d dst %d: %lld bytes ", source, sctx->my_rank, 
-            wrkld_per_rank.u.recv.num_bytes);
+            wrkld_per_rank->u.recv.num_bytes);
     // printf("Rank %d yield to CODES thread: %p\n", sctx->my_rank, global_prod_thread);
     }
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
 
     ABT_thread_yield_to(global_prod_thread);
     num_recvs++;    
@@ -412,27 +411,27 @@ void UNION_MPI_Sendrecv(const void *sendbuf,
             UNION_Status *status)
 {
     /* sendrecv events */
-    struct codes_workload_op send_op;
+    auto send_op = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
     int datatypesize1, datatypesize2;
     UNION_Type_size(sendtype, &datatypesize1);
     UNION_Type_size(recvtype, &datatypesize2);
 
-    send_op.op_type = CODES_WK_SEND;
-    send_op.u.send.tag = sendtag;
-    send_op.u.send.count = sendcount;
-    send_op.u.send.data_type = sendtype;
-    send_op.u.send.num_bytes = sendcount * datatypesize1;
-    send_op.u.send.dest_rank = dest;
+    send_op->op_type = CODES_WK_SEND;
+    send_op->u.send.tag = sendtag;
+    send_op->u.send.count = sendcount;
+    send_op->u.send.data_type = sendtype;
+    send_op->u.send.num_bytes = sendcount * datatypesize1;
+    send_op->u.send.dest_rank = dest;
 
-    struct codes_workload_op recv_op;
+    auto recv_op = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
-    recv_op.op_type = CODES_WK_RECV;
-    recv_op.u.recv.tag = recvtag;
-    recv_op.u.recv.source_rank = source;
-    recv_op.u.recv.count = recvcount;
-    recv_op.u.recv.data_type = recvtype;
-    recv_op.u.recv.num_bytes = recvcount * datatypesize2;
+    recv_op->op_type = CODES_WK_RECV;
+    recv_op->u.recv.tag = recvtag;
+    recv_op->u.recv.source_rank = source;
+    recv_op->u.recv.count = recvcount;
+    recv_op->u.recv.data_type = recvtype;
+    recv_op->u.recv.num_bytes = recvcount * datatypesize2;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -444,14 +443,16 @@ void UNION_MPI_Sendrecv(const void *sendbuf,
     struct shared_context * sctx = static_cast<shared_context*>(arg);
 
     /* Add an event in the shared queue and then yield */
-    recv_op.u.recv.dest_rank = sctx->my_rank;
-    send_op.u.send.source_rank = sctx->my_rank;
-    sctx->fifo.push_back(&send_op);
-    sctx->fifo.push_back(&recv_op);
+    recv_op->u.recv.dest_rank = sctx->my_rank;
+    send_op->u.send.source_rank = sctx->my_rank;
+
     if(DBG_COMM){
         printf("\nUNION SENDRECV ssrc %d sdst %d: %lld bytes; rsrc %d rdst %d: %lld bytes ", sctx->my_rank, dest,
-                send_op.u.send.num_bytes, source, sctx->my_rank, recv_op.u.recv.num_bytes);
+                send_op->u.send.num_bytes, source, sctx->my_rank, recv_op->u.recv.num_bytes);
     }
+
+    sctx->fifo.push_back(std::move(send_op));
+    sctx->fifo.push_back(std::move(recv_op));
     ABT_thread_yield_to(global_prod_thread);
     num_sendrecv++;
 }
@@ -500,17 +501,17 @@ void UNION_MPI_Isend(const void *buf,
 {
     /* add an event in the shared queue and then yield */
     //    printf("\n Sending to rank %d ", comm_id);
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
     int datatypesize;
     UNION_Type_size(datatype, &datatypesize);
 
-    wrkld_per_rank.op_type = CODES_WK_ISEND;
-    wrkld_per_rank.u.send.tag = tag;    
-    wrkld_per_rank.u.send.count = count;
-    wrkld_per_rank.u.send.data_type = datatype;
-    wrkld_per_rank.u.send.num_bytes = count * datatypesize;
-    wrkld_per_rank.u.send.dest_rank = dest;
+    wrkld_per_rank->op_type = CODES_WK_ISEND;
+    wrkld_per_rank->u.send.tag = tag;
+    wrkld_per_rank->u.send.count = count;
+    wrkld_per_rank->u.send.data_type = datatype;
+    wrkld_per_rank->u.send.num_bytes = count * datatypesize;
+    wrkld_per_rank->u.send.dest_rank = dest;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -520,16 +521,16 @@ void UNION_MPI_Isend(const void *buf,
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    wrkld_per_rank.u.send.source_rank = sctx->my_rank;
-    sctx->fifo.push_back(&wrkld_per_rank);
+    wrkld_per_rank->u.send.source_rank = sctx->my_rank;
 
     *request = sctx->wait_id;
-    wrkld_per_rank.u.send.req_id = *request;
+    wrkld_per_rank->u.send.req_id = *request;
     sctx->wait_id++;
     if(DBG_COMM){
         printf("\nUNION ISEND src %d dst %d: %lld bytes ", sctx->my_rank, dest,
-                wrkld_per_rank.u.send.num_bytes);
+                wrkld_per_rank->u.send.num_bytes);
     }
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
 
     ABT_thread_yield_to(global_prod_thread);
     num_isends++;
@@ -544,17 +545,17 @@ void UNION_MPI_Irecv(void *buf,
             UNION_Request *request)
 {
     /* Add an event in the shared queue and then yield */
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
     int datatypesize;
     UNION_Type_size(datatype, &datatypesize);
 
-    wrkld_per_rank.op_type = CODES_WK_IRECV;
-    wrkld_per_rank.u.recv.tag = tag;
-    wrkld_per_rank.u.recv.source_rank = source;
-    wrkld_per_rank.u.recv.count = count;
-    wrkld_per_rank.u.recv.data_type = datatype;
-    wrkld_per_rank.u.recv.num_bytes = count * datatypesize;
+    wrkld_per_rank->op_type = CODES_WK_IRECV;
+    wrkld_per_rank->u.recv.tag = tag;
+    wrkld_per_rank->u.recv.source_rank = source;
+    wrkld_per_rank->u.recv.count = count;
+    wrkld_per_rank->u.recv.data_type = datatype;
+    wrkld_per_rank->u.recv.num_bytes = count * datatypesize;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -564,16 +565,16 @@ void UNION_MPI_Irecv(void *buf,
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    wrkld_per_rank.u.recv.dest_rank = sctx->my_rank;
-    sctx->fifo.push_back(&wrkld_per_rank);
+    wrkld_per_rank->u.recv.dest_rank = sctx->my_rank;
     
     *request = sctx->wait_id;
-    wrkld_per_rank.u.recv.req_id = *request;
+    wrkld_per_rank->u.recv.req_id = *request;
     sctx->wait_id++;
     if(DBG_COMM){
         printf("\nUNION IRECV src %d dst %d: %lld bytes ", source, sctx->my_rank, 
-                wrkld_per_rank.u.recv.num_bytes);    
+                wrkld_per_rank->u.recv.num_bytes);
     }
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
     ABT_thread_yield_to(global_prod_thread);
     num_irecvs++;    
 }
@@ -582,10 +583,10 @@ void UNION_MPI_Wait(UNION_Request *request,
         UNION_Status *status)
 {
     /* Add an event in the shared queue and then yield */
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
-    wrkld_per_rank.op_type = CODES_WK_WAIT;
-    wrkld_per_rank.u.wait.req_id = *(UNION_Request *)request;   
+    wrkld_per_rank->op_type = CODES_WK_WAIT;
+    wrkld_per_rank->u.wait.req_id = *(UNION_Request *)request;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -595,10 +596,10 @@ void UNION_MPI_Wait(UNION_Request *request,
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    sctx->fifo.push_back(&wrkld_per_rank);
     if(DBG_COMM){
         printf("\nUNION WAIT src %d ",sctx->my_rank);    
     }
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
     ABT_thread_yield_to(global_prod_thread);       
 }
 
@@ -1074,12 +1075,12 @@ void SWM_Send(SWM_PEER peer,
 {
     /* add an event in the shared queue and then yield */
     //    printf("\n Sending to rank %d ", comm_id);
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
-    wrkld_per_rank.op_type = CODES_WK_SEND;
-    wrkld_per_rank.u.send.tag = tag;
-    wrkld_per_rank.u.send.num_bytes = bytes;
-    wrkld_per_rank.u.send.dest_rank = peer;
+    wrkld_per_rank->op_type = CODES_WK_SEND;
+    wrkld_per_rank->u.send.tag = tag;
+    wrkld_per_rank->u.send.num_bytes = bytes;
+    wrkld_per_rank->u.send.dest_rank = peer;
 
 #ifdef DBG_COMM
 /*    if(tag != 1235 && tag != 1234) 
@@ -1103,14 +1104,14 @@ void SWM_Send(SWM_PEER peer,
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    wrkld_per_rank.u.send.source_rank = sctx->my_rank;
-    sctx->fifo.push_back(&wrkld_per_rank);
+    wrkld_per_rank->u.send.source_rank = sctx->my_rank;
 
     if(DBG_COMM){
         printf("\nSWM SEND src %d dst %d: %lld bytes ", sctx->my_rank, peer,
-                wrkld_per_rank.u.send.num_bytes);
+                wrkld_per_rank->u.send.num_bytes);
     // printf("Rank %d yield to CODES thread: %p\n", sctx->my_rank, global_prod_thread);
     }
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
 
     ABT_thread_yield_to(global_prod_thread);
     num_sends++;
@@ -1135,14 +1136,14 @@ void SWM_Barrier(
 {
     /* Add an event in the shared queue and then yield */
 #if 0
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
-    wrkld_per_rank.op_type = CODES_WK_DELAY;
+    wrkld_per_rank->op_type = CODES_WK_DELAY;
     /* TODO: Check how to convert cycle count into delay? */
-    wrkld_per_rank.u.delay.nsecs = 0.1;
+    wrkld_per_rank->u.delay.nsecs = 0.1;
 
 #ifdef DBG_COMM
-    printf("\n Barrier delay %lf ", wrkld_per_rank.u.delay.nsecs);
+    printf("\n Barrier delay %lf ", wrkld_per_rank->u.delay.nsecs);
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -1152,7 +1153,7 @@ void SWM_Barrier(
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    sctx->fifo.push_back(&wrkld_per_rank);
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
 
     ABT_thread_yield_to(global_prod_thread);
 #endif
@@ -1200,12 +1201,12 @@ void SWM_Isend(SWM_PEER peer,
 {
     /* add an event in the shared queue and then yield */
     //    printf("\n Sending to rank %d ", comm_id);
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
-    wrkld_per_rank.op_type = CODES_WK_ISEND;
-    wrkld_per_rank.u.send.tag = tag;
-    wrkld_per_rank.u.send.num_bytes = bytes;
-    wrkld_per_rank.u.send.dest_rank = peer;
+    wrkld_per_rank->op_type = CODES_WK_ISEND;
+    wrkld_per_rank->u.send.tag = tag;
+    wrkld_per_rank->u.send.num_bytes = bytes;
+    wrkld_per_rank->u.send.dest_rank = peer;
 
 #ifdef DBG_COMM
 /*    if(tag != 1235 && tag != 1234) 
@@ -1229,17 +1230,17 @@ void SWM_Isend(SWM_PEER peer,
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    wrkld_per_rank.u.send.source_rank = sctx->my_rank;
-    sctx->fifo.push_back(&wrkld_per_rank);
+    wrkld_per_rank->u.send.source_rank = sctx->my_rank;
 
     *handle = sctx->wait_id;
-    wrkld_per_rank.u.send.req_id = *handle;
+    wrkld_per_rank->u.send.req_id = *handle;
     sctx->wait_id++;
 
     if(DBG_COMM){
         printf("\nSWM ISEND src %d dst %d: %lld bytes ", sctx->my_rank, peer,
-                wrkld_per_rank.u.send.num_bytes);
+                wrkld_per_rank->u.send.num_bytes);
     }
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
 
     ABT_thread_yield_to(global_prod_thread);
     num_isends++;
@@ -1250,12 +1251,12 @@ void SWM_Recv(SWM_PEER peer,
         SWM_BUF buf)
 {
     /* Add an event in the shared queue and then yield */
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
-    wrkld_per_rank.op_type = CODES_WK_RECV;
-    wrkld_per_rank.u.recv.tag = tag;
-    wrkld_per_rank.u.recv.source_rank = peer;
-    wrkld_per_rank.u.recv.num_bytes = 0;
+    wrkld_per_rank->op_type = CODES_WK_RECV;
+    wrkld_per_rank->u.recv.tag = tag;
+    wrkld_per_rank->u.recv.source_rank = peer;
+    wrkld_per_rank->u.recv.num_bytes = 0;
 
 #ifdef DBG_COMM
     //printf("\n recv op tag: %d source: %d ", tag, peer);
@@ -1268,13 +1269,13 @@ void SWM_Recv(SWM_PEER peer,
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    wrkld_per_rank.u.recv.dest_rank = sctx->my_rank;
-    sctx->fifo.push_back(&wrkld_per_rank);
+    wrkld_per_rank->u.recv.dest_rank = sctx->my_rank;
 
     if(DBG_COMM){
         printf("\nSWM RECV src %d dst %d: %lld bytes ", peer, sctx->my_rank, 
-                wrkld_per_rank.u.recv.num_bytes);    
+                wrkld_per_rank->u.recv.num_bytes);
     }
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
 
     ABT_thread_yield_to(global_prod_thread);
     num_recvs++;
@@ -1288,12 +1289,12 @@ void SWM_Irecv(SWM_PEER peer,
         uint32_t* handle)
 {
     /* Add an event in the shared queue and then yield */
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
-    wrkld_per_rank.op_type = CODES_WK_IRECV;
-    wrkld_per_rank.u.recv.tag = tag;
-    wrkld_per_rank.u.recv.source_rank = peer;
-    wrkld_per_rank.u.recv.num_bytes = 0;
+    wrkld_per_rank->op_type = CODES_WK_IRECV;
+    wrkld_per_rank->u.recv.tag = tag;
+    wrkld_per_rank->u.recv.source_rank = peer;
+    wrkld_per_rank->u.recv.num_bytes = 0;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -1303,18 +1304,19 @@ void SWM_Irecv(SWM_PEER peer,
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    wrkld_per_rank.u.recv.dest_rank = sctx->my_rank;
-    sctx->fifo.push_back(&wrkld_per_rank);
+    wrkld_per_rank->u.recv.dest_rank = sctx->my_rank;
 
     
     *handle = sctx->wait_id;
-    wrkld_per_rank.u.recv.req_id = *handle;
+    wrkld_per_rank->u.recv.req_id = *handle;
     sctx->wait_id++;
 
     if(DBG_COMM){
         printf("\nSWM IRECV src %d dst %d: %lld bytes ", peer, sctx->my_rank, 
-                wrkld_per_rank.u.recv.num_bytes);    
+                wrkld_per_rank->u.recv.num_bytes);
     }
+
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
 
     ABT_thread_yield_to(global_prod_thread);
     num_irecvs++;
@@ -1326,16 +1328,16 @@ void SWM_Compute(long cycle_count)
     if(!cpu_freq)
         cpu_freq = 2.0;
     /* Add an event in the shared queue and then yield */
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
     double cpu_freq_hz = cpu_freq * 1000.0 * 1000.0 * 1000.0;
     double delay_in_seconds = cycle_count / cpu_freq_hz;
     double delay_in_ns = delay_in_seconds * 1000.0 * 1000.0 * 1000.0;
 
-    wrkld_per_rank.op_type = CODES_WK_DELAY;
+    wrkld_per_rank->op_type = CODES_WK_DELAY;
     /* TODO: Check how to convert cycle count into delay? */
-    wrkld_per_rank.u.delay.nsecs = delay_in_ns;
-    wrkld_per_rank.u.delay.seconds = delay_in_seconds;
+    wrkld_per_rank->u.delay.nsecs = delay_in_ns;
+    wrkld_per_rank->u.delay.seconds = delay_in_seconds;
 #ifdef DBG_COMM
     // printf("\n Compute op delay: %f ", delay_in_ns);
 #endif
@@ -1347,7 +1349,7 @@ void SWM_Compute(long cycle_count)
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    sctx->fifo.push_back(&wrkld_per_rank);
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
 
     if(DBG_COMM){
         printf("\nSWM COMPUTE src %d: %lld ns ", sctx->my_rank, delay_in_ns);    
@@ -1360,11 +1362,11 @@ void SWM_Compute(long cycle_count)
 void SWM_Wait(uint32_t req_id)
 {
     /* Add an event in the shared queue and then yield */
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
-    wrkld_per_rank.op_type = CODES_WK_WAIT;
+    wrkld_per_rank->op_type = CODES_WK_WAIT;
     /* TODO: Check how to convert cycle count into delay? */
-    wrkld_per_rank.u.wait.req_id = req_id;
+    wrkld_per_rank->u.wait.req_id = req_id;
 
 #ifdef DBG_COMM
 //    printf("\n wait op req_id: %"PRIu32"\n", req_id);
@@ -1378,7 +1380,7 @@ void SWM_Wait(uint32_t req_id)
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    sctx->fifo.push_back(&wrkld_per_rank);
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
 
     if(DBG_COMM){
         printf("\nSWM WAIT src %d ",sctx->my_rank);    
@@ -1391,15 +1393,15 @@ void SWM_Waitall(int len, uint32_t * req_ids)
 {
     num_waitalls++;
     /* Add an event in the shared queue and then yield */
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
-    wrkld_per_rank.op_type = CODES_WK_WAITALL;
+    wrkld_per_rank->op_type = CODES_WK_WAITALL;
     /* TODO: Check how to convert cycle count into delay? */
-    wrkld_per_rank.u.waits.count = len;
-    wrkld_per_rank.u.waits.req_ids = (unsigned int*)calloc(len, sizeof(int));    
+    wrkld_per_rank->u.waits.count = len;
+    wrkld_per_rank->u.waits.req_ids = (unsigned int*)calloc(len, sizeof(int));
 
     for(int i = 0; i < len; i++)
-        wrkld_per_rank.u.waits.req_ids[i] = req_ids[i];
+        wrkld_per_rank->u.waits.req_ids[i] = req_ids[i];
 
 #ifdef DBG_COMM
 //    for(int i = 0; i < len; i++)
@@ -1413,7 +1415,7 @@ void SWM_Waitall(int len, uint32_t * req_ids)
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    sctx->fifo.push_back(&wrkld_per_rank);
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
 
     if(DBG_COMM){
         printf("\nSWM WAITALL src %d: count %d ",sctx->my_rank, len);    
@@ -1438,20 +1440,20 @@ void SWM_Sendrecv(
         SWM_ROUTING_TYPE rsprt)
 {
     //    printf("\n Sending to %d receiving from %d ", sendpeer, recvpeer);
-    struct codes_workload_op send_op;
+    auto send_op = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
-    send_op.op_type = CODES_WK_SEND;
-    send_op.u.send.tag = sendtag;
-    send_op.u.send.num_bytes = sendbytes;
-    send_op.u.send.dest_rank = sendpeer;
+    send_op->op_type = CODES_WK_SEND;
+    send_op->u.send.tag = sendtag;
+    send_op->u.send.num_bytes = sendbytes;
+    send_op->u.send.dest_rank = sendpeer;
 
     /* Add an event in the shared queue and then yield */
-    struct codes_workload_op recv_op;
+    auto recv_op = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
-    recv_op.op_type = CODES_WK_RECV;
-    recv_op.u.recv.tag = recvtag;
-    recv_op.u.recv.source_rank = recvpeer;
-    recv_op.u.recv.num_bytes = 0;
+    recv_op->op_type = CODES_WK_RECV;
+    recv_op->u.recv.tag = recvtag;
+    recv_op->u.recv.source_rank = recvpeer;
+    recv_op->u.recv.num_bytes = 0;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -1461,15 +1463,16 @@ void SWM_Sendrecv(
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    recv_op.u.recv.dest_rank = sctx->my_rank;
-    send_op.u.send.source_rank = sctx->my_rank;
-    sctx->fifo.push_back(&send_op);
-    sctx->fifo.push_back(&recv_op);
+    recv_op->u.recv.dest_rank = sctx->my_rank;
+    send_op->u.send.source_rank = sctx->my_rank;
 
     if(DBG_COMM){
         printf("\nSWM SENDRECV ssrc %d sdst %d: %d bytes; rsrc %d rdst %d: %lld bytes ", sctx->my_rank, sendpeer,
-                sendbytes, recvpeer, sctx->my_rank, recv_op.u.recv.num_bytes);
+                sendbytes, recvpeer, sctx->my_rank, recv_op->u.recv.num_bytes);
     }
+
+    sctx->fifo.push_back(std::move(send_op));
+    sctx->fifo.push_back(std::move(recv_op));
 
     ABT_thread_yield_to(global_prod_thread);
     num_sendrecv++;
@@ -1498,14 +1501,14 @@ void SWM_Allreduce(
     /* TODO: For now, simulate a constant delay for ALlreduce*/
     //    printf("\n Allreduce bytes %d ", bytes);
     /* Add an event in the shared queue and then yield */
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
-    wrkld_per_rank.op_type = CODES_WK_DELAY;
+    wrkld_per_rank->op_type = CODES_WK_DELAY;
     /* TODO: Check how to convert cycle count into delay? */
-    wrkld_per_rank.u.delay.nsecs = bytes + 0.1;
+    wrkld_per_rank->u.delay.nsecs = bytes + 0.1;
 
 #ifdef DBG_COMM
-    printf("\n Allreduce delay %lf ", wrkld_per_rank.u.delay.nsecs);
+    printf("\n Allreduce delay %lf ", wrkld_per_rank->u.delay.nsecs);
 #endif
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -1515,7 +1518,7 @@ void SWM_Allreduce(
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    sctx->fifo.push_back(&wrkld_per_rank);
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
 
     ABT_thread_yield_to(global_prod_thread);
 #endif
@@ -1709,9 +1712,9 @@ void SWM_Allreduce(
 void SWM_Finalize()
 {
     /* Add an event in the shared queue and then yield */
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
-    wrkld_per_rank.op_type = CODES_WK_END;
+    wrkld_per_rank->op_type = CODES_WK_END;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -1721,7 +1724,7 @@ void SWM_Finalize()
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    sctx->fifo.push_back(&wrkld_per_rank);
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
 
     if(DBG_COMM){
         /*    
@@ -1752,10 +1755,10 @@ void SWM_Finalize()
 void SWM_Mark_Iteration(SWM_TAG iter_tag)
 {
     /* Add an event in the shared queue and then yield */
-    struct codes_workload_op wrkld_per_rank;
+    auto wrkld_per_rank = std::unique_ptr<codes_workload_op>(new codes_workload_op);
 
-    wrkld_per_rank.op_type = CODES_WK_MARK;
-    wrkld_per_rank.u.send.tag = iter_tag;
+    wrkld_per_rank->op_type = CODES_WK_MARK;
+    wrkld_per_rank->u.send.tag = iter_tag;
 
     /* Retreive the shared context state */
     ABT_thread prod;
@@ -1765,8 +1768,8 @@ void SWM_Mark_Iteration(SWM_TAG iter_tag)
     err =  ABT_thread_get_arg(prod, &arg);
     assert(err == ABT_SUCCESS);
     struct shared_context * sctx = static_cast<shared_context*>(arg);
-    wrkld_per_rank.u.send.source_rank = sctx->my_rank;
-    sctx->fifo.push_back(&wrkld_per_rank);
+    wrkld_per_rank->u.send.source_rank = sctx->my_rank;
+    sctx->fifo.push_back(std::move(wrkld_per_rank));
 
     if(DBG_COMM){
         printf("\nSWM MARKITERATION src %d ", sctx->my_rank);
@@ -2039,7 +2042,7 @@ static void comm_online_workload_get_next(int app_id, int rank, struct codes_wor
         }
         int rc = ABT_thread_yield_to(temp_data->sctx.producer); 
     }
-    struct codes_workload_op * front_op = temp_data->sctx.fifo.front();
+    auto& front_op = temp_data->sctx.fifo.front();
     assert(front_op);
     if(DBG_COMM)
     {
