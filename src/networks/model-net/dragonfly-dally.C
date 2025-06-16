@@ -495,6 +495,7 @@ struct packet_sent {
     double next_packet_delay; // When the packet is initially sent, this value is -1, when the next packet is sent this value is updated to the actual delay to process the next packet
     void * message_data;  // Yep, we have to save the entire message just because we might need to resend the message when switching to surrogate-mode. It's wasteful but there is no other way
     void * remote_event_data;  // This and the one above have to be freed. This contains the extra information that the message contains
+    void * local_data;  // This and the one above have to be freed. This contains the extra information that the message contains
 };
 
 struct packet_id {
@@ -604,6 +605,7 @@ struct terminal_state
     // Variables to recover latency of packets sent to other terminals
     // Sent packets (to be populated at by commit handler of packet sender)
     map<uint64_t, struct packet_sent> sent_packets;
+    set<uint64_t> is_pending_local_send;
     int64_t last_packet_sent_id;
     // We need the next packet to be injected in the network before feeding the packet info forward (the predictor needs starting time, delay to send next packet and latency)
     struct {
@@ -3028,6 +3030,9 @@ static void feed_packet_to_predictor(terminal_state * s, tw_lp * lp, uint64_t pa
     if (sent.remote_event_data) {
         free(sent.remote_event_data);
     }
+    if (sent.local_data) {
+        free(sent.local_data);
+    }
 }
 
 // We check an event that is in the event queue, thus we do not process it yet
@@ -3116,7 +3121,18 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(
             tw_event_send(e);
 
             //printf("NOTIFYING of zombie: packet dest id %d dest gid %d\n", sent.start.dest_terminal_lpid, sent.start.dfdally_dest_terminal_id);
-            notify_dest_lp_of(s, lp, m, NOTIFY_ZOMBIE);
+            notify_dest_lp_of(s, lp, msg_data, NOTIFY_ZOMBIE);
+
+            if (s->is_pending_local_send.count(packet_ID) == 1) {
+                assert(sent.local_data);
+                assert(msg_data->local_event_size_bytes);
+                double const local_ts = 11;
+                tw_event *e_new = tw_event_new(msg_data->sender_lp, local_ts, lp);
+                void * m_new = tw_event_data(e_new);
+                memcpy(m_new, sent.local_data, msg_data->local_event_size_bytes);
+                tw_event_send(e_new);
+                s->is_pending_local_send.erase(packet_ID);
+            }
 
             // Deallocating memory from packet_start
             if (sent.message_data) {
@@ -3125,9 +3141,13 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(
             if (sent.remote_event_data) {
                 free(sent.remote_event_data);
             }
+            if (sent.local_data) {
+                free(sent.local_data);
+            }
         }
     }
     assert(s->sent_packets.empty());
+    assert(s->is_pending_local_send.empty());
 
     // Hide current state and clean current state. Hidding the network information is in principle
     // the same as freezing the state of the network.
@@ -3160,6 +3180,7 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(
     memcpy(&s->arrival_of_last_packet, &frozen_state->arrival_of_last_packet, sizeof(s->arrival_of_last_packet));
     memcpy(&s->zombies,              &frozen_state->zombies,              sizeof(s->zombies));
     memcpy(&s->sent_packets,         &frozen_state->sent_packets,         sizeof(s->sent_packets));
+    memcpy(&s->is_pending_local_send, &frozen_state->is_pending_local_send, sizeof(s->is_pending_local_send));
     memcpy(&s->remaining_sz_packets, &frozen_state->remaining_sz_packets, sizeof(s->remaining_sz_packets));
 
     s->frozen_state = frozen_state;
@@ -3201,6 +3222,7 @@ static void dragonfly_dally_terminal_surrogate_to_highdef(
     memcpy(&frozen_state->arrival_of_last_packet, &s->arrival_of_last_packet, sizeof(s->arrival_of_last_packet));
     memcpy(&frozen_state->zombies,              &s->zombies,              sizeof(s->zombies));
     memcpy(&frozen_state->sent_packets,         &s->sent_packets,         sizeof(s->sent_packets));
+    memcpy(&frozen_state->is_pending_local_send, &s->is_pending_local_send, sizeof(s->is_pending_local_send));
     memcpy(&frozen_state->remaining_sz_packets, &s->remaining_sz_packets, sizeof(s->remaining_sz_packets));
     memcpy(s, frozen_state, sizeof(terminal_state));
     memset(frozen_state, 0, sizeof(terminal_state));
@@ -3332,6 +3354,11 @@ static void terminal_commit_packet_generate(terminal_state * s, tw_bf * bf, term
         remote_data = malloc(msg->remote_event_size_bytes);
         memcpy(remote_data, model_net_method_get_edata(DRAGONFLY_DALLY, msg), msg->remote_event_size_bytes);
     }
+    void * local_data = NULL;
+    if (msg->local_event_size_bytes) {
+        local_data = malloc(msg->local_event_size_bytes);
+        memcpy(local_data, (char *) model_net_method_get_edata(DRAGONFLY_DALLY, msg) + msg->remote_event_size_bytes, msg->local_event_size_bytes);
+    }
     double const processing_packet_delay = msg->saved_next_packet_delay;
 
     // TODO (elkin): In the future, this ugly initialization could be done all in a single "line" instead of setting all values one by one. The reason to do it this way is because some old compilers do not understand other ways of initializing
@@ -3347,8 +3374,12 @@ static void terminal_commit_packet_generate(terminal_state * s, tw_bf * bf, term
     sent.next_packet_delay = -1;
     sent.message_data = msg_data;
     sent.remote_event_data = remote_data;
+    sent.local_data = local_data;
 
     s->sent_packets[msg->packet_ID] = sent;
+    if (freeze_network_on_switch && msg->local_event_size_bytes > 0) {
+        s->is_pending_local_send.insert(msg->packet_ID);
+    }
 
     // Set next_packet_delay for the last past sent packet
     if (s->sent_packets.count(s->last_packet_sent_id) == 1) {
@@ -3444,6 +3475,11 @@ static void terminal_dally_commit(terminal_state * s,
         break;
         
         case T_SEND:
+            if (freeze_network_on_switch) {
+                if (bf->c16 && s->is_pending_local_send.count(msg->packet_ID) == 1) {
+                    s->is_pending_local_send.erase(msg->packet_ID);
+                }
+            }
         break;
         
         case T_BUFFER:
@@ -3701,6 +3737,7 @@ static void terminal_dally_init( terminal_state * s, tw_lp * lp )
     s->arrival_of_last_packet.packet_ID = -1;
     s->arrival_of_last_packet.travel_end_time = -1;
     new (&s->sent_packets) map<uint64_t, struct packet_sent>();
+    new (&s->is_pending_local_send) set<uint64_t>();
     new (&s->remaining_sz_packets) map<struct packet_id, uint32_t>();
     new (&s->zombies) set<struct packet_id>();
     s->frozen_state = NULL;
@@ -4763,6 +4800,8 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
 
     if(cur_entry->msg.chunk_id == num_chunks - 1 && (cur_entry->msg.local_event_size_bytes > 0)) 
     {
+        bf->c16 = 1;
+        msg->packet_ID = cur_entry->msg.packet_ID;
         tw_stime local_ts = 0;
         tw_event *e_new = tw_event_new(cur_entry->msg.sender_lp, local_ts, lp);
         void * m_new = tw_event_data(e_new);
@@ -5681,6 +5720,7 @@ static void dragonfly_dally_terminal_final( terminal_state * s,
             // Deallocating memory from packet_start
             if (sent.message_data) { free(sent.message_data); }
             if (sent.remote_event_data) { free(sent.remote_event_data); }
+            if (sent.local_data) { free(sent.local_data); }
 
             s->sent_packets.erase(s->arrival_of_last_packet.packet_ID);
             s->arrival_of_last_packet.packet_ID = -1;
@@ -5702,6 +5742,7 @@ static void dragonfly_dally_terminal_final( terminal_state * s,
             // Deallocating memory from packet_start
             if (sent.message_data) { free(sent.message_data); }
             if (sent.remote_event_data) { free(sent.remote_event_data); }
+            if (sent.local_data) { free(sent.local_data); }
         }
     }
 
@@ -5739,8 +5780,10 @@ static void dragonfly_dally_terminal_final( terminal_state * s,
     for (auto&& kv: s->sent_packets) {
         if (kv.second.message_data) { free(kv.second.message_data); }
         if (kv.second.remote_event_data) { free(kv.second.remote_event_data); }
+        if (kv.second.local_data) { free(kv.second.local_data); }
     }
     s->sent_packets.~map();
+    s->is_pending_local_send.~set();
     s->remaining_sz_packets.~map();
 
     if (s->predictor_data) {
