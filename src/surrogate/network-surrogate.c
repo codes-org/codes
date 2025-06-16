@@ -299,6 +299,13 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe) {
                     lp_type_switch->surrogate_to_highdef(lp->cur_state, lp, NULL);
                 }
             }
+            if (lp_type_switch->reset_predictor) {
+                if (is_lp_modelnet) {
+                    model_net_method_call_inner(lp, (void (*) (void *, tw_lp *, void *))lp_type_switch->reset_predictor, NULL);
+                } else {
+                    lp_type_switch->reset_predictor(lp->cur_state, lp, NULL);
+                }
+            }
         }
 
 #ifdef USE_RAND_TIEBREAKER

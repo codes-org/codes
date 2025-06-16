@@ -98,12 +98,28 @@ static void predict_latency_rc(struct latency_surrogate * data, tw_lp * lp) {
     (void) lp;
 }
 
+static void reset_pred(struct latency_surrogate * data, tw_lp * lp) {
+    (void) lp;
+
+    data->aggregated_next_packet_delay.sum_latency = 0;
+    data->aggregated_next_packet_delay.total_msgs = 0;
+
+    data->aggregated_latency_for_all.sum_latency = 0;
+    data->aggregated_latency_for_all.total_msgs = 0;
+
+    for (int i = 0; i < num_terminals; i++) {
+        data->aggregated_latency[i].sum_latency = 0;
+        data->aggregated_latency[i].total_msgs = 0;
+    }
+}
+
 
 struct packet_latency_predictor average_latency_predictor(int num_terminals_) {
     assert(num_terminals_ >= 0);
     num_terminals = num_terminals_;
     return (struct packet_latency_predictor) {
     .init              = (init_pred_lat_f) init_pred,
+    .reset             = (reset_pred_lat_f) reset_pred,
     .feed              = (feed_pred_lat_f) feed_pred,
     .predict           = (predict_pred_lat_f) predict_latency,
     .predict_rc        = (predict_pred_lat_rc_f) predict_latency_rc,

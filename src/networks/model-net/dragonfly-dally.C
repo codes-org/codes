@@ -203,6 +203,7 @@ static void dragonfly_dally_terminal_surrogate_to_highdef(terminal_state * s, tw
 static bool dragonfly_dally_terminal_should_event_be_frozen(tw_lp * lp, tw_event * event);
 static bool dragonfly_dally_router_should_event_be_frozen(tw_lp * lp, tw_event * event);
 static void dragonfly_dally_terminal_pre_surrogate_switch_event_queue( terminal_state * s, tw_lp * lp, tw_event * event);
+static void dragonfly_dally_terminal_reset_predictor(terminal_state * s, tw_lp * lp, void *);
 //
 // ==== END OF Parameters to tune surrogate mode ====
 
@@ -2463,6 +2464,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
                  .should_event_be_frozen = dragonfly_dally_terminal_should_event_be_frozen,
                  .should_event_be_deleted = NULL,
                  .check_event_in_queue = (model_check_event_f) dragonfly_dally_terminal_pre_surrogate_switch_event_queue,
+                 .reset_predictor = (model_switch_f) dragonfly_dally_terminal_reset_predictor,
                 },
                 {.lpname = "modelnet_dragonfly_dally_router",
                  .trigger_idle_modelnet = false,
@@ -2471,6 +2473,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
                  .should_event_be_frozen = dragonfly_dally_router_should_event_be_frozen,
                  .should_event_be_deleted = NULL,
                  .check_event_in_queue = NULL,
+                 .reset_predictor = NULL,
                 },
                 0
             }
@@ -3049,6 +3052,13 @@ static void dragonfly_dally_terminal_pre_surrogate_switch_event_queue(
             feed_packet_to_predictor(s, lp, msg->packet_ID, msg->travel_end_time);
             s->sent_packets.erase(msg->packet_ID);
         }
+    }
+}
+
+static void dragonfly_dally_terminal_reset_predictor(terminal_state * s, tw_lp * lp, void * vacuous) {
+    (void) vacuous;
+    if (terminal_predictor != NULL && s->predictor_data != NULL) {
+        terminal_predictor->reset(s->predictor_data, lp);
     }
 }
 

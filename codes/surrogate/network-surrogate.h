@@ -41,6 +41,7 @@ struct lp_types_switch {
     model_ask_if_freeze_f should_event_be_frozen;  // true means event from LP type shouldn't be frozen
     model_ask_if_freeze_f should_event_be_deleted;  // true means event from LP type shouldn't be deleted
     model_check_event_f   check_event_in_queue;
+    model_switch_f        reset_predictor;
 };
 
 struct switch_at_struct {
