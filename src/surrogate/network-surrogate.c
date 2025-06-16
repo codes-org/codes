@@ -368,7 +368,7 @@ void network_director(tw_pe * pe) {
     }
 
     // ---- Past this means that we are in fact switching ----
-    bool const pre_switch_status = net_surr_config.model.is_surrogate_on();
+    net_surr_config.model.is_surrogate_on();
 
     // Asking the director/model to switch
     if (DEBUG_DIRECTOR && g_tw_mynode == 0) {

@@ -177,9 +177,23 @@ static int load_and_validate_int_param(const char* param_name, int default_value
     return value;
 }
 
+static double load_and_validate_double_param(const char* param_name, double default_value) {
+    char param_str[MAX_NAME_LENGTH];
+    param_str[0] = '\0';
+    int const rc = configuration_get_value(&config, "APPLICATION_SURROGATE", param_name, NULL, param_str, MAX_NAME_LENGTH);
+    double value = (rc > 0) ? strtod(param_str, NULL) : default_value;
+
+    if (value <= 0) {
+        tw_warning(TW_LOC, "%s must be a positive integer, got %d. Using default value %d.", param_name, value, default_value);
+        value = default_value;
+    }
+
+    return value;
+}
+
 static struct application_director_config load_director_config(void) {
     int const default_gvt = 100;
-    int const default_ns = 1000000; // 1ms
+    double const default_ns = 1.0e6; // 1ms
 
     enum {
         MODE_NOT_SET,
@@ -203,7 +217,7 @@ static struct application_director_config load_director_config(void) {
     }
 
     int every_n_gvt = load_and_validate_int_param("director_num_gvt", default_gvt);
-    int every_n_ns = load_and_validate_int_param("director_num_ns", default_ns);
+    double every_n_ns = load_and_validate_double_param("director_num_ns", default_ns);
 
     bool const is_sequential = (g_tw_synchronization_protocol == SEQUENTIAL ||
                                 g_tw_synchronization_protocol == SEQUENTIAL_ROLLBACK_CHECK);
