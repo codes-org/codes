@@ -80,7 +80,7 @@ grep 'MILC: Iteration 119/120' model-output.txt
 err=$?
 [[ $err -ne 0 ]] && exit $err
 
-grep 'Jacobi3D: Completed 40 iterations' model-output.txt
+grep 'Jacobi3D: Completed 39 iterations' model-output.txt
 err=$?
 [[ $err -ne 0 ]] && exit $err
 

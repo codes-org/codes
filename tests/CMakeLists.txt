@@ -101,6 +101,8 @@ if(USE_UNION)
     list(APPEND test-shell-files
         union-workload-test-surrogate.sh
         union-workload-test-surrogate-parallel.sh
+        union-workload-test-surrogate-parallel-deterministic-1.sh
+        union-workload-test-surrogate-parallel-deterministic-2.sh
     )
 endif()
 
