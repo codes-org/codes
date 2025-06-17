@@ -5353,10 +5353,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     /* WE do not allow self messages through dragonfly */
     assert(lp->gid != msg->src_terminal_id);
 
-    // TODO (elkin): this is wrong, this is _not_ finding the number of chunks, consider: chunk_size = 2 and packet_size = 5. There should be 3 chunks, but the code outputs 2!
-    uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
-    if (msg->packet_size < s->params->chunk_size)
-        num_chunks++;
+    uint64_t num_chunks = (msg->packet_size + s->params->chunk_size - 1) / s->params->chunk_size;
 
     if(msg->path_type == MINIMAL)
         minimal_count++;   
@@ -5444,8 +5441,9 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     int const chunk_size = s->params->chunk_size;
     if (has_remaining_sz) {
         bf->c28 = 1;
-        assert(s->remaining_sz_packets[packet_key] >= chunk_size);
-        s->remaining_sz_packets[packet_key] -= chunk_size;
+        int const actual_chunk_size = std::min(chunk_size, (int)s->remaining_sz_packets[packet_key]);
+        assert(s->remaining_sz_packets[packet_key] >= actual_chunk_size);
+        s->remaining_sz_packets[packet_key] -= actual_chunk_size;
 
         // if `remaining == 0`, ie, if the packet has been completed
         if (s->remaining_sz_packets[packet_key] == 0) {
