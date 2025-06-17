@@ -6490,7 +6490,6 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
     if(cur_entry->msg.packet_size < s->params->chunk_size)
         msg_size = cur_entry->msg.packet_size;
 
-    s->qos_data[output_port][vcg] -= msg_size;
     s->next_output_available_time[output_port] = msg->saved_available_time;
 
     if(bf->c11)
@@ -6499,6 +6498,7 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
         s->link_traffic_sample[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size; 
         s->ross_rsample.link_traffic_sample[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size; 
         s->link_traffic_ross_sample[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size; 
+        msg_size = cur_entry->msg.packet_size % s->params->chunk_size;
 
         //Xin: reverse link traffic
         if(rolback && current_window >= 0){
@@ -6518,6 +6518,7 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
         }
     }
 
+    s->qos_data[output_port][vcg] -= msg_size;
     s->total_chunks[output_port]--;
 
     prepend_to_terminal_dally_message_list(s->pending_msgs[output_port],
