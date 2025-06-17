@@ -37,6 +37,7 @@ cp "$CONFIGS_PATH/rand_node0-1d-72-jacobi_MILC.alloc.conf" "$expfolder"
 export CHUNK_SIZE=2048
 export PATH_TO_CONNECTIONS="$CONFIGS_PATH"
 export NETWORK_SURR_ON=0
+export NETWORK_MODE=nothing
 export APP_SURR_ON=1
 export APP_DIRECTOR_MODE=every-n-nanoseconds
 #export APP_DIRECTOR_MODE=every-n-gvt

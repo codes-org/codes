@@ -15,7 +15,7 @@ if [[ -z $SWM_DATAROOTDIR ]] ; then
     exit 1
 fi
 
-np=1
+np=3
 
 expfolder="$PWD"
 export CONFIGS_PATH="$srcdir/tests/conf/union-milc-jacobi-workload"
@@ -36,7 +36,7 @@ cp "$CONFIGS_PATH/rand_node0-1d-72-jacobi_MILC.alloc.conf" "$expfolder"
 # CODES config file
 export CHUNK_SIZE=4096
 export PATH_TO_CONNECTIONS="$CONFIGS_PATH"
-export NETWORK_SURR_ON=0
+export NETWORK_SURR_ON=1
 export NETWORK_MODE=nothing
 export APP_SURR_ON=1
 export APP_DIRECTOR_MODE=every-n-nanoseconds
@@ -51,8 +51,11 @@ opt_lookahead=600
 
 export PATH_TO_CODES_BUILD="$bindir"
 
+mkdir run-1
+pushd run-1
+
 mpirun -np $np "$PATH_TO_CODES_BUILD"/src/model-net-mpi-replay \
-  --synch=1 \
+  --synch=3 \
   --batch=4 --gvt-interval=256 \
   --cons-lookahead=$cons_lookahead \
   --max-opt-lookahead=$opt_lookahead \
@@ -61,9 +64,31 @@ mpirun -np $np "$PATH_TO_CODES_BUILD"/src/model-net-mpi-replay \
   --workload_conf_file="$expfolder"/jacobi_MILC.workload.conf \
   --alloc_file="$expfolder"/rand_node0-1d-72-jacobi_MILC.alloc.conf \
   -- "$expfolder/dfdally-72-par.conf" \
-  > model-output.txt 2> model-output-error.txt
+  > model-output-1.txt 2> model-output-1-error.txt
 
 err=$?
+[[ $err -ne 0 ]] && exit $err
+
+popd
+
+mkdir run-2
+pushd run-2
+
+mpirun -np $np "$PATH_TO_CODES_BUILD"/src/model-net-mpi-replay \
+  --synch=3 \
+  --batch=4 --gvt-interval=256 \
+  --cons-lookahead=$cons_lookahead \
+  --max-opt-lookahead=$opt_lookahead \
+  --workload_type=conc-online \
+  --lp-io-dir=lp-io-dir \
+  --workload_conf_file="$expfolder"/jacobi_MILC.workload.conf \
+  --alloc_file="$expfolder"/rand_node0-1d-72-jacobi_MILC.alloc.conf \
+  -- "$expfolder/dfdally-72-par.conf" \
+  > model-output-2.txt 2> model-output-2-error.txt
+
+err=$?
+
+popd
 
 # Setting milc json back
 mv "$tmpdir/milc_skeleton.json" "$SWM_DATAROOTDIR/milc_skeleton.json"
@@ -73,31 +98,17 @@ rmdir "$tmpdir"
 [[ $err -ne 0 ]] && exit $err
 
 # Checking that there is actual output
-grep 'Net Events Processed' model-output.txt
+grep 'Net Events Processed' run-1/model-output-1.txt
 err=$?
 [[ $err -ne 0 ]] && exit $err
 
-# Checking both milc and jacobi ran
-grep 'MILC: Iteration 119/120' model-output.txt
+diff <(grep 'Net Events Processed' run-1/model-output-1.txt) \
+    <(grep 'Net Events Processed' run-2/model-output-2.txt)
 err=$?
-[[ $err -ne 0 ]] && exit $err
-
-grep 'Jacobi3D: Completed 39 iterations' model-output.txt
-err=$?
-[[ $err -ne 0 ]] && exit $err
-
-grep 'App 0: All non-synthetic workloads have completed' model-output.txt
-err=$?
-[[ $err -ne 0 ]] && exit $err
-
-# it transitioned into surrogacy
-grep -e 'application iteration surrogate mode at GVT [0-9]* time' model-output.txt
-err=$?
-[[ $err -ne 0 ]] && exit $err
-
-# it transitioned back to high-fidelity
-grep -e 'application iteration mode at GVT [0-9]* time' model-output.txt
-err=$?
-[[ $err -ne 0 ]] && exit $err
+if [[ $err -ne 0 ]]; then
+    >&2 echo "The number of net events processed does not coincide, ie," \
+        "the simulation is not deterministic"
+    exit $err
+fi
 
 exit 0

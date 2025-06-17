@@ -104,6 +104,8 @@ if(USE_UNION)
         union-workload-test-surrogate-parallel.sh
         union-workload-test-surrogate-parallel-deterministic-1.sh
         union-workload-test-surrogate-parallel-deterministic-2.sh
+        union-workload-test-surrogate-parallel-deterministic-3.sh
+        union-workload-test-surrogate-parallel-deterministic-4.sh
     )
 endif()
 

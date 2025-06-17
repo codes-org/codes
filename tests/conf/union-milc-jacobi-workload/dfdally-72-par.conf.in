@@ -75,14 +75,14 @@ NETWORK_SURROGATE {
 # latency predictor to use. Options: average, torch-jit
    packet_latency_predictor="average";
 # some workload models need some time to stabilize, a point where the network behaviour stabilizes. The predictor will ignore all packet latencies that arrive during this period
-   ignore_until="10.0e6";
+   ignore_until="2.0e6";
 
 # parameters for torch-jit latency predictor
    torch_jit_mode="single-static-model-for-all-terminals";
    torch_jit_model_path="";
 
 # selecting network treatment on switching to surrogate. Options: freeze, nothing
-   network_treatment_on_switch="nothing";  # freeze is buggy sadly. It freezes more events than it should
+   network_treatment_on_switch="${NETWORK_MODE}";
 }
 APPLICATION_SURROGATE {
    enable="${APP_SURR_ON}"; # either 0 or 1
