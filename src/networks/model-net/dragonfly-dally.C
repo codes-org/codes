@@ -3825,9 +3825,9 @@ static void terminal_dally_init( terminal_state * s, tw_lp * lp )
     for(i = 0; i < p->num_rails; i++)
     {
         s->in_send_loop[i] = 0;
-        s->terminal_msgs[i] = (struct qlist_head*)calloc(num_qos_levels, sizeof(struct qlist_head));
+        s->terminal_msgs[i] = (struct qlist_head*)calloc(s->params->num_vcs, sizeof(struct qlist_head));
 
-        for(int j = 0; j < num_qos_levels; j++)
+        for(int j = 0; j < s->params->num_vcs; j++)
         {
             INIT_QLIST_HEAD(&s->terminal_msgs[i][j]);
         }
