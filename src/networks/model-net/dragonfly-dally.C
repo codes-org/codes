@@ -79,6 +79,8 @@
 // If we have configured the network surrogate, then we will collect packet delay data, which is done via the scheduling of an event. This additional event will shift the random generator and thus the same model will behave differently from the start when compared with the one where the surrogate is not setup. If one wants to test both scenarios (with and without the surrogate) and maintain determinism in high-fidelity, one has to enable this option
 #define ALWAYS_DETERMINISTIC_NETWORK 0
 
+#define num_chunks_for(message_size, chunk_size) ((message_size) ? ((message_size) + (chunk_size) - 1) / (chunk_size) : 1)
+
 /* handles terminal and router events like packet generate/send/receive/buffer */
 typedef struct terminal_state terminal_state;
 typedef struct router_state router_state;
@@ -4213,9 +4215,7 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     if(bf->c4)
         num_remote_packets--;
 
-    int num_chunks = msg->packet_size/s->params->chunk_size;
-    if(msg->packet_size < s->params->chunk_size)
-        num_chunks++;
+    int const num_chunks = num_chunks_for(msg->packet_size, s->params->chunk_size);
 
     int i;
     int vcg = 0;
@@ -4277,15 +4277,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     const dragonfly_param *p = s->params;
 
     int total_event_size;
-    uint64_t num_chunks = msg->packet_size / p->chunk_size;
-    
-    double cn_delay = s->params->cn_delay;
-
-    if (msg->packet_size < s->params->chunk_size) 
-        num_chunks++;
-
-    if(msg->packet_size < s->params->chunk_size)
-        cn_delay = bytes_to_ns(msg->packet_size % s->params->chunk_size, s->params->cn_bandwidth);
+    uint64_t const num_chunks = num_chunks_for(msg->packet_size, p->chunk_size);
 
     int dest_router_id;
     if (s->params->num_injection_queues > 1 || netMan.is_link_failures_enabled()) {
@@ -4733,9 +4725,8 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     msg->saved_vc = vcg;
     terminal_dally_message_list* cur_entry = s->terminal_msgs[msg->rail_id][vcg];
     int data_size = s->params->chunk_size;
-    uint64_t num_chunks = cur_entry->msg.packet_size/s->params->chunk_size;
-    if(cur_entry->msg.packet_size < s->params->chunk_size)
-        num_chunks++;
+    uint64_t const num_chunks = num_chunks_for(cur_entry->msg.packet_size, s->params->chunk_size);
+
     msg->saved_avg_time = cur_entry->msg.travel_start_time;  // reusing field saved_avg_time. It is only used in another event handler path (arrive). So, no interruptions here
     cur_entry->msg.travel_start_time = tw_now(lp);
 
@@ -5353,7 +5344,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     /* WE do not allow self messages through dragonfly */
     assert(lp->gid != msg->src_terminal_id);
 
-    uint64_t num_chunks = (msg->packet_size + s->params->chunk_size - 1) / s->params->chunk_size;
+    uint64_t const num_chunks = num_chunks_for(msg->packet_size, s->params->chunk_size);
 
     if(msg->path_type == MINIMAL)
         minimal_count++;   
@@ -5484,13 +5475,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     if(hash_link)
         tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
 
-    uint64_t total_chunks = msg->total_size / s->params->chunk_size;
-
-    if(msg->total_size % s->params->chunk_size)
-          total_chunks++;
-
-    if(!total_chunks)
-          total_chunks = 1;
+    uint64_t const total_chunks = num_chunks_for(msg->total_size, s->params->chunk_size);
 
     /*if(tmp)
     {
@@ -6622,9 +6607,7 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
         bandwidth = s->params->global_bandwidth;
     }
 
-    uint64_t num_chunks = cur_entry->msg.packet_size / s->params->chunk_size;
-    if(cur_entry->msg.packet_size < s->params->chunk_size)
-        num_chunks++;
+    uint64_t const num_chunks = num_chunks_for(cur_entry->msg.packet_size, s->params->chunk_size);
 
     /* Injection delay: Time taken for the data to be placed on the link/channel
      *  - Based on bandwidth

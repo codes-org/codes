@@ -37,7 +37,7 @@ cp "$CONFIGS_PATH/rand_node0-1d-72-jacobi_MILC.alloc.conf" "$expfolder"
 export CHUNK_SIZE=4096
 export PATH_TO_CONNECTIONS="$CONFIGS_PATH"
 export NETWORK_SURR_ON=0
-export APP_SURR_ON=0
+export APP_SURR_ON=1
 export APP_DIRECTOR_MODE=every-n-nanoseconds
 #export APP_DIRECTOR_MODE=every-n-gvt
 export EVERY_N_GVT=500
@@ -77,11 +77,11 @@ err=$?
 [[ $err -ne 0 ]] && exit $err
 
 # Checking both milc and jacobi ran
-#grep 'MILC: Iteration 119/120' model-output.txt
-#err=$?
-#[[ $err -ne 0 ]] && exit $err
+grep 'MILC: Iteration 119/120' model-output.txt
+err=$?
+[[ $err -ne 0 ]] && exit $err
 
-grep 'Jacobi3D: Completed 1 iterations' model-output.txt
+grep 'Jacobi3D: Completed 39 iterations' model-output.txt
 err=$?
 [[ $err -ne 0 ]] && exit $err
 
@@ -90,13 +90,13 @@ err=$?
 [[ $err -ne 0 ]] && exit $err
 
 # it transitioned into surrogacy
-#grep -e 'application iteration surrogate mode at GVT [0-9]* time' model-output.txt
-#err=$?
-#[[ $err -ne 0 ]] && exit $err
+grep -e 'application iteration surrogate mode at GVT [0-9]* time' model-output.txt
+err=$?
+[[ $err -ne 0 ]] && exit $err
 
 # it transitioned back to high-fidelity
-#grep -e 'application iteration mode at GVT [0-9]* time' model-output.txt
-#err=$?
-#[[ $err -ne 0 ]] && exit $err
+grep -e 'application iteration mode at GVT [0-9]* time' model-output.txt
+err=$?
+[[ $err -ne 0 ]] && exit $err
 
 exit 0

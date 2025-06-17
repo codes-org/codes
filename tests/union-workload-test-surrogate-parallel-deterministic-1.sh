@@ -34,6 +34,7 @@ cp "$CONFIGS_PATH/jacobi_MILC.workload.conf" "$expfolder"
 cp "$CONFIGS_PATH/rand_node0-1d-72-jacobi_MILC.alloc.conf" "$expfolder"
 
 # CODES config file
+export CHUNK_SIZE=4096
 export PATH_TO_CONNECTIONS="$CONFIGS_PATH"
 export NETWORK_SURR_ON=0
 export APP_SURR_ON=1
