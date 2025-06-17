@@ -213,14 +213,16 @@ typedef struct terminal_dally_message_list terminal_dally_message_list;
 struct terminal_dally_message_list {
     terminal_dally_message msg;
     char* event_data;
-    terminal_dally_message_list *next;
-    terminal_dally_message_list *prev;
+    struct qlist_head list;
+    terminal_dally_message_list *next;  // Keep for router compatibility
+    terminal_dally_message_list *prev;  // Keep for router compatibility
 };
 
 static void init_terminal_dally_message_list(terminal_dally_message_list *thisO, 
     terminal_dally_message *inmsg) {
     thisO->msg = *inmsg;
     thisO->event_data = NULL;
+    INIT_QLIST_HEAD(&thisO->list);
     thisO->next = NULL;
     thisO->prev = NULL;
 }
@@ -536,8 +538,7 @@ struct terminal_state
 
     int** vc_occupancy; // vc_occupancies [rail_id][qos_level]
     tw_stime* terminal_available_time; // [rail_id]
-    terminal_dally_message_list ***terminal_msgs; //[rail_id][qos_level]
-    terminal_dally_message_list ***terminal_msgs_tail; //[rail_id][qos_level]
+    struct qlist_head **terminal_msgs; //[rail_id][qos_level] - quicklist heads
     int* in_send_loop; // [rail_id]
     struct mn_stats dragonfly_stats_array[CATEGORY_MAX];
 
@@ -1561,13 +1562,23 @@ static Connection dfdally_get_best_from_k_connections(router_state *s, tw_bf *bf
     return get_absolute_best_connection_from_conns(s, bf, msg, lp, k_conns);
 }
 
+static inline void append_to_qlist(struct qlist_head *head, terminal_dally_message_list *msg)
+{
+    qlist_add_tail(&msg->list, head);
+}
+
+static inline void prepend_to_qlist(struct qlist_head *head, terminal_dally_message_list *msg)
+{
+    qlist_add(&msg->list, head);
+}
+
+// Restore old functions for router compatibility
 static void append_to_terminal_dally_message_list(  
         terminal_dally_message_list ** thisq,
         terminal_dally_message_list ** thistail,
         int index, 
         terminal_dally_message_list *msg) 
 {
-//    printf("\n msg id %d ", msg->msg.packet_ID);
     if (thisq[index] == NULL) {
         thisq[index] = msg;
     } 
@@ -1577,7 +1588,105 @@ static void append_to_terminal_dally_message_list(
         msg->prev = thistail[index];
     } 
     thistail[index] = msg;
-//    printf("\n done adding %d ", msg->msg.packet_ID);
+}
+
+static terminal_dally_message_list* return_head(
+        terminal_dally_message_list ** thisq,
+        terminal_dally_message_list ** thistail,
+        int index)
+{
+    terminal_dally_message_list *head = thisq[index];
+    if (head != NULL) {
+        thisq[index] = head->next;
+        if(head->next != NULL) {
+            head->next->prev = NULL;
+            head->next = NULL;
+        }
+        else {
+            thistail[index] = NULL;
+        }
+    }
+    return head;
+}
+
+static void copy_terminal_dally_message_qlist(struct qlist_head *into_head, struct qlist_head *from_head)
+{
+    if (qlist_empty(from_head)) {
+        return;
+    }
+
+    terminal_dally_message_list *from_entry;
+    qlist_for_each_entry(from_entry, from_head, list) {
+        terminal_dally_message_list *copy_entry = (terminal_dally_message_list *)malloc(sizeof(terminal_dally_message_list));
+
+        // Deep copy the entry
+        memcpy(copy_entry, from_entry, sizeof(terminal_dally_message_list));
+        INIT_QLIST_HEAD(&copy_entry->list);
+
+        if (from_entry->event_data != NULL) {
+            int event_data_sz = from_entry->msg.remote_event_size_bytes + from_entry->msg.local_event_size_bytes;
+            copy_entry->event_data = (char *)malloc(event_data_sz);
+            memcpy(copy_entry->event_data, from_entry->event_data, event_data_sz);
+        }
+
+        append_to_qlist(into_head, copy_entry);
+    }
+}
+
+static void clean_terminal_dally_message_qlist(struct qlist_head *head)
+{
+    terminal_dally_message_list *entry, *tmp;
+    qlist_for_each_entry_safe(entry, tmp, head, list) {
+        qlist_del(&entry->list);
+        if (entry->event_data != NULL) {
+            free(entry->event_data);
+        }
+        free(entry);
+    }
+}
+
+static bool check_terminal_dally_message_qlist(struct qlist_head *before, struct qlist_head *after)
+{
+    bool is_same = true;
+
+    // Check if both are empty
+    if (qlist_empty(before) && qlist_empty(after)) {
+        return true;
+    }
+
+    // If only one is empty, they're different
+    if (qlist_empty(before) || qlist_empty(after)) {
+        return false;
+    }
+
+    terminal_dally_message_list *entry_before, *entry_after;
+    struct qlist_head *pos_before = before->next;
+    struct qlist_head *pos_after = after->next;
+
+    while (pos_before != before && pos_after != after) {
+        entry_before = qlist_entry(pos_before, terminal_dally_message_list, list);
+        entry_after = qlist_entry(pos_after, terminal_dally_message_list, list);
+
+        is_same &= check_terminal_dally_message(&entry_before->msg, &entry_after->msg);
+        is_same &= (entry_before->event_data == NULL) == (entry_after->event_data == NULL);
+
+        if (entry_before->event_data != NULL && entry_after->event_data != NULL) {
+            int const message_size = entry_before->msg.remote_event_size_bytes + entry_before->msg.local_event_size_bytes;
+            int const message_size_after = entry_after->msg.remote_event_size_bytes + entry_after->msg.local_event_size_bytes;
+            is_same &= (message_size == message_size_after);
+            if (message_size > 0) {
+                is_same &= (memcmp(entry_before->event_data, entry_after->event_data, message_size) == 0);
+            }
+        }
+
+        pos_before = pos_before->next;
+        pos_after = pos_after->next;
+    }
+
+    // Check if both reached the end at the same time
+    is_same &= (pos_before == before) && (pos_after == after);
+
+    return is_same;
 }
 
 static void prepend_to_terminal_dally_message_list(  
@@ -1596,23 +1705,24 @@ static void prepend_to_terminal_dally_message_list(
     thisq[index] = msg;
 }
 
-static terminal_dally_message_list* return_head(
-        terminal_dally_message_list ** thisq,
-        terminal_dally_message_list ** thistail,
-        int index) 
+static terminal_dally_message_list* return_head_from_qlist(struct qlist_head *head)
 {
-    terminal_dally_message_list *head = thisq[index];
-    if (head != NULL) {
-        thisq[index] = head->next;
-        if(head->next != NULL) {
-            head->next->prev = NULL;
-            head->next = NULL;
-        } 
-        else {
-            thistail[index] = NULL;
-        }
+    if (qlist_empty(head)) {
+        return NULL;
     }
-    return head;
+
+    struct qlist_head *item = qlist_pop(head);
+    return qlist_entry(item, terminal_dally_message_list, list);
+}
+
+static terminal_dally_message_list* return_tail_from_qlist(struct qlist_head *head)
+{
+    if (qlist_empty(head)) {
+        return NULL;
+    }
+
+    struct qlist_head *item = qlist_pop_back(head);
+    return qlist_entry(item, terminal_dally_message_list, list);
 }
 
 static terminal_dally_message_list* return_tail(
@@ -1716,6 +1826,26 @@ static bool check_terminal_dally_message_list(terminal_dally_message_list * befo
     }
 
     return is_same;
+}
+
+static void print_terminal_dally_message_qlist(FILE * out, char const * prefix, terminal_state * ns, struct qlist_head * head) {
+    if (qlist_empty(head)) {
+        return;
+    }
+
+    char addprefix_2[] = " | | ";
+    int len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_2) + 1;
+    char * subprefix = (char *) malloc(len_subprefix * sizeof(char));
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix_2);
+
+    terminal_dally_message_list * entry;
+    qlist_for_each_entry(entry, head, list) {
+        fprintf(out, "%s terminal_dally_message_list (%p) {\n", prefix, entry);
+        fprintf(out, "%s packet_ID = %llu\n", subprefix, LLU(entry->msg.packet_ID));
+        fprintf(out, "%s }\n", prefix);
+    }
+
+    free(subprefix);
 }
 
 static void print_terminal_dally_message_list(FILE * out, char const * prefix, terminal_state * ns, terminal_dally_message_list * thisq) {
@@ -2859,7 +2989,7 @@ static int get_next_vcg(terminal_state * s, tw_bf * bf, terminal_dally_message *
     
     if(num_qos_levels == 1)
     {
-        if(s->terminal_msgs[msg->rail_id][0] == NULL || s->vc_occupancy[msg->rail_id][0] + s->params->chunk_size > s->params->cn_vc_size)
+        if(qlist_empty(&s->terminal_msgs[msg->rail_id][0]) || s->vc_occupancy[msg->rail_id][0] + s->params->chunk_size > s->params->cn_vc_size)
             return -1;
         else
             return 0;
@@ -2892,7 +3022,7 @@ static int get_next_vcg(terminal_state * s, tw_bf * bf, terminal_dally_message *
         {
             if(s->qos_status[msg->rail_id][i] == Q_ACTIVE)
             {
-                if(s->terminal_msgs[msg->rail_id][i] != NULL && s->vc_occupancy[msg->rail_id][i] + s->params->chunk_size <= s->params->cn_vc_size)
+                if(!qlist_empty(&s->terminal_msgs[msg->rail_id][i]) && s->vc_occupancy[msg->rail_id][i] + s->params->chunk_size <= s->params->cn_vc_size)
                     return i;
             }
         }
@@ -2903,7 +3033,7 @@ static int get_next_vcg(terminal_state * s, tw_bf * bf, terminal_dally_message *
     /* All vcgs are exceeding their bandwidth limits*/
     for(int i = 0; i < num_qos_levels; i++)
     {
-        if(s->terminal_msgs[msg->rail_id][i] != NULL && s->vc_occupancy[msg->rail_id][i] + s->params->chunk_size <= s->params->cn_vc_size)
+        if(!qlist_empty(&s->terminal_msgs[msg->rail_id][i]) && s->vc_occupancy[msg->rail_id][i] + s->params->chunk_size <= s->params->cn_vc_size)
         {
             bf->c2 = 1;
             
@@ -3687,10 +3817,7 @@ static void terminal_dally_init( terminal_state * s, tw_lp * lp )
     s->issueIdle = (int*)calloc(p->num_rails, sizeof(int));
 
     s->rank_tbl = qhash_init(dragonfly_rank_hash_compare, dragonfly_hash_func, DFLY_HASH_TABLE_SIZE);
-    s->terminal_msgs = 
-        (terminal_dally_message_list***)calloc(p->num_rails, sizeof(terminal_dally_message_list**));
-    s->terminal_msgs_tail = 
-        (terminal_dally_message_list***)calloc(p->num_rails, sizeof(terminal_dally_message_list**));
+    s->terminal_msgs = (struct qlist_head**)calloc(p->num_rails, sizeof(struct qlist_head*));
 
     s->qos_status = (int**)calloc(p->num_rails, sizeof(int*));
     s->qos_data = (int**)calloc(p->num_rails, sizeof(int*));
@@ -3698,13 +3825,11 @@ static void terminal_dally_init( terminal_state * s, tw_lp * lp )
     for(i = 0; i < p->num_rails; i++)
     {
         s->in_send_loop[i] = 0;
-        s->terminal_msgs[i] = (terminal_dally_message_list**)calloc(num_qos_levels, sizeof(terminal_dally_message_list*));
-        s->terminal_msgs_tail[i] = (terminal_dally_message_list**)calloc(num_qos_levels, sizeof(terminal_dally_message_list*));
+        s->terminal_msgs[i] = (struct qlist_head*)calloc(num_qos_levels, sizeof(struct qlist_head));
 
         for(int j = 0; j < num_qos_levels; j++)
         {
-            s->terminal_msgs[i][j] = NULL;
-            s->terminal_msgs_tail[i][j] = NULL;
+            INIT_QLIST_HEAD(&s->terminal_msgs[i][j]);
         }
 
         /* Whether the virtual channel group is active or over-bw*/
@@ -4227,7 +4352,7 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     assert(vcg < num_qos_levels);
 
     for(i = 0; i < num_chunks; i++) {
-            delete_terminal_dally_message_list(return_tail(s->terminal_msgs[msg->rail_id], s->terminal_msgs_tail[msg->rail_id], vcg));
+            delete_terminal_dally_message_list(return_tail_from_qlist(&s->terminal_msgs[msg->rail_id][vcg]));
             s->terminal_length[msg->rail_id][vcg] -= s->params->chunk_size;
     }
     if(bf->c5) {
@@ -4525,8 +4650,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         cur_chunk->msg.output_chan = vcg;
         cur_chunk->msg.chunk_id = i;
         cur_chunk->msg.origin_router_id = s->router_id[msg->rail_id];
-        append_to_terminal_dally_message_list(s->terminal_msgs[msg->rail_id], s->terminal_msgs_tail[msg->rail_id],
-        vcg, cur_chunk);
+        append_to_qlist(&s->terminal_msgs[msg->rail_id][vcg], cur_chunk);
         s->terminal_length[msg->rail_id][vcg] += s->params->chunk_size;
     }
     
@@ -4668,8 +4792,7 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_dally_messag
 
     s->qos_data[msg->rail_id][vcg] -= data_size;
 
-    prepend_to_terminal_dally_message_list(s->terminal_msgs[msg->rail_id], 
-            s->terminal_msgs_tail[msg->rail_id], vcg, cur_entry);
+    prepend_to_qlist(&s->terminal_msgs[msg->rail_id][vcg], cur_entry);
     
     if(bf->c4) {
         s->in_send_loop[msg->rail_id] = msg->saved_send_loop;
@@ -4723,7 +4846,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     }
 
     msg->saved_vc = vcg;
-    terminal_dally_message_list* cur_entry = s->terminal_msgs[msg->rail_id][vcg];
+    terminal_dally_message_list* cur_entry = return_head_from_qlist(&s->terminal_msgs[msg->rail_id][vcg]);
     int data_size = s->params->chunk_size;
     uint64_t const num_chunks = num_chunks_for(cur_entry->msg.packet_size, s->params->chunk_size);
 
@@ -4813,7 +4936,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     }
     
     s->vc_occupancy[msg->rail_id][vcg] += s->params->chunk_size;
-    cur_entry = return_head(s->terminal_msgs[msg->rail_id], s->terminal_msgs_tail[msg->rail_id], vcg); 
+
     rc_stack_push(lp, cur_entry, delete_terminal_dally_message_list, s->st);
     s->terminal_length[msg->rail_id][vcg] -= s->params->chunk_size;
     s->link_traffic[msg->rail_id] += s->params->chunk_size;
@@ -4825,12 +4948,8 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     if(num_qos_levels > 1) //I think this one is OK since the default is that terminals have only 1 VC anyway so leaving vcg as 
         next_vcg = get_next_vcg(s, bf, msg, lp);
 
-    cur_entry = NULL;
-    if(next_vcg >= 0)
-        cur_entry = s->terminal_msgs[msg->rail_id][next_vcg];
-
     /* if there is another packet inline then schedule another send event */
-    if(cur_entry != NULL && s->vc_occupancy[msg->rail_id][next_vcg] + s->params->chunk_size <= s->params->cn_vc_size) {
+    if(next_vcg >= 0 && !qlist_empty(&s->terminal_msgs[msg->rail_id][next_vcg]) && s->vc_occupancy[msg->rail_id][next_vcg] + s->params->chunk_size <= s->params->cn_vc_size) {
         terminal_dally_message *m_new;
         e = model_net_method_event_new(lp->gid, injection_ts + gen_noise(lp, &msg->num_rngs), lp, DRAGONFLY_DALLY, (void**)&m_new, NULL);
         m_new->type = T_SEND;
@@ -5612,7 +5731,7 @@ static void terminal_buf_update(terminal_state * s,
     tw_stime ts = 0;
     s->vc_occupancy[msg->rail_id][vcg] -= s->params->chunk_size;
     
-    if(s->in_send_loop[msg->rail_id] == 0 && s->terminal_msgs[msg->rail_id][vcg] != NULL) {
+    if(s->in_send_loop[msg->rail_id] == 0 && !qlist_empty(&s->terminal_msgs[msg->rail_id][vcg])) {
         terminal_dally_message *m;
         bf->c1 = 1;
         tw_event* e = model_net_method_event_new(lp->gid, ts + gen_noise(lp, &msg->num_rngs), lp, DRAGONFLY_DALLY, 
@@ -5688,8 +5807,9 @@ static void dragonfly_dally_terminal_final( terminal_state * s,
 
     for(int i = 0; i < s->params->num_rails; i++)
     {
-        if(s->terminal_msgs[i][0] != NULL) 
-        printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
+        if(!qlist_empty(&s->terminal_msgs[i][0])) {
+            printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
+        }
     }
 
 
@@ -5753,11 +5873,9 @@ static void dragonfly_dally_terminal_final( terminal_state * s,
         free(s->vc_occupancy[i]);
         // TODO: terminal_msgs are not properly freed if there are messages left. Correct this!
         free(s->terminal_msgs[i]);
-        free(s->terminal_msgs_tail[i]);
     }
     free(s->vc_occupancy);
     free(s->terminal_msgs);
-    free(s->terminal_msgs_tail);
 
     // Calling destructors for data. There is no need to free data, the
     // destructors do it themselves. ROSS allocated space for the datatypes and
@@ -7229,7 +7347,7 @@ static void save_terminal_state(terminal_state *into, terminal_state const *from
         into->stalled_chunks = (unsigned long*) malloc(num_rails * sizeof(uint64_t));
         into->total_chunks = (unsigned long*) malloc(num_rails * sizeof(uint64_t));
         into->busy_time = (tw_stime*) malloc(num_rails * sizeof(tw_stime));
-        into->terminal_msgs = (terminal_dally_message_list***) malloc(num_rails * sizeof(terminal_dally_message_list**));
+        into->terminal_msgs = (struct qlist_head**) malloc(num_rails * sizeof(struct qlist_head*));
         into->link_traffic = (uint64_t*) malloc(num_rails * sizeof(uint64_t));
 
         for(int i = 0; i < num_rails; i++) {
@@ -7237,13 +7355,14 @@ static void save_terminal_state(terminal_state *into, terminal_state const *from
             into->terminal_length[i] = (int*) malloc(num_qos_levels * sizeof(int));
             into->qos_status[i] = (int*) malloc(num_qos_levels * sizeof(int));
             into->qos_data[i] = (int*) malloc(num_qos_levels * sizeof(int));
-            into->terminal_msgs[i] = (terminal_dally_message_list**) malloc(num_qos_levels * sizeof(terminal_dally_message_list*));
+            into->terminal_msgs[i] = (struct qlist_head*) malloc(num_qos_levels * sizeof(struct qlist_head));
             for (int j = 0; j<num_qos_levels; j++) {
                 into->vc_occupancy[i][j] = from->vc_occupancy[i][j];
                 into->terminal_length[i][j] = from->terminal_length[i][j];
                 into->qos_data[i][j] = from->qos_data[i][j];
                 into->qos_status[i][j] = from->qos_status[i][j];
-                copy_terminal_dally_message_list(&into->terminal_msgs[i][j], from->terminal_msgs[i][j]);
+                INIT_QLIST_HEAD(&into->terminal_msgs[i][j]);
+                copy_terminal_dally_message_qlist(&into->terminal_msgs[i][j], &from->terminal_msgs[i][j]);
             }
             into->last_buf_full[i] = from->last_buf_full[i];
             into->in_send_loop[i] = from->in_send_loop[i];
@@ -7301,7 +7420,7 @@ static void clean_terminal_state(terminal_state *state) {
             free(state->qos_status[i]);
             free(state->qos_data[i]);
             for (int j = 0; j<num_qos_levels; j++) {
-                clean_terminal_dally_message_list(state->terminal_msgs[i][j]);
+                clean_terminal_dally_message_qlist(&state->terminal_msgs[i][j]);
             }
             free(state->terminal_msgs[i]);
         }
@@ -7405,7 +7524,7 @@ static bool check_terminal_state(terminal_state *before, terminal_state *after) 
                 is_same &= (before->terminal_length[i][j] == after->terminal_length[i][j]);
                 is_same &= (before->qos_status[i][j] == after->qos_status[i][j]);
                 is_same &= (before->qos_data[i][j] == after->qos_data[i][j]);
-                is_same &= check_terminal_dally_message_list(before->terminal_msgs[i][j], after->terminal_msgs[i][j]);
+                is_same &= check_terminal_dally_message_qlist(&before->terminal_msgs[i][j], &after->terminal_msgs[i][j]);
             }
 
             is_same &= (before->last_buf_full[i] == after->last_buf_full[i]);
@@ -7501,14 +7620,13 @@ static void print_terminal_state(FILE * out, char const * prefix, terminal_state
             fprintf(out, "%s  |   rail %d: [\n", prefix, i);
             for (int j=0; j<state->params->num_qos_levels; j++) {
                 fprintf(out, "%s  |    | qos level %d\n", prefix, j);
-                print_terminal_dally_message_list(out, subprefix, state, state->terminal_msgs[i][j]);
+                print_terminal_dally_message_qlist(out, subprefix, state, &state->terminal_msgs[i][j]);
             }
         }
         fprintf(out, "%s  | ]\n", prefix);
         free(subprefix);
     }
 
-    fprintf(out, "%s  | ***   terminal_msgs_tail = %p\n", prefix, state->terminal_msgs_tail);
 
     if (is_dally_surrogate_on) {
         fprintf(out, "%s  | *          in_send_loop = %p\n", prefix, state->in_send_loop);
