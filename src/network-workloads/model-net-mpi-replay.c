@@ -4080,7 +4080,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
             }
                 i++;
         }
-        printf("\n num_net_traces %d; num_dumpi_traces %d", num_net_traces, num_dumpi_traces);
+        printf("\n num_net_traces %d; num_dumpi_traces %d\n", num_net_traces, num_dumpi_traces);
         fclose(name_file);
         assert(strlen(alloc_file) != 0);
         alloc_spec = 1;

@@ -23,7 +23,11 @@ static enum {
 
 #define master_printf(...) if (g_tw_mynode == 0) { printf(__VA_ARGS__); }
 
-static void application_director_pre_switch(tw_pe * pe) {
+static void application_director_pre_switch(tw_pe * pe, bool is_queue_empty) {
+    // No need to switch to surrogate when the simulation has ended
+    if (is_queue_empty || gvt_for(pe) >= g_tw_ts_end) {
+        return;
+    }
     // Scheduling next GVT hook call if it is not scheduled every tw_trigger_gvt_hook_every
     if (conf.option == APP_DIRECTOR_OPTS_call_every_ns) {
         tw_trigger_gvt_hook_at(gvt_for(pe) + conf.call_every_ns);
@@ -41,7 +45,7 @@ static void application_director_pre_switch(tw_pe * pe) {
 
             if (conf.use_network_surrogate) {
                 master_printf("Switching network surrogate on\n");
-                surrogate_switch_network_model(pe);
+                surrogate_switch_network_model(pe, is_queue_empty);
             }
 
             surrogate_time_last = tw_clock_read();
@@ -55,12 +59,19 @@ static void application_director_pre_switch(tw_pe * pe) {
     }
 }
 
-static void application_director_post_switch(tw_pe * pe) {
+static void application_director_post_switch(tw_pe * pe, bool is_queue_empty) {
+    // No need to restart high-fidelity simulation if network was not suspended
+    if (is_queue_empty && !conf.use_network_surrogate) {
+        return;
+    }
+
     // Scheduling next GVT hook call
-    if (conf.option == APP_DIRECTOR_OPTS_call_every_ns) {
-        tw_trigger_gvt_hook_at(gvt_for(pe) + conf.call_every_ns);
-    } else {
-        tw_trigger_gvt_hook_every(conf.every_n_gvt);
+    if (!is_queue_empty) {
+        if (conf.option == APP_DIRECTOR_OPTS_call_every_ns) {
+            tw_trigger_gvt_hook_at(gvt_for(pe) + conf.call_every_ns);
+        } else {
+            tw_trigger_gvt_hook_every(conf.every_n_gvt);
+        }
     }
 
     double const start = tw_clock_read();
@@ -73,8 +84,7 @@ static void application_director_post_switch(tw_pe * pe) {
 
         if (conf.use_network_surrogate) {
             master_printf("Switching network surrogate off\n");
-            surrogate_switch_network_model(pe);
-            // TODO: reset network predictors and ask not to gather any data for 1 ms
+            surrogate_switch_network_model(pe, is_queue_empty);
         }
 
         time_in_surrogate += start - surrogate_time_last;
@@ -85,18 +95,14 @@ static void application_director_post_switch(tw_pe * pe) {
     director_state = PRE_JUMP;
 }
 
-static void application_director(tw_pe * pe) {
-    // Director is not called if the simulation has ended
-    if (gvt_for(pe) >= g_tw_ts_end) {
-        return;
-    }
+static void application_director(tw_pe * pe, bool is_queue_empty) {
     switch (director_state) {
         case PRE_JUMP:
-            application_director_pre_switch(pe);
+            application_director_pre_switch(pe, is_queue_empty);
         break;
         case POST_JUMP_switched:
         case POST_JUMP_skipped:
-            application_director_post_switch(pe);
+            application_director_post_switch(pe, is_queue_empty);
         break;
     }
 }

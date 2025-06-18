@@ -60,7 +60,7 @@ struct network_surrogate_config {
 void network_director_configure(struct network_surrogate_config *, struct switch_at_struct * switch_network_at, bool freeze_network_on_switch);
 
 // Function for application director to use network freezing machinery
-void surrogate_switch_network_model(tw_pe * pe);
+void surrogate_switch_network_model(tw_pe * pe, bool is_queue_empty);
 
 void network_director_finalize(void);
 

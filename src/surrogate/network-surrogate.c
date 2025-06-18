@@ -4,6 +4,8 @@
 #include <ross-extern.h>
 #include <stdio.h>
 
+#define master_printf(cond, ...) if (cond && g_tw_mynode == 0) { printf(__VA_ARGS__); }
+
 static bool is_network_surrogate_configured = false;
 static struct switch_at_struct switch_network_at = {0};
 static struct network_surrogate_config net_surr_config = {0};
@@ -198,9 +200,9 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe) {
         tw_error(TW_LOC, "Sorry, sending packets to the future hasn't been implement in this mode");
     }
 
-    printf("PE %lu - AVL size %d (before freezing events)\n", g_tw_mynode, pe->avl_tree_size);
+    master_printf(DEBUG_DIRECTOR > 1, "PE %lu - AVL size %d (before freezing events)\n", g_tw_mynode, pe->avl_tree_size);
     freeze_events_to_separate_queue_pe(pe);
-    printf("PE %lu - AVL size %d (after freezing events to separate queue)\n", g_tw_mynode, pe->avl_tree_size);
+    master_printf(DEBUG_DIRECTOR > 1, "PE %lu - AVL size %d (after freezing events to separate queue)\n", g_tw_mynode, pe->avl_tree_size);
 
     // Going through all LPs in PE and running their specific functions
     for (tw_lpid local_lpid = 0; local_lpid < g_tw_nlp; local_lpid++) {
@@ -224,7 +226,11 @@ static void events_high_def_to_surrogate_switch(tw_pe * pe) {
 
         pe->cur_event = pe->abort_event;
         pe->cur_event->caused_by_me = NULL;
+#ifdef USE_RAND_TIEBREAKER
         pe->cur_event->sig = pe->GVT_sig;
+#else
+        pe->cur_event->recv_ts = pe->GVT;
+#endif
 
         if (lp_type_switch) {
             if (lp_type_switch->trigger_idle_modelnet) {
@@ -257,9 +263,9 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe) {
 #endif
 
     // Restore frozen events back to the main queue with timestamp adjustment
-    printf("PE %lu - AVL size %d (before injecting events into event queue again)\n", g_tw_mynode, pe->avl_tree_size);
+    master_printf(DEBUG_DIRECTOR > 1, "PE %lu - AVL size %d (before injecting events into event queue again)\n", g_tw_mynode, pe->avl_tree_size);
     unfreeze_events_from_separate_queue_pe(pe);
-    printf("PE %lu - AVL size %d (after defreezing events from separate queue)\n", g_tw_mynode, pe->avl_tree_size);
+    master_printf(DEBUG_DIRECTOR > 1, "PE %lu - AVL size %d (after defreezing events from separate queue)\n", g_tw_mynode, pe->avl_tree_size);
 
     // Going through all LPs in PE and running their specific functions
     for (tw_lpid local_lpid = 0; local_lpid < g_tw_nlp; local_lpid++) {
@@ -285,7 +291,11 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe) {
 
         pe->cur_event = pe->abort_event;
         pe->cur_event->caused_by_me = NULL;
+#ifdef USE_RAND_TIEBREAKER
         pe->cur_event->sig = pe->GVT_sig;
+#else
+        pe->cur_event->recv_ts = pe->GVT;
+#endif
 
         if (lp_type_switch) {
             if (lp_type_switch->trigger_idle_modelnet) {
@@ -317,19 +327,23 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe) {
 }
 
 
-static void switch_model(tw_pe * pe) {
-    // Rollback if in optimistic mode
-    if (g_tw_synchronization_protocol == OPTIMISTIC) {
+static void switch_model(tw_pe * pe, bool is_queue_empty) {
+    // Rollback if in optimistic mode and the simulation has events yet to process (globally)
+    if (g_tw_synchronization_protocol == OPTIMISTIC && !is_queue_empty) {
         tw_scheduler_rollback_and_cancel_events_pe(pe);
     }
-    net_surr_config.model.switch_surrogate();
-    if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
-        printf("Switching to network %s\n", net_surr_config.model.is_surrogate_on() ? "surrogate" : "high-fidelity");
+    master_printf(DEBUG_DIRECTOR, "Switching to network %s\n", net_surr_config.model.is_surrogate_on() ? "high-fidelity": "surrogate");
+
+    bool const is_surrogate_off = !net_surr_config.model.is_surrogate_on();
+    if (is_surrogate_off && is_queue_empty) {
+        master_printf(true, "No need to switch to surrogate when the simulation has no events to process\n");
+        return;
     }
+    net_surr_config.model.switch_surrogate();
 
     // "Freezing" network events and activating LP's switch functions
     if (freeze_network_on_switch) {
-        if (net_surr_config.model.is_surrogate_on()) {
+        if (is_surrogate_off) {
             model_net_method_switch_to_surrogate();
             events_high_def_to_surrogate_switch(pe);
         } else {
@@ -340,7 +354,7 @@ static void switch_model(tw_pe * pe) {
 }
 
 
-void network_director(tw_pe * pe) {
+void network_director(tw_pe * pe, bool is_queue_empty) {
     assert(is_network_surrogate_configured);
     assert(network_director_enabled);
 
@@ -375,7 +389,7 @@ void network_director(tw_pe * pe) {
     }
 
     // ---- Past this means that we are in fact switching ----
-    net_surr_config.model.is_surrogate_on();
+    bool const surrogate_state_pre_switch = net_surr_config.model.is_surrogate_on();
 
     // Asking the director/model to switch
     if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
@@ -386,7 +400,7 @@ void network_director(tw_pe * pe) {
     }
 
     double const start = tw_clock_read();
-    switch_model(pe);
+    switch_model(pe, is_queue_empty);
     double const end = tw_clock_read();
     surrogate_switching_time += end - start;
 
@@ -396,15 +410,19 @@ void network_director(tw_pe * pe) {
         tw_trigger_gvt_hook_at(next_switch);
     }
 
-    if (DEBUG_DIRECTOR == 1 && g_tw_mynode == 0) {
-        printf("Network switch completed!\n");
+    bool const is_surrogate_on = net_surr_config.model.is_surrogate_on();
+    if (is_surrogate_on == surrogate_state_pre_switch) {
+        // The surrogate was never switched!
+        return;
     }
+
+    master_printf(DEBUG_DIRECTOR == 1, "Network switch completed!\n");
     if (DEBUG_DIRECTOR > 1) {
         printf("PE %lu: Switch completed!\n", g_tw_mynode);
     }
 
     // Determining time in surrogate
-    if (net_surr_config.model.is_surrogate_on()) {
+    if (is_surrogate_on) {
         // Start tracking time spent in surrogate mode
         surrogate_time_last = end;
     } else {
@@ -434,10 +452,10 @@ void network_director_finalize(void) {
 }
 
 // === Function for application director to use switch to surrogate machinery
-void surrogate_switch_network_model(tw_pe * pe) {
+void surrogate_switch_network_model(tw_pe * pe, bool is_queue_empty) {
     // Simply expose the existing switch_model function for use by application director
     double const start = tw_clock_read();
-    switch_model(pe);
+    switch_model(pe, is_queue_empty);
     double const end = tw_clock_read();
     surrogate_switching_time += end - start;
 }
