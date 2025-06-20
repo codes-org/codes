@@ -90,10 +90,17 @@ static lp_io_handle io_handle;
 static unsigned int lp_io_use_suffix = 0;
 static int do_lp_io = 0;
 
+/* Workload JSON file mapping structure */
+struct codes_workload_json_mapping {
+    char workload_type[MAX_NAME_LENGTH_WKLD];
+    char json_path[8192];
+};
+
 /* variables for loading multiple applications */
 char workloads_conf_file[8192];
 char workloads_timer_file[8192];
 char workloads_period_file[8192];
+char workload_json_files[8192];
 char alloc_file[8192];
 int num_traces_of_job[MAX_JOBS];
 int is_job_synthetic[MAX_JOBS]; //0 if job is not synthetic 1 if job is
@@ -105,6 +112,8 @@ int period_count[MAX_JOBS];
 double period_time[MAX_JOBS][MAX_PERIODS_PER_APP];
 float period_interval[MAX_JOBS][MAX_PERIODS_PER_APP];
 char file_name_of_job[MAX_JOBS][8192];
+struct codes_workload_json_mapping workload_json_mappings[MAX_JOBS];
+int workload_json_mapping_count;
 
 tw_stime max_elapsed_time_per_job[MAX_JOBS] = {0};
 
@@ -2563,6 +2572,20 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        {
             strcpy(oc_params.workload_name, file_name_of_job[lid.job]);      
        }
+
+       /* Look up custom JSON path for this workload */
+       oc_params.file_path[0] = '\0';
+       char * wrkl_name_settings = oc_params.workload_name;
+       if(strncmp("conceptual", oc_params.workload_name, 10) == 0) {
+            wrkl_name_settings = "conceptual";
+       }
+       for(int i = 0; i < workload_json_mapping_count; i++) {
+           if(strcmp(workload_json_mappings[i].workload_type, wrkl_name_settings) == 0) {
+                strcpy(oc_params.file_path, workload_json_mappings[i].json_path);
+                break;
+           }
+       }
+
        /*TODO: nprocs is different for dumpi and online workload. for
         * online, it is the number of ranks to be simulated. */
        // printf("conc-online num_traces_of_job %d\n", num_traces_of_job[lid.job]);
@@ -2667,6 +2690,7 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    }
 
    if (iter_predictor && !am_i_synthetic) {
+        assert(s->wrkld_id != -1);
         int const ending_iter = codes_workload_get_final_iteration(s->wrkld_id, s->app_id, s->local_rank);
         if (ending_iter == -1) {
             tw_warning(TW_LOC, "Predictor for non-synthetic job cannot be initialized. app id=%d", s->app_id);
@@ -3802,6 +3826,7 @@ const tw_optdef app_opt [] =
 	TWOPT_CHAR("workload_file", workload_file, "workload file name"),
 	TWOPT_CHAR("alloc_file", alloc_file, "allocation file name"),
 	TWOPT_CHAR("workload_conf_file", workloads_conf_file, "workload config file name"),
+	TWOPT_CHAR("workload_json_files", workload_json_files, "workload json files mapping file name"),
     TWOPT_CHAR("link_failure_file", g_nm_link_failure_filepath, "filepath for override of link failure file from configuration for supporting models"),
 	TWOPT_CHAR("workload_timer_file", workloads_timer_file, "workload timer file name (for starting/pausing/stopping synthetic traffic)"),
 	TWOPT_CHAR("workload_period_file", workloads_period_file, "workload periods file name (for changing the per-job synthetic traffic load at specified periods/times)"),
@@ -4026,9 +4051,12 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 	return -1;
     }
 
+    bool is_conc_enabled = false;
+
     /* Xin: Currently rendezvous protocol cannot work with Conceptual online workloads */
     if(strcmp(workload_type, "conc-online") == 0) {
         EAGER_THRESHOLD = INT64_MAX;
+        is_conc_enabled = true;
     }
 
 	jobmap_ctx = NULL; // make sure it's NULL if it's not used
@@ -4132,6 +4160,33 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
                 j++;
             }
             fclose(period_file);
+        }
+
+        /* Load workload JSON files mapping if specified */
+        if(is_conc_enabled && strlen(workload_json_files) > 0)
+        {
+            FILE *json_file = fopen(workload_json_files, "r");
+            if(!json_file)
+                tw_error(TW_LOC, "\n Could not open file %s ", workload_json_files);
+
+            workload_json_mapping_count = 0;
+
+            while(!feof(json_file) && workload_json_mapping_count < MAX_JOBS)
+            {
+                if(fscanf(json_file, "%s %s",
+                    workload_json_mappings[workload_json_mapping_count].workload_type,
+                    workload_json_mappings[workload_json_mapping_count].json_path) == 2)
+                {
+                    workload_json_mapping_count++;
+                }
+            }
+            fclose(json_file);
+
+            if(enable_debug)
+                printf("\n Loaded %d workload JSON mappings\n", workload_json_mapping_count);
+        }
+        if(!is_conc_enabled && strlen(workload_json_files) > 0) {
+            printf("\n Conceptual online worloads will not run, thus, we won't read any json files from --workload_json_files\n");
         }
     }
     else

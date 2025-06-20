@@ -1839,6 +1839,44 @@ static void workload_caller(void * arg)
     }
 }
 
+static void determine_workload_paths(const char* workload_name, const char* custom_json_path, string& swm_path, string& conc_path, bool& isconc)
+{
+    /* First check if custom JSON path is provided through file_path parameter */
+    if(custom_json_path && strlen(custom_json_path) > 0) {
+        if(strncmp(workload_name, "conceptual", 10) == 0) {
+            conc_path.append(custom_json_path);
+            isconc = 1;
+        } else {
+            swm_path.append(custom_json_path);
+        }
+        return;
+    }
+
+    /* Fall back to hardcoded paths */
+    swm_path.append(SWM_DATAROOTDIR);
+    if(strcmp(workload_name, "lammps") == 0) {
+        swm_path.append("/lammps_workload.json");
+    } else if(strcmp(workload_name, "nekbone") == 0) {
+        swm_path.append("/workload.json");
+    } else if(strcmp(workload_name, "milc") == 0) {
+        swm_path.append("/milc_skeleton.json");
+    } else if(strcmp(workload_name, "nearest_neighbor") == 0) {
+        swm_path.append("/skeleton.json");
+    } else if(strcmp(workload_name, "incast") == 0) {
+        swm_path.append("/incast.json");
+    } else if(strcmp(workload_name, "incast1") == 0) {
+        swm_path.append("/incast1.json");
+    } else if(strcmp(workload_name, "incast2") == 0) {
+        swm_path.append("/incast2.json");
+    } else if(strncmp(workload_name, "conceptual", 10) == 0) {
+        conc_path.append(UNION_DATADIR);
+        conc_path.append("/conceptual.json");
+        isconc = 1;
+    } else {
+        tw_error(TW_LOC, "\n Undefined workload type %s ", workload_name);
+    }
+}
+
 static int comm_online_workload_load(const void * params, int app_id, int rank)
 {
     /* LOAD parameters from JSON file*/
@@ -1867,43 +1905,7 @@ static int comm_online_workload_load(const void * params, int app_id, int rank)
     bool isconc=0;
 
     // printf("workload name: %s\n", o_params->workload_name);
-    swm_path.append(SWM_DATAROOTDIR);
-    if(strcmp(o_params->workload_name, "lammps") == 0)
-    {
-        swm_path.append("/lammps_workload.json");
-    }
-    else if(strcmp(o_params->workload_name, "nekbone") == 0)
-    {
-        swm_path.append("/workload.json"); 
-    }
-    else if(strcmp(o_params->workload_name, "milc") == 0)
-    {
-        swm_path.append("/milc_skeleton.json");
-    }
-    else if(strcmp(o_params->workload_name, "nearest_neighbor") == 0)
-    {
-        swm_path.append("/skeleton.json"); 
-    }
-    else if(strcmp(o_params->workload_name, "incast") == 0)
-    {
-        swm_path.append("/incast.json"); 
-    }
-    else if(strcmp(o_params->workload_name, "incast1") == 0)
-    {
-        swm_path.append("/incast1.json"); 
-    }
-    else if(strcmp(o_params->workload_name, "incast2") == 0)
-    {
-        swm_path.append("/incast2.json"); 
-    }    
-    else if(strncmp(o_params->workload_name, "conceptual", 10) == 0)
-    {
-        conc_path.append(UNION_DATADIR);
-        conc_path.append("/conceptual.json");
-        isconc = 1;
-    }
-    else
-        tw_error(TW_LOC, "\n Undefined workload type %s ", o_params->workload_name);
+    determine_workload_paths(o_params->workload_name, o_params->file_path, swm_path, conc_path, isconc);
 
     // printf("\nUnion jason path %s\n", conc_path.c_str());
     if(isconc){
