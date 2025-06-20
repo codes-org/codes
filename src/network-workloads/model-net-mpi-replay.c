@@ -2575,12 +2575,8 @@ void nw_test_init(nw_state* s, tw_lp* lp)
 
        /* Look up custom JSON path for this workload */
        oc_params.file_path[0] = '\0';
-       char * wrkl_name_settings = oc_params.workload_name;
-       if(strncmp("conceptual", oc_params.workload_name, 10) == 0) {
-            wrkl_name_settings = "conceptual";
-       }
        for(int i = 0; i < workload_json_mapping_count; i++) {
-           if(strcmp(workload_json_mappings[i].workload_type, wrkl_name_settings) == 0) {
+           if(strcmp(workload_json_mappings[i].workload_type, oc_params.workload_name) == 0) {
                 strcpy(oc_params.file_path, workload_json_mappings[i].json_path);
                 break;
            }

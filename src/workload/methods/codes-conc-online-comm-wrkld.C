@@ -1839,41 +1839,41 @@ static void workload_caller(void * arg)
     }
 }
 
-static void determine_workload_paths(const char* workload_name, const char* custom_json_path, string& swm_path, string& conc_path, bool& isconc)
+static void determine_workload_paths(online_comm_params const * o_params, string& swm_path, string& conc_path, bool& isconc)
 {
     /* First check if custom JSON path is provided through file_path parameter */
-    if(custom_json_path && strlen(custom_json_path) > 0) {
-        if(strncmp(workload_name, "conceptual", 10) == 0) {
-            conc_path.append(custom_json_path);
+    if(strlen(o_params->file_path) > 0) {
+        if(strncmp(o_params->workload_name, "conceptual", 10) == 0) {
+            conc_path.append(o_params->file_path);
             isconc = 1;
         } else {
-            swm_path.append(custom_json_path);
+            swm_path.append(o_params->file_path);
         }
         return;
     }
 
     /* Fall back to hardcoded paths */
     swm_path.append(SWM_DATAROOTDIR);
-    if(strcmp(workload_name, "lammps") == 0) {
+    if(strcmp(o_params->workload_name, "lammps") == 0) {
         swm_path.append("/lammps_workload.json");
-    } else if(strcmp(workload_name, "nekbone") == 0) {
+    } else if(strcmp(o_params->workload_name, "nekbone") == 0) {
         swm_path.append("/workload.json");
-    } else if(strcmp(workload_name, "milc") == 0) {
+    } else if(strcmp(o_params->workload_name, "milc") == 0) {
         swm_path.append("/milc_skeleton.json");
-    } else if(strcmp(workload_name, "nearest_neighbor") == 0) {
+    } else if(strcmp(o_params->workload_name, "nearest_neighbor") == 0) {
         swm_path.append("/skeleton.json");
-    } else if(strcmp(workload_name, "incast") == 0) {
+    } else if(strcmp(o_params->workload_name, "incast") == 0) {
         swm_path.append("/incast.json");
-    } else if(strcmp(workload_name, "incast1") == 0) {
+    } else if(strcmp(o_params->workload_name, "incast1") == 0) {
         swm_path.append("/incast1.json");
-    } else if(strcmp(workload_name, "incast2") == 0) {
+    } else if(strcmp(o_params->workload_name, "incast2") == 0) {
         swm_path.append("/incast2.json");
-    } else if(strncmp(workload_name, "conceptual", 10) == 0) {
+    } else if(strncmp(o_params->workload_name, "conceptual", 10) == 0) {
         conc_path.append(UNION_DATADIR);
         conc_path.append("/conceptual.json");
         isconc = 1;
     } else {
-        tw_error(TW_LOC, "\n Undefined workload type %s ", workload_name);
+        tw_error(TW_LOC, "\n Undefined workload type %s ", o_params->workload_name);
     }
 }
 
@@ -1905,7 +1905,7 @@ static int comm_online_workload_load(const void * params, int app_id, int rank)
     bool isconc=0;
 
     // printf("workload name: %s\n", o_params->workload_name);
-    determine_workload_paths(o_params->workload_name, o_params->file_path, swm_path, conc_path, isconc);
+    determine_workload_paths(o_params, swm_path, conc_path, isconc);
 
     // printf("\nUnion jason path %s\n", conc_path.c_str());
     if(isconc){
@@ -1915,8 +1915,16 @@ static int comm_online_workload_load(const void * params, int app_id, int rank)
 
             // printf("workload_name: %s\n", o_params->workload_name);
             union_bench_param *tmp_params = (union_bench_param *) calloc(1, sizeof(union_bench_param));
-            strcpy(tmp_params->conc_program, &o_params->workload_name[11]);
-            child = root.get_child(tmp_params->conc_program);
+            child = root.get_child(&o_params->workload_name[11]);
+
+            // if we were given a path, we read the type of workload from the config
+            bool const has_path = o_params->file_path[0] != '\0';
+            if (has_path) {
+                strcpy(tmp_params->conc_program, child.get_child("argv").begin()->second.data().c_str());
+            } else {
+                strcpy(tmp_params->conc_program, &o_params->workload_name[11]);
+            }
+
             tmp_params->conc_argc = child.get<int>("argc");
             int i = 0;
             BOOST_FOREACH(boost::property_tree::ptree::value_type &v, child.get_child("argv"))
@@ -1931,7 +1939,7 @@ static int comm_online_workload_load(const void * params, int app_id, int rank)
         }
         catch(std::exception & e)
         {
-            printf("%s \n", e.what());
+            printf("Exception when reading UNION/Conceptual json config %s: %s\n", conc_path.c_str(), e.what());
             return -1;
         }
     }
@@ -1939,12 +1947,18 @@ static int comm_online_workload_load(const void * params, int app_id, int rank)
         try {
             std::ifstream jsonFile(swm_path.c_str());
             boost::property_tree::json_parser::read_json(jsonFile, root);
-            uint32_t process_cnt = root.get<uint32_t>("jobs.size", 1);
             cpu_freq = root.get<double>("jobs.cfg.cpu_freq") / 1e9; 
+
+            // if we were given a path, we read the type of workload from the config
+            bool const has_path = o_params->file_path[0] != '\0';
+            if (has_path) {
+                strcpy(o_params->workload_name, root.get<string>("jobs.cfg.app").c_str());
+                strcpy(my_ctx->sctx.workload_name, o_params->workload_name);
+            }
         }
         catch(std::exception & e)
         {
-            printf("%s \n", e.what());
+            printf("Exception when reading SWM json config %s: %s\n", swm_path.c_str(), e.what());
             return -1;
         }
         my_ctx->sctx.isconc = 0;
