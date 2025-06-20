@@ -170,6 +170,7 @@ void UNION_MPI_Finalize()
     ABT_thread_yield_to(global_prod_thread);
 }
 
+// cycle_count assumes 1 GHz, meaning, 1 cycle is 1 nanosecond. This is different from SWM_Compute!
 void UNION_Compute(long cycle_count)
 {
     /* Add an event in the shared queue and then yield */

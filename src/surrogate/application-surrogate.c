@@ -90,7 +90,7 @@ static void application_director_post_switch(tw_pe * pe, bool is_queue_empty) {
         time_in_surrogate += start - surrogate_time_last;
         surrogate_time_last = 0.0;
     } else {
-        master_printf("Resetting predictor at GVT %d time %f\n", g_tw_gvt_done, gvt_for(pe));
+        master_printf("Resetting network predictor at GVT %d time %f\n", g_tw_gvt_done, gvt_for(pe));
     }
     director_state = PRE_JUMP;
 }

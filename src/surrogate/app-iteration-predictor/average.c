@@ -122,6 +122,8 @@ static void model_calls_predict_rc(tw_lp * lp, int nw_id_in_pe) {}
 
 static void reset_with(bool const * app_just_ended) {
     ready_to_skip = false;
+
+    master_printf("Resetting (average) application predictor at GVT %d time %f\n", g_tw_gvt_done, g_tw_pe->GVT_sig.recv_ts)
     
     int last_iter[my_config.num_apps];
     find_max_iter_per_app(last_iter); // We should start tracking iterations from the next iteration
