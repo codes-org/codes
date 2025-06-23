@@ -434,6 +434,7 @@ struct nw_message
            int saved_syn_length;
            int saved_perm;  // Used by PERMUTATION
            unsigned long saved_prev_switch;  // Used by PERMUTATION
+           unsigned long long saved_gen_data;
        } gen;
 
        // For CLI_BCKGND_ARRIVE and MPI_SEND_ARRIVED_CB
@@ -907,10 +908,9 @@ static void gen_synthetic_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp 
         s->saved_perm_dest = m->rc.gen.saved_perm;
         tw_rand_reverse_unif(lp->rng);
     }
-    int i;
-    for (i=0; i < m->rc.gen.saved_syn_length; i++){
+    s->gen_data = m->rc.gen.saved_gen_data;
+    for (int i=0; i < m->rc.gen.saved_syn_length; i++){
         model_net_event_rc2(lp, &m->event_rc);
-        s->gen_data -= payload_sz;
         num_syn_bytes_sent -= payload_sz;
         s->num_bytes_sent -= payload_sz;
         s->ross_sample.num_bytes_sent -= payload_sz;
@@ -924,6 +924,9 @@ static void gen_synthetic_tr_rc(nw_state * s, tw_bf * bf, nw_message * m, tw_lp 
     if(bf->c7) {
         s->saved_perm_dest = m->rc.gen.saved_perm;
         tw_rand_reverse_unif(lp->rng);
+    }
+    if (bf->c13) {
+        iter_predictor->model.predict_rc(lp, s->nw_id_in_pe);
     }
 }
 
@@ -1078,6 +1081,9 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
 			length = 0;
 		}
 	}
+
+    m->rc.gen.saved_gen_data = s->gen_data;
+
     if(length > 0)
     {
         // m->event_array_rc = (model_net_event_return) malloc(length * sizeof(model_net_event_return));
@@ -1112,10 +1118,19 @@ static void gen_synthetic_tr(nw_state * s, tw_bf * bf, nw_message * m, tw_lp * l
 
     /* New event after MEAN_INTERVAL */  
     tw_stime ts = mean_interval_of_job[s->app_id];
-    tw_event * e;
-    nw_message * m_new;
-    e = tw_event_new(lp->gid, ts, lp);
-    m_new = (struct nw_message*)tw_event_data(e);
+    if (iter_predictor && iter_predictor->model.have_we_hit_switch(lp, s->nw_id_in_pe, 0)) {  // background synthetic lps have no iterations
+        bf->c13 = 1;
+        struct iteration_pred iter_pred = iter_predictor->model.predict(lp, s->nw_id_in_pe);
+        double const restarting_background_at = iter_pred.restart_at;
+        // this check is necessary because we don't rely on iteration count for switch like applications do
+        if (restarting_background_at > tw_now(lp)) {
+            long const periods_to_jump = ceil((restarting_background_at - tw_now(lp)) / mean_interval_of_job[s->app_id]);
+            ts *= periods_to_jump;
+            s->gen_data += periods_to_jump * (length + payload_sz);
+        }
+    }
+    tw_event * e = tw_event_new(lp->gid, ts, lp);
+    nw_message * m_new = (struct nw_message*)tw_event_data(e);
     m_new->msg_type = CLI_BCKGND_GEN;
     tw_event_send(e);
     
@@ -2625,9 +2640,6 @@ void nw_test_init(nw_state* s, tw_lp* lp)
    s->compute_time = 0;
    s->elapsed_time = 0;
         
-   s->app_id = lid.job;
-   s->local_rank = lid.rank;
-
    bool am_i_synthetic = false;
    if(strncmp(file_name_of_job[lid.job], "synthetic", 9) == 0)
    {
@@ -2685,17 +2697,26 @@ void nw_test_init(nw_state* s, tw_lp* lp)
        }
    }
 
-   if (iter_predictor && !am_i_synthetic) {
-        assert(s->wrkld_id != -1);
-        int const ending_iter = codes_workload_get_final_iteration(s->wrkld_id, s->app_id, s->local_rank);
-        if (ending_iter == -1) {
-            tw_warning(TW_LOC, "Predictor for non-synthetic job cannot be initialized. app id=%d", s->app_id);
-        } else {
+   if (iter_predictor) {
+        if (am_i_synthetic) {
             struct app_iter_node_config conf = {
                 .app_id = s->app_id,
-                .app_ending_iter = ending_iter,
+                .type = NODE_TYPE_background_noise,
             };
             iter_predictor->model.init(lp, s->nw_id_in_pe, &conf);
+        } else {
+            assert(s->wrkld_id != -1);
+            int const ending_iter = codes_workload_get_final_iteration(s->wrkld_id, s->app_id, s->local_rank);
+            if (ending_iter == -1) {
+                tw_warning(TW_LOC, "Predictor for non-synthetic job cannot be initialized. app id=%d", s->app_id);
+            } else {
+                struct app_iter_node_config conf = {
+                    .app_id = s->app_id,
+                    .type = NODE_TYPE_app,
+                    .app_ending_iter = ending_iter,
+                };
+                iter_predictor->model.init(lp, s->nw_id_in_pe, &conf);
+            }
         }
    }
 

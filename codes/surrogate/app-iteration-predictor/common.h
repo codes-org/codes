@@ -17,9 +17,19 @@ extern "C" {
  * Iteration application prediction machinery. Notice that any of these predictors have to know how many iterations to run in total, thus they need data about the number of steps the application will take.
  */
 
+enum NODE_TYPE {
+    NODE_TYPE_unassigned = 0,
+    NODE_TYPE_background_noise = 1,
+    NODE_TYPE_app = 2,
+};
+
 struct app_iter_node_config {
     int app_id;
-    int app_ending_iter;
+    enum NODE_TYPE type;
+    union {
+        // To be used by NODE_TYPE_app only
+        int app_ending_iter;
+    };
 };
 
 // This returns how much to skip ahead and when to restart
@@ -45,8 +55,8 @@ typedef void (*feed_pred_iter_f) (tw_lp * lp, int nw_id_in_pe, int iteration_id,
 typedef void (*end_pred_iter_f) (tw_lp * lp, int nw_id_in_pe, double time); // Tells the predictor that the application has stopped running
 typedef struct iteration_pred (*predict_pred_iter_f) (tw_lp * lp, int nw_id_in_pe); // Get prediction
 typedef void (*predict_pred_iter_rc_f) (tw_lp * lp, int nw_id_in_pe); // Reverse prediction (reverse state of predictor one prediction)
-// Director calls to predictor module
 typedef bool (*have_we_hit_switch_f) (tw_lp * lp, int nw_id_in_pe, int iteration_id); // Are we ready to switch to a future iterationº
+// Director calls to predictor module
 typedef bool (*is_predictor_read_f) (void); // Checking if it is a good time to switch (enough data has been collected or we have received some notification of an application ending, forcing us to restart collecting data). This might trigger an MPI_Allreduce call, thus has to be called by all PEs!
 typedef void (*reset_pred_iter_f) (void); // Resets the predictor (eg, average)
 typedef struct fast_forward_values (*prepare_fast_forward_f) (void); // Checking if it is a good time to switch (enough data has been collected)

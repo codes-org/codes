@@ -1,10 +1,13 @@
 #include "surrogate/app-iteration-predictor/average.h"
 #include "codes/codes.h"
+#include "surrogate/app-iteration-predictor/common.h"
 #include <assert.h>
 #include <limits.h>
 #include <math.h>
+#include <ross-extern.h>
 
-#define master_printf(str, ...) if (g_tw_mynode == 0) { printf(str, __VA_ARGS__); }
+#define master_printf(...) if (g_tw_mynode == 0) { printf(__VA_ARGS__); }
+#define master_printf_if(val, ...) if (val && g_tw_mynode == 0) { printf(__VA_ARGS__); }
 
 static struct avg_app_config my_config = {0};
 
@@ -24,7 +27,8 @@ enum APP_STATUS {
 };
 
 struct app_data {
-    int num_nodes;
+    enum NODE_TYPE type;
+    int num_nodes; // nodes in PE
     int nodes_with_enough_iters;
     int ending_iteration;  // last iteration the simulation will run (aka, num of iterations)
     int nodes_that_have_ended;
@@ -38,6 +42,15 @@ struct app_data {
 };
 static struct app_data * arr_app_data = NULL; // array containing info for all apps
 static bool ready_to_skip = false;
+
+static inline char const * string_node_type(enum NODE_TYPE type) {
+    switch (type) {
+        case NODE_TYPE_unassigned:       return "Unassigned app";
+        case NODE_TYPE_background_noise: return "Background noise/synthetic pattern";
+        case NODE_TYPE_app:              return "App that runs on predictable iterations";
+        default:                         return "Unknown type!";
+    }
+}
 
 
 static void find_max_iter_per_app(int * save_last_iter);
@@ -64,27 +77,54 @@ static void model_calls_init(tw_lp * lp, int nw_id_in_pe, struct app_iter_node_c
 
     // Storing app data info
     arr_app_data[config->app_id].num_nodes++;
+
+    if (arr_app_data[config->app_id].type == NODE_TYPE_unassigned) {
+        arr_app_data[config->app_id].type = config->type;
+    } else if (arr_app_data[config->app_id].type != config->type) {
+        tw_error(TW_LOC, "Two different ranks for application %d have signaded different compute node types. LP ID %d is of type '%s', but app had been configured as '%s'", lp->gid, string_node_type(arr_app_data[config->app_id].type), string_node_type(config->type));
+    }
+
+    if (config->type == NODE_TYPE_background_noise) {
+        return; // nothing left to set for synthetic workloads
+    }
+
     if (arr_app_data[config->app_id].ending_iteration == INT_MIN) {
         arr_app_data[config->app_id].ending_iteration = config->app_ending_iter;
-    } else {
-        if (arr_app_data[config->app_id].ending_iteration != config->app_ending_iter) {
-            tw_error(TW_LOC, "Two different ranks for application %d have differing total iterations they will run (%d != %d)", config->app_id, config->app_ending_iter, arr_app_data[config->app_id].ending_iteration);
-        }
+    } else if (arr_app_data[config->app_id].ending_iteration != config->app_ending_iter) {
+        tw_error(TW_LOC, "Two different ranks for application %d have differing total iterations they will run (%d != %d)", config->app_id, config->app_ending_iter, arr_app_data[config->app_id].ending_iteration);
     }
 }
 
+static inline void assert_app_initialized(int nw_id_in_pe) {
+    int const app_id = app_id_for(nw_id_in_pe);
+    if (app_id == -1) {
+        assert(arr_app_data[app_id].type == NODE_TYPE_unassigned);
+        tw_error(TW_LOC, "Predictor for node was not initialized! Node ID (on PE) %d", nw_id_in_pe);
+    }
+}
 
 static void model_calls_feed(tw_lp * lp, int nw_id_in_pe, int iter, double iteration_time) {
     (void) lp;
     assert(my_config.num_nodes_in_pe > (size_t) nw_id_in_pe);
-    if (app_id_for(nw_id_in_pe) == -1) {
-        tw_error(TW_LOC, "Predictor for node was not initialized! Node ID (on PE) %d", nw_id_in_pe);
-    }
-    struct node_data * node_data = &arr_node_data[nw_id_in_pe];
-    if (node_data->last_iter >= iter) { // we only collect iteration data past the previous `last_iter`
+    assert_app_initialized(nw_id_in_pe);
+
+    int const app_id = app_id_for(nw_id_in_pe);
+
+    // We should only be handling non-synthetic workloads (aka, no background noise)
+    static bool shown_warning = false;
+    if (!shown_warning && arr_app_data[app_id].type == NODE_TYPE_background_noise) {
+        shown_warning = true;
+        tw_warning(TW_LOC, "`feed` has been called in App %d, which was determined to be Background traffic (aka, a synthetic workload)", app_id);
         return;
     }
-    if (arr_app_data[node_data->app_id].status != APP_STATUS_running) {
+
+    assert(arr_app_data[app_id].type == NODE_TYPE_app);
+    struct node_data * node_data = &arr_node_data[nw_id_in_pe];
+    // we only collect iteration data past the previous `last_iter`
+    if (node_data->last_iter >= iter) {
+        return;
+    }
+    if (arr_app_data[app_id].status != APP_STATUS_running) {
         tw_warning(TW_LOC, "Attempting to feed data to application predictor for an application that has either been marked as completed or not configured");
     }
     node_data->acc_iteration_time += iteration_time - node_data->prev_iteration_time;
@@ -93,13 +133,13 @@ static void model_calls_feed(tw_lp * lp, int nw_id_in_pe, int iter, double itera
     node_data->last_iter = iter;
     // We've hit the required number of iterations to feed our predictor
     if (node_data->acc_iters == my_config.num_iters_to_collect) {
-        arr_app_data[node_data->app_id].nodes_with_enough_iters++;
+        arr_app_data[app_id].nodes_with_enough_iters++;
     }
 }
 
 
 static void model_calls_ended(tw_lp * lp, int nw_id_in_pe, double iteration_time) {
-    assert(app_id_for(nw_id_in_pe) != -1);
+    assert_app_initialized(nw_id_in_pe);
     struct app_data * app_data = &arr_app_data[app_id_for(nw_id_in_pe)];
     app_data->nodes_that_have_ended++;
     if (app_data->nodes_that_have_ended == app_data->num_nodes) {
@@ -110,7 +150,7 @@ static void model_calls_ended(tw_lp * lp, int nw_id_in_pe, double iteration_time
 
 static struct iteration_pred model_calls_predict(tw_lp * lp, int nw_id_in_pe) {
     assert(my_config.num_nodes_in_pe > (size_t) nw_id_in_pe);
-    assert(app_id_for(nw_id_in_pe) != -1);
+    assert_app_initialized(nw_id_in_pe);
     struct app_data * app_data = &arr_app_data[app_id_for(nw_id_in_pe)];
     return (struct iteration_pred) {
         .resume_at_iter = app_data->pred.resume_at_iter,
@@ -151,10 +191,24 @@ static void reset_with(bool const * app_just_ended) {
 
 static bool model_calls_have_we_hit_switch(tw_lp * lp, int nw_id_in_pe, int iteration_id) {
     assert(my_config.num_nodes_in_pe > (size_t) nw_id_in_pe);
-    int const app_id = app_id_for(nw_id_in_pe);
-    if (ready_to_skip && iteration_id == arr_app_data[app_id].pred.jump_at_iter) {
-        return true;
+    assert_app_initialized(nw_id_in_pe);
+
+    if (!ready_to_skip) {
+        return false;
     }
+
+    struct app_data * app_data = &arr_app_data[app_id_for(nw_id_in_pe)];
+    switch (app_data->type) {
+        case NODE_TYPE_background_noise:
+            return true;
+        case NODE_TYPE_app:
+            if (iteration_id == app_data->pred.jump_at_iter) {
+                return true;
+            }
+        default:
+        break;
+    }
+
     return false;
 }
 
@@ -173,7 +227,7 @@ static inline void post_init_share_ending_iteration(void) {
         if (app_data->ending_iteration == INT_MIN) {
             if (ending_iteration[i] == INT_MIN) {
                 app_data->status = APP_STATUS_completed_everywhere;
-                master_printf("Workload/app %d has not been configured to be tracked by iteration predictor (it might be a synthetic workload)\n", i);
+                master_printf_if(app_data->type == NODE_TYPE_unassigned, "Workload/app %d has not been configured to be tracked by iteration predictor (it might be a synthetic workload)\n", i);
             } else {
                 // The application has "completed" in this PE already!
                 app_data->status = APP_STATUS_just_completed;
@@ -416,19 +470,39 @@ static double find_latest_restart_time(bool const * is_running, double const * a
     return last_to_finish;
 }
 
+static double find_earliest_restart_time(bool const * is_running, double const * apps_restart_at_time) {
+    // Compute last application to restart (this is restarting_at)
+    double first_to_finish = DBL_MAX;
+    for (int i = 0; i < my_config.num_apps; i++) {
+        if (is_running[i] && first_to_finish > apps_restart_at_time[i]) {
+            first_to_finish = apps_restart_at_time[i];
+        }
+    }
+    return first_to_finish;
+}
+
 static void set_app_prediction_data(
     bool const * is_running,
     int const * last_iter,
     int const * apps_restart_at_iter,
-    double const * apps_restart_at_time) {
+    double const * apps_restart_at_time,
+    double const earliest_app_restart) {
     // Set values for iteration to restart at and iterations to jump for each application
     for (int i = 0; i < my_config.num_apps; i++) {
-        if (!is_running[i]) {
-            continue;
+        switch (arr_app_data[i].type) {
+            case NODE_TYPE_unassigned:
+            break;
+            case NODE_TYPE_background_noise:
+                arr_app_data[i].pred.restart_at = earliest_app_restart;
+            break;
+            case NODE_TYPE_app:
+            if (is_running[i]) {
+                arr_app_data[i].pred.jump_at_iter = last_iter[i] + 1;
+                arr_app_data[i].pred.resume_at_iter = apps_restart_at_iter[i];
+                arr_app_data[i].pred.restart_at = apps_restart_at_time[i];
+            }
+            break;
         }
-        arr_app_data[i].pred.jump_at_iter = last_iter[i] + 1;
-        arr_app_data[i].pred.resume_at_iter = apps_restart_at_iter[i];
-        arr_app_data[i].pred.restart_at = apps_restart_at_time[i];
     }
 }
 
@@ -456,7 +530,8 @@ static struct fast_forward_values director_calls_prepare_fast_forward_jump(void)
     bool worth_switching = compute_restart_params(is_running, avg_iter_time, last_iter, last_iter_time, switch_time, apps_restart_at_time, apps_restart_at_iter);
 
     //   b. Compute last application to restart (this is restarting_at)
-    double last_to_finish = find_latest_restart_time(is_running, apps_restart_at_time);
+    double const last_to_finish = find_latest_restart_time(is_running, apps_restart_at_time);
+    double const first_to_finish = find_earliest_restart_time(is_running, apps_restart_at_time);
 
     //   c. If the number of iterations to skip is zero for any app, force reset of predictor tracking
     if (!worth_switching) {
@@ -467,7 +542,7 @@ static struct fast_forward_values director_calls_prepare_fast_forward_jump(void)
     }
 
     // 3. Set values for iteration to restart at and iterations to jump for each application
-    set_app_prediction_data(is_running, last_iter, apps_restart_at_iter, apps_restart_at_time);
+    set_app_prediction_data(is_running, last_iter, apps_restart_at_iter, apps_restart_at_time, first_to_finish);
     ready_to_skip = true;
 
     return (struct fast_forward_values) {
