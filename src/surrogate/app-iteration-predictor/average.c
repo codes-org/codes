@@ -7,7 +7,6 @@
 #include <ross-extern.h>
 
 #define master_printf(...) if (g_tw_mynode == 0) { printf(__VA_ARGS__); }
-#define master_printf_if(val, ...) if (val && g_tw_mynode == 0) { printf(__VA_ARGS__); }
 
 static struct avg_app_config my_config = {0};
 
@@ -212,6 +211,20 @@ static bool model_calls_have_we_hit_switch(tw_lp * lp, int nw_id_in_pe, int iter
     return false;
 }
 
+static inline void find_app_types(enum NODE_TYPE * app_type) {
+    int app_type_here[my_config.num_apps];
+    for (int i = 0; i < my_config.num_apps; i++) {
+        app_type_here[i] = arr_app_data[i].type;
+    }
+    int app_type_int[my_config.num_apps];
+    mpi_allreduce_int_max(app_type_here, app_type_int, my_config.num_apps);
+
+    // Convert back to enums
+    for (int i = 0; i < my_config.num_apps; i++) {
+        app_type[i] = app_type_int[i];
+    }
+}
+
 static inline void post_init_share_ending_iteration(void) {
     // Sharing ending_iteration results across PEs
     int ending_iteration_here[my_config.num_apps];
@@ -221,20 +234,38 @@ static inline void post_init_share_ending_iteration(void) {
     int ending_iteration[my_config.num_apps];
     mpi_allreduce_int_max(ending_iteration_here, ending_iteration, my_config.num_apps);
 
+    enum NODE_TYPE app_type[my_config.num_apps];
+    find_app_types(app_type);
+
     // Checking that total iterations are the same across nodes
     for (int i = 0; i < my_config.num_apps; i++) {
-        struct app_data * app_data = &arr_app_data[i];
-        if (app_data->ending_iteration == INT_MIN) {
-            if (ending_iteration[i] == INT_MIN) {
-                app_data->status = APP_STATUS_completed_everywhere;
-                master_printf_if(app_data->type == NODE_TYPE_unassigned, "Workload/app %d has not been configured to be tracked by iteration predictor (it might be a synthetic workload)\n", i);
-            } else {
-                // The application has "completed" in this PE already!
-                app_data->status = APP_STATUS_just_completed;
-            }
-            app_data->ending_iteration = ending_iteration[i];
-        } else if (ending_iteration[i] != app_data->ending_iteration) {
-            tw_error(TW_LOC, "Two different ranks for application %d (on different PEs) have differing total iterations they will run (%d != %d)", i, ending_iteration[i], app_data->ending_iteration);
+        struct app_data * app_data_here = &arr_app_data[i];
+        switch (app_type[i]) {
+            case NODE_TYPE_unassigned:
+                assert(app_data_here->type == NODE_TYPE_unassigned);
+                master_printf("Workload/app %d has not been configured to be tracked by iteration predictor\n", i);
+                app_data_here->status = APP_STATUS_completed_everywhere;
+            break;
+            case NODE_TYPE_background_noise:
+                if (app_data_here->type == NODE_TYPE_app) {
+                    tw_error(TW_LOC, "Two different ranks for application %d (on different PEs) have signaled conflicting node type (here: application, other: background noise)", i);
+                }
+                // We assume the background noise stays the same forever, thus we can think of it as not running. But if the background noise were to change, we would have to keep it APP_STATUS_running. And, possibly, we would have to call .ended() from the background process
+                app_data_here->status = APP_STATUS_completed_everywhere;
+                app_data_here->type = NODE_TYPE_background_noise;
+            break;
+            case NODE_TYPE_app:
+                if (app_data_here->type == NODE_TYPE_unassigned) {
+                    // There are no nodes for this application on this PE
+                    app_data_here->status = APP_STATUS_just_completed;
+                } else if (app_data_here->type == NODE_TYPE_background_noise) {
+                    tw_error(TW_LOC, "Two different ranks for application %d (on different PEs) have signaled conflicting node type (here: background noise, other: application)", i);
+                } else if (ending_iteration[i] != app_data_here->ending_iteration) {
+                    tw_error(TW_LOC, "Two different ranks for application %d (on different PEs) have differing total iterations they will run (%d != %d)", i, ending_iteration[i], app_data_here->ending_iteration);
+                }
+                app_data_here->ending_iteration = ending_iteration[i];
+                app_data_here->type = NODE_TYPE_app;
+            break;
         }
     }
 }
