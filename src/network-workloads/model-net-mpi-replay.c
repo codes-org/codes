@@ -4094,13 +4094,15 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
             tw_error(TW_LOC, "\n Could not open file %s ", workloads_conf_file);
 
         int i = 0;
-        char ref = '\n';
-        while(!feof(name_file))
+        char line[1024];
+        while(fgets(line, sizeof(line), name_file))
         {
-            //TODO: can we allow for a 2 item line but with defaults for the last two?
-            ref = fscanf(name_file, "%d %s %d %f", &num_traces_of_job[i], file_name_of_job[i], &qos_level_of_job[i], &mean_interval_of_job[i]);
+            int const fields = sscanf(line, "%d %s %d %f", &num_traces_of_job[i], file_name_of_job[i], &qos_level_of_job[i], &mean_interval_of_job[i]);
+            if(fields != 4) {
+                tw_error(TW_LOC, "Invalid format in %s at line %d: expected 4 fields, got %d", workloads_conf_file, i+1, fields);
+            }
             
-            if(ref != EOF && strncmp(file_name_of_job[i], "synthetic", 9) == 0)
+            if(strncmp(file_name_of_job[i], "synthetic", 9) == 0)
             {
               num_syn_clients = num_traces_of_job[i];
               num_net_traces += num_traces_of_job[i];
@@ -4112,7 +4114,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
 		tw_error(TW_LOC, "BISECTION requires and even number of nodes.");
 
             }
-            else if(ref!=EOF)
+            else
             {
                 if(enable_debug)
                     printf("\n%d traces of app %s (default qos class: %d)\n", num_traces_of_job[i], file_name_of_job[i], qos_level_of_job[i]);
