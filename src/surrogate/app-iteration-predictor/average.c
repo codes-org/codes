@@ -169,6 +169,9 @@ static void reset_with(bool const * app_just_ended) {
 
     for (int i=0; i < my_config.num_nodes_in_pe; i++) {
         struct node_data * node_data = &arr_node_data[i];
+        if (node_data->app_id == -1) {
+            continue;
+        }
         node_data->acc_iters = 0;
         node_data->acc_iteration_time = 0;
         if (node_data->last_iter < arr_app_data[node_data->app_id].pred.resume_at_iter) {
@@ -349,6 +352,9 @@ static void find_avg_iteration_time(double * save_avg_time) {
     for (int i=0; i < my_config.num_nodes_in_pe; i++) {
         struct node_data * node_data = &arr_node_data[i];
         int const app_id = node_data->app_id;
+        if (app_id == -1) {
+            continue;
+        }
         acc_iter_time_here[app_id] += node_data->acc_iteration_time;
         acc_iters_here[app_id] += node_data->acc_iters;
     }
@@ -407,6 +413,9 @@ static void find_max_iter_per_app(int * save_last_iter) {
     for (int i=0; i < my_config.num_nodes_in_pe; i++) {
         struct node_data * node_data = &arr_node_data[i];
         int const app_id = node_data->app_id;
+        if (app_id == -1) {
+            continue;
+        }
         if (last_iter_here[app_id] < node_data->last_iter) {
             last_iter_here[app_id] = node_data->last_iter;
         }
@@ -422,6 +431,9 @@ static void find_avg_time_for_max_iter(double * save_last_iter_time, int const *
     for (int i=0; i < my_config.num_nodes_in_pe; i++) {
         struct node_data * node_data = &arr_node_data[i];
         int const app_id = node_data->app_id;
+        if (app_id == -1) {
+            continue;
+        }
         if (node_data->last_iter == last_iter[app_id]) {
             acc_last_iter_time[app_id] += node_data->prev_iteration_time;
             acc_iters_here[app_id]++;
@@ -482,8 +494,8 @@ static bool compute_restart_params(
         apps_restart_at_time[i] = last_iter_time[i] + iters_to_skip * avg_iter_time[i];
         apps_restart_at_iter[i] = last_iter[i] + iters_to_skip;
 
-        // if we are not skipping at least two iterations, there is no point in trying to fastforward
-        if (iters_to_skip <= 2) {
+        // if we are not skipping at least one iteration, there is no point in trying to fastforward
+        if (iters_to_skip <= 1) {
             worth_switching = false;
         }
     }

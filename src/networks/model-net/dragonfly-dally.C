@@ -4647,9 +4647,10 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_dally_messag
 {
     int num_qos_levels = s->params->num_qos_levels;
 
+    assert(msg->rail_id < s->params->num_rails);
     if(msg->qos_reset1)
         s->qos_status[msg->rail_id][0] = Q_ACTIVE;
-    if(msg->qos_reset2)
+    if(msg->qos_reset2 && s->params->num_qos_levels > 1)
         s->qos_status[msg->rail_id][1] = Q_ACTIVE;
     
     if(msg->last_saved_qos >= 0)
@@ -6435,9 +6436,10 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
     int src_term_id = msg->dfdally_src_terminal_id;
     int app_id = msg->saved_app_id;
       
+    assert(output_port < s->params->radix);
     if(msg->qos_reset1)
         s->qos_status[output_port][0] = Q_ACTIVE;
-    if(msg->qos_reset2)
+    if(msg->qos_reset2 && s->params->num_qos_levels > 1)
         s->qos_status[output_port][1] = Q_ACTIVE;
     
     if(msg->last_saved_qos)
@@ -8682,7 +8684,7 @@ static Connection dfdally_prog_adaptive_routing(router_state *s, tw_bf *bf, term
     vector< Connection > poss_nonmin_next_stops = get_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
 
     Connection best_min_conn, best_nonmin_conn;
-    ConnectionType conn_type_of_mins, conn_type_of_nonmins;
+    ConnectionType conn_type_of_mins = CONN_LOCAL, conn_type_of_nonmins = CONN_LOCAL;
 
     if (poss_min_next_stops.size() > 0)
     {
