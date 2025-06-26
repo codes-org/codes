@@ -21,13 +21,13 @@ CUR_DIR="$PWD"
 
 ##### Downloading everything #####
 
-git clone https://github.com/codes-org/codes --branch=kronos-develop
-git clone https://github.com/ross-org/ross --depth=20 --branch=at_gvt_arbitrary_function
+git clone https://github.com/codes-org/codes --branch=director-app-automatic
+git clone https://github.com/ross-org/ross --depth=100 --branch=gvt-hook-util
 
 if [ $swm_enable = 1 ]; then
     git clone https://github.com/pmodels/argobots --depth=1
     # This version is one commit ahead
-    git clone https://github.com/helq/swm-workloads --depth=1 --branch=fix-global-variable-rem
+    git clone https://github.com/helq/swm-workloads --branch=total-iterations-communication
 fi
 
 if [ $union_enable = 1 ]; then
@@ -35,7 +35,7 @@ if [ $union_enable = 1 ]; then
     curl -L https://sourceforge.net/projects/conceptual/files/conceptual/1.5.1b/conceptual-1.5.1b.tar.gz -o conceptual-1.5.1b.tar.gz
     tar xvf conceptual-1.5.1b.tar.gz
     # Downloading union
-    git clone https://github.com/SPEAR-UIC/Union
+    git clone https://github.com/helq/Union --branch=total-iterations-communication
 fi
 
 ##### COMPILING #####
