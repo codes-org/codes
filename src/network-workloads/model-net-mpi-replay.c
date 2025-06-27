@@ -427,7 +427,7 @@ struct nw_message
        int resume_at_iter;
    } fwd;
 
-   // A different struct for each type of MPI_NW_EVENTS
+   // A different struct for each type of MPI_NW_EVENTS (it can be used for the commit or the reverse handler)
    union {
        // For CLI_BCKGND_GEN
        struct {
@@ -472,6 +472,7 @@ struct nw_message
                // CODES_WK_END and CODES_WK_MARK
                struct {
                    double saved_marker_time;
+                   bool was_skipped;
                } mark;
            };
        } mpi_next;
@@ -489,6 +490,11 @@ struct nw_message
        struct {
            int64_t saved_num_bytes;
        } mpi_ack;
+
+       // For SURR_SKIP_ITERATION
+       struct {
+           double saved_marker_time;
+       } surr_skip;
    } rc;
 };
 
@@ -1216,6 +1222,7 @@ static void skip_to_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message *
 {
     struct codes_workload_op mpi_op;
     int resume_at_iter = m->fwd.resume_at_iter;
+    m->rc.surr_skip.saved_marker_time = tw_now(lp);
 
     // consuming all events until indicated iteration is reached
     bool reached_end = false;
@@ -1242,6 +1249,7 @@ static void skip_to_iteration(nw_state * s, tw_lp * lp, tw_bf * bf, nw_message *
     tw_event *e = tw_event_new(lp->gid, 0.0, lp);
     nw_message* msg = (nw_message*) tw_event_data(e);
     msg->msg_type = MPI_OP_GET_NEXT;
+    msg->rc.mpi_next.mark.was_skipped = true;
     tw_event_send(e);
 }
 
@@ -1761,6 +1769,7 @@ static void codes_issue_next_event(tw_lp* lp)
    msg = (nw_message*)tw_event_data(e);
 
    msg->msg_type = MPI_OP_GET_NEXT;
+   msg->rc.mpi_next.mark.was_skipped = false;
    tw_event_send(e);
 }
 
@@ -1799,6 +1808,7 @@ static void codes_exec_comp_delay(
 	e = tw_event_new( lp->gid, ts , lp );
 	msg = (nw_message*)tw_event_data(e);
 	msg->msg_type = MPI_OP_GET_NEXT;
+    msg->rc.mpi_next.mark.was_skipped = false;
 	tw_event_send(e);
 
 }
@@ -3346,9 +3356,11 @@ void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp
                     break;
 
                 case CODES_WK_MARK:
-                    fprintf(iteration_log, "ITERATION %d node %llu job %d rank %d time %lf\n", m->mpi_op->u.send.tag, LLU(s->nw_id), s->app_id, s->local_rank, m->rc.mpi_next.mark.saved_marker_time);
-                    if (iter_predictor) {
-                        iter_predictor->model.feed(lp, s->nw_id_in_pe, m->mpi_op->u.send.tag, m->rc.mpi_next.mark.saved_marker_time);
+                    if (! m->rc.mpi_next.mark.was_skipped) {
+                        fprintf(iteration_log, "ITERATION %d node %llu job %d rank %d time %lf\n", m->mpi_op->u.send.tag, LLU(s->nw_id), s->app_id, s->local_rank, m->rc.mpi_next.mark.saved_marker_time);
+                        if (iter_predictor) {
+                            iter_predictor->model.feed(lp, s->nw_id_in_pe, m->mpi_op->u.send.tag, m->rc.mpi_next.mark.saved_marker_time);
+                        }
                     }
 
                     if (OUTPUT_MARKS)
@@ -3374,6 +3386,7 @@ void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp
             free(m->mpi_op);
         break;
         case SURR_SKIP_ITERATION:
+            fprintf(iteration_log, "SKIPPED TO ITERATION %d node %llu job %d rank %d time %lf\n", m->fwd.resume_at_iter, LLU(s->nw_id), s->app_id, s->local_rank, m->rc.surr_skip.saved_marker_time);
             break;
 
         case CLI_BCKGND_CHANGE:
