@@ -31,7 +31,7 @@ static void * checkpoint_workload_read_config(
         char const * section_name,
         char const * annotation,
         int num_ranks);
-static int checkpoint_workload_load(const char* params, int app_id, int rank);
+static int checkpoint_workload_load(const void* params, int app_id, int rank);
 static void checkpoint_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
 static void checkpoint_workload_get_next_rc2(int app_id, int rank);
 
@@ -112,7 +112,7 @@ static void * checkpoint_workload_read_config(
     return p;
 }
 
-static int checkpoint_workload_load(const char* params, int app_id, int rank)
+static int checkpoint_workload_load(const void* params, int app_id, int rank)
 {
     checkpoint_wrkld_params *c_params = (checkpoint_wrkld_params *)params;
     struct checkpoint_state* new_state;

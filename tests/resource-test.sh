@@ -5,4 +5,8 @@ if [[ -z $srcdir ]] ; then
     exit 1
 fi
 
-tests/resource-test --sync=1 --codes-config=$srcdir/tests/conf/buffer_test.conf
+if [ -z $GENERATED_USING_CMAKE ]; then
+    bindir=.
+fi
+
+mpirun -np 1 "$bindir"/tests/resource-test --sync=1 --codes-config="$srcdir"/tests/conf/buffer_test.conf

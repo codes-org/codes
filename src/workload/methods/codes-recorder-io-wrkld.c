@@ -53,7 +53,7 @@ struct rank_traces_context
 };
 
 /* CODES workload API functions for workloads generated from recorder traces*/
-static int recorder_io_workload_load(const char *params, int app_id, int rank);
+static int recorder_io_workload_load(const void *params, int app_id, int rank);
 static void recorder_io_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
 
 /* helper functions for recorder workload CODES API */
@@ -73,7 +73,7 @@ static struct qhash_table *rank_tbl = NULL;
 static int rank_tbl_pop = 0;
 
 /* load the workload generator for this rank, given input params */
-static int recorder_io_workload_load(const char *params, int app_id, int rank)
+static int recorder_io_workload_load(const void *params, int app_id, int rank)
 {
     recorder_params *r_params = (recorder_params *) params;
     struct rank_traces_context *newv = NULL;

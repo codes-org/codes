@@ -30,6 +30,8 @@ extern "C" {
 #endif
 
 #include <stdlib.h>
+#include <assert.h>
+#include <stdbool.h>
 
 struct qlist_head {
         struct qlist_head *next, *prev;
@@ -194,6 +196,14 @@ static __inline__ void qlist_splice(struct qlist_head *qlist, struct qlist_head 
     ((type *)((char *)(ptr)-(unsigned long)((&((type *)0)->member))))
 
 /**
+ * QLIST_OFFSET - get offset to the member that holds qlist_header
+ * @type:	the type of the struct this is embedded in.
+ * @member:	the name of the qlist_struct within the struct.
+ */
+#define QLIST_OFFSET(type, member) \
+    (unsigned long)((&((type *)0)->member))
+
+/**
  * qlist_for_each	-	iterate over a qlist
  * @pos:	the &struct qlist_head to use as a loop counter.
  * @head:	the head for your qlist.
@@ -252,7 +262,7 @@ static inline int qlist_exists(struct qlist_head *list, struct qlist_head *qlink
     return 0;
 }
 
-static inline int qlist_count(struct qlist_head *list)
+static inline int qlist_count(struct qlist_head const *list)
 {
     struct qlist_head *pos;
     int count = 0;
@@ -266,6 +276,25 @@ static inline int qlist_count(struct qlist_head *list)
     }
 
     return count;
+}
+
+static inline void qlist_add_at_index(struct qlist_head *newi, struct qlist_head *list, int index)
+{
+    if (index < 0)
+    {
+        while(index++)
+        {
+            list = list->prev;
+        }
+    }
+    else
+    {
+        while(index--)
+        {
+            list = list->next;
+        }
+    }
+    __qlist_add(newi, list, list->next);
 }
 
 static inline struct qlist_head * qlist_find(
@@ -282,6 +311,37 @@ static inline struct qlist_head * qlist_find(
         }
     }
     return NULL;
+}
+
+/**
+ * are_qlist_equal - determine if two qlists have the same elements
+ */
+static inline bool are_qlist_equal(struct qlist_head const * left, struct qlist_head const * right, unsigned int offset_ql, bool (cmp) (void *, void *)) {
+    int const num_elems = qlist_count(left);
+    if (num_elems != qlist_count(right)) {
+        return false;
+    }
+
+    // Checking element by element
+    int i = 0;
+    struct qlist_head * elem_left = left->next;
+    struct qlist_head * elem_right = right->next;
+    while (elem_left != left) {
+        char * entry_left = (char *)(elem_left) - offset_ql;
+        char * entry_right = (char *)(elem_right) - offset_ql;
+
+        if (!cmp(entry_left, entry_right)) {
+            return false;
+        }
+
+        elem_left = elem_left->next;
+        elem_right = elem_right->next;
+        i++;
+    }
+    assert(i == num_elems);
+    assert(elem_right == right);
+
+    return true;
 }
 
 /*

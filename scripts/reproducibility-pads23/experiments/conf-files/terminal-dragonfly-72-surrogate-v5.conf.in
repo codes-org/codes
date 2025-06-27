@@ -19,7 +19,7 @@ PARAMS
    modelnet_scheduler="fcfs";
 # chunk size in the network (when chunk size = packet size, packets will not be
 # divided into chunks)
-   chunk_size="4096";
+   chunk_size="${CHUNK_SIZE}";
 # modelnet_scheduler="round-robin";
 # number of routers in group
    num_routers="4";
@@ -45,9 +45,29 @@ PARAMS
 # number of global channels per router
    num_global_channels="2";
 # network config file for intra-group connections
-   intra-group-connections="../src/network-workloads/conf/dragonfly-dally/dfdally-72-intra";
+   intra-group-connections="${PATH_TO_CODES_SRC}/src/network-workloads/conf/dragonfly-dally/dfdally-72-intra";
 # network config file for inter-group connections
-   inter-group-connections="../src/network-workloads/conf/dragonfly-dally/dfdally-72-inter";
+   inter-group-connections="${PATH_TO_CODES_SRC}/src/network-workloads/conf/dragonfly-dally/dfdally-72-inter";
 # routing protocol to be used
    routing="prog-adaptive";
+# folder path to store packet latency from terminal to terminal, if no value is given it won't save anything
+   save_packet_latency_path="${PACKET_LATENCY_PATH}";
+# router buffer occupancy snapshots
+   router_buffer_snapshots=( ${BUFFER_SNAPSHOTS} );
+}
+SURROGATE {
+# determines the director switching from surrogate to high-def simulation strategy
+   director_mode="at-fixed-virtual-times";
+
+# director configuration for: director_mode == "at-fixed-virtual-times"
+# timestamps at which to switch to surrogate-mode and back
+   fixed_switch_timestamps=( ${SWITCH_TIMESTAMPS} );
+
+# latency predictor to use
+   packet_latency_predictor="average";
+# some workload models need some time to stabilize, a point where the network behaviour stabilizes. The predictor will ignore all packet latencies that arrive during this period
+   ignore_until="${IGNORE_UNTIL}";
+
+# selecting network treatment on switching to surrogate
+   network_treatment_on_switch="${NETWORK_TREATMENT}";
 }

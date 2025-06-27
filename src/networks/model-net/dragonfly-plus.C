@@ -3151,7 +3151,8 @@ static tw_stime dragonfly_plus_packet_event(model_net_request const *req,
                                             void const *remote_event,
                                             void const *self_event,
                                             tw_lp *sender,
-                                            int is_last_pckt)
+                                            int is_last_pckt,
+                                            bool is_there_another_pckt_in_queue)
 {
     (void) message_offset;
     (void) sched_params;
@@ -6618,6 +6619,7 @@ struct model_net_method dragonfly_plus_method = {
     NULL, //(final_f)dragonfly_plus_sample_fin,
     dfly_plus_register_model_types,
     dfly_plus_get_model_types,
+    NULL,
 };
 
 struct model_net_method dragonfly_plus_router_method = {
@@ -6639,6 +6641,7 @@ struct model_net_method dragonfly_plus_router_method = {
     NULL, //(final_f)dragonfly_plus_rsample_fin,
     dfly_plus_router_register_model_types,
     dfly_plus_router_get_model_types,
+    NULL,
 };
 
 // #ifdef ENABLE_CORTEX

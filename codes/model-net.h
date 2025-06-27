@@ -130,6 +130,8 @@ typedef struct model_net_request {
     tw_lpid  src_lp;
     // time the source event was called
     tw_stime msg_start_time;
+    // time the event was created
+    tw_stime msg_new_mn_event;
     uint64_t msg_size;
     uint64_t pull_size;
     uint64_t packet_size;
@@ -143,7 +145,7 @@ typedef struct model_net_request {
     int      self_event_size;
     char     category[CATEGORY_NAME_MAX];
 
-    //for counting msg app id
+    //Xin: passing app id to routers
     int     app_id;
 
 } model_net_request;
@@ -160,6 +162,12 @@ struct mn_stats
     tw_stime recv_time;
     long max_event_size;
 };
+
+bool check_model_net_request(model_net_request const * before, model_net_request const * after);
+void print_model_net_request(FILE * out, char const * prefix, model_net_request * item);
+
+bool check_mn_stats(struct mn_stats const * before, struct mn_stats const * after);
+void print_mn_stats(FILE * out, char const * prefix, struct mn_stats * item);
 
 /* Registers all model-net LPs in ROSS. Should be called after
  * configuration_load, but before codes_mapping_setup */

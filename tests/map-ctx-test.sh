@@ -5,4 +5,8 @@ if [[ -z $srcdir ]] ; then
     exit 1
 fi
 
-tests/map-ctx-test $srcdir/tests/conf/map-ctx-test.conf
+if [ -z $GENERATED_USING_CMAKE ]; then
+    bindir=.
+fi
+
+mpirun -np 1 "$bindir"/tests/map-ctx-test "$srcdir"/tests/conf/map-ctx-test.conf

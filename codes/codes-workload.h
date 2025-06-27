@@ -302,7 +302,7 @@ void codes_workload_free_config_return(codes_workload_config_return *c);
  */
 int codes_workload_load(
         const char* type,
-        const char* params,
+        const void* params,
         int app_id,
         int rank);
 
@@ -354,6 +354,9 @@ int codes_workload_get_time(const char *type,
 		int app_id,
 		int rank, double *read_time, double *write_time, int64_t *read_bytes, int64_t *written_bytes);
 
+// Returns the final iteration (positive) after which the workload will stop. If the result is -1, then there is nothing to do
+int codes_workload_get_final_iteration(int wkld_id, int app_id, int rank);
+
 /* implementation structure */
 struct codes_workload_method
 {
@@ -361,13 +364,14 @@ struct codes_workload_method
     void * (*codes_workload_read_config) (
             ConfigHandle *handle, char const * section_name,
             char const * annotation, int num_ranks);
-    int (*codes_workload_load)(const char* params, int app_id, int rank);
+    int (*codes_workload_load)(const void* params, int app_id, int rank);
     void (*codes_workload_get_next)(int app_id, int rank, struct codes_workload_op *op);
     void (*codes_workload_get_next_rc2)(int app_id, int rank);
     int (*codes_workload_get_rank_cnt)(const char* params, int app_id);
     int (*codes_workload_finalize)(const char* params, int app_id, int rank);
     /* added for get all read or write time */
     int (*codes_workload_get_time)(const char * params, int app_id, int rank, double *read_time, double *write_time, int64_t *read_bytes, int64_t *written_bytes);
+    int (*codes_workload_get_final_iteration)(int app_id, int rank);
 };
 
 
@@ -380,6 +384,10 @@ void codes_workload_add_method(struct codes_workload_method const * method);
  * participate in further reverse computation.   The underlying generators
  * will shut down automatically once they have issued their last event.
  */
+
+/* Printing event :) */
+void fprint_codes_workload_op(FILE * out, char const * prefix, struct codes_workload_op * op);
+char const * const op_type_string(enum codes_workload_op_type op_type);
 
 #ifdef __cplusplus
 }

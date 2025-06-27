@@ -156,6 +156,11 @@ typedef struct tlc_state
     double current_injection_bandwidth_coef;
 } tlc_state;
 
+void save_tlc_state(tlc_state * into, tlc_state const * from);
+void clean_tlc_state(tlc_state * into);
+bool check_tlc_state(tlc_state * before, tlc_state * after);
+void print_tlc_state(FILE * out, char const * prefix, tlc_state * state);
+
 congestion_control_message* cc_msg_rc_storage_create();
 void cc_msg_rc_storage_delete(void * ptr);
 

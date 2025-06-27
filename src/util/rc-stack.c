@@ -12,11 +12,16 @@
 enum rc_stack_mode {
     RC_NONOPT, // not in optimistic mode
     RC_OPT, // optimistic mode
-    RC_OPT_DBG // optimistic *debug* mode (requires special handling)
+    RC_OPT_DBG, // optimistic *debug* mode (requires special handling)
+    RC_SEQ_RV_DBG, // sequential rollback chek, a *debug* mode that requires special handling
 };
 
 typedef struct rc_entry_s {
+#ifdef USE_RAND_TIEBREAKER
     tw_event_sig e_sig; // ROSS 2D event timestamp (.recv_ts & .event_tiebreaker)
+#else
+    tw_stime time;
+#endif
     void * data;
     void (*free_fn)(void*);
     struct qlist_head ql;
@@ -36,10 +41,11 @@ void rc_stack_create(struct rc_stack **s){
     }
     switch (g_tw_synchronization_protocol) {
         case OPTIMISTIC:
-            ss->mode = RC_OPT;
-            break;
         case OPTIMISTIC_REALTIME:
             ss->mode = RC_OPT;
+            break;
+        case SEQUENTIAL_ROLLBACK_CHECK:
+            ss->mode = RC_SEQ_RV_DBG;
             break;
         case OPTIMISTIC_DEBUG:
             ss->mode = RC_OPT_DBG;
@@ -63,7 +69,11 @@ void rc_stack_push(
     if (s->mode != RC_NONOPT || free_fn == NULL) {
         rc_entry * ent = (rc_entry*)malloc(sizeof(*ent));
         assert(ent);
+#ifdef USE_RAND_TIEBREAKER
         ent->e_sig = tw_now_sig(lp);
+#else
+        ent->time = tw_now(lp);
+#endif
         ent->data = data;
         ent->free_fn = free_fn;
         qlist_add_tail(&ent->ql, &s->head);
@@ -95,11 +105,26 @@ void rc_stack_gc(tw_lp const *lp, struct rc_stack *s) {
     if (s->mode == RC_OPT_DBG)
         return;
 
+    // rollback until only one event is left
+    if (s->mode == RC_SEQ_RV_DBG) {
+        struct qlist_head *ent = s->head.next;
+        while (ent->next != &s->head) {
+            rc_entry *r = qlist_entry(ent, rc_entry, ql);
+            qlist_del(ent);
+            if (r->free_fn) r->free_fn(r->data);
+            free(r);
+            s->count--;
+            ent = s->head.next;
+        }
+        return;
+    }
+
+    // Removing all stored rollback events from stack
     struct qlist_head *ent = s->head.next;
     while (ent != &s->head) {
         rc_entry *r = qlist_entry(ent, rc_entry, ql);
 #ifdef USE_RAND_TIEBREAKER
-        if (lp == NULL || tw_event_sig_compare(r->e_sig, lp->pe->GVT_sig) == -1) {
+        if (lp == NULL || tw_event_sig_compare_ptr(&r->e_sig, &lp->pe->GVT_sig) < 0) {
 #else
         if (lp == NULL || r->time < lp->pe->GVT){
 #endif

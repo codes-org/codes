@@ -55,6 +55,14 @@ list(APPEND SRCS
     util/rc-stack.c
     util/congestion-controller.C
 
+    surrogate/init.c
+    surrogate/application-surrogate.c
+    surrogate/network-surrogate.c
+    surrogate/app-iteration-predictor/common.c
+    surrogate/app-iteration-predictor/average.c
+    surrogate/packet-latency-predictor/common.c
+    surrogate/packet-latency-predictor/average.c
+
     iokernellang/codesparser.h
     iokernellang/codesparser.c
     iokernellang/codeslexer.h
@@ -89,9 +97,17 @@ if(USE_DUMPI)
 endif()
 
 if(USE_ONLINE)
-    list(APPEND SRCS workload/methods/codes-online-comm-wrkld.C)
-    list(APPEND LIBS_TO_LINK PkgConfig::SWM)
-    list(APPEND LIBS_TO_LINK PkgConfig::ARGOBOTS)
+    if(USE_SWM)
+        list(APPEND SRCS workload/methods/codes-online-comm-wrkld.C)
+        list(APPEND LIBS_TO_LINK PkgConfig::SWM)
+        list(APPEND LIBS_TO_LINK PkgConfig::ARGOBOTS)
+    endif()
+    if(USE_UNION)
+        list(APPEND SRCS workload/methods/codes-conc-online-comm-wrkld.C)
+        list(APPEND LIBS_TO_LINK PkgConfig::SWM)
+        list(APPEND LIBS_TO_LINK PkgConfig::UNION)
+        list(APPEND LIBS_TO_LINK PkgConfig::ARGOBOTS)
+    endif()
 endif()
 
 
@@ -102,6 +118,11 @@ endif()
 # if(USE_DARSHAN)
 #     list(APPEND SRCS workload/methods/codes-darshan3-io-wrkld.c)
 # endif()
+
+if(USE_TORCH)
+    list(APPEND SRCS surrogate/packet-latency-predictor/torch-jit.C)
+    list(APPEND LIBS_TO_LINK ${TORCH_LIBRARIES})
+endif()
 
 add_library(codes STATIC ${SRCS})
 
@@ -121,12 +142,20 @@ if(USE_DUMPI)
     target_include_directories(codes PUBLIC ${DUMPI_INCLUDE})
 endif()
 
-#LINK ARGOBOTS and SWM ONLINE
+#LINK ARGOBOTS, SWM and UNION
 # target_link_libraries(codes PUBLIC PkgConfig::ARGOBOTS)
 if(USE_ONLINE)
-    target_include_directories(codes PUBLIC ${ARGOBOTS_INCLUDE_DIRS})
-    # target_link_libraries(codes PUBLIC PkgConfig::SWM)
-    target_include_directories(codes PUBLIC ${SWM_INCLUDE_DIRS})
+    if(USE_SWM)
+        target_include_directories(codes PUBLIC ${ARGOBOTS_INCLUDE_DIRS})
+        # target_link_libraries(codes PUBLIC PkgConfig::SWM)
+        target_include_directories(codes PUBLIC ${SWM_INCLUDE_DIRS})
+    endif()
+    if(USE_UNION)
+        target_include_directories(codes PUBLIC ${ARGOBOTS_INCLUDE_DIRS})
+        # target_link_libraries(codes PUBLIC PkgConfig::SWM)
+        target_include_directories(codes PUBLIC ${SWM_INCLUDE_DIRS})
+        target_include_directories(codes PUBLIC ${UNION_INCLUDE_DIRS})
+    endif()
 endif()
 
 #LINK ROSS
@@ -184,7 +213,7 @@ endforeach()
 # configure_file(modelconfig/configparser.c ${CMAKE_CURRENT_BINARY_DIR}/modelconfig/configparser.c COPYONLY)
 # configure_file(modelconfig/configparser.h ${CMAKE_CURRENT_BINARY_DIR}/modelconfig/configparser.h COPYONLY)
 
-install(DIRECTORY "${CMAKE_SOURCE_DIR}/codes" DESTINATION "${CMAKE_BINARY_DIR}")
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/codes" DESTINATION include)
 
 install(TARGETS ${CODES_TARGETS} DESTINATION bin)
 

@@ -325,7 +325,7 @@ static model_net_event_return model_net_event_impl_base(
         void const * self_event,
         tw_lp *sender) {
 
-    
+
     if (remote_event_size + self_event_size + sizeof(model_net_wrap_msg)
             > g_tw_msg_sz){
         tw_error(TW_LOC, "Error: model_net trying to transmit an event of size "
@@ -378,6 +378,7 @@ static model_net_event_return model_net_event_impl_base(
     strncpy(r->category, category, CATEGORY_NAME_MAX-1);
     r->category[CATEGORY_NAME_MAX-1]='\0';
 
+
     if (is_msg_params_set[MN_MSG_PARAM_START_TIME])
         r->msg_start_time = start_time_param;
     else
@@ -386,10 +387,11 @@ static model_net_event_return model_net_event_impl_base(
     if (congestion_control_is_jobmap_set()) { //perhaps make jobmap a global set regardless of congestion control
         struct codes_jobmap_ctx *ctx;
         ctx = congestion_control_get_jobmap();
-        struct codes_jobmap_id jid; 
+        struct codes_jobmap_id jid;
         jid = codes_jobmap_to_local_id(codes_mapping_get_lp_relative_id(sender->gid, 0, 0), ctx);
         r->app_id = jid.job;
     }
+
     // this is an outgoing message
     m->msg.m_base.is_from_remote = 0;
     m->msg.m_base.isQueueReq = 1;

@@ -381,15 +381,16 @@ static void handle_kickoff_event(
     char anno[MAX_NAME_LENGTH];
     tw_lpid local_dest = -1, global_dest = -1;
 
-    svr_msg * m_local = malloc(sizeof(svr_msg));
-    svr_msg * m_remote = malloc(sizeof(svr_msg));
+    svr_msg m_local;
+    svr_msg m_remote;
 
-    m_local->svr_event_type = LOCAL;
-    m_local->src = lp->gid;
-    m_local->msg_start_time = tw_now(lp);
+    m_local.svr_event_type = LOCAL;
+    m_local.src = lp->gid;
+    m_local.msg_start_time = tw_now(lp);
 
-    memcpy(m_remote, m_local, sizeof(svr_msg));
-    m_remote->svr_event_type = REMOTE;
+    m_remote.svr_event_type = REMOTE;
+    m_remote.src = lp->gid;
+    m_remote.msg_start_time = tw_now(lp);
 
     codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
     int local_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
@@ -459,7 +460,7 @@ static void handle_kickoff_event(
 
    ns->msg_sent_count++;
    ns->last_send_ts = tw_now(lp);
-   m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+   m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)&m_remote, sizeof(svr_msg), (const void*)&m_local, lp);
    issue_event(ns, lp);
    return;
 }

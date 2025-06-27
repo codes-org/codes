@@ -53,7 +53,7 @@ static void * darshan_io_workload_read_config(
         char const * annotation,
         int num_ranks);
 /* Darshan workload generator's implementation of the CODES workload API */
-static int darshan_psx_io_workload_load(const char *params, int app_id, int rank);
+static int darshan_psx_io_workload_load(const void *params, int app_id, int rank);
 static void darshan_psx_io_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
 static int darshan_psx_io_workload_get_rank_cnt(const char *params, int app_id);
 static int darshan_rank_hash_compare(void *key, struct qhash_head *link);
@@ -179,7 +179,7 @@ static int darshan_psx_io_workload_get_time(const char *params, int app_id, int 
 }
 
 /* load the workload generator for this rank, given input params */
-static int darshan_psx_io_workload_load(const char *params, int app_id, int rank)
+static int darshan_psx_io_workload_load(const void *params, int app_id, int rank)
 {
     darshan_params *d_params = (darshan_params *)params;
     darshan_fd logfile_fd = NULL;
