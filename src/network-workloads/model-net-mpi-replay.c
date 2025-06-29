@@ -4387,6 +4387,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
     double total_avg_send_time, total_max_send_time;
      double total_avg_wait_time, total_max_wait_time;
      double total_avg_recv_time, total_max_recv_time;
+     double g_max_elapsed_time_per_job[MAX_JOBS];
      double g_total_syn_data = 0;
 
     MPI_Reduce(&num_bytes_sent, &total_bytes_sent, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
@@ -4403,6 +4404,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
    MPI_Reduce(&avg_wait_time, &total_avg_wait_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
    MPI_Reduce(&avg_send_time, &total_avg_send_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
    MPI_Reduce(&total_syn_data, &g_total_syn_data, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);  
+   MPI_Reduce(max_elapsed_time_per_job, g_max_elapsed_time_per_job, num_total_jobs, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_CODES);
 
    assert(num_net_traces);
 
@@ -4421,19 +4423,20 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
     printf("Per App Max Elapsed Times:\n");
     for(int i = 0; i < num_total_jobs; i++)
     {
-        printf("\tApp %d: %.4f\n",i,max_elapsed_time_per_job[i]);
+        printf("\tApp %d: %.4f\n",i,g_max_elapsed_time_per_job[i]);
     }
     printf("----------\n");
 
     if(synthetic_pattern == PERMUTATION)
         printf("\n Threshold for random permutation %ld ", perm_switch_thresh);
+
+    if(is_synthetic)
+        printf("\n Synthetic traffic stats: data received per proc %lf bytes \n", g_total_syn_data/num_syn_clients);
    }
     if (do_lp_io){
         int ret = lp_io_flush(io_handle, MPI_COMM_CODES);
         assert(ret == 0 || !"lp_io_flush failure");
     }
-    if(is_synthetic)
-        printf("\n PE%d: Synthetic traffic stats: data received per proc %lf bytes \n",rank, g_total_syn_data/num_syn_clients);
 
    model_net_report_stats(net_id);
    
