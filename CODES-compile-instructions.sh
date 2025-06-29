@@ -21,8 +21,8 @@ CUR_DIR="$PWD"
 
 ##### Downloading everything #####
 
-git clone https://github.com/codes-org/codes --branch=director-app-automatic
-git clone https://github.com/ross-org/ross --depth=100 --branch=gvt-hook-util
+git clone https://github.com/codes-org/codes --branch=develop
+git clone https://github.com/ross-org/ross --depth=100 --branch=develop
 
 if [ $swm_enable = 1 ]; then
     git clone https://github.com/pmodels/argobots --depth=1

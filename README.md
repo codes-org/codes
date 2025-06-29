@@ -21,27 +21,6 @@ The easiest way to build CODES is using our automated compilation script that ha
 
 The script will create a new directory with all dependencies and CODES compiled and ready to use.
 
-## Features
-
-CODES provides comprehensive simulation capabilities for:
-
-### Network Topologies
-- **Dragonfly**: High-radix interconnect with adaptive routing (most up to date)
-- **Torus**: Multi-dimensional torus networks
-- **Fat-tree**: Hierarchical tree topologies
-- **Express Mesh**: Enhanced mesh networks
-- **Simple P2P**: Point-to-point networks
-
-### Workload Generation
-- **SWM and UNION**: Workload generation
-- **MPI trace replay**: Support for DUMPI traces
-- **Synthetic patterns**: Uniform random, nearest neighbor, and custom patterns
-
-### Multi-fidelity Simulation
-- **Network surrogate models**: Switch between high-fidelity and surrogate modes
-- **Application surrogate models**: Accelerate application-level simulation
-- **Adaptive directors**: Intelligent switching between simulation modes
-
 ## Prerequisites
 
 - **MPI**: OpenMPI or MPICH for parallel execution
@@ -126,6 +105,27 @@ bash run-experiment.sh path-to-experiment/script.sh
 ```
 
 A folder will be created under `path-to-experiment/results` containing the result of running the experiment.
+
+## Features
+
+CODES provides comprehensive simulation capabilities for:
+
+### Network Topologies
+- **Dragonfly**: High-radix interconnect with adaptive routing (most up to date)
+- **Torus**: Multi-dimensional torus networks
+- **Fat-tree**: Hierarchical tree topologies
+- **Express Mesh**: Enhanced mesh networks
+- **Simple P2P**: Point-to-point networks
+
+### Workload Generation
+- **SWM and UNION**: Workload generation
+- **MPI trace replay**: Support for DUMPI traces
+- **Synthetic patterns**: Uniform random, nearest neighbor, and custom patterns
+
+### Multi-fidelity Simulation
+- **Network surrogate models**: Switch between high-fidelity and surrogate modes
+- **Application surrogate models**: Accelerate application-level simulation
+- **Adaptive directors**: Intelligent switching between simulation modes
 
 ## Contributing
 
