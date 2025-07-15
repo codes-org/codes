@@ -35,7 +35,7 @@ if [ $union_enable = 1 ]; then
     curl -L https://sourceforge.net/projects/conceptual/files/conceptual/1.5.1b/conceptual-1.5.1b.tar.gz -o conceptual-1.5.1b.tar.gz
     tar xvf conceptual-1.5.1b.tar.gz
     # Downloading union
-    git clone https://github.com/helq/Union --branch=total-iterations-communication
+    git clone https://github.com/helq/Union --branch=master
 fi
 
 ##### COMPILING #####
@@ -85,7 +85,7 @@ if [ $union_enable = 1 ]; then
 
     pushd Union
     ./prepare.sh
-    ./configure --disable-shared --with-conceptual="$(realpath ../conceptual-1.5.1b/install)" --prefix="$(realpath ./install)" CC=mpicc CXX=mpicxx
+    PYTHON=python2 ./configure --disable-shared --with-conceptual="$(realpath ../conceptual-1.5.1b/install)" --with-conceptual-src="$(realpath ../conceptual-1.5.1b)" --prefix="$(realpath ./install)" CC=mpicc CXX=mpicxx
     make -j4 && make install
     err=$?
     [[ $err -ne 0 ]] && exit $err
