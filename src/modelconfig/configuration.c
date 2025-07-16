@@ -36,7 +36,8 @@ int configuration_load (const char *filepath,
     char      *error = NULL;
     int        rc = 0;
     char      *tmp_path = NULL;
-
+    int        len;
+    
     rc = MPI_File_open(comm, (char*)filepath, MPI_MODE_RDONLY, MPI_INFO_NULL, &fh);
     if (rc != MPI_SUCCESS) goto finalize;
 
@@ -54,10 +55,15 @@ int configuration_load (const char *filepath,
 #else
     f = fmemopen(txtdata, txtsize, "rb");
 #endif
-    if (!f) { rc = 1; goto finalize; }
+    if (!f) { 
+        rc = -1;
+        printf("%d FILE MEM OPEN\n", rc);
+        error = strdup("Could not access data in \'rb\' mode"); 
+        goto finalize; 
+    }
 
     *handle = txtfile_openStream(f, &error);
-    if (error) { rc = 1; goto finalize; }
+    if (error) { rc = -1; goto finalize; }
 
     /* NOTE: posix version overwrites argument :(. */
     tmp_path = strdup(filepath);
@@ -67,16 +73,28 @@ int configuration_load (const char *filepath,
 
     rc = configuration_get_lpgroups(handle, "LPGROUPS", &lpconf);
 
+    if(rc == -1){
+        printf("WARNING: Configuration file might have an issue with the definition of its LPGROUPS");   
+        rc = 0;
+    }
+
 finalize:
     if (fh != MPI_FILE_NULL) MPI_File_close(&fh);
     if (f) fclose(f);
     free(txtdata);
     free(tmp_path);
+
+    if (rc != MPI_SUCCESS && !error) {
+        error = (char*) malloc(MPI_MAX_ERROR_STRING);
+        printf("%d\n", rc);
+        MPI_Error_string(rc, error, &len);
+    }
+    
     if (error) {
         fprintf(stderr, "config error: %s\n", error);
         free(error);
+        exit(EXIT_FAILURE);
     }
-
     return rc;
 }
 
