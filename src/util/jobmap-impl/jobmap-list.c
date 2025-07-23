@@ -31,6 +31,12 @@ struct jobmap_list {
     int num_jobs;
     int *rank_counts;
     int **global_ids;
+
+    // This is a look up table containing the same info as above, but with O(1) access.
+    // It is used by `jobmap_list_to_local`. This solves a scalibility bug that appears
+    // when all jobs combined have many nodes (> 8K nodes)
+    int highest_global_id;
+    struct codes_jobmap_id * id_to_jobmap;
 };
 
 #define COND_REALLOC(_len_expr, _cap_var, _buf_var) \
@@ -148,6 +154,37 @@ static int jobmap_list_configure(void const * params, void ** ctx)
         }
     } while (!feof(f));
 
+    // === Building id_to_jobmap lookup table ===
+    // There's some room for improvement (we can probably loop fewer times and fuze some
+    // loops together), but they are relatively inexpensive when done once at the start
+    // of the simulation, so this acceptable
+
+    // Finding highest global id. Although we should be able to get this from the network
+    // configuration file, we look it up in here to keep different parts of CODES separated/modularized
+    lst->highest_global_id = -1;
+    for(int i=0; i<lst->num_jobs; i++) {
+        for(int j=0; j < lst->rank_counts[i]; j++) {
+            if(lst->highest_global_id < lst->global_ids[i][j]) {
+                lst->highest_global_id = lst->global_ids[i][j];
+            }
+        }
+    }
+    lst->id_to_jobmap = calloc(lst->highest_global_id + 1, sizeof(*lst->id_to_jobmap));
+    for (int i=0; i<=lst->highest_global_id; i++) {
+        lst->id_to_jobmap[i].job = -1;
+        lst->id_to_jobmap[i].rank = -1;
+    }
+    // Finally, filling up the table
+    for(int i=0; i<lst->num_jobs; i++) {
+        for(int j=0; j < lst->rank_counts[i]; j++) {
+            int const id = lst->global_ids[i][j];
+            lst->id_to_jobmap[id].job = i;
+            lst->id_to_jobmap[id].rank = j;
+        }
+    }
+    // === ===
+
+    // returning if everything went alright
     if (rc == 0) {
         fclose(f);
         free(line_buf);
@@ -160,6 +197,7 @@ static int jobmap_list_configure(void const * params, void ** ctx)
         }
         free(lst->global_ids);
         free(lst->rank_counts);
+        free(lst->id_to_jobmap);
         free(lst);
         *ctx = NULL;
         return -1;
@@ -168,23 +206,14 @@ static int jobmap_list_configure(void const * params, void ** ctx)
 
 static struct codes_jobmap_id jobmap_list_to_local(int id, void const * ctx)
 {
-    struct codes_jobmap_id rtn;
-    rtn.job = -1;
-    rtn.rank = -1;
-
     struct jobmap_list const *lst = (struct jobmap_list const *)ctx;
 
-    for(int i=0; i<lst->num_jobs; i++) {
-        for(int j=0; j < lst->rank_counts[i]; j++) {
-            if(id == lst->global_ids[i][j]) {
-                rtn.job = i;
-                rtn.rank = j;
-                return rtn;
-            }
-        }
+    // invalid id from what we got in the config
+    if (id < 0 || lst->highest_global_id < id) {
+        return (struct codes_jobmap_id) { .job = -1, .rank = -1 };
     }
 
-    return rtn;
+    return lst->id_to_jobmap[id];
 }
 
 static int jobmap_list_to_global(struct codes_jobmap_id id, void const * ctx)
@@ -221,6 +250,7 @@ static void jobmap_list_destroy(void * ctx)
 
     free(lst->global_ids);
     free(lst->rank_counts);
+    free(lst->id_to_jobmap);
     free(ctx);
 }
 

@@ -60,6 +60,16 @@ tw_event * model_net_method_event_new(
         void **msg_data,
         void **extra_data);
 
+// Same as `model_net_method_event_new` extended to use user priorities to enforce ordering of some simulatenous events (USE WITH CARE!!)
+tw_event * model_net_method_event_new_user_prio(
+        tw_lpid dest_gid,
+        tw_stime offset_ts,
+        tw_lp *sender,
+        int net_id,
+        void **msg_data,
+        void **extra_data,
+        tw_stime prio);
+
 // Construct a model-net-specific event, similar to model_net_method_event_new.
 // The primary differences are:
 // - the event gets sent to final_dest_lp and put on it's receiver queue
@@ -118,23 +128,33 @@ tw_event* model_net_method_congestion_event(tw_lpid dest_gid,
     void **msg_data,
     void **extra_data);
 
+// Functions to call when switching from highdef to surrogate, and surrogate to highdef
+void model_net_method_switch_to_surrogate_lp(tw_lp * lp);
+void model_net_method_switch_to_highdef_lp(tw_lp * lp);
+void model_net_method_switch_to_surrogate(void);
+void model_net_method_switch_to_highdef(void);
+
+// It will call the function (pointer) on the internal structure/network model.
+// The lp parameter has to be a model-net lp. The function pointer has to coincide with the underlying subtype
+void model_net_method_call_inner(tw_lp * lp, void (*) (void * inner, tw_lp * lp, void * data), void * data);
+
 /// The following functions/data structures should not need to be used by
 /// model developers - they are just provided so other internal components can
 /// use them
 
 enum model_net_base_event_type {
-    MN_BASE_NEW_MSG,
+    MN_BASE_NEW_MSG = 1,
     // schedule next packet
-    MN_BASE_SCHED_NEXT,
+    MN_BASE_SCHED_NEXT = 2,
     // gather a sample from the underlying model
-    MN_BASE_SAMPLE,
+    MN_BASE_SAMPLE = 4,
     // message goes directly down to topology-specific event handler
-    MN_BASE_PASS,
+    MN_BASE_PASS = 8,
     /* message goes directly to topology-specific event handler for ending the simulation
        usefull if there is an infinite heartbeat pattern */
-    MN_BASE_END_NOTIF,
+    MN_BASE_END_NOTIF = 16,
     // message calls congestion request method on topology specific handler
-    MN_CONGESTION_EVENT
+    MN_CONGESTION_EVENT = 32
 };
 
 typedef struct model_net_base_msg {
@@ -147,6 +167,7 @@ typedef struct model_net_base_msg {
     // TODO: make this a union for multiple types of parameters
     mn_sched_params sched_params;
     model_net_sched_rc rc; // rc for scheduling events
+    int created_in_surrogate;
 } model_net_base_msg;
 
 typedef struct model_net_wrap_msg {
@@ -168,6 +189,12 @@ typedef struct model_net_wrap_msg {
         // add new ones here
     } msg;
 } model_net_wrap_msg;
+
+// Returns the (hidden) event type of the current event
+int model_net_get_event_type_lp(model_net_wrap_msg *);
+
+// Extracting message contained within event MN_BASE_PASS
+void * model_net_method_msg_from_tw_event(tw_lp *, model_net_wrap_msg *);
 
 #ifdef __cplusplus
 }

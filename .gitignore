@@ -38,3 +38,9 @@
 ross.csv
 
 install-mastiff/include/codes/model-net-method.h
+
+# commonly used building stuff
+/build*/
+/build*
+.cache
+compile_commands.json

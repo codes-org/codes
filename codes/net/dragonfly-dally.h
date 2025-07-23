@@ -20,18 +20,18 @@ struct terminal_dally_message
 {
   /* magic number */
   int magic;
-  /* flit travel start time*/
+  /* message travel start time*/
   tw_stime travel_start_time;
   /* flit travel end time*/
   tw_stime travel_end_time;
  /* packet ID of the flit  */
   unsigned long long packet_ID;
-  /* event type of the flit */
-  short  type;
+  /* event type of the flit. Actual type is `enum dfdally_event_t` */
+  short type;
+  /* if the type==T_NOTIFY then we have to find out what type of notification is it. Actual type is `enum dfdally_notify_t` */
+  short notify_type;
   /* category: comes from codes */
   char category[CATEGORY_NAME_MAX];
-  /* store category hash in the event */
-  uint32_t category_hash;
   /* final destination LP ID, this comes from codes can be a server or any other LP type*/
   tw_lpid final_dest_gid;
   /*sending LP ID from CODES, can be a server or any other LP type */
@@ -92,7 +92,10 @@ struct terminal_dally_message
    int path_type;
    int saved_app_id;
 
-   /* for reverse computation */   
+   // For packet latency predictor (surrogate)
+   bool is_there_another_pckt_in_queue;
+
+   /* for reverse computation */
    short num_rngs;
    short num_cll;
 
@@ -107,18 +110,36 @@ struct terminal_dally_message
    unsigned long long * rc_qos_data;
    int * rc_qos_status;
 
+   // TODO (elkin): all these fields to store information for rollback purposes got out of control, the rc_stack was created for things like this! Refactor this out!
    short saved_send_loop;
    tw_stime saved_available_time;
    tw_stime saved_min_lat;
    tw_stime saved_avg_time;
    tw_stime saved_rcv_time;
-   tw_stime saved_busy_time; 
+   tw_stime saved_busy_time;
    tw_stime saved_total_time;
    tw_stime saved_sample_time;
    tw_stime msg_start_time;
    tw_stime saved_busy_time_ross;
    tw_stime saved_fin_chunks_ross;
+
+   // To use in rollback calls
+   tw_stime saved_last_in_queue_time;
+   tw_stime saved_next_packet_delay;
+   tw_stime msg_new_mn_event;
+
+   //Yao: for counting msg app id
+   tw_stime last_received_time;
+   tw_stime last_sent_time;
+
+   //Xin: for busy time recording
+   tw_stime last_bufupdate_time;
+
+   tw_stime saved_processing_time;
 };
+
+void print_terminal_dally_message(FILE * out, char const * prefix, void * s, struct terminal_dally_message * msg);
+bool check_terminal_dally_message(struct terminal_dally_message * before, struct terminal_dally_message * after);
 
 #ifdef __cplusplus
 }

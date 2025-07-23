@@ -5,4 +5,8 @@ if [[ -z $srcdir ]] ; then
     exit 1
 fi
 
-tests/jobmap-test $srcdir/tests/conf/jobmap-test-list.conf
+if [ -z $GENERATED_USING_CMAKE ]; then
+    bindir=.
+fi
+
+"$bindir"/tests/jobmap-test "$srcdir"/tests/conf/jobmap-test-list.conf

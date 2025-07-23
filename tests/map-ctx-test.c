@@ -161,6 +161,8 @@ int main(int argc, char *argv[])
     CHECK("group_direct_anno");
     CHECK("group_direct_anno");
 
+    MPI_Finalize();
+
     return 0;
 }
 

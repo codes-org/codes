@@ -132,7 +132,7 @@ static void * iomock_workload_read_config(
 }
 
 /* load the workload file */
-static int iomock_workload_load(const char* params, int app_id, int rank)
+static int iomock_workload_load(const void* params, int app_id, int rank)
 {
     iomock_params const * p = (iomock_params const *) params;
 

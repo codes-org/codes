@@ -20,15 +20,14 @@
         if (MN_SCHED_DEBUG_VERBOSE) printf(_fmt, ##__VA_ARGS__); \
     } while(0)
 
-/// scheduler-specific data structures 
+/// scheduler-specific data structures
 
 typedef struct mn_sched_qitem {
     model_net_request req;
     mn_sched_params sched_params;
     // remaining bytes to send
     uint64_t rem;
-    tw_stime entry_time;
-    // pointers to event structures 
+    // pointers to event structures
     // sizes are given in the request struct
     void * remote_event;
     void * local_event;
@@ -56,7 +55,7 @@ typedef struct mn_sched_prio {
 /// FCFS
 // void used to avoid ptr-to-ptr conv warnings
 static void fcfs_init (
-        const struct model_net_method     * method, 
+        const struct model_net_method     * method,
         const model_net_sched_cfg_params  * params,
         int                                 is_recv_queue,
         void                             ** sched);
@@ -83,10 +82,14 @@ static void fcfs_next_rc(
         const void               * rc_event_save,
         const model_net_sched_rc * rc,
         tw_lp                    * lp);
+static void save_state_fcfs_state(mn_sched_queue * into, mn_sched_queue const * from);
+static void clean_state_fcfs_state(mn_sched_queue * into);
+static bool check_fcfs_state(mn_sched_queue *before, mn_sched_queue *after);
+static void print_fcfs_state(FILE * out, char const * prefix, mn_sched_queue *sched);
 
 // ROUND-ROBIN
 static void rr_init (
-        const struct model_net_method     * method, 
+        const struct model_net_method     * method,
         const model_net_sched_cfg_params  * params,
         int                                 is_recv_queue,
         void                             ** sched);
@@ -114,7 +117,7 @@ static void rr_next_rc (
         const model_net_sched_rc * rc,
         tw_lp                    * lp);
 static void prio_init (
-        const struct model_net_method     * method, 
+        const struct model_net_method     * method,
         const model_net_sched_cfg_params  * params,
         int                                 is_recv_queue,
         void                             ** sched);
@@ -143,23 +146,40 @@ static void prio_next_rc (
         tw_lp                    * lp);
 
 /// function tables (names defined by X macro in model-net-sched.h)
-static const model_net_sched_interface fcfs_tab = 
+static const model_net_sched_interface fcfs_tab =
 { &fcfs_init, &fcfs_destroy, &fcfs_add, &fcfs_add_rc, &fcfs_next, &fcfs_next_rc};
-static const model_net_sched_interface rr_tab = 
+static const model_net_sched_interface rr_tab =
 { &rr_init, &rr_destroy, &rr_add, &rr_add_rc, &rr_next, &rr_next_rc};
 static const model_net_sched_interface prio_tab =
 { &prio_init, &prio_destroy, &prio_add, &prio_add_rc, &prio_next, &prio_next_rc};
 
-#define X(a,b,c) c,
+static const crv_checkpointer fcfs_chptr = {
+    NULL,
+    sizeof(mn_sched_queue),
+    (save_checkpoint_state_f) save_state_fcfs_state,
+    (clean_checkpoint_state_f) clean_state_fcfs_state,
+    (check_states_f) check_fcfs_state,
+    (print_lpstate_f) print_fcfs_state,
+    (print_checkpoint_state_f) print_fcfs_state,
+    NULL,
+};
+
+#define X(a,b,c,d) c,
 const model_net_sched_interface * sched_interfaces[] = {
     SCHEDULER_TYPES
 };
 #undef X
 
-/// FCFS implementation 
+#define X(a,b,c,d) d,
+const crv_checkpointer * sched_checkpointers[] = {
+    SCHEDULER_TYPES
+};
+#undef X
+
+/// FCFS implementation
 
 void fcfs_init(
-        const struct model_net_method     * method, 
+        const struct model_net_method     * method,
         const model_net_sched_cfg_params  * params,
         int                                 is_recv_queue,
         void                             ** sched){
@@ -188,15 +208,16 @@ void fcfs_add (
         tw_lp                   * lp){
     (void)rc; // unneeded for fcfs
     mn_sched_qitem *q = malloc(sizeof(mn_sched_qitem));
-    q->entry_time = tw_now(lp);
     q->req = *req;
     q->sched_params = *sched_params;
     q->rem = req->msg_size;
+    assert(req->remote_event_size == remote_event_size);
     if (remote_event_size > 0){
         q->remote_event = malloc(remote_event_size);
         memcpy(q->remote_event, remote_event, remote_event_size);
     }
     else { q->remote_event = NULL; }
+    assert(req->self_event_size == local_event_size);
     if (local_event_size > 0){
         q->local_event = malloc(local_event_size);
         memcpy(q->local_event, local_event, local_event_size);
@@ -219,7 +240,7 @@ void fcfs_add_rc(void *sched, const model_net_sched_rc *rc, tw_lp *lp){
     mn_sched_qitem *q = qlist_entry(ent, mn_sched_qitem, ql);
     dprintf("%llu (mn): rc adding request from %llu to %llu\n", LLU(lp->gid),
             LLU(q->req.src_lp), LLU(q->req.final_dest_lp));
-    // free'ing NULLs is a no-op 
+    // free'ing NULLs is a no-op
     free(q->remote_event);
     free(q->local_event);
     free(q);
@@ -251,6 +272,8 @@ int fcfs_next(
         is_last_packet = 0;
     }
 
+    bool const is_there_another_pckt_in_queue = !is_last_packet || s->queue_len > 1;
+
     if (s->is_recv_queue){
         dprintf("%llu (mn):    receiving message of size %llu (of %llu) "
                 "from %llu to %llu at %1.5e (last:%d)\n",
@@ -270,7 +293,8 @@ int fcfs_next(
                 LLU(q->req.final_dest_lp), tw_now(lp), is_last_packet);
         *poffset = s->method->model_net_method_packet_event(&q->req,
                 q->req.msg_size - q->rem, psize, 0.0, &q->sched_params,
-                q->remote_event, q->local_event, lp, is_last_packet);
+                q->remote_event, q->local_event, lp, is_last_packet,
+                is_there_another_pckt_in_queue);
     }
 
     // if last packet - remove from list, free, save for rc
@@ -361,8 +385,114 @@ void fcfs_next_rc(
     }
 }
 
+static void save_mn_sched_qitem(mn_sched_qitem * into, mn_sched_qitem const * from) {
+    into->req = from->req;
+    into->sched_params = from->sched_params;
+    into->rem = from->rem;
+    into->remote_event = NULL;
+    into->local_event = NULL;
+    if (from->remote_event != NULL) {
+        assert(from->req.remote_event_size > 0);
+        into->remote_event = malloc(from->req.remote_event_size);
+        memcpy(into->remote_event, from->remote_event, from->req.remote_event_size);
+    }
+    if (from->local_event != NULL) {
+        assert(from->req.self_event_size > 0);
+        into->local_event = malloc(from->req.self_event_size);
+        memcpy(into->local_event, from->local_event, from->req.self_event_size);
+    }
+}
+
+static void save_state_fcfs_state(mn_sched_queue * into, mn_sched_queue const * from) {
+    into->method = from->method;
+    into->is_recv_queue = from->is_recv_queue;
+    into->queue_len = from->queue_len;
+    INIT_QLIST_HEAD(&into->reqs);
+
+    mn_sched_qitem * sched_qitem = NULL;
+    qlist_for_each_entry(sched_qitem, &from->reqs, ql) {
+        mn_sched_qitem * new_sched_qitem = malloc(sizeof(mn_sched_qitem));
+        save_mn_sched_qitem(new_sched_qitem, sched_qitem);
+        qlist_add_tail(&new_sched_qitem->ql, &into->reqs);
+    }
+}
+
+static void clean_mn_sched_qitem(mn_sched_qitem * into) {
+    if (into->remote_event != NULL) {
+        free(into->remote_event);
+    }
+    if (into->local_event != NULL) {
+        free(into->local_event);
+    }
+}
+
+static void clean_state_fcfs_state(mn_sched_queue * into) {
+    mn_sched_qitem * sched_qitem = NULL;
+    mn_sched_qitem * _ = NULL;
+    qlist_for_each_entry_safe(sched_qitem, _, &into->reqs, ql) {
+        clean_mn_sched_qitem(sched_qitem);
+        qlist_del(&sched_qitem->ql);
+        free(sched_qitem);
+    }
+}
+
+static bool check_mn_sched_qitem(mn_sched_qitem * before, mn_sched_qitem * after) {
+    bool is_same = true;
+
+    is_same &= check_model_net_request(&before->req, &after->req);
+    is_same &= before->sched_params.prio == after->sched_params.prio;
+    is_same &= before->rem == after->rem;
+    is_same &= !memcmp(before->remote_event, after->remote_event, before->req.remote_event_size);
+    is_same &= !memcmp(before->local_event, after->local_event, before->req.self_event_size);
+    return is_same;
+}
+
+static bool check_fcfs_state(mn_sched_queue * before, mn_sched_queue * after) {
+    bool is_same = true;
+
+    is_same &= before->is_recv_queue == after->is_recv_queue;
+    is_same &= before->queue_len == after->queue_len;
+
+    if (qlist_count(&before->reqs) != qlist_count(&before->reqs)) {
+        return false;
+    }
+
+    is_same &= are_qlist_equal(&before->reqs, &after->reqs, QLIST_OFFSET(mn_sched_qitem, ql), (bool (*) (void *, void *)) check_mn_sched_qitem);
+
+    return is_same;
+}
+
+static void print_mn_sched_qitem(FILE * out, char const * prefix, mn_sched_qitem * item) {
+    int len_subprefix = snprintf(NULL, 0, "%s       |     | ", prefix) + 1;
+    char subprefix[len_subprefix];
+    snprintf(subprefix, len_subprefix, "%s       |     | ", prefix);
+
+    fprintf(out, "%s     mn_sched_qitem\n", prefix);
+    fprintf(out, "%s       | .req\n", prefix);
+    print_model_net_request(out, subprefix, &item->req);
+    fprintf(out, "%s       | sched_params.prio = %d\n", prefix, item->sched_params.prio);
+    fprintf(out, "%s       |               rem = %lu\n", prefix, item->rem);
+    fprintf(out, "%s       |      remote_event = %p (contents below)\n", prefix, item->remote_event);
+    tw_fprint_binary_array(out, subprefix, item->remote_event, item->req.remote_event_size);
+    fprintf(out, "%s       |       local_event = %p (contents below)\n", prefix, item->local_event);
+    tw_fprint_binary_array(out, subprefix, item->local_event, item->req.self_event_size);
+}
+
+static void print_fcfs_state(FILE * out, char const * prefix, mn_sched_queue *sched) {
+    fprintf(out, "%sFCFS:\n", prefix);
+    fprintf(out, "%s   |        .method = %p\n", prefix, sched->method);
+    fprintf(out, "%s   | .is_recv_queue = %d\n", prefix, sched->is_recv_queue);
+    fprintf(out, "%s   |     .queue_len = %d\n", prefix, sched->queue_len);
+    fprintf(out, "%s   |      .reqs[%d] = {\n", prefix, qlist_count(&sched->reqs));
+    mn_sched_qitem * sched_qitem = NULL;
+    qlist_for_each_entry(sched_qitem, &sched->reqs, ql) {
+         print_mn_sched_qitem(out, prefix, sched_qitem);
+    }
+    fprintf(out, "%s   | }\n", prefix);
+}
+
 void rr_init (
-        const struct model_net_method     * method, 
+        const struct model_net_method     * method,
         const model_net_sched_cfg_params  * params,
         int                                 is_recv_queue,
         void                             ** sched){
@@ -427,7 +557,7 @@ void rr_next_rc (
 }
 
 void prio_init (
-        const struct model_net_method     * method, 
+        const struct model_net_method     * method,
         const model_net_sched_cfg_params  * params,
         int                                 is_recv_queue,
         void                             ** sched){
@@ -465,7 +595,7 @@ void prio_add (
     mn_sched_prio *ss = sched;
     int prio = sched_params->prio;
     if (prio == -1){
-        // default prio - lowest possible 
+        // default prio - lowest possible
         prio = ss->params.num_prios-1;
     }
     else if (prio >= ss->params.num_prios){
@@ -504,7 +634,7 @@ int prio_next(
         }
     }
     rc->prio = -1;
-    return -1; // all sub schedulers had no work 
+    return -1; // all sub schedulers had no work
 }
 
 void prio_next_rc (

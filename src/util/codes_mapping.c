@@ -519,6 +519,21 @@ static void codes_mapping_init(void)
      return;
 }
 
+tw_lpid codes_mapping_count_lps_of_type(char const lp_type_name[MAX_NAME_LENGTH])
+{
+    tw_lpid count = 0;
+    for (tw_lpid lpid = 0; lpid < g_tw_nlp; lpid ++) {
+        tw_lpid ross_gid = g_tw_lp[lpid]->gid;
+        int grp_id, lpt_id, rep_id, offset;
+        char this_lp_type[MAX_NAME_LENGTH];
+        codes_mapping_get_lp_info(ross_gid, NULL, &grp_id, this_lp_type, &lpt_id, NULL, &rep_id, &offset);  // This lookup could be speed up, but making this call is far simpler rn
+        if (strncmp(lp_type_name, this_lp_type, MAX_NAME_LENGTH)) {
+            count++;
+        }
+    }
+    return count;
+}
+
 /* This function takes the global LP ID, maps it to the local LP ID and returns the LP 
  * lps have global and local LP IDs
  * global LP IDs are unique across all PEs, local LP IDs are unique within a PE */

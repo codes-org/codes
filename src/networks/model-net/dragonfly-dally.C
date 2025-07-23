@@ -3,7 +3,7 @@
  * See LICENSE in top-level directory
  * 
  * Originally written by Misbah Mubarak
- * Updated by Neil McGlohon
+ * Updated by Neil McGlohon and Elkin Cruz-Camacho
  *  
  * A 1D specific dragonfly custom model - diverged from dragonfly-custom.C
  * Differs from dragonfly.C in that it allows for the custom features typically found in
@@ -19,10 +19,11 @@
 #include "codes/jenkins-hash.h"
 #include "codes/codes_mapping.h"
 #include "codes/codes.h"
-#include "codes/model-net.h"
 #include "codes/model-net-method.h"
 #include "codes/model-net-lp.h"
+#include "codes/surrogate/init.h"
 #include "codes/net/dragonfly-dally.h"
+#include "quicklist.h"
 #include "sys/file.h"
 #include "codes/quickhash.h"
 #include "codes/rc-stack.h"
@@ -30,6 +31,8 @@
 #include <map>
 #include <set>
 #include <algorithm>
+#include <errno.h>
+#include <sys/stat.h>
 
 #include "codes/network-manager/dragonfly-network-manager.h"
 #include "codes/congestion-controller-model.h"
@@ -44,7 +47,6 @@
 #define DFLY_HASH_TABLE_SIZE 4999
 // debugging parameters
 #define BW_MONITOR 1
-#define DEBUG_LP 892
 #define T_ID -1
 #define TRACK -1
 #define TRACK_PKT -1
@@ -74,6 +76,15 @@
 #define LP_CONFIG_NM_ROUT (model_net_lp_config_names[DRAGONFLY_DALLY_ROUTER])
 #define LP_METHOD_NM_ROUT (model_net_method_names[DRAGONFLY_DALLY_ROUTER])
 
+// If we have configured the network surrogate, then we will collect packet delay data, which is done via the scheduling of an event. This additional event will shift the random generator and thus the same model will behave differently from the start when compared with the one where the surrogate is not setup. If one wants to test both scenarios (with and without the surrogate) and maintain determinism in high-fidelity, one has to enable this option
+#define ALWAYS_DETERMINISTIC_NETWORK 0
+
+#define num_chunks_for(message_size, chunk_size) ((message_size) ? ((message_size) + (chunk_size) - 1) / (chunk_size) : 1)
+
+/* handles terminal and router events like packet generate/send/receive/buffer */
+typedef struct terminal_state terminal_state;
+typedef struct router_state router_state;
+
 static int max_lvc_src_g = 1;
 static int max_lvc_intm_g = 3;
 static int min_gvc_src_g = 0;
@@ -89,9 +100,9 @@ static long num_remote_packets = 0;
 
 static long global_stalled_chunk_counter = 0;
 
-#define OUTPUT_SNAPSHOT 0
-const static int num_snapshots = 0;
-tw_stime snapshot_times[num_snapshots] = {};
+#define OUTPUT_SNAPSHOT 1
+static int num_snapshots = 0;
+tw_stime * snapshot_times;
 char snapshot_filename[128];
 
 /* time in nanosecs */
@@ -175,23 +186,41 @@ static int sample_rtr_bytes_written = 0;
 static char cn_sample_file[MAX_NAME_LENGTH];
 static char router_sample_file[MAX_NAME_LENGTH];
 
-//don't do overhead here - job of MPI layer
-static tw_stime mpi_soft_overhead = 0;
+// File to store packet latency from terminal-to-terminal
+// NOTE: Only non-predicted latencies are saved to file
+static FILE * packet_latency_f = NULL;
+static void setup_packet_latency_path(char const * const dir_to_save);
+
+
+// ==== START OF Parameters to tune surrogate mode ====
+// 
+static bool dally_surrogate_configured = false;
+static bool is_dally_surrogate_on = false;
+static bool freeze_network_on_switch = false;
+static struct packet_latency_predictor * terminal_predictor = NULL;
+static void switch_surrogate(void);
+static bool is_surrogate_on_fun(void);
+static void dragonfly_dally_terminal_highdef_to_surrogate(terminal_state * s, tw_lp * lp, tw_event **);
+static void dragonfly_dally_terminal_surrogate_to_highdef(terminal_state * s, tw_lp * lp, tw_event **);
+static bool dragonfly_dally_terminal_should_event_be_frozen(tw_lp * lp, tw_event * event);
+static bool dragonfly_dally_router_should_event_be_frozen(tw_lp * lp, tw_event * event);
+static void dragonfly_dally_terminal_pre_surrogate_switch_event_queue( terminal_state * s, tw_lp * lp, tw_event * event);
+static void dragonfly_dally_terminal_reset_predictor(terminal_state * s, tw_lp * lp, void *);
+//
+// ==== END OF Parameters to tune surrogate mode ====
 
 typedef struct terminal_dally_message_list terminal_dally_message_list;
 struct terminal_dally_message_list {
     terminal_dally_message msg;
     char* event_data;
-    terminal_dally_message_list *next;
-    terminal_dally_message_list *prev;
+    struct qlist_head list;
 };
 
 static void init_terminal_dally_message_list(terminal_dally_message_list *thisO, 
     terminal_dally_message *inmsg) {
     thisO->msg = *inmsg;
     thisO->event_data = NULL;
-    thisO->next = NULL;
-    thisO->prev = NULL;
+    INIT_QLIST_HEAD(&thisO->list);
 }
 
 static void delete_terminal_dally_message_list(void *thisO) {
@@ -215,6 +244,7 @@ struct dragonfly_param
     int global_vc_size; /* buffer size of the global channels */
     int cn_vc_size; /* buffer size of the compute node channels */
     int chunk_size; /* full-sized packets are broken into smaller chunks.*/
+    int packet_size; /* maximum size of a packet, although we have no control over it. It is model-net who is in charge of generating packets of at most this size */
     int global_k_picks; /* k number of connections to select from when doing local adaptive routing */
     int adaptive_threshold; 
     int rail_select; // method by which rails are selected
@@ -244,6 +274,14 @@ struct dragonfly_param
     double router_delay;
 
     int max_hops_notify; //maximum number of hops allowed before notifying via printout
+
+    //Xin: parameters for message counters of apps
+    int counting_bool;
+    tw_stime counting_start; 
+    tw_stime counting_interval; 
+    int counting_windows;
+    int num_apps;
+
 };
 
 static const dragonfly_param* stored_params;
@@ -283,6 +321,7 @@ struct dfly_qhash_entry
     struct dfly_hash_key key;
     char * remote_event_data;
     int num_chunks;
+    int remaining_packets;
     int remote_event_size;
     struct qhash_head hash_link;
 };
@@ -319,7 +358,7 @@ typedef enum route_scoring_metric_t
 } route_scoring_metric_t;
 
 /* Enumeration of types of events sent between model LPs */
-typedef enum event_t
+enum event_t
 {
     T_GENERATE=1,
     T_ARRIVE,
@@ -332,7 +371,18 @@ typedef enum event_t
     R_BW_HALT,
     T_BANDWIDTH,
     R_SNAPSHOT, //used for timed statistic outputs
-} event_t;
+    T_NOTIFY,  // used to notify a source or destination terminal about packets status (useful for informing about latency, zombie packet or delete a zombie packet)
+    T_ARRIVE_PREDICTED,  // this event is generated by a latency predictor instead of traversing the network
+#if ALWAYS_DETERMINISTIC_NETWORK
+    T_VACUOUS_EVENT, // nothing happens with this event, it's just ment to be a dummy event that allows us to keep the number of events produced in a simulation the same regardless of whether packet latency is activated (can be safely removed)
+#endif /* ALWAYS_DETERMINISTIC_NETWORK */
+};
+
+// Types of notifications between terminals
+enum notify_t {
+    NOTIFY_LATENCY,  // Notifying the source terminal of the total latency to deliver the packet
+    NOTIFY_ZOMBIE,   // Notifying the destination terminal of a packet that should be treated as a zombie
+};
 
 /* whether the last hop of a packet was global, local or a terminal */
 enum last_hop
@@ -437,14 +487,35 @@ static bool isRoutingNonminimalExplicit(int alg)
         return false;
 }
 
-/* handles terminal and router events like packet generate/send/receive/buffer */
-typedef struct terminal_state terminal_state;
-typedef struct router_state router_state;
+/**
+ * Surrogate definitions and data
+ */
+
+struct packet_sent {
+    struct packet_start start;
+    double next_packet_delay; // When the packet is initially sent, this value is -1, when the next packet is sent this value is updated to the actual delay to process the next packet
+    void * message_data;  // Yep, we have to save the entire message just because we might need to resend the message when switching to surrogate-mode. It's wasteful but there is no other way
+    void * remote_event_data;  // This and the one above have to be freed. This contains the extra information that the message contains
+    void * local_data;  // This and the one above have to be freed. This contains the extra information that the message contains
+};
+
+struct packet_id {
+    uint64_t packet_ID;
+    unsigned int dfdally_src_terminal_id;
+};
+bool operator<(struct packet_id const &lk, struct packet_id const &rk) {
+    return lk.packet_ID == rk.packet_ID ? lk.dfdally_src_terminal_id < rk.dfdally_src_terminal_id : lk.packet_ID < rk.packet_ID;
+}
+bool operator==(struct packet_id const &lk, struct packet_id const &rk) {
+    return lk.packet_ID == rk.packet_ID && lk.dfdally_src_terminal_id == rk.dfdally_src_terminal_id;
+}
+// Some more function declarations
+static void notify_dest_lp_of(terminal_state * s, tw_lp * lp, terminal_dally_message * msg, enum notify_t notification);
 
 /* dragonfly compute node data structure */
 struct terminal_state
 {
-    uint64_t packet_counter;
+    int64_t packet_counter;
 
     int packet_gen;
     int packet_fin;
@@ -459,15 +530,11 @@ struct terminal_state
     DragonflyConnectionManager connMan;
     tlc_state *local_congestion_controller;
 
-    map<tw_lpid, int> workload_lpid_to_app_id;
-    set<int> app_ids;
-
     int workloads_finished_flag;
 
     int** vc_occupancy; // vc_occupancies [rail_id][qos_level]
     tw_stime* terminal_available_time; // [rail_id]
-    terminal_dally_message_list ***terminal_msgs; //[rail_id][qos_level]
-    terminal_dally_message_list ***terminal_msgs_tail; //[rail_id][qos_level]
+    struct qlist_head **terminal_msgs; //[rail_id][qos_level] - quicklist heads
     int* in_send_loop; // [rail_id]
     struct mn_stats dragonfly_stats_array[CATEGORY_MAX];
 
@@ -534,6 +601,30 @@ struct terminal_state
     tw_stime fin_chunks_time_ross_sample;
     tw_stime *busy_time_ross_sample;
     struct dfly_cn_sample ross_sample;
+
+    // Variables to recover latency of packets sent to other terminals
+    // Sent packets (to be populated at by commit handler of packet sender)
+    map<uint64_t, struct packet_sent> sent_packets;
+    set<uint64_t> is_pending_local_send;
+    int64_t last_packet_sent_id;
+    // We need the next packet to be injected in the network before feeding the packet info forward (the predictor needs starting time, delay to send next packet and latency)
+    struct {
+        int64_t packet_ID;
+        double travel_end_time;
+    } arrival_of_last_packet;
+    // received (and not completed, yet) packets. The value associated to a key is the remaining number of "bytes" to receive before the packet is consumed totally. If a packet size == chunk size, this map will never be used/filled
+    map<struct packet_id, uint32_t> remaining_sz_packets;
+
+    // Stores the last time in which a packet was processed (time at which a T_GENERATE event was processed)
+    double last_in_queue_time;
+    // The predictor kicks in on surrogate mode and predicts the time a packet will take to its destination
+    void * predictor_data;
+
+    // Zombie events appear when the network traffic is displaced to the future. By then, all packets that were in the network should have been already delievered, thus zombies
+    set<struct packet_id> zombies;
+
+    // Variable to save the entire state of the terminal into before switching to surrogate mode. During surrogate-mode, the terminal should not access the state of the network
+    terminal_state * frozen_state;
 };
 
 struct router_state
@@ -558,10 +649,8 @@ struct router_state
     unsigned long* stalled_chunks; //Counter for when a packet is put into queued messages instead of routing due to full VC
     unsigned long* total_chunks; //Counter for when a packet is sent - per port
 
-    terminal_dally_message_list ***pending_msgs;
-    terminal_dally_message_list ***pending_msgs_tail;
-    terminal_dally_message_list ***queued_msgs;
-    terminal_dally_message_list ***queued_msgs_tail;
+    struct qlist_head **pending_msgs;
+    struct qlist_head **queued_msgs;
     int *in_send_loop;
     int *queued_count;
     struct rc_stack * st;
@@ -590,6 +679,13 @@ struct router_state
     
     long fwd_events;
     long rev_events;
+
+    //Xin: buffer for output data
+    char output_buf5[4096];
+    char output_buf6[4096];
+    //Xin: msg couters for apps
+    tw_stime **agg_busy_time;
+    int64_t **agg_link_traffic;
 
     /* following used for ROSS model-level stats collection */
     tw_stime* busy_time_ross_sample;
@@ -1132,6 +1228,8 @@ static tw_stime gen_noise(tw_lp *lp, short* rng_counter)
     (*rng_counter)++;
     return noise;
 #else
+    (void) lp;
+    (void) rng_counter;
     return 0;
 #endif
 }
@@ -1209,7 +1307,7 @@ static int dfdally_get_assigned_router_id_from_terminal(const dragonfly_param *p
     int num_rails = params->num_rails;
 
     int total_routers = params->total_routers;
-    int total_terminals = params->total_terminals;
+    //int total_terminals = params->total_terminals;
     int num_cn_per_router = params->num_cn;
 
     if(num_planes == 1) //then all rails go to the same router //TODO: this could change - could be cool!
@@ -1227,6 +1325,15 @@ static int dfdally_get_assigned_router_id_from_terminal(const dragonfly_param *p
         if(num_planes == num_rails)
         {
             return (term_gid / num_cn_per_router) + (rail_id * routers_per_plane);
+        }
+        // NOTE(helq): The compiler has been bothering me about the lack of a
+        // return statement here, so I added a message to something that
+        // (hopefully) will never happen.
+        else
+        {
+            tw_error(TW_LOC, "Error: this should have never happened. We couldn't "
+                    "figure out to which router does a terminal belong to :S");
+            return -1;
         }
     }
     
@@ -1449,77 +1556,228 @@ static Connection dfdally_get_best_from_k_connections(router_state *s, tw_bf *bf
     return get_absolute_best_connection_from_conns(s, bf, msg, lp, k_conns);
 }
 
-static void append_to_terminal_dally_message_list(  
-        terminal_dally_message_list ** thisq,
-        terminal_dally_message_list ** thistail,
-        int index, 
-        terminal_dally_message_list *msg) 
+static inline void append_to_qlist(struct qlist_head *head, terminal_dally_message_list *msg)
 {
-//    printf("\n msg id %d ", msg->msg.packet_ID);
-    if (thisq[index] == NULL) {
-        thisq[index] = msg;
-    } 
-    else {
-        assert(thistail[index] != NULL);
-        thistail[index]->next = msg;
-        msg->prev = thistail[index];
-    } 
-    thistail[index] = msg;
-//    printf("\n done adding %d ", msg->msg.packet_ID);
+    qlist_add_tail(&msg->list, head);
 }
 
-static void prepend_to_terminal_dally_message_list(  
-        terminal_dally_message_list ** thisq,
-        terminal_dally_message_list ** thistail,
-        int index, 
-        terminal_dally_message_list *msg) 
+static inline void prepend_to_qlist(struct qlist_head *head, terminal_dally_message_list *msg)
 {
-    if (thisq[index] == NULL) {
-        thistail[index] = msg;
-    } 
-    else {
-        thisq[index]->prev = msg;
-        msg->next = thisq[index];
-    } 
-    thisq[index] = msg;
+    qlist_add(&msg->list, head);
 }
 
-static terminal_dally_message_list* return_head(
-        terminal_dally_message_list ** thisq,
-        terminal_dally_message_list ** thistail,
-        int index) 
+// Restore old functions for router compatibility
+
+
+static void copy_terminal_dally_message_qlist(struct qlist_head *into_head, struct qlist_head *from_head)
 {
-    terminal_dally_message_list *head = thisq[index];
-    if (head != NULL) {
-        thisq[index] = head->next;
-        if(head->next != NULL) {
-            head->next->prev = NULL;
-            head->next = NULL;
-        } 
-        else {
-            thistail[index] = NULL;
+    if (qlist_empty(from_head)) {
+        return;
+    }
+
+    terminal_dally_message_list *from_entry;
+    qlist_for_each_entry(from_entry, from_head, list) {
+        terminal_dally_message_list *copy_entry = (terminal_dally_message_list *)malloc(sizeof(terminal_dally_message_list));
+
+        // Deep copy the entry
+        memcpy(copy_entry, from_entry, sizeof(terminal_dally_message_list));
+        INIT_QLIST_HEAD(&copy_entry->list);
+
+        if (from_entry->event_data != NULL) {
+            int event_data_sz = from_entry->msg.remote_event_size_bytes + from_entry->msg.local_event_size_bytes;
+            copy_entry->event_data = (char *)malloc(event_data_sz);
+            memcpy(copy_entry->event_data, from_entry->event_data, event_data_sz);
         }
+
+        append_to_qlist(into_head, copy_entry);
     }
-    return head;
 }
 
-static terminal_dally_message_list* return_tail(
-        terminal_dally_message_list ** thisq,
-        terminal_dally_message_list ** thistail,
-        int index) 
+static void clean_terminal_dally_message_qlist(struct qlist_head *head)
 {
-    terminal_dally_message_list *tail = thistail[index];
-    assert(tail);
-    if (tail->prev != NULL) {
-        tail->prev->next = NULL;
-        thistail[index] = tail->prev;
-        tail->prev = NULL;
-    } 
-    else {
-        thistail[index] = NULL;
-        thisq[index] = NULL;
+    terminal_dally_message_list *entry, *tmp;
+    qlist_for_each_entry_safe(entry, tmp, head, list) {
+        qlist_del(&entry->list);
+        if (entry->event_data != NULL) {
+            free(entry->event_data);
+        }
+        free(entry);
     }
-    return tail;
+}
+
+static bool check_terminal_dally_message_qlist(struct qlist_head *before, struct qlist_head *after)
+{
+    bool is_same = true;
+
+    // Check if both are empty
+    if (qlist_empty(before) && qlist_empty(after)) {
+        return true;
+    }
+
+    // If only one is empty, they're different
+    if (qlist_empty(before) || qlist_empty(after)) {
+        return false;
+    }
+
+    terminal_dally_message_list *entry_before, *entry_after;
+    struct qlist_head *pos_before = before->next;
+    struct qlist_head *pos_after = after->next;
+
+    while (pos_before != before && pos_after != after) {
+        entry_before = qlist_entry(pos_before, terminal_dally_message_list, list);
+        entry_after = qlist_entry(pos_after, terminal_dally_message_list, list);
+
+        is_same &= check_terminal_dally_message(&entry_before->msg, &entry_after->msg);
+        is_same &= (entry_before->event_data == NULL) == (entry_after->event_data == NULL);
+
+        if (entry_before->event_data != NULL && entry_after->event_data != NULL) {
+            int const message_size = entry_before->msg.remote_event_size_bytes + entry_before->msg.local_event_size_bytes;
+            int const message_size_after = entry_after->msg.remote_event_size_bytes + entry_after->msg.local_event_size_bytes;
+            is_same &= (message_size == message_size_after);
+            if (message_size > 0) {
+                is_same &= (memcmp(entry_before->event_data, entry_after->event_data, message_size) == 0);
+            }
+        }
+
+        pos_before = pos_before->next;
+        pos_after = pos_after->next;
+    }
+
+    // Check if both reached the end at the same time
+    is_same &= (pos_before == before) && (pos_after == after);
+
+    return is_same;
+}
+
+
+static terminal_dally_message_list* return_head_from_qlist(struct qlist_head *head)
+{
+    if (qlist_empty(head)) {
+        return NULL;
+    }
+
+    struct qlist_head *item = qlist_pop(head);
+    return qlist_entry(item, terminal_dally_message_list, list);
+}
+
+static terminal_dally_message_list* return_tail_from_qlist(struct qlist_head *head)
+{
+    if (qlist_empty(head)) {
+        return NULL;
+    }
+
+    struct qlist_head *item = qlist_pop_back(head);
+    return qlist_entry(item, terminal_dally_message_list, list);
+}
+
+
+
+static void copy_msgs_qlist(struct qlist_head *into_qlist, struct qlist_head *from_qlist) {
+    INIT_QLIST_HEAD(into_qlist);
+
+    if (qlist_empty(from_qlist)) {
+        return;
+    }
+
+    struct qlist_head *pos;
+    qlist_for_each(pos, from_qlist) {
+        terminal_dally_message_list *from_entry = qlist_entry(pos, terminal_dally_message_list, list);
+        terminal_dally_message_list *copy_entry = (terminal_dally_message_list*) malloc(sizeof(terminal_dally_message_list));
+
+        init_terminal_dally_message_list(copy_entry, &from_entry->msg);
+        if (from_entry->event_data != NULL) {
+            copy_entry->event_data = (char*) malloc(from_entry->msg.remote_event_size_bytes);
+            memcpy(copy_entry->event_data, from_entry->event_data, from_entry->msg.remote_event_size_bytes);
+        }
+
+        qlist_add_tail(&copy_entry->list, into_qlist);
+    }
+}
+
+
+
+static bool check_msgs_qlist(struct qlist_head * before, struct qlist_head * after) {
+    bool is_same = true;
+
+    if (qlist_empty(before) && qlist_empty(after)) {
+        return true;
+    }
+
+    if (qlist_empty(before) != qlist_empty(after)) {
+        return false;
+    }
+
+    struct qlist_head *pos_before = before->next;
+    struct qlist_head *pos_after = after->next;
+
+    while (pos_before != before && pos_after != after) {
+        terminal_dally_message_list *entry_before = qlist_entry(pos_before, terminal_dally_message_list, list);
+        terminal_dally_message_list *entry_after = qlist_entry(pos_after, terminal_dally_message_list, list);
+
+        is_same &= check_terminal_dally_message(&entry_before->msg, &entry_after->msg);
+        is_same &= (entry_before->event_data == NULL) == (entry_after->event_data == NULL);
+
+        int const message_size = entry_before->msg.remote_event_size_bytes + entry_before->msg.local_event_size_bytes;
+        int const message_size_after = entry_after->msg.remote_event_size_bytes + entry_after->msg.local_event_size_bytes;
+        is_same &= message_size == message_size_after;
+
+        if (is_same && entry_before->event_data != NULL) {
+            assert(message_size > 0);
+            is_same &= !memcmp(entry_before->event_data, entry_after->event_data, message_size);
+        }
+
+        pos_before = pos_before->next;
+        pos_after = pos_after->next;
+    }
+
+    // Check if both reached end
+    if (pos_before != before || pos_after != after) {
+        is_same = false; // different lengths
+    }
+
+    return is_same;
+}
+
+static void print_terminal_dally_message_qlist(FILE * out, char const * prefix, terminal_state * ns, struct qlist_head * head) {
+    if (qlist_empty(head)) {
+        return;
+    }
+
+    char addprefix_2[] = " | | ";
+    int len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_2) + 1;
+    char * subprefix = (char *) malloc(len_subprefix * sizeof(char));
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix_2);
+
+    terminal_dally_message_list * entry;
+    qlist_for_each_entry(entry, head, list) {
+        fprintf(out, "%s terminal_dally_message_list (%p) {\n", prefix, entry);
+        fprintf(out, "%s packet_ID = %llu\n", subprefix, LLU(entry->msg.packet_ID));
+        fprintf(out, "%s }\n", prefix);
+    }
+
+    free(subprefix);
+}
+
+
+static void print_msgs_qlist(FILE * out, char const * prefix, struct qlist_head * qlist) {
+    if (qlist_empty(qlist)) {
+        return;
+    }
+
+    char addprefix_2[] = " | | ";
+    int len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_2) + 1;
+    char * subprefix = (char *) malloc(len_subprefix * sizeof(char));
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix_2);
+
+    struct qlist_head *pos;
+    qlist_for_each(pos, qlist) {
+        terminal_dally_message_list *entry = qlist_entry(pos, terminal_dally_message_list, list);
+        fprintf(out, "%s qlist entry (%p) {\n", prefix, entry);
+        print_terminal_dally_message(out, subprefix, NULL, &entry->msg);
+        fprintf(out, "%s }\n", prefix);
+    }
+
+    free(subprefix);
 }
 
 static tw_stime* buff_time_storage_create(terminal_state *s)
@@ -1628,6 +1886,13 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         p->chunk_size = 512;
         if(!myRank)
             fprintf(stderr, "Chunk size for packets is specified, setting to %d\n", p->chunk_size);
+    }
+
+    rc = configuration_get_value_int(&config, "PARAMS", "packet_size", anno, &p->packet_size);
+    if(rc) {
+        p->chunk_size = 512;
+        if(!myRank)
+            fprintf(stderr, "Packet size not specificied, it is assumed to be %d\n", p->packet_size);
     }
 
     rc = configuration_get_value_double(&config, "PARAMS", "local_bandwidth", anno, &p->local_bandwidth);
@@ -1752,7 +2017,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     if (p->num_rails % p->num_planes != 0)
         tw_error(TW_LOC, "Number of rails not evenly divisible by number of planes!\n");
 
-    char rail_select_str[MAX_NAME_LENGTH];
+    char rail_select_str[MAX_NAME_LENGTH] = {'\0'};
     rc = configuration_get_value(&config, "PARAMS", "rail_select", anno, rail_select_str,
             MAX_NAME_LENGTH);
     if(strcmp(rail_select_str, "dedicated") == 0)
@@ -1777,7 +2042,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
             fprintf(stderr, "global_k_picks for global adaptive routing not specified, setting to %d\n",p->global_k_picks);
     }
 
-    char scoring_str[MAX_NAME_LENGTH];
+    char scoring_str[MAX_NAME_LENGTH] = {'\0'};
     configuration_get_value(&config, "PARAMS", "route_scoring_metric", anno, scoring_str, MAX_NAME_LENGTH);
     if (strcmp(scoring_str, "alpha") == 0) {
         scoring = ALPHA;
@@ -1809,6 +2074,24 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     
     if(p->num_qos_levels > 1)
         p->num_vcs = p->num_qos_levels * p->num_vcs;
+
+    //Xin: app msgs counting on routers
+    rc = configuration_get_value_int(&config, "PARAMS", "counting_bool", anno, &p->counting_bool);
+    if(p->counting_bool) {
+        int rc1 = configuration_get_value_double(&config, "PARAMS", "counting_start", anno, &p->counting_start);
+        int rc2 = configuration_get_value_int(&config, "PARAMS", "counting_windows", anno, &p->counting_windows);
+        int rc3 = configuration_get_value_double(&config, "PARAMS", "counting_interval", anno, &p->counting_interval);
+        int rc4 = configuration_get_value_int(&config, "PARAMS", "num_apps", anno, &p->num_apps);
+        if(rc1 || rc2 || rc3 || rc4)
+            tw_error(TW_LOC, "\n Missing couting values, (counting_start/windows/interval/num_apps) check for config files\n");
+
+        //convert us to ns
+        p->counting_start = p->counting_start * 1000;
+        p->counting_interval = p->counting_interval * 1000;
+
+        //printf("start %f, end %f, interval %f\n", p->counting_start, p->counting_end, p->counting_interval);
+    }
+
 
     rc = configuration_get_value_int(&config, "PARAMS", "num_groups", anno, &p->num_groups);
     if(rc) {
@@ -1854,7 +2137,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
 
     // read intra group connections, store from a router's perspective
     // all links to the same router form a vector
-    char intraFile[MAX_NAME_LENGTH];
+    char intraFile[MAX_NAME_LENGTH] = {'\0'};
     configuration_get_value(&config, "PARAMS", "intra-group-connections", 
         anno, intraFile, MAX_NAME_LENGTH);
     if (strlen(intraFile) <= 0) {
@@ -1911,7 +2194,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
 
     // read inter group connections, store from a router's perspective
     // also create a group level table that tells all the connecting routers
-    char interFile[MAX_NAME_LENGTH];
+    char interFile[MAX_NAME_LENGTH] = {'\0'};
     configuration_get_value(&config, "PARAMS", "inter-group-connections", 
         anno, interFile, MAX_NAME_LENGTH);
     if(strlen(interFile) <= 0) {
@@ -1976,7 +2259,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
 
 
     //read link failure file
-    char failureFileName[MAX_NAME_LENGTH];   
+    char failureFileName[MAX_NAME_LENGTH] = {'\0'};
     failureFileName[0] = '\0';
 
     if (strlen(g_nm_link_failure_filepath) == 0) //was this defined already via a command line argument?
@@ -2152,6 +2435,93 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     }
     // END CONGESTION CONTROL
 
+    // Router buffer occupancy configuration
+    if (OUTPUT_SNAPSHOT) {
+        char **timestamps;
+        size_t len;
+        configuration_get_multivalue(&config, "PARAMS", "router_buffer_snapshots", anno, &timestamps, &len);
+        if (len) {
+            assert(timestamps != NULL);
+            num_snapshots = len;
+            snapshot_times = (tw_stime*) malloc(len * sizeof(tw_stime));
+
+            for (size_t i = 0; i < len; i++) {
+                errno = 0;
+                snapshot_times[i] = strtod(timestamps[i], NULL);
+                if (errno == ERANGE || errno == EILSEQ){
+                    tw_error(TW_LOC, "Sequence `%s' could not be succesfully interpreted as a _double_.", timestamps[i]);
+                }
+            }
+
+            if(!myRank) {
+                fprintf(stderr, "\nRouter snaptshots activated for timestamps = ");
+                for (size_t i = 0; i < len; i++) {
+                    fprintf(stderr, "%g%s", snapshot_times[i], i == len-1 ? "" : ", ");
+                }
+                fprintf(stderr, "\n");
+            }
+
+            // freeing some memory
+            for (size_t i = 0; i < len; i++) {
+                free(timestamps[i]);
+            }
+            free(timestamps);
+        }
+    }
+
+    // Packet latency path to store configuration
+    char packet_latency_path[MAX_NAME_LENGTH];
+    packet_latency_path[0] = '\0';
+    configuration_get_value(&config, "PARAMS", "save_packet_latency_path", anno, packet_latency_path, MAX_NAME_LENGTH);
+    if(strlen(packet_latency_path) > 0) {
+        setup_packet_latency_path(packet_latency_path);
+    }
+
+    // START Surrogate configuration
+    char enable_str[MAX_NAME_LENGTH];
+    enable_str[0] = '\0';
+    int const rc_enable = configuration_get_value(&config, "NETWORK_SURROGATE", "enable", anno, enable_str, MAX_NAME_LENGTH);
+    bool enable_network_surrogate = false;
+    if (rc_enable > 0) {
+        enable_network_surrogate = (strcmp(enable_str, "1") == 0 || strcmp(enable_str, "true") == 0);
+    }
+    // if surrogate mode has been set up
+    if (enable_network_surrogate) {
+        struct network_surrogate_config surr_conf = {
+            .model = {.switch_surrogate = switch_surrogate, .is_surrogate_on = is_surrogate_on_fun},
+            .total_terminals = p->total_terminals,
+            .n_lp_types = 2,
+            .lp_types = {
+                {.lpname = "modelnet_dragonfly_dally",
+                 .trigger_idle_modelnet = true,
+                 .highdef_to_surrogate = (model_switch_f) dragonfly_dally_terminal_highdef_to_surrogate,
+                 .surrogate_to_highdef = (model_switch_f) dragonfly_dally_terminal_surrogate_to_highdef,
+                 .should_event_be_frozen = dragonfly_dally_terminal_should_event_be_frozen,
+                 .should_event_be_deleted = NULL,
+                 .check_event_in_queue = (model_check_event_f) dragonfly_dally_terminal_pre_surrogate_switch_event_queue,
+                 .reset_predictor = (model_switch_f) dragonfly_dally_terminal_reset_predictor,
+                },
+                {.lpname = "modelnet_dragonfly_dally_router",
+                 .trigger_idle_modelnet = false,
+                 .highdef_to_surrogate = NULL,
+                 .surrogate_to_highdef = NULL,
+                 .should_event_be_frozen = dragonfly_dally_router_should_event_be_frozen,
+                 .should_event_be_deleted = NULL,
+                 .check_event_in_queue = NULL,
+                 .reset_predictor = NULL,
+                },
+                0
+            }
+        };
+        freeze_network_on_switch = network_surrogate_configure(anno, &surr_conf, &terminal_predictor);
+        if (terminal_predictor) {
+            dally_surrogate_configured = true;
+        } else {
+            tw_error(TW_LOC, "Latency predictor is NULL. Something during surrogate configuration failed.");
+        }
+    }
+    // END Surrogate configuration
+
     if (PRINT_CONFIG && !myRank) {
         dragonfly_print_params(p,stderr);
     }
@@ -2175,6 +2545,33 @@ void dragonfly_dally_configure() {
 #ifdef ENABLE_CORTEX
 	model_net_topology = dragonfly_dally_cortex_topology;
 #endif
+
+}
+
+static void setup_packet_latency_path(char const * const dir_to_save) {
+    assert(packet_latency_f == NULL);
+    // checking 
+    int const NO_ERROR = 0;
+    struct stat st;
+    memset(&st, 0, sizeof(struct stat));
+    if(g_tw_mynode == 0 && stat(dir_to_save, &st) == -1) {
+        int res = mkdir(dir_to_save, 0700);
+        if (res != NO_ERROR) {
+            tw_error(TW_LOC, "Error (%d) occurred when attempting to mkdir folder `%s`", errno, dir_to_save);
+        }
+    }
+    MPI_Barrier(MPI_COMM_CODES);
+
+    char const fmt[] = "%s/packets-delay-gid=%lu.txt";
+    int sz = snprintf(NULL, 0, fmt, dir_to_save, g_tw_mynode);
+    char filename_path[sz + 1]; // `+ 1` for terminating null byte
+    snprintf(filename_path, sizeof(filename_path), fmt, dir_to_save, g_tw_mynode);
+    packet_latency_f = fopen(filename_path, "w+");
+    if(!packet_latency_f) {
+        tw_error(TW_LOC, "File %s could not be opened", filename_path);
+    }
+
+    fprintf(packet_latency_f, "#src_terminal,dest_terminal,packet_id,is_surrogate_on,is_predicted,size,workload_injection,next_packet_delay,start,end,latency,is_there_another_pckt_in_queue\n");
 }
 
 /* report dragonfly statistics like average and maximum packet latency, average number of hops traversed */
@@ -2209,6 +2606,9 @@ void dragonfly_dally_report_stats()
     // long long total_stalled_chunks; //helpful for debugging and determinism checking
     // MPI_Reduce( &global_stalled_chunk_counter, &total_stalled_chunks, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
 
+    if (packet_latency_f) {
+        fclose(packet_latency_f);
+    }
     /* print statistics */
     if(!g_tw_mynode)
     {	
@@ -2278,7 +2678,7 @@ static void dragonfly_dally_router_congestion_event_commit(router_state *s, tw_b
     cc_router_local_congestion_event_commit(s->local_congestion_controller, bf, msg, lp);
 }
 
-int get_vcg_from_category(terminal_dally_message * msg)
+static int get_vcg_from_category(terminal_dally_message * msg)
 {
    if(strcmp(msg->category, "high") == 0)
        return Q_HIGH;
@@ -2331,7 +2731,7 @@ static int get_rtr_bandwidth_consumption(router_state * s, int qos_lvl, int outp
     return percent_bw;
 }
 
-void issue_bw_monitor_event_rc(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
+static void issue_bw_monitor_event_rc(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
 {
     int num_qos_levels = s->params->num_qos_levels;
     int num_rails = s->params->num_rails;
@@ -2355,7 +2755,7 @@ void issue_bw_monitor_event_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     
 }
 /* resets the bandwidth numbers recorded so far */
-void issue_bw_monitor_event(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
+static void issue_bw_monitor_event(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
 {
     int num_qos_levels = s->params->num_qos_levels;
     int num_rails = s->params->num_rails;
@@ -2399,7 +2799,7 @@ void issue_bw_monitor_event(terminal_state * s, tw_bf * bf, terminal_dally_messa
     }
 }
 
-void issue_rtr_bw_monitor_event_rc(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp)
+static void issue_rtr_bw_monitor_event_rc(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp)
 {
     int radix = s->params->radix;
     int num_qos_levels = s->params->num_qos_levels;
@@ -2420,7 +2820,8 @@ void issue_rtr_bw_monitor_event_rc(router_state *s, tw_bf *bf, terminal_dally_me
         msg->rc_is_qos_set = 0;
     }
 }
-void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp)
+
+static void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp)
 {
     int radix = s->params->radix;
     int num_qos_levels = s->params->num_qos_levels;
@@ -2491,7 +2892,7 @@ static int get_next_vcg(terminal_state * s, tw_bf * bf, terminal_dally_message *
     
     if(num_qos_levels == 1)
     {
-        if(s->terminal_msgs[msg->rail_id][0] == NULL || s->vc_occupancy[msg->rail_id][0] + s->params->chunk_size > s->params->cn_vc_size)
+        if(qlist_empty(&s->terminal_msgs[msg->rail_id][0]) || s->vc_occupancy[msg->rail_id][0] + s->params->chunk_size > s->params->cn_vc_size)
             return -1;
         else
             return 0;
@@ -2524,7 +2925,7 @@ static int get_next_vcg(terminal_state * s, tw_bf * bf, terminal_dally_message *
         {
             if(s->qos_status[msg->rail_id][i] == Q_ACTIVE)
             {
-                if(s->terminal_msgs[msg->rail_id][i] != NULL && s->vc_occupancy[msg->rail_id][i] + s->params->chunk_size <= s->params->cn_vc_size)
+                if(!qlist_empty(&s->terminal_msgs[msg->rail_id][i]) && s->vc_occupancy[msg->rail_id][i] + s->params->chunk_size <= s->params->cn_vc_size)
                     return i;
             }
         }
@@ -2535,7 +2936,7 @@ static int get_next_vcg(terminal_state * s, tw_bf * bf, terminal_dally_message *
     /* All vcgs are exceeding their bandwidth limits*/
     for(int i = 0; i < num_qos_levels; i++)
     {
-        if(s->terminal_msgs[msg->rail_id][i] != NULL && s->vc_occupancy[msg->rail_id][i] + s->params->chunk_size <= s->params->cn_vc_size)
+        if(!qlist_empty(&s->terminal_msgs[msg->rail_id][i]) && s->vc_occupancy[msg->rail_id][i] + s->params->chunk_size <= s->params->cn_vc_size)
         {
             bf->c2 = 1;
             
@@ -2562,7 +2963,7 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
     int chunk_size = s->params->chunk_size;
     int bw_consumption[num_qos_levels];
     /* First make sure the bandwidth consumptions are up to date. */
-    if(BW_MONITOR == 1)
+    if(BW_MONITOR == 1 && num_qos_levels > 1)
     {
         for(int k = 0; k < num_qos_levels; k++)
         {
@@ -2594,7 +2995,7 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
                 int base_limit = i * vcs_per_qos;
                 for(int k = base_limit; k < base_limit + vcs_per_qos; k ++)
                 {
-                    if(s->pending_msgs[output_port][k] != NULL)
+                    if(!qlist_empty(&s->pending_msgs[output_port][k]))
                         return k;
                 }
             }
@@ -2602,35 +3003,319 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
     }
         
     /* All vcgs are exceeding their bandwidth limits*/
-    msg->last_saved_qos = s->last_qos_lvl[output_port];
-    int next_rr_vcg = (s->last_qos_lvl[output_port] + 1) % num_qos_levels;
+    msg->last_saved_qos = s->last_qos_lvl[output_port]; // last_qos_lvl stores a vc# not a qos# for routers. Terminals store qos#
+    //int next_rr_vcg = (s->last_qos_lvl[output_port] + 1) % num_qos_levels;
+    int next_rr_vc = (s->last_qos_lvl[output_port] + 1) % s->params->num_vcs;
 
-    for(int i = 0; i < num_qos_levels; i++)
+    for(int i = 0; i < s->params->num_vcs; i++)
     {
-        base_limit = next_rr_vcg * vcs_per_qos; 
-        for(int k = base_limit; k < base_limit + vcs_per_qos; k++)
+        if(!qlist_empty(&s->pending_msgs[output_port][next_rr_vc]))
         {
-            if(s->pending_msgs[output_port][k] != NULL)
-            {
-                if(msg->last_saved_qos < 0)
-                    msg->last_saved_qos = s->last_qos_lvl[output_port]; 
-
-                s->last_qos_lvl[output_port] = next_rr_vcg;
-                return k;
-            }
+            s->last_qos_lvl[output_port] = next_rr_vc;
+            return next_rr_vc;
         }
-        next_rr_vcg = (next_rr_vcg + 1) % num_qos_levels;
-        assert(next_rr_vcg < 2);
+        next_rr_vc = (next_rr_vc + 1) % s->params->num_vcs;
     }
     return -1;
 }
+
+static inline void packet_latency_save_to_file(
+        unsigned int terminal_id,
+        struct packet_start * start,
+        struct packet_end * end,
+        bool surrogate_on,
+        bool is_predicted
+) {
+    if (!packet_latency_f) { return; } // Don't save if there isn't a file to save to
+    if (end->travel_end_time > g_tw_ts_end) { return; } // This packet could never arrive to its destination!
+    fprintf(packet_latency_f, "%u,%u,%lu,%d,%d,%u,%f,%f,%f,%f,%f,%d\n",
+            terminal_id, start->dfdally_dest_terminal_id, start->packet_ID,
+            surrogate_on, is_predicted, start->packet_size,
+            start->workload_injection_time,
+            end->next_packet_delay, start->travel_start_time,
+            end->travel_end_time, end->travel_end_time - start->travel_start_time,
+            start->is_there_another_pckt_in_queue);
+}
+
+// ==== START OF Surrogate functions definition ====
+
+static void switch_surrogate(void) {
+    is_dally_surrogate_on = ! is_dally_surrogate_on;
+}
+
+static bool is_surrogate_on_fun(void) {
+    return is_dally_surrogate_on;
+}
+
+static void feed_packet_to_predictor(terminal_state * s, tw_lp * lp, uint64_t packet_ID, double end_time) {
+    assert(s->sent_packets.count(packet_ID) == 1); // packet_ID is in s->sent_packets
+    auto sent = s->sent_packets[packet_ID];
+    struct packet_end end = {
+        .travel_end_time = end_time,
+        .next_packet_delay = sent.next_packet_delay,
+    };
+
+    packet_latency_save_to_file(s->terminal_id, &sent.start, &end, is_dally_surrogate_on, false);
+    if (dally_surrogate_configured && !is_dally_surrogate_on) {
+        assert(terminal_predictor != NULL);
+        terminal_predictor->feed(s->predictor_data, lp, s->terminal_id, &sent.start, &end);
+    }
+
+    // Deallocating memory
+    if (sent.message_data) {
+        free(sent.message_data);
+    }
+    if (sent.remote_event_data) {
+        free(sent.remote_event_data);
+    }
+    if (sent.local_data) {
+        free(sent.local_data);
+    }
+}
+
+// We check an event that is in the event queue, thus we do not process it yet
+static void dragonfly_dally_terminal_pre_surrogate_switch_event_queue(
+    terminal_state * s, tw_lp * lp, tw_event * event) {
+    int const event_type = model_net_get_event_type_lp((model_net_wrap_msg *) tw_event_data(event));
+    // if event is T_NOTIFY, add event relevant data into hash map for T_NOTIFY event
+    if (event_type == MN_BASE_PASS) {
+        terminal_dally_message * msg = (terminal_dally_message *)
+            model_net_method_msg_from_tw_event(lp, (model_net_wrap_msg *) tw_event_data(event));
+        assert(msg != NULL);
+        if (msg->type == T_NOTIFY) {
+            assert(msg->notify_type == NOTIFY_LATENCY);
+            feed_packet_to_predictor(s, lp, msg->packet_ID, msg->travel_end_time);
+            s->sent_packets.erase(msg->packet_ID);
+        }
+    }
+}
+
+static void dragonfly_dally_terminal_reset_predictor(terminal_state * s, tw_lp * lp, void * vacuous) {
+    (void) vacuous;
+    if (terminal_predictor != NULL && s->predictor_data != NULL) {
+        terminal_predictor->reset(s->predictor_data, lp);
+    }
+}
+
+// This function never rollsback because it's called at GVT
+static void dragonfly_dally_terminal_highdef_to_surrogate(
+        terminal_state * s, tw_lp * lp, tw_event ** terminal_events) {
+    (void) terminal_events;
+
+    if (s->arrival_of_last_packet.packet_ID != -1) {
+        assert(s->sent_packets.count(s->arrival_of_last_packet.packet_ID) == 1); // packet_ID is in s->sent_packets
+        assert(s->sent_packets[s->arrival_of_last_packet.packet_ID].next_packet_delay < 0); // next_packet_delay is -1
+
+        double const travel_end_time = s->arrival_of_last_packet.travel_end_time;
+        feed_packet_to_predictor(s, lp, s->arrival_of_last_packet.packet_ID, travel_end_time);
+        s->sent_packets.erase(s->arrival_of_last_packet.packet_ID);
+        s->arrival_of_last_packet.packet_ID = -1;
+    }
+
+    // Going through every packet that was sent but not yet received, remove it
+    // from the list, send it to its destination using the predictor, and
+    // notify of its zombie status.
+    // (deleting all elements from s->sent_packets as we go)
+    for (auto it = s->sent_packets.begin(); it != s->sent_packets.end(); it = s->sent_packets.erase(it)) {
+        uint64_t packet_ID = it->first;
+        auto & sent = it->second;
+
+        assert(packet_ID == sent.start.packet_ID);
+
+        // The packet has not been delievered. Send directly to destination and notify of zombie event
+        if (freeze_network_on_switch) {
+            struct packet_end predicted_end = 
+                terminal_predictor->predict(s->predictor_data, lp, s->terminal_id, &sent.start);
+
+            double latency = predicted_end.travel_end_time - tw_now(lp);
+            if (predicted_end.travel_end_time < tw_now(lp) || latency < 0) {
+                predicted_end.travel_end_time = tw_now(lp);
+                latency = 0;
+            }
+
+            packet_latency_save_to_file(s->terminal_id, &sent.start, &predicted_end, is_dally_surrogate_on, true);
+
+            assert(sent.message_data);
+            terminal_dally_message * const msg_data = (terminal_dally_message*) sent.message_data;
+            terminal_dally_message * m;
+            void * remote_event;
+            tw_event * const e = model_net_method_event_new(
+                    sent.start.dest_terminal_lpid, latency, lp, DRAGONFLY_DALLY, (void**)&m, &remote_event);
+            memcpy(m, msg_data, sizeof(terminal_dally_message));
+            if (m->remote_event_size_bytes) {
+                memcpy(remote_event, sent.remote_event_data, m->remote_event_size_bytes);
+            }
+            m->magic = terminal_magic_num;
+            m->type = T_ARRIVE_PREDICTED;
+            m->src_terminal_id = lp->gid;
+            //m->travel_start_time = tw_now(lp);
+            //m->rail_id = msg->rail_id;
+            //m->vc_index = vcg;
+            //m->last_hop = TERMINAL;
+            m->path_type = -1;
+            m->local_event_size_bytes = 0;
+            m->is_intm_visited = 0;
+            m->intm_grp_id = -1;
+            m->intm_rtr_id = -1; //for legacy prog-adaptive
+            assert(m->dfdally_src_terminal_id  == s->terminal_id);
+            assert(m->packet_ID                == sent.start.packet_ID);
+            assert(m->dest_terminal_lpid       == sent.start.dest_terminal_lpid);
+            assert(m->dfdally_dest_terminal_id == sent.start.dfdally_dest_terminal_id);
+            //assert(m->travel_start_time        >= sent.start.travel_start_time);
+            assert(m->packet_size              == sent.start.packet_size);
+            tw_event_send(e);
+
+            //printf("NOTIFYING of zombie: packet dest id %d dest gid %d\n", sent.start.dest_terminal_lpid, sent.start.dfdally_dest_terminal_id);
+            notify_dest_lp_of(s, lp, msg_data, NOTIFY_ZOMBIE);
+
+            if (s->is_pending_local_send.count(packet_ID) == 1) {
+                assert(sent.local_data);
+                assert(msg_data->local_event_size_bytes);
+                double const local_ts = 11;
+                tw_event *e_new = tw_event_new(msg_data->sender_lp, local_ts, lp);
+                void * m_new = tw_event_data(e_new);
+                memcpy(m_new, sent.local_data, msg_data->local_event_size_bytes);
+                tw_event_send(e_new);
+                s->is_pending_local_send.erase(packet_ID);
+            }
+
+            // Deallocating memory from packet_start
+            if (sent.message_data) {
+                free(sent.message_data);
+            }
+            if (sent.remote_event_data) {
+                free(sent.remote_event_data);
+            }
+            if (sent.local_data) {
+                free(sent.local_data);
+            }
+        }
+    }
+    assert(s->sent_packets.empty());
+    assert(s->is_pending_local_send.empty());
+
+    // Hide current state and clean current state. Hidding the network information is in principle
+    // the same as freezing the state of the network.
+    assert(s->frozen_state == NULL);
+    terminal_state * frozen_state = (terminal_state*) malloc(sizeof(terminal_state));
+    memcpy(frozen_state, s, sizeof(terminal_state));
+    memset(s, 0, sizeof(terminal_state));
+    for (size_t i = 0; i < CATEGORY_MAX; i++) {
+        s->dragonfly_stats_array[i] = frozen_state->dragonfly_stats_array[i];
+    }
+    s->packet_gen                   = frozen_state->packet_gen;
+    s->total_gen_size               = frozen_state->total_gen_size;
+    s->params                       = frozen_state->params;
+    s->packet_counter               = frozen_state->packet_counter;
+    s->local_congestion_controller  = frozen_state->local_congestion_controller;
+    s->last_in_queue_time           = frozen_state->last_in_queue_time;
+    s->predictor_data               = frozen_state->predictor_data;
+    s->terminal_id                  = frozen_state->terminal_id;
+    s->packet_fin                   = frozen_state->packet_fin;
+    s->finished_packets             = frozen_state->finished_packets;
+    s->data_size_sample             = frozen_state->data_size_sample;
+    s->ross_sample.data_size_sample = frozen_state->ross_sample.data_size_sample;
+    s->data_size_ross_sample        = frozen_state->data_size_ross_sample;
+    s->total_msg_size               = frozen_state->total_msg_size;
+    s->finished_msgs                = frozen_state->finished_msgs;
+    s->rank_tbl_pop                 = frozen_state->rank_tbl_pop;
+    s->last_packet_sent_id          = frozen_state->last_packet_sent_id;
+    s->rank_tbl                     = frozen_state->rank_tbl;
+    s->st                           = frozen_state->st;
+    memcpy(&s->arrival_of_last_packet, &frozen_state->arrival_of_last_packet, sizeof(s->arrival_of_last_packet));
+    memcpy(&s->zombies,              &frozen_state->zombies,              sizeof(s->zombies));
+    memcpy(&s->sent_packets,         &frozen_state->sent_packets,         sizeof(s->sent_packets));
+    memcpy(&s->is_pending_local_send, &frozen_state->is_pending_local_send, sizeof(s->is_pending_local_send));
+    memcpy(&s->remaining_sz_packets, &frozen_state->remaining_sz_packets, sizeof(s->remaining_sz_packets));
+
+    s->frozen_state = frozen_state;
+};
+
+// This function never rollsback because it's called at GVT
+// Note: this function CANNOT generate any events, because it is to be used in `dragonfly_dally_terminal_final` too
+static void dragonfly_dally_terminal_surrogate_to_highdef(
+        terminal_state * s, tw_lp * lp, tw_event ** terminal_events) {
+    (void) lp;
+    (void) terminal_events;
+    //printf("Terminal %d (PID: %d) switching back to high-def at %e\n", s->terminal_id, lp->gid, tw_now(lp));
+
+    // Re-instanciating pre-transition (before surrogate was turned on) terminal state
+    assert(s->frozen_state != NULL);
+    terminal_state * frozen_state = s->frozen_state;
+    for (size_t i = 0; i < CATEGORY_MAX; i++) {
+        frozen_state->dragonfly_stats_array[i] = s->dragonfly_stats_array[i];
+    }
+    frozen_state->packet_gen                   = s->packet_gen;
+    frozen_state->total_gen_size               = s->total_gen_size;
+    frozen_state->params                       = s->params;
+    frozen_state->packet_counter               = s->packet_counter;
+    frozen_state->local_congestion_controller  = s->local_congestion_controller;
+    frozen_state->last_in_queue_time           = s->last_in_queue_time;
+    frozen_state->predictor_data               = s->predictor_data;
+    frozen_state->terminal_id                  = s->terminal_id;
+    frozen_state->packet_fin                   = s->packet_fin;
+    frozen_state->finished_packets             = s->finished_packets;
+    frozen_state->data_size_sample             = s->data_size_sample;
+    frozen_state->ross_sample.data_size_sample = s->ross_sample.data_size_sample;
+    frozen_state->data_size_ross_sample        = s->data_size_ross_sample;
+    frozen_state->total_msg_size               = s->total_msg_size;
+    frozen_state->finished_msgs                = s->finished_msgs;
+    frozen_state->rank_tbl_pop                 = s->rank_tbl_pop;
+    frozen_state->last_packet_sent_id          = s->last_packet_sent_id;
+    frozen_state->rank_tbl                     = s->rank_tbl;
+    frozen_state->st                           = s->st;
+    memcpy(&frozen_state->arrival_of_last_packet, &s->arrival_of_last_packet, sizeof(s->arrival_of_last_packet));
+    memcpy(&frozen_state->zombies,              &s->zombies,              sizeof(s->zombies));
+    memcpy(&frozen_state->sent_packets,         &s->sent_packets,         sizeof(s->sent_packets));
+    memcpy(&frozen_state->is_pending_local_send, &s->is_pending_local_send, sizeof(s->is_pending_local_send));
+    memcpy(&frozen_state->remaining_sz_packets, &s->remaining_sz_packets, sizeof(s->remaining_sz_packets));
+    memcpy(s, frozen_state, sizeof(terminal_state));
+    memset(frozen_state, 0, sizeof(terminal_state));
+    free(frozen_state);
+    assert(s->frozen_state == NULL);
+};
+
+static bool dragonfly_dally_terminal_should_event_be_frozen(tw_lp * lp, tw_event * event) {
+    (void) lp;
+    assert(lp->gid == event->dest_lpid);
+    // Freeze everything except for MN_BASE_NEW_MSG's
+    int const event_types_to_freeze = MN_BASE_SCHED_NEXT | MN_BASE_SAMPLE | MN_BASE_PASS | MN_BASE_END_NOTIF | MN_CONGESTION_EVENT;
+    int const event_type = model_net_get_event_type_lp((model_net_wrap_msg *) tw_event_data(event));
+    if (event_type & event_types_to_freeze) { // Finding out whether current event type is one of freeze types
+        return true;
+    }
+    return false;
+}
+
+// Freezing all events except for R_SNAPSHOT's!!
+static bool dragonfly_dally_router_should_event_be_frozen(tw_lp * lp, tw_event * event) {
+    assert(lp->gid == event->dest_lpid);
+    // Freeze everything except for MN_BASE_PASS!
+    int const event_types_to_freeze = MN_BASE_NEW_MSG | MN_BASE_SCHED_NEXT | MN_BASE_SAMPLE | MN_BASE_END_NOTIF | MN_CONGESTION_EVENT;
+    int const event_type = model_net_get_event_type_lp((model_net_wrap_msg *) tw_event_data(event));
+    if (event_type & event_types_to_freeze) { // Finding out whether current event type is one of freeze types
+        return true;
+    }
+
+    // Ignore (ie, do not freeze) R_SNAPSHOT's!
+    assert(event_type == MN_BASE_PASS);
+    terminal_dally_message * msg = (terminal_dally_message *) model_net_method_msg_from_tw_event(lp, (model_net_wrap_msg *) tw_event_data(event));
+    assert(msg != NULL);
+    if (msg->type == R_SNAPSHOT) { // Snapshots will stay unaltered, never frozen
+        return false;
+    }
+
+    return true;
+}
+//
+// ==== END OF Surrogate functions definition ====
 
 //Snapshot pattern
 //Sends a snapshot event - this wakes the router at the specified time to store its data somewhere
 //this storage place could be in the event or elsewehre so long as the data is over-writeable
 //in case the event gets rolled back and replayed.
 //On commit of the snapshot event, the commit function looks where the data was stored and outputs to lpio
-void router_send_snapshot_events(router_state *s, tw_lp *lp)
+static void router_send_snapshot_events(router_state *s, tw_lp *lp)
 {
     int len = sprintf(snapshot_filename, "dragonfly-snapshots.csv");
     snapshot_filename[len] = '\0';
@@ -2638,11 +3323,33 @@ void router_send_snapshot_events(router_state *s, tw_lp *lp)
     {
         if (OUTPUT_SNAPSHOT)
         {
-            char snapshot_line[1024];
-            int written;
+            // Finding size of snapshot line
+            int line_sz = 28;  // This is the size of '#Time of snapshot,Router ID,'
+            for (int i = 0, j = 0; i < s->params->radix; ) {
+                int sz = snprintf(NULL, 0, "Port %d VC %d,", i, j);
+                line_sz += sz;
 
-            written = sprintf(snapshot_line, "#Time of snapshot, Router ID, Port 0 VC 0, Port 0 VC 1 ... Port N VC M\n#Radix = %d  Num VCs = %d\n",s->params->radix, s->params->num_vcs);
-            lp_io_write(lp->gid, snapshot_filename, written, snapshot_line);
+                j++;
+                if(j >= s->params->num_vcs) { i++; j = 0; }
+            }
+
+            // Creating snapshot line
+            char snapshot_line[line_sz + 1];  // extra space for '\0'
+            int offset = 28;
+            snprintf(snapshot_line, sizeof(snapshot_line), "#Time of snapshot,Router ID,");
+            for (int i = 0, j = 0; i < s->params->radix; ) {
+                int sz = snprintf(snapshot_line + offset, sizeof(snapshot_line) - offset, "Port %d VC %d,", i, j);
+                offset += sz;
+
+                j++;
+                if(j >= s->params->num_vcs) { i++; j = 0; }
+            }
+            assert(line_sz == offset);
+            snapshot_line[line_sz - 1] = '\n';  // replacing last ',' for '\n'
+            snapshot_line[line_sz] = '\0';  // just in case it's treated as a null terminating string
+
+            // "Saving" snapshot line
+            lp_io_write(lp->gid, snapshot_filename, line_sz, snapshot_line);
         }
     }
 
@@ -2659,8 +3366,13 @@ void router_send_snapshot_events(router_state *s, tw_lp *lp)
     // printf("%d: sending snapshot events\n",s->router_id);
 }
 
-void router_handle_snapshot_event(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp)
+static void router_handle_snapshot_event(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp)
 {
+    if (msg->packet_ID >= num_snapshots) {
+        fprintf(stderr, "Warning: packet_ID = %llu will not be saved in the snapshot because there are only %d spaces available.\n", msg->packet_ID, num_snapshots);
+        return;
+    }
+
     for(int i = 0; i < s->params->radix; i++)
     {
         for(int j = 0; j < s->params->num_vcs; j++)
@@ -2673,41 +3385,192 @@ void router_handle_snapshot_event(router_state *s, tw_bf *bf, terminal_dally_mes
     }
 }
 
-void terminal_dally_commit(terminal_state * s,
+static void terminal_commit_packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) {
+    if (!packet_latency_f && !dally_surrogate_configured) {
+        return;
+    }
+
+    // Storing packet info of sent packet. Once packets arrive back, we can compute
+    // the latency of sending the packet
+    void * msg_data = malloc(sizeof(terminal_dally_message));
+    memcpy(msg_data, msg, sizeof(terminal_dally_message));
+    void * remote_data = NULL;
+    if (msg->remote_event_size_bytes) {
+        remote_data = malloc(msg->remote_event_size_bytes);
+        memcpy(remote_data, model_net_method_get_edata(DRAGONFLY_DALLY, msg), msg->remote_event_size_bytes);
+    }
+    void * local_data = NULL;
+    if (msg->local_event_size_bytes) {
+        local_data = malloc(msg->local_event_size_bytes);
+        memcpy(local_data, (char *) model_net_method_get_edata(DRAGONFLY_DALLY, msg) + msg->remote_event_size_bytes, msg->local_event_size_bytes);
+    }
+    double const processing_packet_delay = msg->saved_next_packet_delay;
+
+    // TODO (elkin): In the future, this ugly initialization could be done all in a single "line" instead of setting all values one by one. The reason to do it this way is because some old compilers do not understand other ways of initializing
+    struct packet_sent sent;
+    sent.start.packet_ID = msg->packet_ID;
+    sent.start.dest_terminal_lpid = msg->dest_terminal_lpid;
+    sent.start.dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id;
+    sent.start.travel_start_time = msg->saved_processing_time;
+    sent.start.workload_injection_time = msg->msg_start_time;
+    sent.start.processing_packet_delay = processing_packet_delay;
+    sent.start.packet_size = msg->packet_size;
+    sent.start.is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue;
+    sent.next_packet_delay = -1;
+    sent.message_data = msg_data;
+    sent.remote_event_data = remote_data;
+    sent.local_data = local_data;
+
+    s->sent_packets[msg->packet_ID] = sent;
+    if (freeze_network_on_switch && msg->local_event_size_bytes > 0) {
+        s->is_pending_local_send.insert(msg->packet_ID);
+    }
+
+    // Set next_packet_delay for the last past sent packet
+    if (s->sent_packets.count(s->last_packet_sent_id) == 1) {
+        assert(s->sent_packets[s->last_packet_sent_id].next_packet_delay == -1);
+        s->sent_packets[s->last_packet_sent_id].next_packet_delay = processing_packet_delay;
+    }
+    
+    // If we already received the (previous) last packet latency, we inject it now into the predictor
+    if (s->arrival_of_last_packet.packet_ID != -1) {
+        assert(s->arrival_of_last_packet.packet_ID == s->last_packet_sent_id);
+        assert(s->arrival_of_last_packet.travel_end_time > 0);
+
+        double const travel_end_time = s->arrival_of_last_packet.travel_end_time;
+        feed_packet_to_predictor(s, lp, s->arrival_of_last_packet.packet_ID, travel_end_time);
+        s->sent_packets.erase(s->arrival_of_last_packet.packet_ID);
+        s->arrival_of_last_packet.packet_ID = -1;
+    }
+}
+
+static void terminal_dally_commit(terminal_state * s,
 		tw_bf * bf, 
 		terminal_dally_message * msg, 
         tw_lp * lp)
 {
-    if(msg->type == T_BANDWIDTH)
-    {
-        if(msg->rc_is_qos_set == 1) {
-            free(msg->rc_qos_data);
-            free(msg->rc_qos_status);
-            msg->rc_is_qos_set = 0;
-        }
-    }
 
-    if(msg->type == T_ARRIVE)
-    {
-        if (OUTPUT_END_END_LATENCIES)
-        {
-            if (msg->message_id % OUTPUT_LATENCY_MODULO == 0) {
-                int written1;
-                char end_end_filename[128];
-                written1 = sprintf(end_end_filename, "end-to-end-latency-hops");
-                end_end_filename[written1] = '\0';
+    switch (msg->type) {
+        case T_GENERATE:
+            if(bf->c10) {  // if the packet was sent as a prediction, store the prediction in memory
+                assert(dally_surrogate_configured);
+                auto start = (struct packet_start) {
+                    .packet_ID = msg->packet_ID,
+                    .dest_terminal_lpid = msg->dest_terminal_lpid,
+                    .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
+                    .travel_start_time = msg->travel_start_time,
+                    .workload_injection_time = msg->msg_start_time,
+                    .processing_packet_delay = -1,
+                    .packet_size = msg->packet_size,
+                    .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue
+                };
 
-                char latency[32];
-                int written;
-                tw_stime lat = msg->travel_end_time-msg->travel_start_time;
-                written = sprintf(latency, "%d %.5f %d\n",msg->app_id, msg->travel_end_time-msg->travel_start_time,msg->my_N_hop);
-                lp_io_write(lp->gid, end_end_filename, written, latency);
+                // Saving
+                auto end = (struct packet_end) {
+                    .travel_end_time = msg->travel_end_time,
+                    .next_packet_delay = msg->saved_next_packet_delay,
+                };
+                packet_latency_save_to_file(s->terminal_id, &start, &end, is_dally_surrogate_on, true);
+
+                // If we had latency info for the last packet transmitted, then we have to store it into memory and clean the variable
+                if (s->arrival_of_last_packet.packet_ID != -1) {
+                    assert(s->arrival_of_last_packet.packet_ID == s->last_packet_sent_id);
+                    assert(s->arrival_of_last_packet.travel_end_time > 0);
+
+                    auto sent = s->sent_packets[s->arrival_of_last_packet.packet_ID];
+
+                    struct packet_end end = {
+                        .travel_end_time = s->arrival_of_last_packet.travel_end_time,
+                        .next_packet_delay = -1,
+                    };
+
+                    packet_latency_save_to_file(s->terminal_id, &sent.start, &end, is_dally_surrogate_on, false);
+
+                    s->sent_packets.erase(s->arrival_of_last_packet.packet_ID);
+                    s->arrival_of_last_packet.packet_ID = -1;
+                }
+
+            // If the packet info is to be stored in memory to compute terminal delay
+            } else {
+                terminal_commit_packet_generate(s, bf, msg, lp);
             }
-        }
+
+            assert(msg->packet_ID - 1 == s->last_packet_sent_id);
+            s->last_packet_sent_id = msg->packet_ID;
+        break;
+
+        case T_ARRIVE:
+            if (OUTPUT_END_END_LATENCIES) {
+                if (msg->message_id % OUTPUT_LATENCY_MODULO == 0) {
+                    int written1;
+                    char end_end_filename[128];
+                    written1 = sprintf(end_end_filename, "end-to-end-latency-hops");
+                    end_end_filename[written1] = '\0';
+
+                    char latency[32];
+                    int written;
+                    tw_stime lat = msg->travel_end_time-msg->travel_start_time;
+                    written = sprintf(latency, "%d %.5f %d\n",msg->app_id, msg->travel_end_time-msg->travel_start_time,msg->my_N_hop);
+                    lp_io_write(lp->gid, end_end_filename, written, latency);
+                }
+            }
+        break;
+
+        case T_ARRIVE_PREDICTED:
+        break;
+        
+        case T_SEND:
+            if (freeze_network_on_switch) {
+                if (bf->c16 && s->is_pending_local_send.count(msg->packet_ID) == 1) {
+                    s->is_pending_local_send.erase(msg->packet_ID);
+                }
+            }
+        break;
+        
+        case T_BUFFER:
+        break;
+    
+        case T_BANDWIDTH:
+            if(msg->rc_is_qos_set == 1) {
+                free(msg->rc_qos_data);
+                free(msg->rc_qos_status);
+                msg->rc_is_qos_set = 0;
+            }
+        break;
+    
+        case T_NOTIFY:
+            if(msg->notify_type == NOTIFY_LATENCY) {
+                assert(lp->gid == msg->src_terminal_id);
+                assert(s->terminal_id == msg->dfdally_src_terminal_id);
+                uint64_t packet_ID = msg->packet_ID;
+
+                if (s->sent_packets.count(packet_ID) == 1) { // packet_ID is in s->sent_packets
+                    auto sent = s->sent_packets[packet_ID];
+                    assert(msg->travel_end_time > sent.start.travel_start_time);
+                    if (packet_ID == s->last_packet_sent_id) { // packet_ID is last, we cannot compute the next_packet_delay
+                        assert(s->arrival_of_last_packet.packet_ID == -1);
+                        s->arrival_of_last_packet.packet_ID = packet_ID;
+                        s->arrival_of_last_packet.travel_end_time = msg->travel_end_time;
+                    } else {
+                        feed_packet_to_predictor(s, lp, packet_ID, msg->travel_end_time);
+                        s->sent_packets.erase(packet_ID);
+                    }
+                }
+            }
+        break;
+
+#if ALWAYS_DETERMINISTIC_NETWORK
+        case T_VACUOUS_EVENT:
+        break;
+#endif /* ALWAYS_DETERMINISTIC_NETWORK */
+
+        default:
+            printf("\n LP %d Terminal message type not supported %d ", (int)lp->gid, msg->type);
+            tw_error(TW_LOC, "Msg type not supported");
     }
 }
 
-void router_dally_commit(router_state * s,
+static void router_dally_commit(router_state * s,
 		tw_bf * bf, 
 		terminal_dally_message * msg, 
         tw_lp * lp)
@@ -2743,7 +3606,7 @@ void router_dally_commit(router_state * s,
 
     if (msg->type == R_SNAPSHOT)
     {
-        if (OUTPUT_SNAPSHOT == 1)
+        if (OUTPUT_SNAPSHOT == 1 && msg->packet_ID < num_snapshots)
         {
             char snapshot_line[8192];
             int written;
@@ -2759,14 +3622,18 @@ void router_dally_commit(router_state * s,
                     written += sprintf(snapshot_line+written, "%d, ", this_vc_snapshot_data);
                 }
             }
-            written += sprintf(snapshot_line+written, "\n");
+            assert(written <= 8192);
+            assert(snapshot_line[written - 2] == ',');
+            snapshot_line[written - 2] = '\n';  // Replacing ',' for new line
+            written -= 1;
+
             lp_io_write(lp->gid, snapshot_filename, written, snapshot_line);
         }
     }
 }
 
 /* initialize a dragonfly compute node terminal */
-void terminal_dally_init( terminal_state * s, tw_lp * lp )
+static void terminal_dally_init( terminal_state * s, tw_lp * lp )
 {
     s->packet_gen = 0;
     s->packet_fin = 0;
@@ -2811,9 +3678,6 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
         codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 1, s->router_id[i] / num_routers_per_mgrp, s->router_id[i] % num_routers_per_mgrp, &s->router_lp[i]);
     }
 
-    s->workload_lpid_to_app_id = map<tw_lpid, int>();
-    s->app_ids = set<int>();
-
     s->terminal_available_time = (tw_stime*)calloc(p->num_rails, sizeof(tw_stime));
     s->packet_counter = 0;
     s->min_latency = INT_MAX;
@@ -2855,11 +3719,8 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
     s->in_send_loop = (int*)calloc(p->num_rails, sizeof(int));
     s->issueIdle = (int*)calloc(p->num_rails, sizeof(int));
 
-    s->rank_tbl = NULL;
-    s->terminal_msgs = 
-        (terminal_dally_message_list***)calloc(p->num_rails, sizeof(terminal_dally_message_list**));
-    s->terminal_msgs_tail = 
-        (terminal_dally_message_list***)calloc(p->num_rails, sizeof(terminal_dally_message_list**));
+    s->rank_tbl = qhash_init(dragonfly_rank_hash_compare, dragonfly_hash_func, DFLY_HASH_TABLE_SIZE);
+    s->terminal_msgs = (struct qlist_head**)calloc(p->num_rails, sizeof(struct qlist_head*));
 
     s->qos_status = (int**)calloc(p->num_rails, sizeof(int*));
     s->qos_data = (int**)calloc(p->num_rails, sizeof(int*));
@@ -2867,13 +3728,11 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
     for(i = 0; i < p->num_rails; i++)
     {
         s->in_send_loop[i] = 0;
-        s->terminal_msgs[i] = (terminal_dally_message_list**)calloc(num_qos_levels, sizeof(terminal_dally_message_list*));
-        s->terminal_msgs_tail[i] = (terminal_dally_message_list**)calloc(num_qos_levels, sizeof(terminal_dally_message_list*));
+        s->terminal_msgs[i] = (struct qlist_head*)calloc(s->params->num_vcs, sizeof(struct qlist_head));
 
-        for(int j = 0; j < num_qos_levels; j++)
+        for(int j = 0; j < s->params->num_vcs; j++)
         {
-            s->terminal_msgs[i][j] = NULL;
-            s->terminal_msgs_tail[i][j] = NULL;
+            INIT_QLIST_HEAD(&s->terminal_msgs[i][j]);
         }
 
         /* Whether the virtual channel group is active or over-bw*/
@@ -2903,16 +3762,41 @@ void terminal_dally_init( terminal_state * s, tw_lp * lp )
             fprintf(dragonfly_term_bw_log, "\n term-id time-stamp port-id busy-time");
         }*/
 
+    s->local_congestion_controller = NULL;
     if (g_congestion_control_enabled) {
         s->local_congestion_controller = (tlc_state*)calloc(1,sizeof(tlc_state));
         cc_terminal_local_controller_init(s->local_congestion_controller, lp, s->terminal_id, &s->workloads_finished_flag);
     }
+
+    // This doesn't allocate any memory, it calls the constructor on the
+    // previously allocated memory (by ROSS)
+    // In the future calling the constructor could be done with:
+    // std::construct_at, for now this syntax suffices and works
+    // (see https://en.cppreference.com/w/cpp/memory/construct_at)
+    s->last_packet_sent_id = -1;
+    s->arrival_of_last_packet.packet_ID = -1;
+    s->arrival_of_last_packet.travel_end_time = -1;
+    new (&s->sent_packets) map<uint64_t, struct packet_sent>();
+    new (&s->is_pending_local_send) set<uint64_t>();
+    new (&s->remaining_sz_packets) map<struct packet_id, uint32_t>();
+    new (&s->zombies) set<struct packet_id>();
+    s->frozen_state = NULL;
+
+    // alloc'ing memory for predictor, calling initiliazer for predictor
+    s->predictor_data = NULL;
+    if (terminal_predictor != NULL) {
+        if (terminal_predictor->predictor_data_sz > 0) {
+            s->predictor_data = calloc(1, terminal_predictor->predictor_data_sz);
+        }
+        terminal_predictor->init(s->predictor_data, lp, s->terminal_id);
+    }
+    s->last_in_queue_time = 0;
     return;
 }
 
 /* sets up the router virtual channels, global channels, 
  * local channels, compute node channels */
-void router_dally_init(router_state * r, tw_lp * lp)
+static void router_dally_init(router_state * r, tw_lp * lp)
 {
     char anno[MAX_NAME_LENGTH];
     codes_mapping_get_lp_info(lp->gid, lp_group_name, &mapping_grp_id, NULL,
@@ -3004,13 +3888,9 @@ void router_dally_init(router_state * r, tw_lp * lp)
     r->last_qos_lvl = (int*)calloc(p->radix, sizeof(int));
     r->qos_status = (int**)calloc(p->radix, sizeof(int*));
     r->pending_msgs = 
-        (terminal_dally_message_list***)calloc((p->radix), sizeof(terminal_dally_message_list**));
-    r->pending_msgs_tail = 
-        (terminal_dally_message_list***)calloc((p->radix), sizeof(terminal_dally_message_list**));
+        (struct qlist_head**)calloc(p->radix, sizeof(struct qlist_head*));
     r->queued_msgs = 
-        (terminal_dally_message_list***)calloc(p->radix, sizeof(terminal_dally_message_list**));
-    r->queued_msgs_tail = 
-        (terminal_dally_message_list***)calloc(p->radix, sizeof(terminal_dally_message_list**));
+        (struct qlist_head**)calloc(p->radix, sizeof(struct qlist_head*));
     r->queued_count = (int*)calloc(p->radix, sizeof(int));
     r->last_buf_full = (tw_stime*)calloc(p->radix, sizeof(tw_stime*));
     r->busy_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
@@ -3043,14 +3923,8 @@ void router_dally_init(router_state * r, tw_lp * lp)
         r->in_send_loop[i] = 0;
         r->vc_occupancy[i] = (int*)calloc(p->num_vcs, sizeof(int));
     //    printf("\n Number of vcs %d for radix %d ", p->num_vcs, p->radix);
-        r->pending_msgs[i] = (terminal_dally_message_list**)calloc(p->num_vcs, 
-            sizeof(terminal_dally_message_list*));
-        r->pending_msgs_tail[i] = (terminal_dally_message_list**)calloc(p->num_vcs,
-            sizeof(terminal_dally_message_list*));
-        r->queued_msgs[i] = (terminal_dally_message_list**)calloc(p->num_vcs,
-            sizeof(terminal_dally_message_list*));
-        r->queued_msgs_tail[i] = (terminal_dally_message_list**)calloc(p->num_vcs,
-            sizeof(terminal_dally_message_list*));
+        r->pending_msgs[i] = (struct qlist_head*)calloc(p->num_vcs, sizeof(struct qlist_head));
+        r->queued_msgs[i] = (struct qlist_head*)calloc(p->num_vcs, sizeof(struct qlist_head));
         r->qos_status[i] = (int*)calloc(num_qos_levels, sizeof(int));
         r->qos_data[i] = (int*)calloc(num_qos_levels, sizeof(int));
         for(int j = 0; j < num_qos_levels; j++)
@@ -3060,10 +3934,8 @@ void router_dally_init(router_state * r, tw_lp * lp)
         }
         for(int j = 0; j < p->num_vcs; j++) 
         {
-            r->pending_msgs[i][j] = NULL;
-            r->pending_msgs_tail[i][j] = NULL;
-            r->queued_msgs[i][j] = NULL;
-            r->queued_msgs_tail[i][j] = NULL;
+            INIT_QLIST_HEAD(&r->pending_msgs[i][j]);
+            INIT_QLIST_HEAD(&r->queued_msgs[i][j]);
         }
     }
 
@@ -3097,6 +3969,7 @@ void router_dally_init(router_state * r, tw_lp * lp)
 
     }
 
+    r->snapshot_data = NULL;
     if (num_snapshots) {
         r->snapshot_data = (int**)calloc(num_snapshots, sizeof(int*));
         for(int i = 0; i < num_snapshots; i++)
@@ -3104,6 +3977,24 @@ void router_dally_init(router_state * r, tw_lp * lp)
             r->snapshot_data[i] = (int*)calloc(r->params->num_vcs * r->params->radix, sizeof(int)); //capturing VC occupancies of each port
         }
         router_send_snapshot_events(r, lp);
+    }
+
+    //Xin: msg counters for apps 
+    r->agg_link_traffic = NULL;
+    r->agg_busy_time = NULL;
+    if(p->counting_bool > 0)
+    {   
+        r->agg_link_traffic = (int64_t **) calloc(p->counting_windows, sizeof(int64_t *));
+        r->agg_busy_time = (tw_stime **) malloc (p->counting_windows * sizeof(tw_stime *));
+
+        for (int i = 0; i < p->counting_windows; ++i)
+        {
+            r->agg_link_traffic[i] = (int64_t*) calloc(p->radix, sizeof(int64_t));
+            // r->agg_link_traffic[i] = (int64_t*) calloc(p->radix*p->num_apps, sizeof(int64_t));
+            r->agg_busy_time[i] = (tw_stime*) malloc(p->radix * sizeof(tw_stime));
+            for(int j = 0; j < p->radix; j++)
+              r->agg_busy_time[i][j] = 0.0;
+        }
     }
 
     return;
@@ -3128,7 +4019,8 @@ static tw_stime dragonfly_dally_packet_event(
         void const * remote_event,
         void const * self_event,
         tw_lp *sender,
-        int is_last_pckt)
+        int is_last_pckt,
+        bool is_there_another_pckt_in_queue)
 {
     (void)message_offset;
     (void)sched_params;
@@ -3164,8 +4056,10 @@ static tw_stime dragonfly_dally_packet_event(
     msg->pull_size = req->pull_size;
     msg->magic = terminal_magic_num; 
     msg->msg_start_time = req->msg_start_time;
+    msg->msg_new_mn_event = req->msg_new_mn_event;
     msg->rail_id = req->queue_offset;
     msg->app_id = req->app_id;
+    msg->is_there_another_pckt_in_queue = is_there_another_pckt_in_queue;
 
     if(is_last_pckt) /* Its the last packet so pass in remote and local event information*/
     {
@@ -3187,6 +4081,136 @@ static tw_stime dragonfly_dally_packet_event(
     return xfer_to_nic_time;
 }
 
+static void packet_generate_predicted_rc(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
+{
+    struct mn_stats * stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+    stat->send_count--;
+    stat->send_bytes -= msg->packet_size;
+    stat->send_time -= (1/s->params->cn_bandwidth) * msg->packet_size;
+
+    s->last_in_queue_time = msg->saved_last_in_queue_time;
+
+    terminal_predictor->predict_rc(s->predictor_data, lp);
+
+    s->packet_counter--;
+    s->total_gen_size -= msg->packet_size;
+    s->packet_gen--;
+    packet_gen--;
+}
+
+/* generates packet at the current dragonfly compute node */
+static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) {
+    packet_gen++;
+    s->packet_gen++;
+    s->total_gen_size += msg->packet_size;
+
+    assert(lp->gid != msg->dest_terminal_lpid);
+    const dragonfly_param *p = s->params;
+
+    msg->packet_ID = s->packet_counter;
+    s->packet_counter++;
+
+    // these actually don't matter because we are bypassing the network
+    msg->my_N_hop = -1;
+    msg->my_l_hop = -1;
+    msg->my_g_hop = -1;
+    msg->my_hops_cur_group = -1;
+
+    // Using predictor to find latency
+    double const processing_packet_delay = tw_now(lp) - s->last_in_queue_time;
+    auto start = (struct packet_start) {
+        .packet_ID = msg->packet_ID,
+        .dest_terminal_lpid = msg->dest_terminal_lpid,
+        .dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id,
+        .travel_start_time = tw_now(lp),
+        .workload_injection_time = msg->msg_start_time,
+        .processing_packet_delay = processing_packet_delay,
+        .packet_size = msg->packet_size,
+        .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue
+    };
+
+    struct packet_end const end = 
+        terminal_predictor->predict(s->predictor_data, lp, s->terminal_id, &start);
+    double const latency = end.travel_end_time - start.travel_start_time;
+    double const arrival = start.travel_start_time + latency; // this is "equivalent" to end.travel_end_time
+    assert(arrival >= tw_now(lp));
+
+    // determining injection delay
+    //tw_stime injection_ts;
+    //if (g_congestion_control_enabled) {
+    //    double bandwidth_coef = 1;
+    //    if (cc_terminal_is_abatement_active(s->local_congestion_controller)) {
+    //         bandwidth_coef = cc_terminal_get_current_injection_bandwidth_coef(s->local_congestion_controller);
+    //    }
+    //    injection_ts = bytes_to_ns(msg->packet_size, bandwidth_coef * s->params->cn_bandwidth);
+    //}
+    //else {
+    //    injection_ts = bytes_to_ns(msg->packet_size, s->params->cn_bandwidth);
+    //}
+    //tw_stime const nic_ts = injection_ts;
+    // The code above does a good job at limiting the speed in which packets are injected, so it produces good
+    // results when running in surrogate. A good model should produce similar `nic`s to what the code above
+    // does (the average predictor does just that!)
+    double const nic_ts = end.next_packet_delay;
+    assert(nic_ts > 0);
+
+    // Scheduling idle event for next packet to be processed
+    bool const is_from_remote = false;
+    model_net_method_idle_event2(nic_ts, is_from_remote, msg->rail_id, lp);
+    msg->saved_last_in_queue_time = s->last_in_queue_time;
+    s->last_in_queue_time = tw_now(lp);
+
+    // Info to be used at commit time to save into file
+    msg->saved_next_packet_delay = end.next_packet_delay;
+    msg->travel_start_time = tw_now(lp);
+    msg->travel_end_time = arrival;
+
+    // Sending packet directly to destination terminal
+    //tw_stime const ts = 0;
+    terminal_dally_message * m;
+    void * remote_event;
+    void const * const m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
+    tw_event * const e = model_net_method_event_new(
+            msg->dest_terminal_lpid, latency, lp, DRAGONFLY_DALLY, (void**)&m, &remote_event);
+    memcpy(m, msg, sizeof(terminal_dally_message));
+    if (msg->remote_event_size_bytes) {
+        memcpy(remote_event, m_data_src, msg->remote_event_size_bytes);
+    }
+    m->magic = terminal_magic_num;
+    m->type = T_ARRIVE_PREDICTED;
+    m->src_terminal_id = lp->gid;
+    m->dfdally_src_terminal_id = s->terminal_id; //m->travel_start_time = tw_now(lp);
+    //m->rail_id = msg->rail_id;
+    //m->vc_index = vcg;
+    //m->last_hop = TERMINAL;
+    m->path_type = -1;
+    m->local_event_size_bytes = 0;
+    m->is_intm_visited = 0;
+    m->intm_grp_id = -1;
+    m->intm_rtr_id = -1; //for legacy prog-adaptive
+    tw_event_send(e);
+
+    const int total_event_size = model_net_get_msg_sz(DRAGONFLY_DALLY)
+        + msg->remote_event_size_bytes + msg->local_event_size_bytes;
+    mn_stats* stat;
+    stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+    stat->send_count++;
+    stat->send_bytes += msg->packet_size;
+    stat->send_time += (1/p->cn_bandwidth) * msg->packet_size;
+    if(stat->max_event_size < total_event_size) {
+        stat->max_event_size = total_event_size;
+    }
+
+    if(msg->local_event_size_bytes > 0)
+    {
+        tw_event *e_new = tw_event_new(msg->sender_lp, nic_ts, lp);
+        void *m_new = tw_event_data(e_new);
+        void *local_event = (char*) model_net_method_get_edata(DRAGONFLY_DALLY, msg) + msg->remote_event_size_bytes;
+        memcpy(m_new, local_event, msg->local_event_size_bytes);
+        tw_event_send(e_new);
+    }
+}
+
 static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
 {
     int num_qos_levels = s->params->num_qos_levels;
@@ -3198,6 +4222,8 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     packet_gen--;
     s->packet_counter--;
 
+    s->last_in_queue_time = msg->saved_last_in_queue_time;
+
     if(bf->c2)
         num_local_packets_sr--;
     if(bf->c3)
@@ -3205,9 +4231,7 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     if(bf->c4)
         num_remote_packets--;
 
-    int num_chunks = msg->packet_size/s->params->chunk_size;
-    if(msg->packet_size < s->params->chunk_size)
-        num_chunks++;
+    int const num_chunks = num_chunks_for(msg->packet_size, s->params->chunk_size);
 
     int i;
     int vcg = 0;
@@ -3219,7 +4243,7 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
     assert(vcg < num_qos_levels);
 
     for(i = 0; i < num_chunks; i++) {
-            delete_terminal_dally_message_list(return_tail(s->terminal_msgs[msg->rail_id], s->terminal_msgs_tail[msg->rail_id], vcg));
+            delete_terminal_dally_message_list(return_tail_from_qlist(&s->terminal_msgs[msg->rail_id][vcg]));
             s->terminal_length[msg->rail_id][vcg] -= s->params->chunk_size;
     }
     if(bf->c5) {
@@ -3247,6 +4271,7 @@ static void packet_generate_rc(terminal_state * s, tw_bf * bf, terminal_dally_me
         if(bf->c8)
             s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
     }
+
     struct mn_stats* stat;
     stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
     stat->send_count--;
@@ -3260,6 +4285,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
 
     s->packet_gen++;
     s->total_gen_size += msg->packet_size;
+    msg->saved_processing_time = tw_now(lp);
 
     tw_stime ts, injection_ts, nic_ts;
 
@@ -3267,15 +4293,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     const dragonfly_param *p = s->params;
 
     int total_event_size;
-    uint64_t num_chunks = msg->packet_size / p->chunk_size;
-    
-    double cn_delay = s->params->cn_delay;
-
-    if (msg->packet_size < s->params->chunk_size) 
-        num_chunks++;
-
-    if(msg->packet_size < s->params->chunk_size)
-        cn_delay = bytes_to_ns(msg->packet_size % s->params->chunk_size, s->params->cn_bandwidth);
+    uint64_t const num_chunks = num_chunks_for(msg->packet_size, p->chunk_size);
 
     int dest_router_id;
     if (s->params->num_injection_queues > 1 || netMan.is_link_failures_enabled()) {
@@ -3466,6 +4484,11 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
     msg->my_g_hop = 0;
     msg->my_hops_cur_group = 0;
 
+    //assert(tw_now(lp) == msg->travel_start_time);
+    // This in here is NOT next_packet_delay but processing packet delay!!
+    msg->saved_next_packet_delay = tw_now(lp) - s->last_in_queue_time;
+    msg->saved_last_in_queue_time = s->last_in_queue_time;
+    s->last_in_queue_time = tw_now(lp);
 
     //qos stuff
     int num_qos_levels = s->params->num_qos_levels;
@@ -3518,8 +4541,7 @@ static void packet_generate(terminal_state * s, tw_bf * bf, terminal_dally_messa
         cur_chunk->msg.output_chan = vcg;
         cur_chunk->msg.chunk_id = i;
         cur_chunk->msg.origin_router_id = s->router_id[msg->rail_id];
-        append_to_terminal_dally_message_list(s->terminal_msgs[msg->rail_id], s->terminal_msgs_tail[msg->rail_id],
-        vcg, cur_chunk);
+        append_to_qlist(&s->terminal_msgs[msg->rail_id][vcg], cur_chunk);
         s->terminal_length[msg->rail_id][vcg] += s->params->chunk_size;
     }
     
@@ -3625,12 +4647,13 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_dally_messag
 {
     int num_qos_levels = s->params->num_qos_levels;
 
+    assert(msg->rail_id < s->params->num_rails);
     if(msg->qos_reset1)
         s->qos_status[msg->rail_id][0] = Q_ACTIVE;
-    if(msg->qos_reset2)
+    if(msg->qos_reset2 && s->params->num_qos_levels > 1)
         s->qos_status[msg->rail_id][1] = Q_ACTIVE;
     
-    if(msg->last_saved_qos)
+    if(msg->last_saved_qos >= 0)
         s->last_qos_lvl[msg->rail_id] = msg->last_saved_qos;
 
     if(bf->c1) {
@@ -3654,14 +4677,14 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_dally_messag
 
     terminal_dally_message_list* cur_entry = (terminal_dally_message_list *)rc_stack_pop(s->st);
     
+    cur_entry->msg.travel_start_time = msg->saved_avg_time;
     int data_size = s->params->chunk_size;
     if(cur_entry->msg.packet_size < s->params->chunk_size)
         data_size = cur_entry->msg.packet_size % s->params->chunk_size;
 
     s->qos_data[msg->rail_id][vcg] -= data_size;
 
-    prepend_to_terminal_dally_message_list(s->terminal_msgs[msg->rail_id], 
-            s->terminal_msgs_tail[msg->rail_id], vcg, cur_entry);
+    prepend_to_qlist(&s->terminal_msgs[msg->rail_id][vcg], cur_entry);
     
     if(bf->c4) {
         s->in_send_loop[msg->rail_id] = msg->saved_send_loop;
@@ -3715,11 +4738,11 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     }
 
     msg->saved_vc = vcg;
-    terminal_dally_message_list* cur_entry = s->terminal_msgs[msg->rail_id][vcg];
+    terminal_dally_message_list* cur_entry = return_head_from_qlist(&s->terminal_msgs[msg->rail_id][vcg]);
     int data_size = s->params->chunk_size;
-    uint64_t num_chunks = cur_entry->msg.packet_size/s->params->chunk_size;
-    if(cur_entry->msg.packet_size < s->params->chunk_size)
-        num_chunks++;
+    uint64_t const num_chunks = num_chunks_for(cur_entry->msg.packet_size, s->params->chunk_size);
+
+    msg->saved_avg_time = cur_entry->msg.travel_start_time;  // reusing field saved_avg_time. It is only used in another event handler path (arrive). So, no interruptions here
     cur_entry->msg.travel_start_time = tw_now(lp);
 
     double bandwidth_coef = 1;
@@ -3784,13 +4807,17 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     tw_event_send(e);
 
 
+#if DEBUG == 1
     if(cur_entry->msg.packet_ID == LLU(TRACK_PKT) && lp->gid == T_ID)
         printf("\n Packet %llu generated at terminal %d dest %llu size %llu num chunks %llu router-id %d %llu", 
                 cur_entry->msg.packet_ID, s->terminal_id, LLU(cur_entry->msg.dest_terminal_lpid),
                 LLU(cur_entry->msg.packet_size), LLU(num_chunks), s->router_id[msg->rail_id], LLU(router_id));
+#endif
 
     if(cur_entry->msg.chunk_id == num_chunks - 1 && (cur_entry->msg.local_event_size_bytes > 0)) 
     {
+        bf->c16 = 1;
+        msg->packet_ID = cur_entry->msg.packet_ID;
         tw_stime local_ts = 0;
         tw_event *e_new = tw_event_new(cur_entry->msg.sender_lp, local_ts, lp);
         void * m_new = tw_event_data(e_new);
@@ -3801,7 +4828,7 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     }
     
     s->vc_occupancy[msg->rail_id][vcg] += s->params->chunk_size;
-    cur_entry = return_head(s->terminal_msgs[msg->rail_id], s->terminal_msgs_tail[msg->rail_id], vcg); 
+
     rc_stack_push(lp, cur_entry, delete_terminal_dally_message_list, s->st);
     s->terminal_length[msg->rail_id][vcg] -= s->params->chunk_size;
     s->link_traffic[msg->rail_id] += s->params->chunk_size;
@@ -3813,12 +4840,8 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     if(num_qos_levels > 1) //I think this one is OK since the default is that terminals have only 1 VC anyway so leaving vcg as 
         next_vcg = get_next_vcg(s, bf, msg, lp);
 
-    cur_entry = NULL;
-    if(next_vcg >= 0)
-        cur_entry = s->terminal_msgs[msg->rail_id][next_vcg];
-
     /* if there is another packet inline then schedule another send event */
-    if(cur_entry != NULL && s->vc_occupancy[msg->rail_id][next_vcg] + s->params->chunk_size <= s->params->cn_vc_size) {
+    if(next_vcg >= 0 && !qlist_empty(&s->terminal_msgs[msg->rail_id][next_vcg]) && s->vc_occupancy[msg->rail_id][next_vcg] + s->params->chunk_size <= s->params->cn_vc_size) {
         terminal_dally_message *m_new;
         e = model_net_method_event_new(lp->gid, injection_ts + gen_noise(lp, &msg->num_rngs), lp, DRAGONFLY_DALLY, (void**)&m_new, NULL);
         m_new->type = T_SEND;
@@ -3830,7 +4853,11 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
         bf->c4 = 1;
         s->in_send_loop[msg->rail_id] = 0;
     }
-    if(s->issueIdle[msg->rail_id]) {
+    // TODO (elkin): The check on vcg only properly works for `num_qos_levels == 1`. Ideally, we should be checking if there is enough
+    // space for the next packet in the queue (the packet determines in which queue it's going to be injected), but that is not
+    // possible, because we only know the queue at `packet_generate`. This might not present a big problem for most applications but
+    // those that are fed at a rate higher than what they can process can see the queue, potentially, grow very large.
+    if(s->issueIdle[msg->rail_id] && s->terminal_length[msg->rail_id][vcg] < s->params->cn_vc_size) {
         bf->c5 = 1;
         s->issueIdle[msg->rail_id] = 0;
         model_net_method_idle_event2(injection_ts, 0, msg->rail_id, lp);
@@ -3853,9 +4880,109 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
     return;
 }
 
+static void notify_dest_lp_of(
+        terminal_state * s,
+        tw_lp * lp,
+        terminal_dally_message * msg,
+        enum notify_t notification
+        ) {
+    assert(NOTIFY_ZOMBIE == notification);
+    double offset = -1.0;
+    switch (notification) {
+        case NOTIFY_ZOMBIE:
+            offset = 0.0; // Zero-offset events are ugly, but we want to guarantee correctness, so this prevents funky stuff from happening (like in the case of events arriving and being processed before the notification reaches them)
+            break;
+        default:
+            tw_error(TW_LOC, "The notification event with type %d couldn't be created", notification);
+    }
+
+    terminal_dally_message * new_msg;
+    // Lower value in priority means that it will be processed first
+    // This event will be processed before any predicted packet arrives (even if scheduled at the same timestamp)
+    tw_event *e = model_net_method_event_new_user_prio(msg->dest_terminal_lpid, offset, lp, DRAGONFLY_DALLY, (void**)&new_msg, NULL, 1);
+
+    memcpy(new_msg, msg, sizeof(terminal_dally_message)); // Just making sure that if the simulation breaks because we didn't set some value below, it breaks in a spectacular manner (~0 can be -1)
+    assert(new_msg->dfdally_src_terminal_id == s->terminal_id);
+    new_msg->type        = T_NOTIFY;
+    new_msg->notify_type = notification;
+    new_msg->magic       = terminal_magic_num;
+    tw_event_send(e); 
+}
+
+static void notify_src_lp_on_total_latency(tw_lp * lp, terminal_dally_message * msg)
+{
+    terminal_dally_message * new_msg;
+    tw_event *e = model_net_method_event_new(
+            msg->src_terminal_id, g_tw_lookahead, lp, DRAGONFLY_DALLY, (void**)&new_msg, NULL);
+
+    // We copy all the data from the original message but will change the flags for the message
+    // (Some of the data that we care about: packet_ID, src_terminal_lpid, dest_terminal_lpid, dfdally_src_terminal_id, dfdally_dest_terminal_id)
+    memcpy(new_msg, msg, sizeof(terminal_dally_message));
+    //strcpy(new_msg->category, msg->category);
+    new_msg->type                    = T_NOTIFY;
+    new_msg->notify_type             = NOTIFY_LATENCY;
+    new_msg->magic                   = terminal_magic_num;
+    tw_event_send(e); 
+}
+
+static void process_terminal_notification_event_rc(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) {
+    switch ((enum notify_t) msg->notify_type) {
+        case NOTIFY_LATENCY:
+            break;
+
+        case NOTIFY_ZOMBIE:
+            {
+            struct packet_id const zombie = {
+                .packet_ID = msg->packet_ID,
+                .dfdally_src_terminal_id = msg->dfdally_src_terminal_id};
+            assert(s->zombies.count(zombie) == 1);
+            s->zombies.erase(zombie);
+            }
+            break;
+    }
+}
+
+static void process_terminal_notification_event(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) {
+    switch ((enum notify_t) msg->notify_type) {
+        case NOTIFY_LATENCY:
+            break;
+
+        case NOTIFY_ZOMBIE: {
+            // Adding new zombie to LP list of zombies
+            assert(lp->gid == msg->dest_terminal_lpid);
+            assert(s->terminal_id == msg->dfdally_dest_terminal_id);
+
+            //printf("INSERTING zombie alert: LPID=%d  packet_ID = %d  dfdally_src_terminal_id = %d\n", lp->gid, msg->packet_ID, msg->dfdally_src_terminal_id);
+            struct packet_id const zombie = {
+                .packet_ID = msg->packet_ID,
+                .dfdally_src_terminal_id = msg->dfdally_src_terminal_id};
+            assert(s->zombies.count(zombie) == 0);
+            s->zombies.insert(zombie);
+            }
+            break;
+    }
+}
+
+#if ALWAYS_DETERMINISTIC_NETWORK
+// This function triggers an event that is completely ignored when processed later. The number of events produced by a terminal/router DOES alter the simulation results. (The number of events processed by an LP shouldn't be a parameter to the simulation itself, but it is weirdly).
+static void vacuous_msg_to_itself(terminal_state * s, terminal_dally_message * msg, tw_lp * lp)
+{
+    (void) s;
+    (void) msg;
+    terminal_dally_message * new_msg;
+    tw_event *e = model_net_method_event_new(
+            lp->gid, g_tw_lookahead, lp, DRAGONFLY_DALLY, (void**)&new_msg, NULL);
+
+    new_msg->type  = T_VACUOUS_EVENT;
+    new_msg->magic = terminal_magic_num;
+    tw_event_send(e); 
+}
+#endif /* ALWAYS_DETERMINISTIC_NETWORK */
+
 //used by packet_arrive()
 static void send_remote_event(terminal_state * s, terminal_dally_message * msg, tw_lp * lp, tw_bf * bf, char * event_data, int remote_event_size)
 {
+    (void) s;
     void * tmp_ptr = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
     
     tw_stime ts = 0;
@@ -3883,16 +5010,171 @@ static void send_remote_event(terminal_state * s, terminal_dally_message * msg, 
     return;
 }
 
+static void packet_arrive_predicted_rc(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
+{
+    struct dfly_hash_key key = {
+        .message_id = msg->message_id,
+        .sender_id = msg->sender_lp,
+    };
+    struct dfly_qhash_entry * tmp = NULL;
+    struct qhash_head * hash_link = NULL;
+
+    // If entry was removed from hash
+    if(bf->c8) {
+        struct dfly_qhash_entry * d_entry_pop = (dfly_qhash_entry *) rc_stack_pop(s->st);
+        qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
+        s->rank_tbl_pop++;
+
+        if(s->rank_tbl_pop >= DFLY_HASH_TABLE_SIZE)
+            tw_error(TW_LOC, "\n Exceeded allocated qhash size, increase hash size in dragonfly model");
+
+        hash_link = &(d_entry_pop->hash_link);
+        tmp = d_entry_pop;
+    // In case it was not deleted, and we accessed it
+    } else if (bf->c9 || bf->c5) {
+        assert(!tmp);
+        hash_link = qhash_search(s->rank_tbl, &key);
+
+        tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
+    }
+    assert((bf->c9 || bf->c5) == bf->c6);
+
+    if(bf->c4) {
+        model_net_event_rc2(lp, &msg->event_rc);
+    }
+
+    if(bf->c7) {
+        s->finished_msgs--;
+        s->total_msg_size -= msg->total_size;
+        total_msg_sz -= msg->total_size;
+        N_finished_msgs--;
+        s->data_size_ross_sample -= msg->total_size;
+        s->ross_sample.data_size_sample -= msg->total_size;
+        s->data_size_sample -= msg->total_size;
+    }
+
+    if(bf->c6) {
+        tmp->remaining_packets++;
+    }
+
+    if(bf->c5) {
+        qhash_del(hash_link);
+        free_tmp(tmp);
+        s->rank_tbl_pop--;
+    }
+}
+
+/* packet arrives at the destination terminal */
+static void packet_arrive_predicted(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
+{
+    assert(lp->gid == msg->dest_terminal_lpid);
+    /* WE do not allow self messages through dragonfly */
+    assert(lp->gid != msg->src_terminal_id);
+
+#if DEBUG == 1
+    if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
+        printf("\n Packet %llu arrived at lp %llu hops %d ", LLU(msg->sender_lp), LLU(lp->gid), msg->my_N_hop);
+#endif
+
+    //record for commit_f file IO
+    msg->travel_end_time = tw_now(lp);
+
+    // The table has to have been initialized already, if not, what the heck!
+    struct dfly_hash_key key = {
+        .message_id = msg->message_id,
+        .sender_id = msg->sender_lp,
+    };
+
+    // Finding out if message is in hash
+    struct qhash_head * hash_link = qhash_search(s->rank_tbl, &key);
+    struct dfly_qhash_entry * tmp = NULL;
+    if(hash_link) {
+        bf->c9 = 1;
+        tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
+    // We create an entry into the hash only if it makes sense to do so (ie, only when the message needs multiple packets to be completed)
+    } else if (msg->total_size > msg->packet_size) {
+        bf->c5 = 1;
+
+        uint64_t const packet_size = s->params->packet_size;
+        uint64_t total_packets = msg->total_size / packet_size + (msg->total_size % packet_size ? 1 : 0);
+        if (total_packets == 0) { total_packets = 1; }
+
+        struct dfly_qhash_entry * const d_entry = (dfly_qhash_entry *) calloc(1, sizeof (struct dfly_qhash_entry));
+        d_entry->num_chunks = 0;
+        d_entry->key = key;
+        d_entry->remote_event_data = NULL;
+        d_entry->remote_event_size = 0;
+        d_entry->remaining_packets = total_packets;
+        qhash_add(s->rank_tbl, &key, &(d_entry->hash_link));
+        s->rank_tbl_pop++;
+
+        if(s->rank_tbl_pop >= DFLY_HASH_TABLE_SIZE) {
+            tw_error(TW_LOC, "\n Exceeded allocated qhash size, increase hash size in dragonfly model");
+        }
+
+        hash_link = &(d_entry->hash_link);
+        tmp = d_entry;
+    // Just for completion, checking invariant
+    } else {
+        // packet sz == message sz
+        assert(msg->total_size == msg->packet_size);
+    }
+
+    // Decreasing the number of remaining packets
+    if (tmp) {
+        bf->c6 = 1;
+        tmp->remaining_packets--;
+
+        /* retrieve the event data, all chunks from the same packet carry the `remote_event_data` */
+        if(msg->remote_event_size_bytes > 0 && !tmp->remote_event_data)
+        {
+            /* Now retreieve the number of chunks completed from the hash and update them */
+            void *m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
+
+            /* Retreive the remote event entry */
+            tmp->remote_event_data = (char*) calloc(1, msg->remote_event_size_bytes);
+            assert(tmp->remote_event_data);
+            tmp->remote_event_size = msg->remote_event_size_bytes;
+            memcpy(tmp->remote_event_data, m_data_src, msg->remote_event_size_bytes);
+        }
+    }
+
+    bool const is_msg_completed = tmp ? tmp->remaining_packets == 0 : true;
+
+    if(is_msg_completed) {
+        bf->c7 = 1;
+        s->data_size_sample += msg->total_size;
+        s->ross_sample.data_size_sample += msg->total_size;
+        s->data_size_ross_sample += msg->total_size;
+        N_finished_msgs++;
+        total_msg_sz += msg->total_size;
+        s->total_msg_size += msg->total_size;
+        s->finished_msgs++;
+
+        if (tmp) {
+            // This should always be true. It sends the message to the server/workload or communicates to the model-net layer
+            if (tmp->remote_event_data && tmp->remote_event_size > 0) {
+                send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
+            }
+
+            bf->c8 = 1;
+            qhash_del(hash_link);
+            rc_stack_push(lp, tmp, free_tmp, s->st);
+            s->rank_tbl_pop--;
+        } else { // packet sz == message sz
+            if (msg->remote_event_size_bytes > 0) {
+                void *m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
+                assert(m_data_src);
+                send_remote_event(s, msg, lp, bf, (char*) m_data_src, msg->remote_event_size_bytes);
+            }
+        }
+    }
+}
+
 static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp)
 {
     if (g_congestion_control_enabled)
         cc_terminal_send_ack_rc(s->local_congestion_controller);
-    
-    if(bf->c31)
-    {
-        s->packet_fin--;
-        packet_fin--;
-    }
 
     if(msg->path_type == MINIMAL)
         minimal_count--;
@@ -3932,6 +5214,8 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
 
     if(bf->c1)
     {
+        s->packet_fin--;
+        packet_fin--;
         stat->recv_count--;
         stat->recv_bytes -= msg->packet_size;
         N_finished_packets--;
@@ -3944,11 +5228,35 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
 	{
           s->max_latency = msg->saved_available_time;
 	} 
-    if(bf->c7)
-    {
+
+    struct packet_id const packet_key = {
+        .packet_ID = msg->packet_ID,
+        .dfdally_src_terminal_id = msg->dfdally_src_terminal_id
+    };
+
+    if (bf->c28) {
+        if (bf->c29) {
+            s->remaining_sz_packets[packet_key] = 0;
+        }
+        s->remaining_sz_packets[packet_key] += s->params->chunk_size;
+    } else {
+        if (bf->c29) {
+            s->remaining_sz_packets.erase(packet_key);
+        }
+    }
+
+    if (bf->c14) {
+        s->zombies.emplace((struct packet_id) {
+            .packet_ID = msg->packet_ID,
+            .dfdally_src_terminal_id = msg->dfdally_src_terminal_id
+        });
+    }
+    if (bf->c15) {
+        return;
+    }
+
+    if(bf->c7) {
         //assert(!hash_link);
-        if(bf->c4)
-            model_net_event_rc2(lp, &msg->event_rc);
         
         N_finished_msgs--;
         s->finished_msgs--;
@@ -3957,6 +5265,10 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
         s->data_size_sample -= msg->total_size;
         s->ross_sample.data_size_sample -= msg->total_size;
         s->data_size_ross_sample -= msg->total_size;
+
+        if(bf->c4) {
+            model_net_event_rc2(lp, &msg->event_rc);
+        }
 
         struct dfly_qhash_entry * d_entry_pop = (dfly_qhash_entry *)rc_stack_pop(s->st);
         qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
@@ -3973,20 +5285,21 @@ static void packet_arrive_rc(terminal_state * s, tw_bf * bf, terminal_dally_mess
     assert(tmp);
     tmp->num_chunks--;
 
+    if (bf->c13) {
+        tmp->remaining_packets++;
+    }
+
     if(bf->c5)
     {
         qhash_del(hash_link);
         free_tmp(tmp);	
         s->rank_tbl_pop--;
     }
-    
-    return;
 }
 
 /* packet arrives at the destination terminal */
 static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) 
 {
-
     // if(isRoutingMinimal(routing) && msg->my_N_hop > 4)
     // {
     //     printf("TERMINAL RECEIVED A NONMINIMAL LENGTH PACKET\n");
@@ -4008,46 +5321,13 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     if (g_congestion_control_enabled)
         cc_terminal_send_ack(s->local_congestion_controller, msg->src_terminal_id);
 
-    // NIC aggregation - should this be a separate function?
-    // Trigger an event on receiving server
-
-    if(!s->rank_tbl)
-        s->rank_tbl = qhash_init(dragonfly_rank_hash_compare, dragonfly_hash_func, DFLY_HASH_TABLE_SIZE);
-    
-    struct dfly_hash_key key;
-    key.message_id = msg->message_id; 
-    key.sender_id = msg->sender_lp;
-    
-    struct qhash_head *hash_link = NULL;
-    struct dfly_qhash_entry * tmp = NULL;
-      
-    hash_link = qhash_search(s->rank_tbl, &key);
-    
-    if(hash_link)
-        tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
-
-    uint64_t total_chunks = msg->total_size / s->params->chunk_size;
-
-    if(msg->total_size % s->params->chunk_size)
-          total_chunks++;
-
-    if(!total_chunks)
-          total_chunks = 1;
-
-    /*if(tmp)
-    {
-        if(tmp->num_chunks >= total_chunks || tmp->num_chunks < 0)
-        {
-           //tw_output(lp, "\n invalid number of chunks %d for LP %ld ", tmp->num_chunks, lp->gid);
-           tw_lp_suspend(lp, 0, 0);
-           return;
-        }
-    }*/
     assert(lp->gid == msg->dest_terminal_lpid);
 
+#if DEBUG == 1
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
         printf("\n Packet %llu arrived at lp %llu hops %d ", LLU(msg->sender_lp), LLU(lp->gid), msg->my_N_hop);
-    
+#endif
+
     tw_stime ts = s->params->cn_credit_delay;
 
     // no method_event here - message going to router
@@ -4062,11 +5342,6 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     buf_msg->type = R_BUFFER;
     tw_event_send(buf_e);
 
-    bf->c1 = 0;
-    bf->c3 = 0;
-    bf->c4 = 0;
-    bf->c7 = 0;
-
     /* Total overall finished chunks in simulation */
     N_finished_chunks++;
     /* Finished chunks on a LP basis */
@@ -4080,9 +5355,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     /* WE do not allow self messages through dragonfly */
     assert(lp->gid != msg->src_terminal_id);
 
-    uint64_t num_chunks = msg->packet_size / s->params->chunk_size;
-    if (msg->packet_size < s->params->chunk_size)
-        num_chunks++;
+    uint64_t const num_chunks = num_chunks_for(msg->packet_size, s->params->chunk_size);
 
     if(msg->path_type == MINIMAL)
         minimal_count++;   
@@ -4090,12 +5363,6 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     if(msg->path_type == NON_MINIMAL)
         nonmin_count++;
 
-    if(msg->chunk_id == num_chunks - 1)
-    {
-        bf->c31 = 1;
-        s->packet_fin++;
-        packet_fin++;
-    }
     if(msg->path_type != MINIMAL && msg->path_type != NON_MINIMAL)
         printf("\n Wrong message path type %d ", msg->path_type);
 
@@ -4123,6 +5390,20 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     msg->saved_rcv_time = stat->recv_time;
     stat->recv_time += ete_latency;
 
+    // Chunk with the last id has been received (not the last chunk to receive necessarily)
+    if(msg->chunk_id == num_chunks - 1)
+    {
+        bf->c1 = 1;
+        s->packet_fin++;
+        packet_fin++;
+
+        stat->recv_count++;
+        stat->recv_bytes += msg->packet_size;
+
+        N_finished_packets++;
+        s->finished_packets++;
+    }
+
 #if DEBUG == 1
     if( msg->packet_ID == TRACK 
             && msg->chunk_id == num_chunks-1
@@ -4138,19 +5419,99 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     }
 #endif
 
-    /* Now retreieve the number of chunks completed from the hash and update
-        * them */
-    void *m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
+    if(s->min_latency > ete_latency) {
+        bf->c21 = 1;
+        msg->saved_min_lat = s->min_latency;
+        s->min_latency = ete_latency;
+    }
+
+    if(s->max_latency < ete_latency) {
+        bf->c22 = 1;
+        msg->saved_available_time = s->max_latency;
+        s->max_latency = ete_latency;
+    }
+
+    struct packet_id const packet_key = {
+        .packet_ID = msg->packet_ID,
+        .dfdally_src_terminal_id = msg->dfdally_src_terminal_id
+    };
+    bool const is_zombie = s->zombies.count(packet_key) == 1;
+    bool const has_remaining_sz = s->remaining_sz_packets.count(packet_key) == 1;
+
+    // Finding out if the packet is complete
+    bool is_packet_completed = false;
+    int const chunk_size = s->params->chunk_size;
+    if (has_remaining_sz) {
+        bf->c28 = 1;
+        int const actual_chunk_size = std::min(chunk_size, (int)s->remaining_sz_packets[packet_key]);
+        assert(s->remaining_sz_packets[packet_key] >= actual_chunk_size);
+        s->remaining_sz_packets[packet_key] -= actual_chunk_size;
+
+        // if `remaining == 0`, ie, if the packet has been completed
+        if (s->remaining_sz_packets[packet_key] == 0) {
+            bf->c29 = 1;
+            is_packet_completed = true;
+            s->remaining_sz_packets.erase(packet_key);
+        }
+    } else {
+        if (chunk_size < msg->packet_size) {
+            bf->c29 = 1;
+            s->remaining_sz_packets[packet_key] = msg->packet_size - chunk_size;
+        } else {
+            is_packet_completed = true;
+        }
+    }
+
+    // Zombies don't generate delay notifications, and they don't modify the state of `s->rank_tbl` (`packet_arrive_predicted` should have removed the msg entry already)
+    if (is_zombie) {
+        //printf("We got a zombie! LPID=%d  packet_ID = %d  dfdally_src_terminal_id = %d\n", lp->gid, msg->packet_ID, msg->dfdally_src_terminal_id);
+        if (is_packet_completed) {
+            s->zombies.erase(packet_key);
+            bf->c14 = 1;
+        }
+        bf->c15 = 1;
+        return;
+    }
+
+    struct dfly_hash_key key = {
+        .message_id = msg->message_id,
+        .sender_id = msg->sender_lp,
+    };
+
+    struct qhash_head *hash_link = NULL;
+    struct dfly_qhash_entry * tmp = NULL;
+
+    hash_link = qhash_search(s->rank_tbl, &key);
+
+    if(hash_link)
+        tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
+
+    uint64_t const total_chunks = num_chunks_for(msg->total_size, s->params->chunk_size);
+
+    /*if(tmp)
+    {
+        if(tmp->num_chunks >= total_chunks || tmp->num_chunks < 0)
+        {
+           //tw_output(lp, "\n invalid number of chunks %d for LP %ld ", tmp->num_chunks, lp->gid);
+           tw_lp_suspend(lp, 0, 0);
+           return;
+        }
+    }*/
 
     /* If an entry does not exist then create one */
     if(!tmp)
     {
         bf->c5 = 1;
+        uint64_t const packet_size = s->params->packet_size;
+        uint64_t total_packets = msg->total_size / packet_size + (msg->total_size % packet_size ? 1 : 0);
+        if (total_packets == 0) { total_packets = 1; }
+
         struct dfly_qhash_entry * d_entry = (dfly_qhash_entry *)calloc(1, sizeof (struct dfly_qhash_entry));
         d_entry->num_chunks = 0;
         d_entry->key = key;
         d_entry->remote_event_data = NULL;
         d_entry->remote_event_size = 0;
+        d_entry->remaining_packets = total_packets;
         qhash_add(s->rank_tbl, &key, &(d_entry->hash_link));
         s->rank_tbl_pop++;
                 
@@ -4164,44 +5525,47 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
     assert(tmp);
     tmp->num_chunks++;
 
-    if(msg->chunk_id == num_chunks - 1)
-    {
-        bf->c1 = 1;
-        stat->recv_count++;
-        stat->recv_bytes += msg->packet_size;
-
-        N_finished_packets++;
-        s->finished_packets++;
-    }
-
-    /* if its the last chunk of the packet then handle the remote event data */
+    /* retrieve the event data, all chunks from the same packet carry the `remote_event_data` */
     if(msg->remote_event_size_bytes > 0 && !tmp->remote_event_data)
     {
+        /* Now retreieve the number of chunks completed from the hash and update
+            * them */
+        void *m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY, msg);
+
         /* Retreive the remote event entry */
         tmp->remote_event_data = (char*)calloc(1, msg->remote_event_size_bytes);
         assert(tmp->remote_event_data);
         tmp->remote_event_size = msg->remote_event_size_bytes; 
         memcpy(tmp->remote_event_data, m_data_src, msg->remote_event_size_bytes);
     }
-    
-    if(s->min_latency > ete_latency) {
-        bf->c21 = 1;
-        msg->saved_min_lat = s->min_latency;
-		s->min_latency = ete_latency;	
-	}
 
-	if(s->max_latency < ete_latency) {
-        bf->c22 = 1;
-        msg->saved_available_time = s->max_latency;
-        s->max_latency = ete_latency;
-	}
-    /* If all chunks of a message have arrived then send a remote event to the
-     * callee*/
-    //assert(tmp->num_chunks <= total_chunks);
+    // if the packet is complete (ie, this `msg` is the last piece of the packet)
+    if (is_packet_completed) {
+        bf->c13 = 1;
 
-    if(tmp->num_chunks >= total_chunks)
+        tmp->remaining_packets--;
+
+        //printf("Good day sir, not a zombie! LPID=%d  packet_ID = %d  dfdally_src_terminal_id = %d\n", lp->gid, msg->packet_ID, msg->dfdally_src_terminal_id);
+        if (packet_latency_f || dally_surrogate_configured) {
+            notify_src_lp_on_total_latency(lp, msg);
+#if ALWAYS_DETERMINISTIC_NETWORK
+        } else {
+            // This vacuous msg is necessary just to keep simulations with and without the latency notification the same. Notifying the latency does not impact
+            // the simulation (unless the data is fed to a predictor, later to be used). If the latency notification is deactivated, the simulation will produce
+            // the same number of events (a bit wasteful), a parameter that model-net or dragonfly-dally for some reason use :S
+            vacuous_msg_to_itself(s, msg, lp);
+#endif /* if ALWAYS_DETERMINISTIC_NETWORK */
+        }
+    }
+
+    // if the message is complete (ie, this `msg` is the last piece of the message)
+    /* If all chunks of a message have arrived then send a remote event to the callee */
+    //if(tmp->num_chunks >= total_chunks)  // this was the test before, it is a good test assumming the network is never frozen
+    if(tmp->remaining_packets == 0)
     {
         bf->c7 = 1;
+
+        assert(tmp->num_chunks <= total_chunks);
 
         s->data_size_sample += msg->total_size;
         s->ross_sample.data_size_sample += msg->total_size;
@@ -4210,7 +5574,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
         total_msg_sz += msg->total_size;
         s->total_msg_size += msg->total_size;
         s->finished_msgs++;
-        
+
         //assert(tmp->remote_event_data && tmp->remote_event_size > 0);
         if(tmp->remote_event_data && tmp->remote_event_size > 0) {
             send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
@@ -4219,8 +5583,7 @@ static void packet_arrive(terminal_state * s, tw_bf * bf, terminal_dally_message
         qhash_del(hash_link);
         rc_stack_push(lp, tmp, free_tmp, s->st);
         s->rank_tbl_pop--;
-   }
-  return;
+     }
 }
 
 static void terminal_buf_update_rc(terminal_state * s,
@@ -4260,7 +5623,7 @@ static void terminal_buf_update(terminal_state * s,
     tw_stime ts = 0;
     s->vc_occupancy[msg->rail_id][vcg] -= s->params->chunk_size;
     
-    if(s->in_send_loop[msg->rail_id] == 0 && s->terminal_msgs[msg->rail_id][vcg] != NULL) {
+    if(s->in_send_loop[msg->rail_id] == 0 && !qlist_empty(&s->terminal_msgs[msg->rail_id][vcg])) {
         terminal_dally_message *m;
         bf->c1 = 1;
         tw_event* e = model_net_method_event_new(lp->gid, ts + gen_noise(lp, &msg->num_rngs), lp, DRAGONFLY_DALLY, 
@@ -4274,10 +5637,12 @@ static void terminal_buf_update(terminal_state * s,
     return;
 }
 
-void 
-dragonfly_dally_terminal_final( terminal_state * s, 
+static void dragonfly_dally_terminal_final( terminal_state * s, 
       tw_lp * lp )
 {
+    if (freeze_network_on_switch && is_dally_surrogate_on) {
+        dragonfly_dally_terminal_surrogate_to_highdef(s, lp, NULL);
+    }
     // printf("terminal id %d\n",s->terminal_id);
     dragonfly_total_time += s->total_time; //increment the PE level time counter
     
@@ -4334,13 +5699,57 @@ dragonfly_dally_terminal_final( terminal_state * s,
 
     for(int i = 0; i < s->params->num_rails; i++)
     {
-        if(s->terminal_msgs[i][0] != NULL) 
-        printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
+        if(!qlist_empty(&s->terminal_msgs[i][0])) {
+            printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
+        }
     }
 
 
     lp_io_write(lp->gid, (char*)"dragonfly-cn-stats", written, s->output_buf2); 
 
+    if (packet_latency_f) {
+        // If the last packet transmitted actually received a latency notification (was delievered)
+        if (s->arrival_of_last_packet.packet_ID != -1) {
+            auto sent = s->sent_packets[s->arrival_of_last_packet.packet_ID];
+            assert(s->sent_packets.count(s->arrival_of_last_packet.packet_ID) == 1); // packet_ID is in s->sent_packets
+            assert(sent.next_packet_delay < 0); // next_packet_delay is -1
+
+            double const travel_end_time = s->arrival_of_last_packet.travel_end_time;
+            struct packet_end end = {
+                .travel_end_time = travel_end_time,
+                .next_packet_delay = -1,
+            };
+
+            packet_latency_save_to_file(s->terminal_id, &sent.start, &end, false, false);
+
+            // Deallocating memory from packet_start
+            if (sent.message_data) { free(sent.message_data); }
+            if (sent.remote_event_data) { free(sent.remote_event_data); }
+            if (sent.local_data) { free(sent.local_data); }
+
+            s->sent_packets.erase(s->arrival_of_last_packet.packet_ID);
+            s->arrival_of_last_packet.packet_ID = -1;
+        }
+
+        // Storing all other missing packets into io file (deleting all elements from s->sent_packets as we go)
+        for (auto it = s->sent_packets.begin(); it != s->sent_packets.end(); it = s->sent_packets.erase(it)) {
+            auto& sent = it->second;
+            uint64_t packet_ID = it->first;
+            assert(sent.message_data);
+
+            struct packet_end end = {
+                .travel_end_time = -1,
+                .next_packet_delay = sent.next_packet_delay,
+            };
+
+            packet_latency_save_to_file(s->terminal_id, &sent.start, &end, false, false);
+
+            // Deallocating memory from packet_start
+            if (sent.message_data) { free(sent.message_data); }
+            if (sent.remote_event_data) { free(sent.remote_event_data); }
+            if (sent.local_data) { free(sent.local_data); }
+        }
+    }
 
     //if(s->packet_gen != s->packet_fin)
     //    printf("\n generated %d finished %d ", s->packet_gen, s->packet_fin);
@@ -4349,16 +5758,40 @@ dragonfly_dally_terminal_final( terminal_state * s,
         qhash_finalize(s->rank_tbl);
     
     rc_stack_destroy(s->st);
+    rc_stack_destroy(s->cc_st);
     //TODO FREE THESE CORRECTLY
     for(int i = 0; i < s->params->num_rails; i++)
     {
         free(s->vc_occupancy[i]);
+        // TODO: terminal_msgs are not properly freed if there are messages left. Correct this!
         free(s->terminal_msgs[i]);
-        free(s->terminal_msgs_tail[i]);
     }
     free(s->vc_occupancy);
     free(s->terminal_msgs);
-    free(s->terminal_msgs_tail);
+
+    // Calling destructors for data. There is no need to free data, the
+    // destructors do it themselves. ROSS allocated space for the datatypes and
+    // it doesn't need to be freed
+#if 0
+    // Checking that there aren't any zombies left in the simulation
+    printf("terminal %d - zombies = [", s->terminal_id);
+    for (auto&& z: s->zombies) {
+        printf("(%d %d) ", z.packet_ID, z.dfdally_src_terminal_id);
+    }
+    printf("]\n");
+#endif
+    for (auto&& kv: s->sent_packets) {
+        if (kv.second.message_data) { free(kv.second.message_data); }
+        if (kv.second.remote_event_data) { free(kv.second.remote_event_data); }
+        if (kv.second.local_data) { free(kv.second.local_data); }
+    }
+    s->sent_packets.~map();
+    s->is_pending_local_send.~set();
+    s->remaining_sz_packets.~map();
+
+    if (s->predictor_data) {
+        free(s->predictor_data);
+    }
 }
 
 void dragonfly_dally_router_final(router_state * s, tw_lp * lp){
@@ -4379,11 +5812,11 @@ void dragonfly_dally_router_final(router_state * s, tw_lp * lp){
     int i, j;
     for(i = 0; i < s->params->radix; i++) {
         for(j = 0; j < s->params->num_vcs; j++) {
-            if(s->queued_msgs[i][j] != NULL) {
+            if(!qlist_empty(&s->queued_msgs[i][j])) {
                 printf("[%llu] leftover queued messages %d %d %d\n", LLU(lp->gid), i, j,
                 s->vc_occupancy[i][j]);
             }
-            if(s->pending_msgs[i][j] != NULL) {
+            if(!qlist_empty(&s->pending_msgs[i][j])) {
                 printf("[%llu] lefover pending messages %d %d\n", LLU(lp->gid), i, j);
             }
         }
@@ -4393,6 +5826,7 @@ void dragonfly_dally_router_final(router_state * s, tw_lp * lp){
         fclose(dragonfly_rtr_bw_log);
 
     rc_stack_destroy(s->st);
+    rc_stack_destroy(s->cc_st);
     
     const dragonfly_param *p = s->params;
     int written = 0;
@@ -4478,6 +5912,35 @@ void dragonfly_dally_router_final(router_state * s, tw_lp * lp){
     //             dragonfly_print_params(s->params);
     //     }
     // }
+
+    //Xin: output link statistics
+    if(p->counting_bool)
+    {
+      // for link traffic
+      if(!s->router_id){
+          written = sprintf(s->output_buf5, "# Format <LP ID> <Group ID> <Router ID> <Window ID> <Link Traffic>\n");
+          lp_io_write(lp->gid, (char*)"dragonfly-router-traffic-sample", written, s->output_buf5);
+      }
+      for(int i=0; i < p->counting_windows; i++) {
+          written = sprintf(s->output_buf5, "\n %llu %d %d %lf", LLU(lp->gid), s->router_id / p->num_routers, s->router_id , (p->counting_start+(i+1)*p->counting_interval));
+          for (int d=0; d < p->radix; d++)
+              written += sprintf(s->output_buf5 + written, " %d", (s->agg_link_traffic[i][d]));
+          lp_io_write(lp->gid, (char*)"dragonfly-router-traffic-sample", written, s->output_buf5);
+      } 
+
+      // for link busy time
+      if(!s->router_id){
+          written = sprintf(s->output_buf6, "# Format <LP ID> <Group ID> <Router ID> <Window ID> <Link Busy Time>\n");
+          lp_io_write(lp->gid, (char*)"dragonfly-router-busytime-sample", written, s->output_buf6);
+      }
+      for(int i=0; i < p->counting_windows; i++) {
+          written = sprintf(s->output_buf6, "\n %llu %d %d %lf", LLU(lp->gid), s->router_id / p->num_routers, s->router_id , (p->counting_start+(i+1)*p->counting_interval));
+          for (int d=0; d < p->radix; d++)
+              written += sprintf(s->output_buf6 + written, " %lf", (s->agg_busy_time[i][d]));
+          lp_io_write(lp->gid, (char*)"dragonfly-router-busytime-sample", written, s->output_buf6);
+      }       
+    }
+
 }
 
 static Connection do_dfdally_routing(router_state *s, tw_bf *bf, terminal_dally_message *msg, tw_lp *lp, int fdest_router_id)
@@ -4711,8 +6174,12 @@ static void router_packet_receive_rc(router_state * s,
         s->is_monitoring_bw = 0;
 
     if(bf->c2) {
-        terminal_dally_message_list * tail = return_tail(s->pending_msgs[output_port], s->pending_msgs_tail[output_port], output_chan);
-        delete_terminal_dally_message_list(tail);
+        if (!qlist_empty(&s->pending_msgs[output_port][output_chan])) {
+            struct qlist_head *last = s->pending_msgs[output_port][output_chan].prev;
+            qlist_del(last);
+            terminal_dally_message_list *tail = qlist_entry(last, terminal_dally_message_list, list);
+            delete_terminal_dally_message_list(tail);
+        }
         s->vc_occupancy[output_port][output_chan] -= s->params->chunk_size;
         if(bf->c3) {
             s->in_send_loop[output_port] = 0;
@@ -4724,8 +6191,12 @@ static void router_packet_receive_rc(router_state * s,
         {
             s->last_buf_full[output_port] = msg->saved_busy_time;
         }
-    delete_terminal_dally_message_list(return_tail(s->queued_msgs[output_port], 
-        s->queued_msgs_tail[output_port], output_chan));
+    if (!qlist_empty(&s->queued_msgs[output_port][output_chan])) {
+        struct qlist_head *last = s->queued_msgs[output_port][output_chan].prev;
+        qlist_del(last);
+        terminal_dally_message_list *tail = qlist_entry(last, terminal_dally_message_list, list);
+        delete_terminal_dally_message_list(tail);
+    }
     s->queued_count[output_port] -= s->params->chunk_size; 
     }
 
@@ -4887,8 +6358,10 @@ static void router_packet_receive( router_state * s,
         tw_error(TW_LOC, "\n Output channel %d great than available VCs %d", output_chan, s->params->num_vcs - 1);
                 //cur_chunk->msg.packet_ID, output_chan, output_port, s->router_id, dest_router_id, cur_chunk->msg.path_type, src_grp_id, dest_grp_id, msg->src_terminal_id);
 
+#if DEBUG == 1
     if(cur_chunk->msg.packet_ID == LLU(TRACK_PKT) && cur_chunk->msg.src_terminal_id == T_ID)
             printf("\n Packet %llu arrived at router %u next stop %d final stop %d local hops %d global hops %d", cur_chunk->msg.packet_ID, s->router_id, next_stop, dest_router_id, cur_chunk->msg.my_l_hop, cur_chunk->msg.my_g_hop);
+#endif
 
     if(msg->remote_event_size_bytes > 0) {
         void *m_data_src = model_net_method_get_edata(DRAGONFLY_DALLY_ROUTER, msg);
@@ -4901,8 +6374,7 @@ static void router_packet_receive( router_state * s,
         assert(output_chan < s->params->num_vcs && output_port < s->params->radix);
         router_credit_send(s, msg, lp, -1, &(msg->num_rngs));
     
-        append_to_terminal_dally_message_list(s->pending_msgs[output_port], s->pending_msgs_tail[output_port],
-                                            output_chan, cur_chunk);
+        qlist_add_tail(&cur_chunk->list, &s->pending_msgs[output_port][output_chan]);
         s->vc_occupancy[output_port][output_chan] += s->params->chunk_size;
         if(s->in_send_loop[output_port] == 0) {
             bf->c3 = 1;
@@ -4926,8 +6398,7 @@ static void router_packet_receive( router_state * s,
         cur_chunk->msg.saved_vc = msg->vc_index;
         cur_chunk->msg.saved_channel = msg->output_chan;
         assert(output_chan < s->params->num_vcs && output_port < s->params->radix);
-        append_to_terminal_dally_message_list( s->queued_msgs[output_port], 
-        s->queued_msgs_tail[output_port], output_chan, cur_chunk);
+        qlist_add_tail(&cur_chunk->list, &s->queued_msgs[output_port][output_chan]);
         s->queued_count[output_port] += s->params->chunk_size;
 
 
@@ -4965,14 +6436,26 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
     int src_term_id = msg->dfdally_src_terminal_id;
     int app_id = msg->saved_app_id;
       
+    assert(output_port < s->params->radix);
     if(msg->qos_reset1)
         s->qos_status[output_port][0] = Q_ACTIVE;
-    if(msg->qos_reset2)
+    if(msg->qos_reset2 && s->params->num_qos_levels > 1)
         s->qos_status[output_port][1] = Q_ACTIVE;
     
     if(msg->last_saved_qos)
        s->last_qos_lvl[output_port] = msg->last_saved_qos; 
-     
+
+    //Xin: target window to rollback
+    bool rolback = false;
+    int current_window = -1;
+    const dragonfly_param *p = s->params;
+    if(s->params->counting_bool>0 && msg->last_sent_time >= s->params->counting_start) {
+        current_window = (int) ((msg->last_sent_time-s->params->counting_start)/s->params->counting_interval);
+        if(current_window < s->params->counting_windows) {
+          rolback = true;
+        }
+    }      
+
     if(bf->c1) {
         s->in_send_loop[output_port] = msg->saved_send_loop;
         if(bf->c2) {
@@ -4980,6 +6463,7 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
         }
         return;  
     }
+    s->last_qos_lvl[output_port] = msg->last_saved_qos;
 
     int output_chan = msg->saved_channel;
     if(bf->c8)
@@ -4988,6 +6472,11 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
         s->busy_time_sample[output_port] = msg->saved_sample_time;
         s->ross_rsample.busy_time[output_port] = msg->saved_sample_time;
         s->last_buf_full[output_port] = msg->saved_busy_time;
+
+        //Xin: reverse busy time
+        if(rolback && current_window >= 0){
+          s->agg_busy_time[current_window][output_port] = msg->saved_rcv_time;
+        }
     }
       
     terminal_dally_message_list * cur_entry = (terminal_dally_message_list *)rc_stack_pop(s->st);
@@ -5001,7 +6490,6 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
     if(cur_entry->msg.packet_size < s->params->chunk_size)
         msg_size = cur_entry->msg.packet_size;
 
-    s->qos_data[output_port][vcg] -= msg_size;
     s->next_output_available_time[output_port] = msg->saved_available_time;
 
     if(bf->c11)
@@ -5010,6 +6498,12 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
         s->link_traffic_sample[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size; 
         s->ross_rsample.link_traffic_sample[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size; 
         s->link_traffic_ross_sample[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size; 
+        msg_size = cur_entry->msg.packet_size % s->params->chunk_size;
+
+        //Xin: reverse link traffic
+        if(rolback && current_window >= 0){
+          s->agg_link_traffic[current_window][output_port] -= cur_entry->msg.packet_size % s->params->chunk_size;
+        }
     }
     if(bf->c12)
     {
@@ -5017,12 +6511,17 @@ static void router_packet_send_rc(router_state * s, tw_bf * bf, terminal_dally_m
         s->link_traffic_sample[output_port] -= s->params->chunk_size;
         s->ross_rsample.link_traffic_sample[output_port] -= s->params->chunk_size;
         s->link_traffic_ross_sample[output_port] -= s->params->chunk_size;
+
+        //Xin: reverse link traffic
+        if(rolback && current_window >= 0){
+          s->agg_link_traffic[current_window][output_port] -= s->params->chunk_size;
+        }
     }
 
+    s->qos_data[output_port][vcg] -= msg_size;
     s->total_chunks[output_port]--;
 
-    prepend_to_terminal_dally_message_list(s->pending_msgs[output_port],
-            s->pending_msgs_tail[output_port], output_chan, cur_entry);
+    qlist_add(&cur_entry->list, &s->pending_msgs[output_port][output_chan]);
 
     if (g_congestion_control_enabled) {
         congestion_control_message *cc_msg_rc = (congestion_control_message*)rc_stack_pop(s->cc_st);
@@ -5054,6 +6553,18 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     
     msg->saved_vc = output_port;
     msg->saved_channel = output_chan;
+
+    //Xin: target window to update link traffic 
+    msg->last_sent_time = tw_now(lp);
+    bool update = false;
+    int current_window = -1;
+    const dragonfly_param *p = s->params;
+    if(s->params->counting_bool>0 && msg->last_sent_time >= s->params->counting_start) {
+      current_window = (int) ((msg->last_sent_time - s->params->counting_start)/s->params->counting_interval);
+      if(current_window < s->params->counting_windows) {
+          update = true;
+        }
+    }
     
     if(output_chan < 0) 
     {
@@ -5068,7 +6579,12 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
         return;
     }
 
-    cur_entry = s->pending_msgs[output_port][output_chan];
+    if (!qlist_empty(&s->pending_msgs[output_port][output_chan])) {
+        struct qlist_head *first = s->pending_msgs[output_port][output_chan].next;
+        cur_entry = qlist_entry(first, terminal_dally_message_list, list);
+    } else {
+        cur_entry = NULL;
+    }
     
     msg->dfdally_src_terminal_id = cur_entry->msg.dfdally_src_terminal_id;
 
@@ -5084,6 +6600,11 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
         s->busy_time_sample[output_port] += (tw_now(lp) - s->last_buf_full[output_port]);
         s->ross_rsample.busy_time[output_port] += (tw_now(lp) - s->last_buf_full[output_port]);
         s->last_buf_full[output_port] = 0.0;
+
+        //Xin: update link busy time
+        if(update && current_window >= 0){
+            s->agg_busy_time[current_window][output_port] += (tw_now(lp) - s->last_buf_full[output_port]); 
+        }
     }
 
     int vcg = 0;
@@ -5107,9 +6628,7 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
         bandwidth = s->params->global_bandwidth;
     }
 
-    uint64_t num_chunks = cur_entry->msg.packet_size / s->params->chunk_size;
-    if(cur_entry->msg.packet_size < s->params->chunk_size)
-        num_chunks++;
+    uint64_t const num_chunks = num_chunks_for(cur_entry->msg.packet_size, s->params->chunk_size);
 
     /* Injection delay: Time taken for the data to be placed on the link/channel
      *  - Based on bandwidth
@@ -5169,13 +6688,18 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     m->magic = router_magic_num;
 
     int msg_size = s->params->chunk_size;
-    if((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1)) {
+    if(((cur_entry->msg.packet_size % s->params->chunk_size) || cur_entry->msg.packet_size == 0) && (cur_entry->msg.chunk_id == num_chunks - 1)) {
         bf->c11 = 1;
         s->link_traffic[output_port] +=  (cur_entry->msg.packet_size % s->params->chunk_size); 
         s->link_traffic_sample[output_port] += (cur_entry->msg.packet_size % s->params->chunk_size);
         s->ross_rsample.link_traffic_sample[output_port] += (cur_entry->msg.packet_size % s->params->chunk_size);
         s->link_traffic_ross_sample[output_port] += (cur_entry->msg.packet_size % s->params->chunk_size);
         msg_size = cur_entry->msg.packet_size % s->params->chunk_size;
+
+        //Xin: update link traffic
+        if(update && current_window >= 0){
+            s->agg_link_traffic[current_window][output_port] += (cur_entry->msg.packet_size % s->params->chunk_size);           
+        }
     } 
     else {
         bf->c12 = 1;
@@ -5183,12 +6707,19 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
         s->link_traffic_sample[output_port] += s->params->chunk_size;
         s->ross_rsample.link_traffic_sample[output_port] += s->params->chunk_size;
         s->link_traffic_ross_sample[output_port] += s->params->chunk_size;
+
+        //Xin: update link traffic 
+        if(update && current_window >= 0){
+            s->agg_link_traffic[current_window][output_port] += s->params->chunk_size;
+        }
     }
 
     s->total_chunks[output_port]++;
 
+#if DEBUG == 1
     if(cur_entry->msg.packet_ID == LLU(TRACK_PKT) && cur_entry->msg.src_terminal_id == T_ID)
         printf("\n Queuing at the router %d ", s->router_id);
+#endif
 
     m->rail_id = msg->rail_id;
 
@@ -5212,15 +6743,31 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
         rc_stack_push(lp, cc_msg_rc, cc_msg_rc_storage_delete, s->cc_st);
     }
 
-    cur_entry = return_head(s->pending_msgs[output_port], 
-        s->pending_msgs_tail[output_port], output_chan);
+    struct qlist_head *item = qlist_pop(&s->pending_msgs[output_port][output_chan]);
+    cur_entry = item ? qlist_entry(item, terminal_dally_message_list, list) : NULL;
     rc_stack_push(lp, cur_entry, delete_terminal_dally_message_list, s->st);
 
     s->qos_data[output_port][vcg] += msg_size; 
     s->next_output_available_time[output_port] -= s->params->router_delay;
     injection_ts -= s->params->router_delay;
 
-    int next_output_chan = get_next_router_vcg(s, bf, msg, lp); 
+    int next_output_chan = -1;
+    int base_limit = 0;
+    int vcs_per_qos = s->params->num_vcs / num_qos_levels;
+    for(int i = 0; i < num_qos_levels; i++)
+    {
+        base_limit = i * vcs_per_qos;
+        for(int k = base_limit; k < base_limit + vcs_per_qos; k ++)
+        {
+            if(!qlist_empty(&s->pending_msgs[output_port][k]))
+            {
+                next_output_chan = k;
+                break;
+            }
+        }
+        if(next_output_chan >= 0)
+            break;
+    }
 
     if(next_output_chan < 0)
     {
@@ -5228,7 +6775,12 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
         s->in_send_loop[output_port] = 0;
         return;
     }
-    cur_entry = s->pending_msgs[output_port][next_output_chan];
+    if (!qlist_empty(&s->pending_msgs[output_port][next_output_chan])) {
+        struct qlist_head *first = s->pending_msgs[output_port][next_output_chan].next;
+        cur_entry = qlist_entry(first, terminal_dally_message_list, list);
+    } else {
+        cur_entry = NULL;
+    }
     assert(cur_entry != NULL); 
 
     terminal_dally_message *m_new;
@@ -5258,12 +6810,19 @@ static void router_buf_update_rc(router_state * s,
         s->ross_rsample.busy_time[indx] = msg->saved_sample_time;
         s->busy_time_ross_sample[indx] = msg->saved_busy_time_ross;
         s->last_buf_full[indx] = msg->saved_busy_time;
+
+        //Xin: reverse agg busytime (not working for cross window reverse)
+        const dragonfly_param *p = s->params;
+        if(s->params->counting_bool>0 && msg->last_bufupdate_time >= s->params->counting_start) {
+            int current_window = (int) ((msg->last_bufupdate_time - s->params->counting_start)/s->params->counting_interval);
+            if(current_window < s->params->counting_windows) {
+              s->agg_busy_time[current_window][indx] = msg->saved_rcv_time;
+            }
+        }
     }
     if(bf->c1) {
-        terminal_dally_message_list* head = return_tail(s->pending_msgs[indx],
-            s->pending_msgs_tail[indx], output_chan);
-        prepend_to_terminal_dally_message_list(s->queued_msgs[indx], 
-            s->queued_msgs_tail[indx], output_chan, head);
+        terminal_dally_message_list* head = return_tail_from_qlist(&s->pending_msgs[indx][output_chan]);
+        qlist_add(&head->list, &s->queued_msgs[indx][output_chan]);
         s->vc_occupancy[indx][output_chan] -= s->params->chunk_size;
         s->queued_count[indx] += s->params->chunk_size;
     }
@@ -5290,15 +6849,32 @@ static void router_buf_update(router_state * s, tw_bf * bf, terminal_dally_messa
         s->busy_time_sample[indx] += (tw_now(lp) - s->last_buf_full[indx]);
         s->ross_rsample.busy_time[indx] += (tw_now(lp) - s->last_buf_full[indx]);
         s->busy_time_ross_sample[indx] += (tw_now(lp) - s->last_buf_full[indx]);
+
+        //Xin: update link busy time
+        const dragonfly_param *p = s->params;
+        msg->last_bufupdate_time = tw_now(lp);
+        if(s->params->counting_bool>0 && msg->last_bufupdate_time >= s->params->counting_start) {
+            int current_window = (int) ((msg->last_bufupdate_time - s->params->counting_start)/s->params->counting_interval);
+            if(current_window < s->params->counting_windows) {
+                int full_window = (int) ((s->last_buf_full[indx] - s->params->counting_start)/s->params->counting_interval);
+                if(full_window==current_window) {
+                    s->agg_busy_time[current_window][indx] += (tw_now(lp) - s->last_buf_full[indx]);
+                } else {
+                    s->agg_busy_time[current_window][indx] += (tw_now(lp) - (s->params->counting_start+current_window*s->params->counting_interval));
+                    s->agg_busy_time[full_window][indx] += ((s->params->counting_start+current_window*s->params->counting_interval) - s->last_buf_full[indx]);
+                }
+            }
+        }
+
         s->last_buf_full[indx] = 0.0;
     }
 
-    if(s->queued_msgs[indx][output_chan] != NULL) {
+    if(!qlist_empty(&s->queued_msgs[indx][output_chan])) {
         bf->c1 = 1;
         assert(indx < s->params->radix);
         assert(output_chan < s->params->num_vcs);
-        terminal_dally_message_list *head = return_head(s->queued_msgs[indx],
-            s->queued_msgs_tail[indx], output_chan);
+        struct qlist_head *item = qlist_pop(&s->queued_msgs[indx][output_chan]);
+        terminal_dally_message_list *head = item ? qlist_entry(item, terminal_dally_message_list, list) : NULL;
         /*if(strcmp(head->msg.category, "medium") == 0)
         {
         if(head->msg.saved_channel < 4 || head->msg.saved_channel >= 8)
@@ -5307,13 +6883,12 @@ static void router_buf_update(router_state * s, tw_bf * bf, terminal_dally_messa
         }
         }*/
         router_credit_send(s, &head->msg, lp, 1, &(msg->num_rngs)); 
-        append_to_terminal_dally_message_list(s->pending_msgs[indx], 
-        s->pending_msgs_tail[indx], output_chan, head);
+        qlist_add_tail(&head->list, &s->pending_msgs[indx][output_chan]);
         s->vc_occupancy[indx][output_chan] += s->params->chunk_size;
         s->queued_count[indx] -= s->params->chunk_size; 
     }
 
-    if(s->in_send_loop[indx] == 0 && s->pending_msgs[indx][output_chan] != NULL) {
+    if(s->in_send_loop[indx] == 0 && !qlist_empty(&s->pending_msgs[indx][output_chan])) {
         bf->c2 = 1;
         terminal_dally_message *m;
         tw_stime ts = maxd(s->next_output_available_time[indx], tw_now(lp)) - tw_now(lp);
@@ -5329,7 +6904,7 @@ static void router_buf_update(router_state * s, tw_bf * bf, terminal_dally_messa
     return;
 }
 
-void 
+static void 
 terminal_dally_event( terminal_state * s, 
 		tw_bf * bf, 
 		terminal_dally_message * msg, 
@@ -5342,16 +6917,37 @@ terminal_dally_event( terminal_state * s,
     s->ross_sample.fwd_events++;
     //*(int *)bf = (int)0;
     assert(msg->magic == terminal_magic_num);
+    //printf("LPID: %llu Event type %d processed at %f\n", lp->gid, msg->type, tw_now(lp));
 
-    rc_stack_gc(lp, s->st);
+    if (is_dally_surrogate_on && freeze_network_on_switch) {
+        // This event will be reversed. It comes from the past, it has been forwarded to the future
+        // by the surrogate freezing the network procedure and should not be taken into account
+        if (! (msg->type == T_GENERATE || msg->type == T_ARRIVE_PREDICTED || msg->type == T_NOTIFY)) {
+            bf->c20 = 1;
+            printf("This shouldn't happen! :( (time stamp = %e)\n", tw_now(lp));
+            return;
+        }
+    } else {
+        rc_stack_gc(lp, s->st);
+        rc_stack_gc(lp, s->cc_st);
+    }
     switch(msg->type)
         {
         case T_GENERATE:
-            packet_generate(s,bf,msg,lp);
+            if (is_dally_surrogate_on) {
+                bf->c10 = 1;
+                packet_generate_predicted(s,bf,msg,lp);
+            } else {
+                packet_generate(s,bf,msg,lp);
+            }
         break;
         
         case T_ARRIVE:
             packet_arrive(s,bf,msg,lp);
+        break;
+
+        case T_ARRIVE_PREDICTED:
+            packet_arrive_predicted(s,bf,msg,lp);
         break;
         
         case T_SEND:
@@ -5365,13 +6961,23 @@ terminal_dally_event( terminal_state * s,
         case T_BANDWIDTH:
             issue_bw_monitor_event(s, bf, msg, lp);
         break;
+    
+        case T_NOTIFY:
+            process_terminal_notification_event(s, bf, msg, lp);
+        break;
+
+#if ALWAYS_DETERMINISTIC_NETWORK
+        case T_VACUOUS_EVENT:
+        break;
+#endif /* ALWAYS_DETERMINISTIC_NETWORK */
+
         default:
             printf("\n LP %d Terminal message type not supported %d ", (int)lp->gid, msg->type);
             tw_error(TW_LOC, "Msg type not supported");
         }
 }
 
-void router_dally_event(router_state * s, tw_bf * bf, terminal_dally_message * msg, 
+static void router_dally_event(router_state * s, tw_bf * bf, terminal_dally_message * msg, 
     tw_lp * lp) 
 {
     msg->num_cll = 0;
@@ -5380,7 +6986,9 @@ void router_dally_event(router_state * s, tw_bf * bf, terminal_dally_message * m
     s->fwd_events++;
     s->ross_rsample.fwd_events++;
     rc_stack_gc(lp, s->st);
+    rc_stack_gc(lp, s->cc_st);
 
+    msg->last_received_time = s->last_time;
     s->last_time = tw_now(lp);
     
     assert(msg->magic == router_magic_num);
@@ -5420,20 +7028,32 @@ void router_dally_event(router_state * s, tw_bf * bf, terminal_dally_message * m
 }
 
 /* Reverse computation handler for a terminal event */
-void terminal_dally_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) 
+static void terminal_dally_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_dally_message * msg, tw_lp * lp) 
 {
+    s->rev_events++;
+    s->ross_sample.rev_events++;
+
+    // In case the event was skipped above, skip now
+    if (bf->c20) {
+        bf->c20 = 0;
+        printf("Has been rolledback! :)\n");
+        return;
+    }
+
     for(int i = 0; i < msg->num_rngs; i++)
         tw_rand_reverse_unif(lp->rng);
 
     for(int i = 0; i < msg->num_cll; i++)
         codes_local_latency_reverse(lp);
 
-    s->rev_events++;
-    s->ross_sample.rev_events++;
-    switch(msg->type)
+    switch((enum event_t) msg->type)
     {
         case T_GENERATE:
-            packet_generate_rc(s, bf, msg, lp); 
+            if (bf->c10) {
+                packet_generate_predicted_rc(s,bf,msg,lp);
+            } else {
+                packet_generate_rc(s, bf, msg, lp); 
+            }
             break;
 
         case T_SEND:
@@ -5444,6 +7064,10 @@ void terminal_dally_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_da
             packet_arrive_rc(s, bf, msg, lp);
             break;
 
+        case T_ARRIVE_PREDICTED:
+            packet_arrive_predicted_rc(s, bf, msg, lp);
+            break;
+
         case T_BUFFER:
             terminal_buf_update_rc(s, bf, msg, lp); 
             break;
@@ -5451,18 +7075,30 @@ void terminal_dally_rc_event_handler(terminal_state * s, tw_bf * bf, terminal_da
         case T_BANDWIDTH:
             issue_bw_monitor_event_rc(s,bf, msg, lp);
             break;
+    
+        case T_NOTIFY:
+            process_terminal_notification_event_rc(s, bf, msg, lp);
+        break;
+
+#if ALWAYS_DETERMINISTIC_NETWORK
+        case T_VACUOUS_EVENT:
+        break;
+#endif /* ALWAYS_DETERMINISTIC_NETWORK */
 
         default:
             tw_error(TW_LOC, "\n Invalid terminal event type %d ", msg->type);
     }
     msg->num_cll = 0;
     msg->num_rngs = 0;
+    bf->c10 = 0;
 }
 
 /* Reverse computation handler for a router event */
-void router_dally_rc_event_handler(router_state * s, tw_bf * bf, 
+static void router_dally_rc_event_handler(router_state * s, tw_bf * bf, 
   terminal_dally_message * msg, tw_lp * lp) 
 {
+    s->last_time = msg->last_received_time;
+
     for(int i = 0; i < msg->num_rngs; i++)
         tw_rand_reverse_unif(lp->rng);
 
@@ -5472,7 +7108,7 @@ void router_dally_rc_event_handler(router_state * s, tw_bf * bf,
     s->rev_events++;
     s->ross_rsample.rev_events++;
 
-    switch(msg->type) {
+    switch((enum event_t) msg->type) {
         case R_SEND: 
             router_packet_send_rc(s, bf, msg, lp);
         break;
@@ -5492,8 +7128,1227 @@ void router_dally_rc_event_handler(router_state * s, tw_bf * bf,
     msg->num_rngs = 0;
 }
 
+//*** ---------- START OF reverse handler checking functions ---------- ***
+static void copy_rank_tbl(struct qhash_table * into, struct qhash_table const * from) {
+  // YES! This function is very, very slow and so are all the others. This is
+  // the simplest implementation we could come up with without changing how
+  // qhash_table works or replacing it altogether. Both options would need
+  // substantial changes to the dragonfly model
+  for (int i = 0; i < from->table_size; i++) {
+    struct dfly_qhash_entry *entry;
+    qlist_for_each_entry(entry, &from->array[i], hash_link) {
+      struct dfly_qhash_entry *new_entry =
+          (struct dfly_qhash_entry *)malloc(sizeof(struct dfly_qhash_entry));
+      *new_entry = *entry; // There is no need to copy contents of pointer because we don't check it
+      qlist_add(&new_entry->hash_link, &into->array[i]);
+    }
+    }
+}
+
+static void clean_rank_tbl(struct qhash_table * rank_tbl) {
+    for (int i=0; i < rank_tbl->table_size; i++) {
+        while(!qlist_empty(&rank_tbl->array[i])) {
+            struct qlist_head *item = qlist_pop(&rank_tbl->array[i]);
+            struct dfly_qhash_entry * entry = qlist_entry(item, struct dfly_qhash_entry, hash_link);
+            free(entry);
+        }
+    }
+}
+
+static bool check_dfly_qhash_entry(struct dfly_qhash_entry * before, struct dfly_qhash_entry * after) {
+    // We ignore the remote data fields because they won't be needed:
+    // - remote_event_size
+    // - remote_event_data
+
+    if (before->key.sender_id != after->key.sender_id ||
+        before->key.message_id != after->key.message_id ||
+        before->num_chunks != after->num_chunks ||
+        before->remaining_packets != after->remaining_packets) {
+        return false;
+    }
+
+    return true;
+}
+
+static bool check_rank_tbl(qhash_table const * before, struct qhash_table const * after) {
+    for (int i=0; i < before->table_size; i++) {
+        if (qlist_count(&before->array[i]) != qlist_count(&before->array[i])) {
+            return false;
+        }
+        struct dfly_qhash_entry * before_entry;
+        struct dfly_qhash_entry * after_entry;
+        qlist_for_each_entry(before_entry, &before->array[i], hash_link) {
+            // Yes, this is slow if there are many collisions, but often there won't be any
+            bool found_entry = false;
+            qlist_for_each_entry(after_entry, &after->array[i], hash_link) {
+                if (check_dfly_qhash_entry(before_entry, after_entry)) {
+                    found_entry = true;
+                    break;
+                }
+            }
+            if (!found_entry) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static void print_rank_tbl(FILE * out, char const * prefix, struct qhash_table * rank_tbl) {
+    fprintf(out, "%stable_size = %d\n", prefix, rank_tbl->table_size);
+    fprintf(out, "%s   compare = %p\n", prefix, rank_tbl->compare);
+    fprintf(out, "%s      hash = %p\n", prefix, rank_tbl->hash);
+    fprintf(out, "%s     array = %p\n", prefix, rank_tbl->array);
+
+    char addprefix[] = "     |  | ";
+    int len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix) + 1;
+    char * subprefix = (char *) malloc(len_subprefix * sizeof(char));
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix);
+
+    for (int i=0; i < rank_tbl->table_size; i++) {
+        struct dfly_qhash_entry * entry;
+        qlist_for_each_entry(entry, &rank_tbl->array[i], hash_link) {
+            fprintf(out, "%s     | {\n", prefix);
+            fprintf(out, "%s     |      key.message_id = %lu\n", prefix, entry->key.message_id);
+            fprintf(out, "%s     |       key.sender_id = %lu\n", prefix, entry->key.sender_id);
+            fprintf(out, "%s     |          num_chunks = %d\n", prefix, entry->num_chunks);
+            fprintf(out, "%s     |   remaining_packets = %d\n", prefix, entry->remaining_packets);
+            fprintf(out, "%s     |   remote_event_size = %d\n", prefix, entry->remote_event_size);
+            fprintf(out, "%s     | * remote_event_data = %p\n", prefix, entry->remote_event_data);
+            if (entry->remote_event_size) {
+                tw_fprint_binary_array(out, subprefix, entry->remote_event_data, entry->remote_event_size);
+            }
+            fprintf(out, "%s     | },\n", prefix);
+        }
+    }
+
+    free(subprefix);
+}
+
+static void save_terminal_state(terminal_state *into, terminal_state const *from) {
+    // These should be deep-cloned/compared/printed if we want to run the functionality they are activated at
+    // from->predictor_data
+    // from->sample_stat
+    // from->ross_sample
+    // from->busy_time_ross_sample
+    // from->busy_time_sample
+
+    memcpy(into, from, sizeof(terminal_state));
+
+    dragonfly_param const * p = into->params;
+    int const num_qos_levels = p->num_qos_levels;
+    int const num_rails = p->num_rails;
+
+    if (!is_dally_surrogate_on) {
+        into->vc_occupancy = (int **) malloc(num_rails * sizeof(int*));
+        into->terminal_length = (int**) malloc(num_rails * sizeof(int*));
+        into->last_buf_full = (tw_stime*) malloc(num_rails * sizeof(tw_stime));
+        into->in_send_loop = (int*) malloc(num_rails * sizeof(int));
+        into->issueIdle = (int*) malloc(num_rails * sizeof(int));
+        into->qos_status = (int**) malloc(num_rails * sizeof(int*));
+        into->qos_data = (int**) malloc(num_rails * sizeof(int*));
+        into->last_qos_lvl = (int*) malloc(num_rails * sizeof(int));
+        into->terminal_available_time = (tw_stime*) malloc(num_rails * sizeof(tw_stime));
+        into->stalled_chunks = (unsigned long*) malloc(num_rails * sizeof(uint64_t));
+        into->total_chunks = (unsigned long*) malloc(num_rails * sizeof(uint64_t));
+        into->busy_time = (tw_stime*) malloc(num_rails * sizeof(tw_stime));
+        into->terminal_msgs = (struct qlist_head**) malloc(num_rails * sizeof(struct qlist_head*));
+        into->link_traffic = (uint64_t*) malloc(num_rails * sizeof(uint64_t));
+
+        for(int i = 0; i < num_rails; i++) {
+            into->vc_occupancy[i] = (int*) malloc(num_qos_levels * sizeof(int));
+            into->terminal_length[i] = (int*) malloc(num_qos_levels * sizeof(int));
+            into->qos_status[i] = (int*) malloc(num_qos_levels * sizeof(int));
+            into->qos_data[i] = (int*) malloc(num_qos_levels * sizeof(int));
+            into->terminal_msgs[i] = (struct qlist_head*) malloc(num_qos_levels * sizeof(struct qlist_head));
+            for (int j = 0; j<num_qos_levels; j++) {
+                into->vc_occupancy[i][j] = from->vc_occupancy[i][j];
+                into->terminal_length[i][j] = from->terminal_length[i][j];
+                into->qos_data[i][j] = from->qos_data[i][j];
+                into->qos_status[i][j] = from->qos_status[i][j];
+                INIT_QLIST_HEAD(&into->terminal_msgs[i][j]);
+                copy_terminal_dally_message_qlist(&into->terminal_msgs[i][j], &from->terminal_msgs[i][j]);
+            }
+            into->last_buf_full[i] = from->last_buf_full[i];
+            into->in_send_loop[i] = from->in_send_loop[i];
+            into->issueIdle[i] = from->issueIdle[i];
+            into->last_qos_lvl[i] = from->last_qos_lvl[i];
+            into->terminal_available_time[i] = from->terminal_available_time[i];
+            into->stalled_chunks[i] = from->stalled_chunks[i];
+            into->total_chunks[i] = from->total_chunks[i];
+            into->busy_time[i] = from->busy_time[i];
+            into->link_traffic[i] = from->link_traffic[i];
+        }
+    }
+
+    if (from->local_congestion_controller != NULL) {
+        assert(g_congestion_control_enabled);
+        into->local_congestion_controller = (tlc_state*) malloc(sizeof(tlc_state));
+        save_tlc_state(into->local_congestion_controller, from->local_congestion_controller);
+    }
+
+    into->rank_tbl = qhash_init(dragonfly_rank_hash_compare, dragonfly_hash_func, DFLY_HASH_TABLE_SIZE);
+    copy_rank_tbl(into->rank_tbl, from->rank_tbl);
+
+    // I would use the C++ amgic to copy these containers but they don't work as well :S
+    new (&into->remaining_sz_packets) map<struct packet_id, uint32_t>();
+    new (&into->zombies) set<struct packet_id>();
+
+    // Sorry const, I promise not to change the state of remaining_sz_packets
+    map<struct packet_id, uint32_t> * from_remaining_sz_packets = (map<struct packet_id, uint32_t> *) &from->remaining_sz_packets;
+    set<struct packet_id> * from_zombies = (set<struct packet_id> *) &from->zombies;
+
+    std::map<struct packet_id, uint32_t>::iterator it_map;
+    for (it_map = from_remaining_sz_packets->begin(); it_map != from_remaining_sz_packets->end(); ++it_map) {
+        into->remaining_sz_packets[it_map->first] = it_map->second;
+    }
+
+    std::set<struct packet_id>::iterator it_set;
+    for (it_set = from_zombies->begin(); it_set != from_zombies->end(); ++it_set) {
+        struct packet_id const zombie = {
+            .packet_ID = it_set->packet_ID,
+            .dfdally_src_terminal_id = it_set->dfdally_src_terminal_id};
+        into->zombies.insert(zombie);
+    }
+}
+
+// Partially written by Claude
+static void clean_terminal_state(terminal_state *state) {
+    dragonfly_param const * p = state->params;
+    int const num_rails = p->num_rails;
+    int const num_qos_levels = p->num_qos_levels;
+
+    if (!is_dally_surrogate_on) {
+        for (int i = 0; i < num_rails; i++) {
+            free(state->vc_occupancy[i]);
+            free(state->terminal_length[i]);
+            free(state->qos_status[i]);
+            free(state->qos_data[i]);
+            for (int j = 0; j<num_qos_levels; j++) {
+                clean_terminal_dally_message_qlist(&state->terminal_msgs[i][j]);
+            }
+            free(state->terminal_msgs[i]);
+        }
+
+        free(state->vc_occupancy);
+        free(state->terminal_length);
+        free(state->last_buf_full);
+        free(state->in_send_loop);
+        free(state->issueIdle);
+        free(state->qos_status);
+        free(state->qos_data);
+        free(state->last_qos_lvl);
+        free(state->terminal_available_time);
+        free(state->stalled_chunks);
+        free(state->total_chunks);
+        free(state->busy_time);
+        free(state->link_traffic);
+        free(state->terminal_msgs);
+    }
+
+    if (state->local_congestion_controller != NULL) {
+        clean_tlc_state(state->local_congestion_controller);
+        free(state->local_congestion_controller);
+    }
+
+    clean_rank_tbl(state->rank_tbl);
+    qhash_finalize(state->rank_tbl);
+
+    state->remaining_sz_packets.~map();
+    state->zombies.~set();
+}
+
+static bool check_terminal_state(terminal_state *before, terminal_state *after) {
+    bool is_same = true;
+
+    // There is no need to deep-copy the following. They're never modified
+    assert(before->params == after->params);
+    assert(before->router_lp == after->router_lp);
+    assert(before->router_id == after->router_id);
+
+    // We ignore the comparison of the following. They are not meant to be rolled-back
+    // before->fwd_events
+    // before->rev_events
+    // before->sent_packets
+    // before->last_packet_sent_id
+    // before->arrival_of_last_packet
+    // before->anno
+    assert(before->frozen_state == after->frozen_state);
+
+    // Comparing all other elements of the struct
+    is_same &= (before->packet_counter == after->packet_counter);
+    is_same &= (before->packet_gen == after->packet_gen);
+    is_same &= (before->packet_fin == after->packet_fin);
+    is_same &= (before->total_gen_size == after->total_gen_size);
+    is_same &= (before->terminal_id == after->terminal_id);
+    is_same &= (before->workloads_finished_flag == after->workloads_finished_flag);
+    is_same &= (before->is_monitoring_bw == after->is_monitoring_bw);
+    is_same &= (before->rank_tbl_pop == after->rank_tbl_pop);
+    is_same &= (before->total_time == after->total_time);
+    is_same &= (before->total_msg_size == after->total_msg_size);
+    is_same &= (before->total_hops == after->total_hops);
+    is_same &= (before->finished_msgs == after->finished_msgs);
+    is_same &= (before->finished_chunks == after->finished_chunks);
+    is_same &= (before->finished_packets == after->finished_packets);
+    is_same &= (before->injected_chunks == after->injected_chunks);
+    is_same &= (before->ejected_chunks == after->ejected_chunks);
+    is_same &= (before->max_latency == after->max_latency);
+    is_same &= (before->min_latency == after->min_latency);
+    is_same &= (before->fin_chunks_sample == after->fin_chunks_sample);
+    is_same &= (before->data_size_sample == after->data_size_sample);
+    is_same &= (before->fin_hops_sample == after->fin_hops_sample);
+    is_same &= (before->fin_chunks_time == after->fin_chunks_time);
+    is_same &= (before->op_arr_size == after->op_arr_size);
+    is_same &= (before->max_arr_size == after->max_arr_size);
+    is_same &= (before->fin_chunks_ross_sample == after->fin_chunks_ross_sample);
+    is_same &= (before->data_size_ross_sample == after->data_size_ross_sample);
+    is_same &= (before->fin_hops_ross_sample == after->fin_hops_ross_sample);
+    is_same &= (before->fin_chunks_time_ross_sample == after->fin_chunks_time_ross_sample);
+    is_same &= (before->last_in_queue_time == after->last_in_queue_time);
+
+    // Compare string buffers
+    is_same &= (strncmp(before->output_buf, after->output_buf, 4096) == 0);
+    is_same &= (strncmp(before->output_buf2, after->output_buf2, 4096) == 0);
+    is_same &= (strncmp(before->sample_buf, after->sample_buf, 4096) == 0);
+
+    // Compare anno strings (handling NULL case)
+    if (before->anno && after->anno) {
+        is_same &= (strcmp(before->anno, after->anno) == 0);
+    } else {
+        is_same &= (before->anno == after->anno);
+    }
+
+    if (!is_dally_surrogate_on) {
+        dragonfly_param const * p = before->params;
+        int const num_qos_levels = p->num_qos_levels;
+        int const num_rails = p->num_rails;
+
+        for (int i = 0; i < num_rails; i++) {
+            for (int j = 0; j < num_qos_levels; j++) {
+                is_same &= (before->vc_occupancy[i][j] == after->vc_occupancy[i][j]);
+                is_same &= (before->terminal_length[i][j] == after->terminal_length[i][j]);
+                is_same &= (before->qos_status[i][j] == after->qos_status[i][j]);
+                is_same &= (before->qos_data[i][j] == after->qos_data[i][j]);
+                is_same &= check_terminal_dally_message_qlist(&before->terminal_msgs[i][j], &after->terminal_msgs[i][j]);
+            }
+
+            is_same &= (before->last_buf_full[i] == after->last_buf_full[i]);
+            is_same &= (before->in_send_loop[i] == after->in_send_loop[i]);
+            is_same &= (before->issueIdle[i] == after->issueIdle[i]);
+            is_same &= (before->last_qos_lvl[i] == after->last_qos_lvl[i]);
+            is_same &= (before->terminal_available_time[i] == after->terminal_available_time[i]);
+            is_same &= (before->stalled_chunks[i] == after->stalled_chunks[i]);
+            is_same &= (before->total_chunks[i] == after->total_chunks[i]);
+            is_same &= (before->busy_time[i] == after->busy_time[i]);
+            is_same &= (before->link_traffic[i] == after->link_traffic[i]);
+        }
+    }
+
+    // Ignoring model statistics. In general, we don't care if there are errors in the statistics, as they are only approximate. The stastistics don't interferee with the state of the model. There is a bug within the statistics when rolbacking though. A parameters is never reversed properly
+    //for (size_t i = 0; i < CATEGORY_MAX; i++) {
+    //    is_same &= check_mn_stats(&before->dragonfly_stats_array[i], &after->dragonfly_stats_array[i]);
+    //}
+
+    if (after->local_congestion_controller != NULL) {
+        is_same &= check_tlc_state(before->local_congestion_controller, after->local_congestion_controller);
+    }
+
+    is_same &= check_rank_tbl(before->rank_tbl, after->rank_tbl);
+
+    is_same &= before->remaining_sz_packets == after->remaining_sz_packets;
+    is_same &= before->zombies == after->zombies;
+
+    return is_same;
+}
+
+// Print fuction originally constructed with help from Claude.ai
+static void print_terminal_state(FILE * out, char const * prefix, terminal_state * state) {
+    fprintf(out, "%sterminal_state (dragonfly-dally) ->\n", prefix);
+    fprintf(out, "%s  |           packet_counter = %ld\n", prefix, state->packet_counter);
+    fprintf(out, "%s  |               packet_gen = %d\n", prefix, state->packet_gen);
+    fprintf(out, "%s  |               packet_fin = %d\n", prefix, state->packet_fin);
+    fprintf(out, "%s  |           total_gen_size = %d\n", prefix, state->total_gen_size);
+
+    fprintf(out, "%s  | *          router_lp[%d] = [", prefix, state->params->num_rails);
+    for (int i=0; i<state->params->num_rails; i++) {
+        fprintf(out, "%s%lu", i ? ", " : "", state->router_lp[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *          router_id[%d] = [", prefix, state->params->num_rails);
+    for (int i=0; i<state->params->num_rails; i++) {
+        fprintf(out, "%s%u", i ? ", " : "", state->router_id[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  |              terminal_id = %u\n", prefix, state->terminal_id);
+    fprintf(out, "%s  |                  connMan = <DragonflyConnectionManager object>\n", prefix);
+
+    char addprefix[] = "  | ";
+    int len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix) + 1;
+    char * subprefix = (char *) malloc(len_subprefix * sizeof(char));
+    fprintf(out, "%s  | *local_congestion_controller = %p\n", prefix, state->local_congestion_controller);
+    if (state->local_congestion_controller != NULL) {
+        print_tlc_state(out, subprefix, state->local_congestion_controller);
+    }
+    free(subprefix);
+
+    fprintf(out, "%s  |  workloads_finished_flag = %d\n", prefix, state->workloads_finished_flag);
+
+    if (is_dally_surrogate_on) {
+        fprintf(out, "%s  | **          vc_occupancy = %p\n", prefix, state->vc_occupancy);
+        fprintf(out, "%s  | *terminal_available_time = %p\n", prefix, state->terminal_available_time);
+        fprintf(out, "%s  | ***        terminal_msgs = %p\n", prefix, state->terminal_msgs);
+    } else {
+        fprintf(out, "%s  | **  vc_occupancy[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s  |        rail %d: [", prefix, i);
+            for (int j=0; j<state->params->num_qos_levels; j++) {
+                fprintf(out, "%s%d", j ? ", " : "", state->vc_occupancy[i][j]);
+            }
+            fprintf(out, "]\n");
+        }
+        fprintf(out, "%s  |     ]\n", prefix);
+
+        fprintf(out, "%s  | *terminal_available_time[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s%g", i ? ", " : "", state->terminal_available_time[i]);
+        }
+        fprintf(out, "]\n");
+
+        char addprefix_2[] = "  |    |  | ";
+        len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_2) + 1;
+        subprefix = (char *) malloc(len_subprefix * sizeof(char));
+        snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix_2);
+        fprintf(out, "%s  | ***        terminal_msgs[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s  |   rail %d: [\n", prefix, i);
+            for (int j=0; j<state->params->num_qos_levels; j++) {
+                fprintf(out, "%s  |    | qos level %d\n", prefix, j);
+                print_terminal_dally_message_qlist(out, subprefix, state, &state->terminal_msgs[i][j]);
+            }
+        }
+        fprintf(out, "%s  | ]\n", prefix);
+        free(subprefix);
+    }
+
+
+    if (is_dally_surrogate_on) {
+        fprintf(out, "%s  | *          in_send_loop = %p\n", prefix, state->in_send_loop);
+    } else {
+        fprintf(out, "%s  | *       in_send_loop[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s%d", i ? ", " : "", state->in_send_loop[i]);
+        }
+        fprintf(out, "]\n");
+    }
+
+    char addprefix_3[] = "  |    | ";
+    len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_3) + 1;
+    subprefix = (char *) malloc(len_subprefix * sizeof(char));
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix_3);
+    fprintf(out, "%s  |    dragonfly_stats_array = [\n", prefix);
+    for (int i = 0; i < CATEGORY_MAX; i++) {
+        fprintf(out, "%s  |    %d:\n", prefix, i);
+        print_mn_stats(out, subprefix, &state->dragonfly_stats_array[i]);
+    }
+    fprintf(out, "%s  |    ]\n", prefix);
+    free(subprefix);
+
+    if (is_dally_surrogate_on) {
+        fprintf(out, "%s  | **           qos_status = %p\n", prefix, state->qos_status);
+        fprintf(out, "%s  | **             qos_data = %p\n", prefix, state->qos_data);
+        fprintf(out, "%s  | *          last_qos_lvl = %p\n", prefix, state->last_qos_lvl);
+    } else {
+        fprintf(out, "%s  | **      qos_status[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s  |          rail %d: [", prefix, i);
+            for (int j=0; j<state->params->num_qos_levels; j++) {
+                fprintf(out, "%s%d", j ? ", " : "", state->qos_status[i][j]);
+            }
+            fprintf(out, "]\n");
+        }
+        fprintf(out, "%s  |       ]\n", prefix);
+
+        fprintf(out, "%s  | **        qos_data[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s  |            rail %d: [", prefix, i);
+            for (int j=0; j<state->params->num_qos_levels; j++) {
+                fprintf(out, "%s%d", j ? ", " : "", state->qos_data[i][j]);
+            }
+            fprintf(out, "]\n");
+        }
+        fprintf(out, "%s  |         ]\n", prefix);
+
+        fprintf(out, "%s  | *        last_qos_lvl[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s%d", i ? ", " : "", state->last_qos_lvl[i]);
+        }
+        fprintf(out, "]\n");
+    }
+
+    fprintf(out, "%s  |         is_monitoring_bw = %d\n", prefix, state->is_monitoring_bw);
+    fprintf(out, "%s  | *                     st = %p\n", prefix, state->st);
+    fprintf(out, "%s  | *                  cc_st = %p\n", prefix, state->cc_st);
+
+    if (is_dally_surrogate_on) {
+        fprintf(out, "%s  | *             issueIdle = %p\n", prefix, state->issueIdle);
+        fprintf(out, "%s  | **      terminal_length = %p\n", prefix, state->terminal_length);
+    } else {
+        fprintf(out, "%s  | *           issueIdle[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s%d", i ? ", " : "", state->issueIdle[i]);
+        }
+        fprintf(out, "]\n");
+
+        fprintf(out, "%s  | ** terminal_length[%d][%d] = [\n", prefix, state->params->num_rails, state->params->num_qos_levels);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s  |       rail %d: [", prefix, i);
+            for (int j=0; j<state->params->num_qos_levels; j++) {
+                fprintf(out, "%s%d", j ? ", " : "", state->terminal_length[i][j]);
+            }
+            fprintf(out, "]\n");
+        }
+        fprintf(out, "%s  |    ]\n", prefix);
+    }
+
+    fprintf(out, "%s  | *                   anno = %s\n", prefix, state->anno ? state->anno : "(nil)");
+    fprintf(out, "%s  | *                 params = %p\n", prefix, state->params);
+
+    fprintf(out, "%s  | *               rank_tbl = {\n", prefix);
+    char addprefix_4[] = "  |     ";
+    len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_4) + 1;
+    subprefix = (char *) malloc(len_subprefix * sizeof(char));
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix_4);
+    print_rank_tbl(out, subprefix, state->rank_tbl);
+    free(subprefix);
+    fprintf(out, "%s  | }\n", prefix);
+
+    fprintf(out, "%s  |             rank_tbl_pop = %lu\n", prefix, state->rank_tbl_pop);
+    fprintf(out, "%s  |               total_time = %g\n", prefix, state->total_time);
+    fprintf(out, "%s  |           total_msg_size = %lu\n", prefix, state->total_msg_size);
+    fprintf(out, "%s  |               total_hops = %g\n", prefix, state->total_hops);
+    fprintf(out, "%s  |            finished_msgs = %ld\n", prefix, state->finished_msgs);
+    fprintf(out, "%s  |          finished_chunks = %ld\n", prefix, state->finished_chunks);
+    fprintf(out, "%s  |         finished_packets = %ld\n", prefix, state->finished_packets);
+
+    if (is_dally_surrogate_on) {
+        fprintf(out, "%s  | **      terminal_length = %p\n", prefix, state->terminal_length);
+        fprintf(out, "%s  | *         last_buf_full = %p\n", prefix, state->last_buf_full);
+        fprintf(out, "%s  | *             busy_time = %p\n", prefix, state->busy_time);
+        fprintf(out, "%s  | *          link_traffic = %p\n", prefix, state->link_traffic);
+        fprintf(out, "%s  | *          total_chunks = %p\n", prefix, state->total_chunks);
+        fprintf(out, "%s  | *        stalled_chunks = %p\n", prefix, state->stalled_chunks);
+    } else {
+        fprintf(out, "%s  | *       last_buf_full[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s%g", i ? ", " : "", state->last_buf_full[i]);
+        }
+        fprintf(out, "]\n");
+
+        fprintf(out, "%s  | *           busy_time[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s%g", i ? ", " : "", state->busy_time[i]);
+        }
+        fprintf(out, "]\n");
+
+        fprintf(out, "%s  | *        link_traffic[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s%lu", i ? ", " : "", state->link_traffic[i]);
+        }
+        fprintf(out, "]\n");
+
+        fprintf(out, "%s  | *        total_chunks[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s%lu", i ? ", " : "", state->total_chunks[i]);
+        }
+        fprintf(out, "]\n");
+
+        fprintf(out, "%s  | *      stalled_chunks[%d] = [", prefix, state->params->num_rails);
+        for (int i=0; i<state->params->num_rails; i++) {
+            fprintf(out, "%s%lu", i ? ", " : "", state->stalled_chunks[i]);
+        }
+        fprintf(out, "]\n");
+    }
+
+    fprintf(out, "%s  |          injected_chunks = %lu\n", prefix, state->injected_chunks);
+    fprintf(out, "%s  |           ejected_chunks = %lu\n", prefix, state->ejected_chunks);
+    fprintf(out, "%s  |              max_latency = %g\n", prefix, state->max_latency);
+    fprintf(out, "%s  |              min_latency = %g\n", prefix, state->min_latency);
+    fprintf(out, "%s  |               output_buf = '%.4096s'\n", prefix, state->output_buf);
+    fprintf(out, "%s  |              output_buf2 = '%.4096s'\n", prefix, state->output_buf2);
+    fprintf(out, "%s  |        fin_chunks_sample = %ld\n", prefix, state->fin_chunks_sample);
+    fprintf(out, "%s  |         data_size_sample = %ld\n", prefix, state->data_size_sample);
+    fprintf(out, "%s  |          fin_hops_sample = %g\n", prefix, state->fin_hops_sample);
+    fprintf(out, "%s  |          fin_chunks_time = %g\n", prefix, state->fin_chunks_time);
+    fprintf(out, "%s  | *       busy_time_sample = %p\n", prefix, state->busy_time_sample);
+    fprintf(out, "%s  |               sample_buf = '%.4096s'\n", prefix, state->sample_buf);
+    fprintf(out, "%s  | *            sample_stat = %p\n", prefix, state->sample_stat);  // ingnoring as this part of the code is never used. Originally part of instrumentation
+    fprintf(out, "%s  |              op_arr_size = %d\n", prefix, state->op_arr_size);
+    fprintf(out, "%s  |             max_arr_size = %d\n", prefix, state->max_arr_size);
+    fprintf(out, "%s  |               fwd_events = %ld\n", prefix, state->fwd_events);
+    fprintf(out, "%s  |               rev_events = %ld\n", prefix, state->rev_events);
+    fprintf(out, "%s  |   fin_chunks_ross_sample = %ld\n", prefix, state->fin_chunks_ross_sample);
+    fprintf(out, "%s  |    data_size_ross_sample = %ld\n", prefix, state->data_size_ross_sample);
+    fprintf(out, "%s  |     fin_hops_ross_sample = %ld\n", prefix, state->fin_hops_ross_sample);
+    fprintf(out, "%s  | fin_chunks_time_ross_sample = %g\n", prefix, state->fin_chunks_time_ross_sample);
+    fprintf(out, "%s  | *  busy_time_ross_sample = %p\n", prefix, state->busy_time_ross_sample);  // ingnoring as this part of the code is never used. Originally part of instrumentation
+    fprintf(out, "%s  |              ross_sample = <dfly_cn_sample object>\n", prefix);  // ingnoring as this part of the code is never used. Originally part of instrumentation
+
+    // modified outside of process and reverse computation (at commit and at surrogate change)
+    fprintf(out, "%s  |             sent_packets = <map object>\n", prefix);
+
+    fprintf(out, "%s  |      last_packet_sent_id = %ld\n", prefix, state->last_packet_sent_id);
+    fprintf(out, "%s  |   arrival_of_last_packet = {packet_ID: %ld, travel_end_time: %g}\n", prefix, state->arrival_of_last_packet.packet_ID, state->arrival_of_last_packet.travel_end_time);
+
+    fprintf(out, "%s  |     remaining_sz_packets = {\n", prefix);
+    std::map<struct packet_id, uint32_t>::iterator it_map;
+    for (it_map = state->remaining_sz_packets.begin(); it_map != state->remaining_sz_packets.end(); ++it_map) {
+        fprintf(out, "%s  |         {packet_ID: %lu, dfdally_src_terminal_id: %u} -> %d,\n", prefix, it_map->first.packet_ID, it_map->first.dfdally_src_terminal_id, it_map->second);
+    }
+    fprintf(out, "%s  |     }\n", prefix);
+
+    fprintf(out, "%s  |       last_in_queue_time = %g\n", prefix, state->last_in_queue_time);
+    fprintf(out, "%s  | *         predictor_data = %p\n", prefix, state->predictor_data);
+
+    fprintf(out, "%s  |                  zombies = [\n", prefix);
+    std::set<struct packet_id>::iterator it;
+    for (it = state->zombies.begin(); it != state->zombies.end(); ++it) {
+        fprintf(out, "%s  |                    {packet_ID: %lu, dfdally_src_terminal_id: %u},\n", prefix, it->packet_ID, it->dfdally_src_terminal_id);
+    }
+    fprintf(out, "%s  |                  ]\n", prefix);
+
+    fprintf(out, "%s  | *           frozen_state = %p\n", prefix, state->frozen_state);
+}
+
+// Original function implemented by Claude
+static void save_router_state(router_state *into, router_state const *from) {
+    // Missing deep-clone/comparison/print members. These members are always accessed, so it is possible to discover some bugs if we print their contents
+    // from->local_congestion_controller
+
+    // Missing deep-clone/comparison/print members.
+    // from->rsamples
+    // from->ross_rsample
+    // from->busy_time_sample
+    // from->link_traffic_sample
+    // from->link_traffic_ross_sample
+
+    memcpy(into, from, sizeof(router_state));
+
+    dragonfly_param const * p = into->params;
+    int const radix = p->radix;
+    int const num_qos_levels = p->num_qos_levels;
+
+    into->global_channel = (int*) malloc(p->num_global_channels * sizeof(int));
+
+    for (int i = 0; i < p->num_global_channels; i++) {
+        into->global_channel[i] = from->global_channel[i];
+    }
+
+    into->next_output_available_time = (tw_stime*) malloc(radix * sizeof(tw_stime));
+    into->last_buf_full = (tw_stime*) malloc(radix * sizeof(tw_stime));
+    into->busy_time = (tw_stime*) malloc(radix * sizeof(tw_stime));
+    into->stalled_chunks = (unsigned long*) malloc(radix * sizeof(unsigned long));
+    into->total_chunks = (unsigned long*) malloc(radix * sizeof(unsigned long));
+    into->in_send_loop = (int*) malloc(radix * sizeof(int));
+    into->queued_count = (int*) malloc(radix * sizeof(int));
+    into->port_bandwidths = (double*) malloc(radix * sizeof(double));
+    into->vc_max_sizes = (int*) malloc(radix * sizeof(int));
+    into->link_traffic = (int64_t*) malloc(radix * sizeof(int64_t));
+    into->last_qos_lvl = (int*) malloc(radix * sizeof(int));
+    into->vc_occupancy = (int**) malloc(radix * sizeof(int*));
+    into->qos_status = (int**) malloc(radix * sizeof(int*));
+    into->qos_data = (int**) malloc(radix * sizeof(int*));
+    into->pending_msgs = (struct qlist_head**) malloc(radix * sizeof(struct qlist_head*));
+    into->queued_msgs = (struct qlist_head**) malloc(radix * sizeof(struct qlist_head*));
+
+    for (int i = 0; i < radix; i++) {
+        into->next_output_available_time[i] = from->next_output_available_time[i];
+        into->last_buf_full[i] = from->last_buf_full[i];
+        into->busy_time[i] = from->busy_time[i];
+        into->stalled_chunks[i] = from->stalled_chunks[i];
+        into->total_chunks[i] = from->total_chunks[i];
+        into->in_send_loop[i] = from->in_send_loop[i];
+        into->queued_count[i] = from->queued_count[i];
+        into->port_bandwidths[i] = from->port_bandwidths[i];
+        into->vc_max_sizes[i] = from->vc_max_sizes[i];
+        into->link_traffic[i] = from->link_traffic[i];
+        into->last_qos_lvl[i] = from->last_qos_lvl[i];
+
+        into->vc_occupancy[i] = (int*) malloc(p->num_vcs * sizeof(int));
+        into->qos_status[i] = (int*) malloc(num_qos_levels * sizeof(int));
+        into->qos_data[i] = (int*) malloc(num_qos_levels * sizeof(int));
+
+        into->pending_msgs[i] = (struct qlist_head*) malloc(p->num_vcs * sizeof(struct qlist_head));
+        into->queued_msgs[i] = (struct qlist_head*) malloc(p->num_vcs * sizeof(struct qlist_head));
+
+        for (int j = 0; j < p->num_vcs; j++) {
+            into->vc_occupancy[i][j] = from->vc_occupancy[i][j];
+            copy_msgs_qlist(&into->pending_msgs[i][j], &from->pending_msgs[i][j]);
+            copy_msgs_qlist(&into->queued_msgs[i][j], &from->queued_msgs[i][j]);
+        }
+        for (int j = 0; j < num_qos_levels; j++) {
+            into->qos_status[i][j] = from->qos_status[i][j];
+            into->qos_data[i][j] = from->qos_data[i][j];
+        }
+    }
+
+    if (p->counting_bool > 0) {
+        assert(from->agg_busy_time != NULL);
+        assert(from->agg_link_traffic != NULL);
+        into->agg_busy_time = (tw_stime**) malloc(p->counting_windows * sizeof(tw_stime*));
+        into->agg_link_traffic = (int64_t**) malloc(p->counting_windows * sizeof(int64_t*));
+
+        for (int i = 0; i < p->counting_windows; i++) {
+            into->agg_busy_time[i] = (tw_stime*) malloc(radix * sizeof(tw_stime));
+            into->agg_link_traffic[i] = (int64_t*) malloc(radix * sizeof(int64_t));
+            memcpy(into->agg_busy_time[i], from->agg_busy_time[i], radix * sizeof(tw_stime));
+            memcpy(into->agg_link_traffic[i], from->agg_link_traffic[i], radix * sizeof(int64_t));
+        }
+    }
+
+    //if (from->local_congestion_controller != NULL) {
+    //    assert(g_congestion_control_enabled);
+    //    into->local_congestion_controller = (rlc_state*) malloc(sizeof(rlc_state));
+    //    save_rlc_state(into->local_congestion_controller, from->local_congestion_controller);
+    //}
+}
+
+// Original function implemented by Claude
+static void clean_router_state(router_state *state) {
+    dragonfly_param const * p = state->params;
+    int const radix = p->radix;
+
+    // Free simple arrays
+    free(state->global_channel);
+    free(state->next_output_available_time);
+    free(state->last_buf_full);
+    free(state->busy_time);
+    free(state->stalled_chunks);
+    free(state->total_chunks);
+    free(state->in_send_loop);
+    free(state->queued_count);
+    free(state->port_bandwidths);
+    free(state->vc_max_sizes);
+    free(state->link_traffic);
+    free(state->last_qos_lvl);
+
+    // Clean and free 2D arrays
+    for (int i = 0; i < radix; i++) {
+        free(state->vc_occupancy[i]);
+        free(state->qos_status[i]);
+        free(state->qos_data[i]);
+
+        for (int j = 0; j < p->num_vcs; j++) {
+            // Clean up qlist entries - remove and free all elements
+            while (!qlist_empty(&state->pending_msgs[i][j])) {
+                struct qlist_head *item = qlist_pop(&state->pending_msgs[i][j]);
+                terminal_dally_message_list *entry = qlist_entry(item, terminal_dally_message_list, list);
+                free(entry->event_data);
+                free(entry);
+            }
+            while (!qlist_empty(&state->queued_msgs[i][j])) {
+                struct qlist_head *item = qlist_pop(&state->queued_msgs[i][j]);
+                terminal_dally_message_list *entry = qlist_entry(item, terminal_dally_message_list, list);
+                free(entry->event_data);
+                free(entry);
+            }
+        }
+
+        free(state->pending_msgs[i]);
+        free(state->queued_msgs[i]);
+    }
+
+    free(state->vc_occupancy);
+    free(state->qos_status);
+    free(state->qos_data);
+    free(state->pending_msgs);
+    free(state->queued_msgs);
+
+    if (p->counting_bool > 0) {
+        for (int i = 0; i < p->counting_windows; i++) {
+            free(state->agg_busy_time[i]);
+            free(state->agg_link_traffic[i]);
+        }
+        free(state->agg_busy_time);
+        free(state->agg_link_traffic);
+    }
+
+    //if (state->local_congestion_controller != NULL) {
+    //    clean_rlc_state(state->local_congestion_controller);
+    //    free(state->local_congestion_controller);
+    //}
+}
+
+// Original function implemented by Claude
+static bool check_router_state(router_state const *before, router_state const *after) {
+    // The following are not checked because they don't influence any other
+    // components of the router state, ie, they are never used to change
+    // the simulation behavior.
+    // - snapshot_data
+    // - fwd_events
+    // - rev_events
+
+    dragonfly_param const * p = before->params;
+    int const radix = p->radix;
+    int const num_qos_levels = p->num_qos_levels;
+
+    if (before->router_id != after->router_id ||
+        before->group_id != after->group_id ||
+        before->plane_id != after->plane_id ||
+        before->op_arr_size != after->op_arr_size ||
+        before->max_arr_size != after->max_arr_size ||
+        before->workloads_finished_flag != after->workloads_finished_flag ||
+        before->is_monitoring_bw != after->is_monitoring_bw ||
+        before->last_time != after->last_time) {
+        return false;
+    }
+
+    for (int i = 0; i < p->num_global_channels; i++) {
+        if (before->global_channel[i] != after->global_channel[i]) {
+            return false;
+        }
+    }
+
+    for (int i = 0; i < radix; i++) {
+        if (before->next_output_available_time[i] != after->next_output_available_time[i] ||
+            before->last_buf_full[i] != after->last_buf_full[i] ||
+            before->busy_time[i] != after->busy_time[i] ||
+            before->stalled_chunks[i] != after->stalled_chunks[i] ||
+            before->total_chunks[i] != after->total_chunks[i] ||
+            before->in_send_loop[i] != after->in_send_loop[i] ||
+            before->queued_count[i] != after->queued_count[i] ||
+            before->port_bandwidths[i] != after->port_bandwidths[i] ||
+            before->vc_max_sizes[i] != after->vc_max_sizes[i] ||
+            before->link_traffic[i] != after->link_traffic[i] ||
+            before->last_qos_lvl[i] != after->last_qos_lvl[i]) {
+            return false;
+        }
+
+        for (int j = 0; j < p->num_vcs; j++) {
+            if (before->vc_occupancy[i][j] != after->vc_occupancy[i][j]) {
+                return false;
+            }
+
+            if (!check_msgs_qlist(&before->pending_msgs[i][j], &after->pending_msgs[i][j]) ||
+                !check_msgs_qlist(&before->queued_msgs[i][j], &after->queued_msgs[i][j])) {
+                return false;
+            }
+        }
+
+        for (int j = 0; j < num_qos_levels; j++) {
+            if (before->qos_status[i][j] != after->qos_status[i][j] ||
+                before->qos_data[i][j] != after->qos_data[i][j]) {
+                return false;
+            }
+        }
+    }
+
+    if ((before->agg_busy_time == NULL) != (after->agg_busy_time == NULL)) {
+        return false;
+    }
+    if ((before->agg_link_traffic == NULL) != (after->agg_link_traffic == NULL)) {
+        return false;
+    }
+
+    if (p->counting_bool > 0) {
+        assert(before->agg_busy_time != NULL && after->agg_busy_time);
+        assert(before->agg_link_traffic != NULL && after->agg_link_traffic);
+        for (int i = 0; i < p->counting_windows; i++) {
+            for (int j = 0; j < radix; j++) {
+                if (before->agg_busy_time[i][j] != after->agg_busy_time[i][j] ||
+                    before->agg_link_traffic[i][j] != after->agg_link_traffic[i][j]) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    //if (before->local_congestion_controller != NULL) {
+    //    if (!check_rlc_state(before->local_congestion_controller, after->local_congestion_controller)) {
+    //        return false;
+    //    }
+    //}
+
+    // Check strings
+    if (strncmp(before->output_buf, after->output_buf, 4096) != 0 ||
+        strncmp(before->output_buf5, after->output_buf5, 4096) != 0 ||
+        strncmp(before->output_buf6, after->output_buf6, 4096) != 0) {
+        return false;
+    }
+
+    // All checks passed
+    return true;
+}
+
+// Original function implemented by Claude
+static void print_router_state(FILE * out, char const * prefix, router_state * state) {
+    dragonfly_param const * p = state->params;
+    int const radix = p->radix;
+    int const num_qos_levels = p->num_qos_levels;
+
+    fprintf(out, "%srouter_state (dragonfly) ->\n", prefix);
+    fprintf(out, "%s  |              router_id = %u\n", prefix, state->router_id);
+    fprintf(out, "%s  |               group_id = %d\n", prefix, state->group_id);
+    fprintf(out, "%s  |               plane_id = %d\n", prefix, state->plane_id);
+    fprintf(out, "%s  |            op_arr_size = %d\n", prefix, state->op_arr_size);
+    fprintf(out, "%s  |           max_arr_size = %d\n", prefix, state->max_arr_size);
+
+    fprintf(out, "%s  | *       global_channel[%d] = [", prefix, radix);
+    for (int i = 0; i < p->num_global_channels; i++) {
+        fprintf(out, "%s%d", i ? ", " : "", state->global_channel[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  |                connMan = <DragonflyConnectionManager object>\n", prefix);
+
+    char addprefix[] = "  | ";
+    int len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix) + 1;
+    char * subprefix = (char *) malloc(len_subprefix * sizeof(char));
+    fprintf(out, "%s  | *local_congestion_controller = %p\n", prefix, state->local_congestion_controller);
+    //if (state->local_congestion_controller != NULL) {
+    //    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix);
+    //    print_rlc_state(out, subprefix, state->local_congestion_controller);
+    //}
+    free(subprefix);
+
+    fprintf(out, "%s  | *next_output_available_time[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%g", i ? ", " : "", state->next_output_available_time[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *     last_buf_full[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%g", i ? ", " : "", state->last_buf_full[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *         busy_time[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%g", i ? ", " : "", state->busy_time[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *     busy_time_sample = %p\n", prefix, state->busy_time_sample);
+
+    fprintf(out, "%s  | *    stalled_chunks[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%lu", i ? ", " : "", state->stalled_chunks[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *      total_chunks[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%lu", i ? ", " : "", state->total_chunks[i]);
+    }
+    fprintf(out, "]\n");
+
+    char addprefix_2[] = "  |   |  |  ";
+    len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_2) + 1;
+    subprefix = (char *) malloc(len_subprefix * sizeof(char));
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix_2);
+
+    fprintf(out, "%s  | ***   pending_msgs[%d][%d] = [\n", prefix, radix, p->num_vcs);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s  |   port %d: [\n", prefix, i);
+        for (int j = 0; j < p->num_vcs; j++) {
+            fprintf(out, "%s  |   |  vcs # %d\n", prefix, j);
+            print_msgs_qlist(out, subprefix, &state->pending_msgs[i][j]);
+        }
+        fprintf(out, "%s  |   ]\n", prefix);
+    }
+    fprintf(out, "%s  | ]\n", prefix);
+
+    fprintf(out, "%s  | ***  queued_msgs[%d][%d] = [\n", prefix, radix, p->num_vcs);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s  |   port %d: [\n", prefix, i);
+        for (int j = 0; j < p->num_vcs; j++) {
+            fprintf(out, "%s  |   |  vcs # %d\n", prefix, j);
+            print_msgs_qlist(out, subprefix, &state->queued_msgs[i][j]);
+        }
+        fprintf(out, "%s  |   ]\n", prefix);
+    }
+    fprintf(out, "%s  | ]\n", prefix);
+    free(subprefix);
+
+    fprintf(out, "%s  | *        in_send_loop[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%d", i ? ", " : "", state->in_send_loop[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *        queued_count[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%d", i ? ", " : "", state->queued_count[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *                     st = %p\n", prefix, state->st);
+    fprintf(out, "%s  | *                  cc_st = %p\n", prefix, state->cc_st);
+    fprintf(out, "%s  |  workloads_finished_flag = %d\n", prefix, state->workloads_finished_flag);
+
+    fprintf(out, "%s  | *     port_bandwidths[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%g", i ? ", " : "", state->port_bandwidths[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *        vc_max_sizes[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%d", i ? ", " : "", state->vc_max_sizes[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | **    vc_occupancy[%d][%d] = [\n", prefix, radix, p->num_vcs);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s  |         port %d: [", prefix, i);
+        for (int j = 0; j < p->num_vcs; j++) {
+            fprintf(out, "%s%d", j ? ", " : "", state->vc_occupancy[i][j]);
+        }
+        fprintf(out, "]\n");
+    }
+    fprintf(out, "%s  |      ]\n", prefix);
+
+    fprintf(out, "%s  | *        link_traffic[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%ld", i ? ", " : "", state->link_traffic[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | *    link_traffic_sample = %p\n", prefix, state->link_traffic_sample);
+
+    fprintf(out, "%s  |         is_monitoring_bw = %d\n", prefix, state->is_monitoring_bw);
+
+    fprintf(out, "%s  | *        last_qos_lvl[%d] = [", prefix, radix);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s%d", i ? ", " : "", state->last_qos_lvl[i]);
+    }
+    fprintf(out, "]\n");
+
+    fprintf(out, "%s  | **      qos_status[%d][%d] = [\n", prefix, radix, num_qos_levels);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s  |          port %d: [", prefix, i);
+        for (int j = 0; j < num_qos_levels; j++) {
+            fprintf(out, "%s%d", j ? ", " : "", state->qos_status[i][j]);
+        }
+        fprintf(out, "]\n");
+    }
+    fprintf(out, "%s  |       ]\n", prefix);
+
+    fprintf(out, "%s  | **        qos_data[%d][%d] = [\n", prefix, radix, num_qos_levels);
+    for (int i = 0; i < radix; i++) {
+        fprintf(out, "%s  |            port %d: [", prefix, i);
+        for (int j = 0; j < num_qos_levels; j++) {
+            fprintf(out, "%s%d", j ? ", " : "", state->qos_data[i][j]);
+        }
+        fprintf(out, "]\n");
+    }
+    fprintf(out, "%s  |         ]\n", prefix);
+
+    fprintf(out, "%s  | *                   anno = %s\n", prefix, state->anno ? state->anno : "(nil)");
+    fprintf(out, "%s  | *                 params = %p\n", prefix, state->params);
+
+    fprintf(out, "%s  | **         snapshot_data = %p\n", prefix, state->snapshot_data);
+
+    fprintf(out, "%s  |               output_buf = '%.4096s'\n", prefix, state->output_buf);
+    fprintf(out, "%s  | *               rsamples = %p\n", prefix, state->rsamples);
+    fprintf(out, "%s  |               fwd_events = %ld\n", prefix, state->fwd_events);
+    fprintf(out, "%s  |               rev_events = %ld\n", prefix, state->rev_events);
+    fprintf(out, "%s  |              output_buf5 = '%.4096s'\n", prefix, state->output_buf5);
+    fprintf(out, "%s  |              output_buf6 = '%.4096s'\n", prefix, state->output_buf6);
+
+    if(p->counting_bool <= 0)
+    {
+        fprintf(out, "%s  | **         agg_busy_time = %p\n", prefix, state->agg_busy_time);
+        fprintf(out, "%s  | **      agg_link_traffic = %p\n", prefix, state->agg_link_traffic);
+    } else {
+        assert(state->agg_busy_time != NULL);
+        assert(state->agg_link_traffic != NULL);
+        fprintf(out, "%s  | **   agg_busy_time[%d][%d] = [\n", prefix, p->counting_windows, radix);
+        for (int i = 0; i < p->counting_windows; i++) {
+            fprintf(out, "%s  |  window %d: [", prefix, i);
+            for (int j = 0; j < radix; j++) {
+                fprintf(out, "%s%g", j ? ", " : "", state->agg_busy_time[i][j]);
+            }
+            fprintf(out, "]\n");
+        }
+        fprintf(out, "%s  |  ]\n", prefix);
+
+        fprintf(out, "%s  | ** agg_link_traffic[%d][%d] = [\n", prefix, p->counting_windows, radix);
+        for (int i = 0; i < p->counting_windows; i++) {
+            fprintf(out, "%s  |  window %d: [", prefix, i);
+            for (int j = 0; j < radix; j++) {
+                fprintf(out, "%s%lu", j ? ", " : "", state->agg_link_traffic[i][j]);
+            }
+            fprintf(out, "]\n");
+        }
+        fprintf(out, "%s  |  ]\n", prefix);
+    }
+
+    fprintf(out, "%s  |             ross_rsample = <dfly_router_sample object>\n", prefix);
+    fprintf(out, "%s  |                last_time = %g\n", prefix, state->last_time);
+}
+
+char const * const string_event_t(enum event_t type) {
+    switch (type) {
+        case T_GENERATE:         return "T_GENERATE";
+        case T_ARRIVE:           return "T_ARRIVE";
+        case T_SEND:             return "T_SEND";
+        case T_BUFFER:           return "T_BUFFER";
+        case R_SEND:             return "R_SEND";
+        case R_ARRIVE:           return "R_ARRIVE";
+        case R_BUFFER:           return "R_BUFFER";
+        case R_BANDWIDTH:        return "R_BANDWIDTH";
+        case R_BW_HALT:          return "R_BW_HALT";
+        case T_BANDWIDTH:        return "T_BANDWIDTH";
+        case R_SNAPSHOT:         return "R_SNAPSHOT";
+        case T_NOTIFY:           return "T_NOTIFY";
+        case T_ARRIVE_PREDICTED: return "T_ARRIVE_PREDICTED";
+#if ALWAYS_DETERMINISTIC_NETWORK
+        case T_VACUOUS_EVENT:    return "T_VACUOUS_EVENT";
+#endif /* ALWAYS_DETERMINISTIC_NETWORK */
+        default:                 return "UNKNOWN TYPE!!";
+    }
+}
+
+// Built with help of Claude
+bool check_terminal_dally_message(struct terminal_dally_message * before, struct terminal_dally_message * after) {
+    bool is_same = true;
+
+    // Fields that have no effects in the simulation
+    // before->this_router_ptp_latency
+
+    // Compare all fields
+    is_same &= before->magic == after->magic;
+    is_same &= before->travel_start_time == after->travel_start_time;
+    is_same &= before->travel_end_time == after->travel_end_time;
+    is_same &= before->packet_ID == after->packet_ID;
+    is_same &= before->type == after->type;
+    is_same &= before->notify_type == after->notify_type;
+    is_same &= strncmp(before->category, after->category, CATEGORY_NAME_MAX) == 0;
+    is_same &= before->final_dest_gid == after->final_dest_gid;
+    is_same &= before->sender_lp == after->sender_lp;
+    is_same &= before->sender_mn_lp == after->sender_mn_lp;
+    is_same &= before->dest_terminal_lpid == after->dest_terminal_lpid;
+    is_same &= before->dfdally_src_terminal_id == after->dfdally_src_terminal_id;
+    is_same &= before->dfdally_dest_terminal_id == after->dfdally_dest_terminal_id;
+    is_same &= before->src_terminal_id == after->src_terminal_id;
+    is_same &= before->origin_router_id == after->origin_router_id;
+    is_same &= before->app_id == after->app_id;
+    is_same &= before->my_N_hop == after->my_N_hop;
+    is_same &= before->my_l_hop == after->my_l_hop;
+    is_same &= before->my_g_hop == after->my_g_hop;
+    is_same &= before->my_hops_cur_group == after->my_hops_cur_group;
+    is_same &= before->next_stop == after->next_stop;
+    is_same &= before->this_router_arrival == after->this_router_arrival;
+    is_same &= before->intm_lp_id == after->intm_lp_id;
+    is_same &= before->last_hop == after->last_hop;
+    is_same &= before->is_intm_visited == after->is_intm_visited;
+    is_same &= before->intm_rtr_id == after->intm_rtr_id;
+    is_same &= before->intm_grp_id == after->intm_grp_id;
+    is_same &= before->chunk_id == after->chunk_id;
+    is_same &= before->packet_size == after->packet_size;
+    is_same &= before->message_id == after->message_id;
+    is_same &= before->total_size == after->total_size;
+    is_same &= before->remote_event_size_bytes == after->remote_event_size_bytes;
+    is_same &= before->local_event_size_bytes == after->local_event_size_bytes;
+    is_same &= before->vc_index == after->vc_index;
+    is_same &= before->rail_id == after->rail_id;
+    is_same &= before->output_chan == after->output_chan;
+    is_same &= before->is_pull == after->is_pull;
+    is_same &= before->pull_size == after->pull_size;
+    is_same &= before->path_type == after->path_type;
+    is_same &= before->is_there_another_pckt_in_queue == after->is_there_another_pckt_in_queue;
+    is_same &= before->qos_reset1 == after->qos_reset1;
+    is_same &= before->qos_reset2 == after->qos_reset2;
+
+    return is_same;
+}
+
+// Print fuction originally constructed with help from Claude.ai
+void print_terminal_dally_message(FILE * out, char const * prefix, void * s, struct terminal_dally_message * msg) {
+    //terminal_state * ns = (terminal_state *) s;
+    //router_state * ns = (router_state *) s;
+
+    fprintf(out, "%sterminal_dally_message ->\n", prefix);
+    fprintf(out, "%s  |                      magic = %d\n", prefix, msg->magic);
+    fprintf(out, "%s  |          travel_start_time = %g\n", prefix, msg->travel_start_time);
+    fprintf(out, "%s  |            travel_end_time = %g\n", prefix, msg->travel_end_time);
+    fprintf(out, "%s  |                  packet_ID = %llu\n", prefix, msg->packet_ID);
+    fprintf(out, "%s  |                       type = %d (%s)\n", prefix, msg->type, string_event_t((enum event_t) msg->type));
+    fprintf(out, "%s  |                notify_type = %d\n", prefix, msg->notify_type);
+    fprintf(out, "%s  |                   category = %.16s\n", prefix, msg->category);
+    fprintf(out, "%s  |             final_dest_gid = %lu\n", prefix, msg->final_dest_gid);
+    fprintf(out, "%s  |                  sender_lp = %lu\n", prefix, msg->sender_lp);
+    fprintf(out, "%s  |               sender_mn_lp = %lu\n", prefix, msg->sender_mn_lp);
+    fprintf(out, "%s  |         dest_terminal_lpid = %lu\n", prefix, msg->dest_terminal_lpid);
+    fprintf(out, "%s  |    dfdally_src_terminal_id = %u\n", prefix, msg->dfdally_src_terminal_id);
+    fprintf(out, "%s  |   dfdally_dest_terminal_id = %u\n", prefix, msg->dfdally_dest_terminal_id);
+    fprintf(out, "%s  |            src_terminal_id = %u\n", prefix, msg->src_terminal_id);
+    fprintf(out, "%s  |           origin_router_id = %u\n", prefix, msg->origin_router_id);
+    fprintf(out, "%s  |                     app_id = %d\n", prefix, msg->app_id);
+    fprintf(out, "%s  |                   my_N_hop = %d\n", prefix, msg->my_N_hop);
+    fprintf(out, "%s  |                   my_l_hop = %d\n", prefix, msg->my_l_hop);
+    fprintf(out, "%s  |                   my_g_hop = %d\n", prefix, msg->my_g_hop);
+    fprintf(out, "%s  |          my_hops_cur_group = %d\n", prefix, msg->my_hops_cur_group);
+    fprintf(out, "%s  |              saved_channel = %d\n", prefix, msg->saved_channel);
+    fprintf(out, "%s  |                   saved_vc = %d\n", prefix, msg->saved_vc);
+    fprintf(out, "%s  |                  next_stop = %d\n", prefix, msg->next_stop);
+    fprintf(out, "%s  |        this_router_arrival = %g\n", prefix, msg->this_router_arrival);
+    fprintf(out, "%s  |    this_router_ptp_latency = %g\n", prefix, msg->this_router_ptp_latency);
+    fprintf(out, "%s  |                 intm_lp_id = %u\n", prefix, msg->intm_lp_id);
+    fprintf(out, "%s  |                   last_hop = %d\n", prefix, msg->last_hop);
+    fprintf(out, "%s  |            is_intm_visited = %d\n", prefix, msg->is_intm_visited);
+    fprintf(out, "%s  |                intm_rtr_id = %d\n", prefix, msg->intm_rtr_id);
+    fprintf(out, "%s  |                intm_grp_id = %d\n", prefix, msg->intm_grp_id);
+    fprintf(out, "%s  |             saved_src_dest = %d\n", prefix, msg->saved_src_dest);
+    fprintf(out, "%s  |             saved_src_chan = %d\n", prefix, msg->saved_src_chan);
+    fprintf(out, "%s  |                   chunk_id = %u\n", prefix, msg->chunk_id);
+    fprintf(out, "%s  |                packet_size = %u\n", prefix, msg->packet_size);
+    fprintf(out, "%s  |                 message_id = %u\n", prefix, msg->message_id);
+    fprintf(out, "%s  |                 total_size = %u\n", prefix, msg->total_size);
+    fprintf(out, "%s  |    remote_event_size_bytes = %d\n", prefix, msg->remote_event_size_bytes);
+    fprintf(out, "%s  |     local_event_size_bytes = %d\n", prefix, msg->local_event_size_bytes);
+    fprintf(out, "%s  |                   vc_index = %d\n", prefix, msg->vc_index);
+    fprintf(out, "%s  |                    rail_id = %d\n", prefix, msg->rail_id);
+    fprintf(out, "%s  |                output_chan = %d\n", prefix, msg->output_chan);
+    fprintf(out, "%s  |                   event_rc = %d\n", prefix, msg->event_rc);
+    fprintf(out, "%s  |                    is_pull = %d\n", prefix, msg->is_pull);
+    fprintf(out, "%s  |                  pull_size = %u\n", prefix, msg->pull_size);
+    fprintf(out, "%s  |                  path_type = %d\n", prefix, msg->path_type);
+    fprintf(out, "%s  |               saved_app_id = %d\n", prefix, msg->saved_app_id);
+    fprintf(out, "%s  | is_there_another_pckt_in_queue = %d\n", prefix, msg->is_there_another_pckt_in_queue);
+    fprintf(out, "%s  |                   num_rngs = %d\n", prefix, msg->num_rngs);
+    fprintf(out, "%s  |                    num_cll = %d\n", prefix, msg->num_cll);
+    fprintf(out, "%s  |             last_saved_qos = %d\n", prefix, msg->last_saved_qos);
+    fprintf(out, "%s  |                 qos_reset1 = %d\n", prefix, msg->qos_reset1);
+    fprintf(out, "%s  |                 qos_reset2 = %d\n", prefix, msg->qos_reset2);
+    fprintf(out, "%s  |              rc_is_qos_set = %d\n", prefix, msg->rc_is_qos_set);
+    fprintf(out, "%s  | *              rc_qos_data = %p\n", prefix, msg->rc_qos_data);
+    fprintf(out, "%s  | *            rc_qos_status = %p\n", prefix, msg->rc_qos_status);
+    fprintf(out, "%s  |            saved_send_loop = %d\n", prefix, msg->saved_send_loop);
+    fprintf(out, "%s  |       saved_available_time = %g\n", prefix, msg->saved_available_time);
+    fprintf(out, "%s  |              saved_min_lat = %g\n", prefix, msg->saved_min_lat);
+    fprintf(out, "%s  |             saved_avg_time = %g\n", prefix, msg->saved_avg_time);
+    fprintf(out, "%s  |             saved_rcv_time = %g\n", prefix, msg->saved_rcv_time);
+    fprintf(out, "%s  |            saved_busy_time = %g\n", prefix, msg->saved_busy_time);
+    fprintf(out, "%s  |           saved_total_time = %g\n", prefix, msg->saved_total_time);
+    fprintf(out, "%s  |          saved_sample_time = %g\n", prefix, msg->saved_sample_time);
+    fprintf(out, "%s  |             msg_start_time = %g\n", prefix, msg->msg_start_time);
+    fprintf(out, "%s  |       saved_busy_time_ross = %g\n", prefix, msg->saved_busy_time_ross);
+    fprintf(out, "%s  |      saved_fin_chunks_ross = %g\n", prefix, msg->saved_fin_chunks_ross);
+    fprintf(out, "%s  |   saved_last_in_queue_time = %g\n", prefix, msg->saved_last_in_queue_time);
+    fprintf(out, "%s  |    saved_next_packet_delay = %g\n", prefix, msg->saved_next_packet_delay);
+    fprintf(out, "%s  |      saved_processing_time = %g\n", prefix, msg->saved_processing_time);
+    fprintf(out, "%s  |           msg_new_mn_event = %g\n", prefix, msg->msg_new_mn_event);
+    fprintf(out, "%s  |         last_received_time = %g\n", prefix, msg->last_received_time);
+    fprintf(out, "%s  |             last_sent_time = %g\n", prefix, msg->last_sent_time);
+    fprintf(out, "%s  |        last_bufupdate_time = %g\n", prefix, msg->last_bufupdate_time);
+}
+//*** ---------- END OF reverse handler checking functions ---------- ***
+
 /* dragonfly compute node and router LP types */
-extern "C" {
 tw_lptype dragonfly_dally_lps[] =
 {
     // Terminal handling functions
@@ -5519,7 +8374,29 @@ tw_lptype dragonfly_dally_lps[] =
     },
     {NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0},
 };
-}
+
+crv_checkpointer dragonfly_dally_checkpointers[] = {
+    {
+        &dragonfly_dally_lps[0],
+        sizeof(terminal_state),
+        (save_checkpoint_state_f) save_terminal_state,
+        (clean_checkpoint_state_f) clean_terminal_state,
+        (check_states_f) check_terminal_state,
+        (print_lpstate_f) print_terminal_state,
+        (print_checkpoint_state_f) print_terminal_state,
+        (print_event_f) print_terminal_dally_message,
+    },
+    {
+        &dragonfly_dally_lps[1],
+        sizeof(router_state),
+        (save_checkpoint_state_f) save_router_state,
+        (clean_checkpoint_state_f) clean_router_state,
+        (check_states_f) check_router_state,
+        (print_lpstate_f) print_router_state,
+        (print_checkpoint_state_f) print_router_state,
+        (print_event_f) print_terminal_dally_message,
+    },
+};
 
 /* returns the dragonfly lp type for lp registration */
 static const tw_lptype* dragonfly_dally_get_cn_lp_type(void)
@@ -5807,7 +8684,7 @@ static Connection dfdally_prog_adaptive_routing(router_state *s, tw_bf *bf, term
     vector< Connection > poss_nonmin_next_stops = get_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
 
     Connection best_min_conn, best_nonmin_conn;
-    ConnectionType conn_type_of_mins, conn_type_of_nonmins;
+    ConnectionType conn_type_of_mins = CONN_LOCAL, conn_type_of_nonmins = CONN_LOCAL;
 
     if (poss_min_next_stops.size() > 0)
     {
@@ -6280,8 +9157,10 @@ static tw_lpid get_next_stop_legacy(router_state *s, tw_lp *lp, tw_bf *bf, termi
         codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, next_stop / num_routers_per_mgrp,
             next_stop % num_routers_per_mgrp, &router_dest_id);
     
+#if DEBUG == 1
         if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
                 printf("\n Next stop is %d ", next_stop);
+#endif
         
         return router_dest_id;
     }
@@ -6338,8 +9217,10 @@ static tw_lpid get_next_stop_legacy(router_state *s, tw_lp *lp, tw_bf *bf, termi
         dest_lp = dests;
     }
 
+#if DEBUG == 1
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
         printf("\n Next stop is %d ", dest_lp);
+#endif
     codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, dest_lp / num_routers_per_mgrp,
         dest_lp % num_routers_per_mgrp, &router_dest_id);
 
@@ -6745,8 +9626,10 @@ static Connection dfdally_prog_adaptive_legacy_routing(router_state *s, tw_bf *b
   
     next_stop = get_next_stop_legacy(s, lp, bf, msg, dest_router_id, adap_chan, do_chan_selection, get_direct_con, &(msg->num_rngs));
 
+#if DEBUG == 1
     if(msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
         printf("\n Packet %llu arrived at router %u next stop %d final stop %d local hops %d global hops %d", msg->packet_ID, s->router_id, next_stop, dest_router_id, msg->my_l_hop, msg->my_g_hop);
+#endif
 
     output_port = get_output_port_legacy(s, msg, lp, bf, next_stop, &(msg->num_rngs)); 
     assert(output_port >= 0);
@@ -6783,6 +9666,7 @@ struct model_net_method dragonfly_dally_method =
     (event_f)dragonfly_dally_terminal_congestion_event,
     (revent_f)dragonfly_dally_terminal_congestion_event_rc,
     (commit_f)dragonfly_dally_terminal_congestion_event_commit,
+    &dragonfly_dally_checkpointers[0],
 };
 
 struct model_net_method dragonfly_dally_router_method =
@@ -6810,6 +9694,7 @@ struct model_net_method dragonfly_dally_router_method =
     (event_f)dragonfly_dally_router_congestion_event,
     (revent_f)dragonfly_dally_router_congestion_event_rc,
     (commit_f)dragonfly_dally_router_congestion_event_commit,
+    &dragonfly_dally_checkpointers[1],
 };
 
 // #ifdef ENABLE_CORTEX

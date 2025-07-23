@@ -1,0 +1,47 @@
+#!/bin/bash -x
+
+# This file is called when running a test using CTest.
+#
+# To run without deleting test directories set DONT_DELETE_TEST_DIR
+# > DONT_DELETE_TEST_DIR=1 ctest
+# instead of
+# > ctest
+
+export srcdir="${CMAKE_SOURCE_DIR}"
+export bindir="${CMAKE_BINARY_DIR}"
+export GENERATED_USING_CMAKE=1
+
+# Set Union and SWM install paths if available
+if [ -n "${SWM_DATAROOTDIR}" ]; then
+    export SWM_DATAROOTDIR="${SWM_DATAROOTDIR}"
+fi
+if [ -n "${UNION_DATAROOTDIR}" ]; then
+    export UNION_DATAROOTDIR="${UNION_DATAROOTDIR}"
+fi
+
+# Creating temporal folder in order to save output without colliding with
+# some other process that would like to generate the same output
+mkdir -p testing-output
+tmpdir="$(mktemp -d testing-output/test-XXXXXX)"
+
+pushd $tmpdir
+
+# running experiment
+bash -x "$1"
+
+# checking for exit error
+err=$?
+[[ $err -ne 0 ]] && exit $err
+
+# checking if ross.csv exists and is empty
+if [[ -f ross.csv ]] && [[ ! -s ross.csv ]]; then
+    >&2 echo "The experiment seems to have failed. \`ross.csv' is empty, i.e., the binary died before saving any output"
+    exit 1
+fi
+
+popd
+
+# deleting temporal dir (this should only happen if there were no errors)
+if [ -z $DONT_DELETE_TEST_DIR ]; then
+    rm -r $tmpdir
+fi
