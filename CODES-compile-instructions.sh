@@ -21,13 +21,12 @@ CUR_DIR="$PWD"
 
 ##### Downloading everything #####
 
-git clone https://github.com/codes-org/codes --branch=develop
-git clone https://github.com/ross-org/ross --depth=100 --branch=develop
+git clone https://github.com/codes-org/codes --depth=100 --branch=v1.5.0
+git clone https://github.com/ross-org/ross --depth=100 --branch=v8.1.0
 
 if [ $swm_enable = 1 ]; then
     git clone https://github.com/pmodels/argobots --depth=1
-    # This version is one commit ahead
-    git clone https://github.com/helq/swm-workloads --branch=total-iterations-communication
+    git clone https://github.com/codes-org/swm-workloads --branch=v1.2
 fi
 
 if [ $union_enable = 1 ]; then
@@ -35,7 +34,8 @@ if [ $union_enable = 1 ]; then
     curl -L https://sourceforge.net/projects/conceptual/files/conceptual/1.5.1b/conceptual-1.5.1b.tar.gz -o conceptual-1.5.1b.tar.gz
     tar xvf conceptual-1.5.1b.tar.gz
     # Downloading union
-    git clone https://github.com/helq/Union --branch=master
+    git clone https://github.com/SPEAR-UIC/Union
+    pushd Union && git checkout 99b3df3 && popd
 fi
 
 ##### COMPILING #####
@@ -84,9 +84,13 @@ if [ $union_enable = 1 ]; then
     popd
 
     pushd Union
+    # Python 2 override. Union expects Python 2 ONLY
+    mkdir -p python-override
+    ln -s /usr/bin/python2 python-override/python
+    # compiling
     ./prepare.sh
     PYTHON=python2 ./configure --disable-shared --with-conceptual="$(realpath ../conceptual-1.5.1b/install)" --with-conceptual-src="$(realpath ../conceptual-1.5.1b)" --prefix="$(realpath ./install)" CC=mpicc CXX=mpicxx
-    make -j4 && make install
+    PATH="$PWD/python-override:$PATH" make -j4 && make install
     err=$?
     [[ $err -ne 0 ]] && exit $err
     popd

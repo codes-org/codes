@@ -9,21 +9,19 @@ The easiest way to build CODES is using our automated compilation script that ha
 1. **Download the compilation script** [click here](https://raw.githubusercontent.com/codes-org/codes/master/CODES-compile-instructions.sh) or:
 
    ```bash
-   # Download the script to your desired directory
    wget https://raw.githubusercontent.com/codes-org/codes/master/CODES-compile-instructions.sh
-   chmod +x CODES-compile-instructions.sh
    ```
 
 2. **Edit and Run the script**:
    ```bash
-   ./CODES-compile-instructions.sh
+   bash ./CODES-compile-instructions.sh
    ```
 
 The script will create a new directory with all dependencies and CODES compiled and ready to use.
 
 ## Prerequisites
 
-- **MPI**: OpenMPI or MPICH for parallel execution
+- **MPI**: MPICH for parallel execution (OpenMPI is not supported by Union, a dependency)
 - **CMake**: Version 3.12 or higher
 - **ROSS**: Rensselaer Optimistic Simulation System (handled by script)
 - **C/C++ compiler**: GCC or Clang with C++11 support
