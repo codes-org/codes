@@ -134,8 +134,99 @@ INNERPY
 mkdir -p codes/build
 pushd codes/build
 
+torch_cmake_prefix=""
+torch_dir=""
+
+if [ "$torch_enable" = 1 ]; then
+    torch_cmake_prefix="$(python3 - <<'INNERPY'
+import torch
+print(torch.utils.cmake_prefix_path)
+INNERPY
+)"
+    torch_dir="${torch_cmake_prefix}/Torch"
+
+    if [ ! -f "${torch_dir}/TorchConfig.cmake" ]; then
+        echo "ERROR: TorchConfig.cmake not found at: ${torch_dir}/TorchConfig.cmake" >&2
+        echo "       torch.utils.cmake_prefix_path returned: ${torch_cmake_prefix}" >&2
+        exit 1
+    fi
+
+    echo "Using Torch CMake prefix: ${torch_cmake_prefix}"
+    echo "Using Torch_DIR: ${torch_dir}"
+
+    # Optional CUDA toolkit override for CUDA-enabled PyTorch.
+    # Set CUDA_HOME before running this script, e.g.:
+    #   export CUDA_HOME=/usr/local/cuda-12.4
+    # or:
+    #   export CUDA_HOME=/usr/local/cuda
+    if python3 - <<'INNERPY'
+import torch, sys
+sys.exit(0 if torch.version.cuda is not None else 1)
+INNERPY
+    then
+        if [ -z "${CUDA_HOME:-}" ]; then
+            if [ -d /usr/local/cuda ]; then
+                CUDA_HOME=/usr/local/cuda
+            else
+                echo "ERROR: CUDA-enabled PyTorch detected, but CUDA_HOME is not set and /usr/local/cuda does not exist." >&2
+                echo "       Set CUDA_HOME to your CUDA toolkit root, e.g. /usr/local/cuda-12.4." >&2
+                exit 1
+            fi
+        fi
+
+        if [ ! -f "${CUDA_HOME}/include/cuda_runtime_api.h" ]; then
+            echo "ERROR: Missing CUDA header: ${CUDA_HOME}/include/cuda_runtime_api.h" >&2
+            exit 1
+        fi
+
+        if [ ! -f "${CUDA_HOME}/lib64/libcudart.so" ] && [ ! -f "${CUDA_HOME}/lib/libcudart.so" ]; then
+            echo "ERROR: Missing CUDA runtime library under ${CUDA_HOME}/lib64 or ${CUDA_HOME}/lib" >&2
+            exit 1
+        fi
+
+        if [ ! -x "${CUDA_HOME}/bin/nvcc" ]; then
+            echo "ERROR: Missing CUDA compiler: ${CUDA_HOME}/bin/nvcc" >&2
+            exit 1
+        fi
+
+        if [ ! -d "${CUDA_HOME}/nvvm/libdevice" ]; then
+            echo "ERROR: Missing CUDA libdevice directory: ${CUDA_HOME}/nvvm/libdevice" >&2
+            exit 1
+        fi
+
+        cuda_arch=""
+        if command -v nvidia-smi >/dev/null 2>&1; then
+            cuda_arch="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n1 | tr -d '.[:space:]' || true)"
+        fi
+
+        if [ -z "${cuda_arch}" ]; then
+            echo "WARNING: Could not auto-detect GPU compute capability with nvidia-smi." >&2
+            echo "         Falling back to CMAKE_CUDA_ARCHITECTURES=80." >&2
+            cuda_arch="80"
+        fi
+
+        export CUDA_HOME
+        export CUDA_PATH="${CUDA_HOME}"
+        export CUDA_ROOT="${CUDA_HOME}"
+        export CUDA_TOOLKIT_ROOT_DIR="${CUDA_HOME}"
+        export CUDAToolkit_ROOT="${CUDA_HOME}"
+        export CUDACXX="${CUDA_HOME}/bin/nvcc"
+        export PATH="${CUDA_HOME}/bin:${PATH}"
+        export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${CUDA_HOME}/lib:${LD_LIBRARY_PATH:-}"
+
+        echo "Using CUDA_HOME: ${CUDA_HOME}"
+        echo "Using CUDACXX: ${CUDACXX}"
+        echo "Using CMAKE_CUDA_ARCHITECTURES=${cuda_arch}"
+    fi
+fi
+
+cmake_prefix_path="$(realpath "$CUR_DIR/ross/build/bin")"
+if [ "$torch_enable" = 1 ]; then
+    cmake_prefix_path="${cmake_prefix_path};${torch_cmake_prefix}"
+fi
+
 make_args_codes=(
-    -DCMAKE_PREFIX_PATH="$(realpath "$CUR_DIR/ross/build/bin")"
+    -DCMAKE_PREFIX_PATH="${cmake_prefix_path}"
     -DCMAKE_CXX_COMPILER=mpicxx -DCMAKE_C_COMPILER=mpicc
     -DCMAKE_C_FLAGS="-g -Wall"
     -DCMAKE_CXX_FLAGS="-g -Wall"
@@ -158,8 +249,26 @@ if [ $union_enable = 1 ]; then
         -DUNION_PKG_CONFIG_PATH="$(realpath "$CUR_DIR/Union/install/lib/pkgconfig")"
     )
 fi
-if [ $torch_enable = 1 ]; then
-    make_args_codes=("${make_args_codes[@]}" -DUSE_TORCH=true)
+if [ "$torch_enable" = 1 ]; then
+    make_args_codes=(
+        "${make_args_codes[@]}"
+        -DUSE_TORCH=true
+        -DTorch_DIR="${torch_dir}"
+    )
+
+    if [ -n "${CUDA_HOME:-}" ]; then
+        make_args_codes=(
+            "${make_args_codes[@]}"
+            -DCUDA_TOOLKIT_ROOT_DIR="${CUDA_HOME}"
+            -DCUDAToolkit_ROOT="${CUDA_HOME}"
+            -DCUDA_PATH="${CUDA_HOME}"
+            -DCUDA_ROOT="${CUDA_HOME}"
+            -DCMAKE_CUDA_COMPILER="${CUDA_HOME}/bin/nvcc"
+            -DCMAKE_CUDA_ARCHITECTURES="${cuda_arch}"
+            -DCUDA_INCLUDE_DIRS="${CUDA_HOME}/include"
+            -DCUDA_CUDART_LIBRARY="${CUDA_HOME}/lib64/libcudart.so"
+        )
+    fi
 else
     make_args_codes=("${make_args_codes[@]}" -DUSE_TORCH=false)
 fi
