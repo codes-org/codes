@@ -157,7 +157,7 @@ if(USE_ONLINE)
 endif()
 
 # ZMQML
-add_library(zmqmlrequester SHARED IMPORTED )
+add_library(zmqmlrequester SHARED IMPORTED GLOBAL)
 set_target_properties(zmqmlrequester PROPERTIES 
     IMPORTED_LOCATION "${ZMQML_BUILD_PATH}/libzmqmlrequester.so"
     INTERFACE_INCLUDE_DIRECTORIES "${ZMQML_BUILD_PATH}")

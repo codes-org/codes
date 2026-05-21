@@ -79,9 +79,9 @@ static void rollback_and_cancel_events_pe(tw_pe * pe, tw_event_sig gvt_sig) {
     tw_stime const gvt = gvt_sig.recv_ts;
     // Backtracking the simulation to GVT
     for (unsigned int i = 0; i < g_tw_nkp; i++) {
-        tw_kp_rollback_to_sig(g_tw_kp[i], gvt_sig);
+        tw_kp_rollback_to_sig(g_tw_kp[i], &gvt_sig);
     }
-    assert(tw_event_sig_compare(pe->GVT_sig, gvt_sig) == 0);
+    assert(tw_event_sig_compare_ptr(&pe->GVT_sig, &gvt_sig) == 0);
     assert(pe->GVT_sig.recv_ts == gvt);  // redundant but needed because compiler cries that gvt is never used
 #else
 static void rollback_and_cancel_events_pe(tw_pe * pe, tw_stime gvt) {
@@ -100,10 +100,7 @@ static void rollback_and_cancel_events_pe(tw_pe * pe, tw_stime gvt) {
             pe->stats.s_net_read += tw_clock_read() - start;
         }
 
-        pe->gvt_status = 1;
-        tw_sched_event_q(pe);
-        tw_sched_cancel_q(pe);
-        tw_gvt_step2(pe);
+        tw_scheduler_rollback_and_cancel_events_pe(pe);
 
         if (DEBUG_DIRECTOR > 1) {
             printf("PE %lu: Time stamp at the end of GVT time: %f - AVL-tree sized: %d\n", g_tw_mynode, gvt, pe->avl_tree_size);
@@ -146,7 +143,7 @@ static void shift_events_to_future_pe(tw_pe * pe, tw_stime gvt) {
         // Filtering events to freeze
         assert(next_event->prev == NULL);
 #ifdef USE_RAND_TIEBREAKER
-        assert(tw_event_sig_compare(next_event->sig, gvt_sig) >= 0);
+        assert(tw_event_sig_compare_ptr(&next_event->sig, &gvt_sig) >= 0);
 #else
         assert(next_event->recv_ts >= gvt);
 #endif
@@ -165,11 +162,11 @@ static void shift_events_to_future_pe(tw_pe * pe, tw_stime gvt) {
             next_event->recv_ts += switch_offset;
             next_event->sig.recv_ts = next_event->recv_ts;
         }
-        assert(next_event->recv_ts >= g_tw_trigger_arbitrary_fun.sig_at.recv_ts);
+        assert(next_event->recv_ts >= g_tw_gvt_hook_trigger.sig_at.recv_ts);
 #else
             next_event->recv_ts += switch_offset;
         }
-        assert(next_event->recv_ts >= g_tw_trigger_arbitrary_fun.at);
+        assert(next_event->recv_ts >= g_tw_gvt_hook_trigger.at);
 #endif
 
         // store event in deque_events to inject immediately back to the queue
@@ -382,11 +379,12 @@ static void events_surrogate_to_high_def_switch(tw_pe * pe, tw_stime gvt) {
 }
 
 
+void director_switch(tw_pe * pe, bool past_end_time) {
 #ifdef USE_RAND_TIEBREAKER
-void director_switch(tw_pe * pe, tw_event_sig gvt_sig) {
+    tw_event_sig const gvt_sig = pe->GVT_sig;
     tw_stime const gvt = gvt_sig.recv_ts;
 #else
-void director_switch(tw_pe * pe, tw_stime gvt) {
+    tw_stime const gvt = pe->GVT;
 #endif
     assert(is_surrogate_configured);
 
@@ -400,15 +398,18 @@ void director_switch(tw_pe * pe, tw_stime gvt) {
             printf("GVT %d at %f in %s arbitrary-fun-status=", i++, gvt,
                     surr_config.director.is_surrogate_on() ? "surrogate-mode" : "high-definition");
 
-            switch (g_tw_trigger_arbitrary_fun.active) {
-                case ARBITRARY_FUN_enabled:
-                    printf("enabled\n");
+            switch (g_tw_gvt_hook_trigger.status) {
+                case GVT_HOOK_STATUS_timestamp:
+                    printf("timestamp\n");
                     break;
-                case ARBITRARY_FUN_disabled:
+                case GVT_HOOK_STATUS_disabled:
                     printf("disabled\n");
                     break;
-                case ARBITRARY_FUN_triggered:
-                    printf("triggered\n");
+                case GVT_HOOK_STATUS_every_n_gvt:
+                    printf("every-n-gvt\n");
+                    break;
+                case GVT_HOOK_STATUS_model_call:
+                    printf("model-call\n");
                     break;
             }
         }
@@ -430,16 +431,20 @@ void director_switch(tw_pe * pe, tw_stime gvt) {
         return;
     }
 
-    // Detecting if we are going to switch
-    if (switch_at.current_i < switch_at.total
-            && g_tw_trigger_arbitrary_fun.active == ARBITRARY_FUN_triggered) {
+    // Detecting if we are going to switch.
+    //
+    // Newer ROSS calls g_tw_gvt_hook only after the timestamp trigger fires,
+    // and it sets g_tw_gvt_hook_trigger.status back to GVT_HOOK_STATUS_disabled
+    // before entering this hook. Therefore, do not check for the old
+    // ARBITRARY_FUN_triggered state here; it no longer exists.
+    if (switch_at.current_i < switch_at.total) {
         double const switch_time = switch_at.time_stampts[switch_at.current_i];
 #ifdef USE_RAND_TIEBREAKER
-        assert(g_tw_trigger_arbitrary_fun.sig_at.recv_ts == switch_at.time_stampts[switch_at.current_i]);
+        assert(g_tw_gvt_hook_trigger.sig_at.recv_ts == switch_time);
 #else
-        assert(g_tw_trigger_arbitrary_fun.at == switch_at.time_stampts[switch_at.current_i]);
+        assert(g_tw_gvt_hook_trigger.at == switch_time);
 #endif
-        assert(gvt >= switch_time);  // current gvt shouldn't be that far ahead from the point we wanted to trigger it
+        assert(gvt >= switch_time);  // current gvt should not be before the requested switch time
     } else {
         return;
     }
@@ -457,10 +462,10 @@ void director_switch(tw_pe * pe, tw_stime gvt) {
     // Rollback if in optimistic mode
 #ifdef USE_RAND_TIEBREAKER
     if (g_tw_synchronization_protocol == OPTIMISTIC) {
-        assert(tw_event_sig_compare(pe->GVT_sig, gvt_sig) == 0);
+        assert(tw_event_sig_compare_ptr(&pe->GVT_sig, &gvt_sig) == 0);
         rollback_and_cancel_events_pe(pe, gvt_sig);
-        //assert(tw_event_sig_compare(pe->GVT_sig, gvt_sig) <= 0);
-        assert(tw_event_sig_compare(pe->GVT_sig, gvt_sig) == 0);
+        //assert(tw_event_sig_compare_ptr(&pe->GVT_sig, &gvt_sig) <= 0);
+        assert(tw_event_sig_compare_ptr(&pe->GVT_sig, &gvt_sig) == 0);
     }
 #else
     if (g_tw_synchronization_protocol == OPTIMISTIC) {
@@ -502,10 +507,10 @@ void director_switch(tw_pe * pe, tw_stime gvt) {
         tw_event_sig time_stamp = {0};
         time_stamp.recv_ts = next_switch;
         //printf("Adding a trigger to activate next switch!\n");
-        tw_trigger_arbitrary_fun_at(time_stamp);
+        tw_trigger_gvt_hook_at_event_sig(time_stamp);
 #else
         //printf("Adding a trigger to activate next switch!\n");
-        tw_trigger_arbitrary_fun_at(next_switch);
+        tw_trigger_gvt_hook_at(next_switch);
 #endif
     }
 
