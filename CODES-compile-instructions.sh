@@ -154,47 +154,56 @@ INNERPY
     echo "Using Torch CMake prefix: ${torch_cmake_prefix}"
     echo "Using Torch_DIR: ${torch_dir}"
 
-    # Optional CUDA toolkit override for CUDA-enabled PyTorch.
-    # Set CUDA_HOME before running this script, e.g.:
+    # CUDA is intentionally opt-in.
+    # Default to CPU-only Torch-JIT compilation unless CUDA_HOME is explicitly set.
+    #
+    # To enable CUDA, run for example:
     #   export CUDA_HOME=/usr/local/cuda-12.4
-    # or:
-    #   export CUDA_HOME=/usr/local/cuda
-    if python3 - <<'INNERPY'
-import torch, sys
-sys.exit(0 if torch.version.cuda is not None else 1)
+    #   ./CODES-compile-instructions.sh
+    torch_cuda_version="$(python3 - <<'INNERPY'
+import torch
+print(torch.version.cuda or "")
 INNERPY
-    then
-        if [ -z "${CUDA_HOME:-}" ]; then
-            if [ -d /usr/local/cuda ]; then
-                CUDA_HOME=/usr/local/cuda
-            else
-                echo "ERROR: CUDA-enabled PyTorch detected, but CUDA_HOME is not set and /usr/local/cuda does not exist." >&2
-                echo "       Set CUDA_HOME to your CUDA toolkit root, e.g. /usr/local/cuda-12.4." >&2
-                exit 1
-            fi
-        fi
+)"
 
+    cuda_arch=""
+    if [ -z "${CUDA_HOME:-}" ] && [ -n "${torch_cuda_version}" ]; then
+        echo "ERROR: CUDA_HOME is not set, so this script is defaulting to CPU-only Torch-JIT compilation." >&2
+        echo "       However, the active Python environment has a CUDA-enabled PyTorch build:" >&2
+        echo "       torch.version.cuda=${torch_cuda_version}" >&2
+        echo "" >&2
+        echo "       CMake cannot use a CUDA-enabled PyTorch package as a CPU-only LibTorch package." >&2
+        echo "       Choose one of the following:" >&2
+        echo "         1. For CPU-only compilation, install a CPU-only PyTorch build in this environment." >&2
+        echo "         2. For CUDA compilation, export CUDA_HOME to your CUDA toolkit root." >&2
+        echo "" >&2
+        echo "       Example CUDA build:" >&2
+        echo "         export CUDA_HOME=/usr/local/cuda-12.4" >&2
+        echo "         bash CODES-compile-instructions.sh" >&2
+        exit 1
+    fi
+
+    if [ -n "${CUDA_HOME:-}" ]; then
         if [ ! -f "${CUDA_HOME}/include/cuda_runtime_api.h" ]; then
-            echo "ERROR: Missing CUDA header: ${CUDA_HOME}/include/cuda_runtime_api.h" >&2
+            echo "ERROR: CUDA_HOME is set, but missing CUDA header: ${CUDA_HOME}/include/cuda_runtime_api.h" >&2
             exit 1
         fi
 
         if [ ! -f "${CUDA_HOME}/lib64/libcudart.so" ] && [ ! -f "${CUDA_HOME}/lib/libcudart.so" ]; then
-            echo "ERROR: Missing CUDA runtime library under ${CUDA_HOME}/lib64 or ${CUDA_HOME}/lib" >&2
+            echo "ERROR: CUDA_HOME is set, but missing CUDA runtime library under ${CUDA_HOME}/lib64 or ${CUDA_HOME}/lib" >&2
             exit 1
         fi
 
         if [ ! -x "${CUDA_HOME}/bin/nvcc" ]; then
-            echo "ERROR: Missing CUDA compiler: ${CUDA_HOME}/bin/nvcc" >&2
+            echo "ERROR: CUDA_HOME is set, but missing CUDA compiler: ${CUDA_HOME}/bin/nvcc" >&2
             exit 1
         fi
 
         if [ ! -d "${CUDA_HOME}/nvvm/libdevice" ]; then
-            echo "ERROR: Missing CUDA libdevice directory: ${CUDA_HOME}/nvvm/libdevice" >&2
+            echo "ERROR: CUDA_HOME is set, but missing CUDA libdevice directory: ${CUDA_HOME}/nvvm/libdevice" >&2
             exit 1
         fi
 
-        cuda_arch=""
         if command -v nvidia-smi >/dev/null 2>&1; then
             cuda_arch="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n1 | tr -d '.[:space:]' || true)"
         fi
@@ -214,9 +223,22 @@ INNERPY
         export PATH="${CUDA_HOME}/bin:${PATH}"
         export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${CUDA_HOME}/lib:${LD_LIBRARY_PATH:-}"
 
+        echo "CUDA_HOME is set; enabling CUDA Torch-JIT compilation."
         echo "Using CUDA_HOME: ${CUDA_HOME}"
         echo "Using CUDACXX: ${CUDACXX}"
         echo "Using CMAKE_CUDA_ARCHITECTURES=${cuda_arch}"
+    else
+        echo "CUDA_HOME is not set; forcing CPU-only Torch-JIT compilation."
+
+        # Prevent accidental CUDA discovery from /usr/local/cuda, nvcc on PATH,
+        # inherited CMake cache variables, or CUDA-enabled PyTorch metadata.
+        unset CUDA_HOME
+        unset CUDA_PATH
+        unset CUDA_ROOT
+        unset CUDA_TOOLKIT_ROOT_DIR
+        unset CUDAToolkit_ROOT
+        unset CUDACXX
+        unset CMAKE_CUDA_COMPILER
     fi
 fi
 
@@ -267,6 +289,12 @@ if [ "$torch_enable" = 1 ]; then
             -DCMAKE_CUDA_ARCHITECTURES="${cuda_arch}"
             -DCUDA_INCLUDE_DIRS="${CUDA_HOME}/include"
             -DCUDA_CUDART_LIBRARY="${CUDA_HOME}/lib64/libcudart.so"
+        )
+    else
+        make_args_codes=(
+            "${make_args_codes[@]}"
+            -DCMAKE_DISABLE_FIND_PACKAGE_CUDA=ON
+            -DCMAKE_DISABLE_FIND_PACKAGE_CUDAToolkit=ON
         )
     fi
 else
