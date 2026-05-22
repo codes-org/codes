@@ -356,6 +356,7 @@ int main(int argc, char **argv)
     model_net_report_stats(net_id);
 
     // Printing some stats
+    surrogates_finalize();
     print_surrogate_stats();
 
     tw_end();

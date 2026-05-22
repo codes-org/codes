@@ -11,6 +11,14 @@ export srcdir="${CMAKE_SOURCE_DIR}"
 export bindir="${CMAKE_BINARY_DIR}"
 export GENERATED_USING_CMAKE=1
 
+# Set Union and SWM install paths if available
+if [ -n "${SWM_DATAROOTDIR}" ]; then
+    export SWM_DATAROOTDIR="${SWM_DATAROOTDIR}"
+fi
+if [ -n "${UNION_DATAROOTDIR}" ]; then
+    export UNION_DATAROOTDIR="${UNION_DATAROOTDIR}"
+fi
+
 # Creating temporal folder in order to save output without colliding with
 # some other process that would like to generate the same output
 mkdir -p testing-output

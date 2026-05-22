@@ -136,7 +136,7 @@ void model_net_method_switch_to_highdef(void);
 
 // It will call the function (pointer) on the internal structure/network model.
 // The lp parameter has to be a model-net lp. The function pointer has to coincide with the underlying subtype
-void model_net_method_call_inner(tw_lp * lp, void (*) (void * inner, tw_lp * lp, tw_event **), tw_event **);
+void model_net_method_call_inner(tw_lp * lp, void (*) (void * inner, tw_lp * lp, void * data), void * data);
 
 /// The following functions/data structures should not need to be used by
 /// model developers - they are just provided so other internal components can

@@ -71,6 +71,7 @@ struct model_net_method
     event_f cc_congestion_event_fn;
     revent_f cc_congestion_event_rc_fn;
     commit_f cc_congestion_event_commit_fn;
+    crv_checkpointer * checkpointer;
 };
 
 extern struct model_net_method * method_array[];

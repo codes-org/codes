@@ -1087,7 +1087,8 @@ static tw_stime dragonfly_packet_event(
         void const * remote_event,
         void const * self_event,
         tw_lp *sender,
-        int is_last_pckt)
+        int is_last_pckt,
+        bool is_there_another_pckt_in_queue)
 {
     (void)message_offset;
     (void)sched_params;

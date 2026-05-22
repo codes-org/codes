@@ -20,6 +20,8 @@
 /maint/codes.pc
 /test-driver
 .deps
+src/surrogate/zmqml/demozmqmlrequester
+src/surrogate/zmqml/libzmqmlrequester.so
 
 # make generated artifacts
 .dirstamp
@@ -39,5 +41,8 @@ ross.csv
 
 install-mastiff/include/codes/model-net-method.h
 
-# commonly used building folder
-/build/
+# commonly used building stuff
+/build*/
+/build*
+.cache
+compile_commands.json

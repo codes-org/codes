@@ -4022,6 +4022,7 @@ struct model_net_method dragonfly_custom_method =
     NULL,//(final_f)dragonfly_custom_sample_fin
     custom_dragonfly_register_model_types,
     custom_dragonfly_get_model_types,
+    NULL,
 };
 
 struct model_net_method dragonfly_custom_router_method =
@@ -4044,6 +4045,7 @@ struct model_net_method dragonfly_custom_router_method =
     NULL,//(final_f)dragonfly_custom_rsample_fin
     custom_router_register_model_types,
     custom_dfly_router_get_model_types,
+    NULL,
 };
 
 #ifdef ENABLE_CORTEX

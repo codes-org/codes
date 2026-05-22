@@ -1,7 +1,8 @@
-#include <codes/surrogate/init.h>
 #include <codes/surrogate/packet-latency-predictor/average.h>
+#include <assert.h>
 
 double ignore_until = 0;
+static int num_terminals = 0;
 
 
 // === Average packet latency functionality
@@ -14,22 +15,18 @@ struct aggregated_latency_one_terminal {
 struct latency_surrogate {
     struct aggregated_latency_one_terminal aggregated_next_packet_delay;
     struct aggregated_latency_one_terminal aggregated_latency_for_all;
-    unsigned int num_terminals;
     struct aggregated_latency_one_terminal aggregated_latency[];
 };
 
 static void init_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int src_terminal) {
     (void) lp;
     (void) src_terminal;
-    assert(data->num_terminals == 0);
     assert(data->aggregated_latency_for_all.sum_latency == 0);
     assert(data->aggregated_latency_for_all.total_msgs == 0);
     assert(data->aggregated_latency[0].sum_latency == 0);
     assert(data->aggregated_latency[0].total_msgs == 0);
     assert(data->aggregated_next_packet_delay.total_msgs == 0);
     assert(data->aggregated_next_packet_delay.sum_latency == 0);
-
-    data->num_terminals = surr_config.total_terminals;
 }
 
 static void feed_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int src_terminal, struct packet_start const * start, struct packet_end const * end) {
@@ -42,7 +39,7 @@ static void feed_pred(struct latency_surrogate * data, tw_lp * lp, unsigned int 
 
     unsigned int const dest_terminal = start->dfdally_dest_terminal_id;
     double const latency = end->travel_end_time - start->travel_start_time;
-    assert(dest_terminal < data->num_terminals);
+    assert(dest_terminal < num_terminals);
     assert(end->travel_end_time > start->travel_start_time);
 
     // For average latency per terminal
@@ -64,7 +61,7 @@ static struct packet_end predict_latency(struct latency_surrogate * data, tw_lp 
     (void) lp;
 
     unsigned int const dest_terminal = packet_dest->dfdally_dest_terminal_id;
-    assert(dest_terminal < data->num_terminals);
+    assert(dest_terminal < num_terminals);
 
     unsigned int const total_total_datapoints = data->aggregated_latency_for_all.total_msgs;
     if (total_total_datapoints == 0) {
@@ -101,13 +98,31 @@ static void predict_latency_rc(struct latency_surrogate * data, tw_lp * lp) {
     (void) lp;
 }
 
+static void reset_pred(struct latency_surrogate * data, tw_lp * lp) {
+    (void) lp;
 
-struct packet_latency_predictor average_latency_predictor(int num_terminals) {
+    data->aggregated_next_packet_delay.sum_latency = 0;
+    data->aggregated_next_packet_delay.total_msgs = 0;
+
+    data->aggregated_latency_for_all.sum_latency = 0;
+    data->aggregated_latency_for_all.total_msgs = 0;
+
+    for (int i = 0; i < num_terminals; i++) {
+        data->aggregated_latency[i].sum_latency = 0;
+        data->aggregated_latency[i].total_msgs = 0;
+    }
+}
+
+
+struct packet_latency_predictor average_latency_predictor(int num_terminals_) {
+    assert(num_terminals_ >= 0);
+    num_terminals = num_terminals_;
     return (struct packet_latency_predictor) {
-    .init              = (init_pred_f) init_pred,
-    .feed              = (feed_pred_f) feed_pred,
-    .predict           = (predict_pred_f) predict_latency,
-    .predict_rc        = (predict_pred_rc_f) predict_latency_rc,
+    .init              = (init_pred_lat_f) init_pred,
+    .reset             = (reset_pred_lat_f) reset_pred,
+    .feed              = (feed_pred_lat_f) feed_pred,
+    .predict           = (predict_pred_lat_f) predict_latency,
+    .predict_rc        = (predict_pred_lat_rc_f) predict_latency_rc,
     .predictor_data_sz = sizeof(struct latency_surrogate) + num_terminals * sizeof(struct aggregated_latency_one_terminal)
     };
 }

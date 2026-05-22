@@ -134,7 +134,12 @@ struct terminal_dally_message
 
    //Xin: for busy time recording
    tw_stime last_bufupdate_time;
+
+   tw_stime saved_processing_time;
 };
+
+void print_terminal_dally_message(FILE * out, char const * prefix, void * s, struct terminal_dally_message * msg);
+bool check_terminal_dally_message(struct terminal_dally_message * before, struct terminal_dally_message * after);
 
 #ifdef __cplusplus
 }

@@ -73,6 +73,10 @@ struct shared_context {
     bool isconc;
     ABT_thread      producer;
     std::deque<struct codes_workload_op*> fifo;
+    struct {
+        bool received;
+        int final_iteration;
+    } init_data_from_workload;
 };
 
 struct rank_mpi_context {
@@ -86,8 +90,26 @@ typedef struct rank_mpi_compare {
     int rank;
 } rank_mpi_compare;
 
-
 /* Conceptual online workload implementations */
+
+void UNION_Pass_app_data(struct union_app_data * app_data) {
+    /* Retreive the shared context state */
+    ABT_thread prod;
+    void * arg;
+    int err;
+
+    err = ABT_thread_self(&prod);
+    assert(err == ABT_SUCCESS);
+    err =  ABT_thread_get_arg(prod, &arg);
+    assert(err == ABT_SUCCESS);
+    struct shared_context * sctx = static_cast<shared_context*>(arg);
+
+    sctx->init_data_from_workload.received = true;
+    sctx->init_data_from_workload.final_iteration = app_data->final_iteration;
+
+    ABT_thread_yield_to(global_prod_thread);
+}
+
 void UNION_MPI_Comm_size (UNION_Comm comm, int *size) 
 {
     /* Retreive the shared context state */
@@ -148,6 +170,7 @@ void UNION_MPI_Finalize()
     ABT_thread_yield_to(global_prod_thread);
 }
 
+// cycle_count assumes 1 GHz, meaning, 1 cycle is 1 nanosecond. This is different from SWM_Compute!
 void UNION_Compute(long cycle_count)
 {
     /* Add an event in the shared queue and then yield */
@@ -1014,6 +1037,21 @@ void UNION_MPI_Alltoall(const void *sendbuf,
 
 //#ifdef USE_SWM
 
+void SWM_Pass_app_data(struct swm_app_data *app_data) {
+    /* Retreive the shared context state */
+    ABT_thread prod;
+    void * arg;
+    int err = ABT_thread_self(&prod);
+    assert(err == ABT_SUCCESS);
+    err =  ABT_thread_get_arg(prod, &arg);
+    assert(err == ABT_SUCCESS);
+    struct shared_context * sctx = static_cast<shared_context*>(arg);
+    sctx->init_data_from_workload.received = true;
+    sctx->init_data_from_workload.final_iteration = app_data->final_iteration;
+
+    ABT_thread_yield_to(global_prod_thread);
+}
+
 /*
  * peer: the receiving peer id 
  * comm_id: the communicator id being used
@@ -1801,6 +1839,44 @@ static void workload_caller(void * arg)
     }
 }
 
+static void determine_workload_paths(online_comm_params const * o_params, string& swm_path, string& conc_path, bool& isconc)
+{
+    /* First check if custom JSON path is provided through file_path parameter */
+    if(strlen(o_params->file_path) > 0) {
+        if(strncmp(o_params->workload_name, "conceptual", 10) == 0) {
+            conc_path.append(o_params->file_path);
+            isconc = 1;
+        } else {
+            swm_path.append(o_params->file_path);
+        }
+        return;
+    }
+
+    /* Fall back to hardcoded paths */
+    swm_path.append(SWM_DATAROOTDIR);
+    if(strcmp(o_params->workload_name, "lammps") == 0) {
+        swm_path.append("/lammps_workload.json");
+    } else if(strcmp(o_params->workload_name, "nekbone") == 0) {
+        swm_path.append("/workload.json");
+    } else if(strcmp(o_params->workload_name, "milc") == 0) {
+        swm_path.append("/milc_skeleton.json");
+    } else if(strcmp(o_params->workload_name, "nearest_neighbor") == 0) {
+        swm_path.append("/skeleton.json");
+    } else if(strcmp(o_params->workload_name, "incast") == 0) {
+        swm_path.append("/incast.json");
+    } else if(strcmp(o_params->workload_name, "incast1") == 0) {
+        swm_path.append("/incast1.json");
+    } else if(strcmp(o_params->workload_name, "incast2") == 0) {
+        swm_path.append("/incast2.json");
+    } else if(strncmp(o_params->workload_name, "conceptual", 10) == 0) {
+        conc_path.append(UNION_DATADIR);
+        conc_path.append("/conceptual.json");
+        isconc = 1;
+    } else {
+        tw_error(TW_LOC, "\n Undefined workload type %s ", o_params->workload_name);
+    }
+}
+
 static int comm_online_workload_load(const void * params, int app_id, int rank)
 {
     /* LOAD parameters from JSON file*/
@@ -1814,6 +1890,7 @@ static int comm_online_workload_load(const void * params, int app_id, int rank)
     my_ctx->sctx.num_ranks = nprocs;
     my_ctx->sctx.wait_id = 0;
     my_ctx->app_id = app_id;
+    my_ctx->sctx.init_data_from_workload.received = false;
 
     // printf("my_ctx nprocs %d\n", my_ctx->sctx.num_ranks);
 
@@ -1828,43 +1905,7 @@ static int comm_online_workload_load(const void * params, int app_id, int rank)
     bool isconc=0;
 
     // printf("workload name: %s\n", o_params->workload_name);
-    swm_path.append(SWM_DATAROOTDIR);
-    if(strcmp(o_params->workload_name, "lammps") == 0)
-    {
-        swm_path.append("/lammps_workload.json");
-    }
-    else if(strcmp(o_params->workload_name, "nekbone") == 0)
-    {
-        swm_path.append("/workload.json"); 
-    }
-    else if(strcmp(o_params->workload_name, "milc") == 0)
-    {
-        swm_path.append("/milc_skeleton.json");
-    }
-    else if(strcmp(o_params->workload_name, "nearest_neighbor") == 0)
-    {
-        swm_path.append("/skeleton.json"); 
-    }
-    else if(strcmp(o_params->workload_name, "incast") == 0)
-    {
-        swm_path.append("/incast.json"); 
-    }
-    else if(strcmp(o_params->workload_name, "incast1") == 0)
-    {
-        swm_path.append("/incast1.json"); 
-    }
-    else if(strcmp(o_params->workload_name, "incast2") == 0)
-    {
-        swm_path.append("/incast2.json"); 
-    }    
-    else if(strncmp(o_params->workload_name, "conceptual", 10) == 0)
-    {
-        conc_path.append(UNION_DATADIR);
-        conc_path.append("/conceptual.json");
-        isconc = 1;
-    }
-    else
-        tw_error(TW_LOC, "\n Undefined workload type %s ", o_params->workload_name);
+    determine_workload_paths(o_params, swm_path, conc_path, isconc);
 
     // printf("\nUnion jason path %s\n", conc_path.c_str());
     if(isconc){
@@ -1874,8 +1915,16 @@ static int comm_online_workload_load(const void * params, int app_id, int rank)
 
             // printf("workload_name: %s\n", o_params->workload_name);
             union_bench_param *tmp_params = (union_bench_param *) calloc(1, sizeof(union_bench_param));
-            strcpy(tmp_params->conc_program, &o_params->workload_name[11]);
-            child = root.get_child(tmp_params->conc_program);
+            child = root.get_child(&o_params->workload_name[11]);
+
+            // if we were given a path, we read the type of workload from the config
+            bool const has_path = o_params->file_path[0] != '\0';
+            if (has_path) {
+                strcpy(tmp_params->conc_program, child.get_child("argv").begin()->second.data().c_str());
+            } else {
+                strcpy(tmp_params->conc_program, &o_params->workload_name[11]);
+            }
+
             tmp_params->conc_argc = child.get<int>("argc");
             int i = 0;
             BOOST_FOREACH(boost::property_tree::ptree::value_type &v, child.get_child("argv"))
@@ -1890,7 +1939,7 @@ static int comm_online_workload_load(const void * params, int app_id, int rank)
         }
         catch(std::exception & e)
         {
-            printf("%s \n", e.what());
+            printf("Exception when reading UNION/Conceptual json config %s: %s\n", conc_path.c_str(), e.what());
             return -1;
         }
     }
@@ -1898,12 +1947,18 @@ static int comm_online_workload_load(const void * params, int app_id, int rank)
         try {
             std::ifstream jsonFile(swm_path.c_str());
             boost::property_tree::json_parser::read_json(jsonFile, root);
-            uint32_t process_cnt = root.get<uint32_t>("jobs.size", 1);
             cpu_freq = root.get<double>("jobs.cfg.cpu_freq") / 1e9; 
+
+            // if we were given a path, we read the type of workload from the config
+            bool const has_path = o_params->file_path[0] != '\0';
+            if (has_path) {
+                strcpy(o_params->workload_name, root.get<string>("jobs.cfg.app").c_str());
+                strcpy(my_ctx->sctx.workload_name, o_params->workload_name);
+            }
         }
         catch(std::exception & e)
         {
-            printf("%s \n", e.what());
+            printf("Exception when reading SWM json config %s: %s\n", swm_path.c_str(), e.what());
             return -1;
         }
         my_ctx->sctx.isconc = 0;
@@ -1942,6 +1997,12 @@ static int comm_online_workload_load(const void * params, int app_id, int rank)
     int rcode = ABT_thread_create_on_xstream(self_es, 
             &workload_caller, (void*)&(my_ctx->sctx),
             ABT_THREAD_ATTR_NULL, &(my_ctx->sctx.producer));
+
+    // Running thread that we just spawn until the producer adds an OP to FIFO or SWM_Mark_total_iterations is called. We use SWM_Mark_total_iterations in order to pass information into CODES from the SWM app.
+    while(my_ctx->sctx.fifo.empty() && !my_ctx->sctx.init_data_from_workload.received)
+    {
+        ABT_thread_yield_to(my_ctx->sctx.producer);
+    }
 
     if(DBG_LINKING)
     {
@@ -2049,6 +2110,25 @@ static int comm_online_workload_finalize(const char* params, int app_id, int ran
     }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
     return 0;
 }
+
+static int comm_online_workload_get_final_iteration(int app_id, int rank) {
+    rank_mpi_compare cmp;
+    cmp.app_id = app_id;
+    cmp.rank = rank;
+
+    struct qhash_head * hash_link = qhash_search(rank_tbl, &cmp);
+    if(!hash_link)
+    {
+        printf("Workload/job not found for rank id %d, and app_id %d\n", rank, app_id);
+        return -1;
+    }
+    rank_mpi_context * ctx = qhash_entry(hash_link, rank_mpi_context, hash_link);
+    if (ctx->sctx.init_data_from_workload.received) {
+        return ctx->sctx.init_data_from_workload.final_iteration;
+    }
+    return -1;
+}
+
 extern "C" {
 /* workload method name and function pointers for the CODES workload API */
 struct codes_workload_method conc_online_comm_workload_method =
@@ -2066,7 +2146,11 @@ struct codes_workload_method conc_online_comm_workload_method =
     // .codes_workload_get_rank_cnt
     comm_online_workload_get_rank_cnt,
     // .codes_workload_finalize = 
-    comm_online_workload_finalize
+    comm_online_workload_finalize,
+    // .codes_workload_get_time =
+    NULL,
+    // .codes_workload_get_final_iteration =
+    comm_online_workload_get_final_iteration,
 };
 } // closing brace for extern "C"
 

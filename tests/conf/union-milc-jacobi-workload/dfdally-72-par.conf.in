@@ -1,0 +1,98 @@
+LPGROUPS
+{
+   MODELNET_GRP
+   {
+      repetitions="36";
+# name of this lp changes according to the model
+      nw-lp="2";
+# these lp names will be the same for dragonfly-custom model
+      modelnet_dragonfly_dally="2";
+      modelnet_dragonfly_dally_router="1";
+   }
+}
+PARAMS
+{
+# packet size in the network
+   packet_size="4096";
+   modelnet_order=( "dragonfly_dally","dragonfly_dally_router" );
+   # scheduler options
+   modelnet_scheduler="fcfs";
+# chunk size in the network (when chunk size = packet size, packets will not be
+# divided into chunks)
+   chunk_size="${CHUNK_SIZE}";
+# modelnet_scheduler="round-robin";
+# number of routers in group
+   num_routers="4";
+# number of groups in the network
+   num_groups="9";
+# buffer size in bytes for local virtual channels
+   local_vc_size="16384";
+#buffer size in bytes for global virtual channels
+   global_vc_size="16384";
+#buffer size in bytes for compute node virtual channels
+   cn_vc_size="32768";
+#bandwidth in GiB/s for local channels
+   local_bandwidth="5.25";
+# bandwidth in GiB/s for global channels
+   global_bandwidth="4.7";
+# bandwidth in GiB/s for compute node-router channels
+   cn_bandwidth="5.25";
+# ROSS message size
+   message_size="840";
+# number of compute nodes connected to router, dictated by dragonfly config
+# file
+   num_cns_per_router="2";
+# number of global channels per router
+   num_global_channels="2";
+# network config file for intra-group connections
+   intra-group-connections="@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-intra";
+# network config file for inter-group connections
+   inter-group-connections="@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-inter";
+# routing protocol to be used
+   routing="prog-adaptive";
+   minimal-bias="1";
+   df-dally-vc = "1";
+# counting msgs recv to/send from routers
+   counting_bool="0";
+   counting_start="0";
+   counting_windows="1800";
+   #interval in us
+   counting_interval="300";
+   num_apps="2";
+   #offset for app_id: model-net-mpi-replay is 88, synthetic-dfly-plus is 24
+   offset="144";
+}
+NETWORK_SURROGATE {
+   enable="${NETWORK_SURR_ON}"; # either "0" or "1"
+# determines the director switching from surrogate to high-def simulation strategy
+   director_mode="delegate-to-app-director";
+   #director_mode="at-fixed-virtual-times";
+
+# director configuration for: director_mode == "at-fixed-virtual-times"
+# timestamps at which to switch to surrogate-mode and back
+   fixed_switch_timestamps=( "25.0e6", "400.0e6" );
+
+# latency predictor to use. Options: average, torch-jit
+   packet_latency_predictor="average";
+# some workload models need some time to stabilize, a point where the network behaviour stabilizes. The predictor will ignore all packet latencies that arrive during this period
+   ignore_until="2.0e6";
+
+# parameters for torch-jit latency predictor
+   torch_jit_mode="single-static-model-for-all-terminals";
+   torch_jit_model_path="";
+
+# selecting network treatment on switching to surrogate. Options: freeze, nothing
+   network_treatment_on_switch="${NETWORK_MODE}";
+}
+APPLICATION_SURROGATE {
+   enable="${APP_SURR_ON}"; # either 0 or 1
+
+   # Configuring director
+   director_mode="${APP_DIRECTOR_MODE}"; # Opts: "every-n-gvt", "every-n-nanoseconds"
+   director_num_gvt="${EVERY_N_GVT}";
+   director_num_ns="${EVERY_NSECS}"; # 1^6 means 1ms
+
+   # Configuring predictor
+   # Minimum number of iterations to collect data from before skipping ahead in the simulation
+   num_iters_to_collect="2";
+}

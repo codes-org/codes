@@ -23,16 +23,16 @@ typedef struct mn_sched_params_s mn_sched_params;
 #include "model-net-method.h"
 
 /// types of schedulers
-/// format: enum type, config string, function pointer names
+/// format: enum type, config string, function pointer names, crv_checkpointer instance
 /// fcfs-full eschews packetization
 #define SCHEDULER_TYPES \
-    X(MN_SCHED_FCFS,      "fcfs",        &fcfs_tab) \
-    X(MN_SCHED_FCFS_FULL, "fcfs-full",   &fcfs_tab) \
-    X(MN_SCHED_RR,        "round-robin", &rr_tab) \
-    X(MN_SCHED_PRIO,      "priority",    &prio_tab) \
-    X(MAX_SCHEDS,         NULL,          NULL)
+    X(MN_SCHED_FCFS,      "fcfs",        &fcfs_tab, &fcfs_chptr) \
+    X(MN_SCHED_FCFS_FULL, "fcfs-full",   &fcfs_tab, &fcfs_chptr) \
+    X(MN_SCHED_RR,        "round-robin", &rr_tab,   NULL) \
+    X(MN_SCHED_PRIO,      "priority",    &prio_tab, NULL) \
+    X(MAX_SCHEDS,         NULL,          NULL,      NULL)
 
-#define X(a,b,c) a,
+#define X(a,b,c,d) a,
 enum sched_type {
     SCHEDULER_TYPES
 };
@@ -197,7 +197,15 @@ void model_net_sched_add_rc(
 // set default parameters for messages that don't specify any
 void model_net_sched_set_default_params(mn_sched_params *sched_params);
 
+// Reverse handler functionality
+void save_model_net_sched(model_net_sched *before, model_net_sched const *after);
+void clean_model_net_sched(model_net_sched *before);
+bool check_model_net_sched(model_net_sched *before, model_net_sched *after);
+void print_model_net_sched(FILE * out, char const * prefix, model_net_sched *sched);
+void print_model_net_sched_checkpoint(FILE * out, char const * prefix, model_net_sched *sched);
+
 extern char * sched_names[];
+extern const crv_checkpointer * sched_checkpointers[];
 
 #ifdef __cplusplus
 }

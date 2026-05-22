@@ -20,6 +20,8 @@ Contributors to date (with affiliations at time of contribution)
 - Lee Savoie, Univ. of Arizona 
 - Ning Liu, Rensselaer Polytechnic Institute
 - Jason Cope, Argonne National Laboratory
+- Kevin A. Brown, Argonne National Laboratory
+- Elkin Cruz, Rensselaer Polytechnic Institute
 
 Contributions:
 
@@ -40,6 +42,8 @@ Neil McGlohon (RPI)
     - Merged 1-D dragonfly and 2-D dragonfly network models.
     - Updated adaptive routing in megafly and 1-D dragonfly network models. 
     - Extended slim fly network model's dual-rail mode to arbitrary number of rails (pending).
+    - Implemented Quality of Service (QoS) in 1-D dragonfly network.
+    - Implemented changes needed to allow ROSS's tiebreaker mechanism.
 
 Nikhil Jain, Abhinav Bhatele (LLNL)
     - Improvements in credit-based flow control of CODES dragonfly and torus network models.
@@ -78,3 +82,17 @@ Caitlin Ross (RPI):
     - Added instrumentation so that network models can report sampled
       statistics over virtual time (pending).
     - Bug reporter for CODES models.
+
+Elkin Cruz (RPI)
+    - Added network surrogate for 1-D Dragonfly model (dragonfly-dally).
+    - Added application surrogate for MPI replay (model-net-mpi-replay).
+    - Implemented API to allow network and application surrogates to switch as
+      simulation runs (aka, hybrid simulation).
+    - Added network and application level directors, which coordinate data
+      transference between model and predictor.
+    - Added simple averaged-based network and application predictors (they are
+      given simulation data and are in charge of predicting future states of the
+      simulation, skipping computation).
+    - Implemented necessary scaffolding to check for bugs in reversible
+      computation (to be used with SEQUENTIAL_ROLLBACK_CHECK option in ROSS).
+    - Fixed reversible computation bugs on 1-D Dragonfly network.

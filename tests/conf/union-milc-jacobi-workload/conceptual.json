@@ -1,0 +1,65 @@
+{
+  "latency": {
+    "argc": 5,
+    "argv": [
+      "latency",
+      "--reps",
+      "100",
+      "--maxbytes",
+      "1M"
+    ]
+  },
+  "cosmoflow": {
+    "argc": 7,
+    "argv": [
+      "cosmoflow",
+      "--msgsize",
+      "7379200",
+      "--reps",
+      "10",
+      "--compute",
+      "129"
+    ]
+  },  
+  "cosmo": {
+    "argc": 5,
+    "argv": [
+      "cosmo",
+      "5",
+      "7379200",
+      "129000000"
+    ]
+  },
+  "jacobi3d": {
+    "argc": 11,
+    "argv": [
+      "jacobi3d",
+      "400",
+      "300",
+      "300",
+      "100",
+      "100",
+      "100",
+      "50000",
+      "39",
+      "200000",
+      "barrier"
+    ]
+  },
+  "alexnet": {
+    "argc": 2,
+    "argv": [
+      "alexnet",
+      "10"
+    ]
+  },
+  "checkpoint": {
+    "argc": 4,
+    "argv": [
+      "checkpoint",
+      "1",
+      "50000000000", 
+      "100000000"
+    ]
+  }  
+}

@@ -16,6 +16,7 @@
 #define MN_NAME "model_net_base"
 
 #define DEBUG 0
+#define MODELNET_LP_DEBUG 0
 /**** BEGIN SIMULATION DATA STRUCTURES ****/
 
 int model_net_base_magic;
@@ -48,6 +49,9 @@ static int servers_per_node_queue = -1;
 extern tw_stime codes_cn_delay;
 
 typedef struct model_net_base_state {
+#if MODELNET_LP_DEBUG
+	size_t num_events_processed;
+#endif /* if MODELNET_LP_DEBUG */
     int net_id, nics_per_router;
     // whether scheduler loop is running
     int *in_sched_send_loop, in_sched_recv_loop;
@@ -129,6 +133,26 @@ tw_lptype model_net_base_lp = {
     (final_f)  model_net_base_finalize,
     (map_f) codes_mapping,
     sizeof(model_net_base_state),
+};
+
+// Functionality to check for correct implementation of reverse event handler
+static void save_state_net_state(model_net_base_state * into, model_net_base_state const * from);
+static void clean_state_net_state(model_net_base_state * state);
+static bool check_model_net_state(model_net_base_state * before, model_net_base_state * after);
+static void print_model_net_state(FILE * out, char const * prefix, model_net_base_state * state);
+static void print_model_net_checkpoint(FILE * out, char const * prefix, model_net_base_state * state);
+static void print_event_state(FILE * out, char const * prefix, model_net_base_state * s, model_net_wrap_msg * msg);
+
+// ROSS function pointer table to check reverse event handler
+crv_checkpointer model_net_chkptr = {
+    &model_net_base_lp,
+    0,
+    (save_checkpoint_state_f) save_state_net_state,
+    (clean_checkpoint_state_f) clean_state_net_state,
+    (check_states_f) check_model_net_state,
+    (print_lpstate_f) print_model_net_state,
+    (print_checkpoint_state_f) print_model_net_checkpoint,
+    (print_event_f) print_event_state,
 };
 
 static void model_net_commit_event(model_net_base_state * ns, tw_bf *b,  model_net_wrap_msg * m, tw_lp * lp)
@@ -268,6 +292,7 @@ void model_net_base_register(int *do_config_nets){
             }
         }
     }
+    crv_add_custom_state_checkpoint(&model_net_chkptr);
 }
 
 static void base_read_config(const char * anno, model_net_base_params *p){
@@ -571,6 +596,9 @@ void model_net_base_event(
         model_net_wrap_msg * m,
         tw_lp * lp){
     memset(b, 0, sizeof(tw_bf));
+#if MODELNET_LP_DEBUG
+    ns->num_events_processed++;
+#endif /* if MODELNET_LP_DEBUG */
 
     if(m->h.magic != model_net_base_magic)
         printf("\n LP ID mismatched %llu\n", LLU(lp->gid));
@@ -623,6 +651,9 @@ void model_net_base_event_rc(
         model_net_wrap_msg * m,
         tw_lp * lp){
     assert(m->h.magic == model_net_base_magic);
+#if MODELNET_LP_DEBUG
+    ns->num_events_processed--;
+#endif /* if MODELNET_LP_DEBUG */
 
     if(!is_freezing_on && m->h.event_type == MN_BASE_SCHED_NEXT && m->msg.m_base.created_in_surrogate) {
         return;
@@ -771,6 +802,7 @@ void handle_new_msg(
     // don't forget to set packet size, now that we're responsible for it!
     r->msg_new_mn_event = tw_now(lp);
     r->packet_size = ns->params->packet_size;
+    b->c30 = 1;
     r->msg_id = ns->msg_id++;
     void * m_data = m+1;
     void *remote = NULL, *local = NULL;
@@ -864,6 +896,10 @@ void handle_new_msg_rc(
         *in_sched_loop = 0;
     }
     model_net_sched_add_rc(ss, &m->msg.m_base.rc, lp);
+
+    if (b->c30) {
+        ns->msg_id--;
+    }
 }
 
 /// bitfields used
@@ -1117,6 +1153,300 @@ tw_event* model_net_method_congestion_event(tw_lpid dest_gid,
 
 }
 
+/* START Checking reverse handler functionality */
+static void save_state_net_state(model_net_base_state * into, model_net_base_state const * from) {
+    memcpy(into, from, sizeof(model_net_base_state));
+
+    into->in_sched_send_loop = malloc(from->params->num_queues * sizeof(int));
+    for (int i=0; i < from->params->num_queues; i++) {
+        into->in_sched_send_loop[i] = from->in_sched_send_loop[i];
+    }
+
+    into->sched_send = malloc(from->params->num_queues * sizeof(model_net_sched*));
+    if (from->params->num_queues > 0) {
+        model_net_sched * sched_send_array = malloc(from->params->num_queues * sizeof(model_net_sched));
+        for(int i = 0; i < from->params->num_queues; i++) {
+            into->sched_send[i] = &sched_send_array[i];
+            save_model_net_sched(into->sched_send[i], from->sched_send[i]);
+        }
+    }
+
+    into->sched_recv = malloc(sizeof(model_net_sched));
+    save_model_net_sched(into->sched_recv, from->sched_recv);
+
+    into->sub_state = NULL;
+    crv_checkpointer * chptr = method_array[from->net_id]->checkpointer;
+    if (chptr && chptr->save_lp) {
+        into->sub_state = calloc(1, from->sub_type->state_sz);
+        chptr->save_lp(into->sub_state, from->sub_state);
+    }
+
+    into->node_copy_next_available_time = malloc(from->params->node_copy_queues * sizeof(tw_stime));
+    for (int i=0; i < from->params->node_copy_queues; i++) {
+        into->node_copy_next_available_time[i] = from->node_copy_next_available_time[i];
+    }
+}
+
+static void clean_state_net_state(model_net_base_state * state) {
+    free(state->in_sched_send_loop);
+
+    if (state->params->num_queues > 0) {
+        for(int i = 0; i < state->params->num_queues; i++) {
+            clean_model_net_sched(state->sched_send[i]);
+        }
+    }
+    free(state->sched_send[0]);
+    free(state->sched_send);
+    clean_model_net_sched(state->sched_recv);
+    free(state->sched_recv);
+
+    if (state->sub_state != NULL) {
+        crv_checkpointer * chptr = method_array[state->net_id]->checkpointer;
+        if (chptr && chptr->clean_lp) {
+            chptr->clean_lp(state->sub_state);
+        }
+        free(state->sub_state);
+    }
+    free(state->node_copy_next_available_time);
+}
+
+static bool warned_no_lp_checking_defined[MAX_NETS];
+
+static bool check_model_net_state(model_net_base_state * before, model_net_base_state * after) {
+    bool is_same = true;
+    is_same &= before->net_id == after->net_id;
+    is_same &= before->nics_per_router == after->nics_per_router;
+    for (int i=0; i < before->params->num_queues; i++) {
+        is_same &= before->in_sched_send_loop[i] == after->in_sched_send_loop[i];
+    }
+    is_same &= before->in_sched_recv_loop == after->in_sched_recv_loop;
+    is_same &= before->msg_id == after->msg_id;
+    for(int i = 0; i < before->params->num_queues; i++) {
+        is_same &= check_model_net_sched(before->sched_send[i], after->sched_send[i]);
+    }
+    is_same &= check_model_net_sched(before->sched_recv, after->sched_recv);
+    crv_checkpointer * chptr = method_array[before->net_id]->checkpointer;
+    if (chptr && before->sub_state != NULL && chptr->check_lps) {
+        is_same &= chptr->check_lps(before->sub_state, after->sub_state);
+    // Warning once that checking for LP subtype has not been fully implemented
+    } else if (!warned_no_lp_checking_defined[before->net_id]) {
+        fprintf(stderr, "Warning: Network of type \"%s\" has not been fully configured to be checkpointed (Running this model under SEQUENTIAL_ROLLBACK_CHECK won't capture any issues that arise from the reverse event handlers).\n", model_net_method_names[before->net_id]);
+        warned_no_lp_checking_defined[before->net_id] = true;
+    }
+    is_same &= before->next_available_time == after->next_available_time;
+    for (int i=0; i < before->params->node_copy_queues; i++) {
+        is_same &= before->node_copy_next_available_time[i] == after->node_copy_next_available_time[i];
+    }
+
+    return is_same;
+}
+
+static void __print_model_net(FILE * out, char const * prefix, model_net_base_state * state, bool is_lp_state) {
+    fprintf(out, "%smodel_net_state ->\n", prefix);
+#if MODELNET_LP_DEBUG
+    fprintf(out, "%s  |num_events_processed = %zu\n", prefix, state->num_events_processed);
+#endif /* if MODEL%sNET_LP_DEBUG */
+
+    void (*print_modelnet) (FILE *, char const *, model_net_sched *) = is_lp_state ? print_model_net_sched : print_model_net_sched_checkpoint;
+
+    fprintf(out, "%s  |              net_id = %d\n", prefix, state->net_id);
+    fprintf(out, "%s  |     nics_per_router = %d\n", prefix, state->nics_per_router);
+    fprintf(out, "%s  | *in_sched_send_loop[%d] = [", prefix, state->params->num_queues);  // deep-all
+    for (int i=0; i < state->params->num_queues; i++) {
+        fprintf(out, "%d%s", state->in_sched_send_loop[i], i==state->params->num_queues-1 ? "" : ", ");
+    }
+    fprintf(out, "]\n");
+    fprintf(out, "%s  |  in_sched_recv_loop = %d\n", prefix, state->in_sched_recv_loop);
+    fprintf(out, "%s  |              msg_id = %lu\n", prefix, state->msg_id);
+    fprintf(out, "%s  | **       sched_send = %p\n", prefix, state->sched_send);  // deep-all
+    //
+    int len_subprefix = snprintf(NULL, 0, "%s  |    | ", prefix) + 1;
+    char subprefix[len_subprefix];
+    snprintf(subprefix, len_subprefix, "%s  |    | ", prefix);
+    for(int i = 0; i < state->params->num_queues; i++) {
+        fprintf(out, "%ssched_send[%d]:\n", subprefix, i);
+        print_modelnet(out, subprefix, state->sched_send[i]);
+    }
+    //
+    fprintf(out, "%s  | *        sched_recv = %p\n", prefix, state->sched_recv);  // deep-all
+    print_modelnet(out, subprefix, state->sched_recv);
+    fprintf(out, "%s  | *            params = %p\n", prefix, state->params);
+    fprintf(out, "%s  | *          sub_type = %p\n", prefix, state->sub_type);
+    fprintf(out, "%s  | *    sub_model_type = %p\n", prefix, state->sub_model_type);
+    fprintf(out, "%s  | *         sub_state = %p\n", prefix, state->sub_state);  // deep-all
+    //
+    crv_checkpointer * chptr = method_array[state->net_id]->checkpointer;
+    if (chptr && state->sub_state != NULL) {
+        if (is_lp_state && chptr->print_lp) {
+            chptr->print_lp(out, subprefix, state->sub_state);
+        }
+        if (!is_lp_state && chptr->print_checkpoint) {
+            chptr->print_checkpoint(out, subprefix, state->sub_state);
+        }
+    }
+    //
+    fprintf(out, "%s  | next_available_time = %f\n", prefix, state->next_available_time);
+    fprintf(out, "%s  | *node_copy_next_available_time[%d] = [", prefix, state->params->num_queues);  // (done) deep-all
+    for (int i=0; i < state->params->node_copy_queues; i++) {
+        fprintf(out, "%g%s", state->node_copy_next_available_time[i], i==state->params->node_copy_queues-1 ? "" : ", ");
+    }
+    fprintf(out, "]\n");
+    fprintf(out, "%s  | *sched_loop_pre_surrogate = %p\n", prefix, state->sched_loop_pre_surrogate);  // no need to check
+    fprintf(out, "%s  | sched_recv_loop_pre_surrogate = %d\n", prefix, state->sched_recv_loop_pre_surrogate);  // no need to check
+}
+
+static void print_model_net_state(FILE * out, char const * prefix, model_net_base_state * state) {
+    __print_model_net(out, prefix, state, true);
+}
+static void print_model_net_checkpoint(FILE * out, char const * prefix, model_net_base_state * state) {
+    __print_model_net(out, prefix, state, false);
+}
+
+static char const * const event_type_string(enum model_net_base_event_type type) {
+    switch (type) {
+        case MN_BASE_NEW_MSG:     return "MN_BASE_NEW_MSG";
+        case MN_BASE_SCHED_NEXT:  return "MN_BASE_SCHED_NEXT";
+        case MN_BASE_SAMPLE:      return "MN_BASE_SAMPLE";
+        case MN_BASE_PASS:        return "MN_BASE_PASS";
+        case MN_BASE_END_NOTIF:   return "MN_BASE_END_NOTIF";
+        case MN_CONGESTION_EVENT: return "MN_CONGESTION_EVENT";
+    }
+    return "UNKNOWN TYPE!!";
+}
+
+// Used Claude for an initial draft of this function
+bool check_model_net_request(model_net_request const * before, model_net_request const * after) {
+    bool is_same = true;
+
+    is_same &= (before->final_dest_lp == after->final_dest_lp);
+    is_same &= (before->dest_mn_lp == after->dest_mn_lp);
+    is_same &= (before->src_lp == after->src_lp);
+    is_same &= (before->msg_start_time == after->msg_start_time);
+    is_same &= (before->msg_new_mn_event == after->msg_new_mn_event);
+    is_same &= (before->msg_size == after->msg_size);
+    is_same &= (before->pull_size == after->pull_size);
+    is_same &= (before->packet_size == after->packet_size);
+    is_same &= (before->msg_id == after->msg_id);
+    is_same &= (before->net_id == after->net_id);
+    is_same &= (before->is_pull == after->is_pull);
+    is_same &= (before->queue_offset == after->queue_offset);
+    is_same &= (before->remote_event_size == after->remote_event_size);
+    is_same &= (before->self_event_size == after->self_event_size);
+    is_same &= (before->app_id == after->app_id);
+    is_same &= (strncmp(before->category, after->category, CATEGORY_NAME_MAX) == 0);
+
+    return is_same;
+}
+
+void print_model_net_request(FILE * out, char const * prefix, model_net_request * req) {
+    fprintf(out, "%sfinal_dest_lp = %ld\n", prefix, req->final_dest_lp);
+    fprintf(out, "%sdest_mn_lp = %ld\n", prefix, req->dest_mn_lp);
+    fprintf(out, "%ssrc_lp = %ld\n", prefix, req->src_lp);
+    fprintf(out, "%smsg_start_time = %f\n", prefix, req->msg_start_time);
+    fprintf(out, "%smsg_new_mn_event = %f\n", prefix, req->msg_new_mn_event);
+    fprintf(out, "%smsg_size = %ld\n", prefix, req->msg_size);
+    fprintf(out, "%spull_size = %ld\n", prefix, req->pull_size);
+    fprintf(out, "%spacket_size = %ld\n", prefix, req->packet_size);
+    fprintf(out, "%smsg_id = %ld\n", prefix, req->msg_id);
+    fprintf(out, "%snet_id = %d\n", prefix, req->net_id);
+    fprintf(out, "%sis_pull = %d\n", prefix, req->is_pull);
+    fprintf(out, "%squeue_offset = %d\n", prefix, req->queue_offset);
+    fprintf(out, "%sremote_event_size = %d\n", prefix, req->remote_event_size);
+    fprintf(out, "%sself_event_size = %d\n", prefix, req->self_event_size);
+    fprintf(out, "%scategory = '%s'\n", prefix, req->category);
+    fprintf(out, "%sapp_id = %d\n", prefix, req->app_id);
+}
+
+bool check_mn_stats(struct mn_stats const * before, struct mn_stats const * after) {
+    bool is_same = true;
+
+    is_same &= (strncmp(before->category, after->category, CATEGORY_NAME_MAX) == 0);
+    is_same &= (before->send_count == after->send_count);
+    is_same &= (before->send_bytes == after->send_bytes);
+    is_same &= (before->send_time == after->send_time);
+    is_same &= (before->recv_count == after->recv_count);
+    is_same &= (before->recv_bytes == after->recv_bytes);
+    is_same &= (before->recv_time == after->recv_time);
+    is_same &= (before->max_event_size == after->max_event_size);
+
+    return is_same;
+}
+
+void print_mn_stats(FILE * out, char const * prefix, struct mn_stats * req) {
+    fprintf(out, "%scategory = '%s'\n", prefix, req->category);
+    fprintf(out, "%ssend_count = %ld\n", prefix, req->send_count);
+    fprintf(out, "%ssend_bytes = %ld\n", prefix, req->send_bytes);
+    fprintf(out, "%ssend_time = %g\n", prefix, req->send_time);
+    fprintf(out, "%srecv_count = %ld\n", prefix, req->recv_count);
+    fprintf(out, "%srecv_bytes = %ld\n", prefix, req->recv_bytes);
+    fprintf(out, "%srecv_time = %g\n", prefix, req->recv_time);
+    fprintf(out, "%smax_event_size = %ld\n", prefix, req->max_event_size);
+}
+
+static void print_event_state(FILE * out, char const * prefix, model_net_base_state * state, model_net_wrap_msg * msg) {
+    fprintf(out, "%sh\n", prefix);
+    fprintf(out, "%s| src = %lu\n", prefix, msg->h.src);
+    fprintf(out, "%s| event_type = %d (%s)\n", prefix, msg->h.event_type, event_type_string(msg->h.event_type));
+    fprintf(out, "%s| magic = %d\n", prefix, msg->h.magic);
+
+    char addprefix[] = "     |   | ";
+    int len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix) + 1;
+    char subprefix[len_subprefix];
+    snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix);
+
+    char addprefix_2[] = "     |  |   | ";
+    len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix_2) + 1;
+    char subprefix_2[len_subprefix];
+    snprintf(subprefix_2, len_subprefix, "%s%s", prefix, addprefix_2);
+
+    crv_checkpointer * chptr;
+    void * sub_msg;
+    switch (msg->h.event_type) {
+        case MN_BASE_NEW_MSG:
+        case MN_BASE_SCHED_NEXT:
+            // We can check m_base values
+            fprintf(out, "%sm_base\n", prefix);
+            fprintf(out, "%s     | req\n", prefix);
+            print_model_net_request(out, subprefix, &msg->msg.m_base.req);
+            fprintf(out, "%s     | is_from_remote = %d\n", prefix, msg->msg.m_base.is_from_remote);
+            fprintf(out, "%s     | isQueueReq = %d\n", prefix, msg->msg.m_base.isQueueReq);
+            fprintf(out, "%s     | save_ts = %f\n", prefix, msg->msg.m_base.save_ts);
+            fprintf(out, "%s     | sched_params.prio = %d\n", prefix, msg->msg.m_base.sched_params.prio);
+            fprintf(out, "%s     | rc\n", prefix);
+            fprintf(out, "%s     |  | req\n", prefix);
+            print_model_net_request(out, subprefix_2, &msg->msg.m_base.rc.req);
+            fprintf(out, "%s     |  | sched_params.prio = %d\n", prefix, msg->msg.m_base.rc.sched_params.prio);
+            fprintf(out, "%s     |  | rtn = %d\n", prefix, msg->msg.m_base.rc.rtn);
+            fprintf(out, "%s     |  | prio = %d\n", prefix, msg->msg.m_base.rc.prio);
+            fprintf(out, "%s     | created_in_surrogate = %d\n", prefix, msg->msg.m_base.created_in_surrogate);
+            break;
+
+        case MN_BASE_SAMPLE:
+        case MN_BASE_PASS:
+        case MN_BASE_END_NOTIF:
+            // printing sub_msg
+            fprintf(out, "%ssub_msg ->\n", prefix);
+            chptr = method_array[state->net_id]->checkpointer;
+            sub_msg = ((char*)msg)+msg_offsets[state->net_id];
+            if (chptr && chptr->print_event) {
+                char addprefix[] = "    | ";
+                int len_subprefix = snprintf(NULL, 0, "%s%s", prefix, addprefix) + 1;
+                char subprefix[len_subprefix];
+                snprintf(subprefix, len_subprefix, "%s%s", prefix, addprefix);
+                chptr->print_event(out, subprefix, state->sub_state, sub_msg);
+            } else {
+                fprintf(out, "%s    | == cannot print the submessage (event print function not yet defined for network of type %s) ==\n", prefix, model_net_method_names[state->net_id]);
+            }
+            break;
+
+        case MN_CONGESTION_EVENT:
+            // Nothing to print
+            break;
+    }
+}
+
+/* END checking reverse handler functionality */
+
 void model_net_method_switch_to_surrogate(void) {
     is_freezing_on = true;
 }
@@ -1168,10 +1498,10 @@ void model_net_method_switch_to_highdef_lp(tw_lp * lp) {
     ns->in_sched_recv_loop |= ns->sched_recv_loop_pre_surrogate;
 }
 
-void model_net_method_call_inner(tw_lp * lp, void (*fun) (void * inner, tw_lp * lp, tw_event **), tw_event ** lp_events) {
+void model_net_method_call_inner(tw_lp * lp, void (*fun) (void * inner, tw_lp * lp, void * data), void * data) {
     model_net_base_state * const ns = (model_net_base_state*) lp->cur_state;
 
-    fun(ns->sub_state, lp, lp_events);
+    fun(ns->sub_state, lp, data);
 }
 
 int model_net_get_event_type_lp(model_net_wrap_msg * msg) {
