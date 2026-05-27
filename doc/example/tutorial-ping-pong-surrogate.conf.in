@@ -79,6 +79,9 @@ NETWORK_SURROGATE {
    torch_jit_mode="${TORCH_JIT_MODE}";
    torch_jit_model_path="${TORCH_JIT_MODEL_PATH}";
 
+# temporary surrogate debug prints. Options: 0 or 1
+   debug_prints="${SURROGATE_DEBUG_PRINTS}";
+
 # selecting network treatment on switching to surrogate. Options: frezee, nothing
    network_treatment_on_switch="${NETWORK_TREATMENT}";
 }

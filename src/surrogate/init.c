@@ -109,6 +109,17 @@ bool network_surrogate_configure(
             }
             surrogate_torch_set_lp_aware_mode(torch_jit_lp_aware_mode);
 
+            char debug_prints_str[MAX_NAME_LENGTH];
+            debug_prints_str[0] = '\0';
+            configuration_get_value(&config, "NETWORK_SURROGATE", "debug_prints", anno,
+                    debug_prints_str, MAX_NAME_LENGTH);
+            bool debug_prints = (strcmp(debug_prints_str, "1") == 0 ||
+                    strcmp(debug_prints_str, "true") == 0 ||
+                    strcmp(debug_prints_str, "TRUE") == 0 ||
+                    strcmp(debug_prints_str, "yes") == 0 ||
+                    strcmp(debug_prints_str, "YES") == 0);
+            surrogate_torch_set_debug_prints(debug_prints);
+
             char torch_jit_model_path[MAX_NAME_LENGTH];
             torch_jit_model_path[0] = '\0';
             configuration_get_value(&config, "NETWORK_SURROGATE", "torch_jit_model_path", anno, torch_jit_model_path, MAX_NAME_LENGTH);

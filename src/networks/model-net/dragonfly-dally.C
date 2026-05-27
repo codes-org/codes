@@ -103,6 +103,11 @@ static long global_stalled_chunk_counter = 0;
 #define OUTPUT_SNAPSHOT 1
 static int num_snapshots = 0;
 
+static uint64_t dfdally_post_switch_terminal_events = 0;
+static uint64_t dfdally_post_switch_router_events = 0;
+static double dfdally_last_post_switch_terminal_now = -1.0;
+static double dfdally_last_post_switch_router_now = -1.0;
+static bool dfdally_surrogate_debug_prints = false;
 
 tw_stime * snapshot_times;
 char snapshot_filename[128];
@@ -2487,6 +2492,16 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     if (rc_enable > 0) {
         enable_network_surrogate = (strcmp(enable_str, "1") == 0 || strcmp(enable_str, "true") == 0);
     }
+
+    char debug_prints_str[MAX_NAME_LENGTH];
+    debug_prints_str[0] = '\0';
+    configuration_get_value(&config, "NETWORK_SURROGATE", "debug_prints", anno,
+            debug_prints_str, MAX_NAME_LENGTH);
+    dfdally_surrogate_debug_prints = (strcmp(debug_prints_str, "1") == 0 ||
+            strcmp(debug_prints_str, "true") == 0 ||
+            strcmp(debug_prints_str, "TRUE") == 0 ||
+            strcmp(debug_prints_str, "yes") == 0 ||
+            strcmp(debug_prints_str, "YES") == 0);
 
     // if surrogate mode has been set up
     if (enable_network_surrogate) {
@@ -7080,6 +7095,27 @@ terminal_dally_event( terminal_state * s,
 		terminal_dally_message * msg, 
 		tw_lp * lp )
 {
+    if (dfdally_surrogate_debug_prints && !is_dally_surrogate_on && tw_now(lp) >= 89000000.0) {
+        dfdally_post_switch_terminal_events++;
+        if (dfdally_post_switch_terminal_events <= 20 ||
+                dfdally_post_switch_terminal_events % 100000 == 0) {
+            fprintf(stderr,
+                "[post-switch terminal debug] count=%llu now=%f lp=%llu type=%d "
+                "last_now=%f delta_now=%f\n",
+                (unsigned long long)dfdally_post_switch_terminal_events,
+                tw_now(lp),
+                (unsigned long long)lp->gid,
+                msg->type,
+                dfdally_last_post_switch_terminal_now,
+                dfdally_last_post_switch_terminal_now < 0.0
+                    ? -1.0
+                    : tw_now(lp) - dfdally_last_post_switch_terminal_now);
+            fflush(stderr);
+        }
+        dfdally_last_post_switch_terminal_now = tw_now(lp);
+    }
+
+
     msg->num_cll = 0;
     msg->num_rngs = 0;
 
@@ -7150,6 +7186,27 @@ terminal_dally_event( terminal_state * s,
 static void router_dally_event(router_state * s, tw_bf * bf, terminal_dally_message * msg, 
     tw_lp * lp) 
 {
+    if (dfdally_surrogate_debug_prints && !is_dally_surrogate_on && tw_now(lp) >= 89000000.0) {
+        dfdally_post_switch_router_events++;
+        if (dfdally_post_switch_router_events <= 20 ||
+                dfdally_post_switch_router_events % 100000 == 0) {
+            fprintf(stderr,
+                "[post-switch router debug] count=%llu now=%f lp=%llu type=%d "
+                "last_now=%f delta_now=%f\n",
+                (unsigned long long)dfdally_post_switch_router_events,
+                tw_now(lp),
+                (unsigned long long)lp->gid,
+                msg->type,
+                dfdally_last_post_switch_router_now,
+                dfdally_last_post_switch_router_now < 0.0
+                    ? -1.0
+                    : tw_now(lp) - dfdally_last_post_switch_router_now);
+            fflush(stderr);
+        }
+        dfdally_last_post_switch_router_now = tw_now(lp);
+    }
+
+
     msg->num_cll = 0;
     msg->num_rngs = 0;
 

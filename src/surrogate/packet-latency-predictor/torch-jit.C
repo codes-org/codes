@@ -6,6 +6,7 @@
 #include <iostream>
 #include <memory>
 #include <vector>
+#include <chrono>
 #include <cmath>
 
 #include <codes/surrogate/packet-latency-predictor/torch-jit.h>
@@ -13,13 +14,24 @@
 
 static torch::jit::Module packet_latency_model;
 
+static uint64_t torch_jit_predict_calls = 0;
+static double torch_jit_forward_total_sec = 0.0;
+static double torch_jit_min_travel_delta = 1.0e300;
+static double torch_jit_max_travel_delta = -1.0e300;
+static double torch_jit_min_next_delay = 1.0e300;
+static double torch_jit_max_next_delay = -1.0e300;
 static bool torch_jit_lp_aware_mode = false;
+static bool torch_jit_debug_prints = false;
 
 static constexpr int TORCH_JIT_LEGACY_FEATURE_COUNT = 4;
 static constexpr int TORCH_JIT_LP_AWARE_FEATURE_COUNT = 12;
 
 void surrogate_torch_set_lp_aware_mode(bool enabled) {
     torch_jit_lp_aware_mode = enabled;
+}
+
+void surrogate_torch_set_debug_prints(bool enabled) {
+    torch_jit_debug_prints = enabled;
 }
 
 static std::vector<float> build_lp_aware_packet_features(
@@ -117,6 +129,28 @@ static struct packet_end surrogate_torch_predict(void *, tw_lp * lp, unsigned in
         std::vector<float> data_input =
             build_lp_aware_packet_features(lp, src_terminal, packet_dest);
 
+        if (torch_jit_debug_prints && torch_jit_predict_calls < 20) {
+            fprintf(stderr,
+                "[torch-jit feature debug] "
+                "src_terminal=%g dest_terminal=%g packet_size=%g another=%g "
+                "caller_lp_gid=%g src_router_id=%g src_group_id=%g "
+                "dst_router_id=%g dst_group_id=%g terminal_queue_length=%g "
+                "terminal_vc_occupancy=%g processing_packet_delay=%g\n",
+                (double)data_input[0],
+                (double)data_input[1],
+                (double)data_input[2],
+                (double)data_input[3],
+                (double)data_input[4],
+                (double)data_input[5],
+                (double)data_input[6],
+                (double)data_input[7],
+                (double)data_input[8],
+                (double)data_input[9],
+                (double)data_input[10],
+                (double)data_input[11]);
+            fflush(stderr);
+        }
+
         assert((int)data_input.size() == TORCH_JIT_LP_AWARE_FEATURE_COUNT);
 
         inputs.emplace_back(
@@ -139,11 +173,17 @@ static struct packet_end surrogate_torch_predict(void *, tw_lp * lp, unsigned in
                 at::kLong).clone());
     }
 
+    auto const torch_jit_t0 = std::chrono::high_resolution_clock::now();
     at::Tensor output = packet_latency_model.forward(inputs).toTensor();
+    auto const torch_jit_t1 = std::chrono::high_resolution_clock::now();
+    torch_jit_forward_total_sec += std::chrono::duration<double>(
+            torch_jit_t1 - torch_jit_t0).count();
     //assert_correct_dims(&output);
 
     auto *out_data = output.data_ptr<float>();
-        double const raw_travel_delta = (double)out_data[0];
+    
+    torch_jit_predict_calls++;
+    double const raw_travel_delta = (double)out_data[0];
     double const raw_next_delay = (double)out_data[1];
 
     double const min_travel_delta = 10.0;
@@ -158,6 +198,41 @@ static struct packet_end surrogate_torch_predict(void *, tw_lp * lp, unsigned in
             std::isfinite(raw_next_delay) && raw_next_delay > min_next_packet_delay
             ? raw_next_delay
             : min_next_packet_delay;
+
+    if (raw_travel_delta < torch_jit_min_travel_delta) {
+        torch_jit_min_travel_delta = raw_travel_delta;
+    }
+    if (raw_travel_delta > torch_jit_max_travel_delta) {
+        torch_jit_max_travel_delta = raw_travel_delta;
+    }
+    if (raw_next_delay < torch_jit_min_next_delay) {
+        torch_jit_min_next_delay = raw_next_delay;
+    }
+    if (raw_next_delay > torch_jit_max_next_delay) {
+        torch_jit_max_next_delay = raw_next_delay;
+    }
+
+    if (torch_jit_debug_prints &&
+            (torch_jit_predict_calls <= 20 ||
+             torch_jit_predict_calls % 10000 == 0)) {
+        fprintf(stderr,
+            "[torch-jit predict debug] calls=%llu avg_forward_us=%g "
+            "raw_travel_delta=%g raw_next_delay=%g "
+            "effective_travel_delta=%g effective_next_delay=%g "
+            "minmax_travel=[%g,%g] minmax_next=[%g,%g]\n",
+            (unsigned long long)torch_jit_predict_calls,
+            1.0e6 * torch_jit_forward_total_sec /
+                (double)torch_jit_predict_calls,
+            raw_travel_delta,
+            raw_next_delay,
+            predicted_travel_delta,
+            predicted_next_packet_delay,
+            torch_jit_min_travel_delta,
+            torch_jit_max_travel_delta,
+            torch_jit_min_next_delay,
+            torch_jit_max_next_delay);
+        fflush(stderr);
+    }
 return (struct packet_end) {
         .travel_end_time = packet_dest->travel_start_time + predicted_travel_delta,
         .next_packet_delay = predicted_next_packet_delay,
