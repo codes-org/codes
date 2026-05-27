@@ -108,6 +108,7 @@ static uint64_t dfdally_post_switch_router_events = 0;
 static double dfdally_last_post_switch_terminal_now = -1.0;
 static double dfdally_last_post_switch_router_now = -1.0;
 static bool dfdally_surrogate_debug_prints = false;
+static bool dfdally_surrogate_has_switched_once = false;
 
 tw_stime * snapshot_times;
 char snapshot_filename[128];
@@ -3169,6 +3170,7 @@ static inline void packet_latency_save_to_file(
 
 static void switch_surrogate(void) {
     is_dally_surrogate_on = ! is_dally_surrogate_on;
+    dfdally_surrogate_has_switched_once = true;
 }
 
 static bool is_surrogate_on_fun(void) {
@@ -7095,7 +7097,7 @@ terminal_dally_event( terminal_state * s,
 		terminal_dally_message * msg, 
 		tw_lp * lp )
 {
-    if (dfdally_surrogate_debug_prints && !is_dally_surrogate_on && tw_now(lp) >= 89000000.0) {
+    if (dfdally_surrogate_debug_prints && dfdally_surrogate_has_switched_once && !is_dally_surrogate_on) {
         dfdally_post_switch_terminal_events++;
         if (dfdally_post_switch_terminal_events <= 20 ||
                 dfdally_post_switch_terminal_events % 100000 == 0) {
@@ -7186,7 +7188,7 @@ terminal_dally_event( terminal_state * s,
 static void router_dally_event(router_state * s, tw_bf * bf, terminal_dally_message * msg, 
     tw_lp * lp) 
 {
-    if (dfdally_surrogate_debug_prints && !is_dally_surrogate_on && tw_now(lp) >= 89000000.0) {
+    if (dfdally_surrogate_debug_prints && dfdally_surrogate_has_switched_once && !is_dally_surrogate_on) {
         dfdally_post_switch_router_events++;
         if (dfdally_post_switch_router_events <= 20 ||
                 dfdally_post_switch_router_events % 100000 == 0) {
