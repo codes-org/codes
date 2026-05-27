@@ -6,11 +6,47 @@
 #include <iostream>
 #include <memory>
 #include <vector>
+#include <cmath>
 
 #include <codes/surrogate/packet-latency-predictor/torch-jit.h>
 #include <ross.h>
 
 static torch::jit::Module packet_latency_model;
+
+static bool torch_jit_lp_aware_mode = false;
+
+static constexpr int TORCH_JIT_LEGACY_FEATURE_COUNT = 4;
+static constexpr int TORCH_JIT_LP_AWARE_FEATURE_COUNT = 12;
+
+void surrogate_torch_set_lp_aware_mode(bool enabled) {
+    torch_jit_lp_aware_mode = enabled;
+}
+
+static std::vector<float> build_lp_aware_packet_features(
+        tw_lp *lp,
+        unsigned int src_terminal,
+        struct packet_start const *packet_dest)
+{
+    assert(packet_dest != nullptr);
+
+    return {
+        /* Existing four features first. */
+        (float)src_terminal,
+        (float)packet_dest->dfdally_dest_terminal_id,
+        (float)packet_dest->packet_size,
+        packet_dest->is_there_another_pckt_in_queue ? 1.0f : 0.0f,
+
+        /* Explicit LP/topology/context features. */
+        lp ? (float)lp->gid : -1.0f,
+        (float)packet_dest->src_router_id,
+        (float)packet_dest->src_group_id,
+        (float)packet_dest->dst_router_id,
+        (float)packet_dest->dst_group_id,
+        (float)packet_dest->terminal_queue_length,
+        (float)packet_dest->terminal_vc_occupancy,
+        (float)packet_dest->processing_packet_delay
+    };
+}
 
 
 inline void assert_correct_dims(at::Tensor * t) {
@@ -44,12 +80,24 @@ void surrogate_torch_init(char const * dir) {
             << std::endl;
     }
 
-    long int data_input[] = {0, 0, 0, 0};
-    size_t const n_input = sizeof(data_input) / sizeof(long int);
-
     std::vector<torch::jit::IValue> inputs;
     torch::NoGradGuard no_grad;
-    inputs.emplace_back(torch::from_blob(data_input, {1, (int) n_input}, at::kLong));
+
+    if (torch_jit_lp_aware_mode) {
+        std::vector<float> data_input(TORCH_JIT_LP_AWARE_FEATURE_COUNT, 0.0f);
+        inputs.emplace_back(
+            torch::from_blob(
+                data_input.data(),
+                {1, TORCH_JIT_LP_AWARE_FEATURE_COUNT},
+                at::kFloat).clone());
+    } else {
+        long int data_input[] = {0, 0, 0, 0};
+        inputs.emplace_back(
+            torch::from_blob(
+                data_input,
+                {1, TORCH_JIT_LEGACY_FEATURE_COUNT},
+                at::kLong).clone());
+    }
 
     // Predicting value
     at::Tensor output = packet_latency_model.forward(inputs).toTensor();
@@ -63,24 +111,56 @@ static struct packet_end surrogate_torch_predict(void *, tw_lp * lp, unsigned in
     //auto t_start = std::chrono::high_resolution_clock::now();
 
     // Create a vector of inputs.
-    long int data_input[] = {
-        src_terminal,
-        packet_dest->dfdally_dest_terminal_id,
-        packet_dest->packet_size,
-        packet_dest->is_there_another_pckt_in_queue
-    };
-    size_t n_input = sizeof(data_input) / sizeof(long int);
-
     std::vector<torch::jit::IValue> inputs;
-    inputs.emplace_back(torch::from_blob(data_input, {1, (int) n_input}, at::kLong));
+
+    if (torch_jit_lp_aware_mode) {
+        std::vector<float> data_input =
+            build_lp_aware_packet_features(lp, src_terminal, packet_dest);
+
+        assert((int)data_input.size() == TORCH_JIT_LP_AWARE_FEATURE_COUNT);
+
+        inputs.emplace_back(
+            torch::from_blob(
+                data_input.data(),
+                {1, TORCH_JIT_LP_AWARE_FEATURE_COUNT},
+                at::kFloat).clone());
+    } else {
+        long int data_input[] = {
+            src_terminal,
+            packet_dest->dfdally_dest_terminal_id,
+            packet_dest->packet_size,
+            packet_dest->is_there_another_pckt_in_queue
+        };
+
+        inputs.emplace_back(
+            torch::from_blob(
+                data_input,
+                {1, TORCH_JIT_LEGACY_FEATURE_COUNT},
+                at::kLong).clone());
+    }
 
     at::Tensor output = packet_latency_model.forward(inputs).toTensor();
     //assert_correct_dims(&output);
 
     auto *out_data = output.data_ptr<float>();
-    return (struct packet_end) {
-        .travel_end_time = packet_dest->travel_start_time + (out_data[0] > 0 ? out_data[0] : 10),
-        .next_packet_delay = out_data[1] > 0 ? out_data[1] : 200,
+        double const raw_travel_delta = (double)out_data[0];
+    double const raw_next_delay = (double)out_data[1];
+
+    double const min_travel_delta = 10.0;
+    double const min_next_packet_delay = 10.0;
+
+    double const predicted_travel_delta =
+            std::isfinite(raw_travel_delta) && raw_travel_delta > min_travel_delta
+            ? raw_travel_delta
+            : min_travel_delta;
+
+    double const predicted_next_packet_delay =
+            std::isfinite(raw_next_delay) && raw_next_delay > min_next_packet_delay
+            ? raw_next_delay
+            : min_next_packet_delay;
+return (struct packet_end) {
+        .travel_end_time = packet_dest->travel_start_time + predicted_travel_delta,
+        .next_packet_delay = predicted_next_packet_delay,
     };
 
     //auto t_end = std::chrono::high_resolution_clock::now();

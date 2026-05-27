@@ -87,6 +87,22 @@ static struct packet_end predict_latency(struct latency_surrogate * data, tw_lp 
     // TODO (Elkin): 10 is an arbitrary small value, but it should be nic_ts as implemented in `packet_getenerate` in dragonfly-dally
     double const next_packet_delay = data->aggregated_next_packet_delay.total_msgs == 0 ? 10 :
         data->aggregated_next_packet_delay.sum_latency / data->aggregated_next_packet_delay.total_msgs;
+
+    static unsigned long long average_predict_calls = 0;
+    average_predict_calls++;
+    if (average_predict_calls <= 20 || average_predict_calls % 10000 == 0) {
+        fprintf(stderr,
+            "[average predict debug] calls=%llu latency=%f next_packet_delay=%f "
+            "next_delay_points=%u total_latency_points=%u dest_latency_points=%u\n",
+            average_predict_calls,
+            latency,
+            next_packet_delay,
+            data->aggregated_next_packet_delay.total_msgs,
+            data->aggregated_latency_for_all.total_msgs,
+            data->aggregated_latency[dest_terminal].total_msgs);
+        fflush(stderr);
+    }
+
     return (struct packet_end) {
         .travel_end_time = packet_dest->travel_start_time + latency,
         .next_packet_delay = next_packet_delay,

@@ -102,6 +102,8 @@ static long global_stalled_chunk_counter = 0;
 
 #define OUTPUT_SNAPSHOT 1
 static int num_snapshots = 0;
+
+
 tw_stime * snapshot_times;
 char snapshot_filename[128];
 
@@ -2485,6 +2487,7 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     if (rc_enable > 0) {
         enable_network_surrogate = (strcmp(enable_str, "1") == 0 || strcmp(enable_str, "true") == 0);
     }
+
     // if surrogate mode has been set up
     if (enable_network_surrogate) {
         struct network_surrogate_config surr_conf = {
@@ -2571,7 +2574,12 @@ static void setup_packet_latency_path(char const * const dir_to_save) {
         tw_error(TW_LOC, "File %s could not be opened", filename_path);
     }
 
-    fprintf(packet_latency_f, "#src_terminal,dest_terminal,packet_id,is_surrogate_on,is_predicted,size,workload_injection,next_packet_delay,start,end,latency,is_there_another_pckt_in_queue\n");
+    fprintf(packet_latency_f,
+            "#src_terminal,dest_terminal,packet_size,is_there_another_pckt_in_queue,"
+            "caller_lp_gid,src_router_id,src_group_id,dst_router_id,dst_group_id,"
+            "terminal_queue_length,terminal_vc_occupancy,processing_packet_delay,"
+            "travel_end_time_delta,next_packet_delay,"
+            "packet_id,is_surrogate_on,is_predicted,workload_injection,start,end,latency\n");
 }
 
 /* report dragonfly statistics like average and maximum packet latency, average number of hops traversed */
@@ -3019,6 +3027,94 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
     return -1;
 }
 
+static uint32_t dfdally_clamp_u64_to_u32(uint64_t value)
+{
+    uint64_t const max_u32 = (uint64_t)((uint32_t)-1);
+    return value > max_u32 ? (uint32_t)-1 : (uint32_t)value;
+}
+
+static unsigned int dfdally_safe_rail_id(
+        terminal_state const *s,
+        terminal_dally_message const *msg)
+{
+    if (!s || !s->params || s->params->num_rails <= 0) {
+        return 0;
+    }
+
+    if (msg && msg->rail_id >= 0 && msg->rail_id < s->params->num_rails) {
+        return (unsigned int)msg->rail_id;
+    }
+
+    return 0;
+}
+
+static uint32_t dfdally_terminal_queue_length_bytes(terminal_state const *s)
+{
+    if (!s || !s->params || !s->terminal_length) {
+        return (uint32_t)-1;
+    }
+
+    uint64_t total = 0;
+    for (int rail = 0; rail < s->params->num_rails; rail++) {
+        if (!s->terminal_length[rail]) {
+            continue;
+        }
+        for (int qos = 0; qos < s->params->num_qos_levels; qos++) {
+            if (s->terminal_length[rail][qos] > 0) {
+                total += (uint64_t)s->terminal_length[rail][qos];
+            }
+        }
+    }
+
+    return dfdally_clamp_u64_to_u32(total);
+}
+
+static uint32_t dfdally_terminal_vc_occupancy_bytes(terminal_state const *s)
+{
+    if (!s || !s->params || !s->vc_occupancy) {
+        return (uint32_t)-1;
+    }
+
+    uint64_t total = 0;
+    for (int rail = 0; rail < s->params->num_rails; rail++) {
+        if (!s->vc_occupancy[rail]) {
+            continue;
+        }
+        for (int qos = 0; qos < s->params->num_qos_levels; qos++) {
+            if (s->vc_occupancy[rail][qos] > 0) {
+                total += (uint64_t)s->vc_occupancy[rail][qos];
+            }
+        }
+    }
+
+    return dfdally_clamp_u64_to_u32(total);
+}
+
+static uint32_t dfdally_terminal_src_router_id(
+        terminal_state const *s,
+        terminal_dally_message const *msg)
+{
+    if (!s || !s->params) {
+        return (uint32_t)-1;
+    }
+
+    unsigned int const rail_id = dfdally_safe_rail_id(s, msg);
+
+    /*
+     * In high-fidelity mode, s->router_id is valid. In frozen surrogate mode,
+     * dragonfly_dally_terminal_highdef_to_surrogate() zeroes most network
+     * state, so s->router_id may be NULL. Average mode still goes through
+     * packet_generate_predicted(), so do not dereference s->router_id unless
+     * it exists.
+     */
+    if (s->router_id) {
+        return s->router_id[rail_id];
+    }
+
+    return dfdally_get_assigned_router_id_from_terminal(
+            s->params, s->terminal_id, rail_id);
+}
+
 static inline void packet_latency_save_to_file(
         unsigned int terminal_id,
         struct packet_start * start,
@@ -3028,13 +3124,30 @@ static inline void packet_latency_save_to_file(
 ) {
     if (!packet_latency_f) { return; } // Don't save if there isn't a file to save to
     if (end->travel_end_time > g_tw_ts_end) { return; } // This packet could never arrive to its destination!
-    fprintf(packet_latency_f, "%u,%u,%lu,%d,%d,%u,%f,%f,%f,%f,%f,%d\n",
-            terminal_id, start->dfdally_dest_terminal_id, start->packet_ID,
-            surrogate_on, is_predicted, start->packet_size,
+    double const latency = end->travel_end_time - start->travel_start_time;
+    fprintf(packet_latency_f,
+            "%u,%u,%u,%d,%llu,%u,%u,%u,%u,%u,%u,%f,%f,%f,%lu,%d,%d,%f,%f,%f,%f\n",
+            terminal_id,
+            start->dfdally_dest_terminal_id,
+            start->packet_size,
+            start->is_there_another_pckt_in_queue,
+            (unsigned long long)start->caller_lp_gid,
+            start->src_router_id,
+            start->src_group_id,
+            start->dst_router_id,
+            start->dst_group_id,
+            start->terminal_queue_length,
+            start->terminal_vc_occupancy,
+            start->processing_packet_delay,
+            latency,
+            end->next_packet_delay,
+            start->packet_ID,
+            surrogate_on,
+            is_predicted,
             start->workload_injection_time,
-            end->next_packet_delay, start->travel_start_time,
-            end->travel_end_time, end->travel_end_time - start->travel_start_time,
-            start->is_there_another_pckt_in_queue);
+            start->travel_start_time,
+            end->travel_end_time,
+            latency);
 }
 
 // ==== START OF Surrogate functions definition ====
@@ -3408,6 +3521,14 @@ static void terminal_commit_packet_generate(terminal_state * s, tw_bf * bf, term
 
     // TODO (elkin): In the future, this ugly initialization could be done all in a single "line" instead of setting all values one by one. The reason to do it this way is because some old compilers do not understand other ways of initializing
     struct packet_sent sent;
+    unsigned int const feature_rail_id = dfdally_safe_rail_id(s, msg);
+    uint32_t const src_router_id = dfdally_terminal_src_router_id(s, msg);
+    uint32_t const src_group_id = src_router_id / s->params->num_routers;
+    uint32_t const dst_router_id =
+        dfdally_get_assigned_router_id_from_terminal(
+            s->params, msg->dfdally_dest_terminal_id, feature_rail_id);
+    uint32_t const dst_group_id = dst_router_id / s->params->num_routers;
+
     sent.start.packet_ID = msg->packet_ID;
     sent.start.dest_terminal_lpid = msg->dest_terminal_lpid;
     sent.start.dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id;
@@ -3416,6 +3537,13 @@ static void terminal_commit_packet_generate(terminal_state * s, tw_bf * bf, term
     sent.start.processing_packet_delay = processing_packet_delay;
     sent.start.packet_size = msg->packet_size;
     sent.start.is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue;
+    sent.start.caller_lp_gid = lp->gid;
+    sent.start.src_router_id = src_router_id;
+    sent.start.src_group_id = src_group_id;
+    sent.start.dst_router_id = dst_router_id;
+    sent.start.dst_group_id = dst_group_id;
+    sent.start.terminal_queue_length = dfdally_terminal_queue_length_bytes(s);
+    sent.start.terminal_vc_occupancy = dfdally_terminal_vc_occupancy_bytes(s);
     sent.next_packet_delay = -1;
     sent.message_data = msg_data;
     sent.remote_event_data = remote_data;
@@ -3454,6 +3582,14 @@ static void terminal_dally_commit(terminal_state * s,
         case T_GENERATE:
             if(bf->c10) {  // if the packet was sent as a prediction, store the prediction in memory
                 assert(dally_surrogate_configured);
+                unsigned int const feature_rail_id = dfdally_safe_rail_id(s, msg);
+                uint32_t const src_router_id = dfdally_terminal_src_router_id(s, msg);
+                uint32_t const src_group_id = src_router_id / s->params->num_routers;
+                uint32_t const dst_router_id =
+                    dfdally_get_assigned_router_id_from_terminal(
+                        s->params, msg->dfdally_dest_terminal_id, feature_rail_id);
+                uint32_t const dst_group_id = dst_router_id / s->params->num_routers;
+
                 auto start = (struct packet_start) {
                     .packet_ID = msg->packet_ID,
                     .dest_terminal_lpid = msg->dest_terminal_lpid,
@@ -3462,7 +3598,14 @@ static void terminal_dally_commit(terminal_state * s,
                     .workload_injection_time = msg->msg_start_time,
                     .processing_packet_delay = -1,
                     .packet_size = msg->packet_size,
-                    .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue
+                    .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue,
+
+                    .src_router_id = src_router_id,
+                    .src_group_id = src_group_id,
+                    .dst_router_id = dst_router_id,
+                    .dst_group_id = dst_group_id,
+                    .terminal_queue_length = dfdally_terminal_queue_length_bytes(s),
+                    .terminal_vc_occupancy = dfdally_terminal_vc_occupancy_bytes(s)
                 };
 
                 // Saving
@@ -4118,6 +4261,15 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
 
     // Using predictor to find latency
     double const processing_packet_delay = tw_now(lp) - s->last_in_queue_time;
+
+    unsigned int const feature_rail_id = dfdally_safe_rail_id(s, msg);
+    uint32_t const src_router_id = dfdally_terminal_src_router_id(s, msg);
+    uint32_t const src_group_id = src_router_id / s->params->num_routers;
+    uint32_t const dst_router_id =
+        dfdally_get_assigned_router_id_from_terminal(
+            s->params, msg->dfdally_dest_terminal_id, feature_rail_id);
+    uint32_t const dst_group_id = dst_router_id / s->params->num_routers;
+
     auto start = (struct packet_start) {
         .packet_ID = msg->packet_ID,
         .dest_terminal_lpid = msg->dest_terminal_lpid,
@@ -4126,8 +4278,26 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
         .workload_injection_time = msg->msg_start_time,
         .processing_packet_delay = processing_packet_delay,
         .packet_size = msg->packet_size,
-        .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue
+        .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue,
+
+        .src_router_id = src_router_id,
+        .src_group_id = src_group_id,
+        .dst_router_id = dst_router_id,
+        .dst_group_id = dst_group_id,
+        /*
+         * In predicted/surrogate generation, the high-fidelity terminal queue
+         * structures are bypassed, so dfdally_terminal_queue_length_bytes(s)
+         * can be zero even though the model was trained on the queue occupancy
+         * observed during high-fidelity packet generation. Avoid feeding an
+         * out-of-distribution zero into the LP-aware Torch-JIT model.
+         */
+        .terminal_queue_length = dfdally_terminal_queue_length_bytes(s),
+        .terminal_vc_occupancy = dfdally_terminal_vc_occupancy_bytes(s)
     };
+
+    if (start.terminal_queue_length == 0 && start.packet_size > 0) {
+        start.terminal_queue_length = start.packet_size;
+    }
 
     struct packet_end const end = 
         terminal_predictor->predict(s->predictor_data, lp, s->terminal_id, &start);

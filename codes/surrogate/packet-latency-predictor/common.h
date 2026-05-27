@@ -28,6 +28,18 @@ struct packet_start {
     double processing_packet_delay;  // delay for this packet to be processed from previous packet in the queue
     uint32_t packet_size;
     bool is_there_another_pckt_in_queue; // is there another packet in queue
+    uint64_t caller_lp_gid; // true ROSS LP gid of the source terminal LP
+
+    /*
+     * Optional ML-facing context for LP-aware Torch-JIT mode.
+     * Existing predictors may ignore these fields.
+     */
+    uint32_t src_router_id;
+    uint32_t src_group_id;
+    uint32_t dst_router_id;
+    uint32_t dst_group_id;
+    uint32_t terminal_queue_length;
+    uint32_t terminal_vc_occupancy;
 };
 
 struct packet_end {

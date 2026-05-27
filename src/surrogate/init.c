@@ -98,9 +98,16 @@ bool network_surrogate_configure(
             char torch_jit_mode[MAX_NAME_LENGTH];
             torch_jit_mode[0] = '\0';
             configuration_get_value(&config, "NETWORK_SURROGATE", "torch_jit_mode", anno, torch_jit_mode, MAX_NAME_LENGTH);
-            if (strcmp(torch_jit_mode, "single-static-model-for-all-terminals") != 0) {
+
+            bool torch_jit_lp_aware_mode = false;
+            if (strcmp(torch_jit_mode, "single-static-model-for-all-terminals") == 0) {
+                torch_jit_lp_aware_mode = false;
+            } else if (strcmp(torch_jit_mode, "lp-aware-single-static-model") == 0) {
+                torch_jit_lp_aware_mode = true;
+            } else {
                 tw_error(TW_LOC, "Unknown torch-jit mode `%s`", torch_jit_mode);
             }
+            surrogate_torch_set_lp_aware_mode(torch_jit_lp_aware_mode);
 
             char torch_jit_model_path[MAX_NAME_LENGTH];
             torch_jit_model_path[0] = '\0';

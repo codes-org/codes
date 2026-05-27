@@ -76,7 +76,7 @@ NETWORK_SURROGATE {
    ignore_until="${IGNORE_UNTIL}";
 
 # parameters for torch-jit latency predictor
-   torch_jit_mode="single-static-model-for-all-terminals";
+   torch_jit_mode="${TORCH_JIT_MODE}";
    torch_jit_model_path="${TORCH_JIT_MODEL_PATH}";
 
 # selecting network treatment on switching to surrogate. Options: frezee, nothing
