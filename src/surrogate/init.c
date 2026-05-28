@@ -85,11 +85,22 @@ bool network_surrogate_configure(
     }
 
     // Determining which predictor to set up and return
+    char debug_prints_str[MAX_NAME_LENGTH];
+    debug_prints_str[0] = '\0';
+    configuration_get_value(&config, "NETWORK_SURROGATE", "debug_prints", anno,
+            debug_prints_str, MAX_NAME_LENGTH);
+    bool debug_prints = (strcmp(debug_prints_str, "1") == 0 ||
+            strcmp(debug_prints_str, "true") == 0 ||
+            strcmp(debug_prints_str, "TRUE") == 0 ||
+            strcmp(debug_prints_str, "yes") == 0 ||
+            strcmp(debug_prints_str, "YES") == 0);
+
     char latency_pred_name[MAX_NAME_LENGTH];
     latency_pred_name[0] = '\0';
     configuration_get_value(&config, "NETWORK_SURROGATE", "packet_latency_predictor", anno, latency_pred_name, MAX_NAME_LENGTH);
     if (*latency_pred_name) {
         if (strcmp(latency_pred_name, "average") == 0) {
+            average_latency_predictor_set_debug_prints(debug_prints);
             current_net_predictor = average_latency_predictor(sc->total_terminals);
             *pl_pred = &current_net_predictor;
 
@@ -99,31 +110,49 @@ bool network_surrogate_configure(
             torch_jit_mode[0] = '\0';
             configuration_get_value(&config, "NETWORK_SURROGATE", "torch_jit_mode", anno, torch_jit_mode, MAX_NAME_LENGTH);
 
-            bool torch_jit_lp_aware_mode = false;
-            if (strcmp(torch_jit_mode, "single-static-model-for-all-terminals") == 0) {
-                torch_jit_lp_aware_mode = false;
-            } else if (strcmp(torch_jit_mode, "lp-aware-single-static-model") == 0) {
-                torch_jit_lp_aware_mode = true;
-            } else {
-                tw_error(TW_LOC, "Unknown torch-jit mode `%s`", torch_jit_mode);
-            }
-            surrogate_torch_set_lp_aware_mode(torch_jit_lp_aware_mode);
-
-            char debug_prints_str[MAX_NAME_LENGTH];
-            debug_prints_str[0] = '\0';
-            configuration_get_value(&config, "NETWORK_SURROGATE", "debug_prints", anno,
-                    debug_prints_str, MAX_NAME_LENGTH);
-            bool debug_prints = (strcmp(debug_prints_str, "1") == 0 ||
-                    strcmp(debug_prints_str, "true") == 0 ||
-                    strcmp(debug_prints_str, "TRUE") == 0 ||
-                    strcmp(debug_prints_str, "yes") == 0 ||
-                    strcmp(debug_prints_str, "YES") == 0);
             surrogate_torch_set_debug_prints(debug_prints);
 
-            char torch_jit_model_path[MAX_NAME_LENGTH];
-            torch_jit_model_path[0] = '\0';
-            configuration_get_value(&config, "NETWORK_SURROGATE", "torch_jit_model_path", anno, torch_jit_model_path, MAX_NAME_LENGTH);
-            surrogate_torch_init(torch_jit_model_path);
+            if (strcmp(torch_jit_mode, "single-static-model-for-all-terminals") == 0) {
+                surrogate_torch_set_lp_aware_mode(false);
+
+                char torch_jit_model_path[MAX_NAME_LENGTH];
+                torch_jit_model_path[0] = '\0';
+                configuration_get_value(&config, "NETWORK_SURROGATE", "torch_jit_model_path", anno,
+                        torch_jit_model_path, MAX_NAME_LENGTH);
+                surrogate_torch_init(torch_jit_model_path);
+            } else if (strcmp(torch_jit_mode, "lp-aware-single-static-model") == 0) {
+                surrogate_torch_set_lp_aware_mode(true);
+
+                char torch_jit_model_path[MAX_NAME_LENGTH];
+                torch_jit_model_path[0] = '\0';
+                configuration_get_value(&config, "NETWORK_SURROGATE", "torch_jit_model_path", anno,
+                        torch_jit_model_path, MAX_NAME_LENGTH);
+                surrogate_torch_init(torch_jit_model_path);
+            } else if (strcmp(torch_jit_mode, "lp-aware-lp-type-models") == 0) {
+                char terminal_model_path[MAX_NAME_LENGTH];
+                char router_timing_model_path[MAX_NAME_LENGTH];
+                char default_model_path[MAX_NAME_LENGTH];
+                terminal_model_path[0] = '\0';
+                router_timing_model_path[0] = '\0';
+                default_model_path[0] = '\0';
+
+                configuration_get_value(&config, "NETWORK_SURROGATE", "torch_jit_terminal_model_path", anno,
+                        terminal_model_path, MAX_NAME_LENGTH);
+                configuration_get_value(&config, "NETWORK_SURROGATE", "torch_jit_router_timing_model_path", anno,
+                        router_timing_model_path, MAX_NAME_LENGTH);
+                configuration_get_value(&config, "NETWORK_SURROGATE", "torch_jit_default_model_path", anno,
+                        default_model_path, MAX_NAME_LENGTH);
+
+                surrogate_torch_init_lp_type_models(
+                        terminal_model_path,
+                        router_timing_model_path,
+                        default_model_path);
+            } else {
+                tw_error(TW_LOC,
+                        "Unknown torch-jit mode `%s` (expected single-static-model-for-all-terminals, "
+                        "lp-aware-single-static-model, or lp-aware-lp-type-models)",
+                        torch_jit_mode);
+            }
 
             *pl_pred = &torch_latency_predictor;
 #endif
@@ -137,6 +166,7 @@ bool network_surrogate_configure(
                     ")", latency_pred_name);
         }
     } else {
+        average_latency_predictor_set_debug_prints(debug_prints);
         current_net_predictor = average_latency_predictor(sc->total_terminals);
         *pl_pred = &current_net_predictor;
         master_printf("Enabling average packet latency predictor (default behaviour)\n");

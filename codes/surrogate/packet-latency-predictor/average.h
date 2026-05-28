@@ -18,6 +18,8 @@ extern "C" {
 
 extern double ignore_until;
 
+void average_latency_predictor_set_debug_prints(int enabled);
+
 struct packet_latency_predictor average_latency_predictor(int num_terminals);
 
 #ifdef __cplusplus

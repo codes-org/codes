@@ -3,6 +3,11 @@
 
 double ignore_until = 0;
 static int num_terminals = 0;
+static int average_predictor_debug_prints = 0;
+
+void average_latency_predictor_set_debug_prints(int enabled) {
+    average_predictor_debug_prints = enabled ? 1 : 0;
+}
 
 
 // === Average packet latency functionality
@@ -90,7 +95,8 @@ static struct packet_end predict_latency(struct latency_surrogate * data, tw_lp 
 
     static unsigned long long average_predict_calls = 0;
     average_predict_calls++;
-    if (average_predict_calls <= 20 || average_predict_calls % 10000 == 0) {
+    if (average_predictor_debug_prints &&
+            (average_predict_calls <= 20 || average_predict_calls % 10000 == 0)) {
         fprintf(stderr,
             "[average predict debug] calls=%llu latency=%f next_packet_delay=%f "
             "next_delay_points=%u total_latency_points=%u dest_latency_points=%u\n",

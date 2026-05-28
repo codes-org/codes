@@ -22,6 +22,9 @@
 #include "codes/model-net-method.h"
 #include "codes/model-net-lp.h"
 #include "codes/surrogate/init.h"
+#ifdef USE_TORCH
+#include "codes/surrogate/packet-latency-predictor/torch-jit.h"
+#endif
 #include "codes/net/dragonfly-dally.h"
 #include "quicklist.h"
 #include "sys/file.h"
@@ -198,6 +201,12 @@ static char router_sample_file[MAX_NAME_LENGTH];
 // NOTE: Only non-predicted latencies are saved to file
 static FILE * packet_latency_f = NULL;
 static void setup_packet_latency_path(char const * const dir_to_save);
+
+// File to store router-local timing rows for training router queueing-delay models.
+static FILE * router_timing_trace_f = NULL;
+static int router_timing_trace_stride = 1;
+static unsigned long long router_timing_trace_counter = 0;
+static void setup_router_timing_trace_path(char const * const dir_to_save);
 
 
 // ==== START OF Parameters to tune surrogate mode ====
@@ -2485,6 +2494,30 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         setup_packet_latency_path(packet_latency_path);
     }
 
+    // Router timing trace path to store pure-PDES router-local queueing-delay training rows.
+    char router_timing_trace_path[MAX_NAME_LENGTH];
+    router_timing_trace_path[0] = '\0';
+    configuration_get_value(&config, "PARAMS", "save_router_timing_trace_path", anno,
+            router_timing_trace_path, MAX_NAME_LENGTH);
+    if(strlen(router_timing_trace_path) > 0) {
+        setup_router_timing_trace_path(router_timing_trace_path);
+    }
+
+    char router_timing_trace_stride_str[MAX_NAME_LENGTH];
+    router_timing_trace_stride_str[0] = '\0';
+    configuration_get_value(&config, "PARAMS", "save_router_timing_trace_stride", anno,
+            router_timing_trace_stride_str, MAX_NAME_LENGTH);
+    if(strlen(router_timing_trace_stride_str) > 0) {
+        int const parsed_stride = atoi(router_timing_trace_stride_str);
+        if(parsed_stride > 0) {
+            router_timing_trace_stride = parsed_stride;
+        } else {
+            tw_warning(TW_LOC,
+                    "Ignoring invalid save_router_timing_trace_stride=%s; using stride=1",
+                    router_timing_trace_stride_str);
+        }
+    }
+
     // START Surrogate configuration
     char enable_str[MAX_NAME_LENGTH];
     enable_str[0] = '\0';
@@ -2598,6 +2631,84 @@ static void setup_packet_latency_path(char const * const dir_to_save) {
             "packet_id,is_surrogate_on,is_predicted,workload_injection,start,end,latency\n");
 }
 
+
+static void setup_router_timing_trace_path(char const * const dir_to_save) {
+    assert(router_timing_trace_f == NULL);
+    int const NO_ERROR = 0;
+    struct stat st;
+    memset(&st, 0, sizeof(struct stat));
+    if(g_tw_mynode == 0 && stat(dir_to_save, &st) == -1) {
+        int res = mkdir(dir_to_save, 0700);
+        if (res != NO_ERROR) {
+            tw_error(TW_LOC, "Error (%d) occurred when attempting to mkdir folder `%s`", errno, dir_to_save);
+        }
+    }
+    MPI_Barrier(MPI_COMM_CODES);
+
+    char const fmt[] = "%s/router-timing-gid=%lu.txt";
+    int sz = snprintf(NULL, 0, fmt, dir_to_save, g_tw_mynode);
+    char filename_path[sz + 1];
+    snprintf(filename_path, sizeof(filename_path), fmt, dir_to_save, g_tw_mynode);
+    router_timing_trace_f = fopen(filename_path, "w+");
+    if(!router_timing_trace_f) {
+        tw_error(TW_LOC, "File %s could not be opened", filename_path);
+    }
+
+    fprintf(router_timing_trace_f,
+            "#router_id,group_id,output_port,output_chan,to_terminal,is_global,"
+            "packet_size,chunk_size,output_vc_occupancy,output_queued_count,"
+            "next_output_available_delta,nominal_router_delay,router_queueing_delay,"
+            "actual_router_delay,is_surrogate_on,is_predicted,now,packet_id,src_terminal,dest_terminal,next_stop\n");
+}
+
+static inline void router_timing_trace_save_to_file(
+        router_state const *s,
+        terminal_dally_message const *pkt,
+        int output_port,
+        int output_chan,
+        int to_terminal,
+        int is_global,
+        double next_output_available_delta,
+        double nominal_router_delay,
+        double actual_router_delay,
+        bool surrogate_on,
+        bool is_predicted,
+        tw_lp *lp)
+{
+    if (!router_timing_trace_f) { return; }
+
+    unsigned long long const trace_idx = router_timing_trace_counter++;
+    if(router_timing_trace_stride > 1 &&
+            (trace_idx % (unsigned long long)router_timing_trace_stride) != 0ULL) {
+        return;
+    }
+
+    double const router_queueing_delay = maxd(0.0, actual_router_delay - nominal_router_delay);
+    fprintf(router_timing_trace_f,
+            "%u,%d,%d,%d,%d,%d,%u,%d,%d,%d,%f,%f,%f,%f,%d,%d,%f,%lu,%u,%u,%llu\n",
+            s->router_id,
+            s->group_id,
+            output_port,
+            output_chan,
+            to_terminal,
+            is_global,
+            pkt->packet_size,
+            s->params->chunk_size,
+            s->vc_occupancy[output_port][output_chan],
+            s->queued_count[output_port],
+            next_output_available_delta,
+            nominal_router_delay,
+            router_queueing_delay,
+            actual_router_delay,
+            surrogate_on,
+            is_predicted,
+            tw_now(lp),
+            (unsigned long)pkt->packet_ID,
+            pkt->dfdally_src_terminal_id,
+            pkt->dfdally_dest_terminal_id,
+            (unsigned long long)pkt->next_stop);
+}
+
 /* report dragonfly statistics like average and maximum packet latency, average number of hops traversed */
 void dragonfly_dally_report_stats()
 {
@@ -2632,6 +2743,11 @@ void dragonfly_dally_report_stats()
 
     if (packet_latency_f) {
         fclose(packet_latency_f);
+        packet_latency_f = NULL;
+    }
+    if (router_timing_trace_f) {
+        fclose(router_timing_trace_f);
+        router_timing_trace_f = NULL;
     }
     /* print statistics */
     if(!g_tw_mynode)
@@ -6836,13 +6952,75 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
 
     injection_delay += s->params->router_delay;
 
+    double const next_output_available_delta =
+        maxd(0.0, s->next_output_available_time[output_port] - tw_now(lp));
+    double const nominal_router_delay = injection_delay + propagation_delay;
+
     msg->saved_available_time = s->next_output_available_time[output_port];
-    s->next_output_available_time[output_port] = 
+    s->next_output_available_time[output_port] =
         maxd(s->next_output_available_time[output_port], tw_now(lp));
     s->next_output_available_time[output_port] += injection_delay;
 
     injection_ts = s->next_output_available_time[output_port] - tw_now(lp);
     propagation_ts = injection_ts + propagation_delay;
+
+    /*
+     * High-fidelity router-local delay target for ML training.
+     *
+     * propagation_ts is only the delay from this router send event to the next
+     * hop. It does not include the time the chunk already spent waiting in this
+     * router's queue before router_packet_send() fired. For the router timing
+     * model, the useful target is the total local residence+service+propagation
+     * time from this_router_arrival through arrival at the next hop.
+     *
+     * nominal_router_delay is the deterministic no-queueing service+propagation
+     * delay. Therefore:
+     *
+     *   queueing_delay = max(0, highdef_actual_router_delay - nominal_router_delay)
+     *
+     * captures router-local waiting/contention time.
+     */
+    double const highdef_actual_router_delay =
+        maxd(0.0, s->next_output_available_time[output_port] -
+                    cur_entry->msg.this_router_arrival)
+        + propagation_delay;
+    bool router_timing_prediction_used = false;
+#ifdef USE_TORCH
+    if (is_dally_surrogate_on && surrogate_torch_router_timing_model_enabled()) {
+        struct router_timing_prediction_start timing_start = {
+            .router_id = (float)s->router_id,
+            .group_id = (float)s->group_id,
+            .output_port = (float)output_port,
+            .output_chan = (float)output_chan,
+            .to_terminal = (float)to_terminal,
+            .is_global = (float)global,
+            .packet_size = (float)cur_entry->msg.packet_size,
+            .chunk_size = (float)s->params->chunk_size,
+            .output_vc_occupancy = (float)s->vc_occupancy[output_port][output_chan],
+            .output_queued_count = (float)s->queued_count[output_port],
+            .next_output_available_delta = (float)next_output_available_delta,
+            .nominal_router_delay = (float)nominal_router_delay,
+        };
+        double const predicted_queueing_delay =
+            surrogate_torch_predict_router_queueing_delay(&timing_start, 0.0);
+        propagation_ts = nominal_router_delay + predicted_queueing_delay;
+        router_timing_prediction_used = true;
+    }
+#endif
+
+    router_timing_trace_save_to_file(
+            s,
+            &cur_entry->msg,
+            output_port,
+            output_chan,
+            to_terminal,
+            global,
+            next_output_available_delta,
+            nominal_router_delay,
+            highdef_actual_router_delay,
+            is_dally_surrogate_on,
+            router_timing_prediction_used,
+            lp);
 
     cur_entry->msg.this_router_ptp_latency = s->next_output_available_time[output_port] - cur_entry->msg.this_router_arrival;
     msg->this_router_ptp_latency = cur_entry->msg.this_router_ptp_latency;
