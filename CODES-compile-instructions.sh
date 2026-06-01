@@ -108,6 +108,32 @@ if [ $union_enable = 1 ]; then
 fi
 
 
+
+# Make system pkg-config metadata visible even when Conda's pkg-config is active.
+# This is needed for libzmq.pc on systems where ZeroMQ is installed through the OS
+# but the active Conda environment's pkg-config only searches Conda pkgconfig dirs.
+if ! pkg-config --exists libzmq 2>/dev/null; then
+    for pcdir in \
+        /usr/lib/x86_64-linux-gnu/pkgconfig \
+        /usr/lib64/pkgconfig \
+        /usr/lib/pkgconfig \
+        /usr/local/lib/pkgconfig \
+        /usr/local/lib64/pkgconfig \
+        /opt/homebrew/lib/pkgconfig \
+        /usr/share/pkgconfig
+    do
+        if [ -d "$pcdir" ]; then
+            export PKG_CONFIG_PATH="$pcdir:${PKG_CONFIG_PATH:-}"
+        fi
+    done
+fi
+
+if ! pkg-config --exists libzmq 2>/dev/null; then
+    echo "WARNING: pkg-config still cannot find libzmq.pc." >&2
+    echo "         If ZMQML fails to build, install the ZeroMQ development package" >&2
+    echo "         or set PKG_CONFIG_PATH to the directory containing libzmq.pc." >&2
+fi
+
 # Build local ZMQML requester library required by director-client.C
 pushd codes/src/surrogate/zmqml
 make clean
