@@ -46,3 +46,4 @@ install-mastiff/include/codes/model-net-method.h
 /build*
 .cache
 compile_commands.json
+__pycache__/
