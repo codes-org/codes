@@ -21,6 +21,8 @@ fi
 # What to compile
 CUR_DIR="$PWD"
 
+
+
 ##### Downloading everything #####
 
 if [ ! -d codes/.git ]; then
@@ -36,8 +38,16 @@ else
 fi
 
 if [ $swm_enable = 1 ]; then
+    if [ ! -d argobots/.git ]; then
     git clone https://github.com/pmodels/argobots --depth=1
+else
+    echo "Using existing argobots checkout: $(realpath argobots)"
+fi
+    if [ ! -d swm-workloads/.git ]; then
     git clone https://github.com/codes-org/swm-workloads --branch=v1.2
+else
+    echo "Using existing swm-workloads checkout: $(realpath swm-workloads)"
+fi
 fi
 
 if [ $union_enable = 1 ]; then
@@ -45,7 +55,11 @@ if [ $union_enable = 1 ]; then
     curl -L https://sourceforge.net/projects/conceptual/files/conceptual/1.5.1b/conceptual-1.5.1b.tar.gz -o conceptual-1.5.1b.tar.gz
     tar xvf conceptual-1.5.1b.tar.gz
     # Downloading union
-    git clone https://github.com/SPEAR-UIC/Union
+    if [ ! -d Union/.git ]; then
+        git clone https://github.com/SPEAR-UIC/Union
+    else
+        echo "Using existing Union checkout: $(realpath Union)"
+    fi
     pushd Union && git checkout 99b3df3 && popd
 fi
 
@@ -53,7 +67,7 @@ fi
 
 mkdir -p ross/build
 pushd ross/build
-cmake .. -DROSS_BUILD_MODELS=ON -DCMAKE_INSTALL_PREFIX="$(realpath ./bin)" \
+cmake .. -DCMAKE_C_COMPILER=mpicc -DCMAKE_CXX_COMPILER=mpicxx -DROSS_BUILD_MODELS=ON -DCMAKE_INSTALL_PREFIX="$(realpath ./bin)" \
   -DCMAKE_C_COMPILER=mpicc -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-g -Wall"
 #make VERBOSE=1
 make install -j4
@@ -278,6 +292,11 @@ make_args_codes=(
     -DCMAKE_CXX_COMPILER=mpicxx -DCMAKE_C_COMPILER=mpicc
     -DCMAKE_C_FLAGS="-g -Wall"
     -DCMAKE_CXX_FLAGS="-g -Wall"
+    -DTHREADS_PREFER_PTHREAD_FLAG=ON
+    -DCMAKE_THREAD_LIBS_INIT="-pthread"
+    -DCMAKE_HAVE_THREADS_LIBRARY=1
+    -DCMAKE_USE_PTHREADS_INIT=1
+    -DCMAKE_USE_WIN32_THREADS_INIT=0
     -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
     -DCMAKE_INSTALL_PREFIX="$(realpath bin)"
     -DZMQML_BUILD_PATH="$(realpath "$CUR_DIR/codes/src/surrogate/zmqml")"
