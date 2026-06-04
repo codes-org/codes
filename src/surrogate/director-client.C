@@ -17,11 +17,17 @@
 
 #define NUM_ACTIVE_CLIENTS 72 //TODO: this should be calculated at runtime
 
-#define DIR_ZMQ_CMD_LENGTH 15
+#define DIR_ZMQ_CMD_LENGTH 64
 #define DIR_ZMQ_ARG_LENGTH 100
 
 #define DIR_MAX_PREDICTION 5
 #define DIR_MAX_TRAINING_RECORDS 10
+/*
+ * The Python iteration-time model currently uses history_len=2 and horizon=3,
+ * so it needs at least 5 iteration-delta records to train one window.
+ * Five deltas require six timestamps in training_data.
+ */
+#define DIR_MIN_TRAINING_TIMESTAMPS_FOR_FLUSH 6
 #define DIR_MAX_DATA_SIZE 15
 
 struct
@@ -34,7 +40,8 @@ typedef struct director_state director_state;
 
 // Some flag to relocate/clean-up
 int evaluate_perf = 1;
-int training_enabled = 0;  //TODO: Move this to the LP state
+int training_enabled = 0;
+int director_debug_prints = 0;  //TODO: Move this to the LP state
 int surrogate_enabled = 0;
 int inferencing_enabled = 1;
 
@@ -265,7 +272,23 @@ void director_init(director_state* s, tw_lp* lp)
         rc = configuration_get_value_int(&config, "DIRECTOR", "training_enabled", NULL, &training_enabled);
         if(rc)
             training_enabled = 0;
-    }
+    
+        rc = configuration_get_value_int(&config, "DIRECTOR", "debug_prints", NULL, &director_debug_prints);
+        if(rc) director_debug_prints = 0;
+
+        {
+            char commandstr[DIR_ZMQ_CMD_LENGTH];
+            char args[DIR_ZMQ_ARG_LENGTH];
+
+            sprintf(commandstr, "set-debug");
+            sprintf(args, "%d;%d;", 1, director_debug_prints);
+            director_client_request(commandstr, args, "");
+
+            if(director_debug_prints){
+                printf("[DIR] ZeroMQ server debug prints enabled via DIRECTOR/debug_prints.\n");
+            }
+        }
+}
     //printf("\n==DIR s->director_id: %d | lp->gid: %llu | s->nw_lpid: %llu", s->director_id, LLU(lp->gid), LLU(s->nw_lpid));
 
     /*
@@ -316,6 +339,60 @@ void director_prepare_iteration_dataset(director_state* s, tw_stime * training_d
     ret_vals = director_client_request(commandstr, args, processed_training_data_str);
 }
 
+
+static bool director_flush_partial_iteration_dataset_before_inference(director_state* s, tw_lp * lp)
+{
+    if(!training_enabled){
+        return true;
+    }
+
+    /*
+     * If this Director LP has already sent at least one training batch, the
+     * server should already have records for this client. In that case, a
+     * too-small current partial buffer is not fatal.
+     */
+    if(s->training_record_id < DIR_MIN_TRAINING_TIMESTAMPS_FOR_FLUSH){
+        if(director_debug_prints){
+            printf(
+                "[DIR] Not flushing partial training data before inference: "
+                "director_id=%llu timestamps=%d min_required=%d "
+                "training_cycle_id=%d time=%lf\n",
+                (unsigned long long) s->director_id,
+                s->training_record_id,
+                DIR_MIN_TRAINING_TIMESTAMPS_FOR_FLUSH,
+                s->training_cycle_id,
+                tw_now(lp)
+            );
+        }
+
+        return s->training_cycle_id > 0;
+    }
+
+    if(director_debug_prints){
+        printf(
+            "[DIR] Flushing partial training data before inference: "
+            "director_id=%llu timestamps=%d deltas=%d time=%lf\n",
+            (unsigned long long) s->director_id,
+            s->training_record_id,
+            s->training_record_id - 1,
+            tw_now(lp)
+        );
+    }
+
+    director_prepare_iteration_dataset(
+        s,
+        s->training_data,
+        s->training_cycle_id,
+        s->training_record_id
+    );
+
+    s->training_cycle_id = s->training_cycle_id + 1;
+    s->training_record_id = 1;
+    s->training_data[0] = tw_now(lp);
+
+    return true;
+}
+
 void director_get_surrogate_prediction(director_state* s, tw_bf * bf, director_message * m, tw_lp * lp, tw_stime* delay_ts)
 {
     // Check if we have sufficient predictions
@@ -326,32 +403,60 @@ void director_get_surrogate_prediction(director_state* s, tw_bf * bf, director_m
         if(inferencing_enabled){
             // Pull more predictions
             std::vector<std::string> ret_vals;
-            char commandstr[15];
-            char args[100];
+            char commandstr[DIR_ZMQ_CMD_LENGTH];
+            char args[DIR_ZMQ_ARG_LENGTH];
             
-            sprintf(commandstr, "do-inference");  
-            sprintf(args, "%d;%d;%d;", 3, s->director_id, DIR_MAX_PREDICTION);    // num-of-args;num-record
-            std::string input_data = ("1000000 1000000 1000000 1000000");
+            sprintf(commandstr, "iteration-time-inference");
+            sprintf(args, "%d;%d;%d;", 3, s->director_id, DIR_MAX_PREDICTION); // num-of-args;num-record
 
+            // The Python side primarily uses records previously sent through
+            // send-records. Keep the payload empty for now rather than sending
+            // hard-coded dummy values.
+            std::string input_data = "";
             ret_vals = director_client_request(commandstr, args, input_data);
-            /*
-            std::cout << "PREDICTIONS: " << commandstr
-                << " [0]" << ret_vals[0]
-                << " [1]" << ret_vals[1]
-                << " [2]" << ret_vals[2] 
-                << std::endl;
-            */
+
+            if(ret_vals.size() < 3){
+                tw_error(
+                    TW_LOC,
+                    "[DIR] iteration-time-inference returned too few fields: %lu",
+                    (unsigned long) ret_vals.size()
+                );
+            }
+
             std::vector<std::string> predictions = director_get_str_list(ret_vals[2].c_str(), ' ');
-            
-            //std::cout << "PREDICTIONS: " << predictions.size() << " | ";
+
             int i = 0;
             for(auto p: predictions){
-                //std::cout << " " << std::stof(p);
-                s->predictions[i] = std::stof(p);
+                if(p.empty()){
+                    continue;
+                }
+
+                if(i >= DIR_MAX_PREDICTION){
+                    break;
+                }
+
+                double pred = std::stod(p);
+
+                if(!std::isfinite(pred) || pred <= 0.0){
+                    tw_error(
+                        TW_LOC,
+                        "[DIR] Invalid iteration-time prediction from ZeroMQ server: %lf",
+                        pred
+                    );
+                }
+
+                s->predictions[i] = (tw_stime) pred;
                 i += 1;
             }
-            //std::cout << std::endl;
-            assert(i <= DIR_MAX_PREDICTION);
+
+            if(i != DIR_MAX_PREDICTION){
+                tw_error(
+                    TW_LOC,
+                    "[DIR] Expected %d iteration-time predictions, received %d",
+                    DIR_MAX_PREDICTION,
+                    i
+                );
+            }
         }
 
         s->next_prediction_index = 0;    
@@ -409,9 +514,44 @@ void director_event_handler(director_state* s, tw_bf * bf, director_message * m,
                     s->training_record_id = 1;
                     s->training_data[0] = tw_now(lp);
                 }
-                if(surrogate_enabled && m->value == director_config_global.surr_iter_start)
+                if(surrogate_enabled
+                    && m->value >= director_config_global.surr_iter_start
+                    && m->value < director_config_global.surr_iter_end)
                 {
                     //printf("==DIR[%d] Triggering switch to SURR (time: %lf)\n", s->director_id, tw_now(lp));
+
+                    /*
+                     * Do not enter surrogate mode until this Director LP has
+                     * either sent a previous training batch or has enough local
+                     * timestamps to flush a trainable partial batch. Otherwise
+                     * the first inference call reaches the ZeroMQ server with
+                     * records=0/trained=0 and returns only the mechanical
+                     * fallback.
+                     */
+                    if(!director_flush_partial_iteration_dataset_before_inference(s, lp)){
+                        if(director_debug_prints){
+                            printf(
+                                "[DIR] Deferring surrogate switch until trainable "
+                                "iteration records exist: director_id=%llu "
+                                "iter=%d timestamps=%d min_required=%d time=%lf\n",
+                                (unsigned long long) s->director_id,
+                                m->value,
+                                s->training_record_id,
+                                DIR_MIN_TRAINING_TIMESTAMPS_FOR_FLUSH,
+                                tw_now(lp)
+                            );
+                        }
+
+                        tw_stime delay_ts = 0.001;
+                        director_issue_codes_event(
+                            s,
+                            s->nw_lpid,
+                            DIR_REGISTERED_EVENT__MOVE_TO_NEXT,
+                            delay_ts,
+                            lp
+                        );
+                        return;
+                    }
                     
                     s->simulation_mode = SIM_MODE_ITERATION_SURROGATE;
                     tw_stime delay_ts;
