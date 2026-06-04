@@ -2,6 +2,7 @@
 #include <sstream>
 #include <vector>
 #include <string.h>
+#include <stdlib.h>
 #include <iterator>
 
 #include <cmath>
@@ -42,6 +43,8 @@ typedef struct director_state director_state;
 int evaluate_perf = 1;
 int training_enabled = 0;
 int director_debug_prints = 0;  //TODO: Move this to the LP state
+
+std::vector<std::string> director_client_request(const char* cmd, const char* args, const std::string data);
 int surrogate_enabled = 0;
 int inferencing_enabled = 1;
 
@@ -58,6 +61,13 @@ struct director_state
     int training_cycle_id;
     int training_record_id;
     tw_stime training_data[DIR_MAX_TRAINING_RECORDS];
+
+    /*
+     * Commit-only count of training batches durably sent to the ZeroMQ server.
+     * This is intentionally not restored by Director RC because it changes
+     * only from the commit handler after rollback is impossible.
+     */
+    int committed_training_cycles;
     //std::vector<tw_stime> training_data_vc;
     
     int next_prediction_index;
@@ -68,6 +78,160 @@ struct director_state
 
     tw_lpid nw_lpid;
 };
+
+
+static void director_free_rc_buffer(director_message *m)
+{
+    if(m->rc_old_nw_event_buffer != NULL){
+        free(m->rc_old_nw_event_buffer);
+        m->rc_old_nw_event_buffer = NULL;
+    }
+}
+
+static void director_save_rc_state(director_state *s, director_message *m)
+{
+    m->rc_valid = 1;
+
+    m->rc_simulation_mode = s->simulation_mode;
+    m->rc_training_cycle_id = s->training_cycle_id;
+    m->rc_training_record_id = s->training_record_id;
+
+    for(int i = 0; i < DIR_MAX_TRAINING_RECORDS; i++){
+        m->rc_training_data[i] = s->training_data[i];
+    }
+
+    m->rc_next_prediction_index = s->next_prediction_index;
+
+    for(int i = 0; i < DIR_MAX_PREDICTION; i++){
+        m->rc_predictions[i] = s->predictions[i];
+    }
+
+    m->rc_registered_event_type = -1;
+    m->rc_old_nw_event_size = 0;
+    m->rc_old_nw_event_buffer = NULL;
+
+    m->commit_send_records = 0;
+    m->commit_client_id = -1;
+    m->commit_training_cycle_id = -1;
+    m->commit_num_records = 0;
+
+    for(int i = 0; i < DIR_RC_MAX_TRAINING_RECORDS; i++){
+        m->commit_records[i] = 0.0;
+    }
+}
+
+
+static void director_send_iteration_records_now(
+    int client_id,
+    int training_cycle_id,
+    const tw_stime *records,
+    int num_records
+)
+{
+    if(num_records <= 0){
+        return;
+    }
+
+    if(num_records > DIR_RC_MAX_TRAINING_RECORDS){
+        tw_error(
+            TW_LOC,
+            "[DIR] Invalid staged training record count: %d",
+            num_records
+        );
+    }
+
+    std::string input_data = "";
+    for(int i = 0; i < num_records; i++){
+        input_data += std::to_string(records[i]);
+        if(i + 1 < num_records){
+            input_data += " ";
+        }
+    }
+
+    char commandstr[DIR_ZMQ_CMD_LENGTH];
+    char args[DIR_ZMQ_ARG_LENGTH];
+
+    sprintf(commandstr, "send-records");
+
+    /*
+     * Keep the original server-facing argument shape:
+     * num_args;client_id;num_records;
+     *
+     * training_cycle_id is currently used only for local debug output.
+     */
+    sprintf(args, "%d;%d;%d;", 3, client_id, num_records);
+
+    struct timespec start, end;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    director_client_request(commandstr, args, input_data);
+    clock_gettime(CLOCK_MONOTONIC, &end);
+
+    double latency =
+        (end.tv_sec - start.tv_sec) +
+        (end.tv_nsec - start.tv_nsec) / 1000000000.0;
+
+    if(director_debug_prints){
+        printf(
+            "[DIR] committed send-records client=%d cycle=%d num_records=%d latency=%lf\n",
+            client_id,
+            training_cycle_id,
+            num_records,
+            latency
+        );
+    }
+}
+
+
+static void director_restore_rc_state(director_state *s, director_message *m)
+{
+    if(!m->rc_valid){
+        tw_error(TW_LOC, "[DIR RC] Missing RC snapshot for Director event.");
+    }
+
+    s->simulation_mode = m->rc_simulation_mode;
+    s->training_cycle_id = m->rc_training_cycle_id;
+    s->training_record_id = m->rc_training_record_id;
+
+    for(int i = 0; i < DIR_MAX_TRAINING_RECORDS; i++){
+        s->training_data[i] = m->rc_training_data[i];
+    }
+
+    s->next_prediction_index = m->rc_next_prediction_index;
+
+    for(int i = 0; i < DIR_MAX_PREDICTION; i++){
+        s->predictions[i] = m->rc_predictions[i];
+    }
+
+    /*
+     * Registration events mutate nw_event_size/nw_event_ptr. Restore the
+     * previous registered event payload when this event rolls back.
+     */
+    if(m->rc_registered_event_type >= 0){
+        int event_type = m->rc_registered_event_type;
+
+        if(event_type < 0 || event_type >= NUM_DIR_TO_NW_EVENT){
+            tw_error(
+                TW_LOC,
+                "[DIR RC] Invalid registered event type during rollback: %d",
+                event_type
+            );
+        }
+
+        s->nw_event_size[event_type] = m->rc_old_nw_event_size;
+
+        if(m->rc_old_nw_event_size > 0 && m->rc_old_nw_event_buffer != NULL){
+            memcpy(
+                s->nw_event_ptr[event_type],
+                m->rc_old_nw_event_buffer,
+                m->rc_old_nw_event_size
+            );
+        }
+    }
+
+    director_free_rc_buffer(m);
+    m->rc_valid = 0;
+}
+
 
 std::vector<std::string> director_get_str_list(const char *s, const char delimiter) {
     std::vector<std::string> result;
@@ -197,6 +361,38 @@ void director_register_events(director_state * s, director_message * msg, tw_lp 
     int dir_registered_event_type = msg->msg_type;
     int pdes_msg_size = msg->value; 
 
+    if(dir_registered_event_type < 0 || dir_registered_event_type >= NUM_DIR_TO_NW_EVENT){
+        tw_error(
+            TW_LOC,
+            "[DIR] Invalid registered event type: %d",
+            dir_registered_event_type
+        );
+    }
+
+    /*
+     * Save the previous registration so reverse computation can restore it
+     * if this registration event rolls back.
+     */
+    msg->rc_registered_event_type = dir_registered_event_type;
+    msg->rc_old_nw_event_size = s->nw_event_size[dir_registered_event_type];
+
+    if(msg->rc_old_nw_event_size > 0){
+        msg->rc_old_nw_event_buffer = malloc((size_t) msg->rc_old_nw_event_size);
+        if(msg->rc_old_nw_event_buffer == NULL){
+            tw_error(
+                TW_LOC,
+                "[DIR RC] Failed to allocate RC registration buffer of size %d",
+                msg->rc_old_nw_event_size
+            );
+        }
+
+        memcpy(
+            msg->rc_old_nw_event_buffer,
+            s->nw_event_ptr[dir_registered_event_type],
+            msg->rc_old_nw_event_size
+        );
+    }
+
     //printf("==DIR[%d] DIR Registering dir_event_type:%d (time: %lf)\n", 
     //        s->director_id, dir_registered_event_type, tw_now(lp));
 
@@ -225,6 +421,7 @@ void director_init(director_state* s, tw_lp* lp)
     s->training_cycle_id = 0;
     s->training_record_id = 1;
     s->training_data[0] = tw_now(lp);
+    s->committed_training_cycles = 0;
     //s->training_data_vc.push_back(tw_now(lp));
     s->next_prediction_index = -1;
     for(int i = 0; i < DIR_MAX_PREDICTION; i++){
@@ -306,41 +503,90 @@ void director_init(director_state* s, tw_lp* lp)
     return;
 }
 
-void director_prepare_iteration_dataset(director_state* s, tw_stime * training_data, int training_cycle, int training_records)
+void director_prepare_iteration_dataset(
+    director_state* s,
+    director_message *m,
+    tw_stime * training_data,
+    int training_cycle,
+    int training_records
+)
 {
-    //printf("==DIR[%d] Training Cycle: %d\n", s->director_id, training_cycle);
+    /*
+     * training_records is the number of timestamps.  The Python model consumes
+     * deltas between consecutive timestamps, so the payload has
+     * training_records - 1 values.
+     */
+    int num_iteration_records = training_records - 1;
 
-    std::string processed_training_data_str;
-    int i, length = 0;
-    double tmp_data = 0.0;
-    char tmp_data_str[DIR_MAX_DATA_SIZE];    
-    int written = 0;
-
-    // Prepare dataset
-    for(i = 1; i < training_records; i++)
-    {
-        tmp_data = training_data[i] - training_data[i-1];
-        written += sprintf(tmp_data_str, "%.2f;", tmp_data);
-        //strcat(processed_training_data_str, tmp_data_str);
-
-        processed_training_data_str.append(std::to_string(tmp_data));
-        processed_training_data_str.append(" ");
-       // printf(" %3d: %lf [%lf]\n", i, training_data[i], tmp_data);
+    if(num_iteration_records <= 0){
+        return;
     }
-    //std::cout << "Processed Data: " << processed_training_data_str << std::endl;
-    
-    // Send dataset
-    std::vector<std::string>  ret_vals;
-    char commandstr[DIR_ZMQ_CMD_LENGTH];
-    char args[DIR_ZMQ_ARG_LENGTH];
 
-    sprintf(commandstr, "send-records");
-    sprintf(args, "%d;%d;%d", 3, s->director_id, training_records - 1);    // num-of-args;num-record
-    ret_vals = director_client_request(commandstr, args, processed_training_data_str);
+    if(num_iteration_records > DIR_RC_MAX_TRAINING_RECORDS){
+        tw_error(
+            TW_LOC,
+            "[DIR] Too many iteration records for commit staging: %d",
+            num_iteration_records
+        );
+    }
+
+    tw_stime staged_records[DIR_RC_MAX_TRAINING_RECORDS];
+
+    for(int i = 0; i < num_iteration_records; i++){
+        staged_records[i] = training_data[i + 1] - training_data[i];
+
+        if(staged_records[i] <= 0.0){
+            if(director_debug_prints){
+                printf(
+                    "[DIR] Skipping non-positive iteration record: "
+                    "director_id=%llu cycle=%d index=%d value=%lf\n",
+                    (unsigned long long) s->director_id,
+                    training_cycle,
+                    i,
+                    staged_records[i]
+                );
+            }
+            return;
+        }
+    }
+
+    /*
+     * In optimistic mode, external ZeroMQ side effects must occur only after
+     * the event commits.  In sequential/conservative modes there is no
+     * rollback, so keep the immediate behavior.
+     */
+    if(g_tw_synchronization_protocol == OPTIMISTIC){
+        m->commit_send_records = 1;
+        m->commit_client_id = (int) s->director_id;
+        m->commit_training_cycle_id = training_cycle;
+        m->commit_num_records = num_iteration_records;
+
+        for(int i = 0; i < num_iteration_records; i++){
+            m->commit_records[i] = staged_records[i];
+        }
+
+        if(director_debug_prints){
+            printf(
+                "[DIR] staged send-records for commit: "
+                "director_id=%llu cycle=%d num_records=%d\n",
+                (unsigned long long) s->director_id,
+                training_cycle,
+                num_iteration_records
+            );
+        }
+    }
+    else{
+        director_send_iteration_records_now(
+            (int) s->director_id,
+            training_cycle,
+            staged_records,
+            num_iteration_records
+        );
+    }
 }
 
 
-static bool director_flush_partial_iteration_dataset_before_inference(director_state* s, tw_lp * lp)
+static bool director_flush_partial_iteration_dataset_before_inference(director_state* s, director_message *m, tw_lp * lp)
 {
     if(!training_enabled){
         return true;
@@ -381,6 +627,7 @@ static bool director_flush_partial_iteration_dataset_before_inference(director_s
 
     director_prepare_iteration_dataset(
         s,
+        m,
         s->training_data,
         s->training_cycle_id,
         s->training_record_id
@@ -391,6 +638,26 @@ static bool director_flush_partial_iteration_dataset_before_inference(director_s
     s->training_data[0] = tw_now(lp);
 
     return true;
+}
+
+
+static bool director_iteration_model_ready(director_state *s)
+{
+    /*
+     * Sequential/conservative modes have no rollback hazard, so preserve the
+     * previous behavior there.  In optimistic mode, require at least one
+     * committed training batch before inference, otherwise the server returns
+     * the no-record fallback prediction.
+     */
+    if(g_tw_synchronization_protocol != OPTIMISTIC){
+        return true;
+    }
+
+    if(!inferencing_enabled){
+        return true;
+    }
+
+    return s->committed_training_cycles > 0;
 }
 
 void director_get_surrogate_prediction(director_state* s, tw_bf * bf, director_message * m, tw_lp * lp, tw_stime* delay_ts)
@@ -407,7 +674,7 @@ void director_get_surrogate_prediction(director_state* s, tw_bf * bf, director_m
             char args[DIR_ZMQ_ARG_LENGTH];
             
             sprintf(commandstr, "iteration-time-inference");
-            sprintf(args, "%d;%d;%d;", 3, s->director_id, DIR_MAX_PREDICTION); // num-of-args;num-record
+            sprintf(args, "%d;%llu;%d;", 3, (unsigned long long) s->director_id, DIR_MAX_PREDICTION); // num-of-args;num-record
 
             // The Python side primarily uses records previously sent through
             // send-records. Keep the payload empty for now rather than sending
@@ -474,6 +741,7 @@ void director_get_surrogate_prediction(director_state* s, tw_bf * bf, director_m
 
 void director_event_handler(director_state* s, tw_bf * bf, director_message * m, tw_lp * lp)
 {
+    director_save_rc_state(s, m);
     
     switch(m->msg_type)
 	{
@@ -507,7 +775,7 @@ void director_event_handler(director_state* s, tw_bf * bf, director_message * m,
                     //printf("==DIR[%d] Sending training dataset (time: %lf)\n", s->director_id, tw_now(lp));
 
                     // Prepare and send training data
-                    director_prepare_iteration_dataset(s, s->training_data, s->training_cycle_id, DIR_MAX_TRAINING_RECORDS);
+                    director_prepare_iteration_dataset(s, m, s->training_data, s->training_cycle_id, DIR_MAX_TRAINING_RECORDS);
 
                     // Increment cycle counter, reset record counter, and prime dataset
                     s->training_cycle_id = s->training_cycle_id + 1;
@@ -528,7 +796,7 @@ void director_event_handler(director_state* s, tw_bf * bf, director_message * m,
                      * records=0/trained=0 and returns only the mechanical
                      * fallback.
                      */
-                    if(!director_flush_partial_iteration_dataset_before_inference(s, lp)){
+                    if(!director_flush_partial_iteration_dataset_before_inference(s, m, lp)){
                         if(director_debug_prints){
                             printf(
                                 "[DIR] Deferring surrogate switch until trainable "
@@ -553,6 +821,30 @@ void director_event_handler(director_state* s, tw_bf * bf, director_message * m,
                         return;
                     }
                     
+                    if(!director_iteration_model_ready(s)){
+                        if(director_debug_prints){
+                            printf(
+                                "[DIR] Deferring surrogate switch until committed "
+                                "training is available: director_id=%llu iter=%d "
+                                "committed_training_cycles=%d time=%lf\n",
+                                (unsigned long long) s->director_id,
+                                m->value,
+                                s->committed_training_cycles,
+                                tw_now(lp)
+                            );
+                        }
+
+                        tw_stime delay_ts = 0.001;
+                        director_issue_codes_event(
+                            s,
+                            s->nw_lpid,
+                            DIR_REGISTERED_EVENT__MOVE_TO_NEXT,
+                            delay_ts,
+                            lp
+                        );
+                        return;
+                    }
+
                     s->simulation_mode = SIM_MODE_ITERATION_SURROGATE;
                     tw_stime delay_ts;
                     director_get_surrogate_prediction(s, bf, m, lp, &delay_ts);
@@ -611,6 +903,47 @@ void director_event_handler(director_state* s, tw_bf * bf, director_message * m,
 	}
 }
 
+void director_event_handler_rc(director_state* s, tw_bf * bf, director_message * m, tw_lp * lp)
+{
+    director_restore_rc_state(s, m);
+}
+
+void director_event_handler_commit(director_state* s, tw_bf * bf, director_message * m, tw_lp * lp)
+{
+    /*
+     * Commit external side effects only after ROSS guarantees this event will
+     * not roll back.
+     */
+    if(m->commit_send_records){
+        director_send_iteration_records_now(
+            m->commit_client_id,
+            m->commit_training_cycle_id,
+            m->commit_records,
+            m->commit_num_records
+        );
+
+        s->committed_training_cycles += 1;
+
+        if(director_debug_prints){
+            printf(
+                "[DIR] committed training is now available: "
+                "director_id=%llu committed_training_cycles=%d\n",
+                (unsigned long long) s->director_id,
+                s->committed_training_cycles
+            );
+        }
+
+        m->commit_send_records = 0;
+    }
+
+    /*
+     * If the event commits without rollback, release any RC-only allocation
+     * used to restore a previous registered event payload.
+     */
+    director_free_rc_buffer(m);
+    m->rc_valid = 0;
+}
+
 void director_finalize(director_state* s, tw_lp* lp)
 {
     if (s->director_id == 0 && (training_enabled || inferencing_enabled))
@@ -623,8 +956,8 @@ tw_lptype dir_lp = {
     (init_f) director_init,
     (pre_run_f) NULL,
     (event_f) director_event_handler,
-    (revent_f) NULL, //director_event_handler_rc,
-    (commit_f) NULL, //director_event_handler_commit,
+    (revent_f) director_event_handler_rc,
+    (commit_f) director_event_handler_commit,
     (final_f) director_finalize,
     (map_f) codes_mapping,
     sizeof(director_state)
