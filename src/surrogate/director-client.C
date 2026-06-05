@@ -43,6 +43,7 @@ typedef struct director_state director_state;
 int evaluate_perf = 1;
 int training_enabled = 0;
 int director_debug_prints = 0;  //TODO: Move this to the LP state
+int director_shutdown_zmqml_server_on_finalize = 0;
 
 std::vector<std::string> director_client_request(const char* cmd, const char* args, const std::string data);
 int surrogate_enabled = 0;
@@ -471,7 +472,12 @@ void director_init(director_state* s, tw_lp* lp)
             training_enabled = 0;
     
         rc = configuration_get_value_int(&config, "DIRECTOR", "debug_prints", NULL, &director_debug_prints);
-        if(rc) director_debug_prints = 0;
+        if(rc)
+            director_debug_prints = 0;
+
+        rc = configuration_get_value_int(&config, "DIRECTOR", "shutdown_zmqml_server_on_finalize", NULL, &director_shutdown_zmqml_server_on_finalize);
+        if(rc)
+            director_shutdown_zmqml_server_on_finalize = 0;
 
         {
             char commandstr[DIR_ZMQ_CMD_LENGTH];
@@ -946,8 +952,20 @@ void director_event_handler_commit(director_state* s, tw_bf * bf, director_messa
 
 void director_finalize(director_state* s, tw_lp* lp)
 {
-    if (s->director_id == 0 && (training_enabled || inferencing_enabled))
-        director_client_request("exit", "", "");
+    /*
+     * Do not shut down the external ZeroMQ ML server by default. The server is
+     * a reusable service and may be shared across multiple simulation runs.
+     * Set DIRECTOR/shutdown_zmqml_server_on_finalize=1 in the config only when this
+     * simulation should own and stop the server.
+     */
+
+    if (
+            s->director_id == 0 &&
+            (training_enabled || inferencing_enabled) &&
+            director_shutdown_zmqml_server_on_finalize
+        ){
+            director_client_request("exit", "", "");
+        }
     
     //printf("\n==DIR: FINALIZED");
 }

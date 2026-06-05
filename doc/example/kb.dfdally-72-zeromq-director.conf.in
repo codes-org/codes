@@ -51,6 +51,8 @@ DIRECTOR
     inferencing_enabled="${INFERENCING_ENABLED}";
     surrogate_enabled="${SURROGATE_ENABLED}";
     training_enabled="${TRAINING_ENABLED}";
+    debug_prints="${DIRECTOR_DEBUG_PRINTS}";
+    shutdown_zmqml_server_on_finalize="${SHUTDOWN_ZMQML_SERVER_ON_FINALIZE}";
 }
 
 PARAMS
