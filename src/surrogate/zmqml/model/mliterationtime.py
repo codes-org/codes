@@ -111,6 +111,47 @@ class ClientIterationModel:
         self.trained = True
         return True
 
+    def save_state(self) -> dict:
+        return {
+            "history_len": self.history_len,
+            "horizon": self.horizon,
+            "hidden_dim": self.hidden_dim,
+            "min_train_windows": self.min_train_windows,
+            "max_epochs": self.max_epochs,
+            "lr": self.lr,
+            "device": self.device,
+            "records": list(self.records),
+            "trained": bool(self.trained),
+            "model_state_dict": (
+                self.model.state_dict() if self.model is not None else None
+            ),
+        }
+
+    def load_state(self, state: dict) -> None:
+        self.history_len = int(state.get("history_len", self.history_len))
+        self.horizon = int(state.get("horizon", self.horizon))
+        self.hidden_dim = int(state.get("hidden_dim", self.hidden_dim))
+        self.min_train_windows = int(
+            state.get("min_train_windows", self.min_train_windows)
+        )
+        self.max_epochs = int(state.get("max_epochs", self.max_epochs))
+        self.lr = float(state.get("lr", self.lr))
+        self.records = [float(v) for v in state.get("records", [])]
+
+        model_state = state.get("model_state_dict")
+        if model_state is not None:
+            self.model = IterationTimeMLP(
+                history_len=self.history_len,
+                horizon=self.horizon,
+                hidden_dim=self.hidden_dim,
+            ).to(self.device)
+            self.model.load_state_dict(model_state)
+            self.model.eval()
+            self.trained = bool(state.get("trained", True))
+        else:
+            self.model = None
+            self.trained = False
+
     def predict(self, requested_horizon: int | None = None) -> List[float]:
         requested_horizon = requested_horizon or self.horizon
 
@@ -188,3 +229,32 @@ class IterationTimeModelRegistry:
 
     def predict(self, client_id: int, horizon: int) -> List[float]:
         return self.get(client_id).predict(horizon)
+    
+    def save(self, path: str) -> None:
+        payload = {
+            "history_len": self.history_len,
+            "horizon": self.horizon,
+            "debug": self.debug,
+            "clients": {
+                int(client_id): model.save_state()
+                for client_id, model in self.models.items()
+            },
+        }
+        torch.save(payload, path)
+
+    def load(self, path: str) -> None:
+        payload = torch.load(path, map_location="cpu")
+
+        self.history_len = int(payload.get("history_len", self.history_len))
+        self.horizon = int(payload.get("horizon", self.horizon))
+
+        self.models = {}
+        for raw_client_id, state in payload.get("clients", {}).items():
+            client_id = int(raw_client_id)
+            model = ClientIterationModel(
+                history_len=self.history_len,
+                horizon=self.horizon,
+                debug=self.debug,
+            )
+            model.load_state(state)
+            self.models[client_id] = model

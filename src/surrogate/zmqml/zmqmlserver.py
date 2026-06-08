@@ -18,8 +18,10 @@ import numpy as np
 # TODO: abstract a mechanism to call training
 from runmlpacketdelay import run_mlpacketdelay_training
 from model.mliterationtime import IterationTimeModelRegistry
+import csv
+from pathlib import Path
 
-#import os
+import os
 #model_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "model"))
 #sys.path.insert(0, model_dir)
 
@@ -36,6 +38,37 @@ launched_threads = {} # id:obj. keep track of active threads. remove the thread 
 
 training_records = {} # client_id:[]
 iteration_time_models = IterationTimeModelRegistry(history_len=2, horizon=3)
+
+iteration_model_path = os.environ.get("ZMQML_ITERATION_MODEL_PATH", "").strip()
+record_log_path = os.environ.get("ZMQML_RECORD_LOG_PATH", "").strip()
+auto_train_on_records = os.environ.get(
+    "ZMQML_AUTO_TRAIN_ON_RECORDS", "1"
+).strip().lower() in ("1", "true", "yes", "on")
+
+iteration_model_version = 0
+
+if iteration_model_path:
+    iteration_time_models.load(iteration_model_path)
+    iteration_model_version = 1
+    print(
+        f"[zmqmlserver] loaded iteration-time model: {iteration_model_path}",
+        flush=True,
+    )
+
+
+def append_record_log(client: int, values: list[float]) -> None:
+    if not record_log_path or not values:
+        return
+
+    out_path = Path(record_log_path)
+    first_write = not out_path.exists()
+
+    with out_path.open("a", newline="") as f:
+        writer = csv.writer(f)
+        if first_write:
+            writer.writerow(["client", "value"])
+        for value in values:
+            writer.writerow([client, float(value)])
 
 class LaunchCMD:
     def __init__(self):
@@ -220,10 +253,16 @@ def receiverecords(args, bindata):
 
     training_records[client].extend(parsed_records)
 
-    # Keep an online per-client iteration-time predictor updated from the
-    # same iteration-delta records already sent by CODES.
+    # Keep the raw records available for offline/pretraining workflows.
+    # By default this preserves the old behavior and trains immediately.
+    # Set ZMQML_AUTO_TRAIN_ON_RECORDS=0 for pure-PDES collection or
+    # frozen pretrained inference runs.
     if parsed_records:
-        iteration_time_models.add_records(client, parsed_records)
+        append_record_log(client, parsed_records)
+        model = iteration_time_models.get(client)
+        model.add_records(parsed_records)
+        if auto_train_on_records:
+            model.train_or_update()
 
     director_debug(
         f"[iteration-time records] client={client} "
@@ -266,8 +305,12 @@ def launch_iteration_time_inferencing(args, bindata):
         if np.isfinite(value) and value > 0.0:
             parsed_context.append(value)
 
-    if parsed_context:
-        iteration_time_models.add_records(client, parsed_context)
+    if parsed_context and director_debug_prints:
+        print(
+            f"[iteration-time inference] ignoring context in frozen/read-only inference "
+            f"client={client} context={parsed_context}",
+            flush=True,
+        )
 
     inferences = iteration_time_models.predict(client, num_steps)
     inferences_str = ' '.join([str(float(f)) for f in inferences])
@@ -283,6 +326,210 @@ def launch_iteration_time_inferencing(args, bindata):
     status = "done"
     elapsed_time = time.time() - st
     return (status, elapsed_time, inferences_str)
+
+
+
+
+def _real_command_args(args):
+    if args is None:
+        return []
+
+    out = [str(a) for a in args]
+
+    # CODES often sends ["N", arg1, arg2, ...]. Manual tools may send
+    # [arg1, arg2, ...]. Accept both.
+    if out:
+        try:
+            n = int(out[0])
+            if n == len(out) - 1:
+                return out[1:]
+        except ValueError:
+            pass
+
+    return out
+
+
+def train_iteration_time_model_command(args):
+    global iteration_model_version
+
+    st = time.time()
+    real_args = _real_command_args(args)
+
+    target = real_args[0] if real_args else "all"
+
+    if target in ("", "all", "*"):
+        client_ids = sorted(iteration_time_models.models.keys())
+    else:
+        try:
+            client_ids = [int(target)]
+        except ValueError:
+            return {
+                "status": "failed",
+                "et": str(time.time() - st),
+                "error": f"invalid client target: {target}",
+            }
+
+    total_clients = len(client_ids)
+    trained_clients = 0
+    skipped_clients = 0
+    total_records = 0
+
+    for client_id in client_ids:
+        model = iteration_time_models.get(client_id)
+        total_records += len(model.records)
+        if model.train_or_update():
+            trained_clients += 1
+        else:
+            skipped_clients += 1
+
+    if trained_clients > 0:
+        iteration_model_version += 1
+
+    status = "done" if trained_clients > 0 else "failed"
+
+    ret = {
+        "status": status,
+        "et": str(time.time() - st),
+        "target": str(target),
+        "total_clients": str(total_clients),
+        "trained_clients": str(trained_clients),
+        "skipped_clients": str(skipped_clients),
+        "total_records": str(total_records),
+        "model_version": str(iteration_model_version),
+    }
+
+    if status != "done":
+        ret["error"] = (
+            "no client models were trained; check that send-records populated "
+            "enough records for history_len + horizon"
+        )
+
+    print(
+        "[iteration-time model-train-command] "
+        f"target={target} total_clients={total_clients} "
+        f"trained_clients={trained_clients} skipped_clients={skipped_clients} "
+        f"total_records={total_records} model_version={iteration_model_version}",
+        flush=True,
+    )
+
+    return ret
+
+
+def save_iteration_time_model_command(args):
+    st = time.time()
+    real_args = _real_command_args(args)
+
+    if not real_args:
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": "missing output model path",
+        }
+
+    model_path = real_args[0]
+    out_path = Path(model_path)
+    if out_path.parent:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    iteration_time_models.save(str(out_path))
+
+    print(
+        f"[iteration-time model-save-command] path={out_path} "
+        f"model_version={iteration_model_version}",
+        flush=True,
+    )
+
+    return {
+        "status": "done",
+        "et": str(time.time() - st),
+        "path": str(out_path),
+        "model_version": str(iteration_model_version),
+    }
+
+
+def load_iteration_time_model_command(args):
+    global iteration_model_version
+
+    st = time.time()
+    real_args = _real_command_args(args)
+
+    if not real_args:
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": "missing input model path",
+        }
+
+    model_path = real_args[0]
+    in_path = Path(model_path)
+
+    if not in_path.exists():
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": f"model path does not exist: {in_path}",
+        }
+
+    iteration_time_models.load(str(in_path))
+    iteration_model_version += 1
+
+    print(
+        f"[iteration-time model-load-command] path={in_path} "
+        f"model_version={iteration_model_version}",
+        flush=True,
+    )
+
+    return {
+        "status": "done",
+        "et": str(time.time() - st),
+        "path": str(in_path),
+        "model_version": str(iteration_model_version),
+    }
+
+
+def iteration_time_model_status_command(args):
+    st = time.time()
+    real_args = _real_command_args(args)
+
+    target = real_args[0] if real_args else "all"
+
+    if target in ("", "all", "*"):
+        client_ids = sorted(iteration_time_models.models.keys())
+    else:
+        try:
+            client_ids = [int(target)]
+        except ValueError:
+            return {
+                "status": "failed",
+                "et": str(time.time() - st),
+                "error": f"invalid client target: {target}",
+            }
+
+    total_clients = len(client_ids)
+    trained_clients = 0
+    total_records = 0
+    per_client = []
+
+    for client_id in client_ids:
+        model = iteration_time_models.get(client_id)
+        records = len(model.records)
+        trained = bool(model.trained)
+        total_records += records
+        trained_clients += int(trained)
+        per_client.append(
+            f"{client_id}:records={records},trained={int(trained)}"
+        )
+
+    return {
+        "status": "done",
+        "et": str(time.time() - st),
+        "target": str(target),
+        "total_clients": str(total_clients),
+        "trained_clients": str(trained_clients),
+        "total_records": str(total_records),
+        "model_version": str(iteration_model_version),
+        "clients": ";".join(per_client),
+    }
 
 
 # Backwards-compatible wrapper for the old command name.
@@ -340,6 +587,18 @@ def zmq_cmd_listener():
         elif cmd == "iteration-time-inference":
             (status, et, predictions) = launch_iteration_time_inferencing(args, bindata)
             retmsg = {"status":status, "et":str(et), "predictions": predictions}
+
+        elif cmd == "train-iteration-time-model":
+            retmsg = train_iteration_time_model_command(args)
+
+        elif cmd == "save-iteration-time-model":
+            retmsg = save_iteration_time_model_command(args)
+
+        elif cmd == "load-iteration-time-model":
+            retmsg = load_iteration_time_model_command(args)
+
+        elif cmd == "iteration-time-model-status":
+            retmsg = iteration_time_model_status_command(args)
 
         elif cmd == "do-inference":
             # Backwards-compatible alias for the previous Director command.
