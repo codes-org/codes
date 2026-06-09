@@ -1,0 +1,16 @@
+{
+  "jobs": {
+    "size": 72,
+    "cfg": {
+      "app": "milc",
+      "compute_delay": 100,
+      "cpu_freq": 4000000000.0,
+      "dimension_cnt": 4,
+      "dimension_sizes": [2, 2, 3, 6],
+      "iteration_cnt": ${MILC_ITERATION_CNT},
+      "max_dimension_distance": 1,
+      "msg_size": ${PACKET_SIZE},
+      "randomize_communication_order": false
+    }
+  }
+}
