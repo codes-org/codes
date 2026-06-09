@@ -45,6 +45,13 @@ int training_enabled = 0;
 int director_debug_prints = 0;  //TODO: Move this to the LP state
 int director_shutdown_zmqml_server_on_finalize = 0;
 
+/*
+ * These globals are process-local in MPI runs.  Reading DIRECTOR config only
+ * for director_id == 1 initializes just one MPI process and leaves other PEs
+ * with default values.  Initialize once per MPI process instead.
+ */
+static int director_config_initialized = 0;
+
 std::vector<std::string> director_client_request(const char* cmd, const char* args, const std::string data);
 int surrogate_enabled = 0;
 int inferencing_enabled = 1;
@@ -446,21 +453,31 @@ void director_init(director_state* s, tw_lp* lp)
     // (stage 2) pass training data from CODES to surrogate
     // (stage 3) using workload with network surrogates
 
-    // Update global configs
-    if(s->director_id == 1)
+    // Update process-local global configs once per MPI process.
+    if(!director_config_initialized)
     {
+        director_config_initialized = 1;
+
         int rc = 1, rc1 = 1, rc2 = 1;
         rc = configuration_get_value_int(&config, "DIRECTOR", "surrogate_enabled", NULL, &surrogate_enabled);
         if(rc)
             surrogate_enabled = 0;
+
         if(surrogate_enabled){
             rc1 = configuration_get_value_int(&config, "DIRECTOR", "start_iter", NULL, &director_config_global.surr_iter_start);
             rc2 = configuration_get_value_int(&config, "DIRECTOR", "end_iter", NULL, &director_config_global.surr_iter_end);
             if(rc1 || rc2){
-                director_config_global.surr_iter_start = 100000; 
-                director_config_global.surr_iter_end = 100001; 
+                director_config_global.surr_iter_start = 100000;
+                director_config_global.surr_iter_end = 100001;
                 surrogate_enabled = 0;
             }
+        } else {
+            /*
+             * Keep deterministic defaults even when surrogate mode is disabled
+             * on this process.
+             */
+            director_config_global.surr_iter_start = 100000;
+            director_config_global.surr_iter_end = 100001;
         }
 
         rc = configuration_get_value_int(&config, "DIRECTOR", "inferencing_enabled", NULL, &inferencing_enabled);
@@ -470,7 +487,7 @@ void director_init(director_state* s, tw_lp* lp)
         rc = configuration_get_value_int(&config, "DIRECTOR", "training_enabled", NULL, &training_enabled);
         if(rc)
             training_enabled = 0;
-    
+
         rc = configuration_get_value_int(&config, "DIRECTOR", "debug_prints", NULL, &director_debug_prints);
         if(rc)
             director_debug_prints = 0;
@@ -488,10 +505,21 @@ void director_init(director_state* s, tw_lp* lp)
             director_client_request(commandstr, args, "");
 
             if(director_debug_prints){
-                printf("[DIR] ZeroMQ server debug prints enabled via DIRECTOR/debug_prints.\n");
+                printf(
+                    "[DIR] DIRECTOR config initialized on this MPI process: "
+                    "surrogate_enabled=%d inferencing_enabled=%d training_enabled=%d "
+                    "start_iter=%d end_iter=%d debug_prints=%d shutdown_server=%d\n",
+                    surrogate_enabled,
+                    inferencing_enabled,
+                    training_enabled,
+                    director_config_global.surr_iter_start,
+                    director_config_global.surr_iter_end,
+                    director_debug_prints,
+                    director_shutdown_zmqml_server_on_finalize
+                );
             }
         }
-}
+    }
     //printf("\n==DIR s->director_id: %d | lp->gid: %llu | s->nw_lpid: %llu", s->director_id, LLU(lp->gid), LLU(s->nw_lpid));
 
     /*
@@ -649,21 +677,15 @@ static bool director_flush_partial_iteration_dataset_before_inference(director_s
 
 static bool director_iteration_model_ready(director_state *s)
 {
+    (void) s;
+
     /*
-     * Sequential/conservative modes have no rollback hazard, so preserve the
-     * previous behavior there.  In optimistic mode, require at least one
-     * committed training batch before inference, otherwise the server returns
-     * the no-record fallback prediction.
+     * The ZeroMQ Director now treats inference as a read-only operation against
+     * an already-trained active model on the server.  Training is no longer
+     * performed implicitly during the hybrid simulation, so surrogate switching
+     * must not depend on committed training cycles from the current run.
      */
-    if(g_tw_synchronization_protocol != OPTIMISTIC){
-        return true;
-    }
-
-    if(!inferencing_enabled){
-        return true;
-    }
-
-    return s->committed_training_cycles > 0;
+    return true;
 }
 
 void director_get_surrogate_prediction(director_state* s, tw_bf * bf, director_message * m, tw_lp * lp, tw_stime* delay_ts)
