@@ -19,7 +19,7 @@
 #define NUM_ACTIVE_CLIENTS 72 //TODO: this should be calculated at runtime
 
 #define DIR_ZMQ_CMD_LENGTH 64
-#define DIR_ZMQ_ARG_LENGTH 100
+#define DIR_ZMQ_ARG_LENGTH 2048
 
 #define DIR_MAX_PREDICTION 5
 #define DIR_MAX_TRAINING_RECORDS 10
@@ -35,6 +35,16 @@ struct
 {
     int surr_iter_start;
     int surr_iter_end;
+
+    int retrain_enabled;
+    int retrain_iter;
+    int retrain_done;
+
+    int second_surrogate_enabled;
+    int second_surr_iter_start;
+    int second_surr_iter_end;
+
+    char retrain_save_path[1024];
 } director_config_global;
 
 typedef struct director_state director_state;
@@ -55,6 +65,42 @@ static int director_config_initialized = 0;
 std::vector<std::string> director_client_request(const char* cmd, const char* args, const std::string data);
 int surrogate_enabled = 0;
 int inferencing_enabled = 1;
+
+
+static int director_iter_in_surrogate_window(int iter)
+{
+    if(!surrogate_enabled || !inferencing_enabled){
+        return 0;
+    }
+
+    if(iter >= director_config_global.surr_iter_start &&
+        iter < director_config_global.surr_iter_end){
+        return 1;
+    }
+
+    if(director_config_global.second_surrogate_enabled &&
+        iter >= director_config_global.second_surr_iter_start &&
+        iter < director_config_global.second_surr_iter_end){
+        return 1;
+    }
+
+    return 0;
+}
+
+
+static int director_iter_is_surrogate_window_end(int iter)
+{
+    if(iter == director_config_global.surr_iter_end){
+        return 1;
+    }
+
+    if(director_config_global.second_surrogate_enabled &&
+        iter == director_config_global.second_surr_iter_end){
+        return 1;
+    }
+
+    return 0;
+}
 
 
 std::vector<double> total_elapsed_times;
@@ -126,6 +172,9 @@ static void director_save_rc_state(director_state *s, director_message *m)
     for(int i = 0; i < DIR_RC_MAX_TRAINING_RECORDS; i++){
         m->commit_records[i] = 0.0;
     }
+
+    m->commit_retrain_model = 0;
+    m->commit_retrain_iter = -1;
 }
 
 
@@ -187,6 +236,146 @@ static void director_send_iteration_records_now(
             latency
         );
     }
+}
+
+
+static void director_perform_iteration_model_retrain_now(
+    int director_id,
+    int configured_retrain_iter,
+    int current_iter,
+    tw_lp *lp
+)
+{
+    if(!director_config_global.retrain_enabled || director_config_global.retrain_done){
+        return;
+    }
+
+    if(director_id != 0){
+        return;
+    }
+
+    if(director_debug_prints){
+        printf(
+            "[DIR] pausing PDES simulation for iteration-time model retrain: "
+            "director_id=%d configured_retrain_iter=%d current_iter=%d time=%lf\n",
+            director_id,
+            configured_retrain_iter,
+            current_iter,
+            tw_now(lp)
+        );
+        fflush(stdout);
+    }
+
+    {
+        char commandstr[DIR_ZMQ_CMD_LENGTH];
+        char args[DIR_ZMQ_ARG_LENGTH];
+        std::vector<std::string> ret_vals;
+
+        sprintf(commandstr, "train-iteration-time-model");
+        sprintf(args, "%d;%s;", 1, "all");
+        ret_vals = director_client_request(commandstr, args, "");
+
+        if(ret_vals.size() < 1 || ret_vals[0] != "done"){
+            tw_error(
+                TW_LOC,
+                "[DIR] ZeroMQ iteration-time retrain failed at iter %d",
+                current_iter
+            );
+        }
+    }
+
+    if(director_config_global.retrain_save_path[0] != '\0'){
+        char commandstr[DIR_ZMQ_CMD_LENGTH];
+        char args[DIR_ZMQ_ARG_LENGTH];
+        std::vector<std::string> ret_vals;
+
+        if(director_debug_prints){
+            printf(
+                "[DIR] saving retrained iteration-time model to %s\n",
+                director_config_global.retrain_save_path
+            );
+            fflush(stdout);
+        }
+
+        sprintf(commandstr, "save-iteration-time-model");
+        snprintf(
+            args,
+            sizeof(args),
+            "%d;%s;",
+            1,
+            director_config_global.retrain_save_path
+        );
+        ret_vals = director_client_request(commandstr, args, "");
+
+        if(ret_vals.size() < 1 || ret_vals[0] != "done"){
+            tw_error(
+                TW_LOC,
+                "[DIR] ZeroMQ iteration-time model save failed: %s",
+                director_config_global.retrain_save_path
+            );
+        }
+    }
+
+    director_config_global.retrain_done = 1;
+
+    if(director_debug_prints){
+        printf(
+            "[DIR] retraining complete; resuming PDES simulation: "
+            "director_id=%d current_iter=%d time=%lf\n",
+            director_id,
+            current_iter,
+            tw_now(lp)
+        );
+        fflush(stdout);
+    }
+}
+
+
+static void director_stage_or_execute_iteration_model_retrain(
+    director_state *s,
+    director_message *m,
+    tw_lp *lp,
+    int current_iter
+)
+{
+    if(!director_config_global.retrain_enabled || director_config_global.retrain_done){
+        return;
+    }
+
+    if(s->director_id != 0){
+        return;
+    }
+
+    if(g_tw_synchronization_protocol == OPTIMISTIC){
+        /*
+         * Optimistic mode: do not mutate the external ZeroMQ server here.
+         * This forward event may roll back.  Stage the side effect and perform
+         * it only from director_event_handler_commit().
+         */
+        m->commit_retrain_model = 1;
+        m->commit_retrain_iter = current_iter;
+
+        if(director_debug_prints){
+            printf(
+                "[DIR] staged retrain for commit: director_id=%llu "
+                "configured_retrain_iter=%d current_iter=%d time=%lf\n",
+                (unsigned long long) s->director_id,
+                director_config_global.retrain_iter,
+                current_iter,
+                tw_now(lp)
+            );
+            fflush(stdout);
+        }
+
+        return;
+    }
+
+    director_perform_iteration_model_retrain_now(
+        (int) s->director_id,
+        director_config_global.retrain_iter,
+        current_iter,
+        lp
+    );
 }
 
 
@@ -459,6 +648,17 @@ void director_init(director_state* s, tw_lp* lp)
         director_config_initialized = 1;
 
         int rc = 1, rc1 = 1, rc2 = 1;
+
+        director_config_global.surr_iter_start = 100000;
+        director_config_global.surr_iter_end = 100001;
+        director_config_global.retrain_enabled = 0;
+        director_config_global.retrain_iter = -1;
+        director_config_global.retrain_done = 0;
+        director_config_global.second_surrogate_enabled = 0;
+        director_config_global.second_surr_iter_start = 100000;
+        director_config_global.second_surr_iter_end = 100001;
+        director_config_global.retrain_save_path[0] = '\0';
+
         rc = configuration_get_value_int(&config, "DIRECTOR", "surrogate_enabled", NULL, &surrogate_enabled);
         if(rc)
             surrogate_enabled = 0;
@@ -471,13 +671,57 @@ void director_init(director_state* s, tw_lp* lp)
                 director_config_global.surr_iter_end = 100001;
                 surrogate_enabled = 0;
             }
-        } else {
-            /*
-             * Keep deterministic defaults even when surrogate mode is disabled
-             * on this process.
-             */
-            director_config_global.surr_iter_start = 100000;
-            director_config_global.surr_iter_end = 100001;
+        }
+
+        rc = configuration_get_value_int(&config, "DIRECTOR", "retrain_enabled", NULL, &director_config_global.retrain_enabled);
+        if(rc)
+            director_config_global.retrain_enabled = 0;
+
+        rc = configuration_get_value_int(&config, "DIRECTOR", "retrain_iter", NULL, &director_config_global.retrain_iter);
+        if(rc)
+            director_config_global.retrain_iter = -1;
+
+        rc = configuration_get_value_int(&config, "DIRECTOR", "second_surrogate_enabled", NULL, &director_config_global.second_surrogate_enabled);
+        if(rc)
+            director_config_global.second_surrogate_enabled = 0;
+
+        rc1 = configuration_get_value_int(&config, "DIRECTOR", "second_start_iter", NULL, &director_config_global.second_surr_iter_start);
+        rc2 = configuration_get_value_int(&config, "DIRECTOR", "second_end_iter", NULL, &director_config_global.second_surr_iter_end);
+        if(rc1 || rc2){
+            director_config_global.second_surrogate_enabled = 0;
+            director_config_global.second_surr_iter_start = 100000;
+            director_config_global.second_surr_iter_end = 100001;
+        }
+
+        rc = configuration_get_value(
+            &config,
+            "DIRECTOR",
+            "retrain_save_path",
+            NULL,
+            director_config_global.retrain_save_path,
+            sizeof(director_config_global.retrain_save_path)
+        );
+        /*
+         * configuration_get_value() returns >0 on success, unlike the typed
+         * helpers such as configuration_get_value_int(), which return 0 on
+         * success.  Do not clear retrain_save_path when rc > 0.
+         */
+        if(rc <= 0){
+            director_config_global.retrain_save_path[0] = '\0';
+        }
+
+        if(director_config_global.retrain_enabled && director_config_global.retrain_iter < 0){
+            tw_error(TW_LOC, "[DIR] retrain_enabled=1 requires DIRECTOR/retrain_iter >= 0");
+        }
+
+        if(director_config_global.second_surrogate_enabled &&
+            director_config_global.second_surr_iter_start >= director_config_global.second_surr_iter_end){
+            tw_error(
+                TW_LOC,
+                "[DIR] second surrogate window is invalid: start=%d end=%d",
+                director_config_global.second_surr_iter_start,
+                director_config_global.second_surr_iter_end
+            );
         }
 
         rc = configuration_get_value_int(&config, "DIRECTOR", "inferencing_enabled", NULL, &inferencing_enabled);
@@ -508,12 +752,20 @@ void director_init(director_state* s, tw_lp* lp)
                 printf(
                     "[DIR] DIRECTOR config initialized on this MPI process: "
                     "surrogate_enabled=%d inferencing_enabled=%d training_enabled=%d "
-                    "start_iter=%d end_iter=%d debug_prints=%d shutdown_server=%d\n",
+                    "start_iter=%d end_iter=%d retrain_enabled=%d retrain_iter=%d "
+                    "second_surrogate_enabled=%d second_start_iter=%d second_end_iter=%d "
+                    "retrain_save_path=%s debug_prints=%d shutdown_server=%d\n",
                     surrogate_enabled,
                     inferencing_enabled,
                     training_enabled,
                     director_config_global.surr_iter_start,
                     director_config_global.surr_iter_end,
+                    director_config_global.retrain_enabled,
+                    director_config_global.retrain_iter,
+                    director_config_global.second_surrogate_enabled,
+                    director_config_global.second_surr_iter_start,
+                    director_config_global.second_surr_iter_end,
+                    director_config_global.retrain_save_path,
                     director_debug_prints,
                     director_shutdown_zmqml_server_on_finalize
                 );
@@ -810,9 +1062,14 @@ void director_event_handler(director_state* s, tw_bf * bf, director_message * m,
                     s->training_record_id = 1;
                     s->training_data[0] = tw_now(lp);
                 }
-                if(surrogate_enabled
-                    && m->value >= director_config_global.surr_iter_start
-                    && m->value < director_config_global.surr_iter_end)
+                if(director_config_global.retrain_enabled
+                    && !director_config_global.retrain_done
+                    && m->value >= director_config_global.retrain_iter)
+                {
+                    director_stage_or_execute_iteration_model_retrain(s, m, lp, m->value);
+                }
+
+                if(director_iter_in_surrogate_window(m->value))
                 {
                     //printf("==DIR[%d] Triggering switch to SURR (time: %lf)\n", s->director_id, tw_now(lp));
 
@@ -889,7 +1146,7 @@ void director_event_handler(director_state* s, tw_bf * bf, director_message * m,
             } 
             else if(s->simulation_mode == SIM_MODE_ITERATION_SURROGATE)
             {
-                if(m->value == director_config_global.surr_iter_end)
+                if(director_iter_is_surrogate_window_end(m->value))
                 {
                     //printf("==DIR[%d] Triggering switch to PDES (time: %lf)\n", s->director_id, tw_now(lp));
                 
@@ -962,6 +1219,29 @@ void director_event_handler_commit(director_state* s, tw_bf * bf, director_messa
         }
 
         m->commit_send_records = 0;
+    }
+
+    if(m->commit_retrain_model){
+        director_perform_iteration_model_retrain_now(
+            (int) s->director_id,
+            director_config_global.retrain_iter,
+            m->commit_retrain_iter,
+            lp
+        );
+
+        if(director_debug_prints){
+            printf(
+                "[DIR] committed retrain side effect completed: "
+                "director_id=%llu current_iter=%d retrain_done=%d\n",
+                (unsigned long long) s->director_id,
+                m->commit_retrain_iter,
+                director_config_global.retrain_done
+            );
+            fflush(stdout);
+        }
+
+        m->commit_retrain_model = 0;
+        m->commit_retrain_iter = -1;
     }
 
     /*

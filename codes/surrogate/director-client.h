@@ -85,6 +85,16 @@ struct director_message
    int commit_num_records;
    tw_stime commit_records[DIR_RC_MAX_TRAINING_RECORDS];
 
+   /*
+    * Commit-safe retrain staging.
+    *
+    * In optimistic mode, retraining mutates external ZeroMQ server state and
+    * therefore must happen only from the commit callback after rollback is no
+    * longer possible.
+    */
+   int commit_retrain_model;
+   int commit_retrain_iter;
+
    void *buffer; // this pointer MUST be at the end of the structure
 };
 
