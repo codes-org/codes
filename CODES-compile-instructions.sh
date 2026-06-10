@@ -3,7 +3,7 @@ set -euo pipefail
 set -x
 
 # Switches
-swm_enable=0
+swm_enable=1
 union_enable=0
 torch_enable=1
 
@@ -111,7 +111,10 @@ if [ $union_enable = 1 ]; then
     pushd Union
     # Python 2 override. Union expects Python 2 ONLY
     mkdir -p python-override
-    ln -s /usr/bin/python2 python-override/python
+    if [ -e python-override/python ] || [ -L python-override/python ]; then
+    rm -f python-override/python
+fi
+ln -s /usr/bin/python2 python-override/python
     # compiling
     ./prepare.sh
     PYTHON=python2 ./configure --disable-shared --with-conceptual="$(realpath ../conceptual-1.5.1b/install)" --with-conceptual-src="$(realpath ../conceptual-1.5.1b)" --prefix="$(realpath ./install)" CC=mpicc CXX=mpicxx
