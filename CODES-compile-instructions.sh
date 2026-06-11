@@ -3,9 +3,9 @@ set -euo pipefail
 set -x
 
 # Switches
-swm_enable=1
+swm_enable=0
 union_enable=0
-torch_enable=1
+torch_enable=0
 
 # Uncomment below for MPICH
 #export PATH=/usr/local/mpich-4.1.2/bin/:"$PATH"
@@ -67,6 +67,72 @@ fi
 
 mkdir -p ross/build
 pushd ross/build
+
+# ---- CODES CUDA arch autodetection from CUDA_HOME ----
+# CUDA is opt-in: set CUDA_HOME to enable GPU/Torch CUDA compilation.
+# The script derives CMAKE_CUDA_ARCHITECTURES, CUDAARCHS, and
+# TORCH_CUDA_ARCH_LIST automatically so users do not have to export them.
+if [ -n "${CUDA_HOME:-}" ]; then
+    if [ ! -x "$CUDA_HOME/bin/nvcc" ]; then
+        echo "ERROR: CUDA_HOME is set to '$CUDA_HOME', but '$CUDA_HOME/bin/nvcc' is not executable."
+        exit 1
+    fi
+
+    cuda_compute_cap=""
+
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        cuda_compute_cap="$(
+            nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null \
+                | head -n 1 \
+                | tr -d '[:space:]' \
+                || true
+        )"
+    fi
+
+    if [ -z "$cuda_compute_cap" ]; then
+        cuda_compute_cap="$(
+            python3 - <<'PY_DETECT_CUDA_ARCH'
+try:
+    import torch
+    if torch.cuda.is_available():
+        major, minor = torch.cuda.get_device_capability(0)
+        print(f"{major}.{minor}")
+except Exception:
+    pass
+PY_DETECT_CUDA_ARCH
+        )"
+    fi
+
+    if [ -z "$cuda_compute_cap" ]; then
+        echo "ERROR: CUDA_HOME is set, but GPU compute capability could not be detected."
+        echo "       Check nvidia-smi and torch.cuda.is_available()."
+        echo "       Refusing to continue because an empty CUDA arch causes nvcc to receive compute_."
+        exit 1
+    fi
+
+    cuda_arch="${cuda_compute_cap/./}"
+
+    if [ -z "$cuda_arch" ]; then
+        echo "ERROR: detected empty CUDA architecture from compute capability '$cuda_compute_cap'."
+        exit 1
+    fi
+
+    export CMAKE_CUDA_ARCHITECTURES="$cuda_arch"
+    export CUDAARCHS="$cuda_arch"
+    export TORCH_CUDA_ARCH_LIST="$cuda_compute_cap"
+
+    echo "CUDA enabled via CUDA_HOME=$CUDA_HOME"
+    echo "Detected CUDA compute capability: $cuda_compute_cap"
+    echo "Using CMAKE_CUDA_ARCHITECTURES=$CMAKE_CUDA_ARCHITECTURES"
+    echo "Using TORCH_CUDA_ARCH_LIST=$TORCH_CUDA_ARCH_LIST"
+else
+    unset CMAKE_CUDA_ARCHITECTURES
+    unset CUDAARCHS
+    unset TORCH_CUDA_ARCH_LIST
+    echo "CUDA_HOME is not set; building without CUDA arch overrides."
+fi
+# ---- end CODES CUDA arch autodetection ----
+
 cmake .. -DCMAKE_C_COMPILER=mpicc -DCMAKE_CXX_COMPILER=mpicxx -DROSS_BUILD_MODELS=ON -DCMAKE_INSTALL_PREFIX="$(realpath ./bin)" \
   -DCMAKE_C_COMPILER=mpicc -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-g -Wall"
 #make VERBOSE=1
