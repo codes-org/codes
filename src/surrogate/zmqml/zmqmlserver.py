@@ -37,10 +37,17 @@ launch_id = count(start=1) # unique for launched thread
 launched_threads = {} # id:obj. keep track of active threads. remove the thread once it finished
 
 training_records = {} # client_id:[]
-iteration_time_models = IterationTimeModelRegistry(history_len=2, horizon=3)
-
+iteration_time_models = IterationTimeModelRegistry(
+    history_len=int(os.environ.get("ZMQML_ITERATION_HISTORY_LEN", "4")),
+    horizon=int(os.environ.get("ZMQML_ITERATION_HORIZON", "30")),
+    ridge_alpha=float(os.environ.get("ZMQML_ITERATION_RIDGE_ALPHA", "1.0")),
+    train_stride=int(os.environ.get("ZMQML_ITERATION_TRAIN_STRIDE", "3")),
+)
 iteration_model_path = os.environ.get("ZMQML_ITERATION_MODEL_PATH", "").strip()
 record_log_path = os.environ.get("ZMQML_RECORD_LOG_PATH", "").strip()
+record_format = os.environ.get("ZMQML_RECORD_FORMAT", "client,value").strip()
+app_alloc_path = os.environ.get("ZMQML_APP_ALLOC_PATH", "").strip()
+
 auto_train_on_records = os.environ.get(
     "ZMQML_AUTO_TRAIN_ON_RECORDS", "1"
 ).strip().lower() in ("1", "true", "yes", "on")
@@ -56,6 +63,78 @@ if iteration_model_path:
     )
 
 
+def load_client_app_map_from_alloc(path: str) -> dict[int, int]:
+    """Load a Union-style allocation file as client_id -> app_id.
+
+    The current Union mixed workload allocation file has one line per app:
+
+        line 0: clients/nodes assigned to app 0
+        line 1: clients/nodes assigned to app 1
+
+    This lets us enrich records from:
+
+        client,value
+
+    to:
+
+        app_id,client,iteration,value
+    """
+    client_to_app: dict[int, int] = {}
+
+    if not path:
+        return client_to_app
+
+    try:
+        with open(path, "r") as f:
+            for app_id, line in enumerate(f):
+                for token in line.split():
+                    try:
+                        client = int(token)
+                    except ValueError:
+                        continue
+
+                    if client not in client_to_app:
+                        client_to_app[client] = app_id
+    except FileNotFoundError:
+        print(
+            f"[zmqmlserver] warning: ZMQML_APP_ALLOC_PATH not found: {path}",
+            flush=True,
+        )
+    except Exception as exc:
+        print(
+            f"[zmqmlserver] warning: failed to read ZMQML_APP_ALLOC_PATH={path}: {exc}",
+            flush=True,
+        )
+
+    return client_to_app
+
+
+client_app_map = load_client_app_map_from_alloc(app_alloc_path)
+client_iteration_counts: dict[int, int] = {}
+
+
+def record_log_header() -> list[str]:
+    if record_format == "app_id,client,iteration,value":
+        return ["app_id", "client", "iteration", "value"]
+
+    return ["client", "value"]
+
+
+def format_record_log_row(client: int, value: float) -> list[object]:
+    client = int(client)
+    value = float(value)
+
+    if record_format == "app_id,client,iteration,value":
+        iteration = client_iteration_counts.get(client, 0)
+        client_iteration_counts[client] = iteration + 1
+
+        app_id = client_app_map.get(client, -1)
+
+        return [app_id, client, iteration, value]
+
+    return [client, value]
+
+
 def append_record_log(client: int, values: list[float]) -> None:
     if not record_log_path or not values:
         return
@@ -66,9 +145,9 @@ def append_record_log(client: int, values: list[float]) -> None:
     with out_path.open("a", newline="") as f:
         writer = csv.writer(f)
         if first_write:
-            writer.writerow(["client", "value"])
+            writer.writerow(record_log_header())
         for value in values:
-            writer.writerow([client, float(value)])
+            writer.writerow(format_record_log_row(client, value))
 
 class LaunchCMD:
     def __init__(self):
@@ -260,7 +339,20 @@ def receiverecords(args, bindata):
     if parsed_records:
         append_record_log(client, parsed_records)
         model = iteration_time_models.get(client)
+
+        # Enrich the ML model with app_id metadata when available.
+        # The C++ protocol still sends client + timing values, while the Python
+        # server infers app_id from ZMQML_APP_ALLOC_PATH.
+        app_id = client_app_map.get(client, -1) if "client_app_map" in globals() else -1
+
+        if hasattr(model, "set_app_id"):
+            model.set_app_id(app_id)
+
         model.add_records(parsed_records)
+
+        if hasattr(iteration_time_models, "set_client_app_id"):
+            iteration_time_models.set_client_app_id(client, app_id)
+
         if auto_train_on_records:
             model.train_or_update()
 
@@ -357,63 +449,60 @@ def train_iteration_time_model_command(args):
 
     target = real_args[0] if real_args else "all"
 
-    if target in ("", "all", "*"):
-        client_ids = sorted(iteration_time_models.models.keys())
-    else:
-        try:
-            client_ids = [int(target)]
-        except ValueError:
-            return {
-                "status": "failed",
-                "et": str(time.time() - st),
-                "error": f"invalid client target: {target}",
-            }
+    if target not in ("", "all", "*"):
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": (
+                "rich iteration-time model is global; "
+                "train with target=all"
+            ),
+        }
 
+    client_ids = sorted(iteration_time_models.models.keys())
     total_clients = len(client_ids)
-    trained_clients = 0
-    skipped_clients = 0
-    total_records = 0
+    total_records = sum(
+        len(iteration_time_models.get(client_id).records)
+        for client_id in client_ids
+    )
 
-    for client_id in client_ids:
-        model = iteration_time_models.get(client_id)
-        total_records += len(model.records)
-        if model.train_or_update():
-            trained_clients += 1
-        else:
-            skipped_clients += 1
+    trained = iteration_time_models.train_or_update()
 
-    if trained_clients > 0:
+    if trained:
         iteration_model_version += 1
 
-    status = "done" if trained_clients > 0 else "failed"
+    trained_clients = total_clients if trained else 0
+    skipped_clients = 0 if trained else total_clients
+    status = "done" if trained else "failed"
 
     ret = {
         "status": status,
         "et": str(time.time() - st),
-        "target": str(target),
+        "target": "all",
         "total_clients": str(total_clients),
         "trained_clients": str(trained_clients),
         "skipped_clients": str(skipped_clients),
         "total_records": str(total_records),
+        "training_examples": str(getattr(iteration_time_models, "training_examples", "")),
         "model_version": str(iteration_model_version),
     }
 
     if status != "done":
         ret["error"] = (
-            "no client models were trained; check that send-records populated "
-            "enough records for history_len + horizon"
+            "global model was not trained; check that records contain at least "
+            "history_len + horizon values per client"
         )
 
     print(
         "[iteration-time model-train-command] "
-        f"target={target} total_clients={total_clients} "
-        f"trained_clients={trained_clients} skipped_clients={skipped_clients} "
-        f"total_records={total_records} model_version={iteration_model_version}",
+        f"target=all total_clients={total_clients} "
+        f"trained={int(trained)} total_records={total_records} "
+        f"training_examples={getattr(iteration_time_models, 'training_examples', '')} "
+        f"model_version={iteration_model_version}",
         flush=True,
     )
 
     return ret
-
 
 def save_iteration_time_model_command(args):
     st = time.time()
@@ -444,6 +533,92 @@ def save_iteration_time_model_command(args):
         "et": str(time.time() - st),
         "path": str(out_path),
         "model_version": str(iteration_model_version),
+    }
+
+
+
+def load_iteration_records_csv_command(args):
+    st = time.time()
+    real_args = _real_command_args(args)
+
+    if not real_args:
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": "missing CSV path",
+        }
+
+    csv_path = Path(real_args[0])
+    if not csv_path.exists():
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": f"CSV path does not exist: {csv_path}",
+        }
+
+    loaded_rows = 0
+    loaded_clients = set()
+
+    with csv_path.open(newline="") as f:
+        reader = csv.DictReader(f)
+        fieldnames = set(reader.fieldnames or [])
+
+        if {"client", "value"}.issubset(fieldnames):
+            for row in reader:
+                try:
+                    client = int(row["client"])
+                    value = float(row["value"])
+                except Exception:
+                    continue
+
+                if not np.isfinite(value) or value <= 0.0:
+                    continue
+
+                app_id = -1
+                if "app_id" in row and row["app_id"] not in ("", None):
+                    try:
+                        app_id = int(row["app_id"])
+                    except Exception:
+                        app_id = -1
+
+                if client not in training_records:
+                    training_records[client] = []
+
+                training_records[client].append(value)
+
+                model = iteration_time_models.get(client)
+
+                if hasattr(model, "set_app_id"):
+                    model.set_app_id(app_id)
+
+                model.add_records([value])
+
+                if hasattr(iteration_time_models, "set_client_app_id"):
+                    iteration_time_models.set_client_app_id(client, app_id)
+
+                loaded_rows += 1
+                loaded_clients.add(client)
+
+        else:
+            return {
+                "status": "failed",
+                "et": str(time.time() - st),
+                "error": f"CSV missing required columns client,value: {sorted(fieldnames)}",
+            }
+
+    print(
+        "[iteration-time records-load-command] "
+        f"path={csv_path} loaded_rows={loaded_rows} "
+        f"loaded_clients={len(loaded_clients)}",
+        flush=True,
+    )
+
+    return {
+        "status": "done",
+        "et": str(time.time() - st),
+        "path": str(csv_path),
+        "loaded_rows": str(loaded_rows),
+        "loaded_clients": str(len(loaded_clients)),
     }
 
 
@@ -596,6 +771,9 @@ def zmq_cmd_listener():
 
         elif cmd == "load-iteration-time-model":
             retmsg = load_iteration_time_model_command(args)
+
+        elif cmd == "load-iteration-records-csv":
+            retmsg = load_iteration_records_csv_command(args)
 
         elif cmd == "iteration-time-model-status":
             retmsg = iteration_time_model_status_command(args)
