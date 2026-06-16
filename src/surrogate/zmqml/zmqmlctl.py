@@ -10,12 +10,13 @@ import sys
 import zmq
 
 
-def request(endpoint: str, cmd: str, args: list[str], bindata: bytes = b"") -> dict:
+def request(endpoint: str, cmd: str, args: list[str], bindata: bytes = b"", **extra) -> dict:
     context = zmq.Context()
     socket = context.socket(zmq.REQ)
     socket.connect(endpoint)
 
     msg = {"cmd": cmd, "args": args}
+    msg.update(extra)
     payload = json.dumps(msg).encode("utf-8") + b"\x00" + bindata
 
     socket.send(payload)
@@ -37,40 +38,91 @@ def main() -> int:
         help="ZeroMQ endpoint. Default: tcp://localhost:5555",
     )
 
+    parser.add_argument(
+        "--family",
+        default=os.environ.get("ZMQML_SURROGATE_FAMILY", "iteration-time"),
+        help="Director surrogate family. Default: iteration-time",
+    )
+    parser.add_argument(
+        "--backend",
+        default=os.environ.get("ZMQML_SURROGATE_BACKEND", "director"),
+        help="Director surrogate backend. Default: director",
+    )
+
     sub = parser.add_subparsers(dest="command", required=True)
 
-    train = sub.add_parser("train", help="Train iteration-time model from buffered records")
+    train = sub.add_parser("train", help="Train Director surrogate model from buffered records")
     train.add_argument(
         "--client",
         default="all",
         help="Client id to train, or 'all'. Default: all",
     )
 
-    save = sub.add_parser("save", help="Save active iteration-time model")
+    save = sub.add_parser("save", help="Save active Director surrogate model")
     save.add_argument("path", help="Output .pt path")
 
-    load = sub.add_parser("load", help="Load iteration-time model")
+    load = sub.add_parser("load", help="Load Director surrogate model")
     load.add_argument("path", help="Input .pt path")
 
-    status = sub.add_parser("status", help="Show iteration-time model status")
+    status = sub.add_parser("status", help="Show Director surrogate model status")
     status.add_argument(
         "--client",
         default="all",
         help="Client id to inspect, or 'all'. Default: all",
     )
 
+    records = sub.add_parser("load-records", help="Load Director surrogate records from CSV")
+    records.add_argument("path", help="Input records CSV path")
+
     sub.add_parser("exit", help="Ask server to exit")
 
     args = parser.parse_args()
 
+    director_meta = {
+        "surrogate_family": args.family,
+        "surrogate_backend": args.backend,
+    }
+
     if args.command == "train":
-        resp = request(args.endpoint, "train-iteration-time-model", [args.client])
+        resp = request(
+            args.endpoint,
+            "director-request",
+            [args.client],
+            operation="train-model",
+            **director_meta,
+        )
     elif args.command == "save":
-        resp = request(args.endpoint, "save-iteration-time-model", [args.path])
+        resp = request(
+            args.endpoint,
+            "director-request",
+            [args.path],
+            operation="save-model",
+            **director_meta,
+        )
     elif args.command == "load":
-        resp = request(args.endpoint, "load-iteration-time-model", [args.path])
+        resp = request(
+            args.endpoint,
+            "director-request",
+            [args.path],
+            operation="load-model",
+            **director_meta,
+        )
     elif args.command == "status":
-        resp = request(args.endpoint, "iteration-time-model-status", [args.client])
+        resp = request(
+            args.endpoint,
+            "director-request",
+            [args.client],
+            operation="model-status",
+            **director_meta,
+        )
+    elif args.command == "load-records":
+        resp = request(
+            args.endpoint,
+            "director-request",
+            [args.path],
+            operation="load-records-csv",
+            **director_meta,
+        )
     elif args.command == "exit":
         resp = request(args.endpoint, "exit", [])
     else:

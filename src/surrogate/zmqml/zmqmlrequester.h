@@ -35,4 +35,18 @@ extern std::vector<std::string> zmqml_request(const std::string& cmd,
                                               const std::vector<std::string>& args = std::vector<std::string>(),
                                               const std::string& bindata = "None"
                                               );
+/**
+ * Sends a unified Director request.
+ *
+ * All surrogate-family-specific semantics belong in the JSON payload, not in
+ * the top-level command name.  The wire command is always "director-request".
+ */
+extern std::vector<std::string> zmqml_director_request(
+    const std::string& surrogate_family,
+    const std::string& surrogate_backend,
+    const std::string& operation,
+    const std::vector<std::string>& args = std::vector<std::string>(),
+    const std::string& bindata = "None"
+);
+
 #endif

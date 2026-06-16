@@ -97,12 +97,3 @@ PARAMS
     intra-group-connections="/home/local/KHQ/sanjay.chari/codes/src/network-workloads/conf/dragonfly-dally/dfdally-72-intra";
     inter-group-connections="/home/local/KHQ/sanjay.chari/codes/src/network-workloads/conf/dragonfly-dally/dfdally-72-inter";
 }
-
-
-NETWORK_SURROGATE
-{
-    debug_prints="${NETWORK_SURROGATE_DEBUG_PRINTS}";
-    event_time_inference_enabled="${EVENT_TIME_INFERENCE_ENABLED}";
-    director_mode="${NETWORK_SURROGATE_DIRECTOR_MODE}";
-    enable="${NETWORK_SURROGATE_ENABLE}";
-}

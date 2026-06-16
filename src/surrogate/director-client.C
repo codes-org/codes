@@ -71,9 +71,63 @@ int director_shutdown_zmqml_server_on_finalize = 0;
  */
 static int director_config_initialized = 0;
 
+static std::vector<double> director_zmq_total_elapsed_times;
+static std::vector<double> director_zmq_processing_times;
+
 std::vector<std::string> director_client_request(const char* cmd, const char* args, const std::string data);
+
+std::vector<std::string> director_get_str_list(const char *s, const char delimiter);
+std::vector<std::string> director_client_request_family(
+    const char* surrogate_family,
+    const char* surrogate_backend,
+    const char* operation,
+    const char* args,
+    const std::string data);
 int surrogate_enabled = 0;
 int inferencing_enabled = 1;
+
+
+
+static void director_record_zmq_latency_stats(
+    const char* label,
+    const std::vector<std::string>& ret,
+    double local_latency_sec)
+{
+    (void)label;
+
+    if (evaluate_perf != 1) {
+        return;
+    }
+
+    director_zmq_total_elapsed_times.push_back(local_latency_sec);
+
+    double zmq_processing_time = 0.0;
+    if(ret.size() > 1) {
+        try {
+            zmq_processing_time = std::stod(ret[1]);
+        } catch (...) {
+            if(director_debug_prints) {
+                fprintf(
+                    stderr,
+                    "[DIR] Warning: could not parse zmq processing time from reply field ret[1]=%s\n",
+                    ret[1].c_str()
+                );
+                fflush(stderr);
+            }
+        }
+    } else if(director_debug_prints) {
+        fprintf(
+            stderr,
+            "[DIR] Warning: zmq reply too short for perf timing: ret.size()=%llu request=%s\n",
+            (unsigned long long)ret.size(),
+            label ? label : ""
+        );
+        fflush(stderr);
+    }
+
+    director_zmq_processing_times.push_back(zmq_processing_time);
+}
+
 
 
 static int director_surrogate_family_is(const char *family)
@@ -81,57 +135,70 @@ static int director_surrogate_family_is(const char *family)
     return strcmp(director_config_global.surrogate_family, family) == 0;
 }
 
-static const char *director_command_for_family(
-    const char *iteration_time_cmd,
-    const char *event_time_cmd,
-    const char *packet_latency_cmd
-)
+std::vector<std::string> director_client_request_family(
+    const char* surrogate_family,
+    const char* surrogate_backend,
+    const char* operation,
+    const char* args,
+    const std::string data)
 {
-    if(director_surrogate_family_is("event-time")){
-        return event_time_cmd;
-    }
+    const char* family = surrogate_family ? surrogate_family : "iteration-time";
+    const char* backend = surrogate_backend ? surrogate_backend : "director";
+    const char* op = operation ? operation : "";
 
-    if(director_surrogate_family_is("packet-latency")){
-        return packet_latency_cmd;
-    }
+    std::vector<std::string> args_list = director_get_str_list(args, ';');
 
-    return iteration_time_cmd;
+    char label[256];
+    snprintf(
+        label,
+        sizeof(label),
+        "family=%s backend=%s operation=%s",
+        family,
+        backend,
+        op
+    );
+
+    auto start_time = std::chrono::steady_clock::now();
+
+    std::vector<std::string> ret = zmqml_director_request(
+        family,
+        backend,
+        op,
+        args_list,
+        data
+    );
+
+    auto end_time = std::chrono::steady_clock::now();
+    double local_latency_sec =
+        std::chrono::duration<double>(end_time - start_time).count();
+
+    director_record_zmq_latency_stats(label, ret, local_latency_sec);
+
+    return ret;
 }
+
+
+
+
 
 static const char *director_train_model_command(void)
 {
-    return director_command_for_family(
-        "train-iteration-time-model",
-        "train-event-time-model",
-        "train-packet-latency-model"
-    );
+    return "train-model";
 }
 
 static const char *director_save_model_command(void)
 {
-    return director_command_for_family(
-        "save-iteration-time-model",
-        "save-event-time-model",
-        "save-packet-latency-model"
-    );
+    return "save-model";
 }
 
 static const char *director_load_model_command(void)
 {
-    return director_command_for_family(
-        "load-iteration-time-model",
-        "load-event-time-model",
-        "load-packet-latency-model"
-    );
+    return "load-model";
 }
 
 static const char *director_inference_command(void)
 {
-    return director_command_for_family(
-        "iteration-time-inference",
-        "event-time-inference",
-        "packet-latency-inference"
-    );
+    return "inference";
 }
 
 static const char *director_iteration_records_command(void)
@@ -140,8 +207,8 @@ static const char *director_iteration_records_command(void)
      * Keep iteration-time record streaming backward-compatible with
      * the original zmqmlserver.py command name.
      *
-     * Event-time records use their own explicit send-event-time-records
-     * path from dragonfly-dally.C and should not affect this.
+     * Event-time records use the unified director-request API from
+     * dragonfly-dally.C and should not affect this iteration-time path.
      */
     return "send-records";
 }
@@ -162,7 +229,7 @@ static int director_surrogate_uses_iteration_horizon_inference(void)
 
 static const char *director_iteration_inference_command(void)
 {
-    return "iteration-time-inference";
+    return "inference";
 }
 
 static int director_iter_in_surrogate_window(int iter)
@@ -201,8 +268,6 @@ static int director_iter_is_surrogate_window_end(int iter)
 }
 
 
-std::vector<double> total_elapsed_times;
-std::vector<double> zmq_processing_times;
 
 // state of the director LP 
 struct director_state
@@ -318,13 +383,10 @@ static void director_send_iteration_records_now(
         }
     }
 
-    char commandstr[DIR_ZMQ_CMD_LENGTH];
     char args[DIR_ZMQ_ARG_LENGTH];
 
-    sprintf(commandstr, "%s", director_iteration_records_command());
-
     /*
-     * Keep the original server-facing argument shape:
+     * Keep the original argument shape inside the unified Director request:
      * num_args;client_id;num_records;
      *
      * training_cycle_id is currently used only for local debug output.
@@ -333,7 +395,13 @@ static void director_send_iteration_records_now(
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    director_client_request(commandstr, args, input_data);
+    director_client_request_family(
+        "iteration-time",
+        director_config_global.surrogate_backend,
+        "send-records",
+        args,
+        input_data
+    );
     clock_gettime(CLOCK_MONOTONIC, &end);
 
     double latency =
@@ -384,9 +452,15 @@ static void director_perform_iteration_model_retrain_now(
         char args[DIR_ZMQ_ARG_LENGTH];
         std::vector<std::string> ret_vals;
 
-        sprintf(commandstr, "%s", director_train_model_command());
+        sprintf(commandstr, "%s", "director-request");
         sprintf(args, "%d;%s;", 1, "all");
-        ret_vals = director_client_request(commandstr, args, "");
+        ret_vals = director_client_request_family(
+            director_config_global.surrogate_family,
+            director_config_global.surrogate_backend,
+            director_train_model_command(),
+            args,
+            ""
+        );
 
         if(ret_vals.size() < 1 || ret_vals[0] != "done"){
             tw_error(
@@ -410,7 +484,7 @@ static void director_perform_iteration_model_retrain_now(
             fflush(stdout);
         }
 
-        sprintf(commandstr, "%s", director_save_model_command());
+        sprintf(commandstr, "%s", "director-request");
         snprintf(
             args,
             sizeof(args),
@@ -418,7 +492,13 @@ static void director_perform_iteration_model_retrain_now(
             1,
             director_config_global.retrain_save_path
         );
-        ret_vals = director_client_request(commandstr, args, "");
+        ret_vals = director_client_request_family(
+            director_config_global.surrogate_family,
+            director_config_global.surrogate_backend,
+            director_save_model_command(),
+            args,
+            ""
+        );
 
         if(ret_vals.size() < 1 || ret_vals[0] != "done"){
             tw_error(
@@ -559,117 +639,31 @@ std::string director_get_list_str(std::vector<std::string> s, const char delimit
 }
 
 std::vector<std::string> director_client_request(
-    const char* cmd, 
+    const char* cmd,
     const char* args,
     const std::string data)
 {
     std::vector<std::string> ret;
-    /*
-    std::cout << cmd << " ARGS " << args << std::endl;
-    //if(strcmp(cmd, "send-records") == 0){
-        std::cout << data << std::endl;
-    //}
-    */
-    if(strcmp(cmd, "exit") == 0){
-         ret = zmqml_request(cmd);
-         return ret;
+
+    if(strcmp(cmd, "exit") == 0) {
+        ret = zmqml_request(cmd);
+        return ret;
     }
 
-    auto start_time = std::chrono::steady_clock::now(); // TODO - find a way to enclose this in evaluate_perf?
+    auto start_time = std::chrono::steady_clock::now();
 
-    std::vector<std::string> args_list;
-    args_list = director_get_str_list(args, ';');
+    std::vector<std::string> args_list = director_get_str_list(args, ';');
     ret = zmqml_request(cmd, args_list, data);
-    
-    if (evaluate_perf == 1){
-        auto end_time = std::chrono::steady_clock::now();
-        auto duration = std::chrono::duration<double>(end_time - start_time).count();
 
-        total_elapsed_times.push_back(duration);
+    auto end_time = std::chrono::steady_clock::now();
+    double local_latency_sec =
+        std::chrono::duration<double>(end_time - start_time).count();
 
-        double zmq_processing_time = 0.0;
-        if(ret.size() > 1) {
-            try {
-                zmq_processing_time = std::stod(ret[1]);
-            } catch (...) {
-                if(director_debug_prints) {
-                    printf(
-                        "[DIR] Warning: could not parse zmq processing time from reply field ret[1]=%s\n",
-                        ret[1].c_str()
-                    );
-                    fflush(stdout);
-                }
-            }
-        } else if(director_debug_prints) {
-            printf(
-                "[DIR] Warning: zmq reply too short for perf timing: ret.size()=%llu cmd=%s\n",
-                (unsigned long long)ret.size(),
-                cmd
-            );
-            fflush(stdout);
-        }
-
-        zmq_processing_times.push_back(zmq_processing_time);
-
-        if(zmq_processing_times.size() == NUM_ACTIVE_CLIENTS){
-            double sum = 0;
-            for (double ts : zmq_processing_times) sum += ts;
-            double mean = sum / zmq_processing_times.size();
-            double sum_sq_diff = 0;
-            for (double ts : zmq_processing_times) sum_sq_diff += (ts - mean) * (ts - mean);
-            double std_dev = sqrt(sum_sq_diff / zmq_processing_times.size());
-            auto min = std::min_element(zmq_processing_times.begin(), zmq_processing_times.end());
-            auto max = std::max_element(zmq_processing_times.begin(), zmq_processing_times.end());
-
-            zmq_processing_times.clear();
-
-            std::cout << std::setprecision(9) << std::fixed;
-            /*
-            std::cout << "ZMQ_VALS: ";
-            for(auto d: zmq_processing_times)
-                std::cout << d << " ;";
-            std::cout << std::endl;
-            */
-            std::cout << "==DIR_STATS zmq-processing: " << cmd
-                            << " latency: mean = " << mean 
-                            << ", min = " << *min
-                            << ", max = " << *max
-                            << ", std-deviation = " << std_dev 
-                            << std::endl;
-
-            double tsum = 0;
-            for (double ts : total_elapsed_times) tsum += ts;
-            double tmean = tsum / total_elapsed_times.size();
-            double tsum_sq_diff = 0;
-            for (double ts : total_elapsed_times) tsum_sq_diff += (ts - tmean) * (ts - tmean);
-            double tstd_dev = sqrt(tsum_sq_diff / total_elapsed_times.size());
-            auto tmin = std::min_element(total_elapsed_times.begin(), total_elapsed_times.end());
-            auto tmax = std::max_element(total_elapsed_times.begin(), total_elapsed_times.end());
-            /*
-            std::cout << "TOTAL_VALS: ";
-            for(auto d: total_elapsed_times)
-                std::cout << d << " ;";
-            std::cout << std::endl;
-            */
-            total_elapsed_times.clear();
-
-            std::cout << "==DIR_STATS zmq-total: " << cmd
-                            << " latency: mean = " << tmean 
-                            << ", min = " << *tmin
-                            << ", max = " << *tmax
-                            << ", std-deviation = " << tstd_dev 
-                            << std::endl;
-        }
-    }
-    /*
-    std::cout << cmd << "|" << args << " | ";
-    for(auto s: ret)
-        std::cout << s << " ;";
-    std::cout << std::endl;
-    */
+    director_record_zmq_latency_stats(cmd, ret, local_latency_sec);
 
     return ret;
 }
+
 
 
 /* Trigger CODES Event From Director */
@@ -1189,14 +1183,20 @@ void director_get_surrogate_prediction(director_state* s, tw_bf * bf, director_m
             char commandstr[DIR_ZMQ_CMD_LENGTH];
             char args[DIR_ZMQ_ARG_LENGTH];
             
-            sprintf(commandstr, "%s", director_iteration_inference_command());
+            sprintf(commandstr, "%s", "director-request");
             sprintf(args, "%d;%llu;%d;", 3, (unsigned long long) s->director_id, DIR_MAX_PREDICTION); // num-of-args;num-record
 
             // The Python side primarily uses records previously sent through
             // send-records. Keep the payload empty for now rather than sending
             // hard-coded dummy values.
             std::string input_data = "";
-            ret_vals = director_client_request(commandstr, args, input_data);
+            ret_vals = director_client_request_family(
+                "iteration-time",
+                director_config_global.surrogate_backend,
+                director_iteration_inference_command(),
+                args,
+                input_data
+            );
 
             if(ret_vals.size() < 3){
                 tw_error(
@@ -1207,6 +1207,17 @@ void director_get_surrogate_prediction(director_state* s, tw_bf * bf, director_m
             }
 
             std::vector<std::string> predictions = director_get_str_list(ret_vals[2].c_str(), ' ');
+
+            if(director_debug_prints) {
+                fprintf(
+                    stderr,
+                    "[DIR] iteration-time predictions director_id=%llu count=%llu values=%s\n",
+                    (unsigned long long)s->director_id,
+                    (unsigned long long)predictions.size(),
+                    ret_vals[2].c_str()
+                );
+                fflush(stderr);
+            }
 
             int i = 0;
             for(auto p: predictions){
@@ -1496,8 +1507,101 @@ void director_event_handler_commit(director_state* s, tw_bf * bf, director_messa
     m->rc_valid = 0;
 }
 
+static void director_print_zmq_latency_stats_once(void)
+{
+    static int printed = 0;
+
+    if (printed) {
+        return;
+    }
+
+    printed = 1;
+
+    if (evaluate_perf != 1 || director_zmq_total_elapsed_times.empty()) {
+        return;
+    }
+
+    double proc_sum = 0.0;
+    for (double ts : director_zmq_processing_times) {
+        proc_sum += ts;
+    }
+
+    double proc_mean =
+        director_zmq_processing_times.empty()
+            ? 0.0
+            : proc_sum / director_zmq_processing_times.size();
+
+    double proc_sq_diff = 0.0;
+    for (double ts : director_zmq_processing_times) {
+        proc_sq_diff += (ts - proc_mean) * (ts - proc_mean);
+    }
+
+    double proc_std =
+        director_zmq_processing_times.empty()
+            ? 0.0
+            : sqrt(proc_sq_diff / director_zmq_processing_times.size());
+
+    auto proc_min = std::min_element(
+        director_zmq_processing_times.begin(),
+        director_zmq_processing_times.end()
+    );
+    auto proc_max = std::max_element(
+        director_zmq_processing_times.begin(),
+        director_zmq_processing_times.end()
+    );
+
+    double total_sum = 0.0;
+    for (double ts : director_zmq_total_elapsed_times) {
+        total_sum += ts;
+    }
+
+    double total_mean = total_sum / director_zmq_total_elapsed_times.size();
+
+    double total_sq_diff = 0.0;
+    for (double ts : director_zmq_total_elapsed_times) {
+        total_sq_diff += (ts - total_mean) * (ts - total_mean);
+    }
+
+    double total_std =
+        sqrt(total_sq_diff / director_zmq_total_elapsed_times.size());
+
+    auto total_min = std::min_element(
+        director_zmq_total_elapsed_times.begin(),
+        director_zmq_total_elapsed_times.end()
+    );
+    auto total_max = std::max_element(
+        director_zmq_total_elapsed_times.begin(),
+        director_zmq_total_elapsed_times.end()
+    );
+
+    std::cout << std::setprecision(9) << std::fixed;
+
+    if (!director_zmq_processing_times.empty()) {
+        std::cout
+            << "==DIR_STATS zmq-processing-global: requests = "
+            << director_zmq_processing_times.size()
+            << ", mean = " << proc_mean
+            << ", min = " << *proc_min
+            << ", max = " << *proc_max
+            << ", std-deviation = " << proc_std
+            << std::endl;
+    }
+
+    std::cout
+        << "==DIR_STATS zmq-total-global: requests = "
+        << director_zmq_total_elapsed_times.size()
+        << ", mean = " << total_mean
+        << ", min = " << *total_min
+        << ", max = " << *total_max
+        << ", std-deviation = " << total_std
+        << std::endl;
+}
+
+
 void director_finalize(director_state* s, tw_lp* lp)
 {
+    director_print_zmq_latency_stats_once();
+
     /*
      * Do not shut down the external ZeroMQ ML server by default. The server is
      * a reusable service and may be shared across multiple simulation runs.

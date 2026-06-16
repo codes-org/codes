@@ -36,6 +36,7 @@
 #include <algorithm>
 #include <errno.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #include "codes/network-manager/dragonfly-network-manager.h"
 #include "codes/congestion-controller-model.h"
@@ -43,19 +44,21 @@
 #include <unordered_map>
 
 /*
- * Optional ZeroMQ ML requester.
+ * Optional ZeroMQ Director requester.
  *
  * dragonfly-dally.C is compiled into libcodes.a, which is linked by many
- * tests/examples that do not link libzmqmlrequester.so.  A hard reference to
- * zmqml_request therefore breaks those targets.  Keep the symbol weak so only
- * executables that link the requester use live event-time inference; all other
- * targets fall back to the original PDES delay.
+ * tests/examples that do not link libzmqmlrequester.so. Keep this symbol weak
+ * so only executables that link the requester use live event-time
+ * collection/inference; all other targets fall back to original PDES behavior.
  */
-extern std::vector<std::string> zmqml_request(
-    const std::string& cmd,
+extern std::vector<std::string> zmqml_director_request(
+    const std::string& surrogate_family,
+    const std::string& surrogate_backend,
+    const std::string& operation,
     const std::vector<std::string>& args,
     const std::string& bindata
 ) __attribute__((weak));
+
 
 
 #ifdef ENABLE_CORTEX
@@ -129,6 +132,10 @@ static uint64_t dfdally_post_switch_router_events = 0;
 static double dfdally_last_post_switch_terminal_now = -1.0;
 static double dfdally_last_post_switch_router_now = -1.0;
 static bool dfdally_surrogate_debug_prints = false;
+
+
+
+
 static bool dfdally_surrogate_has_switched_once = false;
 
 tw_stime * snapshot_times;
@@ -240,6 +247,10 @@ static std::unordered_map<std::string, double> event_time_prediction_cache;
 static unsigned long long event_time_cache_hits = 0;
 static unsigned long long event_time_cache_misses = 0;
 static unsigned long long event_time_zmq_inference_calls = 0;
+static unsigned long long event_time_zmq_request_count = 0;
+static double event_time_zmq_local_latency_sum = 0.0;
+static double event_time_zmq_server_latency_sum = 0.0;
+static unsigned long long event_time_zmq_server_latency_count = 0;
 static double event_time_cache_time_bucket = 0.0;
 static int event_time_cache_time_bucket_initialized = 0;
 static int event_time_zmq_batch_size = 65536;
@@ -253,6 +264,53 @@ static void dfdally_event_time_zmq_flush_atexit(void);
 static void dfdally_event_time_zmq_queue_row(char const *row);
 
 
+static std::vector<std::string> dfdally_event_time_director_request_with_latency(
+    const char* operation,
+    const std::vector<std::string>& args,
+    const std::string& bindata)
+{
+    const char* op = operation ? operation : "";
+    std::vector<std::string> ret;
+
+    struct timespec start, finish;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    if (!zmqml_director_request) {
+        ret.push_back("failed");
+    } else {
+        ret = zmqml_director_request(
+            "event-time",
+            "dragonfly-dally",
+            op,
+            args,
+            bindata
+        );
+    }
+
+    clock_gettime(CLOCK_MONOTONIC, &finish);
+
+    double local_latency_sec =
+        (double)(finish.tv_sec - start.tv_sec) +
+        (double)(finish.tv_nsec - start.tv_nsec) / 1000000000.0;
+
+    event_time_zmq_request_count++;
+    event_time_zmq_local_latency_sum += local_latency_sec;
+
+    if(ret.size() > 1) {
+        char *endptr = NULL;
+        double server_latency = strtod(ret[1].c_str(), &endptr);
+        if(endptr != ret[1].c_str() && isfinite(server_latency) && server_latency >= 0.0) {
+            event_time_zmq_server_latency_sum += server_latency;
+            event_time_zmq_server_latency_count++;
+        }
+    }
+
+    (void)op;
+    return ret;
+}
+
+
+
 // ==== START OF Parameters to tune surrogate mode ====
 // 
 static bool dally_surrogate_configured = false;
@@ -260,6 +318,109 @@ static bool is_dally_surrogate_on = false;
 static bool freeze_network_on_switch = false;
 static struct packet_latency_predictor * terminal_predictor = NULL;
 static void switch_surrogate(void);
+static void dfdally_event_time_print_global_cache_summary_once(void)
+{
+    static int printed = 0;
+
+    if (printed) {
+        return;
+    }
+
+    printed = 1;
+
+    if(!event_time_surrogate_family_selected) {
+        return;
+    }
+
+    unsigned long long local_counts[6];
+    unsigned long long global_counts[6];
+
+    local_counts[0] = event_time_cache_hits;
+    local_counts[1] = event_time_cache_misses;
+    local_counts[2] = event_time_zmq_inference_calls;
+    local_counts[3] = (unsigned long long)event_time_prediction_cache.size();
+    local_counts[4] = event_time_zmq_request_count;
+    local_counts[5] = event_time_zmq_server_latency_count;
+
+    for (int i = 0; i < 6; i++) {
+        global_counts[i] = 0;
+    }
+
+    double local_sums[2];
+    double global_sums[2];
+
+    local_sums[0] = event_time_zmq_local_latency_sum;
+    local_sums[1] = event_time_zmq_server_latency_sum;
+    global_sums[0] = 0.0;
+    global_sums[1] = 0.0;
+
+    int mpi_initialized = 0;
+    MPI_Initialized(&mpi_initialized);
+
+    int rank = 0;
+
+    if(mpi_initialized) {
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+        MPI_Reduce(
+            local_counts,
+            global_counts,
+            6,
+            MPI_UNSIGNED_LONG_LONG,
+            MPI_SUM,
+            0,
+            MPI_COMM_WORLD
+        );
+
+        MPI_Reduce(
+            local_sums,
+            global_sums,
+            2,
+            MPI_DOUBLE,
+            MPI_SUM,
+            0,
+            MPI_COMM_WORLD
+        );
+    } else {
+        for (int i = 0; i < 6; i++) {
+            global_counts[i] = local_counts[i];
+        }
+
+        global_sums[0] = local_sums[0];
+        global_sums[1] = local_sums[1];
+    }
+
+    if(rank != 0) {
+        return;
+    }
+
+    double const avg_local_latency =
+        global_counts[4] > 0
+            ? global_sums[0] / (double)global_counts[4]
+            : 0.0;
+
+    double const avg_server_latency =
+        global_counts[5] > 0
+            ? global_sums[1] / (double)global_counts[5]
+            : 0.0;
+
+    fprintf(
+        stderr,
+        "[event-time cache summary global] hits=%llu misses=%llu "
+        "zmq_calls=%llu cache_size_sum=%llu zmq_requests=%llu "
+        "avg_local_latency_sec=%.9f avg_server_et=%.9f\n",
+        global_counts[0],
+        global_counts[1],
+        global_counts[2],
+        global_counts[3],
+        global_counts[4],
+        avg_local_latency,
+        avg_server_latency
+    );
+    fflush(stderr);
+}
+
+
 static bool is_surrogate_on_fun(void);
 static void dragonfly_dally_terminal_highdef_to_surrogate(terminal_state * s, tw_lp * lp, tw_event **);
 static void dragonfly_dally_terminal_surrogate_to_highdef(terminal_state * s, tw_lp * lp, tw_event **);
@@ -2602,8 +2763,15 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
                 event_time_inference_enabled_str, MAX_NAME_LENGTH);
     }
 
-    event_time_inference_enabled =
-        dfdally_string_is_true(event_time_inference_enabled_str);
+    /*
+     * Do not expose a separate event-time inference flag.
+     * Event-time inference is selected by the Director family and the
+     * ordinary Director inferencing flag:
+     *
+     *   DIRECTOR.surrogate_family == "event-time"
+     *   DIRECTOR.inferencing_enabled == true
+     */
+    event_time_inference_enabled = 0;
 
     /*
      * Event-time training record streaming follows the existing Director
@@ -2644,6 +2812,10 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     event_time_surrogate_family_selected =
         strcmp(event_time_surrogate_family_str, "event-time") == 0;
 
+    event_time_inference_enabled =
+        event_time_surrogate_family_selected &&
+        dfdally_string_is_true(event_time_inference_enabled_str);
+
     int const event_time_training_selected =
         dfdally_string_is_true(event_time_training_enabled_str);
 
@@ -2681,13 +2853,16 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
 
     char debug_prints_str[MAX_NAME_LENGTH];
     debug_prints_str[0] = '\0';
-    configuration_get_value(&config, "NETWORK_SURROGATE", "debug_prints", anno,
-            debug_prints_str, MAX_NAME_LENGTH);
-    dfdally_surrogate_debug_prints = (strcmp(debug_prints_str, "1") == 0 ||
-            strcmp(debug_prints_str, "true") == 0 ||
-            strcmp(debug_prints_str, "TRUE") == 0 ||
-            strcmp(debug_prints_str, "yes") == 0 ||
-            strcmp(debug_prints_str, "YES") == 0);
+
+    if(event_time_surrogate_family_selected) {
+        configuration_get_value(&config, "DIRECTOR", "debug_prints", anno,
+                debug_prints_str, MAX_NAME_LENGTH);
+    } else {
+        configuration_get_value(&config, "NETWORK_SURROGATE", "debug_prints", anno,
+                debug_prints_str, MAX_NAME_LENGTH);
+    }
+
+    dfdally_surrogate_debug_prints = dfdally_string_is_true(debug_prints_str);
 
     // if surrogate mode has been set up
     if (enable_network_surrogate) {
@@ -3535,11 +3710,11 @@ static void dfdally_event_time_zmq_flush(void)
         return;
     }
 
-    if (!zmqml_request) {
+    if (!zmqml_director_request) {
         if (dfdally_surrogate_debug_prints) {
             fprintf(
                 stderr,
-                "[event-time records] zmqml_request unavailable; dropping %llu buffered rows\n",
+                "[event-time records] zmqml_director_request unavailable; dropping %llu buffered rows\n",
                 event_time_zmq_buffered_rows
             );
             fflush(stderr);
@@ -3555,13 +3730,13 @@ static void dfdally_event_time_zmq_flush(void)
 
     try {
         std::vector<std::string> ret =
-            zmqml_request("send-event-time-records", args, event_time_zmq_buffer);
+            dfdally_event_time_director_request_with_latency("send-records", args, event_time_zmq_buffer);
 
         if (ret.empty() || ret[0] != "done") {
             if (dfdally_surrogate_debug_prints) {
                 fprintf(
                     stderr,
-                    "[event-time records] send-event-time-records returned non-done status; "
+                    "[event-time records] director-request send-records returned non-done status; "
                     "buffered_rows=%llu\n",
                     event_time_zmq_buffered_rows
                 );
@@ -3579,7 +3754,7 @@ static void dfdally_event_time_zmq_flush(void)
         if (dfdally_surrogate_debug_prints) {
             fprintf(
                 stderr,
-                "[event-time records] send-event-time-records failed; buffered_rows=%llu\n",
+                "[event-time records] director-request send-records failed; buffered_rows=%llu\n",
                 event_time_zmq_buffered_rows
             );
             fflush(stderr);
@@ -3827,11 +4002,11 @@ static double dfdally_event_time_predict_or_original(
     std::vector<std::string> args;
     args.push_back("1");
 
-    if (!zmqml_request) {
+    if (!zmqml_director_request) {
         if (dfdally_surrogate_debug_prints) {
             fprintf(
                 stderr,
-                "[event-time inference] zmqml_request unavailable; "
+                "[event-time inference] zmqml_director_request unavailable; "
                 "using original delay %.17g\n",
                 original_delay
             );
@@ -3842,7 +4017,7 @@ static double dfdally_event_time_predict_or_original(
 
     std::vector<std::string> ret;
     try {
-        ret = zmqml_request("event-time-inference", args, row.str());
+        ret = dfdally_event_time_director_request_with_latency("inference", args, row.str());
         event_time_zmq_inference_calls++;
     } catch (...) {
         if (dfdally_surrogate_debug_prints) {
@@ -3927,20 +4102,7 @@ extern "C" int dfdally_event_time_surrogate_set_active(int enabled)
     }
 
     event_time_inference_active = event_time_inference_active_count > 0;
-
-    if(was_active && !event_time_inference_active) {
-        fprintf(
-            stderr,
-            "[event-time cache summary] hits=%llu misses=%llu zmq_calls=%llu cache_size=%llu\n",
-            event_time_cache_hits,
-            event_time_cache_misses,
-            event_time_zmq_inference_calls,
-            (unsigned long long)event_time_prediction_cache.size()
-        );
-        fflush(stderr);
-    }
-
-    if(dfdally_surrogate_debug_prints) {
+if(dfdally_surrogate_debug_prints) {
         fprintf(
             stderr,
             "[event-time surrogate] active=%d active_count=%d inference_enabled=%d\n",
@@ -6628,7 +6790,9 @@ static void terminal_buf_update(terminal_state * s,
 static void dragonfly_dally_terminal_final( terminal_state * s, 
       tw_lp * lp )
 {
-    if (freeze_network_on_switch && is_dally_surrogate_on) {
+    
+    dfdally_event_time_print_global_cache_summary_once();
+if (freeze_network_on_switch && is_dally_surrogate_on) {
         dragonfly_dally_terminal_surrogate_to_highdef(s, lp, NULL);
     }
     // printf("terminal id %d\n",s->terminal_id);

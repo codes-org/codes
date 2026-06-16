@@ -54,7 +54,7 @@ iteration_model_path = os.environ.get("ZMQML_ITERATION_MODEL_PATH", "").strip()
 event_time_model_path = os.environ.get("ZMQML_EVENT_TIME_MODEL_PATH", "").strip()
 event_time_record_log_path = os.environ.get("ZMQML_EVENT_TIME_RECORD_LOG_PATH", "").strip()
 record_log_path = os.environ.get("ZMQML_RECORD_LOG_PATH", "").strip()
-record_format = os.environ.get("ZMQML_RECORD_FORMAT", "client,value").strip()
+record_format = os.environ.get("ZMQML_RECORD_FORMAT", "app_id,client,iteration,value").strip()
 app_alloc_path = os.environ.get("ZMQML_APP_ALLOC_PATH", "").strip()
 
 auto_train_on_records = os.environ.get(
@@ -972,6 +972,91 @@ def launch_surrogate_inferencing(args, bindata):
 # main listener loop
 # XXX: add mechanisms for multiple requesters
 #
+
+def director_request_command(msg, bindata):
+    """Handle all Director surrogate requests through one API.
+
+    Wire format:
+
+        {
+            "cmd": "director-request",
+            "surrogate_family": "iteration-time" | "event-time",
+            "surrogate_backend": "...",
+            "operation": "send-records" | "inference" | "train-model" |
+                         "save-model" | "load-model" | "load-records-csv" |
+                         "model-status",
+            "args": [...]
+        }
+    """
+    family = str(msg.get("surrogate_family", "iteration-time")).strip()
+    operation = str(msg.get("operation", "")).strip()
+    backend = str(msg.get("surrogate_backend", "")).strip()
+    args = _real_command_args(msg.get("args", []))
+
+    operation_aliases = {
+        "status": "model-status",
+        "train": "train-model",
+        "save": "save-model",
+        "load": "load-model",
+        "load-records": "load-records-csv",
+        "do-inference": "inference",
+    }
+    operation = operation_aliases.get(operation, operation)
+
+    if family in ("", "iteration", "iteration-time"):
+        if operation == "send-records":
+            status, et = receiverecords(args, bindata)
+            return {"status": status, "et": str(et)}
+        if operation == "inference":
+            status, et, predictions = launch_iteration_time_inferencing(args, bindata)
+            return {"status": status, "et": str(et), "predictions": predictions}
+        if operation == "train-model":
+            return train_iteration_time_model_command(args)
+        if operation == "save-model":
+            return save_iteration_time_model_command(args)
+        if operation == "load-model":
+            return load_iteration_time_model_command(args)
+        if operation == "load-records-csv":
+            return load_iteration_records_csv_command(args)
+        if operation == "model-status":
+            return iteration_time_model_status_command(args)
+
+    if family == "event-time":
+        if operation == "send-records":
+            status, et, loaded_rows = receive_event_time_records(args, bindata)
+            return {
+                "status": status,
+                "et": str(et),
+                "loaded_rows": str(loaded_rows),
+            }
+        if operation == "inference":
+            status, et, predictions = launch_event_time_inferencing(args, bindata)
+            return {
+                "status": status,
+                "et": str(et),
+                "predictions": predictions,
+                "prediction": predictions.split()[0] if predictions else "",
+            }
+        if operation == "train-model":
+            return train_event_time_model_command(args)
+        if operation == "save-model":
+            return save_event_time_model_command(args)
+        if operation == "load-model":
+            return load_event_time_model_command(args)
+        if operation == "load-records-csv":
+            return load_event_time_records_csv_command(args)
+        if operation == "model-status":
+            return event_time_model_status_command(args)
+
+    return {
+        "status": "failed",
+        "error": (
+            "unknown director request: "
+            f"surrogate_family={family} surrogate_backend={backend} "
+            f"operation={operation}"
+        ),
+    }
+
 def zmq_cmd_listener():
     context = zmq.Context()
     socket = context.socket(zmq.REP)
@@ -1010,55 +1095,8 @@ def zmq_cmd_listener():
             (status, et) = set_director_debug_prints(args)
             retmsg = {"status":status, "et":str(et)}
 
-        elif cmd == "send-records":
-            (status, et) = receiverecords(args, bindata)
-            retmsg = {"status":status, "et":str(et)}
-
-        elif cmd == "send-event-time-records":
-            (status, et, loaded_rows) = receive_event_time_records(args, bindata)
-            retmsg = {"status": status, "et": str(et), "loaded_rows": str(loaded_rows)}
-        elif cmd == "iteration-time-inference":
-            (status, et, predictions) = launch_iteration_time_inferencing(args, bindata)
-            retmsg = {"status":status, "et":str(et), "predictions": predictions}
-
-        elif cmd == "event-time-inference":
-            (status, et, predictions) = launch_event_time_inferencing(args, bindata)
-            retmsg = {"status": status, "et": str(et), "predictions": predictions, "prediction": predictions.split()[0] if predictions else ""}
-
-        elif cmd == "train-iteration-time-model":
-            retmsg = train_iteration_time_model_command(args)
-
-        elif cmd == "save-iteration-time-model":
-            retmsg = save_iteration_time_model_command(args)
-
-        elif cmd == "load-iteration-time-model":
-            retmsg = load_iteration_time_model_command(args)
-
-        elif cmd == "load-iteration-records-csv":
-            retmsg = load_iteration_records_csv_command(args)
-
-        elif cmd == "iteration-time-model-status":
-            retmsg = iteration_time_model_status_command(args)
-
-        elif cmd == "load-event-time-records-csv":
-            retmsg = load_event_time_records_csv_command(args)
-
-        elif cmd == "train-event-time-model":
-            retmsg = train_event_time_model_command(args)
-
-        elif cmd == "save-event-time-model":
-            retmsg = save_event_time_model_command(args)
-
-        elif cmd == "load-event-time-model":
-            retmsg = load_event_time_model_command(args)
-
-        elif cmd == "event-time-model-status":
-            retmsg = event_time_model_status_command(args)
-
-        elif cmd == "do-inference":
-            # Backwards-compatible alias for the previous Director command.
-            (status, et, predictions) = launch_surrogate_inferencing(args, bindata)
-            retmsg = {"status":status, "et":str(et), "predictions": predictions}
+        elif cmd == "director-request":
+            retmsg = director_request_command(msg, bindata)
 
         # send response back to the requester
         socket.send_json(retmsg)
