@@ -20,6 +20,8 @@
 /maint/codes.pc
 /test-driver
 .deps
+src/surrogate/zmqml/demozmqmlrequester
+src/surrogate/zmqml/libzmqmlrequester.so
 
 # make generated artifacts
 .dirstamp
@@ -44,3 +46,4 @@ install-mastiff/include/codes/model-net-method.h
 /build*
 .cache
 compile_commands.json
+__pycache__/

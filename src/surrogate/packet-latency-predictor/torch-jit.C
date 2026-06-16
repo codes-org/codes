@@ -112,9 +112,9 @@ static void predict_latency_rc_dummy(struct latency_surrogate * data, tw_lp * lp
 
 
 struct packet_latency_predictor torch_latency_predictor = {
-    .init              = (init_pred_f) init_pred_dummy,
-    .feed              = (feed_pred_f) feed_pred_dummy,
-    .predict           = (predict_pred_f) surrogate_torch_predict,
-    .predict_rc        = (predict_pred_rc_f) predict_latency_rc_dummy,
+    .init              = (init_pred_lat_f) init_pred_dummy,
+    .feed              = (feed_pred_lat_f) feed_pred_dummy,
+    .predict           = (predict_pred_lat_f) surrogate_torch_predict,
+    .predict_rc        = (predict_pred_lat_rc_f) predict_latency_rc_dummy,
     .predictor_data_sz = 0
 };

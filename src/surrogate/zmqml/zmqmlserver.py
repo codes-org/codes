@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 #
 # zmqmlserver : ZeroMQ-based ML task dispatching server
@@ -13,6 +13,7 @@ import sys
 import time
 from itertools import count # generate unit id
 # from dataclasses import dataclass
+import numpy as np
 
 # TODO: abstract a mechanism to call training
 from runmlpacketdelay import run_mlpacketdelay_training
@@ -24,12 +25,14 @@ from runmlpacketdelay import run_mlpacketdelay_training
 endpoint = "tcp://*:5555"
 
 debug = False
-
+debug2 = False
 #
 #
 #
 launch_id = count(start=1) # unique for launched thread
 launched_threads = {} # id:obj. keep track of active threads. remove the thread once it finished
+
+training_records = {} # client_id:[]
 
 class LaunchCMD:
     def __init__(self):
@@ -153,6 +156,61 @@ def receivedata(args, bindata):
     elapsed_time = time.time() - st
     return (status, elapsed_time)
 
+#
+# receive training records
+#
+def receiverecords(args, bindata):
+    status = "failed"
+    st = time.time()
+
+    num_args    = int(args[0]) # 1st arg is num of args
+    client      = int(args[1]) # 2nd arg is client id
+    num_records = int(args[2]) # 3rd arg is num records
+    records_str = str(bindata.decode('utf-8'))
+    records_str = records_str.strip()
+    records     = list(records_str.split(" "))
+
+    if client not in training_records:
+        training_records[client] = []
+    
+    training_records[client].extend([float(s) for s in records])
+    
+    if (debug2) and (client == 51):
+        print(f"Training records[51] :{training_records[client]}")
+    
+    status = "done"
+    elapsed_time = time.time() - st
+    return (status, elapsed_time)
+
+
+#
+# do inference to get predictions
+#
+def launch_surrogate_inferencing(args, bindata):
+    status = "failed"
+    st = time.time()
+
+    num_args    = int(args[0]) # 1st arg is num of args
+    client      = int(args[1]) # 2nd arg is client id
+    num_steps   = int(args[2]) # 3rd arg is num steps to predict
+    records_str = str(bindata.decode('utf-8'))
+    records_str = records_str.strip()
+    records     = list(records_str.split(" "))
+    
+    input_records = [float(s) for s in records]
+
+    inferences = []
+    for i in range(num_steps):
+        inferences.append(2000000.0)
+    
+    inferences_str = ' '.join([str(f) for f in inferences])
+    
+    status = "done"
+    elapsed_time = time.time() - st
+    return (status, elapsed_time, inferences_str)
+
+
+#
 
 #
 # main listener loop
@@ -192,6 +250,12 @@ def zmq_cmd_listener():
             destfn = args[0]
             (status, et) = receivedata(args, bindata)
             retmsg = {"status":status, "et":str(et)}
+        elif cmd == "send-records":
+            (status, et) = receiverecords(args, bindata)
+            retmsg = {"status":status, "et":str(et)}
+        elif cmd == "do-inference":
+            (status, et, predictions) = launch_surrogate_inferencing(args, bindata)
+            retmsg = {"status":status, "et":str(et), "predictions": predictions}
 
         # send response back to the requester
         socket.send_json(retmsg)

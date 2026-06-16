@@ -155,7 +155,6 @@ bool network_surrogate_configure(
 
     network_director_configure(sc, network_director_enabled ? &switch_network_at: NULL, freeze_network_on_switch);
 
-    //surr_config.director.switch_surrogate();
     if (DEBUG_DIRECTOR && g_tw_mynode == 0) {
         fprintf(stderr, "Simulation starting on network %s mode\n", sc->model.is_surrogate_on() ? "surrogate" : "high-fidelity");
     }

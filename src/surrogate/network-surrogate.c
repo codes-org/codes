@@ -21,7 +21,6 @@ static double frozen_events_switch_time = 0.0;  // Time when we switched to surr
 
 static struct lp_types_switch const * get_type_switch(char const * const name) {
     for (size_t i = 0; i < net_surr_config.n_lp_types; i++) {
-        //printf("THIS %s and %s\n", surr_config.lp_types[i].lpname, name);
         if (strcmp(net_surr_config.lp_types[i].lpname, name) == 0) {
             return &net_surr_config.lp_types[i];
         }
