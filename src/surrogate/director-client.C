@@ -45,6 +45,15 @@ struct
     int second_surr_iter_end;
 
     char retrain_save_path[1024];
+
+    /*
+     * First-class surrogate family selected by DIRECTOR/surrogate_family.
+     * Defaults to iteration-time to preserve existing behavior.
+     * Valid initial values: iteration-time, event-time, packet-latency.
+     */
+    char surrogate_family[64];
+    char surrogate_backend[64];
+    char event_time_model_path[1024];
 } director_config_global;
 
 typedef struct director_state director_state;
@@ -66,6 +75,95 @@ std::vector<std::string> director_client_request(const char* cmd, const char* ar
 int surrogate_enabled = 0;
 int inferencing_enabled = 1;
 
+
+static int director_surrogate_family_is(const char *family)
+{
+    return strcmp(director_config_global.surrogate_family, family) == 0;
+}
+
+static const char *director_command_for_family(
+    const char *iteration_time_cmd,
+    const char *event_time_cmd,
+    const char *packet_latency_cmd
+)
+{
+    if(director_surrogate_family_is("event-time")){
+        return event_time_cmd;
+    }
+
+    if(director_surrogate_family_is("packet-latency")){
+        return packet_latency_cmd;
+    }
+
+    return iteration_time_cmd;
+}
+
+static const char *director_train_model_command(void)
+{
+    return director_command_for_family(
+        "train-iteration-time-model",
+        "train-event-time-model",
+        "train-packet-latency-model"
+    );
+}
+
+static const char *director_save_model_command(void)
+{
+    return director_command_for_family(
+        "save-iteration-time-model",
+        "save-event-time-model",
+        "save-packet-latency-model"
+    );
+}
+
+static const char *director_load_model_command(void)
+{
+    return director_command_for_family(
+        "load-iteration-time-model",
+        "load-event-time-model",
+        "load-packet-latency-model"
+    );
+}
+
+static const char *director_inference_command(void)
+{
+    return director_command_for_family(
+        "iteration-time-inference",
+        "event-time-inference",
+        "packet-latency-inference"
+    );
+}
+
+static const char *director_iteration_records_command(void)
+{
+    /*
+     * Keep iteration-time record streaming backward-compatible with
+     * the original zmqmlserver.py command name.
+     *
+     * Event-time records use their own explicit send-event-time-records
+     * path from dragonfly-dally.C and should not affect this.
+     */
+    return "send-records";
+}
+
+
+
+static int director_surrogate_uses_iteration_records(void)
+{
+    return director_surrogate_family_is("iteration-time");
+}
+
+
+static int director_surrogate_uses_iteration_horizon_inference(void)
+{
+    return director_surrogate_family_is("iteration-time");
+}
+
+
+static const char *director_iteration_inference_command(void)
+{
+    return "iteration-time-inference";
+}
 
 static int director_iter_in_surrogate_window(int iter)
 {
@@ -185,6 +283,21 @@ static void director_send_iteration_records_now(
     int num_records
 )
 {
+    if(!director_surrogate_uses_iteration_records()){
+        if(director_debug_prints){
+            printf(
+                "[DIR] Skipping iteration-record send for surrogate_family=%s "
+                "client=%d cycle=%d num_records=%d\n",
+                director_config_global.surrogate_family,
+                client_id,
+                training_cycle_id,
+                num_records
+            );
+            fflush(stdout);
+        }
+        return;
+    }
+
     if(num_records <= 0){
         return;
     }
@@ -208,7 +321,7 @@ static void director_send_iteration_records_now(
     char commandstr[DIR_ZMQ_CMD_LENGTH];
     char args[DIR_ZMQ_ARG_LENGTH];
 
-    sprintf(commandstr, "send-records");
+    sprintf(commandstr, "%s", director_iteration_records_command());
 
     /*
      * Keep the original server-facing argument shape:
@@ -256,7 +369,7 @@ static void director_perform_iteration_model_retrain_now(
 
     if(director_debug_prints){
         printf(
-            "[DIR] pausing PDES simulation for iteration-time model retrain: "
+            "[DIR] pausing PDES simulation for surrogate model retrain: "
             "director_id=%d configured_retrain_iter=%d current_iter=%d time=%lf\n",
             director_id,
             configured_retrain_iter,
@@ -271,14 +384,14 @@ static void director_perform_iteration_model_retrain_now(
         char args[DIR_ZMQ_ARG_LENGTH];
         std::vector<std::string> ret_vals;
 
-        sprintf(commandstr, "train-iteration-time-model");
+        sprintf(commandstr, "%s", director_train_model_command());
         sprintf(args, "%d;%s;", 1, "all");
         ret_vals = director_client_request(commandstr, args, "");
 
         if(ret_vals.size() < 1 || ret_vals[0] != "done"){
             tw_error(
                 TW_LOC,
-                "[DIR] ZeroMQ iteration-time retrain failed at iter %d",
+                "[DIR] ZeroMQ surrogate model retrain failed at iter %d",
                 current_iter
             );
         }
@@ -297,7 +410,7 @@ static void director_perform_iteration_model_retrain_now(
             fflush(stdout);
         }
 
-        sprintf(commandstr, "save-iteration-time-model");
+        sprintf(commandstr, "%s", director_save_model_command());
         snprintf(
             args,
             sizeof(args),
@@ -310,7 +423,7 @@ static void director_perform_iteration_model_retrain_now(
         if(ret_vals.size() < 1 || ret_vals[0] != "done"){
             tw_error(
                 TW_LOC,
-                "[DIR] ZeroMQ iteration-time model save failed: %s",
+                "[DIR] ZeroMQ surrogate model save failed: %s",
                 director_config_global.retrain_save_path
             );
         }
@@ -473,7 +586,30 @@ std::vector<std::string> director_client_request(
         auto duration = std::chrono::duration<double>(end_time - start_time).count();
 
         total_elapsed_times.push_back(duration);
-        zmq_processing_times.push_back( std::stod(ret[1]) );
+
+        double zmq_processing_time = 0.0;
+        if(ret.size() > 1) {
+            try {
+                zmq_processing_time = std::stod(ret[1]);
+            } catch (...) {
+                if(director_debug_prints) {
+                    printf(
+                        "[DIR] Warning: could not parse zmq processing time from reply field ret[1]=%s\n",
+                        ret[1].c_str()
+                    );
+                    fflush(stdout);
+                }
+            }
+        } else if(director_debug_prints) {
+            printf(
+                "[DIR] Warning: zmq reply too short for perf timing: ret.size()=%llu cmd=%s\n",
+                (unsigned long long)ret.size(),
+                cmd
+            );
+            fflush(stdout);
+        }
+
+        zmq_processing_times.push_back(zmq_processing_time);
 
         if(zmq_processing_times.size() == NUM_ACTIVE_CLIENTS){
             double sum = 0;
@@ -658,6 +794,11 @@ void director_init(director_state* s, tw_lp* lp)
         director_config_global.second_surr_iter_start = 100000;
         director_config_global.second_surr_iter_end = 100001;
         director_config_global.retrain_save_path[0] = '\0';
+        director_config_global.event_time_model_path[0] = '\0';
+        strncpy(director_config_global.surrogate_family, "iteration-time", sizeof(director_config_global.surrogate_family));
+        director_config_global.surrogate_family[sizeof(director_config_global.surrogate_family) - 1] = '\0';
+        strncpy(director_config_global.surrogate_backend, "director", sizeof(director_config_global.surrogate_backend));
+        director_config_global.surrogate_backend[sizeof(director_config_global.surrogate_backend) - 1] = '\0';
 
         rc = configuration_get_value_int(&config, "DIRECTOR", "surrogate_enabled", NULL, &surrogate_enabled);
         if(rc)
@@ -710,6 +851,81 @@ void director_init(director_state* s, tw_lp* lp)
             director_config_global.retrain_save_path[0] = '\0';
         }
 
+
+        rc = configuration_get_value(
+            &config,
+            "DIRECTOR",
+            "surrogate_family",
+            NULL,
+            director_config_global.surrogate_family,
+            sizeof(director_config_global.surrogate_family)
+        );
+        if(rc <= 0){
+            /*
+             * Compatibility alias for early local patches/docs that used
+             * surrogate_model instead of surrogate_family.
+             */
+            rc = configuration_get_value(
+                &config,
+                "DIRECTOR",
+                "surrogate_model",
+                NULL,
+                director_config_global.surrogate_family,
+                sizeof(director_config_global.surrogate_family)
+            );
+        }
+        if(rc <= 0){
+            strncpy(
+                director_config_global.surrogate_family,
+                "iteration-time",
+                sizeof(director_config_global.surrogate_family)
+            );
+            director_config_global.surrogate_family[
+                sizeof(director_config_global.surrogate_family) - 1
+            ] = '\0';
+        }
+
+        rc = configuration_get_value(
+            &config,
+            "DIRECTOR",
+            "surrogate_backend",
+            NULL,
+            director_config_global.surrogate_backend,
+            sizeof(director_config_global.surrogate_backend)
+        );
+        if(rc <= 0){
+            strncpy(
+                director_config_global.surrogate_backend,
+                "director",
+                sizeof(director_config_global.surrogate_backend)
+            );
+            director_config_global.surrogate_backend[
+                sizeof(director_config_global.surrogate_backend) - 1
+            ] = '\0';
+        }
+
+        rc = configuration_get_value(
+            &config,
+            "DIRECTOR",
+            "event_time_model_path",
+            NULL,
+            director_config_global.event_time_model_path,
+            sizeof(director_config_global.event_time_model_path)
+        );
+        if(rc <= 0){
+            director_config_global.event_time_model_path[0] = '\0';
+        }
+
+        if(strcmp(director_config_global.surrogate_family, "iteration-time") != 0 &&
+           strcmp(director_config_global.surrogate_family, "event-time") != 0 &&
+           strcmp(director_config_global.surrogate_family, "packet-latency") != 0){
+            tw_error(
+                TW_LOC,
+                "[DIR] unsupported DIRECTOR/surrogate_family=%s; expected iteration-time, event-time, or packet-latency",
+                director_config_global.surrogate_family
+            );
+        }
+
         if(director_config_global.retrain_enabled && director_config_global.retrain_iter < 0){
             tw_error(TW_LOC, "[DIR] retrain_enabled=1 requires DIRECTOR/retrain_iter >= 0");
         }
@@ -754,7 +970,7 @@ void director_init(director_state* s, tw_lp* lp)
                     "surrogate_enabled=%d inferencing_enabled=%d training_enabled=%d "
                     "start_iter=%d end_iter=%d retrain_enabled=%d retrain_iter=%d "
                     "second_surrogate_enabled=%d second_start_iter=%d second_end_iter=%d "
-                    "retrain_save_path=%s debug_prints=%d shutdown_server=%d\n",
+                    "retrain_save_path=%s surrogate_family=%s surrogate_backend=%s debug_prints=%d shutdown_server=%d\n",
                     surrogate_enabled,
                     inferencing_enabled,
                     training_enabled,
@@ -766,6 +982,8 @@ void director_init(director_state* s, tw_lp* lp)
                     director_config_global.second_surr_iter_start,
                     director_config_global.second_surr_iter_end,
                     director_config_global.retrain_save_path,
+                    director_config_global.surrogate_family,
+                    director_config_global.surrogate_backend,
                     director_debug_prints,
                     director_shutdown_zmqml_server_on_finalize
                 );
@@ -797,6 +1015,20 @@ void director_prepare_iteration_dataset(
     int training_records
 )
 {
+    if(!director_surrogate_uses_iteration_records()){
+        if(director_debug_prints){
+            printf(
+                "[DIR] Skipping iteration dataset preparation for surrogate_family=%s "
+                "director_id=%llu cycle=%d\n",
+                director_config_global.surrogate_family,
+                (unsigned long long) s->director_id,
+                training_cycle
+            );
+            fflush(stdout);
+        }
+        return;
+    }
+
     /*
      * training_records is the number of timestamps.  The Python model consumes
      * deltas between consecutive timestamps, so the payload has
@@ -874,6 +1106,10 @@ void director_prepare_iteration_dataset(
 
 static bool director_flush_partial_iteration_dataset_before_inference(director_state* s, director_message *m, tw_lp * lp)
 {
+    if(!director_surrogate_uses_iteration_horizon_inference()){
+        return true;
+    }
+
     if(!training_enabled){
         return true;
     }
@@ -953,7 +1189,7 @@ void director_get_surrogate_prediction(director_state* s, tw_bf * bf, director_m
             char commandstr[DIR_ZMQ_CMD_LENGTH];
             char args[DIR_ZMQ_ARG_LENGTH];
             
-            sprintf(commandstr, "iteration-time-inference");
+            sprintf(commandstr, "%s", director_iteration_inference_command());
             sprintf(args, "%d;%llu;%d;", 3, (unsigned long long) s->director_id, DIR_MAX_PREDICTION); // num-of-args;num-record
 
             // The Python side primarily uses records previously sent through
@@ -1131,8 +1367,12 @@ void director_event_handler(director_state* s, tw_bf * bf, director_message * m,
                     }
 
                     s->simulation_mode = SIM_MODE_ITERATION_SURROGATE;
-                    tw_stime delay_ts;
-                    director_get_surrogate_prediction(s, bf, m, lp, &delay_ts);
+                    tw_stime delay_ts = 0.001;
+
+                    if(director_surrogate_uses_iteration_horizon_inference()){
+                        director_get_surrogate_prediction(s, bf, m, lp, &delay_ts);
+                    }
+
                     director_issue_codes_event(s, s->nw_lpid, DIR_REGISTERED_EVENT__SWITCH_TO_SURR, delay_ts, lp);
                     return;
                 }
@@ -1164,8 +1404,12 @@ void director_event_handler(director_state* s, tw_bf * bf, director_message * m,
                 } 
                 else // we need to predict when the next iteration will start
                 {
-                    tw_stime delay_ts;
-                    director_get_surrogate_prediction(s, bf, m, lp, &delay_ts);
+                    tw_stime delay_ts = 0.001;
+
+                    if(director_surrogate_uses_iteration_horizon_inference()){
+                        director_get_surrogate_prediction(s, bf, m, lp, &delay_ts);
+                    }
+
                     director_issue_codes_event(s, s->nw_lpid, DIR_REGISTERED_EVENT__MOVE_TO_NEXT, delay_ts, lp);
                     return;
                 }

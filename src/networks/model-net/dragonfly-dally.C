@@ -39,6 +39,24 @@
 
 #include "codes/network-manager/dragonfly-network-manager.h"
 #include "codes/congestion-controller-model.h"
+#include <sstream>
+#include <unordered_map>
+
+/*
+ * Optional ZeroMQ ML requester.
+ *
+ * dragonfly-dally.C is compiled into libcodes.a, which is linked by many
+ * tests/examples that do not link libzmqmlrequester.so.  A hard reference to
+ * zmqml_request therefore breaks those targets.  Keep the symbol weak so only
+ * executables that link the requester use live event-time inference; all other
+ * targets fall back to the original PDES delay.
+ */
+extern std::vector<std::string> zmqml_request(
+    const std::string& cmd,
+    const std::vector<std::string>& args,
+    const std::string& bindata
+) __attribute__((weak));
+
 
 #ifdef ENABLE_CORTEX
 #include <cortex/cortex.h>
@@ -207,6 +225,32 @@ static FILE * router_timing_trace_f = NULL;
 static int router_timing_trace_stride = 1;
 static unsigned long long router_timing_trace_counter = 0;
 static void setup_router_timing_trace_path(char const * const dir_to_save);
+
+// Generic event-time surrogate trace.
+// Each row means: current PDES event schedules target PDES event after target_delay.
+static FILE * event_time_trace_f = NULL;
+static int event_time_trace_stride = 1;
+static unsigned long long event_time_trace_counter = 0;
+static int event_time_inference_enabled = 0;
+static int event_time_surrogate_family_selected = 0;
+static int event_time_inference_active = 0;
+static int event_time_inference_active_count = 0;
+static int event_time_training_records_enabled = 0;
+static std::unordered_map<std::string, double> event_time_prediction_cache;
+static unsigned long long event_time_cache_hits = 0;
+static unsigned long long event_time_cache_misses = 0;
+static unsigned long long event_time_zmq_inference_calls = 0;
+static double event_time_cache_time_bucket = 0.0;
+static int event_time_cache_time_bucket_initialized = 0;
+static int event_time_zmq_batch_size = 65536;
+static std::string event_time_zmq_buffer;
+static unsigned long long event_time_zmq_buffered_rows = 0;
+static int event_time_zmq_flush_registered = 0;
+static void setup_event_time_trace_path(char const * const dir_to_save);
+static int dfdally_string_is_true(char const *s);
+static void dfdally_event_time_zmq_flush(void);
+static void dfdally_event_time_zmq_flush_atexit(void);
+static void dfdally_event_time_zmq_queue_row(char const *row);
 
 
 // ==== START OF Parameters to tune surrogate mode ====
@@ -2518,6 +2562,114 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         }
     }
 
+    // Generic event-time trace path for event-time surrogate training.
+    char event_time_trace_path[MAX_NAME_LENGTH];
+    event_time_trace_path[0] = '\0';
+    configuration_get_value(&config, "PARAMS", "save_event_time_trace_path", anno,
+            event_time_trace_path, MAX_NAME_LENGTH);
+    if(strlen(event_time_trace_path) > 0) {
+        setup_event_time_trace_path(event_time_trace_path);
+    }
+
+    char event_time_trace_stride_str[MAX_NAME_LENGTH];
+    event_time_trace_stride_str[0] = '\0';
+    configuration_get_value(&config, "PARAMS", "save_event_time_trace_stride", anno,
+            event_time_trace_stride_str, MAX_NAME_LENGTH);
+    if(strlen(event_time_trace_stride_str) > 0) {
+        int const parsed_stride = atoi(event_time_trace_stride_str);
+        if(parsed_stride > 0) {
+            event_time_trace_stride = parsed_stride;
+        } else {
+            tw_warning(TW_LOC,
+                    "Ignoring invalid save_event_time_trace_stride=%s; using stride=1",
+                    event_time_trace_stride_str);
+        }
+    }
+
+    char event_time_inference_enabled_str[MAX_NAME_LENGTH];
+    event_time_inference_enabled_str[0] = '\0';
+
+    char const * inferencing_enabled_env = getenv("INFERENCING_ENABLED");
+    if(inferencing_enabled_env && strlen(inferencing_enabled_env) > 0) {
+        snprintf(
+            event_time_inference_enabled_str,
+            sizeof(event_time_inference_enabled_str),
+            "%s",
+            inferencing_enabled_env
+        );
+    } else {
+        configuration_get_value(&config, "DIRECTOR", "inferencing_enabled", anno,
+                event_time_inference_enabled_str, MAX_NAME_LENGTH);
+    }
+
+    event_time_inference_enabled =
+        dfdally_string_is_true(event_time_inference_enabled_str);
+
+    /*
+     * Event-time training record streaming follows the existing Director
+     * workflow.  Do not add a separate event-time config switch:
+     *
+     *   TRAINING_ENABLED=1 / DIRECTOR.training_enabled=1 -> send records
+     *   TRAINING_ENABLED=0 / DIRECTOR.training_enabled=0 -> do not send
+     *
+     * TRAINING_ENABLED from the environment is an override so the existing
+     * envsubst-driven workflow behaves the same as iteration-time collection.
+     */
+    char event_time_surrogate_family_str[MAX_NAME_LENGTH];
+    event_time_surrogate_family_str[0] = '\0';
+    configuration_get_value(&config, "DIRECTOR", "surrogate_family", anno,
+            event_time_surrogate_family_str, MAX_NAME_LENGTH);
+
+    if(strlen(event_time_surrogate_family_str) == 0) {
+        configuration_get_value(&config, "DIRECTOR", "surrogate_model", anno,
+                event_time_surrogate_family_str, MAX_NAME_LENGTH);
+    }
+
+    char event_time_training_enabled_str[MAX_NAME_LENGTH];
+    event_time_training_enabled_str[0] = '\0';
+
+    char const * training_enabled_env = getenv("TRAINING_ENABLED");
+    if(training_enabled_env && strlen(training_enabled_env) > 0) {
+        snprintf(
+            event_time_training_enabled_str,
+            sizeof(event_time_training_enabled_str),
+            "%s",
+            training_enabled_env
+        );
+    } else {
+        configuration_get_value(&config, "DIRECTOR", "training_enabled", anno,
+                event_time_training_enabled_str, MAX_NAME_LENGTH);
+    }
+
+    event_time_surrogate_family_selected =
+        strcmp(event_time_surrogate_family_str, "event-time") == 0;
+
+    int const event_time_training_selected =
+        dfdally_string_is_true(event_time_training_enabled_str);
+
+    event_time_training_records_enabled =
+        event_time_surrogate_family_selected && event_time_training_selected;
+
+    event_time_zmq_batch_size = 65536;
+
+    if(event_time_training_records_enabled && !event_time_zmq_flush_registered) {
+        atexit(dfdally_event_time_zmq_flush_atexit);
+        event_time_zmq_flush_registered = 1;
+    }
+
+    if(dfdally_surrogate_debug_prints) {
+        fprintf(
+            stderr,
+            "[event-time records] family=%s training_enabled=%s send_to_zmq=%d batch_size=%d\n",
+            event_time_surrogate_family_str,
+            event_time_training_enabled_str,
+            event_time_training_records_enabled,
+            event_time_zmq_batch_size
+        );
+        fflush(stderr);
+    }
+
+
     // START Surrogate configuration
     char enable_str[MAX_NAME_LENGTH];
     enable_str[0] = '\0';
@@ -3282,11 +3434,524 @@ static inline void packet_latency_save_to_file(
             latency);
 }
 
+
+
+static int dfdally_mkdir_p(char const * const path)
+{
+    if (!path || strlen(path) == 0) {
+        return 0;
+    }
+
+    char tmp[MAX_NAME_LENGTH];
+    snprintf(tmp, sizeof(tmp), "%s", path);
+
+    size_t len = strlen(tmp);
+    if (len == 0) {
+        return 0;
+    }
+
+    if (tmp[len - 1] == '/') {
+        tmp[len - 1] = '\0';
+    }
+
+    for (char *cur = tmp + 1; *cur; ++cur) {
+        if (*cur != '/') {
+            continue;
+        }
+
+        *cur = '\0';
+
+        if (strlen(tmp) > 0 && mkdir(tmp, 0777) && errno != EEXIST) {
+            return -1;
+        }
+
+        *cur = '/';
+    }
+
+    if (mkdir(tmp, 0777) && errno != EEXIST) {
+        return -1;
+    }
+
+    return 0;
+}
+
+
+
+
+static int dfdally_string_is_true(char const *s)
+{
+    if (!s || strlen(s) == 0) {
+        return 0;
+    }
+
+    return (
+        strcmp(s, "1") == 0 ||
+        strcmp(s, "true") == 0 ||
+        strcmp(s, "TRUE") == 0 ||
+        strcmp(s, "yes") == 0 ||
+        strcmp(s, "YES") == 0 ||
+        strcmp(s, "on") == 0 ||
+        strcmp(s, "ON") == 0
+    );
+}
+
+static void setup_event_time_trace_path(char const * const dir_to_save)
+{
+    if (!dir_to_save || strlen(dir_to_save) == 0) {
+        return;
+    }
+
+    if (dfdally_mkdir_p(dir_to_save) != 0) {
+        tw_error(TW_LOC, "Could not create event-time trace directory: %s", dir_to_save);
+    }
+
+    char filename[MAX_NAME_LENGTH];
+    snprintf(
+        filename,
+        sizeof(filename),
+        "%s/event-time-node=%ld.csv",
+        dir_to_save,
+        (long)g_tw_mynode
+    );
+
+    event_time_trace_f = fopen(filename, "w");
+    if (!event_time_trace_f) {
+        tw_error(TW_LOC, "Could not open event-time trace file: %s", filename);
+    }
+
+    fprintf(
+        event_time_trace_f,
+        "schema_version,sample_id,now,current_lp_gid,current_lp_type,"
+        "current_event_type,target_lp_gid,target_lp_type,target_event_type,"
+        "nominal_delay,target_delay,backend\n"
+    );
+    fflush(event_time_trace_f);
+}
+
+
+static void dfdally_event_time_zmq_flush(void)
+{
+    if (!event_time_training_records_enabled || event_time_zmq_buffer.empty()) {
+        return;
+    }
+
+    if (!zmqml_request) {
+        if (dfdally_surrogate_debug_prints) {
+            fprintf(
+                stderr,
+                "[event-time records] zmqml_request unavailable; dropping %llu buffered rows\n",
+                event_time_zmq_buffered_rows
+            );
+            fflush(stderr);
+        }
+
+        event_time_zmq_buffer.clear();
+        event_time_zmq_buffered_rows = 0;
+        return;
+    }
+
+    std::vector<std::string> args;
+    args.push_back("1");
+
+    try {
+        std::vector<std::string> ret =
+            zmqml_request("send-event-time-records", args, event_time_zmq_buffer);
+
+        if (ret.empty() || ret[0] != "done") {
+            if (dfdally_surrogate_debug_prints) {
+                fprintf(
+                    stderr,
+                    "[event-time records] send-event-time-records returned non-done status; "
+                    "buffered_rows=%llu\n",
+                    event_time_zmq_buffered_rows
+                );
+                fflush(stderr);
+            }
+        } else if (dfdally_surrogate_debug_prints) {
+            fprintf(
+                stderr,
+                "[event-time records] sent %llu rows to zmqmlserver\n",
+                event_time_zmq_buffered_rows
+            );
+            fflush(stderr);
+        }
+    } catch (...) {
+        if (dfdally_surrogate_debug_prints) {
+            fprintf(
+                stderr,
+                "[event-time records] send-event-time-records failed; buffered_rows=%llu\n",
+                event_time_zmq_buffered_rows
+            );
+            fflush(stderr);
+        }
+    }
+
+    event_time_zmq_buffer.clear();
+    event_time_zmq_buffered_rows = 0;
+}
+
+static void dfdally_event_time_zmq_flush_atexit(void)
+{
+    dfdally_event_time_zmq_flush();
+}
+
+static void dfdally_event_time_zmq_queue_row(char const *row)
+{
+    if (!event_time_training_records_enabled || !row || row[0] == '\0') {
+        return;
+    }
+
+    event_time_zmq_buffer += row;
+    event_time_zmq_buffered_rows++;
+
+    if (event_time_zmq_batch_size <= 0) {
+        event_time_zmq_batch_size = 65536;
+    }
+
+    if (event_time_zmq_buffered_rows >= (unsigned long long)event_time_zmq_batch_size) {
+        dfdally_event_time_zmq_flush();
+    }
+}
+
+
+static void dfdally_event_time_trace_row(
+    tw_lp *lp,
+    int current_lp_type,
+    int current_event_type,
+    tw_lpid target_lp_gid,
+    int target_lp_type,
+    int target_event_type,
+    double nominal_delay,
+    double target_delay
+)
+{
+    if (!event_time_trace_f && !event_time_training_records_enabled) {
+        return;
+    }
+
+    event_time_trace_counter++;
+    if (event_time_trace_stride > 1 &&
+        (event_time_trace_counter % (unsigned long long)event_time_trace_stride) != 0) {
+        return;
+    }
+
+    if (!isfinite(target_delay) || target_delay <= 0.0) {
+        return;
+    }
+
+    char row[1024];
+    int const n = snprintf(
+        row,
+        sizeof(row),
+        "1,%llu,%.17g,%llu,%d,%d,%llu,%d,%d,%.17g,%.17g,dragonfly-dally\n",
+        event_time_trace_counter,
+        (double)tw_now(lp),
+        (unsigned long long)lp->gid,
+        current_lp_type,
+        current_event_type,
+        (unsigned long long)target_lp_gid,
+        target_lp_type,
+        target_event_type,
+        nominal_delay,
+        target_delay
+    );
+
+    if (n < 0 || n >= (int)sizeof(row)) {
+        return;
+    }
+
+    if (event_time_trace_f) {
+        fputs(row, event_time_trace_f);
+        fflush(event_time_trace_f);
+    }
+
+    dfdally_event_time_zmq_queue_row(row);
+}
+
+
+
+static double dfdally_event_time_get_cache_time_bucket(void)
+{
+    if(!event_time_cache_time_bucket_initialized) {
+        event_time_cache_time_bucket_initialized = 1;
+
+        char const *env = getenv("EVENT_TIME_CACHE_TIME_BUCKET");
+        if(env && strlen(env) > 0) {
+            char *endptr = NULL;
+            double value = strtod(env, &endptr);
+            if(endptr != env && isfinite(value) && value > 0.0) {
+                event_time_cache_time_bucket = value;
+            }
+        }
+    }
+
+    return event_time_cache_time_bucket;
+}
+
+static std::string dfdally_event_time_prediction_cache_key(
+    int current_lp_type,
+    int current_event_type,
+    int target_lp_type,
+    int target_event_type,
+    double nominal_delay,
+    double now
+)
+{
+    char key[256];
+
+    double const time_bucket_width = dfdally_event_time_get_cache_time_bucket();
+
+    if(time_bucket_width > 0.0) {
+        double const time_bucket = floor(now / time_bucket_width);
+        snprintf(
+            key,
+            sizeof(key),
+            "%d|%d|%d|%d|%.12g|tb=%.0f",
+            current_lp_type,
+            current_event_type,
+            target_lp_type,
+            target_event_type,
+            nominal_delay,
+            time_bucket
+        );
+    } else {
+        snprintf(
+            key,
+            sizeof(key),
+            "%d|%d|%d|%d|%.12g",
+            current_lp_type,
+            current_event_type,
+            target_lp_type,
+            target_event_type,
+            nominal_delay
+        );
+    }
+
+    return std::string(key);
+}
+
+static double dfdally_event_time_sanitize_prediction(
+    double predicted,
+    double original_delay
+)
+{
+    if(!isfinite(predicted) || predicted <= 0.0) {
+        return original_delay;
+    }
+
+    double const max_reasonable =
+        original_delay > 0.0 ? original_delay * 10.0 : predicted;
+
+    if(predicted > max_reasonable) {
+        return original_delay;
+    }
+
+    return predicted;
+}
+
+static double dfdally_event_time_predict_or_original(
+    tw_lp *lp,
+    int current_lp_type,
+    int current_event_type,
+    tw_lpid target_lp_gid,
+    int target_lp_type,
+    int target_event_type,
+    double nominal_delay,
+    double original_delay
+)
+{
+    if (!event_time_surrogate_family_selected || !event_time_inference_enabled || !event_time_inference_active) {
+        return original_delay;
+    }
+
+    if (!isfinite(original_delay) || original_delay <= 0.0) {
+        return original_delay;
+    }
+
+    std::string const cache_key = dfdally_event_time_prediction_cache_key(
+        current_lp_type,
+        current_event_type,
+        target_lp_type,
+        target_event_type,
+        nominal_delay,
+        (double)tw_now(lp)
+    );
+
+    std::unordered_map<std::string, double>::const_iterator cached =
+        event_time_prediction_cache.find(cache_key);
+
+    if(cached != event_time_prediction_cache.end()) {
+        event_time_cache_hits++;
+
+        double const predicted =
+            dfdally_event_time_sanitize_prediction(cached->second, original_delay);
+
+        if(dfdally_surrogate_debug_prints &&
+           (event_time_cache_hits <= 20 ||
+            (event_time_cache_hits % 65536ULL) == 0)) {
+            fprintf(
+                stderr,
+                "[event-time inference cache-hit] hits=%llu misses=%llu "
+                "zmq_calls=%llu cache_size=%llu original=%.17g predicted=%.17g\n",
+                event_time_cache_hits,
+                event_time_cache_misses,
+                event_time_zmq_inference_calls,
+                (unsigned long long)event_time_prediction_cache.size(),
+                original_delay,
+                predicted
+            );
+            fflush(stderr);
+        }
+
+        return predicted;
+    }
+
+    event_time_cache_misses++;
+
+    std::ostringstream row;
+    row
+        << "schema_version,sample_id,now,current_lp_gid,current_lp_type,"
+        << "current_event_type,target_lp_gid,target_lp_type,target_event_type,"
+        << "nominal_delay\n"
+        << "1,0,"
+        << (double)tw_now(lp) << ","
+        << (unsigned long long)lp->gid << ","
+        << current_lp_type << ","
+        << current_event_type << ","
+        << (unsigned long long)target_lp_gid << ","
+        << target_lp_type << ","
+        << target_event_type << ","
+        << nominal_delay
+        << "\n";
+
+    std::vector<std::string> args;
+    args.push_back("1");
+
+    if (!zmqml_request) {
+        if (dfdally_surrogate_debug_prints) {
+            fprintf(
+                stderr,
+                "[event-time inference] zmqml_request unavailable; "
+                "using original delay %.17g\n",
+                original_delay
+            );
+            fflush(stderr);
+        }
+        return original_delay;
+    }
+
+    std::vector<std::string> ret;
+    try {
+        ret = zmqml_request("event-time-inference", args, row.str());
+        event_time_zmq_inference_calls++;
+    } catch (...) {
+        if (dfdally_surrogate_debug_prints) {
+            fprintf(
+                stderr,
+                "[event-time inference] request failed; "
+                "using original delay %.17g\n",
+                original_delay
+            );
+            fflush(stderr);
+        }
+        return original_delay;
+    }
+
+    if (ret.size() < 3 || ret[0] != "done") {
+        if (dfdally_surrogate_debug_prints) {
+            fprintf(
+                stderr,
+                "[event-time inference] bad reply; "
+                "using original delay %.17g\n",
+                original_delay
+            );
+            fflush(stderr);
+        }
+        return original_delay;
+    }
+
+    char *endptr = NULL;
+    double predicted_raw = strtod(ret[2].c_str(), &endptr);
+
+    if (endptr == ret[2].c_str() || !isfinite(predicted_raw) || predicted_raw <= 0.0) {
+        return original_delay;
+    }
+
+    event_time_prediction_cache[cache_key] = predicted_raw;
+
+    double const predicted =
+        dfdally_event_time_sanitize_prediction(predicted_raw, original_delay);
+
+    if (dfdally_surrogate_debug_prints &&
+        (event_time_cache_misses <= 20 ||
+         (event_time_cache_misses % 1024ULL) == 0)) {
+        fprintf(
+            stderr,
+            "[event-time inference cache-miss] hits=%llu misses=%llu "
+            "zmq_calls=%llu cache_size=%llu original=%.17g predicted=%.17g\n",
+            event_time_cache_hits,
+            event_time_cache_misses,
+            event_time_zmq_inference_calls,
+            (unsigned long long)event_time_prediction_cache.size(),
+            original_delay,
+            predicted
+        );
+        fflush(stderr);
+    }
+
+    return predicted;
+}
+
+
+
 // ==== START OF Surrogate functions definition ====
 
 static void switch_surrogate(void) {
     is_dally_surrogate_on = ! is_dally_surrogate_on;
     dfdally_surrogate_has_switched_once = true;
+}
+
+
+extern "C" int dfdally_event_time_surrogate_set_active(int enabled)
+{
+    if(!event_time_surrogate_family_selected) {
+        return 0;
+    }
+
+    int const was_active = event_time_inference_active;
+
+    if(enabled) {
+        event_time_inference_active_count++;
+    } else if(event_time_inference_active_count > 0) {
+        event_time_inference_active_count--;
+    }
+
+    event_time_inference_active = event_time_inference_active_count > 0;
+
+    if(was_active && !event_time_inference_active) {
+        fprintf(
+            stderr,
+            "[event-time cache summary] hits=%llu misses=%llu zmq_calls=%llu cache_size=%llu\n",
+            event_time_cache_hits,
+            event_time_cache_misses,
+            event_time_zmq_inference_calls,
+            (unsigned long long)event_time_prediction_cache.size()
+        );
+        fflush(stderr);
+    }
+
+    if(dfdally_surrogate_debug_prints) {
+        fprintf(
+            stderr,
+            "[event-time surrogate] active=%d active_count=%d inference_enabled=%d\n",
+            event_time_inference_active,
+            event_time_inference_active_count,
+            event_time_inference_enabled
+        );
+        fflush(stderr);
+    }
+
+    return 1;
 }
 
 static bool is_surrogate_on_fun(void) {
@@ -5087,8 +5752,28 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
 
     router_id = s->router_lp[msg->rail_id];
 
+    tw_stime event_time_target_delay = propagation_ts + gen_noise(lp, &msg->num_rngs);
+    dfdally_event_time_trace_row(
+            lp,
+            DRAGONFLY_DALLY,
+            T_SEND,
+            router_id,
+            DRAGONFLY_DALLY_ROUTER,
+            R_ARRIVE,
+            propagation_ts,
+            event_time_target_delay);
+    event_time_target_delay = dfdally_event_time_predict_or_original(
+            lp,
+            DRAGONFLY_DALLY,
+            T_SEND,
+            router_id,
+            DRAGONFLY_DALLY_ROUTER,
+            R_ARRIVE,
+            propagation_ts,
+            event_time_target_delay);
+
     void * remote_event;
-    e = model_net_method_event_new(router_id, propagation_ts + gen_noise(lp, &msg->num_rngs), lp,
+    e = model_net_method_event_new(router_id, event_time_target_delay, lp,
             DRAGONFLY_DALLY_ROUTER, (void**)&m, &remote_event);
     memcpy(m, &cur_entry->msg, sizeof(terminal_dally_message));
     if (m->remote_event_size_bytes){
@@ -7027,17 +7712,39 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
 
     // dest can be a router or a terminal, so we must check
     void * m_data;
+    int const event_time_target_lp_type = to_terminal ? DRAGONFLY_DALLY : DRAGONFLY_DALLY_ROUTER;
+    int const event_time_target_event_type = to_terminal ? T_ARRIVE : R_ARRIVE;
+    tw_stime event_time_target_delay = propagation_ts + gen_noise(lp, &msg->num_rngs);
+    dfdally_event_time_trace_row(
+            lp,
+            DRAGONFLY_DALLY_ROUTER,
+            R_SEND,
+            cur_entry->msg.next_stop,
+            event_time_target_lp_type,
+            event_time_target_event_type,
+            propagation_ts,
+            event_time_target_delay);
+    event_time_target_delay = dfdally_event_time_predict_or_original(
+            lp,
+            DRAGONFLY_DALLY_ROUTER,
+            R_SEND,
+            cur_entry->msg.next_stop,
+            event_time_target_lp_type,
+            event_time_target_event_type,
+            propagation_ts,
+            event_time_target_delay);
+
     if (to_terminal) {
         // printf("\n next stop %d dest term id %d ", cur_entry->msg.next_stop, cur_entry->msg.dest_terminal_lpid);
         if(cur_entry->msg.next_stop != cur_entry->msg.dest_terminal_lpid)
         printf("\n intra-group radix %d output port %d next stop %d", s->params->intra_grp_radix, output_port, cur_entry->msg.next_stop);
         assert(cur_entry->msg.next_stop == cur_entry->msg.dest_terminal_lpid);
-        e = model_net_method_event_new(cur_entry->msg.next_stop, 
-            propagation_ts + gen_noise(lp, &msg->num_rngs), lp, DRAGONFLY_DALLY, (void**)&m, &m_data);
+        e = model_net_method_event_new(cur_entry->msg.next_stop,
+            event_time_target_delay, lp, DRAGONFLY_DALLY, (void**)&m, &m_data);
     }
     else {
         e = model_net_method_event_new(cur_entry->msg.next_stop,
-                propagation_ts + gen_noise(lp, &msg->num_rngs), lp, DRAGONFLY_DALLY_ROUTER, (void**)&m, &m_data);
+                event_time_target_delay, lp, DRAGONFLY_DALLY_ROUTER, (void**)&m, &m_data);
     }
     memcpy(m, &cur_entry->msg, sizeof(terminal_dally_message));
     if (m->remote_event_size_bytes) {

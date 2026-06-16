@@ -26,6 +26,17 @@
 
 #include "codes/surrogate/director-client.h"
 
+extern int dfdally_event_time_surrogate_set_active(int enabled) __attribute__((weak));
+
+static int nw_event_time_surrogate_set_active_if_available(int enabled)
+{
+    if(dfdally_event_time_surrogate_set_active) {
+        return dfdally_event_time_surrogate_set_active(enabled);
+    }
+    return 0;
+}
+
+
 /*  ==========================================================
     START OF Director Code (To be moved to separate files)
     ==========================================================
@@ -3003,7 +3014,12 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 
         /* START of Sim. transition events sent by DIRECTOR */
         case CODES_CMD_SWITCH_TO_SURR:
-            if (s->simulation_mode == SIM_MODE_PDES) {
+            bf->c22 = 0;
+            if(nw_event_time_surrogate_set_active_if_available(1)) {
+                bf->c22 = 1;
+                get_next_mpi_operation(s, bf, m, lp);
+            }
+            else if (s->simulation_mode == SIM_MODE_PDES) {
                 bf->c20 = 1;
                 s->simulation_mode = SIM_MODE_ITERATION_SURROGATE;
                 get_next_mpi_operation(s, bf, m, lp);
@@ -3011,7 +3027,12 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
             break;
 
         case CODES_CMD_SWITCH_TO_PDES:
-            if (s->simulation_mode == SIM_MODE_ITERATION_SURROGATE) {
+            bf->c23 = 0;
+            if(nw_event_time_surrogate_set_active_if_available(0)) {
+                bf->c23 = 1;
+                get_next_mpi_operation(s, bf, m, lp);
+            }
+            else if (s->simulation_mode == SIM_MODE_ITERATION_SURROGATE) {
                 bf->c21 = 1;
                 s->simulation_mode = SIM_MODE_PDES;
                 get_next_mpi_operation(s, bf, m, lp);
@@ -3519,7 +3540,12 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
             break;
 
         case CODES_CMD_SWITCH_TO_SURR:
-            if(bf->c20)
+            if(bf->c22)
+            {
+                get_next_mpi_operation_rc(s, bf, m, lp);
+                nw_event_time_surrogate_set_active_if_available(0);
+            }
+            else if(bf->c20)
             {
                 get_next_mpi_operation_rc(s, bf, m, lp);
                 s->simulation_mode = SIM_MODE_PDES;
@@ -3527,7 +3553,12 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
             break;
 
         case CODES_CMD_SWITCH_TO_PDES:
-            if(bf->c21)
+            if(bf->c23)
+            {
+                get_next_mpi_operation_rc(s, bf, m, lp);
+                nw_event_time_surrogate_set_active_if_available(1);
+            }
+            else if(bf->c21)
             {
                 get_next_mpi_operation_rc(s, bf, m, lp);
                 s->simulation_mode = SIM_MODE_ITERATION_SURROGATE;

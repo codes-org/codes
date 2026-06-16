@@ -1,0 +1,108 @@
+# ZeroMQ Director example for model-net-mpi-replay on a 72-terminal
+# dragonfly-dally network.
+#
+# This example is self-contained inside the CODES repository. It uses:
+#
+#   doc/example/kb.dfdally-72-zeromq-director.conf
+#   doc/example/kb.dfdally-72-milc-small.workload.conf
+#   doc/example/kb.dfdally-72-milc-small.json
+#   doc/example/kb.dfdally-72-milc-small.alloc.conf
+
+LPGROUPS
+{
+    MODELNET_GRP
+    {
+        repetitions="36";
+        nw-lp="2";
+        dir-nw-lp="2";
+
+        modelnet_dragonfly_dally="2";
+        modelnet_dragonfly_dally_router="1";
+    }
+}
+
+DIRECTOR
+{
+    surrogate_backend="${SURROGATE_BACKEND}";
+    surrogate_family="${SURROGATE_FAMILY}";
+
+    start_iter="${START_ITER}";
+    end_iter="${END_ITER}";
+
+    retrain_enabled="${RETRAIN_ENABLED}";
+    retrain_iter="${RETRAIN_ITER}";
+    retrain_save_path="${RETRAIN_SAVE_PATH}";
+
+    second_surrogate_enabled="${SECOND_SURROGATE_ENABLED}";
+    second_start_iter="${SECOND_START_ITER}";
+    second_end_iter="${SECOND_END_ITER}";
+
+    inferencing_enabled="${INFERENCING_ENABLED}";
+    surrogate_enabled="${SURROGATE_ENABLED}";
+    training_enabled="${TRAINING_ENABLED}";
+
+    debug_prints="${DIRECTOR_DEBUG_PRINTS}";
+    shutdown_zmqml_server_on_finalize="${SHUTDOWN_ZMQML_SERVER_ON_FINALIZE}";
+}
+
+PARAMS
+{
+    message_size="824";
+
+    packet_size="4096";
+    chunk_size="64";
+
+    num_routers="4";
+    num_groups="9";
+    num_row_chans="1";
+    num_col_chans="1";
+    num_cns_per_router="2";
+    num_global_channels="2";
+
+    cn_bandwidth="5.25";
+    local_bandwidth="5.25";
+    global_bandwidth="5.25";
+
+    cn_vc_size="32768";
+    local_vc_size="16384";
+    global_vc_size="16384";
+
+    cn_delay="10";
+    local_delay="10";
+    global_delay="100";
+    router_delay="300";
+    nic_seq_delay="0";
+
+    cn_credit_delay="10";
+    local_credit_delay="10";
+    global_credit_delay="100";
+
+    num_qos_levels="1";
+    bw_reset_window="250000.0";
+    max_qos_monitor="5500000000";
+    qos_bucket_max="10";
+    qos_min_bws="5,30,20,5";
+    qos_max_bws="10,80,60,20";
+
+    routing="prog-adaptive";
+    adaptive_threshold="2560";
+    route_scoring_metric="alpha";
+    route_scoring_factors="2";
+    route_scoring_factors_local_intm="2";
+    route_scoring_factors_local_dest="2";
+
+    modelnet_order=("dragonfly_dally","dragonfly_dally_router");
+    modelnet_scheduler="round-robin";
+
+    intra-group-connections="/home/local/KHQ/sanjay.chari/codes/src/network-workloads/conf/dragonfly-dally/dfdally-72-intra";
+    inter-group-connections="/home/local/KHQ/sanjay.chari/codes/src/network-workloads/conf/dragonfly-dally/dfdally-72-inter";
+}
+
+
+NETWORK_SURROGATE
+{
+    debug_prints="${NETWORK_SURROGATE_DEBUG_PRINTS}";
+    event_time_inference_enabled="${EVENT_TIME_INFERENCE_ENABLED}";
+    director_mode="${NETWORK_SURROGATE_DIRECTOR_MODE}";
+    enable="${NETWORK_SURROGATE_ENABLE}";
+}

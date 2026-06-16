@@ -18,6 +18,7 @@ import numpy as np
 # TODO: abstract a mechanism to call training
 from runmlpacketdelay import run_mlpacketdelay_training
 from model.mliterationtime import IterationTimeModelRegistry
+from model.mleventtime import EventTimeModel
 import csv
 from pathlib import Path
 
@@ -43,7 +44,15 @@ iteration_time_models = IterationTimeModelRegistry(
     ridge_alpha=float(os.environ.get("ZMQML_ITERATION_RIDGE_ALPHA", "1.0")),
     train_stride=int(os.environ.get("ZMQML_ITERATION_TRAIN_STRIDE", "3")),
 )
+event_time_model = EventTimeModel(
+    min_rows=int(os.environ.get("ZMQML_EVENT_TIME_MIN_ROWS", "32")),
+    max_epochs=int(os.environ.get("ZMQML_EVENT_TIME_EPOCHS", "80")),
+    lr=float(os.environ.get("ZMQML_EVENT_TIME_LR", "0.001")),
+    hidden_dim=int(os.environ.get("ZMQML_EVENT_TIME_HIDDEN_DIM", "64")),
+)
 iteration_model_path = os.environ.get("ZMQML_ITERATION_MODEL_PATH", "").strip()
+event_time_model_path = os.environ.get("ZMQML_EVENT_TIME_MODEL_PATH", "").strip()
+event_time_record_log_path = os.environ.get("ZMQML_EVENT_TIME_RECORD_LOG_PATH", "").strip()
 record_log_path = os.environ.get("ZMQML_RECORD_LOG_PATH", "").strip()
 record_format = os.environ.get("ZMQML_RECORD_FORMAT", "client,value").strip()
 app_alloc_path = os.environ.get("ZMQML_APP_ALLOC_PATH", "").strip()
@@ -51,14 +60,33 @@ app_alloc_path = os.environ.get("ZMQML_APP_ALLOC_PATH", "").strip()
 auto_train_on_records = os.environ.get(
     "ZMQML_AUTO_TRAIN_ON_RECORDS", "1"
 ).strip().lower() in ("1", "true", "yes", "on")
+event_time_auto_train_on_records = os.environ.get(
+    "ZMQML_EVENT_TIME_AUTO_TRAIN_ON_RECORDS", "0"
+).strip().lower() in ("1", "true", "yes", "on")
 
 iteration_model_version = 0
+event_time_model_version = 0
+
+EVENT_TIME_RECORD_HEADER = (
+    "schema_version,sample_id,now,current_lp_gid,current_lp_type,"
+    "current_event_type,target_lp_gid,target_lp_type,target_event_type,"
+    "nominal_delay,target_delay,backend\n"
+)
+
 
 if iteration_model_path:
     iteration_time_models.load(iteration_model_path)
     iteration_model_version = 1
     print(
         f"[zmqmlserver] loaded iteration-time model: {iteration_model_path}",
+        flush=True,
+    )
+
+if event_time_model_path:
+    event_time_model.load(event_time_model_path)
+    event_time_model_version = 1
+    print(
+        f"[zmqmlserver] loaded event-time model: {event_time_model_path}",
         flush=True,
     )
 
@@ -200,6 +228,7 @@ def set_director_debug_prints(args):
 
     director_debug_prints = raw in ("1", "true", "yes", "on", "enabled")
     iteration_time_models.set_debug(director_debug_prints)
+    event_time_model.set_debug(director_debug_prints)
 
     if director_debug_prints:
         print(f"[zmqmlserver] director_debug_prints=1", flush=True)
@@ -421,6 +450,231 @@ def launch_iteration_time_inferencing(args, bindata):
 
 
 
+
+
+
+def event_time_payload_has_header(payload: str) -> bool:
+    for line in payload.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        return line.startswith("schema_version,")
+    return False
+
+
+def event_time_payload_with_header(payload: str) -> str:
+    payload = payload.strip()
+    if not payload:
+        return ""
+
+    if event_time_payload_has_header(payload):
+        return payload + ("\n" if not payload.endswith("\n") else "")
+
+    return EVENT_TIME_RECORD_HEADER + payload + ("\n" if not payload.endswith("\n") else "")
+
+
+def append_event_time_record_log(payload: str) -> None:
+    if not event_time_record_log_path or not payload.strip():
+        return
+
+    out_path = Path(event_time_record_log_path)
+    if out_path.parent:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    file_has_content = out_path.exists() and out_path.stat().st_size > 0
+    payload_has_header = event_time_payload_has_header(payload)
+
+    lines = payload.strip().splitlines()
+
+    # Avoid repeated headers in the server-owned CSV.
+    if payload_has_header and file_has_content and lines:
+        lines = lines[1:]
+
+    with out_path.open("a") as f:
+        if not file_has_content and not payload_has_header:
+            f.write(EVENT_TIME_RECORD_HEADER)
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            f.write(line)
+            f.write("\n")
+
+
+def receive_event_time_records(args, bindata):
+    st = time.time()
+
+    raw_payload = bindata.decode("utf-8", errors="replace").strip()
+    payload = event_time_payload_with_header(raw_payload)
+    loaded_rows = event_time_model.add_records_text(payload) if payload else 0
+
+    if loaded_rows > 0:
+        append_event_time_record_log(raw_payload)
+        if event_time_auto_train_on_records:
+            event_time_model.train_or_update()
+
+    director_debug(
+        f"[event-time records] loaded_rows={loaded_rows} "
+        f"total_rows={len(event_time_model.rows)} "
+        f"trained={int(event_time_model.trained)}"
+    )
+
+    return ("done", time.time() - st, loaded_rows)
+
+
+def load_event_time_records_csv_command(args):
+    st = time.time()
+    real_args = _real_command_args(args)
+
+    if not real_args:
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": "missing CSV path or directory",
+        }
+
+    path = Path(real_args[0])
+    if not path.exists():
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": f"event-time records path does not exist: {path}",
+        }
+
+    loaded_rows = event_time_model.load_csv(path)
+
+    return {
+        "status": "done",
+        "et": str(time.time() - st),
+        "path": str(path),
+        "loaded_rows": str(loaded_rows),
+        "total_rows": str(len(event_time_model.rows)),
+    }
+
+
+def train_event_time_model_command(args):
+    global event_time_model_version
+
+    st = time.time()
+    trained = event_time_model.train_or_update()
+
+    if trained:
+        event_time_model_version += 1
+
+    ret = {
+        "status": "done" if trained else "failed",
+        "et": str(time.time() - st),
+        "model_version": str(event_time_model_version),
+    }
+    ret.update(event_time_model.status())
+
+    if not trained:
+        ret["error"] = "event-time model was not trained; load enough generic event-time rows first"
+
+    print(
+        f"[event-time model-train-command] trained={int(trained)} "
+        f"rows={len(event_time_model.rows)} "
+        f"training_examples={event_time_model.training_examples} "
+        f"model_version={event_time_model_version}",
+        flush=True,
+    )
+
+    return ret
+
+
+def save_event_time_model_command(args):
+    st = time.time()
+    real_args = _real_command_args(args)
+
+    if not real_args:
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": "missing output model path",
+        }
+
+    model_path = Path(real_args[0])
+    if model_path.parent:
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+
+    event_time_model.save(model_path)
+
+    return {
+        "status": "done",
+        "et": str(time.time() - st),
+        "path": str(model_path),
+        "model_version": str(event_time_model_version),
+    }
+
+
+def load_event_time_model_command(args):
+    global event_time_model_version
+
+    st = time.time()
+    real_args = _real_command_args(args)
+
+    if not real_args:
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": "missing input model path",
+        }
+
+    model_path = Path(real_args[0])
+    if not model_path.exists():
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": f"model path does not exist: {model_path}",
+        }
+
+    event_time_model.load(model_path)
+    event_time_model_version += 1
+
+    return {
+        "status": "done",
+        "et": str(time.time() - st),
+        "path": str(model_path),
+        "model_version": str(event_time_model_version),
+    }
+
+
+def event_time_model_status_command(args):
+    st = time.time()
+    ret = {
+        "status": "done",
+        "et": str(time.time() - st),
+        "model_version": str(event_time_model_version),
+    }
+    ret.update(event_time_model.status())
+    return ret
+
+
+def launch_event_time_inferencing(args, bindata):
+    st = time.time()
+
+    real_args = _real_command_args(args)
+    requested_count = 1
+    if real_args:
+        try:
+            requested_count = int(real_args[-1])
+        except Exception:
+            requested_count = 1
+
+    payload = bindata.decode("utf-8", errors="replace").strip()
+    predictions = event_time_model.predict_from_text(
+        payload,
+        requested_count=max(1, requested_count),
+    )
+    predictions_str = " ".join(str(float(x)) for x in predictions)
+
+    director_debug(
+        f"[event-time inference] requested_count={requested_count} "
+        f"payload_bytes={len(payload)} predictions={predictions_str}"
+    )
+
+    return ("done", time.time() - st, predictions_str)
 
 def _real_command_args(args):
     if args is None:
@@ -759,9 +1013,17 @@ def zmq_cmd_listener():
         elif cmd == "send-records":
             (status, et) = receiverecords(args, bindata)
             retmsg = {"status":status, "et":str(et)}
+
+        elif cmd == "send-event-time-records":
+            (status, et, loaded_rows) = receive_event_time_records(args, bindata)
+            retmsg = {"status": status, "et": str(et), "loaded_rows": str(loaded_rows)}
         elif cmd == "iteration-time-inference":
             (status, et, predictions) = launch_iteration_time_inferencing(args, bindata)
             retmsg = {"status":status, "et":str(et), "predictions": predictions}
+
+        elif cmd == "event-time-inference":
+            (status, et, predictions) = launch_event_time_inferencing(args, bindata)
+            retmsg = {"status": status, "et": str(et), "predictions": predictions, "prediction": predictions.split()[0] if predictions else ""}
 
         elif cmd == "train-iteration-time-model":
             retmsg = train_iteration_time_model_command(args)
@@ -777,6 +1039,21 @@ def zmq_cmd_listener():
 
         elif cmd == "iteration-time-model-status":
             retmsg = iteration_time_model_status_command(args)
+
+        elif cmd == "load-event-time-records-csv":
+            retmsg = load_event_time_records_csv_command(args)
+
+        elif cmd == "train-event-time-model":
+            retmsg = train_event_time_model_command(args)
+
+        elif cmd == "save-event-time-model":
+            retmsg = save_event_time_model_command(args)
+
+        elif cmd == "load-event-time-model":
+            retmsg = load_event_time_model_command(args)
+
+        elif cmd == "event-time-model-status":
+            retmsg = event_time_model_status_command(args)
 
         elif cmd == "do-inference":
             # Backwards-compatible alias for the previous Director command.
