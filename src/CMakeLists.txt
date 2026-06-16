@@ -62,7 +62,6 @@ list(APPEND SRCS
     surrogate/app-iteration-predictor/average.c
     surrogate/packet-latency-predictor/common.c
     surrogate/packet-latency-predictor/average.c
-    surrogate/director-client.C
 
     iokernellang/codesparser.h
     iokernellang/codesparser.c
@@ -125,6 +124,23 @@ if(USE_TORCH)
     list(APPEND LIBS_TO_LINK ${TORCH_LIBRARIES})
 endif()
 
+# ZMQML / director-client (opt-in). When USE_ZMQML=ON, callers must
+# point ZMQML_BUILD_PATH at a directory containing libzmqmlrequester.so
+# (build it via src/surrogate/zmqml/Makefile, or set ZMQML_BUILD_PATH to
+# wherever you installed it). When OFF (the default), CODES builds with
+# no surrogate/director-client linkage; configs that reference
+# "dir-nw-lp" will fail at runtime because the LP type isn't registered.
+option(USE_ZMQML "Build the director-client + zmqml surrogate integration" OFF)
+if(USE_ZMQML)
+    if(NOT ZMQML_BUILD_PATH)
+        message(FATAL_ERROR
+            "USE_ZMQML=ON but ZMQML_BUILD_PATH is unset.\n"
+            "Build src/surrogate/zmqml/libzmqmlrequester.so first, then "
+            "reconfigure with -DZMQML_BUILD_PATH=<dir containing the .so>.")
+    endif()
+    list(APPEND SRCS surrogate/director-client.C)
+endif()
+
 add_library(codes STATIC ${SRCS})
 
 list(APPEND LIBS_TO_LINK ${MPI_C_LIBRARIES})
@@ -159,11 +175,13 @@ if(USE_ONLINE)
     endif()
 endif()
 
-# ZMQML
-add_library(zmqmlrequester SHARED IMPORTED GLOBAL)
-set_target_properties(zmqmlrequester PROPERTIES 
-    IMPORTED_LOCATION "${ZMQML_BUILD_PATH}/libzmqmlrequester.so"
-    INTERFACE_INCLUDE_DIRECTORIES "${ZMQML_BUILD_PATH}")
+if(USE_ZMQML)
+    add_library(zmqmlrequester SHARED IMPORTED GLOBAL)
+    set_target_properties(zmqmlrequester PROPERTIES
+        IMPORTED_LOCATION "${ZMQML_BUILD_PATH}/libzmqmlrequester.so"
+        INTERFACE_INCLUDE_DIRECTORIES "${ZMQML_BUILD_PATH}")
+    target_compile_definitions(codes PUBLIC USE_ZMQML)
+endif()
 
 #LINK ROSS
 # target_link_libraries(codes PUBLIC #{pkgcfg_lib_ROSS_ROSS})
@@ -176,7 +194,7 @@ target_include_directories(codes PUBLIC
     ${PROJECT_SOURCE_DIR}/codes
     ${PROJECT_SOURCE_DIR}/src
     ${PROJECT_SOURCE_DIR}/src/modelconfig
-    $<TARGET_PROPERTY:zmqmlrequester,INTERFACE_INCLUDE_DIRECTORIES>
+    $<$<BOOL:${USE_ZMQML}>:$<TARGET_PROPERTY:zmqmlrequester,INTERFACE_INCLUDE_DIRECTORIES>>
 )
 
 target_link_libraries(codes PUBLIC ${LIBS_TO_LINK})
@@ -209,14 +227,20 @@ if(USE_DUMPI)
     list(APPEND CODES_TARGETS model-net-dumpi-traces-dump)
 endif()
 
-# ZMQ
-pkg_check_modules(PC_ZeroMQ QUIET zmq)
-find_path(ZeroMQ_INCLUDE_DIR NAMES zmq.hpp PATHS ${PC_ZeroMQ_INCLUDE_DIRS})
-find_library(ZeroMQ_LIBRARY NAMES zmq PATHS ${PC_ZeroMQ_LIBRARY_DIRS})
+# ZMQ — only resolved + linked when USE_ZMQML is on; otherwise nothing
+# in the codes library calls into libzmq.
+if(USE_ZMQML)
+    pkg_check_modules(PC_ZeroMQ QUIET zmq)
+    find_path(ZeroMQ_INCLUDE_DIR NAMES zmq.hpp PATHS ${PC_ZeroMQ_INCLUDE_DIRS})
+    find_library(ZeroMQ_LIBRARY NAMES zmq PATHS ${PC_ZeroMQ_LIBRARY_DIRS})
+endif()
 
 foreach(tar IN LISTS CODES_TARGETS)
     target_include_directories(${tar} PUBLIC ${CODES_INCLUDE_DIRS} ${ROSS_INCLUDE_DIRS})
-    target_link_libraries(${tar} PUBLIC codes ${LIBS_TO_LINK} zmqmlrequester ${ZeroMQ_LIBRARY})
+    target_link_libraries(${tar} PUBLIC codes ${LIBS_TO_LINK})
+    if(USE_ZMQML)
+        target_link_libraries(${tar} PUBLIC zmqmlrequester ${ZeroMQ_LIBRARY})
+    endif()
 endforeach()
 
 
