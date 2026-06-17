@@ -1,0 +1,102 @@
+name: Build
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  schedule:
+    # Daily at 07:00 UTC. Catches drift between pin bumps — runner image
+    # updates, apt package bumps, and ROSS @ master moving forward. The
+    # scheduled run intentionally ignores ROSS_REF and builds against
+    # ROSS-org/ROSS@master so a stale pin still surfaces problems.
+    - cron: "0 7 * * *"
+
+# Bootstrap CI for CODES
+#
+# Today: one minimal Linux job — ubuntu-24.04 + system MPICH + a freshly
+# built ROSS pinned to a SHA. Heavy optional deps (SWM, UNION, DUMPI,
+# TORCH, ZMQML) stay OFF so this job runs on a stock runner with no
+# custom image. macOS, OpenMPI, the compiler matrix, coverage tracking,
+# and the heavy-deps "full" job are tracked separately as 1b followups.
+#
+# Symmetric with ROSS's codes-contract.yml: ROSS pins CODES, CODES pins
+# ROSS, each catches consumer-API regressions in the other.
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-24.04
+    env:
+      # ross-org/ROSS @ master as of 2026-06-17.
+      # Bump this SHA whenever CODES needs to track ROSS forward — that
+      # bump is a one-line reviewed change.
+      # TODO: promote to a workflow variable + cache the
+      # built ROSS by SHA so unchanged pins skip the rebuild.
+      ROSS_REF: 9b6ccb18f9b9db438bf41b5b221d0ef16a4dac48
+    steps:
+      - name: Checkout CODES
+        uses: actions/checkout@v4
+        with:
+          path: codes
+
+      - name: Checkout ROSS
+        uses: actions/checkout@v4
+        with:
+          repository: ROSS-org/ROSS
+          # Push/PR runs use the pin; the nightly scheduled run tracks
+          # ROSS master so pin drift surfaces within a day.
+          ref: ${{ github.event_name == 'schedule' && 'master' || env.ROSS_REF }}
+          path: ross
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            mpich libmpich-dev \
+            cmake ninja-build pkg-config \
+            flex bison
+
+      - name: Configure ROSS
+        run: >
+          cmake -S ross -B ross/build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DROSS_BUILD_MODELS=ON
+          -DCMAKE_INSTALL_PREFIX=$PWD/ross-install
+
+      - name: Build and install ROSS
+        run: cmake --build ross/build --target install -j
+
+      - name: Configure CODES
+        run: >
+          cmake -S codes -B codes/build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DBUILD_TESTING=ON
+          -DUSE_TORCH=OFF
+          -DUSE_ZMQML=OFF
+          -DCMAKE_C_COMPILER=mpicc
+          -DCMAKE_CXX_COMPILER=mpicxx
+          -DROSS_PKG_CONFIG_PATH=$PWD/ross-install/lib/pkgconfig
+
+      - name: Build CODES
+        run: cmake --build codes/build -j
+
+      - name: Run CODES tests
+        run: ctest --test-dir codes/build --output-on-failure
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            codes/build/Testing/Temporary/LastTest.log
+            codes/build/Testing/Temporary/LastTestsFailed.log
+            codes/build/CMakeFiles/CMakeError.log
+            codes/build/CMakeFiles/CMakeOutput.log
+            codes/build/CMakeCache.txt
+            ross/build/CMakeFiles/CMakeError.log
+            ross/build/CMakeFiles/CMakeOutput.log
+            ross/build/CMakeCache.txt
+          if-no-files-found: ignore
+          retention-days: 14
