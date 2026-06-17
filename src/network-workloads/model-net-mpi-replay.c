@@ -3564,7 +3564,7 @@ static void make_qlist_cpy(struct qlist_head * into, struct qlist_head const * f
         qlist_for_each(ent, from) {
             char * entry = ((char*)ent) - offset_ql;
 
-            mempcpy(new_entry, entry, sizeof_elem);
+            memcpy(new_entry, entry, sizeof_elem);
             struct qlist_head * new_entry_ql = (void*) (new_entry + offset_ql);
             new_entry_ql->prev = (void*)(new_entry - sizeof_elem + offset_ql);
             new_entry_ql->next = (void*)(new_entry + sizeof_elem + offset_ql);
@@ -4407,7 +4407,9 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv )
     if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
         nw_lp_register_model();
 
+#ifdef USE_ZMQML
     director_lp_register_model("dir-nw-lp");
+#endif
     
    net_ids = model_net_configure(&num_nets);
 //   assert(num_nets == 1);
