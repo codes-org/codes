@@ -8,6 +8,7 @@
 #include <cmath>
 #include <numeric>
 #include <regex>
+#include <cstring>
 
 #include <zmq.hpp>
 #include "rapidjson/document.h"
@@ -94,6 +95,91 @@ vector<string> zmqml_request(const string& cmd,
     return ret;
 }
 
+
+
+vector<string> zmqml_director_request(
+    const string& surrogate_family,
+    const string& surrogate_backend,
+    const string& operation,
+    const vector<string>& args,
+    const string& bindata)
+{
+    zmq::context_t context(1);
+    zmq::socket_t socket(context, ZMQ_REQ);
+    socket.connect(endpoint);
+
+    Document msg;
+    msg.SetObject();
+    auto& allocator = msg.GetAllocator();
+
+    Value cmdValue;
+    cmdValue.SetString("director-request", strlen("director-request"), allocator);
+    msg.AddMember("cmd", cmdValue, allocator);
+
+    Value familyValue;
+    familyValue.SetString(surrogate_family.c_str(), surrogate_family.length(), allocator);
+    msg.AddMember("surrogate_family", familyValue, allocator);
+
+    Value backendValue;
+    backendValue.SetString(surrogate_backend.c_str(), surrogate_backend.length(), allocator);
+    msg.AddMember("surrogate_backend", backendValue, allocator);
+
+    Value operationValue;
+    operationValue.SetString(operation.c_str(), operation.length(), allocator);
+    msg.AddMember("operation", operationValue, allocator);
+
+    Value argsArray(kArrayType);
+    if (args == std::vector<std::string>()) {
+        argsArray.PushBack(Value("dummy", allocator), allocator);
+    } else {
+        for(const auto& arg: args) {
+            argsArray.PushBack(Value(arg.c_str(), allocator), allocator);
+        }
+    }
+    msg.AddMember("args", argsArray, allocator);
+
+    StringBuffer buffer;
+    Writer<StringBuffer> writer(buffer);
+    msg.Accept(writer);
+
+    if (debug) cout << buffer.GetString() << endl;
+
+    string bufferstr = buffer.GetString();
+    const char delimiter = '\0';
+    string jsonbinmsg = bufferstr + delimiter + bindata;
+
+    zmq::message_t reqmsg(jsonbinmsg.begin(), jsonbinmsg.end());
+    socket.send(reqmsg, zmq::send_flags::none);
+
+    zmq::message_t reply;
+    socket.recv(reply);
+
+    string tmp(static_cast<char*>(reply.data()), reply.size());
+    Document response;
+    response.Parse(tmp.c_str());
+
+    vector<string> ret;
+
+    if (response.HasMember("status")) {
+        ret.push_back(response["status"].GetString());
+
+        if (response.HasMember("et")) {
+            ret.push_back(response["et"].GetString());
+        }
+
+        if (response.HasMember("id")) {
+            ret.push_back(response["id"].GetString());
+        }
+
+        if (response.HasMember("predictions")) {
+            ret.push_back(response["predictions"].GetString());
+        }
+    } else {
+        ret.push_back("failed");
+    }
+
+    return ret;
+}
 
 
 

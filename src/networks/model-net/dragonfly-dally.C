@@ -22,6 +22,9 @@
 #include "codes/model-net-method.h"
 #include "codes/model-net-lp.h"
 #include "codes/surrogate/init.h"
+#ifdef USE_TORCH
+#include "codes/surrogate/packet-latency-predictor/torch-jit.h"
+#endif
 #include "codes/net/dragonfly-dally.h"
 #include "quicklist.h"
 #include "sys/file.h"
@@ -34,9 +37,36 @@
 #include <algorithm>
 #include <errno.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #include "codes/network-manager/dragonfly-network-manager.h"
 #include "codes/congestion-controller-model.h"
+#include <sstream>
+#include <unordered_map>
+
+/*
+ * Optional ZeroMQ Director requester.
+ *
+ * dragonfly-dally.C is compiled into libcodes.a, which is linked by many
+ * tests/examples that do not link libzmqmlrequester.so. Keep this symbol weak
+ * so only executables that link the requester use live event-time
+ * collection/inference; all other targets fall back to original PDES behavior.
+ */
+extern std::vector<std::string> zmqml_director_request(
+    const std::string& surrogate_family,
+    const std::string& surrogate_backend,
+    const std::string& operation,
+    const std::vector<std::string>& args,
+    const std::string& bindata
+) __attribute__((weak));
+
+extern void director_record_zmq_latency_stats(
+    const char* label,
+    const std::vector<std::string>& ret,
+    double local_latency_sec
+) __attribute__((weak));
+
+
 
 #ifdef ENABLE_CORTEX
 #include <cortex/cortex.h>
@@ -103,6 +133,18 @@ static long global_stalled_chunk_counter = 0;
 
 #define OUTPUT_SNAPSHOT 1
 static int num_snapshots = 0;
+
+static uint64_t dfdally_post_switch_terminal_events = 0;
+static uint64_t dfdally_post_switch_router_events = 0;
+static double dfdally_last_post_switch_terminal_now = -1.0;
+static double dfdally_last_post_switch_router_now = -1.0;
+static bool dfdally_surrogate_debug_prints = false;
+
+
+
+
+static bool dfdally_surrogate_has_switched_once = false;
+
 tw_stime * snapshot_times;
 char snapshot_filename[128];
 
@@ -192,6 +234,83 @@ static char router_sample_file[MAX_NAME_LENGTH];
 static FILE * packet_latency_f = NULL;
 static void setup_packet_latency_path(char const * const dir_to_save);
 
+// File to store router-local timing rows for training router queueing-delay models.
+static FILE * router_timing_trace_f = NULL;
+static int router_timing_trace_stride = 1;
+static unsigned long long router_timing_trace_counter = 0;
+static void setup_router_timing_trace_path(char const * const dir_to_save);
+
+// Generic event-time surrogate trace.
+// Each row means: current PDES event schedules target PDES event after target_delay.
+static FILE * event_time_trace_f = NULL;
+static int event_time_trace_stride = 1;
+static unsigned long long event_time_trace_counter = 0;
+static int event_time_inference_enabled = 0;
+static int event_time_surrogate_family_selected = 0;
+static int event_time_inference_active = 0;
+static int event_time_inference_active_count = 0;
+static int event_time_training_records_enabled = 0;
+static std::unordered_map<std::string, double> event_time_prediction_cache;
+static unsigned long long event_time_cache_hits = 0;
+static unsigned long long event_time_cache_misses = 0;
+static double event_time_cache_time_bucket = 0.0;
+static int event_time_cache_time_bucket_initialized = 0;
+static int event_time_zmq_batch_size = 65536;
+static std::string event_time_zmq_buffer;
+static unsigned long long event_time_zmq_buffered_rows = 0;
+static int event_time_zmq_flush_registered = 0;
+static void setup_event_time_trace_path(char const * const dir_to_save);
+static int dfdally_string_is_true(char const *s);
+static void dfdally_event_time_zmq_flush(void);
+static void dfdally_event_time_zmq_flush_atexit(void);
+static void dfdally_event_time_zmq_queue_row(char const *row);
+
+
+static std::vector<std::string> dfdally_event_time_director_request_with_latency(
+    const char* operation,
+    const std::vector<std::string>& args,
+    const std::string& bindata)
+{
+    const char* op = operation ? operation : "";
+    std::vector<std::string> ret;
+
+    char label[256];
+    snprintf(
+        label,
+        sizeof(label),
+        "family=event-time backend=dragonfly-dally operation=%s",
+        op
+    );
+
+    struct timespec start, finish;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    if (!zmqml_director_request) {
+        ret.push_back("failed");
+    } else {
+        ret = zmqml_director_request(
+            "event-time",
+            "dragonfly-dally",
+            op,
+            args,
+            bindata
+        );
+    }
+
+    clock_gettime(CLOCK_MONOTONIC, &finish);
+
+    double local_latency_sec =
+        (double)(finish.tv_sec - start.tv_sec) +
+        (double)(finish.tv_nsec - start.tv_nsec) / 1000000000.0;
+
+    if (director_record_zmq_latency_stats) {
+        director_record_zmq_latency_stats(label, ret, local_latency_sec);
+    }
+
+    return ret;
+}
+
+
 
 // ==== START OF Parameters to tune surrogate mode ====
 //
@@ -200,6 +319,70 @@ static bool is_dally_surrogate_on = false;
 static bool freeze_network_on_switch = false;
 static struct packet_latency_predictor * terminal_predictor = NULL;
 static void switch_surrogate(void);
+static void dfdally_event_time_print_global_cache_summary_once(void)
+{
+    static int printed = 0;
+
+    if (printed) {
+        return;
+    }
+
+    printed = 1;
+
+    if(!event_time_surrogate_family_selected) {
+        return;
+    }
+
+    unsigned long long local_counts[3];
+    unsigned long long global_counts[3];
+
+    local_counts[0] = event_time_cache_hits;
+    local_counts[1] = event_time_cache_misses;
+    local_counts[2] = (unsigned long long)event_time_prediction_cache.size();
+
+    for (int i = 0; i < 3; i++) {
+        global_counts[i] = 0;
+    }
+
+    int mpi_initialized = 0;
+    MPI_Initialized(&mpi_initialized);
+
+    int rank = 0;
+
+    if(mpi_initialized) {
+        MPI_Comm_rank(MPI_COMM_CODES, &rank);
+
+        MPI_Reduce(
+            local_counts,
+            global_counts,
+            3,
+            MPI_UNSIGNED_LONG_LONG,
+            MPI_SUM,
+            0,
+            MPI_COMM_CODES
+        );
+    } else {
+        for (int i = 0; i < 3; i++) {
+            global_counts[i] = local_counts[i];
+        }
+    }
+
+    if(rank != 0) {
+        return;
+    }
+
+    fprintf(
+        stderr,
+        "[event-time cache summary global] hits=%llu misses=%llu "
+        "cache_size_sum=%llu\n",
+        global_counts[0],
+        global_counts[1],
+        global_counts[2]
+    );
+    fflush(stderr);
+}
+
+
 static bool is_surrogate_on_fun(void);
 static void dragonfly_dally_terminal_highdef_to_surrogate(terminal_state * s, tw_lp * lp, tw_event **);
 static void dragonfly_dally_terminal_surrogate_to_highdef(terminal_state * s, tw_lp * lp, tw_event **);
@@ -2478,6 +2661,149 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
         setup_packet_latency_path(packet_latency_path);
     }
 
+    // Router timing trace path to store pure-PDES router-local queueing-delay training rows.
+    char router_timing_trace_path[MAX_NAME_LENGTH];
+    router_timing_trace_path[0] = '\0';
+    configuration_get_value(&config, "PARAMS", "save_router_timing_trace_path", anno,
+            router_timing_trace_path, MAX_NAME_LENGTH);
+    if(strlen(router_timing_trace_path) > 0) {
+        setup_router_timing_trace_path(router_timing_trace_path);
+    }
+
+    char router_timing_trace_stride_str[MAX_NAME_LENGTH];
+    router_timing_trace_stride_str[0] = '\0';
+    configuration_get_value(&config, "PARAMS", "save_router_timing_trace_stride", anno,
+            router_timing_trace_stride_str, MAX_NAME_LENGTH);
+    if(strlen(router_timing_trace_stride_str) > 0) {
+        int const parsed_stride = atoi(router_timing_trace_stride_str);
+        if(parsed_stride > 0) {
+            router_timing_trace_stride = parsed_stride;
+        } else {
+            tw_warning(TW_LOC,
+                    "Ignoring invalid save_router_timing_trace_stride=%s; using stride=1",
+                    router_timing_trace_stride_str);
+        }
+    }
+
+    // Generic event-time trace path for event-time surrogate training.
+    char event_time_trace_path[MAX_NAME_LENGTH];
+    event_time_trace_path[0] = '\0';
+    configuration_get_value(&config, "PARAMS", "save_event_time_trace_path", anno,
+            event_time_trace_path, MAX_NAME_LENGTH);
+    if(strlen(event_time_trace_path) > 0) {
+        setup_event_time_trace_path(event_time_trace_path);
+    }
+
+    char event_time_trace_stride_str[MAX_NAME_LENGTH];
+    event_time_trace_stride_str[0] = '\0';
+    configuration_get_value(&config, "PARAMS", "save_event_time_trace_stride", anno,
+            event_time_trace_stride_str, MAX_NAME_LENGTH);
+    if(strlen(event_time_trace_stride_str) > 0) {
+        int const parsed_stride = atoi(event_time_trace_stride_str);
+        if(parsed_stride > 0) {
+            event_time_trace_stride = parsed_stride;
+        } else {
+            tw_warning(TW_LOC,
+                    "Ignoring invalid save_event_time_trace_stride=%s; using stride=1",
+                    event_time_trace_stride_str);
+        }
+    }
+
+    char event_time_inference_enabled_str[MAX_NAME_LENGTH];
+    event_time_inference_enabled_str[0] = '\0';
+
+    char const * inferencing_enabled_env = getenv("INFERENCING_ENABLED");
+    if(inferencing_enabled_env && strlen(inferencing_enabled_env) > 0) {
+        snprintf(
+            event_time_inference_enabled_str,
+            sizeof(event_time_inference_enabled_str),
+            "%s",
+            inferencing_enabled_env
+        );
+    } else {
+        configuration_get_value(&config, "DIRECTOR", "inferencing_enabled", anno,
+                event_time_inference_enabled_str, MAX_NAME_LENGTH);
+    }
+
+    /*
+     * Do not expose a separate event-time inference flag.
+     * Event-time inference is selected by the Director family and the
+     * ordinary Director inferencing flag:
+     *
+     *   DIRECTOR.surrogate_family == "event-time"
+     *   DIRECTOR.inferencing_enabled == true
+     */
+    event_time_inference_enabled = 0;
+
+    /*
+     * Event-time training record streaming follows the existing Director
+     * workflow.  Do not add a separate event-time config switch:
+     *
+     *   TRAINING_ENABLED=1 / DIRECTOR.training_enabled=1 -> send records
+     *   TRAINING_ENABLED=0 / DIRECTOR.training_enabled=0 -> do not send
+     *
+     * TRAINING_ENABLED from the environment is an override so the existing
+     * envsubst-driven workflow behaves the same as iteration-time collection.
+     */
+    char event_time_surrogate_family_str[MAX_NAME_LENGTH];
+    event_time_surrogate_family_str[0] = '\0';
+    configuration_get_value(&config, "DIRECTOR", "surrogate_family", anno,
+            event_time_surrogate_family_str, MAX_NAME_LENGTH);
+
+    if(strlen(event_time_surrogate_family_str) == 0) {
+        configuration_get_value(&config, "DIRECTOR", "surrogate_model", anno,
+                event_time_surrogate_family_str, MAX_NAME_LENGTH);
+    }
+
+    char event_time_training_enabled_str[MAX_NAME_LENGTH];
+    event_time_training_enabled_str[0] = '\0';
+
+    char const * training_enabled_env = getenv("TRAINING_ENABLED");
+    if(training_enabled_env && strlen(training_enabled_env) > 0) {
+        snprintf(
+            event_time_training_enabled_str,
+            sizeof(event_time_training_enabled_str),
+            "%s",
+            training_enabled_env
+        );
+    } else {
+        configuration_get_value(&config, "DIRECTOR", "training_enabled", anno,
+                event_time_training_enabled_str, MAX_NAME_LENGTH);
+    }
+
+    event_time_surrogate_family_selected =
+        strcmp(event_time_surrogate_family_str, "event-time") == 0;
+
+    event_time_inference_enabled =
+        event_time_surrogate_family_selected &&
+        dfdally_string_is_true(event_time_inference_enabled_str);
+
+    int const event_time_training_selected =
+        dfdally_string_is_true(event_time_training_enabled_str);
+
+    event_time_training_records_enabled =
+        event_time_surrogate_family_selected && event_time_training_selected;
+
+    event_time_zmq_batch_size = 65536;
+
+    if(event_time_training_records_enabled && !event_time_zmq_flush_registered) {
+        atexit(dfdally_event_time_zmq_flush_atexit);
+        event_time_zmq_flush_registered = 1;
+    }
+
+    if(dfdally_surrogate_debug_prints) {
+        fprintf(
+            stderr,
+            "[event-time records] family=%s training_enabled=%s send_to_zmq=%d batch_size=%d\n",
+            event_time_surrogate_family_str,
+            event_time_training_enabled_str,
+            event_time_training_records_enabled,
+            event_time_zmq_batch_size
+        );
+        fflush(stderr);
+    }
+
+
     // START Surrogate configuration
     char enable_str[MAX_NAME_LENGTH];
     enable_str[0] = '\0';
@@ -2486,6 +2812,20 @@ static void dragonfly_read_config(const char * anno, dragonfly_param *params)
     if (rc_enable > 0) {
         enable_network_surrogate = (strcmp(enable_str, "1") == 0 || strcmp(enable_str, "true") == 0);
     }
+
+    char debug_prints_str[MAX_NAME_LENGTH];
+    debug_prints_str[0] = '\0';
+
+    if(event_time_surrogate_family_selected) {
+        configuration_get_value(&config, "DIRECTOR", "debug_prints", anno,
+                debug_prints_str, MAX_NAME_LENGTH);
+    } else {
+        configuration_get_value(&config, "NETWORK_SURROGATE", "debug_prints", anno,
+                debug_prints_str, MAX_NAME_LENGTH);
+    }
+
+    dfdally_surrogate_debug_prints = dfdally_string_is_true(debug_prints_str);
+
     // if surrogate mode has been set up
     if (enable_network_surrogate) {
         struct network_surrogate_config surr_conf = {
@@ -2572,7 +2912,90 @@ static void setup_packet_latency_path(char const * const dir_to_save) {
         tw_error(TW_LOC, "File %s could not be opened", filename_path);
     }
 
-    fprintf(packet_latency_f, "#src_terminal,dest_terminal,packet_id,is_surrogate_on,is_predicted,size,workload_injection,next_packet_delay,start,end,latency,is_there_another_pckt_in_queue\n");
+    fprintf(packet_latency_f,
+            "#src_terminal,dest_terminal,packet_size,is_there_another_pckt_in_queue,"
+            "caller_lp_gid,src_router_id,src_group_id,dst_router_id,dst_group_id,"
+            "terminal_queue_length,terminal_vc_occupancy,processing_packet_delay,"
+            "travel_end_time_delta,next_packet_delay,"
+            "packet_id,is_surrogate_on,is_predicted,workload_injection,start,end,latency\n");
+}
+
+
+static void setup_router_timing_trace_path(char const * const dir_to_save) {
+    assert(router_timing_trace_f == NULL);
+    int const NO_ERROR = 0;
+    struct stat st;
+    memset(&st, 0, sizeof(struct stat));
+    if(g_tw_mynode == 0 && stat(dir_to_save, &st) == -1) {
+        int res = mkdir(dir_to_save, 0700);
+        if (res != NO_ERROR) {
+            tw_error(TW_LOC, "Error (%d) occurred when attempting to mkdir folder `%s`", errno, dir_to_save);
+        }
+    }
+    MPI_Barrier(MPI_COMM_CODES);
+
+    char const fmt[] = "%s/router-timing-gid=%lu.txt";
+    int sz = snprintf(NULL, 0, fmt, dir_to_save, g_tw_mynode);
+    char filename_path[sz + 1];
+    snprintf(filename_path, sizeof(filename_path), fmt, dir_to_save, g_tw_mynode);
+    router_timing_trace_f = fopen(filename_path, "w+");
+    if(!router_timing_trace_f) {
+        tw_error(TW_LOC, "File %s could not be opened", filename_path);
+    }
+
+    fprintf(router_timing_trace_f,
+            "#router_id,group_id,output_port,output_chan,to_terminal,is_global,"
+            "packet_size,chunk_size,output_vc_occupancy,output_queued_count,"
+            "next_output_available_delta,nominal_router_delay,router_queueing_delay,"
+            "actual_router_delay,is_surrogate_on,is_predicted,now,packet_id,src_terminal,dest_terminal,next_stop\n");
+}
+
+static inline void router_timing_trace_save_to_file(
+        router_state const *s,
+        terminal_dally_message const *pkt,
+        int output_port,
+        int output_chan,
+        int to_terminal,
+        int is_global,
+        double next_output_available_delta,
+        double nominal_router_delay,
+        double actual_router_delay,
+        bool surrogate_on,
+        bool is_predicted,
+        tw_lp *lp)
+{
+    if (!router_timing_trace_f) { return; }
+
+    unsigned long long const trace_idx = router_timing_trace_counter++;
+    if(router_timing_trace_stride > 1 &&
+            (trace_idx % (unsigned long long)router_timing_trace_stride) != 0ULL) {
+        return;
+    }
+
+    double const router_queueing_delay = maxd(0.0, actual_router_delay - nominal_router_delay);
+    fprintf(router_timing_trace_f,
+            "%u,%d,%d,%d,%d,%d,%u,%d,%d,%d,%f,%f,%f,%f,%d,%d,%f,%lu,%u,%u,%llu\n",
+            s->router_id,
+            s->group_id,
+            output_port,
+            output_chan,
+            to_terminal,
+            is_global,
+            pkt->packet_size,
+            s->params->chunk_size,
+            s->vc_occupancy[output_port][output_chan],
+            s->queued_count[output_port],
+            next_output_available_delta,
+            nominal_router_delay,
+            router_queueing_delay,
+            actual_router_delay,
+            surrogate_on,
+            is_predicted,
+            tw_now(lp),
+            (unsigned long)pkt->packet_ID,
+            pkt->dfdally_src_terminal_id,
+            pkt->dfdally_dest_terminal_id,
+            (unsigned long long)pkt->next_stop);
 }
 
 /* report dragonfly statistics like average and maximum packet latency, average number of hops traversed */
@@ -2609,6 +3032,11 @@ void dragonfly_dally_report_stats()
 
     if (packet_latency_f) {
         fclose(packet_latency_f);
+        packet_latency_f = NULL;
+    }
+    if (router_timing_trace_f) {
+        fclose(router_timing_trace_f);
+        router_timing_trace_f = NULL;
     }
     /* print statistics */
     if(!g_tw_mynode)
@@ -3020,6 +3448,94 @@ static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_dally_mess
     return -1;
 }
 
+static uint32_t dfdally_clamp_u64_to_u32(uint64_t value)
+{
+    uint64_t const max_u32 = (uint64_t)((uint32_t)-1);
+    return value > max_u32 ? (uint32_t)-1 : (uint32_t)value;
+}
+
+static unsigned int dfdally_safe_rail_id(
+        terminal_state const *s,
+        terminal_dally_message const *msg)
+{
+    if (!s || !s->params || s->params->num_rails <= 0) {
+        return 0;
+    }
+
+    if (msg && msg->rail_id >= 0 && msg->rail_id < s->params->num_rails) {
+        return (unsigned int)msg->rail_id;
+    }
+
+    return 0;
+}
+
+static uint32_t dfdally_terminal_queue_length_bytes(terminal_state const *s)
+{
+    if (!s || !s->params || !s->terminal_length) {
+        return (uint32_t)-1;
+    }
+
+    uint64_t total = 0;
+    for (int rail = 0; rail < s->params->num_rails; rail++) {
+        if (!s->terminal_length[rail]) {
+            continue;
+        }
+        for (int qos = 0; qos < s->params->num_qos_levels; qos++) {
+            if (s->terminal_length[rail][qos] > 0) {
+                total += (uint64_t)s->terminal_length[rail][qos];
+            }
+        }
+    }
+
+    return dfdally_clamp_u64_to_u32(total);
+}
+
+static uint32_t dfdally_terminal_vc_occupancy_bytes(terminal_state const *s)
+{
+    if (!s || !s->params || !s->vc_occupancy) {
+        return (uint32_t)-1;
+    }
+
+    uint64_t total = 0;
+    for (int rail = 0; rail < s->params->num_rails; rail++) {
+        if (!s->vc_occupancy[rail]) {
+            continue;
+        }
+        for (int qos = 0; qos < s->params->num_qos_levels; qos++) {
+            if (s->vc_occupancy[rail][qos] > 0) {
+                total += (uint64_t)s->vc_occupancy[rail][qos];
+            }
+        }
+    }
+
+    return dfdally_clamp_u64_to_u32(total);
+}
+
+static uint32_t dfdally_terminal_src_router_id(
+        terminal_state const *s,
+        terminal_dally_message const *msg)
+{
+    if (!s || !s->params) {
+        return (uint32_t)-1;
+    }
+
+    unsigned int const rail_id = dfdally_safe_rail_id(s, msg);
+
+    /*
+     * In high-fidelity mode, s->router_id is valid. In frozen surrogate mode,
+     * dragonfly_dally_terminal_highdef_to_surrogate() zeroes most network
+     * state, so s->router_id may be NULL. Average mode still goes through
+     * packet_generate_predicted(), so do not dereference s->router_id unless
+     * it exists.
+     */
+    if (s->router_id) {
+        return s->router_id[rail_id];
+    }
+
+    return dfdally_get_assigned_router_id_from_terminal(
+            s->params, s->terminal_id, rail_id);
+}
+
 static inline void packet_latency_save_to_file(
         unsigned int terminal_id,
         struct packet_start * start,
@@ -3029,19 +3545,534 @@ static inline void packet_latency_save_to_file(
 ) {
     if (!packet_latency_f) { return; } // Don't save if there isn't a file to save to
     if (end->travel_end_time > g_tw_ts_end) { return; } // This packet could never arrive to its destination!
-    fprintf(packet_latency_f, "%u,%u,%lu,%d,%d,%u,%f,%f,%f,%f,%f,%d\n",
-            terminal_id, start->dfdally_dest_terminal_id, start->packet_ID,
-            surrogate_on, is_predicted, start->packet_size,
+    double const latency = end->travel_end_time - start->travel_start_time;
+    fprintf(packet_latency_f,
+            "%u,%u,%u,%d,%llu,%u,%u,%u,%u,%u,%u,%f,%f,%f,%lu,%d,%d,%f,%f,%f,%f\n",
+            terminal_id,
+            start->dfdally_dest_terminal_id,
+            start->packet_size,
+            start->is_there_another_pckt_in_queue,
+            (unsigned long long)start->caller_lp_gid,
+            start->src_router_id,
+            start->src_group_id,
+            start->dst_router_id,
+            start->dst_group_id,
+            start->terminal_queue_length,
+            start->terminal_vc_occupancy,
+            start->processing_packet_delay,
+            latency,
+            end->next_packet_delay,
+            start->packet_ID,
+            surrogate_on,
+            is_predicted,
             start->workload_injection_time,
-            end->next_packet_delay, start->travel_start_time,
-            end->travel_end_time, end->travel_end_time - start->travel_start_time,
-            start->is_there_another_pckt_in_queue);
+            start->travel_start_time,
+            end->travel_end_time,
+            latency);
 }
+
+
+
+static int dfdally_mkdir_p(char const * const path)
+{
+    if (!path || strlen(path) == 0) {
+        return 0;
+    }
+
+    char tmp[MAX_NAME_LENGTH];
+    snprintf(tmp, sizeof(tmp), "%s", path);
+
+    size_t len = strlen(tmp);
+    if (len == 0) {
+        return 0;
+    }
+
+    if (tmp[len - 1] == '/') {
+        tmp[len - 1] = '\0';
+    }
+
+    for (char *cur = tmp + 1; *cur; ++cur) {
+        if (*cur != '/') {
+            continue;
+        }
+
+        *cur = '\0';
+
+        if (strlen(tmp) > 0 && mkdir(tmp, 0777) && errno != EEXIST) {
+            return -1;
+        }
+
+        *cur = '/';
+    }
+
+    if (mkdir(tmp, 0777) && errno != EEXIST) {
+        return -1;
+    }
+
+    return 0;
+}
+
+
+
+
+static int dfdally_string_is_true(char const *s)
+{
+    if (!s || strlen(s) == 0) {
+        return 0;
+    }
+
+    return (
+        strcmp(s, "1") == 0 ||
+        strcmp(s, "true") == 0 ||
+        strcmp(s, "TRUE") == 0 ||
+        strcmp(s, "yes") == 0 ||
+        strcmp(s, "YES") == 0 ||
+        strcmp(s, "on") == 0 ||
+        strcmp(s, "ON") == 0
+    );
+}
+
+static void setup_event_time_trace_path(char const * const dir_to_save)
+{
+    if (!dir_to_save || strlen(dir_to_save) == 0) {
+        return;
+    }
+
+    if (dfdally_mkdir_p(dir_to_save) != 0) {
+        tw_error(TW_LOC, "Could not create event-time trace directory: %s", dir_to_save);
+    }
+
+    char filename[MAX_NAME_LENGTH];
+    snprintf(
+        filename,
+        sizeof(filename),
+        "%s/event-time-node=%ld.csv",
+        dir_to_save,
+        (long)g_tw_mynode
+    );
+
+    event_time_trace_f = fopen(filename, "w");
+    if (!event_time_trace_f) {
+        tw_error(TW_LOC, "Could not open event-time trace file: %s", filename);
+    }
+
+    fprintf(
+        event_time_trace_f,
+        "schema_version,sample_id,now,current_lp_gid,current_lp_type,"
+        "current_event_type,target_lp_gid,target_lp_type,target_event_type,"
+        "nominal_delay,target_delay,backend\n"
+    );
+    fflush(event_time_trace_f);
+}
+
+
+static void dfdally_event_time_zmq_flush(void)
+{
+    if (!event_time_training_records_enabled || event_time_zmq_buffer.empty()) {
+        return;
+    }
+
+    if (!zmqml_director_request) {
+        if (dfdally_surrogate_debug_prints) {
+            fprintf(
+                stderr,
+                "[event-time records] zmqml_director_request unavailable; dropping %llu buffered rows\n",
+                event_time_zmq_buffered_rows
+            );
+            fflush(stderr);
+        }
+
+        event_time_zmq_buffer.clear();
+        event_time_zmq_buffered_rows = 0;
+        return;
+    }
+
+    std::vector<std::string> args;
+    args.push_back("1");
+
+    try {
+        std::vector<std::string> ret =
+            dfdally_event_time_director_request_with_latency("send-records", args, event_time_zmq_buffer);
+
+        if (ret.empty() || ret[0] != "done") {
+            if (dfdally_surrogate_debug_prints) {
+                fprintf(
+                    stderr,
+                    "[event-time records] director-request send-records returned non-done status; "
+                    "buffered_rows=%llu\n",
+                    event_time_zmq_buffered_rows
+                );
+                fflush(stderr);
+            }
+        } else if (dfdally_surrogate_debug_prints) {
+            fprintf(
+                stderr,
+                "[event-time records] sent %llu rows to zmqmlserver\n",
+                event_time_zmq_buffered_rows
+            );
+            fflush(stderr);
+        }
+    } catch (...) {
+        if (dfdally_surrogate_debug_prints) {
+            fprintf(
+                stderr,
+                "[event-time records] director-request send-records failed; buffered_rows=%llu\n",
+                event_time_zmq_buffered_rows
+            );
+            fflush(stderr);
+        }
+    }
+
+    event_time_zmq_buffer.clear();
+    event_time_zmq_buffered_rows = 0;
+}
+
+static void dfdally_event_time_zmq_flush_atexit(void)
+{
+    dfdally_event_time_zmq_flush();
+}
+
+static void dfdally_event_time_zmq_queue_row(char const *row)
+{
+    if (!event_time_training_records_enabled || !row || row[0] == '\0') {
+        return;
+    }
+
+    event_time_zmq_buffer += row;
+    event_time_zmq_buffered_rows++;
+
+    if (event_time_zmq_batch_size <= 0) {
+        event_time_zmq_batch_size = 65536;
+    }
+
+    if (event_time_zmq_buffered_rows >= (unsigned long long)event_time_zmq_batch_size) {
+        dfdally_event_time_zmq_flush();
+    }
+}
+
+
+static void dfdally_event_time_trace_row(
+    tw_lp *lp,
+    int current_lp_type,
+    int current_event_type,
+    tw_lpid target_lp_gid,
+    int target_lp_type,
+    int target_event_type,
+    double nominal_delay,
+    double target_delay
+)
+{
+    if (!event_time_trace_f && !event_time_training_records_enabled) {
+        return;
+    }
+
+    event_time_trace_counter++;
+    if (event_time_trace_stride > 1 &&
+        (event_time_trace_counter % (unsigned long long)event_time_trace_stride) != 0) {
+        return;
+    }
+
+    if (!isfinite(target_delay) || target_delay <= 0.0) {
+        return;
+    }
+
+    char row[1024];
+    int const n = snprintf(
+        row,
+        sizeof(row),
+        "1,%llu,%.17g,%llu,%d,%d,%llu,%d,%d,%.17g,%.17g,dragonfly-dally\n",
+        event_time_trace_counter,
+        (double)tw_now(lp),
+        (unsigned long long)lp->gid,
+        current_lp_type,
+        current_event_type,
+        (unsigned long long)target_lp_gid,
+        target_lp_type,
+        target_event_type,
+        nominal_delay,
+        target_delay
+    );
+
+    if (n < 0 || n >= (int)sizeof(row)) {
+        return;
+    }
+
+    if (event_time_trace_f) {
+        fputs(row, event_time_trace_f);
+        fflush(event_time_trace_f);
+    }
+
+    dfdally_event_time_zmq_queue_row(row);
+}
+
+
+
+static double dfdally_event_time_get_cache_time_bucket(void)
+{
+    if(!event_time_cache_time_bucket_initialized) {
+        event_time_cache_time_bucket_initialized = 1;
+
+        char const *env = getenv("EVENT_TIME_CACHE_TIME_BUCKET");
+        if(env && strlen(env) > 0) {
+            char *endptr = NULL;
+            double value = strtod(env, &endptr);
+            if(endptr != env && isfinite(value) && value > 0.0) {
+                event_time_cache_time_bucket = value;
+            }
+        }
+    }
+
+    return event_time_cache_time_bucket;
+}
+
+static std::string dfdally_event_time_prediction_cache_key(
+    int current_lp_type,
+    int current_event_type,
+    int target_lp_type,
+    int target_event_type,
+    double nominal_delay,
+    double now
+)
+{
+    char key[256];
+
+    double const time_bucket_width = dfdally_event_time_get_cache_time_bucket();
+
+    if(time_bucket_width > 0.0) {
+        double const time_bucket = floor(now / time_bucket_width);
+        snprintf(
+            key,
+            sizeof(key),
+            "%d|%d|%d|%d|%.12g|tb=%.0f",
+            current_lp_type,
+            current_event_type,
+            target_lp_type,
+            target_event_type,
+            nominal_delay,
+            time_bucket
+        );
+    } else {
+        snprintf(
+            key,
+            sizeof(key),
+            "%d|%d|%d|%d|%.12g",
+            current_lp_type,
+            current_event_type,
+            target_lp_type,
+            target_event_type,
+            nominal_delay
+        );
+    }
+
+    return std::string(key);
+}
+
+static double dfdally_event_time_sanitize_prediction(
+    double predicted,
+    double original_delay
+)
+{
+    if(!isfinite(predicted) || predicted <= 0.0) {
+        return original_delay;
+    }
+
+    double const max_reasonable =
+        original_delay > 0.0 ? original_delay * 10.0 : predicted;
+
+    if(predicted > max_reasonable) {
+        return original_delay;
+    }
+
+    return predicted;
+}
+
+static double dfdally_event_time_predict_or_original(
+    tw_lp *lp,
+    int current_lp_type,
+    int current_event_type,
+    tw_lpid target_lp_gid,
+    int target_lp_type,
+    int target_event_type,
+    double nominal_delay,
+    double original_delay
+)
+{
+    if (!event_time_surrogate_family_selected || !event_time_inference_enabled || !event_time_inference_active) {
+        return original_delay;
+    }
+
+    if (!isfinite(original_delay) || original_delay <= 0.0) {
+        return original_delay;
+    }
+
+    std::string const cache_key = dfdally_event_time_prediction_cache_key(
+        current_lp_type,
+        current_event_type,
+        target_lp_type,
+        target_event_type,
+        nominal_delay,
+        (double)tw_now(lp)
+    );
+
+    std::unordered_map<std::string, double>::const_iterator cached =
+        event_time_prediction_cache.find(cache_key);
+
+    if(cached != event_time_prediction_cache.end()) {
+        event_time_cache_hits++;
+
+        double const predicted =
+            dfdally_event_time_sanitize_prediction(cached->second, original_delay);
+
+        if(dfdally_surrogate_debug_prints &&
+           (event_time_cache_hits <= 20 ||
+            (event_time_cache_hits % 65536ULL) == 0)) {
+            fprintf(
+                stderr,
+                "[event-time inference cache-hit] hits=%llu misses=%llu "
+                "cache_size=%llu original=%.17g predicted=%.17g\n",
+                event_time_cache_hits,
+                event_time_cache_misses,
+                (unsigned long long)event_time_prediction_cache.size(),
+                original_delay,
+                predicted
+            );
+            fflush(stderr);
+        }
+
+        return predicted;
+    }
+
+    event_time_cache_misses++;
+
+    std::ostringstream row;
+    row
+        << "schema_version,sample_id,now,current_lp_gid,current_lp_type,"
+        << "current_event_type,target_lp_gid,target_lp_type,target_event_type,"
+        << "nominal_delay\n"
+        << "1,0,"
+        << (double)tw_now(lp) << ","
+        << (unsigned long long)lp->gid << ","
+        << current_lp_type << ","
+        << current_event_type << ","
+        << (unsigned long long)target_lp_gid << ","
+        << target_lp_type << ","
+        << target_event_type << ","
+        << nominal_delay
+        << "\n";
+
+    std::vector<std::string> args;
+    args.push_back("1");
+
+    if (!zmqml_director_request) {
+        if (dfdally_surrogate_debug_prints) {
+            fprintf(
+                stderr,
+                "[event-time inference] zmqml_director_request unavailable; "
+                "using original delay %.17g\n",
+                original_delay
+            );
+            fflush(stderr);
+        }
+        return original_delay;
+    }
+
+    std::vector<std::string> ret;
+    try {
+        ret = dfdally_event_time_director_request_with_latency("inference", args, row.str());
+    } catch (...) {
+        if (dfdally_surrogate_debug_prints) {
+            fprintf(
+                stderr,
+                "[event-time inference] request failed; "
+                "using original delay %.17g\n",
+                original_delay
+            );
+            fflush(stderr);
+        }
+        return original_delay;
+    }
+
+    if (ret.size() < 3 || ret[0] != "done") {
+        if (dfdally_surrogate_debug_prints) {
+            fprintf(
+                stderr,
+                "[event-time inference] bad reply; "
+                "using original delay %.17g\n",
+                original_delay
+            );
+            fflush(stderr);
+        }
+        return original_delay;
+    }
+
+    char *endptr = NULL;
+    double predicted_raw = strtod(ret[2].c_str(), &endptr);
+
+    if (endptr == ret[2].c_str() || !isfinite(predicted_raw) || predicted_raw <= 0.0) {
+        return original_delay;
+    }
+
+    event_time_prediction_cache[cache_key] = predicted_raw;
+
+    double const predicted =
+        dfdally_event_time_sanitize_prediction(predicted_raw, original_delay);
+
+    if (dfdally_surrogate_debug_prints &&
+        (event_time_cache_misses <= 20 ||
+         (event_time_cache_misses % 1024ULL) == 0)) {
+        fprintf(
+            stderr,
+            "[event-time inference cache-miss] hits=%llu misses=%llu "
+            "cache_size=%llu original=%.17g predicted=%.17g\n",
+            event_time_cache_hits,
+            event_time_cache_misses,
+            (unsigned long long)event_time_prediction_cache.size(),
+            original_delay,
+            predicted
+        );
+        fflush(stderr);
+    }
+
+    return predicted;
+}
+
+
 
 // ==== START OF Surrogate functions definition ====
 
 static void switch_surrogate(void) {
     is_dally_surrogate_on = ! is_dally_surrogate_on;
+    dfdally_surrogate_has_switched_once = true;
+}
+
+
+extern "C" int dfdally_event_time_surrogate_set_active(int enabled)
+{
+    if(!event_time_surrogate_family_selected) {
+        return 0;
+    }
+
+    int const was_active = event_time_inference_active;
+
+    if(enabled) {
+        event_time_inference_active_count++;
+    } else if(event_time_inference_active_count > 0) {
+        event_time_inference_active_count--;
+    }
+
+    event_time_inference_active = event_time_inference_active_count > 0;
+if(dfdally_surrogate_debug_prints) {
+        fprintf(
+            stderr,
+            "[event-time surrogate] active=%d active_count=%d inference_enabled=%d\n",
+            event_time_inference_active,
+            event_time_inference_active_count,
+            event_time_inference_enabled
+        );
+        fflush(stderr);
+    }
+
+    return 1;
 }
 
 static bool is_surrogate_on_fun(void) {
@@ -3409,6 +4440,14 @@ static void terminal_commit_packet_generate(terminal_state * s, tw_bf * bf, term
 
     // TODO (elkin): In the future, this ugly initialization could be done all in a single "line" instead of setting all values one by one. The reason to do it this way is because some old compilers do not understand other ways of initializing
     struct packet_sent sent;
+    unsigned int const feature_rail_id = dfdally_safe_rail_id(s, msg);
+    uint32_t const src_router_id = dfdally_terminal_src_router_id(s, msg);
+    uint32_t const src_group_id = src_router_id / s->params->num_routers;
+    uint32_t const dst_router_id =
+        dfdally_get_assigned_router_id_from_terminal(
+            s->params, msg->dfdally_dest_terminal_id, feature_rail_id);
+    uint32_t const dst_group_id = dst_router_id / s->params->num_routers;
+
     sent.start.packet_ID = msg->packet_ID;
     sent.start.dest_terminal_lpid = msg->dest_terminal_lpid;
     sent.start.dfdally_dest_terminal_id = msg->dfdally_dest_terminal_id;
@@ -3417,6 +4456,13 @@ static void terminal_commit_packet_generate(terminal_state * s, tw_bf * bf, term
     sent.start.processing_packet_delay = processing_packet_delay;
     sent.start.packet_size = msg->packet_size;
     sent.start.is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue;
+    sent.start.caller_lp_gid = lp->gid;
+    sent.start.src_router_id = src_router_id;
+    sent.start.src_group_id = src_group_id;
+    sent.start.dst_router_id = dst_router_id;
+    sent.start.dst_group_id = dst_group_id;
+    sent.start.terminal_queue_length = dfdally_terminal_queue_length_bytes(s);
+    sent.start.terminal_vc_occupancy = dfdally_terminal_vc_occupancy_bytes(s);
     sent.next_packet_delay = -1;
     sent.message_data = msg_data;
     sent.remote_event_data = remote_data;
@@ -3455,6 +4501,14 @@ static void terminal_dally_commit(terminal_state * s,
         case T_GENERATE:
             if(bf->c10) {  // if the packet was sent as a prediction, store the prediction in memory
                 assert(dally_surrogate_configured);
+                unsigned int const feature_rail_id = dfdally_safe_rail_id(s, msg);
+                uint32_t const src_router_id = dfdally_terminal_src_router_id(s, msg);
+                uint32_t const src_group_id = src_router_id / s->params->num_routers;
+                uint32_t const dst_router_id =
+                    dfdally_get_assigned_router_id_from_terminal(
+                        s->params, msg->dfdally_dest_terminal_id, feature_rail_id);
+                uint32_t const dst_group_id = dst_router_id / s->params->num_routers;
+
                 auto start = (struct packet_start) {
                     .packet_ID = msg->packet_ID,
                     .dest_terminal_lpid = msg->dest_terminal_lpid,
@@ -3463,7 +4517,14 @@ static void terminal_dally_commit(terminal_state * s,
                     .workload_injection_time = msg->msg_start_time,
                     .processing_packet_delay = -1,
                     .packet_size = msg->packet_size,
-                    .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue
+                    .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue,
+
+                    .src_router_id = src_router_id,
+                    .src_group_id = src_group_id,
+                    .dst_router_id = dst_router_id,
+                    .dst_group_id = dst_group_id,
+                    .terminal_queue_length = dfdally_terminal_queue_length_bytes(s),
+                    .terminal_vc_occupancy = dfdally_terminal_vc_occupancy_bytes(s)
                 };
 
                 // Saving
@@ -4127,6 +5188,15 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
 
     // Using predictor to find latency
     double const processing_packet_delay = tw_now(lp) - s->last_in_queue_time;
+
+    unsigned int const feature_rail_id = dfdally_safe_rail_id(s, msg);
+    uint32_t const src_router_id = dfdally_terminal_src_router_id(s, msg);
+    uint32_t const src_group_id = src_router_id / s->params->num_routers;
+    uint32_t const dst_router_id =
+        dfdally_get_assigned_router_id_from_terminal(
+            s->params, msg->dfdally_dest_terminal_id, feature_rail_id);
+    uint32_t const dst_group_id = dst_router_id / s->params->num_routers;
+
     auto start = (struct packet_start) {
         .packet_ID = msg->packet_ID,
         .dest_terminal_lpid = msg->dest_terminal_lpid,
@@ -4135,10 +5205,28 @@ static void packet_generate_predicted(terminal_state * s, tw_bf * bf, terminal_d
         .workload_injection_time = msg->msg_start_time,
         .processing_packet_delay = processing_packet_delay,
         .packet_size = msg->packet_size,
-        .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue
+        .is_there_another_pckt_in_queue = msg->is_there_another_pckt_in_queue,
+
+        .src_router_id = src_router_id,
+        .src_group_id = src_group_id,
+        .dst_router_id = dst_router_id,
+        .dst_group_id = dst_group_id,
+        /*
+         * In predicted/surrogate generation, the high-fidelity terminal queue
+         * structures are bypassed, so dfdally_terminal_queue_length_bytes(s)
+         * can be zero even though the model was trained on the queue occupancy
+         * observed during high-fidelity packet generation. Avoid feeding an
+         * out-of-distribution zero into the LP-aware Torch-JIT model.
+         */
+        .terminal_queue_length = dfdally_terminal_queue_length_bytes(s),
+        .terminal_vc_occupancy = dfdally_terminal_vc_occupancy_bytes(s)
     };
 
-    struct packet_end const end =
+    if (start.terminal_queue_length == 0 && start.packet_size > 0) {
+        start.terminal_queue_length = start.packet_size;
+    }
+
+    struct packet_end const end = 
         terminal_predictor->predict(s->predictor_data, lp, s->terminal_id, &start);
     double const latency = end.travel_end_time - start.travel_start_time;
     double const arrival = start.travel_start_time + latency; // this is "equivalent" to end.travel_end_time
@@ -4793,8 +5881,28 @@ static void packet_send(terminal_state * s, tw_bf * bf, terminal_dally_message *
 
     router_id = s->router_lp[msg->rail_id];
 
+    tw_stime event_time_target_delay = propagation_ts + gen_noise(lp, &msg->num_rngs);
+    dfdally_event_time_trace_row(
+            lp,
+            DRAGONFLY_DALLY,
+            T_SEND,
+            router_id,
+            DRAGONFLY_DALLY_ROUTER,
+            R_ARRIVE,
+            propagation_ts,
+            event_time_target_delay);
+    event_time_target_delay = dfdally_event_time_predict_or_original(
+            lp,
+            DRAGONFLY_DALLY,
+            T_SEND,
+            router_id,
+            DRAGONFLY_DALLY_ROUTER,
+            R_ARRIVE,
+            propagation_ts,
+            event_time_target_delay);
+
     void * remote_event;
-    e = model_net_method_event_new(router_id, propagation_ts + gen_noise(lp, &msg->num_rngs), lp,
+    e = model_net_method_event_new(router_id, event_time_target_delay, lp,
             DRAGONFLY_DALLY_ROUTER, (void**)&m, &remote_event);
     memcpy(m, &cur_entry->msg, sizeof(terminal_dally_message));
     if (m->remote_event_size_bytes){
@@ -5649,7 +6757,9 @@ static void terminal_buf_update(terminal_state * s,
 static void dragonfly_dally_terminal_final( terminal_state * s,
       tw_lp * lp )
 {
-    if (freeze_network_on_switch && is_dally_surrogate_on) {
+    
+    dfdally_event_time_print_global_cache_summary_once();
+if (freeze_network_on_switch && is_dally_surrogate_on) {
         dragonfly_dally_terminal_surrogate_to_highdef(s, lp, NULL);
     }
     // printf("terminal id %d\n",s->terminal_id);
@@ -6663,6 +7773,10 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
 
     injection_delay += s->params->router_delay;
 
+    double const next_output_available_delta =
+        maxd(0.0, s->next_output_available_time[output_port] - tw_now(lp));
+    double const nominal_router_delay = injection_delay + propagation_delay;
+
     msg->saved_available_time = s->next_output_available_time[output_port];
     s->next_output_available_time[output_port] =
         maxd(s->next_output_available_time[output_port], tw_now(lp));
@@ -6671,22 +7785,102 @@ static void router_packet_send( router_state * s, tw_bf * bf, terminal_dally_mes
     injection_ts = s->next_output_available_time[output_port] - tw_now(lp);
     propagation_ts = injection_ts + propagation_delay;
 
+    /*
+     * High-fidelity router-local delay target for ML training.
+     *
+     * propagation_ts is only the delay from this router send event to the next
+     * hop. It does not include the time the chunk already spent waiting in this
+     * router's queue before router_packet_send() fired. For the router timing
+     * model, the useful target is the total local residence+service+propagation
+     * time from this_router_arrival through arrival at the next hop.
+     *
+     * nominal_router_delay is the deterministic no-queueing service+propagation
+     * delay. Therefore:
+     *
+     *   queueing_delay = max(0, highdef_actual_router_delay - nominal_router_delay)
+     *
+     * captures router-local waiting/contention time.
+     */
+    double const highdef_actual_router_delay =
+        maxd(0.0, s->next_output_available_time[output_port] -
+                    cur_entry->msg.this_router_arrival)
+        + propagation_delay;
+    bool router_timing_prediction_used = false;
+#ifdef USE_TORCH
+    if (is_dally_surrogate_on && surrogate_torch_router_timing_model_enabled()) {
+        struct router_timing_prediction_start timing_start = {
+            .router_id = (float)s->router_id,
+            .group_id = (float)s->group_id,
+            .output_port = (float)output_port,
+            .output_chan = (float)output_chan,
+            .to_terminal = (float)to_terminal,
+            .is_global = (float)global,
+            .packet_size = (float)cur_entry->msg.packet_size,
+            .chunk_size = (float)s->params->chunk_size,
+            .output_vc_occupancy = (float)s->vc_occupancy[output_port][output_chan],
+            .output_queued_count = (float)s->queued_count[output_port],
+            .next_output_available_delta = (float)next_output_available_delta,
+            .nominal_router_delay = (float)nominal_router_delay,
+        };
+        double const predicted_queueing_delay =
+            surrogate_torch_predict_router_queueing_delay(&timing_start, 0.0);
+        propagation_ts = nominal_router_delay + predicted_queueing_delay;
+        router_timing_prediction_used = true;
+    }
+#endif
+
+    router_timing_trace_save_to_file(
+            s,
+            &cur_entry->msg,
+            output_port,
+            output_chan,
+            to_terminal,
+            global,
+            next_output_available_delta,
+            nominal_router_delay,
+            highdef_actual_router_delay,
+            is_dally_surrogate_on,
+            router_timing_prediction_used,
+            lp);
+
     cur_entry->msg.this_router_ptp_latency = s->next_output_available_time[output_port] - cur_entry->msg.this_router_arrival;
     msg->this_router_ptp_latency = cur_entry->msg.this_router_ptp_latency;
 
     // dest can be a router or a terminal, so we must check
     void * m_data;
+    int const event_time_target_lp_type = to_terminal ? DRAGONFLY_DALLY : DRAGONFLY_DALLY_ROUTER;
+    int const event_time_target_event_type = to_terminal ? T_ARRIVE : R_ARRIVE;
+    tw_stime event_time_target_delay = propagation_ts + gen_noise(lp, &msg->num_rngs);
+    dfdally_event_time_trace_row(
+            lp,
+            DRAGONFLY_DALLY_ROUTER,
+            R_SEND,
+            cur_entry->msg.next_stop,
+            event_time_target_lp_type,
+            event_time_target_event_type,
+            propagation_ts,
+            event_time_target_delay);
+    event_time_target_delay = dfdally_event_time_predict_or_original(
+            lp,
+            DRAGONFLY_DALLY_ROUTER,
+            R_SEND,
+            cur_entry->msg.next_stop,
+            event_time_target_lp_type,
+            event_time_target_event_type,
+            propagation_ts,
+            event_time_target_delay);
+
     if (to_terminal) {
         // printf("\n next stop %d dest term id %d ", cur_entry->msg.next_stop, cur_entry->msg.dest_terminal_lpid);
         if(cur_entry->msg.next_stop != cur_entry->msg.dest_terminal_lpid)
         printf("\n intra-group radix %d output port %d next stop %d", s->params->intra_grp_radix, output_port, cur_entry->msg.next_stop);
         assert(cur_entry->msg.next_stop == cur_entry->msg.dest_terminal_lpid);
         e = model_net_method_event_new(cur_entry->msg.next_stop,
-            propagation_ts + gen_noise(lp, &msg->num_rngs), lp, DRAGONFLY_DALLY, (void**)&m, &m_data);
+            event_time_target_delay, lp, DRAGONFLY_DALLY, (void**)&m, &m_data);
     }
     else {
         e = model_net_method_event_new(cur_entry->msg.next_stop,
-                propagation_ts + gen_noise(lp, &msg->num_rngs), lp, DRAGONFLY_DALLY_ROUTER, (void**)&m, &m_data);
+                event_time_target_delay, lp, DRAGONFLY_DALLY_ROUTER, (void**)&m, &m_data);
     }
     memcpy(m, &cur_entry->msg, sizeof(terminal_dally_message));
     if (m->remote_event_size_bytes) {
@@ -6924,6 +8118,27 @@ terminal_dally_event( terminal_state * s,
 		terminal_dally_message * msg,
 		tw_lp * lp )
 {
+    if (dfdally_surrogate_debug_prints && dfdally_surrogate_has_switched_once && !is_dally_surrogate_on) {
+        dfdally_post_switch_terminal_events++;
+        if (dfdally_post_switch_terminal_events <= 20 ||
+                dfdally_post_switch_terminal_events % 100000 == 0) {
+            fprintf(stderr,
+                "[post-switch terminal debug] count=%llu now=%f lp=%llu type=%d "
+                "last_now=%f delta_now=%f\n",
+                (unsigned long long)dfdally_post_switch_terminal_events,
+                tw_now(lp),
+                (unsigned long long)lp->gid,
+                msg->type,
+                dfdally_last_post_switch_terminal_now,
+                dfdally_last_post_switch_terminal_now < 0.0
+                    ? -1.0
+                    : tw_now(lp) - dfdally_last_post_switch_terminal_now);
+            fflush(stderr);
+        }
+        dfdally_last_post_switch_terminal_now = tw_now(lp);
+    }
+
+
     msg->num_cll = 0;
     msg->num_rngs = 0;
 
@@ -6994,6 +8209,27 @@ terminal_dally_event( terminal_state * s,
 static void router_dally_event(router_state * s, tw_bf * bf, terminal_dally_message * msg,
     tw_lp * lp)
 {
+    if (dfdally_surrogate_debug_prints && dfdally_surrogate_has_switched_once && !is_dally_surrogate_on) {
+        dfdally_post_switch_router_events++;
+        if (dfdally_post_switch_router_events <= 20 ||
+                dfdally_post_switch_router_events % 100000 == 0) {
+            fprintf(stderr,
+                "[post-switch router debug] count=%llu now=%f lp=%llu type=%d "
+                "last_now=%f delta_now=%f\n",
+                (unsigned long long)dfdally_post_switch_router_events,
+                tw_now(lp),
+                (unsigned long long)lp->gid,
+                msg->type,
+                dfdally_last_post_switch_router_now,
+                dfdally_last_post_switch_router_now < 0.0
+                    ? -1.0
+                    : tw_now(lp) - dfdally_last_post_switch_router_now);
+            fflush(stderr);
+        }
+        dfdally_last_post_switch_router_now = tw_now(lp);
+    }
+
+
     msg->num_cll = 0;
     msg->num_rngs = 0;
 

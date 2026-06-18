@@ -26,6 +26,17 @@
 
 #include "codes/surrogate/director-client.h"
 
+extern int dfdally_event_time_surrogate_set_active(int enabled) __attribute__((weak));
+
+static int nw_event_time_surrogate_set_active_if_available(int enabled)
+{
+    if(dfdally_event_time_surrogate_set_active) {
+        return dfdally_event_time_surrogate_set_active(enabled);
+    }
+    return 0;
+}
+
+
 /*  ==========================================================
     START OF Director Code (To be moved to separate files)
     ==========================================================
@@ -578,6 +589,18 @@ static void codes_issue_director_event(tw_lp* lp, tw_lpid director_lpid, int dir
     msg->msg_type = dir_event_type;
     msg->value = value;
     tw_event_send(e);
+}
+
+static void codes_issue_director_event_rc(tw_lp* lp)
+{
+    /*
+     * Symmetric reverse hook for codes_issue_director_event().
+     *
+     * There is no model-net event_rc object to undo here; Time Warp cancels
+     * the sent event.  Keep this helper so the get_next_mpi_operation_rc()
+     * path can explicitly avoid reversing MPI work that was never executed.
+     */
+    (void) lp;
 }
 /*  ==========================================================
     END of model-net replay DIRECTOR interface
@@ -2991,14 +3014,26 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 
         /* START of Sim. transition events sent by DIRECTOR */
         case CODES_CMD_SWITCH_TO_SURR:
-            if (s->simulation_mode == SIM_MODE_PDES) {
+            bf->c22 = 0;
+            if(nw_event_time_surrogate_set_active_if_available(1)) {
+                bf->c22 = 1;
+                get_next_mpi_operation(s, bf, m, lp);
+            }
+            else if (s->simulation_mode == SIM_MODE_PDES) {
+                bf->c20 = 1;
                 s->simulation_mode = SIM_MODE_ITERATION_SURROGATE;
                 get_next_mpi_operation(s, bf, m, lp);
             }
             break;
 
         case CODES_CMD_SWITCH_TO_PDES:
-            if (s->simulation_mode == SIM_MODE_ITERATION_SURROGATE) {
+            bf->c23 = 0;
+            if(nw_event_time_surrogate_set_active_if_available(0)) {
+                bf->c23 = 1;
+                get_next_mpi_operation(s, bf, m, lp);
+            }
+            else if (s->simulation_mode == SIM_MODE_ITERATION_SURROGATE) {
+                bf->c21 = 1;
                 s->simulation_mode = SIM_MODE_PDES;
                 get_next_mpi_operation(s, bf, m, lp);
             }
@@ -3010,6 +3045,13 @@ void nw_test_event_handler(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
     codes_workload_get_next_rc(s->wrkld_id, s->app_id, s->local_rank, m->mpi_op);
+
+    if(bf->c14 || bf->c18)
+    {
+        codes_issue_director_event_rc(lp);
+        free(m->mpi_op);
+        return;
+    }
 
 	if(m->op_type == CODES_WK_END)
     {
@@ -3121,6 +3163,9 @@ static void get_next_mpi_operation_rc(nw_state* s, tw_bf * bf, nw_message * m, t
 
 static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * lp)
 {
+        bf->c14 = 0; /* Forward path issued DIR_AN_ITER_MARK instead of normal work. */
+        bf->c18 = 0; /* Forward path issued DIR_OP_NW instead of normal work. */
+
 		//struct codes_workload_op * mpi_op = malloc(sizeof(struct codes_workload_op));
 //        printf("\n App id %d local rank %d ", s->app_id, s->local_rank);
 	    struct codes_workload_op * mpi_op = (struct codes_workload_op*)malloc(sizeof(struct codes_workload_op));
@@ -3156,6 +3201,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
             if(s->director_enabled == 1)
             {
                 //printf("===DIR: Value=%d\n", mpi_op->u.send.tag);
+                bf->c14 = 1;
                 codes_issue_director_event(lp, s->director_lpid, DIR_AN_ITER_MARK, mpi_op->u.send.tag);
                 //printf("===[%llu] N-MARK[%llu]: Value=%d\n", lp->gid, s->director_lpid, mpi_op->u.send.tag);
                 
@@ -3168,6 +3214,7 @@ static void get_next_mpi_operation(nw_state* s, tw_bf * bf, nw_message * m, tw_l
         {
             if(s->director_enabled == 1)
             {
+                bf->c18 = 1;
                 codes_issue_director_event(lp, s->director_lpid, DIR_OP_NW, mpi_op->op_type);
                 return;
             }
@@ -3491,6 +3538,32 @@ void nw_test_event_handler_rc(nw_state* s, tw_bf * bf, nw_message * m, tw_lp * l
         case SURR_SKIP_ITERATION:
             skip_to_iteration_rc(s, lp, bf, m);
             break;
+
+        case CODES_CMD_SWITCH_TO_SURR:
+            if(bf->c22)
+            {
+                get_next_mpi_operation_rc(s, bf, m, lp);
+                nw_event_time_surrogate_set_active_if_available(0);
+            }
+            else if(bf->c20)
+            {
+                get_next_mpi_operation_rc(s, bf, m, lp);
+                s->simulation_mode = SIM_MODE_PDES;
+            }
+            break;
+
+        case CODES_CMD_SWITCH_TO_PDES:
+            if(bf->c23)
+            {
+                get_next_mpi_operation_rc(s, bf, m, lp);
+                nw_event_time_surrogate_set_active_if_available(1);
+            }
+            else if(bf->c21)
+            {
+                get_next_mpi_operation_rc(s, bf, m, lp);
+                s->simulation_mode = SIM_MODE_ITERATION_SURROGATE;
+            }
+            break;
 	}
 }
 
@@ -3539,6 +3612,14 @@ void nw_test_event_handler_commit(nw_state* s, tw_bf * bf, nw_message * m, tw_lp
         break;
         case SURR_SKIP_ITERATION:
             fprintf(iteration_log, "SKIPPED TO ITERATION %d node %llu job %d rank %d time %lf\n", m->fwd.resume_at_iter, LLU(s->nw_id), s->app_id, s->local_rank, m->rc.surr_skip.saved_marker_time);
+            break;
+
+        case CODES_CMD_SWITCH_TO_SURR:
+        case CODES_CMD_SWITCH_TO_PDES:
+            /*
+             * Nothing external to commit for the local mode switch itself.
+             * The state change was already applied in the forward handler.
+             */
             break;
 
         case CLI_BCKGND_CHANGE:

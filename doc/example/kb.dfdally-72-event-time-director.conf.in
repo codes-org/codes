@@ -23,45 +23,24 @@ LPGROUPS
 
 DIRECTOR
 {
-    start_iter="${DIRECTOR_START_ITER}";
-    end_iter="${DIRECTOR_END_ITER}";
+    surrogate_backend="${SURROGATE_BACKEND}";
+    surrogate_family="${SURROGATE_FAMILY}";
 
-    # Optional one-shot pause/retrain/resume pipeline.
-    # First implementation is intended for --synch=1.
-    retrain_enabled="${DIRECTOR_RETRAIN_ENABLED}";
-    retrain_iter="${DIRECTOR_RETRAIN_ITER}";
-    retrain_save_path="${DIRECTOR_RETRAIN_SAVE_PATH}";
+    start_iter="${START_ITER}";
+    end_iter="${END_ITER}";
 
-    # Optional second surrogate window after retraining.
-    second_surrogate_enabled="${DIRECTOR_SECOND_SURROGATE_ENABLED}";
-    second_start_iter="${DIRECTOR_SECOND_START_ITER}";
-    second_end_iter="${DIRECTOR_SECOND_END_ITER}";
+    retrain_enabled="${RETRAIN_ENABLED}";
+    retrain_iter="${RETRAIN_ITER}";
+    retrain_save_path="${RETRAIN_SAVE_PATH}";
 
-    # Common modes:
-    #
-    # Pure PDES:
-    #   inferencing_enabled="0";
-    #   surrogate_enabled="0";
-    #   training_enabled="0";
-    #
-    # Training/data collection:
-    #   inferencing_enabled="0";
-    #   surrogate_enabled="1";
-    #   training_enabled="1";
-    #
-    # Inference only:
-    #   inferencing_enabled="1";
-    #   surrogate_enabled="1";
-    #   training_enabled="0";
-    #
-    # Train + inference:
-    #   inferencing_enabled="1";
-    #   surrogate_enabled="1";
-    #   training_enabled="1";
+    second_surrogate_enabled="${SECOND_SURROGATE_ENABLED}";
+    second_start_iter="${SECOND_START_ITER}";
+    second_end_iter="${SECOND_END_ITER}";
 
     inferencing_enabled="${INFERENCING_ENABLED}";
     surrogate_enabled="${SURROGATE_ENABLED}";
     training_enabled="${TRAINING_ENABLED}";
+
     debug_prints="${DIRECTOR_DEBUG_PRINTS}";
     shutdown_zmqml_server_on_finalize="${SHUTDOWN_ZMQML_SERVER_ON_FINALIZE}";
 }
@@ -70,8 +49,8 @@ PARAMS
 {
     message_size="824";
 
-    packet_size="${PACKET_SIZE}";
-    chunk_size="${CHUNK_SIZE}";
+    packet_size="4096";
+    chunk_size="64";
 
     num_routers="4";
     num_groups="9";

@@ -7,6 +7,8 @@
 
 
 #define NUM_DIR_TO_NW_EVENT 20
+#define DIR_RC_MAX_PREDICTION 5
+#define DIR_RC_MAX_TRAINING_RECORDS 10
 
 
 enum SIMULATION_MODE
@@ -47,6 +49,51 @@ struct director_message
    int value;
    //model_net_event_return event_rc;
    //struct codes_workload_op * mpi_op;
+
+   /*
+    * Reverse-computation snapshot for the Director LP.
+    *
+    * Filled at the start of director_event_handler() and consumed by
+    * director_event_handler_rc().  These fields must stay before buffer
+    * because buffer is intentionally the final field.
+    */
+   int rc_valid;
+
+   int rc_simulation_mode;
+   int rc_training_cycle_id;
+   int rc_training_record_id;
+   tw_stime rc_training_data[DIR_RC_MAX_TRAINING_RECORDS];
+
+   int rc_next_prediction_index;
+   tw_stime rc_predictions[DIR_RC_MAX_PREDICTION];
+
+   int rc_registered_event_type;
+   int rc_old_nw_event_size;
+   void *rc_old_nw_event_buffer;
+
+   /*
+    * Commit-safe side-effect staging.
+    *
+    * In optimistic mode, ZeroMQ send-records must not happen in forward
+    * execution because the event may roll back.  The forward event fills
+    * these fields, and director_event_handler_commit() performs the external
+    * send only after the event is committed.
+    */
+   int commit_send_records;
+   int commit_client_id;
+   int commit_training_cycle_id;
+   int commit_num_records;
+   tw_stime commit_records[DIR_RC_MAX_TRAINING_RECORDS];
+
+   /*
+    * Commit-safe retrain staging.
+    *
+    * In optimistic mode, retraining mutates external ZeroMQ server state and
+    * therefore must happen only from the commit callback after rollback is no
+    * longer possible.
+    */
+   int commit_retrain_model;
+   int commit_retrain_iter;
 
    void *buffer; // this pointer MUST be at the end of the structure
 };

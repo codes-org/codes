@@ -55,6 +55,9 @@ PARAMS
    routing="prog-adaptive";
 # folder path to store packet latency from terminal to terminal, if no value is given it won't save anything
    save_packet_latency_path="${PACKET_LATENCY_TRACE_PATH}";
+# folder path to store router-local timing rows for router queueing-delay training
+   save_router_timing_trace_path="${ROUTER_TIMING_TRACE_PATH}";
+   save_router_timing_trace_stride="${ROUTER_TIMING_TRACE_STRIDE}";
 # router buffer occupancy snapshots
    router_buffer_snapshots=( ${BUFFER_SNAPSHOTS} );
 }
@@ -76,8 +79,18 @@ NETWORK_SURROGATE {
    ignore_until="${IGNORE_UNTIL}";
 
 # parameters for torch-jit latency predictor
-   torch_jit_mode="single-static-model-for-all-terminals";
+# accepted modes:
+#   single-static-model-for-all-terminals: uses torch_jit_model_path, input [1,4], output [1,2]
+#   lp-aware-single-static-model: uses torch_jit_model_path, input [1,12], output [1,2]
+#   lp-aware-lp-type-models: uses the terminal/router/default paths below
+   torch_jit_mode="${TORCH_JIT_MODE}";
    torch_jit_model_path="${TORCH_JIT_MODEL_PATH}";
+   torch_jit_terminal_model_path="${TORCH_JIT_TERMINAL_MODEL_PATH}";
+   torch_jit_router_timing_model_path="${TORCH_JIT_ROUTER_TIMING_MODEL_PATH}";
+   torch_jit_default_model_path="${TORCH_JIT_DEFAULT_MODEL_PATH}";
+
+# temporary surrogate debug prints. Options: 0 or 1
+   debug_prints="${SURROGATE_DEBUG_PRINTS}";
 
 # selecting network treatment on switching to surrogate. Options: frezee, nothing
    network_treatment_on_switch="${NETWORK_TREATMENT}";
