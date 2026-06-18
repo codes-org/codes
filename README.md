@@ -1,5 +1,7 @@
 # CODES Discrete-event Simulation Framework
 
+[![Build](https://github.com/codes-org/codes/actions/workflows/build.yml/badge.svg)](https://github.com/codes-org/codes/actions/workflows/build.yml)
+
 A high-performance discrete-event simulation framework for modeling HPC system architectures, network fabrics, and storage systems. Built on top of ROSS (Rensselaer Optimistic Simulation System) for massively parallel simulation capabilities.
 
 ## Quick Start
