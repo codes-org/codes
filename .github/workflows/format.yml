@@ -1,0 +1,48 @@
+name: Format check
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+# Enforces .clang-format on the C/C++ tree. A PR that introduces any
+# formatting drift fails this check with a diff in the run log. To fix
+# locally:
+#
+#     clang-format -i path/to/changed/file.{c,h,C,...}
+#
+# Pinned to clang-format-20 to match the version used for the mass
+# reformat. Different clang-format major versions produce subtly
+# different output for some constructs (lambdas, switch labels,
+# requires-clauses), so version drift between local dev environments
+# and CI would cause spurious "passes locally / fails in CI" failures.
+
+jobs:
+  clang-format:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang-format-20
+        run: |
+          wget -q https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 20
+          sudo apt-get install -y clang-format-20
+          clang-format-20 --version
+
+      - name: Check formatting
+        # Excludes are duplicated from .clang-format-ignore because
+        # clang-format only honors that file during directory walks, not
+        # when paths are passed explicitly (as `find ... -exec` does).
+        run: |
+          find src codes doc tests \
+            -type f \( -name "*.c" -o -name "*.h" -o -name "*.C" \
+                      -o -name "*.cpp" -o -name "*.hpp" -o -name "*.cxx" \) \
+            -not -path 'src/modelconfig/configlex.*' \
+            -not -path 'src/modelconfig/configparser.*' \
+            -exec clang-format-20 --dry-run --Werror {} +
